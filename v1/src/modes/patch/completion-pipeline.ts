@@ -123,7 +123,7 @@ function readDiffStats(cwd: string, base: string): DiffStat[] {
     for (const line of output.trim().split("\n")) {
       if (!line) continue;
       const [addedStr, removedStr, path] = line.split("\t");
-      if (path === undefined) continue;
+      if (path === undefined || addedStr === undefined || removedStr === undefined) continue;
       // Handle binary files: "-" means not applicable
       const added = addedStr === "-" ? 0 : parseInt(addedStr, 10);
       const removed = removedStr === "-" ? 0 : parseInt(removedStr, 10);
@@ -158,6 +158,19 @@ async function generatePrBody(
         return commits.map((c) => c.subject);
       },
       getDiffStats: () => readDiffStats(cwd, base),
+      getSubspecBodies: () => {
+        const indexContent = readFileSync(specPath, "utf8");
+        const parsed = parseSpec(indexContent);
+        const indexDir = dirname(specPath);
+        return parsed.linkedSubspecs.map((s) => {
+          const subspecPath = join(indexDir, s.path);
+          try {
+            return readFileSync(subspecPath, "utf8");
+          } catch {
+            return "";
+          }
+        });
+      },
     });
   } else {
     const generated = await generatePrDescription({

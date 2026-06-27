@@ -28,14 +28,14 @@ the plan-mode wrapper supplies neither, so plan PR narratives stay unchanged.
 
 ## Acceptance criteria
 
-- [ ] The patch-mode `template` narrative emits a deterministic "no test changes" risk cue when the branch diff changes non-test source (code) files but no test files.
-- [ ] A docs-only or config-only branch diff produces no risk cue (docs `*.md` and config/data `*.json` are not source files).
-- [ ] The patch-mode `template` narrative surfaces a why cue per subspec, sourced from the subspec's first prose line, truncated with a trailing `…` when over the bound, with no agent invocation.
-- [ ] A subspec with no extractable prose line produces no why entry (no empty bullet).
-- [ ] A newly created patch-mode draft PR carries the same why/risk cues as a later rewrite of the same branch (both call sites wired).
-- [ ] Plan-mode `template` PR narratives are unchanged: no risk cue and no why cues appear on plan PRs.
-- [ ] Risk and why cues are produced token-free (no model call) and are byte-stable across repeated rewrites of an unchanged branch.
-- [ ] The change-summary, `## Subspecs`, and `## Commits` content from 00 stays green: `run.test.ts` template-narrative PR-body assertions still pass.
+- [x] The patch-mode `template` narrative emits a deterministic "no test changes" risk cue when the branch diff changes non-test source (code) files but no test files.
+- [x] A docs-only or config-only branch diff produces no risk cue (docs `*.md` and config/data `*.json` are not source files).
+- [x] The patch-mode `template` narrative surfaces a why cue per subspec, sourced from the subspec's first prose line, truncated with a trailing `…` when over the bound, with no agent invocation.
+- [x] A subspec with no extractable prose line produces no why entry (no empty bullet).
+- [x] A newly created patch-mode draft PR carries the same why/risk cues as a later rewrite of the same branch (both call sites wired).
+- [x] Plan-mode `template` PR narratives are unchanged: no risk cue and no why cues appear on plan PRs.
+- [x] Risk and why cues are produced token-free (no model call) and are byte-stable across repeated rewrites of an unchanged branch.
+- [x] The change-summary, `## Subspecs`, and `## Commits` content from 00 stays green: `run.test.ts` template-narrative PR-body assertions still pass.
 
 ## Documentation updates
 

@@ -137,11 +137,7 @@ function removeRecordedBlockerOnly(content: string, recordedBlockerText: string)
       return stripBlockerSection(content);
     }
     // Reconstruct with the remaining blocker content
-    const result = [
-      ...lines.slice(0, blockerHeaderIdx + 1),
-      remainingBody,
-      ...lines.slice(sectionEndIdx),
-    ];
+    const result = [...lines.slice(0, blockerHeaderIdx + 1), remainingBody, ...lines.slice(sectionEndIdx)];
     // Clean up trailing blank lines
     while (result.length > 0 && (result[result.length - 1] ?? "").trim() === "") {
       result.pop();

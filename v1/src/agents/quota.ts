@@ -102,6 +102,12 @@ const sharedTransportPatterns = [
   /(?:^|\n)[^\n]*\b529\b[^\n]*(?:error|err|failed|failure|http|status)\b/i,
 ];
 
+const opencodeTransportPatterns = [
+  /\bUnknownError\b/i,
+  /(?:^|\n)[^\n]*(?:error|err|failed|failure|http|status|unknownerror)[^\n]*\b500\b/i,
+  /(?:^|\n)[^\n]*\b500\b[^\n]*(?:error|err|failed|failure|http|status|unknownerror)\b/i,
+];
+
 const harnessGitGhTransportPatterns = [
   /\bTLS handshake timeout\b/i,
   /\bcould not resolve host\b/i,
@@ -170,9 +176,12 @@ export function isWeakQuotaSignal(
   return weakQuotaPatterns.some((pattern) => pattern.test(stderr));
 }
 
-export function isTransientSignal(_name: AgentName, exitCode: number, stderr: string): boolean {
+export function isTransientSignal(name: AgentName, exitCode: number, stderr: string): boolean {
   if (exitCode === 0) return false;
-  return sharedTransportPatterns.some((pattern) => pattern.test(stderr));
+  return (
+    (name === "opencode" && opencodeTransportPatterns.some((pattern) => pattern.test(stderr))) ||
+    sharedTransportPatterns.some((pattern) => pattern.test(stderr))
+  );
 }
 
 export function isTransientNetworkError(exitCode: number, stderr: string): boolean {

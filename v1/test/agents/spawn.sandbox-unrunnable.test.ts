@@ -310,6 +310,67 @@ exit 1
   );
 
   test(
+    "opencode UnknownError/500 is retried by the transient loop",
+    async () => {
+      setup();
+      try {
+        const bin = join(dir, "agent");
+        const script = `#!/usr/bin/env bash
+if [ -f "${dir}/call-count" ]; then
+  COUNT=$(cat "${dir}/call-count")
+else
+  COUNT=0
+fi
+COUNT=$((COUNT + 1))
+echo $COUNT > "${dir}/call-count"
+if [ $COUNT -eq 1 ]; then
+  printf 'opencode: UnknownError: HTTP 500 Internal Server Error' 1>&2
+  exit 1
+fi
+printf 'success'
+exit 0
+`;
+        writeFileSync(bin, script);
+        chmodSync(bin, 0o755);
+
+        const retries: Array<{ attempt: number; cap: number; exitCode: number }> = [];
+        const recordedSleeps: number[] = [];
+        const result = await runAgent(
+          {
+            name: "opencode",
+            binary: bin,
+            cwd: realpathSync(cwd),
+            buildArgv: () => [],
+            stdio: ["ignore", "pipe", "pipe"],
+            streamErrorPrefix: "opencode:",
+          },
+          "test",
+          {
+            cwd: realpathSync(cwd),
+            sleepMs: async (delayMs) => {
+              recordedSleeps.push(delayMs);
+            },
+            onTransientRetry: ({ attempt, cap, exitCode }) => {
+              retries.push({ attempt, cap, exitCode });
+            },
+          },
+        );
+
+        expect(result.kind).toBe("ok");
+        if (result.kind === "ok") {
+          expect(result.stdout).toBe("success");
+        }
+        expect(readFileSync(join(dir, "call-count"), "utf8").trim()).toBe("2");
+        expect(retries).toEqual([{ attempt: 1, cap: 3, exitCode: 1 }]);
+        expect(recordedSleeps).toEqual([1000]);
+      } finally {
+        teardown();
+      }
+    },
+    { timeout: 10000 },
+  );
+
+  test(
     "aborted invocation is not retried",
     async () => {
       setup();

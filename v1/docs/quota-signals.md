@@ -17,7 +17,10 @@ detects these via **`isTransientSignal`** (`src/agents/quota.ts`) and retries th
 (4 total spawns)** with **escalating backoff ([1s, 2s, 4s]** before re-attempts
 1/2/3). If all attempts fail, the final error is returned as **`kind: "error"`**
 for normal fallback/termination handling. This recovery happens transparently
-before callers see a result — **no mode or binding changes**.
+before callers see a result — **no mode or binding changes**. `isTransientSignal`
+matches the shared transport patterns for every agent plus opencode-only
+`UnknownError` / guarded HTTP 500 stderr phrasing so opencode server blips ride
+the same retry loop without changing git/gh retry classification.
 
 Transient re-attempts do not reset iteration timeouts (idle, per-iteration, or
 global); whole-iteration budgets accrue across all attempts. An aborted

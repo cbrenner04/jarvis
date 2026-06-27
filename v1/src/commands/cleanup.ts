@@ -235,14 +235,16 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
     }
 
     if (abandon) {
-      if (!isEligibleForAbandon({
-        branch,
-        io: opts.io,
-        isMergedPr: opts.isMergedPr ?? isMergedPr,
-        findMatchingOpenPrs: opts.findMatchingOpenPrs ?? findMatchingOpenPrs,
-        projectRoot: opts.projectRoot,
-        worktreeName,
-      })) {
+      if (
+        !isEligibleForAbandon({
+          branch,
+          io: opts.io,
+          isMergedPr: opts.isMergedPr ?? isMergedPr,
+          findMatchingOpenPrs: opts.findMatchingOpenPrs ?? findMatchingOpenPrs,
+          projectRoot: opts.projectRoot,
+          worktreeName,
+        })
+      ) {
         continue;
       }
       toRemove.push({ path: worktreePath, branch, dir: worktreeName });

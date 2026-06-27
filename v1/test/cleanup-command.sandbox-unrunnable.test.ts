@@ -80,10 +80,7 @@ function runExternalCleanup(io: CleanupIo, root: string = externalSpecsRoot): nu
   });
 }
 
-function runAbandonCleanup(
-  io: CleanupIo,
-  opts: Partial<Parameters<typeof cleanupCommand>[0]> = {},
-): number {
+function runAbandonCleanup(io: CleanupIo, opts: Partial<Parameters<typeof cleanupCommand>[0]> = {}): number {
   return cleanupCommand({
     projectRoot,
     io,

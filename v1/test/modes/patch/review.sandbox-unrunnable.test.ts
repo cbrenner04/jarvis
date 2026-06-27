@@ -253,6 +253,11 @@ describe("runPatchReviewPhase", () => {
     try {
       const codex = new FakeAgent("codex", () => ({ kind: "ok", stdout: "No issues found", stderr: "" }));
       const claude = new FakeAgent("claude", () => ({ kind: "quota", stderr: "limit" }));
+      // Mock the verdict actuator so the non-empty adjudicator verdict does not
+      // spawn the real `claude` binary (resolves from the reviewActuator order,
+      // which is unset here). Real spawn passes on dev machines with `claude`
+      // installed but throws EPIPE in CI.
+      const reviewActuator = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
 
       const reviewOrderCode = await runPatchReviewPhase({
         config: makeReviewConfig({ reviewOrder: [CODEX_ENTRY], planOrder: [CLAUDE_ENTRY] }),
@@ -265,6 +270,7 @@ describe("runPatchReviewPhase", () => {
         },
         writeTelemetry: () => {},
         agents: { codex },
+        actuatorAgents: [reviewActuator],
         iterationTimeoutMs: 30_000,
         baseBranch: "main",
       });
@@ -288,6 +294,7 @@ describe("runPatchReviewPhase", () => {
         },
         writeTelemetry: () => {},
         agents: { codex },
+        actuatorAgents: [reviewActuator],
         iterationTimeoutMs: 30_000,
         baseBranch: "main",
       });

@@ -215,6 +215,7 @@ Common cases:
 - **Stuck-red completion (exit 10).** The gate failed repeatedly, fix-up commits were discarded (reset to first-red baseline, force-pushed with `--force-with-lease`), PR left at the original completed work. Recovery: fix the underlying issue. If the gate should now pass, `jarvis1 triage <worktree-name> --mark-ready` re-runs the gate once and promotes on green; otherwise rerun `jarvis1 run <spec>` to retry the fix-up. Discarded edits remain in git reflog.
 - **Transient-killed plan.** Died on a transient agent-error, leaving a dirty plan worktree. If the review actuator finished (verdict written, subspec edits applied) and only the commit/index-reconcile was lost, reconcile `index.md` to match the subspecs the actuator created, then commit — cheaper than re-running the review. If edits look truncated, discard and re-resume.
 - **Flaky parallel-load failure.** Tests that pass serially but fail under `--parallel` are load flakes — re-run the failing test(s) in isolation; if green, finalize.
+- **CI-only failure (passes the local/jarvis gate).** A path/fs-sensitive bug can pass `bun run ready` under the local `$TMPDIR` layout yet fail **deterministically in CI's `/tmp`**. `jarvis1 review-feedback` tends to stall (the agent never sees the failure locally) and a plain re-run no-ops once acceptance criteria are ticked. After ~1–2 unproductive feedback rounds, **abandon** the worktree/branch/PR (`gh pr close` + `git worktree remove --force` + delete local/remote branch) and re-run the spec fresh (`jarvis1 run`) — ideally on a stronger agent — to re-implement from a clean slate. Treat CI as the load-bearing gate for path/fs-sensitive code; a local green alone isn't proof.
 
 Admin-merge skips approval and CI but **not** local verification — always run `bun run ready` before merging.
 
@@ -276,6 +277,7 @@ Merge **only** when the diff is correct, in-scope, and leaks nothing sensitive. 
 - **`check:fix`** (safe Biome fixes) leaves residual `noExplicitAny`/unused-var/non-null issues; **`check:fix:unsafe`** applies riskier fixes and runs in the ready tier before the final `check` lint. `noNonNullAssertion` has `fix: "none"` in `biome.json` — its autofix rewrites `!` to `?.`, which is `T | undefined` under `noUncheckedIndexedAccess` and fails the subsequent typecheck.
 - **`bun run typecheck`** is a separate gate (`noImplicitAny` lives in `tsconfig.json`, not Biome).
 - Tests that spawn real processes live in `*.sandbox-unrunnable.test.ts` and only run **sandbox-off**.
+- **CI ≠ `ready`.** PR CI does **not** run `lint:md`; `bun run ready` does. A green-CI markdown PR (plan/intent/seed/report/doc) can still carry lint-dirty generated markdown that, once merged, reddens **every** subsequent run's completion gate (`lint:md` globs `v1/spec/**`, `v1/docs/**`, `reports/**`, `README.md`, `AGENTS.md` — **not** `v2/docs/**`). Run `bun run lint:md` locally before admin-merging any PR that adds/edits markdown under those globs; green CI alone is not sufficient. Structural fix tracked by the `merge-on-green-gate` and `plan-generated-spec-markdown-passes-lint-md` ready-intents.
 
 ## Session start
 

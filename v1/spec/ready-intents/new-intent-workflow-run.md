@@ -28,4 +28,5 @@ job-state record that resume and error-resume consume.
   persistence contract.
 
 ## Prerequisites
+
 - jarvis classifies a prompt and dispatches a new-intent route

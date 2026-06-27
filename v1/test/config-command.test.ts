@@ -47,8 +47,8 @@ describe("config show", () => {
       { agent: "cursor", model: "Composer 2.5" },
     ];
     expect(parsed.version).toBe(2);
-    expect(parsed.modes.patch).toEqual({ agentOrder: defaultOrder, prNarrative: "template", shrink: "agent" });
-    expect(parsed.modes.plan).toEqual({ agentOrder: defaultOrder, targetDir: "spec", prNarrative: "template" });
+    expect(parsed.modes.patch).toEqual({ agentOrder: defaultOrder, prNarrative: "agent", shrink: "agent" });
+    expect(parsed.modes.plan).toEqual({ agentOrder: defaultOrder, targetDir: "spec", prNarrative: "agent" });
     expect(parsed.modes.prompt).toEqual({ agentOrder: defaultOrder });
     expect(parsed.modes.review).toEqual({ passes: 1 });
     expect(parsed.quotaFallback).toBe("lenient");

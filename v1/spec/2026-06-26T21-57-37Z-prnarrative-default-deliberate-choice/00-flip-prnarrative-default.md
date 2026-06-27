@@ -78,22 +78,22 @@ Preserve existing `template`-asserting tests by pinning
 
 ## Acceptance criteria
 
-- [ ] A freshly bootstrapped config (no operator override) has
+- [x] A freshly bootstrapped config (no operator override) has
   `modes.patch.prNarrative` and `modes.plan.prNarrative` equal to `agent`.
-- [ ] A config that omits `prNarrative` for a mode resolves that mode's
+- [x] A config that omits `prNarrative` for a mode resolves that mode's
   narrative to `agent` (omit-fallback flipped).
-- [ ] Setting `modes.patch.prNarrative` or `modes.plan.prNarrative` to
+- [x] Setting `modes.patch.prNarrative` or `modes.plan.prNarrative` to
   `template` still selects deterministic template narrative for that mode —
   `v1/test/run.test.ts` template-narrative tests stay green.
-- [ ] `v1/test/config.test.ts` and `v1/test/config-command.test.ts`
+- [x] `v1/test/config.test.ts` and `v1/test/config-command.test.ts`
   default-config assertions stay green against the new `agent` default.
-- [ ] `v1/test/run.test.ts` and `v1/test/modes/plan/*` tests stay green after
+- [x] `v1/test/run.test.ts` and `v1/test/modes/plan/*` tests stay green after
   the sweep (template behavior unchanged; the default flip is absorbed by
   per-test `prNarrative: "template"` wherever a test pins template).
-- [ ] `v1/docs/worktrees-and-commits.md` PR narrative section names `agent` as
+- [x] `v1/docs/worktrees-and-commits.md` PR narrative section names `agent` as
   the default, documents the `template`-vs-`agent` tradeoff, the override path +
   cost implication, and the existing-config migration step.
-- [ ] `v2/docs/v1-behaviors.md` records the `agent` default, the surfaces it
+- [x] `v2/docs/v1-behaviors.md` records the `agent` default, the surfaces it
   holds on, and the deterministic-cheap vs. agent-contextual tradeoff.
 
 ## Documentation updates

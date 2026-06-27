@@ -154,12 +154,12 @@ const DEFAULT_CONFIG: Config = {
   modes: {
     patch: {
       agentOrder: structuredClone(DEFAULT_AGENT_ORDER),
-      prNarrative: "template",
+      prNarrative: "agent",
       shrink: "agent",
     },
     plan: {
       agentOrder: structuredClone(DEFAULT_AGENT_ORDER),
-      prNarrative: "template",
+      prNarrative: "agent",
       targetDir: "spec",
     },
     prompt: { agentOrder: structuredClone(DEFAULT_AGENT_ORDER) },
@@ -230,7 +230,7 @@ function validateConfig(input: unknown, file: string): Config {
   const patchAgentOrder = validateAgentOrder(patchModeObj.agentOrder, "modes.patch.agentOrder", file);
   validateNoModeAgents(patchModeObj.agents, "modes.patch", file);
 
-  let patchPrNarrative: "template" | "agent" = "template";
+  let patchPrNarrative: "template" | "agent" = "agent";
   if (patchModeObj.prNarrative !== undefined) {
     patchPrNarrative = validatePrNarrative(patchModeObj.prNarrative, "modes.patch.prNarrative", (message) =>
       fail(file, message),
@@ -296,7 +296,7 @@ function validateConfig(input: unknown, file: string): Config {
     planTargetDir = validateTargetDir(planModeObj.targetDir, "modes.plan.targetDir", (message) => fail(file, message));
   }
 
-  let planPrNarrative: "template" | "agent" = "template";
+  let planPrNarrative: "template" | "agent" = "agent";
   if (planModeObj.prNarrative !== undefined) {
     planPrNarrative = validatePrNarrative(planModeObj.prNarrative, "modes.plan.prNarrative", (message) =>
       fail(file, message),

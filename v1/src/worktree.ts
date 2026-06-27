@@ -4,6 +4,52 @@ import { dirname, join, relative, resolve } from "node:path";
 import { branchExistsLocal, branchExistsOnOrigin, getCurrentBranch } from "../../shared/git.ts";
 import { getBaseBranch, type SyncTransientRetryOptions, withSyncTransientRetry } from "./gh.ts";
 
+function getCommitCountAheadOfBase(projectRoot: string, branchName: string, baseBranch: string): number {
+  const output = execFileSync("git", ["rev-list", "--count", `${baseBranch}..${branchName}`], {
+    cwd: projectRoot,
+    encoding: "utf8",
+    stdio: "pipe",
+  }).trim();
+  return parseInt(output, 10);
+}
+
+function retireOrphanWorktree(projectRoot: string, specName: string): void {
+  const worktreePath = join(projectRoot, ".worktree", specName);
+
+  if (existsSync(worktreePath)) {
+    try {
+      execFileSync("git", ["worktree", "remove", "--force", worktreePath], {
+        cwd: projectRoot,
+        stdio: "pipe",
+      });
+    } catch (err) {
+      throw new Error(`failed to remove orphan worktree: ${(err as Error).message}`);
+    }
+  }
+
+  if (branchExistsLocal(projectRoot, specName)) {
+    try {
+      execFileSync("git", ["branch", "-D", specName], {
+        cwd: projectRoot,
+        stdio: "pipe",
+      });
+    } catch (err) {
+      throw new Error(`failed to delete orphan branch: ${(err as Error).message}`);
+    }
+  }
+}
+
+function clearWorktreeLitter(worktreePath: string): void {
+  try {
+    execFileSync("git", ["clean", "-fdx"], {
+      cwd: worktreePath,
+      stdio: "pipe",
+    });
+  } catch {
+    // best effort; litter clearance is not critical
+  }
+}
+
 export function getSpecName(specPath: string): string {
   const resolvedPath = resolve(specPath);
   const dir = dirname(resolvedPath);
@@ -27,10 +73,24 @@ export async function ensureWorktree(projectRoot: string, specPath: string): Pro
 
   bestEffortFetch(projectRoot);
 
-  const branchExists = branchExistsLocal(projectRoot, specName);
+  let branchExists = branchExistsLocal(projectRoot, specName);
   const branchExistsRemote = branchExistsOnOrigin(projectRoot, specName);
 
+  // Detect and retire iter-0 orphan: branch+worktree with zero commits ahead of base
+  if (branchExists && existsSync(worktreePath)) {
+    const baseBranch = await getBaseBranch(projectRoot);
+    if (getCommitCountAheadOfBase(projectRoot, specName, baseBranch) === 0) {
+      retireOrphanWorktree(projectRoot, specName);
+      branchExists = false; // Branch was deleted; reflect in state
+    } else {
+      // WIP branch exists with commits; clear litter and reuse
+      clearWorktreeLitter(worktreePath);
+      return worktreePath;
+    }
+  }
+
   if (existsSync(worktreePath)) {
+    clearWorktreeLitter(worktreePath);
     return worktreePath;
   }
 
@@ -57,6 +117,7 @@ export async function ensureWorktree(projectRoot: string, specPath: string): Pro
     });
   }
 
+  clearWorktreeLitter(worktreePath);
   return worktreePath;
 }
 

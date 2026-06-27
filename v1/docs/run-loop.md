@@ -682,6 +682,43 @@ Combining `--cwd` with `git: true` exits 1 with a message explaining the
 constraint. Spec resolution still proceeds normally; only the agent `cwd`
 changes.
 
+### Re-run worktree normalization
+
+When re-running a spec (`jarvis1 run <spec-path>` on an already-run spec),
+Jarvis normalizes the residual git state before starting:
+
+#### Orphan worktree/branch retirement (iter-0 recovery)
+
+After an agent-error exit, `ensureWorktree` may leave a worktree and branch
+sitting at the base branch with zero commits ahead (an orphan state). On re-run,
+Jarvis detects this orphan: if the branch exists locally and the worktree exists
+on disk, but the branch has zero commits ahead of the base branch, Jarvis retires
+both automatically:
+1. Remove the orphan worktree with `git worktree remove --force`
+2. Delete the orphan branch with `git branch -D`
+3. Create a fresh worktree and branch
+
+This avoids requiring manual `git worktree remove --force` + `git branch -D`
+before re-run. On failure (e.g., branch checked out elsewhere, filesystem
+permissions), the run aborts with a named error.
+
+#### WIP branch preservation
+
+If the residual branch has commits (a WIP branch created by the first agent
+iteration before the error), the run preserves it and resumes from the WIP commit
+rather than retiring and recreating.
+
+#### Litter clearing
+
+Before the agent's first iteration on a resumed or recreated worktree, Jarvis
+clears untracked files including gitignored ones (`git clean -fdx`). This
+removes stale agent artifacts (test output, logs, cache files) left from the
+prior incomplete run while preserving all committed work and the worktree
+structure.
+
+This normalization applies only to `git: true` runs. `git: false` (no-commit)
+runs keep the delta-reset behavior from [No-commit re-run auto-reset](#no-commit-re-run-auto-reset).
+
 ## Patch mode model selection
 
 Patch mode selects the model declared on the chosen agent's
@@ -923,7 +960,7 @@ jarvis1 log-server
 | `0` | `criteria-complete` | Spec complete. |
 | `1` | `error` | Bad input (unknown command, missing args, invalid `--max-iterations`, unregistered project, `--resume-review` guard failure, etc.). `--resume-review` guard failures include: review passes resolve to `0`, effective `git` is `false`, no implementation PR/remote branch exists for the spec's branch, or the spec has unchecked tasks. Each guard prints a distinct message before exiting. |
 | `2` | `quota-exhausted` | Every configured agent was quota-exhausted. |
-| `3` | `agent-error` | The active agent failed for a non-quota reason. |
+| `3` | `agent-error` | The active agent failed for a non-quota reason. In `git: true` runs, jarvis first commits partial progress as `WIP:` when the failed iteration left tracked edits or newly checked acceptance criteria; untracked-only litter does not trigger a WIP commit. |
 | `4` | `no-progress` | The last configured `agentOrder` entry made no progress (unchecked count unchanged, spec still incomplete). Before reaching this exit, the harness advances through `agentOrder` on each no-progress iteration — shifting the current agent off and retrying the same subspec with the next entry (emitting `<agent>: no progress; escalating to next agent` on stderr). Exit 4 is returned only when the final rung also makes no progress, or `maxIterations` is reached first. The bounded tail, "stopping" message, and unticked-criteria diagnostic (listing acceptance criteria with guidance to tick and rerun) print only on this terminal stop, not on each advance. |
 | `5` | `max-iterations` | The configured `maxIterations` was reached. Default is 10; override with `--max-iterations <n>`. |
 | `6` | `dirty-worktree` | The run cannot continue because the worktree is dirty. This includes a completed checklist with uncommitted changes (excluding the `chore: apply pre-ready check:fix` commit, which the harness handles automatically after **`full`** gates only), or an agent iteration that edited files without ticking any new acceptance-criteria checkbox in the active subspec. When an agent iteration edits files but checks no new acceptance criteria on the same active subspec, the harness loops back for a bounded number of retries (2 consecutive edited-but-unticked iterations on the same subspec before exiting 6) to allow the agent to complete its work in one run—retries count against `maxIterations`. Acceptance criteria ticked in the working tree but absent from the committed HEAD version are committed at iteration start as progress and counted toward completion, so re-runs do not deadlock on uncommitted ticks. If acceptance criteria tick(s) or other progress occurs during the retry window, the counter resets and the run continues normally. After a successful readiness transition, the worktree is guaranteed clean because **`full`** gates commit any `check:fix` mutations before calling `gh pr ready`. Intermediate **`fast`** gates do not run `check:fix` or commit. Review-final skip relies on the recorded-green predicate's clean-worktree check; a dirty tree forces **`full`** and the `check:fix` commit path. `maybeMarkReady` on an unchanged tree runs **`fast`** then `gh pr ready` with the same predicate guaranteeing cleanliness. Exit 6 on the "worktree not clean" path is therefore reserved for genuinely unexpected dirty state (forgotten staged files, untracked artifacts) that is unrelated to the `check:fix` step. The bail message ends with a pointer to `jarvis1 triage <worktree-name>` to inspect the state and see suggested next moves. Tick satisfied acceptance criteria, fix, or revert the dirty changes before rerunning. |

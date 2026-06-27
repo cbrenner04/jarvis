@@ -35,11 +35,19 @@ the draft PR never receives the work.
 
 When re-running a spec:
 
-- **Worktree and branch both exist**: reuse both.
+- **Worktree and branch both exist**:
+  - If the branch is an orphan (zero commits ahead of base): retire both
+    (`git worktree remove --force` + `git branch -D`) and create fresh.
+  - If the branch has commits (WIP from a prior incomplete run): reuse both,
+    clear litter (`git clean -fdx`), and resume from the WIP commit.
 - **Worktree missing, branch exists locally or remotely**: recreate worktree
-  on the existing branch.
+  on the existing branch, clear litter.
 - **Neither exist**: create new branch off the detected base branch and new
   worktree.
+
+Orphan-retirement failures (e.g., branch checked out in another worktree,
+filesystem permissions) abort with a named error. This self-service recovery
+avoids requiring manual git commands before re-run.
 
 ## Review-feedback worktrees
 
@@ -66,6 +74,11 @@ to `[x]`, staging both the work and the index update together.
 If `git add -A` stages nothing, jarvis skips the per-subspec commit instead of
 aborting the run. This clean-tree no-op is tolerated on all three per-subspec
 commit paths: completion, `WIP:` progress, and `WIP:` blocker.
+
+An `agent-error` exit can also take the `WIP:` progress path: when the failed
+iteration left tracked edits or newly checked acceptance criteria, jarvis
+commits that partial state as `WIP:` before exiting `3`, leaving the worktree
+clean. Untracked-only litter does not count as progress and produces no commit.
 
 ### Jarvis-Agent trailer
 

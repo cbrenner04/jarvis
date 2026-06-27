@@ -3206,6 +3206,105 @@ exit 0
     expect(wipMessage).toContain("Newly checked:\n- Step A satisfied.");
   });
 
+  test("agent-error commits WIP progress for tracked edits or checked criteria", async () => {
+    const repo = setupLinkedSubspecRepo({
+      trackedFile: true,
+      criteria: ["Step A satisfied.", "Step B satisfied."],
+    });
+    const base = execSync("git rev-parse HEAD", { cwd: projectRoot, encoding: "utf8" }).trim();
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      if (!repo.trackedFilePath) throw new Error("trackedFilePath not set");
+      writeFileSync(repo.trackedFilePath, "changed\n");
+      writeFileSync(
+        repo.subspec,
+        "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A satisfied.\n- [ ] Step B satisfied.\n",
+      );
+      return { kind: "error", exitCode: 17, stderr: "boom" };
+    });
+
+    const code = await runWithDefaults({
+      specPath: repo.spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(3);
+    expect(execSync("git status --porcelain", { cwd: projectRoot, encoding: "utf8" })).toBe("");
+    expect(execSync("git rev-parse HEAD", { cwd: projectRoot, encoding: "utf8" }).trim()).not.toBe(base);
+    expect(execSync("git log -1 --format=%s", { cwd: projectRoot, encoding: "utf8" }).trim()).toBe(
+      "WIP: 00 - One (1/2 criteria)",
+    );
+  });
+
+  test("agent-error with untracked-only litter creates no WIP commit", async () => {
+    setupLinkedSubspecRepo({
+      trackedFile: false,
+      criteria: ["Step A satisfied."],
+    });
+    const base = execSync("git rev-parse HEAD", { cwd: projectRoot, encoding: "utf8" }).trim();
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      writeFileSync(join(projectRoot, "scratch.txt"), "scratch\n");
+      return { kind: "error", exitCode: 17, stderr: "boom" };
+    });
+
+    const code = await runWithDefaults({
+      specPath: join(projectRoot, "spec", "feature", "index.md"),
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(3);
+    expect(execSync("git rev-parse HEAD", { cwd: projectRoot, encoding: "utf8" }).trim()).toBe(base);
+    expect(execSync("git status --porcelain", { cwd: projectRoot, encoding: "utf8" })).toContain("?? scratch.txt");
+  });
+
+  test("agent-error WIP commit failure exits 1 with a named harness error", async () => {
+    const repo = setupLinkedSubspecRepo({
+      trackedFile: true,
+      criteria: ["Step A satisfied."],
+    });
+    const realGit = execSync("command -v git", { cwd: projectRoot, encoding: "utf8" }).trim();
+    const fakeBin = join(projectRoot, "fake-bin");
+    mkdirSync(fakeBin, { recursive: true });
+    const fakeGit = join(fakeBin, "git");
+    writeFileSync(
+      fakeGit,
+      `#!/usr/bin/env bash
+if [ "$1" = "commit" ]; then
+  echo "forced git commit failure" 1>&2
+  exit 1
+fi
+exec ${JSON.stringify(realGit)} "$@"
+`,
+    );
+    chmodSync(fakeGit, 0o755);
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      if (!repo.trackedFilePath) throw new Error("trackedFilePath not set");
+      writeFileSync(repo.trackedFilePath, "changed\n");
+      writeFileSync(repo.subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A satisfied.\n");
+      process.env.PATH = `${fakeBin}:${originalPath ?? ""}`;
+      return { kind: "error", exitCode: 17, stderr: "boom" };
+    });
+
+    const code = await runWithDefaults({
+      specPath: repo.spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("failed to commit agent-error WIP progress");
+  });
+
   test("exits 1 when the active subspec has no acceptance-criteria checkboxes", async () => {
     execSync("git init -b jarvis-e2e", { cwd: projectRoot });
     execSync('git config user.email "jarvis-test@example.com"', {
@@ -7376,4 +7475,28 @@ function writeSpecWithoutRepo(contents: string): string {
 
 function withRepo(contents: string): string {
   return `repo: ${projectRoot}\n\n${contents}`;
+}
+
+function setupLinkedSubspecRepo(opts: { trackedFile: boolean; criteria: string[] }): {
+  spec: string;
+  subspec: string;
+  trackedFilePath?: string;
+} {
+  setupGit();
+  const specDir = join(projectRoot, "spec", "feature");
+  mkdirSync(specDir, { recursive: true });
+  const spec = join(specDir, "index.md");
+  const subspec = join(specDir, "00-one.md");
+  writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+  writeFileSync(
+    subspec,
+    `# 00 - One\n\n## Acceptance criteria\n\n${opts.criteria.map((text) => `- [ ] ${text}`).join("\n")}\n`,
+  );
+  let trackedFilePath: string | undefined;
+  if (opts.trackedFile) {
+    trackedFilePath = join(projectRoot, "tracked.txt");
+    writeFileSync(trackedFilePath, "base\n");
+  }
+  execSync("git add -A && git commit -m init", { cwd: projectRoot });
+  return { spec, subspec, ...(trackedFilePath === undefined ? {} : { trackedFilePath }) };
 }

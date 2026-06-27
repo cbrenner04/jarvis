@@ -35,6 +35,8 @@ Two tracks; do the spike first, then ship the data-hygiene fixes regardless.
 Done-state: a cursor run is never unpriced, is always tagged estimated-vs-measured,
 and historical cost analysis stays usable whether the operator imputes or drops it.
 
+Owner update: <https://cursor.com/dashboard/usage?from=2026-06-21&to=2026-06-27> this shows line by line tokens (only single column). But you can export a csv of the data, and they give you a link if the export doesn't download. <https://cursor.com/api/dashboard/export-usage-events-csv?startDate=1782000000000&endDate=1782604799999&strategy=tokens>. That data is all we need. Composer 2.5 is priced in the data json to the api price so we can estimate cost. Now it'll be interesting lining this up with our data but hopefully its possible. For reference that csv is [cursor usage](.scratch/cursor-usage-events-2026-06-27.csv). We should make sure to only use the token data and not price data from that export. Price is to be estimated based on the price in our price library.
+
 ## Documentation updates
 
 - `v2/docs/v1-behaviors.md` — record cursor cost provenance (measured if the spike

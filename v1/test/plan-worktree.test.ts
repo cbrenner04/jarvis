@@ -89,23 +89,25 @@ describe("createPlanWorktree", () => {
   });
 });
 
+function setupRepoWithOrigin(): { dir: string; origin: string } {
+  const origin = mkdtempSync(join(tmpdir(), "jarvis-origin-"));
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-repo-"));
+  execSync("git init --bare", { cwd: origin });
+  execSync("git init -b main", { cwd: dir });
+  execSync("git config user.email 'test@example.com'", { cwd: dir });
+  execSync("git config user.name 'Test User'", { cwd: dir });
+  execSync(`git remote add origin "${origin}"`, { cwd: dir });
+  writeFileSync(join(dir, "README.md"), "test");
+  execSync("git add README.md", { cwd: dir });
+  execSync("git commit -m 'initial'", { cwd: dir });
+  execSync("git push -u origin main", { cwd: dir });
+  return { dir, origin };
+}
+
 describe("ensureWorktree (patch-mode)", () => {
   test("allows patch specs whose names start with plan-", async () => {
-    const origin = mkdtempSync(join(tmpdir(), "jarvis-patch-origin-"));
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-patch-plan-prefix-"));
+    const { dir, origin } = setupRepoWithOrigin();
     try {
-      // Set up bare origin
-      execSync("git init --bare", { cwd: origin });
-
-      // Set up local repo with origin
-      execSync("git init -b main", { cwd: dir });
-      execSync("git config user.email 'test@example.com'", { cwd: dir });
-      execSync("git config user.name 'Test User'", { cwd: dir });
-      execSync(`git remote add origin "${origin}"`, { cwd: dir });
-      writeFileSync(join(dir, "README.md"), "test");
-      execSync("git add README.md", { cwd: dir });
-      execSync("git commit -m 'initial'", { cwd: dir });
-      execSync("git push -u origin main", { cwd: dir });
       execSync("git branch plan-mode-updates main", { cwd: dir });
       execSync("git push -u origin plan-mode-updates", { cwd: dir });
 
@@ -151,22 +153,8 @@ describe("ensureWorktree (patch-mode)", () => {
   });
 
   test("retires and recreates iter-0 orphan worktree (zero commits ahead)", async () => {
-    const origin = mkdtempSync(join(tmpdir(), "jarvis-orphan-origin-"));
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-orphan-retire-"));
+    const { dir, origin } = setupRepoWithOrigin();
     try {
-      // Set up bare origin
-      execSync("git init --bare", { cwd: origin });
-
-      // Set up local repo with origin
-      execSync("git init -b main", { cwd: dir });
-      execSync("git config user.email 'test@example.com'", { cwd: dir });
-      execSync("git config user.name 'Test User'", { cwd: dir });
-      execSync(`git remote add origin "${origin}"`, { cwd: dir });
-      writeFileSync(join(dir, "README.md"), "test");
-      execSync("git add README.md", { cwd: dir });
-      execSync("git commit -m 'initial'", { cwd: dir });
-      execSync("git push -u origin main", { cwd: dir });
-
       const specDir = join(dir, "spec", "feature");
       const specFile = join(specDir, "index.md");
       mkdirSync(specDir, { recursive: true });
@@ -201,22 +189,8 @@ describe("ensureWorktree (patch-mode)", () => {
   });
 
   test("preserves WIP branch with commits and resumes from it", async () => {
-    const origin = mkdtempSync(join(tmpdir(), "jarvis-wip-origin-"));
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-wip-preserve-"));
+    const { dir, origin } = setupRepoWithOrigin();
     try {
-      // Set up bare origin
-      execSync("git init --bare", { cwd: origin });
-
-      // Set up local repo with origin
-      execSync("git init -b main", { cwd: dir });
-      execSync("git config user.email 'test@example.com'", { cwd: dir });
-      execSync("git config user.name 'Test User'", { cwd: dir });
-      execSync(`git remote add origin "${origin}"`, { cwd: dir });
-      writeFileSync(join(dir, "README.md"), "test");
-      execSync("git add README.md", { cwd: dir });
-      execSync("git commit -m 'initial'", { cwd: dir });
-      execSync("git push -u origin main", { cwd: dir });
-
       const specDir = join(dir, "spec", "feature");
       const specFile = join(specDir, "index.md");
       mkdirSync(specDir, { recursive: true });
@@ -253,22 +227,8 @@ describe("ensureWorktree (patch-mode)", () => {
   });
 
   test("clears litter (gitignored files) in resumed WIP worktree", async () => {
-    const origin = mkdtempSync(join(tmpdir(), "jarvis-litter-origin-"));
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-litter-clear-"));
+    const { dir, origin } = setupRepoWithOrigin();
     try {
-      // Set up bare origin
-      execSync("git init --bare", { cwd: origin });
-
-      // Set up local repo with origin
-      execSync("git init -b main", { cwd: dir });
-      execSync("git config user.email 'test@example.com'", { cwd: dir });
-      execSync("git config user.name 'Test User'", { cwd: dir });
-      execSync(`git remote add origin "${origin}"`, { cwd: dir });
-      writeFileSync(join(dir, "README.md"), "test");
-      execSync("git add README.md", { cwd: dir });
-      execSync("git commit -m 'initial'", { cwd: dir });
-      execSync("git push -u origin main", { cwd: dir });
-
       // Create .gitignore
       writeFileSync(join(dir, ".gitignore"), "*.log\ntest_output.txt\n");
       execSync("git add .gitignore", { cwd: dir });
@@ -314,22 +274,8 @@ describe("ensureWorktree (patch-mode)", () => {
   });
 
   test("orphan worktree is removed even if branch already checked out elsewhere", async () => {
-    const origin = mkdtempSync(join(tmpdir(), "jarvis-retire-busy-origin-"));
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-retire-busy-local-"));
+    const { dir, origin } = setupRepoWithOrigin();
     try {
-      // Set up bare origin
-      execSync("git init --bare", { cwd: origin });
-
-      // Set up local repo with origin
-      execSync("git init -b main", { cwd: dir });
-      execSync("git config user.email 'test@example.com'", { cwd: dir });
-      execSync("git config user.name 'Test User'", { cwd: dir });
-      execSync(`git remote add origin "${origin}"`, { cwd: dir });
-      writeFileSync(join(dir, "README.md"), "test");
-      execSync("git add README.md", { cwd: dir });
-      execSync("git commit -m 'initial'", { cwd: dir });
-      execSync("git push -u origin main", { cwd: dir });
-
       const specDir = join(dir, "spec", "feature");
       const specFile = join(specDir, "index.md");
       mkdirSync(specDir, { recursive: true });

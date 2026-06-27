@@ -17,12 +17,6 @@ function getCommitCountAheadOfBase(projectRoot: string, branchName: string, base
   }
 }
 
-function isOrphanBranch(projectRoot: string, branchName: string, baseBranch: string): boolean {
-  return (
-    branchExistsLocal(projectRoot, branchName) && getCommitCountAheadOfBase(projectRoot, branchName, baseBranch) === 0
-  );
-}
-
 function retireOrphanWorktree(projectRoot: string, specName: string): void {
   const worktreePath = join(projectRoot, ".worktree", specName);
 
@@ -89,7 +83,7 @@ export async function ensureWorktree(projectRoot: string, specPath: string): Pro
   // Detect and retire iter-0 orphan: branch+worktree with zero commits ahead of base
   if (branchExists && existsSync(worktreePath)) {
     const baseBranch = await getBaseBranch(projectRoot);
-    if (isOrphanBranch(projectRoot, specName, baseBranch)) {
+    if (getCommitCountAheadOfBase(projectRoot, specName, baseBranch) === 0) {
       retireOrphanWorktree(projectRoot, specName);
       // Mark as retired so we recreate below
     } else {

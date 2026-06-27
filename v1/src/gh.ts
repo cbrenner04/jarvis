@@ -141,8 +141,6 @@ export async function getBaseBranch(cwd?: string): Promise<string> {
     { op: "gh repo view" },
   );
   if (result.exitCode !== 0) {
-    // Fall back to "main" if gh is not available or repo is not a GitHub repo
-    // (e.g., in test environments with local file-based remotes)
     return "main";
   }
   const baseBranch = result.stdout.trim();

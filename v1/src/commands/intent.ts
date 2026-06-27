@@ -25,6 +25,7 @@ export type IntentCommandOptions = {
   config?: { dir?: string };
   logClient?: LogClient;
   createAgent?: (agentName: AgentName, model: string | undefined) => Agent;
+  markdownlintHarnessRoot?: string | null;
 };
 
 type IntentInvocationCommon = {
@@ -262,6 +263,18 @@ function normalizePrerequisitesSectionSpacing(text: string): string {
   return changed ? lines.join("\n") : text;
 }
 
+function keepIssueReferencesOffLineStart(text: string): string {
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? "";
+    // If a line is just an issue reference like #123, prepend "See: "
+    if (/^#\d+\s*$/.test(line)) {
+      lines[i] = `See: ${line}`;
+    }
+  }
+  return lines.join("\n");
+}
+
 function repairIntentFile(path: string, slug: string): void {
   const content = readFileSync(path, "utf8");
   let text = content.replace(/\r\n/g, "\n");
@@ -317,10 +330,17 @@ function repairIntentFile(path: string, slug: string): void {
 
   text = lines.join("\n");
 
-  // Repair Prerequisites section
+  // Keep issue references off line-start to avoid MD018 corruption
+  const withFixedReferences = keepIssueReferencesOffLineStart(text);
+  if (withFixedReferences !== text) {
+    text = withFixedReferences;
+    modified = true;
+  }
+
+  // Repair Prerequisites section: trim trailing blank lines before appending to fix MD012
   if (!hasPrerequisitesSection(text)) {
-    // Append empty Prerequisites section
-    text += "\n\n## Prerequisites\n";
+    // Trim trailing blank lines before appending
+    text = `${text.replace(/\n+$/, "")}\n\n## Prerequisites\n`;
     modified = true;
   }
 
@@ -335,12 +355,100 @@ function repairIntentFile(path: string, slug: string): void {
   }
 }
 
-function repairIntentStageContent(stagingDir: string): void {
+function resolveHarnessRoot(override?: string | null): string | null {
+  if (override !== undefined) {
+    return override;
+  }
+  let current = import.meta.dir;
+  const maxDepth = 10;
+  let depth = 0;
+
+  while (depth < maxDepth) {
+    const nodeModulesPath = join(current, "node_modules");
+    const markdownlintPath = join(nodeModulesPath, "markdownlint-cli2");
+    const configPath = join(current, ".markdownlint-cli2.jsonc");
+
+    try {
+      if (existsSync(markdownlintPath) && existsSync(configPath)) {
+        return current;
+      }
+    } catch {
+      // Continue
+    }
+
+    const parent = resolve(current, "..");
+    if (parent === current) {
+      break;
+    }
+    current = parent;
+    depth += 1;
+  }
+
+  return null;
+}
+
+function runMarkdownlintAutofix(
+  stagingDir: string,
+  warn: (message: string) => void,
+  harnessRootOverride?: string | null,
+): void {
+  const harnessRoot = resolveHarnessRoot(harnessRootOverride);
+  if (harnessRoot === null) {
+    warn("warning: could not locate markdownlint binary; skipping autofix\n");
+    return;
+  }
+
+  const binaryPath = join(harnessRoot, "node_modules", "markdownlint-cli2", "markdownlint-cli2.js");
+  const configPath = join(harnessRoot, ".markdownlint-cli2.jsonc");
+
+  if (!existsSync(binaryPath)) {
+    warn("warning: markdownlint binary not found; skipping autofix\n");
+    return;
+  }
+
+  if (!existsSync(configPath)) {
+    warn("warning: markdownlint config not found; skipping autofix\n");
+    return;
+  }
+
+  const files = listStageMarkdownFiles(stagingDir);
+  if (files.length === 0) {
+    return;
+  }
+
+  try {
+    execFileSync("bun", [binaryPath, "--fix", "--config", configPath, ...files], {
+      cwd: harnessRoot,
+      env: process.env,
+      stdio: "pipe",
+    });
+  } catch (err) {
+    // Residual lint violations return a status code; subprocess launch failures do not.
+    const spawnError = err as NodeJS.ErrnoException & { status?: number | null };
+    if (typeof spawnError.status === "number") {
+      return;
+    }
+    if (spawnError.code === "ENOENT") {
+      warn("warning: bun executable not found; skipping markdownlint autofix\n");
+      return;
+    }
+    warn(`warning: could not run markdownlint autofix (${spawnError.code ?? "spawn failed"}); skipping autofix\n`);
+  }
+}
+
+function repairIntentStageContent(
+  stagingDir: string,
+  warn: (message: string) => void,
+  harnessRootOverride?: string | null,
+): void {
   const files = listStageMarkdownFiles(stagingDir);
   for (const path of files) {
     const slug = basename(path, ".md");
     repairIntentFile(path, slug);
   }
+
+  // Run markdownlint autofix as a general net over any markdown violations
+  runMarkdownlintAutofix(stagingDir, warn, harnessRootOverride);
 }
 
 function validateIntentFilenames(files: string[]):
@@ -440,6 +548,8 @@ function gateIntentStage(
 function validateIntentStage(
   stagingDir: string,
   modifiedPaths: string[],
+  warn: (message: string) => void,
+  harnessRootOverride?: string | null,
 ):
   | {
       ok: true;
@@ -451,7 +561,7 @@ function validateIntentStage(
     return gating;
   }
 
-  repairIntentStageContent(stagingDir);
+  repairIntentStageContent(stagingDir, warn, harnessRootOverride);
   return validateIntentStageContent(gating.intents);
 }
 
@@ -715,7 +825,7 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
         return 1;
       }
 
-      repairIntentStageContent(externalStageDir);
+      repairIntentStageContent(externalStageDir, opts.io.stderr, opts.markdownlintHarnessRoot);
 
       const validation = validateIntentStageContent(filenameValidation.intents);
       if (!validation.ok) {
@@ -802,7 +912,12 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
       return 1;
     }
 
-    const validation = validateIntentStage(stageDir, listModifiedPaths(worktreePath));
+    const validation = validateIntentStage(
+      stageDir,
+      listModifiedPaths(worktreePath),
+      opts.io.stderr,
+      opts.markdownlintHarnessRoot,
+    );
     if (!validation.ok) {
       opts.io.stderr(`${validation.error}\n`);
       return 1;

@@ -1,6 +1,6 @@
 // This test requires real git remote/branch state for intent command commit-mode behavior and cannot run in sandbox mode.
 import { describe, expect, test } from "bun:test";
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import { INTENT_USAGE, intentCommand, parseIntentArgs } from "../src/commands/intent.ts";
 import { loadConfig, registerProject, writeConfig } from "../src/config.ts";
@@ -56,6 +56,63 @@ ${body}
 ${prerequisites.length === 0 ? "" : `\n${prerequisites.map((line) => `- ${line}`).join("\n")}\n`}`;
 }
 
+function resolveHarnessRoot(): string | null {
+  let current = import.meta.dir;
+  for (let depth = 0; depth < 10; depth += 1) {
+    const candidateBinary = join(current, "node_modules", "markdownlint-cli2", "markdownlint-cli2.js");
+    const candidateConfig = join(current, ".markdownlint-cli2.jsonc");
+    if (existsSync(candidateBinary) && existsSync(candidateConfig)) {
+      return current;
+    }
+    const parent = resolve(current, "..");
+    if (parent === current) {
+      break;
+    }
+    current = parent;
+  }
+  return null;
+}
+
+function getHarnessMarkdownlintPaths(): { root: string; binary: string; config: string } | null {
+  const root = resolveHarnessRoot();
+  if (root === null) {
+    return null;
+  }
+  return {
+    root,
+    binary: join(root, "node_modules", "markdownlint-cli2", "markdownlint-cli2.js"),
+    config: join(root, ".markdownlint-cli2.jsonc"),
+  };
+}
+
+function hasHarnessMarkdownlint(): boolean {
+  return getHarnessMarkdownlintPaths() !== null;
+}
+
+function skipWithoutHarnessMarkdownlint(reason: string): boolean {
+  if (hasHarnessMarkdownlint()) {
+    return false;
+  }
+  process.stderr.write(`skip: ${reason}; pinned markdownlint binary not installed in this worktree\n`);
+  return true;
+}
+
+function runHarnessMarkdownlint(path: string): number {
+  const paths = getHarnessMarkdownlintPaths();
+  if (paths === null) {
+    throw new Error("missing pinned markdownlint binary");
+  }
+  const result = spawnSync("bun", [paths.binary, "--config", paths.config, path], {
+    cwd: paths.root,
+    env: process.env,
+    stdio: "pipe",
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  return result.status ?? 1;
+}
+
 class SplitAgent implements Agent {
   readonly name: AgentName;
   readonly #mode:
@@ -74,7 +131,9 @@ class SplitAgent implements Agent {
     | "repair-prerequisites-spacing"
     | "repair-unterminated-frontmatter"
     | "repair-near-miss-prerequisites"
-    | "repair-empty-name";
+    | "repair-empty-name"
+    | "repair-md-violations"
+    | "repair-autofix-heading-spacing";
 
   constructor(
     name: AgentName,
@@ -94,7 +153,9 @@ class SplitAgent implements Agent {
       | "repair-prerequisites-spacing"
       | "repair-unterminated-frontmatter"
       | "repair-near-miss-prerequisites"
-      | "repair-empty-name",
+      | "repair-empty-name"
+      | "repair-md-violations"
+      | "repair-autofix-heading-spacing",
   ) {
     this.name = name;
     this.#mode = mode;
@@ -251,6 +312,45 @@ name:
 ## Intent
 
 Body content.
+
+## Prerequisites
+`,
+        "utf8",
+      );
+      return { kind: "ok", stdout: "", stderr: "" };
+    }
+    if (this.#mode === "repair-md-violations") {
+      writeFileSync(
+        join(stageDir, "md-violations.md"),
+        `---
+name: md-violations
+---
+
+# MD violations
+
+## Intent
+
+Some content with a reference.
+#499
+
+## Prerequisites
+
+
+`,
+        "utf8",
+      );
+      return { kind: "ok", stdout: "", stderr: "" };
+    }
+    if (this.#mode === "repair-autofix-heading-spacing") {
+      writeFileSync(
+        join(stageDir, "heading-spacing.md"),
+        `---
+name: heading-spacing
+---
+# Heading spacing
+
+## Intent
+Body text.
 
 ## Prerequisites
 `,
@@ -441,6 +541,8 @@ function createSplitAgentFactory(
       | "repair-unterminated-frontmatter"
       | "repair-near-miss-prerequisites"
       | "repair-empty-name"
+      | "repair-md-violations"
+      | "repair-autofix-heading-spacing"
     >
   >,
 ) {
@@ -1520,5 +1622,152 @@ describe("intentCommand", () => {
 
   test("--target-dir flag appears in usage output", () => {
     expect(INTENT_USAGE).toContain("--target-dir");
+  });
+
+  test("repair: MD012/MD018 violations are fixed by trim + reference relocation + autofix", async () => {
+    if (skipWithoutHarnessMarkdownlint("repair: MD012/MD018 integration coverage")) {
+      return;
+    }
+    const env = setupEnv();
+    try {
+      const seededPath = join(env.projectRoot, "seeded-md-violations.md");
+      const seededContent = `---
+name: md-violations
+---
+
+# MD violations
+
+## Intent
+
+Some content with a reference.
+#499
+
+## Prerequisites
+
+
+`;
+      writeFileSync(seededPath, seededContent, "utf8");
+      expect(runHarnessMarkdownlint(seededPath)).toBe(1);
+
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "repair-md-violations" }),
+      });
+      expect(code).toBe(0);
+      const worktree = findIntentWorktree(env.projectRoot);
+      const content = readFileSync(join(worktree, "spec", "ready-intents", "md-violations.md"), "utf8");
+      expect(content).not.toBe(seededContent);
+      // Verify content includes the issue reference (not promoted to a heading)
+      expect(content).toContain("#499");
+      // Verify it's preserved as a reference, not as a heading
+      expect(content).not.toContain("# 499");
+      // Verify the reference is not on a line by itself at the start (MD018 fixed)
+      const lines = content.split("\n");
+      const refLine = lines.find((line) => line.includes("#499"));
+      expect(refLine).toBeDefined();
+      expect(refLine).not.toMatch(/^#\d+/);
+      // Verify Prerequisites is properly formatted (MD012 fixed)
+      expect(content).toContain("## Prerequisites");
+      // Verify no consecutive blank lines in the output
+      expect(content).not.toContain("\n\n\n");
+      expect(runHarnessMarkdownlint(join(worktree, "spec", "ready-intents", "md-violations.md"))).toBe(0);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("repair: issue reference in no-commit path is preserved as reference", async () => {
+    const env = setupEnv();
+    try {
+      const cfg = loadConfig({ dir: env.cfgDir });
+      cfg.modes.plan.commit = false;
+      writeConfig(cfg, { dir: env.cfgDir });
+
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "repair-md-violations" }),
+      });
+      expect(code).toBe(0);
+      const externalRoot = join(env.cfgDir, "specs", "project");
+      const content = readFileSync(join(externalRoot, "ready-intents", "md-violations.md"), "utf8");
+      // Verify the issue reference is preserved, not promoted to a heading
+      expect(content).toContain("#499");
+      expect(content).not.toContain("# 499");
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("repair: missing markdownlint binary warns and continues with in-TS repairs", async () => {
+    const env = setupEnv();
+    try {
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "repair-md-violations" }),
+        markdownlintHarnessRoot: null,
+      });
+      expect(code).toBe(0);
+      expect(cap.err()).toContain("warning: could not locate markdownlint binary; skipping autofix");
+
+      const worktree = findIntentWorktree(env.projectRoot);
+      const content = readFileSync(join(worktree, "spec", "ready-intents", "md-violations.md"), "utf8");
+      expect(content).toContain("#499");
+      expect(content).not.toContain("# 499");
+      expect(content).toContain("## Prerequisites");
+      expect(content).not.toContain("\n\n\n");
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("no-commit autofix stays on the harness config even when project root provides its own config", async () => {
+    if (skipWithoutHarnessMarkdownlint("no-commit harness-config autofix coverage")) {
+      return;
+    }
+    const env = setupEnv();
+    try {
+      const cfg = loadConfig({ dir: env.cfgDir });
+      cfg.modes.plan.commit = false;
+      writeConfig(cfg, { dir: env.cfgDir });
+      writeFileSync(
+        join(env.projectRoot, ".markdownlint-cli2.jsonc"),
+        JSON.stringify({ config: { default: false } }, null, 2),
+        "utf8",
+      );
+
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "repair-autofix-heading-spacing" }),
+      });
+      expect(code).toBe(0);
+
+      const externalRoot = join(env.cfgDir, "specs", "project");
+      const path = join(externalRoot, "ready-intents", "heading-spacing.md");
+      const content = readFileSync(path, "utf8");
+      expect(content).toContain("## Intent\n\nBody text.");
+      expect(runHarnessMarkdownlint(path)).toBe(0);
+    } finally {
+      env.cleanup();
+    }
   });
 });

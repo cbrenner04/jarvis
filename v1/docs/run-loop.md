@@ -687,7 +687,7 @@ changes.
 When re-running a spec (`jarvis1 run <spec-path>` on an already-run spec),
 Jarvis normalizes the residual git state before starting:
 
-**Orphan worktree/branch retirement (iter-0 recovery)**
+#### Orphan worktree/branch retirement (iter-0 recovery)
 
 After an agent-error exit, `ensureWorktree` may leave a worktree and branch
 sitting at the base branch with zero commits ahead (an orphan state). On re-run,
@@ -702,13 +702,13 @@ This avoids requiring manual `git worktree remove --force` + `git branch -D`
 before re-run. On failure (e.g., branch checked out elsewhere, filesystem
 permissions), the run aborts with a named error.
 
-**WIP branch preservation**
+#### WIP branch preservation
 
 If the residual branch has commits (a WIP branch created by the first agent
 iteration before the error), the run preserves it and resumes from the WIP commit
 rather than retiring and recreating.
 
-**Litter clearing**
+#### Litter clearing
 
 Before the agent's first iteration on a resumed or recreated worktree, Jarvis
 clears untracked files including gitignored ones (`git clean -fdx`). This

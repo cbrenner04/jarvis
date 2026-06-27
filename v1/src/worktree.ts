@@ -18,7 +18,9 @@ function getCommitCountAheadOfBase(projectRoot: string, branchName: string, base
 }
 
 function isOrphanBranch(projectRoot: string, branchName: string, baseBranch: string): boolean {
-  return branchExistsLocal(projectRoot, branchName) && getCommitCountAheadOfBase(projectRoot, branchName, baseBranch) === 0;
+  return (
+    branchExistsLocal(projectRoot, branchName) && getCommitCountAheadOfBase(projectRoot, branchName, baseBranch) === 0
+  );
 }
 
 function retireOrphanWorktree(projectRoot: string, specName: string): void {

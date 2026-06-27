@@ -1757,11 +1757,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        fanout(
-          "harness",
-          `failed to commit agent-error WIP progress for ${afterSubspecPath}: ${message}\n`,
-          "stderr",
-        );
+        fanout("harness", `failed to commit agent-error WIP progress for ${afterSubspecPath}: ${message}\n`, "stderr");
         return { kind: "return", exitCode: 1 };
       }
     }

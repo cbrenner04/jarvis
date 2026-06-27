@@ -3214,7 +3214,8 @@ exit 0
     const base = execSync("git rev-parse HEAD", { cwd: projectRoot, encoding: "utf8" }).trim();
     const cap = captureIo();
     const claude = new FakeAgent("claude", () => {
-      writeFileSync(repo.trackedFilePath!, "changed\n");
+      if (!repo.trackedFilePath) throw new Error("trackedFilePath not set");
+      writeFileSync(repo.trackedFilePath, "changed\n");
       writeFileSync(
         repo.subspec,
         "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A satisfied.\n- [ ] Step B satisfied.\n",
@@ -3285,7 +3286,8 @@ exec ${JSON.stringify(realGit)} "$@"
     chmodSync(fakeGit, 0o755);
     const cap = captureIo();
     const claude = new FakeAgent("claude", () => {
-      writeFileSync(repo.trackedFilePath!, "changed\n");
+      if (!repo.trackedFilePath) throw new Error("trackedFilePath not set");
+      writeFileSync(repo.trackedFilePath, "changed\n");
       writeFileSync(repo.subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A satisfied.\n");
       process.env.PATH = `${fakeBin}:${originalPath ?? ""}`;
       return { kind: "error", exitCode: 17, stderr: "boom" };
@@ -7475,10 +7477,11 @@ function withRepo(contents: string): string {
   return `repo: ${projectRoot}\n\n${contents}`;
 }
 
-function setupLinkedSubspecRepo(opts: {
-  trackedFile: boolean;
-  criteria: string[];
-}): { spec: string; subspec: string; trackedFilePath?: string } {
+function setupLinkedSubspecRepo(opts: { trackedFile: boolean; criteria: string[] }): {
+  spec: string;
+  subspec: string;
+  trackedFilePath?: string;
+} {
   setupGit();
   const specDir = join(projectRoot, "spec", "feature");
   mkdirSync(specDir, { recursive: true });

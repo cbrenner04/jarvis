@@ -123,7 +123,17 @@ function archiveResolvedSpec(args: {
   reservedNames?: string[];
   onArchive?: (destination: string, specName: string) => void;
 }): boolean {
-  const { archiveRoot, branch, dir, io, missingSource, onArchive, source, specName, reservedNames = ["completed"] } = args;
+  const {
+    archiveRoot,
+    branch,
+    dir,
+    io,
+    missingSource,
+    onArchive,
+    source,
+    specName,
+    reservedNames = ["completed"],
+  } = args;
   if (reservedNames.includes(specName)) {
     io.stderr(`unsafe spec archive mapping for "${dir}": refusing to move ${archiveRoot}/${specName}/\n`);
     return false;

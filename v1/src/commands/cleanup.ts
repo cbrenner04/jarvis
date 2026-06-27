@@ -112,6 +112,47 @@ function resolveExternalSpecArchiveSource(
   };
 }
 
+function archiveResolvedSpec(args: {
+  io: CleanupIo;
+  branch: string;
+  dir: string;
+  archiveRoot: string;
+  source: string;
+  specName: string;
+  missingSource: string;
+  onArchive?: (destination: string, specName: string) => void;
+}): boolean {
+  const { archiveRoot, branch, dir, io, missingSource, onArchive, source, specName } = args;
+  if (specName === "completed") {
+    io.stderr(`unsafe spec archive mapping for "${dir}": refusing to move ${archiveRoot}/completed/\n`);
+    return false;
+  }
+
+  const completedRoot = join(archiveRoot, "completed");
+  const destination = join(completedRoot, specName);
+
+  if (!existsSync(source)) {
+    io.stdout(`no spec directory moved for ${branch}: missing ${missingSource}\n`);
+    return true;
+  }
+
+  if (existsSync(destination)) {
+    io.stderr(`spec archive destination already exists; left source in place: ${source} -> ${destination}\n`);
+    return false;
+  }
+
+  try {
+    mkdirSync(completedRoot, { recursive: true });
+    renameSync(source, destination);
+    onArchive?.(destination, specName);
+    io.stdout(`moved spec directory ${source} -> ${destination}\n`);
+    return true;
+  } catch (err) {
+    io.stderr(`failed to archive spec directory ${source} -> ${destination}: ${(err as Error).message}\n`);
+    return false;
+  }
+}
+
 function deleteMergedBranch(projectRoot: string, branch: string): void {
   try {
     execSync(`git branch -d "${branch}"`, {
@@ -234,83 +275,48 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
       opts.io.stdout(`removed ${item.branch}${tag}\n`);
 
       const branchSlug = specNameForBranch(item.branch);
-      const archiveTargetDir = commit ? targetDir : opts.externalSpecsRoot;
-      if (archiveTargetDir === undefined) {
+      if (!commit && opts.externalSpecsRoot === undefined) {
         opts.io.stderr(`missing cleanup archive root for ${item.branch}\n`);
         hadFailures = true;
         continue;
       }
+      let archived: boolean;
       if (commit) {
-        const archiveMapping = resolveSpecArchiveSource(opts.projectRoot, targetDir, item.branch, candidateHomes);
-        const { source, specName, missingSource, sourceHome } = archiveMapping;
-        if (specName === "completed") {
-          opts.io.stderr(
-            `unsafe spec archive mapping for "${item.dir}": refusing to move ${archiveTargetDir}/completed/\n`,
-          );
-          hadFailures = true;
-          continue;
-        }
-
-        const completedRoot = join(opts.projectRoot, sourceHome, "completed");
-        const destination = join(completedRoot, specName);
-
-        if (!existsSync(source)) {
-          opts.io.stdout(`no spec directory moved for ${item.branch}: missing ${missingSource}\n`);
-          continue;
-        }
-
-        if (existsSync(destination)) {
-          opts.io.stderr(
-            `spec archive destination already exists; left source in place: ${source} -> ${destination}\n`,
-          );
-          hadFailures = true;
-          continue;
-        }
-
-        try {
-          mkdirSync(completedRoot, { recursive: true });
-          renameSync(source, destination);
-          commitArchivedSpecMove(opts.projectRoot, source, destination, specName);
-          opts.io.stdout(`moved spec directory ${source} -> ${destination}\n`);
-        } catch (err) {
-          opts.io.stderr(`failed to archive spec directory ${source} -> ${destination}: ${(err as Error).message}\n`);
-          hadFailures = true;
-        }
-        continue;
-      }
-
-      const archiveMapping = resolveExternalSpecArchiveSource(archiveTargetDir, item.branch);
-      const { source, specName, missingSource } = archiveMapping;
-      if (specName === "completed") {
-        opts.io.stderr(
-          `unsafe spec archive mapping for "${item.dir}": refusing to move ${archiveTargetDir}/completed/\n`,
+        const { source, specName, missingSource, sourceHome } = resolveSpecArchiveSource(
+          opts.projectRoot,
+          targetDir,
+          item.branch,
+          candidateHomes,
         );
-        hadFailures = true;
-        continue;
+        archived = archiveResolvedSpec({
+          io: opts.io,
+          branch: item.branch,
+          dir: item.dir,
+          archiveRoot: join(opts.projectRoot, sourceHome),
+          source,
+          specName,
+          missingSource,
+          onArchive: (destination, resolvedSpecName) => {
+            commitArchivedSpecMove(opts.projectRoot, source, destination, resolvedSpecName);
+          },
+        });
+      } else {
+        const externalSpecsRoot = opts.externalSpecsRoot as string;
+        const { source, specName, missingSource } = resolveExternalSpecArchiveSource(externalSpecsRoot, item.branch);
+        archived = archiveResolvedSpec({
+          io: opts.io,
+          branch: item.branch,
+          dir: item.dir,
+          archiveRoot: externalSpecsRoot,
+          source,
+          specName,
+          missingSource,
+          onArchive: () => {
+            rmSync(join(externalSpecsRoot, "ready-intents", `${branchSlug}.md`), { force: true });
+          },
+        });
       }
-
-      const completedRoot = join(archiveTargetDir, "completed");
-      const destination = join(completedRoot, specName);
-
-      if (!existsSync(source)) {
-        opts.io.stdout(`no spec directory moved for ${item.branch}: missing ${missingSource}\n`);
-        continue;
-      }
-
-      if (existsSync(destination)) {
-        opts.io.stderr(`spec archive destination already exists; left source in place: ${source} -> ${destination}\n`);
-        hadFailures = true;
-        continue;
-      }
-
-      try {
-        mkdirSync(completedRoot, { recursive: true });
-        renameSync(source, destination);
-        const readyIntentPath = join(archiveTargetDir, "ready-intents", `${branchSlug}.md`);
-        rmSync(readyIntentPath, { force: true });
-        opts.io.stdout(`moved spec directory ${source} -> ${destination}\n`);
-      } catch (err) {
-        opts.io.stderr(`failed to archive spec directory ${source} -> ${destination}: ${(err as Error).message}\n`);
+      if (!archived) {
         hadFailures = true;
       }
     } catch (err) {

@@ -70,6 +70,16 @@ function createTrackedPlanWorktree(name: string): string {
   return worktreePath;
 }
 
+function runExternalCleanup(io: CleanupIo, root: string = externalSpecsRoot): number {
+  return cleanupCommand({
+    projectRoot,
+    io,
+    commit: false,
+    externalSpecsRoot: root,
+    isMergedPr: () => true,
+  });
+}
+
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "jarvis-cleanup-"));
   projectRoot = root;
@@ -456,13 +466,7 @@ describe("cleanupCommand", () => {
     writeFileSync(join(source, "index.md"), "# external plan\n");
     writeFileSync(readyIntentPath, "intent\n");
 
-    const code = cleanupCommand({
-      projectRoot,
-      io,
-      commit: false,
-      externalSpecsRoot,
-      isMergedPr: () => true,
-    });
+    const code = runExternalCleanup(io);
 
     expect(code).toBe(0);
     expect(existsSync(source)).toBe(false);
@@ -481,13 +485,7 @@ describe("cleanupCommand", () => {
     mkdirSync(source, { recursive: true });
     writeFileSync(join(source, "index.md"), "# external branch\n");
 
-    const code = cleanupCommand({
-      projectRoot,
-      io,
-      commit: false,
-      externalSpecsRoot,
-      isMergedPr: () => true,
-    });
+    const code = runExternalCleanup(io);
 
     expect(code).toBe(0);
     expect(existsSync(source)).toBe(false);
@@ -499,13 +497,7 @@ describe("cleanupCommand", () => {
 
     createTrackedWorktree("missing-external");
 
-    const code = cleanupCommand({
-      projectRoot,
-      io,
-      commit: false,
-      externalSpecsRoot,
-      isMergedPr: () => true,
-    });
+    const code = runExternalCleanup(io);
 
     expect(code).toBe(0);
     expect(out()).toContain(
@@ -523,13 +515,7 @@ describe("cleanupCommand", () => {
     mkdirSync(source, { recursive: true });
     mkdirSync(destination, { recursive: true });
 
-    const code = cleanupCommand({
-      projectRoot,
-      io,
-      commit: false,
-      externalSpecsRoot,
-      isMergedPr: () => true,
-    });
+    const code = runExternalCleanup(io);
 
     expect(code).toBe(1);
     expect(existsSync(source)).toBe(true);
@@ -554,13 +540,7 @@ describe("cleanupCommand", () => {
     mkdirSync(source, { recursive: true });
     writeFileSync(join(source, "index.md"), "# detached external\n");
 
-    const code = cleanupCommand({
-      projectRoot,
-      io,
-      commit: false,
-      externalSpecsRoot: detachedExternalRoot,
-      isMergedPr: () => true,
-    });
+    const code = runExternalCleanup(io, detachedExternalRoot);
 
     expect(code).toBe(0);
     expect(existsSync(source)).toBe(false);

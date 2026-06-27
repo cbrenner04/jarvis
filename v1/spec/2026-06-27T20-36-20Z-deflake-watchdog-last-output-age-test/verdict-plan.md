@@ -1,0 +1,7 @@
+1. Clarify the determinism contract for the tested path: the spec must require one injected timing seam to control both watchdog timeout scheduling and the `last_output_age_ms` snapshot used by the early-output-then-stall test on the patch-iteration path. This is necessary to meet the intent’s “deterministic” requirement and to rule out mixed real/fake timing that can still flake under load.
+
+2. Tighten the preservation criterion for real kill-path coverage by anchoring it to the existing watchdog integration test file/path instead of paraphrasing the behavior. This is required by the spec guidance for behavior-preserving criteria and keeps the contract tied to the actual pinned coverage.
+
+3. Replace the soft “meaningfully below `iterationTimeoutMs`” expectation with a concrete bound or an anchored existing asserted threshold. The intent explicitly says not to weaken the assertion, so the acceptance criteria must make the required numeric check reviewable rather than subjective.
+
+4. Make the documentation expectation conditional on scope: if the change stays a local test-only hook, inline doc-comments are enough; if it introduces a reusable timing abstraction or durable internal contract, the spec must require the durable doc update in the proper `v2/docs/` home. This avoids under-documenting a new architectural seam while still honoring the “no speculative doc churn” constraint.

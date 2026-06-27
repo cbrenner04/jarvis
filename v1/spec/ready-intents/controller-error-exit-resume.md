@@ -26,5 +26,6 @@ persisted job so the resume route can continue it.
   v2 can deliberately revise toward in-loop recovery.
 
 ## Prerequisites
+
 - the controller executes a workflow via existing jarvis commands
 - the controller persists durable job state for a started job

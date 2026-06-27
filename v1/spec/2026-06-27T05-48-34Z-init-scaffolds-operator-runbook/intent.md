@@ -28,4 +28,5 @@ them. Don't auto-write recovery recipes jarvis can't know — stub them.
 Intake #598.
 
 ## Prerequisites
+
 - `jarvis init` registers a target project (root + origin) in the config registry

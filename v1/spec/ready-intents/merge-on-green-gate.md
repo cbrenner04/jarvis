@@ -30,4 +30,3 @@ star), per `v1/docs/operator-runbook.md`.
 - Target input forms beyond the current PR/branch.
 
 ## Prerequisites
-

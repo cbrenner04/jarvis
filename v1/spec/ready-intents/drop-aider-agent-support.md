@@ -29,4 +29,3 @@ typecheck stay green.
 - Changing the agent-adapter interface or fallback-ladder mechanics.
 
 ## Prerequisites
-

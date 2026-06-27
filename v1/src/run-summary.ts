@@ -251,8 +251,8 @@ function renderSummaryFromRecords(args: {
   patchIterations?: number;
   /** When true, emit `phase attempts:` instead of pairing iterations + attempts.*/
   planStyleHeaders?: boolean;
-  /** When true, cite the runbook section for failure exits.*/
-  citePatchRunbookOnFailure?: boolean | undefined;
+  /** Runbook section to cite after the exit-reason line; omit to suppress.*/
+  runbookSection?: string | null;
 }): string {
   const lines: string[] = [];
   lines.push(`─── ${args.labels.title} ───`);
@@ -261,12 +261,8 @@ function renderSummaryFromRecords(args: {
   }
   lines.push(`exit reason: ${args.exitReason}`);
 
-  if (args.citePatchRunbookOnFailure) {
-    const unsuffixedReason = args.exitReason.split(" (exit code")[0] ?? args.exitReason;
-    const runbookSection = mapExitReasonToRunbookSection(unsuffixedReason);
-    if (runbookSection !== null) {
-      lines.push(`see runbook: OPERATOR_RUNBOOK.md › ${runbookSection}`);
-    }
+  if (args.runbookSection) {
+    lines.push(`see runbook: OPERATOR_RUNBOOK.md › ${args.runbookSection}`);
   }
 
   const invocationAttempts = args.runRecords.filter(attemptLine).length;
@@ -507,12 +503,11 @@ function renderSummaryFromRecords(args: {
 export function runSummary(args: RunSummaryArgs): string {
   const unsuffixedReason = args.exitReason.split(" (exit code")[0] ?? args.exitReason;
   const runbookSection = mapExitReasonToRunbookSection(unsuffixedReason);
-  const runbookPointer = runbookSection !== null ? `see runbook: OPERATOR_RUNBOOK.md › ${runbookSection}` : "";
 
   if (args.telemetryPath === null || !existsSync(args.telemetryPath)) {
     const lines = ["─── run summary ───", `spec: ${args.specPath}`, `exit reason: ${args.exitReason}`];
-    if (runbookPointer) {
-      lines.push(runbookPointer);
+    if (runbookSection !== null) {
+      lines.push(`see runbook: OPERATOR_RUNBOOK.md › ${runbookSection}`);
     }
     lines.push(
       `iterations: ${args.iterations}`,
@@ -545,7 +540,7 @@ export function runSummary(args: RunSummaryArgs): string {
     },
     patchIterations: args.iterations,
     planStyleHeaders: false,
-    citePatchRunbookOnFailure: true,
+    runbookSection,
   });
 }
 

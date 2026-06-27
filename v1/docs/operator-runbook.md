@@ -199,6 +199,21 @@ When a `git: false` (no-commit) run is interrupted before completion, **Jarvis n
 
 The operator **no longer reverts checkboxes or strips blockers by hand** — just re-run with the same spec path: `jarvis1 run <spec>`.
 
+## External-spec git-backed re-runs
+
+For external specs authored by `plan.commit:false`, a re-run in normal git-backed patch mode (`git:true`) now does more than the loop-only reset above.
+
+If the spec is still incomplete and the active subspec still has unchecked non-human-only acceptance criteria, Jarvis first resets the source-spec checklist/blocker delta, then treats any prior patch workspace as stale **only when** `.worktree/<spec-name>/.jarvis.lock` is not held by a live process.
+
+On that stale path Jarvis:
+
+- closes the single matching **draft** PR for branch `<spec-name>` when one exists
+- refuses cleanup if the matching open PR is ready/non-draft or if multiple open PRs match
+- deletes `.worktree/<spec-name>/`, the local `<spec-name>` branch, and `origin/<spec-name>`
+- recreates a fresh `<spec-name>` worktree/branch from the current base branch before agent invocation
+
+If any cleanup step fails, the run stops before invoking an agent. This path is specific to external `plan.commit:false` specs re-run with `git:true`; ordinary in-repo resumes still reuse the existing patch worktree/branch, and `git:false` re-runs still do only the source-spec auto-reset above.
+
 ## Sandbox blindness and false-negatives
 
 The sandbox (e.g. in Claude Code) can hide real state.

@@ -1,12 +1,14 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { isProcessAlive, type WorktreeLock } from "../../../../shared/worktree-lock.ts";
 import { branchExistsOnOrigin } from "../../../../shared/git.ts";
-import { type PatchTier, parseRunnableIndexTier } from "../../../../shared/spec-parser.ts";
+import { parseSpec, type PatchTier, parseRunnableIndexTier } from "../../../../shared/spec-parser.ts";
 import { createAgent } from "../../agents/factory.ts";
 import type { Agent } from "../../agents/types.ts";
 import { readGitOriginUrl } from "../../commands/init.ts";
 import {
+  CONFIG_DIR,
   type Config,
   effectiveGit,
   filterAgentsByCapabilityFloor,
@@ -16,9 +18,20 @@ import {
   resolveSubRoleAgentOrder,
   setProjectOrigin,
 } from "../../config.ts";
-import { assertGhReady } from "../../gh.ts";
-import { bestEffortFetch, getSpecName } from "../../worktree.ts";
-import { acquireWorktreeLock } from "../../worktree-lock.ts";
+import { assertGhReady, withSyncTransientRetry } from "../../gh.ts";
+import { closePr, findMatchingOpenPrs } from "../../pr.ts";
+import {
+  bestEffortFetch,
+  deleteLocalBranch,
+  deleteRemoteBranch,
+  getPatchWorktreePath,
+  getSpecName,
+  removePatchWorktree,
+} from "../../worktree.ts";
+import { acquireWorktreeLock, getWorktreeLockPath } from "../../worktree-lock.ts";
+import { computeProjectSafeId } from "../plan/spec-paths.ts";
+import { applyReset, clearDelta, loadDelta } from "./no-commit-delta.ts";
+import { getActiveLinkedSubspecPath } from "./completion.ts";
 import { countUnchecked } from "./completion.ts";
 import type { PreflightOk, RunCommandOptions, RunIo } from "./run.ts";
 
@@ -151,6 +164,20 @@ export async function resolveModeSpecificPreflight(
     }
   }
 
+  const cleanupSpecPath = deriveCleanupSpecPath(initialSpecPath);
+  const trackSourceSpecDelta = isJarvisManagedExternalSpecPath(cleanupSpecPath, project, opts.config?.dir);
+  if (gitEnabled && trackSourceSpecDelta) {
+    resetTrackedSourceSpecDelta(cleanupSpecPath);
+    const cleanupResult = await maybeCleanupStaleExternalSpecWorkspace({
+      projectRoot: project.root,
+      specPath: cleanupSpecPath,
+      io: opts.io,
+    });
+    if (cleanupResult.kind === "error") {
+      return cleanupResult;
+    }
+  }
+
   let agentWorkingDir = cwdOverride ?? project.root;
   let worktreeLocked = false;
   let stalepidRecovered: number | undefined;
@@ -248,7 +275,129 @@ export async function resolveModeSpecificPreflight(
     specPath,
     additionalReadDirs,
     patchTier: resolvedPatchTier.tier,
+    trackSourceSpecDelta,
   };
+}
+
+function deriveCleanupSpecPath(specPath: string): string {
+  if (basename(specPath) === "index.md") {
+    return specPath;
+  }
+  const siblingIndex = resolve(dirname(specPath), "index.md");
+  return existsSync(siblingIndex) ? siblingIndex : specPath;
+}
+
+function isJarvisManagedExternalSpecPath(specPath: string, project: ProjectMatch, configDir?: string): boolean {
+  const expectedRoot = join(configDir ?? CONFIG_DIR, "specs", computeProjectSafeId(project), getSpecName(specPath));
+  return dirname(resolve(specPath)) === expectedRoot;
+}
+
+function hasUncheckedAutomatedCriteria(indexPath: string): boolean {
+  const parsedIndex = parseSpec(readFileSync(indexPath, "utf8"));
+  const activeSubspec = parsedIndex.linkedSubspecs.find((item) => !item.checked);
+  if (activeSubspec === undefined) {
+    return false;
+  }
+  const activeSubspecPath = resolve(dirname(indexPath), activeSubspec.path);
+  const parsedSubspec = parseSpec(readFileSync(activeSubspecPath, "utf8"));
+  return parsedSubspec.acceptanceCriteria.some((criterion) => !criterion.checked && !criterion.humanOnly);
+}
+
+function resetTrackedSourceSpecDelta(indexPath: string): void {
+  const activeSubspecPath = getActiveLinkedSubspecPath(indexPath);
+  if (activeSubspecPath === undefined) {
+    return;
+  }
+  const priorDelta = loadDelta(activeSubspecPath);
+  if (priorDelta === null) {
+    return;
+  }
+  applyReset(activeSubspecPath, priorDelta);
+  clearDelta(activeSubspecPath);
+}
+
+function readLiveWorktreeLock(worktreePath: string): WorktreeLock | null {
+  const lockPath = getWorktreeLockPath(worktreePath);
+  if (!existsSync(lockPath)) {
+    return null;
+  }
+  try {
+    const lock = JSON.parse(readFileSync(lockPath, "utf8")) as WorktreeLock;
+    return isProcessAlive(lock.pid) ? lock : null;
+  } catch {
+    return null;
+  }
+}
+
+async function maybeCleanupStaleExternalSpecWorkspace(args: {
+  projectRoot: string;
+  specPath: string;
+  io: RunIo;
+}): Promise<{ kind: "ok" } | { kind: "error"; exitCode: number }> {
+  if (!hasUncheckedAutomatedCriteria(args.specPath)) {
+    return { kind: "ok" };
+  }
+
+  const specName = getSpecName(args.specPath);
+  const worktreePath = getPatchWorktreePath(args.projectRoot, specName);
+  const liveLock = readLiveWorktreeLock(worktreePath);
+  if (liveLock !== null) {
+    args.io.stderr(`worktree is in use by process ${liveLock.pid} (started at ${liveLock.started_at})\n`);
+    return { kind: "error", exitCode: 9 };
+  }
+
+  bestEffortFetch(args.projectRoot);
+
+  let matchingOpenPrs;
+  try {
+    matchingOpenPrs = findMatchingOpenPrs(specName, args.projectRoot);
+  } catch (err) {
+    args.io.stderr(`failed to inspect stale PR state for branch ${specName}: ${(err as Error).message}\n`);
+    return { kind: "error", exitCode: 1 };
+  }
+
+  if (matchingOpenPrs.length > 1) {
+    args.io.stderr(`unsafe PR state for branch ${specName}: multiple open PRs match; refusing cleanup\n`);
+    return { kind: "error", exitCode: 1 };
+  }
+
+  const matchingPr = matchingOpenPrs[0];
+  if (matchingPr !== undefined && !matchingPr.isDraft) {
+    args.io.stderr(`unsafe PR state for branch ${specName}: matching open PR #${matchingPr.number} is not draft\n`);
+    return { kind: "error", exitCode: 1 };
+  }
+
+  if (matchingPr !== undefined) {
+    try {
+      withSyncTransientRetry(() => closePr(matchingPr.number, args.projectRoot), { op: "gh pr close" });
+    } catch (err) {
+      args.io.stderr(`failed to close stale draft PR #${matchingPr.number} for branch ${specName}: ${(err as Error).message}\n`);
+      return { kind: "error", exitCode: 1 };
+    }
+  }
+
+  try {
+    removePatchWorktree(args.projectRoot, specName);
+  } catch (err) {
+    args.io.stderr(`failed to remove stale worktree for ${specName}: ${(err as Error).message}\n`);
+    return { kind: "error", exitCode: 1 };
+  }
+
+  try {
+    deleteLocalBranch(args.projectRoot, specName);
+  } catch (err) {
+    args.io.stderr(`failed to remove stale local branch ${specName}: ${(err as Error).message}\n`);
+    return { kind: "error", exitCode: 1 };
+  }
+
+  try {
+    deleteRemoteBranch(args.projectRoot, specName);
+  } catch (err) {
+    args.io.stderr(`failed to remove stale remote branch origin/${specName}: ${(err as Error).message}\n`);
+    return { kind: "error", exitCode: 1 };
+  }
+
+  return { kind: "ok" };
 }
 
 function deriveSpecNameFromPath(specPath: string): string {

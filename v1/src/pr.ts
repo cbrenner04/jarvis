@@ -15,6 +15,27 @@ export type EnsureDraftPrOpts = {
   cwd?: string;
 };
 
+type HeadRepositoryJson = {
+  name?: string;
+};
+
+type HeadRepositoryOwnerJson = {
+  login?: string;
+};
+
+type OpenPrJson = {
+  number?: number;
+  isDraft?: boolean;
+  headRefName?: string;
+  headRepository?: HeadRepositoryJson | null;
+  headRepositoryOwner?: HeadRepositoryOwnerJson | null;
+};
+
+export type MatchingOpenPr = {
+  number: number;
+  isDraft: boolean;
+};
+
 export async function ensureDraftPr(opts: EnsureDraftPrOpts): Promise<{ number: number; created: boolean }> {
   const existingPr = checkPrExists(opts.branch, opts.cwd);
   if (existingPr) {
@@ -47,6 +68,31 @@ export function checkPrExists(branch: string, cwd?: string): number | null {
   }
 }
 
+export function findMatchingOpenPrs(branch: string, cwd?: string): MatchingOpenPr[] {
+  const repoFullName = readCurrentRepoFullName(cwd);
+  const output = execFileSync(
+    "gh",
+    ["pr", "list", "--state", "open", "--json", "number,isDraft,headRefName,headRepository,headRepositoryOwner"],
+    { cwd, env: process.env, stdio: "pipe", encoding: "utf8" },
+  ).trim();
+  const parsed = output === "" ? [] : (JSON.parse(output) as OpenPrJson[]);
+  return parsed
+    .filter((pr) => matchesCurrentRepoHead(pr, branch, repoFullName))
+    .map((pr) => ({
+      number: pr.number ?? 0,
+      isDraft: pr.isDraft ?? false,
+    }))
+    .filter((pr) => pr.number > 0);
+}
+
+export function closePr(prNumber: number, cwd?: string): void {
+  execFileSync("gh", ["pr", "close", String(prNumber)], {
+    cwd,
+    env: process.env,
+    stdio: "pipe",
+  });
+}
+
 function createDraftPr(branch: string, base: string, title: string, body: string, cwd?: string): number {
   execFileSync("gh", ["pr", "create", "--draft", "--base", base, "--head", branch, "--title", title, "--body", body], {
     cwd,
@@ -64,6 +110,34 @@ function createDraftPr(branch: string, base: string, title: string, body: string
     throw new Error("failed to parse PR number from gh output");
   }
   return number;
+}
+
+function readCurrentRepoFullName(cwd?: string): string {
+  const output = execFileSync("gh", ["repo", "view", "--json", "owner,name"], {
+    cwd,
+    env: process.env,
+    stdio: "pipe",
+    encoding: "utf8",
+  }).trim();
+  const parsed = JSON.parse(output) as { owner?: { login?: string }; name?: string };
+  const owner = parsed.owner?.login?.trim();
+  const name = parsed.name?.trim();
+  if (!owner || !name) {
+    throw new Error("failed to determine current GitHub repository");
+  }
+  return `${owner}/${name}`;
+}
+
+function matchesCurrentRepoHead(pr: OpenPrJson, branch: string, repoFullName: string): boolean {
+  if (pr.headRefName !== branch) {
+    return false;
+  }
+  const owner = pr.headRepositoryOwner?.login?.trim();
+  const repo = pr.headRepository?.name?.trim();
+  if (!owner || !repo) {
+    return false;
+  }
+  return `${owner}/${repo}` === repoFullName;
 }
 
 /**

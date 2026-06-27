@@ -38,6 +38,7 @@ export type PreflightOk = {
   specPath: string;
   additionalReadDirs: string[] | undefined;
   patchTier: PatchTier;
+  trackSourceSpecDelta: boolean;
 };
 
 export type CompletionReadyGateResult = { kind: "green" } | { kind: "red"; failureText: string; retryable?: boolean };

@@ -15,9 +15,13 @@ export function getSpecName(specPath: string): string {
   return dir.split("/").at(-1) ?? "spec";
 }
 
+export function getPatchWorktreePath(projectRoot: string, specName: string): string {
+  return join(projectRoot, ".worktree", specName);
+}
+
 export async function ensureWorktree(projectRoot: string, specPath: string): Promise<string> {
   const specName = getSpecName(specPath);
-  const worktreePath = join(projectRoot, ".worktree", specName);
+  const worktreePath = getPatchWorktreePath(projectRoot, specName);
 
   // Resumed runs can be launched from the patch worktree itself. Reuse that
   // checkout instead of trying to create another worktree for the same branch.
@@ -220,6 +224,56 @@ export function bestEffortFetch(projectRoot: string): void {
     });
   } catch {
     // fetch might fail if no origin or no network, but we continue anyway
+  }
+}
+
+export function removePatchWorktree(projectRoot: string, specName: string): void {
+  const worktreePath = getPatchWorktreePath(projectRoot, specName);
+  if (!existsSync(worktreePath)) {
+    return;
+  }
+  execFileSync("git", ["worktree", "remove", "--force", worktreePath], {
+    cwd: projectRoot,
+    stdio: "pipe",
+  });
+  if (existsSync(worktreePath)) {
+    throw new Error(`worktree still exists at ${worktreePath}`);
+  }
+}
+
+export function deleteLocalBranch(projectRoot: string, branchName: string): void {
+  if (!branchExistsLocal(projectRoot, branchName)) {
+    return;
+  }
+  execFileSync("git", ["branch", "-D", branchName], {
+    cwd: projectRoot,
+    stdio: "pipe",
+  });
+  if (branchExistsLocal(projectRoot, branchName)) {
+    throw new Error(`local branch ${branchName} still exists`);
+  }
+}
+
+export function deleteRemoteBranch(projectRoot: string, branchName: string): void {
+  if (!branchExistsOnOrigin(projectRoot, branchName)) {
+    return;
+  }
+  withSyncTransientRetry(
+    () => {
+      execFileSync("git", ["push", "origin", "--delete", branchName], {
+        cwd: projectRoot,
+        env: process.env,
+        stdio: "pipe",
+      });
+    },
+    { op: "git push origin --delete" },
+  );
+  execFileSync("git", ["fetch", "origin", "--prune"], {
+    cwd: projectRoot,
+    stdio: "pipe",
+  });
+  if (branchExistsOnOrigin(projectRoot, branchName)) {
+    throw new Error(`remote branch origin/${branchName} still exists`);
   }
 }
 

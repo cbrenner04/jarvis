@@ -36,12 +36,12 @@ remote-tracking ref is used intentionally); the fallback fires only when no
 
 ## Acceptance criteria
 
-- [ ] A new patch worktree (`run`, neither branch nor worktree exists) created while the local base ref is behind `origin/<base>` starts at the `origin/<base>` tip, not the stale local commit.
-- [ ] A new plan/intent/prompt worktree created while the local base ref is behind `origin/<base>` starts at the `origin/<base>` tip.
-- [ ] With no remote `origin` configured, new-branch creation still proceeds and starts at the local base ref.
-- [ ] With `origin/<base>` absent locally (never fetched), new-branch creation still proceeds and starts at the local base ref.
-- [ ] Resume/existing-branch paths (local or remote branch already named for the worktree) are unchanged: their start point is the existing branch, not the base.
-- [ ] `v1/test/plan-worktree.test.ts` stays green (existing creation behavior unchanged by the start-point change).
+- [x] A new patch worktree (`run`, neither branch nor worktree exists) created while the local base ref is behind `origin/<base>` starts at the `origin/<base>` tip, not the stale local commit.
+- [x] A new plan/intent/prompt worktree created while the local base ref is behind `origin/<base>` starts at the `origin/<base>` tip.
+- [x] With no remote `origin` configured, new-branch creation still proceeds and starts at the local base ref.
+- [x] With `origin/<base>` absent locally (never fetched), new-branch creation still proceeds and starts at the local base ref.
+- [x] Resume/existing-branch paths (local or remote branch already named for the worktree) are unchanged: their start point is the existing branch, not the base.
+- [x] `v1/test/plan-worktree.test.ts` stays green (existing creation behavior unchanged by the start-point change).
 
 ## Documentation updates
 

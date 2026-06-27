@@ -58,6 +58,13 @@ export function getPatchWorktreePath(projectRoot: string, specName: string): str
   return join(projectRoot, ".worktree", specName);
 }
 
+function getBranchCreationArgs(projectRoot: string, branchName: string, baseBranch: string): string[] {
+  if (branchExistsOnOrigin(projectRoot, baseBranch)) {
+    return ["--no-track", branchName, `origin/${baseBranch}`];
+  }
+  return [branchName, baseBranch];
+}
+
 export async function ensureWorktree(projectRoot: string, specPath: string): Promise<string> {
   const specName = getSpecName(specPath);
   const worktreePath = getPatchWorktreePath(projectRoot, specName);
@@ -104,7 +111,7 @@ export async function ensureWorktree(projectRoot: string, specPath: string): Pro
     });
   } else {
     const baseBranch = await getBaseBranch(projectRoot);
-    execFileSync("git", ["branch", specName, baseBranch], {
+    execFileSync("git", ["branch", ...getBranchCreationArgs(projectRoot, specName, baseBranch)], {
       cwd: projectRoot,
       stdio: "pipe",
     });
@@ -161,7 +168,7 @@ async function createManagedWorktree(opts: CreateManagedWorktreeOptions): Promis
     });
   } else {
     const baseBranch = opts.baseBranch ?? (await getBaseBranch(opts.projectRoot));
-    execFileSync("git", ["branch", branchName, baseBranch], {
+    execFileSync("git", ["branch", ...getBranchCreationArgs(opts.projectRoot, branchName, baseBranch)], {
       cwd: opts.projectRoot,
       stdio: "pipe",
     });

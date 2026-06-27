@@ -25,6 +25,7 @@ export type IntentCommandOptions = {
   config?: { dir?: string };
   logClient?: LogClient;
   createAgent?: (agentName: AgentName, model: string | undefined) => Agent;
+  markdownlintHarnessRoot?: string | null;
 };
 
 type IntentInvocationCommon = {
@@ -339,7 +340,7 @@ function repairIntentFile(path: string, slug: string): void {
   // Repair Prerequisites section: trim trailing blank lines before appending to fix MD012
   if (!hasPrerequisitesSection(text)) {
     // Trim trailing blank lines before appending
-    text = text.replace(/\n+$/, "") + "\n\n## Prerequisites\n";
+    text = `${text.replace(/\n+$/, "")}\n\n## Prerequisites\n`;
     modified = true;
   }
 
@@ -354,7 +355,10 @@ function repairIntentFile(path: string, slug: string): void {
   }
 }
 
-function resolveHarnessRoot(): string | null {
+function resolveHarnessRoot(override?: string | null): string | null {
+  if (override !== undefined) {
+    return override;
+  }
   let current = import.meta.dir;
   const maxDepth = 10;
   let depth = 0;
@@ -383,10 +387,14 @@ function resolveHarnessRoot(): string | null {
   return null;
 }
 
-function runMarkdownlintAutofix(stagingDir: string): void {
-  const harnessRoot = resolveHarnessRoot();
+function runMarkdownlintAutofix(
+  stagingDir: string,
+  warn: (message: string) => void,
+  harnessRootOverride?: string | null,
+): void {
+  const harnessRoot = resolveHarnessRoot(harnessRootOverride);
   if (harnessRoot === null) {
-    process.stderr.write("warning: could not locate markdownlint binary; skipping autofix\n");
+    warn("warning: could not locate markdownlint binary; skipping autofix\n");
     return;
   }
 
@@ -394,12 +402,12 @@ function runMarkdownlintAutofix(stagingDir: string): void {
   const configPath = join(harnessRoot, ".markdownlint-cli2.jsonc");
 
   if (!existsSync(binaryPath)) {
-    process.stderr.write("warning: markdownlint binary not found; skipping autofix\n");
+    warn("warning: markdownlint binary not found; skipping autofix\n");
     return;
   }
 
   if (!existsSync(configPath)) {
-    process.stderr.write("warning: markdownlint config not found; skipping autofix\n");
+    warn("warning: markdownlint config not found; skipping autofix\n");
     return;
   }
 
@@ -415,15 +423,24 @@ function runMarkdownlintAutofix(stagingDir: string): void {
       stdio: "pipe",
     });
   } catch (err) {
-    // Ignore nonzero exit from residual violations; only warn on spawn failure
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      process.stderr.write("warning: bun executable not found; skipping markdownlint autofix\n");
+    // Residual lint violations return a status code; subprocess launch failures do not.
+    const spawnError = err as NodeJS.ErrnoException & { status?: number | null };
+    if (typeof spawnError.status === "number") {
+      return;
     }
-    // Other errors (e.g., from residual violations) are silently ignored
+    if (spawnError.code === "ENOENT") {
+      warn("warning: bun executable not found; skipping markdownlint autofix\n");
+      return;
+    }
+    warn(`warning: could not run markdownlint autofix (${spawnError.code ?? "spawn failed"}); skipping autofix\n`);
   }
 }
 
-function repairIntentStageContent(stagingDir: string): void {
+function repairIntentStageContent(
+  stagingDir: string,
+  warn: (message: string) => void,
+  harnessRootOverride?: string | null,
+): void {
   const files = listStageMarkdownFiles(stagingDir);
   for (const path of files) {
     const slug = basename(path, ".md");
@@ -431,7 +448,7 @@ function repairIntentStageContent(stagingDir: string): void {
   }
 
   // Run markdownlint autofix as a general net over any markdown violations
-  runMarkdownlintAutofix(stagingDir);
+  runMarkdownlintAutofix(stagingDir, warn, harnessRootOverride);
 }
 
 function validateIntentFilenames(files: string[]):
@@ -531,6 +548,8 @@ function gateIntentStage(
 function validateIntentStage(
   stagingDir: string,
   modifiedPaths: string[],
+  warn: (message: string) => void,
+  harnessRootOverride?: string | null,
 ):
   | {
       ok: true;
@@ -542,7 +561,7 @@ function validateIntentStage(
     return gating;
   }
 
-  repairIntentStageContent(stagingDir);
+  repairIntentStageContent(stagingDir, warn, harnessRootOverride);
   return validateIntentStageContent(gating.intents);
 }
 
@@ -806,7 +825,7 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
         return 1;
       }
 
-      repairIntentStageContent(externalStageDir);
+      repairIntentStageContent(externalStageDir, opts.io.stderr, opts.markdownlintHarnessRoot);
 
       const validation = validateIntentStageContent(filenameValidation.intents);
       if (!validation.ok) {
@@ -893,7 +912,12 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
       return 1;
     }
 
-    const validation = validateIntentStage(stageDir, listModifiedPaths(worktreePath));
+    const validation = validateIntentStage(
+      stageDir,
+      listModifiedPaths(worktreePath),
+      opts.io.stderr,
+      opts.markdownlintHarnessRoot,
+    );
     if (!validation.ok) {
       opts.io.stderr(`${validation.error}\n`);
       return 1;

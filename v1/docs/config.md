@@ -112,6 +112,8 @@ The optional `modes.plan.commit` boolean (default `true`) controls where plan-mo
 
 **`false`:** Plan specs are authored in Jarvis-owned storage at `~/.jarvis/specs/<project-safe-id>/<spec-dir>/` outside the target repository. No git worktree, branch, commits, or PR are created. Plan mode runs directly in the target repo root. The generated spec includes a `repo:` binding so `jarvis run` can resolve the target repository later. Use this mode when specs should not be committed to the repo or when you want to generate and immediately execute a spec without the PR review cycle.
 
+`jarvis1 cleanup` still removes the merged git worktree for a `commit:false` implementation branch, but archives the spec from the external home instead: `~/.jarvis/specs/<project-safe-id>/<name>/` moves to `~/.jarvis/specs/<project-safe-id>/completed/<name>/`, and `ready-intents/<branch-slug>.md` is pruned when present. This external archive is a plain filesystem move; no git commit is created.
+
 ## Plan CLI flags (not in config)
 
 `--review-passes` is a per-invocation CLI flag only; it is not stored in `config.json`. `--review-passes` defaults to `modes.review.passes` (currently `1`). Full semantics: [plan-mode.md](./plan-mode.md#flags).

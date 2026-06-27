@@ -71,6 +71,7 @@ class SplitAgent implements Agent {
     | "repair-no-frontmatter"
     | "repair-missing-name"
     | "repair-missing-prerequisites"
+    | "repair-prerequisites-spacing"
     | "repair-unterminated-frontmatter"
     | "repair-near-miss-prerequisites"
     | "repair-empty-name";
@@ -90,6 +91,7 @@ class SplitAgent implements Agent {
       | "repair-no-frontmatter"
       | "repair-missing-name"
       | "repair-missing-prerequisites"
+      | "repair-prerequisites-spacing"
       | "repair-unterminated-frontmatter"
       | "repair-near-miss-prerequisites"
       | "repair-empty-name",
@@ -181,6 +183,23 @@ name: missing-prereqs
 ## Intent
 
 Should have Prerequisites added.
+`,
+        "utf8",
+      );
+      return { kind: "ok", stdout: "", stderr: "" };
+    }
+    if (this.#mode === "repair-prerequisites-spacing") {
+      writeFileSync(
+        join(stageDir, "spacing.md"),
+        `---
+name: spacing
+---
+
+## Intent
+
+Should normalize spacing around prerequisites.
+## Prerequisites
+- first dependency
 `,
         "utf8",
       );
@@ -418,6 +437,7 @@ function createSplitAgentFactory(
       | "repair-no-frontmatter"
       | "repair-missing-name"
       | "repair-missing-prerequisites"
+      | "repair-prerequisites-spacing"
       | "repair-unterminated-frontmatter"
       | "repair-near-miss-prerequisites"
       | "repair-empty-name"
@@ -1064,6 +1084,29 @@ describe("intentCommand", () => {
       const lines = content.split("\n");
       const lastContent = lines.filter((line) => line.trim()).pop();
       expect(lastContent).toBe("## Prerequisites");
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("repair: prerequisites heading spacing is normalized", async () => {
+    const env = setupEnv();
+    try {
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "repair-prerequisites-spacing" }),
+      });
+      expect(code).toBe(0);
+      const worktree = findIntentWorktree(env.projectRoot);
+      const content = readFileSync(join(worktree, "spec", "ready-intents", "spacing.md"), "utf8");
+      expect(content).toContain(
+        "Should normalize spacing around prerequisites.\n\n## Prerequisites\n\n- first dependency",
+      );
     } finally {
       env.cleanup();
     }

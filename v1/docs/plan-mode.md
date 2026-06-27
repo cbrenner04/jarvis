@@ -151,7 +151,7 @@ Rendered prompt snapshots for this phase are reviewed from revision-keyed fixtur
 
 **Blocker handling:** If the agent appends a `## Blocker` section to `intent.md` during draft, the draft files are first committed as `plan: draft` (per the normal commit shape above) and then a separate `plan: blocker` commit captures the blocker; plan mode stops (see [Stop conditions](#stop-conditions)).
 
-**Index cleanup:** After `validateDraftOutput` succeeds, jarvis strips non-contract lines from `index.md`. The index contract is an H1 title, the subspec checklist items (matching `parseIndex`'s grammar), and blank lines; everything else is removed. This prevents stray agent-written metadata (e.g., `repo:` lines, prose) from persisting in the merged spec. When `commit: false`, any agent-written `repo:` line is stripped before the programmatic `repo:` binding is injected. A one-line stderr notice is emitted when ≥1 lines are removed; the cleanup no-ops when `index.md` is absent.
+**Index cleanup:** After `validateDraftOutput` succeeds, jarvis strips non-contract lines from `index.md`. The index contract is an H1 title, the subspec checklist items (matching `parseIndex`'s grammar), and single blank-line separators; everything else is removed, and repeated blank runs collapse to one blank line. This prevents stray agent-written metadata (e.g., `repo:` lines, prose) from persisting in the merged spec. When `commit: false`, any agent-written `repo:` line is stripped before the programmatic `repo:` binding is injected. A one-line stderr notice is emitted when ≥1 non-contract lines are removed; the cleanup no-ops when `index.md` is absent.
 
 ### Phase 2: Self-review
 
@@ -418,7 +418,7 @@ Every successful `jarvis1 plan` invocation prints a next-steps block that:
 jarvis1 cleanup
 ```
 
-The command discovers merged git worktrees, removes them locally, then attempts to archive committed specs by moving them from the configured plan `targetDir` to `<targetDir>/completed/` (see authoritative rules in **[Worktrees: Cleanup](./worktrees-and-commits.md#cleanup)**). For plan branches, cleanup first checks `<targetDir>/<plan-name>/`, then falls back to a timestamped `<targetDir>/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/` directory.
+The command discovers merged git worktrees, removes them locally, then archives the linked spec from its home (see authoritative rules in **[Worktrees: Cleanup](./worktrees-and-commits.md#cleanup)**). For `commit: true`, cleanup moves the in-repo spec from its resolved home (`<targetDir>`, `v1/spec`, or `v2/spec`) to that home's `completed/` dir; for plan branches it first checks `<home>/<plan-name>/`, then falls back to a timestamped `<home>/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/` dir. For `commit: false`, cleanup moves `~/.jarvis/specs/<project-safe-id>/<name>/` to `~/.jarvis/specs/<project-safe-id>/completed/<name>/` and prunes `ready-intents/<branch-slug>.md` when present, with no git commit.
 
 Manual teardown (when needed outside the automatic pre-commit failure cleanup or the `jarvis1 cleanup` command):
 
@@ -429,9 +429,9 @@ git branch -D plan/<plan-name>
 
 ### With `commit: false` (external specs)
 
-No-commit specs in Jarvis-owned storage (`~/.jarvis/specs/…`) are **not** automatically cleaned up. They persist as local artifacts for future reference and can be re-run with `jarvis1 run` at any time.
+No-commit specs in Jarvis-owned storage (`~/.jarvis/specs/…`) persist until the associated merged worktree is cleaned up or the operator removes them manually. They can be re-run with `jarvis1 run` at any time before archival.
 
-**On success:** The spec tree and its `index.md` are left untouched for future re-runs.
+**On success:** The spec tree and its `index.md` are left untouched until `jarvis1 cleanup` archives them into `~/.jarvis/specs/<project-safe-id>/completed/`. Cleanup also prunes the consumed `ready-intents/<branch-slug>.md` when present.
 
 **On failure:** When `commit: false` plan phases fail (draft, review, validation, quota, model configuration, boundary violation, or interrupt), the named external spec directory and its `intent.md` are preserved; failure output prints the preserved directory path (e.g., `Spec preserved at ~/.jarvis/specs/…`) adjacent to the error. The only exception is if the `intent.md` write itself fails before the `Intent:` line is printed — in that case, the abandoned pre-`intent.md` spec directory is removed and no breadcrumb is emitted (the operator did not yet receive an `Intent:` path, so there is no external artifact to preserve).
 
@@ -442,7 +442,7 @@ To remove an external no-commit spec:
 rm -rf ~/.jarvis/specs/<project-key>/<spec-dir>/
 ```
 
-The `jarvis1 cleanup` command does not delete Jarvis-owned external specs; it only handles git worktrees and target-repo `spec/` directories from `commit: true` runs.
+`jarvis1 cleanup` archives Jarvis-owned external specs for merged `commit:false` worktrees, but manual removal is still available when you want to discard an unmerged or otherwise orphaned external spec.
 
 ## External spec directory write access
 

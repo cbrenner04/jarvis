@@ -3438,6 +3438,11 @@ exit 1
       return { kind: "ok", stdout: "", stderr: "" };
     });
 
+    // Pin template narrative behavior to ensure agent-call count expectations stay valid
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.modes.patch.prNarrative = "template";
+    writeConfig(cfg, { dir: cfgDir });
+
     const code = await runCommand(
       disableReviewByDefault({
         specPath: spec,
@@ -3468,7 +3473,7 @@ exit 1
       .split("\n");
     expect(subspecShas).toHaveLength(2);
     const body = readFileSync(prBody, "utf8");
-    // With default prNarrative: "template", narrative is generated from subspecs and commits
+    // With template prNarrative, narrative is generated from subspecs and commits
     expect(body).toContain("# Feature\n");
     expect(body).toContain("## Subspecs\n");
     expect(body).toContain("- 00 - One\n");
@@ -3496,7 +3501,7 @@ exit 1
     expect(subjects).toEqual(["00 - One", "01 - Two"]);
   });
 
-  test("uses fallback PR body when deterministic spec body is empty", async () => {
+  test("uses fallback PR body when deterministic spec body is empty (with template prNarrative)", async () => {
     const origin = join(dir, "origin.git");
     execSync(`git init --bare ${origin}`);
     execSync("git init -b main", { cwd: projectRoot });
@@ -3598,6 +3603,11 @@ exit 1
       return { kind: "ok", stdout: "", stderr: "" };
     });
 
+    // Pin template narrative behavior
+    const cfg2 = loadConfig({ dir: cfgDir });
+    cfg2.modes.patch.prNarrative = "template";
+    writeConfig(cfg2, { dir: cfgDir });
+
     const code = await runCommand(
       disableReviewByDefault({
         specPath: spec,
@@ -3618,7 +3628,7 @@ exit 1
     // Completion runs `full`; shrink pre-gate and maybeMarkReady run `fast` on unchanged tree.
     expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual(["full", "fast", "fast"]);
     const body = readFileSync(prBody, "utf8");
-    // With default prNarrative: "template", narrative is generated from subspecs and commits
+    // With template prNarrative, narrative is generated from subspecs and commits
     expect(body).toContain("## Subspecs\n");
     expect(body).toContain("- 00 - One\n");
     expect(body).toContain("## Commits\n");

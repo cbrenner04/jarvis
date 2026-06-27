@@ -1,0 +1,9 @@
+- Clarify exact scope. The spec must say this cleanup applies only when re-running an incomplete spec authored under `plan.commit:false` and then implemented in git-backed patch mode, not to ordinary in-repo spec resumes and not to `git:false` loop-only runs. This is necessary because current durable docs already use “no-commit” for a different reset behavior, so loose wording risks the wrong code path and wrong docs.
+
+- Define the stale-run gate. The spec must state when Jarvis is allowed to treat prior worktree/branch/PR state as stale and auto-delete it, and when it must refuse because another run may still be live. This is necessary because the intended cleanup is destructive; the draft currently says what to delete, but not the condition that makes deletion safe.
+
+- Pin branch reset semantics completely, including the remote branch. The spec must state whether the rerun removes, reuses, or errors on any existing `origin/<branch>` state and what “fresh worktree/branch” means in the presence of a surviving remote ref. This is necessary because leaving remote-branch behavior implicit makes the reset outcome observable and collision-prone.
+
+- Pin PR matching and cleanup boundaries. The spec must define how Jarvis identifies the stale PR to close and what happens when PR state is not the happy path: multiple PRs for the branch, non-draft PRs, already-closed PRs, or operator-mutated branch/PR state. This is necessary because “matching stale draft PR” is too ambiguous for a destructive cleanup contract.
+
+- Update all durable homes that define rerun/worktree semantics. The spec already includes the runbook and `v2/docs/v1-behaviors.md`; it must also cover the worktree/branch resume contract in `v1/docs/worktrees-and-commits.md` because this change introduces an exception to the documented reuse behavior. This is necessary under the repo’s documentation rules: operator-facing workflow semantics must stay aligned in their durable home.

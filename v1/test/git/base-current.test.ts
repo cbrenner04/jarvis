@@ -37,7 +37,7 @@ function installShims(opts: {
     ghPath,
     [
       "#!/bin/sh",
-      `printf 'gh %s\\n' \"$*\" >> \"${logPath}\"`,
+      `printf 'gh %s\\n' "$*" >> "${logPath}"`,
       `printf '%s' '${(opts.ghStdout ?? "main").replace(/'/g, "'\\''")}'`,
       `exit ${opts.ghExitCode ?? 0}`,
       "",
@@ -49,7 +49,7 @@ function installShims(opts: {
     gitPath,
     [
       "#!/bin/sh",
-      `printf 'git %s\\n' \"$*\" >> \"${logPath}\"`,
+      `printf 'git %s\\n' "$*" >> "${logPath}"`,
       'if [ "$1" = "fetch" ]; then',
       `  exit ${opts.fetchExitCode ?? 0}`,
       "fi",

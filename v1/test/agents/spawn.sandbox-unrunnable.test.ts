@@ -209,14 +209,15 @@ describe("runAgent transient retry", () => {
   };
 
   const noOpSleep = async () => {};
+  const recordSleep =
+    (recordedSleeps: number[]) =>
+    async (delayMs: number): Promise<void> => {
+      recordedSleeps.push(delayMs);
+    };
 
-  test(
-    "transient-then-success returns ok with no advancement",
-    async () => {
-      setup();
-      try {
-        const bin = join(dir, "agent");
-        const script = `#!/usr/bin/env bash
+  const writeCountedRetryBinary = (onFirstFailureStderr: string) => {
+    const bin = join(dir, "agent");
+    const script = `#!/usr/bin/env bash
 if [ -f "${dir}/call-count" ]; then
   COUNT=$(cat "${dir}/call-count")
 else
@@ -225,14 +226,23 @@ fi
 COUNT=$((COUNT + 1))
 echo $COUNT > "${dir}/call-count"
 if [ $COUNT -eq 1 ]; then
-  printf 'error: connection closed' 1>&2
+  printf ${JSON.stringify(onFirstFailureStderr)} 1>&2
   exit 1
 fi
 printf 'success'
 exit 0
 `;
-        writeFileSync(bin, script);
-        chmodSync(bin, 0o755);
+    writeFileSync(bin, script);
+    chmodSync(bin, 0o755);
+    return bin;
+  };
+
+  test(
+    "transient-then-success returns ok with no advancement",
+    async () => {
+      setup();
+      try {
+        const bin = writeCountedRetryBinary("error: connection closed");
 
         const result = await runAgent(
           {
@@ -293,9 +303,7 @@ exit 1
           "test",
           {
             cwd: realpathSync(cwd),
-            sleepMs: async (delayMs) => {
-              recordedSleeps.push(delayMs);
-            },
+            sleepMs: recordSleep(recordedSleeps),
           },
         );
 
@@ -314,24 +322,7 @@ exit 1
     async () => {
       setup();
       try {
-        const bin = join(dir, "agent");
-        const script = `#!/usr/bin/env bash
-if [ -f "${dir}/call-count" ]; then
-  COUNT=$(cat "${dir}/call-count")
-else
-  COUNT=0
-fi
-COUNT=$((COUNT + 1))
-echo $COUNT > "${dir}/call-count"
-if [ $COUNT -eq 1 ]; then
-  printf 'opencode: UnknownError: HTTP 500 Internal Server Error' 1>&2
-  exit 1
-fi
-printf 'success'
-exit 0
-`;
-        writeFileSync(bin, script);
-        chmodSync(bin, 0o755);
+        const bin = writeCountedRetryBinary("opencode: UnknownError: HTTP 500 Internal Server Error");
 
         const retries: Array<{ attempt: number; cap: number; exitCode: number }> = [];
         const recordedSleeps: number[] = [];
@@ -347,9 +338,7 @@ exit 0
           "test",
           {
             cwd: realpathSync(cwd),
-            sleepMs: async (delayMs) => {
-              recordedSleeps.push(delayMs);
-            },
+            sleepMs: recordSleep(recordedSleeps),
             onTransientRetry: ({ attempt, cap, exitCode }) => {
               retries.push({ attempt, cap, exitCode });
             },

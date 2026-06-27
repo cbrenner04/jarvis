@@ -40,15 +40,15 @@ pre-check errors — distinct from unresolvable targets at classification time.
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 triage <worktree-name> --merge` behavior is unchanged from the merge-on-green-gate spec (existing `triage-command.test.ts` `--merge` cases stay green).
-- [ ] `jarvis1 triage <spec-path> --merge` resolves the worktree backing that spec (index or subspec path) and admin-squash-merges its open PR when gates pass.
-- [ ] `jarvis1 triage <pr-ref> --merge` resolves the worktree whose branch heads the referenced open PR and admin-squash-merges when gates pass (`#N`, bare `N`, and `https://github.com/<owner>/<repo>/pull/N` forms).
-- [ ] An unresolvable target (unknown worktree name, spec with no backing worktree, PR with no local worktree, closed/missing PR at resolution) prints a clear stderr message naming the input and exits non-zero without calling `gh pr merge`.
-- [ ] An ambiguous target (multiple worktrees match the spec path) prints a clear stderr message listing the candidates and exits non-zero without merging.
-- [ ] When multiple open PRs share the head branch resolved from a PR reference (or from the resolved worktree branch at merge pre-check), refusal matches existing cleanup/triage `findMatchingOpenPrs` semantics: clear stderr, exit non-zero, no merge.
-- [ ] `gh` transport or auth failure during PR-reference lookup prints a clear stderr message and exits non-zero without calling `gh pr merge`.
-- [ ] When a bare integer matches both a worktree directory name and a PR number, the worktree-name interpretation wins and merge proceeds against that worktree's PR.
-- [ ] `jarvis1 triage --mark-ready <spec-path>` and plain `jarvis1 triage <spec-path>` remain worktree-name-only (spec path without a matching worktree directory name still reports `unknown worktree`).
+- [x] `jarvis1 triage <worktree-name> --merge` behavior is unchanged from the merge-on-green-gate spec (existing `triage-command.test.ts` `--merge` cases stay green).
+- [x] `jarvis1 triage <spec-path> --merge` resolves the worktree backing that spec (index or subspec path) and admin-squash-merges its open PR when gates pass.
+- [x] `jarvis1 triage <pr-ref> --merge` resolves the worktree whose branch heads the referenced open PR and admin-squash-merges when gates pass (`#N`, bare `N`, and `https://github.com/<owner>/<repo>/pull/N` forms).
+- [x] An unresolvable target (unknown worktree name, spec with no backing worktree, PR with no local worktree, closed/missing PR at resolution) prints a clear stderr message naming the input and exits non-zero without calling `gh pr merge`.
+- [x] An ambiguous target (multiple worktrees match the spec path) prints a clear stderr message listing the candidates and exits non-zero without merging.
+- [x] When multiple open PRs share the head branch resolved from a PR reference (or from the resolved worktree branch at merge pre-check), refusal matches existing cleanup/triage `findMatchingOpenPrs` semantics: clear stderr, exit non-zero, no merge.
+- [x] `gh` transport or auth failure during PR-reference lookup prints a clear stderr message and exits non-zero without calling `gh pr merge`.
+- [x] When a bare integer matches both a worktree directory name and a PR number, the worktree-name interpretation wins and merge proceeds against that worktree's PR.
+- [x] `jarvis1 triage --mark-ready <spec-path>` and plain `jarvis1 triage <spec-path>` remain worktree-name-only (spec path without a matching worktree directory name still reports `unknown worktree`).
 
 ## Documentation updates
 

@@ -1,129 +1,88 @@
-# Verdict: refinements required before implementation
+# Verdict: refinements required
 
-The spec correctly targets the core problem (reorder `runReadyAndCommit` to fix → commit → strict ready) and centralizes change through the shared helper. It is **not implementation-ready**: several behavioral contracts the prior `ready-and-fix-scripts` work deliberately deferred to harness changes are still unspecified, and shipped docs still describe post-ready dirty-tree commits that this spec deletes without replacement.
+The spec pins the core fix → commit-if-dirty → strict-ready contract, prerequisites, retry taxonomy, recorded-green timing, plan/`readyCommand` boundaries, and primary doc ACs. It is **not implementation-ready** until the gaps below are closed.
 
 ---
 
 ## Required refinements
 
-### 1. Custom `readyCommand` dirty-on-green outcome
+### 1. `firstRedBaselineSha` / stuck-red discard vs harness fix commits
 
-**Outcome:** Pin what happens when a custom `readyCommand` returns green but leaves dirty porcelain.
+**Outcome:** Pin how baseline capture and stuck-red discard interact with a successful harness fix commit so the “do not revert harness fix commits” decision is mechanically satisfiable.
 
-- Green + dirty → hard error; abort before `gh pr ready` — rules out retaining the post-ready commit path and rules out silently leaving a dirty tree.
-- Harness does not run `bun run fix` for custom overrides; override is verification-only — rules out treating override as autofix entrypoint.
+**Why:** Baseline is captured on the first completion-gate red at current HEAD. A retryable fix-command red can set baseline before fix commits; a later ready red plus stuck-red discard can `git reset --hard` to that baseline and drop the fix commit. The spec states the outcome but not the capture/discard rule that prevents it.
 
-**Rationale:** Durable docs (`worktrees-and-commits.md`, `v1-behaviors.md`) and current code both assume post-green dirty-tree commit for overrides. Deleting that path without a replacement contract is a behavior change operators with `readyCommand` will hit.
-
----
-
-### 2. Fix invocation and commit gating
-
-**Outcome:** Resolve the conflict between decisions ("always fix"), intent ("when worktree needs autofix"), and AC #1 ("with fixable changes").
-
-- `full` tier always invokes `bun run fix` before verification — rules out skipping fix on a clean tree.
-- Fix commit runs only when porcelain is non-empty after fix — rules out empty commits on no-op fix.
-- Non-zero fix exit aborts before verification and before `gh pr ready` — rules out proceeding after failed fix (extend AC #2 to cover fix-command failure, not only commit/push/dirty).
-
-**Rationale:** Without these pins, implementers can diverge on skip-vs-always and commit-vs-no-commit with no failing AC.
+**Rules out:** Baseline-at-first-red with no carve-out for harness fix commits.
 
 ---
 
-### 3. Completion-gate retry semantics under new order
+### 2. Custom `readyCommand` green + dirty — AC wording vs always-fix-on-full
 
-**Outcome:** Update the completion retry contract for fix → commit-if-dirty → ready.
+**Outcome:** Rephrase the green+dirty acceptance criterion so it is unambiguous that on **`full`** tier the harness **always** runs built-in `bun run fix` before verification (including when `readyCommand` is set); the override replaces verification only; green verification with dirty porcelain aborts without a second harness fix pass to absorb override dirt.
 
-- Retry re-runs the full `full`-tier sequence — rules out ready-only retry after a successful fix-commit.
-- Fix-command failure is retryable (same class as today's `ReadyCommandError`) — rules out fail-fast on first transient fix flake.
-- Fix-commit, push, and post-commit-dirty failures stay non-retryable — rules out weakening today's post-commit abort contract.
-- Red `ready` after successful fix-commit leaves the fix commit on branch; retries do not revert it — rules out implicit rollback between attempts.
-- `firstRedBaselineSha` and stuck-red discard do not revert harness fix commits — rules out treating autofix commits as fix-up churn to discard.
+**Why:** Current AC #3 (“without running harness fix for the override”) reads like skipping harness fix when an override is configured, contradicting AC #1/#10 and the decisions block.
 
-**Rationale:** `run-loop.md` and `v1-behaviors.md` describe retry reusing uncommitted custom-`readyCommand` dirt; that model is incompatible with pre-ready fix commits.
+**Rules out:** Implementers or operators inferring “no harness fix when `readyCommand` is set.”
 
 ---
 
-### 4. Completion-gate pre-ready failure operator contract
+### 3. Green + dirty abort — tier scope
 
-**Outcome:** Pin exit behavior for fix/commit/push/post-commit-dirty failures on the completion gate.
+**Outcome:** Pin whether green verification + dirty porcelain abort applies on **`full` only** (preserving today’s `fast` tier: no dirty check, no commit) or on **both** tiers.
 
-- Same non-retryable, operator-intervention class as today's post-ready commit failure (exit `6` on completion gate) — rules out new exit codes or silent draft-PR continuation.
+**Why:** `fast` today returns after verification with no porcelain check. The spec pins the abort outcome but not tier scope; implementers must guess.
 
-**Rationale:** AC #2 pins observable outcomes but not exit classification; this is load-bearing operator behavior referenced in `run-loop.md` exit tables.
-
----
-
-### 5. Recorded-green carrier semantics
-
-**Outcome:** Pin when the green carrier is recorded relative to fix commit.
-
-- Recorded-green HEAD is captured only after a successful full gate (strict `ready` green), with clean porcelain — rules out recording green after fix commit but before verification.
-
-**Rationale:** Fix-commit advances HEAD mid-gate; without this pin, `fast`-tier carrier reuse could be wrong.
+**Rules out:** Silent extension to `fast` or silent continuation of dirty override greens on `fast`.
 
 ---
 
-### 6. Plan-mode and override boundaries
+### 4. Durable docs: `config.md` and `workflows.md`
 
-**Outcome:** Record explicit boundaries for plan and config overrides.
+**Outcome:** Add acceptance criteria and documentation-update entries for:
 
-- Plan-mode full-tier gate uses built-in `bun run fix` + built-in `bun run ready`; `readyCommand` stays unwired — rules out plan skipping harness fix.
-- No `fixCommand` config knob; autofix is always built-in `bun run fix` on `full` tier — rules out per-project fix override in this spec.
-- Operators who encoded autofix inside `readyCommand` must fold autofix into their command or accept harness fix + their verification — record as migration note, not harness bug.
+- `v1/docs/config.md` — on **`full`**, harness runs `bun run fix` before `readyCommand`; override is verification-only.
+- `v1/docs/workflows.md` — completion-gate narrative matches fix → commit-if-dirty → ready (cross-link primary home or dedupe per `v2/docs/documentation-standard.md`).
 
-**Rationale:** Plan call site does not thread `readyCommand` today; explicit pin prevents accidental plan-only verification without fix.
+**Why:** Both still describe post-ready dirty commits or override-only gates. Doc ACs cover `run-loop.md`, `plan-mode.md`, and `v1-behaviors.md` but leave authoritative contradicting homes.
 
----
-
-### 7. Operator-facing error text and types
-
-**Outcome:** Require alignment of error types, `instanceof` retry classification, and stderr messages with pre-ready fix semantics.
-
-- Rename or re-message `ReadyCheckFixCommitError` / push errors and "post-ready dirty-output" text — rules out misleading operator guidance after path deletion.
-
-**Rationale:** `completion-pipeline.ts` branches on these types for retry vs exit-6; stale wording is an operator-facing defect.
+**Rules out:** Checkbox pass with stale config/workflow prose.
 
 ---
 
-### 8. Documentation acceptance criteria (documentation-standard compliance)
+### 5. Completion-gate retry documentation — beyond step reorder
 
-**Outcome:** Extend doc ACs beyond the three named files so no durable home contradicts the new order.
+**Outcome:** Task (and doc AC enforcement) must require replacing completion-gate retry prose that describes reusing uncommitted custom-`readyCommand` dirt with the fix-commit-persists-across-ready-reds model.
 
-- Add `v1/docs/run-loop.md` (completion-transition gate, numbered gate list, exit-6 exception for post-ready commit) — rules out leaving the primary loop doc stale.
-- Add `v1/docs/plan-mode.md` ready-transition bullet — rules out plan doc implying built-in-ready dirty commit.
-- Broaden `v1/docs/v1-behaviors.md` AC to cover completion retry, red-path commit failure, triage `--mark-ready`/`--merge` gate path, and recorded-green timing — rules out partial baseline update.
-- `operator-runbook.md` AC: align gate-order prose and cross-link `v2/docs/v1-behaviors.md`; remove stale autofix-commit caveat only if present — rules out chasing nonexistent intent prose (current runbook documents `lint:md`/CI gap, not autofix commits).
+**Why:** `run-loop.md` still documents dirty-reuse on retry (~304–305, ~500–502). Doc AC names retry semantics but tasks risk order-only edits leaving incompatible narrative.
 
-**Rationale:** Per `v2/docs/documentation-standard.md`, behavior must have one durable home with cross-links; multiple v1 docs still describe post-ready dirty commits.
+**Rules out:** Updated step list with stale dirty-reuse retry explanation.
 
 ---
 
-### 9. Prerequisites section
+### 6. `RunReadyAndCommitOpts` / seam contract
 
-**Outcome:** Add `## Prerequisites` citing strict `bun run ready` and `bun run fix` from merged `ready-and-fix-scripts` work.
+**Outcome:** Add an explicit task requiring opts, seam names, inject sites, and comments to reflect pre-ready fix/commit semantics (not post-ready dirty output).
 
-- Rules out implementing on a checkout where built-in scripts are still mutating-ready.
+**Why:** `ready-gate.ts` opts and `commitCheckFix` seam encode post-ready behavior; structure is load-bearing for tests and implementers.
 
-**Rationale:** Intent declares prerequisites; spec-guidance treats them as validation gates for plan-generated specs.
-
----
-
-### 10. Acceptance criteria — behavioral coverage beyond file names
-
-**Outcome:** Add or sharpen ACs so checkbox compliance cannot pass without pinning order and failure branches.
-
-- Fix-before-ready ordering is asserted (not only that five test files exist).
-- Fix-command failure branch is covered in tests.
-- Custom `readyCommand` green + dirty → abort is covered.
-- Triage `--mark-ready`/`--merge` full-tier ordering through `runReadyAndCommit` is behaviorally asserted (AC #5 names call sites; add observable ordering AC or require it in `triage-command.test.ts`).
-
-**Rationale:** Harness specs may name test files when structure is the contract, but file-list ACs alone have produced checkbox compliance without branch coverage elsewhere in this repo.
+**Rules out:** Reordered logic behind stale post-ready API surface.
 
 ---
 
-## Not required (upheld as out of scope or defensible)
+## Recommended (cheap; not blocking implementation)
 
-- `fixCommand` config override — correctly deferred; record "no override" as decision, do not implement.
-- Single-subspec shape — acceptable given cohesive blast radius through `runReadyAndCommit`.
-- Fix commit message wording — intent allows successor; optional one-line default only.
-- Index vs subspec title mismatch — cosmetic.
+- **Triage gate failures:** Pin that triage `--mark-ready`/`--merge` pre-ready fix/commit/push/dirty failures stay exit `1` with no retry loop (ordering only is pinned today).
+- **Fix-commit trailers:** Pin that fix commits preserve per-call-site `agentLabel` trailer threading.
+- **Non-completion call sites:** Pin that pre-ready failures throw the same error types/messages; exit-code mapping stays caller-specific (completion `6`, triage `1`, etc.).
+
+---
+
+## Upheld as adequately pinned (no further refinement)
+
+- Always `bun run fix` on `full`; commit only when porcelain non-empty after fix; abort on fix/commit/push/post-commit-dirty before verification and `gh pr ready`.
+- Post-ready dirty-tree commit path deleted.
+- Completion retry: full sequence re-run; fix-command retryable; commit/push/dirty non-retryable; fix commits persist across ready reds.
+- Completion-gate pre-ready failures exit `6`.
+- Recorded-green only after successful full verification with clean porcelain.
+- Plan uses built-in fix + ready; no `fixCommand` knob; `fast` unchanged.
+- Prerequisites, error-type/message alignment, expanded primary doc ACs, and behavioral test AC #13.

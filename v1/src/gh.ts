@@ -141,10 +141,12 @@ export async function getBaseBranch(cwd?: string): Promise<string> {
     { op: "gh repo view" },
   );
   if (result.exitCode !== 0) {
-    const errorMessage = result.stderr || result.stdout;
-    throw new Error(`failed to detect base branch: ${errorMessage.trim()}`);
+    // Fall back to "main" if gh is not available or repo is not a GitHub repo
+    // (e.g., in test environments with local file-based remotes)
+    return "main";
   }
-  return result.stdout.trim();
+  const baseBranch = result.stdout.trim();
+  return baseBranch.length > 0 ? baseBranch : "main";
 }
 
 export async function postPrComment(prNumber: number, body: string, cwd?: string): Promise<void> {

@@ -36,16 +36,16 @@ preserving any committed WIP branch for resume.
 
 ## Acceptance criteria
 
-- [ ] A `jarvis1 run <index.md>` against a spec whose worktree+branch is an iter-0 orphan (branch at base, zero commits ahead) starts cleanly without the operator running `git worktree remove --force` or `git branch -D` first.
-- [ ] When the residual branch has commits (a WIP branch from agent-error), the re-run preserves it and resumes from the WIP commit rather than retiring it.
-- [ ] Agent litter (untracked files including gitignored ones, e.g. `test_output.txt`) in the resumed/recreated worktree is cleared before the agent's first iteration.
-- [ ] When `git worktree remove --force` or `git branch -D` fails during orphan retirement, the run aborts with a named error and does not recreate onto a half-removed worktree.
-- [ ] New tests in `v1/test` cover orphan-retired-and-recreated, WIP-branch-preserved-and-resumed, litter-cleared (gitignored file gone in a resumed WIP worktree), and retirement-failure-aborts.
-- [ ] `v1/test/plan-worktree.test.ts` "reuses a checkout already on the patch spec branch" stays green (non-orphan reuse behavior unchanged).
+- [x] A `jarvis1 run <index.md>` against a spec whose worktree+branch is an iter-0 orphan (branch at base, zero commits ahead) starts cleanly without the operator running `git worktree remove --force` or `git branch -D` first.
+- [x] When the residual branch has commits (a WIP branch from agent-error), the re-run preserves it and resumes from the WIP commit rather than retiring it.
+- [x] Agent litter (untracked files including gitignored ones, e.g. `test_output.txt`) in the resumed/recreated worktree is cleared before the agent's first iteration.
+- [x] When `git worktree remove --force` or `git branch -D` fails during orphan retirement, the run aborts with a named error and does not recreate onto a half-removed worktree.
+- [x] New tests in `v1/test` cover orphan-retired-and-recreated, WIP-branch-preserved-and-resumed, litter-cleared (gitignored file gone in a resumed WIP worktree), and retirement-failure-aborts.
+- [x] `v1/test/plan-worktree.test.ts` "reuses a checkout already on the patch spec branch" stays green (non-orphan reuse behavior unchanged).
 
 ## Documentation updates
 
-- [ ] `v1/docs/run-loop.md`: document re-run normalization — orphan worktree/branch retired, WIP branch resumed, litter cleared — under the resume / re-run behavior section.
-- [ ] `v1/docs/worktrees-and-commits.md`: note the re-run orphan-retire and litter-clear in the worktree lifecycle.
-- [ ] `v1/docs/operator-runbook.md`: drop/adjust the manual `git worktree remove --force` + `git branch -D` recovery step now that re-run handles it.
-- [ ] `v2/docs/v1-behaviors.md`: record re-run orphan retirement, WIP preservation, and litter clearing as current v1 behavior.
+- [x] `v1/docs/run-loop.md`: document re-run normalization — orphan worktree/branch retired, WIP branch resumed, litter cleared — under the resume / re-run behavior section.
+- [x] `v1/docs/worktrees-and-commits.md`: note the re-run orphan-retire and litter-clear in the worktree lifecycle.
+- [x] `v1/docs/operator-runbook.md`: drop/adjust the manual `git worktree remove --force` + `git branch -D` recovery step now that re-run handles it.
+- [x] `v2/docs/v1-behaviors.md`: record re-run orphan retirement, WIP preservation, and litter clearing as current v1 behavior.

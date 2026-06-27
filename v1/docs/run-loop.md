@@ -682,6 +682,43 @@ Combining `--cwd` with `git: true` exits 1 with a message explaining the
 constraint. Spec resolution still proceeds normally; only the agent `cwd`
 changes.
 
+### Re-run worktree normalization
+
+When re-running a spec (`jarvis1 run <spec-path>` on an already-run spec),
+Jarvis normalizes the residual git state before starting:
+
+**Orphan worktree/branch retirement (iter-0 recovery)**
+
+After an agent-error exit, `ensureWorktree` may leave a worktree and branch
+sitting at the base branch with zero commits ahead (an orphan state). On re-run,
+Jarvis detects this orphan: if the branch exists locally and the worktree exists
+on disk, but the branch has zero commits ahead of the base branch, Jarvis retires
+both automatically:
+1. Remove the orphan worktree with `git worktree remove --force`
+2. Delete the orphan branch with `git branch -D`
+3. Create a fresh worktree and branch
+
+This avoids requiring manual `git worktree remove --force` + `git branch -D`
+before re-run. On failure (e.g., branch checked out elsewhere, filesystem
+permissions), the run aborts with a named error.
+
+**WIP branch preservation**
+
+If the residual branch has commits (a WIP branch created by the first agent
+iteration before the error), the run preserves it and resumes from the WIP commit
+rather than retiring and recreating.
+
+**Litter clearing**
+
+Before the agent's first iteration on a resumed or recreated worktree, Jarvis
+clears untracked files including gitignored ones (`git clean -fdx`). This
+removes stale agent artifacts (test output, logs, cache files) left from the
+prior incomplete run while preserving all committed work and the worktree
+structure.
+
+This normalization applies only to `git: true` runs. `git: false` (no-commit)
+runs keep the delta-reset behavior from [No-commit re-run auto-reset](#no-commit-re-run-auto-reset).
+
 ## Patch mode model selection
 
 Patch mode selects the model declared on the chosen agent's

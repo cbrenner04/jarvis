@@ -35,11 +35,19 @@ the draft PR never receives the work.
 
 When re-running a spec:
 
-- **Worktree and branch both exist**: reuse both.
+- **Worktree and branch both exist**:
+  - If the branch is an orphan (zero commits ahead of base): retire both
+    (`git worktree remove --force` + `git branch -D`) and create fresh.
+  - If the branch has commits (WIP from a prior incomplete run): reuse both,
+    clear litter (`git clean -fdx`), and resume from the WIP commit.
 - **Worktree missing, branch exists locally or remotely**: recreate worktree
-  on the existing branch.
+  on the existing branch, clear litter.
 - **Neither exist**: create new branch off the detected base branch and new
   worktree.
+
+Orphan-retirement failures (e.g., branch checked out in another worktree,
+filesystem permissions) abort with a named error. This self-service recovery
+avoids requiring manual git commands before re-run.
 
 ## Review-feedback worktrees
 

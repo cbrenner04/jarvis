@@ -41,3 +41,7 @@ Source: Phase 3 scope (4) in `v2/spec/seeds/phase-3-daemon-host.md`; build-order
 ## Prerequisites
 
 - Daemon programmatic run-control API over IPC (start/list/tail/pause/resume/kill with steering semantics and per-(project,branch) guard)
+
+## Blocker
+
+- **Daemon programmatic run-control API over IPC** — not observable in committed `v2/src` code or tests. Only planning artifacts exist (`v2/spec/ready-intents/daemon-run-control-api.md`, `v2/spec/seeds/phase-3-daemon-host.md`). Merge the run-control API implementation (and its upstream IPC/log prerequisites) before drafting this CLI spec.

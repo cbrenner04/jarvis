@@ -200,7 +200,10 @@ function createStalePatchBranch(specName: string): string {
   return worktreePath;
 }
 
-function installCleanupGhStub(prListJson: string, opts?: { failClose?: boolean }): { closeLog: string; oldPath: string } {
+function installCleanupGhStub(
+  prListJson: string,
+  opts?: { failClose?: boolean },
+): { closeLog: string; oldPath: string } {
   const binDir = join(dir, "bin-cleanup");
   mkdirSync(binDir, { recursive: true });
   const gh = join(binDir, "gh");

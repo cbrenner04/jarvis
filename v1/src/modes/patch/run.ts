@@ -348,8 +348,9 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
 
     // Warn about Claude pool contention if the selected primary agent is Claude
     // and there are live Jarvis-owned operator/orchestration sessions using Claude.
-    if (activeAgents.length > 0) {
-      warnAboutPoolContentionIfDetected(activeAgents[0]!, logging.sendLog);
+    const [primaryAgent] = activeAgents;
+    if (primaryAgent !== undefined) {
+      warnAboutPoolContentionIfDetected(primaryAgent, logging.sendLog);
     }
 
     while (true) {

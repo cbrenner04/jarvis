@@ -1,9 +1,9 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { isProcessAlive, type WorktreeLock } from "../../../../shared/worktree-lock.ts";
 import { branchExistsOnOrigin } from "../../../../shared/git.ts";
-import { parseSpec, type PatchTier, parseRunnableIndexTier } from "../../../../shared/spec-parser.ts";
+import { type PatchTier, parseRunnableIndexTier, parseSpec } from "../../../../shared/spec-parser.ts";
+import { isProcessAlive, type WorktreeLock } from "../../../../shared/worktree-lock.ts";
 import { createAgent } from "../../agents/factory.ts";
 import type { Agent } from "../../agents/types.ts";
 import { readGitOriginUrl } from "../../commands/init.ts";
@@ -19,7 +19,7 @@ import {
   setProjectOrigin,
 } from "../../config.ts";
 import { assertGhReady, withSyncTransientRetry } from "../../gh.ts";
-import { closePr, findMatchingOpenPrs } from "../../pr.ts";
+import { closePr, findMatchingOpenPrs, type MatchingOpenPr } from "../../pr.ts";
 import {
   bestEffortFetch,
   deleteLocalBranch,
@@ -30,9 +30,8 @@ import {
 } from "../../worktree.ts";
 import { acquireWorktreeLock, getWorktreeLockPath } from "../../worktree-lock.ts";
 import { computeProjectSafeId } from "../plan/spec-paths.ts";
+import { countUnchecked, getActiveLinkedSubspecPath } from "./completion.ts";
 import { applyReset, clearDelta, loadDelta } from "./no-commit-delta.ts";
-import { getActiveLinkedSubspecPath } from "./completion.ts";
-import { countUnchecked } from "./completion.ts";
 import type { PreflightOk, RunCommandOptions, RunIo } from "./run.ts";
 
 type PreflightResult = PreflightOk | { kind: "error"; exitCode: number } | { kind: "exit"; exitCode: number };
@@ -348,7 +347,7 @@ async function maybeCleanupStaleExternalSpecWorkspace(args: {
 
   bestEffortFetch(args.projectRoot);
 
-  let matchingOpenPrs;
+  let matchingOpenPrs: MatchingOpenPr[];
   try {
     matchingOpenPrs = findMatchingOpenPrs(specName, args.projectRoot);
   } catch (err) {
@@ -371,7 +370,9 @@ async function maybeCleanupStaleExternalSpecWorkspace(args: {
     try {
       withSyncTransientRetry(() => closePr(matchingPr.number, args.projectRoot), { op: "gh pr close" });
     } catch (err) {
-      args.io.stderr(`failed to close stale draft PR #${matchingPr.number} for branch ${specName}: ${(err as Error).message}\n`);
+      args.io.stderr(
+        `failed to close stale draft PR #${matchingPr.number} for branch ${specName}: ${(err as Error).message}\n`,
+      );
       return { kind: "error", exitCode: 1 };
     }
   }

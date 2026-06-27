@@ -145,7 +145,11 @@ describe("pool contention detection", () => {
     warnAboutPoolContentionIfDetected(claudeAgent, sendLog, { listProcessesFn: mockListProcesses });
 
     expect(loggedMessages.length).toBe(1);
-    const warning = loggedMessages[0]!;
+    const warning = loggedMessages[0];
+    expect(warning).toBeDefined();
+    if (warning === undefined) {
+      throw new Error("expected contention warning");
+    }
     expect(warning.tag).toBe("harness");
     expect(warning.text).toContain("shares Claude pool");
     expect(warning.text).toContain("Pause the competing session");

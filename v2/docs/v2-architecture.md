@@ -208,9 +208,12 @@ a server/runner world (pause + route to a human loop vs. process exit).
   on memory than a web UI (matters with concurrent agents + the local model) and
   works over SSH to the work machine without port-forwarding. Richer clients
   (web) can be added later over the same API.
-- **Logs need improvement, but later.** Structured, queryable logging (per the
-  vision) is the eventual target; the first cut can stream the existing log shape
-  and improve from there.
+- **Observability log stream.** Structured event log (`iteration_started`,
+  `boundary_committed`, `loop_finished`) keyed by run ID, queryable by sink +
+  reader interfaces. Appended directly by the write loop; not part of the
+  orchestration store. Consumers query via `tail` (snapshot of persisted events)
+  or `follow` (replay from seq 1, then stream new events until aborted). See
+  `log-stream.ts` for inline contracts.
 - **Entry is explicit workflow selection.** A run starts by naming a workflow +
   target over the API/CLI. A natural-language prompt router — `jarvis "<intent>"`
   that classifies free text and routes to a workflow (new run) or an existing run
@@ -223,6 +226,13 @@ Steering (the API surface the TUI drives):
 - **Scope is pause / resume / kill.** That's the steering vocabulary to build
   now. Anything richer — edit a spec mid-run, inject a message, reorder steps —
   is guessing the future; defer until a real need shows up.
+
+Observability (log follow interface):
+
+- **`follow` replays from the beginning, then streams new.** The reader iterates
+  all persisted events from seq 1 onward, then blocks for new appends. No
+  offset/cursor API — consumers filter post-hoc via the `seq` field on
+  `PersistedRecord`. Honour `AbortSignal` for clean shutdown.
 
 ## Runs, state & the human loop
 
@@ -258,14 +268,18 @@ streams stay out of the orchestration store.
 
 ### Persistence
 
-- **SQLite under `~/.jarvis/state/v2.sqlite`.** A library-owned bootstrap opens
-  this file (or an explicit caller override for tests/temp stores) and applies
-  forward-only, idempotent migrations before repository operations are exposed.
-  The store is a host-agnostic library: correctness does not require daemon
-  single-writer ownership, lock policy, or WAL — those are runtime tuning the
-  daemon host can add later, not persistence prerequisites. The first durable
-  rows appear when the write loop needs to resume; the store is not built before
-  a consumer reads it.
+- **SQLite under `~/.jarvis/state/v2.sqlite` for orchestration state.**
+  A library-owned bootstrap opens this file (or an explicit caller override for
+  tests/temp stores) and applies forward-only, idempotent migrations before
+  repository operations are exposed. The store is a host-agnostic library:
+  correctness does not require daemon single-writer ownership, lock policy, or
+  WAL — those are runtime tuning the daemon host can add later, not persistence
+  prerequisites. The first durable rows appear when the write loop needs to
+  resume; the store is not built before a consumer reads it.
+- **Observability log stream stays separate from orchestration state.** The
+  structured event log is a distinct injectable artifact, not persisted in
+  `v2.sqlite`. Append/read/follow are stateless interfaces; log persistence is
+  independent of run recovery.
 - **Repository-style operations, no generic query layer.** The store exposes
   named operations at workflow boundaries (create a run, record a step start,
   commit a step boundary, load a run for resume, read step history) keyed by
@@ -293,10 +307,11 @@ streams stay out of the orchestration store.
   recovery path: never resume mid-step; replay from the last durable pre-step
   boundary. The write loop is the first consumer to need this; the daemon host
   later invokes the same recovery through its IPC surface without redefining it.
-- **Recovery derives from durable state, not in-memory flags.** The resume key
-  is `(project, branch)`. The next-step checkpoint on `runs` (or a terminal run
-  status when nothing remains) plus the durable attempt/outcome history
-  determine where a run resumes.
+- **Recovery derives from the orchestration store, not the observability log.**
+  The resume key is `(project, branch)`. The next-step checkpoint on `runs` (or
+  a terminal run status when nothing remains) plus the durable attempt/outcome
+  history in the orchestration store determine where a run resumes. The
+  observability log stream provides visibility, not recovery sourcing.
 - **Worktree is reconstructible; the branch is durable.** The branch and its
   commits are the durable artifact in git; the worktree path is only a pointer.
   Resume recreates a missing worktree from its branch — carrying forward v1's

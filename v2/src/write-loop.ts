@@ -1,6 +1,7 @@
 import { appendFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { getExternalWorktreePath } from "./external-worktree.ts";
+import type { LogSink } from "./log-stream.ts";
 import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } from "./state-store.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";
@@ -26,6 +27,7 @@ export type WriteLoopResult = {
 export type WriteLoopInput = WriteExecuteInput & {
   maxIterations?: number;
   stateStore?: StateStore;
+  logSink?: LogSink;
 };
 
 const DEFAULT_MAX_ITERATIONS = 10;
@@ -45,7 +47,10 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
   try {
     const prepared = prepareRun(args, store);
-    if ("result" in prepared) return prepared.result;
+    if ("result" in prepared) {
+      // Idempotent re-entry: return prior result with no log events
+      return prepared.result;
+    }
     const { runId, worktreePath } = prepared;
     let iterationsConsumed = 0;
     let resumedAttemptId = prepared.resumedAttemptId;
@@ -54,11 +59,17 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
     while (iterationsConsumed < maxIterations) {
       if (args.signal?.aborted) {
-        return { kind: "progress", runId, iterationsConsumed, resumable: true };
+        const result = { kind: "progress" as const, runId, iterationsConsumed, resumable: true };
+        args.logSink?.append(runId, { kind: "loop_finished", loopOutcomeKind: "progress", iterationsConsumed, resumable: true });
+        return result;
       }
 
       const attemptId = resumedAttemptId ?? store.recordAttemptStart(runId);
       resumedAttemptId = null;
+
+      // Emit iteration_started before executeWrite
+      args.logSink?.append(runId, { kind: "iteration_started", attemptId });
+
       const writeArgs: Parameters<typeof executeWrite>[0] = {
         worktree: args.worktree,
         specPath: args.specPath,
@@ -73,6 +84,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       if (result.kind === "progress") {
         store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
+        args.logSink?.append(runId, { kind: "boundary_committed", attemptId, outcomeKind: "progress", runStatus: "in-progress" });
         continue;
       }
 
@@ -82,10 +94,15 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       const terminal = terminalMapping(result);
       store.commitCompletionBoundary({ attemptId, runStatus: terminal.runStatus, outcomeKind: terminal.outcomeKind });
-      return { kind: terminal.kind, runId, iterationsConsumed, resumable: false };
+      args.logSink?.append(runId, { kind: "boundary_committed", attemptId, outcomeKind: terminal.outcomeKind, runStatus: terminal.runStatus });
+
+      const loopResult = { kind: terminal.kind, runId, iterationsConsumed, resumable: false };
+      args.logSink?.append(runId, { kind: "loop_finished", loopOutcomeKind: terminal.kind, iterationsConsumed, resumable: false });
+      return loopResult;
     }
 
     store.setRunStatus(runId, "budget-soft-stopped");
+    args.logSink?.append(runId, { kind: "loop_finished", loopOutcomeKind: "budget-exhausted", iterationsConsumed, resumable: true });
     return { kind: "budget-exhausted", runId, iterationsConsumed, resumable: true };
   } finally {
     if (!args.stateStore) {

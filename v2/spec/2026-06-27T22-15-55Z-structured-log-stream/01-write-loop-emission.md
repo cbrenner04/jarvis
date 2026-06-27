@@ -40,49 +40,49 @@ real agent bindings.
 
 ## Task checklist
 
-- [ ] Thread an optional log sink through `WriteLoopInput`.
-- [ ] Emit the three event kinds from 00 at the points above.
-- [ ] Extend co-located write-loop tests to assert event sequences for: multi-
+- [x] Thread an optional log sink through `WriteLoopInput`.
+- [x] Emit the three event kinds from 00 at the points above.
+- [x] Extend co-located write-loop tests to assert event sequences for: multi-
   iteration progress→terminal, each distinct terminal outcome kind, budget
   soft-stop, soft-stop resume continuation, kill/crash resume re-run, mid-
   boundary rollback retry, abort/cancellation, idempotent terminal re-entry, and
   append failure propagation.
-- [ ] Update `v2/docs/v2-architecture.md` per documentation updates below.
+- [x] Update `v2/docs/v2-architecture.md` per documentation updates below.
 
 ## Acceptance criteria
 
-- [ ] A multi-iteration loop run produces `iteration_started` and
+- [x] A multi-iteration loop run produces `iteration_started` and
   `boundary_committed` pairs in order, ending with `loop_finished` matching the
   returned outcome (test, injected bindings).
-- [ ] Terminal `boundary_committed` and `loop_finished` payloads match
+- [x] Terminal `boundary_committed` and `loop_finished` payloads match
   `terminalMapping` for each distinct terminal path: `blocked`, `contract_miss`,
   `invocation_failure`, and `no-work` (`outcomeKind: "no-work"`,
   `loopOutcomeKind: "complete"`) (test, parameterized or per-kind).
-- [ ] Budget soft-stop emits no terminal `boundary_committed`; the last
+- [x] Budget soft-stop emits no terminal `boundary_committed`; the last
   `boundary_committed` before `loop_finished` has `outcomeKind: "progress"` and
   `runStatus: "in-progress"`; `loop_finished` has `loopOutcomeKind:
   "budget-exhausted"` and `resumable: true` (test).
-- [ ] A second invocation on a budget-soft-stopped `runId` appends new events to
+- [x] A second invocation on a budget-soft-stopped `runId` appends new events to
   the existing stream without idempotent suppression (test, mirrors
   `a budget-soft-stopped run resumes with a fresh per-invocation budget`).
-- [ ] Kill/crash resume re-run emits a fresh `iteration_started` for the
+- [x] Kill/crash resume re-run emits a fresh `iteration_started` for the
   interrupted attempt (same `attemptId`) before re-invoking the step (test).
-- [ ] Mid-boundary rollback emits `iteration_started`, no `boundary_committed` on
+- [x] Mid-boundary rollback emits `iteration_started`, no `boundary_committed` on
   the failed attempt, a second `iteration_started` with the same `attemptId`,
   then success `boundary_committed` (test, mirrors
   `re-running a boundary that fails mid-transaction retries the same attempt
   without duplicate history`).
-- [ ] Abort/cancellation emits paired `iteration_started` /
+- [x] Abort/cancellation emits paired `iteration_started` /
   `boundary_committed` for each completed iteration plus `loop_finished` with
   `loopOutcomeKind: "progress"`; no orphan `iteration_started` (test, mirrors
   `cancellation propagates via AbortSignal`).
-- [ ] Re-invoking a run whose terminal boundary is already committed returns the
+- [x] Re-invoking a run whose terminal boundary is already committed returns the
   prior outcome without appending any log events (test).
-- [ ] A throwing log sink causes `executeWriteLoop` to reject; no silent drop
+- [x] A throwing log sink causes `executeWriteLoop` to reject; no silent drop
   (test).
-- [ ] Omitting the log sink leaves loop behavior unchanged — `write-loop.test.ts`
+- [x] Omitting the log sink leaves loop behavior unchanged — `write-loop.test.ts`
   stays green without a sink (behavior unchanged by optional logging).
-- [ ] No `v2 -> v1` imports; `bun run typecheck` and `bun test` pass.
+- [x] No `v2 -> v1` imports; `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

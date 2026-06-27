@@ -58,10 +58,7 @@ export function getPatchWorktreePath(projectRoot: string, specName: string): str
   return join(projectRoot, ".worktree", specName);
 }
 
-function getBranchStartPoint(
-  projectRoot: string,
-  baseBranch: string,
-): { args: string[]; startPoint: string } {
+function getBranchStartPoint(projectRoot: string, baseBranch: string): { args: string[]; startPoint: string } {
   if (branchExistsOnOrigin(projectRoot, baseBranch)) {
     return { args: ["--no-track"], startPoint: `origin/${baseBranch}` };
   }

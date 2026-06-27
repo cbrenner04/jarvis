@@ -6,9 +6,7 @@ import type { TriageIo } from "./triage.ts";
 
 const LABEL = "triage --merge";
 
-export type PrHeadLookupResult =
-  | { ok: true; headRef: string }
-  | { ok: false; message: string };
+export type PrHeadLookupResult = { ok: true; headRef: string } | { ok: false; message: string };
 
 export type MergeTargetResolutionSeams = {
   listWorktreeNames?: (worktreeDir: string) => string[];
@@ -18,9 +16,7 @@ export type MergeTargetResolutionSeams = {
   findMatchingOpenPrs?: (branch: string, cwd?: string) => MatchingOpenPr[];
 };
 
-export type MergeTargetResolution =
-  | { ok: true; worktreeName: string }
-  | { ok: false; code: number };
+export type MergeTargetResolution = { ok: true; worktreeName: string } | { ok: false; code: number };
 
 /**
  * Classify a `--merge` positional into a local patch worktree name.
@@ -118,9 +114,7 @@ function resolveWorktreeFromPrRef(args: {
   }
 
   if (matches.length === 0) {
-    args.io.stderr(
-      `${LABEL}: no local worktree for PR reference ${args.prRef} (branch ${lookup.headRef})\n`,
-    );
+    args.io.stderr(`${LABEL}: no local worktree for PR reference ${args.prRef} (branch ${lookup.headRef})\n`);
     return { ok: false, code: 1 };
   }
   if (matches.length > 1) {

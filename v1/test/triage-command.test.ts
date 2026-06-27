@@ -3,9 +3,9 @@ import { execSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { resolveMergeTarget } from "../src/commands/resolve-merge-target.ts";
 import type { SuggestedMovesInput, TriageGhRunner, TriageIo } from "../src/commands/triage.ts";
 import { getSuggestedMoves, triageCommand } from "../src/commands/triage.ts";
-import { resolveMergeTarget } from "../src/commands/resolve-merge-target.ts";
 
 function captureIo(): { io: TriageIo; out: () => string; err: () => string } {
   let out = "";
@@ -1310,10 +1310,7 @@ describe("triage --mark-ready", () => {
     const worktreeName = "branch-exit6-incomplete";
     setupWorktreeLocalMarkReadySpec(worktreeName);
     const worktreeSubspecPath = join(worktreeDir, worktreeName, "v1", "spec", worktreeName, "01-test.md");
-    writeFileSync(
-      worktreeSubspecPath,
-      "# Test\n\n## Acceptance criteria\n\n- [ ] automated criterion\n",
-    );
+    writeFileSync(worktreeSubspecPath, "# Test\n\n## Acceptance criteria\n\n- [ ] automated criterion\n");
 
     let commitRan = false;
     let gateRan = false;
@@ -1368,7 +1365,7 @@ describe("triage --mark-ready", () => {
   });
 
   describe("--merge flag", () => {
-    const mergePrCheck = { findMatchingOpenPrs: singleOpenPrStub };
+    const _mergePrCheck = { findMatchingOpenPrs: singleOpenPrStub };
 
     test("--merge on unknown worktree returns error", () => {
       const { io, err } = captureIo();
@@ -1836,7 +1833,7 @@ describe("triage --mark-ready", () => {
           io: testCase.shouldWait ? io2 : io,
           worktreeName: "branch-1",
           merge: true,
-        findMatchingOpenPrs: singleOpenPrStub,
+          findMatchingOpenPrs: singleOpenPrStub,
           pollIntervalMs: 0,
           pollTimeoutMs: 1000,
           ghRunner: {

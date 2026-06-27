@@ -7,14 +7,20 @@ import type { ConfigOptions } from "../config.ts";
 import { loadConfig } from "../config.ts";
 import { getBaseBranch, withSyncTransientRetry } from "../gh.ts";
 import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "../modes/patch/completion.ts";
-import { findRelocatedSpecFile, prepareActiveSpecPath } from "../modes/patch/preflight.ts";
 import { generatePrBody, getIndexTitle } from "../modes/patch/completion-pipeline.ts";
+import { findRelocatedSpecFile, prepareActiveSpecPath } from "../modes/patch/preflight.ts";
 import { snapshotAcceptanceCriteria } from "../modes/patch/subspec.ts";
-import { type EnsureDraftPrOpts, ensureDraftPr, findMatchingOpenPrs, type MatchingOpenPr, renderAttributionSummary } from "../pr.ts";
-import { type MergeTargetResolutionSeams, resolveMergeTarget } from "./resolve-merge-target.ts";
+import {
+  type EnsureDraftPrOpts,
+  ensureDraftPr,
+  findMatchingOpenPrs,
+  type MatchingOpenPr,
+  renderAttributionSummary,
+} from "../pr.ts";
 import { runReadyGateWithTier } from "../ready-gate.ts";
 import { pushCurrent } from "../worktree.ts";
 import { getWorktreeLockPath, isProcessAlive, type WorktreeLock } from "../worktree-lock.ts";
+import { type MergeTargetResolutionSeams, resolveMergeTarget } from "./resolve-merge-target.ts";
 
 export type TriageIo = {
   stdout: (s: string) => void;

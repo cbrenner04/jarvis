@@ -17,7 +17,19 @@ export type TriageIo = {
 
 export type CiCheckState = {
   name: string;
-  status: "success" | "skipped" | "neutral" | "pending" | "queued" | "in_progress" | "action_required" | "stale" | "failure" | "cancelled" | "timed_out" | "startup_failure";
+  status:
+    | "success"
+    | "skipped"
+    | "neutral"
+    | "pending"
+    | "queued"
+    | "in_progress"
+    | "action_required"
+    | "stale"
+    | "failure"
+    | "cancelled"
+    | "timed_out"
+    | "startup_failure";
 };
 
 export type TriageGhRunner = {
@@ -1119,8 +1131,12 @@ function isSpecComplete(specPath: string): boolean {
 
 type CiCheckClassification = "green" | "pending" | "red";
 
-function classifyCiChecks(checks: CiCheckState[]): { classification: CiCheckClassification; failingChecks: string[]; pendingChecks: string[] } {
-  const greenStatuses = new Set(["success", "skipped", "neutral"]);
+function classifyCiChecks(checks: CiCheckState[]): {
+  classification: CiCheckClassification;
+  failingChecks: string[];
+  pendingChecks: string[];
+} {
+  const _greenStatuses = new Set(["success", "skipped", "neutral"]);
   const pendingStatuses = new Set(["pending", "queued", "in_progress", "action_required", "stale"]);
   const redStatuses = new Set(["failure", "cancelled", "timed_out", "startup_failure"]);
 

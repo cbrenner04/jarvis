@@ -22,12 +22,12 @@
 
 ## Acceptance criteria
 
-- [ ] `v1/test/run.sandbox-unrunnable.test.ts` deterministically records numeric `last_output_age_ms` for the early-output-then-stall patch watchdog timeout using one injected timing source for timeout scheduling and output-age measurement, without real wall-clock sleeps for output/timeout ordering.
-- [ ] The early-output-then-stall test still fails if telemetry records `last_output_age_ms: null`.
-- [ ] The early-output-then-stall test still asserts `last_output_age_ms < iterationTimeoutMs - 500`.
-- [ ] `v1/test/run.sandbox-unrunnable.test.ts` watchdog process-group and descendant-kill integration tests stay green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes.
+- [x] `v1/test/run.sandbox-unrunnable.test.ts` deterministically records numeric `last_output_age_ms` for the early-output-then-stall patch watchdog timeout using one injected timing source for timeout scheduling and output-age measurement, without real wall-clock sleeps for output/timeout ordering.
+- [x] The early-output-then-stall test still fails if telemetry records `last_output_age_ms: null`.
+- [x] The early-output-then-stall test still asserts `last_output_age_ms < iterationTimeoutMs - 500`.
+- [x] `v1/test/run.sandbox-unrunnable.test.ts` watchdog process-group and descendant-kill integration tests stay green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes.
 
 ## Documentation updates
 

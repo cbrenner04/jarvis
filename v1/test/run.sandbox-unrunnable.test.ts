@@ -11,7 +11,7 @@ import { dirname, join } from "node:path";
 import { runAgent } from "../src/agents/spawn.ts";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import { registerProject, writeConfig } from "../src/config.ts";
-import type { RunCommandOptions, RunIo } from "../src/modes/patch/run.ts";
+import type { PatchWatchdogTimerHandle, PatchWatchdogTiming, RunCommandOptions, RunIo } from "../src/modes/patch/run.ts";
 import { runCommand } from "../src/modes/patch/run.ts";
 
 function captureIo(): { io: RunIo; out: () => string; err: () => string } {
@@ -53,6 +53,68 @@ class FakeAgent implements Agent {
 
   attributionLabel(): string {
     return `fake-${this.name}`;
+  }
+}
+
+type Deferred<T> = {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+};
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
+class ManualWatchdogTiming implements PatchWatchdogTiming {
+  #nowMs = 0;
+  #handles: Array<{ atMs: number; callback: () => void; cleared: boolean } & PatchWatchdogTimerHandle> = [];
+
+  nowMs(): number {
+    return this.#nowMs;
+  }
+
+  setTimeout(callback: () => void, delayMs: number): PatchWatchdogTimerHandle {
+    const handle = {
+      atMs: this.#nowMs + delayMs,
+      callback,
+      cleared: false,
+      unref: () => {},
+    };
+    this.#handles.push(handle);
+    return handle;
+  }
+
+  clearTimeout(handle: PatchWatchdogTimerHandle): void {
+    const manualHandle = handle as { cleared?: boolean };
+    manualHandle.cleared = true;
+  }
+
+  advanceBy(delayMs: number): void {
+    const targetMs = this.#nowMs + delayMs;
+    while (true) {
+      let nextIndex = -1;
+      let nextAtMs = Number.POSITIVE_INFINITY;
+      for (const [index, handle] of this.#handles.entries()) {
+        if (!handle.cleared && handle.atMs <= targetMs && handle.atMs < nextAtMs) {
+          nextIndex = index;
+          nextAtMs = handle.atMs;
+        }
+      }
+      if (nextIndex === -1) {
+        break;
+      }
+      const [nextHandle] = this.#handles.splice(nextIndex, 1);
+      if (nextHandle === undefined || nextHandle.cleared) {
+        continue;
+      }
+      this.#nowMs = nextHandle.atMs;
+      nextHandle.callback();
+    }
+    this.#nowMs = targetMs;
   }
 }
 
@@ -308,34 +370,37 @@ while true; do :; done
       const iterationTimeoutMs = 2000;
       const spec = writeSpec("- [ ] todo\n");
       const cap = captureIo();
-      const stallScript = join(projectRoot, "early-output-stall.sh");
-      writeFileSync(
-        stallScript,
-        `#!/usr/bin/env bash
-set -euo pipefail
-sleep 1.4
-echo early-output >&2
-while true; do :; done
-`,
-      );
-      chmodSync(stallScript, 0o755);
+      const agentStarted = deferred<void>();
+      const watchdogTiming = new ManualWatchdogTiming();
+      const outputObserved = deferred<void>();
 
       class StallingAgent implements Agent {
         readonly name = "claude" as const;
-        async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
-          return runAgent(
-            {
-              name: this.name,
-              binary: stallScript,
-              cwd: opts.cwd,
-              buildArgv: () => [],
-              stdio: ["ignore", "pipe", "pipe"],
-              streamErrorPrefix: "test:",
-            },
-            prompt,
-            opts,
-          );
+
+        async run(_prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+          opts.onSpawned?.({ pid: 43210 });
+          const outputHandle = watchdogTiming.setTimeout(() => {
+            opts.lastOutputAtMs!.current = watchdogTiming.nowMs();
+            outputObserved.resolve();
+          }, 1400);
+          agentStarted.resolve();
+          return await new Promise<AgentResult>((resolve) => {
+            const abort = () => {
+              watchdogTiming.clearTimeout(outputHandle);
+              resolve({
+                kind: "error",
+                exitCode: -1,
+                stderr: `aborted: ${String(opts.signal?.reason ?? "iteration-timeout")}`,
+              });
+            };
+            if (opts.signal?.aborted) {
+              abort();
+              return;
+            }
+            opts.signal?.addEventListener("abort", abort, { once: true });
+          });
         }
+
         attributionLabel(): string {
           return "fake-claude";
         }
@@ -360,14 +425,20 @@ while true; do :; done
         { dir: cfgDir },
       );
 
-      const code = await runWithDefaults({
+      const runPromise = runWithDefaults({
         specPath: spec,
         io: cap.io,
         config: { dir: cfgDir },
         agents: { claude: new StallingAgent() },
         handleSignals: false,
         __testKillGraceMs: 200,
+        __testPatchWatchdogTiming: watchdogTiming,
       });
+      await agentStarted.promise;
+      watchdogTiming.advanceBy(1400);
+      await outputObserved.promise;
+      watchdogTiming.advanceBy(iterationTimeoutMs - 1400);
+      const code = await runPromise;
 
       expect(code).toBe(8);
       expect(cap.err()).toContain("last_output_age_ms=");

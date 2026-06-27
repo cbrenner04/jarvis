@@ -137,6 +137,16 @@ export type ConfirmRun = (prompt: string) => string | Promise<string>;
 
 export type WatchdogListProcessesFn = (rootPid: number) => ProcInfo[];
 
+export type PatchWatchdogTimerHandle = {
+  unref?: () => void;
+};
+
+export type PatchWatchdogTiming = {
+  nowMs: () => number;
+  setTimeout: (callback: () => void, delayMs: number) => PatchWatchdogTimerHandle;
+  clearTimeout: (handle: PatchWatchdogTimerHandle) => void;
+};
+
 export type RunCommandOptions = {
   specPath: string;
   io: RunIo;
@@ -202,6 +212,13 @@ export type RunCommandOptions = {
    * Production callers must not set this.
    */
   __testWatchdogListProcesses?: WatchdogListProcessesFn;
+  /**
+   * Test-only override for patch-iteration watchdog time. Replaces the
+   * iteration-timeout scheduler and output-age clock with one caller-owned
+   * source so timing tests can advance both deterministically.
+   * Production callers must not set this.
+   */
+  __testPatchWatchdogTiming?: PatchWatchdogTiming;
 };
 
 export async function runCommand(opts: RunCommandOptions): Promise<number> {

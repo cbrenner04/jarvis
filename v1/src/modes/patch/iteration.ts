@@ -59,6 +59,7 @@ import type {
   IterationContext,
   IterationOutcome,
   LoggingContext,
+  PatchWatchdogTiming,
   PreflightOk,
   RunCommandOptions,
   WatchdogListProcessesFn,
@@ -109,6 +110,12 @@ type TelemetryRecord = {
 };
 
 type WriteTelemetry = (record: TelemetryRecord) => void;
+
+const realPatchWatchdogTiming: PatchWatchdogTiming = {
+  nowMs: () => Date.now(),
+  setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+  clearTimeout: (handle) => clearTimeout(handle as NodeJS.Timeout),
+};
 
 function formatWatchdogDiagnosticsSuffix(
   lastOutputAgeMs: number | null,
@@ -728,6 +735,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
   state.currentController = new AbortController();
   const iterationController = state.currentController;
   const killGraceMs = opts.__testKillGraceMs ?? 5000;
+  const patchWatchdogTiming = opts.__testPatchWatchdogTiming ?? realPatchWatchdogTiming;
   let watchdogPgid: number | null = null;
   let watchdogFired = false;
   let watchdogKillHandle: NodeJS.Timeout | null = null;
@@ -744,9 +752,9 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
   // later escape the process group (via setsid) and re-parent to init can be
   // reaped after the agent exits, when no live lineage to them remains.
   let descendantPollHandle: NodeJS.Timeout | null = null;
-  const iterationTimeoutHandle = setTimeout(() => {
+  const iterationTimeoutHandle = patchWatchdogTiming.setTimeout(() => {
     watchdogFired = true;
-    const snapshotAt = Date.now();
+    const snapshotAt = patchWatchdogTiming.nowMs();
     watchdogLastOutputAgeMs = lastOutputAtMs.current === null ? null : snapshotAt - lastOutputAtMs.current;
     watchdogLastFileActivityAgeMs = lastFileActivityAtMs === null ? null : snapshotAt - lastFileActivityAtMs;
     const pgid = watchdogPgid;
@@ -1799,7 +1807,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     });
     return { kind: "return", exitCode: 3 };
   } finally {
-    clearTimeout(iterationTimeoutHandle);
+    patchWatchdogTiming.clearTimeout(iterationTimeoutHandle);
     if (idleTimeoutHandle !== null) {
       clearTimeout(idleTimeoutHandle);
     }

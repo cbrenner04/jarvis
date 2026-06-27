@@ -11,7 +11,12 @@ import { dirname, join } from "node:path";
 import { runAgent } from "../src/agents/spawn.ts";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import { registerProject, writeConfig } from "../src/config.ts";
-import type { PatchWatchdogTimerHandle, PatchWatchdogTiming, RunCommandOptions, RunIo } from "../src/modes/patch/run.ts";
+import type {
+  PatchWatchdogTimerHandle,
+  PatchWatchdogTiming,
+  RunCommandOptions,
+  RunIo,
+} from "../src/modes/patch/run.ts";
 import { runCommand } from "../src/modes/patch/run.ts";
 
 function captureIo(): { io: RunIo; out: () => string; err: () => string } {

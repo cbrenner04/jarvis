@@ -62,8 +62,8 @@ describe("loadConfig", () => {
 
     const cfg = loadConfig({ dir });
 
-    expect(cfg.modes.patch).toEqual({ agentOrder: DEFAULT_AGENT_ORDER, prNarrative: "template", shrink: "agent" });
-    expect(cfg.modes.plan).toEqual({ agentOrder: DEFAULT_AGENT_ORDER, targetDir: "spec", prNarrative: "template" });
+    expect(cfg.modes.patch).toEqual({ agentOrder: DEFAULT_AGENT_ORDER, prNarrative: "agent", shrink: "agent" });
+    expect(cfg.modes.plan).toEqual({ agentOrder: DEFAULT_AGENT_ORDER, targetDir: "spec", prNarrative: "agent" });
     expect(cfg.modes.prompt).toEqual({ agentOrder: DEFAULT_AGENT_ORDER });
     expect(cfg.modes.review).toEqual({ passes: 1 });
     expect(cfg.version).toBe(2);
@@ -238,6 +238,26 @@ describe("loadConfig", () => {
     );
 
     expect(loadConfig({ dir }).maxIterations).toBe(10);
+  });
+
+  test("defaults prNarrative to agent when an existing config omits it", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {},
+      }),
+    );
+
+    const cfg = loadConfig({ dir });
+    expect(cfg.modes.patch.prNarrative).toBe("agent");
+    expect(cfg.modes.plan.prNarrative).toBe("agent");
   });
 
   test("defaults quotaFallback when an existing config omits it", () => {

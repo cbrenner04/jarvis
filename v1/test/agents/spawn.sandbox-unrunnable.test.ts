@@ -209,14 +209,15 @@ describe("runAgent transient retry", () => {
   };
 
   const noOpSleep = async () => {};
+  const recordSleep =
+    (recordedSleeps: number[]) =>
+    async (delayMs: number): Promise<void> => {
+      recordedSleeps.push(delayMs);
+    };
 
-  test(
-    "transient-then-success returns ok with no advancement",
-    async () => {
-      setup();
-      try {
-        const bin = join(dir, "agent");
-        const script = `#!/usr/bin/env bash
+  const writeCountedRetryBinary = (failureStderr: string, failCount = 1) => {
+    const bin = join(dir, "agent");
+    const script = `#!/usr/bin/env bash
 if [ -f "${dir}/call-count" ]; then
   COUNT=$(cat "${dir}/call-count")
 else
@@ -224,15 +225,24 @@ else
 fi
 COUNT=$((COUNT + 1))
 echo $COUNT > "${dir}/call-count"
-if [ $COUNT -eq 1 ]; then
-  printf 'error: connection closed' 1>&2
+if [ $COUNT -le ${failCount} ]; then
+  printf ${JSON.stringify(failureStderr)} 1>&2
   exit 1
 fi
 printf 'success'
 exit 0
 `;
-        writeFileSync(bin, script);
-        chmodSync(bin, 0o755);
+    writeFileSync(bin, script);
+    chmodSync(bin, 0o755);
+    return bin;
+  };
+
+  test(
+    "transient-then-success returns ok with no advancement",
+    async () => {
+      setup();
+      try {
+        const bin = writeCountedRetryBinary("error: connection closed");
 
         const result = await runAgent(
           {
@@ -293,14 +303,98 @@ exit 1
           "test",
           {
             cwd: realpathSync(cwd),
-            sleepMs: async (delayMs) => {
-              recordedSleeps.push(delayMs);
-            },
+            sleepMs: recordSleep(recordedSleeps),
           },
         );
 
         expect(result.kind).toBe("error");
         expect(spawnCount).toBe(4); // 1 initial + 3 retries
+        expect(recordedSleeps).toEqual([1000, 2000, 4000]);
+      } finally {
+        teardown();
+      }
+    },
+    { timeout: 10000 },
+  );
+
+  test(
+    "opencode UnknownError/500 is retried by the transient loop",
+    async () => {
+      setup();
+      try {
+        const bin = writeCountedRetryBinary("opencode: UnknownError: HTTP 500 Internal Server Error");
+
+        const retries: Array<{ attempt: number; cap: number; exitCode: number }> = [];
+        const recordedSleeps: number[] = [];
+        const result = await runAgent(
+          {
+            name: "opencode",
+            binary: bin,
+            cwd: realpathSync(cwd),
+            buildArgv: () => [],
+            stdio: ["ignore", "pipe", "pipe"],
+            streamErrorPrefix: "opencode:",
+          },
+          "test",
+          {
+            cwd: realpathSync(cwd),
+            sleepMs: recordSleep(recordedSleeps),
+            onTransientRetry: ({ attempt, cap, exitCode }) => {
+              retries.push({ attempt, cap, exitCode });
+            },
+          },
+        );
+
+        expect(result.kind).toBe("ok");
+        if (result.kind === "ok") {
+          expect(result.stdout).toBe("success");
+        }
+        expect(readFileSync(join(dir, "call-count"), "utf8").trim()).toBe("2");
+        expect(retries).toEqual([{ attempt: 1, cap: 3, exitCode: 1 }]);
+        expect(recordedSleeps).toEqual([1000]);
+      } finally {
+        teardown();
+      }
+    },
+    { timeout: 10000 },
+  );
+
+  test(
+    "opencode UnknownError/500 exhaustion returns error after retry cap",
+    async () => {
+      setup();
+      try {
+        const stderr = "opencode: UnknownError: HTTP 500 Internal Server Error";
+        const bin = writeCountedRetryBinary(stderr, 4);
+
+        const retries: Array<{ attempt: number; cap: number; exitCode: number }> = [];
+        const recordedSleeps: number[] = [];
+        const result = await runAgent(
+          {
+            name: "opencode",
+            binary: bin,
+            cwd: realpathSync(cwd),
+            buildArgv: () => [],
+            stdio: ["ignore", "pipe", "pipe"],
+            streamErrorPrefix: "opencode:",
+          },
+          "test",
+          {
+            cwd: realpathSync(cwd),
+            sleepMs: recordSleep(recordedSleeps),
+            onTransientRetry: ({ attempt, cap, exitCode }) => {
+              retries.push({ attempt, cap, exitCode });
+            },
+          },
+        );
+
+        expect(result).toEqual({ kind: "error", exitCode: 1, stderr });
+        expect(readFileSync(join(dir, "call-count"), "utf8").trim()).toBe("4");
+        expect(retries).toEqual([
+          { attempt: 1, cap: 3, exitCode: 1 },
+          { attempt: 2, cap: 3, exitCode: 1 },
+          { attempt: 3, cap: 3, exitCode: 1 },
+        ]);
         expect(recordedSleeps).toEqual([1000, 2000, 4000]);
       } finally {
         teardown();

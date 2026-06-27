@@ -74,7 +74,8 @@ class SplitAgent implements Agent {
     | "repair-prerequisites-spacing"
     | "repair-unterminated-frontmatter"
     | "repair-near-miss-prerequisites"
-    | "repair-empty-name";
+    | "repair-empty-name"
+    | "repair-md-violations";
 
   constructor(
     name: AgentName,
@@ -94,7 +95,8 @@ class SplitAgent implements Agent {
       | "repair-prerequisites-spacing"
       | "repair-unterminated-frontmatter"
       | "repair-near-miss-prerequisites"
-      | "repair-empty-name",
+      | "repair-empty-name"
+      | "repair-md-violations",
   ) {
     this.name = name;
     this.#mode = mode;
@@ -253,6 +255,26 @@ name:
 Body content.
 
 ## Prerequisites
+`,
+        "utf8",
+      );
+      return { kind: "ok", stdout: "", stderr: "" };
+    }
+    if (this.#mode === "repair-md-violations") {
+      writeFileSync(
+        join(stageDir, "md-violations.md"),
+        `---
+name: md-violations
+---
+
+## Intent
+
+Some content with a reference.
+#499
+
+## Prerequisites
+
+
 `,
         "utf8",
       );
@@ -441,6 +463,7 @@ function createSplitAgentFactory(
       | "repair-unterminated-frontmatter"
       | "repair-near-miss-prerequisites"
       | "repair-empty-name"
+      | "repair-md-violations"
     >
   >,
 ) {
@@ -1520,5 +1543,65 @@ describe("intentCommand", () => {
 
   test("--target-dir flag appears in usage output", () => {
     expect(INTENT_USAGE).toContain("--target-dir");
+  });
+
+  test("repair: MD012/MD018 violations are fixed by trim + reference relocation + autofix", async () => {
+    const env = setupEnv();
+    try {
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "repair-md-violations" }),
+      });
+      expect(code).toBe(0);
+      const worktree = findIntentWorktree(env.projectRoot);
+      const content = readFileSync(join(worktree, "spec", "ready-intents", "md-violations.md"), "utf8");
+      // Verify content includes the issue reference (not promoted to a heading)
+      expect(content).toContain("#499");
+      // Verify it's preserved as a reference, not as a heading
+      expect(content).not.toContain("# 499");
+      // Verify the reference is not on a line by itself at the start (MD018 fixed)
+      const lines = content.split("\n");
+      const refLine = lines.find((line) => line.includes("#499"));
+      expect(refLine).toBeDefined();
+      expect(refLine).not.toMatch(/^#\d+/);
+      // Verify Prerequisites is properly formatted (MD012 fixed)
+      expect(content).toContain("## Prerequisites");
+      // Verify no consecutive blank lines in the output
+      expect(content).not.toContain("\n\n\n");
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("repair: issue reference in no-commit path is preserved as reference", async () => {
+    const env = setupEnv();
+    try {
+      const cfg = loadConfig({ dir: env.cfgDir });
+      cfg.modes.plan.commit = false;
+      writeConfig(cfg, { dir: env.cfgDir });
+
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "repair-md-violations" }),
+      });
+      expect(code).toBe(0);
+      const externalRoot = join(env.cfgDir, "specs", "project");
+      const content = readFileSync(join(externalRoot, "ready-intents", "md-violations.md"), "utf8");
+      // Verify the issue reference is preserved, not promoted to a heading
+      expect(content).toContain("#499");
+      expect(content).not.toContain("# 499");
+    } finally {
+      env.cleanup();
+    }
   });
 });

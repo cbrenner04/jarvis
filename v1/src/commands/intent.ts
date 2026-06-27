@@ -262,6 +262,18 @@ function normalizePrerequisitesSectionSpacing(text: string): string {
   return changed ? lines.join("\n") : text;
 }
 
+function keepIssueReferencesOffLineStart(text: string): string {
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? "";
+    // If a line is just an issue reference like #123, prepend "See: "
+    if (/^#\d+\s*$/.test(line)) {
+      lines[i] = `See: ${line}`;
+    }
+  }
+  return lines.join("\n");
+}
+
 function repairIntentFile(path: string, slug: string): void {
   const content = readFileSync(path, "utf8");
   let text = content.replace(/\r\n/g, "\n");
@@ -317,10 +329,17 @@ function repairIntentFile(path: string, slug: string): void {
 
   text = lines.join("\n");
 
-  // Repair Prerequisites section
+  // Keep issue references off line-start to avoid MD018 corruption
+  const withFixedReferences = keepIssueReferencesOffLineStart(text);
+  if (withFixedReferences !== text) {
+    text = withFixedReferences;
+    modified = true;
+  }
+
+  // Repair Prerequisites section: trim trailing blank lines before appending to fix MD012
   if (!hasPrerequisitesSection(text)) {
-    // Append empty Prerequisites section
-    text += "\n\n## Prerequisites\n";
+    // Trim trailing blank lines before appending
+    text = text.replace(/\n+$/, "") + "\n\n## Prerequisites\n";
     modified = true;
   }
 
@@ -335,12 +354,84 @@ function repairIntentFile(path: string, slug: string): void {
   }
 }
 
+function resolveHarnessRoot(): string | null {
+  let current = import.meta.dir;
+  const maxDepth = 10;
+  let depth = 0;
+
+  while (depth < maxDepth) {
+    const nodeModulesPath = join(current, "node_modules");
+    const markdownlintPath = join(nodeModulesPath, "markdownlint-cli2");
+    const configPath = join(current, ".markdownlint-cli2.jsonc");
+
+    try {
+      if (existsSync(markdownlintPath) && existsSync(configPath)) {
+        return current;
+      }
+    } catch {
+      // Continue
+    }
+
+    const parent = resolve(current, "..");
+    if (parent === current) {
+      break;
+    }
+    current = parent;
+    depth += 1;
+  }
+
+  return null;
+}
+
+function runMarkdownlintAutofix(stagingDir: string): void {
+  const harnessRoot = resolveHarnessRoot();
+  if (harnessRoot === null) {
+    process.stderr.write("warning: could not locate markdownlint binary; skipping autofix\n");
+    return;
+  }
+
+  const binaryPath = join(harnessRoot, "node_modules", "markdownlint-cli2", "markdownlint-cli2.js");
+  const configPath = join(harnessRoot, ".markdownlint-cli2.jsonc");
+
+  if (!existsSync(binaryPath)) {
+    process.stderr.write("warning: markdownlint binary not found; skipping autofix\n");
+    return;
+  }
+
+  if (!existsSync(configPath)) {
+    process.stderr.write("warning: markdownlint config not found; skipping autofix\n");
+    return;
+  }
+
+  const files = listStageMarkdownFiles(stagingDir);
+  if (files.length === 0) {
+    return;
+  }
+
+  try {
+    execFileSync("bun", [binaryPath, "--fix", "--config", configPath, ...files], {
+      cwd: harnessRoot,
+      env: process.env,
+      stdio: "pipe",
+    });
+  } catch (err) {
+    // Ignore nonzero exit from residual violations; only warn on spawn failure
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      process.stderr.write("warning: bun executable not found; skipping markdownlint autofix\n");
+    }
+    // Other errors (e.g., from residual violations) are silently ignored
+  }
+}
+
 function repairIntentStageContent(stagingDir: string): void {
   const files = listStageMarkdownFiles(stagingDir);
   for (const path of files) {
     const slug = basename(path, ".md");
     repairIntentFile(path, slug);
   }
+
+  // Run markdownlint autofix as a general net over any markdown violations
+  runMarkdownlintAutofix(stagingDir);
 }
 
 function validateIntentFilenames(files: string[]):

@@ -75,6 +75,17 @@ line before and after. A near-miss heading (e.g., `### Prerequisites` or
 not promoted. Malformed `## Prerequisites` bodies (non-bullet text) remain a
 hard error and abort without partial writes.
 
+Two self-inflicted lint violations are fixed in-TypeScript before autofix runs:
+trailing blank lines are trimmed before appending `## Prerequisites` (fixes
+`MD012` consecutive-blank-lines), and issue references (e.g., `#499`) are kept
+off line-start by prefixing them with "See: " (prevents `MD018` space-in-heading
+autofix from promoting them to headings). After structural repair, all staged
+intent files receive a `markdownlint --fix` pass using the harness-pinned
+binary and config (cwd anchored to harness root, so target-repo config does not
+override the rule set); autofix is a general net and applies only, never fails
+on residual non-autofixable violations. Spawn failure or absent binary warns but
+continues with the in-TypeScript-repaired content.
+
 `name:` collisions are hard errors. If `<targetDir>/ready-intents/<name>.md`
 already exists, the run aborts without overwriting files and without opening a
 PR. Disallowed filenames (ordering prefixes, `index`, characters outside

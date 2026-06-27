@@ -1305,10 +1305,7 @@ describe("triage --mark-ready", () => {
     const worktreeName = "branch-exit6-incomplete";
     setupWorktreeLocalMarkReadySpec(worktreeName);
     const worktreeSubspecPath = join(worktreeDir, worktreeName, "v1", "spec", worktreeName, "01-test.md");
-    writeFileSync(
-      worktreeSubspecPath,
-      "# Test\n\n## Acceptance criteria\n\n- [ ] automated criterion\n",
-    );
+    writeFileSync(worktreeSubspecPath, "# Test\n\n## Acceptance criteria\n\n- [ ] automated criterion\n");
 
     let commitRan = false;
     let gateRan = false;

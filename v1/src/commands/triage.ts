@@ -954,9 +954,7 @@ function triageMarkReady(opts: TriageCommandOptions): number {
   }
 
   if (!prState.isDraft) {
-    opts.io.stderr(
-      `${label}: PR is not in DRAFT state (current state: ${prState.state}). Cannot promote.\n`,
-    );
+    opts.io.stderr(`${label}: PR is not in DRAFT state (current state: ${prState.state}). Cannot promote.\n`);
     return 1;
   }
 

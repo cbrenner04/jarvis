@@ -104,6 +104,24 @@ function setupRepoWithOrigin(): { dir: string; origin: string } {
   return { dir, origin };
 }
 
+function revParse(cwd: string, rev: string): string {
+  return execSync(`git rev-parse ${rev}`, { cwd, encoding: "utf8" }).trim();
+}
+
+function advanceOriginMain(origin: string): string {
+  const writer = mkdtempSync(join(tmpdir(), "jarvis-origin-writer-"));
+  execSync(`git clone "${origin}" "${writer}"`, { cwd: tmpdir() });
+  execSync("git config user.email 'test@example.com'", { cwd: writer });
+  execSync("git config user.name 'Test User'", { cwd: writer });
+  writeFileSync(join(writer, "remote.txt"), "remote");
+  execSync("git add remote.txt", { cwd: writer });
+  execSync("git commit -m 'remote advance'", { cwd: writer });
+  execSync("git push origin main", { cwd: writer });
+  const sha = revParse(writer, "HEAD");
+  rmSync(writer, { recursive: true, force: true });
+  return sha;
+}
+
 describe("ensureWorktree (patch-mode)", () => {
   test("allows patch specs whose names start with plan-", async () => {
     const { dir, origin } = setupRepoWithOrigin();
@@ -297,6 +315,107 @@ describe("ensureWorktree (patch-mode)", () => {
       // Verify the orphan was retired and recreated
       expect(resultPath).toBe(worktreePath);
       expect(existsSync(worktreePath)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(origin, { recursive: true, force: true });
+    }
+  });
+
+  test("creates a new patch worktree branch from origin base when local base is stale", async () => {
+    const { dir, origin } = setupRepoWithOrigin();
+    try {
+      const specDir = join(dir, "spec", "feature");
+      const specFile = join(specDir, "index.md");
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(specFile, "# Test spec\n");
+
+      const staleLocalBase = revParse(dir, "main");
+      const remoteBase = advanceOriginMain(origin);
+
+      const worktreePath = await ensureWorktree(dir, specFile);
+
+      expect(worktreePath).toBe(join(dir, ".worktree", "feature"));
+      expect(revParse(dir, "feature")).toBe(remoteBase);
+      expect(revParse(dir, "feature")).not.toBe(staleLocalBase);
+      expect(revParse(dir, "origin/main")).toBe(remoteBase);
+      expect(revParse(dir, "main")).toBe(staleLocalBase);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(origin, { recursive: true, force: true });
+    }
+  });
+
+  test("falls back to local base when origin is not configured", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-patch-no-origin-"));
+    try {
+      execSync("git init -b main", { cwd: dir });
+      execSync("git config user.email 'test@example.com'", { cwd: dir });
+      execSync("git config user.name 'Test User'", { cwd: dir });
+      writeFileSync(join(dir, "README.md"), "test");
+      execSync("git add README.md", { cwd: dir });
+      execSync("git commit -m 'initial'", { cwd: dir });
+
+      const specDir = join(dir, "spec", "feature");
+      const specFile = join(specDir, "index.md");
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(specFile, "# Test spec\n");
+
+      const localBase = revParse(dir, "main");
+      await ensureWorktree(dir, specFile);
+
+      expect(revParse(dir, "feature")).toBe(localBase);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("falls back to local base when origin base ref has never been fetched", async () => {
+    const origin = mkdtempSync(join(tmpdir(), "jarvis-patch-never-fetched-origin-"));
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-patch-never-fetched-local-"));
+    try {
+      execSync("git init --bare", { cwd: origin });
+      execSync("git init -b main", { cwd: dir });
+      execSync("git config user.email 'test@example.com'", { cwd: dir });
+      execSync("git config user.name 'Test User'", { cwd: dir });
+      execSync(`git remote add origin "${origin}"`, { cwd: dir });
+      writeFileSync(join(dir, "README.md"), "test");
+      execSync("git add README.md", { cwd: dir });
+      execSync("git commit -m 'initial'", { cwd: dir });
+
+      const specDir = join(dir, "spec", "feature");
+      const specFile = join(specDir, "index.md");
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(specFile, "# Test spec\n");
+
+      const localBase = revParse(dir, "main");
+      await ensureWorktree(dir, specFile);
+
+      expect(revParse(dir, "feature")).toBe(localBase);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(origin, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("createPlanWorktree", () => {
+  test("creates a new plan worktree branch from origin base when local base is stale", async () => {
+    const { dir, origin } = setupRepoWithOrigin();
+    try {
+      const staleLocalBase = revParse(dir, "main");
+      const remoteBase = advanceOriginMain(origin);
+
+      const worktreePath = await createPlanWorktree({
+        projectRoot: dir,
+        name: "test-plan",
+        baseBranch: "main",
+      });
+
+      expect(worktreePath).toBe(join(dir, ".worktree", "plan-test-plan"));
+      expect(revParse(dir, "plan/test-plan")).toBe(remoteBase);
+      expect(revParse(dir, "plan/test-plan")).not.toBe(staleLocalBase);
+      expect(revParse(dir, "origin/main")).toBe(remoteBase);
+      expect(revParse(dir, "main")).toBe(staleLocalBase);
     } finally {
       rmSync(dir, { recursive: true, force: true });
       rmSync(origin, { recursive: true, force: true });

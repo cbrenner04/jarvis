@@ -42,8 +42,9 @@ When re-running a spec:
     clear litter (`git clean -fdx`), and resume from the WIP commit.
 - **Worktree missing, branch exists locally or remotely**: recreate worktree
   on the existing branch, clear litter.
-- **Neither exist**: create new branch off the detected base branch and new
-  worktree.
+- **Neither exist**: create new branch and worktree, cutting the branch from
+  `origin/<base>` when that remote-tracking ref resolves locally and falling
+  back to the local base branch name when it does not.
 
 Exception: for an external Jarvis-owned spec authored by `plan.commit:false`,
 re-run with effective `git:true`, and still incomplete with unchecked

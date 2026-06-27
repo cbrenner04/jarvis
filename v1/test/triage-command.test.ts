@@ -36,7 +36,11 @@ function setupWorktree(worktreePath: string, makeDirty = false): void {
 
 function setupMarkReadyWorktree(
   worktreeName: string,
-  opts?: { makeDirty?: boolean; specBody?: string; indexSpec?: { indexPath: string; subspecPath: string; subspecBody: string } },
+  opts?: {
+    makeDirty?: boolean;
+    specBody?: string;
+    indexSpec?: { indexPath: string; subspecPath: string; subspecBody: string };
+  },
 ): { worktreePath: string; specPath: string } {
   const worktreePath = join(worktreeDir, worktreeName);
   setupWorktree(worktreePath);

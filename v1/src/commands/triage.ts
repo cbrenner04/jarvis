@@ -2,16 +2,16 @@ import { execFileSync, execSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseSpec } from "../../../shared/spec-parser.ts";
+import { appendAgentTrailer } from "../commit-trailer.ts";
 import type { ConfigOptions } from "../config.ts";
 import { loadConfig } from "../config.ts";
-import { appendAgentTrailer } from "../commit-trailer.ts";
 import { getBaseBranch, withSyncTransientRetry } from "../gh.ts";
 import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "../modes/patch/completion.ts";
 import { getIndexTitle } from "../modes/patch/completion-pipeline.ts";
 import { buildPrBody } from "../modes/patch/pr.ts";
 import { snapshotAcceptanceCriteria } from "../modes/patch/subspec.ts";
-import { type DiffStat, generateTemplateNarrative } from "../pr-shared.ts";
 import { type EnsureDraftPrOpts, ensureDraftPr, readBranchCommits, renderAttributionSummary } from "../pr.ts";
+import { type DiffStat, generateTemplateNarrative } from "../pr-shared.ts";
 import { runReadyGateWithTier } from "../ready-gate.ts";
 import { pushCurrent } from "../worktree.ts";
 import { getWorktreeLockPath, isProcessAlive, type WorktreeLock } from "../worktree-lock.ts";
@@ -963,9 +963,7 @@ async function triageMarkReady(opts: TriageCommandOptions): Promise<number> {
   const { worktreePath, branch, specPath } = ctx;
 
   if (!isSpecComplete(specPath)) {
-    opts.io.stderr(
-      `${label}: incomplete run — use \`jarvis1 run ${specPath}\` to continue, not finalize\n`,
-    );
+    opts.io.stderr(`${label}: incomplete run — use \`jarvis1 run ${specPath}\` to continue, not finalize\n`);
     return 1;
   }
 

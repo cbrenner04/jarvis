@@ -20,3 +20,4 @@ Phase-start workflow:
 - [ ] Phase 6 — Remaining behaviors: review-and-update as a debate (read-only adversary→defender→judge→verdict, separate executor), human loop (pause/resume/kill) via the steering API
 - [ ] Phase 7 — Concurrency + admission: memory-watermark admission, `queued` status, concurrent runs, local model last in order
 - [ ] Phase 8 — PR lifecycle + attribution: worktree → branch → draft PR → ready, per-commit `Jarvis-Agent` footer
+- [ ] Phase 9 — Natural-language prompt router: prompt-first `jarvis "<intent>"` entry that classifies free text and routes to a workflow (new run) or an existing run (resume); conservative — asks for a sharper prompt when unsure

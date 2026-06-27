@@ -114,15 +114,25 @@ kill controls — the human loop's home.*
 ### Phase 7 — Concurrency + admission
 
 Adaptive memory-watermark admission, `queued` status, multiple concurrent runs,
-admission-only (no preemption). Local model (qwen via aider) as the terminal
-entry in agent order, personal machine only. Retires: the memory-efficiency
-constraint. *TUI: multi-run dashboard + queue view.*
+admission-only (no preemption). Local model (qwen via opencode + ollama) as the
+terminal entry in agent order, personal machine only. Retires: the
+memory-efficiency constraint. *TUI: multi-run dashboard + queue view.*
 
 ### Phase 8 — PR lifecycle + attribution (runner-owned)
 
 Worktree → branch → draft PR → ready, with the per-commit `Jarvis-Agent`
 attribution footer. Port v1's PR mechanics onto the v2 runner. Retires: the
 output side of a run. *TUI: PR status per run.*
+
+### Phase 9 — Natural-language prompt router
+
+A prompt-first entry — `jarvis "<intent>"` — that classifies free-form text and
+routes it to a workflow (start a new run) or an existing run (resume),
+**conservatively**: when it can't route with confidence it exits asking for a
+sharper prompt rather than guessing a route. A thin client over the daemon API
+and workflow runner, added **last** — after the explicit named presets exist to
+route *to*. Retires: the natural-language entry surface. *TUI: prompt box →
+routed run.*
 
 ## Cross-cutting (not phases)
 

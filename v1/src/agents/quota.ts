@@ -107,7 +107,6 @@ const sharedTransportPatterns = [
 ];
 
 const opencodeTransportPatterns = [
-  /\bUnknownError\b/i,
   ...guardedStatusPatterns([500], [...transportContextWords, "unknownerror"]),
 ];
 

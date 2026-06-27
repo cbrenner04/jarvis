@@ -287,14 +287,15 @@ describe("isTransientSignal", () => {
     expect(isTransientSignal("claude", 1, "server overloaded")).toBe(true);
   });
 
-  test("matches opencode UnknownError and guarded HTTP 500", () => {
-    expectTransient("opencode", "opencode: UnknownError: provider request failed");
+  test("matches opencode UnknownError/500 and guarded HTTP 500", () => {
+    expectTransient("opencode", "opencode: UnknownError: HTTP 500 Internal Server Error");
     expectTransient("opencode", "opencode: HTTP 500 Internal Server Error");
     expectTransient("opencode", "opencode: provider failure status 500 from upstream");
   });
 
   test("scopes UnknownError and HTTP 500 matching to opencode only", () => {
-    expectTransient("claude", "UnknownError: provider request failed", false);
+    expectTransient("opencode", "UnknownError: provider request failed", false);
+    expectTransient("claude", "UnknownError: HTTP 500 Internal Server Error", false);
     expectTransient("claude", "HTTP 500 Internal Server Error", false);
     expectTransient("codex", "status 500 failure", false);
   });

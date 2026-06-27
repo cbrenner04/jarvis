@@ -19,8 +19,9 @@ detects these via **`isTransientSignal`** (`src/agents/quota.ts`) and retries th
 for normal fallback/termination handling. This recovery happens transparently
 before callers see a result — **no mode or binding changes**. `isTransientSignal`
 matches the shared transport patterns for every agent plus opencode-only
-`UnknownError` / guarded HTTP 500 stderr phrasing so opencode server blips ride
-the same retry loop without changing git/gh retry classification.
+guarded HTTP 500 stderr phrasing, including current best-effort
+`UnknownError`+`500` wording, so opencode server blips ride the same retry loop
+without changing git/gh retry classification.
 
 Transient re-attempts do not reset iteration timeouts (idle, per-iteration, or
 global); whole-iteration budgets accrue across all attempts. An aborted
@@ -253,6 +254,11 @@ sample below is exit-`0` JSON on stdout.
 ### Observed quota stderr (real samples)
 
 - No real samples recorded yet.
+
+### Observed transient stderr (real samples)
+
+- No real samples recorded yet. Current `UnknownError`+`500` matching is
+  best-effort until a real stderr sample is captured here.
 
 ### Observed model-configuration stderr (real samples)
 

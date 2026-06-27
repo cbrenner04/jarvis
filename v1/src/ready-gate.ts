@@ -54,7 +54,7 @@ export type RunReadyAndCommitOpts = {
   cwd: string;
   /** Ready pipeline tier; defaults to `full`. */
   tier?: ReadyTier;
-  /** Test seam: agent label for the commit trailer. Threaded to the `commitCheckFix` seam. */
+  /** Test seam: agent label for the commit trailer. Threaded to the dirty-tree commit seam. */
   agentLabel?: string;
   /** Per-project override for `bun run ready`. Tokenized on whitespace; no shell. Receives `JARVIS_READY_TIER`. */
   readyCommand?: string;
@@ -85,7 +85,7 @@ export class ReadyCheckFixPushError extends Error {
   }
 }
 
-/** Run `bun run ready` (or the configured `readyCommand`) at `tier` and, on `full` only, commit/push any `check:fix` output. */
+/** Run `bun run ready` (or the configured `readyCommand`) at `tier` and, on `full` only, commit/push any resulting dirty tree. */
 export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
   const tier = opts.tier ?? "full";
 

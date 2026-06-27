@@ -26,17 +26,17 @@ This subspec changes the built-in Bun scripts and the docs that describe their d
 
 ## Acceptance criteria
 
-- [ ] `bun run fix` invokes the existing unsafe Biome autofix command.
-- [ ] `bun run ready` full tier never invokes `check:fix`, `check:fix:unsafe`, or any other `:fix` script.
-- [ ] `bun run ready` full tier still runs frozen install when the digest requires it, then strict Biome check, typecheck, aggregate test with the existing serial retry, and markdown lint.
-- [ ] `JARVIS_READY_TIER=fast bun run ready` remains `typecheck` plus aggregate `test` only.
-- [ ] Ready-script tests cover the strict full tier, separate `fix` script, unchanged fast tier, and unchanged serial retry behavior.
-- [ ] Built-in ready/fix script behavior changes do not alter documented custom `readyCommand` override semantics.
-- [ ] `v2/docs/v1-behaviors.md` records `ready` as strict CI-parity verification and `fix` as the separate pre-gate autofix entrypoint.
-- [ ] Other durable docs that name ready/fix step semantics align or cross-link to `v2/docs/v1-behaviors.md` without reintroducing conflicting step-by-step semantics.
-- [ ] `v1/docs/worktrees-and-commits.md` no longer describes built-in `ready` as mutating or committing `check:fix` output.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes.
+- [x] `bun run fix` invokes the existing unsafe Biome autofix command.
+- [x] `bun run ready` full tier never invokes `check:fix`, `check:fix:unsafe`, or any other `:fix` script.
+- [x] `bun run ready` full tier still runs frozen install when the digest requires it, then strict Biome check, typecheck, aggregate test with the existing serial retry, and markdown lint.
+- [x] `JARVIS_READY_TIER=fast bun run ready` remains `typecheck` plus aggregate `test` only.
+- [x] Ready-script tests cover the strict full tier, separate `fix` script, unchanged fast tier, and unchanged serial retry behavior.
+- [x] Built-in ready/fix script behavior changes do not alter documented custom `readyCommand` override semantics.
+- [x] `v2/docs/v1-behaviors.md` records `ready` as strict CI-parity verification and `fix` as the separate pre-gate autofix entrypoint.
+- [x] Other durable docs that name ready/fix step semantics align or cross-link to `v2/docs/v1-behaviors.md` without reintroducing conflicting step-by-step semantics.
+- [x] `v1/docs/worktrees-and-commits.md` no longer describes built-in `ready` as mutating or committing `check:fix` output.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes.
 
 ## Documentation updates
 

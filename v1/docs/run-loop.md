@@ -168,7 +168,7 @@ When unset or invalid, the script defaults to **`full`**.
 | Tier | Steps |
 | --- | --- |
 | **`fast`** | `typecheck` → `test` |
-| **`full`** | `install` when required → `check:fix` → `typecheck` → `test` → `check` → `lint:md` |
+| **`full`** | `install` when required → `check` → `typecheck` → `test` → `lint:md` |
 
 In the **`full`** tier, `bun install --frozen-lockfile` is skipped when a
 recomputed install digest matches the digest recorded after the last successful
@@ -216,8 +216,10 @@ carriers must not downgrade resume gates to **`fast`** or skip.
 commits): exactly one **`full`** `bun run ready` total (completion transition);
 shrink pre-gate and review baseline each run **`fast`**; review final skips.
 
-**`check:fix` commit path** in `runReadyAndCommit` runs only after a **`full`**
-tier invocation; **`fast`** never commits `check:fix` output.
+Built-in step details and the separate `fix` entrypoint live in
+[`v2/docs/v1-behaviors.md`](../../v2/docs/v1-behaviors.md). The harness-side
+dirty-tree commit path in `runReadyAndCommit` still runs only after a
+**`full`** tier invocation; **`fast`** never commits dirty ready output.
 
 Step definitions and install digest skip: [Ready script tiers](#ready-script-tiers) and subspec `00`.
 
@@ -296,8 +298,8 @@ This completion-transition gate always runs the **`full`** tier through
 
 If the ready command itself fails, the harness re-runs the same whole
 completion gate unchanged up to a fixed bound of 2 retries (3 total attempts).
-No agent runs between attempts. If an earlier red left uncommitted
-`check:fix:unsafe` output, retries reuse that already-normalized dirty tree.
+No agent runs between attempts. If an earlier red left uncommitted dirty output
+from a custom `readyCommand`, retries reuse that already-dirty tree.
 If any retry turns green, the gate records the same green result as a first-try
 pass. Commit/push failures after a green ready command are not retried: the run
 stays non-green and stops for operator intervention instead of entering fix-up
@@ -306,7 +308,7 @@ or reaching PR readiness with the remote behind HEAD.
 On success, the harness records a green result keyed to:
 - **HEAD sha**: Read via a separate `git rev-parse HEAD` *after*
   `runReadyAndCommit` returns, capturing the post-commit state if
-  `check:fix` landed a commit.
+  the ready command landed a dirty-tree commit.
 - **Clean worktree**: Verified after `runReadyAndCommit` completes.
 
 This recorded result is available to post-completion phases (shrink and review
@@ -479,7 +481,7 @@ are distinguishable from implementation iterations in `~/.jarvis/runs.jsonl`.
 After the spec is complete (zero unchecked boxes) and `git: true` is in effect,
 the harness runs a completion-stage `ready` gate before any shrink or review
 phases. This gate runs `bun run ready` with the same commit/push semantics as
-the review baseline gate and pre-shrink gate: check:fix output is committed if
+the review baseline gate and pre-shrink gate: dirty output is committed if
 present.
 
 The completion gate:

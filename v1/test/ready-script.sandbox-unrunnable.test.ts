@@ -63,7 +63,7 @@ function writePackage(repoRoot: string, pkgPath: string, name: string, version: 
   writeFileSync(fullPath, JSON.stringify({ name, version }), "utf8");
 }
 
-const FULL_TIER_STEP_NAMES = ["check:fix:unsafe", "typecheck", "test", "check", "lint:md"];
+const FULL_TIER_STEP_NAMES = ["check", "typecheck", "test", "lint:md"];
 
 describe("ready script deadline enforcement", () => {
   test("timeout validation: parsing valid JARVIS_READY_TIMEOUT_MS", () => {
@@ -113,6 +113,13 @@ describe("ready script deadline enforcement", () => {
 });
 
 describe("ready tier parsing and step lists", () => {
+  test("package fix script invokes check:fix:unsafe", () => {
+    const pkg = JSON.parse(readFileSync("./package.json", "utf8")) as {
+      scripts?: Record<string, string>;
+    };
+    expect(pkg.scripts?.fix).toBe("bun run check:fix:unsafe");
+  });
+
   test("parseReadyTier defaults to full when unset", () => {
     withEnv("JARVIS_READY_TIER", undefined, () => {
       expect(parseReadyTier()).toBe("full");
@@ -147,37 +154,34 @@ describe("ready tier parsing and step lists", () => {
     ]);
   });
 
-  test("full tier runs check:fix:unsafe, typecheck, test, check, and lint:md after install", () => {
+  test("full tier runs check, typecheck, test, and lint:md after install", () => {
     expect(getReadyCommands("full", { runInstall: true })).toEqual([
       { name: "bun", args: ["install", "--frozen-lockfile"] },
-      { name: "bun", args: ["run", "check:fix:unsafe"] },
+      { name: "bun", args: ["run", "check"] },
       { name: "bun", args: ["run", "typecheck"] },
       { name: "bun", args: ["run", "test"] },
-      { name: "bun", args: ["run", "check"] },
       { name: "bun", args: ["run", "lint:md"] },
     ]);
   });
 
   test("full tier skips install in the command list when runInstall is false", () => {
     const commands = getReadyCommands("full", { runInstall: false });
-    const checkFixIndex = commands.findIndex(
-      (command) => command.args[0] === "run" && command.args[1] === "check:fix:unsafe",
-    );
+    const checkIndex = commands.findIndex((command) => command.args[0] === "run" && command.args[1] === "check");
     const installIndex = commands.findIndex((command) => command.args[0] === "install");
 
-    expect(checkFixIndex).toBe(0);
+    expect(checkIndex).toBe(0);
     expect(installIndex).toBe(-1);
     expect(commands.map((command) => command.args[1])).toEqual(FULL_TIER_STEP_NAMES);
   });
 
-  test("full tier keeps install before check:fix:unsafe when install runs", () => {
+  test("full tier keeps install before check when install runs", () => {
     const readySource = readFileSync("./scripts/ready.ts", "utf8");
-    const checkFixIndex = readySource.indexOf('{ name: "bun", args: ["run", "check:fix:unsafe"]');
+    const checkIndex = readySource.indexOf('{ name: "bun", args: ["run", "check"]');
     const installIndex = readySource.indexOf('{ name: "bun", args: ["install",');
 
-    expect(checkFixIndex).toBeGreaterThan(0);
+    expect(checkIndex).toBeGreaterThan(0);
     expect(installIndex).toBeGreaterThan(0);
-    expect(installIndex).toBeLessThan(checkFixIndex);
+    expect(installIndex).toBeLessThan(checkIndex);
   });
 
   test("JARVIS_READY_TIER is set by the harness and parsed only in scripts/ready.ts", () => {
@@ -466,13 +470,12 @@ describe("ready serial-retry on test failure", () => {
         process.stderr.write = origWrite;
       }
 
-      // Verify execution order: check:fix:unsafe, typecheck, parallel test (fails), serial test (passes), check, lint:md
+      // Verify execution order: check, typecheck, parallel test (fails), serial test (passes), lint:md
       expect(executed).toEqual([
-        "run check:fix:unsafe",
+        "run check",
         "run typecheck",
         "run test",
         "test",
-        "run check",
         "run lint:md",
       ]);
 
@@ -564,8 +567,8 @@ describe("ready serial-retry on test failure", () => {
               runCommandFn: async (_name, args) => {
                 const step = args.join(" ");
                 executed.push(step);
-                // check:fix:unsafe fails; no serial retry should happen
-                if (step === "run check:fix:unsafe") {
+                // check fails; no serial retry should happen
+                if (step === "run check") {
                   return 1;
                 }
                 return 0;
@@ -586,8 +589,8 @@ describe("ready serial-retry on test failure", () => {
       rmSync(repoRoot, { recursive: true, force: true });
     }
 
-    // Verify check:fix:unsafe ran and failed without any retry
-    expect(executed).toEqual(["install --frozen-lockfile", "run check:fix:unsafe"]);
+    // Verify check ran and failed without any retry
+    expect(executed).toEqual(["install --frozen-lockfile", "run check"]);
   });
 
   withSignalOrTimeoutTest("test timeout (exit code 124) does not trigger serial retry", 124, [

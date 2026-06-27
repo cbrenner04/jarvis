@@ -61,25 +61,25 @@ only — no log/run payload semantics). Proves the channel with `health` and
 
 ## Acceptance criteria
 
-- [ ] A Unix socket listener binds a caller-supplied `socketPath` and serves the
+- [x] A Unix socket listener binds a caller-supplied `socketPath` and serves the
   pinned envelope shapes without network ports or external brokers.
-- [ ] `health` request `{ kind: "request", id, method: "health" }` yields
+- [x] `health` request `{ kind: "request", id, method: "health" }` yields
   `response` `{ kind: "response", id, result: { ok: true } }`.
-- [ ] `status` request `{ kind: "request", id, method: "status" }` yields
+- [x] `status` request `{ kind: "request", id, method: "status" }` yields
   `response` `{ kind: "response", id, result: { state: "running" } }` (daemon-host
   liveness only).
-- [ ] Unknown `method` yields `error` `{ kind: "error", id, code, message }`
+- [x] Unknown `method` yields `error` `{ kind: "error", id, code, message }`
   correlated to the request `id`.
-- [ ] A client can `stream-open`, send `stream-data` chunks (echoed back on the
+- [x] A client can `stream-open`, send `stream-data` chunks (echoed back on the
   same `streamId`), and `stream-end` on the same connection as RPC traffic.
-- [ ] RPC round-trips succeed while a stream is open; stream lifecycle does not
+- [x] RPC round-trips succeed while a stream is open; stream lifecycle does not
   break request/response `id` correlation.
-- [ ] Bad length, truncated body, or invalid JSON closes the connection without
+- [x] Bad length, truncated body, or invalid JSON closes the connection without
   crashing the server.
-- [ ] Valid JSON with missing/invalid `kind` closes the connection without
+- [x] Valid JSON with missing/invalid `kind` closes the connection without
   crashing the server.
-- [ ] New code lives under `v2/**`/`shared/**` with no `v2 -> v1` imports.
-- [ ] `bun run typecheck` (both tsconfigs) and `bun test` pass.
+- [x] New code lives under `v2/**`/`shared/**` with no `v2 -> v1` imports.
+- [x] `bun run typecheck` (both tsconfigs) and `bun test` pass.
 
 ## Documentation updates
 

@@ -33,7 +33,7 @@ identity — never duplicate rows within a report.
 **Underivable fields:** blank + note — do not invent values (including
 `agent_count` without the audit's JSONL filters).
 
-**Decisions**
+## Decisions
 
 - Run-summary / JSONL is the sole automatic source — rules out grepping task
   logs or markdown reports.

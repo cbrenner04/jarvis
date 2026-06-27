@@ -27,7 +27,7 @@ sheets for the active `report` — warn or block per plan; no silent skip.
 `reports/*.csv` rows for the session (session emission + operator `/cost`
 input) without hand-editing CSVs.
 
-**Decisions**
+## Decisions
 
 - Manual CSV assembly is deleted from the runbook once emission ships — rules
   out keeping grep/paste instructions as the primary path.

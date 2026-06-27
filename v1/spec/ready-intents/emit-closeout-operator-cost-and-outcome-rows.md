@@ -35,7 +35,7 @@ within a report.
 **Underivable fields:** blank + note — do not invent operator figures beyond
 what `/cost` and bound session rows supply.
 
-**Decisions**
+## Decisions
 
 - `/cost` is operator-supplied at close-out — rules out in-session capture or
   telemetry inference of operator spend.

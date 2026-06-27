@@ -9,6 +9,8 @@ export type RunbookContext = {
   project: Project;
 };
 
+export const VALID_RUNBOOK_SECTIONS = ["Known gotchas", "Gate blind spots", "Cross-repo coordination"];
+
 function formatAgentOrder(config: Config): string {
   const agents = config.modes.patch.agentOrder ?? [];
   if (agents.length === 0) {

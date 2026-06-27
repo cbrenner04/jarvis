@@ -3,8 +3,7 @@ import { resolve } from "node:path";
 import type { Io } from "../cli.ts";
 import type { ConfigOptions } from "../config.ts";
 import { findProjectMatchForPath } from "../config.ts";
-
-const VALID_SECTIONS = ["Known gotchas", "Gate blind spots", "Cross-repo coordination"];
+import { VALID_RUNBOOK_SECTIONS } from "../runbook-generator.ts";
 
 export type RunbookCommandOptions = {
   action: string;
@@ -14,6 +13,7 @@ export type RunbookCommandOptions = {
   io: Io;
   config?: ConfigOptions;
   cwd?: string;
+  globalUsage?: string;
 };
 
 function renderEntry(entry: string, issueUrl?: string): string {
@@ -82,7 +82,7 @@ function appendEntryToSection(content: string, sectionName: string, entry: strin
 export function runbookCommand(opts: RunbookCommandOptions): number {
   const { action, io } = opts;
 
-  if (action === "" || action === undefined) {
+  if (action === "") {
     io.stderr(RUNBOOK_USAGE);
     return 1;
   }
@@ -101,10 +101,10 @@ export function runbookCommand(opts: RunbookCommandOptions): number {
 
   // Validate section
   const section = opts.section ? opts.section.trim() : "Known gotchas";
-  const normalizedSection = VALID_SECTIONS.find((s) => s.toLowerCase() === section.toLowerCase());
+  const normalizedSection = VALID_RUNBOOK_SECTIONS.find((s) => s.toLowerCase() === section.toLowerCase());
   if (normalizedSection === undefined) {
     io.stderr(
-      `jarvis1: runbook add: unknown section ${JSON.stringify(section)}. Valid sections: ${VALID_SECTIONS.join(", ")}\n`,
+      `jarvis1: runbook add: unknown section ${JSON.stringify(section)}. Valid sections: ${VALID_RUNBOOK_SECTIONS.join(", ")}\n`,
     );
     return 1;
   }
@@ -138,7 +138,7 @@ export function runbookCommand(opts: RunbookCommandOptions): number {
   }
 
   // Append the entry
-  const renderedEntry = renderEntry(entry, opts.issueUrl?.trim());
+  const renderedEntry = renderEntry(entry, opts.issueUrl);
   const targetSection: string = normalizedSection;
   const newContent = appendEntryToSection(content, targetSection, renderedEntry);
   if (newContent === null) {

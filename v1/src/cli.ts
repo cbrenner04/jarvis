@@ -761,7 +761,11 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
       return 1;
     case "error":
       io.stderr(`jarvis1: ${parsed.message}\n`);
-      io.stderr(USAGE);
+      if (parsed.message.startsWith("runbook:")) {
+        io.stderr(RUNBOOK_USAGE);
+      } else {
+        io.stderr(USAGE);
+      }
       return 1;
   }
 }

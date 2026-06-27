@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { Io } from "../src/cli.ts";
 import { init } from "../src/commands/init.ts";
 import { runbookCommand } from "../src/commands/runbook.ts";
+import { VALID_RUNBOOK_SECTIONS } from "../src/runbook-generator.ts";
 
 function captureIo(): { io: Io; out: () => string; err: () => string } {
   let out = "";
@@ -178,20 +179,24 @@ describe("runbook add", () => {
 
   test("does not overwrite existing entries", () => {
     const runbookPath = join(cwd, "OPERATOR_RUNBOOK.md");
-    let runbook = readFileSync(runbookPath, "utf8");
-    const originalExistingEntry = runbook.match(/- \*\*External spec symlinks:\*\*/);
+    const runbookBefore = readFileSync(runbookPath, "utf8");
+    const lineCountBefore = runbookBefore.split("\n").length;
 
     const cap = captureIo();
-    runbookCommand({
+    const code = runbookCommand({
       action: "add",
       entry: "New entry",
       io: cap.io,
       config: { dir: cfgDir },
       cwd,
     });
+    expect(code).toBe(0);
 
-    runbook = readFileSync(runbookPath, "utf8");
-    expect(runbook).toContain(originalExistingEntry?.[0] ?? "");
+    const runbookAfter = readFileSync(runbookPath, "utf8");
+    const lineCountAfter = runbookAfter.split("\n").length;
+
+    expect(lineCountAfter).toBe(lineCountBefore + 1);
+    expect(runbookAfter).toContain("- New entry");
   });
 
   test("fails outside a registered project", () => {
@@ -270,6 +275,26 @@ describe("runbook add", () => {
     expect(cap.err()).toContain("Known gotchas");
     expect(cap.err()).toContain("Gate blind spots");
     expect(cap.err()).toContain("Cross-repo coordination");
+  });
+
+  test("fails with scaffold-present but non-list-safe section (Repos and gates)", () => {
+    const runbookPath = join(cwd, "OPERATOR_RUNBOOK.md");
+    const runbookBefore = readFileSync(runbookPath, "utf8");
+
+    const cap = captureIo();
+    const code = runbookCommand({
+      action: "add",
+      entry: "Some entry",
+      section: "Repos and gates",
+      io: cap.io,
+      config: { dir: cfgDir },
+      cwd,
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("unknown section");
+
+    const runbookAfter = readFileSync(runbookPath, "utf8");
+    expect(runbookAfter).toBe(runbookBefore);
   });
 
   test("fails with empty issue-url value", () => {

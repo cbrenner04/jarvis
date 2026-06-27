@@ -106,9 +106,7 @@ const sharedTransportPatterns = [
   ...guardedStatusPatterns([502, 503, 504, 529]),
 ];
 
-const opencodeTransportPatterns = [
-  ...guardedStatusPatterns([500], [...transportContextWords, "unknownerror"]),
-];
+const opencodeTransportPatterns = [...guardedStatusPatterns([500], [...transportContextWords, "unknownerror"])];
 
 const harnessGitGhTransportPatterns = [
   /\bTLS handshake timeout\b/i,

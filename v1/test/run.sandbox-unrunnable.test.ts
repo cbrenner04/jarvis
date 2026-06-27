@@ -378,32 +378,46 @@ while true; do :; done
       const agentStarted = deferred<void>();
       const watchdogTiming = new ManualWatchdogTiming();
       const outputObserved = deferred<void>();
+      const releaseOutputPath = join(projectRoot, "release-output");
+      const emitThenHangScript = join(projectRoot, "emit-then-hang.sh");
+      writeFileSync(
+        emitThenHangScript,
+        `#!/usr/bin/env bash
+set -euo pipefail
+while [ ! -f "$PWD/release-output" ]; do
+  sleep 0.01
+done
+echo "early output"
+while true; do
+  sleep 60
+done
+`,
+      );
+      chmodSync(emitThenHangScript, 0o755);
 
       class StallingAgent implements Agent {
         readonly name = "claude" as const;
 
         async run(_prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
-          opts.onSpawned?.({ pid: 43210 });
-          const outputHandle = watchdogTiming.setTimeout(() => {
-            opts.lastOutputAtMs!.current = watchdogTiming.nowMs();
-            outputObserved.resolve();
-          }, 1400);
           agentStarted.resolve();
-          return await new Promise<AgentResult>((resolve) => {
-            const abort = () => {
-              watchdogTiming.clearTimeout(outputHandle);
-              resolve({
-                kind: "error",
-                exitCode: -1,
-                stderr: `aborted: ${String(opts.signal?.reason ?? "iteration-timeout")}`,
-              });
-            };
-            if (opts.signal?.aborted) {
-              abort();
-              return;
+          void (async () => {
+            while (opts.lastOutputAtMs?.current === null) {
+              await new Promise((resolve) => setTimeout(resolve, 0));
             }
-            opts.signal?.addEventListener("abort", abort, { once: true });
-          });
+            outputObserved.resolve();
+          })();
+          return await runAgent(
+            {
+              name: this.name,
+              binary: emitThenHangScript,
+              cwd: opts.cwd,
+              buildArgv: () => [],
+              stdio: ["ignore", "pipe", "pipe"],
+              streamErrorPrefix: "test:",
+            },
+            _prompt,
+            opts,
+          );
         }
 
         attributionLabel(): string {
@@ -441,6 +455,7 @@ while true; do :; done
       });
       await agentStarted.promise;
       watchdogTiming.advanceBy(1400);
+      writeFileSync(releaseOutputPath, "go\n");
       await outputObserved.promise;
       watchdogTiming.advanceBy(iterationTimeoutMs - 1400);
       const code = await runPromise;

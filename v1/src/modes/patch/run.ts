@@ -135,15 +135,25 @@ export type RunIo = Io;
 
 export type ConfirmRun = (prompt: string) => string | Promise<string>;
 
+/** Test/production seam for patch-watchdog descendant snapshots at timeout fire. */
 export type WatchdogListProcessesFn = (rootPid: number) => ProcInfo[];
 
+/** Timer handle shape used only by the patch-iteration watchdog timing test seam. */
 export type PatchWatchdogTimerHandle = {
   unref?: () => void;
 };
 
+/**
+ * Test-only patch-iteration watchdog clock/scheduler seam.
+ * Limited to iteration-timeout scheduling and the paired last-output age
+ * measurement on the patch run path; production callers must not set it.
+ */
 export type PatchWatchdogTiming = {
+  /** Returns the current patch-watchdog timestamp in milliseconds. */
   nowMs: () => number;
+  /** Schedules the patch iteration-timeout callback on the injected clock. */
   setTimeout: (callback: () => void, delayMs: number) => PatchWatchdogTimerHandle;
+  /** Cancels a timer created by this seam's `setTimeout`. */
   clearTimeout: (handle: PatchWatchdogTimerHandle) => void;
 };
 
@@ -214,8 +224,9 @@ export type RunCommandOptions = {
   __testWatchdogListProcesses?: WatchdogListProcessesFn;
   /**
    * Test-only override for patch-iteration watchdog time. Replaces the
-   * iteration-timeout scheduler and output-age clock with one caller-owned
-   * source so timing tests can advance both deterministically.
+   * iteration-timeout scheduler plus the observed-output/output-age clock with
+   * one caller-owned source so patch watchdog timing tests can advance both
+   * deterministically through the real stdout/stderr observation path.
    * Production callers must not set this.
    */
   __testPatchWatchdogTiming?: PatchWatchdogTiming;

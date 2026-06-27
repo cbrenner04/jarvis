@@ -849,6 +849,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
       signal: state.currentController.signal,
       ...(preflight.additionalReadDirs !== undefined ? { additionalReadDirs: preflight.additionalReadDirs } : {}),
       lastOutputAtMs,
+      lastOutputNowMs: () => patchWatchdogTiming.nowMs(),
       onSpawned: ({ pid }: { pid: number }) => {
         watchdogPgid = pid;
         // Clear any prior descendantPollHandle before assigning the new one (re-entry-safe for retries)

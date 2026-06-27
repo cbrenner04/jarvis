@@ -103,7 +103,7 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
     stdout.on("data", (chunk: Buffer) => {
       outBuf += chunk.toString("utf8");
       if (opts.lastOutputAtMs) {
-        opts.lastOutputAtMs.current = Date.now();
+        opts.lastOutputAtMs.current = (opts.lastOutputNowMs ?? Date.now)();
       }
     });
     stdout.on("end", () => {
@@ -113,7 +113,7 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
     stderr.on("data", (chunk: Buffer) => {
       errBuf += chunk.toString("utf8");
       if (opts.lastOutputAtMs) {
-        opts.lastOutputAtMs.current = Date.now();
+        opts.lastOutputAtMs.current = (opts.lastOutputNowMs ?? Date.now)();
       }
     });
     stderr.on("end", () => {

@@ -357,7 +357,7 @@ function stripBlockerAndContinueFile(path: string): void {
 
 export async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   const { preflight, logging, opts, activeAgents, state } = ctx;
-  const { specPath, gitEnabled, agentWorkingDir, cfg, trackSourceSpecDelta, specIsExternal } = preflight;
+  const { specPath, gitEnabled, agentWorkingDir, cfg, specIsExternal } = preflight;
   const { fanout, writeTelemetry, specDisplayName } = logging;
   const iteration = state.iteration;
   const iterationStartedAt = Date.now();

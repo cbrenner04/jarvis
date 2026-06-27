@@ -513,11 +513,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
   // For no-commit runs, load and apply any prior-attempt delta before the blocker check
   // This resets any stale AC ticks and blockers from a prior incomplete run
   // Only apply reset once per run (iteration 1), never on subsequent iterations
-  if (
-    !isFixupIteration &&
-    hasUntrackedSpecMutation(activeSubspecPath) &&
-    !state.noCommitResetAppliedThisRun
-  ) {
+  if (!isFixupIteration && hasUntrackedSpecMutation(activeSubspecPath) && !state.noCommitResetAppliedThisRun) {
     const priorDelta = loadDelta(activeSubspecPath);
     if (priorDelta !== null) {
       applyReset(activeSubspecPath, priorDelta);

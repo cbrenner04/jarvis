@@ -28,21 +28,21 @@ of scope; the operator resolves base drift, then re-invokes `--mark-ready`.
 
 ## Task checklist
 
-- [ ] After completeness and before the DRAFT guard in `triageMarkReady`, resolve base (PR `baseRefName` when a PR exists, else `getBaseBranch`) via the unified base-current helper and refuse on behind/diverged.
-- [ ] On behind/diverged: emit the refusal message, return non-zero; do not commit, push, open a PR, run the gate, or call `gh pr ready`.
-- [ ] Refactor `base-current.ts` so PR and no-PR paths share one fetch+ancestor implementation; wire injectable seam on the mark-ready path (default: real helper).
-- [ ] Extend `v1/test/triage-command.test.ts`: behind with open PR → refusal, no commit/push/gate/ready; behind with no PR (`getPrState: () => null`) → refusal, no `ensureDraftPr`/gate/`prReady`; clean tree with unpushed commits behind base → no push/gate/ready.
-- [ ] On existing no-PR happy-path tests, inject explicit `current` (or equivalent) on the base-current seam; `triage-command.test.ts` `--mark-ready when no PR exists opens draft PR, gates, and promotes` stays green once injection is wired.
-- [ ] Update docs (below).
+- [x] After completeness and before the DRAFT guard in `triageMarkReady`, resolve base (PR `baseRefName` when a PR exists, else `getBaseBranch`) via the unified base-current helper and refuse on behind/diverged.
+- [x] On behind/diverged: emit the refusal message, return non-zero; do not commit, push, open a PR, run the gate, or call `gh pr ready`.
+- [x] Refactor `base-current.ts` so PR and no-PR paths share one fetch+ancestor implementation; wire injectable seam on the mark-ready path (default: real helper).
+- [x] Extend `v1/test/triage-command.test.ts`: behind with open PR → refusal, no commit/push/gate/ready; behind with no PR (`getPrState: () => null`) → refusal, no `ensureDraftPr`/gate/`prReady`; clean tree with unpushed commits behind base → no push/gate/ready.
+- [x] On existing no-PR happy-path tests, inject explicit `current` (or equivalent) on the base-current seam; `triage-command.test.ts` `--mark-ready when no PR exists opens draft PR, gates, and promotes` stays green once injection is wired.
+- [x] Update docs (below).
 
 ## Acceptance criteria
 
-- [ ] When `jarvis1 triage <worktree> --mark-ready` runs on a complete worktree whose branch is behind or diverged from its base (open PR), the command exits non-zero, stderr includes `behind base, resolve then re-invoke`, and it performs no finalize commit, push, PR open, ready gate, or ready flip.
-- [ ] When complete, no open PR, and branch is behind the default base (`getBaseBranch`), the command exits non-zero with the same message and performs no `ensureDraftPr`, gate, or `prReady`.
-- [ ] When the branch is current with or ahead of its base, `--mark-ready` finalize behavior is unchanged (dirty commit, ensure/open draft PR, single gate, ready on green).
-- [ ] Behind-base refusal runs after completeness and before the DRAFT guard — a behind tree with uncommitted changes leaves those changes uncommitted; a behind clean tree with unpushed commits performs no push, gate, or ready flip; any existing PR stays draft.
-- [ ] PR path: `gh pr view` or fetch failure does not refuse finalize (proceeds as today). No-PR path: fetch or ancestor git errors do not refuse finalize; `getBaseBranch` resolution does not soft-fail.
-- [ ] `triage-command.test.ts` `--mark-ready when no PR exists opens draft PR, gates, and promotes` stays green with base-current injection wired; other current-with-base `--mark-ready` tests stay green (incompleteness refusal, DRAFT guard, dirty finalize, gate failure, and related seams).
+- [x] When `jarvis1 triage <worktree> --mark-ready` runs on a complete worktree whose branch is behind or diverged from its base (open PR), the command exits non-zero, stderr includes `behind base, resolve then re-invoke`, and it performs no finalize commit, push, PR open, ready gate, or ready flip.
+- [x] When complete, no open PR, and branch is behind the default base (`getBaseBranch`), the command exits non-zero with the same message and performs no `ensureDraftPr`, gate, or `prReady`.
+- [x] When the branch is current with or ahead of its base, `--mark-ready` finalize behavior is unchanged (dirty commit, ensure/open draft PR, single gate, ready on green).
+- [x] Behind-base refusal runs after completeness and before the DRAFT guard — a behind tree with uncommitted changes leaves those changes uncommitted; a behind clean tree with unpushed commits performs no push, gate, or ready flip; any existing PR stays draft.
+- [x] PR path: `gh pr view` or fetch failure does not refuse finalize (proceeds as today). No-PR path: fetch or ancestor git errors do not refuse finalize; `getBaseBranch` resolution does not soft-fail.
+- [x] `triage-command.test.ts` `--mark-ready when no PR exists opens draft PR, gates, and promotes` stays green with base-current injection wired; other current-with-base `--mark-ready` tests stay green (incompleteness refusal, DRAFT guard, dirty finalize, gate failure, and related seams).
 
 ## Documentation updates
 

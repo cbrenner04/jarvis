@@ -270,7 +270,10 @@ dirty after the auto-commit (unexpected state), the run exits with guidance
 (`exit 6`). When all non-human-only acceptance criteria are satisfied but the
 run still exits `6` (for example uncommitted criteria ticks or a failed
 auto-commit), `jarvis1 triage <worktree-name> --mark-ready` finalizes: commit
-dirty changes, open a draft PR if absent, gate once, and ready on green. When
+dirty changes, open a draft PR if absent, gate once, and ready on green.
+When the branch is behind or diverged from its base, finalize refuses before
+any commit, PR open, gate, or ready flip (`behind base, resolve then
+re-invoke`); integrate or rebase onto current base, then re-invoke. When
 effective `git` is `false`, the clean-tree check is skipped:
 completion is purely "all non-human-only criteria checked", regardless of dirty or untracked
 files in the agent's working directory.

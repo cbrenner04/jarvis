@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkBaseCurrent } from "../../src/git/base-current.ts";
+import { checkBaseCurrent, checkBaseCurrentForFinalize } from "../../src/git/base-current.ts";
 
 let dir: string;
 let ghPath: string;
@@ -114,5 +114,36 @@ describe("checkBaseCurrent", () => {
       status: "current",
       baseRefName: "main",
     });
+  });
+});
+
+describe("checkBaseCurrentForFinalize", () => {
+  test("no-PR path uses getBaseBranch and treats merge-base exit 1 as behind", async () => {
+    installShims({ mergeBaseExitCode: 1 });
+
+    const result = await checkBaseCurrentForFinalize({
+      branch: "feature",
+      cwd: dir,
+      hasOpenPr: false,
+      getBaseBranch: async () => "main",
+    });
+
+    expect(result).toEqual({ status: "behind", baseRefName: "main" });
+    const calls = readFileSync(logPath, "utf8");
+    expect(calls).not.toContain("gh pr view");
+    expect(calls).toContain("git fetch origin main\n");
+  });
+
+  test("no-PR path soft-fails open on fetch failure", async () => {
+    installShims({ fetchExitCode: 1 });
+
+    expect(
+      await checkBaseCurrentForFinalize({
+        branch: "feature",
+        cwd: dir,
+        hasOpenPr: false,
+        getBaseBranch: async () => "develop",
+      }),
+    ).toEqual({ status: "current", baseRefName: "develop" });
   });
 });

@@ -6,6 +6,13 @@ import { dirname, join } from "node:path";
 import { type MergeTargetResolutionSeams, resolveMergeTarget } from "../src/commands/resolve-merge-target.ts";
 import type { SuggestedMovesInput, TriageCommandOptions, TriageGhRunner, TriageIo } from "../src/commands/triage.ts";
 import { getSuggestedMoves, triageCommand } from "../src/commands/triage.ts";
+import type { BaseCurrentCheckResult } from "../src/git/base-current.ts";
+
+const currentBase =
+  (baseRefName: string | null = "main") =>
+  (): BaseCurrentCheckResult => ({ status: "current", baseRefName });
+
+const behindBase = (baseRefName: string) => (): BaseCurrentCheckResult => ({ status: "behind", baseRefName });
 
 function captureIo(): { io: TriageIo; out: () => string; err: () => string } {
   let out = "";
@@ -936,6 +943,8 @@ describe("triage --mark-ready", () => {
     getPrState: () => ({ state: "OPEN", isDraft: true }) as const,
   };
 
+  const currentBaseSeam = { checkBaseCurrent: currentBase() };
+
   test("--mark-ready without worktree name should not pass to command layer (CLI rejects)", () => {
     // This test verifies that the CLI layer rejects --mark-ready without a worktree name
     // and never calls the triage command. The command layer doesn't need to handle this,
@@ -993,6 +1002,7 @@ describe("triage --mark-ready", () => {
       io,
       worktreeName,
       markReady: true,
+      ...currentBaseSeam,
       ghRunner: { getPrState: () => null },
       ensureDraftPr: async () => {
         ensureDraftPrRan = true;
@@ -1020,6 +1030,7 @@ describe("triage --mark-ready", () => {
       io,
       worktreeName,
       markReady: true,
+      ...currentBaseSeam,
       ghRunner: {
         getPrState: () => ({
           state: "OPEN",
@@ -1054,6 +1065,7 @@ describe("triage --mark-ready", () => {
       io,
       worktreeName,
       markReady: true,
+      ...currentBaseSeam,
       ghRunner: draftPrGhRunner,
       commitAndPushDirty: () => {
         commitRan = true;
@@ -1071,6 +1083,143 @@ describe("triage --mark-ready", () => {
     expect(gateRan).toBe(false);
   });
 
+  test("--mark-ready refuses when behind base with open PR", async () => {
+    const worktreeName = "branch-behind-pr";
+    setupMarkReadyWorktree(worktreeName);
+
+    let commitRan = false;
+    let gateRan = false;
+    let prReadyRan = false;
+
+    const { io, err } = captureIo();
+    const code = await triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ghRunner: draftPrGhRunner,
+      checkBaseCurrent: behindBase("main"),
+      commitAndPushDirty: () => {
+        commitRan = true;
+        return { ok: true };
+      },
+      runGate: () => {
+        gateRan = true;
+      },
+      prReady: () => {
+        prReadyRan = true;
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toContain("behind base, resolve then re-invoke");
+    expect(commitRan).toBe(false);
+    expect(gateRan).toBe(false);
+    expect(prReadyRan).toBe(false);
+  });
+
+  test("--mark-ready refuses when behind base with no PR", async () => {
+    const worktreeName = "branch-behind-no-pr";
+    setupMarkReadyWorktree(worktreeName);
+
+    let ensureDraftPrRan = false;
+    let gateRan = false;
+    let prReadyRan = false;
+
+    const { io, err } = captureIo();
+    const code = await triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ghRunner: { getPrState: () => null },
+      checkBaseCurrent: behindBase("main"),
+      ensureDraftPr: async () => {
+        ensureDraftPrRan = true;
+        return { number: 1, created: true };
+      },
+      runGate: () => {
+        gateRan = true;
+      },
+      prReady: () => {
+        prReadyRan = true;
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toContain("behind base, resolve then re-invoke");
+    expect(ensureDraftPrRan).toBe(false);
+    expect(gateRan).toBe(false);
+    expect(prReadyRan).toBe(false);
+  });
+
+  test("--mark-ready behind base with unpushed commits performs no push, gate, or ready", async () => {
+    const worktreeName = "branch-behind-unpushed";
+    const { worktreePath } = setupMarkReadyWorktree(worktreeName);
+    writeFileSync(join(worktreePath, "extra.txt"), "unpushed");
+    execSync("git add extra.txt", { cwd: worktreePath });
+    execSync("git commit -m 'unpushed'", { cwd: worktreePath });
+
+    let commitRan = false;
+    let gateRan = false;
+    let prReadyRan = false;
+
+    const { io, err } = captureIo();
+    const code = await triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ghRunner: draftPrGhRunner,
+      checkBaseCurrent: behindBase("main"),
+      commitAndPushDirty: () => {
+        commitRan = true;
+        return { ok: true };
+      },
+      runGate: () => {
+        gateRan = true;
+      },
+      prReady: () => {
+        prReadyRan = true;
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toContain("behind base, resolve then re-invoke");
+    expect(commitRan).toBe(false);
+    expect(gateRan).toBe(false);
+    expect(prReadyRan).toBe(false);
+  });
+
+  test("--mark-ready behind base with dirty tree leaves changes uncommitted", async () => {
+    const worktreeName = "branch-behind-dirty";
+    const { worktreePath } = setupMarkReadyWorktree(worktreeName, { makeDirty: true });
+
+    let gateRan = false;
+
+    const { io, err } = captureIo();
+    const code = await triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ghRunner: draftPrGhRunner,
+      checkBaseCurrent: behindBase("main"),
+      runGate: () => {
+        gateRan = true;
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toContain("behind base, resolve then re-invoke");
+    expect(gateRan).toBe(false);
+    const porcelain = execSync("git status --porcelain", {
+      cwd: worktreePath,
+      encoding: "utf8",
+    }).trim();
+    expect(porcelain).not.toBe("");
+  });
+
   test("--mark-ready with only human-only criteria unchecked finalizes", async () => {
     const worktreeName = "branch-1";
     setupMarkReadyWorktree(worktreeName, {
@@ -1085,6 +1234,7 @@ describe("triage --mark-ready", () => {
       io,
       worktreeName,
       markReady: true,
+      ...currentBaseSeam,
       ghRunner: draftPrGhRunner,
       runGate: () => {
         gateRan = true;
@@ -1110,6 +1260,7 @@ describe("triage --mark-ready", () => {
       io,
       worktreeName,
       markReady: true,
+      ...currentBaseSeam,
       ghRunner: draftPrGhRunner,
       runGate: () => {
         gateRan = true;
@@ -1149,6 +1300,7 @@ describe("triage --mark-ready", () => {
       io,
       worktreeName,
       markReady: true,
+      ...currentBaseSeam,
       ghRunner: {
         getPrState: () => null,
       },
@@ -1180,6 +1332,7 @@ describe("triage --mark-ready", () => {
       io,
       worktreeName,
       markReady: true,
+      ...currentBaseSeam,
       ghRunner: draftPrGhRunner,
       commitAndPushDirty: () => ({ ok: false, reason: "still-dirty" }),
       runGate: () => {
@@ -1228,6 +1381,7 @@ describe("triage --mark-ready", () => {
       io,
       worktreeName,
       markReady: true,
+      ...currentBaseSeam,
       ghRunner: draftPrGhRunner,
       runGate: () => {
         throw new Error("gate command failed");
@@ -1249,6 +1403,7 @@ describe("triage --mark-ready", () => {
       io,
       worktreeName,
       markReady: true,
+      ...currentBaseSeam,
       ghRunner: draftPrGhRunner,
       runGate: () => {},
       prReady: () => {
@@ -1274,6 +1429,7 @@ describe("triage --mark-ready", () => {
       io,
       worktreeName,
       markReady: true,
+      ...currentBaseSeam,
       ghRunner: draftPrGhRunner,
       runGate: () => {
         gateSeamCalled = true;
@@ -1301,6 +1457,7 @@ describe("triage --mark-ready", () => {
       io,
       worktreeName,
       markReady: true,
+      ...currentBaseSeam,
       ghRunner: draftPrGhRunner,
       runGate: () => {
         gateRan = true;
@@ -1362,6 +1519,7 @@ describe("triage --mark-ready", () => {
       io,
       worktreeName,
       markReady: true,
+      ...currentBaseSeam,
       ghRunner: draftPrGhRunner,
       commitAndPushDirty: () => ({ ok: false, reason: "commit-failed", message: "hook rejected" }),
       runGate: () => {

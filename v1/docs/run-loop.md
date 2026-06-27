@@ -713,6 +713,21 @@ for the authoritative outcome mapping. Operator-visible quota stderr phrases
 [Operator-visible stderr](./quota-signals.md#operator-visible-stderr-grep-contract)
 in that doc.
 
+### Shared model pool contention warning
+
+When the selected patch primary agent is Claude (after tier, floor, and override resolution), Jarvis probes for live Jarvis-owned operator/orchestration Claude sessions at run start. If any are detected, Jarvis emits a single non-blocking warning to the terminal and session log:
+
+```
+warning: selected patch primary shares Claude pool with a live Jarvis operator/orchestration session. Pause the competing session to avoid contention.
+```
+
+The warning is informational and non-blocking: the run proceeds normally with the same resolved primary agent, quota fallback behavior, and no-progress escalation. The warning fires once per run, before the first patch actuator invocation, and only when:
+
+- The resolved selected primary agent is Claude (checked after tier, floor, and override resolution; unused fallback rungs do not trigger the warning).
+- At least one live process tree exists with a Jarvis-owned ancestor process and a Claude process child.
+
+The probing is best-effort: process-tree read errors are silent and non-blocking. No warning is printed for unrelated generic Claude processes outside Jarvis ownership, or when the selected primary is a non-Claude model (e.g., Codex, Cursor) even if later fallback entries specify Claude.
+
 ## Output destinations
 
 The `jarvis1 run` terminal, session files, and log server serve different

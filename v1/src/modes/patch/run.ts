@@ -16,6 +16,7 @@ import { type DisambiguateFn, runSharedPreflight, type SharedPreflightOpts } fro
 import { runBaseRefTests as runBaseRefTestsImpl } from "./base-ref-test-runner.ts";
 import { finalize, runIteration, setupLogging } from "./iteration.ts";
 import type { DeltaRecord } from "./no-commit-delta.ts";
+import { warnAboutPoolContentionIfDetected } from "./pool-contention.ts";
 import {
   buildActiveAgents,
   maybeWarnAboutUnmergedPlanBranch,
@@ -47,7 +48,7 @@ type LogAnnotations = Record<string, string | number | boolean | null>;
 
 type Fanout = (tag: LogTag, text: string, stream: LogStream, annotations?: LogAnnotations) => void;
 
-type SendLog = (tag: LogTag, text: string, annotations?: LogAnnotations) => void;
+export type SendLog = (tag: LogTag, text: string, annotations?: LogAnnotations) => void;
 
 type WriteSessionLine = (tag: LogTag, line: string) => void;
 
@@ -342,6 +343,12 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       });
       runExitReason = "floor-error";
       return 1;
+    }
+
+    // Warn about Claude pool contention if the selected primary agent is Claude
+    // and there are live Jarvis-owned operator/orchestration sessions using Claude.
+    if (activeAgents.length > 0) {
+      warnAboutPoolContentionIfDetected(activeAgents[0]!, logging.sendLog);
     }
 
     while (true) {

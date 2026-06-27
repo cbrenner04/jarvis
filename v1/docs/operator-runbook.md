@@ -214,12 +214,12 @@ gh pr ready && gh pr merge --admin --squash   # ready first — admin refuses a 
 Common cases:
 
 - **Complete-but-dirty run.** Checklists all ticked but the worktree has uncommitted work — commit it and finalize (never auto-tick criteria).
-- **Stuck-red completion (exit 10).** The gate failed repeatedly, fix-up commits were discarded (reset to first-red baseline, force-pushed with `--force-with-lease`), PR left at the original completed work. Recovery: fix the underlying issue. If the gate should now pass, `jarvis1 triage <worktree-name> --mark-ready` re-runs the gate once and promotes on green; otherwise rerun `jarvis1 run <spec>` to retry the fix-up. Discarded edits remain in git reflog.
+- **Stuck-red completion (exit 10).** The gate failed repeatedly, fix-up commits were discarded (reset to first-red baseline, force-pushed with `--force-with-lease`), PR left at the original completed work. Recovery: fix the underlying issue. If the gate should now pass, `jarvis1 triage <worktree-name> --mark-ready` re-runs the gate once and promotes on green; otherwise rerun `jarvis1 run <spec>` to retry the fix-up. Discarded edits remain in git reflog. Once the gate is green and the PR is ready, use `jarvis1 triage <worktree-name> --merge` to atomically poll CI to green and admin-merge (preferred) or manually `gh pr merge --admin --squash`.
 - **Transient-killed plan.** Died on a transient agent-error, leaving a dirty plan worktree. If the review actuator finished (verdict written, subspec edits applied) and only the commit/index-reconcile was lost, reconcile `index.md` to match the subspecs the actuator created, then commit — cheaper than re-running the review. If edits look truncated, discard and re-resume.
 - **Flaky parallel-load failure.** Tests that pass serially but fail under `--parallel` are load flakes — re-run the failing test(s) in isolation; if green, finalize.
 - **CI-only failure (passes the local/jarvis gate).** A path/fs-sensitive bug can pass `bun run ready` under the local `$TMPDIR` layout yet fail **deterministically in CI's `/tmp`**. `jarvis1 review-feedback` tends to stall (the agent never sees the failure locally) and a plain re-run no-ops once acceptance criteria are ticked. After ~1–2 unproductive feedback rounds, **abandon** the worktree with `jarvis1 cleanup --abandon` and re-run the spec fresh (`jarvis1 run`) — ideally on a stronger agent — to re-implement from a clean slate. Treat CI as the load-bearing gate for path/fs-sensitive code; a local green alone isn't proof.
 
-Admin-merge skips approval and CI but **not** local verification — always run `bun run ready` before merging.
+Manual admin-merge with `gh pr merge --admin --squash` skips approval and CI verification — always run `bun run ready` before using it. Prefer `jarvis1 triage <worktree-name> --merge` instead, which enforces both the local ready gate and CI-green before merging.
 
 ## No-commit re-run auto-reset
 
@@ -267,19 +267,27 @@ The sandbox (e.g. in Claude Code) can hide real state.
 
 `main` enforces branch protection (approval + passing CI, no self-approval); the owner has authorized **admin-merge** for this dogfooding workflow:
 
+**Gated merge path (preferred):**
 1. Spec complete (all criteria ticked) → Jarvis flips the PR to `ready` (or run `gh pr ready`).
-2. Run `bun run ready` locally — admin-merge does **not** re-verify.
-3. `gh pr merge --admin --squash` overrides the approval/up-to-date requirement.
+2. `jarvis1 triage <worktree-name> --merge` — atomically runs the local `bun run ready` gate, marks the PR ready if draft, waits for CI to be green, then admin-squash-merges. Refuses to merge on gate-red or any CI-check red; reports the specific failing gate/check name and exits non-zero, leaving the PR unmerged.
+
+**Manual fallback (last-resort):**
+When `--merge` is unavailable or gates cannot be rerun (e.g., an earlier session ran it and the worktree is gone), finalize by hand:
+
+1. Inspect: `git status && git diff`.
+2. Fix issues if needed, then run the gate explicitly: `bun run ready`.
+3. Stage and commit: `git add -A && git commit -m "<message>"`.
+4. Mark ready and merge: `gh pr ready && gh pr merge --admin --squash`.
 
 Merge **only** when the diff is correct, in-scope, and leaks nothing sensitive. `mergeStateStatus` `BLOCKED` is usually branch-protection only (admin overrides); `DIRTY` is a real conflict to resolve first; `BEHIND` is admin-mergeable.
 
 ## The gate
 
-- **`bun run ready`** — the full completion gate (typecheck + lint + tests, with a serial retry on parallel-test failure). Jarvis runs it on spec completion; the operator runs it before any hand/admin-merge.
+- **`bun run ready`** — the full completion gate (typecheck + lint + tests, with a serial retry on parallel-test failure). Jarvis runs it on spec completion; the operator runs it before any hand/admin-merge. `jarvis1 triage <worktree-name> --merge` runs this gate as the first step before waiting for CI, so both gates are enforced together.
 - **`check:fix`** (safe Biome fixes) leaves residual `noExplicitAny`/unused-var/non-null issues; **`check:fix:unsafe`** applies riskier fixes and runs in the ready tier before the final `check` lint. `noNonNullAssertion` has `fix: "none"` in `biome.json` — its autofix rewrites `!` to `?.`, which is `T | undefined` under `noUncheckedIndexedAccess` and fails the subsequent typecheck.
 - **`bun run typecheck`** is a separate gate (`noImplicitAny` lives in `tsconfig.json`, not Biome).
 - Tests that spawn real processes live in `*.sandbox-unrunnable.test.ts` and only run **sandbox-off**.
-- **CI ≠ `ready`.** PR CI does **not** run `lint:md`; `bun run ready` does. A green-CI markdown PR (plan/intent/seed/report/doc) can still carry lint-dirty generated markdown that, once merged, reddens **every** subsequent run's completion gate (`lint:md` globs `v1/spec/**`, `v1/docs/**`, `reports/**`, `README.md`, `AGENTS.md` — **not** `v2/docs/**`). Run `bun run lint:md` locally before admin-merging any PR that adds/edits markdown under those globs; green CI alone is not sufficient. Structural fix tracked by the `merge-on-green-gate` and `plan-generated-spec-markdown-passes-lint-md` ready-intents — **delete this caveat once either ships and CI covers `lint:md`.**
+- **CI ≠ `ready`.** PR CI does **not** run `lint:md`; `bun run ready` does. A green-CI markdown PR (plan/intent/seed/report/doc) can still carry lint-dirty generated markdown that, once merged, reddens **every** subsequent run's completion gate (`lint:md` globs `v1/spec/**`, `v1/docs/**`, `reports/**`, `README.md`, `AGENTS.md` — **not** `v2/docs/**`). `jarvis1 triage <worktree-name> --merge` closes this gap: it runs `bun run ready` (including `lint:md`) before waiting for CI to be green, so both gates are enforced before merge. For direct hand-merge paths that bypass `--merge`, run `bun run lint:md` locally before admin-merging any PR that adds/edits markdown under those globs; green CI alone is not sufficient.
 
 ## Session start
 

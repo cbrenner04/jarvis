@@ -30,14 +30,14 @@ This extends the existing `--mark-ready` recovery flow (preconditions → local 
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 triage <worktree-name> --merge` admin-squash-merges the PR (`gh pr merge --admin --squash`) and exits 0 only after the local `bun run ready` gate passes and all CI checks report green.
-- [ ] A red/failed CI check aborts `--merge` before any merge; the PR is left unmerged, the specific failing check name is reported, and the exit code is non-zero.
-- [ ] A failing local ready gate aborts `--merge` before any merge, whether the PR starts draft or already ready; the PR is left unmerged, the captured gate failure text is reported, and the exit code is non-zero.
-- [ ] Pending/in-progress CI checks cause `--merge` to wait for resolution rather than refusing.
-- [ ] CI checks that stay unresolved past the timeout ceiling abort `--merge` before any merge; the PR is left unmerged, the still-pending check name is reported, and the exit code is non-zero.
-- [ ] `--merge` proceeds on a PR already in ready (non-draft) state without requiring DRAFT; a merged or closed PR is rejected with a non-zero exit.
-- [ ] `--merge` with no worktree name exits with a usage error, mirroring `--mark-ready`; `--merge --mark-ready` together exits with a usage error.
-- [ ] Across green→merge, red-check→refuse, pending→wait, poll-timeout→refuse, local-gate-fail→refuse, already-ready→merge, and merged/closed→reject, `--merge` behaves as specified above with no network access (gh interactions injected).
+- [x] `jarvis1 triage <worktree-name> --merge` admin-squash-merges the PR (`gh pr merge --admin --squash`) and exits 0 only after the local `bun run ready` gate passes and all CI checks report green.
+- [x] A red/failed CI check aborts `--merge` before any merge; the PR is left unmerged, the specific failing check name is reported, and the exit code is non-zero.
+- [x] A failing local ready gate aborts `--merge` before any merge, whether the PR starts draft or already ready; the PR is left unmerged, the captured gate failure text is reported, and the exit code is non-zero.
+- [x] Pending/in-progress CI checks cause `--merge` to wait for resolution rather than refusing.
+- [x] CI checks that stay unresolved past the timeout ceiling abort `--merge` before any merge; the PR is left unmerged, the still-pending check name is reported, and the exit code is non-zero.
+- [x] `--merge` proceeds on a PR already in ready (non-draft) state without requiring DRAFT; a merged or closed PR is rejected with a non-zero exit.
+- [x] `--merge` with no worktree name exits with a usage error, mirroring `--mark-ready`; `--merge --mark-ready` together exits with a usage error.
+- [x] Across green→merge, red-check→refuse, pending→wait, poll-timeout→refuse, local-gate-fail→refuse, already-ready→merge, and merged/closed→reject, `--merge` behaves as specified above with no network access (gh interactions injected).
 
 ## Documentation updates
 

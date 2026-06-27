@@ -6,6 +6,10 @@ import { appendAgentTrailer } from "../commit-trailer.ts";
 import type { ConfigOptions } from "../config.ts";
 import { loadConfig } from "../config.ts";
 import { getBaseBranch, withSyncTransientRetry } from "../gh.ts";
+import {
+  type BaseCurrentCheckResult,
+  checkBaseCurrentForFinalize,
+} from "../git/base-current.ts";
 import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "../modes/patch/completion.ts";
 import { generatePrBody, getIndexTitle } from "../modes/patch/completion-pipeline.ts";
 import { findRelocatedSpecFile, prepareActiveSpecPath } from "../modes/patch/preflight.ts";
@@ -46,6 +50,11 @@ export type TriageCommandOptions = {
   runGate?: (cwd: string, readyCommand?: string) => void;
   prReady?: (branch: string, cwd: string) => void;
   commitAndPushDirty?: (worktreePath: string) => CommitAndPushDirtyResult;
+  checkBaseCurrent?: (opts: {
+    branch: string;
+    cwd: string;
+    hasOpenPr: boolean;
+  }) => Promise<BaseCurrentCheckResult> | BaseCurrentCheckResult;
   ensureDraftPr?: (opts: EnsureDraftPrOpts) => Promise<{ number: number; created: boolean }>;
   adminMerge?: (branch: string, cwd: string) => void;
   pollIntervalMs?: number;
@@ -981,6 +990,17 @@ async function triageMarkReady(opts: TriageCommandOptions): Promise<number> {
 
   const ghRunner = opts.ghRunner ?? createDefaultGhRunner();
   const prState = ghRunner.getPrState(branch);
+
+  const baseCurrent = await (opts.checkBaseCurrent ?? checkBaseCurrentForFinalize)({
+    branch,
+    cwd: worktreePath,
+    hasOpenPr: prState !== null,
+  });
+  if (baseCurrent.status === "behind") {
+    opts.io.stderr(`${label}: behind base, resolve then re-invoke\n`);
+    return 1;
+  }
+
   if (prState && !prState.isDraft) {
     opts.io.stderr(`${label}: PR is not in DRAFT state (current state: ${prState.state}). Cannot promote.\n`);
     return 1;

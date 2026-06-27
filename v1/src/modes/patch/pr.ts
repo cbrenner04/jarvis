@@ -6,7 +6,7 @@ import type { Agent, AgentRunOptions } from "../../agents/types.ts";
 import { type SyncTransientRetryOptions, withSyncTransientRetry } from "../../gh.ts";
 import { checkPrExists, extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER } from "../../pr.ts";
 import { updatePrBody as updatePrBodyShared } from "../../pr-module.ts";
-import { generateNarrativeViaAgent, PR_DESCRIPTION_CONTEXT_MAX_CHARS, type DiffStat } from "../../pr-shared.ts";
+import { type DiffStat, generateNarrativeViaAgent, PR_DESCRIPTION_CONTEXT_MAX_CHARS } from "../../pr-shared.ts";
 import {
   type ReadyTier,
   type RunReadyAndCommitOpts,
@@ -156,7 +156,7 @@ function readDiffStats(cwd: string, base: string): DiffStat[] {
       // Handle binary files: "-" means not applicable
       const added = addedStr === "-" ? 0 : parseInt(addedStr, 10);
       const removed = removedStr === "-" ? 0 : parseInt(removedStr, 10);
-      if (isNaN(added) || isNaN(removed)) continue;
+      if (Number.isNaN(added) || Number.isNaN(removed)) continue;
       diffs.push({ added, removed, path });
     }
     return diffs;
@@ -198,20 +198,23 @@ export type UpdatePrBodyOpts = {
  * Throws on `gh` failure; callers wrap with try/catch and warn-and-continue.
  */
 export async function updatePrBody(opts: UpdatePrBodyOpts): Promise<void> {
-  const getDiffStatsFn: (cwd: string, base: string) => DiffStat[] = opts.getDiffStats ?? ((cwd: string, base: string) => readDiffStats(cwd, base));
-  const getSubspecBodiesFn: () => string[] = opts.getSubspecBodies ?? (() => {
-    const indexContent = readFileSync(opts.indexPath, "utf8");
-    const parsed = parseSpec(indexContent);
-    const indexDir = dirname(opts.indexPath);
-    return parsed.linkedSubspecs.map((s) => {
-      const subspecPath = join(indexDir, s.path);
-      try {
-        return readFileSync(subspecPath, "utf8");
-      } catch {
-        return "";
-      }
+  const getDiffStatsFn: (cwd: string, base: string) => DiffStat[] =
+    opts.getDiffStats ?? ((cwd: string, base: string) => readDiffStats(cwd, base));
+  const getSubspecBodiesFn: () => string[] =
+    opts.getSubspecBodies ??
+    (() => {
+      const indexContent = readFileSync(opts.indexPath, "utf8");
+      const parsed = parseSpec(indexContent);
+      const indexDir = dirname(opts.indexPath);
+      return parsed.linkedSubspecs.map((s) => {
+        const subspecPath = join(indexDir, s.path);
+        try {
+          return readFileSync(subspecPath, "utf8");
+        } catch {
+          return "";
+        }
+      });
     });
-  });
 
   const sharedOpts: Parameters<typeof updatePrBodyShared>[0] = {
     branch: opts.branch,

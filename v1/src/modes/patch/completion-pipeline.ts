@@ -7,7 +7,7 @@ import { appendAgentTrailer } from "../../commit-trailer.ts";
 import { resolveReviewPasses } from "../../config.ts";
 import { getBaseBranch } from "../../gh.ts";
 import { checkPrExists, readBranchCommits } from "../../pr.ts";
-import { generateTemplateNarrative, type DiffStat } from "../../pr-shared.ts";
+import { type DiffStat, generateTemplateNarrative } from "../../pr-shared.ts";
 import {
   ReadyCheckFixCommitError,
   ReadyCheckFixPushError,
@@ -127,7 +127,7 @@ function readDiffStats(cwd: string, base: string): DiffStat[] {
       // Handle binary files: "-" means not applicable
       const added = addedStr === "-" ? 0 : parseInt(addedStr, 10);
       const removed = removedStr === "-" ? 0 : parseInt(removedStr, 10);
-      if (isNaN(added) || isNaN(removed)) continue;
+      if (Number.isNaN(added) || Number.isNaN(removed)) continue;
       diffs.push({ added, removed, path });
     }
     return diffs;

@@ -157,7 +157,7 @@ function extractWhyLine(body: string, charBound: number = 80): string | null {
 
     // Found prose line
     if (trimmed.length > charBound) {
-      return trimmed.slice(0, charBound) + "…";
+      return `${trimmed.slice(0, charBound)}…`;
     }
     return trimmed;
   }
@@ -287,18 +287,17 @@ export function generateTemplateNarrative(opts: {
 
     // Group by area and sort
     const areas = groupDiffsByArea(diffStats);
-    const sortedAreas = Array.from(areas.entries())
-      .sort(([areaA, statsA], [areaB, statsB]) => {
-        const changedLinesA = statsA.added + statsA.removed;
-        const changedLinesB = statsB.added + statsB.removed;
-        if (changedLinesB !== changedLinesA) {
-          return changedLinesB - changedLinesA; // desc by changed lines
-        }
-        return areaA.localeCompare(areaB); // asc by path
-      });
+    const sortedAreas = Array.from(areas.entries()).sort(([areaA, statsA], [areaB, statsB]) => {
+      const changedLinesA = statsA.added + statsA.removed;
+      const changedLinesB = statsB.added + statsB.removed;
+      if (changedLinesB !== changedLinesA) {
+        return changedLinesB - changedLinesA; // desc by changed lines
+      }
+      return areaA.localeCompare(areaB); // asc by path
+    });
 
     for (const [area, stats] of sortedAreas) {
-      const changedLines = stats.added + stats.removed;
+      const _changedLines = stats.added + stats.removed;
       lines.push(`- ${area}: ${stats.files} file${stats.files !== 1 ? "s" : ""} (+${stats.added}/-${stats.removed})`);
     }
   }

@@ -1,7 +1,12 @@
 import type { Agent, AgentRunOptions } from "./agents/types.ts";
 import type { CommitInfo } from "./pr.ts";
 import { extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER, renderAttributionSummary } from "./pr.ts";
-import { generateNarrativeViaAgent, generateTemplateNarrative, shouldRegenerateNarrative, type DiffStat } from "./pr-shared.ts";
+import {
+  type DiffStat,
+  generateNarrativeViaAgent,
+  generateTemplateNarrative,
+  shouldRegenerateNarrative,
+} from "./pr-shared.ts";
 
 export type UpdatePrBodyOpts = {
   /** Shared PR body update options. */

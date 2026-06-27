@@ -87,7 +87,7 @@ Per-project config:
   the hierarchy exists for *agents* (preference-then-fallback) and a model always
   attaches to a specific agent (codex can't serve a Claude model):
   - **Agent fallback order** — one ordered list of agents (`claude → codex →
-    cursor → aider`), the availability/quota chain. Lives in **per-machine**
+    cursor → opencode`), the availability/quota chain. Lives in **per-machine**
     `~/.jarvis` config: which agents are installed/licensed genuinely differs
     between the personal and work machines.
   - **Model categories** — models grouped by the *kind of work*, each category
@@ -120,7 +120,7 @@ Per-project config:
   resort rather than v1's hard exit `2` ("all agents quota-exhausted"). It sits at
   the end of the agent fallback order, configured only on machines that have it.
   Lifecycle and reach are settled under [Concurrency & memory budget → Local model](#local-model):
-  Ollama server resident, qwen on-demand, reached via aider.
+  Ollama server resident, qwen on-demand, reached via opencode.
 - **Focused show/edit.** The config will be large. `jarvis config <project>`
   shows enabled workflows + the agent fallback order; `jarvis config <project>
   <workflow>` drills into one workflow's steps, each step's category and its
@@ -211,6 +211,12 @@ a server/runner world (pause + route to a human loop vs. process exit).
 - **Logs need improvement, but later.** Structured, queryable logging (per the
   vision) is the eventual target; the first cut can stream the existing log shape
   and improve from there.
+- **Entry is explicit workflow selection.** A run starts by naming a workflow +
+  target over the API/CLI. A natural-language prompt router — `jarvis "<intent>"`
+  that classifies free text and routes to a workflow (new run) or an existing run
+  (resume), conservatively asking for a sharper prompt when unsure — is a later
+  thin client over this same surface (the final build-order phase), not part of
+  the core entry contract.
 
 Steering (the API surface the TUI drives):
 
@@ -375,8 +381,8 @@ and the local model.
   native `keep_alive` provides warm-TTL-then-unload — we don't build model
   lifecycle ourselves. This reconciles the constraints doc's "local model running
   at the same time": the *server* is resident, the *model* is not.
-- **Reached via aider, no new adapter.** The fallback calls the Ollama server
-  through `aider` (already in v1's roster), configured to point at ollama/qwen.
+- **Reached via opencode, no new adapter.** The fallback calls the Ollama server
+  through `opencode` (already in v1's roster), configured to point at ollama/qwen.
 - **Configured only where it exists.** The local model is just a terminal entry
   in the agent order, present on the personal machine only. The work machine's
   order has no local fallback, so all-paid-exhausted stays a hard stop there (v1

@@ -20,7 +20,7 @@ Plan mode consumes a **ready-intent** — a hand-authored seed produced by `jarv
 - The generated `index.md` includes a `repo:` binding so `jarvis1 run` can resolve the target repository.
 - A resolved project with effective `git: false` is forced onto this path even if `modes.plan.commit` or `projects.<key>.plan.commit` is `true`.
 
-**With `commit: true`:** A fresh run drafts and reviews in a **single invocation**: jarvis validates the ready-intent, drafts the spec (`plan: draft`), opens or updates the branch's draft PR, runs the review passes, and — when every phase succeeds without a blocker — **`gh pr ready` runs automatically** (same readiness transition as patch mode). It exits **`0`**. There is no intent/refine handoff.
+**With `commit: true`:** A fresh run drafts and reviews in a **single invocation**: jarvis validates the ready-intent, drafts the spec (`plan: draft`), opens or updates the branch's draft PR, runs the review passes, and — when every phase succeeds without a blocker — automatically attempts the same guarded draft→ready transition used by patch mode. If the branch is behind or diverged from its PR base, the PR stays draft. It exits **`0`**. There is no intent/refine handoff.
 
 **Stdout Next steps:** after draft/review succeed, jarvis prints the PR URL plus exact `jarvis1 plan --resume …` and `jarvis1 run …` commands using **`<targetDir>/<spec-dir>/` paths** (e.g., `spec/…` for default repos, `v1/spec/…` for configured roots). That block deliberately **does not** ask you to toggle draft/readiness manually.
 
@@ -230,7 +230,7 @@ This contract mirrors patch mode's narrative preservation semantics: humans can 
 
 The `modes.plan.commit` boolean (config v2) controls where plan-mode specs are written and whether git/GitHub are involved:
 
-- **`true` (default):** Plan specs are authored in a worktree on a branch under the target repo's `<targetDir>/<spec-dir>/` tree. Git commits (`plan: draft`, `plan: review N`) are made, a draft PR is opened after the first `plan: draft` commit, and `gh pr ready` runs programmatically on success. After merge to `main`, the spec is available to `jarvis1 run`.
+- **`true` (default):** Plan specs are authored in a worktree on a branch under the target repo's `<targetDir>/<spec-dir>/` tree. Git commits (`plan: draft`, `plan: review N`) are made, a draft PR is opened after the first `plan: draft` commit, and the guarded draft→ready transition runs programmatically on success. After merge to `main`, the spec is available to `jarvis1 run`.
 - **`false`:** Plan specs are written to Jarvis-owned storage outside the target directory (`~/.jarvis/specs/<project-safe-id>/<spec-dir>/`). No git branch, worktree, commits, or PR are created. Plan mode runs directly in the target directory root (which may or may not be a git repository). The generated `index.md` includes a portable `repo:` binding for later `jarvis1 run` invocations.
 
 When `commit: false`, the spec tree must include a usable `repo:` metadata line so `jarvis1 run` can later resolve the target repository independently of the spec file's location.
@@ -314,7 +314,7 @@ Plan mode stops in these cases:
 
 ### 1. All phases complete
 
-All draft and review passes finish without encountering a blocker. Jarvis exits **`0`** and triggers **`gh pr ready`** alongside the customary stdout **Next steps** block (**which omits redundant manual ready-flip instructions**). Humans still review/modify GitHub/Git content and merge once satisfied using `jarvis1 run <targetDir>/<spec-dir>/index.md` afterward.
+All draft and review passes finish without encountering a blocker. Jarvis exits **`0`** and attempts the guarded draft→ready transition alongside the customary stdout **Next steps** block (**which omits redundant manual ready-flip instructions**). Behind/diverged branches stay draft; base-resolution/fetch failures soft-fail open to proceed. Humans still review/modify GitHub/Git content and merge once satisfied using `jarvis1 run <targetDir>/<spec-dir>/index.md` afterward.
 
 ### 2. Blocker encountered
 
@@ -376,7 +376,7 @@ On fresh `commit: true` runs, the first `plan: draft` commit triggers the `ensur
 Like patch mode, plan mode invokes `bun run ready` automatically once every scripted phase succeeds (no blocker). The readiness transition begins with `bun install --frozen-lockfile` so Biome is available, then runs `bun run check:fix` (Biome's safe format and lint-rule fixer) as the second step — which may rewrite files — before `typecheck → test → check → lint:md` proceeds.
 
 **Readiness transition behavior:**
-- If the branch's open PR is **draft**, the `bun run ready` gate runs. On success, any `check:fix` output is committed and pushed (`chore: apply pre-ready check:fix`), then `gh pr ready` flips the PR to ready. On gate failure, the PR remains draft.
+- If the branch's open PR is **draft**, plan first resolves the PR's actual base, fetches `origin/<base>`, and confirms `HEAD` contains that fetched base tip. If the branch is behind or diverged from base, jarvis emits a stderr message, skips the ready flip, and leaves the PR draft. If the base check cannot resolve or fetch, it soft-fails open and continues. After a passing base-current check, the `bun run ready` gate runs. On success, any `check:fix` output is committed and pushed (`chore: apply pre-ready check:fix`), then `gh pr ready` flips the PR to ready. On gate failure, the PR remains draft.
 - If the branch's open PR is **already ready**, both the gate and GitHub transition are skipped; the PR remains ready and emits no warning.
 - If **no open PR exists**, the readiness helper is a silent no-op.
 

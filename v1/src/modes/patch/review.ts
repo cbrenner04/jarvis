@@ -7,6 +7,7 @@ import type { Agent, AgentName, AgentRunOptions } from "../../agents/types.ts";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
 import { type AgentEntry, type Config, resolveSubRoleAgentOrder } from "../../config.ts";
 import { getBaseBranch, postPrComment, withSyncTransientRetry } from "../../gh.ts";
+import { checkBaseCurrent, writeReadyFlipBlocked } from "../../git/base-current.ts";
 import { checkPrExists } from "../../pr.ts";
 import {
   HARNESS_QUOTA_FALLBACK_STRICT,
@@ -37,7 +38,7 @@ import {
   ReviewTerminalError,
 } from "../review/types.ts";
 import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "./idle-watchdog.ts";
-import { updatePrBody } from "./pr.ts";
+import { type MaybeMarkReadyOpts, updatePrBody } from "./pr.ts";
 import { buildReviewPrompt, buildVerdictActuatorPrompt, type ReviewPromptOpts } from "./prompt.ts";
 import { DESCENDANT_POLL_INTERVAL_MS, DescendantTracker } from "./reap.ts";
 
@@ -268,6 +269,16 @@ export type PatchReviewPhaseOptions = {
   runBaselineGate?: (tier: ReadyTier) => void;
   /** Test seam for final `bun run ready` + `gh pr ready`. */
   runFinalGate?: (branch: string, tier: ReadyTier | "skip") => void;
+  /** Test seam: check if PR exists for review-final readying. */
+  checkPrExists?: MaybeMarkReadyOpts["checkPrExists"];
+  /** Test seam: resolve/fetch/compare the PR base for review-final readying. */
+  checkBaseCurrent?: MaybeMarkReadyOpts["checkBaseCurrent"];
+  /** Test seam: override `gh pr ready` during review-final readying. */
+  ghPrReady?: MaybeMarkReadyOpts["ghPrReady"];
+  /** Test seam: override transient retry behavior for `gh pr ready`. */
+  ghPrReadyRetryOpts?: MaybeMarkReadyOpts["ghPrReadyRetryOpts"];
+  /** Test seam: operator-visible stderr sink for blocked review-final flips. */
+  stderr?: MaybeMarkReadyOpts["stderr"];
   /** Test seam: fixed base branch instead of `getBaseBranch`. */
   baseBranch?: string;
   /** Test override: substitute agents for the resolved review actuator order by index. */
@@ -1220,20 +1231,40 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           cwd: opts.cwd,
           recordedGreenHeadSha: opts.recordedGreenResult.headSha,
         });
+      const prExists = (opts.checkPrExists ?? checkPrExists)(branch, opts.cwd);
+      if (!prExists) {
+        throw new Error(
+          `cannot mark PR ready: no PR found for branch ${branch}. This should not happen after opening a draft PR.`,
+        );
+      }
+      const baseCurrent = (opts.checkBaseCurrent ?? checkBaseCurrent)({ branch, cwd: opts.cwd });
+      if (baseCurrent.status === "behind") {
+        writeReadyFlipBlocked(
+          opts.stderr ?? process.stderr.write.bind(process.stderr),
+          branch,
+          baseCurrent.baseRefName,
+        );
+        return 0;
+      }
 
       if (opts.runFinalGate) {
         opts.runFinalGate(branch, skipReady ? "skip" : "full");
       } else if (skipReady) {
-        withSyncTransientRetry(
-          () => {
-            execFileSync("gh", ["pr", "ready", branch], {
-              cwd: opts.cwd,
-              env: process.env,
-              stdio: "pipe",
-            });
-          },
-          { op: "gh pr ready", isPrReady: true },
-        );
+        const ghPrReadyFn =
+          opts.ghPrReady ??
+          ((readyBranch: string, cwd: string) => {
+            withSyncTransientRetry(
+              () => {
+                execFileSync("gh", ["pr", "ready", readyBranch], {
+                  cwd,
+                  env: process.env,
+                  stdio: "pipe",
+                });
+              },
+              { op: "gh pr ready", isPrReady: true, ...opts.ghPrReadyRetryOpts },
+            );
+          });
+        ghPrReadyFn(branch, opts.cwd);
       } else {
         runReadyAndCommit({
           cwd: opts.cwd,
@@ -1241,16 +1272,21 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           tier: "full",
           ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
         });
-        withSyncTransientRetry(
-          () => {
-            execFileSync("gh", ["pr", "ready", branch], {
-              cwd: opts.cwd,
-              env: process.env,
-              stdio: "pipe",
-            });
-          },
-          { op: "gh pr ready", isPrReady: true },
-        );
+        const ghPrReadyFn =
+          opts.ghPrReady ??
+          ((readyBranch: string, cwd: string) => {
+            withSyncTransientRetry(
+              () => {
+                execFileSync("gh", ["pr", "ready", readyBranch], {
+                  cwd,
+                  env: process.env,
+                  stdio: "pipe",
+                });
+              },
+              { op: "gh pr ready", isPrReady: true, ...opts.ghPrReadyRetryOpts },
+            );
+          });
+        ghPrReadyFn(branch, opts.cwd);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

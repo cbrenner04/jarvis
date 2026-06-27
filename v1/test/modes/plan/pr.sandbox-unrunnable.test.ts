@@ -91,6 +91,10 @@ ${NARRATIVE_END_MARKER}`;
 });
 
 let gitDir: string;
+const currentBase =
+  (baseRefName: string | null = "main") =>
+  () => ({ status: "current" as const, baseRefName });
+const behindBase = (baseRefName: string) => () => ({ status: "behind" as const, baseRefName });
 
 function gitSetup(): void {
   execSync("git init -q", { cwd: gitDir, stdio: "pipe" });
@@ -192,6 +196,7 @@ describe("maybeMarkPlanPrReady", () => {
         getPrStateCalled = true;
         return { state: "draft", number: 123 };
       },
+      checkBaseCurrent: currentBase(),
       markReady: (branch, cwd) => {
         markReadyCalled = true;
         markReadyBranch = branch;
@@ -212,11 +217,60 @@ describe("maybeMarkPlanPrReady", () => {
         branch: "feature",
         cwd: gitDir,
         getOpenPrState: () => ({ state: "draft", number: 123 }),
+        checkBaseCurrent: currentBase(),
         markReady: () => {
           throw new Error(multilineError);
         },
       });
     }).toThrow(multilineError);
+  });
+
+  test("blocks ready flip when branch is behind base", () => {
+    let markReadyCalled = false;
+    let stderr = "";
+
+    maybeMarkPlanPrReady({
+      branch: "feature",
+      cwd: gitDir,
+      getOpenPrState: () => ({ state: "draft", number: 123 }),
+      checkBaseCurrent: behindBase("main"),
+      markReady: () => {
+        markReadyCalled = true;
+      },
+      stderr: (s) => {
+        stderr += s;
+      },
+    });
+
+    expect(markReadyCalled).toBe(false);
+    expect(stderr).toContain("branch feature");
+    expect(stderr).toContain("base main");
+    expect(stderr).toContain("PR stays draft");
+  });
+
+  test("blocks ready flip when branch diverged from base", () => {
+    let ghPrReadyCalled = false;
+    let stderr = "";
+
+    maybeMarkPlanPrReady({
+      branch: "feature",
+      cwd: gitDir,
+      getOpenPrState: () => ({ state: "draft", number: 123 }),
+      checkBaseCurrent: behindBase("release"),
+      runReady: () => {
+        throw new Error("runReady should not execute");
+      },
+      ghPrReady: () => {
+        ghPrReadyCalled = true;
+      },
+      stderr: (s) => {
+        stderr += s;
+      },
+    });
+
+    expect(ghPrReadyCalled).toBe(false);
+    expect(stderr).toContain("branch feature");
+    expect(stderr).toContain("base release");
   });
 
   test("runReady does not dirty tree -> commitCheckFix not called, ghPrReady called", () => {
@@ -228,6 +282,7 @@ describe("maybeMarkPlanPrReady", () => {
       branch: "feature",
       cwd: gitDir,
       getOpenPrState: () => ({ state: "draft", number: 123 }),
+      checkBaseCurrent: currentBase(),
       runReady: (cwd) => {
         runReadyCalled = true;
         expect(cwd).toBe(gitDir);
@@ -259,6 +314,7 @@ describe("maybeMarkPlanPrReady", () => {
       cwd: gitDir,
       agentLabel: "my-agent",
       getOpenPrState: () => ({ state: "draft", number: 123 }),
+      checkBaseCurrent: currentBase(),
       runReady: (cwd) => {
         runReadyCalled = true;
         writeFileSync(join(cwd, "dirty.txt"), "dirty\n");
@@ -289,6 +345,7 @@ describe("maybeMarkPlanPrReady", () => {
         branch: "feature",
         cwd: gitDir,
         getOpenPrState: () => ({ state: "draft", number: 123 }),
+        checkBaseCurrent: currentBase(),
         runReady: () => {
           throw new Error("runReady failed");
         },
@@ -313,6 +370,7 @@ describe("maybeMarkPlanPrReady", () => {
         branch: "feature",
         cwd: gitDir,
         getOpenPrState: () => ({ state: "draft", number: 123 }),
+        checkBaseCurrent: currentBase(),
         runReady: (cwd) => {
           writeFileSync(join(cwd, "dirty.txt"), "dirty\n");
         },
@@ -326,6 +384,22 @@ describe("maybeMarkPlanPrReady", () => {
     }).toThrow("commitCheckFix failed");
 
     expect(ghPrReadyCalled).toBe(false);
+  });
+
+  test("fetch/base resolution failure does not block ready flip", () => {
+    let markReadyCalled = false;
+
+    maybeMarkPlanPrReady({
+      branch: "feature",
+      cwd: gitDir,
+      getOpenPrState: () => ({ state: "draft", number: 123 }),
+      checkBaseCurrent: currentBase(null),
+      markReady: () => {
+        markReadyCalled = true;
+      },
+    });
+
+    expect(markReadyCalled).toBe(true);
   });
 });
 

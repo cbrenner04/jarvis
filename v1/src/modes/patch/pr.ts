@@ -1,9 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { getCurrentBranch } from "../../../../shared/git.ts";
 import { parseSpec } from "../../../../shared/spec-parser.ts";
 import type { Agent, AgentRunOptions } from "../../agents/types.ts";
 import { type SyncTransientRetryOptions, withSyncTransientRetry } from "../../gh.ts";
+import { type BaseCurrentCheckResult, checkBaseCurrent, writeReadyFlipBlocked } from "../../git/base-current.ts";
 import { checkPrExists, extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER } from "../../pr.ts";
 import { updatePrBody as updatePrBodyShared } from "../../pr-module.ts";
 import { type DiffStat, generateNarrativeViaAgent, PR_DESCRIPTION_CONTEXT_MAX_CHARS } from "../../pr-shared.ts";
@@ -273,6 +275,8 @@ export type MaybeMarkReadyOpts = {
   agentLabel?: string;
   /** Test seam: check if PR exists. Defaults to `checkPrExists`. */
   checkPrExists?: (branch: string, cwd: string) => boolean;
+  /** Test seam: resolve/fetch/compare the PR base. Defaults to `checkBaseCurrent`. */
+  checkBaseCurrent?: (opts: { branch: string; cwd: string }) => BaseCurrentCheckResult;
   /** Short-circuit seam: stubs the entire ready + commit + gh-pr-ready sequence. When present, skips all other seams. */
   markReady?: (branch: string, cwd: string) => void;
   /** Per-project override for `bun run ready`. Passed to `runReadyGateWithTier`. */
@@ -292,6 +296,8 @@ export type MaybeMarkReadyOpts = {
   };
   /** Refresh callback: called when ready re-runs and succeeds, to update the recorded result. */
   refreshRecordedGreenResult?: (headSha: string) => void;
+  /** Test seam: operator-visible stderr sink for blocked flips. Defaults to `process.stderr.write`. */
+  stderr?: (s: string) => void;
 };
 
 export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
@@ -306,6 +312,12 @@ export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
     throw new Error(
       `cannot mark PR ready: no PR found for branch ${branch}. This should not happen after opening a draft PR.`,
     );
+  }
+
+  const baseCurrent = (opts.checkBaseCurrent ?? checkBaseCurrent)({ branch, cwd: opts.cwd });
+  if (baseCurrent.status === "behind") {
+    writeReadyFlipBlocked(opts.stderr ?? process.stderr.write.bind(process.stderr), branch, baseCurrent.baseRefName);
+    return;
   }
 
   // Short-circuit: if markReady is provided, use it and skip all other seams
@@ -354,14 +366,4 @@ function linkedSubspecsAreComplete(indexContent: string): boolean {
     return false;
   }
   return linked.every((item) => item.checked);
-}
-
-function getCurrentBranch(cwd: string): string {
-  const output = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-    cwd,
-    env: process.env,
-    stdio: "pipe",
-    encoding: "utf8",
-  });
-  return output.trim();
 }

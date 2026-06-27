@@ -1174,10 +1174,7 @@ function ghAdminMergeDefault(branch: string, cwd: string): void {
 }
 
 function nonHumanOnlyAcceptanceComplete(specPath: string): boolean {
-  return (
-    existsSync(specPath) &&
-    snapshotAcceptanceCriteria(specPath).every((c) => c.humanOnly || c.checked)
-  );
+  return existsSync(specPath) && snapshotAcceptanceCriteria(specPath).every((c) => c.humanOnly || c.checked);
 }
 
 function isSpecComplete(specPath: string): boolean {

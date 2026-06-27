@@ -12,8 +12,4 @@ operator north star — folding into an existing flow beats a new subcommand whe
 
 ## Prerequisites
 
-- `jarvis init` scaffolds an OPERATOR_RUNBOOK.md with stably-named sections
-
-## Blocker
-
-- Unconfirmed prerequisite: `jarvis init` scaffolds an `OPERATOR_RUNBOOK.md` with stably-named sections. Current `v1/src/commands/init.ts` only registers projects, and `v1/test/init.test.ts` still asserts init creates no target files.
+- `jarvis init` scaffolds an OPERATOR_RUNBOOK.md with stably-named sections (shipped)

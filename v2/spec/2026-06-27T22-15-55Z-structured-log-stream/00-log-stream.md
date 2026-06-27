@@ -90,19 +90,19 @@ streams) — pin when a surface reads them.
 
 ## Acceptance criteria
 
-- [ ] Appending events for a run persists structured records that round-trip the
+- [x] Appending events for a run persists structured records that round-trip the
   `kind` discriminator and kind-specific payload fields (test).
-- [ ] `tail(runId)` returns only that run's events in ascending `seq` order
+- [x] `tail(runId)` returns only that run's events in ascending `seq` order
   starting at `1` (test, two runs interleaved).
-- [ ] `follow(runId)` yields events already on disk from `seq` 1, then yields
+- [x] `follow(runId)` yields events already on disk from `seq` 1, then yields
   events appended after subscribe, in order (test).
-- [ ] `follow` stops without error when its `AbortSignal` aborts (test).
-- [ ] `tail` and `follow` on an unknown `runId` yield an empty stream without
+- [x] `follow` stops without error when its `AbortSignal` aborts (test).
+- [x] `tail` and `follow` on an unknown `runId` yield an empty stream without
   error (test).
-- [ ] `follow` after the writer `close()` still replays persisted events (test).
-- [ ] Co-located tests use injectable temp paths and write nothing under
+- [x] `follow` after the writer `close()` still replays persisted events (test).
+- [x] Co-located tests use injectable temp paths and write nothing under
   `~/.jarvis`.
-- [ ] No `v2 -> v1` imports; `bun run typecheck` and `bun test` pass.
+- [x] No `v2 -> v1` imports; `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

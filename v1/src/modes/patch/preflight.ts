@@ -517,10 +517,6 @@ function specOutsideWorktreeReadDirs(opts: { specPath: string; agentWorkingDir: 
   return [dirname(specPath)];
 }
 
-function _isSpecExternalToWorktree(opts: { specPath: string; agentWorkingDir: string }): boolean {
-  return specOutsideWorktreeReadDirs(opts) !== undefined;
-}
-
 export function refreshActiveSpecPath(preflight: PreflightOk): string {
   const activeSpecPath = findRelocatedSpecFile(preflight.specPath, preflight.agentWorkingDir);
   preflight.specPath = activeSpecPath;

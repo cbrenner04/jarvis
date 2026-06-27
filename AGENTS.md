@@ -34,6 +34,7 @@ Long-lived v2 reference docs live in `v2/docs/`. Multi-file specs go in `<target
 ## Working rules for agents
 
 - Do work on a git worktree, not the primary checkout.
+- Temp/scratch/working files go in repo-local `.scratch/` (gitignored) — not system `/tmp` or scattered tmp dirs.
 - A spec must exist before any change. None yet? Create one first ([spec-guidance.md](v1/docs/spec-guidance.md)), merge it to `main` via PR, *then* start a separate implementation run. Specs already on disk get run through `jarvis`, not implemented by hand.
 - Read `index.md` to pick the next unchecked subspec, then read that subspec before editing.
 - Run `bun run typecheck` and `bun run test` before ticking the acceptance criteria they cover. Do not run `bun run ready` — Jarvis runs that harness gate automatically when the spec completes and flips the draft PR to ready.

@@ -203,7 +203,7 @@ The operator **no longer reverts checkboxes or strips blockers by hand** — jus
 
 The sandbox (e.g. in Claude Code) can hide real state.
 
-**Prefer a configured allowlist over per-call bypass — but know its limits.** Some sandbox-off needs are local Claude Code config (`.claude/settings.local.json`), not Jarvis gaps: add the writable paths and hosts the operator legitimately needs — a writable `/tmp` for the `*.sandbox-unrunnable.test.ts` tests, `gh`/`git` hosts — so those commands stop tripping the sandbox. What an allowlist *can't* fix: `ps`/`pgrep` not seeing processes spawned outside the sandbox is a hard isolation boundary, so those still require per-call sandbox-off. Reserve `dangerouslyDisableSandbox` for that residue, not as the default workflow.
+**Per-call bypass is mostly unavoidable here — don't over-invest in allowlists.** The big sandbox-off needs are intrinsic isolation boundaries, not config gaps: the `*.sandbox-unrunnable.test.ts` suite spawns real subprocesses (git, agent CLIs, `gh`), and `ps`/`pgrep` can't see processes spawned outside the sandbox. No allowlist changes either, so `bun run ready` and process inspection run sandbox-off, full stop — the test temp dirs already use `$TMPDIR` (permitted), so the filesystem was never the blocker. A `.claude/settings.local.json` allowlist only helps genuinely filesystem/network-only commands, a thin set here. Reserve `dangerouslyDisableSandbox` for that intrinsic residue. Making `ready` sandbox-aware so the gate stops needing a blanket bypass is a tracked harness improvement — see the `sandbox-aware-ready` seed.
 
 ### `ps`/`pgrep` blindness and flag traps
 

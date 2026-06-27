@@ -115,9 +115,9 @@ Jarvis runs with network access to GitHub (for git operations) and to any build/
 
 ## Known gotchas
 
-- **External spec symlinks:** When \`modes.plan.commit: false\`, a plan-mode spec becomes a symlink in the working tree. **Do not delete the file at \`~/.jarvis/specs/<project-key>/\` by hand.** The symlink breaks if the external file disappears. If the runbook itself changes, verify the \`~/.jarvis/specs/\` arrangement hasn't been broken by a prior cleanup run. [GitHub issue: #TODO-symlink-gotcha](https://github.com/cbrenner04/jarvis/issues)
+- **External spec symlinks:** When \`modes.plan.commit: false\`, a plan-mode spec becomes a symlink in the working tree. **Do not delete the file at \`~/.jarvis/specs/<project-key>/\` by hand.** The symlink breaks if the external file disappears. If the runbook itself changes, verify the \`~/.jarvis/specs/\` arrangement hasn't been broken by a prior cleanup run. [GitHub issue: #529](https://github.com/cbrenner04/jarvis/issues/529)
 
-- **Re-running init on the same project:** \`jarvis init\` is idempotent and re-runs safely. The config is always updated; the runbook is never overwritten. If you change the project's root or remote, update \`~/.jarvis/config.json\` by hand or delete the config entry and re-run \`jarvis init\`. [GitHub issue: #TODO-init-idempotent](https://github.com/cbrenner04/jarvis/issues)
+- **Re-running init on the same project:** \`jarvis init\` is idempotent and re-runs safely. The config is always updated; the runbook is never overwritten. If you change the project's root or remote, update \`~/.jarvis/config.json\` by hand or delete the config entry and re-run \`jarvis init\`. [GitHub issue: #598](https://github.com/cbrenner04/jarvis/issues/598)
 
 ## Manual finalize and recovery
 

@@ -26,7 +26,7 @@ import { join } from "node:path";
  * Invariants:
  * - Pure: reads only marker files at rootPath, requires no network/git/config.
  * - Deterministic: same rootPath always returns the same label.
- * - Syncronous.
+ * - Synchronous.
  */
 export function inferStackFromRoot(rootPath: string): string {
   if (hasFiles(rootPath, ["package.json"]) && hasFiles(rootPath, ["bun.lock", "bun.lockb"])) {

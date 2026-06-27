@@ -55,3 +55,12 @@ Source: Phase 3 scope (3) in `v2/spec/seeds/phase-3-daemon-host.md`; Steering se
 - Structured log events keyed by run ID with sink and tail/follow reader
 - Long-running daemon with typed IPC transport and start/stop/status lifecycle
 - Resumable write loop honoring `AbortSignal` cancellation and kill/crash resume over a dirty worktree
+
+## Blocker
+
+- **Structured log stream** — no `v2/src` implementation or merged spec; only `v2/spec/ready-intents/structured-log-stream.md`. Tail-log over IPC depends on sink + tail/follow reader.
+- **Daemon host + IPC** — no `v2/src` daemon process, Unix socket transport, or start/stop/status lifecycle; only `v2/spec/ready-intents/daemon-host-ipc.md`. Run-control API has no host to mount on.
+
+Confirmed: resumable write loop with `AbortSignal` cancellation and kill/crash resume over dirty worktree (`v2/src/write-loop.ts`, `v2/src/write-loop.test.ts`).
+
+Resolve by merging implementation specs for the two sibling intents above, then re-run plan on this intent.

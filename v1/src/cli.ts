@@ -92,7 +92,7 @@ Commands:
   log-server        Run the local log aggregation server.
   cleanup [--abandon] [--dry-run]
                     Remove merged or abandoned worktrees.
-  triage [worktree-name] [--mark-ready] [--merge]
+  triage [target] [--mark-ready] [--merge]
                     Inspect a dirty or orphaned worktree. --mark-ready or --merge on a named worktree.
   review-feedback <worktree-name>
                     Address PR review feedback on an existing patch worktree.
@@ -139,13 +139,17 @@ Flags:
 
   Remove merged worktrees, or retire abandoned worktrees with --abandon.
 `,
-  triage: `Usage: jarvis1 triage [worktree-name] [--mark-ready] [--merge]
+  triage: `Usage: jarvis1 triage [target] [--mark-ready] [--merge]
 
   Inspect a dirty or orphaned worktree. On a named worktree, --mark-ready finalizes
   a complete run: commit dirty work, open a draft PR when absent, run the completion
   ready gate once, and flip the PR to ready on green. --merge runs the ready gate,
   marks the PR ready if draft, waits for CI to be green, then admin-squash-merges
   the PR.
+
+  --mark-ready requires a worktree name. --merge accepts a worktree name, a spec path
+  (index or subspec, relative or absolute), or a PR reference (#N, bare N, or a
+  GitHub pull URL).
 `,
   "review-feedback": `Usage: jarvis1 review-feedback <worktree-name>
 
@@ -333,7 +337,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       if (merge && worktreeName === undefined) {
         return {
           kind: "error",
-          message: "triage: --merge requires a worktree name",
+          message: "triage: --merge requires a target (worktree name, spec path, or PR reference)",
         };
       }
       if (markReady && merge) {
@@ -618,6 +622,7 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
       }
       const triageOpts: TriageCommandOptions = {
         projectRoot: project.root,
+        cwd,
         io: {
           stdout: io.stdout,
           stderr: io.stderr,

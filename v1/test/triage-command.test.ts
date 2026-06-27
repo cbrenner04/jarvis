@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { SuggestedMovesInput, TriageGhRunner, TriageIo } from "../src/commands/triage.ts";
 import { getSuggestedMoves, triageCommand } from "../src/commands/triage.ts";
+import { resolveMergeTarget } from "../src/commands/resolve-merge-target.ts";
 
 function captureIo(): { io: TriageIo; out: () => string; err: () => string } {
   let out = "";
@@ -119,6 +120,10 @@ function setupMergeWorktree(worktreeName: string): { worktreePath: string; specP
   writeFileSync(specPath, "# Test\n\n- [x] item 1");
   writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
   return { worktreePath, specPath };
+}
+
+function singleOpenPrStub() {
+  return [{ number: 1, isDraft: false }];
 }
 
 let root: string;
@@ -1363,6 +1368,8 @@ describe("triage --mark-ready", () => {
   });
 
   describe("--merge flag", () => {
+    const mergePrCheck = { findMatchingOpenPrs: singleOpenPrStub };
+
     test("--merge on unknown worktree returns error", () => {
       const { io, err } = captureIo();
       const code = triageCommand({
@@ -1372,7 +1379,7 @@ describe("triage --mark-ready", () => {
         merge: true,
       });
       expect(code).toBe(1);
-      expect(err()).toContain("unknown worktree");
+      expect(err()).toContain("unresolvable target");
     });
 
     test("--merge with missing .active-spec-path returns error", () => {
@@ -1386,6 +1393,7 @@ describe("triage --mark-ready", () => {
         io,
         worktreeName,
         merge: true,
+        findMatchingOpenPrs: singleOpenPrStub,
       });
 
       expect(code).toBe(1);
@@ -1401,6 +1409,7 @@ describe("triage --mark-ready", () => {
         io,
         worktreeName: "branch-1",
         merge: true,
+        findMatchingOpenPrs: singleOpenPrStub,
         ghRunner: {
           getPrState: () => null,
         },
@@ -1419,6 +1428,7 @@ describe("triage --mark-ready", () => {
         io,
         worktreeName: "branch-1",
         merge: true,
+        findMatchingOpenPrs: singleOpenPrStub,
         ghRunner: {
           getPrState: () => ({
             state: "MERGED",
@@ -1440,6 +1450,7 @@ describe("triage --mark-ready", () => {
         io,
         worktreeName: "branch-1",
         merge: true,
+        findMatchingOpenPrs: singleOpenPrStub,
         ghRunner: {
           getPrState: () => ({
             state: "CLOSED",
@@ -1476,6 +1487,7 @@ describe("triage --mark-ready", () => {
         io,
         worktreeName,
         merge: true,
+        findMatchingOpenPrs: singleOpenPrStub,
         ghRunner: {
           getPrState: () => ({
             state: "OPEN",
@@ -1505,6 +1517,7 @@ describe("triage --mark-ready", () => {
         io,
         worktreeName: "branch-1",
         merge: true,
+        findMatchingOpenPrs: singleOpenPrStub,
         ghRunner: {
           getPrState: () => ({
             state: "OPEN",
@@ -1541,6 +1554,7 @@ describe("triage --mark-ready", () => {
         io,
         worktreeName: "branch-1",
         merge: true,
+        findMatchingOpenPrs: singleOpenPrStub,
         ghRunner: {
           getPrState: () => ({
             state: "OPEN",
@@ -1575,6 +1589,7 @@ describe("triage --mark-ready", () => {
         io,
         worktreeName: "branch-1",
         merge: true,
+        findMatchingOpenPrs: singleOpenPrStub,
         pollIntervalMs: 0,
         ghRunner: {
           getPrState: () => ({
@@ -1609,6 +1624,7 @@ describe("triage --mark-ready", () => {
         io,
         worktreeName: "branch-1",
         merge: true,
+        findMatchingOpenPrs: singleOpenPrStub,
         ghRunner: {
           getPrState: () => ({
             state: "OPEN",
@@ -1640,6 +1656,7 @@ describe("triage --mark-ready", () => {
         io,
         worktreeName: "branch-1",
         merge: true,
+        findMatchingOpenPrs: singleOpenPrStub,
         ghRunner: {
           getPrState: () => ({
             state: "OPEN",
@@ -1670,6 +1687,7 @@ describe("triage --mark-ready", () => {
         io,
         worktreeName: "branch-1",
         merge: true,
+        findMatchingOpenPrs: singleOpenPrStub,
         pollIntervalMs: 0,
         pollTimeoutMs: 0,
         ghRunner: {
@@ -1703,6 +1721,7 @@ describe("triage --mark-ready", () => {
         io,
         worktreeName: "branch-1",
         merge: true,
+        findMatchingOpenPrs: singleOpenPrStub,
         ghRunner: {
           getPrState: () => ({
             state: "OPEN",
@@ -1734,6 +1753,7 @@ describe("triage --mark-ready", () => {
         io,
         worktreeName: "branch-1",
         merge: true,
+        findMatchingOpenPrs: singleOpenPrStub,
         ghRunner: {
           getPrState: () => ({
             state: "OPEN",
@@ -1765,6 +1785,7 @@ describe("triage --mark-ready", () => {
         io,
         worktreeName: "branch-1",
         merge: true,
+        findMatchingOpenPrs: singleOpenPrStub,
         ghRunner: {
           getPrState: () => ({
             state: "OPEN",
@@ -1815,6 +1836,7 @@ describe("triage --mark-ready", () => {
           io: testCase.shouldWait ? io2 : io,
           worktreeName: "branch-1",
           merge: true,
+        findMatchingOpenPrs: singleOpenPrStub,
           pollIntervalMs: 0,
           pollTimeoutMs: 1000,
           ghRunner: {
@@ -1851,6 +1873,397 @@ describe("triage --mark-ready", () => {
           expect(errorOutput).toContain("CI check failed");
         }
       }
+    });
+  });
+
+  describe("merge target resolution", () => {
+    function setupResolvableMergeWorktree(
+      worktreeName: string,
+      opts?: { branch?: string; markerSpecPath?: string },
+    ): { worktreePath: string; specPath: string } {
+      const { worktreePath, specPath } = setupMergeWorktree(worktreeName);
+      if (opts?.branch !== undefined) {
+        execSync(`git branch -M ${opts.branch}`, { cwd: worktreePath, stdio: "pipe" });
+      }
+      if (opts?.markerSpecPath !== undefined) {
+        writeFileSync(join(worktreePath, ".active-spec-path"), opts.markerSpecPath);
+      }
+      return { worktreePath, specPath };
+    }
+
+    test("resolves spec path via spec-directory basename", () => {
+      const worktreeName = "2026-06-27T17-26-00Z-merge-target-by-worktree-or-spec";
+      const specDir = join(projectRoot, "v1", "spec", worktreeName);
+      mkdirSync(specDir, { recursive: true });
+      const specPath = join(specDir, "index.md");
+      writeFileSync(specPath, "# Test\n\n- [x] item 1");
+      setupResolvableMergeWorktree(worktreeName, { markerSpecPath: specPath });
+
+      let mergeRan = false;
+      const { io, out } = captureIo();
+      const code = triageCommand({
+        projectRoot,
+        cwd: projectRoot,
+        io,
+        worktreeName: `v1/spec/${worktreeName}/index.md`,
+        merge: true,
+        findMatchingOpenPrs: singleOpenPrStub,
+        ghRunner: {
+          getPrState: () => ({ state: "OPEN", isDraft: false }),
+          getChecks: () => [{ name: "test", status: "success" }],
+        },
+        runGate: () => {},
+        adminMerge: () => {
+          mergeRan = true;
+        },
+      });
+
+      expect(code).toBe(0);
+      expect(mergeRan).toBe(true);
+      expect(out()).toContain("merged successfully");
+    });
+
+    test("resolves spec path via .active-spec-path marker (plan worktree)", () => {
+      const planName = "plan-merge-target";
+      const worktreeName = `plan-${planName}`;
+      const specDir = join(projectRoot, "v1", "spec", "2026-06-27T17-26-00Z-merge-target-by-worktree-or-spec");
+      mkdirSync(specDir, { recursive: true });
+      const specPath = join(specDir, "index.md");
+      writeFileSync(specPath, "# Test\n\n- [x] item 1");
+      setupResolvableMergeWorktree(worktreeName, { markerSpecPath: specPath });
+
+      let mergeRan = false;
+      const { io } = captureIo();
+      const code = triageCommand({
+        projectRoot,
+        cwd: projectRoot,
+        io,
+        worktreeName: specPath,
+        merge: true,
+        findMatchingOpenPrs: singleOpenPrStub,
+        ghRunner: {
+          getPrState: () => ({ state: "OPEN", isDraft: false }),
+          getChecks: () => [{ name: "test", status: "success" }],
+        },
+        runGate: () => {},
+        adminMerge: () => {
+          mergeRan = true;
+        },
+      });
+
+      expect(code).toBe(0);
+      expect(mergeRan).toBe(true);
+    });
+
+    test("resolves bare .md filename via marker scan only", () => {
+      const worktreeName = "branch-1";
+      const specDir = join(projectRoot, "v1", "spec");
+      mkdirSync(specDir, { recursive: true });
+      const specPath = join(specDir, "test-spec.md");
+      writeFileSync(specPath, "# Test\n\n- [x] item 1");
+      setupResolvableMergeWorktree(worktreeName, { markerSpecPath: specPath });
+
+      let mergeRan = false;
+      const { io, err } = captureIo();
+      const code = triageCommand({
+        projectRoot,
+        cwd: specDir,
+        io,
+        worktreeName: "test-spec.md",
+        merge: true,
+        findMatchingOpenPrs: singleOpenPrStub,
+        ghRunner: {
+          getPrState: () => ({ state: "OPEN", isDraft: false }),
+          getChecks: () => [{ name: "test", status: "success" }],
+        },
+        runGate: () => {},
+        adminMerge: () => {
+          mergeRan = true;
+        },
+      });
+
+      expect(code).toBe(0);
+      expect(mergeRan).toBe(true);
+    });
+
+    test("resolves PR reference forms and merges", () => {
+      const worktreeName = "branch-1";
+      const branch = "feature-merge-target";
+      setupResolvableMergeWorktree(worktreeName, { branch });
+
+      const prForms = ["#42", "42", "https://github.com/acme/repo/pull/42"];
+      for (const prRef of prForms) {
+        let mergeRan = false;
+        const { io, out } = captureIo();
+        const code = triageCommand({
+          projectRoot,
+          cwd: projectRoot,
+          io,
+          worktreeName: prRef,
+          merge: true,
+          mergeTargetSeams: {
+            lookupPrHeadRef: () => ({ ok: true, headRef: branch }),
+            findMatchingOpenPrs: () => [{ number: 42, isDraft: false }],
+          },
+          ghRunner: {
+            getPrState: () => ({ state: "OPEN", isDraft: false }),
+            getChecks: () => [{ name: "test", status: "success" }],
+          },
+          findMatchingOpenPrs: () => [{ number: 42, isDraft: false }],
+          runGate: () => {},
+          adminMerge: () => {
+            mergeRan = true;
+          },
+        });
+
+        expect(code).toBe(0);
+        expect(mergeRan).toBe(true);
+        expect(out()).toContain("merged successfully");
+      }
+    });
+
+    test("numeric worktree name wins over PR number", () => {
+      const worktreeName = "42";
+      setupResolvableMergeWorktree(worktreeName);
+
+      let lookupRan = false;
+      let mergeRan = false;
+      const { io, out } = captureIo();
+      const code = triageCommand({
+        projectRoot,
+        cwd: projectRoot,
+        io,
+        worktreeName: "42",
+        merge: true,
+        mergeTargetSeams: {
+          lookupPrHeadRef: () => {
+            lookupRan = true;
+            return { ok: true, headRef: "other-branch" };
+          },
+        },
+        ghRunner: {
+          getPrState: () => ({ state: "OPEN", isDraft: false }),
+          getChecks: () => [{ name: "test", status: "success" }],
+        },
+        findMatchingOpenPrs: () => [{ number: 42, isDraft: false }],
+        runGate: () => {},
+        adminMerge: () => {
+          mergeRan = true;
+        },
+      });
+
+      expect(code).toBe(0);
+      expect(lookupRan).toBe(false);
+      expect(mergeRan).toBe(true);
+      expect(out()).toContain("merged successfully");
+    });
+
+    test("unresolvable spec path reports clear error without merge", () => {
+      let mergeRan = false;
+      const { io, err } = captureIo();
+      const code = triageCommand({
+        projectRoot,
+        cwd: projectRoot,
+        io,
+        worktreeName: "v1/spec/missing-spec/index.md",
+        merge: true,
+        findMatchingOpenPrs: singleOpenPrStub,
+        adminMerge: () => {
+          mergeRan = true;
+        },
+      });
+
+      expect(code).toBe(1);
+      expect(err()).toContain("no worktree found for spec path");
+      expect(mergeRan).toBe(false);
+    });
+
+    test("ambiguous spec path lists candidates without merge", () => {
+      const specDir = join(projectRoot, "v1", "spec", "shared-spec");
+      mkdirSync(specDir, { recursive: true });
+      const specPath = join(specDir, "index.md");
+      writeFileSync(specPath, "# Test\n\n- [x] item 1");
+
+      setupResolvableMergeWorktree("branch-a", { markerSpecPath: specPath });
+      setupResolvableMergeWorktree("branch-b", { markerSpecPath: specPath });
+
+      let mergeRan = false;
+      const { io, err } = captureIo();
+      const code = triageCommand({
+        projectRoot,
+        cwd: projectRoot,
+        io,
+        worktreeName: specPath,
+        merge: true,
+        findMatchingOpenPrs: singleOpenPrStub,
+        adminMerge: () => {
+          mergeRan = true;
+        },
+      });
+
+      expect(code).toBe(1);
+      expect(err()).toContain("multiple worktrees match spec path");
+      expect(err()).toContain("branch-a");
+      expect(err()).toContain("branch-b");
+      expect(mergeRan).toBe(false);
+    });
+
+    test("PR reference with no local worktree reports clear error", () => {
+      let mergeRan = false;
+      const { io, err } = captureIo();
+      const code = triageCommand({
+        projectRoot,
+        cwd: projectRoot,
+        io,
+        worktreeName: "#99",
+        merge: true,
+        mergeTargetSeams: {
+          lookupPrHeadRef: () => ({ ok: true, headRef: "missing-branch" }),
+          findMatchingOpenPrs: () => [{ number: 99, isDraft: false }],
+        },
+        adminMerge: () => {
+          mergeRan = true;
+        },
+      });
+
+      expect(code).toBe(1);
+      expect(err()).toContain("no local worktree for PR reference");
+      expect(mergeRan).toBe(false);
+    });
+
+    test("findMatchingOpenPrs refusal at PR-ref resolution", () => {
+      let mergeRan = false;
+      const { io, err } = captureIo();
+      const code = triageCommand({
+        projectRoot,
+        cwd: projectRoot,
+        io,
+        worktreeName: "#7",
+        merge: true,
+        mergeTargetSeams: {
+          lookupPrHeadRef: () => ({ ok: true, headRef: "dup-branch" }),
+          findMatchingOpenPrs: () => [
+            { number: 7, isDraft: false },
+            { number: 8, isDraft: true },
+          ],
+        },
+        adminMerge: () => {
+          mergeRan = true;
+        },
+      });
+
+      expect(code).toBe(1);
+      expect(err()).toContain("multiple open PRs match branch dup-branch");
+      expect(mergeRan).toBe(false);
+    });
+
+    test("findMatchingOpenPrs refusal at merge pre-check", () => {
+      setupResolvableMergeWorktree("branch-1");
+
+      let mergeRan = false;
+      const { io, err } = captureIo();
+      const code = triageCommand({
+        projectRoot,
+        cwd: projectRoot,
+        io,
+        worktreeName: "branch-1",
+        merge: true,
+        ghRunner: {
+          getPrState: () => ({ state: "OPEN", isDraft: false }),
+        },
+        findMatchingOpenPrs: () => [
+          { number: 1, isDraft: false },
+          { number: 2, isDraft: true },
+        ],
+        adminMerge: () => {
+          mergeRan = true;
+        },
+      });
+
+      expect(code).toBe(1);
+      expect(err()).toContain("multiple open PRs match branch");
+      expect(mergeRan).toBe(false);
+    });
+
+    test("gh failure during PR lookup reports error without merge", () => {
+      let mergeRan = false;
+      const { io, err } = captureIo();
+      const code = triageCommand({
+        projectRoot,
+        cwd: projectRoot,
+        io,
+        worktreeName: "#5",
+        merge: true,
+        findMatchingOpenPrs: singleOpenPrStub,
+        mergeTargetSeams: {
+          lookupPrHeadRef: () => ({ ok: false, message: "auth required" }),
+        },
+        adminMerge: () => {
+          mergeRan = true;
+        },
+      });
+
+      expect(code).toBe(1);
+      expect(err()).toContain("failed to look up PR reference");
+      expect(err()).toContain("auth required");
+      expect(mergeRan).toBe(false);
+    });
+
+    test("closed PR at resolution reports error without merge", () => {
+      let mergeRan = false;
+      const { io, err } = captureIo();
+      const code = triageCommand({
+        projectRoot,
+        cwd: projectRoot,
+        io,
+        worktreeName: "#5",
+        merge: true,
+        findMatchingOpenPrs: singleOpenPrStub,
+        mergeTargetSeams: {
+          lookupPrHeadRef: () => ({ ok: false, message: "PR #5 is closed" }),
+        },
+        adminMerge: () => {
+          mergeRan = true;
+        },
+      });
+
+      expect(code).toBe(1);
+      expect(err()).toContain("PR #5 is closed");
+      expect(mergeRan).toBe(false);
+    });
+
+    test("drill-down with spec path reports unknown worktree", () => {
+      const { io, err } = captureIo();
+      const code = triageCommand({
+        projectRoot,
+        cwd: projectRoot,
+        io,
+        worktreeName: "v1/spec/missing-spec/index.md",
+      });
+
+      expect(code).toBe(1);
+      expect(err()).toContain("unknown worktree");
+    });
+
+    test("--mark-ready with spec path reports unknown worktree", async () => {
+      const { io, err } = captureIo();
+      const code = await triageCommand({
+        projectRoot,
+        cwd: projectRoot,
+        io,
+        worktreeName: "v1/spec/missing-spec/index.md",
+        markReady: true,
+      });
+
+      expect(code).toBe(1);
+      expect(err()).toContain("unknown worktree");
+    });
+
+    test("resolveMergeTarget unit: zero matches for unknown token", () => {
+      const { io, err } = captureIo();
+      const result = resolveMergeTarget(projectRoot, "not-a-target", projectRoot, io);
+      expect(result.ok).toBe(false);
+      expect(err()).toContain("unresolvable target");
     });
   });
 });

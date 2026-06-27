@@ -10,7 +10,8 @@ import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } fro
 import { findRelocatedSpecFile, prepareActiveSpecPath } from "../modes/patch/preflight.ts";
 import { generatePrBody, getIndexTitle } from "../modes/patch/completion-pipeline.ts";
 import { snapshotAcceptanceCriteria } from "../modes/patch/subspec.ts";
-import { type EnsureDraftPrOpts, ensureDraftPr, renderAttributionSummary } from "../pr.ts";
+import { type EnsureDraftPrOpts, ensureDraftPr, findMatchingOpenPrs, type MatchingOpenPr, renderAttributionSummary } from "../pr.ts";
+import { type MergeTargetResolutionSeams, resolveMergeTarget } from "./resolve-merge-target.ts";
 import { runReadyGateWithTier } from "../ready-gate.ts";
 import { pushCurrent } from "../worktree.ts";
 import { getWorktreeLockPath, isProcessAlive, type WorktreeLock } from "../worktree-lock.ts";
@@ -36,10 +37,13 @@ export type TriageCommandOptions = {
   projectRoot: string;
   io: TriageIo;
   config?: ConfigOptions;
+  cwd?: string;
   worktreeName?: string;
   markReady?: boolean;
   merge?: boolean;
   ghRunner?: TriageGhRunner;
+  mergeTargetSeams?: MergeTargetResolutionSeams;
+  findMatchingOpenPrs?: (branch: string, cwd?: string) => MatchingOpenPr[];
   runGate?: (cwd: string, readyCommand?: string) => void;
   prReady?: (branch: string, cwd: string) => void;
   commitAndPushDirty?: (worktreePath: string) => CommitAndPushDirtyResult;
@@ -79,7 +83,17 @@ export function triageCommand(opts: TriageCommandOptions): number | Promise<numb
       return triageMarkReady(opts);
     }
     if (opts.merge) {
-      return triageMerge(opts);
+      const resolution = resolveMergeTarget(
+        opts.projectRoot,
+        opts.worktreeName,
+        opts.cwd ?? process.cwd(),
+        opts.io,
+        opts.mergeTargetSeams,
+      );
+      if (!resolution.ok) {
+        return resolution.code;
+      }
+      return triageMerge({ ...opts, worktreeName: resolution.worktreeName });
     }
     return triageDrillDown(worktreeDir, opts.worktreeName, opts.io);
   }
@@ -1298,6 +1312,19 @@ function triageMerge(opts: TriageCommandOptions): number {
     return ctx.code;
   }
   const { worktreePath, branch, specPath } = ctx;
+
+  const findOpenPrs = opts.findMatchingOpenPrs ?? findMatchingOpenPrs;
+  try {
+    const matchingOpenPrs = findOpenPrs(branch, opts.projectRoot);
+    if (matchingOpenPrs.length > 1) {
+      opts.io.stderr(`${label}: multiple open PRs match branch ${branch}\n`);
+      return 1;
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    opts.io.stderr(`${label}: failed to inspect PR state for branch ${branch}: ${message}\n`);
+    return 1;
+  }
 
   const ghRunner = opts.ghRunner ?? createDefaultGhRunner();
   const prState = ghRunner.getPrState(branch);

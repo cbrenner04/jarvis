@@ -21,6 +21,10 @@ import { FAKE_AGENT_SPAWN_PID, waitForPollCount } from "../../descendant-poll-te
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 const CODEX_ENTRY = { agent: "codex" as const, model: "gpt-5.3-codex" };
+const currentBase =
+  (baseRefName: string | null = "main") =>
+  () => ({ status: "current" as const, baseRefName });
+const behindBase = (baseRefName: string) => () => ({ status: "behind" as const, baseRefName });
 
 class FakeAgent implements Agent {
   readonly name: AgentName;
@@ -484,6 +488,8 @@ describe("runPatchReviewPhase", () => {
         runFinalGate: (_branch, tier) => {
           tiers.push(`final:${tier}`);
         },
+        checkPrExists: () => true,
+        checkBaseCurrent: currentBase(),
         baseBranch: "main",
       });
 
@@ -516,6 +522,8 @@ describe("runPatchReviewPhase", () => {
         runFinalGate: (_branch, tier) => {
           events.push(`final:${tier}`);
         },
+        checkPrExists: () => true,
+        checkBaseCurrent: currentBase(),
         baseBranch: "main",
       });
       expect(code).toBe(0);
@@ -977,6 +985,8 @@ while true; do :; done
         iterationTimeoutMs: 30_000,
         readyCommand: script,
         // runBaselineGate NOT provided — real gate runs with readyCommand
+        checkPrExists: () => true,
+        checkBaseCurrent: currentBase(),
         runFinalGate: (_branch, _tier) => {}, // stub final gate to avoid gh pr ready
         baseBranch: "main",
       });
@@ -1010,14 +1020,50 @@ while true; do :; done
         iterationTimeoutMs: 30_000,
         readyCommand: script,
         runBaselineGate: () => {}, // stub baseline gate
-        // runFinalGate NOT provided — real gate runs with readyCommand
+        checkPrExists: () => true,
+        checkBaseCurrent: currentBase(),
+        ghPrReady: () => {},
         baseBranch: "main",
       });
-      // exit 1 because gh pr ready fails (no PR exists), but readyCommand ran
-      expect(code).toBe(1);
+      expect(code).toBe(0);
       expect(existsSync(sentinel)).toBe(true);
     } finally {
       rmSync(sentinelDir, { recursive: true, force: true });
+      cleanup();
+    }
+  });
+
+  test("review final leaves PR draft when branch is behind base", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    const stderr: string[] = [];
+    let ghReadyCalled = false;
+    try {
+      const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "No issues", stderr: "" }));
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({ reviewPasses: 1, reviewOrder: [CLAUDE_ENTRY] }),
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        fanout: () => {},
+        writeTelemetry: () => {},
+        agents: { claude },
+        iterationTimeoutMs: 30_000,
+        runBaselineGate: () => {},
+        checkPrExists: () => true,
+        checkBaseCurrent: behindBase("main"),
+        ghPrReady: () => {
+          ghReadyCalled = true;
+        },
+        stderr: (line) => {
+          stderr.push(line);
+        },
+        baseBranch: "main",
+      });
+
+      expect(code).toBe(0);
+      expect(ghReadyCalled).toBe(false);
+      expect(stderr.join("")).toContain("ready flip blocked: branch main does not contain base main; PR stays draft");
+    } finally {
       cleanup();
     }
   });

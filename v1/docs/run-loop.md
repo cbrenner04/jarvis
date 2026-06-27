@@ -200,7 +200,7 @@ final **skips** `ready` on an unchanged tree instead of always running **`full`*
 | Shrink pre-gate | **`fast`** | **`full`** (refreshes carrier on green) |
 | Review baseline | **`fast`** | **`full`** (refreshes carrier on green) |
 | Per-iteration / completion-transition `maybeMarkReady` | **`fast`** | **`full`** (refreshes carrier on green) |
-| Review final | **skip** (`gh pr ready` only) | **`full`** then `gh pr ready` |
+| Review final | **skip** local `ready`, then guarded draft→ready | **`full`** then guarded draft→ready |
 
 **Recorded green** is set only after a successful **`full`** gate (completion
 transition, or any gate that ran **`full`** and refreshed the carrier). Red
@@ -307,12 +307,12 @@ gates, plus `maybeMarkReady` at both the completion-transition and per-iteration
 early-ready sites). On the common path (green completion gate, default config
 with review enabled, no-op shrink, review makes no commits), shrink pre-gate and
 review baseline each run **`fast`** on the unchanged tree; review final skips
-`ready` and calls `gh pr ready` with the predicate's clean worktree. Before
-`maybeMarkReady` flips draft→ready, it resolves the PR's actual base, fetches
-`origin/<base>`, and confirms `HEAD` contains that fetched base tip. If the
-branch is behind or diverged from base, the harness emits a stderr message,
-skips `gh pr ready`, and leaves the PR draft. If base resolution or fetch fails,
-the guard soft-fails open and the normal ready flow proceeds. If the
+`ready` and runs the same guarded draft→ready helper used by `maybeMarkReady`.
+Before any patch-mode draft→ready flip, the harness resolves the PR's actual
+base, fetches `origin/<base>`, and confirms `HEAD` contains that fetched base
+tip. If the branch is behind or diverged from base, the harness emits a stderr
+message, skips `gh pr ready`, and leaves the PR draft. If base resolution or
+fetch fails, the guard soft-fails open and the normal ready flow proceeds. If the
 completion-transition ready fails, no green result is recorded and the run
 proceeds unchanged into the existing post-completion phases with the same exit
 code and stop reasons.
@@ -398,7 +398,7 @@ review outcomes are preserved:
 - Baseline or final gate failure: exit `1` (red tree), PR stays draft.
 - Review execution failure (quota exhaustion, idle timeout, infra error): exit `11`, PR stays draft.
 - Review blocker: exit `7`, blocker content printed to stderr.
-- Already-ready PR: idempotent no-op (final `gh pr ready` leaves it untouched).
+- Already-ready PR: idempotent no-op (the final draft→ready helper leaves it untouched).
 
 `--max-iterations` is accepted but has no behavioral effect (review resume runs
 no implementation iterations).
@@ -428,10 +428,10 @@ The review phase flow is:
    failures, spec/code revert failures, and review idle timeouts also exit `11`.
    Per-pass iteration timeout is enforced by the patch adapter's agent wrapper.
 3. **Final ready**: when the tree is unchanged since the recorded green result,
-   skips `bun run ready` and calls `gh pr ready` (worktree cleanliness comes from
-   the reuse predicate). When the tree changed or no green was recorded, runs
-   **`full`** then `gh pr ready`. Under **`--resume-review`**, always **`full`**
-   then `gh pr ready`.
+   skips `bun run ready` and runs the guarded draft→ready helper (worktree
+   cleanliness comes from the reuse predicate). When the tree changed or no
+   green was recorded, runs **`full`** then the same helper. Under
+   **`--resume-review`**, always **`full`** before that helper.
 4. **Actuator push reconciliation**: When the verdict actuator commits code changes,
    the harness reconciles the local branch with `origin/<branch>` before pushing.
    `bestEffortFetch` is called first; if it succeeds and the remote has commits not
@@ -453,14 +453,15 @@ The review phase flow is:
    differ or fetch fails, the push error is surfaced unchanged with `exitReason:
    actuator-commit-failed` and exit `11`. Implementation commits remain intact in
    both cases.
-6. **Review-incomplete exit auto-ready**: if the review phase exits `11` 
-   (review-incomplete), the harness attempts to auto-ready the PR via `maybeMarkReady` 
-   before returning exit code `11`. On an unchanged tree, this runs the `ready` gate 
-   with tier **`fast`** and calls `gh pr ready`. If the tree moved during review 
-   (e.g., actuator commits then push fails or converged), the `ready` gate is re-run 
-   with tier **`full`**; if it passes, the PR is marked ready; if it fails, the PR 
-   stays draft and a warning is logged. Either way, the run still exits `11` with 
-   `exitReason: review-incomplete` (or `actuator-push-converged` when convergence 
+6. **Review-incomplete exit auto-ready**: if the review phase exits `11`
+   (review-incomplete), the harness attempts to auto-ready the PR via `maybeMarkReady`
+   before returning exit code `11`. On an unchanged tree, this runs the `ready` gate
+   with tier **`fast`** and then the guarded draft→ready helper. If the tree moved
+   during review (e.g., actuator commits then push fails or converged), the `ready`
+   gate is re-run with tier **`full`**; if it passes, the helper attempts the ready
+   flip. If the branch is behind or diverged from base, or if the local gate fails,
+   the PR stays draft and a warning is logged. Either way, the run still exits `11` with
+   `exitReason: review-incomplete` (or `actuator-push-converged` when convergence
    occurred).
 
 Telemetry records review pass invocations with `patch_phase: "review"` so they
@@ -651,7 +652,7 @@ remain ticked through the reset, so operator work is never lost.
 
 ## Plan mode
 
-Plan mode (`jarvis1 plan [<intent-file|"inline text">]`) drafts new specs collaboratively with an agent, while `jarvis1 run` implements existing specs. Refine → draft → self-review runs inside **`.worktree/plan-<plan-name>/`** on branch **`plan/<plan-name>`** (branch/worktree names intentionally **omit** the UTC prefix even when authoring files live under **`spec/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`**). **Legacy trees** capped at **`spec/<plan-name>/`** remain **`jarvis1 plan --resume` capable**. A GitHub draft PR opens after **`plan: draft`**. Readiness transitions are attempted when all phases complete without blockers. If the draft PR is already ready, it remains untouched (idempotent). If it is still draft and the readiness gate fails, a later successful `jarvis1 plan --resume …` invocation retries the transition. Stderr defaults stay quiet besides milestone chatter ([quieter-output section in plan-mode docs](./plan-mode.md#default-terminal-output)), and stdout **Next steps** recap merge/`jarvis1 run` without instructing reviewers to toggle readiness manually.
+Plan mode (`jarvis1 plan [<intent-file|"inline text">]`) drafts new specs collaboratively with an agent, while `jarvis1 run` implements existing specs. Refine → draft → self-review runs inside **`.worktree/plan-<plan-name>/`** on branch **`plan/<plan-name>`** (branch/worktree names intentionally **omit** the UTC prefix even when authoring files live under **`spec/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`**). **Legacy trees** capped at **`spec/<plan-name>`** remain **`jarvis1 plan --resume` capable**. A GitHub draft PR opens after **`plan: draft`**. Readiness transitions are attempted when all phases complete without blockers. If the draft PR is already ready, it remains untouched (idempotent). If it is still draft and the branch is behind or diverged from its PR base, the guarded transition leaves it draft; if the local readiness gate fails, a later successful `jarvis1 plan --resume …` invocation retries the transition. Stderr defaults stay quiet besides milestone chatter ([quieter-output section in plan-mode docs](./plan-mode.md#default-terminal-output)), and stdout **Next steps** recap merge/`jarvis1 run` without instructing reviewers to toggle readiness manually.
 
 Full details — phases, flags, stop conditions, PR lifecycle, and cleanup — appear in
 [docs/plan-mode.md](./plan-mode.md).

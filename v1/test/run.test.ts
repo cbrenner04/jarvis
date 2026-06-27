@@ -2277,6 +2277,7 @@ exit 0
       execSync("git add -A && git commit -m complete && git push origin main", { cwd: projectRoot });
       execSync("git checkout -b feature && git push -u origin feature", { cwd: projectRoot });
       execSync("git checkout main", { cwd: projectRoot });
+      writeFileSync(join(dirname(env.prReadyLog), "pr-state"), "");
 
       const cap = captureIo();
       const claude = reviewFakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
@@ -7422,6 +7423,7 @@ exit 1
     process.env.PATH = `${binDir}:${oldPath}`;
 
     try {
+      writeFileSync(prState, "");
       const cap = captureIo();
       const claude = reviewFakeAgent("claude", () => ({
         kind: "ok",
@@ -7454,6 +7456,7 @@ exit 1
     execSync("git add -A && git commit -m complete && git push origin main", { cwd: projectRoot });
     execSync("git checkout -b feature && git push -u origin feature", { cwd: projectRoot });
     execSync("git checkout main", { cwd: projectRoot });
+    writeFileSync(join(dirname(env.prReadyLog), "pr-state"), "");
 
     const cap = captureIo();
     const claude = reviewFakeAgent(
@@ -7493,6 +7496,7 @@ exit 1
     execSync("git add -A && git commit -m complete && git push origin main", { cwd: projectRoot });
     execSync("git checkout -b feature && git push -u origin feature", { cwd: projectRoot });
     execSync("git checkout main", { cwd: projectRoot });
+    writeFileSync(join(dirname(env.prReadyLog), "pr-state"), "");
 
     const cap = captureIo();
     const claude = reviewFakeAgent(
@@ -7533,6 +7537,7 @@ exit 1
     execSync("git add -A && git commit -m complete && git push origin main", { cwd: projectRoot });
     execSync("git checkout -b feature && git push -u origin feature", { cwd: projectRoot });
     execSync("git checkout main", { cwd: projectRoot });
+    writeFileSync(join(dirname(env.prReadyLog), "pr-state"), "");
 
     const cap = captureIo();
     let implementationAgentCalled = false;
@@ -7576,6 +7581,7 @@ exit 1
     execSync("git add -A && git commit -m complete && git push origin main", { cwd: projectRoot });
     execSync("git checkout -b feature && git push -u origin feature", { cwd: projectRoot });
     execSync("git checkout main", { cwd: projectRoot });
+    writeFileSync(join(dirname(env.prReadyLog), "pr-state"), "");
 
     const cap = captureIo();
     const claude = reviewFakeAgent(
@@ -7619,6 +7625,7 @@ exit 1
     execSync("git add -A && git commit -m complete && git push origin main", { cwd: projectRoot });
     execSync("git checkout -b feature && git push -u origin feature", { cwd: projectRoot });
     execSync("git checkout main", { cwd: projectRoot });
+    writeFileSync(join(dirname(env.prReadyLog), "pr-state"), "");
 
     // Mark the PR as already ready.
     writeFileSync(env.prReadyLog, "ready\n");
@@ -7662,6 +7669,7 @@ exit 1
     execSync("git add -A && git commit -m complete && git push origin main", { cwd: projectRoot });
     execSync("git checkout -b feature && git push -u origin feature", { cwd: projectRoot });
     execSync("git checkout main", { cwd: projectRoot });
+    writeFileSync(join(dirname(env.prReadyLog), "pr-state"), "");
 
     const cap = captureIo();
     const claude = reviewFakeAgent(

@@ -33,13 +33,13 @@ existing retry loop rides it out. No new retry path.
 
 ## Acceptance criteria
 
-- [ ] `isTransientSignal` returns true for an opencode result whose stderr matches `UnknownError` and for an opencode result with guarded HTTP 500 server-error phrasing (new cases in `v1/test/agents/quota.test.ts`).
-- [ ] A non-opencode agent's generic `UnknownError`/HTTP 500 stderr is **not** newly classified transient by `isTransientSignal` (scoping case in `v1/test/agents/quota.test.ts`).
-- [ ] `isTransientNetworkError` git/gh classification is unchanged by the name-aware change (`v1/test/gh.test.ts` stays green).
-- [ ] An existing shared transport pattern (e.g. a 503 server error) still classifies transient for an opencode invocation after the name-aware change — name-aware dispatch falls through to `sharedTransportPatterns` (case in `v1/test/agents/quota.test.ts`).
-- [ ] An opencode invocation that fails with `UnknownError`/500 is retried by the existing `runAgent` transient-retry loop (bounded cap + escalating backoff, `onTransientRetry` fired) instead of being returned immediately as `kind: "error"` (extended case in `v1/test/agents/spawn.sandbox-unrunnable.test.ts`).
-- [ ] On retry exhaustion the opencode `UnknownError`/500 result still returns `kind: "error"` and the patch cascade still exits `agent-error` (exit 3); `v1/test/run.test.ts` agent-error path stays green (behavior unchanged on exhaustion).
-- [ ] `v1/docs/quota-signals.md` and `v2/docs/v1-behaviors.md` document opencode `UnknownError`/500 as a transient transport class ridden out by the existing retry loop.
+- [x] `isTransientSignal` returns true for an opencode result whose stderr matches `UnknownError` and for an opencode result with guarded HTTP 500 server-error phrasing (new cases in `v1/test/agents/quota.test.ts`).
+- [x] A non-opencode agent's generic `UnknownError`/HTTP 500 stderr is **not** newly classified transient by `isTransientSignal` (scoping case in `v1/test/agents/quota.test.ts`).
+- [x] `isTransientNetworkError` git/gh classification is unchanged by the name-aware change (`v1/test/gh.test.ts` stays green).
+- [x] An existing shared transport pattern (e.g. a 503 server error) still classifies transient for an opencode invocation after the name-aware change — name-aware dispatch falls through to `sharedTransportPatterns` (case in `v1/test/agents/quota.test.ts`).
+- [x] An opencode invocation that fails with `UnknownError`/500 is retried by the existing `runAgent` transient-retry loop (bounded cap + escalating backoff, `onTransientRetry` fired) instead of being returned immediately as `kind: "error"` (extended case in `v1/test/agents/spawn.sandbox-unrunnable.test.ts`).
+- [x] On retry exhaustion the opencode `UnknownError`/500 result still returns `kind: "error"` and the patch cascade still exits `agent-error` (exit 3); `v1/test/run.test.ts` agent-error path stays green (behavior unchanged on exhaustion).
+- [x] `v1/docs/quota-signals.md` and `v2/docs/v1-behaviors.md` document opencode `UnknownError`/500 as a transient transport class ridden out by the existing retry loop.
 
 ## Documentation updates
 

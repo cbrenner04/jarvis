@@ -75,7 +75,7 @@ flowchart TD
     planEntry --> draft(["Draft: prereq gate →<br/>index.md + subspecs (one call)"]):::llm
     draft --> openDraft["Open draft PR"]:::det
     openDraft --> review(["Self-review: adversary → advocate →<br/>adjudicator → actuator<br/>(one flow per pass) × --review-passes (default 1)"]):::llm
-    review --> markReady["bun run ready (install → check:fix →<br/>typecheck → test → check → lint:md)<br/>then gh pr ready (auto)"]:::det
+    review --> markReady["bun run ready (strict verify)<br/>then gh pr ready (auto)"]:::det
   end
 
   markReady --> handoff["Human reviews + merges plan PR to main"]:::det
@@ -187,7 +187,7 @@ flowchart TD
   reviewBlk -- no --> reviewCommit["Commit plan: review: &lt;role&gt; / actuator · push<br/>updatePrBody (det)"]:::det
   reviewCommit --> reviewLoop
 
-  reviewLoop -- no --> ready["bun run ready (install → check:fix →<br/>typecheck → test → check → lint:md)<br/>then gh pr ready (auto)"]:::det
+  reviewLoop -- no --> ready["bun run ready (strict verify)<br/>then gh pr ready (auto)"]:::det
   ready --> done["exit 0 · print Next steps"]:::stop
 
   classDef det fill:#dff5e1,stroke:#2f7d3a,color:#0b3d16;
@@ -224,13 +224,11 @@ What loops vs. what's a distinct path:
   *after* the call (write boundary, append-only on `intent.md`, validation
   rules) but cannot make the agent's text choice deterministic.
 - **Readiness transition**: when every phase succeeds without a blocker,
-  `jarvis1 plan` invokes `bun run ready`, which first runs
-  `bun install --frozen-lockfile` so Biome is available, then applies
-  `bun run check:fix` (Biome's mutating format/lint fixer). If `check:fix`
-  mutates any files, the harness commits and pushes them as a single
-  `chore: apply pre-ready check:fix` commit. Then it runs `typecheck → test →
-  check → lint:md` in CI order. Only if all steps succeed does the harness call
-  `gh pr ready`. If any step fails, the PR stays in draft.
+  `jarvis1 plan` invokes `bun run ready` and, on green, calls `gh pr ready`.
+  The authoritative built-in ready/fix split and step order live in
+  [`v2/docs/v1-behaviors.md`](../../v2/docs/v1-behaviors.md). This committed
+  plan-mode call site is not wired to `readyCommand`; it runs the built-in
+  `bun run ready`. If any gate step fails, the PR stays in draft.
 
 `--resume` re-enters the diagram at the review-loop, reusing the existing
 worktree, branch, and PR. With `modes.plan.commit: false` there is no
@@ -359,12 +357,13 @@ What loops vs. what's a distinct path:
   on disk. The narrative is generated once and then preserved inside the
   `jarvis:narrative` markers across rewrites.
 - **Readiness gates**: the completion-transition gate, the shrink/review
-  baseline gates, and the review final gate all run `bun install
-  --frozen-lockfile`, then `bun run check:fix` (Biome's mutating format/lint
-  fixer), then `typecheck → test → check → lint:md` in CI order. The baseline gates reuse
-  the recorded green result when the tree is unchanged; the final gate always
-  verifies before the draft→ready flip. If any step fails, the PR stays in
-  draft for manual correction.
+  baseline gates, and the review final gate all run the built-in strict
+  verification pipeline unless a project `readyCommand` overrides it. The
+  authoritative built-in ready/fix split and step order live in
+  [`v2/docs/v1-behaviors.md`](../../v2/docs/v1-behaviors.md). The baseline
+  gates reuse the recorded green result when the tree is unchanged; the final
+  gate always verifies before the draft→ready flip. If any step fails, the PR
+  stays in draft for manual correction.
 
 Dotted edges show pre-emption — `maxIterations`, timeouts, and SIGINT can fire
 at the top of any iteration before the agent call.

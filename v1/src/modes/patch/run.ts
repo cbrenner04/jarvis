@@ -180,7 +180,7 @@ export type RunCommandOptions = {
   tierOverride?: PatchTier;
   /**
    * Test seam for the completion `ready` gate. Replaces the real `bun run
-   * ready` + `check:fix` commit run in `runCompletionReadyGate`. Return
+   * ready` + post-ready dirty-output commit run in `runCompletionReadyGate`. Return
    * `{ kind: "green" }` to proceed into the post-completion phases, or
    * `{ kind: "red", failureText }` to drive the loop-back fix-up iteration if
    * every bounded retry stays red. The seam may be invoked up to the retry

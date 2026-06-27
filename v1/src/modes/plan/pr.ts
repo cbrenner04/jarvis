@@ -275,7 +275,7 @@ export function getOpenPrState(branch: string, cwd: string): OpenPrInfo {
 export type MaybeMarkPlanPrReadyOpts = {
   branch: string;
   cwd: string;
-  /** Test seam: agent label for the pre-ready check:fix commit trailer. */
+  /** Test seam: agent label for the post-ready dirty-output commit trailer. */
   agentLabel?: string;
   /** Test seam: get the open PR state. Defaults to `getOpenPrState`. */
   getOpenPrState?: (branch: string, cwd: string) => OpenPrInfo;
@@ -285,7 +285,7 @@ export type MaybeMarkPlanPrReadyOpts = {
   markReady?: (branch: string, cwd: string) => void;
   /** Seam for just `bun run ready`. Used by tests when markReady is absent. */
   runReady?: (cwd: string, tier: ReadyTier) => void;
-  /** Seam for post-ready check:fix commit/push. Used by tests when markReady is absent. */
+  /** Seam for post-ready dirty-output commit/push. Used by tests when markReady is absent. */
   commitCheckFix?: (cwd: string, agentLabel: string) => void;
   /** Seam for the `gh pr ready <branch>` shell-out. Used by tests when markReady is absent. Defaults to execFileSync call wrapped with retry. */
   ghPrReady?: (branch: string, cwd: string) => void;

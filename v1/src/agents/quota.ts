@@ -2,7 +2,10 @@ import type { AgentName, AgentResult } from "./types.ts";
 
 const transportContextWords = ["error", "err", "failed", "failure", "http", "status"] as const;
 
-function guardedStatusPatterns(statusCodes: readonly number[], contextWords: readonly string[] = transportContextWords): RegExp[] {
+function guardedStatusPatterns(
+  statusCodes: readonly number[],
+  contextWords: readonly string[] = transportContextWords,
+): RegExp[] {
   const context = contextWords.join("|");
   return statusCodes.flatMap((statusCode) => [
     new RegExp(`(?:^|\\n)[^\\n]*(?:${context})[^\\n]*\\b${statusCode}\\b`, "i"),

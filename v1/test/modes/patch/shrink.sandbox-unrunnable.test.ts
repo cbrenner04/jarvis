@@ -63,6 +63,12 @@ function makeShrinkConfig(shrink: "off" | "agent" = "agent"): Config {
   };
 }
 
+function makeShrinkConfigWithReviewActuator(order: Array<{ agent: AgentName; model: string }>): Config {
+  const cfg = makeShrinkConfig();
+  cfg.modes.patch.subRoleAgentOrder = { reviewActuator: order };
+  return cfg;
+}
+
 function setupShrinkRepo(): { dir: string; specPath: string; specDir: string; cleanup: () => void } {
   const parent = mkdtempSync(join(tmpdir(), "jarvis-patch-shrink-parent-"));
   const dir = join(parent, "repo");
@@ -405,6 +411,39 @@ describe("runPatchShrinkPhase", () => {
       expect(body).toContain("Jarvis-Agent:");
       expect(body).toContain("Jarvis-Agent: fake-claude");
       expect(harness.some((line) => line.includes("committed simplifications"))).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("uses full reviewActuator order for shrink quota fallback", async () => {
+    const { dir, specPath, cleanup } = setupShrinkRepo();
+    const harness: string[] = [];
+    try {
+      const codex = new FakeAgent("codex", () => ({ kind: "quota", stderr: "limit" }));
+      const cursor = new FakeAgent("cursor", () => ({ kind: "ok", stdout: "", stderr: "" }));
+
+      await runPatchShrinkPhase({
+        config: makeShrinkConfigWithReviewActuator([
+          { agent: "codex", model: "gpt-5.4" },
+          { agent: "cursor", model: "Composer 2.5" },
+        ]),
+        cwd: dir,
+        specPath,
+        allowlist: new Set(["impl.txt"]),
+        skipPreShrinkGate: true,
+        fanout: (tag, text) => {
+          if (tag === "harness") harness.push(text.trim());
+        },
+        writeTelemetry: () => {},
+        agents: { codex, cursor },
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+      });
+
+      expect(codex.calls).toHaveLength(1);
+      expect(cursor.calls).toHaveLength(1);
+      expect(harness.join("\n")).toContain(HARNESS_QUOTA_FALLBACK_STRICT);
     } finally {
       cleanup();
     }

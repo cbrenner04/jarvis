@@ -65,18 +65,18 @@ subspec adds the config surface for per-sub-role overrides; wiring lands in
 
 ## Acceptance criteria
 
-- [ ] A config with `modes.patch.subRoleAgentOrder` setting any of `reviewPanel`,
+- [x] A config with `modes.patch.subRoleAgentOrder` setting any of `reviewPanel`,
       `reviewActuator`, `patchActuator` to a valid agent order loads successfully
       and exposes those orders on the loaded config.
-- [ ] A config omitting `subRoleAgentOrder` (or omitting individual keys) loads
+- [x] A config omitting `subRoleAgentOrder` (or omitting individual keys) loads
       successfully; existing config fixtures/tests stay green (schema addition is
       additive).
-- [ ] A `subRoleAgentOrder` key whose value violates the agent-order contract
+- [x] A `subRoleAgentOrder` key whose value violates the agent-order contract
       (unknown agent, duplicate agent, or invalid model) fails config load with an
       error naming `modes.patch.subRoleAgentOrder.<key>`.
-- [ ] An unknown key under `subRoleAgentOrder` fails config load with an error
+- [x] An unknown key under `subRoleAgentOrder` fails config load with an error
       naming the offending key.
-- [ ] `v1/docs/config.md` documents `modes.patch.subRoleAgentOrder`, its three
+- [x] `v1/docs/config.md` documents `modes.patch.subRoleAgentOrder`, its three
       keys, optionality, and that an unset block leaves resolution at today's
       behavior.
 

@@ -14,6 +14,7 @@ import {
   resolvePlanFlags,
   resolveReviewAgentOrder,
   resolveReviewPasses,
+  resolveSubRoleAgentOrder,
   setGit,
   setProjectGit,
   setProjectOrigin,
@@ -125,6 +126,79 @@ describe("loadConfig", () => {
     expect(cfg.logServerBind).toBe("127.0.0.1:4310");
     expect(cfg.telemetryPath).toBe(join(dir, "runs.jsonl"));
     expect(cfg.projects.jarvis).toEqual({ root: "/Users/me/jarvis" });
+  });
+
+  test("accepts patch sub-role agent orders", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: CLAUDE_ONLY,
+            subRoleAgentOrder: {
+              reviewPanel: [{ agent: "codex", model: "gpt-5.3-codex" }],
+              reviewActuator: [{ agent: "claude", model: "haiku" }],
+              patchActuator: [{ agent: "cursor", model: "Composer 2.5" }],
+            },
+          },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {},
+      }),
+    );
+
+    const cfg = loadConfig({ dir });
+    expect(cfg.modes.patch.subRoleAgentOrder).toEqual({
+      reviewPanel: [{ agent: "codex", model: "gpt-5.3-codex" }],
+      reviewActuator: [{ agent: "claude", model: "haiku" }],
+      patchActuator: [{ agent: "cursor", model: "Composer 2.5" }],
+    });
+  });
+
+  test("accepts patch config without sub-role agent orders", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {},
+      }),
+    );
+
+    expect(loadConfig({ dir }).modes.patch.subRoleAgentOrder).toBeUndefined();
+  });
+
+  test("accepts patch sub-role agent orders with omitted keys", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: CLAUDE_ONLY,
+            subRoleAgentOrder: {
+              reviewPanel: [{ agent: "codex", model: "gpt-5.3-codex" }],
+            },
+          },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {},
+      }),
+    );
+
+    expect(loadConfig({ dir }).modes.patch.subRoleAgentOrder).toEqual({
+      reviewPanel: [{ agent: "codex", model: "gpt-5.3-codex" }],
+    });
   });
 
   test("accepts aider in patch agentOrder", () => {
@@ -607,6 +681,52 @@ describe("loadConfig", () => {
       }),
     );
     expect(() => loadConfig({ dir })).toThrow(/modes\.plan\.agentOrder.*duplicate/);
+  });
+
+  test("rejects invalid patch sub-role agent order", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: CLAUDE_ONLY,
+            subRoleAgentOrder: {
+              reviewActuator: [{ agent: "claude", model: "not-a-model" }],
+            },
+          },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {},
+      }),
+    );
+
+    expect(() => loadConfig({ dir })).toThrow(/modes\.patch\.subRoleAgentOrder\.reviewActuator/);
+  });
+
+  test("rejects unknown patch sub-role agent order key", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: CLAUDE_ONLY,
+            subRoleAgentOrder: {
+              reviewer: [{ agent: "claude", model: "haiku" }],
+            },
+          },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {},
+      }),
+    );
+
+    expect(() => loadConfig({ dir })).toThrow(/modes\.patch\.subRoleAgentOrder: unknown key "reviewer"/);
   });
 
   test("rejects unknown agent", () => {
@@ -2295,6 +2415,66 @@ describe("resolveReviewAgentOrder", () => {
       projects: {},
     };
     expect(resolveReviewAgentOrder(cfg)).toEqual(reviewOrder);
+  });
+});
+
+describe("resolveSubRoleAgentOrder", () => {
+  test("falls back per sub-role when no override is set", () => {
+    const patchOrder: AgentEntry[] = [{ agent: "claude", model: "haiku" }];
+    const planOrder: AgentEntry[] = [{ agent: "cursor", model: "Composer 2" }];
+    const reviewOrder: AgentEntry[] = [{ agent: "codex", model: "gpt-5.3-codex" }];
+    const cfg: Config = {
+      version: 2,
+      modes: {
+        patch: { agentOrder: patchOrder },
+        plan: { agentOrder: planOrder },
+        prompt: { agentOrder: planOrder },
+        review: { passes: 2, agentOrder: reviewOrder },
+      },
+      quotaFallback: "lenient",
+      weakQuotaExitCodes: [],
+      maxIterations: 10,
+      iterationTimeoutMs: 30 * 60_000,
+      logServerUrl: "http://x/",
+      logServerBind: "x",
+      git: true,
+      projects: {},
+    };
+
+    expect(resolveSubRoleAgentOrder(cfg, "patchActuator")).toEqual(patchOrder);
+    expect(resolveSubRoleAgentOrder(cfg, "reviewActuator")).toEqual(patchOrder);
+    expect(resolveSubRoleAgentOrder(cfg, "reviewPanel")).toEqual(reviewOrder);
+  });
+
+  test("returns sub-role override when configured", () => {
+    const patchOrder: AgentEntry[] = [{ agent: "claude", model: "haiku" }];
+    const patchActuator: AgentEntry[] = [{ agent: "cursor", model: "Composer 2.5" }];
+    const reviewActuator: AgentEntry[] = [{ agent: "codex", model: "gpt-5.4" }];
+    const reviewPanel: AgentEntry[] = [{ agent: "aider", model: "ollama_chat/qwen3.6:35b" }];
+    const cfg: Config = {
+      version: 2,
+      modes: {
+        patch: {
+          agentOrder: patchOrder,
+          subRoleAgentOrder: { patchActuator, reviewActuator, reviewPanel },
+        },
+        plan: { agentOrder: patchOrder },
+        prompt: { agentOrder: patchOrder },
+        review: { passes: 2 },
+      },
+      quotaFallback: "lenient",
+      weakQuotaExitCodes: [],
+      maxIterations: 10,
+      iterationTimeoutMs: 30 * 60_000,
+      logServerUrl: "http://x/",
+      logServerBind: "x",
+      git: true,
+      projects: {},
+    };
+
+    expect(resolveSubRoleAgentOrder(cfg, "patchActuator")).toEqual(patchActuator);
+    expect(resolveSubRoleAgentOrder(cfg, "reviewActuator")).toEqual(reviewActuator);
+    expect(resolveSubRoleAgentOrder(cfg, "reviewPanel")).toEqual(reviewPanel);
   });
 });
 

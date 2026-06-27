@@ -294,8 +294,17 @@ read-only review roles while keeping stronger models on actuators.
 **Agent order resolution by role:**
 
 - Read-only review roles (adversary, advocate, adjudicator): resolve from
+  `modes.patch.subRoleAgentOrder.reviewPanel` when set, else
   `modes.review.agentOrder` falling back to `modes.plan.agentOrder`.
-- Review actuator and shrink actuator: resolve from `modes.patch.agentOrder`.
+- Patch implementation loop: resolves from
+  `modes.patch.subRoleAgentOrder.patchActuator` when set, else
+  `modes.patch.agentOrder`. Patch `tier:` / `--tier` slicing applies to this
+  resolved ladder.
+- Review actuator and shrink actuator: resolve from
+  `modes.patch.subRoleAgentOrder.reviewActuator` when set, else
+  `modes.patch.agentOrder`. The shared `reviewActuator` key governs both code-
+  writing roles, but they consume it differently: the verdict actuator stays
+  head-only (`reviewActuator[0]`), while shrink keeps full-list quota fallback.
 
 This separation enables tiering: assign a fast/cheap reviewer tier to read-only
 roles (e.g., Haiku or a smaller Codex variant) while keeping an
@@ -311,8 +320,10 @@ case before deploying a fast-only tier to production.
 
 **Cross-mode coupling:** `modes.review.agentOrder` drives reviewers in both
 patch-mode review and plan-mode self-review, so setting it to speed up patch
-review simultaneously retunes plan-mode self-review. The two modes share the
-same review agent order.
+review simultaneously retunes plan-mode self-review. Patch-only
+`subRoleAgentOrder.reviewPanel` overrides that shared order only inside
+`jarvis1 run`; standalone `jarvis1 review` and plan-mode self-review keep using
+the shared review resolution.
 
 **Unset-default takeaway:** If `modes.plan.agentOrder` is already configured
 with a cheaper model, setting `modes.review.agentOrder` is unnecessary —

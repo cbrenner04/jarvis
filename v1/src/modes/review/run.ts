@@ -1,6 +1,6 @@
 import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
-import type { AgentName, Config } from "../../config.ts";
+import type { AgentEntry, AgentName, Config } from "../../config.ts";
 import { resolveReviewAgentOrder, resolveReviewPasses } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { createReviewInvocationBinding } from "./review-invocation-binding.ts";
@@ -39,6 +39,8 @@ export type RunReviewOptions = {
   actuator?: (verdict: string, ctx: ReviewPassContext) => Promise<void>;
   /** Additional read directories passed to agent (for external spec storage). */
   additionalReadDirs?: string[];
+  /** Optional review-panel order override for callers that do not use resolveReviewAgentOrder. */
+  reviewAgentOrder?: AgentEntry[];
 };
 
 async function recordAdapterFailure(
@@ -183,7 +185,7 @@ export async function runReview(opts: RunReviewOptions): Promise<number> {
   const passCount = resolveReviewPasses(opts.config, opts.reviewPassesOverride);
   const startPassNumber = opts.startPassNumber ?? 1;
   const displayTotalPasses = startPassNumber + passCount - 1;
-  const agentOrder = resolveReviewAgentOrder(opts.config);
+  const agentOrder = opts.reviewAgentOrder ?? resolveReviewAgentOrder(opts.config);
   const _now = opts.now ?? Date.now;
 
   let priorVerdict: string | undefined;

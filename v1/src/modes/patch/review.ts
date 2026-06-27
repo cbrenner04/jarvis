@@ -6,8 +6,8 @@ import { createAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName, AgentRunOptions } from "../../agents/types.ts";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
 import { type AgentEntry, type Config, resolveSubRoleAgentOrder } from "../../config.ts";
-import { checkBaseCurrent, writeReadyFlipBlocked } from "../../git/base-current.ts";
 import { getBaseBranch, postPrComment, withSyncTransientRetry } from "../../gh.ts";
+import { checkBaseCurrent, writeReadyFlipBlocked } from "../../git/base-current.ts";
 import { checkPrExists } from "../../pr.ts";
 import {
   HARNESS_QUOTA_FALLBACK_STRICT,
@@ -1239,7 +1239,11 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       }
       const baseCurrent = (opts.checkBaseCurrent ?? checkBaseCurrent)({ branch, cwd: opts.cwd });
       if (baseCurrent.status === "behind") {
-        writeReadyFlipBlocked(opts.stderr ?? process.stderr.write.bind(process.stderr), branch, baseCurrent.baseRefName);
+        writeReadyFlipBlocked(
+          opts.stderr ?? process.stderr.write.bind(process.stderr),
+          branch,
+          baseCurrent.baseRefName,
+        );
         return 0;
       }
 

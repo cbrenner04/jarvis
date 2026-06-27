@@ -54,15 +54,24 @@ export type RunReadyAndCommitOpts = {
   cwd: string;
   /** Ready pipeline tier; defaults to `full`. */
   tier?: ReadyTier;
-  /** Test seam: agent label for the commit trailer. Threaded to the post-ready dirty-tree commit seam. */
+  /** Test seam: agent label for the pre-ready fix commit trailer. */
   agentLabel?: string;
   /** Per-project override for `bun run ready`. Tokenized on whitespace; no shell. Receives `JARVIS_READY_TIER`. */
   readyCommand?: string;
-  /** Seam for just `bun run ready`. Defaults to execFileSync call. */
+  /** Seam for built-in `bun run fix` on `full` tier. Defaults to execFileSync call. */
+  runFix?: (cwd: string) => void;
+  /** Seam for just `bun run ready` (or `readyCommand`). Defaults to execFileSync call. */
   runReady?: (cwd: string, tier: ReadyTier) => void;
-  /** Seam for dirty-check, git add -A, git commit, idempotency re-check, and pushCurrent together. Called only after a `full` tier when tree is dirty. */
-  commitCheckFix?: (cwd: string, agentLabel: string) => void;
+  /** Seam for pre-ready fix output: git add -A, git commit, idempotency re-check, and pushCurrent together. Called only on `full` when porcelain is non-empty after fix. */
+  commitPreReadyFix?: (cwd: string, agentLabel: string) => void;
 };
+
+export class FixCommandError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FixCommandError";
+  }
+}
 
 export class ReadyCommandError extends Error {
   constructor(message: string) {
@@ -71,23 +80,89 @@ export class ReadyCommandError extends Error {
   }
 }
 
-export class ReadyCheckFixCommitError extends Error {
+export class PreReadyFixCommitError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "ReadyCheckFixCommitError";
+    this.name = "PreReadyFixCommitError";
   }
 }
 
-export class ReadyCheckFixPushError extends Error {
+export class PreReadyFixPushError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "ReadyCheckFixPushError";
+    this.name = "PreReadyFixPushError";
   }
 }
 
-/** Run `bun run ready` (or the configured `readyCommand`) at `tier` and, on `full` only, commit/push any resulting dirty tree. */
+export class ReadyVerificationDirtyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ReadyVerificationDirtyError";
+  }
+}
+
+function readPorcelain(cwd: string): string {
+  return execFileSync("git", ["status", "--porcelain"], {
+    cwd,
+    encoding: "utf8",
+    stdio: "pipe",
+  }).trim();
+}
+
+/** On `full` tier: run fix → commit-if-dirty → strict ready; on `fast`: verification only. */
 export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
   const tier = opts.tier ?? "full";
+
+  const realRunFix = (cwd: string) => {
+    try {
+      execFileSync("bun", ["run", "fix"], {
+        cwd,
+        stdio: "pipe",
+      });
+    } catch (err) {
+      const out = err as NodeJS.ErrnoException & {
+        stdout?: Buffer;
+        stderr?: Buffer;
+      };
+      const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
+      throw new FixCommandError(captured ? `bun run fix failed:\n${captured}` : "bun run fix failed");
+    }
+  };
+
+  const realCommitPreReadyFix = (cwd: string, agentLabel: string) => {
+    execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe" });
+    const commitMessage = appendAgentTrailer("chore: apply pre-ready check:fix", agentLabel);
+    try {
+      execFileSync("git", ["commit", "-F", "-"], {
+        cwd,
+        env: process.env,
+        stdio: ["pipe", "pipe", "pipe"],
+        input: commitMessage,
+      });
+    } catch (err) {
+      const out = err as NodeJS.ErrnoException & {
+        stdout?: Buffer;
+        stderr?: Buffer;
+      };
+      const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
+      throw new PreReadyFixCommitError(captured ? captured : "git commit failed");
+    }
+
+    const porcelain = readPorcelain(cwd);
+    if (porcelain !== "") {
+      const dirtyBranch = getCurrentBranch(cwd);
+      throw new PreReadyFixCommitError(
+        `pre-ready fix commit succeeded but worktree is still dirty on branch ${dirtyBranch}:\n${porcelain}\nDo not call gh pr ready. Inspect the branch and commit or discard the unexpected changes.`,
+      );
+    }
+
+    try {
+      pushCurrent({ cwd, firstPush: false });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new PreReadyFixPushError(message);
+    }
+  };
 
   const realBunRunReady = (cwd: string, readyTier: ReadyTier) => {
     const tokens = opts.readyCommand !== undefined ? opts.readyCommand.trim().split(/\s+/) : ["bun", "run", "ready"];
@@ -112,62 +187,29 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
     }
   };
 
-  const realCommitCheckFix = (cwd: string, agentLabel: string) => {
-    execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe" });
-    const commitMessage = appendAgentTrailer("chore: commit post-ready dirty output", agentLabel);
-    try {
-      execFileSync("git", ["commit", "-F", "-"], {
-        cwd,
-        env: process.env,
-        stdio: ["pipe", "pipe", "pipe"],
-        input: commitMessage,
-      });
-    } catch (err) {
-      const out = err as NodeJS.ErrnoException & {
-        stdout?: Buffer;
-        stderr?: Buffer;
-      };
-      const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
-      throw new ReadyCheckFixCommitError(captured ? captured : "git commit failed");
-    }
-
-    const porcelain = execFileSync("git", ["status", "--porcelain"], {
-      cwd,
-      encoding: "utf8",
-      stdio: "pipe",
-    }).trim();
-    if (porcelain !== "") {
-      const dirtyBranch = getCurrentBranch(cwd);
-      throw new ReadyCheckFixCommitError(
-        `post-ready dirty-output commit succeeded but worktree is still dirty on branch ${dirtyBranch}:\n${porcelain}\nDo not call gh pr ready. Inspect the branch and commit or discard the unexpected changes.`,
-      );
-    }
-
-    try {
-      pushCurrent({ cwd, firstPush: false });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      throw new ReadyCheckFixPushError(message);
-    }
-  };
-
+  const runFixFn = opts.runFix ?? realRunFix;
+  const commitPreReadyFixFn = opts.commitPreReadyFix ?? realCommitPreReadyFix;
   const runReadyFn = opts.runReady ?? realBunRunReady;
-  const commitCheckFixFn = opts.commitCheckFix ?? realCommitCheckFix;
+
+  if (tier === "full") {
+    runFixFn(opts.cwd);
+
+    const porcelainAfterFix = readPorcelain(opts.cwd);
+    if (porcelainAfterFix !== "") {
+      commitPreReadyFixFn(opts.cwd, opts.agentLabel ?? "");
+    }
+  }
 
   runReadyFn(opts.cwd, tier);
 
-  if (tier !== "full") {
-    return;
-  }
-
-  const porcelain = execFileSync("git", ["status", "--porcelain"], {
-    cwd: opts.cwd,
-    encoding: "utf8",
-    stdio: "pipe",
-  }).trim();
-
-  if (porcelain !== "") {
-    commitCheckFixFn(opts.cwd, opts.agentLabel ?? "");
+  if (tier === "full") {
+    const porcelainAfterReady = readPorcelain(opts.cwd);
+    if (porcelainAfterReady !== "") {
+      const dirtyBranch = getCurrentBranch(opts.cwd);
+      throw new ReadyVerificationDirtyError(
+        `verification returned green but worktree is still dirty on branch ${dirtyBranch}:\n${porcelainAfterReady}\nDo not call gh pr ready. Fold autofix into your readyCommand or discard the unexpected changes.`,
+      );
+    }
   }
 }
 
@@ -180,8 +222,9 @@ export function runReadyGateWithTier(opts: {
   agentLabel: string;
   readyCommand?: string;
   recordedGreenResult?: RecordedGreenResult;
+  runFix?: (cwd: string) => void;
   runReady?: (cwd: string, tier: ReadyTier) => void;
-  commitCheckFix?: (cwd: string, agentLabel: string) => void;
+  commitPreReadyFix?: (cwd: string, agentLabel: string) => void;
   refreshRecordedGreenResult?: (headSha: string) => void;
 }): ReadyTier {
   const tier = selectReadyTier({
@@ -193,8 +236,9 @@ export function runReadyGateWithTier(opts: {
     tier,
     agentLabel: opts.agentLabel,
     ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
+    ...(opts.runFix !== undefined ? { runFix: opts.runFix } : {}),
     ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
-    ...(opts.commitCheckFix !== undefined ? { commitCheckFix: opts.commitCheckFix } : {}),
+    ...(opts.commitPreReadyFix !== undefined ? { commitPreReadyFix: opts.commitPreReadyFix } : {}),
   });
   if (tier === "full" && opts.refreshRecordedGreenResult !== undefined) {
     opts.refreshRecordedGreenResult(getCurrentHeadSha(opts.cwd));

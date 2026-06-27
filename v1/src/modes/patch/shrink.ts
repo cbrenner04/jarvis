@@ -14,7 +14,7 @@ import {
   harnessAuthRotateLine,
   harnessQuotaFallbackLenientLine,
 } from "../../quota-harness-messages.ts";
-import { runReadyGateWithTier } from "../../ready-gate.ts";
+import { type ReadyTier, runReadyGateWithTier } from "../../ready-gate.ts";
 import type { CostSource, PatchTelemetryPhase, TelemetryKind, UsageSource } from "../../telemetry.ts";
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 import { pushCurrent } from "../../worktree.ts";
@@ -86,6 +86,12 @@ export type PatchShrinkPhaseOptions = {
   refreshRecordedGreenResult?: (headSha: string) => void;
   /** Per-project override for `bun run ready`. Passed to `runReadyGateWithTier`. */
   readyCommand?: string;
+  /** Seam for built-in `bun run fix` on `full` tier. */
+  runFix?: (cwd: string) => void;
+  /** Seam for verification only. */
+  runReady?: (cwd: string, tier: ReadyTier) => void;
+  /** Seam for pre-ready fix commit/push on `full` tier when porcelain is non-empty after fix. */
+  commitPreReadyFix?: (cwd: string, agentLabel: string) => void;
   /** Patch worktree directory for idle watchdog file-activity scanning. */
   patchWorktreeDir?: string;
   /** Idle output timeout in milliseconds (0 to disable). */
@@ -324,6 +330,9 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
           ...(opts.refreshRecordedGreenResult !== undefined
             ? { refreshRecordedGreenResult: opts.refreshRecordedGreenResult }
             : {}),
+          ...(opts.runFix !== undefined ? { runFix: opts.runFix } : {}),
+          ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
+          ...(opts.commitPreReadyFix !== undefined ? { commitPreReadyFix: opts.commitPreReadyFix } : {}),
         });
         opts.fanout("harness", `shrink: pre-shrink ready gate (${tier})\n`, "stdout");
       }

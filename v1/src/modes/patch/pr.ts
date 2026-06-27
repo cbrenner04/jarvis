@@ -271,7 +271,7 @@ export { runReadyAndCommit };
 export type MaybeMarkReadyOpts = {
   indexPath: string;
   cwd: string;
-  /** Test seam: agent label for the commit trailer. Threaded to the `commitCheckFix` seam. */
+  /** Test seam: agent label for the pre-ready fix commit trailer. Threaded to the `commitPreReadyFix` seam. */
   agentLabel?: string;
   /** Test seam: check if PR exists. Defaults to `checkPrExists`. */
   checkPrExists?: (branch: string, cwd: string) => boolean;
@@ -281,10 +281,12 @@ export type MaybeMarkReadyOpts = {
   markReady?: (branch: string, cwd: string) => void;
   /** Per-project override for `bun run ready`. Passed to `runReadyGateWithTier`. */
   readyCommand?: string;
-  /** Seam for just `bun run ready`. Used by tests when markReady is absent. Defaults to execFileSync call. */
+  /** Seam for built-in `bun run fix` on `full` tier. Used by tests when markReady is absent. */
+  runFix?: (cwd: string) => void;
+  /** Seam for verification only (`bun run ready` or `readyCommand`). Used by tests when markReady is absent. */
   runReady?: (cwd: string, tier: ReadyTier) => void;
-  /** Seam for dirty-check, git add -A, git commit, idempotency re-check, and pushCurrent together. Called only when markReady is absent and tree is dirty after runReady. */
-  commitCheckFix?: (cwd: string, agentLabel: string) => void;
+  /** Seam for pre-ready fix commit/push on `full` tier when porcelain is non-empty after fix. */
+  commitPreReadyFix?: (cwd: string, agentLabel: string) => void;
   /** Seam for the `gh pr ready <branch>` shell-out. Used by tests to verify it is/isn't called. Defaults to execFileSync call wrapped with retry. */
   ghPrReady?: (branch: string, cwd: string) => void;
   /** Seam for retry behavior: exec, sleep, onRetry callbacks. Injected into the retry wrapper below ghPrReady. */
@@ -349,8 +351,9 @@ export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
     agentLabel: opts.agentLabel ?? "",
     ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
     ...(opts.recordedGreenResult !== undefined ? { recordedGreenResult: opts.recordedGreenResult } : {}),
+    ...(opts.runFix !== undefined ? { runFix: opts.runFix } : {}),
     ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
-    ...(opts.commitCheckFix !== undefined ? { commitCheckFix: opts.commitCheckFix } : {}),
+    ...(opts.commitPreReadyFix !== undefined ? { commitPreReadyFix: opts.commitPreReadyFix } : {}),
     ...(opts.refreshRecordedGreenResult !== undefined
       ? { refreshRecordedGreenResult: opts.refreshRecordedGreenResult }
       : {}),

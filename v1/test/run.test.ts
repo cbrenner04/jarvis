@@ -1092,7 +1092,9 @@ describe("runCommand", () => {
       reviewPasses: 0,
       runCompletionReadyGate: () => {
         gateCalls += 1;
-        return gateCalls === 1 ? { kind: "red", failureText: "bun run ready failed:\nboom" } : { kind: "green" };
+        return gateCalls === 1
+          ? { kind: "red", failureText: "bun run ready failed:\nboom", verificationRed: true }
+          : { kind: "green" };
       },
     });
 
@@ -1127,7 +1129,7 @@ describe("runCommand", () => {
       reviewPasses: 0,
       runCompletionReadyGate: () => {
         gateCalls += 1;
-        return { kind: "red", failureText: `bun run ready failed:\nboom ${gateCalls}` };
+        return { kind: "red", failureText: `bun run ready failed:\nboom ${gateCalls}`, verificationRed: true };
       },
     });
 
@@ -1189,7 +1191,9 @@ describe("runCommand", () => {
       runCompletionReadyGate: () => {
         gateCalls += 1;
         // Calls 1-3: first completion, red; calls 4+: second completion, green
-        return gateCalls <= 3 ? { kind: "red", failureText: "bun run ready failed:\nboom" } : { kind: "green" };
+        return gateCalls <= 3
+          ? { kind: "red", failureText: "bun run ready failed:\nboom", verificationRed: true }
+          : { kind: "green" };
       },
     });
 
@@ -1215,7 +1219,7 @@ describe("runCommand", () => {
       reviewPasses: 0,
       runCompletionReadyGate: () => {
         gateCalls += 1;
-        return { kind: "red", failureText: "bun run ready failed:\nalways red" };
+        return { kind: "red", failureText: "bun run ready failed:\nalways red", verificationRed: true };
       },
     });
 
@@ -1250,7 +1254,7 @@ describe("runCommand", () => {
       reviewPasses: 0,
       runCompletionReadyGate: () => {
         gateCalls += 1;
-        return { kind: "red", failureText };
+        return { kind: "red", failureText, verificationRed: true };
       },
     });
 
@@ -1289,9 +1293,9 @@ describe("runCommand", () => {
         // Calls 1-3: first completion check, all return ERROR 1
         // Calls 4-6: second completion check, all return ERROR 2
         if (gateCalls <= 3) {
-          return { kind: "red", failureText: "bun run ready failed:\nERROR 1" };
+          return { kind: "red", failureText: "bun run ready failed:\nERROR 1", verificationRed: true };
         } else {
-          return { kind: "red", failureText: "bun run ready failed:\nERROR 2: different" };
+          return { kind: "red", failureText: "bun run ready failed:\nERROR 2: different", verificationRed: true };
         }
       },
     });
@@ -1334,6 +1338,7 @@ describe("runCommand", () => {
 ERROR: test failed in 1234ms at /Users/chris/Work/jarvis/.worktree/tmp-123/code.ts
 deadline in 5m30s
 Date: 2026-06-17`,
+            verificationRed: true,
           };
         } else {
           return {
@@ -1342,6 +1347,7 @@ Date: 2026-06-17`,
 ERROR: test failed in 5678ms at /Users/chris/Work/jarvis/.worktree/tmp-456/code.ts
 deadline in 5m20s
 Date: 2026-06-18`,
+            verificationRed: true,
           };
         }
       },
@@ -1370,7 +1376,7 @@ Date: 2026-06-18`,
       handleSignals: false,
       reviewPasses: 0,
       runCompletionReadyGate: () => {
-        return { kind: "red", failureText };
+        return { kind: "red", failureText, verificationRed: true };
       },
     });
 
@@ -1409,7 +1415,7 @@ Date: 2026-06-18`,
         ];
         const failureText =
           errors[Math.min(gateCalls - 1, errors.length - 1)] ?? "bun run ready failed:\nERROR: unsafe-lint";
-        return { kind: "red", failureText };
+        return { kind: "red", failureText, verificationRed: true };
       },
     });
 
@@ -1445,11 +1451,19 @@ Date: 2026-06-18`,
       runCompletionReadyGate: () => {
         gateCalls += 1;
         if (gateCalls <= 3) {
-          return { kind: "red", failureText: "bun run ready failed:\nERROR: test-1" };
+          return { kind: "red", failureText: "bun run ready failed:\nERROR: test-1", verificationRed: true };
         } else if (gateCalls <= 6) {
-          return { kind: "red", failureText: "bun run ready failed:\nERROR: test-2 (different)" };
+          return {
+            kind: "red",
+            failureText: "bun run ready failed:\nERROR: test-2 (different)",
+            verificationRed: true,
+          };
         } else {
-          return { kind: "red", failureText: "bun run ready failed:\nERROR: test-3 (yet another)" };
+          return {
+            kind: "red",
+            failureText: "bun run ready failed:\nERROR: test-3 (yet another)",
+            verificationRed: true,
+          };
         }
       },
     });
@@ -1499,7 +1513,7 @@ Date: 2026-06-18`,
       reviewPasses: 0,
       runCompletionReadyGate: () => {
         _gateCalls += 1;
-        return { kind: "red", failureText };
+        return { kind: "red", failureText, verificationRed: true };
       },
     });
 
@@ -1556,7 +1570,7 @@ Date: 2026-06-18`,
       reviewPasses: 0,
       runCompletionReadyGate: () => {
         _gateCalls += 1;
-        return { kind: "red", failureText };
+        return { kind: "red", failureText, verificationRed: true };
       },
     });
 
@@ -1602,7 +1616,7 @@ Date: 2026-06-18`,
       skipGhCheck: true,
       runCompletionReadyGate: () => {
         _gateCalls += 1;
-        return { kind: "red", failureText };
+        return { kind: "red", failureText, verificationRed: true };
       },
     });
 
@@ -1827,7 +1841,7 @@ exit 0
         expect(execSync("git status --porcelain", { cwd: projectRoot, encoding: "utf8" }).trim()).toBe("");
         expect(execSync("git rev-parse HEAD", { cwd: projectRoot, encoding: "utf8" }).trim()).toMatch(/^[0-9a-f]{40}$/);
         expect(execSync("git log -1 --pretty=%s", { cwd: projectRoot, encoding: "utf8" }).trim()).toBe(
-          "chore: commit post-ready dirty output",
+          "chore: apply pre-ready check:fix",
         );
       } finally {
         rmSync(sentinelDir, { recursive: true, force: true });
@@ -1835,7 +1849,7 @@ exit 0
       }
     });
 
-    test("real path: check:fix push failure does not retry into green completion", async () => {
+    test("real path: pre-ready fix push failure does not retry into green completion", async () => {
       execSync("git init -b project", { cwd: projectRoot });
       execSync('git config user.email "jarvis-test@example.com"', { cwd: projectRoot });
       execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
@@ -1849,66 +1863,35 @@ exit 0
       execSync("git add index.md && git commit -m init", { cwd: projectRoot });
       execSync("git push -u origin project", { cwd: projectRoot });
 
-      const sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-ready-push-fail-"));
-      try {
-        const attemptsFile = join(sentinelDir, "attempts.txt");
-        const script = join(sentinelDir, "ready.sh");
-        writeFileSync(
-          script,
-          `#!/bin/sh
-set -eu
-count=0
-if [ -f "${attemptsFile}" ]; then
-  count="$(cat "${attemptsFile}")"
-fi
-count=$((count + 1))
-printf '%s' "$count" > "${attemptsFile}"
-if [ "$count" -eq 1 ]; then
-  printf 'normalized\n' >> "$PWD/seed.txt"
-  git remote set-url origin "${missingRemote}"
-fi
-exit 0
-`,
-        );
-        chmodSync(script, 0o755);
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+        writeFileSync(join(projectRoot, "fixme.ts"), "const x=1\n");
+        execSync(`git remote set-url origin ${missingRemote}`, { cwd: projectRoot });
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
 
-        const cfg = loadConfig({ dir: cfgDir });
-        if (cfg.projects.project === undefined) {
-          cfg.projects.project = { root: projectRoot };
-        }
-        cfg.projects.project.readyCommand = script;
-        writeConfig(cfg, { dir: cfgDir });
+      const code = await runCommand({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        skipGhCheck: true,
+        reviewPasses: 0,
+        logClient: { assertReachable: async () => {}, send: async () => {} },
+      });
 
-        const cap = captureIo();
-        const claude = new FakeAgent("claude", () => {
-          writeFileSync(spec, "- [x] todo\n");
-          execSync("git add index.md && git commit -m done", { cwd: projectRoot });
-          return { kind: "ok", stdout: "", stderr: "" };
-        });
+      expect(code).toBe(6);
+      expect(cap.out()).not.toContain("completion: ready gate passed on retry");
+      expect(cap.err()).not.toContain("retrying");
+      expect(cap.err()).toContain("did not retry or enter fix-up");
+      expect(
+        Number(execSync("git rev-list --count origin/project..HEAD", { cwd: projectRoot, encoding: "utf8" })),
+      ).toBeGreaterThan(0);
 
-        const code = await runCommand({
-          specPath: spec,
-          io: cap.io,
-          config: { dir: cfgDir },
-          agents: { claude },
-          handleSignals: false,
-          skipGhCheck: true,
-          reviewPasses: 0,
-          logClient: { assertReachable: async () => {}, send: async () => {} },
-        });
-
-        expect(code).toBe(6);
-        expect(readFileSync(attemptsFile, "utf8")).toBe("1");
-        expect(cap.out()).not.toContain("completion: ready gate passed on retry");
-        expect(cap.err()).not.toContain("retrying");
-        expect(cap.err()).toContain("did not retry or enter fix-up");
-        expect(
-          Number(execSync("git rev-list --count origin/project..HEAD", { cwd: projectRoot, encoding: "utf8" })),
-        ).toBeGreaterThan(0);
-      } finally {
-        rmSync(sentinelDir, { recursive: true, force: true });
-        rmSync(remoteDir, { recursive: true, force: true });
-      }
+      rmSync(remoteDir, { recursive: true, force: true });
     });
   });
 
@@ -2024,7 +2007,9 @@ exit 0
         runCompletionReadyGate: () => {
           gateCalls += 1;
           // Red once, then green (with bound 1, should try 2 times total)
-          return gateCalls === 1 ? { kind: "red", failureText: "bun run ready failed:\ntest" } : { kind: "green" };
+          return gateCalls === 1
+            ? { kind: "red", failureText: "bun run ready failed:\ntest", verificationRed: true }
+            : { kind: "green" };
         },
       });
 
@@ -2062,7 +2047,7 @@ exit 0
             _completionCheckCount += 1;
           }
           // Red on all attempts (bound 0 means 1 attempt per completion check)
-          return { kind: "red", failureText: "bun run ready failed:\nno retries with bound 0" };
+          return { kind: "red", failureText: "bun run ready failed:\nno retries with bound 0", verificationRed: true };
         },
       });
 
@@ -2102,7 +2087,9 @@ exit 0
           gateCalls += 1;
           // Red once, then green (so we see only first attempt message)
           // bound 6 -> totalAttempts 7, so denominator should be 7 (different from default 3)
-          return gateCalls === 1 ? { kind: "red", failureText: "bun run ready failed:\ntest" } : { kind: "green" };
+          return gateCalls === 1
+            ? { kind: "red", failureText: "bun run ready failed:\ntest", verificationRed: true }
+            : { kind: "green" };
         },
       });
 
@@ -2137,7 +2124,9 @@ exit 0
         runCompletionReadyGate: () => {
           gateCalls += 1;
           // Red once, then green to verify default denominator is 3
-          return gateCalls === 1 ? { kind: "red", failureText: "bun run ready failed:\ntest" } : { kind: "green" };
+          return gateCalls === 1
+            ? { kind: "red", failureText: "bun run ready failed:\ntest", verificationRed: true }
+            : { kind: "green" };
         },
       });
 
@@ -2408,6 +2397,7 @@ exit 0
             cwd,
             tier: "full",
             agentLabel: "completion-ready",
+            runFix: () => {},
             runReady: (_c, tier) => {
               tiers.push(tier);
             },
@@ -3757,6 +3747,9 @@ exec "${realGit}" "$@"
       bun,
       `#!/usr/bin/env bash
 set -euo pipefail
+if [[ "$1 $2" == "run fix" ]]; then
+  exit 0
+fi
 if [[ "$1 $2" == "run ready" ]]; then
   printf '%s\n' "\${JARVIS_READY_TIER:-full}" >> "${readyGateLog}"
   exit 0
@@ -3976,6 +3969,9 @@ exec "${realGit}" "$@"
       bun,
       `#!/usr/bin/env bash
 set -euo pipefail
+if [[ "$1 $2" == "run fix" ]]; then
+  exit 0
+fi
 if [[ "$1 $2" == "run ready" ]]; then
   printf '%s\n' "\${JARVIS_READY_TIER:-full}" >> "${readyGateLog}"
   exit 0
@@ -6717,6 +6713,9 @@ exec "${realGit}" "$@"
     bun,
     `#!/usr/bin/env bash
 set -euo pipefail
+if [[ "$1 $2" == "run fix" ]]; then
+  exit 0
+fi
 if [[ "$1 $2" == "run ready" ]]; then
   printf '%s\n' "\${JARVIS_READY_TIER:-full}" >> "${readyLog}"
   exit 0
@@ -7385,6 +7384,9 @@ exec "${realGit}" "$@"
       bun,
       `#!/usr/bin/env bash
 set -euo pipefail
+if [[ "$1 $2" == "run fix" ]]; then
+  exit 0
+fi
 if [[ "$1 $2" == "run ready" ]]; then
   printf '%s\n' "\${JARVIS_READY_TIER:-full}" >> "${readyLog}"
   exit 0

@@ -15,9 +15,15 @@ export type TriageIo = {
   stderr: (s: string) => void;
 };
 
+export type CiCheckState = {
+  name: string;
+  status: "success" | "skipped" | "neutral" | "pending" | "queued" | "in_progress" | "action_required" | "stale" | "failure" | "cancelled" | "timed_out" | "startup_failure";
+};
+
 export type TriageGhRunner = {
   getPrState: (branch: string) => { state: string; isDraft: boolean } | null;
   getMergeGateState?: (branch: string) => { mergeStateStatus: string } | null;
+  getChecks?: (branch: string) => CiCheckState[] | null;
 };
 
 export type TriageCommandOptions = {
@@ -26,11 +32,16 @@ export type TriageCommandOptions = {
   config?: ConfigOptions;
   worktreeName?: string;
   markReady?: boolean;
+  merge?: boolean;
   ghRunner?: TriageGhRunner;
   /** Test seam: run the ready gate. Defaults to runReadyGateWithTier. */
   runGate?: (cwd: string, readyCommand?: string) => void;
   /** Test seam: mark PR ready. Defaults to gh pr ready with retry. */
   prReady?: (branch: string, cwd: string) => void;
+  /** Test seam: poll CI checks. Defaults to polling gh pr checks --json. */
+  pollChecks?: (branch: string) => CiCheckState[];
+  /** Test seam: admin-squash-merge PR. Defaults to gh pr merge --admin --squash. */
+  adminMerge?: (branch: string, cwd: string) => void;
 };
 
 export type DirtyKind = "clean" | "untracked-only" | "modified" | "mixed";
@@ -61,6 +72,9 @@ export function triageCommand(opts: TriageCommandOptions): number {
   if (opts.worktreeName !== undefined) {
     if (opts.markReady) {
       return triageMarkReady(opts);
+    }
+    if (opts.merge) {
+      return triageMerge(opts);
     }
     return triageDrillDown(worktreeDir, opts.worktreeName, opts.io);
   }
@@ -168,6 +182,24 @@ function createDefaultGhRunner(): TriageGhRunner {
         return {
           mergeStateStatus: prData.mergeStateStatus || "unavailable",
         };
+      } catch {
+        return null;
+      }
+    },
+    getChecks: (branch: string) => {
+      try {
+        const fullOutput = execSync(`gh pr checks "${branch}" --json name,status`, {
+          stdio: "pipe",
+          encoding: "utf8",
+        });
+        const checks = JSON.parse(fullOutput);
+        if (!Array.isArray(checks)) {
+          return null;
+        }
+        return checks.map((c: { name: string; status: string }) => ({
+          name: c.name,
+          status: c.status as CiCheckState["status"],
+        }));
       } catch {
         return null;
       }
@@ -1082,5 +1114,267 @@ function isSpecComplete(specPath: string): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+type CiCheckClassification = "green" | "pending" | "red";
+
+function classifyCiChecks(checks: CiCheckState[]): { classification: CiCheckClassification; failingChecks: string[]; pendingChecks: string[] } {
+  const greenStatuses = new Set(["success", "skipped", "neutral"]);
+  const pendingStatuses = new Set(["pending", "queued", "in_progress", "action_required", "stale"]);
+  const redStatuses = new Set(["failure", "cancelled", "timed_out", "startup_failure"]);
+
+  const failingChecks: string[] = [];
+  const pendingChecks: string[] = [];
+
+  for (const check of checks) {
+    if (redStatuses.has(check.status)) {
+      failingChecks.push(check.name);
+    } else if (pendingStatuses.has(check.status)) {
+      pendingChecks.push(check.name);
+    }
+  }
+
+  let classification: CiCheckClassification = "green";
+  if (failingChecks.length > 0) {
+    classification = "red";
+  } else if (pendingChecks.length > 0) {
+    classification = "pending";
+  }
+
+  return { classification, failingChecks, pendingChecks };
+}
+
+function triageMerge(opts: TriageCommandOptions): number {
+  const worktreeDir = join(opts.projectRoot, ".worktree");
+  const worktreeName = opts.worktreeName;
+  if (!worktreeName) {
+    opts.io.stderr(`triage --merge: internal error - no worktree name\n`);
+    return 1;
+  }
+
+  const worktreePath = join(worktreeDir, worktreeName);
+
+  if (!existsSync(worktreePath)) {
+    opts.io.stderr(`triage --merge: unknown worktree: ${worktreeName}\n`);
+    return 1;
+  }
+
+  // Get the branch name
+  let branch: string;
+  try {
+    branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd: worktreePath,
+      stdio: "pipe",
+      encoding: "utf8",
+    }).trim();
+  } catch {
+    opts.io.stderr(`triage --merge: unable to get branch name\n`);
+    return 1;
+  }
+
+  // Get the spec path from .active-spec-path marker
+  const specMarkerPath = join(worktreePath, ".active-spec-path");
+  let specPath: string | undefined;
+  if (existsSync(specMarkerPath)) {
+    try {
+      specPath = readFileSync(specMarkerPath, "utf8").trim();
+    } catch {
+      opts.io.stderr(`triage --merge: unable to read .active-spec-path marker\n`);
+      return 1;
+    }
+  } else {
+    opts.io.stderr(`triage --merge: .active-spec-path marker not found (pre-marker worktree)\n`);
+    return 1;
+  }
+
+  if (!specPath || !existsSync(specPath)) {
+    opts.io.stderr(`triage --merge: spec file not found: ${specPath || "(unknown)"}\n`);
+    return 1;
+  }
+
+  // Check if the worktree is locked by a live run PID
+  const lockPath = getWorktreeLockPath(worktreePath);
+  if (existsSync(lockPath)) {
+    try {
+      const raw = readFileSync(lockPath, "utf8");
+      const lock: WorktreeLock = JSON.parse(raw);
+      if (isProcessAlive(lock.pid)) {
+        opts.io.stderr(`triage --merge: worktree is locked by live run (PID ${lock.pid}). Cannot proceed.\n`);
+        return 1;
+      }
+    } catch {
+      // Ignore lock file read errors
+    }
+  }
+
+  // Pre-check: PR exists and is in valid state (draft or already ready)
+  const ghRunner = opts.ghRunner || createDefaultGhRunner();
+  const prState = ghRunner.getPrState(branch);
+  if (!prState) {
+    opts.io.stderr(`triage --merge: no PR found for branch ${branch}\n`);
+    return 1;
+  }
+
+  // Reject merged or closed PRs
+  if (prState.state === "MERGED" || prState.state === "CLOSED") {
+    opts.io.stderr(`triage --merge: PR is already ${prState.state.toLowerCase()}. Cannot merge.\n`);
+    return 1;
+  }
+
+  // Check if spec is complete
+  const specComplete = isSpecComplete(specPath);
+  if (!specComplete) {
+    opts.io.stderr(`triage --merge: spec is not complete — linked subspecs have unchecked items\n`);
+    return 1;
+  }
+
+  // Resolve the readyCommand from the project config
+  let readyCommand: string | undefined;
+  try {
+    const fullConfig = loadConfig(opts.config);
+    for (const project of Object.values(fullConfig.projects)) {
+      if (project.root === opts.projectRoot) {
+        readyCommand = project.readyCommand;
+        break;
+      }
+    }
+  } catch {
+    // Ignore config loading errors, use default readyCommand
+  }
+
+  // Run the local ready gate first
+  const realRunGate = (cwd: string, cmd?: string) => {
+    runReadyGateWithTier({
+      cwd,
+      agentLabel: "triage-merge",
+      ...(cmd !== undefined ? { readyCommand: cmd } : {}),
+    });
+  };
+
+  const runGateFn = opts.runGate ?? realRunGate;
+  let gateError: Error | null = null;
+  try {
+    runGateFn(worktreePath, readyCommand);
+  } catch (err) {
+    gateError = err instanceof Error ? err : new Error(String(err));
+  }
+
+  if (gateError) {
+    const message = gateError.message || String(gateError);
+    opts.io.stderr(`triage --merge: ready gate failed\n${message}\n`);
+    return 1;
+  }
+
+  // If PR is draft, mark it ready
+  if (prState.isDraft) {
+    const realPrReady = (branch: string, cwd: string) => {
+      withSyncTransientRetry(
+        () => {
+          execFileSync("gh", ["pr", "ready", branch], {
+            cwd,
+            stdio: "pipe",
+          });
+        },
+        {
+          op: "gh pr ready",
+          isPrReady: true,
+        },
+      );
+    };
+
+    const prReadyFn = opts.prReady ?? realPrReady;
+    try {
+      prReadyFn(branch, worktreePath);
+      opts.io.stdout(`triage --merge: PR promoted to ready\n`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      opts.io.stderr(`triage --merge: failed to mark PR ready\n${message}\n`);
+      return 1;
+    }
+  }
+
+  // Poll CI checks until green or timeout
+  const timeoutMs = 30 * 60 * 1000; // 30 minutes
+  const pollIntervalMs = 10 * 1000; // 10 seconds
+  const startTime = Date.now();
+
+  const realPollChecks = (branch: string): CiCheckState[] => {
+    try {
+      const fullOutput = execSync(`gh pr checks "${branch}" --json name,status`, {
+        stdio: "pipe",
+        encoding: "utf8",
+      });
+      const checks = JSON.parse(fullOutput);
+      if (!Array.isArray(checks)) {
+        return [];
+      }
+      return checks.map((c: { name: string; status: string }) => ({
+        name: c.name,
+        status: c.status as CiCheckState["status"],
+      }));
+    } catch {
+      return [];
+    }
+  };
+
+  const pollChecksFn = opts.pollChecks ?? realPollChecks;
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const checks = pollChecksFn(branch);
+    const { classification, failingChecks, pendingChecks } = classifyCiChecks(checks);
+
+    if (classification === "green") {
+      // All checks passed, proceed to merge
+      opts.io.stdout(`triage --merge: CI checks green, proceeding to merge\n`);
+      break;
+    }
+
+    if (classification === "red") {
+      // A check failed, abort
+      opts.io.stderr(`triage --merge: CI check failed: ${failingChecks[0]}\n`);
+      return 1;
+    }
+
+    // classification === "pending"
+    // Check if we've exceeded the timeout
+    const elapsedMs = Date.now() - startTime;
+    if (elapsedMs > timeoutMs) {
+      opts.io.stderr(`triage --merge: CI checks timed out. Still pending: ${pendingChecks[0]}\n`);
+      return 1;
+    }
+
+    // Wait a bit before polling again
+    execSync(`sleep ${pollIntervalMs / 1000}`, {
+      stdio: "pipe",
+    });
+  }
+
+  // Admin-squash-merge the PR
+  const realAdminMerge = (branch: string, cwd: string) => {
+    withSyncTransientRetry(
+      () => {
+        execFileSync("gh", ["pr", "merge", branch, "--admin", "--squash"], {
+          cwd,
+          stdio: "pipe",
+        });
+      },
+      {
+        op: "gh pr merge",
+        isPrReady: false,
+      },
+    );
+  };
+
+  const adminMergeFn = opts.adminMerge ?? realAdminMerge;
+  try {
+    adminMergeFn(branch, worktreePath);
+    opts.io.stdout(`triage --merge: PR merged successfully\n`);
+    return 0;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    opts.io.stderr(`triage --merge: failed to merge PR\n${message}\n`);
+    return 1;
   }
 }

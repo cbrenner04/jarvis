@@ -56,7 +56,7 @@ export type ParsedArgs =
   | { kind: "config"; rest: string[] }
   | { kind: "log-server" }
   | { kind: "cleanup"; dryRun?: boolean; abandon?: boolean }
-  | { kind: "triage"; worktreeName?: string; markReady?: boolean }
+  | { kind: "triage"; worktreeName?: string; markReady?: boolean; merge?: boolean }
   | { kind: "review-feedback"; worktreeName?: string }
   | {
       kind: "runbook";
@@ -92,8 +92,8 @@ Commands:
   log-server        Run the local log aggregation server.
   cleanup [--abandon] [--dry-run]
                     Remove merged or abandoned worktrees.
-  triage [worktree-name]
-                    Inspect a dirty or orphaned worktree.
+  triage [worktree-name] [--mark-ready] [--merge]
+                    Inspect a dirty or orphaned worktree. --mark-ready or --merge on a named worktree.
   review-feedback <worktree-name>
                     Address PR review feedback on an existing patch worktree.
   runbook add [--section <heading>] [--issue-url <url>] <entry>
@@ -139,10 +139,12 @@ Flags:
 
   Remove merged worktrees, or retire abandoned worktrees with --abandon.
 `,
-  triage: `Usage: jarvis1 triage [worktree-name] [--mark-ready]
+  triage: `Usage: jarvis1 triage [worktree-name] [--mark-ready] [--merge]
 
   Inspect a dirty or orphaned worktree. On a named worktree, --mark-ready re-runs
-  the completion ready gate and, on green, flips the draft PR to ready.
+  the completion ready gate and, on green, flips the draft PR to ready. --merge
+  runs the ready gate, marks the PR ready if draft, waits for CI to be green, then
+  admin-squash-merges the PR.
 `,
   "review-feedback": `Usage: jarvis1 review-feedback <worktree-name>
 
@@ -306,9 +308,10 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         return { kind: "help", command: "triage" };
       }
       const markReady = rest.includes("--mark-ready");
-      const args = rest.filter((arg) => arg !== "--mark-ready");
+      const merge = rest.includes("--merge");
+      const args = rest.filter((arg) => arg !== "--mark-ready" && arg !== "--merge");
       const worktreeName = args[0];
-      const result: { kind: "triage"; worktreeName?: string; markReady?: boolean } = {
+      const result: { kind: "triage"; worktreeName?: string; markReady?: boolean; merge?: boolean } = {
         kind: "triage",
       };
       if (worktreeName !== undefined) {
@@ -317,10 +320,25 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       if (markReady) {
         result.markReady = true;
       }
+      if (merge) {
+        result.merge = true;
+      }
       if (markReady && worktreeName === undefined) {
         return {
           kind: "error",
           message: "triage: --mark-ready requires a worktree name",
+        };
+      }
+      if (merge && worktreeName === undefined) {
+        return {
+          kind: "error",
+          message: "triage: --merge requires a worktree name",
+        };
+      }
+      if (markReady && merge) {
+        return {
+          kind: "error",
+          message: "triage: --merge and --mark-ready are mutually exclusive",
         };
       }
       return result;

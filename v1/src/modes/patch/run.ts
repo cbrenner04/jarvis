@@ -39,6 +39,7 @@ export type PreflightOk = {
   additionalReadDirs: string[] | undefined;
   patchTier: PatchTier;
   trackSourceSpecDelta: boolean;
+  specIsExternal: boolean;
 };
 
 export type CompletionReadyGateResult = { kind: "green" } | { kind: "red"; failureText: string; retryable?: boolean };

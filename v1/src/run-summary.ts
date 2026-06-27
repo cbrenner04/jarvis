@@ -3,6 +3,17 @@ import type { CostSource, TelemetryRecord, TelemetryUsage, UsageSource } from ".
 
 export const INTAKE_SUGGESTION_URL = "https://github.com/cbrenner04/jarvis/issues/new/choose";
 
+function mapExitReasonToRunbookSection(unsuffixedReason: string): string | null {
+  const resumeFirstReasons = new Set(["timeout", "sigint", "worktree-locked"]);
+  if (resumeFirstReasons.has(unsuffixedReason)) {
+    return "Resume-first guidance";
+  }
+  if (unsuffixedReason === "criteria-complete") {
+    return null;
+  }
+  return "Recovery by exit reason";
+}
+
 type RunSummaryArgs = {
   telemetryPath: string | null;
   namespace: string;
@@ -240,6 +251,8 @@ function renderSummaryFromRecords(args: {
   patchIterations?: number;
   /** When true, emit `phase attempts:` instead of pairing iterations + attempts.*/
   planStyleHeaders?: boolean;
+  /** When true, cite the runbook section for failure exits.*/
+  citePatchRunbookOnFailure?: boolean | undefined;
 }): string {
   const lines: string[] = [];
   lines.push(`─── ${args.labels.title} ───`);
@@ -247,6 +260,14 @@ function renderSummaryFromRecords(args: {
     lines.push(`spec: ${args.specPath}`);
   }
   lines.push(`exit reason: ${args.exitReason}`);
+
+  if (args.citePatchRunbookOnFailure) {
+    const unsuffixedReason = args.exitReason.split(" (exit code")[0] ?? args.exitReason;
+    const runbookSection = mapExitReasonToRunbookSection(unsuffixedReason);
+    if (runbookSection !== null) {
+      lines.push(`see runbook: OPERATOR_RUNBOOK.md › ${runbookSection}`);
+    }
+  }
 
   const invocationAttempts = args.runRecords.filter(attemptLine).length;
   const implementationAttempts = args.runRecords.filter(isImplementationAttempt).length;
@@ -484,11 +505,21 @@ function renderSummaryFromRecords(args: {
 }
 
 export function runSummary(args: RunSummaryArgs): string {
+  const unsuffixedReason = args.exitReason.split(" (exit code")[0] ?? args.exitReason;
+  const runbookSection = mapExitReasonToRunbookSection(unsuffixedReason);
+  const runbookPointer =
+    runbookSection !== null ? `see runbook: OPERATOR_RUNBOOK.md › ${runbookSection}` : "";
+
   if (args.telemetryPath === null || !existsSync(args.telemetryPath)) {
     const lines = [
       "─── run summary ───",
       `spec: ${args.specPath}`,
       `exit reason: ${args.exitReason}`,
+    ];
+    if (runbookPointer) {
+      lines.push(runbookPointer);
+    }
+    lines.push(
       `iterations: ${args.iterations}`,
       "attempts: 0",
       `duration: ${formatDuration(args.durationMs)}`,
@@ -496,7 +527,7 @@ export function runSummary(args: RunSummaryArgs): string {
       "(no telemetry records found for this run)",
       "",
       `Hit a harness gap? ${INTAKE_SUGGESTION_URL}`,
-    ];
+    );
     return lines.join("\n");
   }
 
@@ -519,6 +550,7 @@ export function runSummary(args: RunSummaryArgs): string {
     },
     patchIterations: args.iterations,
     planStyleHeaders: false,
+    citePatchRunbookOnFailure: true,
   });
 }
 

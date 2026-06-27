@@ -593,6 +593,20 @@ describe("runSummary", () => {
     expect(summary).not.toContain("$9");
   });
 
+  test("plan summary on failure does not cite runbook", () => {
+    const summary = planSummary({
+      telemetryPath: "/nonexistent/runs.jsonl",
+      namespace: "plan:x",
+      startTs: "2026-05-17T01:02:03.000Z",
+      exitReason: "error",
+      durationMs: 123,
+      specPath: "spec/foo/index.md",
+    });
+
+    expect(summary).toContain("exit reason: error");
+    expect(summary).not.toContain("see runbook:");
+  });
+
   test("patch summary shows review attempts separately", () => {
     const telemetryPath = writeTelemetry([
       {
@@ -708,6 +722,161 @@ describe("runSummary", () => {
     expect(summary).not.toContain("shrink attempts");
     expect(summary).toContain("$0.07");
   });
+
+  test("patch summary on ready-stuck-red cites Recovery by exit reason", () => {
+    const summary = runSummary({
+      telemetryPath: "/nonexistent/runs.jsonl",
+      namespace: "p:x",
+      startTs: "2026-05-17T01:02:03.000Z",
+      exitReason: "ready-stuck-red (exit code 10)",
+      iterations: 0,
+      durationMs: 123,
+      specPath: "spec/x/index.md",
+    });
+
+    expect(summary).toContain("exit reason: ready-stuck-red (exit code 10)");
+    expect(summary).toContain("see runbook: OPERATOR_RUNBOOK.md › Recovery by exit reason");
+  });
+
+  test("patch summary on timeout cites Resume-first guidance", () => {
+    const summary = runSummary({
+      telemetryPath: "/nonexistent/runs.jsonl",
+      namespace: "p:x",
+      startTs: "2026-05-17T01:02:03.000Z",
+      exitReason: "timeout (exit code 8)",
+      iterations: 0,
+      durationMs: 123,
+      specPath: "spec/x/index.md",
+    });
+
+    expect(summary).toContain("exit reason: timeout (exit code 8)");
+    expect(summary).toContain("see runbook: OPERATOR_RUNBOOK.md › Resume-first guidance");
+  });
+
+  test("patch summary on sigint cites Resume-first guidance", () => {
+    const summary = runSummary({
+      telemetryPath: "/nonexistent/runs.jsonl",
+      namespace: "p:x",
+      startTs: "2026-05-17T01:02:03.000Z",
+      exitReason: "sigint (exit code 130)",
+      iterations: 0,
+      durationMs: 123,
+      specPath: "spec/x/index.md",
+    });
+
+    expect(summary).toContain("exit reason: sigint (exit code 130)");
+    expect(summary).toContain("see runbook: OPERATOR_RUNBOOK.md › Resume-first guidance");
+  });
+
+  test("patch summary on worktree-locked cites Resume-first guidance", () => {
+    const summary = runSummary({
+      telemetryPath: "/nonexistent/runs.jsonl",
+      namespace: "p:x",
+      startTs: "2026-05-17T01:02:03.000Z",
+      exitReason: "worktree-locked (exit code 9)",
+      iterations: 0,
+      durationMs: 123,
+      specPath: "spec/x/index.md",
+    });
+
+    expect(summary).toContain("exit reason: worktree-locked (exit code 9)");
+    expect(summary).toContain("see runbook: OPERATOR_RUNBOOK.md › Resume-first guidance");
+  });
+
+  test("patch summary on criteria-complete prints no runbook pointer", () => {
+    const summary = runSummary({
+      telemetryPath: "/nonexistent/runs.jsonl",
+      namespace: "p:x",
+      startTs: "2026-05-17T01:02:03.000Z",
+      exitReason: "criteria-complete (exit code 0)",
+      iterations: 0,
+      durationMs: 123,
+      specPath: "spec/x/index.md",
+    });
+
+    expect(summary).toContain("exit reason: criteria-complete (exit code 0)");
+    expect(summary).not.toContain("see runbook:");
+  });
+
+  test("patch summary on error cites Recovery by exit reason", () => {
+    const summary = runSummary({
+      telemetryPath: "/nonexistent/runs.jsonl",
+      namespace: "p:x",
+      startTs: "2026-05-17T01:02:03.000Z",
+      exitReason: "error (exit code 1)",
+      iterations: 0,
+      durationMs: 123,
+      specPath: "spec/x/index.md",
+    });
+
+    expect(summary).toContain("exit reason: error (exit code 1)");
+    expect(summary).toContain("see runbook: OPERATOR_RUNBOOK.md › Recovery by exit reason");
+  });
+
+  test("patch summary with telemetry on error cites Recovery by exit reason", () => {
+    const telemetryPath = writeTelemetry([
+      {
+        ts: "2026-05-16T10:00:01.000Z",
+        namespace: "p:spec",
+        agent: "claude",
+        iteration: 1,
+        duration_ms: 1000,
+        kind: "ok",
+        exit_reason: "criteria-progress",
+        usage_source: "agent",
+        usage: {
+          input_tokens: 100,
+          output_tokens: 50,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+        cost_usd: 0.05,
+        cost_source: "agent",
+      },
+    ]);
+    const summary = runSummary({
+      telemetryPath,
+      namespace: "p:spec",
+      startTs: "2026-05-16T10:00:00.000Z",
+      exitReason: "no-progress (exit code 4)",
+      iterations: 1,
+      durationMs: 1000,
+      specPath: "spec/foo/index.md",
+    });
+
+    expect(summary).toContain("exit reason: no-progress (exit code 4)");
+    expect(summary).toContain("see runbook: OPERATOR_RUNBOOK.md › Recovery by exit reason");
+  });
+
+  test("patch summary on floor-error cites Recovery by exit reason", () => {
+    const summary = runSummary({
+      telemetryPath: "/nonexistent/runs.jsonl",
+      namespace: "p:x",
+      startTs: "2026-05-17T01:02:03.000Z",
+      exitReason: "floor-error",
+      iterations: 0,
+      durationMs: 123,
+      specPath: "spec/x/index.md",
+    });
+
+    expect(summary).toContain("exit reason: floor-error");
+    expect(summary).toContain("see runbook: OPERATOR_RUNBOOK.md › Recovery by exit reason");
+  });
+
+  test("patch summary on generic exit code cites Recovery by exit reason", () => {
+    const summary = runSummary({
+      telemetryPath: "/nonexistent/runs.jsonl",
+      namespace: "p:x",
+      startTs: "2026-05-17T01:02:03.000Z",
+      exitReason: "exit-99 (exit code 99)",
+      iterations: 0,
+      durationMs: 123,
+      specPath: "spec/x/index.md",
+    });
+
+    expect(summary).toContain("exit reason: exit-99 (exit code 99)");
+    expect(summary).toContain("see runbook: OPERATOR_RUNBOOK.md › Recovery by exit reason");
+  });
 });
 
 describe("promptSummary", () => {
@@ -750,6 +919,19 @@ describe("promptSummary", () => {
     expect(summary).toContain("$0.42");
     expect(summary).toContain("cache_r");
     expect(summary).toContain("cache_w");
+  });
+
+  test("prompt summary on failure does not cite runbook", () => {
+    const summary = promptSummary({
+      telemetryPath: "/nonexistent/runs.jsonl",
+      namespace: "prompt:x",
+      startTs: "2026-05-17T01:02:03.000Z",
+      exitReason: "error",
+      durationMs: 123,
+    });
+
+    expect(summary).toContain("exit reason: error");
+    expect(summary).not.toContain("see runbook:");
   });
 
   test("prompt summary ignores patch-mode rows", () => {

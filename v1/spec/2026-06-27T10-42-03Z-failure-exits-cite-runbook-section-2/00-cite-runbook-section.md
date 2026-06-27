@@ -35,14 +35,14 @@ section so the pointer can't dangle.
 
 ## Acceptance criteria
 
-- [ ] A patch run ending on `ready-stuck-red` prints a summary line citing the `OPERATOR_RUNBOOK.md` `Recovery by exit reason` section.
-- [ ] A patch run ending on `timeout`, `sigint`, or `worktree-locked` prints a summary line citing the `OPERATOR_RUNBOOK.md` `Resume-first guidance` section.
-- [ ] Every non-success patch exit reason (`ready-stuck-red`, `error`, `floor-error`, `quota-exhausted`, `agent-error`, `no-progress`, `max-iterations`, `dirty-worktree`, `blocked`, `review-incomplete`, and the generic `exit-N` default) prints exactly one `see runbook:` pointer naming a section that matches a heading present in the scaffolded runbook.
-- [ ] A failure exit on the no-telemetry early-return path of the run summary still prints its `see runbook:` pointer.
-- [ ] A patch run ending on `criteria-complete` prints no `see runbook:` pointer.
-- [ ] The cited section names match scaffolded headings emitted by `v1/src/runbook-generator.ts`, and `init.test.ts` guards both cited headings (H2 `Resume-first guidance` and H3 `Recovery by exit reason`) so a renamed/removed runbook section fails a test rather than dangling a stale pointer.
-- [ ] Plan-mode and prompt-mode run summaries print no `see runbook:` pointer.
-- [ ] Existing `v1/test/run-summary.test.ts` exit-reason assertions stay green (success-path summary unchanged apart from the new pointer on failures).
+- [x] A patch run ending on `ready-stuck-red` prints a summary line citing the `OPERATOR_RUNBOOK.md` `Recovery by exit reason` section.
+- [x] A patch run ending on `timeout`, `sigint`, or `worktree-locked` prints a summary line citing the `OPERATOR_RUNBOOK.md` `Resume-first guidance` section.
+- [x] Every non-success patch exit reason (`ready-stuck-red`, `error`, `floor-error`, `quota-exhausted`, `agent-error`, `no-progress`, `max-iterations`, `dirty-worktree`, `blocked`, `review-incomplete`, and the generic `exit-N` default) prints exactly one `see runbook:` pointer naming a section that matches a heading present in the scaffolded runbook.
+- [x] A failure exit on the no-telemetry early-return path of the run summary still prints its `see runbook:` pointer.
+- [x] A patch run ending on `criteria-complete` prints no `see runbook:` pointer.
+- [x] The cited section names match scaffolded headings emitted by `v1/src/runbook-generator.ts`, and `init.test.ts` guards both cited headings (H2 `Resume-first guidance` and H3 `Recovery by exit reason`) so a renamed/removed runbook section fails a test rather than dangling a stale pointer.
+- [x] Plan-mode and prompt-mode run summaries print no `see runbook:` pointer.
+- [x] Existing `v1/test/run-summary.test.ts` exit-reason assertions stay green (success-path summary unchanged apart from the new pointer on failures).
 
 ## Documentation updates
 

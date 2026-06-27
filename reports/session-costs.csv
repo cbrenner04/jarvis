@@ -78,13 +78,13 @@ report,name,plan_model,plan_cost,plan_time,plan_tokens_in,plan_tokens_out,run_mo
 2026-06-27T03-35-08Z-operator,plan-generated-spec-markdown-passes-lint-md,claude-opus-4-8,1.69,00:18:38,2515,21387,,,,,,1.69,namespace=plan:jarvis:plan-generated-spec-markdown-passes-lint-md; lint-dirty-emitter root-fix seed; no run phase
 2026-06-27T03-35-08Z-operator,commit-false-rerun-cleanup-hygiene,claude-opus-4-8,1.64,00:06:57,2793,13247,,,,,,1.64,namespace=plan:jarvis:commit-false-rerun-cleanup-hygiene; single plan-draft-ok iter then blocked; no run phase
 2026-06-27T03-35-08Z-operator,commit-false-reset-once-per-run,claude-opus-4-8,1.43,00:06:46,2787,11689,,,,,,1.43,namespace=plan:jarvis:commit-false-reset-once-per-run; single plan-draft-ok iter then blocked; no run phase
-2026-06-27T12-41-55Z-operator,cleanup-archive-external-commitfalse-specs,claude-opus-4-8,2.84,,,,codex/gpt-5.4,2.81,,,,5.65,#566; run via codex (3 iters)
-2026-06-27T12-41-55Z-operator,retry-transient-agent-errors-before-cascade-exit,claude-opus-4-8,2.73,,,,claude,2.65,,,,5.38,#585
-2026-06-27T12-41-55Z-operator,normalize-residual-worktree-state-on-agent-error,claude-opus-4-8,3.03,,,,claude,6.07,,,,9.10,#585; first run agent-error (codex+cursor quota during claude-removed window); re-run on claude
-2026-06-27T12-41-55Z-operator,warn-on-shared-model-pool-contention,claude-opus-4-8,1.50,,,,claude,2.16,,,,3.66,#585
-2026-06-27T12-41-55Z-operator,commit-false-source-spec-rerun-reset,claude-opus-4-8,3.08,,,,claude,4.29,,,,7.37,#520; codex attempt abandoned (async-leak survived 3 review-feedback rounds); from-scratch claude re-impl passed CI
-2026-06-27T12-41-55Z-operator,commit-false-rerun-workspace-cleanup,claude-opus-4-8,2.13,,,,codex,8.38,,,,10.51,#520; v1-behaviors merge conflict hand-resolved
-2026-06-27T12-41-55Z-operator,init-scaffolds-operator-runbook,claude-opus-4-8,2.36,,,,claude,2.78,,,,5.14,#598 core
-2026-06-27T12-41-55Z-operator,failure-exits-cite-runbook-section,claude-opus-4-8,3.05,,,,claude,3.24,,,,6.29,#598; plan blocked first ($0.22) then re-planned ($2.83) after init-scaffolds shipped; final run contention-flaked then isolated-green
-2026-06-27T12-41-55Z-operator,runbook-add-appends-learning,claude-opus-4-8,3.02,,,,claude,2.56,,,,5.58,#598; plan blocked first ($0.54) then re-planned ($2.48)
-2026-06-27T12-41-55Z-operator,prnarrative-default-deliberate-choice,,,,,,claude,3.64,,,,3.64,active spec; plan from prior session
+2026-06-27T12-41-55Z-operator,cleanup-archive-external-commitfalse-specs,claude-opus-4-8,2.84,00:13:21,5043,24051,codex/gpt-5.4,2.81,00:20:25,242341,35889,5.65,#566; run via codex (3 iters)
+2026-06-27T12-41-55Z-operator,retry-transient-agent-errors-before-cascade-exit,claude-opus-4-8,2.73,00:10:50,5657,24263,claude,2.65,00:22:11,397941,41540,5.38,#585
+2026-06-27T12-41-55Z-operator,normalize-residual-worktree-state-on-agent-error,claude-opus-4-8,3.03,00:11:57,5309,30586,claude,6.07,00:45:01,112773,125982,9.10,#585; first run agent-error (codex+cursor quota during claude-removed window); re-run on claude
+2026-06-27T12-41-55Z-operator,warn-on-shared-model-pool-contention,claude-opus-4-8,1.50,00:05:39,218153,14167,claude,2.16,00:16:52,627,42387,3.66,#585
+2026-06-27T12-41-55Z-operator,commit-false-source-spec-rerun-reset,claude-opus-4-8,3.08,00:14:56,5184,24633,claude,4.29,00:50:27,144554,75021,7.37,#520; codex attempt abandoned (async-leak survived 3 review-feedback rounds); from-scratch claude re-impl passed CI
+2026-06-27T12-41-55Z-operator,commit-false-rerun-workspace-cleanup,claude-opus-4-8,2.13,00:07:03,279700,17033,codex,8.38,00:47:31,399322,88652,10.51,#520; v1-behaviors merge conflict hand-resolved
+2026-06-27T12-41-55Z-operator,init-scaffolds-operator-runbook,claude-opus-4-8,2.36,00:08:43,5160,24767,claude,2.78,00:25:00,2844,57336,5.14,#598 core
+2026-06-27T12-41-55Z-operator,failure-exits-cite-runbook-section,claude-opus-4-8,3.05,00:10:51,29777,30123,claude,3.24,00:28:18,4171,66274,6.29,#598; plan blocked first ($0.22) then re-planned ($2.83) after init-scaffolds shipped; final run contention-flaked then isolated-green
+2026-06-27T12-41-55Z-operator,runbook-add-appends-learning,claude-opus-4-8,3.02,00:08:13,100903,22437,claude,2.56,00:21:34,856,61576,5.58,#598; plan blocked first ($0.54) then re-planned ($2.48)
+2026-06-27T12-41-55Z-operator,prnarrative-default-deliberate-choice,,,,,,claude,3.64,00:20:35,882,41057,3.64,active spec; plan from prior session

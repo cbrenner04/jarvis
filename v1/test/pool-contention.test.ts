@@ -114,39 +114,17 @@ describe("pool contention detection", () => {
   test("warnAboutPoolContentionIfDetected does not warn for non-Claude agent", () => {
     const loggedWarnings: string[] = [];
     const sendLog = (tag: string, text: string) => {
-      if (tag === "harness") {
-        loggedWarnings.push(text);
-      }
+      if (tag === "harness") loggedWarnings.push(text);
     };
-
-    const _mockListProcesses = (): ProcWithCmd[] => [
-      { pid: 100, ppid: 1, comm: "jarvis" },
-      { pid: 101, ppid: 100, comm: "claude" },
-    ];
-
-    const codexAgent = fakeAgent("codex");
-    warnAboutPoolContentionIfDetected(codexAgent, sendLog);
+    warnAboutPoolContentionIfDetected(fakeAgent("codex"), sendLog);
     expect(loggedWarnings.length).toBe(0);
   });
 
-  test("warnAboutPoolContentionIfDetected warns when contention detected", () => {
-    const loggedWarnings: string[] = [];
+  test("warnAboutPoolContentionIfDetected does not crash for Claude agent", () => {
     const sendLog = (tag: string, text: string) => {
-      if (tag === "harness") {
-        loggedWarnings.push(text);
-      }
+      if (tag === "harness") { /* no-op */ }
     };
-
-    const _mockListProcesses = (): ProcWithCmd[] => [
-      { pid: 100, ppid: 1, comm: "jarvis" },
-      { pid: 101, ppid: 100, comm: "claude" },
-    ];
-
-    const claudeAgent = fakeAgent("claude");
-    // Note: warnAboutPoolContentionIfDetected always uses the real listProcessesWithCmd,
-    // so we can't inject mocks. We test the function's existence and non-crash behavior.
-    warnAboutPoolContentionIfDetected(claudeAgent, sendLog);
-    // The warning would only appear if a real Jarvis process with Claude child exists
-    expect(typeof loggedWarnings).toBe("object");
+    // Uses real listProcessesWithCmd; just verifies it doesn't throw.
+    expect(() => warnAboutPoolContentionIfDetected(fakeAgent("claude"), sendLog)).not.toThrow();
   });
 });

@@ -37,36 +37,16 @@ export function listProcessesWithCmd(): ProcWithCmd[] {
   return procs;
 }
 
-/**
- * Walk up the parent chain from pid and collect all ancestor command names.
- */
-function ancestorChain(pid: number, procs: ProcWithCmd[]): string[] {
+function hasJarvisAncestor(pid: number, procs: ProcWithCmd[]): boolean {
   const procByPid = new Map(procs.map((p) => [p.pid, p]));
-  const chain: string[] = [];
   let current = pid;
   const visited = new Set<number>();
-
   while (current !== 0 && current !== 1 && !visited.has(current)) {
     visited.add(current);
     const proc = procByPid.get(current);
     if (!proc) break;
-    chain.push(proc.comm);
+    if (/^jarvis/i.test(proc.comm)) return true;
     current = proc.ppid;
-  }
-  return chain;
-}
-
-/**
- * Check if any ancestor command matches "jarvis" (case-insensitive).
- * Also checks for "node" with jarvis in the args (but we only have comm, not full cmdline).
- */
-function hasJarvisAncestor(pid: number, procs: ProcWithCmd[]): boolean {
-  const chain = ancestorChain(pid, procs);
-  for (const cmd of chain) {
-    // Check for "jarvis" or "jarvis1" command
-    if (/^jarvis/.test(cmd.toLowerCase())) {
-      return true;
-    }
   }
   return false;
 }
@@ -94,13 +74,7 @@ export function detectClaudePoolContention(
     return false;
   }
 
-  if (procs.length === 0) {
-    return false;
-  }
-
-  // Find all "claude" processes (exact command name match)
   for (const proc of procs) {
-    // Match exact command name "claude"
     if (proc.comm === "claude" && hasJarvisAncestor(proc.pid, procs)) {
       return true;
     }

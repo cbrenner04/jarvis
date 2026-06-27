@@ -209,6 +209,13 @@ export async function resolveModeSpecificPreflight(
     specPath,
     agentWorkingDir,
   });
+
+  // Reset delta for any external spec (broad predicate: outside agent working tree)
+  // This covers external specs regardless of whether they're in the Jarvis-managed dir
+  if (gitEnabled && specDirs !== undefined) {
+    resetTrackedSourceSpecDelta(specPath);
+  }
+
   const projectSiblings = cfg.projects[project.key]?.siblings ?? [];
   for (const sibling of projectSiblings) {
     if (!existsSync(sibling)) {
@@ -261,6 +268,8 @@ export async function resolveModeSpecificPreflight(
     return { kind: "error", exitCode: 1 };
   }
 
+  const specIsExternal = specDirs !== undefined;
+
   return {
     kind: "ok",
     project,
@@ -274,6 +283,7 @@ export async function resolveModeSpecificPreflight(
     additionalReadDirs,
     patchTier: resolvedPatchTier.tier,
     trackSourceSpecDelta,
+    specIsExternal,
   };
 }
 

@@ -218,9 +218,13 @@ Admin-merge skips approval and CI but **not** local verification — always run 
 
 ## No-commit re-run auto-reset
 
-When a `git: false` (no-commit) run is interrupted before completion, **Jarvis now automatically reverts stale mutations** before the next agent invocation: acceptance criteria ticked in the prior incomplete run are un-ticked, and any appended `## Blocker` is stripped. Pre-attempt checkboxes (authored before any run) stay ticked.
+When a run is interrupted before completion, **Jarvis automatically reverts stale mutations** before the next agent invocation: acceptance criteria ticked in the prior incomplete run are un-ticked, and any appended `## Blocker` is stripped. Pre-attempt checkboxes (authored before any run) stay ticked.
 
-The operator **no longer reverts checkboxes or strips blockers by hand** — just re-run with the same spec path: `jarvis1 run <spec>`.
+This applies to:
+- `git: false` (no-commit) runs in any project
+- `git: true` runs where the spec file is external to the agent working tree (outside the repo, so git can't revert it)
+
+In both cases, mutations are untracked and need explicit reversal. For external specs under `git: true`, the operator **no longer reverts checkboxes or strips blockers by hand** — just re-run with the same spec path: `jarvis1 run <spec>`.
 
 ## External-spec git-backed re-runs
 

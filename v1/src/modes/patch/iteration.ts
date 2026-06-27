@@ -357,11 +357,14 @@ function stripBlockerAndContinueFile(path: string): void {
 
 export async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   const { preflight, logging, opts, activeAgents, state } = ctx;
-  const { specPath, gitEnabled, agentWorkingDir, cfg, trackSourceSpecDelta } = preflight;
+  const { specPath, gitEnabled, agentWorkingDir, cfg, trackSourceSpecDelta, specIsExternal } = preflight;
   const { fanout, writeTelemetry, specDisplayName } = logging;
   const iteration = state.iteration;
   const iterationStartedAt = Date.now();
   const iterationDurationMs = (): number => Date.now() - iterationStartedAt;
+
+  // Mutations are untracked when git can't revert them: either git is off, or the spec is outside the worktree
+  const hasUntrackedMutations = !gitEnabled || specIsExternal;
 
   // Helper to capture delta on interrupt/timeout: diff current spec against pre-iteration state
   function captureInterruptedDelta(
@@ -467,7 +470,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         isFixupIteration = true;
       } else {
         // Clear no-commit delta on clean completion
-        if (done === 0 && !gitEnabled) {
+        if (done === 0 && hasUntrackedMutations) {
           const activeSubspecToClean = getActiveLinkedSubspecPath(specPath);
           if (activeSubspecToClean !== undefined) {
             clearDelta(activeSubspecToClean);
@@ -531,7 +534,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
   if (
     !isFixupIteration &&
     activeSubspecPath !== undefined &&
-    trackSourceSpecDelta &&
+    hasUntrackedMutations &&
     !state.noCommitResetAppliedThisRun
   ) {
     const priorDelta = loadDelta(activeSubspecPath);
@@ -541,7 +544,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     // Create a fresh delta for this attempt (first run or re-run after reset)
     state.noCommitDelta = createFreshDelta(activeSubspecPath);
     state.noCommitResetAppliedThisRun = true;
-  } else if (trackSourceSpecDelta && activeSubspecPath !== undefined && state.noCommitDelta === null) {
+  } else if (hasUntrackedMutations && activeSubspecPath !== undefined && state.noCommitDelta === null) {
     // Subsequent iterations or fixup iterations: create delta if needed
     state.noCommitDelta = createFreshDelta(activeSubspecPath);
   }
@@ -1580,7 +1583,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           ...telemetryMeta,
         });
         // Clear no-commit delta on clean completion
-        if (done === 0 && !gitEnabled && afterSubspecPath !== undefined) {
+        if (done === 0 && hasUntrackedMutations && afterSubspecPath !== undefined) {
           clearDelta(afterSubspecPath);
         }
         return { kind: "return", exitCode: done };

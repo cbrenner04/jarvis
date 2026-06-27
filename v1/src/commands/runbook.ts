@@ -23,10 +23,7 @@ function renderEntry(entry: string, issueUrl?: string): string {
   return `- ${entry}`;
 }
 
-function findSectionIndex(
-  content: string,
-  sectionName: string,
-): { startLine: number; endLine: number } | null {
+function findSectionIndex(content: string, sectionName: string): { startLine: number; endLine: number } | null {
   const lines: string[] = content.split("\n");
   let startLine = -1;
 
@@ -49,7 +46,7 @@ function findSectionIndex(
   let endLine = lines.length;
   for (let i = startLine + 1; i < lines.length; i += 1) {
     const line = lines[i];
-    if (line !== undefined && line.startsWith("## ")) {
+    if (line?.startsWith("## ")) {
       endLine = i;
       break;
     }
@@ -145,9 +142,7 @@ export function runbookCommand(opts: RunbookCommandOptions): number {
   const targetSection: string = normalizedSection;
   const newContent = appendEntryToSection(content, targetSection, renderedEntry);
   if (newContent === null) {
-    io.stderr(
-      `jarvis1: runbook add: section ${JSON.stringify(targetSection)} not found in OPERATOR_RUNBOOK.md\n`,
-    );
+    io.stderr(`jarvis1: runbook add: section ${JSON.stringify(targetSection)} not found in OPERATOR_RUNBOOK.md\n`);
     return 1;
   }
 

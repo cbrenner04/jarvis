@@ -11,10 +11,10 @@ runbook section in place, optionally tagged with its jarvis issue URL.
 
 - New `jarvis runbook add` subcommand; not folded into `init`/`triage` — no existing flow curates the runbook post-init (`init` scaffolds once, `triage` is worktree-scoped).
 - Default target section `## Known gotchas`; `--section <heading>` overrides — rules out always-Known-gotchas (can't route a gate/cross-repo learning, forcing the hand-edit this replaces) and free-form section creation (would drift the stable heading set).
-- The valid `--section` set is the flat-bullet-list-containing subset of the scaffold's stable headings, exactly: `Known gotchas`, `Gate blind spots`, `Cross-repo coordination` — rules out the table/key-value/prose `## ` sections (`Project facts`, `Spec layout`, `Repos and gates`, `Sandbox and network`, `Manual finalize and recovery`, `Resume-first guidance`), where appending a flat list item produces malformed content.
+- The valid `--section` set is the flat-bullet-list-containing subset of the scaffold's stable headings, exactly: `Known gotchas`, `Gate blind spots`, `Cross-repo coordination` — rules out the table/key-value/prose `##` sections (`Project facts`, `Spec layout`, `Repos and gates`, `Sandbox and network`, `Manual finalize and recovery`, `Resume-first guidance`), where appending a flat list item produces malformed content.
 - The authoritative heading set is the fixed section list rendered by `generateOperatorRunbook` in `v1/src/runbook-generator.ts`; the valid-section subset is derived from / kept consistent with it, so tests enumerate it from one source — rules out hardcoding a divergent list.
 - `--section` matches a valid heading by its text (no leading `##`), case-insensitive; an unknown or non-valid heading exits 1 and lists the valid headings, writing nothing.
-- Append the entry as a new list item at the end of the target section (before the next `## ` heading or EOF); never overwrite or reorder existing content — rules out prepend/replace.
+- Append the entry as a new list item at the end of the target section (before the next `##` heading or EOF); never overwrite or reorder existing content — rules out prepend/replace.
 - Rendered entry format is exactly `- <entry>` with no `--issue-url`, and `- <entry> ([jarvis issue](<url>))` with it — a single fixed shape so implementation and tests share one target; rules out per-implementer bullet/link variation.
 - Missing `OPERATOR_RUNBOOK.md` errors and points to `jarvis init`; does not scaffold — `init` owns scaffolding, silent create would mask a misconfigured cwd.
 - Resolve the project (and thus the runbook path) via `findProjectMatchForPath(cwd)`, matching `cleanup`/`triage` — rules out cwd-relative path guessing.
@@ -33,7 +33,7 @@ runbook section in place, optionally tagged with its jarvis issue URL.
 
 - [x] `jarvis runbook add "<entry>"` appends exactly the line `- <entry>` as a new list item at the end of the `## Known gotchas` section of the project's `OPERATOR_RUNBOOK.md`, leaving every other section and existing bullet unchanged.
 - [x] `--issue-url <url>` makes the appended item exactly `- <entry> ([jarvis issue](<url>))`.
-- [x] `--section <heading>` (case-insensitive, heading text without `##`) routes the entry to that section instead, for each of `Gate blind spots` and `Cross-repo coordination`; a heading outside the valid set `{Known gotchas, Gate blind spots, Cross-repo coordination}` (including a table/prose `## ` heading like `Repos and gates`) exits 1 and lists the valid headings, writing nothing.
+- [x] `--section <heading>` (case-insensitive, heading text without `##`) routes the entry to that section instead, for each of `Gate blind spots` and `Cross-repo coordination`; a heading outside the valid set `{Known gotchas, Gate blind spots, Cross-repo coordination}` (including a table/prose `##` heading like `Repos and gates`) exits 1 and lists the valid headings, writing nothing.
 - [x] Running two `runbook add` invocations appends two distinct list items; the first entry is preserved.
 - [x] Run outside any registered project exits 1 with a message naming `jarvis init`, matching `cleanup`/`triage` resolution.
 - [x] A project whose `OPERATOR_RUNBOOK.md` is absent exits 1 directing the operator to `jarvis init`, and does not create the file.

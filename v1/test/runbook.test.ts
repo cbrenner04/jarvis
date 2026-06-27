@@ -1,11 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Io } from "../src/cli.ts";
-import { runbookCommand } from "../src/commands/runbook.ts";
 import { init } from "../src/commands/init.ts";
-import { loadConfig, registerProject } from "../src/config.ts";
+import { runbookCommand } from "../src/commands/runbook.ts";
 
 function captureIo(): { io: Io; out: () => string; err: () => string } {
   let out = "";

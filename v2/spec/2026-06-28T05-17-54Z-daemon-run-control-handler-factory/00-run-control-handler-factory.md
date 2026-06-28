@@ -30,12 +30,12 @@ contracts stay unchanged. Test wiring to the factory is the follow-on's contract
 
 ## Acceptance criteria
 
-- [ ] `daemon.ts` exports a run-control handler factory returning `start`/`list`/`pause`/`resume`/`kill` handlers with injectable `stateStore` and `writeLoopExecutor`.
-- [ ] `startDaemon` registers run-control handlers produced by the factory with production dependencies (no duplicate handler bodies in the closure).
-- [ ] Exported factory symbol and deps type have doc-comments per `v2/docs/documentation-standard.md`.
-- [ ] `daemon.sandbox-unrunnable.test.ts` stays green.
-- [ ] `daemon-start-list.test.ts` stays green.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `daemon.ts` exports a run-control handler factory returning `start`/`list`/`pause`/`resume`/`kill` handlers with injectable `stateStore` and `writeLoopExecutor`.
+- [x] `startDaemon` registers run-control handlers produced by the factory with production dependencies (no duplicate handler bodies in the closure).
+- [x] Exported factory symbol and deps type have doc-comments per `v2/docs/documentation-standard.md`.
+- [x] `daemon.sandbox-unrunnable.test.ts` stays green.
+- [x] `daemon-start-list.test.ts` stays green.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

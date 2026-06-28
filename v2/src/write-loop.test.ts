@@ -530,6 +530,7 @@ describe("write loop", () => {
     expect(events[5]?.kind).toBe("boundary_committed");
     expect(events[6]?.kind).toBe("loop_finished");
     expect(events[6]?.kind === "loop_finished" && events[6].loopOutcomeKind).toBe("complete");
+    expect(events[6]?.kind === "loop_finished" && events[6].iterationsConsumed).toBe(3);
   });
 
   test("terminal boundary_committed and loop_finished payloads match terminalMapping for blocked outcome", async () => {
@@ -644,6 +645,7 @@ describe("write loop", () => {
     const finished = events[4];
     expect(finished?.kind === "loop_finished" && finished.loopOutcomeKind).toBe("budget-exhausted");
     expect(finished?.kind === "loop_finished" && finished.resumable).toBe(true);
+    expect(finished?.kind === "loop_finished" && finished.iterationsConsumed).toBe(2);
   });
 
   test("a second invocation on a budget-soft-stopped run appends new events to the existing stream", async () => {
@@ -705,9 +707,6 @@ describe("write loop", () => {
       }),
     ).rejects.toThrow("simulated crash");
 
-    const _firstRunEvents = sink.getEventsForRun("");
-    // The run was created but not completed, so no runId is available yet. Skip this part for now.
-
     let resumedCalls = 0;
     const resumeBindings: InvocationBinding[] = [
       {
@@ -720,22 +719,31 @@ describe("write loop", () => {
       },
     ];
 
-    const sink2 = new TestLogSink();
     const resumed = await runLoop({
       jarvisRoot,
       stateDbPath,
       bindings: resumeBindings,
       maxIterations: 1,
-      logSink: sink2,
+      logSink: sink,
     });
 
     expect(resumed.kind).toBe("complete");
     expect(resumedCalls).toBe(1);
 
-    const events = sink2.getEventsForRun(resumed.runId);
-    // Should have: iteration_started (for the retry), boundary_committed, loop_finished
-    expect(events.length).toBe(3);
+    const events = sink.getEventsForRun(resumed.runId);
+    // Should have: iteration_started (from first crash), iteration_started (from retry), boundary_committed, loop_finished
+    expect(events.length).toBe(4);
     expect(events[0]?.kind).toBe("iteration_started");
+    expect(events[1]?.kind).toBe("iteration_started");
+    expect(events[2]?.kind).toBe("boundary_committed");
+    expect(events[3]?.kind).toBe("loop_finished");
+
+    // Verify same attemptId across the crash and resume
+    const firstAttemptId = events[0]?.kind === "iteration_started" ? events[0].attemptId : undefined;
+    const resumedAttemptId = events[1]?.kind === "iteration_started" ? events[1].attemptId : undefined;
+    expect(firstAttemptId).toBeDefined();
+    expect(resumedAttemptId).toBeDefined();
+    expect(resumedAttemptId).toBe(firstAttemptId);
   });
 
   test("mid-boundary rollback emits iteration_started, no boundary_committed on failed attempt, retry with same attemptId, then success", async () => {
@@ -765,7 +773,6 @@ describe("write loop", () => {
     ).rejects.toThrow("crash mid-boundary");
 
     let _resumedCalls = 0;
-    const sink2 = new TestLogSink();
     const resumed = await runLoop({
       jarvisRoot,
       stateDbPath,
@@ -779,17 +786,25 @@ describe("write loop", () => {
         },
       ],
       maxIterations: 1,
-      logSink: sink2,
+      logSink: sink,
     });
 
     expect(resumed.kind).toBe("complete");
 
-    const events = sink2.getEventsForRun(resumed.runId);
-    // Should have: iteration_started (retry), boundary_committed (success), loop_finished
-    expect(events.length).toBe(3);
+    const events = sink.getEventsForRun(resumed.runId);
+    // Should have: iteration_started (failed), iteration_started (retry with same attemptId), boundary_committed (success), loop_finished
+    expect(events.length).toBe(4);
     expect(events[0]?.kind).toBe("iteration_started");
-    expect(events[1]?.kind).toBe("boundary_committed");
-    expect(events[2]?.kind).toBe("loop_finished");
+    expect(events[1]?.kind).toBe("iteration_started");
+    expect(events[2]?.kind).toBe("boundary_committed");
+    expect(events[3]?.kind).toBe("loop_finished");
+
+    // Verify same attemptId on both iteration_started events
+    const firstAttemptId = events[0]?.kind === "iteration_started" ? events[0].attemptId : undefined;
+    const retryAttemptId = events[1]?.kind === "iteration_started" ? events[1].attemptId : undefined;
+    expect(firstAttemptId).toBeDefined();
+    expect(retryAttemptId).toBeDefined();
+    expect(retryAttemptId).toBe(firstAttemptId);
   });
 
   test("abort/cancellation emits paired iteration_started / boundary_committed for each completed iteration plus loop_finished", async () => {
@@ -828,6 +843,7 @@ describe("write loop", () => {
     expect(events[3]?.kind).toBe("boundary_committed");
     expect(events[4]?.kind).toBe("loop_finished");
     expect(events[4]?.kind === "loop_finished" && events[4].loopOutcomeKind).toBe("progress");
+    expect(events[4]?.kind === "loop_finished" && events[4].iterationsConsumed).toBe(2);
   });
 
   test("re-invoking a run whose terminal boundary is already committed returns prior outcome without appending log events", async () => {

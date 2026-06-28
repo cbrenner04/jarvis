@@ -135,19 +135,36 @@ describe("log-stream", () => {
 
     sink.close();
 
-    // Start following
+    // Start following with event-driven coordination and hang-guard
     const events: PersistedRecord[] = [];
+    const replayedInitial = { resolved: false };
+    const deadlineController = new AbortController();
+    const deadlineTimer = setTimeout(() => deadlineController.abort(), 2000);
+
     const followPromise = (async () => {
-      for await (const event of reader.follow("run-1")) {
-        events.push(event);
-        if (events.length >= 4) {
-          break;
+      try {
+        for await (const event of reader.follow("run-1", deadlineController.signal)) {
+          events.push(event);
+          // Mark when initial events have been replayed
+          if (events.length === 2) {
+            replayedInitial.resolved = true;
+          }
+          if (events.length >= 4) {
+            break;
+          }
         }
+      } finally {
+        clearTimeout(deadlineTimer);
       }
     })();
 
-    // Give follow time to replay existing events
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    // Wait for follow to replay existing events instead of using setTimeout
+    let attempts = 0;
+    while (!replayedInitial.resolved && attempts < 200) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      attempts++;
+    }
+    expect(replayedInitial.resolved).toBe(true);
 
     // Append new events from a new sink
     const sink2 = openLogSink(storagePath);

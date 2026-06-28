@@ -32,7 +32,7 @@ Sources: `package.json`, `scripts/run-v2-tests.ts`, `test/test-slices.test.ts`
 
 ## Shared socket fixtures
 
-Socket-backed v2 tests import `canCreateSockets` and `skipIfNoSockets` from [`v2/src/testing/unix-socket.ts`](../src/testing/unix-socket.ts). Guard hooks with the flag; wrap test bodies with the wrapper (early return). Emit file-local stderr when the suite needs operator-visible skip context — the shared probe does not write on failure.
+Socket-backed v2 tests import `canUseUnixSockets` from [`v2/src/testing/unix-socket.ts`](../src/testing/unix-socket.ts). Register socket-dependent tests with `test.skipIf(!canUseUnixSockets(), ...)` — do not use silent-return skip wrappers that report pass. Guard hooks with `canUseUnixSockets()`. Emit file-local stderr gated on `socketProbeErrored` when the suite needs operator-visible skip context — the shared probe does not write on failure.
 
 Use for any v2 test binding or connecting to a Unix socket under `tmpdir()`, including agent-runnable (`ipc.test.ts`, `daemon-start-list.test.ts`) and sandbox-unrunnable daemon lifecycle tests.
 

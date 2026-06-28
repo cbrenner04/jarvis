@@ -29,13 +29,13 @@ to Bun `test.skipIf` so unavailable Unix sockets report skipped, not pass.
 
 ## Acceptance criteria
 
-- [ ] When Unix sockets are unavailable, socket-dependent tests in `ipc.test.ts`, `daemon-start-list.test.ts`, and `daemon.sandbox-unrunnable.test.ts` report skipped, not pass.
-- [ ] `ipc.test.ts`, `daemon-start-list.test.ts`, and `daemon.sandbox-unrunnable.test.ts` contain no `skipIfNoSockets` or `canCreateSockets` import or usage; every socket-dependent `test` is registered via `test.skipIf(!canUseUnixSockets(), ...)`; hook guards use `canUseUnixSockets()`.
-- [ ] `v2/src/testing/unix-socket.ts` exports `canUseUnixSockets()` and `socketProbeErrored`; it does not export `canCreateSockets` or `skipIfNoSockets`.
-- [ ] `canUseUnixSockets` and `socketProbeErrored` doc-comments in `v2/src/testing/unix-socket.ts` meet `v2/docs/documentation-standard.md`; `canUseUnixSockets` states read-at-call-time semantics and registration vs hook-guard behavior.
-- [ ] File-local stderr gated on `socketProbeErrored` in `ipc.test.ts` and `daemon.sandbox-unrunnable.test.ts` stays unchanged; `daemon-start-list.test.ts` stays silent on skip.
-- [ ] `v2/docs/test-writing.md` requires `test.skipIf` for v2 socket-gated tests, forbids silent-return skip wrappers, and preserves hook-guard and probe-error stderr guidance.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] When Unix sockets are unavailable, socket-dependent tests in `ipc.test.ts`, `daemon-start-list.test.ts`, and `daemon.sandbox-unrunnable.test.ts` report skipped, not pass.
+- [x] `ipc.test.ts`, `daemon-start-list.test.ts`, and `daemon.sandbox-unrunnable.test.ts` contain no `skipIfNoSockets` or `canCreateSockets` import or usage; every socket-dependent `test` is registered via `test.skipIf(!canUseUnixSockets(), ...)`; hook guards use `canUseUnixSockets()`.
+- [x] `v2/src/testing/unix-socket.ts` exports `canUseUnixSockets()` and `socketProbeErrored`; it does not export `canCreateSockets` or `skipIfNoSockets`.
+- [x] `canUseUnixSockets` and `socketProbeErrored` doc-comments in `v2/src/testing/unix-socket.ts` meet `v2/docs/documentation-standard.md`; `canUseUnixSockets` states read-at-call-time semantics and registration vs hook-guard behavior.
+- [x] File-local stderr gated on `socketProbeErrored` in `ipc.test.ts` and `daemon.sandbox-unrunnable.test.ts` stays unchanged; `daemon-start-list.test.ts` stays silent on skip.
+- [x] `v2/docs/test-writing.md` requires `test.skipIf` for v2 socket-gated tests, forbids silent-return skip wrappers, and preserves hook-guard and probe-error stderr guidance.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

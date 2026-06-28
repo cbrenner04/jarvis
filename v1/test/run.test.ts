@@ -41,6 +41,7 @@ import {
   harnessAuthRotateLine,
   harnessQuotaFallbackLenientLine,
 } from "../src/quota-harness-messages.ts";
+import { getWorktreeLockPath } from "../src/worktree-lock.ts";
 
 function captureIo(): { io: RunIo; out: () => string; err: () => string } {
   let out = "";
@@ -5189,6 +5190,41 @@ exit 0
         });
         expect(secondCode).toBe(3);
         expect(readFileSync(join(worktreePath, ".active-spec-path"), "utf8")).toBe(specB);
+      } finally {
+        process.env.PATH = oldPath;
+      }
+    });
+
+    test("releases the worktree lock when marker write fails after lock acquisition", async () => {
+      const oldPath = installGhReadyStub();
+      try {
+        initGitRepoWithOrigin();
+        const specDir = join(projectRoot, "spec", "feature");
+        mkdirSync(specDir, { recursive: true });
+        const spec = join(specDir, "index.md");
+        const subspec = join(specDir, "00-one.md");
+        writeFileSync(spec, "repo: project\n\n# Feature\n\n- [ ] [00 - One](./00-one.md)\n");
+        writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n");
+        execSync("git add README.md spec && git commit -m spec && git push origin main", { cwd: projectRoot });
+        const claude = new FakeAgent("claude", () => ({ kind: "error", exitCode: 1, stderr: "stop" }));
+        const worktreePath = join(projectRoot, ".worktree", "feature");
+        const secondCap = captureIo();
+        const code = await runCommand({
+          specPath: spec,
+          io: secondCap.io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          logClient: { assertReachable: async () => {}, send: async () => {} },
+          handleSignals: false,
+          reviewPasses: 0,
+          __testWriteActiveSpecPathMarker: () => {
+            throw new Error("marker write boom");
+          },
+        });
+
+        expect(code).toBe(1);
+        expect(secondCap.err()).toContain("failed to write .active-spec-path marker: marker write boom");
+        expect(existsSync(getWorktreeLockPath(worktreePath))).toBe(false);
       } finally {
         process.env.PATH = oldPath;
       }

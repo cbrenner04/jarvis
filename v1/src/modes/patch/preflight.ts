@@ -27,7 +27,13 @@ import {
   getSpecName,
   removePatchWorktree,
 } from "../../worktree.ts";
-import { acquireWorktreeLock, getWorktreeLockPath, isProcessAlive, type WorktreeLock } from "../../worktree-lock.ts";
+import {
+  acquireWorktreeLock,
+  getWorktreeLockPath,
+  isProcessAlive,
+  releaseWorktreeLock,
+  type WorktreeLock,
+} from "../../worktree-lock.ts";
 import { computeProjectSafeId } from "../plan/spec-paths.ts";
 import { countUnchecked, getActiveLinkedSubspecPath } from "./completion.ts";
 import { applyReset, clearDelta, loadDelta } from "./no-commit-delta.ts";
@@ -202,99 +208,107 @@ export async function resolveModeSpecificPreflight(
       return { kind: "error", exitCode: 1 };
     }
   }
-  let specPath = prepareActiveSpecPath({
-    projectRoot: project.root,
-    agentWorkingDir,
-    specPath: initialSpecPath,
-  });
-  if (patchWorktreePrepared) {
-    try {
-      writeActiveSpecPathMarker(agentWorkingDir, specPath);
-    } catch (err) {
-      opts.io.stderr(`failed to write .active-spec-path marker: ${(err as Error).message}\n`);
+  let preflightOk = false;
+  try {
+    let specPath = prepareActiveSpecPath({
+      projectRoot: project.root,
+      agentWorkingDir,
+      specPath: initialSpecPath,
+    });
+    if (patchWorktreePrepared) {
+      try {
+        (opts.__testWriteActiveSpecPathMarker ?? writeActiveSpecPathMarker)(agentWorkingDir, specPath);
+      } catch (err) {
+        opts.io.stderr(`failed to write .active-spec-path marker: ${(err as Error).message}\n`);
+        return { kind: "error", exitCode: 1 };
+      }
+    }
+    const specDirs = specOutsideWorktreeReadDirs({
+      specPath,
+      agentWorkingDir,
+    });
+
+    // Reset delta for any external spec (broad predicate: outside agent working tree)
+    // This covers external specs regardless of whether they're in the Jarvis-managed dir
+    if (gitEnabled && specDirs !== undefined) {
+      resetTrackedSourceSpecDelta(specPath);
+    }
+
+    const projectSiblings = cfg.projects[project.key]?.siblings ?? [];
+    for (const sibling of projectSiblings) {
+      if (!existsSync(sibling)) {
+        opts.io.stderr(
+          `error: configured sibling ${JSON.stringify(sibling)} does not exist for project ${JSON.stringify(project.key)}\n`,
+        );
+        return { kind: "error", exitCode: 1 };
+      }
+    }
+    const additionalReadDirs =
+      specDirs !== undefined || projectSiblings.length > 0
+        ? [...new Set([...(specDirs ?? []), ...projectSiblings])]
+        : undefined;
+
+    let isIndexSpec = basename(specPath) === "index.md";
+    if (!isIndexSpec) {
+      const specDir = dirname(specPath);
+      const siblingIndex = resolve(specDir, "index.md");
+      const hasSiblingIndex = existsSync(siblingIndex);
+
+      const promptLines = [
+        `${specPath} is not an index spec.`,
+        ...(hasSiblingIndex ? ["  [s] switch to ./index.md and run normally"] : []),
+        "  [e] exit",
+        "Choice [e]: ",
+      ];
+      const promptText = promptLines.join("\n");
+      opts.io.stdout(promptText);
+      const answer = (await (opts.confirmRun ?? confirmFromStdin)(promptText)).trim().toLowerCase();
+
+      if (answer === "s" && hasSiblingIndex) {
+        specPath = siblingIndex;
+        isIndexSpec = true;
+      } else {
+        // e, empty input, or unrecognized
+        return { kind: "exit", exitCode: 0 };
+      }
+    }
+
+    maybeWarnAboutUnmergedPlanBranch({
+      io: opts.io,
+      projectRoot: project.root,
+      specPath,
+      gitEnabled,
+    });
+
+    const resolvedPatchTier = resolvePatchTier(specPath, opts.tierOverride);
+    if ("error" in resolvedPatchTier) {
+      opts.io.stderr(`${resolvedPatchTier.error}\n`);
       return { kind: "error", exitCode: 1 };
     }
-  }
-  const specDirs = specOutsideWorktreeReadDirs({
-    specPath,
-    agentWorkingDir,
-  });
 
-  // Reset delta for any external spec (broad predicate: outside agent working tree)
-  // This covers external specs regardless of whether they're in the Jarvis-managed dir
-  if (gitEnabled && specDirs !== undefined) {
-    resetTrackedSourceSpecDelta(specPath);
-  }
-
-  const projectSiblings = cfg.projects[project.key]?.siblings ?? [];
-  for (const sibling of projectSiblings) {
-    if (!existsSync(sibling)) {
-      opts.io.stderr(
-        `error: configured sibling ${JSON.stringify(sibling)} does not exist for project ${JSON.stringify(project.key)}\n`,
-      );
-      return { kind: "error", exitCode: 1 };
+    const specIsExternal = specDirs !== undefined;
+    preflightOk = true;
+    return {
+      kind: "ok",
+      project,
+      projectMode,
+      cfg,
+      gitEnabled,
+      agentWorkingDir,
+      worktreeLocked,
+      stalepidRecovered,
+      specPath,
+      additionalReadDirs,
+      patchTier: resolvedPatchTier.tier,
+      trackSourceSpecDelta,
+      specIsExternal,
+    };
+  } finally {
+    if (!preflightOk && worktreeLocked) {
+      releaseWorktreeLock(agentWorkingDir);
+      worktreeLocked = false;
     }
   }
-  const additionalReadDirs =
-    specDirs !== undefined || projectSiblings.length > 0
-      ? [...new Set([...(specDirs ?? []), ...projectSiblings])]
-      : undefined;
-
-  let isIndexSpec = basename(specPath) === "index.md";
-  if (!isIndexSpec) {
-    const specDir = dirname(specPath);
-    const siblingIndex = resolve(specDir, "index.md");
-    const hasSiblingIndex = existsSync(siblingIndex);
-
-    const promptLines = [
-      `${specPath} is not an index spec.`,
-      ...(hasSiblingIndex ? ["  [s] switch to ./index.md and run normally"] : []),
-      "  [e] exit",
-      "Choice [e]: ",
-    ];
-    const promptText = promptLines.join("\n");
-    opts.io.stdout(promptText);
-    const answer = (await (opts.confirmRun ?? confirmFromStdin)(promptText)).trim().toLowerCase();
-
-    if (answer === "s" && hasSiblingIndex) {
-      specPath = siblingIndex;
-      isIndexSpec = true;
-    } else {
-      // e, empty input, or unrecognized
-      return { kind: "exit", exitCode: 0 };
-    }
-  }
-
-  maybeWarnAboutUnmergedPlanBranch({
-    io: opts.io,
-    projectRoot: project.root,
-    specPath,
-    gitEnabled,
-  });
-
-  const resolvedPatchTier = resolvePatchTier(specPath, opts.tierOverride);
-  if ("error" in resolvedPatchTier) {
-    opts.io.stderr(`${resolvedPatchTier.error}\n`);
-    return { kind: "error", exitCode: 1 };
-  }
-
-  const specIsExternal = specDirs !== undefined;
-
-  return {
-    kind: "ok",
-    project,
-    projectMode,
-    cfg,
-    gitEnabled,
-    agentWorkingDir,
-    worktreeLocked,
-    stalepidRecovered,
-    specPath,
-    additionalReadDirs,
-    patchTier: resolvedPatchTier.tier,
-    trackSourceSpecDelta,
-    specIsExternal,
-  };
 }
 
 function deriveCleanupSpecPath(specPath: string): string {

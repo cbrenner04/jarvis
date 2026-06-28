@@ -4,12 +4,12 @@ import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openLogReader, openLogSink } from "../log-stream.ts";
-import { canCreateSockets, skipIfNoSockets } from "../testing/unix-socket.ts";
+import { canCreateSockets, socketProbeErrored, skipIfNoSockets } from "../testing/unix-socket.ts";
 import { connectIpcClient } from "./client.ts";
 import { encodeFrame } from "./codec.ts";
 import { type IpcServer, type StreamHandler, startIpcServer } from "./server.ts";
 
-if (!canCreateSockets) {
+if (socketProbeErrored) {
   process.stderr.write("skip: IPC tests require socket support in /tmp\n");
 }
 

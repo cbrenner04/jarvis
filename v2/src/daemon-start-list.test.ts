@@ -137,7 +137,10 @@ function mockWriteLoopInput(worktreeOverrides: Partial<WriteLoopInput["worktree"
   };
 }
 
-async function startRun(client: Awaited<ReturnType<typeof connectIpcClient>>, input = mockWriteLoopInput()): Promise<string | undefined> {
+async function startRun(
+  client: Awaited<ReturnType<typeof connectIpcClient>>,
+  input = mockWriteLoopInput(),
+): Promise<string | undefined> {
   client.send({ kind: "request", id: "s1", method: "start", params: { input } });
   const frame = await client.nextFrame();
   expect(frame.kind).toBe("response");

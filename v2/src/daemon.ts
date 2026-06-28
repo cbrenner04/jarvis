@@ -97,11 +97,7 @@ function normalizeBindings(input: WriteLoopInput): WriteLoopInput {
  */
 export type RunControlHandlerDeps = {
   stateStore: StateStore;
-  writeLoopExecutor: (
-    input: WriteLoopInput,
-    signal: AbortSignal,
-    pauseSignal: AbortSignal,
-  ) => Promise<void>;
+  writeLoopExecutor: (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => Promise<void>;
 };
 
 /**
@@ -114,12 +110,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const activeRuns = new Map<string, ActiveRun>();
   const { stateStore: store, writeLoopExecutor } = deps;
 
-  const spawnWriteLoop = (
-    key: OwnershipKey,
-    runId: string,
-    worktreePath: string,
-    input: WriteLoopInput,
-  ): void => {
+  const spawnWriteLoop = (key: OwnershipKey, runId: string, worktreePath: string, input: WriteLoopInput): void => {
     const ks = ownershipKeyString(key);
     const abortController = new AbortController();
     const pauseController = new AbortController();

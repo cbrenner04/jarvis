@@ -275,7 +275,7 @@ export function getOpenPrState(branch: string, cwd: string): OpenPrInfo {
 export type MaybeMarkPlanPrReadyOpts = {
   branch: string;
   cwd: string;
-  /** Test seam: agent label for the post-ready dirty-output commit trailer. */
+  /** Test seam: agent label for the pre-ready fix commit trailer. */
   agentLabel?: string;
   /** Test seam: get the open PR state. Defaults to `getOpenPrState`. */
   getOpenPrState?: (branch: string, cwd: string) => OpenPrInfo;
@@ -283,10 +283,12 @@ export type MaybeMarkPlanPrReadyOpts = {
   checkBaseCurrent?: (opts: { branch: string; cwd: string }) => BaseCurrentCheckResult;
   /** Short-circuit seam: stubs the entire ready + commit + gh-pr-ready sequence. */
   markReady?: (branch: string, cwd: string) => void;
-  /** Seam for just `bun run ready`. Used by tests when markReady is absent. */
+  /** Seam for built-in `bun run fix` on `full` tier. Used by tests when markReady is absent. */
+  runFix?: (cwd: string) => void;
+  /** Seam for verification only (`bun run ready`). Used by tests when markReady is absent. */
   runReady?: (cwd: string, tier: ReadyTier) => void;
-  /** Seam for post-ready dirty-output commit/push. Used by tests when markReady is absent. */
-  commitCheckFix?: (cwd: string, agentLabel: string) => void;
+  /** Seam for pre-ready fix commit/push on `full` tier when porcelain is non-empty after fix. */
+  commitPreReadyFix?: (cwd: string, agentLabel: string) => void;
   /** Seam for the `gh pr ready <branch>` shell-out. Used by tests when markReady is absent. Defaults to execFileSync call wrapped with retry. */
   ghPrReady?: (branch: string, cwd: string) => void;
   /** Seam for retry behavior: exec, sleep, onRetry callbacks. Injected into the retry wrapper below ghPrReady. */
@@ -355,8 +357,9 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
   runReadyAndCommit({
     cwd: opts.cwd,
     ...(opts.agentLabel !== undefined ? { agentLabel: opts.agentLabel } : {}),
+    ...(opts.runFix !== undefined ? { runFix: opts.runFix } : {}),
     ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
-    ...(opts.commitCheckFix !== undefined ? { commitCheckFix: opts.commitCheckFix } : {}),
+    ...(opts.commitPreReadyFix !== undefined ? { commitPreReadyFix: opts.commitPreReadyFix } : {}),
   });
 
   const ghPrReadyFn = opts.ghPrReady ?? retryGhPrReady;

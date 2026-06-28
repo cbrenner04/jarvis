@@ -9,9 +9,11 @@ import { getBaseBranch } from "../../gh.ts";
 import { checkPrExists, readBranchCommits } from "../../pr.ts";
 import { type DiffStat, generateTemplateNarrative } from "../../pr-shared.ts";
 import {
-  ReadyCheckFixCommitError,
-  ReadyCheckFixPushError,
+  FixCommandError,
+  PreReadyFixCommitError,
+  PreReadyFixPushError,
   ReadyCommandError,
+  ReadyVerificationDirtyError,
   runReadyAndCommit,
 } from "../../ready-gate.ts";
 import { hasUpstream, pushCurrent, worktreeCompletionBlocker } from "../../worktree.ts";
@@ -269,6 +271,7 @@ async function runCompletionReadyGate(
   const retryBound = readyGateRetryBound ?? DEFAULT_COMPLETION_READY_GATE_RETRY_BOUND;
   const totalAttempts = retryBound + 1;
   let lastFailureText = "ready gate failed";
+  let lastVerificationRed: boolean | undefined;
 
   for (let attempt = 1; attempt <= totalAttempts; attempt++) {
     let result: CompletionReadyGateResult;
@@ -286,10 +289,14 @@ async function runCompletionReadyGate(
         result = { kind: "green" };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        if (err instanceof ReadyCommandError) {
-          result = { kind: "red", failureText: message, retryable: true };
-        } else if (err instanceof ReadyCheckFixCommitError || err instanceof ReadyCheckFixPushError) {
-          result = { kind: "red", failureText: message, retryable: false };
+        if (err instanceof FixCommandError) {
+          result = { kind: "red", failureText: message, retryable: true, verificationRed: false };
+        } else if (err instanceof ReadyCommandError) {
+          result = { kind: "red", failureText: message, retryable: true, verificationRed: true };
+        } else if (err instanceof PreReadyFixCommitError || err instanceof PreReadyFixPushError) {
+          result = { kind: "red", failureText: message, retryable: false, verificationRed: false };
+        } else if (err instanceof ReadyVerificationDirtyError) {
+          result = { kind: "red", failureText: message, retryable: false, verificationRed: false };
         } else {
           result = { kind: "red", failureText: message, retryable: false };
         }
@@ -304,6 +311,7 @@ async function runCompletionReadyGate(
     }
 
     lastFailureText = result.failureText;
+    lastVerificationRed = result.verificationRed;
     if (result.retryable === false) {
       logging.fanout("harness", `completion: ready gate failed: ${lastFailureText}\n`, "stderr");
       return result;
@@ -318,7 +326,11 @@ async function runCompletionReadyGate(
   }
 
   logging.fanout("harness", `completion: ready gate failed: ${lastFailureText}\n`, "stderr");
-  return { kind: "red", failureText: lastFailureText };
+  return {
+    kind: "red",
+    failureText: lastFailureText,
+    ...(lastVerificationRed !== undefined ? { verificationRed: lastVerificationRed } : {}),
+  };
 }
 
 async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null> {
@@ -373,8 +385,9 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
     const readyGateRetryBound = preflight.cfg.projects[preflight.project.key]?.readyGateRetryBound;
     const gateResult = await runCompletionReadyGate(ctx, readyCommand, readyGateRetryBound);
     if (gateResult.kind === "red") {
-      // Capture the first-red baseline before any fix-up loopback
+      // Capture the first verification-red baseline at post-fix-commit HEAD before fix-up loopback.
       if (
+        gateResult.verificationRed === true &&
         ctx.state.firstRedBaselineSha === undefined &&
         preflight.gitEnabled &&
         existsSync(join(preflight.agentWorkingDir, ".git"))

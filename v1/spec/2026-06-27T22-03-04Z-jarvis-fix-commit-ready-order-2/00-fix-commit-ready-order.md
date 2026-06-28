@@ -56,31 +56,31 @@ Change `runReadyAndCommit` and its patch/plan call sites through the shared help
 
 ## Acceptance criteria
 
-- [ ] Full-tier gates always run `bun run fix` before verification, then commit and push only when porcelain is non-empty after fix, then run the verification gate against the committed tree.
-- [ ] Non-zero fix exit, fix-commit failure, fix push failure, or post-commit dirty porcelain aborts before the verification gate and before `gh pr ready`; completion-gate pre-ready failures exit `6`.
-- [ ] On `full` tier with `readyCommand` set, harness runs built-in `bun run fix` and commit-if-dirty before the override verification; if verification returns green with dirty porcelain, abort before `gh pr ready` without a second harness fix pass.
-- [ ] Green verification + dirty porcelain abort applies on `full` only; `fast` tier keeps today's no post-verification porcelain check and no fix/commit path.
-- [ ] A green full-tier verification gate never commits dirty output after `ready` returns.
-- [ ] Completion-gate retry re-runs the full `full`-tier sequence; fix-command failure is retryable; fix-commit, push, and post-commit-dirty failures are not; red `ready` after a successful fix-commit retains the fix commit across retries; `firstRedBaselineSha` is captured only on the first verification red at post-fix-commit HEAD; stuck-red discard cannot reset below persisted harness fix commits.
-- [ ] Recorded-green HEAD is captured only after a successful full gate with clean porcelain, not after fix commit alone.
-- [ ] Fast-tier gates do not run `bun run fix`, do not commit fix output, and keep existing recorded-green carrier semantics.
-- [ ] Patch completion, review baseline/final, shrink pre-gate, `maybeMarkReady`, plan-mode ready transition, and triage `--mark-ready`/`--merge` full-tier transitions run fix → commit-if-dirty → ready through `runReadyAndCommit`.
-- [ ] Plan-mode full-tier gate uses built-in `bun run fix` and built-in `bun run ready`; `readyCommand` is not wired for plan.
-- [ ] Per-project `readyCommand` overrides replace only the verification command and receive `JARVIS_READY_TIER`; they do not replace `bun run fix`.
-- [ ] Triage `--mark-ready`/`--merge` pre-ready fix/commit/push/dirty failures exit `1` with no retry loop.
-- [ ] Fix commits preserve per-call-site `agentLabel` trailer threading; non-completion call sites use the same pre-ready error types/messages with caller-specific exit mapping.
-- [ ] `RunReadyAndCommitOpts`, the fix-commit seam, inject sites, and comments describe pre-ready fix/commit semantics (no post-ready dirty-output surface).
-- [ ] Error types, `instanceof` retry classification, and stderr messages align with pre-ready fix semantics (no stale "post-ready dirty-output" guidance).
-- [ ] `run.test.ts`, `ready-gate.test.ts`, `modes/patch/pr.sandbox-unrunnable.test.ts`, `modes/plan/pr.sandbox-unrunnable.test.ts`, and `triage-command.test.ts` assert fix-before-ready ordering, fix-command failure, custom-`readyCommand` green+dirty abort, baseline-vs-fix-commit interaction, and triage full-tier ordering.
-- [ ] `v1/docs/operator-runbook.md` describes fix → commit → strict ready, cross-links `v2/docs/v1-behaviors.md`, and removes the hand-merge autofix caveat only if present.
-- [ ] `v1/docs/worktrees-and-commits.md` describes completion readiness without a post-ready dirty-output commit and pins custom-`readyCommand` green+dirty abort on `full`.
-- [ ] `v1/docs/config.md` states that on `full` tier harness runs `bun run fix` before `readyCommand`; override is verification-only.
-- [ ] `v1/docs/run-loop.md` completion-transition gate, numbered gate list, retry semantics (fix commits persist; no dirty-reuse on retry), and exit-6 table match the new order.
-- [ ] `v1/docs/workflows.md` completion-gate narrative matches fix → commit-if-dirty → ready (cross-link primary home or dedupe per `v2/docs/documentation-standard.md`).
-- [ ] `v1/docs/plan-mode.md` ready-transition bullet matches built-in fix → ready (no post-ready dirty commit).
-- [ ] `v2/docs/v1-behaviors.md` records completion-gate ordering, completion retry, red-path commit failure, triage `--mark-ready`/`--merge` gate path, recorded-green timing, baseline capture vs harness fix commits, and custom-`readyCommand` green+dirty abort on `full`.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes.
+- [x] Full-tier gates always run `bun run fix` before verification, then commit and push only when porcelain is non-empty after fix, then run the verification gate against the committed tree.
+- [x] Non-zero fix exit, fix-commit failure, fix push failure, or post-commit dirty porcelain aborts before the verification gate and before `gh pr ready`; completion-gate pre-ready failures exit `6`.
+- [x] On `full` tier with `readyCommand` set, harness runs built-in `bun run fix` and commit-if-dirty before the override verification; if verification returns green with dirty porcelain, abort before `gh pr ready` without a second harness fix pass.
+- [x] Green verification + dirty porcelain abort applies on `full` only; `fast` tier keeps today's no post-verification porcelain check and no fix/commit path.
+- [x] A green full-tier verification gate never commits dirty output after `ready` returns.
+- [x] Completion-gate retry re-runs the full `full`-tier sequence; fix-command failure is retryable; fix-commit, push, and post-commit-dirty failures are not; red `ready` after a successful fix-commit retains the fix commit across retries; `firstRedBaselineSha` is captured only on the first verification red at post-fix-commit HEAD; stuck-red discard cannot reset below persisted harness fix commits.
+- [x] Recorded-green HEAD is captured only after a successful full gate with clean porcelain, not after fix commit alone.
+- [x] Fast-tier gates do not run `bun run fix`, do not commit fix output, and keep existing recorded-green carrier semantics.
+- [x] Patch completion, review baseline/final, shrink pre-gate, `maybeMarkReady`, plan-mode ready transition, and triage `--mark-ready`/`--merge` full-tier transitions run fix → commit-if-dirty → ready through `runReadyAndCommit`.
+- [x] Plan-mode full-tier gate uses built-in `bun run fix` and built-in `bun run ready`; `readyCommand` is not wired for plan.
+- [x] Per-project `readyCommand` overrides replace only the verification command and receive `JARVIS_READY_TIER`; they do not replace `bun run fix`.
+- [x] Triage `--mark-ready`/`--merge` pre-ready fix/commit/push/dirty failures exit `1` with no retry loop.
+- [x] Fix commits preserve per-call-site `agentLabel` trailer threading; non-completion call sites use the same pre-ready error types/messages with caller-specific exit mapping.
+- [x] `RunReadyAndCommitOpts`, the fix-commit seam, inject sites, and comments describe pre-ready fix/commit semantics (no post-ready dirty-output surface).
+- [x] Error types, `instanceof` retry classification, and stderr messages align with pre-ready fix semantics (no stale "post-ready dirty-output" guidance).
+- [x] `run.test.ts`, `ready-gate.test.ts`, `modes/patch/pr.sandbox-unrunnable.test.ts`, `modes/plan/pr.sandbox-unrunnable.test.ts`, and `triage-command.test.ts` assert fix-before-ready ordering, fix-command failure, custom-`readyCommand` green+dirty abort, baseline-vs-fix-commit interaction, and triage full-tier ordering.
+- [x] `v1/docs/operator-runbook.md` describes fix → commit → strict ready, cross-links `v2/docs/v1-behaviors.md`, and removes the hand-merge autofix caveat only if present.
+- [x] `v1/docs/worktrees-and-commits.md` describes completion readiness without a post-ready dirty-output commit and pins custom-`readyCommand` green+dirty abort on `full`.
+- [x] `v1/docs/config.md` states that on `full` tier harness runs `bun run fix` before `readyCommand`; override is verification-only.
+- [x] `v1/docs/run-loop.md` completion-transition gate, numbered gate list, retry semantics (fix commits persist; no dirty-reuse on retry), and exit-6 table match the new order.
+- [x] `v1/docs/workflows.md` completion-gate narrative matches fix → commit-if-dirty → ready (cross-link primary home or dedupe per `v2/docs/documentation-standard.md`).
+- [x] `v1/docs/plan-mode.md` ready-transition bullet matches built-in fix → ready (no post-ready dirty commit).
+- [x] `v2/docs/v1-behaviors.md` records completion-gate ordering, completion retry, red-path commit failure, triage `--mark-ready`/`--merge` gate path, recorded-green timing, baseline capture vs harness fix commits, and custom-`readyCommand` green+dirty abort on `full`.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes.
 
 ## Documentation updates
 

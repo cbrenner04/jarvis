@@ -75,7 +75,7 @@ flowchart TD
     planEntry --> draft(["Draft: prereq gate →<br/>index.md + subspecs (one call)"]):::llm
     draft --> openDraft["Open draft PR"]:::det
     openDraft --> review(["Self-review: adversary → advocate →<br/>adjudicator → actuator<br/>(one flow per pass) × --review-passes (default 1)"]):::llm
-    review --> markReady["bun run ready (strict verify)<br/>then gh pr ready (auto)"]:::det
+    review --> markReady["bun run fix (commit if dirty) →<br/>bun run ready (strict verify) →<br/>gh pr ready (auto)"]:::det
   end
 
   markReady --> handoff["Human reviews + merges plan PR to main"]:::det
@@ -187,7 +187,7 @@ flowchart TD
   reviewBlk -- no --> reviewCommit["Commit plan: review: &lt;role&gt; / actuator · push<br/>updatePrBody (det)"]:::det
   reviewCommit --> reviewLoop
 
-  reviewLoop -- no --> ready["bun run ready (strict verify)<br/>then gh pr ready (auto)"]:::det
+  reviewLoop -- no --> ready["bun run fix (commit if dirty) →<br/>bun run ready (strict verify) →<br/>gh pr ready (auto)"]:::det
   ready --> done["exit 0 · print Next steps"]:::stop
 
   classDef det fill:#dff5e1,stroke:#2f7d3a,color:#0b3d16;
@@ -224,11 +224,12 @@ What loops vs. what's a distinct path:
   *after* the call (write boundary, append-only on `intent.md`, validation
   rules) but cannot make the agent's text choice deterministic.
 - **Readiness transition**: when every phase succeeds without a blocker,
-  `jarvis1 plan` invokes `bun run ready` and, on green, calls `gh pr ready`.
-  The authoritative built-in ready/fix split and step order live in
-  [`v2/docs/v1-behaviors.md`](../../v2/docs/v1-behaviors.md). This committed
-  plan-mode call site is not wired to `readyCommand`; it runs the built-in
-  `bun run ready`. If any gate step fails, the PR stays in draft.
+  `jarvis1 plan` runs built-in `bun run fix` (committing any dirty output first),
+  then built-in `bun run ready`, and on green calls `gh pr ready`.
+  The authoritative built-in ready/fix split, gate ordering, and step order live
+  in [`v2/docs/v1-behaviors.md`](../../v2/docs/v1-behaviors.md). This committed
+  plan-mode call site is not wired to `readyCommand`; it runs the built-ins. If
+  any gate step fails, the PR stays in draft.
 
 `--resume` re-enters the diagram at the review-loop, reusing the existing
 worktree, branch, and PR. With `modes.plan.commit: false` there is no
@@ -277,7 +278,7 @@ flowchart TD
   reviewRevert --> reviewBlk{".jarvis-review-blocker written?"}:::dec
   reviewBlk -- yes --> commitReviewBlk["commit pass · post PR comment"]:::det --> blkExit["exit 7: blocker"]:::stop
   reviewBlk -- no --> commitReview["commit review pass (if non-empty) · push"]:::det --> reviewLoop
-  reviewLoop -- no --> finalReady["Final gate: bun run ready<br/>then gh pr ready"]:::det
+  reviewLoop -- no --> finalReady["Final gate: bun run fix (commit if dirty) →<br/>bun run ready → gh pr ready"]:::det
   finalReady --> ok
 
   top -- no --> agentQ{"Any agent left in agentOrder?"}:::dec
@@ -326,11 +327,13 @@ What loops vs. what's a distinct path:
   call followed by deterministic bookkeeping. Exits when the spec has no
   unchecked boxes.
 - **Completion-transition ready gate**: reached at most once per run, when a
-  `git: true` run first observes zero unchecked boxes. It runs `runReadyAndCommit`
-  and, on green, records the result keyed to HEAD sha + clean worktree. The
-  post-completion phases (shrink, review, `maybeMarkReady`) **reuse** that
-  recorded green result and skip re-running `bun run ready` whenever the tree is
-  unchanged since the recording.
+  `git: true` run first observes zero unchecked boxes. On `full` it runs
+  `bun run fix` → commit-if-dirty (and push) → strict verification, and on a
+  clean green records the result keyed to post-fix-commit HEAD + clean worktree
+  (a green over a still-dirty tree aborts at exit 6). The post-completion phases
+  (shrink, review, `maybeMarkReady`) **reuse** that recorded green result and
+  skip re-running verification whenever the tree is unchanged since the
+  recording. See [run-loop.md](./run-loop.md#completion-transition-ready-gate).
 - **Shrink phase** (post-completion): a single shrink agent call that tries to
   simplify the implementation diff. Runs only when ≥1 implementation iteration
   completed and git is enabled. Out-of-scope and spec-tree edits are reverted;
@@ -341,8 +344,9 @@ What loops vs. what's a distinct path:
   `modes.review.passes` (default 1). Skipped if passes is 0, git is false, or no
   implementation iteration ran. Each pass is **one flow** through a read-only
   **adversary → advocate → adjudicator** debate; a non-empty adjudicator verdict
-  then drives an **actuator** call that applies it to the code. Ends with a final `bun run ready` +
-  `gh pr ready`. Blockers (`.jarvis-review-blocker`) exit 7 immediately.
+  then drives an **actuator** call that applies it to the code. Ends with a final
+  `full` gate (`bun run fix` → commit-if-dirty → `bun run ready`) + `gh pr ready`.
+  Blockers (`.jarvis-review-blocker`) exit 7 immediately.
 - **Distinct exit paths**: In the implementation loop, `kind ∈ {ok, quota,
   model_config, error}` fan out from a single decision; the same iteration
   cannot take two of them.
@@ -356,10 +360,12 @@ What loops vs. what's a distinct path:
   header/footer rewrite, ready-flip on completion) is a pure function of files
   on disk. The narrative is generated once and then preserved inside the
   `jarvis:narrative` markers across rewrites.
-- **Readiness gates**: the completion-transition gate, the shrink/review
-  baseline gates, and the review final gate all run the built-in strict
-  verification pipeline unless a project `readyCommand` overrides it. The
-  authoritative built-in ready/fix split and step order live in
+- **Readiness gates**: on `full`, the completion-transition gate and the review
+  final gate run `bun run fix` → commit-if-dirty (and push) → strict
+  verification; `readyCommand` overrides the verification command only, and a
+  green over a still-dirty tree aborts at exit 6 rather than flipping ready.
+  `fast` baseline gates run neither fix nor the abort. The authoritative
+  built-in ready/fix split, gate ordering, and step order live in
   [`v2/docs/v1-behaviors.md`](../../v2/docs/v1-behaviors.md). The baseline
   gates reuse the recorded green result when the tree is unchanged; the final
   gate always verifies before the draft→ready flip. If any step fails, the PR

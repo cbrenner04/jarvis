@@ -100,3 +100,5 @@ report,session_id,report_date,completed_work_units,success_status,failure_reason
 2026-06-28T04-26-07Z-operator,daemon-host-ipc,2026-06-28,2,completed,,multi-subspec,1,255.3,10,merged #729; run_time inflated by cursor watchdog stalls
 2026-06-28T04-26-07Z-operator,daemon-run-control-api,2026-06-28,4,completed,,multi-subspec,2,57.57,8,merged #733; haiku+opus
 2026-06-28T04-26-07Z-operator,daemon-cli-control,2026-06-28,1,completed,,single-spec,1,62.97,4,merged #741
+2026-06-28T12-39-28Z-operator,patch-run-writes-active-spec-path-marker,2026-06-28,1,completed,,patch,1,52.48,7,operator hand-finalized out-of-scope actuator residue; gate in isolation
+2026-06-28T12-39-28Z-operator,triage-finalize-without-active-spec-path-marker,2026-06-28,1,completed,,patch,2,49.68,7,"codex quota→cursor idle-stall×2→reorder to claude; gate in isolation; agent_count=cursor+claude (codex quota attempts excluded)"

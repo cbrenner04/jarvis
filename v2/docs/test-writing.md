@@ -40,6 +40,33 @@ Use this review question set:
 - Is another test already proving the same behavior more directly?
 - Is the runtime cost justified for the default parallel suite?
 
+## Do not reimplement production logic in test doubles
+
+When an exported production seam already owns a behavior, exercise that seam — do not reimplement the same logic in local doubles, stub handlers, or copied control flow.
+
+**Unit under test:** the exported production unit that owns the behavior (factory, handler set, module function, or class method path the assertion targets).
+
+**Dependencies outside that boundary:** ordinary fakes, spies, and injected fixtures remain valid. Inject a fake state store, clock, executor, or process table; do not replace the production orchestration that wires those dependencies together.
+
+### Worked example: daemon run-control handler drift
+
+Daemon run-control tests drifted when `daemon-start-list.test.ts` carried inline `RpcHandler` copies of `start`/`list`/`pause`/`resume`/`kill` — separate active-run maps, simplified error shapes, and `setTimeout`-based settlement that mirrored but did not execute `createRunControlHandlers`.
+
+The expected pattern calls the exported factory with injected dependencies only:
+
+```typescript
+const handlers = createRunControlHandlers({
+  stateStore,
+  writeLoopExecutor: fakeExecutor.executor,
+});
+
+server = await startIpcServer(SOCKET_PATH, handlers);
+```
+
+The fake write-loop executor is fixture-controlled settlement for a dependency outside the handler factory; IPC assertions run against real handler behavior. See [`v2/src/daemon-start-list.test.ts`](../src/daemon-start-list.test.ts).
+
+This documents the convention and the anti-pattern; it does not require migrating unrelated tests.
+
 ## Worked example: DescendantTracker injection pattern
 
 The `DescendantTracker` class in [`v1/src/modes/patch/reap.ts`](../../../v1/src/modes/patch/reap.ts) demonstrates the agent-runnable pattern:
@@ -73,5 +100,5 @@ The behavior under test (capture descendants, kill survivors by PID+identity, pr
 
 ## Out of scope
 
-- **Automated enforcement** — linting or review automation to catch violations is deferred to a future enforcement spec. The convention rests on authors reading this document and choosing DI seams in advance.
+- **Automated enforcement** — linting or review automation to catch agent-runnable violations or production-logic double drift is deferred to a future enforcement spec. Conventions rest on authors reading this document.
 - **One-size-fits-all rewrites** — do not mechanically convert every primitive match. First classify it: `already-deterministic`, `refactor`, or `marked-exception`.

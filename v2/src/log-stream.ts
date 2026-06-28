@@ -1,5 +1,5 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import type { OutcomeKind, RunStatus } from "./state-store-types.ts";
 import type { WriteLoopOutcomeKind } from "./write-loop.ts";
 
@@ -131,7 +131,7 @@ class FileLogStream implements LogSink, LogReader {
       mkdirSync(dir, { recursive: true });
     }
 
-    appendFileSync(this.storagePath, JSON.stringify(record) + "\n", "utf-8");
+    appendFileSync(this.storagePath, `${JSON.stringify(record)}\n`, "utf-8");
     this.sequences.set(runId, seq);
   }
 

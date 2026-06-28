@@ -1,8 +1,8 @@
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { openLogSink, openLogReader, type PersistedRecord, type LogEvent } from "./log-stream.ts";
+import { type LogEvent, openLogReader, openLogSink, type PersistedRecord } from "./log-stream.ts";
 
 describe("log-stream", () => {
   let tempDir: string;
@@ -288,7 +288,7 @@ describe("log-stream", () => {
 
       // Verify it parses as a valid date
       const date = new Date(ts);
-      expect(isNaN(date.getTime())).toBe(false);
+      expect(Number.isNaN(date.getTime())).toBe(false);
     }
   });
 

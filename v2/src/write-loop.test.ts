@@ -683,12 +683,12 @@ describe("write loop", () => {
     const { jarvisRoot, stateDbPath } = setupRepo();
     const sink = new TestLogSink();
     const dirtiedMarker = "dirty.txt";
-    let firstRunCalls = 0;
+    let _firstRunCalls = 0;
     const crashBindings: InvocationBinding[] = [
       {
         id: "agent",
         invoke: async ({ cwd }) => {
-          firstRunCalls += 1;
+          _firstRunCalls += 1;
           writeFileSync(join(cwd, dirtiedMarker), "dirty\n", "utf8");
           throw new Error("simulated crash");
         },
@@ -705,7 +705,7 @@ describe("write loop", () => {
       }),
     ).rejects.toThrow("simulated crash");
 
-    const firstRunEvents = sink.getEventsForRun("");
+    const _firstRunEvents = sink.getEventsForRun("");
     // The run was created but not completed, so no runId is available yet. Skip this part for now.
 
     let resumedCalls = 0;
@@ -741,12 +741,12 @@ describe("write loop", () => {
   test("mid-boundary rollback emits iteration_started, no boundary_committed on failed attempt, retry with same attemptId, then success", async () => {
     const { jarvisRoot, stateDbPath } = setupRepo();
     const sink = new TestLogSink();
-    let firstInvocationCalls = 0;
+    let _firstInvocationCalls = 0;
     const completeBindings: InvocationBinding[] = [
       {
         id: "agent",
         invoke: async ({ cwd }) => {
-          firstInvocationCalls += 1;
+          _firstInvocationCalls += 1;
           writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
           return { kind: "ok", stdout: "done", stderr: "" };
         },
@@ -764,7 +764,7 @@ describe("write loop", () => {
       }),
     ).rejects.toThrow("crash mid-boundary");
 
-    let resumedCalls = 0;
+    let _resumedCalls = 0;
     const sink2 = new TestLogSink();
     const resumed = await runLoop({
       jarvisRoot,
@@ -773,7 +773,7 @@ describe("write loop", () => {
         {
           id: "agent",
           invoke: async () => {
-            resumedCalls += 1;
+            _resumedCalls += 1;
             return { kind: "ok", stdout: "done", stderr: "" };
           },
         },
@@ -842,7 +842,7 @@ describe("write loop", () => {
     });
 
     expect(first.kind).toBe("complete");
-    const firstEventCount = sink.getEventsForRun(first.runId).length;
+    const _firstEventCount = sink.getEventsForRun(first.runId).length;
 
     const sink2 = new TestLogSink();
     const second = await runLoop({

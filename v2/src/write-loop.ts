@@ -60,7 +60,12 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
     while (iterationsConsumed < maxIterations) {
       if (args.signal?.aborted) {
         const result = { kind: "progress" as const, runId, iterationsConsumed, resumable: true };
-        args.logSink?.append(runId, { kind: "loop_finished", loopOutcomeKind: "progress", iterationsConsumed, resumable: true });
+        args.logSink?.append(runId, {
+          kind: "loop_finished",
+          loopOutcomeKind: "progress",
+          iterationsConsumed,
+          resumable: true,
+        });
         return result;
       }
 
@@ -84,7 +89,12 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       if (result.kind === "progress") {
         store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
-        args.logSink?.append(runId, { kind: "boundary_committed", attemptId, outcomeKind: "progress", runStatus: "in-progress" });
+        args.logSink?.append(runId, {
+          kind: "boundary_committed",
+          attemptId,
+          outcomeKind: "progress",
+          runStatus: "in-progress",
+        });
         continue;
       }
 
@@ -94,15 +104,30 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       const terminal = terminalMapping(result);
       store.commitCompletionBoundary({ attemptId, runStatus: terminal.runStatus, outcomeKind: terminal.outcomeKind });
-      args.logSink?.append(runId, { kind: "boundary_committed", attemptId, outcomeKind: terminal.outcomeKind, runStatus: terminal.runStatus });
+      args.logSink?.append(runId, {
+        kind: "boundary_committed",
+        attemptId,
+        outcomeKind: terminal.outcomeKind,
+        runStatus: terminal.runStatus,
+      });
 
       const loopResult = { kind: terminal.kind, runId, iterationsConsumed, resumable: false };
-      args.logSink?.append(runId, { kind: "loop_finished", loopOutcomeKind: terminal.kind, iterationsConsumed, resumable: false });
+      args.logSink?.append(runId, {
+        kind: "loop_finished",
+        loopOutcomeKind: terminal.kind,
+        iterationsConsumed,
+        resumable: false,
+      });
       return loopResult;
     }
 
     store.setRunStatus(runId, "budget-soft-stopped");
-    args.logSink?.append(runId, { kind: "loop_finished", loopOutcomeKind: "budget-exhausted", iterationsConsumed, resumable: true });
+    args.logSink?.append(runId, {
+      kind: "loop_finished",
+      loopOutcomeKind: "budget-exhausted",
+      iterationsConsumed,
+      resumable: true,
+    });
     return { kind: "budget-exhausted", runId, iterationsConsumed, resumable: true };
   } finally {
     if (!args.stateStore) {

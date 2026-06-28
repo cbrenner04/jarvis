@@ -441,6 +441,28 @@ repos" principle change is smaller:
   the same root** — no worktree means no isolation, so they'd clobber each other
   (v1 never hit this because it was one-shot).
 
+## Interface & IPC
+
+The daemon exposes a hermetic programmatic API over a Unix-domain-socket IPC
+transport. All daemon control is async/await; there is no CLI here (CLI/TUI
+surface is a sibling concern, wired via this interface).
+
+- **IPC transport:** Length-prefixed JSON frames over Unix sockets. RPC methods
+  (`health`, `status`, custom handlers) and multiplexed streams (log, workflow
+  output). See [`daemon-host.md`](daemon-host.md) for frame shapes and semantics.
+- **Lifecycle API:** Programmatic `startDaemon`, `stopDaemon`, `getDaemonStatus`
+  in `v2/src/daemon-lifecycle.ts`. Detached child process with bounded readiness
+  timeout, graceful shutdown (RPC + SIGTERM + SIGKILL), and double-start
+  protection. Tests inject socket/PID paths; production defaults are deferred to
+  first consumer.
+- **In-memory worktree ownership:** Daemon holds a registry keyed by `{project,
+  branch}` (the state-store resume key), recording `{runId, worktreePath}`.
+  `claim` rejects double-claim; `release` is idempotent. No disk writes or
+  PID-lock coordination — the on-disk `.jarvis.lock` and git worktrees locking
+  remain for cross-process coexistence (daemon runs vs. `jarvis1`, editors, manual
+  git). The lock is held for the whole run lifetime; ownership ensures no two
+  daemon runs touch the same worktree.
+
 ## Constraints & guiding principles
 
 The constraints and guiding principles that govern this architecture — cost,

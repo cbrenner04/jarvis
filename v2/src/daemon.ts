@@ -125,21 +125,21 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
       branch: input.worktree.branchName,
     };
 
-    // Check single in-flight run guard
-    if (activeRuns.size > 0) {
-      return {
-        kind: "error",
-        code: "run_in_progress",
-        message: "A run is already in progress; at most one in-flight run globally",
-      };
-    }
-
-    // Check per-(project, branch) guard
+    // Check per-(project, branch) guard first (more specific than the global guard).
     if (_registry.isClaimed(key)) {
       return {
         kind: "error",
         code: "worktree_claimed",
         message: `Worktree already claimed for project=${key.project}, branch=${key.branch}`,
+      };
+    }
+
+    // Check single in-flight run guard (global; a different (project, branch) still rejects).
+    if (activeRuns.size > 0) {
+      return {
+        kind: "error",
+        code: "run_in_progress",
+        message: "A run is already in progress; at most one in-flight run globally",
       };
     }
 
@@ -264,21 +264,21 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
 
     const key: OwnershipKey = { project: run.project, branch: run.branch };
 
-    // Check single in-flight run guard
-    if (activeRuns.size > 0) {
-      return {
-        kind: "error",
-        code: "run_in_progress",
-        message: "A run is already in progress; at most one in-flight run globally",
-      };
-    }
-
-    // Check per-(project, branch) guard
+    // Check per-(project, branch) guard first (more specific than the global guard).
     if (_registry.isClaimed(key)) {
       return {
         kind: "error",
         code: "worktree_claimed",
         message: `Worktree already claimed for project=${key.project}, branch=${key.branch}`,
+      };
+    }
+
+    // Check single in-flight run guard (global; a different (project, branch) still rejects).
+    if (activeRuns.size > 0) {
+      return {
+        kind: "error",
+        code: "run_in_progress",
+        message: "A run is already in progress; at most one in-flight run globally",
       };
     }
 

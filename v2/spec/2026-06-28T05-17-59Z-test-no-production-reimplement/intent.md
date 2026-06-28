@@ -19,3 +19,8 @@ Add a v2 test-writing convention: tests must not reimplement production logic as
 ## Prerequisites
 
 - `daemon-start-list.test.ts` exercises real run-control handlers via the exported factory over injected fakes.
+
+## Blocker
+
+- No exported run-control handler factory in `v2/src/daemon.ts` — handlers remain inline in `startDaemon`; ready intent `daemon-run-control-handler-factory` is unmerged/unimplemented.
+- `v2/src/daemon-start-list.test.ts` reimplements run-control handlers locally in `beforeEach` (`startHandler`, `listHandler`, `pauseHandler`, `killHandler`, `resumeHandler`) instead of wiring an exported factory over injected fakes; ready intent `daemon-start-list-use-real-handlers` is unmerged/unimplemented.

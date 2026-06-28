@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectIpcClient } from "./ipc/client.ts";
 import { encodeFrame } from "./ipc/codec.ts";
-import { type IpcServer, startIpcServer } from "./ipc/server.ts";
+import { type IpcServer, type StreamHandler, startIpcServer } from "./ipc/server.ts";
+import { openLogReader, openLogSink } from "./log-stream.ts";
 
 // Check if sockets can be created in /tmp; skip all tests if not (sandbox restriction)
 let canCreateSockets: boolean;
@@ -99,42 +100,6 @@ test(
     expect(frame.id).toBe("e1");
     expect(frame.code).toBe("unknown_method");
     expect(frame.message).toContain("nope");
-    client.close();
-  }),
-);
-
-test(
-  "stream-data chunks echo on the same streamId",
-  skipIfNoSockets(async () => {
-    const client = await connectIpcClient(SOCKET_PATH);
-    client.send({ kind: "stream-open", streamId: "st1" });
-    client.send({ kind: "stream-data", streamId: "st1", payload: Buffer.from("ab").toString("base64") });
-    const echoed = await client.nextFrame();
-    expect(echoed).toEqual({
-      kind: "stream-data",
-      streamId: "st1",
-      payload: Buffer.from("ab").toString("base64"),
-    });
-    client.send({ kind: "stream-end", streamId: "st1" });
-    client.close();
-  }),
-);
-
-test(
-  "RPC round-trips while a stream is open",
-  skipIfNoSockets(async () => {
-    const client = await connectIpcClient(SOCKET_PATH);
-    client.send({ kind: "stream-open", streamId: "mix" });
-    client.send(request("r1", "health"));
-    client.send({ kind: "stream-data", streamId: "mix", payload: "Zg==" });
-
-    const first = await client.nextFrame();
-    const second = await client.nextFrame();
-    const frames = [first, second];
-    const response = frames.find((f) => f.kind === "response");
-    const stream = frames.find((f) => f.kind === "stream-data");
-    expect(response).toEqual({ kind: "response", id: "r1", result: { ok: true } });
-    expect(stream).toEqual({ kind: "stream-data", streamId: "mix", payload: "Zg==" });
     client.close();
   }),
 );
@@ -242,5 +207,160 @@ test(
     client.send(request("ok", "health"));
     expect(await client.nextFrame()).toEqual({ kind: "response", id: "ok", result: { ok: true } });
     client.close();
+  }),
+);
+
+// Tail-log stream tests
+const LOGS_PATH = join(tmpdir(), `jarvis-ipc-test-logs-${process.pid}.jsonl`);
+
+test(
+  "tail-log stream replays persisted events in seq order",
+  skipIfNoSockets(async () => {
+    rmSync(LOGS_PATH, { force: true });
+    const logSink = openLogSink(LOGS_PATH);
+    const logReader = openLogReader(LOGS_PATH);
+    const runId = "test-run-1";
+
+    logSink.append(runId, { kind: "iteration_started", attemptId: "attempt-1" });
+    logSink.append(runId, {
+      kind: "boundary_committed",
+      attemptId: "attempt-1",
+      outcomeKind: "progress",
+      runStatus: "in-progress",
+    });
+    logSink.close();
+
+    const tailHandler: StreamHandler = async (_streamId, payload, onData, onClose, signal) => {
+      const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
+      const runId = params?.runId;
+      if (!runId) {
+        onClose();
+        return;
+      }
+      try {
+        for await (const record of logReader.follow(runId, signal)) {
+          if (signal.aborted) break;
+          onData(record);
+        }
+      } finally {
+        onClose();
+      }
+    };
+
+    rmSync(SOCKET_PATH, { force: true });
+    const tailServer = await startIpcServer(SOCKET_PATH, undefined, tailHandler);
+
+    const client = await connectIpcClient(SOCKET_PATH);
+    client.send({ kind: "stream-open", streamId: "tail1", payload: { runId } });
+
+    const frame1 = await client.nextFrame();
+    expect(frame1.kind).toBe("stream-data");
+    if (frame1.kind === "stream-data") {
+      const record = JSON.parse(frame1.payload || "{}");
+      expect(record.seq).toBe(1);
+      expect(record.event.kind).toBe("iteration_started");
+    }
+
+    const frame2 = await client.nextFrame();
+    expect(frame2.kind).toBe("stream-data");
+    if (frame2.kind === "stream-data") {
+      const record = JSON.parse(frame2.payload || "{}");
+      expect(record.seq).toBe(2);
+      expect(record.event.kind).toBe("boundary_committed");
+    }
+
+    client.send({ kind: "stream-end", streamId: "tail1" });
+    client.close();
+    await tailServer.close();
+    rmSync(LOGS_PATH, { force: true });
+  }),
+);
+
+test(
+  "tail-log stream rejects unknown run ID",
+  skipIfNoSockets(async () => {
+    rmSync(LOGS_PATH, { force: true });
+    const logReader = openLogReader(LOGS_PATH);
+
+    // Wiring mock: snapshot via tail (no daemon store here). An unknown run has no
+    // persisted events, so nothing is sent and the stream closes — mirroring the
+    // daemon's real handler, which closes unknown runs (daemon.ts).
+    const tailHandler: StreamHandler = async (_streamId, payload, onData, onClose) => {
+      const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
+      const runId = params?.runId;
+      if (!runId) {
+        onClose();
+        return;
+      }
+      for (const record of logReader.tail(runId)) {
+        onData(record);
+      }
+      onClose();
+    };
+
+    rmSync(SOCKET_PATH, { force: true });
+    const tailServer = await startIpcServer(SOCKET_PATH, undefined, tailHandler);
+
+    const client = await connectIpcClient(SOCKET_PATH);
+    client.send({ kind: "stream-open", streamId: "tail2", payload: { runId: "unknown-run" } });
+
+    const frame = await client.nextFrame();
+    expect(frame.kind).toBe("stream-end");
+    if (frame.kind === "stream-end") {
+      expect(frame.streamId).toBe("tail2");
+    }
+
+    client.close();
+    await tailServer.close();
+  }),
+);
+
+test(
+  "tail-log stream closes on client stream-end",
+  skipIfNoSockets(async () => {
+    rmSync(LOGS_PATH, { force: true });
+    const logSink = openLogSink(LOGS_PATH);
+    const logReader = openLogReader(LOGS_PATH);
+    const runId = "test-run-2";
+
+    logSink.append(runId, { kind: "iteration_started", attemptId: "attempt-1" });
+    logSink.close();
+
+    let followAborted = false;
+    const tailHandler: StreamHandler = async (_streamId, payload, onData, onClose, signal) => {
+      const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
+      const runId = params?.runId;
+      if (!runId) {
+        onClose();
+        return;
+      }
+      try {
+        for await (const record of logReader.follow(runId, signal)) {
+          if (signal.aborted) break;
+          onData(record);
+        }
+      } finally {
+        followAborted = signal.aborted;
+        onClose();
+      }
+    };
+
+    rmSync(SOCKET_PATH, { force: true });
+    const tailServer = await startIpcServer(SOCKET_PATH, undefined, tailHandler);
+
+    const client = await connectIpcClient(SOCKET_PATH);
+    client.send({ kind: "stream-open", streamId: "tail3", payload: { runId } });
+
+    const frame1 = await client.nextFrame();
+    expect(frame1.kind).toBe("stream-data");
+
+    client.send({ kind: "stream-end", streamId: "tail3" });
+    const endFrame = await client.nextFrame();
+    expect(endFrame.kind).toBe("stream-end");
+
+    client.close();
+    await tailServer.close();
+    expect(followAborted).toBe(true);
+    rmSync(LOGS_PATH, { force: true });
   }),
 );

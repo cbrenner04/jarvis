@@ -233,6 +233,12 @@ Observability (log follow interface):
   all persisted events from seq 1 onward, then blocks for new appends. No
   offset/cursor API — consumers filter post-hoc via the `seq` field on
   `PersistedRecord`. Honour `AbortSignal` for clean shutdown.
+- **Tail is served over the IPC stream.** Clients open a multiplexed stream with
+  `stream-open` carrying the run ID in the payload. The daemon backs the stream
+  with the log reader's `follow(runId, signal)`, replaying persisted records,
+  then streaming new appends. Each record is serialized as JSON and sent as one
+  `stream-data` frame. The stream closes when the client sends `stream-end` or
+  disconnects.
 
 ## Runs, state & the human loop
 
@@ -246,7 +252,10 @@ down.
 A **run** is a workflow instance carrying:
 
 - **Identity** — run ID, target project, workflow name, spec/target ref, created-at.
-- **Status** — running / paused / awaiting-human / blocked / completed / killed / failed.
+- **Status** — running / paused / killed / awaiting-human / blocked / completed / failed.
+  The write loop uses `paused` to record a graceful pause (last attempt committed at
+  boundary); `killed` records an immediate abort by the daemon (last attempt may be
+  uncommitted).
 - **Checkpoint** — one durable pointer to the next stable workflow step ID (`next_step_id`).
 - **Pointers to work** — worktree path, branch, spec path, PR. Not their contents.
 - **History linkage** — execution history is not embedded on `runs`; it is stored
@@ -329,13 +338,20 @@ streams stay out of the orchestration store.
 
 - **Pause is graceful** — takes effect at the next step/iteration boundary (TUI
   shows "pausing…" until the current iteration finishes), so no work is lost.
-- **Kill is immediate** — SIGTERM→SIGKILL the agent process group, like v1's
-  abort. **Kill leaves a dirty worktree**; killed runs are recovered or cleaned
-  up, never cleanly continued.
+  In the write loop, pause is a separate `pauseSignal` (AbortSignal) input,
+  checked only at the iteration boundary after the step completes. If a step
+  completes despite pause being signaled, the boundary commit is skipped so the
+  loop doesn't race the daemon's status write.
+- **Kill is immediate** — aborts the run's AbortSignal immediately, causing
+  signal-honoring bindings to tear down their agent processes (SIGTERM→SIGKILL).
+  **Kill leaves a dirty worktree**; killed runs are recovered or cleaned up, never
+  cleanly continued. The loop skips the boundary commit if a step returns after
+  abort, so the daemon is the sole writer of `killed` status.
 - **Resume branches on how the current step stopped.** Pause stopped
-  *completed-at-boundary* → resume just continues with the next step. Kill/crash
-  stopped *interrupted* → resume re-runs the interrupted step over the dirty
-  worktree (same code path as crash recovery). One field on the run records which.
+  *completed-at-boundary* (last attempt committed) → resume continues with a fresh
+  attempt. Kill/crash stopped *interrupted* (last attempt still in-progress) →
+  resume re-runs the interrupted step over the dirty worktree (same code path as
+  crash recovery).
 
 ### Human loop and "blocked" converge
 
@@ -462,6 +478,21 @@ surface is a sibling concern, wired via this interface).
   remain for cross-process coexistence (daemon runs vs. `jarvis1`, editors, manual
   git). The lock is held for the whole run lifetime; ownership ensures no two
   daemon runs touch the same worktree.
+
+## Orchestration API
+
+Run orchestration verbs over the daemon's IPC interface:
+
+- **`start(input: WriteLoopInput): {runId}`** — Spawn a write loop in the
+  background and return its run ID immediately (the RPC response does not wait
+  for loop completion). Gated by two admission guards: (1) at most one in-flight
+  run globally; (2) no overlapping runs for the same `{project, branch}`. Both
+  rejections use the `error` response kind.
+- **`list(): {runs: Array<{runId, project, branch, status, isLive}>}`** — List
+  all durable run rows merged with in-memory liveness. A run's `isLive=true`
+  only while its loop Promise is executing. Allows a client to distinguish a live
+  run from a crashed daemon's stale row — the canonical use case for
+  durable-plus-liveness merge.
 
 ## Constraints & guiding principles
 

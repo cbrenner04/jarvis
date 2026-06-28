@@ -44,13 +44,13 @@ stream frames until the client closes.
 
 ## Acceptance criteria
 
-- [ ] Opening a tail stream for a run replays its already-persisted log events in `seq` order.
-- [ ] Events appended after a client attaches to a live run arrive over the open stream.
-- [ ] Each log record arrives as its own stream frame (not batched).
-- [ ] Opening a tail stream for an unknown run ID is rejected.
-- [ ] Tail of a run with no further appends (e.g. terminal) replays its persisted records and leaves the stream open without error until the client closes.
-- [ ] Closing the stream (or client disconnect) stops the server-side follow pump.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] Opening a tail stream for a run replays its already-persisted log events in `seq` order.
+- [x] Events appended after a client attaches to a live run arrive over the open stream.
+- [x] Each log record arrives as its own stream frame (not batched).
+- [x] Opening a tail stream for an unknown run ID is rejected.
+- [x] Tail of a run with no further appends (e.g. terminal) replays its persisted records and leaves the stream open without error until the client closes.
+- [x] Closing the stream (or client disconnect) stops the server-side follow pump.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

@@ -41,19 +41,33 @@ Valid JSON with missing or invalid `kind` closes the connection.
 
 ## RPC methods (transport slice)
 
-| `method` | `result` | Meaning |
-| --- | --- | --- |
-| `health` | `{ ok: true }` | Channel liveness |
-| `status` | `{ state: "running" }` | Daemon-host liveness only — not run orchestration status |
+| `method` | `params` | `result` | Meaning |
+| --- | --- | --- | --- |
+| `health` | — | `{ ok: true }` | Channel liveness |
+| `status` | — | `{ state: "running" }` | Daemon-host liveness only — not run orchestration status |
+| `start` | `{ input: WriteLoopInput }` | `{ runId: string }` | Spawn a write loop in the background; returns immediately with run ID. Rejected if any run is in-flight (single in-flight guard) or if a run is active for the same `(project, branch)` (per-key guard). |
+| `list` | — | `{ runs: Array<{runId, project, branch, status, isLive}> }` | List durable runs merged with in-memory liveness; `isLive=true` only while the loop's Promise is executing. |
+| `pause` | `{ runId: string }` | `{ ok: true }` | Signal graceful pause for an active run. The run continues at the next iteration boundary (in-flight step is not aborted). Rejected if run is unknown or not active. |
+| `kill` | `{ runId: string }` | `{ ok: true }` | Abort the run's signal immediately and record durable status `killed`. Leaves the worktree dirty. Rejected if run is unknown or not active. |
+| `resume` | `{ runId: string }` | `{ ok: true }` | Resume a paused/killed run, re-invoking `executeWriteLoop` under the start guards. A paused run continues with a fresh attempt; a killed run re-runs the interrupted step. Rejected if run is unknown, in terminal status, or if another run is active (single in-flight guard or per-key guard violation). |
 
 Unknown `method` returns `error` correlated to the request `id` (connection
 stays open).
 
+### Admission guards for `start`
+
+1. **Single in-flight run:** At most one run loop can be active globally. A `start` request when any loop is executing is rejected with `code: "run_in_progress"`.
+
+2. **Per-`(project, branch)` key:** No overlapping runs for the same project and branch. A `start` for an already-claimed key is rejected with `code: "worktree_claimed"`.
+
 ## Streaming
 
 Streams multiplex on the same connection via `stream-open` / `stream-data` /
-`stream-end`. The transport handler echoes each `stream-data` chunk back on the
-same `streamId` until `stream-end`. No log or run event shapes are defined here.
+`stream-end`. The `stream-open` payload carries `{ runId: string }` to identify
+the run. The server replays the run's persisted log records in `seq` order, then
+streams new appends as `stream-data` frames — one record per frame — until the
+client closes with `stream-end` or the connection drops. Each record is a
+`PersistedRecord` serialized as JSON in the `payload` field.
 
 RPC traffic on the same connection keeps `id` correlation while a stream is
 open.

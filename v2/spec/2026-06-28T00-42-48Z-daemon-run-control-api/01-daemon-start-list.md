@@ -53,12 +53,12 @@ steering and no tail here (subspecs 02, 03).
 
 ## Acceptance criteria
 
-- [ ] `start` returns a run ID and the loop runs in the background (the RPC response does not wait for loop completion).
-- [ ] A second `start` for the same `(project, branch)` while the first is active is rejected.
-- [ ] A `start` issued while any run is active is rejected (single in-flight run; no queue).
-- [ ] `list` returns durable run rows merged with in-memory liveness, marking which runs are currently executing.
-- [ ] A run that has settled (its loop Promise resolved, any outcome kind) is no longer reported as live by `list`.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `start` returns a run ID and the loop runs in the background (the RPC response does not wait for loop completion).
+- [x] A second `start` for the same `(project, branch)` while the first is active is rejected.
+- [x] A `start` issued while any run is active is rejected (single in-flight run; no queue).
+- [x] `list` returns durable run rows merged with in-memory liveness, marking which runs are currently executing.
+- [x] A run that has settled (its loop Promise resolved, any outcome kind) is no longer reported as live by `list`.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

@@ -56,16 +56,16 @@ existing resume path branches on how the step stopped. No richer steering
 
 ## Acceptance criteria
 
-- [ ] `pause` stops the run at the next boundary with durable status `paused`; the in-flight step is allowed to finish (not aborted).
-- [ ] `kill` aborts the run's signal immediately and leaves durable status `killed`; the worktree is left dirty (last attempt remains uncommitted).
-- [ ] An abort-honoring binding observes the abort when a run is killed.
-- [ ] `resume` of a `paused` run continues with a fresh attempt; `resume` of a `killed` run re-runs the interrupted step over the dirty worktree.
-- [ ] `resume` is rejected if it would violate the single-in-flight or per-`(project,branch)` guard.
-- [ ] If a step returns after its run was killed (signal aborted), the loop skips the boundary commit and the daemon is the sole writer of `killed`.
-- [ ] `pause`, `kill`, and `resume` each reject an unknown run ID.
-- [ ] `resume` of a terminal run (`completed`/`failed`/`blocked`) is rejected.
-- [ ] `RunStatus` includes `killed` in both `state-store.ts` and `state-store-types.ts`.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `pause` stops the run at the next boundary with durable status `paused`; the in-flight step is allowed to finish (not aborted).
+- [x] `kill` aborts the run's signal immediately and leaves durable status `killed`; the worktree is left dirty (last attempt remains uncommitted).
+- [x] An abort-honoring binding observes the abort when a run is killed.
+- [x] `resume` of a `paused` run continues with a fresh attempt; `resume` of a `killed` run re-runs the interrupted step over the dirty worktree.
+- [x] `resume` is rejected if it would violate the single-in-flight or per-`(project,branch)` guard.
+- [x] If a step returns after its run was killed (signal aborted), the loop skips the boundary commit and the daemon is the sole writer of `killed`.
+- [x] `pause`, `kill`, and `resume` each reject an unknown run ID.
+- [x] `resume` of a terminal run (`completed`/`failed`/`blocked`) is rejected.
+- [x] `RunStatus` includes `killed` in both `state-store.ts` and `state-store-types.ts`.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

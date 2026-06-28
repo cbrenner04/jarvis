@@ -92,8 +92,12 @@ function normalizeBindings(input: WriteLoopInput): WriteLoopInput {
 
 /**
  * Injectable dependencies for {@link createRunControlHandlers}.
- * Factory owns claim/release and fire-and-forget spawn; `writeLoopExecutor` runs the loop body only
- * (log-sink open/close stays in {@link startDaemon}'s production wrapper).
+ *
+ * - `stateStore`: durable run rows — `createRun` on start, `listRuns`/`loadRun` on
+ *   list/pause/resume/kill, `setRunStatus` on kill.
+ * - `writeLoopExecutor`: write-loop body only; factory owns claim/release and
+ *   fire-and-forget spawn. Log-sink open/close stays in {@link startDaemon}'s
+ *   production wrapper. Executor rejections do not propagate to RPC callers.
  */
 export type RunControlHandlerDeps = {
   stateStore: StateStore;
@@ -101,9 +105,15 @@ export type RunControlHandlerDeps = {
 };
 
 /**
- * Builds `start`/`list`/`pause`/`resume`/`kill` RPC handlers with per-instance
- * worktree ownership and in-flight run tracking. Spawns the write loop in the
- * background; settlement always releases registry and active-run entries.
+ * Run-control handler factory for `start`/`list`/`pause`/`resume`/`kill`.
+ *
+ * @param deps - {@link RunControlHandlerDeps}
+ * @returns `{ start, list, pause, resume, kill }` — each an {@link RpcHandler}.
+ *   Handlers signal rejections via `{ kind: "error", code, message }`; they do not throw.
+ * @throws Never — factory and handlers are non-throwing at the RPC boundary.
+ * @invariant Each invocation gets a fresh `WorktreeOwnershipRegistry` and `activeRuns` map.
+ * @invariant Write loops spawn fire-and-forget; settlement always releases registry and
+ *   active-run entries. `writeLoopExecutor` rejections are swallowed at the spawn boundary.
  */
 export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const _registry = new WorktreeOwnershipRegistry();
@@ -272,7 +282,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       };
     }
 
-    // Reconstruct WriteLoopInput from the run and re-invoke executeWriteLoop
+    // Reconstruct WriteLoopInput from the run and spawn write loop via injected executor
     const input: WriteLoopInput = {
       worktree: {
         projectRoot: run.worktreePath,

@@ -2,11 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { execSync } from "node:child_process";
 import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { basename, join } from "node:path";
-import {
-  agentRunnableV2Tests,
-  integrationV2Tests,
-  walkV2TestFiles,
-} from "../scripts/v2-test-files.ts";
+import { agentRunnableV2Tests, integrationV2Tests, walkV2TestFiles } from "../scripts/v2-test-files.ts";
 
 describe("Test slice boundaries", () => {
   it("test files are scoped to owner directories", () => {
@@ -77,9 +73,7 @@ describe("Test slice boundaries", () => {
     const pkgJsonText = await Bun.file("package.json").text();
     const pkgJson = JSON.parse(pkgJsonText);
     expect(pkgJson.scripts["test:v2"]).toBe("bun run scripts/run-v2-tests.ts agent");
-    expect(pkgJson.scripts["test:integration:v2"]).toBe(
-      "bun run scripts/run-v2-tests.ts integration",
-    );
+    expect(pkgJson.scripts["test:integration:v2"]).toBe("bun run scripts/run-v2-tests.ts integration");
 
     const onDisk = walkV2TestFiles();
     const agent = agentRunnableV2Tests();

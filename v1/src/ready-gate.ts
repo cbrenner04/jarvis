@@ -117,6 +117,7 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
     try {
       execFileSync("bun", ["run", "fix"], {
         cwd,
+        env: { ...process.env },
         stdio: "pipe",
       });
     } catch (err) {

@@ -271,6 +271,7 @@ async function runCompletionReadyGate(
   const retryBound = readyGateRetryBound ?? DEFAULT_COMPLETION_READY_GATE_RETRY_BOUND;
   const totalAttempts = retryBound + 1;
   let lastFailureText = "ready gate failed";
+  let lastVerificationRed: boolean | undefined;
 
   for (let attempt = 1; attempt <= totalAttempts; attempt++) {
     let result: CompletionReadyGateResult;
@@ -310,6 +311,7 @@ async function runCompletionReadyGate(
     }
 
     lastFailureText = result.failureText;
+    lastVerificationRed = result.verificationRed;
     if (result.retryable === false) {
       logging.fanout("harness", `completion: ready gate failed: ${lastFailureText}\n`, "stderr");
       return result;
@@ -324,7 +326,11 @@ async function runCompletionReadyGate(
   }
 
   logging.fanout("harness", `completion: ready gate failed: ${lastFailureText}\n`, "stderr");
-  return { kind: "red", failureText: lastFailureText };
+  return {
+    kind: "red",
+    failureText: lastFailureText,
+    ...(lastVerificationRed !== undefined ? { verificationRed: lastVerificationRed } : {}),
+  };
 }
 
 async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null> {

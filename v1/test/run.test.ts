@@ -1730,6 +1730,7 @@ Date: 2026-06-18`,
 
     test("uses project readyCommand at completion-transition gate site", async () => {
       setupGit();
+      installNoopFixBun();
       const spec = writeSpec("- [ ] todo\n");
       execSync("git add index.md && git commit -m init", { cwd: projectRoot });
 
@@ -1778,6 +1779,7 @@ Date: 2026-06-18`,
       execSync("git init -b project", { cwd: projectRoot });
       execSync('git config user.email "jarvis-test@example.com"', { cwd: projectRoot });
       execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      installNoopFixBun();
       const remoteDir = mkdtempSync(join(tmpdir(), "jarvis-ready-retry-remote-"));
       execSync("git init --bare -b project", { cwd: remoteDir });
       execSync(`git remote add origin ${remoteDir}`, { cwd: projectRoot });
@@ -1853,6 +1855,9 @@ exit 0
       execSync("git init -b project", { cwd: projectRoot });
       execSync('git config user.email "jarvis-test@example.com"', { cwd: projectRoot });
       execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      // `bun run fix` emits an autofix change so the pre-ready fix-commit path
+      // (not the dirty-worktree-completion path) is what tries to push.
+      installNoopFixBun({ fixWritesFile: "fixme.ts" });
 
       const remoteDir = mkdtempSync(join(tmpdir(), "jarvis-ready-push-remote-"));
       const missingRemote = join(remoteDir, "missing-origin.git");
@@ -1864,10 +1869,11 @@ exit 0
       execSync("git push -u origin project", { cwd: projectRoot });
 
       const cap = captureIo();
+      // Agent leaves a clean tree (commits its work) and breaks the push remote;
+      // the dirt the gate must commit comes from `bun run fix`, and its push fails.
       const claude = new FakeAgent("claude", () => {
         writeFileSync(spec, "- [x] todo\n");
         execSync("git add index.md && git commit -m done", { cwd: projectRoot });
-        writeFileSync(join(projectRoot, "fixme.ts"), "const x=1\n");
         execSync(`git remote set-url origin ${missingRemote}`, { cwd: projectRoot });
         return { kind: "ok", stdout: "", stderr: "" };
       });
@@ -7780,6 +7786,31 @@ function setupGit(): void {
     cwd: projectRoot,
   });
   execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+}
+
+// Put a `bun` shim on PATH that answers built-in `bun run fix` and delegates
+// everything else to the real bun (the bare temp repos these gate tests use have
+// no `fix` script). By default `run fix` is a no-op; pass `fixWritesFile` to have
+// it emit an autofix change in cwd, exercising the pre-ready fix-commit path.
+// PATH is restored by the afterEach.
+function installNoopFixBun(opts: { fixWritesFile?: string } = {}): void {
+  const realBun = execSync("command -v bun", { encoding: "utf8" }).trim();
+  const fixBinDir = mkdtempSync(join(tmpdir(), "jarvis-fixbun-"));
+  const bunPath = join(fixBinDir, "bun");
+  const fixBody =
+    opts.fixWritesFile !== undefined ? `printf 'fixed\\n' > "$PWD/${opts.fixWritesFile}"\n  exit 0` : "exit 0";
+  writeFileSync(
+    bunPath,
+    `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "\${1:-} \${2:-}" == "run fix" ]]; then
+  ${fixBody}
+fi
+exec "${realBun}" "$@"
+`,
+  );
+  chmodSync(bunPath, 0o755);
+  process.env.PATH = `${fixBinDir}:${process.env.PATH ?? ""}`;
 }
 
 function writeSpec(contents: string): string {

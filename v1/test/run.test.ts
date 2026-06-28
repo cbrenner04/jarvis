@@ -5112,7 +5112,9 @@ exit 0
         writeFileSync(spec, "repo: project\n\n# Feature\n\n- [ ] [00 - One](./00-one.md)\n");
         writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n");
         writeFileSync(gitignore, ".scratch/\n");
-        execSync("git add README.md spec .gitignore && git commit -m spec && git push origin main", { cwd: projectRoot });
+        execSync("git add README.md spec .gitignore && git commit -m spec && git push origin main", {
+          cwd: projectRoot,
+        });
         const cap = captureIo();
         const claude = new FakeAgent("claude", () => ({ kind: "error", exitCode: 1, stderr: "stop" }));
 
@@ -5128,7 +5130,9 @@ exit 0
 
         expect(code).toBe(3);
         const worktreePath = join(projectRoot, ".worktree", "feature");
-        expect(readFileSync(join(worktreePath, ".active-spec-path"), "utf8")).toBe(join(worktreePath, "spec", "feature", "index.md"));
+        expect(readFileSync(join(worktreePath, ".active-spec-path"), "utf8")).toBe(
+          join(worktreePath, "spec", "feature", "index.md"),
+        );
         expect(readFileSync(gitignore, "utf8")).toBe(".scratch/\n");
         const excludePath = execSync("git rev-parse --git-path info/exclude", {
           cwd: worktreePath,

@@ -972,7 +972,7 @@ describe("triage --mark-ready", () => {
     expect(err()).toContain("unknown worktree");
   });
 
-  test("--mark-ready with missing .active-spec-path returns error", async () => {
+  test("--mark-ready with missing .active-spec-path and no matching spec returns error", async () => {
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
     setupWorktree(worktreePath);
@@ -986,7 +986,7 @@ describe("triage --mark-ready", () => {
     });
 
     expect(code).toBe(1);
-    expect(err()).toContain(".active-spec-path marker not found");
+    expect(err()).toContain("no spec found for branch");
   });
 
   test("--mark-ready when no PR exists opens draft PR, gates, and promotes", async () => {
@@ -1534,6 +1534,314 @@ describe("triage --mark-ready", () => {
     expect(gateRan).toBe(false);
   });
 
+  describe("markerless branch-derived spec", () => {
+    function setupMarkerlessWorktree(
+      worktreeName: string,
+      branchName: string,
+    ): { worktreePath: string } {
+      const worktreePath = join(worktreeDir, worktreeName);
+      setupWorktree(worktreePath);
+      const barePath = join(root, `${worktreeName}-remote.git`);
+      execSync(`git init --bare "${barePath}"`, { stdio: "pipe" });
+      execSync(`git remote add origin "${barePath}"`, { cwd: worktreePath, stdio: "pipe" });
+      execSync(`git branch -M ${branchName}`, { cwd: worktreePath, stdio: "pipe" });
+      execSync(`git push -u origin ${branchName}`, { cwd: worktreePath, stdio: "pipe" });
+      return { worktreePath };
+    }
+
+    test("--mark-ready markerless patch worktree finalizes when branch maps to index.md spec", async () => {
+      const branchName = "2026-01-01T00-00-00Z-my-patch";
+      const worktreeName = branchName;
+      setupMarkerlessWorktree(worktreeName, branchName);
+
+      const specDir = join(projectRoot, "v1/spec", branchName);
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "index.md"), "# Test\n\n## Acceptance criteria\n\n- [x] done");
+
+      let gateRan = false;
+      const { io, out } = captureIo();
+      const code = await triageCommand({
+        projectRoot,
+        io,
+        worktreeName,
+        markReady: true,
+        planTargetDir: "v1/spec",
+        ...currentBaseSeam,
+        ghRunner: { getPrState: () => null },
+        ensureDraftPr: async () => ({ number: 1, created: true }),
+        runGate: () => {
+          gateRan = true;
+        },
+        prReady: () => {},
+      });
+
+      expect(code).toBe(0);
+      expect(gateRan).toBe(true);
+      expect(out()).toContain("promoted to ready");
+    });
+
+    test("--mark-ready markerless patch worktree resolves single-file spec directory", async () => {
+      const branchName = "2026-01-01T00-00-00Z-single-file";
+      const worktreeName = branchName;
+      setupMarkerlessWorktree(worktreeName, branchName);
+
+      const specDir = join(projectRoot, "v1/spec", branchName);
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "00-only.md"), "# Test\n\n## Acceptance criteria\n\n- [x] done");
+
+      let gateRan = false;
+      const { io } = captureIo();
+      const code = await triageCommand({
+        projectRoot,
+        io,
+        worktreeName,
+        markReady: true,
+        planTargetDir: "v1/spec",
+        ...currentBaseSeam,
+        ghRunner: { getPrState: () => null },
+        ensureDraftPr: async () => ({ number: 1, created: true }),
+        runGate: () => {
+          gateRan = true;
+        },
+        prReady: () => {},
+      });
+
+      expect(code).toBe(0);
+      expect(gateRan).toBe(true);
+    });
+
+    test("--mark-ready markerless plan/ branch resolves timestamped spec directory", async () => {
+      const planName = "my-plan";
+      const branchName = `plan/${planName}`;
+      const worktreeName = "plan-my-plan";
+      setupMarkerlessWorktree(worktreeName, branchName);
+
+      const specDirName = `2026-01-01T00-00-00Z-${planName}`;
+      const specDir = join(projectRoot, "v1/spec", specDirName);
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "index.md"), "# Test\n\n## Acceptance criteria\n\n- [x] done");
+
+      let gateRan = false;
+      const { io } = captureIo();
+      const code = await triageCommand({
+        projectRoot,
+        io,
+        worktreeName,
+        markReady: true,
+        planTargetDir: "v1/spec",
+        ...currentBaseSeam,
+        ghRunner: { getPrState: () => null },
+        ensureDraftPr: async () => ({ number: 1, created: true }),
+        runGate: () => {
+          gateRan = true;
+        },
+        prReady: () => {},
+      });
+
+      expect(code).toBe(0);
+      expect(gateRan).toBe(true);
+    });
+
+    test("--mark-ready markerless lookup searches planTargetDir first, then v1/spec, then v2/spec", async () => {
+      const branchName = "2026-01-01T00-00-00Z-search-order";
+      const worktreeName = branchName;
+      setupMarkerlessWorktree(worktreeName, branchName);
+
+      // Spec exists in v1/spec but NOT in custom-target
+      const specDir = join(projectRoot, "v1/spec", branchName);
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "index.md"), "# Test\n\n## Acceptance criteria\n\n- [x] done");
+
+      // planTargetDir is custom-target (no spec there); should fall through to v1/spec
+      let gateRan = false;
+      const { io } = captureIo();
+      const code = await triageCommand({
+        projectRoot,
+        io,
+        worktreeName,
+        markReady: true,
+        planTargetDir: "custom-target",
+        ...currentBaseSeam,
+        ghRunner: { getPrState: () => null },
+        ensureDraftPr: async () => ({ number: 1, created: true }),
+        runGate: () => {
+          gateRan = true;
+        },
+        prReady: () => {},
+      });
+
+      expect(code).toBe(0);
+      expect(gateRan).toBe(true);
+    });
+
+    test("--mark-ready markerless searches v2/spec as last fallback", async () => {
+      const branchName = "2026-01-01T00-00-00Z-v2-spec";
+      const worktreeName = branchName;
+      setupMarkerlessWorktree(worktreeName, branchName);
+
+      // Spec only in v2/spec
+      const specDir = join(projectRoot, "v2/spec", branchName);
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "index.md"), "# Test\n\n## Acceptance criteria\n\n- [x] done");
+
+      let gateRan = false;
+      const { io } = captureIo();
+      const code = await triageCommand({
+        projectRoot,
+        io,
+        worktreeName,
+        markReady: true,
+        planTargetDir: "custom-target",
+        ...currentBaseSeam,
+        ghRunner: { getPrState: () => null },
+        ensureDraftPr: async () => ({ number: 1, created: true }),
+        runGate: () => {
+          gateRan = true;
+        },
+        prReady: () => {},
+      });
+
+      expect(code).toBe(0);
+      expect(gateRan).toBe(true);
+    });
+
+    test("--mark-ready markerless ambiguous directory (multiple .md, no index.md) refuses", async () => {
+      const branchName = "2026-01-01T00-00-00Z-ambiguous";
+      const worktreeName = branchName;
+      setupMarkerlessWorktree(worktreeName, branchName);
+
+      const specDir = join(projectRoot, "v1/spec", branchName);
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "00-a.md"), "# A");
+      writeFileSync(join(specDir, "01-b.md"), "# B");
+
+      const { io, err } = captureIo();
+      const code = await triageCommand({
+        projectRoot,
+        io,
+        worktreeName,
+        markReady: true,
+        planTargetDir: "v1/spec",
+        ...currentBaseSeam,
+      });
+
+      expect(code).toBe(1);
+      expect(err()).toContain("ambiguous");
+    });
+
+    test("--mark-ready markerless directory with zero .md files refuses", async () => {
+      const branchName = "2026-01-01T00-00-00Z-empty-dir";
+      const worktreeName = branchName;
+      setupMarkerlessWorktree(worktreeName, branchName);
+
+      const specDir = join(projectRoot, "v1/spec", branchName);
+      mkdirSync(specDir, { recursive: true });
+      // No .md files
+
+      const { io, err } = captureIo();
+      const code = await triageCommand({
+        projectRoot,
+        io,
+        worktreeName,
+        markReady: true,
+        planTargetDir: "v1/spec",
+        ...currentBaseSeam,
+      });
+
+      expect(code).toBe(1);
+      expect(err()).toContain("no markdown files");
+    });
+
+    test("--mark-ready marker-present uses marker even when branch would find a spec", async () => {
+      const branchName = "2026-01-01T00-00-00Z-marker-wins";
+      const worktreeName = branchName;
+      const worktreePath = join(worktreeDir, worktreeName);
+      setupWorktree(worktreePath);
+
+      const barePath = join(root, `${worktreeName}-remote.git`);
+      execSync(`git init --bare "${barePath}"`, { stdio: "pipe" });
+      execSync(`git remote add origin "${barePath}"`, { cwd: worktreePath, stdio: "pipe" });
+      execSync(`git branch -M ${branchName}`, { cwd: worktreePath, stdio: "pipe" });
+      execSync(`git push -u origin ${branchName}`, { cwd: worktreePath, stdio: "pipe" });
+
+      // Create a complete spec the marker will point to
+      const specDir = join(projectRoot, "v1/spec");
+      mkdirSync(specDir, { recursive: true });
+      const markerSpecPath = join(specDir, "complete-spec.md");
+      writeFileSync(markerSpecPath, "# Test\n\n## Acceptance criteria\n\n- [x] done");
+      // Write marker pointing to the complete spec
+      writeFileSync(join(worktreePath, ".active-spec-path"), markerSpecPath);
+      execSync("git add .active-spec-path", { cwd: worktreePath });
+      execSync("git commit -m 'marker'", { cwd: worktreePath });
+      execSync(`git push origin ${branchName}`, { cwd: worktreePath, stdio: "pipe" });
+
+      // Create a branch-name-derived spec dir with INCOMPLETE criteria
+      // If derivation were used, finalize would refuse; marker should win
+      const derivedSpecDir = join(projectRoot, "v1/spec", branchName);
+      mkdirSync(derivedSpecDir, { recursive: true });
+      writeFileSync(
+        join(derivedSpecDir, "index.md"),
+        "# Test\n\n## Acceptance criteria\n\n- [ ] incomplete",
+      );
+
+      let gateRan = false;
+      const { io } = captureIo();
+      const code = await triageCommand({
+        projectRoot,
+        io,
+        worktreeName,
+        markReady: true,
+        planTargetDir: "v1/spec",
+        ...currentBaseSeam,
+        ghRunner: { getPrState: () => null },
+        ensureDraftPr: async () => ({ number: 1, created: true }),
+        runGate: () => {
+          gateRan = true;
+        },
+        prReady: () => {},
+      });
+
+      // Marker wins: used complete spec, not the incomplete derived spec
+      expect(code).toBe(0);
+      expect(gateRan).toBe(true);
+    });
+
+    test("--merge markerless resolved worktree derives spec from branch and merges", () => {
+      const branchName = "2026-01-01T00-00-00Z-merge-markerless";
+      const worktreeName = branchName;
+      const worktreePath = join(worktreeDir, worktreeName);
+      setupWorktree(worktreePath);
+      execSync(`git branch -M ${branchName}`, { cwd: worktreePath, stdio: "pipe" });
+
+      const specDir = join(projectRoot, "v1/spec", branchName);
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "index.md"), "# Test\n\n- [x] item 1");
+
+      let mergeRan = false;
+      const { io, out } = captureIo();
+      const code = triageCommand(
+        triageMergeOpts({
+          projectRoot,
+          io,
+          worktreeName,
+          planTargetDir: "v1/spec",
+          ghRunner: {
+            getPrState: () => ({ state: "OPEN", isDraft: false }),
+            getChecks: () => [{ name: "test", status: "success" }],
+          },
+          runGate: () => {},
+          adminMerge: () => {
+            mergeRan = true;
+          },
+        }),
+      );
+
+      expect(code).toBe(0);
+      expect(mergeRan).toBe(true);
+      expect(out()).toContain("merged successfully");
+    });
+  });
+
   describe("--merge flag", () => {
     test("--merge on unknown worktree returns error", () => {
       const { io, err } = captureIo();
@@ -1548,7 +1856,7 @@ describe("triage --mark-ready", () => {
       expect(err()).toContain("unresolvable target");
     });
 
-    test("--merge with missing .active-spec-path returns error", () => {
+    test("--merge with missing .active-spec-path and no matching spec returns error", () => {
       const worktreeName = "branch-1";
       const worktreePath = join(worktreeDir, worktreeName);
       setupWorktree(worktreePath);
@@ -1563,7 +1871,7 @@ describe("triage --mark-ready", () => {
       );
 
       expect(code).toBe(1);
-      expect(err()).toContain(".active-spec-path marker not found");
+      expect(err()).toContain("no spec found for branch");
     });
 
     test("--merge when no PR exists returns error", () => {

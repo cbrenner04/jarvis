@@ -38,15 +38,15 @@ export class DaemonRunRejectedError extends Error {
   }
 }
 
+function ownershipKeyString(key: OwnershipKey): string {
+  return `${key.project}:${key.branch}`;
+}
+
 export class WorktreeOwnershipRegistry {
   private registry = new Map<string, WorktreeOwnership>();
 
-  private keyString(key: OwnershipKey): string {
-    return `${key.project}:${key.branch}`;
-  }
-
   claim(key: OwnershipKey, ownership: WorktreeOwnership): void {
-    const ks = this.keyString(key);
+    const ks = ownershipKeyString(key);
     if (this.registry.has(ks)) {
       throw new DaemonDoubleClaimError(key);
     }
@@ -54,16 +54,15 @@ export class WorktreeOwnershipRegistry {
   }
 
   release(key: OwnershipKey): void {
-    const ks = this.keyString(key);
-    this.registry.delete(ks);
+    this.registry.delete(ownershipKeyString(key));
   }
 
   get(key: OwnershipKey): WorktreeOwnership | undefined {
-    return this.registry.get(this.keyString(key));
+    return this.registry.get(ownershipKeyString(key));
   }
 
   isClaimed(key: OwnershipKey): boolean {
-    return this.registry.has(this.keyString(key));
+    return this.registry.has(ownershipKeyString(key));
   }
 }
 
@@ -91,51 +90,52 @@ function normalizeBindings(input: WriteLoopInput): WriteLoopInput {
   };
 }
 
-export async function startDaemon(socketPath: string, stateStore?: StateStore, logReader?: LogReader): Promise<void> {
+/**
+ * Injectable dependencies for {@link createRunControlHandlers}.
+ *
+ * - `stateStore`: durable run rows — `createRun` on start, `listRuns`/`loadRun` on
+ *   list/pause/resume/kill, `setRunStatus` on kill.
+ * - `writeLoopExecutor`: write-loop body only; factory owns claim/release and
+ *   fire-and-forget spawn. Log-sink open/close stays in {@link startDaemon}'s
+ *   production wrapper. Executor rejections do not propagate to RPC callers.
+ */
+export type RunControlHandlerDeps = {
+  stateStore: StateStore;
+  writeLoopExecutor: (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => Promise<void>;
+};
+
+/**
+ * Run-control handler factory for `start`/`list`/`pause`/`resume`/`kill`.
+ *
+ * @param deps - {@link RunControlHandlerDeps}
+ * @returns `{ start, list, pause, resume, kill }` — each an {@link RpcHandler}.
+ *   Handlers signal rejections via `{ kind: "error", code, message }`; they do not throw.
+ * @throws Never — factory and handlers are non-throwing at the RPC boundary.
+ * @invariant Each invocation gets a fresh `WorktreeOwnershipRegistry` and `activeRuns` map.
+ * @invariant Write loops spawn fire-and-forget; settlement always releases registry and
+ *   active-run entries. `writeLoopExecutor` rejections are swallowed at the spawn boundary.
+ */
+export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const _registry = new WorktreeOwnershipRegistry();
   const activeRuns = new Map<string, ActiveRun>();
-  const store = stateStore ?? openStateStore();
-  const logsPath = join(homedir(), ".jarvis", "state", "logs.jsonl");
-  const logReaderInstance = logReader ?? openLogReader(logsPath);
-  let shutdownRequested = false;
+  const { stateStore: store, writeLoopExecutor } = deps;
 
-  const keyString = (key: OwnershipKey): string => `${key.project}:${key.branch}`;
+  const spawnWriteLoop = (key: OwnershipKey, runId: string, worktreePath: string, input: WriteLoopInput): void => {
+    const ks = ownershipKeyString(key);
+    const abortController = new AbortController();
+    const pauseController = new AbortController();
+    activeRuns.set(ks, { runId, key, abortController, pauseController });
 
-  const tailStreamHandler: StreamHandler = async (_streamId, payload, onData, onClose, signal) => {
-    const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
-    if (!params?.runId || typeof params.runId !== "string") {
-      onClose();
-      return;
-    }
+    _registry.claim(key, { runId, worktreePath });
 
-    const runId = params.runId as string;
-    const run = store.loadRun(runId);
-    if (!run) {
-      onClose();
-      return;
-    }
-
-    try {
-      for await (const record of logReaderInstance.follow(runId, signal)) {
-        if (signal.aborted) break;
-        onData(record);
+    (async () => {
+      try {
+        await writeLoopExecutor(input, abortController.signal, pauseController.signal);
+      } finally {
+        activeRuns.delete(ks);
+        _registry.release(key);
       }
-    } finally {
-      onClose();
-    }
-  };
-
-  const healthHandler: RpcHandler = () => {
-    return { kind: "response", result: { ok: true } };
-  };
-
-  const statusHandler: RpcHandler = () => {
-    return { kind: "response", result: { state: "running" } };
-  };
-
-  const shutdownHandler: RpcHandler = () => {
-    shutdownRequested = true;
-    return { kind: "response", result: { ok: true } };
+    })();
   };
 
   const startHandler: RpcHandler = (frame) => {
@@ -177,32 +177,7 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
       specPath: input.specPath,
     });
 
-    const abortController = new AbortController();
-    const pauseController = new AbortController();
-    const ks = keyString(key);
-    activeRuns.set(ks, { runId, key, abortController, pauseController });
-
-    // Claim the worktree
-    _registry.claim(key, { runId, worktreePath });
-
-    // Spawn the loop in the background, not awaited
-    (async () => {
-      const logSink = openLogSink(logsPath);
-      try {
-        await executeWriteLoop({
-          ...input,
-          stateStore: store,
-          logSink,
-          signal: abortController.signal,
-          pauseSignal: pauseController.signal,
-        });
-      } finally {
-        logSink.close();
-        // Release registration when settled
-        activeRuns.delete(ks);
-        _registry.release(key);
-      }
-    })();
+    spawnWriteLoop(key, runId, worktreePath, input);
 
     return { kind: "response", result: { runId } };
   };
@@ -211,7 +186,7 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
     const durableRuns = store.listRuns();
 
     const runList = durableRuns.map((run) => {
-      const ks = keyString({ project: run.project, branch: run.branch });
+      const ks = ownershipKeyString({ project: run.project, branch: run.branch });
       const isLive = activeRuns.has(ks);
       return {
         runId: run.id,
@@ -237,7 +212,7 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
       return { kind: "error", code: "unknown_run", message: `Run ${runId} not found` };
     }
 
-    const ks = keyString({ project: run.project, branch: run.branch });
+    const ks = ownershipKeyString({ project: run.project, branch: run.branch });
     const activeRun = activeRuns.get(ks);
     if (activeRun && activeRun.runId === runId) {
       activeRun.pauseController.abort();
@@ -259,7 +234,7 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
       return { kind: "error", code: "unknown_run", message: `Run ${runId} not found` };
     }
 
-    const ks = keyString({ project: run.project, branch: run.branch });
+    const ks = ownershipKeyString({ project: run.project, branch: run.branch });
     const activeRun = activeRuns.get(ks);
     if (activeRun && activeRun.runId === runId) {
       activeRun.abortController.abort();
@@ -307,7 +282,7 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
       };
     }
 
-    // Reconstruct WriteLoopInput from the run and re-invoke executeWriteLoop
+    // Reconstruct WriteLoopInput from the run and spawn write loop via injected executor
     const input: WriteLoopInput = {
       worktree: {
         projectRoot: run.worktreePath,
@@ -321,33 +296,75 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
       bindings: [],
     };
 
-    const abortController = new AbortController();
-    const pauseController = new AbortController();
-    const ks = keyString(key);
-    activeRuns.set(ks, { runId, key, abortController, pauseController });
+    spawnWriteLoop(key, runId, run.worktreePath, input);
 
-    // Claim the worktree
-    _registry.claim(key, { runId, worktreePath: run.worktreePath });
+    return { kind: "response", result: { ok: true } };
+  };
 
-    // Spawn the loop in the background, not awaited
-    (async () => {
-      const logSink = openLogSink(logsPath);
-      try {
-        await executeWriteLoop({
-          ...input,
-          stateStore: store,
-          logSink,
-          signal: abortController.signal,
-          pauseSignal: pauseController.signal,
-        });
-      } finally {
-        logSink.close();
-        // Release registration when settled
-        activeRuns.delete(ks);
-        _registry.release(key);
+  return {
+    start: startHandler,
+    list: listHandler,
+    pause: pauseHandler,
+    resume: resumeHandler,
+    kill: killHandler,
+  };
+}
+
+export async function startDaemon(socketPath: string, stateStore?: StateStore, logReader?: LogReader): Promise<void> {
+  const store = stateStore ?? openStateStore();
+  const logsPath = join(homedir(), ".jarvis", "state", "logs.jsonl");
+  const logReaderInstance = logReader ?? openLogReader(logsPath);
+  let shutdownRequested = false;
+
+  const writeLoopExecutor = async (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => {
+    const logSink = openLogSink(logsPath);
+    try {
+      await executeWriteLoop({
+        ...input,
+        stateStore: store,
+        logSink,
+        signal,
+        pauseSignal,
+      });
+    } finally {
+      logSink.close();
+    }
+  };
+
+  const tailStreamHandler: StreamHandler = async (_streamId, payload, onData, onClose, signal) => {
+    const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
+    if (!params?.runId || typeof params.runId !== "string") {
+      onClose();
+      return;
+    }
+
+    const runId = params.runId as string;
+    const run = store.loadRun(runId);
+    if (!run) {
+      onClose();
+      return;
+    }
+
+    try {
+      for await (const record of logReaderInstance.follow(runId, signal)) {
+        if (signal.aborted) break;
+        onData(record);
       }
-    })();
+    } finally {
+      onClose();
+    }
+  };
 
+  const healthHandler: RpcHandler = () => {
+    return { kind: "response", result: { ok: true } };
+  };
+
+  const statusHandler: RpcHandler = () => {
+    return { kind: "response", result: { state: "running" } };
+  };
+
+  const shutdownHandler: RpcHandler = () => {
+    shutdownRequested = true;
     return { kind: "response", result: { ok: true } };
   };
 
@@ -355,11 +372,7 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
     health: healthHandler,
     status: statusHandler,
     shutdown: shutdownHandler,
-    start: startHandler,
-    list: listHandler,
-    pause: pauseHandler,
-    kill: killHandler,
-    resume: resumeHandler,
+    ...createRunControlHandlers({ stateStore: store, writeLoopExecutor }),
   };
 
   let server: IpcServer;

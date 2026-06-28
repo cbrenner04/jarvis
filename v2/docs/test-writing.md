@@ -32,13 +32,9 @@ Sources: `package.json`, `scripts/run-v2-tests.ts`, `test/test-slices.test.ts`
 
 ## Shared socket fixtures
 
-Socket-backed v2 tests import settled Unix-socket availability and `skipIfNoSockets` from [`v2/src/testing/unix-socket.ts`](../src/testing/unix-socket.ts). Do not duplicate the probe or wrapper locally.
+Socket-backed v2 tests import `canCreateSockets` and `skipIfNoSockets` from [`v2/src/testing/unix-socket.ts`](../src/testing/unix-socket.ts). Guard hooks with the flag; wrap test bodies with the wrapper (early return). Emit file-local stderr when the suite needs operator-visible skip context — the shared probe does not write on failure.
 
-- Import `canCreateSockets` when `beforeEach`/`afterEach` hooks must guard setup and teardown.
-- Wrap socket-dependent test bodies with `skipIfNoSockets` (early return, not hard failure).
-- Emit file-local stderr skip messages when the suite needs operator-visible skip context; the shared fixture does not write on probe failure.
-
-Use the shared fixture for any v2 test that binds or connects to a Unix domain socket under the OS temp directory, including agent-runnable tests (`ipc.test.ts`, `daemon-start-list.test.ts`) and sandbox-unrunnable daemon lifecycle tests.
+Use for any v2 test binding or connecting to a Unix socket under `tmpdir()`, including agent-runnable (`ipc.test.ts`, `daemon-start-list.test.ts`) and sandbox-unrunnable daemon lifecycle tests.
 
 ## Determinism smell checklist
 

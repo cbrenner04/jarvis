@@ -41,11 +41,11 @@ describe("config show", () => {
     });
     expect(code).toBe(0);
     const parsed = JSON.parse(cap.out());
-const defaultOrder = [
-  { agent: "claude", model: "haiku" },
-  { agent: "codex", model: "gpt-5.4" },
-  { agent: "cursor", model: "Composer 2.5" },
-];
+    const defaultOrder = [
+      { agent: "claude", model: "haiku" },
+      { agent: "codex", model: "gpt-5.4" },
+      { agent: "cursor", model: "Composer 2.5" },
+    ];
     expect(parsed.version).toBe(2);
     expect(parsed.modes.patch).toEqual({ agentOrder: defaultOrder, prNarrative: "agent", shrink: "agent" });
     expect(parsed.modes.plan).toEqual({ agentOrder: defaultOrder, targetDir: "spec", prNarrative: "agent" });

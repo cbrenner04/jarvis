@@ -31,13 +31,13 @@ tests to import the shared fixture without changing assertions.
 
 ## Acceptance criteria
 
-- [ ] `ipc.test.ts` stays green (behavior unchanged by the extraction).
-- [ ] `daemon.sandbox-unrunnable.test.ts` stays green (behavior unchanged by the extraction).
-- [ ] `daemon-start-list.test.ts` stays green (behavior unchanged by the extraction).
-- [ ] `ipc.test.ts`, `daemon.sandbox-unrunnable.test.ts`, and `daemon-start-list.test.ts` contain no local Unix-socket probe block or local `skipIfNoSockets` copy; each imports shared settled availability and `skipIfNoSockets`.
-- [ ] Shared fixture exports settled Unix-socket availability and `skipIfNoSockets`; every exported symbol has a doc-comment per `v2/docs/documentation-standard.md`.
-- [ ] `v2/docs/test-writing.md` documents shared socket fixtures under `v2/src/testing/` and when v2 socket-backed tests should import them.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `ipc.test.ts` stays green (behavior unchanged by the extraction).
+- [x] `daemon.sandbox-unrunnable.test.ts` stays green (behavior unchanged by the extraction).
+- [x] `daemon-start-list.test.ts` stays green (behavior unchanged by the extraction).
+- [x] `ipc.test.ts`, `daemon.sandbox-unrunnable.test.ts`, and `daemon-start-list.test.ts` contain no local Unix-socket probe block or local `skipIfNoSockets` copy; each imports shared settled availability and `skipIfNoSockets`.
+- [x] Shared fixture exports settled Unix-socket availability and `skipIfNoSockets`; every exported symbol has a doc-comment per `v2/docs/documentation-standard.md`.
+- [x] `v2/docs/test-writing.md` documents shared socket fixtures under `v2/src/testing/` and when v2 socket-backed tests should import them.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

@@ -887,15 +887,14 @@ describe("write loop", () => {
     expect(result.iterationsConsumed).toBe(2);
 
     const events = sink.getEventsForRun(result.runId);
-    // Should have: iteration_started, boundary_committed, iteration_started, boundary_committed, loop_finished
-    expect(events.length).toBe(5);
+    // Should have: iteration_started, boundary_committed (completed), iteration_started (aborted, no boundary), loop_finished
+    expect(events.length).toBe(4);
     expect(events[0]?.kind).toBe("iteration_started");
     expect(events[1]?.kind).toBe("boundary_committed");
     expect(events[2]?.kind).toBe("iteration_started");
-    expect(events[3]?.kind).toBe("boundary_committed");
-    expect(events[4]?.kind).toBe("loop_finished");
-    expect(events[4]?.kind === "loop_finished" && events[4].loopOutcomeKind).toBe("progress");
-    expect(events[4]?.kind === "loop_finished" && events[4].iterationsConsumed).toBe(2);
+    expect(events[3]?.kind).toBe("loop_finished");
+    expect(events[3]?.kind === "loop_finished" && events[3].loopOutcomeKind).toBe("progress");
+    expect(events[3]?.kind === "loop_finished" && events[3].iterationsConsumed).toBe(2);
   });
 
   test("re-invoking a run whose terminal boundary is already committed returns prior outcome without appending log events", async () => {
@@ -1087,10 +1086,11 @@ describe("write loop", () => {
     expect(result.kind).toBe("progress");
     expect(result.iterationsConsumed).toBe(2);
 
-    // Verify the second attempt's boundary was committed (not the aborted one)
+    // Verify the first attempt's boundary was committed, but not the aborted one
     const run = loadRunOnce(stateDbPath, result.runId);
     expect(run?.attempts).toHaveLength(2);
-    expect(run?.attempts[1]?.status).toBe("completed");
+    expect(run?.attempts[0]?.status).toBe("completed");
+    expect(run?.attempts[1]?.status).toBe("in-progress"); // Aborted mid-step, boundary not committed
 
     const events = sink.getEventsForRun(result.runId);
     const finishedEvent = events[events.length - 1];

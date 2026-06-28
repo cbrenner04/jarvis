@@ -17,6 +17,7 @@ export type ActiveRun = {
   runId: string;
   key: OwnershipKey;
   abortController: AbortController;
+  pauseController: AbortController;
 };
 
 export class DaemonDoubleClaimError extends Error {
@@ -123,8 +124,9 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore): 
     });
 
     const abortController = new AbortController();
+    const pauseController = new AbortController();
     const ks = keyString(key);
-    activeRuns.set(ks, { runId, key, abortController });
+    activeRuns.set(ks, { runId, key, abortController, pauseController });
 
     // Claim the worktree
     _registry.claim(key, { runId, worktreePath });
@@ -136,6 +138,7 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore): 
           ...input,
           stateStore: store,
           signal: abortController.signal,
+          pauseSignal: pauseController.signal,
         });
       } finally {
         // Release registration when settled
@@ -165,12 +168,138 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore): 
     return { kind: "response", result: { runs: runList } };
   };
 
+  const pauseHandler: RpcHandler = (frame) => {
+    const params = frame.params as any;
+    if (!params || !params.runId) {
+      return { kind: "error", code: "invalid_params", message: "Missing runId" };
+    }
+
+    const runId = params.runId as string;
+    const run = store.loadRun(runId);
+    if (!run) {
+      return { kind: "error", code: "unknown_run", message: `Run ${runId} not found` };
+    }
+
+    const ks = keyString({ project: run.project, branch: run.branch });
+    const activeRun = activeRuns.get(ks);
+    if (activeRun && activeRun.runId === runId) {
+      activeRun.pauseController.abort();
+      return { kind: "response", result: { ok: true } };
+    }
+
+    return { kind: "error", code: "run_not_active", message: `Run ${runId} is not currently active` };
+  };
+
+  const killHandler: RpcHandler = (frame) => {
+    const params = frame.params as any;
+    if (!params || !params.runId) {
+      return { kind: "error", code: "invalid_params", message: "Missing runId" };
+    }
+
+    const runId = params.runId as string;
+    const run = store.loadRun(runId);
+    if (!run) {
+      return { kind: "error", code: "unknown_run", message: `Run ${runId} not found` };
+    }
+
+    const ks = keyString({ project: run.project, branch: run.branch });
+    const activeRun = activeRuns.get(ks);
+    if (activeRun && activeRun.runId === runId) {
+      activeRun.abortController.abort();
+      store.setRunStatus(runId, "killed");
+      return { kind: "response", result: { ok: true } };
+    }
+
+    return { kind: "error", code: "run_not_active", message: `Run ${runId} is not currently active` };
+  };
+
+  const resumeHandler: RpcHandler = (frame) => {
+    const params = frame.params as any;
+    if (!params || !params.runId) {
+      return { kind: "error", code: "invalid_params", message: "Missing runId" };
+    }
+
+    const runId = params.runId as string;
+    const run = store.loadRun(runId);
+    if (!run) {
+      return { kind: "error", code: "unknown_run", message: `Run ${runId} not found` };
+    }
+
+    // Reject terminal statuses
+    if (run.status === "completed" || run.status === "failed" || run.status === "blocked") {
+      return { kind: "error", code: "terminal_run", message: `Cannot resume a ${run.status} run` };
+    }
+
+    const key: OwnershipKey = { project: run.project, branch: run.branch };
+
+    // Check single in-flight run guard
+    if (activeRuns.size > 0) {
+      return {
+        kind: "error",
+        code: "run_in_progress",
+        message: "A run is already in progress; at most one in-flight run globally",
+      };
+    }
+
+    // Check per-(project, branch) guard
+    if (_registry.isClaimed(key)) {
+      return {
+        kind: "error",
+        code: "worktree_claimed",
+        message: `Worktree already claimed for project=${key.project}, branch=${key.branch}`,
+      };
+    }
+
+    // Reconstruct WriteLoopInput from the run and re-invoke executeWriteLoop
+    const input: WriteLoopInput = {
+      worktree: {
+        projectRoot: run.worktreePath,
+        projectName: run.project,
+        branchName: run.branch,
+        baseRef: run.specRef,
+      },
+      specPath: run.specPath,
+      stepRules: "", // These should be reconstructed from the calling context
+      expectedArtifactPath: "", // These should be reconstructed from the calling context
+      bindings: [],
+    };
+
+    const abortController = new AbortController();
+    const pauseController = new AbortController();
+    const ks = keyString(key);
+    activeRuns.set(ks, { runId, key, abortController, pauseController });
+
+    // Claim the worktree
+    _registry.claim(key, { runId, worktreePath: run.worktreePath });
+
+    // Spawn the loop in the background, not awaited
+    (async () => {
+      try {
+        await executeWriteLoop({
+          ...input,
+          stateStore: store,
+          signal: abortController.signal,
+          pauseSignal: pauseController.signal,
+        });
+      } finally {
+        // Release registration when settled
+        activeRuns.delete(ks);
+        _registry.release(key);
+      }
+    })();
+
+    return { kind: "response", result: { ok: true } };
+  };
+
   const handlers: Record<string, RpcHandler> = {
     health: healthHandler,
     status: statusHandler,
     shutdown: shutdownHandler,
     start: startHandler,
     list: listHandler,
+    pause: pauseHandler,
+    kill: killHandler,
+    resume: resumeHandler,
   };
 
   let server: IpcServer;

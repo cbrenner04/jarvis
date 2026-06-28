@@ -88,6 +88,18 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       const { result } = await executeWrite(writeArgs);
       iterationsConsumed += 1;
 
+      // If the abort signal was triggered while the step was running, skip boundary commit
+      if (args.signal?.aborted) {
+        const result = { kind: "progress" as const, runId, iterationsConsumed, resumable: true };
+        args.logSink?.append(runId, {
+          kind: "loop_finished",
+          loopOutcomeKind: "progress",
+          iterationsConsumed,
+          resumable: true,
+        });
+        return result;
+      }
+
       if (result.kind === "progress") {
         store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
         args.logSink?.append(runId, {

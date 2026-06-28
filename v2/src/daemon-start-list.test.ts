@@ -38,7 +38,7 @@ const SOCKET_PATH = join(tmpdir(), `jarvis-daemon-test-${process.pid}.sock`);
 type PendingExecutorRun = {
   signal: AbortSignal;
   pauseSignal: AbortSignal;
-  settle: () => void;
+  release: (mode: "settle" | "abort") => void;
 };
 
 function createFakeWriteLoopExecutor() {
@@ -47,19 +47,30 @@ function createFakeWriteLoopExecutor() {
   const executor = async (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal): Promise<void> => {
     void input;
     await new Promise<void>((resolve) => {
-      pending.push({ signal, pauseSignal, settle: resolve });
+      let released = false;
+      const release = (mode: "settle" | "abort"): void => {
+        void mode;
+        if (released) {
+          return;
+        }
+        released = true;
+        resolve();
+      };
+      pending.push({ signal, pauseSignal, release });
+      signal.addEventListener("abort", () => release("abort"), { once: true });
     });
   };
 
-  const settleAll = (): void => {
+  const drainPending = (mode: "settle" | "abort"): void => {
     while (pending.length > 0) {
-      pending.shift()?.settle();
+      pending.shift()?.release(mode);
     }
   };
 
   return {
     executor,
-    settleAll,
+    settleAll: (): void => drainPending("settle"),
+    abortAll: (): void => drainPending("abort"),
     isPauseSignalTriggered: (): boolean => pending.some((run) => run.pauseSignal.aborted),
     isAbortSignalTriggered: (): boolean => pending.some((run) => run.signal.aborted),
   };
@@ -97,7 +108,7 @@ afterEach(async () => {
   if (!canCreateSockets) {
     return;
   }
-  fakeExecutor.settleAll();
+  fakeExecutor.abortAll();
   await flushBackgroundRuns();
   try {
     await server.close();
@@ -349,10 +360,15 @@ test(
 
     fakeExecutor.settleAll();
     await flushBackgroundRuns();
+    stateStore.setRunStatus(runId, "completed");
 
     client.send({ kind: "request", id: "r1", method: "resume", params: { runId } });
     const resumeResponse = await client.nextFrame();
-    expect(resumeResponse.kind).toBe("response");
+    expect(resumeResponse.kind).toBe("error");
+    if (resumeResponse.kind === "error") {
+      expect(resumeResponse.code).toBe("terminal_run");
+      expect(resumeResponse.message).toBe("Cannot resume a completed run");
+    }
     client.close();
   }),
 );
@@ -361,17 +377,24 @@ test(
   "resume rejects if another run is in-flight (single in-flight guard)",
   skipIfNoSockets(async () => {
     const client = await connectIpcClient(SOCKET_PATH);
-    const input2 = mockWriteLoopInput({ branchName: "other-branch" });
-    const runId = await startRun(client);
-    if (!runId) {
-      client.close();
-      return;
+    await startRun(client);
+
+    const pausedRunId = stateStore.createRun({
+      project: "test-project",
+      specRef: "main",
+      worktreePath: "/tmp/other-worktree",
+      branch: "other-branch",
+      specPath: "/tmp/test-project/spec.md",
+    });
+    stateStore.setRunStatus(pausedRunId, "paused");
+
+    client.send({ kind: "request", id: "r1", method: "resume", params: { runId: pausedRunId } });
+    const resumeResponse = await client.nextFrame();
+    expect(resumeResponse.kind).toBe("error");
+    if (resumeResponse.kind === "error") {
+      expect(resumeResponse.code).toBe("run_in_progress");
+      expect(resumeResponse.message).toBe("A run is already in progress; at most one in-flight run globally");
     }
-
-    client.send({ kind: "request", id: "s2", method: "start", params: { input: input2 } });
-    const startResponse2 = await client.nextFrame();
-    expect(startResponse2.kind).toBe("error");
-
     client.close();
   }),
 );

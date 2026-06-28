@@ -5,13 +5,13 @@ import { parseSpec } from "../../../shared/spec-parser.ts";
 import { appendAgentTrailer } from "../commit-trailer.ts";
 import type { ConfigOptions } from "../config.ts";
 import { loadConfig, resolvePlanFlags } from "../config.ts";
-import { stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
 import { getBaseBranch, withSyncTransientRetry } from "../gh.ts";
 import { type BaseCurrentCheckResult, checkBaseCurrentForFinalize } from "../git/base-current.ts";
 import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "../modes/patch/completion.ts";
 import { generatePrBody, getIndexTitle } from "../modes/patch/completion-pipeline.ts";
 import { findRelocatedSpecFile, prepareActiveSpecPath } from "../modes/patch/preflight.ts";
 import { snapshotAcceptanceCriteria } from "../modes/patch/subspec.ts";
+import { stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
 import { type EnsureDraftPrOpts, ensureDraftPr, findMatchingOpenPrs, renderAttributionSummary } from "../pr.ts";
 import { runReadyGateWithTier } from "../ready-gate.ts";
 import { pushCurrent } from "../worktree.ts";
@@ -1131,11 +1131,7 @@ function resolveSpecDir(dirPath: string): DeriveSpecResult {
   return { ok: false, reason: "multiple-md", dirPath };
 }
 
-function deriveSpecPathFromBranch(
-  branch: string,
-  projectRoot: string,
-  configuredTargetDir: string,
-): DeriveSpecResult {
+function deriveSpecPathFromBranch(branch: string, projectRoot: string, configuredTargetDir: string): DeriveSpecResult {
   const isPlan = branch.startsWith("plan/");
   const specName = isPlan ? branch.slice("plan/".length) : branch;
   const seen = new Set<string>();
@@ -1187,9 +1183,7 @@ function deriveSpecPathFromBranch(
           if (statSync(dirPath).isDirectory()) {
             return resolveSpecDir(dirPath);
           }
-        } catch {
-          continue;
-        }
+        } catch {}
       }
     }
   }

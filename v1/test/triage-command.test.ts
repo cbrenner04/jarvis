@@ -1535,10 +1535,7 @@ describe("triage --mark-ready", () => {
   });
 
   describe("markerless branch-derived spec", () => {
-    function setupMarkerlessWorktree(
-      worktreeName: string,
-      branchName: string,
-    ): { worktreePath: string } {
+    function setupMarkerlessWorktree(worktreeName: string, branchName: string): { worktreePath: string } {
       const worktreePath = join(worktreeDir, worktreeName);
       setupWorktree(worktreePath);
       const barePath = join(root, `${worktreeName}-remote.git`);
@@ -1779,10 +1776,7 @@ describe("triage --mark-ready", () => {
       // If derivation were used, finalize would refuse; marker should win
       const derivedSpecDir = join(projectRoot, "v1/spec", branchName);
       mkdirSync(derivedSpecDir, { recursive: true });
-      writeFileSync(
-        join(derivedSpecDir, "index.md"),
-        "# Test\n\n## Acceptance criteria\n\n- [ ] incomplete",
-      );
+      writeFileSync(join(derivedSpecDir, "index.md"), "# Test\n\n## Acceptance criteria\n\n- [ ] incomplete");
 
       let gateRan = false;
       const { io } = captureIo();

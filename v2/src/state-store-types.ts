@@ -1,5 +1,12 @@
 /** Status values for a run. */
-export type RunStatus = "in-progress" | "completed" | "blocked" | "budget-soft-stopped" | "paused" | "failed" | "killed";
+export type RunStatus =
+  | "in-progress"
+  | "completed"
+  | "blocked"
+  | "budget-soft-stopped"
+  | "paused"
+  | "failed"
+  | "killed";
 
 /** Terminal status of an attempt. */
 export type AttemptStatus = "in-progress" | "completed" | "blocked" | "budget-soft-stopped";

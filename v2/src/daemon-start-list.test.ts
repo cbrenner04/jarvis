@@ -3,12 +3,12 @@ import { rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { type ActiveRun, type OwnershipKey, WorktreeOwnershipRegistry } from "./daemon.ts";
+import { getExternalWorktreePath } from "./external-worktree.ts";
 import { connectIpcClient } from "./ipc/client.ts";
-import { type IpcServer, startIpcServer } from "./ipc/server.ts";
+import { type IpcServer, type RpcHandler, startIpcServer } from "./ipc/server.ts";
 import { openStateStore, type StateStore } from "./state-store.ts";
 import type { WriteLoopInput } from "./write-loop.ts";
-import { WorktreeOwnershipRegistry, type ActiveRun, type OwnershipKey } from "./daemon.ts";
-import { getExternalWorktreePath } from "./external-worktree.ts";
 
 // Check if sockets can be created in /tmp; skip all tests if not (sandbox restriction)
 let canCreateSockets = false;
@@ -52,9 +52,9 @@ beforeEach(async () => {
 
   const keyString = (key: OwnershipKey): string => `${key.project}:${key.branch}`;
 
-  const startHandler = (frame: any) => {
-    const params = frame.params as any;
-    if (!params || !params.input) {
+  const startHandler: RpcHandler = (frame) => {
+    const params = frame.params as { input?: WriteLoopInput } | undefined;
+    if (!params?.input) {
       return { kind: "error" as const, code: "invalid_params", message: "Missing input" };
     }
 
@@ -104,7 +104,7 @@ beforeEach(async () => {
     return { kind: "response" as const, result: { runId } };
   };
 
-  const listHandler = (frame: any) => {
+  const listHandler: RpcHandler = () => {
     const durableRuns = stateStore.listRuns();
     const runList = durableRuns.map((run) => {
       const ks = keyString({ project: run.project, branch: run.branch });
@@ -120,9 +120,9 @@ beforeEach(async () => {
     return { kind: "response" as const, result: { runs: runList } };
   };
 
-  const pauseHandler = (frame: any) => {
-    const params = frame.params as any;
-    if (!params || !params.runId) {
+  const pauseHandler: RpcHandler = (frame) => {
+    const params = frame.params as { runId?: string } | undefined;
+    if (!params?.runId) {
       return { kind: "error" as const, code: "invalid_params", message: "Missing runId" };
     }
 
@@ -142,9 +142,9 @@ beforeEach(async () => {
     return { kind: "error" as const, code: "run_not_active", message: `Run ${runId} is not currently active` };
   };
 
-  const killHandler = (frame: any) => {
-    const params = frame.params as any;
-    if (!params || !params.runId) {
+  const killHandler: RpcHandler = (frame) => {
+    const params = frame.params as { runId?: string } | undefined;
+    if (!params?.runId) {
       return { kind: "error" as const, code: "invalid_params", message: "Missing runId" };
     }
 
@@ -165,9 +165,9 @@ beforeEach(async () => {
     return { kind: "error" as const, code: "run_not_active", message: `Run ${runId} is not currently active` };
   };
 
-  const resumeHandler = (frame: any) => {
-    const params = frame.params as any;
-    if (!params || !params.runId) {
+  const resumeHandler: RpcHandler = (frame) => {
+    const params = frame.params as { runId?: string } | undefined;
+    if (!params?.runId) {
       return { kind: "error" as const, code: "invalid_params", message: "Missing runId" };
     }
 
@@ -277,9 +277,9 @@ test(
     const frame = await client.nextFrame();
     expect(frame.kind).toBe("response");
     if (frame.kind !== "response") return;
-    const result = frame.result as any;
+    const result = frame.result as { runId?: string } | undefined;
     expect(result).toHaveProperty("runId");
-    expect(typeof result.runId).toBe("string");
+    expect(typeof result?.runId).toBe("string");
     client.close();
   }),
 );
@@ -294,7 +294,10 @@ test(
     expect(response1.kind).toBe("response");
 
     // Try to start another run while first is active
-    const input2 = { ...mockWriteLoopInput(), worktree: { ...mockWriteLoopInput().worktree, projectName: "other-project" } };
+    const input2 = {
+      ...mockWriteLoopInput(),
+      worktree: { ...mockWriteLoopInput().worktree, projectName: "other-project" },
+    };
     client.send({ kind: "request", id: "s2", method: "start", params: { input: input2 } });
     const response2 = await client.nextFrame();
     expect(response2.kind).toBe("error");
@@ -345,18 +348,20 @@ test(
       return;
     }
 
-    const result = listResponse.result as any;
+    const result = listResponse.result as
+      | { runs?: Array<{ runId: string; project: string; branch: string; status: string; isLive: boolean }> }
+      | undefined;
     expect(result).toHaveProperty("runs");
-    expect(Array.isArray(result.runs)).toBe(true);
-    expect(result.runs.length).toBeGreaterThan(0);
+    expect(Array.isArray(result?.runs)).toBe(true);
+    expect(result?.runs?.length).toBeGreaterThan(0);
 
-    const run = result.runs[0];
+    const run = result?.runs?.[0];
     expect(run).toHaveProperty("runId");
     expect(run).toHaveProperty("project");
     expect(run).toHaveProperty("branch");
     expect(run).toHaveProperty("status");
     expect(run).toHaveProperty("isLive");
-    expect(run.isLive).toBe(true); // Run is still active
+    expect(run?.isLive).toBe(true); // Run is still active
     client.close();
   }),
 );
@@ -388,11 +393,13 @@ test(
       return;
     }
 
-    const result = listResponse.result as any;
-    expect(result.runs.length).toBeGreaterThan(0);
+    const result = listResponse.result as
+      | { runs?: Array<{ runId: string; project: string; branch: string; status: string; isLive: boolean }> }
+      | undefined;
+    expect(result?.runs?.length).toBeGreaterThan(0);
 
-    const run = result.runs[0];
-    expect(run.isLive).toBe(false); // Run has settled
+    const run = result?.runs?.[0];
+    expect(run?.isLive).toBe(false); // Run has settled
     client.close();
   }),
 );
@@ -412,14 +419,14 @@ test(
       return;
     }
 
-    const runId = (startResponse.result as any).runId;
+    const runId = (startResponse.result as { runId?: string } | undefined)?.runId;
 
     // Pause the run
     client.send({ kind: "request", id: "p1", method: "pause", params: { runId } });
     const pauseResponse = await client.nextFrame();
     expect(pauseResponse.kind).toBe("response");
     if (pauseResponse.kind === "response") {
-      expect((pauseResponse.result as any).ok).toBe(true);
+      expect((pauseResponse.result as { ok?: boolean } | undefined)?.ok).toBe(true);
     }
     client.close();
   }),
@@ -456,14 +463,14 @@ test(
       return;
     }
 
-    const runId = (startResponse.result as any).runId;
+    const runId = (startResponse.result as { runId?: string } | undefined)?.runId;
 
     // Kill the run
     client.send({ kind: "request", id: "k1", method: "kill", params: { runId } });
     const killResponse = await client.nextFrame();
     expect(killResponse.kind).toBe("response");
     if (killResponse.kind === "response") {
-      expect((killResponse.result as any).ok).toBe(true);
+      expect((killResponse.result as { ok?: boolean } | undefined)?.ok).toBe(true);
     }
 
     // Verify the run status is killed
@@ -471,8 +478,14 @@ test(
     const listResponse = await client.nextFrame();
     expect(listResponse.kind).toBe("response");
     if (listResponse.kind === "response") {
-      const runs = (listResponse.result as any).runs;
-      const run = runs.find((r: any) => r.runId === runId);
+      const runs = (
+        listResponse.result as
+          | { runs?: Array<{ runId: string; project: string; branch: string; status: string; isLive: boolean }> }
+          | undefined
+      )?.runs;
+      const run = runs?.find(
+        (r: { runId: string; project: string; branch: string; status: string; isLive: boolean }) => r.runId === runId,
+      );
       expect(run).toBeDefined();
       expect(run?.status).toBe("killed");
     }
@@ -527,7 +540,7 @@ test(
       return;
     }
 
-    const runId = (startResponse.result as any).runId;
+    const runId = (startResponse.result as { runId?: string } | undefined)?.runId;
 
     // Wait for the run to settle
     await new Promise((resolve) => setTimeout(resolve, 150));
@@ -585,7 +598,7 @@ test(
       return;
     }
 
-    const runId = (startResponse.result as any).runId;
+    const runId = (startResponse.result as { runId?: string } | undefined)?.runId;
 
     // Verify the abort signal is not aborted yet
     // (In actual binding code, it would check args.signal?.aborted)
@@ -599,8 +612,14 @@ test(
     client.send({ kind: "request", id: "l1", method: "list" });
     const listResponse = await client.nextFrame();
     if (listResponse.kind === "response") {
-      const runs = (listResponse.result as any).runs;
-      const run = runs.find((r: any) => r.runId === runId);
+      const runs = (
+        listResponse.result as
+          | { runs?: Array<{ runId: string; project: string; branch: string; status: string; isLive: boolean }> }
+          | undefined
+      )?.runs;
+      const run = runs?.find(
+        (r: { runId: string; project: string; branch: string; status: string; isLive: boolean }) => r.runId === runId,
+      );
       expect(run?.status).toBe("killed");
     }
 

@@ -3,7 +3,14 @@ import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-export type RunStatus = "in-progress" | "completed" | "blocked" | "budget-soft-stopped" | "paused" | "failed" | "killed";
+export type RunStatus =
+  | "in-progress"
+  | "completed"
+  | "blocked"
+  | "budget-soft-stopped"
+  | "paused"
+  | "failed"
+  | "killed";
 
 export type AttemptStatus = "in-progress" | "completed";
 

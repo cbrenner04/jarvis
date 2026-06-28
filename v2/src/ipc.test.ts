@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { connectIpcClient } from "./ipc/client.ts";
 import { encodeFrame } from "./ipc/codec.ts";
 import { type IpcServer, type StreamHandler, startIpcServer } from "./ipc/server.ts";
-import { openLogReader, openLogSink, type LogReader } from "./log-stream.ts";
+import { openLogReader, openLogSink } from "./log-stream.ts";
 
 // Check if sockets can be created in /tmp; skip all tests if not (sandbox restriction)
 let canCreateSockets: boolean;
@@ -258,11 +258,16 @@ test(
     const runId = "test-run-1";
 
     logSink.append(runId, { kind: "iteration_started", attemptId: "attempt-1" });
-    logSink.append(runId, { kind: "boundary_committed", attemptId: "attempt-1", outcomeKind: "progress", runStatus: "in-progress" });
+    logSink.append(runId, {
+      kind: "boundary_committed",
+      attemptId: "attempt-1",
+      outcomeKind: "progress",
+      runStatus: "in-progress",
+    });
     logSink.close();
 
-    const tailHandler: StreamHandler = async (streamId, payload, onData, onClose, signal) => {
-      const params = payload as any;
+    const tailHandler: StreamHandler = async (_streamId, payload, onData, onClose, signal) => {
+      const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
       const runId = params?.runId;
       if (!runId) {
         onClose();
@@ -313,8 +318,8 @@ test(
     rmSync(LOGS_PATH, { force: true });
     const logReader = openLogReader(LOGS_PATH);
 
-    const tailHandler: StreamHandler = async (streamId, payload, onData, onClose, signal) => {
-      const params = payload as any;
+    const tailHandler: StreamHandler = async (_streamId, payload, onData, onClose, signal) => {
+      const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
       const runId = params?.runId;
       if (!runId) {
         onClose();
@@ -359,8 +364,8 @@ test(
     logSink.close();
 
     let followAborted = false;
-    const tailHandler: StreamHandler = async (streamId, payload, onData, onClose, signal) => {
-      const params = payload as any;
+    const tailHandler: StreamHandler = async (_streamId, payload, onData, onClose, signal) => {
+      const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
       const runId = params?.runId;
       if (!runId) {
         onClose();

@@ -146,7 +146,7 @@ function handleFrame(
       return;
     case "stream-end": {
       const endFrame = frame as IpcFrame & { kind: "stream-end" };
-      if (activeStreams && activeStreams.has(endFrame.streamId)) {
+      if (activeStreams?.has(endFrame.streamId)) {
         const controller = activeStreams.get(endFrame.streamId);
         controller?.abort();
         activeStreams.delete(endFrame.streamId);

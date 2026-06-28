@@ -1,10 +1,10 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "./ipc/server";
-import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
-import { openStateStore, type StateStore } from "./state-store.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
-import { openLogReader, openLogSink, type LogReader } from "./log-stream.ts";
+import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "./ipc/server";
+import { type LogReader, openLogReader, openLogSink } from "./log-stream.ts";
+import { openStateStore, type StateStore } from "./state-store.ts";
+import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
 
 export type WorktreeOwnership = {
   runId: string;
@@ -76,9 +76,9 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
 
   const keyString = (key: OwnershipKey): string => `${key.project}:${key.branch}`;
 
-  const tailStreamHandler: StreamHandler = async (streamId, payload, onData, onClose, signal) => {
-    const params = payload as any;
-    if (!params || typeof params.runId !== "string") {
+  const tailStreamHandler: StreamHandler = async (_streamId, payload, onData, onClose, signal) => {
+    const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
+    if (!params?.runId || typeof params.runId !== "string") {
       onClose();
       return;
     }
@@ -114,8 +114,8 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
   };
 
   const startHandler: RpcHandler = (frame) => {
-    const params = frame.params as any;
-    if (!params || !params.input) {
+    const params = frame.params as { input?: WriteLoopInput } | undefined;
+    if (!params?.input) {
       return { kind: "error", code: "invalid_params", message: "Missing input" };
     }
 
@@ -201,8 +201,8 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
   };
 
   const pauseHandler: RpcHandler = (frame) => {
-    const params = frame.params as any;
-    if (!params || !params.runId) {
+    const params = frame.params as { runId?: string } | undefined;
+    if (!params?.runId) {
       return { kind: "error", code: "invalid_params", message: "Missing runId" };
     }
 
@@ -223,8 +223,8 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
   };
 
   const killHandler: RpcHandler = (frame) => {
-    const params = frame.params as any;
-    if (!params || !params.runId) {
+    const params = frame.params as { runId?: string } | undefined;
+    if (!params?.runId) {
       return { kind: "error", code: "invalid_params", message: "Missing runId" };
     }
 
@@ -246,8 +246,8 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
   };
 
   const resumeHandler: RpcHandler = (frame) => {
-    const params = frame.params as any;
-    if (!params || !params.runId) {
+    const params = frame.params as { runId?: string } | undefined;
+    if (!params?.runId) {
       return { kind: "error", code: "invalid_params", message: "Missing runId" };
     }
 
@@ -360,7 +360,8 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
         try {
           await server.close();
           if (!logReader) {
-            (logReaderInstance as any).close?.();
+            const closeable = logReaderInstance as { close?: () => void };
+            closeable.close?.();
           }
           if (!stateStore) {
             store.close();

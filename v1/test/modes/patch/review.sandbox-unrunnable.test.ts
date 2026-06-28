@@ -984,6 +984,7 @@ while true; do :; done
         agents: { claude },
         iterationTimeoutMs: 30_000,
         readyCommand: script,
+        runFix: () => {},
         // runBaselineGate NOT provided — real gate runs with readyCommand
         checkPrExists: () => true,
         checkBaseCurrent: currentBase(),
@@ -1019,6 +1020,7 @@ while true; do :; done
         agents: { claude },
         iterationTimeoutMs: 30_000,
         readyCommand: script,
+        runFix: () => {},
         runBaselineGate: () => {}, // stub baseline gate
         checkPrExists: () => true,
         checkBaseCurrent: currentBase(),

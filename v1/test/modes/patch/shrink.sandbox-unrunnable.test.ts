@@ -602,6 +602,7 @@ while true; do :; done
         specPath,
         allowlist: new Set(["impl.txt"]),
         readyCommand: script,
+        runFix: () => {},
         fanout: (tag, text) => {
           if (tag === "harness") harness.push(text.trim());
         },

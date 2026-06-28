@@ -42,7 +42,9 @@ export type PreflightOk = {
   specIsExternal: boolean;
 };
 
-export type CompletionReadyGateResult = { kind: "green" } | { kind: "red"; failureText: string; retryable?: boolean };
+export type CompletionReadyGateResult =
+  | { kind: "green" }
+  | { kind: "red"; failureText: string; retryable?: boolean; verificationRed?: boolean };
 
 type LogTag = "harness" | "outbound" | "inbound_stdout" | "inbound_stderr";
 type LogStream = "stdout" | "stderr" | null;
@@ -179,8 +181,8 @@ export type RunCommandOptions = {
   /** One-run patch ladder override from `jarvis1 run --tier`. */
   tierOverride?: PatchTier;
   /**
-   * Test seam for the completion `ready` gate. Replaces the real `bun run
-   * ready` + post-ready dirty-output commit run in `runCompletionReadyGate`. Return
+   * Test seam for the completion `ready` gate. Replaces the real fix → commit-if-dirty →
+   * `bun run ready` sequence in `runCompletionReadyGate`. Return
    * `{ kind: "green" }` to proceed into the post-completion phases, or
    * `{ kind: "red", failureText }` to drive the loop-back fix-up iteration if
    * every bounded retry stays red. The seam may be invoked up to the retry

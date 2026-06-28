@@ -273,9 +273,10 @@ describe("maybeMarkPlanPrReady", () => {
     expect(stderr).toContain("base release");
   });
 
-  test("runReady does not dirty tree -> commitCheckFix not called, ghPrReady called", () => {
+  test("runFix leaves clean tree -> commitPreReadyFix not called, ghPrReady called", () => {
+    let runFixCalled = false;
     let runReadyCalled = false;
-    let commitCheckFixCalled = false;
+    let commitPreReadyFixCalled = false;
     let ghPrReadyCalled = false;
 
     maybeMarkPlanPrReady({
@@ -283,12 +284,16 @@ describe("maybeMarkPlanPrReady", () => {
       cwd: gitDir,
       getOpenPrState: () => ({ state: "draft", number: 123 }),
       checkBaseCurrent: currentBase(),
+      runFix: (cwd) => {
+        runFixCalled = true;
+        expect(cwd).toBe(gitDir);
+      },
       runReady: (cwd) => {
         runReadyCalled = true;
         expect(cwd).toBe(gitDir);
       },
-      commitCheckFix: () => {
-        commitCheckFixCalled = true;
+      commitPreReadyFix: () => {
+        commitPreReadyFixCalled = true;
       },
       ghPrReady: (branch, cwd) => {
         ghPrReadyCalled = true;
@@ -297,16 +302,16 @@ describe("maybeMarkPlanPrReady", () => {
       },
     });
 
+    expect(runFixCalled).toBe(true);
     expect(runReadyCalled).toBe(true);
-    expect(commitCheckFixCalled).toBe(false);
+    expect(commitPreReadyFixCalled).toBe(false);
     expect(ghPrReadyCalled).toBe(true);
   });
 
-  test("runReady dirties tree -> commitCheckFix called with correct args, then ghPrReady", () => {
-    let runReadyCalled = false;
-    let commitCheckFixCalled = false;
-    let commitCheckFixCwd = "";
-    let commitCheckFixAgentLabel = "";
+  test("runFix dirties tree -> commitPreReadyFix called with correct args before runReady, then ghPrReady", () => {
+    const calls: string[] = [];
+    let commitPreReadyFixCwd = "";
+    let commitPreReadyFixAgentLabel = "";
     let ghPrReadyCalled = false;
 
     maybeMarkPlanPrReady({
@@ -315,29 +320,33 @@ describe("maybeMarkPlanPrReady", () => {
       agentLabel: "my-agent",
       getOpenPrState: () => ({ state: "draft", number: 123 }),
       checkBaseCurrent: currentBase(),
-      runReady: (cwd) => {
-        runReadyCalled = true;
+      runFix: (cwd) => {
+        calls.push("fix");
         writeFileSync(join(cwd, "dirty.txt"), "dirty\n");
       },
-      commitCheckFix: (cwd, agentLabel) => {
-        commitCheckFixCalled = true;
-        commitCheckFixCwd = cwd;
-        commitCheckFixAgentLabel = agentLabel;
+      runReady: () => {
+        calls.push("ready");
+      },
+      commitPreReadyFix: (cwd, agentLabel) => {
+        calls.push("commit");
+        commitPreReadyFixCwd = cwd;
+        commitPreReadyFixAgentLabel = agentLabel;
+        execSync("git add -A", { cwd, stdio: "pipe" });
+        execSync("git commit -q -m 'clean'", { cwd, stdio: "pipe" });
       },
       ghPrReady: () => {
         ghPrReadyCalled = true;
       },
     });
 
-    expect(runReadyCalled).toBe(true);
-    expect(commitCheckFixCalled).toBe(true);
-    expect(commitCheckFixCwd).toBe(gitDir);
-    expect(commitCheckFixAgentLabel).toBe("my-agent");
+    expect(calls).toEqual(["fix", "commit", "ready"]);
+    expect(commitPreReadyFixCwd).toBe(gitDir);
+    expect(commitPreReadyFixAgentLabel).toBe("my-agent");
     expect(ghPrReadyCalled).toBe(true);
   });
 
-  test("runReady throws -> commitCheckFix not called, ghPrReady not called", () => {
-    let commitCheckFixCalled = false;
+  test("runReady throws -> commitPreReadyFix not called when fix is clean, ghPrReady not called", () => {
+    let commitPreReadyFixCalled = false;
     let ghPrReadyCalled = false;
 
     expect(() => {
@@ -346,11 +355,12 @@ describe("maybeMarkPlanPrReady", () => {
         cwd: gitDir,
         getOpenPrState: () => ({ state: "draft", number: 123 }),
         checkBaseCurrent: currentBase(),
+        runFix: () => {},
         runReady: () => {
           throw new Error("runReady failed");
         },
-        commitCheckFix: () => {
-          commitCheckFixCalled = true;
+        commitPreReadyFix: () => {
+          commitPreReadyFixCalled = true;
         },
         ghPrReady: () => {
           ghPrReadyCalled = true;
@@ -358,11 +368,12 @@ describe("maybeMarkPlanPrReady", () => {
       });
     }).toThrow("runReady failed");
 
-    expect(commitCheckFixCalled).toBe(false);
+    expect(commitPreReadyFixCalled).toBe(false);
     expect(ghPrReadyCalled).toBe(false);
   });
 
-  test("commitCheckFix throws -> ghPrReady not called", () => {
+  test("commitPreReadyFix throws -> runReady and ghPrReady not called", () => {
+    let runReadyCalled = false;
     let ghPrReadyCalled = false;
 
     expect(() => {
@@ -371,18 +382,22 @@ describe("maybeMarkPlanPrReady", () => {
         cwd: gitDir,
         getOpenPrState: () => ({ state: "draft", number: 123 }),
         checkBaseCurrent: currentBase(),
-        runReady: (cwd) => {
+        runFix: (cwd) => {
           writeFileSync(join(cwd, "dirty.txt"), "dirty\n");
         },
-        commitCheckFix: () => {
-          throw new Error("commitCheckFix failed");
+        commitPreReadyFix: () => {
+          throw new Error("commitPreReadyFix failed");
+        },
+        runReady: () => {
+          runReadyCalled = true;
         },
         ghPrReady: () => {
           ghPrReadyCalled = true;
         },
       });
-    }).toThrow("commitCheckFix failed");
+    }).toThrow("commitPreReadyFix failed");
 
+    expect(runReadyCalled).toBe(false);
     expect(ghPrReadyCalled).toBe(false);
   });
 

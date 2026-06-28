@@ -292,6 +292,12 @@ export type PatchReviewPhaseOptions = {
   refreshRecordedGreenResult?: (headSha: string) => void;
   /** Per-project override for `bun run ready`. Passed to `runReadyAndCommit` at baseline and final gate sites. */
   readyCommand?: string;
+  /** Seam for built-in `bun run fix` on `full` tier. */
+  runFix?: (cwd: string) => void;
+  /** Seam for verification only. */
+  runReady?: (cwd: string, tier: ReadyTier) => void;
+  /** Seam for pre-ready fix commit/push on `full` tier when porcelain is non-empty after fix. */
+  commitPreReadyFix?: (cwd: string, agentLabel: string) => void;
   /** True for `--resume-review`: baseline and final gates always use `full`. */
   resumeReview?: boolean;
   /** Test-only override for descendant reaping (reap.ts DescendantTracker.reap). */
@@ -784,6 +790,9 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           agentLabel: "review-baseline",
           tier,
           ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
+          ...(opts.runFix !== undefined ? { runFix: opts.runFix } : {}),
+          ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
+          ...(opts.commitPreReadyFix !== undefined ? { commitPreReadyFix: opts.commitPreReadyFix } : {}),
         });
         if (tier === "full" && opts.refreshRecordedGreenResult) {
           opts.refreshRecordedGreenResult(getCurrentHeadSha(opts.cwd));
@@ -1271,6 +1280,9 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           agentLabel: "review-final",
           tier: "full",
           ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
+          ...(opts.runFix !== undefined ? { runFix: opts.runFix } : {}),
+          ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
+          ...(opts.commitPreReadyFix !== undefined ? { commitPreReadyFix: opts.commitPreReadyFix } : {}),
         });
         const ghPrReadyFn =
           opts.ghPrReady ??

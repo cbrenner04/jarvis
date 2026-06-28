@@ -468,14 +468,15 @@ describe("maybeMarkReady", () => {
     expect(stderr).toContain("base release");
   });
 
-  test("(a) runReady does not dirty tree -> commitCheckFix not called, ghPrReady called", () => {
+  test("(a) runFix leaves clean tree -> commitPreReadyFix not called, ghPrReady called", () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n- [x] [01 - two](./01-two.md)\n");
     // Commit the spec file to have a clean tree
     execSync("git add -A", { cwd: dir, stdio: "pipe" });
     execSync("git commit -q -m 'add spec'", { cwd: dir, stdio: "pipe" });
 
+    let runFixCalled = false;
     let runReadyCalled = false;
-    let commitCheckFixCalled = false;
+    let commitPreReadyFixCalled = false;
     let ghPrReadyCalled = false;
     let ghPrReadyBranch = "";
 
@@ -485,12 +486,14 @@ describe("maybeMarkReady", () => {
       checkPrExists: () => true,
       checkBaseCurrent: currentBase(),
       agentLabel: "test-agent",
+      runFix: () => {
+        runFixCalled = true;
+      },
       runReady: () => {
         runReadyCalled = true;
-        // Don't dirty the tree
       },
-      commitCheckFix: () => {
-        commitCheckFixCalled = true;
+      commitPreReadyFix: () => {
+        commitPreReadyFixCalled = true;
       },
       ghPrReady: (branch) => {
         ghPrReadyCalled = true;
@@ -498,8 +501,9 @@ describe("maybeMarkReady", () => {
       },
     });
 
+    expect(runFixCalled).toBe(true);
     expect(runReadyCalled).toBe(true);
-    expect(commitCheckFixCalled).toBe(false);
+    expect(commitPreReadyFixCalled).toBe(false);
     expect(ghPrReadyCalled).toBe(true);
     expect(ghPrReadyBranch).toBe("feature");
   });
@@ -531,16 +535,15 @@ describe("maybeMarkReady", () => {
     expect(ghPrReadyCalled).toBe(true);
   });
 
-  test("(b) runReady dirties tree -> commitCheckFix called with correct args, then ghPrReady", () => {
+  test("(b) runFix dirties tree -> commitPreReadyFix called with correct args before runReady, then ghPrReady", () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
     // Commit the spec file to have a clean baseline
     execSync("git add -A", { cwd: dir, stdio: "pipe" });
     execSync("git commit -q -m 'add spec'", { cwd: dir, stdio: "pipe" });
 
-    let runReadyCalled = false;
-    let commitCheckFixCalled = false;
-    let commitCheckFixCwd = "";
-    let commitCheckFixAgentLabel = "";
+    const calls: string[] = [];
+    let commitPreReadyFixCwd = "";
+    let commitPreReadyFixAgentLabel = "";
     let ghPrReadyCalled = false;
 
     maybeMarkReady({
@@ -549,16 +552,17 @@ describe("maybeMarkReady", () => {
       checkPrExists: () => true,
       checkBaseCurrent: currentBase(),
       agentLabel: "my-agent",
-      runReady: () => {
-        runReadyCalled = true;
-        // Dirty the tree by creating an untracked file
+      runFix: () => {
+        calls.push("fix");
         execSync("echo dirty > dirty.txt", { cwd: dir, stdio: "pipe" });
       },
-      commitCheckFix: (cwd, agentLabel) => {
-        commitCheckFixCalled = true;
-        commitCheckFixCwd = cwd;
-        commitCheckFixAgentLabel = agentLabel;
-        // Clean up the dirty file
+      runReady: () => {
+        calls.push("ready");
+      },
+      commitPreReadyFix: (cwd, agentLabel) => {
+        calls.push("commit");
+        commitPreReadyFixCwd = cwd;
+        commitPreReadyFixAgentLabel = agentLabel;
         execSync("git add -A", { cwd, stdio: "pipe" });
         execSync("git commit -q -m 'clean'", { cwd, stdio: "pipe" });
       },
@@ -567,20 +571,19 @@ describe("maybeMarkReady", () => {
       },
     });
 
-    expect(runReadyCalled).toBe(true);
-    expect(commitCheckFixCalled).toBe(true);
-    expect(commitCheckFixCwd).toBe(dir);
-    expect(commitCheckFixAgentLabel).toBe("my-agent");
+    expect(calls).toEqual(["fix", "commit", "ready"]);
+    expect(commitPreReadyFixCwd).toBe(dir);
+    expect(commitPreReadyFixAgentLabel).toBe("my-agent");
     expect(ghPrReadyCalled).toBe(true);
   });
 
-  test("(c) runReady throws -> commitCheckFix not called, ghPrReady not called, error propagates", () => {
+  test("(c) runReady throws -> commitPreReadyFix not called when fix is clean, ghPrReady not called, error propagates", () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
     // Commit the spec file to have a clean baseline
     execSync("git add -A", { cwd: dir, stdio: "pipe" });
     execSync("git commit -q -m 'add spec'", { cwd: dir, stdio: "pipe" });
 
-    let commitCheckFixCalled = false;
+    let commitPreReadyFixCalled = false;
     let ghPrReadyCalled = false;
 
     expect(() =>
@@ -589,11 +592,12 @@ describe("maybeMarkReady", () => {
         cwd: dir,
         checkPrExists: () => true,
         checkBaseCurrent: currentBase(),
+        runFix: () => {},
         runReady: () => {
           throw new Error("runReady failed");
         },
-        commitCheckFix: () => {
-          commitCheckFixCalled = true;
+        commitPreReadyFix: () => {
+          commitPreReadyFixCalled = true;
         },
         ghPrReady: () => {
           ghPrReadyCalled = true;
@@ -601,16 +605,17 @@ describe("maybeMarkReady", () => {
       }),
     ).toThrow("runReady failed");
 
-    expect(commitCheckFixCalled).toBe(false);
+    expect(commitPreReadyFixCalled).toBe(false);
     expect(ghPrReadyCalled).toBe(false);
   });
 
-  test("(d) commitCheckFix throws -> ghPrReady not called, error propagates", () => {
+  test("(d) commitPreReadyFix throws -> runReady and ghPrReady not called, error propagates", () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
     // Commit the spec file to have a clean baseline
     execSync("git add -A", { cwd: dir, stdio: "pipe" });
     execSync("git commit -q -m 'add spec'", { cwd: dir, stdio: "pipe" });
 
+    let runReadyCalled = false;
     let ghPrReadyCalled = false;
 
     expect(() =>
@@ -619,24 +624,29 @@ describe("maybeMarkReady", () => {
         cwd: dir,
         checkPrExists: () => true,
         checkBaseCurrent: currentBase(),
-        runReady: () => {
-          // Dirty the tree
+        runFix: () => {
           execSync("echo dirty > dirty.txt", { cwd: dir, stdio: "pipe" });
         },
-        commitCheckFix: () => {
-          throw new Error("commitCheckFix failed");
+        commitPreReadyFix: () => {
+          throw new Error("commitPreReadyFix failed");
+        },
+        runReady: () => {
+          runReadyCalled = true;
         },
         ghPrReady: () => {
           ghPrReadyCalled = true;
         },
       }),
-    ).toThrow("commitCheckFix failed");
+    ).toThrow("commitPreReadyFix failed");
 
+    expect(runReadyCalled).toBe(false);
     expect(ghPrReadyCalled).toBe(false);
   });
 
   test("invokes readyCommand at maybeMarkReady gate site", () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
+    execSync("git add -A", { cwd: dir, stdio: "pipe" });
+    execSync("git commit -q -m 'add spec'", { cwd: dir, stdio: "pipe" });
 
     const sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-pr-ready-cmd-"));
     try {
@@ -651,8 +661,9 @@ describe("maybeMarkReady", () => {
         readyCommand: script,
         checkPrExists: () => true,
         checkBaseCurrent: currentBase(),
-        commitCheckFix: () => {}, // stub commit/push; tree may be dirty from test setup
-        ghPrReady: () => {}, // stub gh pr ready
+        runFix: () => {},
+        commitPreReadyFix: () => {},
+        ghPrReady: () => {},
       });
 
       expect(existsSync(sentinel)).toBe(true);

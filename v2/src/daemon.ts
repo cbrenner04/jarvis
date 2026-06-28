@@ -38,15 +38,15 @@ export class DaemonRunRejectedError extends Error {
   }
 }
 
+function ownershipKeyString(key: OwnershipKey): string {
+  return `${key.project}:${key.branch}`;
+}
+
 export class WorktreeOwnershipRegistry {
   private registry = new Map<string, WorktreeOwnership>();
 
-  private keyString(key: OwnershipKey): string {
-    return `${key.project}:${key.branch}`;
-  }
-
   claim(key: OwnershipKey, ownership: WorktreeOwnership): void {
-    const ks = this.keyString(key);
+    const ks = ownershipKeyString(key);
     if (this.registry.has(ks)) {
       throw new DaemonDoubleClaimError(key);
     }
@@ -54,16 +54,15 @@ export class WorktreeOwnershipRegistry {
   }
 
   release(key: OwnershipKey): void {
-    const ks = this.keyString(key);
-    this.registry.delete(ks);
+    this.registry.delete(ownershipKeyString(key));
   }
 
   get(key: OwnershipKey): WorktreeOwnership | undefined {
-    return this.registry.get(this.keyString(key));
+    return this.registry.get(ownershipKeyString(key));
   }
 
   isClaimed(key: OwnershipKey): boolean {
-    return this.registry.has(this.keyString(key));
+    return this.registry.has(ownershipKeyString(key));
   }
 }
 
@@ -91,29 +90,18 @@ function normalizeBindings(input: WriteLoopInput): WriteLoopInput {
   };
 }
 
-/** Runs the write-loop body for a claimed run; log-sink lifecycle stays outside this boundary. */
-export type RunControlWriteLoopExecutor = (
-  input: WriteLoopInput,
-  signal: AbortSignal,
-  pauseSignal: AbortSignal,
-) => Promise<void>;
-
 /**
  * Injectable dependencies for {@link createRunControlHandlers}.
- * `stateStore` is shared durable run state; `writeLoopExecutor` is the loop body only
- * (claim/release and the fire-and-forget spawn are owned by the factory).
+ * Factory owns claim/release and fire-and-forget spawn; `writeLoopExecutor` runs the loop body only
+ * (log-sink open/close stays in {@link startDaemon}'s production wrapper).
  */
 export type RunControlHandlerDeps = {
   stateStore: StateStore;
-  writeLoopExecutor: RunControlWriteLoopExecutor;
-};
-
-export type RunControlHandlers = {
-  start: RpcHandler;
-  list: RpcHandler;
-  pause: RpcHandler;
-  resume: RpcHandler;
-  kill: RpcHandler;
+  writeLoopExecutor: (
+    input: WriteLoopInput,
+    signal: AbortSignal,
+    pauseSignal: AbortSignal,
+  ) => Promise<void>;
 };
 
 /**
@@ -121,21 +109,18 @@ export type RunControlHandlers = {
  * worktree ownership and in-flight run tracking. Spawns the write loop in the
  * background; settlement always releases registry and active-run entries.
  */
-export function createRunControlHandlers(deps: RunControlHandlerDeps): RunControlHandlers {
+export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const _registry = new WorktreeOwnershipRegistry();
   const activeRuns = new Map<string, ActiveRun>();
-  const store = deps.stateStore;
-  const { writeLoopExecutor } = deps;
-
-  const keyString = (key: OwnershipKey): string => `${key.project}:${key.branch}`;
+  const { stateStore: store, writeLoopExecutor } = deps;
 
   const spawnWriteLoop = (
     key: OwnershipKey,
-    ks: string,
     runId: string,
     worktreePath: string,
     input: WriteLoopInput,
   ): void => {
+    const ks = ownershipKeyString(key);
     const abortController = new AbortController();
     const pauseController = new AbortController();
     activeRuns.set(ks, { runId, key, abortController, pauseController });
@@ -191,8 +176,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps): RunContro
       specPath: input.specPath,
     });
 
-    const ks = keyString(key);
-    spawnWriteLoop(key, ks, runId, worktreePath, input);
+    spawnWriteLoop(key, runId, worktreePath, input);
 
     return { kind: "response", result: { runId } };
   };
@@ -201,7 +185,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps): RunContro
     const durableRuns = store.listRuns();
 
     const runList = durableRuns.map((run) => {
-      const ks = keyString({ project: run.project, branch: run.branch });
+      const ks = ownershipKeyString({ project: run.project, branch: run.branch });
       const isLive = activeRuns.has(ks);
       return {
         runId: run.id,
@@ -227,7 +211,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps): RunContro
       return { kind: "error", code: "unknown_run", message: `Run ${runId} not found` };
     }
 
-    const ks = keyString({ project: run.project, branch: run.branch });
+    const ks = ownershipKeyString({ project: run.project, branch: run.branch });
     const activeRun = activeRuns.get(ks);
     if (activeRun && activeRun.runId === runId) {
       activeRun.pauseController.abort();
@@ -249,7 +233,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps): RunContro
       return { kind: "error", code: "unknown_run", message: `Run ${runId} not found` };
     }
 
-    const ks = keyString({ project: run.project, branch: run.branch });
+    const ks = ownershipKeyString({ project: run.project, branch: run.branch });
     const activeRun = activeRuns.get(ks);
     if (activeRun && activeRun.runId === runId) {
       activeRun.abortController.abort();
@@ -311,8 +295,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps): RunContro
       bindings: [],
     };
 
-    const ks = keyString(key);
-    spawnWriteLoop(key, ks, runId, run.worktreePath, input);
+    spawnWriteLoop(key, runId, run.worktreePath, input);
 
     return { kind: "response", result: { ok: true } };
   };
@@ -332,7 +315,7 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
   const logReaderInstance = logReader ?? openLogReader(logsPath);
   let shutdownRequested = false;
 
-  const writeLoopExecutor: RunControlWriteLoopExecutor = async (input, signal, pauseSignal) => {
+  const writeLoopExecutor = async (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => {
     const logSink = openLogSink(logsPath);
     try {
       await executeWriteLoop({
@@ -346,8 +329,6 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
       logSink.close();
     }
   };
-
-  const runControlHandlers = createRunControlHandlers({ stateStore: store, writeLoopExecutor });
 
   const tailStreamHandler: StreamHandler = async (_streamId, payload, onData, onClose, signal) => {
     const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
@@ -390,7 +371,7 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
     health: healthHandler,
     status: statusHandler,
     shutdown: shutdownHandler,
-    ...runControlHandlers,
+    ...createRunControlHandlers({ stateStore: store, writeLoopExecutor }),
   };
 
   let server: IpcServer;

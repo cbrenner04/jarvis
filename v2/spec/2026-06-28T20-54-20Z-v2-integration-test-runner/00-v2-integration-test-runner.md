@@ -24,14 +24,14 @@ Separate v2 `*.sandbox-unrunnable.test.ts` files from `test:v2` into a dedicated
 
 ## Acceptance criteria
 
-- [ ] `bun run test:v2` collects every `v2/**/*.test.ts` except `*.sandbox-unrunnable.test.ts` and collects none of the three on-disk v2 sandbox-unrunnable files (`v2/src/preload.sandbox-unrunnable.test.ts`, `v2/src/external-worktree.sandbox-unrunnable.test.ts`, `v2/src/daemon.sandbox-unrunnable.test.ts`).
-- [ ] `bun run test:integration:v2` collects every v2 `*.sandbox-unrunnable.test.ts` at any depth under `v2/` (the three files above today) and no other test files; does not pass `--parallel`.
-- [ ] `test/test-slices.test.ts` `test:* scripts use exact root paths with trailing slashes` keeps exact `package.json` string checks for `test:v1` and `test:shared` only; new or updated cases assert enumerated collected file sets for `test:v2` and `test:integration:v2` against the on-disk `v2/**` inventory.
-- [ ] `test/test-slices.test.ts` `ready script uses aggregate test command` stays green.
-- [ ] `package.json` `test:v1` and `test:shared` script values stay `bun test ./v1/` and `bun test ./shared/ ./test/`; `test:v2` may change to implement exclusion.
-- [ ] `v2/docs/test-writing.md` Real-process / real-clock tests section documents v2 sandbox-unrunnable tests run via `bun run test:integration:v2` (sandbox-off), are excluded from `test:v2`, and remain in aggregate `bun run test`.
-- [ ] `v2/docs/v1-behaviors.md` records `test:integration:v2` and the updated `test:v2` exclusion behavior.
-- [ ] `v1/docs/test-coverage.md` and/or `v2/docs/v1-behaviors.md` records that `coverage:v2` still covers whole `v2/` including sandbox-unrunnable files (intentional asymmetry vs `test:v2`).
+- [x] `bun run test:v2` collects every `v2/**/*.test.ts` except `*.sandbox-unrunnable.test.ts` and collects none of the three on-disk v2 sandbox-unrunnable files (`v2/src/preload.sandbox-unrunnable.test.ts`, `v2/src/external-worktree.sandbox-unrunnable.test.ts`, `v2/src/daemon.sandbox-unrunnable.test.ts`).
+- [x] `bun run test:integration:v2` collects every v2 `*.sandbox-unrunnable.test.ts` at any depth under `v2/` (the three files above today) and no other test files; does not pass `--parallel`.
+- [x] `test/test-slices.test.ts` `test:* scripts use exact root paths with trailing slashes` keeps exact `package.json` string checks for `test:v1` and `test:shared` only; new or updated cases assert enumerated collected file sets for `test:v2` and `test:integration:v2` against the on-disk `v2/**` inventory.
+- [x] `test/test-slices.test.ts` `ready script uses aggregate test command` stays green.
+- [x] `package.json` `test:v1` and `test:shared` script values stay `bun test ./v1/` and `bun test ./shared/ ./test/`; `test:v2` may change to implement exclusion.
+- [x] `v2/docs/test-writing.md` Real-process / real-clock tests section documents v2 sandbox-unrunnable tests run via `bun run test:integration:v2` (sandbox-off), are excluded from `test:v2`, and remain in aggregate `bun run test`.
+- [x] `v2/docs/v1-behaviors.md` records `test:integration:v2` and the updated `test:v2` exclusion behavior.
+- [x] `v1/docs/test-coverage.md` and/or `v2/docs/v1-behaviors.md` records that `coverage:v2` still covers whole `v2/` including sandbox-unrunnable files (intentional asymmetry vs `test:v2`).
 
 ## Documentation updates
 

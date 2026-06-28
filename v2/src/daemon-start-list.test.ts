@@ -36,7 +36,6 @@ await new Promise<void>((resolve) => {
 const SOCKET_PATH = join(tmpdir(), `jarvis-daemon-test-${process.pid}.sock`);
 
 type PendingExecutorRun = {
-  input: WriteLoopInput;
   signal: AbortSignal;
   pauseSignal: AbortSignal;
   settle: () => void;
@@ -46,8 +45,9 @@ function createFakeWriteLoopExecutor() {
   const pending: PendingExecutorRun[] = [];
 
   const executor = async (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal): Promise<void> => {
+    void input;
     await new Promise<void>((resolve) => {
-      pending.push({ input, signal, pauseSignal, settle: resolve });
+      pending.push({ signal, pauseSignal, settle: resolve });
     });
   };
 
@@ -59,15 +59,15 @@ function createFakeWriteLoopExecutor() {
 
   return {
     executor,
-    pending,
     settleAll,
-    abortAndSettleAll: settleAll,
     isPauseSignalTriggered: (): boolean => pending.some((run) => run.pauseSignal.aborted),
     isAbortSignalTriggered: (): boolean => pending.some((run) => run.signal.aborted),
   };
 }
 
 type FakeWriteLoopExecutor = ReturnType<typeof createFakeWriteLoopExecutor>;
+type RunSummary = { runId: string; project: string; branch: string; status: string; isLive: boolean };
+type ListRunsResult = { runs?: RunSummary[] } | undefined;
 
 let stateStore: StateStore;
 let server: IpcServer;
@@ -97,7 +97,7 @@ afterEach(async () => {
   if (!canCreateSockets) {
     return;
   }
-  fakeExecutor.abortAndSettleAll();
+  fakeExecutor.settleAll();
   await flushBackgroundRuns();
   try {
     await server.close();
@@ -121,13 +121,14 @@ function skipIfNoSockets(fn: () => Promise<void>): () => Promise<void> {
   };
 }
 
-function mockWriteLoopInput(): WriteLoopInput {
+function mockWriteLoopInput(worktreeOverrides: Partial<WriteLoopInput["worktree"]> = {}): WriteLoopInput {
   return {
     worktree: {
       projectRoot: "/tmp/test-project",
       projectName: "test-project",
       branchName: "test-branch",
       baseRef: "main",
+      ...worktreeOverrides,
     },
     specPath: "/tmp/test-project/spec.md",
     stepRules: "test rules",
@@ -136,18 +137,26 @@ function mockWriteLoopInput(): WriteLoopInput {
   };
 }
 
+async function startRun(client: Awaited<ReturnType<typeof connectIpcClient>>, input = mockWriteLoopInput()): Promise<string | undefined> {
+  client.send({ kind: "request", id: "s1", method: "start", params: { input } });
+  const frame = await client.nextFrame();
+  expect(frame.kind).toBe("response");
+  return frame.kind === "response" ? (frame.result as { runId?: string } | undefined)?.runId : undefined;
+}
+
+async function listRuns(client: Awaited<ReturnType<typeof connectIpcClient>>): Promise<RunSummary[] | undefined> {
+  client.send({ kind: "request", id: "l1", method: "list" });
+  const frame = await client.nextFrame();
+  expect(frame.kind).toBe("response");
+  return frame.kind === "response" ? (frame.result as ListRunsResult)?.runs : undefined;
+}
+
 test(
   "start returns a run ID",
   skipIfNoSockets(async () => {
     const client = await connectIpcClient(SOCKET_PATH);
-    const input = mockWriteLoopInput();
-    client.send({ kind: "request", id: "s1", method: "start", params: { input } });
-    const frame = await client.nextFrame();
-    expect(frame.kind).toBe("response");
-    if (frame.kind !== "response") return;
-    const result = frame.result as { runId?: string } | undefined;
-    expect(result).toHaveProperty("runId");
-    expect(typeof result?.runId).toBe("string");
+    const runId = await startRun(client);
+    expect(typeof runId).toBe("string");
     client.close();
   }),
 );
@@ -156,15 +165,9 @@ test(
   "start rejects when any run is active (single in-flight guard)",
   skipIfNoSockets(async () => {
     const client = await connectIpcClient(SOCKET_PATH);
-    const input1 = mockWriteLoopInput();
-    client.send({ kind: "request", id: "s1", method: "start", params: { input: input1 } });
-    const response1 = await client.nextFrame();
-    expect(response1.kind).toBe("response");
+    await startRun(client);
 
-    const input2 = {
-      ...mockWriteLoopInput(),
-      worktree: { ...mockWriteLoopInput().worktree, projectName: "other-project" },
-    };
+    const input2 = mockWriteLoopInput({ projectName: "other-project" });
     client.send({ kind: "request", id: "s2", method: "start", params: { input: input2 } });
     const response2 = await client.nextFrame();
     expect(response2.kind).toBe("error");
@@ -180,9 +183,7 @@ test(
   skipIfNoSockets(async () => {
     const client = await connectIpcClient(SOCKET_PATH);
     const input = mockWriteLoopInput();
-    client.send({ kind: "request", id: "s1", method: "start", params: { input } });
-    const response1 = await client.nextFrame();
-    expect(response1.kind).toBe("response");
+    await startRun(client, input);
 
     client.send({ kind: "request", id: "s2", method: "start", params: { input } });
     const response2 = await client.nextFrame();
@@ -198,28 +199,15 @@ test(
   "list returns durable runs with liveness info",
   skipIfNoSockets(async () => {
     const client = await connectIpcClient(SOCKET_PATH);
-    const input = mockWriteLoopInput();
-
-    client.send({ kind: "request", id: "s1", method: "start", params: { input } });
-    const startResponse = await client.nextFrame();
-    expect(startResponse.kind).toBe("response");
-
-    client.send({ kind: "request", id: "l1", method: "list" });
-    const listResponse = await client.nextFrame();
-    expect(listResponse.kind).toBe("response");
-    if (listResponse.kind !== "response") {
+    await startRun(client);
+    const runs = await listRuns(client);
+    if (!runs) {
       client.close();
       return;
     }
 
-    const result = listResponse.result as
-      | { runs?: Array<{ runId: string; project: string; branch: string; status: string; isLive: boolean }> }
-      | undefined;
-    expect(result).toHaveProperty("runs");
-    expect(Array.isArray(result?.runs)).toBe(true);
-    expect(result?.runs?.length).toBeGreaterThan(0);
-
-    const run = result?.runs?.[0];
+    expect(runs.length).toBeGreaterThan(0);
+    const run = runs[0];
     expect(run).toHaveProperty("runId");
     expect(run).toHaveProperty("project");
     expect(run).toHaveProperty("branch");
@@ -234,33 +222,19 @@ test(
   "settled run is no longer live in list",
   skipIfNoSockets(async () => {
     const client = await connectIpcClient(SOCKET_PATH);
-    const input = mockWriteLoopInput();
-
-    client.send({ kind: "request", id: "s1", method: "start", params: { input } });
-    const startResponse = await client.nextFrame();
-    expect(startResponse.kind).toBe("response");
-    if (startResponse.kind !== "response") {
-      client.close();
-      return;
-    }
+    await startRun(client);
 
     fakeExecutor.settleAll();
     await flushBackgroundRuns();
 
-    client.send({ kind: "request", id: "l1", method: "list" });
-    const listResponse = await client.nextFrame();
-    expect(listResponse.kind).toBe("response");
-    if (listResponse.kind !== "response") {
+    const runs = await listRuns(client);
+    if (!runs) {
       client.close();
       return;
     }
 
-    const result = listResponse.result as
-      | { runs?: Array<{ runId: string; project: string; branch: string; status: string; isLive: boolean }> }
-      | undefined;
-    expect(result?.runs?.length).toBeGreaterThan(0);
-
-    const run = result?.runs?.[0];
+    expect(runs.length).toBeGreaterThan(0);
+    const run = runs[0];
     expect(run?.isLive).toBe(false);
     client.close();
   }),
@@ -270,17 +244,11 @@ test(
   "pause signals graceful stop for an active run",
   skipIfNoSockets(async () => {
     const client = await connectIpcClient(SOCKET_PATH);
-    const input = mockWriteLoopInput();
-
-    client.send({ kind: "request", id: "s1", method: "start", params: { input } });
-    const startResponse = await client.nextFrame();
-    expect(startResponse.kind).toBe("response");
-    if (startResponse.kind !== "response") {
+    const runId = await startRun(client);
+    if (!runId) {
       client.close();
       return;
     }
-
-    const runId = (startResponse.result as { runId?: string } | undefined)?.runId;
 
     client.send({ kind: "request", id: "p1", method: "pause", params: { runId } });
     const pauseResponse = await client.nextFrame();
@@ -312,17 +280,11 @@ test(
   "kill aborts an active run and records killed status",
   skipIfNoSockets(async () => {
     const client = await connectIpcClient(SOCKET_PATH);
-    const input = mockWriteLoopInput();
-
-    client.send({ kind: "request", id: "s1", method: "start", params: { input } });
-    const startResponse = await client.nextFrame();
-    expect(startResponse.kind).toBe("response");
-    if (startResponse.kind !== "response") {
+    const runId = await startRun(client);
+    if (!runId) {
       client.close();
       return;
     }
-
-    const runId = (startResponse.result as { runId?: string } | undefined)?.runId;
 
     client.send({ kind: "request", id: "k1", method: "kill", params: { runId } });
     const killResponse = await client.nextFrame();
@@ -332,18 +294,9 @@ test(
     }
     expect(fakeExecutor.isAbortSignalTriggered()).toBe(true);
 
-    client.send({ kind: "request", id: "l1", method: "list" });
-    const listResponse = await client.nextFrame();
-    expect(listResponse.kind).toBe("response");
-    if (listResponse.kind === "response") {
-      const runs = (
-        listResponse.result as
-          | { runs?: Array<{ runId: string; project: string; branch: string; status: string; isLive: boolean }> }
-          | undefined
-      )?.runs;
-      const run = runs?.find(
-        (r: { runId: string; project: string; branch: string; status: string; isLive: boolean }) => r.runId === runId,
-      );
+    const runs = await listRuns(client);
+    if (runs) {
+      const run = runs.find((candidate) => candidate.runId === runId);
       expect(run).toBeDefined();
       expect(run?.status).toBe("killed");
     }
@@ -385,17 +338,11 @@ test(
   "resume rejects terminal run status",
   skipIfNoSockets(async () => {
     const client = await connectIpcClient(SOCKET_PATH);
-    const input = mockWriteLoopInput();
-
-    client.send({ kind: "request", id: "s1", method: "start", params: { input } });
-    const startResponse = await client.nextFrame();
-    expect(startResponse.kind).toBe("response");
-    if (startResponse.kind !== "response") {
+    const runId = await startRun(client);
+    if (!runId) {
       client.close();
       return;
     }
-
-    const runId = (startResponse.result as { runId?: string } | undefined)?.runId;
 
     fakeExecutor.settleAll();
     await flushBackgroundRuns();
@@ -411,16 +358,9 @@ test(
   "resume rejects if another run is in-flight (single in-flight guard)",
   skipIfNoSockets(async () => {
     const client = await connectIpcClient(SOCKET_PATH);
-    const input1 = mockWriteLoopInput();
-    const input2 = {
-      ...mockWriteLoopInput(),
-      worktree: { ...mockWriteLoopInput().worktree, branchName: "other-branch" },
-    };
-
-    client.send({ kind: "request", id: "s1", method: "start", params: { input: input1 } });
-    const startResponse1 = await client.nextFrame();
-    expect(startResponse1.kind).toBe("response");
-    if (startResponse1.kind !== "response") {
+    const input2 = mockWriteLoopInput({ branchName: "other-branch" });
+    const runId = await startRun(client);
+    if (!runId) {
       client.close();
       return;
     }
@@ -437,34 +377,20 @@ test(
   "kill aborts the abort signal that bindings can observe",
   skipIfNoSockets(async () => {
     const client = await connectIpcClient(SOCKET_PATH);
-    const input = mockWriteLoopInput();
-
-    client.send({ kind: "request", id: "s1", method: "start", params: { input } });
-    const startResponse = await client.nextFrame();
-    expect(startResponse.kind).toBe("response");
-    if (startResponse.kind !== "response") {
+    const runId = await startRun(client);
+    if (!runId) {
       client.close();
       return;
     }
-
-    const runId = (startResponse.result as { runId?: string } | undefined)?.runId;
 
     client.send({ kind: "request", id: "k1", method: "kill", params: { runId } });
     const killResponse = await client.nextFrame();
     expect(killResponse.kind).toBe("response");
     expect(fakeExecutor.isAbortSignalTriggered()).toBe(true);
 
-    client.send({ kind: "request", id: "l1", method: "list" });
-    const listResponse = await client.nextFrame();
-    if (listResponse.kind === "response") {
-      const runs = (
-        listResponse.result as
-          | { runs?: Array<{ runId: string; project: string; branch: string; status: string; isLive: boolean }> }
-          | undefined
-      )?.runs;
-      const run = runs?.find(
-        (r: { runId: string; project: string; branch: string; status: string; isLive: boolean }) => r.runId === runId,
-      );
+    const runs = await listRuns(client);
+    if (runs) {
+      const run = runs.find((candidate) => candidate.runId === runId);
       expect(run?.status).toBe("killed");
     }
 

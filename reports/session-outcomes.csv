@@ -105,3 +105,6 @@ report,session_id,report_date,completed_work_units,success_status,failure_reason
 2026-06-28T13-40-00Z-operator,daemon-run-control-handler-factory,2026-06-28,1,completed,,patch,1,35.45,5,"impl branch DIRTY on premature archive; operator hand integration-merge (seed #757); agent_count=cursor (codex quota excluded)"
 2026-06-28T13-40-00Z-operator,daemon-start-list-use-real-handlers,2026-06-28,1,completed,,patch,2,33.13,4,"daemon teardown hang fixed via real handler factory + fixture settlement; agent_count=codex+cursor"
 2026-06-28T13-40-00Z-operator,test-no-production-reimplement,2026-06-28,1,completed,,patch,2,20.28,4,"doc-only convention v2/docs/test-writing.md; agent_count=codex+cursor"
+2026-06-28T23-01-08Z-operator,v2-integration-test-runner,2026-06-28,1,completed,,patch,1,30.15,6,test:v2/test:integration:v2 split; agent_count=cursor; gate timeout was parallel-load flake
+2026-06-28T23-01-08Z-operator,shared-socket-test-fixture,2026-06-28,1,completed,,patch,1,40.75,5,shared unix-socket fixture; behind-base + biome CI fail hand-finalized; agent_count=cursor
+2026-06-28T23-01-08Z-operator,v2-socket-tests-skip-honestly,2026-06-28,1,completed,,patch,1,36.93,5,test.skipIf honest skips; behind-base hand integration-merge; agent_count=cursor

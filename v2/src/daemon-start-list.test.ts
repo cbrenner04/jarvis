@@ -3,10 +3,9 @@ import { rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type ActiveRun, type OwnershipKey, WorktreeOwnershipRegistry } from "./daemon.ts";
-import { getExternalWorktreePath } from "./external-worktree.ts";
+import { createRunControlHandlers } from "./daemon.ts";
 import { connectIpcClient } from "./ipc/client.ts";
-import { type IpcServer, type RpcHandler, startIpcServer } from "./ipc/server.ts";
+import { type IpcServer, startIpcServer } from "./ipc/server.ts";
 import { openStateStore, type StateStore } from "./state-store.ts";
 import type { WriteLoopInput } from "./write-loop.ts";
 
@@ -36,8 +35,51 @@ await new Promise<void>((resolve) => {
 
 const SOCKET_PATH = join(tmpdir(), `jarvis-daemon-test-${process.pid}.sock`);
 
+type PendingExecutorRun = {
+  input: WriteLoopInput;
+  signal: AbortSignal;
+  pauseSignal: AbortSignal;
+  settle: () => void;
+};
+
+function createFakeWriteLoopExecutor() {
+  const pending: PendingExecutorRun[] = [];
+
+  const executor = async (
+    input: WriteLoopInput,
+    signal: AbortSignal,
+    pauseSignal: AbortSignal,
+  ): Promise<void> => {
+    await new Promise<void>((resolve) => {
+      pending.push({ input, signal, pauseSignal, settle: resolve });
+    });
+  };
+
+  const settleAll = (): void => {
+    while (pending.length > 0) {
+      pending.shift()?.settle();
+    }
+  };
+
+  return {
+    executor,
+    pending,
+    settleAll,
+    abortAndSettleAll: settleAll,
+    isPauseSignalTriggered: (): boolean => pending.some((run) => run.pauseSignal.aborted),
+    isAbortSignalTriggered: (): boolean => pending.some((run) => run.signal.aborted),
+  };
+}
+
+type FakeWriteLoopExecutor = ReturnType<typeof createFakeWriteLoopExecutor>;
+
 let stateStore: StateStore;
 let server: IpcServer;
+let fakeExecutor: FakeWriteLoopExecutor;
+
+async function flushBackgroundRuns(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+}
 
 beforeEach(async () => {
   if (!canCreateSockets) {
@@ -45,192 +87,22 @@ beforeEach(async () => {
   }
   rmSync(SOCKET_PATH, { force: true });
   stateStore = openStateStore(join(tmpdir(), `jarvis-state-${process.pid}-${Date.now()}.db`));
+  fakeExecutor = createFakeWriteLoopExecutor();
 
-  // Set up the in-process daemon handlers
-  const _registry = new WorktreeOwnershipRegistry();
-  const activeRuns = new Map<string, ActiveRun>();
-
-  const keyString = (key: OwnershipKey): string => `${key.project}:${key.branch}`;
-
-  const startHandler: RpcHandler = (frame) => {
-    const params = frame.params as { input?: WriteLoopInput } | undefined;
-    if (!params?.input) {
-      return { kind: "error" as const, code: "invalid_params", message: "Missing input" };
-    }
-
-    const input = params.input as WriteLoopInput;
-    const key: OwnershipKey = {
-      project: input.worktree.projectName,
-      branch: input.worktree.branchName,
-    };
-
-    if (_registry.isClaimed(key)) {
-      return {
-        kind: "error" as const,
-        code: "worktree_claimed",
-        message: `Worktree already claimed`,
-      };
-    }
-
-    if (activeRuns.size > 0) {
-      return {
-        kind: "error" as const,
-        code: "run_in_progress",
-        message: "A run is already in progress",
-      };
-    }
-
-    const worktreePath = getExternalWorktreePath(input.worktree);
-    const runId = stateStore.createRun({
-      project: key.project,
-      specRef: input.worktree.baseRef,
-      worktreePath,
-      branch: key.branch,
-      specPath: input.specPath,
-    });
-
-    const abortController = new AbortController();
-    const pauseController = new AbortController();
-    const ks = keyString(key);
-    activeRuns.set(ks, { runId, key, abortController, pauseController });
-    _registry.claim(key, { runId, worktreePath });
-
-    // Simulate a quick settlement to test liveness tracking
-    setTimeout(() => {
-      activeRuns.delete(ks);
-      _registry.release(key);
-    }, 50);
-
-    return { kind: "response" as const, result: { runId } };
-  };
-
-  const listHandler: RpcHandler = () => {
-    const durableRuns = stateStore.listRuns();
-    const runList = durableRuns.map((run) => {
-      const ks = keyString({ project: run.project, branch: run.branch });
-      const isLive = activeRuns.has(ks);
-      return {
-        runId: run.id,
-        project: run.project,
-        branch: run.branch,
-        status: run.status,
-        isLive,
-      };
-    });
-    return { kind: "response" as const, result: { runs: runList } };
-  };
-
-  const pauseHandler: RpcHandler = (frame) => {
-    const params = frame.params as { runId?: string } | undefined;
-    if (!params?.runId) {
-      return { kind: "error" as const, code: "invalid_params", message: "Missing runId" };
-    }
-
-    const runId = params.runId as string;
-    const run = stateStore.loadRun(runId);
-    if (!run) {
-      return { kind: "error" as const, code: "unknown_run", message: `Run ${runId} not found` };
-    }
-
-    const ks = keyString({ project: run.project, branch: run.branch });
-    const activeRun = activeRuns.get(ks);
-    if (activeRun && activeRun.runId === runId) {
-      activeRun.pauseController.abort();
-      return { kind: "response" as const, result: { ok: true } };
-    }
-
-    return { kind: "error" as const, code: "run_not_active", message: `Run ${runId} is not currently active` };
-  };
-
-  const killHandler: RpcHandler = (frame) => {
-    const params = frame.params as { runId?: string } | undefined;
-    if (!params?.runId) {
-      return { kind: "error" as const, code: "invalid_params", message: "Missing runId" };
-    }
-
-    const runId = params.runId as string;
-    const run = stateStore.loadRun(runId);
-    if (!run) {
-      return { kind: "error" as const, code: "unknown_run", message: `Run ${runId} not found` };
-    }
-
-    const ks = keyString({ project: run.project, branch: run.branch });
-    const activeRun = activeRuns.get(ks);
-    if (activeRun && activeRun.runId === runId) {
-      activeRun.abortController.abort();
-      stateStore.setRunStatus(runId, "killed");
-      return { kind: "response" as const, result: { ok: true } };
-    }
-
-    return { kind: "error" as const, code: "run_not_active", message: `Run ${runId} is not currently active` };
-  };
-
-  const resumeHandler: RpcHandler = (frame) => {
-    const params = frame.params as { runId?: string } | undefined;
-    if (!params?.runId) {
-      return { kind: "error" as const, code: "invalid_params", message: "Missing runId" };
-    }
-
-    const runId = params.runId as string;
-    const run = stateStore.loadRun(runId);
-    if (!run) {
-      return { kind: "error" as const, code: "unknown_run", message: `Run ${runId} not found` };
-    }
-
-    // Reject terminal statuses
-    if (run.status === "completed" || run.status === "failed" || run.status === "blocked") {
-      return { kind: "error" as const, code: "terminal_run", message: `Cannot resume a ${run.status} run` };
-    }
-
-    const key: OwnershipKey = { project: run.project, branch: run.branch };
-
-    // Check single in-flight run guard
-    if (activeRuns.size > 0) {
-      return {
-        kind: "error" as const,
-        code: "run_in_progress",
-        message: "A run is already in progress; at most one in-flight run globally",
-      };
-    }
-
-    // Check per-(project, branch) guard
-    if (_registry.isClaimed(key)) {
-      return {
-        kind: "error" as const,
-        code: "worktree_claimed",
-        message: `Worktree already claimed for project=${key.project}, branch=${key.branch}`,
-      };
-    }
-
-    // Re-invoke executeWriteLoop (simplified for test - in reality would use stored input)
-    const abortController = new AbortController();
-    const pauseController = new AbortController();
-    const ks = keyString(key);
-    activeRuns.set(ks, { runId, key, abortController, pauseController });
-    _registry.claim(key, { runId, worktreePath: run.worktreePath });
-
-    // Simulate a quick settlement
-    setTimeout(() => {
-      activeRuns.delete(ks);
-      _registry.release(key);
-    }, 50);
-
-    return { kind: "response" as const, result: { ok: true } };
-  };
-
-  server = await startIpcServer(SOCKET_PATH, {
-    start: startHandler,
-    list: listHandler,
-    pause: pauseHandler,
-    kill: killHandler,
-    resume: resumeHandler,
+  const handlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
   });
+
+  server = await startIpcServer(SOCKET_PATH, handlers);
 });
 
 afterEach(async () => {
   if (!canCreateSockets) {
     return;
   }
+  fakeExecutor.abortAndSettleAll();
+  await flushBackgroundRuns();
   try {
     await server.close();
   } catch {
@@ -293,7 +165,6 @@ test(
     const response1 = await client.nextFrame();
     expect(response1.kind).toBe("response");
 
-    // Try to start another run while first is active
     const input2 = {
       ...mockWriteLoopInput(),
       worktree: { ...mockWriteLoopInput().worktree, projectName: "other-project" },
@@ -317,7 +188,6 @@ test(
     const response1 = await client.nextFrame();
     expect(response1.kind).toBe("response");
 
-    // Try to start the same (project, branch) again
     client.send({ kind: "request", id: "s2", method: "start", params: { input } });
     const response2 = await client.nextFrame();
     expect(response2.kind).toBe("error");
@@ -334,12 +204,10 @@ test(
     const client = await connectIpcClient(SOCKET_PATH);
     const input = mockWriteLoopInput();
 
-    // Start a run
     client.send({ kind: "request", id: "s1", method: "start", params: { input } });
     const startResponse = await client.nextFrame();
     expect(startResponse.kind).toBe("response");
 
-    // List runs
     client.send({ kind: "request", id: "l1", method: "list" });
     const listResponse = await client.nextFrame();
     expect(listResponse.kind).toBe("response");
@@ -361,7 +229,7 @@ test(
     expect(run).toHaveProperty("branch");
     expect(run).toHaveProperty("status");
     expect(run).toHaveProperty("isLive");
-    expect(run?.isLive).toBe(true); // Run is still active
+    expect(run?.isLive).toBe(true);
     client.close();
   }),
 );
@@ -372,7 +240,6 @@ test(
     const client = await connectIpcClient(SOCKET_PATH);
     const input = mockWriteLoopInput();
 
-    // Start a run
     client.send({ kind: "request", id: "s1", method: "start", params: { input } });
     const startResponse = await client.nextFrame();
     expect(startResponse.kind).toBe("response");
@@ -381,10 +248,9 @@ test(
       return;
     }
 
-    // Wait for settlement (50ms + buffer)
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    fakeExecutor.settleAll();
+    await flushBackgroundRuns();
 
-    // List runs
     client.send({ kind: "request", id: "l1", method: "list" });
     const listResponse = await client.nextFrame();
     expect(listResponse.kind).toBe("response");
@@ -399,7 +265,7 @@ test(
     expect(result?.runs?.length).toBeGreaterThan(0);
 
     const run = result?.runs?.[0];
-    expect(run?.isLive).toBe(false); // Run has settled
+    expect(run?.isLive).toBe(false);
     client.close();
   }),
 );
@@ -410,7 +276,6 @@ test(
     const client = await connectIpcClient(SOCKET_PATH);
     const input = mockWriteLoopInput();
 
-    // Start a run
     client.send({ kind: "request", id: "s1", method: "start", params: { input } });
     const startResponse = await client.nextFrame();
     expect(startResponse.kind).toBe("response");
@@ -421,13 +286,13 @@ test(
 
     const runId = (startResponse.result as { runId?: string } | undefined)?.runId;
 
-    // Pause the run
     client.send({ kind: "request", id: "p1", method: "pause", params: { runId } });
     const pauseResponse = await client.nextFrame();
     expect(pauseResponse.kind).toBe("response");
     if (pauseResponse.kind === "response") {
       expect((pauseResponse.result as { ok?: boolean } | undefined)?.ok).toBe(true);
     }
+    expect(fakeExecutor.isPauseSignalTriggered()).toBe(true);
     client.close();
   }),
 );
@@ -437,7 +302,6 @@ test(
   skipIfNoSockets(async () => {
     const client = await connectIpcClient(SOCKET_PATH);
 
-    // Try to pause a non-existent run
     client.send({ kind: "request", id: "p1", method: "pause", params: { runId: "unknown-id" } });
     const pauseResponse = await client.nextFrame();
     expect(pauseResponse.kind).toBe("error");
@@ -454,7 +318,6 @@ test(
     const client = await connectIpcClient(SOCKET_PATH);
     const input = mockWriteLoopInput();
 
-    // Start a run
     client.send({ kind: "request", id: "s1", method: "start", params: { input } });
     const startResponse = await client.nextFrame();
     expect(startResponse.kind).toBe("response");
@@ -465,15 +328,14 @@ test(
 
     const runId = (startResponse.result as { runId?: string } | undefined)?.runId;
 
-    // Kill the run
     client.send({ kind: "request", id: "k1", method: "kill", params: { runId } });
     const killResponse = await client.nextFrame();
     expect(killResponse.kind).toBe("response");
     if (killResponse.kind === "response") {
       expect((killResponse.result as { ok?: boolean } | undefined)?.ok).toBe(true);
     }
+    expect(fakeExecutor.isAbortSignalTriggered()).toBe(true);
 
-    // Verify the run status is killed
     client.send({ kind: "request", id: "l1", method: "list" });
     const listResponse = await client.nextFrame();
     expect(listResponse.kind).toBe("response");
@@ -498,7 +360,6 @@ test(
   skipIfNoSockets(async () => {
     const client = await connectIpcClient(SOCKET_PATH);
 
-    // Try to kill a non-existent run
     client.send({ kind: "request", id: "k1", method: "kill", params: { runId: "unknown-id" } });
     const killResponse = await client.nextFrame();
     expect(killResponse.kind).toBe("error");
@@ -514,7 +375,6 @@ test(
   skipIfNoSockets(async () => {
     const client = await connectIpcClient(SOCKET_PATH);
 
-    // Try to resume a non-existent run
     client.send({ kind: "request", id: "r1", method: "resume", params: { runId: "unknown-id" } });
     const resumeResponse = await client.nextFrame();
     expect(resumeResponse.kind).toBe("error");
@@ -531,7 +391,6 @@ test(
     const client = await connectIpcClient(SOCKET_PATH);
     const input = mockWriteLoopInput();
 
-    // Start a run
     client.send({ kind: "request", id: "s1", method: "start", params: { input } });
     const startResponse = await client.nextFrame();
     expect(startResponse.kind).toBe("response");
@@ -542,13 +401,12 @@ test(
 
     const runId = (startResponse.result as { runId?: string } | undefined)?.runId;
 
-    // Wait for the run to settle
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    fakeExecutor.settleAll();
+    await flushBackgroundRuns();
 
-    // Try to resume after settlement
     client.send({ kind: "request", id: "r1", method: "resume", params: { runId } });
     const resumeResponse = await client.nextFrame();
-    expect(resumeResponse.kind).toBe("response"); // No actual terminal status set in test, so this should succeed
+    expect(resumeResponse.kind).toBe("response");
     client.close();
   }),
 );
@@ -563,7 +421,6 @@ test(
       worktree: { ...mockWriteLoopInput().worktree, branchName: "other-branch" },
     };
 
-    // Start first run
     client.send({ kind: "request", id: "s1", method: "start", params: { input: input1 } });
     const startResponse1 = await client.nextFrame();
     expect(startResponse1.kind).toBe("response");
@@ -572,10 +429,9 @@ test(
       return;
     }
 
-    // Create a paused run in the store by starting and settling another one
     client.send({ kind: "request", id: "s2", method: "start", params: { input: input2 } });
     const startResponse2 = await client.nextFrame();
-    expect(startResponse2.kind).toBe("error"); // Should be rejected due to single in-flight guard
+    expect(startResponse2.kind).toBe("error");
 
     client.close();
   }),
@@ -584,12 +440,9 @@ test(
 test(
   "kill aborts the abort signal that bindings can observe",
   skipIfNoSockets(async () => {
-    // This test verifies that when kill is called, the abort signal is set,
-    // which bindings can observe to determine if they should abort gracefully.
     const client = await connectIpcClient(SOCKET_PATH);
     const input = mockWriteLoopInput();
 
-    // Start a run
     client.send({ kind: "request", id: "s1", method: "start", params: { input } });
     const startResponse = await client.nextFrame();
     expect(startResponse.kind).toBe("response");
@@ -600,15 +453,11 @@ test(
 
     const runId = (startResponse.result as { runId?: string } | undefined)?.runId;
 
-    // Verify the abort signal is not aborted yet
-    // (In actual binding code, it would check args.signal?.aborted)
-
-    // Kill the run
     client.send({ kind: "request", id: "k1", method: "kill", params: { runId } });
     const killResponse = await client.nextFrame();
     expect(killResponse.kind).toBe("response");
+    expect(fakeExecutor.isAbortSignalTriggered()).toBe(true);
 
-    // Verify the run status is killed
     client.send({ kind: "request", id: "l1", method: "list" });
     const listResponse = await client.nextFrame();
     if (listResponse.kind === "response") {

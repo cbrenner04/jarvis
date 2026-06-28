@@ -27,14 +27,14 @@ completion deterministic so teardown cannot hang or leak async failures.
 
 ## Acceptance criteria
 
-- [ ] `daemon-start-list.test.ts` wires `startIpcServer` with `createRunControlHandlers` over injected `stateStore` and `writeLoopExecutor`.
-- [ ] `daemon-start-list.test.ts` has no inline `RpcHandler` implementations for `start`/`list`/`pause`/`resume`/`kill`.
-- [ ] Migrated IPC assertions expect real `createRunControlHandlers` behavior, correcting any copied-handler expectations that diverge.
-- [ ] Background runs in `daemon-start-list.test.ts` settle under fixture control; no `setTimeout`-based settlement remains.
-- [ ] Teardown aborts any in-flight fake write-loop executor work and settles it without unhandled rejections before server/state teardown.
-- [ ] Pause and kill tests assert the injected fake executor observed the pause signal and abort signal respectively.
-- [ ] `daemon-start-list.test.ts` stays green.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `daemon-start-list.test.ts` wires `startIpcServer` with `createRunControlHandlers` over injected `stateStore` and `writeLoopExecutor`.
+- [x] `daemon-start-list.test.ts` has no inline `RpcHandler` implementations for `start`/`list`/`pause`/`resume`/`kill`.
+- [x] Migrated IPC assertions expect real `createRunControlHandlers` behavior, correcting any copied-handler expectations that diverge.
+- [x] Background runs in `daemon-start-list.test.ts` settle under fixture control; no `setTimeout`-based settlement remains.
+- [x] Teardown aborts any in-flight fake write-loop executor work and settles it without unhandled rejections before server/state teardown.
+- [x] Pause and kill tests assert the injected fake executor observed the pause signal and abort signal respectively.
+- [x] `daemon-start-list.test.ts` stays green.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

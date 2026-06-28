@@ -42,17 +42,17 @@ Use this review question set:
 
 ## Do not reimplement production logic in test doubles
 
-When an exported production seam already owns a behavior, exercise that seam — do not reimplement the same logic in local doubles, stub handlers, or copied control flow.
+When an exported production seam owns a behavior, call that seam. Do not recreate the same logic in local doubles, stub handlers, or copied control flow.
 
 **Unit under test:** the exported production unit that owns the behavior (factory, handler set, module function, or class method path the assertion targets).
 
-**Dependencies outside that boundary:** ordinary fakes, spies, and injected fixtures remain valid. Inject a fake state store, clock, executor, or process table; do not replace the production orchestration that wires those dependencies together.
+**Dependencies outside that boundary:** ordinary fakes, spies, and injected fixtures remain valid. Fake the state store, clock, executor, or process table; keep the production orchestration.
 
 ### Worked example: daemon run-control handler drift
 
-Daemon run-control tests drifted when `daemon-start-list.test.ts` carried inline `RpcHandler` copies of `start`/`list`/`pause`/`resume`/`kill` — separate active-run maps, simplified error shapes, and `setTimeout`-based settlement that mirrored but did not execute `createRunControlHandlers`.
+Daemon run-control tests drifted when `daemon-start-list.test.ts` carried inline `RpcHandler` copies of `start`/`list`/`pause`/`resume`/`kill`: separate active-run maps, simplified error shapes, and `setTimeout`-based settlement that mirrored but did not execute `createRunControlHandlers`.
 
-The expected pattern calls the exported factory with injected dependencies only:
+The expected pattern calls the exported factory with injected dependencies:
 
 ```typescript
 const handlers = createRunControlHandlers({
@@ -63,9 +63,9 @@ const handlers = createRunControlHandlers({
 server = await startIpcServer(SOCKET_PATH, handlers);
 ```
 
-The fake write-loop executor is fixture-controlled settlement for a dependency outside the handler factory; IPC assertions run against real handler behavior. See [`v2/src/daemon-start-list.test.ts`](../src/daemon-start-list.test.ts).
+The fake write-loop executor is a dependency fake; IPC assertions still run against real handler behavior. See [`v2/src/daemon-start-list.test.ts`](../src/daemon-start-list.test.ts).
 
-This documents the convention and the anti-pattern; it does not require migrating unrelated tests.
+This documents the anti-pattern; it does not require unrelated test rewrites.
 
 ## Worked example: DescendantTracker injection pattern
 
@@ -100,5 +100,5 @@ The behavior under test (capture descendants, kill survivors by PID+identity, pr
 
 ## Out of scope
 
-- **Automated enforcement** — linting or review automation to catch agent-runnable violations or production-logic double drift is deferred to a future enforcement spec. Conventions rest on authors reading this document.
+- **Automated enforcement** — linting or review automation to catch agent-runnable violations or production-logic double drift is deferred to a future enforcement spec.
 - **One-size-fits-all rewrites** — do not mechanically convert every primitive match. First classify it: `already-deterministic`, `refactor`, or `marked-exception`.

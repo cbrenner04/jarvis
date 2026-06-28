@@ -1,7 +1,6 @@
 ---
 name: cleanup-skip-in-flight-impl-specs
 ---
-name: cleanup-skip-in-flight-impl-specs
 
 # Cleanup skip in-flight impl specs
 

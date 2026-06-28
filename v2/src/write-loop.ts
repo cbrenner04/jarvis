@@ -72,7 +72,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       const attemptId = resumedAttemptId ?? store.recordAttemptStart(runId);
       resumedAttemptId = null;
 
-      // Emit iteration_started before executeWrite
       args.logSink?.append(runId, { kind: "iteration_started", attemptId });
 
       const writeArgs: Parameters<typeof executeWrite>[0] = {

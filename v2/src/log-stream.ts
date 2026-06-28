@@ -4,11 +4,6 @@ import type { OutcomeKind, RunStatus } from "./state-store-types.ts";
 import type { WriteLoopOutcomeKind } from "./write-loop.ts";
 
 /**
- * Structured log event kinds.
- */
-export type EventKind = "iteration_started" | "boundary_committed" | "loop_finished";
-
-/**
  * Event emitted when an iteration begins.
  */
 export type IterationStartedEvent = {
@@ -36,9 +31,6 @@ export type LoopFinishedEvent = {
   resumable: boolean;
 };
 
-/**
- * Union of all event types.
- */
 export type LogEvent = IterationStartedEvent | BoundaryCommittedEvent | LoopFinishedEvent;
 
 /**
@@ -82,9 +74,6 @@ export interface LogReader {
   follow(runId: string, signal?: AbortSignal): AsyncIterableIterator<PersistedRecord>;
 }
 
-/**
- * File-based log stream implementation.
- */
 class FileLogStream implements LogSink, LogReader {
   private storagePath: string;
   private sequences: Map<string, number> = new Map();
@@ -96,12 +85,6 @@ class FileLogStream implements LogSink, LogReader {
   }
 
   private loadSequences(): void {
-    const dir = dirname(this.storagePath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-      return;
-    }
-
     if (!existsSync(this.storagePath)) {
       return;
     }
@@ -126,11 +109,7 @@ class FileLogStream implements LogSink, LogReader {
     const ts = new Date().toISOString();
     const record: PersistedRecord = { runId, seq, ts, event };
 
-    const dir = dirname(this.storagePath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-
+    mkdirSync(dirname(this.storagePath), { recursive: true });
     appendFileSync(this.storagePath, `${JSON.stringify(record)}\n`, "utf-8");
     this.sequences.set(runId, seq);
   }
@@ -151,39 +130,29 @@ class FileLogStream implements LogSink, LogReader {
       }
     }
 
-    // Sort by seq to ensure order
     records.sort((a, b) => a.seq - b.seq);
     return records;
   }
 
   async *follow(runId: string, signal?: AbortSignal): AsyncIterableIterator<PersistedRecord> {
-    // Yield all existing records
     const existing = this.tail(runId);
     for (const record of existing) {
-      if (signal?.aborted) {
-        return;
-      }
+      if (signal?.aborted) return;
       yield record;
     }
 
-    // Track last seq for this run
     const lastRecord = existing[existing.length - 1];
     let lastSeq = lastRecord ? lastRecord.seq : 0;
 
-    // Poll for new records
     while (!signal?.aborted) {
       const all = this.tail(runId);
       for (const record of all) {
         if (record.seq > lastSeq) {
-          if (signal?.aborted) {
-            return;
-          }
+          if (signal?.aborted) return;
           lastSeq = record.seq;
           yield record;
         }
       }
-
-      // Small delay before polling again
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
@@ -193,18 +162,12 @@ class FileLogStream implements LogSink, LogReader {
   }
 }
 
-/**
- * Open a log sink for appending events.
- * @param storagePath Path where log events are persisted.
- */
+/** Open a log sink for appending events. */
 export function openLogSink(storagePath: string): LogSink {
   return new FileLogStream(storagePath);
 }
 
-/**
- * Open a log reader for querying events.
- * @param storagePath Path where log events are persisted.
- */
+/** Open a log reader for querying events. */
 export function openLogReader(storagePath: string): LogReader {
   return new FileLogStream(storagePath);
 }

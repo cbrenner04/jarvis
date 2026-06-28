@@ -1,4 +1,4 @@
-import { connect, type Socket } from "node:net";
+import { Socket } from "node:net";
 import { FrameDecoder, encodeFrame } from "./codec.ts";
 import type { IpcFrame } from "./types.ts";
 
@@ -11,9 +11,10 @@ export type IpcClient = {
 
 function connectSocket(socketPath: string): Promise<Socket> {
   return new Promise((resolve, reject) => {
-    const socket = connect(socketPath);
+    const socket = new Socket();
     socket.once("connect", () => resolve(socket));
     socket.once("error", reject);
+    socket.connect(socketPath);
   });
 }
 

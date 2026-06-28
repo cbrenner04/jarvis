@@ -58,8 +58,67 @@ same `streamId` until `stream-end`. No log or run event shapes are defined here.
 RPC traffic on the same connection keeps `id` correlation while a stream is
 open.
 
+## Daemon lifecycle API
+
+The daemon is a detached child process. Callers interact via three programmatic
+functions in `v2/src/daemon-lifecycle.ts`.
+
+### `startDaemon(socketPath, options?)`
+
+Spawns a detached child running `v2/src/daemon.ts`. Returns metadata `{pid,
+socketPath}` or throws on startup failure.
+
+**Injected paths:** Callers must supply an explicit `socketPath`; the daemon
+environment variable is `DAEMON_SOCKET_PATH`. Tests may inject `pidPath` (for
+cleanup); `daemonScript` (test override); and `readinessTimeoutMs` (default
+5s).
+
+**Double-start protection:** If the socket already responds to `health`, throws
+`DaemonAlreadyRunningError` (no second child spawned).
+
+**Readiness:** Polls the socket for `health` response. Throws
+`DaemonReadinessTimeoutError` if the child is alive but socket doesn't respond
+within `readinessTimeoutMs`.
+
+### `stopDaemon(socketPath, options?)`
+
+Graceful shutdown: attempts RPC `shutdown` (for coordinated drain), sends
+SIGTERM, waits bounded time, then SIGKILL if needed. Cleans up injected
+`pidPath`.
+
+**Drain:** Signals server to reject new connections and drain in-flight IPC
+(default 2s). Waits bounded time (default 3s) for process exit after SIGTERM.
+
+**Process-only fallback:** If socket is unreachable, signals the process
+directly. If `pidPath` is not provided, external signal handling is required.
+
+### `getDaemonStatus(pid, socketPath, options?)`
+
+Returns `"running"` only if process is alive AND socket responds to `health` in
+short timeout (default 1s). Returns `"stopped"` on any liveness or transport
+failure.
+
+**Probe order:** Process liveness first (no socket I/O if dead). Prevents false
+"running" states from stale sockets.
+
+## In-memory worktree ownership
+
+The daemon holds a registry keyed by `{ project: string, branch: string }`.
+Each entry records `{ runId, worktreePath }`.
+
+**Registry methods:**
+- `claim(key, ownership)` — acquires ownership; throws `DaemonDoubleClaimError`
+  on double-claim (no overwrite).
+- `release(key)` — releases ownership; no-op if key not held.
+- `get(key)` — returns ownership or undefined.
+- `isClaimed(key)` — boolean test.
+
+**No disk writes:** Registry is in-memory only. Cross-process coordination uses
+`.jarvis.lock` and git worktrees locking (unchanged).
+
 ## Library surface
 
-`startIpcServer(socketPath)` binds a Unix listener in-process (tests and future
-daemon host). `connectIpcClient(socketPath)` is a thin test/caller helper.
+`startIpcServer(socketPath, handlers?)` binds a Unix listener in-process (tests
+and daemon host). Custom RPC handlers override built-in `health`/`status` if
+provided. `connectIpcClient(socketPath)` is a thin test/caller helper.
 Frame encode/decode lives in `v2/src/ipc/`.

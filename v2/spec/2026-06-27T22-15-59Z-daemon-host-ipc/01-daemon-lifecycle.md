@@ -58,37 +58,37 @@ no `executeWriteLoop` spawn). Wires the IPC transport from 00.
 
 ## Acceptance criteria
 
-- [ ] `startDaemon` leaves a detached process running after the parent exits; the
+- [x] `startDaemon` leaves a detached process running after the parent exits; the
   child serves `health` on the injected `socketPath`; readiness timeout throws.
-- [ ] Second `startDaemon` while `health` succeeds on the configured `socketPath`
+- [x] Second `startDaemon` while `health` succeeds on the configured `socketPath`
   fails with a typed error (no second child).
-- [ ] `getDaemonStatus` returns `running` only when the child is alive and
+- [x] `getDaemonStatus` returns `running` only when the child is alive and
   short-timeout `health` succeeds; any liveness or transport failure → `stopped`.
-- [ ] After `stopDaemon`, the socket is unbound, `getDaemonStatus` → `stopped`,
+- [x] After `stopDaemon`, the socket is unbound, `getDaemonStatus` → `stopped`,
   and the child exits 0.
-- [ ] `status` IPC RPC on the live daemon reports `{ state: "running" }`.
-- [ ] Daemon entrypoint constructs and holds the in-memory ownership registry
+- [x] `status` IPC RPC on the live daemon reports `{ state: "running" }`.
+- [x] Daemon entrypoint constructs and holds the in-memory ownership registry
   (IPC exposure not required this slice).
-- [ ] `claim({ project, branch, runId, worktreePath })` rejects a second claim
+- [x] `claim({ project, branch, runId, worktreePath })` rejects a second claim
   on the same key with a typed error; `release` on an unheld key is a no-op;
   no disk writes.
-- [ ] `write-loop.test.ts` and `shared/worktree-lock.test.ts` stay green
+- [x] `write-loop.test.ts` and `shared/worktree-lock.test.ts` stay green
   (behavior unchanged).
-- [ ] `external-worktree.sandbox-unrunnable.test.ts` stays green (operator suite;
+- [x] `external-worktree.sandbox-unrunnable.test.ts` stays green (operator suite;
   not agent-runnable).
-- [ ] `daemon.sandbox-unrunnable.test.ts` covers start → `status` running →
+- [x] `daemon.sandbox-unrunnable.test.ts` covers start → `status` running →
   `health`/`status` RPC → stop → `stopped` with injected socket/pid paths.
-- [ ] New code lives under `v2/**`/`shared/**` with no `v2 -> v1` imports.
-- [ ] `bun run typecheck` (both tsconfigs) and `bun test` pass.
+- [x] New code lives under `v2/**`/`shared/**` with no `v2 -> v1` imports.
+- [x] `bun run typecheck` (both tsconfigs) and `bun test` pass.
 
 ## Documentation updates
 
-- [ ] `v2/docs/daemon-host.md`: lifecycle API (`start`/`stop`/`status` semantics),
+- [x] `v2/docs/daemon-host.md`: lifecycle API (`start`/`stop`/`status` semantics),
   detached-process model, graceful-shutdown baseline, double-start failure,
   `getDaemonStatus` probe order, injected-path policy, and in-memory ownership
   keyed by `{ project, branch }` with cross-link to architecture Git/worktrees
   locking.
-- [ ] `v2/docs/v2-architecture.md` Interface section: record hermetic Unix-
+- [x] `v2/docs/v2-architecture.md` Interface section: record hermetic Unix-
   socket IPC and in-memory worktree ownership; reconcile with Git/worktrees
   locking bullet (daemon runs vs `.jarvis.lock` coexistence).
-- [ ] `v2/docs/v1-behaviors.md`: no change — additive v2-only surface.
+- [x] `v2/docs/v1-behaviors.md`: no change — additive v2-only surface.

@@ -1,0 +1,218 @@
+import { spawn } from "node:child_process";
+import { existsSync, writeFileSync, rmSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { connectIpcClient } from "./ipc/client";
+import type { HealthResult, IpcStatusResult } from "./ipc/types";
+
+export class DaemonAlreadyRunningError extends Error {
+  constructor(socketPath: string) {
+    super(`Daemon already running on socket ${socketPath}`);
+    this.name = "DaemonAlreadyRunningError";
+  }
+}
+
+export class DaemonReadinessTimeoutError extends Error {
+  constructor(socketPath: string, timeoutMs: number) {
+    super(`Daemon failed to become ready on socket ${socketPath} within ${timeoutMs}ms`);
+    this.name = "DaemonReadinessTimeoutError";
+  }
+}
+
+export type DaemonMetadata = {
+  pid: number;
+  socketPath: string;
+};
+
+export type ProcessProber = {
+  isAlive(pid: number): boolean;
+};
+
+export type SocketProber = {
+  probe(socketPath: string, timeoutMs: number): Promise<boolean>;
+};
+
+/**
+ * Checks if a process with the given PID is alive.
+ * Throws on invalid PID; returns false if process does not exist.
+ */
+export function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Probes the daemon socket for health response.
+ */
+export async function probeSocket(socketPath: string, timeoutMs: number): Promise<boolean> {
+  try {
+    const client = await connectIpcClient(socketPath);
+    try {
+      client.send({ kind: "request", id: "probe", method: "health" });
+      const frame = await client.nextFrame(timeoutMs);
+      return frame.kind === "response" && frame.id === "probe";
+    } finally {
+      client.close();
+    }
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Starts a detached daemon process at the given socket path.
+ * Waits (bounded) for the daemon to respond to health checks.
+ * Throws `DaemonAlreadyRunningError` if the socket already responds.
+ * Throws `DaemonReadinessTimeoutError` if startup times out.
+ */
+export async function startDaemon(
+  socketPath: string,
+  options?: {
+    daemonScript?: string;
+    readinessTimeoutMs?: number;
+    pidPath?: string;
+    processProber?: ProcessProber;
+    socketProber?: SocketProber;
+  },
+): Promise<DaemonMetadata> {
+  const readinessTimeoutMs = options?.readinessTimeoutMs ?? 5_000;
+  const processProber = options?.processProber ?? { isAlive: isProcessAlive };
+  const socketProber = options?.socketProber ?? { probe: probeSocket };
+
+  const alreadyUp = await socketProber.probe(socketPath, 500);
+  if (alreadyUp) {
+    throw new DaemonAlreadyRunningError(socketPath);
+  }
+
+  const daemonScript = options?.daemonScript ?? resolve(import.meta.dir, "daemon.ts");
+
+  const proc = spawn("bun", [daemonScript], {
+    detached: true,
+    stdio: "ignore",
+    env: { ...process.env, DAEMON_SOCKET_PATH: socketPath },
+  });
+
+  const pid = proc.pid!;
+  proc.unref();
+
+  if (options?.pidPath) {
+    const pidDir = dirname(options.pidPath);
+    if (!existsSync(pidDir)) {
+      throw new Error(`PID file directory does not exist: ${pidDir}`);
+    }
+    writeFileSync(options.pidPath, String(pid));
+  }
+
+  const startTime = Date.now();
+  while (Date.now() - startTime < readinessTimeoutMs) {
+    if (!processProber.isAlive(pid)) {
+      throw new Error(`Daemon process ${pid} died during startup`);
+    }
+    const up = await socketProber.probe(socketPath, 100);
+    if (up) {
+      return { pid, socketPath };
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+
+  throw new DaemonReadinessTimeoutError(socketPath, readinessTimeoutMs);
+}
+
+/**
+ * Stops a running daemon gracefully: rejects new connections, drains in-flight IPC,
+ * then sends SIGTERM. If the process doesn't exit within the timeout, sends SIGKILL.
+ */
+export async function stopDaemon(
+  socketPath: string,
+  options?: {
+    drainTimeoutMs?: number;
+    killTimeoutMs?: number;
+    pidPath?: string;
+    processProber?: ProcessProber;
+  },
+): Promise<void> {
+  const drainTimeoutMs = options?.drainTimeoutMs ?? 2_000;
+  const killTimeoutMs = options?.killTimeoutMs ?? 3_000;
+  const processProber = options?.processProber ?? { isAlive: isProcessAlive };
+
+  let pid: number | null = null;
+  if (options?.pidPath && existsSync(options.pidPath)) {
+    try {
+      pid = parseInt(readFileSync(options.pidPath, "utf-8"), 10);
+    } catch {
+      // ignore parse errors, pidPath is optional
+    }
+  }
+
+  try {
+    const client = await connectIpcClient(socketPath);
+    try {
+      client.send({ kind: "request", id: "shutdown", method: "shutdown" });
+      try {
+        await client.nextFrame(drainTimeoutMs);
+      } catch {
+        // timeout or error is expected; just close
+      }
+    } finally {
+      client.close();
+    }
+  } catch {
+    // socket may not be reachable; process-side shutdown signal is fallback
+  }
+
+  if (pid) {
+    const killStart = Date.now();
+    let terminated = false;
+
+    while (Date.now() - killStart < killTimeoutMs) {
+      if (!processProber.isAlive(pid)) {
+        terminated = true;
+        break;
+      }
+      if (Date.now() - killStart < 100) {
+        process.kill(pid, "SIGTERM");
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+
+    if (!terminated && processProber.isAlive(pid)) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // process may have exited between check and kill
+      }
+    }
+  }
+
+  if (options?.pidPath) {
+    rmSync(options.pidPath, { force: true });
+  }
+}
+
+/**
+ * Checks daemon liveness: first probes the process, then attempts a short-timeout health check.
+ * Returns "running" only if both succeed; "stopped" otherwise.
+ */
+export async function getDaemonStatus(
+  pid: number,
+  socketPath: string,
+  options?: {
+    healthTimeoutMs?: number;
+    processProber?: ProcessProber;
+    socketProber?: SocketProber;
+  },
+): Promise<"running" | "stopped"> {
+  const healthTimeoutMs = options?.healthTimeoutMs ?? 1_000;
+  const processProber = options?.processProber ?? { isAlive: isProcessAlive };
+  const socketProber = options?.socketProber ?? { probe: probeSocket };
+
+  if (!processProber.isAlive(pid)) {
+    return "stopped";
+  }
+
+  const up = await socketProber.probe(socketPath, healthTimeoutMs);
+  return up ? "running" : "stopped";
+}

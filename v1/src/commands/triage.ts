@@ -1121,8 +1121,9 @@ function resolveSpecDir(dirPath: string): DeriveSpecResult {
     return { ok: false, reason: "zero-md", dirPath };
   }
   const mdFiles = entries.filter((e) => e.endsWith(".md"));
-  if (mdFiles.length === 1) {
-    return { ok: true, specPath: join(dirPath, mdFiles[0]!) };
+  const [onlyMd] = mdFiles;
+  if (mdFiles.length === 1 && onlyMd) {
+    return { ok: true, specPath: join(dirPath, onlyMd) };
   }
   if (mdFiles.length === 0) {
     return { ok: false, reason: "zero-md", dirPath };

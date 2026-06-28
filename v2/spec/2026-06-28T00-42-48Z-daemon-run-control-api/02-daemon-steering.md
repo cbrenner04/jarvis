@@ -17,6 +17,13 @@ existing resume path branches on how the step stopped. No richer steering
 - The daemon records run status `killed` because it initiated the kill (the
   loop, aborted mid-step, cannot record it); the loop records `paused` itself —
   rules out a single owner trying to record both transitions.
+- Write-after-abort ownership: if the loop observes its `signal` aborted when the
+  in-flight step returns, it skips the boundary commit and the daemon remains the
+  sole writer of `killed` — rules out the loop racing a boundary commit (or a
+  status write) against the daemon's `killed` write after a kill.
+- `pause`/`kill`/`resume` reject an unknown run ID; `resume` also rejects a run
+  in a terminal status (`completed`/`failed`/`blocked`) — rules out steering a
+  run that does not exist or re-invoking the loop on already-finished work.
 - Add `killed` to the `RunStatus` union (both `state-store.ts` and
   `state-store-types.ts`) — its first consumer is this verb.
 - `resume` re-invokes `executeWriteLoop` for the run and relies on its durable
@@ -27,6 +34,9 @@ existing resume path branches on how the step stopped. No richer steering
 - `resume` re-registers the run under the same admission guards as `start` (one
   per `(project,branch)`, single in-flight) — rules out resume bypassing the
   guards and creating an overlapping live loop.
+- In-process tests may use working method names chosen by the implementer for
+  `pause`/`kill`/`resume`; stable external names are deferred to the CLI subspec
+  as first external caller.
 
 ## Task checklist
 
@@ -35,8 +45,12 @@ existing resume path branches on how the step stopped. No richer steering
   alongside the abort controller.
 - `pause` handler: signal graceful stop for the run.
 - `kill` handler: abort the run's signal, record run status `killed`.
-- `resume` handler: re-invoke `executeWriteLoop` for the run under the start
-  guards; the loop's resume branch selects continue vs re-run.
+- `resume` handler: load the durable run row by ID to reconstruct the
+  `WriteLoopInput` (project, branch, worktree, spec path), then re-invoke
+  `executeWriteLoop` under the start guards; the loop's resume branch selects
+  continue vs re-run.
+- Reject `pause`/`kill`/`resume` on an unknown run ID, and `resume` on a terminal
+  run (`completed`/`failed`/`blocked`).
 - Co-locate tests over in-process IPC with simulated bindings, including a
   binding that observes abort for the kill path.
 
@@ -47,6 +61,9 @@ existing resume path branches on how the step stopped. No richer steering
 - [ ] An abort-honoring binding observes the abort when a run is killed.
 - [ ] `resume` of a `paused` run continues with a fresh attempt; `resume` of a `killed` run re-runs the interrupted step over the dirty worktree.
 - [ ] `resume` is rejected if it would violate the single-in-flight or per-`(project,branch)` guard.
+- [ ] If a step returns after its run was killed (signal aborted), the loop skips the boundary commit and the daemon is the sole writer of `killed`.
+- [ ] `pause`, `kill`, and `resume` each reject an unknown run ID.
+- [ ] `resume` of a terminal run (`completed`/`failed`/`blocked`) is rejected.
 - [ ] `RunStatus` includes `killed` in both `state-store.ts` and `state-store-types.ts`.
 - [ ] `bun run typecheck` and `bun run test` pass.
 

@@ -19,6 +19,9 @@ host consumes it in subspec 02.
   returns `resumable: true` with a `paused`-distinct loop outcome — rules out
   collapsing it into the existing `budget-exhausted` resumable result, which
   `list`/resume could not tell apart from an operator pause.
+- `WriteLoopOutcomeKind` gains a `"paused"` variant; since both `paused` and
+  `budget-exhausted` are `resumable: true`, `kind` is the sole distinguisher —
+  rules out leaving callers unable to tell the two resumable outcomes apart.
 - The loop sets durable run status `paused` at the graceful stop — rules out the
   daemon reaching into run-status rows for a transition the loop already owns
   (it already writes `in-progress`/`budget-soft-stopped` at its boundaries).
@@ -46,10 +49,10 @@ host consumes it in subspec 02.
 ## Acceptance criteria
 
 - [ ] A pause requested mid-step lets the in-flight step finish and commit its boundary before the loop stops (the step is not aborted).
-- [ ] A paused loop returns a resumable result distinguishable from `budget-exhausted` and leaves the run with durable status `paused`.
+- [ ] A paused loop returns a resumable result whose `WriteLoopOutcomeKind` is `"paused"` (distinct from `budget-exhausted`) and leaves the run with durable status `paused`.
 - [ ] Resuming a `paused` run starts a fresh attempt and continues (does not re-run the already-committed step).
 - [ ] Resuming a run whose last attempt is still `in-progress` (kill/crash) re-runs that step over the dirty worktree.
-- [ ] The abort (`signal`) path is unchanged: an abort still stops the loop without committing the in-flight boundary.
+- [ ] The abort (`signal`) path is unchanged: `write-loop.test.ts`'s abort-signal coverage stays green (abort stops the loop without committing the in-flight boundary).
 - [ ] `RunStatus` includes `paused` in both `state-store.ts` and `state-store-types.ts`.
 - [ ] `bun run typecheck` and `bun run test` pass.
 

@@ -26,6 +26,16 @@ steering and no tail here (subspecs 02, 03).
   alone, which cannot distinguish a live run from a crashed daemon's stale row.
 - Add a `listRuns()` read to the state store (no generic SQL surface) — its first
   consumer is this verb.
+- A run is "settled" once the loop's Promise has resolved, regardless of outcome
+  kind (including `paused`, which resolves the Promise without being terminal) —
+  rules out conflating settled (loop no longer executing) with terminal run
+  status.
+- The in-memory run registry type is open to extension in subspec 02 (which adds
+  a per-run pause mechanism) — rules out defining it as a sealed/final shape that
+  02 cannot extend.
+- In-process IPC tests may use working method names chosen by the implementer;
+  stable external names are deferred to the CLI subspec as first external caller
+  — rules out pinning external wire names before that caller exists.
 
 ## Task checklist
 
@@ -47,7 +57,7 @@ steering and no tail here (subspecs 02, 03).
 - [ ] A second `start` for the same `(project, branch)` while the first is active is rejected.
 - [ ] A `start` issued while any run is active is rejected (single in-flight run; no queue).
 - [ ] `list` returns durable run rows merged with in-memory liveness, marking which runs are currently executing.
-- [ ] A run that has settled is no longer reported as live by `list`.
+- [ ] A run that has settled (its loop Promise resolved, any outcome kind) is no longer reported as live by `list`.
 - [ ] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates

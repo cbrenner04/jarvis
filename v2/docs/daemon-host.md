@@ -41,13 +41,21 @@ Valid JSON with missing or invalid `kind` closes the connection.
 
 ## RPC methods (transport slice)
 
-| `method` | `result` | Meaning |
-| --- | --- | --- |
-| `health` | `{ ok: true }` | Channel liveness |
-| `status` | `{ state: "running" }` | Daemon-host liveness only — not run orchestration status |
+| `method` | `params` | `result` | Meaning |
+| --- | --- | --- | --- |
+| `health` | — | `{ ok: true }` | Channel liveness |
+| `status` | — | `{ state: "running" }` | Daemon-host liveness only — not run orchestration status |
+| `start` | `{ input: WriteLoopInput }` | `{ runId: string }` | Spawn a write loop in the background; returns immediately with run ID. Rejected if any run is in-flight (single in-flight guard) or if a run is active for the same `(project, branch)` (per-key guard). |
+| `list` | — | `{ runs: Array<{runId, project, branch, status, isLive}> }` | List durable runs merged with in-memory liveness; `isLive=true` only while the loop's Promise is executing. |
 
 Unknown `method` returns `error` correlated to the request `id` (connection
 stays open).
+
+### Admission guards for `start`
+
+1. **Single in-flight run:** At most one run loop can be active globally. A `start` request when any loop is executing is rejected with `code: "run_in_progress"`.
+
+2. **Per-`(project, branch)` key:** No overlapping runs for the same project and branch. A `start` for an already-claimed key is rejected with `code: "worktree_claimed"`.
 
 ## Streaming
 

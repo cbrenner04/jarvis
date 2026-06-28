@@ -469,6 +469,21 @@ surface is a sibling concern, wired via this interface).
   git). The lock is held for the whole run lifetime; ownership ensures no two
   daemon runs touch the same worktree.
 
+## Orchestration API
+
+Run orchestration verbs over the daemon's IPC interface:
+
+- **`start(input: WriteLoopInput): {runId}`** — Spawn a write loop in the
+  background and return its run ID immediately (the RPC response does not wait
+  for loop completion). Gated by two admission guards: (1) at most one in-flight
+  run globally; (2) no overlapping runs for the same `{project, branch}`. Both
+  rejections use the `error` response kind.
+- **`list(): {runs: Array<{runId, project, branch, status, isLive}>}`** — List
+  all durable run rows merged with in-memory liveness. A run's `isLive=true`
+  only while its loop Promise is executing. Allows a client to distinguish a live
+  run from a crashed daemon's stale row — the canonical use case for
+  durable-plus-liveness merge.
+
 ## Constraints & guiding principles
 
 The constraints and guiding principles that govern this architecture — cost,

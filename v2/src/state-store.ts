@@ -70,6 +70,9 @@ export interface StateStore {
   /** Persist a run status update outside a completion boundary. */
   setRunStatus(runId: string, status: RunStatus): void;
 
+  /** List all runs (durable rows only, no in-memory liveness). */
+  listRuns(): Run[];
+
   close(): void;
 }
 
@@ -193,6 +196,11 @@ class StateStoreImpl implements StateStore {
 
   setRunStatus(runId: string, status: RunStatus): void {
     this.db.prepare("UPDATE runs SET status = ? WHERE id = ?").run(status, runId);
+  }
+
+  listRuns(): Run[] {
+    const runs = this.db.prepare(`SELECT ${RUN_COLUMNS} FROM runs ORDER BY created_at DESC`).all() as Run[];
+    return runs;
   }
 
   close(): void {

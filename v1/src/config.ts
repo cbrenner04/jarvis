@@ -139,7 +139,7 @@ const DEFAULT_AGENT_MODELS: Record<AgentName, string> = {
   claude: "haiku",
   codex: "gpt-5.4",
   cursor: "Composer 2.5",
-  opencode: "github-copilot/claude-opus-4.8",
+  opencode: "opencode/deepseek-v4-flash-free",
   aider: "ollama_chat/qwen3.6:35b",
 };
 

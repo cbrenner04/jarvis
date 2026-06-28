@@ -9,7 +9,7 @@ import { DaemonDoubleClaimError, WorktreeOwnershipRegistry } from "./daemon";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon-lifecycle";
 import { connectIpcClient } from "./ipc/client";
 import type { ResponseFrame } from "./ipc/types";
-import { canCreateSockets, socketProbeErrored, skipIfNoSockets } from "./testing/unix-socket";
+import { canCreateSockets, skipIfNoSockets, socketProbeErrored } from "./testing/unix-socket";
 
 if (socketProbeErrored) {
   process.stderr.write("skip: daemon socket tests require socket support in /tmp\n");

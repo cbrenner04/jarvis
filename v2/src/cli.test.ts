@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { main } from "./cli.ts";
 import type { IpcClient } from "./ipc/client.ts";
+import type { IpcFrame } from "./ipc/types.ts";
 import type { PersistedRecord } from "./log-stream.ts";
 import { simulatedBindings } from "./testing/bindings.ts";
 import type { WriteLoopInput, WriteLoopResult } from "./write-loop.ts";
@@ -80,11 +81,11 @@ function makeClient(frames: Array<unknown>, sent: unknown[] = []): IpcClient {
     send(frame: unknown): void {
       sent.push(frame);
     },
-    async nextFrame(): Promise<any> {
+    async nextFrame(): Promise<IpcFrame> {
       if (index < frames.length) {
         const frame = frames[index];
         index += 1;
-        return frame;
+        return frame as IpcFrame;
       }
       throw new Error("connection closed");
     },
@@ -370,7 +371,7 @@ describe("v2 cli", () => {
     const originalRandomUuid = crypto.randomUUID;
     crypto.randomUUID = () => requestId;
 
-    let code: number;
+    let code = NaN;
     try {
       code = await main([...RUN_START_ARGS, "--agents", "claude,codex", "--max-iterations", "4"], cap.io, {
         connectIpcClient: async () =>
@@ -389,7 +390,7 @@ describe("v2 cli", () => {
       crypto.randomUUID = originalRandomUuid;
     }
 
-    expect(code!).toBe(0);
+    expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: "run-999\n", stderr: "" });
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({
@@ -419,7 +420,7 @@ describe("v2 cli", () => {
     const originalRandomUuid = crypto.randomUUID;
     crypto.randomUUID = () => requestId;
 
-    let code: number;
+    let code = NaN;
     try {
       code = await main(RUN_START_ARGS, cap.io, {
         connectIpcClient: async () =>
@@ -439,7 +440,7 @@ describe("v2 cli", () => {
       crypto.randomUUID = originalRandomUuid;
     }
 
-    expect(code!).toBe(1);
+    expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",
       stderr: "run_in_progress: A run is already in progress; at most one in-flight run globally\n",
@@ -452,7 +453,7 @@ describe("v2 cli", () => {
     const originalRandomUuid = crypto.randomUUID;
     crypto.randomUUID = () => requestId;
 
-    let code: number;
+    let code = NaN;
     try {
       code = await main(["run", "list"], cap.io, {
         connectIpcClient: async () =>
@@ -485,7 +486,7 @@ describe("v2 cli", () => {
       crypto.randomUUID = originalRandomUuid;
     }
 
-    expect(code!).toBe(0);
+    expect(code).toBe(0);
     expect(cap.read()).toEqual({
       stdout: "run-1\tdemo\tfeature\tin-progress\tlive\nrun-2\tdemo\tdone\tcompleted\tnot-live\n",
       stderr: "",
@@ -537,7 +538,7 @@ describe("v2 cli", () => {
     const originalRandomUuid = crypto.randomUUID;
     crypto.randomUUID = () => requestId;
 
-    let code: number;
+    let code = NaN;
     try {
       code = await main(["run", "pause", "run-123"], cap.io, {
         connectIpcClient: async () =>
@@ -553,7 +554,7 @@ describe("v2 cli", () => {
       crypto.randomUUID = originalRandomUuid;
     }
 
-    expect(code!).toBe(0);
+    expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: "paused run-123\n", stderr: "" });
   });
 
@@ -563,7 +564,7 @@ describe("v2 cli", () => {
     const originalRandomUuid = crypto.randomUUID;
     crypto.randomUUID = () => requestId;
 
-    let code: number;
+    let code = NaN;
     try {
       code = await main(["run", "resume", "run-123"], cap.io, {
         connectIpcClient: async () =>
@@ -580,7 +581,7 @@ describe("v2 cli", () => {
       crypto.randomUUID = originalRandomUuid;
     }
 
-    expect(code!).toBe(1);
+    expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: "terminal_run: Cannot resume a completed run\n" });
   });
 
@@ -590,7 +591,7 @@ describe("v2 cli", () => {
     const originalRandomUuid = crypto.randomUUID;
     crypto.randomUUID = () => requestId;
 
-    let code: number;
+    let code = NaN;
     try {
       code = await main(["run", "kill", "run-404"], cap.io, {
         connectIpcClient: async () =>
@@ -607,7 +608,7 @@ describe("v2 cli", () => {
       crypto.randomUUID = originalRandomUuid;
     }
 
-    expect(code!).toBe(1);
+    expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: "unknown_run: Run run-404 not found\n" });
   });
 

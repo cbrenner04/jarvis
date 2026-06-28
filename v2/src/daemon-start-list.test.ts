@@ -154,22 +154,19 @@ socketTest("start rejects when any run is active (single in-flight guard)", asyn
   client.close();
 });
 
-socketTest(
-  "start rejects second start for same (project, branch) while first is active",
-  async () => {
-    const client = await connectIpcClient(SOCKET_PATH);
-    const input = mockWriteLoopInput();
-    await startRun(client, input);
+socketTest("start rejects second start for same (project, branch) while first is active", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+  const input = mockWriteLoopInput();
+  await startRun(client, input);
 
-    client.send({ kind: "request", id: "s2", method: "start", params: { input } });
-    const response2 = await client.nextFrame();
-    expect(response2.kind).toBe("error");
-    if (response2.kind === "error") {
-      expect(response2.code).toBe("worktree_claimed");
-    }
-    client.close();
-  },
-);
+  client.send({ kind: "request", id: "s2", method: "start", params: { input } });
+  const response2 = await client.nextFrame();
+  expect(response2.kind).toBe("error");
+  if (response2.kind === "error") {
+    expect(response2.code).toBe("worktree_claimed");
+  }
+  client.close();
+});
 
 socketTest("list returns durable runs with liveness info", async () => {
   const client = await connectIpcClient(SOCKET_PATH);

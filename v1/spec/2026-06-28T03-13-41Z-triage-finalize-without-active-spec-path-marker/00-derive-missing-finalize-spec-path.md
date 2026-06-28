@@ -22,18 +22,18 @@
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 triage <worktree> --mark-ready` finalizes a complete markerless patch worktree when its branch maps to an on-disk spec.
-- [ ] `jarvis1 triage <target> --merge` runs the gated merge path for a complete markerless worktree after `<target>` resolves and its branch maps to an on-disk spec.
-- [ ] Marker-present `--mark-ready` and `--merge` continue to use the marker path, including unreadable, empty, or invalid marker failures, even when branch-derived lookup would find a spec.
-- [ ] Markerless `plan/<name>` worktrees resolve timestamped spec directories whose timestamp prefix strips to `<name>`.
-- [ ] Markerless lookup searches `plan.targetDir`, then `v1/spec`, then `v2/spec`, and prefers a direct branch match before a timestamp-stripped `plan/` match inside each home.
-- [ ] A matched spec directory resolves to `index.md` when present; otherwise a directory with exactly one markdown spec file resolves to that file.
-- [ ] A matched spec directory without `index.md` refuses when it contains zero markdown spec files or multiple markdown spec files.
-- [ ] A markerless branch with no matching on-disk spec refuses with a clear error before any finalize or merge side effect.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes.
+- [x] `jarvis1 triage <worktree> --mark-ready` finalizes a complete markerless patch worktree when its branch maps to an on-disk spec.
+- [x] `jarvis1 triage <target> --merge` runs the gated merge path for a complete markerless worktree after `<target>` resolves and its branch maps to an on-disk spec.
+- [x] Marker-present `--mark-ready` and `--merge` continue to use the marker path, including unreadable, empty, or invalid marker failures, even when branch-derived lookup would find a spec.
+- [x] Markerless `plan/<name>` worktrees resolve timestamped spec directories whose timestamp prefix strips to `<name>`.
+- [x] Markerless lookup searches `plan.targetDir`, then `v1/spec`, then `v2/spec`, and prefers a direct branch match before a timestamp-stripped `plan/` match inside each home.
+- [x] A matched spec directory resolves to `index.md` when present; otherwise a directory with exactly one markdown spec file resolves to that file.
+- [x] A matched spec directory without `index.md` refuses when it contains zero markdown spec files or multiple markdown spec files.
+- [x] A markerless branch with no matching on-disk spec refuses with a clear error before any finalize or merge side effect.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes.
 
 ## Documentation updates
 
-- [ ] Update `v2/docs/v1-behaviors.md` so `triage --mark-ready` and `triage --merge` record markerless branch-derived spec resolution.
-- [ ] Update `v1/docs/operator-runbook.md` Merging so `triage --merge` is the universal gated merge path with no marker caveat.
+- [x] Update `v2/docs/v1-behaviors.md` so `triage --mark-ready` and `triage --merge` record markerless branch-derived spec resolution.
+- [x] Update `v1/docs/operator-runbook.md` Merging so `triage --merge` is the universal gated merge path with no marker caveat.

@@ -118,6 +118,43 @@ function setupWorktreeLocalMarkReadySpec(worktreeName: string): {
   return { worktreePath, markerSpecPath: markerIndexPath, worktreeSubspecPath };
 }
 
+const completeIndexBody = "# Test\n\n## Acceptance criteria\n\n- [x] done";
+
+function setupMarkerlessWorktree(worktreeName: string, branchName: string): void {
+  const worktreePath = join(worktreeDir, worktreeName);
+  setupWorktree(worktreePath);
+  const barePath = join(root, `${worktreeName}-remote.git`);
+  execSync(`git init --bare "${barePath}"`, { stdio: "pipe" });
+  execSync(`git remote add origin "${barePath}"`, { cwd: worktreePath, stdio: "pipe" });
+  execSync(`git branch -M ${branchName}`, { cwd: worktreePath, stdio: "pipe" });
+  execSync(`git push -u origin ${branchName}`, { cwd: worktreePath, stdio: "pipe" });
+}
+
+function writeIndexSpec(homeRel: string, name: string, body = completeIndexBody): void {
+  const specDir = join(projectRoot, homeRel, name);
+  mkdirSync(specDir, { recursive: true });
+  writeFileSync(join(specDir, "index.md"), body);
+}
+
+function jarvisConfigOpts(planTargetDir: string): Pick<TriageCommandOptions, "config"> {
+  const configDir = join(root, "jarvis-config");
+  mkdirSync(configDir, { recursive: true });
+  writeFileSync(
+    join(configDir, "config.json"),
+    JSON.stringify({
+      version: 2,
+      modes: {
+        patch: { agentOrder: [{ agent: "claude", model: "haiku" }] },
+        plan: { agentOrder: [{ agent: "claude", model: "haiku" }], targetDir: planTargetDir },
+        prompt: { agentOrder: [{ agent: "claude", model: "haiku" }] },
+        review: { passes: 0 },
+      },
+      projects: { project: { root: projectRoot } },
+    }),
+  );
+  return { config: { dir: configDir } };
+}
+
 function setupMergeWorktree(worktreeName: string): { worktreePath: string; specPath: string } {
   const worktreePath = join(worktreeDir, worktreeName);
   setupWorktree(worktreePath);
@@ -972,7 +1009,7 @@ describe("triage --mark-ready", () => {
     expect(err()).toContain("unknown worktree");
   });
 
-  test("--mark-ready with missing .active-spec-path returns error", async () => {
+  test("--mark-ready with missing .active-spec-path and no matching spec returns error", async () => {
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
     setupWorktree(worktreePath);
@@ -986,7 +1023,7 @@ describe("triage --mark-ready", () => {
     });
 
     expect(code).toBe(1);
-    expect(err()).toContain(".active-spec-path marker not found");
+    expect(err()).toContain("no spec found for branch");
   });
 
   test("--mark-ready when no PR exists opens draft PR, gates, and promotes", async () => {
@@ -1534,6 +1571,320 @@ describe("triage --mark-ready", () => {
     expect(gateRan).toBe(false);
   });
 
+  describe("markerless branch-derived spec", () => {
+    async function markReadyMarkerless(
+      worktreeName: string,
+      opts?: Partial<TriageCommandOptions>,
+    ): Promise<{ code: number; out: () => string; err: () => string; gateRan: boolean }> {
+      let gateRan = false;
+      const { io, out, err } = captureIo();
+      const code = await triageCommand({
+        projectRoot,
+        io,
+        worktreeName,
+        markReady: true,
+        ...currentBaseSeam,
+        ghRunner: { getPrState: () => null },
+        ensureDraftPr: async () => ({ number: 1, created: true }),
+        runGate: () => {
+          gateRan = true;
+        },
+        prReady: () => {},
+        ...opts,
+      });
+      return { code, out, err, gateRan };
+    }
+
+    test("--mark-ready markerless patch worktree finalizes when branch maps to index.md spec", async () => {
+      const branchName = "2026-01-01T00-00-00Z-my-patch";
+      setupMarkerlessWorktree(branchName, branchName);
+      writeIndexSpec("v1/spec", branchName);
+
+      const { code, out, gateRan } = await markReadyMarkerless(branchName);
+      expect(code).toBe(0);
+      expect(gateRan).toBe(true);
+      expect(out()).toContain("promoted to ready");
+    });
+
+    test("--mark-ready markerless patch worktree resolves single-file spec directory", async () => {
+      const branchName = "2026-01-01T00-00-00Z-single-file";
+      setupMarkerlessWorktree(branchName, branchName);
+      const specDir = join(projectRoot, "v1/spec", branchName);
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "00-only.md"), completeIndexBody);
+
+      const { code, gateRan } = await markReadyMarkerless(branchName);
+      expect(code).toBe(0);
+      expect(gateRan).toBe(true);
+    });
+
+    test("--mark-ready markerless plan/ branch resolves timestamped spec directory", async () => {
+      const planName = "my-plan";
+      setupMarkerlessWorktree("plan-my-plan", `plan/${planName}`);
+      writeIndexSpec("v1/spec", `2026-01-01T00-00-00Z-${planName}`);
+
+      const { code, gateRan } = await markReadyMarkerless("plan-my-plan");
+      expect(code).toBe(0);
+      expect(gateRan).toBe(true);
+    });
+
+    test("--mark-ready markerless lookup searches planTargetDir first, then v1/spec, then v2/spec", async () => {
+      const branchName = "2026-01-01T00-00-00Z-search-order";
+      setupMarkerlessWorktree(branchName, branchName);
+      writeIndexSpec("v1/spec", branchName);
+
+      const { code, gateRan } = await markReadyMarkerless(branchName, jarvisConfigOpts("custom-target"));
+      expect(code).toBe(0);
+      expect(gateRan).toBe(true);
+    });
+
+    test("--mark-ready markerless searches v2/spec as last fallback", async () => {
+      const branchName = "2026-01-01T00-00-00Z-v2-spec";
+      setupMarkerlessWorktree(branchName, branchName);
+      writeIndexSpec("v2/spec", branchName);
+
+      const { code, gateRan } = await markReadyMarkerless(branchName, jarvisConfigOpts("custom-target"));
+      expect(code).toBe(0);
+      expect(gateRan).toBe(true);
+    });
+
+    test("--mark-ready markerless ambiguous directory (multiple .md, no index.md) refuses", async () => {
+      const branchName = "2026-01-01T00-00-00Z-ambiguous";
+      setupMarkerlessWorktree(branchName, branchName);
+      const specDir = join(projectRoot, "v1/spec", branchName);
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "00-a.md"), "# A");
+      writeFileSync(join(specDir, "01-b.md"), "# B");
+
+      const { code, err } = await markReadyMarkerless(branchName);
+      expect(code).toBe(1);
+      expect(err()).toContain("ambiguous");
+    });
+
+    test("--mark-ready markerless directory with zero .md files refuses", async () => {
+      const branchName = "2026-01-01T00-00-00Z-empty-dir";
+      setupMarkerlessWorktree(branchName, branchName);
+      mkdirSync(join(projectRoot, "v1/spec", branchName), { recursive: true });
+
+      const { code, err } = await markReadyMarkerless(branchName);
+      expect(code).toBe(1);
+      expect(err()).toContain("no markdown files");
+    });
+
+    test("--mark-ready marker-present uses marker even when branch would find a spec", async () => {
+      const branchName = "2026-01-01T00-00-00Z-marker-wins";
+      const worktreePath = join(worktreeDir, branchName);
+      setupWorktree(worktreePath);
+      const barePath = join(root, `${branchName}-remote.git`);
+      execSync(`git init --bare "${barePath}"`, { stdio: "pipe" });
+      execSync(`git remote add origin "${barePath}"`, { cwd: worktreePath, stdio: "pipe" });
+      execSync(`git branch -M ${branchName}`, { cwd: worktreePath, stdio: "pipe" });
+      execSync(`git push -u origin ${branchName}`, { cwd: worktreePath, stdio: "pipe" });
+
+      const markerSpecPath = join(projectRoot, "v1/spec", "complete-spec.md");
+      mkdirSync(dirname(markerSpecPath), { recursive: true });
+      writeFileSync(markerSpecPath, completeIndexBody);
+      writeFileSync(join(worktreePath, ".active-spec-path"), markerSpecPath);
+      execSync("git add .active-spec-path", { cwd: worktreePath });
+      execSync("git commit -m 'marker'", { cwd: worktreePath });
+      execSync(`git push origin ${branchName}`, { cwd: worktreePath, stdio: "pipe" });
+
+      writeIndexSpec("v1/spec", branchName, "# Test\n\n## Acceptance criteria\n\n- [ ] incomplete");
+
+      const { code, gateRan } = await markReadyMarkerless(branchName);
+      expect(code).toBe(0);
+      expect(gateRan).toBe(true);
+    });
+
+    test("--merge markerless resolved worktree derives spec from branch and merges", () => {
+      const branchName = "2026-01-01T00-00-00Z-merge-markerless";
+      setupWorktree(join(worktreeDir, branchName));
+      execSync(`git branch -M ${branchName}`, { cwd: join(worktreeDir, branchName), stdio: "pipe" });
+      writeIndexSpec("v1/spec", branchName, "# Test\n\n- [x] item 1");
+
+      let mergeRan = false;
+      const { io, out } = captureIo();
+      const code = triageCommand(
+        triageMergeOpts({
+          projectRoot,
+          io,
+          worktreeName: branchName,
+          ghRunner: {
+            getPrState: () => ({ state: "OPEN", isDraft: false }),
+            getChecks: () => [{ name: "test", status: "success" }],
+          },
+          runGate: () => {},
+          adminMerge: () => {
+            mergeRan = true;
+          },
+        }),
+      );
+
+      expect(code).toBe(0);
+      expect(mergeRan).toBe(true);
+      expect(out()).toContain("merged successfully");
+    });
+
+    test("--mark-ready markerless reads worktree-local spec when project-root copy is stale", async () => {
+      const branchName = "2026-01-01T00-00-00Z-local-mirror";
+      setupMarkerlessWorktree(branchName, branchName);
+
+      // Project-root spec is INCOMPLETE
+      const specDir = join(projectRoot, "v1/spec", branchName);
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "index.md"), "# Test\n\n## Acceptance criteria\n\n- [ ] not done yet");
+
+      // Worktree-local spec is COMPLETE
+      const worktreeSpecDir = join(worktreeDir, branchName, "v1/spec", branchName);
+      mkdirSync(worktreeSpecDir, { recursive: true });
+      writeFileSync(join(worktreeSpecDir, "index.md"), completeIndexBody);
+
+      const { code, gateRan } = await markReadyMarkerless(branchName);
+      expect(code).toBe(0);
+      expect(gateRan).toBe(true);
+    });
+
+    test("--mark-ready empty .active-spec-path refuses and does not fall back to branch-derived spec", async () => {
+      const branchName = "2026-01-01T00-00-00Z-empty-marker";
+      const worktreePath = join(worktreeDir, branchName);
+      setupMarkerlessWorktree(branchName, branchName);
+      // Write a complete branch-derived spec so fallback would succeed if it ran
+      writeIndexSpec("v1/spec", branchName);
+      // Write an empty marker file
+      writeFileSync(join(worktreePath, ".active-spec-path"), "");
+
+      let gateRan = false;
+      const { io, err } = captureIo();
+      const code = await triageCommand({
+        projectRoot,
+        io,
+        worktreeName: branchName,
+        markReady: true,
+        ...currentBaseSeam,
+        ghRunner: { getPrState: () => null },
+        ensureDraftPr: async () => ({ number: 1, created: true }),
+        runGate: () => {
+          gateRan = true;
+        },
+        prReady: () => {},
+      });
+
+      expect(code).toBe(1);
+      expect(err()).toContain("spec file not found");
+      expect(gateRan).toBe(false);
+    });
+
+    test("--mark-ready .active-spec-path pointing at missing file refuses without branch fallback", async () => {
+      const branchName = "2026-01-01T00-00-00Z-bad-marker-path";
+      const worktreePath = join(worktreeDir, branchName);
+      setupMarkerlessWorktree(branchName, branchName);
+      // Write a complete branch-derived spec so fallback would succeed if it ran
+      writeIndexSpec("v1/spec", branchName);
+      // Write a marker pointing at a nonexistent path
+      writeFileSync(join(worktreePath, ".active-spec-path"), "/nonexistent/path/index.md");
+
+      let gateRan = false;
+      const { io, err } = captureIo();
+      const code = await triageCommand({
+        projectRoot,
+        io,
+        worktreeName: branchName,
+        markReady: true,
+        ...currentBaseSeam,
+        ghRunner: { getPrState: () => null },
+        ensureDraftPr: async () => ({ number: 1, created: true }),
+        runGate: () => {
+          gateRan = true;
+        },
+        prReady: () => {},
+      });
+
+      expect(code).toBe(1);
+      expect(err()).toContain("spec file not found");
+      expect(gateRan).toBe(false);
+    });
+
+    test("--merge corrupted .active-spec-path refuses without branch fallback", () => {
+      const branchName = "2026-01-01T00-00-00Z-corrupt-marker-merge";
+      const worktreePath = join(worktreeDir, branchName);
+      setupWorktree(worktreePath);
+      execSync(`git branch -M ${branchName}`, { cwd: worktreePath, stdio: "pipe" });
+      // Write a complete branch-derived spec so fallback would succeed if it ran
+      writeIndexSpec("v1/spec", branchName, "# Test\n\n- [x] item 1");
+      // Write an empty marker file
+      writeFileSync(join(worktreePath, ".active-spec-path"), "");
+
+      let mergeRan = false;
+      const { io, err } = captureIo();
+      const code = triageCommand(
+        triageMergeOpts({
+          projectRoot,
+          io,
+          worktreeName: branchName,
+          ghRunner: {
+            getPrState: () => ({ state: "OPEN", isDraft: false }),
+            getChecks: () => [{ name: "test", status: "success" }],
+          },
+          runGate: () => {},
+          adminMerge: () => {
+            mergeRan = true;
+          },
+        }),
+      );
+
+      expect(code).toBe(1);
+      expect(err()).toContain("spec file not found");
+      expect(mergeRan).toBe(false);
+    });
+
+    test("configured plan.targetDir wins over v1/spec when both have specs for same branch", async () => {
+      const branchName = "2026-01-01T00-00-00Z-target-dir-wins";
+      setupMarkerlessWorktree(branchName, branchName);
+      // Configured home has COMPLETE spec
+      writeIndexSpec("custom-spec", branchName);
+      // Fallback v1/spec has INCOMPLETE spec (would refuse if used)
+      writeIndexSpec("v1/spec", branchName, "# Test\n\n## Acceptance criteria\n\n- [ ] not done");
+
+      const { code, gateRan } = await markReadyMarkerless(branchName, jarvisConfigOpts("custom-spec"));
+      expect(code).toBe(0);
+      expect(gateRan).toBe(true);
+    });
+
+    test("--merge markerless resolves spec via PR-reference target resolution", () => {
+      const branchName = "2026-01-01T00-00-00Z-pr-ref-merge";
+      const worktreePath = join(worktreeDir, branchName);
+      setupWorktree(worktreePath);
+      execSync(`git branch -M ${branchName}`, { cwd: worktreePath, stdio: "pipe" });
+      // Markerless: no .active-spec-path
+      writeIndexSpec("v1/spec", branchName, "# Test\n\n- [x] item 1");
+
+      let mergeRan = false;
+      const { io, out } = captureIo();
+      const code = triageCommand({
+        projectRoot,
+        io,
+        worktreeName: "#42",
+        merge: true,
+        mergeTargetSeams: {
+          lookupPrHeadRef: () => ({ ok: true, headRef: branchName }),
+          findMatchingOpenPrs: () => [{ number: 42, isDraft: false }],
+        },
+        ghRunner: {
+          getPrState: () => ({ state: "OPEN", isDraft: false }),
+          getChecks: () => [{ name: "test", status: "success" }],
+        },
+        runGate: () => {},
+        adminMerge: () => {
+          mergeRan = true;
+        },
+      });
+
+      expect(code).toBe(0);
+      expect(mergeRan).toBe(true);
+      expect(out()).toContain("merged successfully");
+    });
+  });
+
   describe("--merge flag", () => {
     test("--merge on unknown worktree returns error", () => {
       const { io, err } = captureIo();
@@ -1548,7 +1899,7 @@ describe("triage --mark-ready", () => {
       expect(err()).toContain("unresolvable target");
     });
 
-    test("--merge with missing .active-spec-path returns error", () => {
+    test("--merge with missing .active-spec-path and no matching spec returns error", () => {
       const worktreeName = "branch-1";
       const worktreePath = join(worktreeDir, worktreeName);
       setupWorktree(worktreePath);
@@ -1563,7 +1914,7 @@ describe("triage --mark-ready", () => {
       );
 
       expect(code).toBe(1);
-      expect(err()).toContain(".active-spec-path marker not found");
+      expect(err()).toContain("no spec found for branch");
     });
 
     test("--merge when no PR exists returns error", () => {

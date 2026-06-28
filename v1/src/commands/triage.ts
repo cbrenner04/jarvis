@@ -4,13 +4,14 @@ import { basename, dirname, join, resolve } from "node:path";
 import { parseSpec } from "../../../shared/spec-parser.ts";
 import { appendAgentTrailer } from "../commit-trailer.ts";
 import type { ConfigOptions } from "../config.ts";
-import { loadConfig } from "../config.ts";
+import { loadConfig, resolvePlanFlags } from "../config.ts";
 import { getBaseBranch, withSyncTransientRetry } from "../gh.ts";
 import { type BaseCurrentCheckResult, checkBaseCurrentForFinalize } from "../git/base-current.ts";
 import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "../modes/patch/completion.ts";
 import { generatePrBody, getIndexTitle } from "../modes/patch/completion-pipeline.ts";
 import { findRelocatedSpecFile, prepareActiveSpecPath } from "../modes/patch/preflight.ts";
 import { snapshotAcceptanceCriteria } from "../modes/patch/subspec.ts";
+import { stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
 import { type EnsureDraftPrOpts, ensureDraftPr, findMatchingOpenPrs, renderAttributionSummary } from "../pr.ts";
 import { runReadyGateWithTier } from "../ready-gate.ts";
 import { pushCurrent } from "../worktree.ts";
@@ -1103,6 +1104,81 @@ function resolveWorktreeLocalSpecPath(opts: {
   return findRelocatedSpecFile(prepared, opts.worktreePath);
 }
 
+type DeriveSpecResult =
+  | { ok: true; specPath: string }
+  | { ok: false; reason: "no-match" }
+  | { ok: false; reason: "zero-md" | "multiple-md"; dirPath: string };
+
+function resolveSpecDir(dirPath: string): DeriveSpecResult {
+  const indexPath = join(dirPath, "index.md");
+  if (existsSync(indexPath)) {
+    return { ok: true, specPath: indexPath };
+  }
+  let entries: string[];
+  try {
+    entries = readdirSync(dirPath);
+  } catch {
+    return { ok: false, reason: "zero-md", dirPath };
+  }
+  const mdFiles = entries.filter((e) => e.endsWith(".md"));
+  if (mdFiles.length === 1) {
+    return { ok: true, specPath: join(dirPath, mdFiles[0]!) };
+  }
+  if (mdFiles.length === 0) {
+    return { ok: false, reason: "zero-md", dirPath };
+  }
+  return { ok: false, reason: "multiple-md", dirPath };
+}
+
+function deriveSpecPathFromBranch(branch: string, projectRoot: string, configuredTargetDir: string): DeriveSpecResult {
+  const isPlan = branch.startsWith("plan/");
+  const specName = isPlan ? branch.slice("plan/".length) : branch;
+
+  for (const homeDir of [...new Set([configuredTargetDir, "v1/spec", "v2/spec"])]) {
+    const specRoot = join(projectRoot, homeDir);
+    if (!existsSync(specRoot)) continue;
+
+    const candidates = [join(specRoot, specName), join(specRoot, `${specName}.md`)];
+    if (isPlan) {
+      try {
+        const timestamped = readdirSync(specRoot)
+          .filter((e) => e !== "completed")
+          .filter((e) => stripPlanSpecTimestampPrefix(e) === specName)
+          .sort()[0];
+        if (timestamped !== undefined) candidates.push(join(specRoot, timestamped));
+      } catch {
+        // skip unreadable home
+      }
+    }
+
+    for (const candidate of candidates) {
+      if (!existsSync(candidate)) continue;
+      try {
+        if (statSync(candidate).isDirectory()) return resolveSpecDir(candidate);
+        if (candidate.endsWith(".md")) return { ok: true, specPath: candidate };
+      } catch {
+        // skip unreadable entry
+      }
+    }
+  }
+
+  return { ok: false, reason: "no-match" };
+}
+
+function resolvePlanTargetDir(opts: TriageCommandOptions): string {
+  try {
+    const fullConfig = loadConfig(opts.config);
+    for (const project of Object.values(fullConfig.projects)) {
+      if (project.root === opts.projectRoot) {
+        return resolvePlanFlags(fullConfig, project).targetDir;
+      }
+    }
+    return resolvePlanFlags(fullConfig, undefined).targetDir;
+  } catch {
+    return "spec";
+  }
+}
+
 type TriageNamedWorktree =
   | { ok: true; worktreePath: string; branch: string; specPath: string }
   | { ok: false; code: number };
@@ -1132,33 +1208,52 @@ function resolveTriageNamedWorktree(opts: TriageCommandOptions, label: string): 
     return { ok: false, code: 1 };
   }
 
+  let specPath: string;
+
   const specMarkerPath = join(worktreePath, ".active-spec-path");
-  if (!existsSync(specMarkerPath)) {
-    opts.io.stderr(`${label}: .active-spec-path marker not found (pre-marker worktree)\n`);
-    return { ok: false, code: 1 };
-  }
+  if (existsSync(specMarkerPath)) {
+    let markerSpecPath: string;
+    try {
+      markerSpecPath = readFileSync(specMarkerPath, "utf8").trim();
+    } catch {
+      opts.io.stderr(`${label}: unable to read .active-spec-path marker\n`);
+      return { ok: false, code: 1 };
+    }
 
-  let markerSpecPath: string;
-  try {
-    markerSpecPath = readFileSync(specMarkerPath, "utf8").trim();
-  } catch {
-    opts.io.stderr(`${label}: unable to read .active-spec-path marker\n`);
-    return { ok: false, code: 1 };
-  }
+    if (!markerSpecPath) {
+      opts.io.stderr(`${label}: spec file not found: (unknown)\n`);
+      return { ok: false, code: 1 };
+    }
 
-  if (!markerSpecPath) {
-    opts.io.stderr(`${label}: spec file not found: (unknown)\n`);
-    return { ok: false, code: 1 };
-  }
-
-  const specPath = resolveWorktreeLocalSpecPath({
-    projectRoot: opts.projectRoot,
-    worktreePath,
-    markerSpecPath,
-  });
-  if (!existsSync(specPath)) {
-    opts.io.stderr(`${label}: spec file not found: ${specPath}\n`);
-    return { ok: false, code: 1 };
+    const resolvedPath = resolveWorktreeLocalSpecPath({
+      projectRoot: opts.projectRoot,
+      worktreePath,
+      markerSpecPath,
+    });
+    if (!existsSync(resolvedPath)) {
+      opts.io.stderr(`${label}: spec file not found: ${resolvedPath}\n`);
+      return { ok: false, code: 1 };
+    }
+    specPath = resolvedPath;
+  } else {
+    const targetDir = resolvePlanTargetDir(opts);
+    const derived = deriveSpecPathFromBranch(branch, opts.projectRoot, targetDir);
+    if (!derived.ok) {
+      if (derived.reason === "no-match") {
+        opts.io.stderr(`${label}: no spec found for branch ${branch}\n`);
+      } else if (derived.reason === "zero-md") {
+        opts.io.stderr(`${label}: spec directory has no markdown files: ${derived.dirPath}\n`);
+      } else {
+        opts.io.stderr(`${label}: spec directory is ambiguous (multiple .md files, no index.md): ${derived.dirPath}\n`);
+      }
+      return { ok: false, code: 1 };
+    }
+    const relocatedPath = resolveWorktreeLocalSpecPath({
+      projectRoot: opts.projectRoot,
+      worktreePath,
+      markerSpecPath: derived.specPath,
+    });
+    specPath = existsSync(relocatedPath) ? relocatedPath : derived.specPath;
   }
 
   const lockPath = getWorktreeLockPath(worktreePath);

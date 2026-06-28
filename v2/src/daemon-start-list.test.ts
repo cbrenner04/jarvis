@@ -64,19 +64,19 @@ beforeEach(async () => {
       branch: input.worktree.branchName,
     };
 
-    if (activeRuns.size > 0) {
-      return {
-        kind: "error" as const,
-        code: "run_in_progress",
-        message: "A run is already in progress",
-      };
-    }
-
     if (_registry.isClaimed(key)) {
       return {
         kind: "error" as const,
         code: "worktree_claimed",
         message: `Worktree already claimed`,
+      };
+    }
+
+    if (activeRuns.size > 0) {
+      return {
+        kind: "error" as const,
+        code: "run_in_progress",
+        message: "A run is already in progress",
       };
     }
 

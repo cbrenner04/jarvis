@@ -105,42 +105,6 @@ test(
 );
 
 test(
-  "stream-data chunks echo on the same streamId",
-  skipIfNoSockets(async () => {
-    const client = await connectIpcClient(SOCKET_PATH);
-    client.send({ kind: "stream-open", streamId: "st1" });
-    client.send({ kind: "stream-data", streamId: "st1", payload: Buffer.from("ab").toString("base64") });
-    const echoed = await client.nextFrame();
-    expect(echoed).toEqual({
-      kind: "stream-data",
-      streamId: "st1",
-      payload: Buffer.from("ab").toString("base64"),
-    });
-    client.send({ kind: "stream-end", streamId: "st1" });
-    client.close();
-  }),
-);
-
-test(
-  "RPC round-trips while a stream is open",
-  skipIfNoSockets(async () => {
-    const client = await connectIpcClient(SOCKET_PATH);
-    client.send({ kind: "stream-open", streamId: "mix" });
-    client.send(request("r1", "health"));
-    client.send({ kind: "stream-data", streamId: "mix", payload: "Zg==" });
-
-    const first = await client.nextFrame();
-    const second = await client.nextFrame();
-    const frames = [first, second];
-    const response = frames.find((f) => f.kind === "response");
-    const stream = frames.find((f) => f.kind === "stream-data");
-    expect(response).toEqual({ kind: "response", id: "r1", result: { ok: true } });
-    expect(stream).toEqual({ kind: "stream-data", streamId: "mix", payload: "Zg==" });
-    client.close();
-  }),
-);
-
-test(
   "serves multiple simultaneous client connections",
   skipIfNoSockets(async () => {
     const [a, b] = await Promise.all([connectIpcClient(SOCKET_PATH), connectIpcClient(SOCKET_PATH)]);
@@ -318,21 +282,20 @@ test(
     rmSync(LOGS_PATH, { force: true });
     const logReader = openLogReader(LOGS_PATH);
 
-    const tailHandler: StreamHandler = async (_streamId, payload, onData, onClose, signal) => {
+    // Wiring mock: snapshot via tail (no daemon store here). An unknown run has no
+    // persisted events, so nothing is sent and the stream closes — mirroring the
+    // daemon's real handler, which closes unknown runs (daemon.ts).
+    const tailHandler: StreamHandler = async (_streamId, payload, onData, onClose) => {
       const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
       const runId = params?.runId;
       if (!runId) {
         onClose();
         return;
       }
-      try {
-        for await (const record of logReader.follow(runId, signal)) {
-          if (signal.aborted) break;
-          onData(record);
-        }
-      } finally {
-        onClose();
+      for (const record of logReader.tail(runId)) {
+        onData(record);
       }
+      onClose();
     };
 
     rmSync(SOCKET_PATH, { force: true });

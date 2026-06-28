@@ -1,7 +1,10 @@
-import { type IpcServer, type RpcHandler, startIpcServer } from "./ipc/server";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "./ipc/server";
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
 import { openStateStore, type StateStore } from "./state-store.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
+import { openLogReader, openLogSink, type LogReader } from "./log-stream.ts";
 
 export type WorktreeOwnership = {
   runId: string;
@@ -63,13 +66,39 @@ export class WorktreeOwnershipRegistry {
   }
 }
 
-export async function startDaemon(socketPath: string, stateStore?: StateStore): Promise<void> {
+export async function startDaemon(socketPath: string, stateStore?: StateStore, logReader?: LogReader): Promise<void> {
   const _registry = new WorktreeOwnershipRegistry();
   const activeRuns = new Map<string, ActiveRun>();
   const store = stateStore ?? openStateStore();
+  const logsPath = join(homedir(), ".jarvis", "state", "logs.jsonl");
+  const logReaderInstance = logReader ?? openLogReader(logsPath);
   let shutdownRequested = false;
 
   const keyString = (key: OwnershipKey): string => `${key.project}:${key.branch}`;
+
+  const tailStreamHandler: StreamHandler = async (streamId, payload, onData, onClose, signal) => {
+    const params = payload as any;
+    if (!params || typeof params.runId !== "string") {
+      onClose();
+      return;
+    }
+
+    const runId = params.runId as string;
+    const run = store.loadRun(runId);
+    if (!run) {
+      onClose();
+      return;
+    }
+
+    try {
+      for await (const record of logReaderInstance.follow(runId, signal)) {
+        if (signal.aborted) break;
+        onData(record);
+      }
+    } finally {
+      onClose();
+    }
+  };
 
   const healthHandler: RpcHandler = () => {
     return { kind: "response", result: { ok: true } };
@@ -133,14 +162,17 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore): 
 
     // Spawn the loop in the background, not awaited
     (async () => {
+      const logSink = openLogSink(logsPath);
       try {
         await executeWriteLoop({
           ...input,
           stateStore: store,
+          logSink,
           signal: abortController.signal,
           pauseSignal: pauseController.signal,
         });
       } finally {
+        logSink.close();
         // Release registration when settled
         activeRuns.delete(ks);
         _registry.release(key);
@@ -274,14 +306,17 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore): 
 
     // Spawn the loop in the background, not awaited
     (async () => {
+      const logSink = openLogSink(logsPath);
       try {
         await executeWriteLoop({
           ...input,
           stateStore: store,
+          logSink,
           signal: abortController.signal,
           pauseSignal: pauseController.signal,
         });
       } finally {
+        logSink.close();
         // Release registration when settled
         activeRuns.delete(ks);
         _registry.release(key);
@@ -305,7 +340,7 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore): 
   let server: IpcServer;
 
   try {
-    server = await startIpcServer(socketPath, handlers);
+    server = await startIpcServer(socketPath, handlers, tailStreamHandler);
   } catch (err) {
     console.error(`Failed to start IPC server on ${socketPath}:`, err);
     process.exit(1);
@@ -324,6 +359,9 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore): 
       (async () => {
         try {
           await server.close();
+          if (!logReader) {
+            (logReaderInstance as any).close?.();
+          }
           if (!stateStore) {
             store.close();
           }

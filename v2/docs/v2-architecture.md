@@ -233,6 +233,12 @@ Observability (log follow interface):
   all persisted events from seq 1 onward, then blocks for new appends. No
   offset/cursor API — consumers filter post-hoc via the `seq` field on
   `PersistedRecord`. Honour `AbortSignal` for clean shutdown.
+- **Tail is served over the IPC stream.** Clients open a multiplexed stream with
+  `stream-open` carrying the run ID in the payload. The daemon backs the stream
+  with the log reader's `follow(runId, signal)`, replaying persisted records,
+  then streaming new appends. Each record is serialized as JSON and sent as one
+  `stream-data` frame. The stream closes when the client sends `stream-end` or
+  disconnects.
 
 ## Runs, state & the human loop
 

@@ -1,11 +1,19 @@
 import { rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { encodeFrame, FrameDecoder } from "./codec.ts";
-import type { ErrorFrame, IpcFrame, ResponseFrame } from "./types.ts";
+import type { ErrorFrame, IpcFrame, ResponseFrame, StreamDataFrame, StreamEndFrame } from "./types.ts";
 
 export type RpcHandler = (
   frame: IpcFrame & { kind: "request" },
 ) => { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string };
+
+export type StreamHandler = (
+  streamId: string,
+  payload: unknown,
+  onData: (record: unknown) => void,
+  onClose: () => void,
+  signal: AbortSignal,
+) => Promise<void>;
 
 const VALID_KINDS = new Set(["request", "response", "error", "stream-open", "stream-data", "stream-end"]);
 
@@ -62,7 +70,13 @@ function dispatchRequest(
   }
 }
 
-function handleFrame(socket: Socket, frame: unknown, handlers?: Record<string, RpcHandler>): void {
+function handleFrame(
+  socket: Socket,
+  frame: unknown,
+  handlers?: Record<string, RpcHandler>,
+  streamHandler?: StreamHandler,
+  activeStreams?: Map<string, AbortController>,
+): void {
   const kind = frameKind(frame);
   if (!isValidKind(kind)) {
     socket.destroy();
@@ -73,34 +87,90 @@ function handleFrame(socket: Socket, frame: unknown, handlers?: Record<string, R
     case "request":
       dispatchRequest(socket, frame as IpcFrame & { kind: "request" }, handlers);
       return;
-    case "stream-open":
-      return;
-    case "stream-data": {
-      const streamFrame = frame as IpcFrame & { kind: "stream-data" };
-      socket.write(
-        encodeFrame({
-          kind: "stream-data",
-          streamId: streamFrame.streamId,
-          ...(streamFrame.payload !== undefined ? { payload: streamFrame.payload } : {}),
-        }),
-      );
+    case "stream-open": {
+      const openFrame = frame as IpcFrame & { kind: "stream-open" };
+      if (!streamHandler) {
+        socket.destroy();
+        return;
+      }
+
+      const abortController = new AbortController();
+      if (activeStreams) {
+        activeStreams.set(openFrame.streamId, abortController);
+      }
+
+      (async () => {
+        try {
+          const signal = abortController.signal;
+
+          await streamHandler(
+            openFrame.streamId,
+            openFrame.payload,
+            (record: unknown) => {
+              if (!signal.aborted) {
+                const dataFrame: StreamDataFrame = {
+                  kind: "stream-data",
+                  streamId: openFrame.streamId,
+                  payload: JSON.stringify(record),
+                };
+                socket.write(encodeFrame(dataFrame));
+              }
+            },
+            () => {
+              const endFrame: StreamEndFrame = {
+                kind: "stream-end",
+                streamId: openFrame.streamId,
+              };
+              socket.write(encodeFrame(endFrame));
+              if (activeStreams) {
+                activeStreams.delete(openFrame.streamId);
+              }
+            },
+            signal,
+          );
+        } catch (err) {
+          const endFrame: StreamEndFrame = {
+            kind: "stream-end",
+            streamId: openFrame.streamId,
+            payload: { error: err instanceof Error ? err.message : "unknown error" },
+          };
+          socket.write(encodeFrame(endFrame));
+          if (activeStreams) {
+            activeStreams.delete(openFrame.streamId);
+          }
+        }
+      })();
       return;
     }
-    case "stream-end":
+    case "stream-data":
       return;
+    case "stream-end": {
+      const endFrame = frame as IpcFrame & { kind: "stream-end" };
+      if (activeStreams && activeStreams.has(endFrame.streamId)) {
+        const controller = activeStreams.get(endFrame.streamId);
+        controller?.abort();
+        activeStreams.delete(endFrame.streamId);
+      }
+      return;
+    }
     default:
       socket.destroy();
   }
 }
 
-function attachSocketHandlers(socket: Socket, handlers?: Record<string, RpcHandler>): void {
+function attachSocketHandlers(
+  socket: Socket,
+  handlers?: Record<string, RpcHandler>,
+  streamHandler?: StreamHandler,
+): void {
   const decoder = new FrameDecoder();
+  const activeStreams = new Map<string, AbortController>();
 
   socket.on("data", (chunk: Buffer) => {
     try {
       const frames = decoder.push(chunk);
       for (const frame of frames) {
-        handleFrame(socket, frame, handlers);
+        handleFrame(socket, frame, handlers, streamHandler, activeStreams);
       }
     } catch {
       socket.destroy();
@@ -111,6 +181,17 @@ function attachSocketHandlers(socket: Socket, handlers?: Record<string, RpcHandl
     if (decoder.hasPartialFrame()) {
       socket.destroy();
     }
+    for (const controller of activeStreams.values()) {
+      controller.abort();
+    }
+    activeStreams.clear();
+  });
+
+  socket.on("close", () => {
+    for (const controller of activeStreams.values()) {
+      controller.abort();
+    }
+    activeStreams.clear();
   });
 }
 
@@ -145,7 +226,11 @@ export type IpcServer = {
   close(options?: { drainTimeoutMs?: number }): Promise<void>;
 };
 
-export function startIpcServer(socketPath: string, handlers?: Record<string, RpcHandler>): Promise<IpcServer> {
+export function startIpcServer(
+  socketPath: string,
+  handlers?: Record<string, RpcHandler>,
+  streamHandler?: StreamHandler,
+): Promise<IpcServer> {
   rmSync(socketPath, { force: true });
 
   const activeSockets = new Set<Socket>();
@@ -160,7 +245,7 @@ export function startIpcServer(socketPath: string, handlers?: Record<string, Rpc
     socket.once("close", () => {
       activeSockets.delete(socket);
     });
-    attachSocketHandlers(socket, handlers);
+    attachSocketHandlers(socket, handlers, streamHandler);
   });
 
   return new Promise((resolve, reject) => {

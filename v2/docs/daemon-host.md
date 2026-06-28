@@ -63,8 +63,11 @@ stays open).
 ## Streaming
 
 Streams multiplex on the same connection via `stream-open` / `stream-data` /
-`stream-end`. The transport handler echoes each `stream-data` chunk back on the
-same `streamId` until `stream-end`. No log or run event shapes are defined here.
+`stream-end`. The `stream-open` payload carries `{ runId: string }` to identify
+the run. The server replays the run's persisted log records in `seq` order, then
+streams new appends as `stream-data` frames — one record per frame — until the
+client closes with `stream-end` or the connection drops. Each record is a
+`PersistedRecord` serialized as JSON in the `payload` field.
 
 RPC traffic on the same connection keeps `id` correlation while a stream is
 open.

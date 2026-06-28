@@ -113,6 +113,20 @@ describe("ready script deadline enforcement", () => {
 });
 
 describe("ready tier parsing and step lists", () => {
+  test("package biome scripts use bun's resolved biome binary", () => {
+    const pkg = JSON.parse(readFileSync("./package.json", "utf8")) as {
+      scripts?: Record<string, string>;
+    };
+    expect(pkg.scripts?.check).toBe("bun biome check .");
+    expect(pkg.scripts?.["check:fix"]).toBe("bun biome check --write .");
+    expect(pkg.scripts?.["check:fix:unsafe"]).toBe("bun biome check --write --unsafe .");
+    expect(pkg.scripts?.format).toBe("bun biome format --write .");
+    expect(pkg.scripts?.["format:check"]).toBe("bun biome format .");
+    expect(pkg.scripts?.lint).toBe("bun biome lint .");
+    expect(pkg.scripts?.["lint:fix"]).toBe("bun biome lint --write .");
+    expect(pkg.scripts?.["lint:fix:unsafe"]).toBe("bun biome lint --write --unsafe .");
+  });
+
   test("package fix script invokes check:fix:unsafe", () => {
     const pkg = JSON.parse(readFileSync("./package.json", "utf8")) as {
       scripts?: Record<string, string>;

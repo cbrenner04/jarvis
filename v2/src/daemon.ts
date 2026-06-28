@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { createAgentBindings } from "../../shared/invocation/agents.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "./ipc/server";
 import { type LogReader, openLogReader, openLogSink } from "./log-stream.ts";
@@ -66,6 +67,30 @@ export class WorktreeOwnershipRegistry {
   }
 }
 
+function normalizeBindings(input: WriteLoopInput): WriteLoopInput {
+  const bindingIds = input.bindings
+    .map((binding) => {
+      if (typeof binding !== "object" || binding === null) return null;
+      const id = "id" in binding ? binding.id : undefined;
+      return typeof id === "string" ? id : null;
+    })
+    .filter((id): id is string => id !== null);
+
+  const hasLiveBindings = input.bindings.every(
+    (binding) =>
+      typeof binding === "object" && binding !== null && "invoke" in binding && typeof binding.invoke === "function",
+  );
+
+  if (hasLiveBindings || bindingIds.length === 0) {
+    return input;
+  }
+
+  return {
+    ...input,
+    bindings: createAgentBindings(bindingIds),
+  };
+}
+
 export async function startDaemon(socketPath: string, stateStore?: StateStore, logReader?: LogReader): Promise<void> {
   const _registry = new WorktreeOwnershipRegistry();
   const activeRuns = new Map<string, ActiveRun>();
@@ -119,7 +144,7 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
       return { kind: "error", code: "invalid_params", message: "Missing input" };
     }
 
-    const input = params.input as WriteLoopInput;
+    const input = normalizeBindings(params.input as WriteLoopInput);
     const key: OwnershipKey = {
       project: input.worktree.projectName,
       branch: input.worktree.branchName,

@@ -1,7 +1,13 @@
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
 import { createAgentBindings } from "../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
+import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon-lifecycle.ts";
+import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
+import type { ErrorFrame, ResponseFrame } from "./ipc/types.ts";
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
 
 export type Io = {
@@ -12,14 +18,25 @@ export type Io = {
 type CliDeps = {
   executeWriteLoop: (input: WriteLoopInput) => Promise<Awaited<ReturnType<typeof executeWriteLoop>>>;
   createBindings: (agentIds: readonly string[]) => readonly InvocationBinding[];
+  connectIpcClient: (socketPath: string) => Promise<IpcClient>;
+  startDaemon: typeof startDaemon;
+  stopDaemon: typeof stopDaemon;
+  getDaemonStatus: typeof getDaemonStatus;
+  socketPath: string;
+  pidPath: string;
 };
 
 type WriteCliInput = { ok: true; input: WriteLoopInput } | { ok: false; message?: string };
 
 const DEFAULT_STEP_RULES = "Return exactly one terminal token: done|no-work|blocked|progress.";
 const DEFAULT_AGENTS = ["claude"] as const;
+const DEFAULT_SOCKET_PATH = join(homedir(), ".jarvis", "daemon.sock");
+const DEFAULT_PID_PATH = join(homedir(), ".jarvis", "daemon.pid");
+const DAEMON_USAGE = "usage: jarvis daemon <start|stop|status>\n";
+const RUN_USAGE = "usage: jarvis run <start|list|log|pause|resume|kill> [args]\n";
 const WRITE_USAGE =
   "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--agents <csv>] [--max-iterations <n>]\n";
+const LOG_FRAME_WAIT_MS = 86_400_000;
 
 export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliDeps>): Promise<number> {
   const out = io ?? {
@@ -29,6 +46,12 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
   const runtimeDeps: CliDeps = {
     executeWriteLoop,
     createBindings: createAgentBindings,
+    connectIpcClient,
+    startDaemon,
+    stopDaemon,
+    getDaemonStatus,
+    socketPath: DEFAULT_SOCKET_PATH,
+    pidPath: DEFAULT_PID_PATH,
     ...deps,
   };
   const command = argv[0];
@@ -64,8 +87,234 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     return exitCodeForWriteResult(loopResult.kind);
   }
 
+  if (command === "daemon") {
+    return runDaemonCommand(argv.slice(1), out, runtimeDeps);
+  }
+
+  if (command === "run") {
+    return runRunCommand(argv.slice(1), out, runtimeDeps);
+  }
+
   out.stdout("v2 not ready\n");
   return 0;
+}
+
+async function runDaemonCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
+  const subcommand = argv[0];
+
+  if (subcommand === "start" && argv.length === 1) {
+    try {
+      const result = await deps.startDaemon(deps.socketPath, { pidPath: deps.pidPath });
+      io.stdout(`${JSON.stringify(result)}\n`);
+      return 0;
+    } catch (error) {
+      io.stderr(formatLifecycleError(error));
+      return 1;
+    }
+  }
+
+  if (subcommand === "stop" && argv.length === 1) {
+    await deps.stopDaemon(deps.socketPath, { pidPath: deps.pidPath });
+    io.stdout("stopped\n");
+    return 0;
+  }
+
+  if (subcommand === "status" && argv.length === 1) {
+    const pid = readPid(deps.pidPath);
+    if (pid === null) {
+      io.stdout("stopped\n");
+      return 1;
+    }
+
+    const status = await deps.getDaemonStatus(pid, deps.socketPath);
+    io.stdout(`${status}\n`);
+    return status === "running" ? 0 : 1;
+  }
+
+  io.stderr(DAEMON_USAGE);
+  return 1;
+}
+
+async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
+  const subcommand = argv[0];
+
+  if (subcommand === "start") {
+    const parsed = parseWriteCliInput(argv.slice(1), deps);
+    if (!parsed.ok) {
+      if (parsed.message !== undefined) io.stderr(parsed.message);
+      io.stderr(WRITE_USAGE);
+      return 1;
+    }
+
+    return withRunClient(io, deps, async (client) => {
+      const response = await request(client, "start", { input: parsed.input });
+      if (response.kind === "error") {
+        io.stderr(formatRpcError(response));
+        return 1;
+      }
+      const runId = stringProperty(response.result, "runId");
+      if (runId === undefined) {
+        io.stderr("invalid daemon response\n");
+        return 1;
+      }
+      io.stdout(`${runId}\n`);
+      return 0;
+    });
+  }
+
+  if (subcommand === "list" && argv.length === 1) {
+    return withRunClient(io, deps, async (client) => {
+      const response = await request(client, "list");
+      if (response.kind === "error") {
+        io.stderr(formatRpcError(response));
+        return 1;
+      }
+
+      const runs = arrayProperty(response.result, "runs");
+      if (runs === undefined) {
+        io.stderr("invalid daemon response\n");
+        return 1;
+      }
+
+      for (const run of runs) {
+        const runId = stringProperty(run, "runId");
+        const project = stringProperty(run, "project");
+        const branch = stringProperty(run, "branch");
+        const status = stringProperty(run, "status");
+        const isLive = booleanProperty(run, "isLive");
+        if (
+          runId === undefined ||
+          project === undefined ||
+          branch === undefined ||
+          status === undefined ||
+          isLive === undefined
+        ) {
+          io.stderr("invalid daemon response\n");
+          return 1;
+        }
+        io.stdout(`${runId}\t${project}\t${branch}\t${status}\t${isLive ? "live" : "not-live"}\n`);
+      }
+      return 0;
+    });
+  }
+
+  if (subcommand === "log" && argv.length === 2) {
+    return withRunClient(io, deps, async (client) => {
+      const streamId = crypto.randomUUID();
+      client.send({ kind: "stream-open", streamId, payload: { runId: argv[1] } });
+
+      while (true) {
+        try {
+          const frame = await client.nextFrame(LOG_FRAME_WAIT_MS);
+          if (frame.kind === "stream-data" && frame.streamId === streamId) {
+            const record = parseStreamPayload(frame.payload);
+            io.stdout(`${JSON.stringify(record)}\n`);
+            continue;
+          }
+          if (frame.kind === "stream-end" && frame.streamId === streamId) {
+            return 0;
+          }
+        } catch (error) {
+          if (error instanceof Error && error.message === "connection closed") {
+            return 0;
+          }
+          throw error;
+        }
+      }
+    });
+  }
+
+  if ((subcommand === "pause" || subcommand === "resume" || subcommand === "kill") && argv.length === 2) {
+    return withRunClient(io, deps, async (client) => {
+      const response = await request(client, subcommand, { runId: argv[1] });
+      if (response.kind === "error") {
+        io.stderr(formatRpcError(response));
+        return 1;
+      }
+      const message = subcommand === "kill" ? "killed" : `${subcommand}d`;
+      io.stdout(`${message} ${argv[1]}\n`);
+      return 0;
+    });
+  }
+
+  io.stderr(subcommand === "start" ? WRITE_USAGE : RUN_USAGE);
+  return 1;
+}
+
+async function withRunClient(io: Io, deps: CliDeps, fn: (client: IpcClient) => Promise<number>): Promise<number> {
+  let client: IpcClient | undefined;
+  try {
+    client = await deps.connectIpcClient(deps.socketPath);
+    return await fn(client);
+  } catch (error) {
+    io.stderr(formatConnectionError(error));
+    return 1;
+  } finally {
+    client?.close();
+  }
+}
+
+async function request(client: IpcClient, method: string, params?: unknown): Promise<ResponseFrame | ErrorFrame> {
+  const id = crypto.randomUUID();
+  client.send({ kind: "request", id, method, ...(params !== undefined ? { params } : {}) });
+
+  while (true) {
+    const frame = await client.nextFrame();
+    if ((frame.kind === "response" || frame.kind === "error") && frame.id === id) {
+      return frame;
+    }
+  }
+}
+
+function formatLifecycleError(error: unknown): string {
+  if (error instanceof Error) {
+    return `${error.name}: ${error.message}\n`;
+  }
+  return `${String(error)}\n`;
+}
+
+function formatRpcError(frame: ErrorFrame): string {
+  return `${frame.code}: ${frame.message}\n`;
+}
+
+function formatConnectionError(error: unknown): string {
+  if (error instanceof Error) {
+    return `${error.message}\n`;
+  }
+  return `${String(error)}\n`;
+}
+
+function readPid(pidPath: string): number | null {
+  if (!existsSync(pidPath)) return null;
+  const raw = readFileSync(pidPath, "utf8").trim();
+  if (raw.length === 0) return null;
+  const pid = Number.parseInt(raw, 10);
+  return Number.isNaN(pid) ? null : pid;
+}
+
+function parseStreamPayload(payload: unknown): unknown {
+  if (typeof payload !== "string") {
+    throw new Error("invalid stream payload");
+  }
+  return JSON.parse(payload);
+}
+
+function stringProperty(value: unknown, key: string): string | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const prop = (value as Record<string, unknown>)[key];
+  return typeof prop === "string" ? prop : undefined;
+}
+
+function booleanProperty(value: unknown, key: string): boolean | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const prop = (value as Record<string, unknown>)[key];
+  return typeof prop === "boolean" ? prop : undefined;
+}
+
+function arrayProperty(value: unknown, key: string): unknown[] | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const prop = (value as Record<string, unknown>)[key];
+  return Array.isArray(prop) ? prop : undefined;
 }
 
 function parseWriteCliInput(argv: readonly string[], deps: CliDeps): WriteCliInput {

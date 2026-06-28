@@ -53,13 +53,18 @@ export async function connectIpcClient(socketPath: string): Promise<IpcClient> {
     send(frame: unknown): void {
       socket.write(encodeFrame(frame));
     },
-    nextFrame(timeoutMs = 5_000): Promise<IpcFrame> {
+    nextFrame(timeoutMs?: number): Promise<IpcFrame> {
       const next = pending.shift();
       if (next) {
         return Promise.resolve(next);
       }
       if (closed) {
         return Promise.reject(new Error("connection closed"));
+      }
+      if (timeoutMs === undefined) {
+        return new Promise((resolve) => {
+          waiter = resolve;
+        });
       }
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {

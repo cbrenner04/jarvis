@@ -39,19 +39,19 @@ client for those APIs without moving orchestration into argument parsing.
 
 ## Acceptance criteria
 
-- [ ] `jarvis daemon start` uses `~/.jarvis/daemon.sock` and `~/.jarvis/daemon.pid`, starts the detached daemon through the lifecycle helper, prints `{pid, socketPath}`, and does not invoke write-loop code.
-- [ ] `jarvis daemon start` exits 1 and prints the lifecycle error name/message when the helper reports an already-running daemon.
-- [ ] `jarvis daemon stop` uses the production socket/PID paths, calls the lifecycle helper once, exits 0 when it completes, and treats helper-accepted already-stopped/no-pid cases as success.
-- [ ] `jarvis daemon status` reports `running` with exit 0 or `stopped` with exit 1 from the lifecycle status probe.
-- [ ] `jarvis run start ...` accepts the `jarvis write` flag set, sends one IPC `start` request carrying the matching `WriteLoopInput`, prints the returned run ID, and does not call `executeWriteLoop` locally.
-- [ ] `jarvis run start ...` exits 1 and prints daemon `run_in_progress` or `worktree_claimed` errors as `<code>: <message>` without local guard logic.
-- [ ] `jarvis run list` sends one IPC `list` request and prints the daemon's run rows with run ID, project, branch, status, and liveness.
-- [ ] `jarvis run log <run-id>` opens the daemon stream, prints replayed persisted records before followed records as compact JSONL, preserves arrival order, and does not read log files directly.
-- [ ] `jarvis run pause <run-id>` sends one IPC `pause` request, reports daemon success, and passes through `unknown_run` and `run_not_active` errors as `<code>: <message>`.
-- [ ] `jarvis run resume <run-id>` sends one IPC `resume` request, reports daemon success, and passes through `unknown_run`, `terminal_run`, `run_in_progress`, and `worktree_claimed` errors as `<code>: <message>`.
-- [ ] `jarvis run kill <run-id>` sends one IPC `kill` request, reports daemon success, and passes through `unknown_run` and `run_not_active` errors as `<code>: <message>`.
-- [ ] Run-control commands exit 1 and print a terse connection error when the daemon socket is unavailable.
-- [ ] Existing `v2/src/cli.test.ts` coverage for `jarvis write` stays green.
-- [ ] New CLI tests cover lifecycle commands, run-control success paths, stream replay/follow JSONL output, unavailable-daemon errors, and daemon error pass-through with injected fakes.
-- [ ] `v2/docs/write-behavior.md` documents the daemon CLI command surface, socket/PID defaults, start-input mapping, exit/error contract, and log JSONL behavior.
-- [ ] `v2/docs/daemon-host.md` remains scoped to IPC/lifecycle contracts and points operator CLI readers to `v2/docs/write-behavior.md`.
+- [x] `jarvis daemon start` uses `~/.jarvis/daemon.sock` and `~/.jarvis/daemon.pid`, starts the detached daemon through the lifecycle helper, prints `{pid, socketPath}`, and does not invoke write-loop code.
+- [x] `jarvis daemon start` exits 1 and prints the lifecycle error name/message when the helper reports an already-running daemon.
+- [x] `jarvis daemon stop` uses the production socket/PID paths, calls the lifecycle helper once, exits 0 when it completes, and treats helper-accepted already-stopped/no-pid cases as success.
+- [x] `jarvis daemon status` reports `running` with exit 0 or `stopped` with exit 1 from the lifecycle status probe.
+- [x] `jarvis run start ...` accepts the `jarvis write` flag set, sends one IPC `start` request carrying the matching `WriteLoopInput`, prints the returned run ID, and does not call `executeWriteLoop` locally.
+- [x] `jarvis run start ...` exits 1 and prints daemon `run_in_progress` or `worktree_claimed` errors as `<code>: <message>` without local guard logic.
+- [x] `jarvis run list` sends one IPC `list` request and prints the daemon's run rows with run ID, project, branch, status, and liveness.
+- [x] `jarvis run log <run-id>` opens the daemon stream, prints replayed persisted records before followed records as compact JSONL, preserves arrival order, and does not read log files directly.
+- [x] `jarvis run pause <run-id>` sends one IPC `pause` request, reports daemon success, and passes through `unknown_run` and `run_not_active` errors as `<code>: <message>`.
+- [x] `jarvis run resume <run-id>` sends one IPC `resume` request, reports daemon success, and passes through `unknown_run`, `terminal_run`, `run_in_progress`, and `worktree_claimed` errors as `<code>: <message>`.
+- [x] `jarvis run kill <run-id>` sends one IPC `kill` request, reports daemon success, and passes through `unknown_run` and `run_not_active` errors as `<code>: <message>`.
+- [x] Run-control commands exit 1 and print a terse connection error when the daemon socket is unavailable.
+- [x] Existing `v2/src/cli.test.ts` coverage for `jarvis write` stays green.
+- [x] New CLI tests cover lifecycle commands, run-control success paths, stream replay/follow JSONL output, unavailable-daemon errors, and daemon error pass-through with injected fakes.
+- [x] `v2/docs/write-behavior.md` documents the daemon CLI command surface, socket/PID defaults, start-input mapping, exit/error contract, and log JSONL behavior.
+- [x] `v2/docs/daemon-host.md` remains scoped to IPC/lifecycle contracts and points operator CLI readers to `v2/docs/write-behavior.md`.

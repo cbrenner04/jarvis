@@ -1,13 +1,13 @@
-import { parseArgs } from "node:util";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
 import { createAgentBindings } from "../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon-lifecycle.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
-import type { ErrorFrame, IpcFrame, ResponseFrame } from "./ipc/types.ts";
+import type { ErrorFrame, ResponseFrame } from "./ipc/types.ts";
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
 
 export type Io = {
@@ -33,8 +33,7 @@ const DEFAULT_AGENTS = ["claude"] as const;
 const DEFAULT_SOCKET_PATH = join(homedir(), ".jarvis", "daemon.sock");
 const DEFAULT_PID_PATH = join(homedir(), ".jarvis", "daemon.pid");
 const DAEMON_USAGE = "usage: jarvis daemon <start|stop|status>\n";
-const RUN_USAGE =
-  "usage: jarvis run <start|list|log|pause|resume|kill> [args]\n";
+const RUN_USAGE = "usage: jarvis run <start|list|log|pause|resume|kill> [args]\n";
 const WRITE_USAGE =
   "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--agents <csv>] [--max-iterations <n>]\n";
 const LOG_FRAME_WAIT_MS = 86_400_000;

@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { IpcClient } from "./ipc/client.ts";
 import { main } from "./cli.ts";
-import { simulatedBindings } from "./testing/bindings.ts";
+import type { IpcClient } from "./ipc/client.ts";
 import type { PersistedRecord } from "./log-stream.ts";
+import { simulatedBindings } from "./testing/bindings.ts";
 import type { WriteLoopInput, WriteLoopResult } from "./write-loop.ts";
 
 function captureIo() {
@@ -308,9 +308,7 @@ describe("v2 cli", () => {
 
     expect(code).toBe(1);
     expect(cap.read().stdout).toBe("");
-    expect(cap.read().stderr).toBe(
-      "DaemonAlreadyRunningError: Daemon already running on socket /tmp/demo.sock\n",
-    );
+    expect(cap.read().stderr).toBe("DaemonAlreadyRunningError: Daemon already running on socket /tmp/demo.sock\n");
   });
 
   test("daemon stop calls the lifecycle helper once and exits 0", async () => {
@@ -498,7 +496,11 @@ describe("v2 cli", () => {
     const cap = captureIo();
     const sent: unknown[] = [];
     const streamId = "00000000-0000-4000-8000-000000000004";
-    const records = [logRecord(1, "iteration_started"), logRecord(2, "boundary_committed"), logRecord(3, "loop_finished")];
+    const records = [
+      logRecord(1, "iteration_started"),
+      logRecord(2, "boundary_committed"),
+      logRecord(3, "loop_finished"),
+    ];
 
     const originalRandomUuid = crypto.randomUUID;
     crypto.randomUUID = () => streamId;

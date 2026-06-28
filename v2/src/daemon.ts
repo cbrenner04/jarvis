@@ -77,7 +77,8 @@ function normalizeBindings(input: WriteLoopInput): WriteLoopInput {
     .filter((id): id is string => id !== null);
 
   const hasLiveBindings = input.bindings.every(
-    (binding) => typeof binding === "object" && binding !== null && "invoke" in binding && typeof binding.invoke === "function",
+    (binding) =>
+      typeof binding === "object" && binding !== null && "invoke" in binding && typeof binding.invoke === "function",
   );
 
   if (hasLiveBindings || bindingIds.length === 0) {

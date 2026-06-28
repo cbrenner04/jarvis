@@ -15,21 +15,23 @@ store.
 
 ## Task checklist
 
-- Replace category references in behavior-loop and composability prose with
-  role-based step binding (`behavior` + `prompt` + **role**).
+- Replace category references in behavior-loop, composability summary, and
+  workflow step prose with role-based step binding (`behavior` + `prompt` +
+  **role**).
 - Update "Models separate from agents" and related constraints to cite
   role→model resolution and cross-link `v2/docs/role-resolution.md`.
 - Retire thinking/reviewing/executing as resolution keys throughout the file.
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/v2-vision.md` describes workflow steps binding `behavior` +
-      `prompt` + **role**, not model category.
+- [ ] `v2/docs/v2-vision.md` behavior-loop, composability summary, and workflow
+      step prose describe steps binding `behavior` + `prompt` + **role**, not
+      model category.
 - [ ] "Models separate from agents" (and related constraint prose) cites
       role→model resolution, not category→agent→model.
 - [ ] The file cross-links `v2/docs/role-resolution.md`.
-- [ ] `rg -i 'thinking|reviewing|executing' v2/docs/v2-vision.md` finds no
-      match used as a model-resolution key.
+- [ ] No thinking/reviewing/executing category is used as a model-resolution key
+      anywhere in `v2-vision.md`. (Manual)
 
 ## Documentation updates
 

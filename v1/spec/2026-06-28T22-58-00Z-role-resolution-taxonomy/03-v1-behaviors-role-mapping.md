@@ -17,6 +17,9 @@ role mapping for parity readers.
 - **`patchActuator` → `implement`; `reviewActuator` → `actuator`** — rules out
   conflating patch implementation loop with review verdict actuator under one
   v2 role key.
+- **Shrink step role is `implement`, not `actuator`** — v1 `reviewActuator` tier
+  feeds verdict actuator (head-only) and shrink (full-list); v2 splits by step
+  role — rules out mapping both consumption modes to `actuator`.
 - **Document equivalence only** — v1 keeps combined `{agent, model}` `agentOrder`
   — rules out migration or dual-write guidance.
 
@@ -28,10 +31,12 @@ role mapping for parity readers.
   `modes.patch.subRoleAgentOrder`:
   - `reviewPanel` → `adversary`, `advocate`, `adjudicator`
   - `patchActuator` → `implement`
-  - `reviewActuator` → `actuator`
+  - `reviewActuator` → `actuator` (verdict actuator only)
+- Document shrink step → `implement` separately from `reviewActuator` →
+  `actuator`; footnote v1 tier equivalence with divergent consumption (verdict
+  head-only vs shrink full-list).
 - Note v1 consumption quirks that survive in v2 semantics where load-bearing
-  (verdict actuator head-only vs shrink full-list fallback is v1 config
-  consumption — defer v2 config shape to agent-model-config slice).
+  (defer v2 config shape to agent-model-config slice).
 
 ## Acceptance criteria
 
@@ -39,6 +44,9 @@ role mapping for parity readers.
       resolution instead of category→agent→model.
 - [ ] The file documents `modes.patch.subRoleAgentOrder` tier → v2 role mapping
       for `reviewPanel`, `patchActuator`, and `reviewActuator`.
+- [ ] Mapping prose footnotes that `reviewActuator` tier equivalence covers
+      verdict actuator (`actuator`, head-only) and shrink (`implement`,
+      full-list fallback).
 - [ ] The file cross-links `v2/docs/role-resolution.md`.
 - [ ] No v1 migration or dual-write guidance appears in the updated prose.
 

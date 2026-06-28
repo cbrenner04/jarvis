@@ -26,6 +26,8 @@ split via thinking/reviewing/executing classes.
   role→model semantics; preserve agent-fallback-order vs model-resolution split.
 - Rewrite review-as-debate "why categories matter" to "why roles matter" using
   `adversary`/`advocate`/`adjudicator`/`actuator`/`plan`/`implement`.
+- Update terminology block and workflow step prose that cite "model category" as
+  the resolution field.
 - Update config show/edit and config-vs-source validation wording to `(role,
   agent)` pairs.
 - Add cross-links to `v2/docs/role-resolution.md`.
@@ -34,18 +36,19 @@ split via thinking/reviewing/executing classes.
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/v2-architecture.md` layered-model table and step terminology cite
-      **role**, not model category, as the step resolution field.
+- [ ] `v2/docs/v2-architecture.md` layered-model table, terminology block, and
+      workflow step prose cite **role**, not model category, as the step
+      resolution field.
 - [ ] Per-project config section documents role→model resolution (agent fallback
       order outer loop; `(agent, role) → model` inner resolution) with no
       category→model store wording.
 - [ ] Review-as-debate section explains reviewer vs actuator model split using
       role names, not thinking/reviewing/executing classes.
 - [ ] The file cross-links `v2/docs/role-resolution.md`.
-- [ ] `rg -i 'thinking|reviewing|executing' v2/docs/v2-architecture.md` finds
-      no match used as a model-resolution key.
+- [ ] No thinking/reviewing/executing category is used as a model-resolution key
+      anywhere in `v2-architecture.md`. (Manual)
 
 ## Documentation updates
 
 - `v2/docs/v2-architecture.md` — role→model resolution; layered-model table;
-  review-as-debate section.
+  review-debate section.

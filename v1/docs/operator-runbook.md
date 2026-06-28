@@ -269,7 +269,7 @@ The sandbox (e.g. in Claude Code) can hide real state.
 
 **Gated merge path (preferred):**
 1. Spec complete (all criteria ticked) → Jarvis flips the PR to `ready` (or run `gh pr ready`).
-2. `jarvis1 triage <spec-path> --merge` (or `jarvis1 triage <pr-ref> --merge`, or `jarvis1 triage <worktree-name> --merge`) — atomically runs the local `bun run ready` gate, marks the PR ready if draft, waits for CI to be green, then admin-squash-merges. Refuses to merge on gate-red or any CI-check red; reports the specific failing gate/check name and exits non-zero, leaving the PR unmerged.
+2. `jarvis1 triage <spec-path> --merge` (or `jarvis1 triage <pr-ref> --merge`, or `jarvis1 triage <worktree-name> --merge`) — atomically runs the local `bun run ready` gate, marks the PR ready if draft, waits for CI to be green, then admin-squash-merges. Refuses to merge on gate-red or any CI-check red; reports the specific failing gate/check name and exits non-zero, leaving the PR unmerged. Works for both marker-bearing and markerless (old/completed) worktrees: when `.active-spec-path` is absent the spec is derived from the branch name.
 
 **Manual fallback (last-resort):**
 When `--merge` is unavailable or gates cannot be rerun (e.g., an earlier session ran it and the worktree is gone), finalize by hand:

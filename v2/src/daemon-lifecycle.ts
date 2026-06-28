@@ -86,7 +86,7 @@ export async function startDaemon(
     throw new DaemonAlreadyRunningError(socketPath);
   }
 
-  const daemonScript = options?.daemonScript ?? resolve(import.meta.dir, "daemon.ts");
+  const daemonScript = options?.daemonScript ?? resolve(import.meta.dir, "daemon-entrypoint.ts");
 
   const proc = spawn("bun", [daemonScript], {
     detached: true,

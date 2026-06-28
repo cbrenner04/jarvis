@@ -1,12 +1,5 @@
 import { type IpcServer, type RpcHandler, startIpcServer } from "./ipc/server";
 
-const socketPathEnv = process.env.DAEMON_SOCKET_PATH;
-if (!socketPathEnv) {
-  console.error("DAEMON_SOCKET_PATH environment variable required");
-  process.exit(1);
-}
-const socketPath = socketPathEnv;
-
 export type WorktreeOwnership = {
   runId: string;
   worktreePath: string;
@@ -53,7 +46,7 @@ export class WorktreeOwnershipRegistry {
   }
 }
 
-async function main(): Promise<void> {
+export async function startDaemon(socketPath: string): Promise<void> {
   const _registry = new WorktreeOwnershipRegistry();
   let shutdownRequested = false;
 
@@ -109,8 +102,3 @@ async function main(): Promise<void> {
 
   console.error(`Daemon running on socket ${socketPath} with PID ${process.pid}`);
 }
-
-main().catch((err) => {
-  console.error("Fatal daemon error:", err);
-  process.exit(1);
-});

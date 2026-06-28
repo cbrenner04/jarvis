@@ -45,11 +45,7 @@ type PendingExecutorRun = {
 function createFakeWriteLoopExecutor() {
   const pending: PendingExecutorRun[] = [];
 
-  const executor = async (
-    input: WriteLoopInput,
-    signal: AbortSignal,
-    pauseSignal: AbortSignal,
-  ): Promise<void> => {
+  const executor = async (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal): Promise<void> => {
     await new Promise<void>((resolve) => {
       pending.push({ input, signal, pauseSignal, settle: resolve });
     });

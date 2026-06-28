@@ -1248,7 +1248,12 @@ function resolveTriageNamedWorktree(opts: TriageCommandOptions, label: string): 
       }
       return { ok: false, code: 1 };
     }
-    specPath = derived.specPath;
+    const relocatedPath = resolveWorktreeLocalSpecPath({
+      projectRoot: opts.projectRoot,
+      worktreePath,
+      markerSpecPath: derived.specPath,
+    });
+    specPath = existsSync(relocatedPath) ? relocatedPath : derived.specPath;
   }
 
   const lockPath = getWorktreeLockPath(worktreePath);

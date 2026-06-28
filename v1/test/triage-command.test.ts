@@ -1724,6 +1724,165 @@ describe("triage --mark-ready", () => {
       expect(mergeRan).toBe(true);
       expect(out()).toContain("merged successfully");
     });
+
+    test("--mark-ready markerless reads worktree-local spec when project-root copy is stale", async () => {
+      const branchName = "2026-01-01T00-00-00Z-local-mirror";
+      setupMarkerlessWorktree(branchName, branchName);
+
+      // Project-root spec is INCOMPLETE
+      const specDir = join(projectRoot, "v1/spec", branchName);
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "index.md"), "# Test\n\n## Acceptance criteria\n\n- [ ] not done yet");
+
+      // Worktree-local spec is COMPLETE
+      const worktreeSpecDir = join(worktreeDir, branchName, "v1/spec", branchName);
+      mkdirSync(worktreeSpecDir, { recursive: true });
+      writeFileSync(join(worktreeSpecDir, "index.md"), completeIndexBody);
+
+      const { code, gateRan } = await markReadyMarkerless(branchName);
+      expect(code).toBe(0);
+      expect(gateRan).toBe(true);
+    });
+
+    test("--mark-ready empty .active-spec-path refuses and does not fall back to branch-derived spec", async () => {
+      const branchName = "2026-01-01T00-00-00Z-empty-marker";
+      const worktreePath = join(worktreeDir, branchName);
+      setupMarkerlessWorktree(branchName, branchName);
+      // Write a complete branch-derived spec so fallback would succeed if it ran
+      writeIndexSpec("v1/spec", branchName);
+      // Write an empty marker file
+      writeFileSync(join(worktreePath, ".active-spec-path"), "");
+
+      let gateRan = false;
+      const { io, err } = captureIo();
+      const code = await triageCommand({
+        projectRoot,
+        io,
+        worktreeName: branchName,
+        markReady: true,
+        ...currentBaseSeam,
+        ghRunner: { getPrState: () => null },
+        ensureDraftPr: async () => ({ number: 1, created: true }),
+        runGate: () => {
+          gateRan = true;
+        },
+        prReady: () => {},
+      });
+
+      expect(code).toBe(1);
+      expect(err()).toContain("spec file not found");
+      expect(gateRan).toBe(false);
+    });
+
+    test("--mark-ready .active-spec-path pointing at missing file refuses without branch fallback", async () => {
+      const branchName = "2026-01-01T00-00-00Z-bad-marker-path";
+      const worktreePath = join(worktreeDir, branchName);
+      setupMarkerlessWorktree(branchName, branchName);
+      // Write a complete branch-derived spec so fallback would succeed if it ran
+      writeIndexSpec("v1/spec", branchName);
+      // Write a marker pointing at a nonexistent path
+      writeFileSync(join(worktreePath, ".active-spec-path"), "/nonexistent/path/index.md");
+
+      let gateRan = false;
+      const { io, err } = captureIo();
+      const code = await triageCommand({
+        projectRoot,
+        io,
+        worktreeName: branchName,
+        markReady: true,
+        ...currentBaseSeam,
+        ghRunner: { getPrState: () => null },
+        ensureDraftPr: async () => ({ number: 1, created: true }),
+        runGate: () => {
+          gateRan = true;
+        },
+        prReady: () => {},
+      });
+
+      expect(code).toBe(1);
+      expect(err()).toContain("spec file not found");
+      expect(gateRan).toBe(false);
+    });
+
+    test("--merge corrupted .active-spec-path refuses without branch fallback", () => {
+      const branchName = "2026-01-01T00-00-00Z-corrupt-marker-merge";
+      const worktreePath = join(worktreeDir, branchName);
+      setupWorktree(worktreePath);
+      execSync(`git branch -M ${branchName}`, { cwd: worktreePath, stdio: "pipe" });
+      // Write a complete branch-derived spec so fallback would succeed if it ran
+      writeIndexSpec("v1/spec", branchName, "# Test\n\n- [x] item 1");
+      // Write an empty marker file
+      writeFileSync(join(worktreePath, ".active-spec-path"), "");
+
+      let mergeRan = false;
+      const { io, err } = captureIo();
+      const code = triageCommand(
+        triageMergeOpts({
+          projectRoot,
+          io,
+          worktreeName: branchName,
+          ghRunner: {
+            getPrState: () => ({ state: "OPEN", isDraft: false }),
+            getChecks: () => [{ name: "test", status: "success" }],
+          },
+          runGate: () => {},
+          adminMerge: () => {
+            mergeRan = true;
+          },
+        }),
+      );
+
+      expect(code).toBe(1);
+      expect(err()).toContain("spec file not found");
+      expect(mergeRan).toBe(false);
+    });
+
+    test("configured plan.targetDir wins over v1/spec when both have specs for same branch", async () => {
+      const branchName = "2026-01-01T00-00-00Z-target-dir-wins";
+      setupMarkerlessWorktree(branchName, branchName);
+      // Configured home has COMPLETE spec
+      writeIndexSpec("custom-spec", branchName);
+      // Fallback v1/spec has INCOMPLETE spec (would refuse if used)
+      writeIndexSpec("v1/spec", branchName, "# Test\n\n## Acceptance criteria\n\n- [ ] not done");
+
+      const { code, gateRan } = await markReadyMarkerless(branchName, jarvisConfigOpts("custom-spec"));
+      expect(code).toBe(0);
+      expect(gateRan).toBe(true);
+    });
+
+    test("--merge markerless resolves spec via PR-reference target resolution", () => {
+      const branchName = "2026-01-01T00-00-00Z-pr-ref-merge";
+      const worktreePath = join(worktreeDir, branchName);
+      setupWorktree(worktreePath);
+      execSync(`git branch -M ${branchName}`, { cwd: worktreePath, stdio: "pipe" });
+      // Markerless: no .active-spec-path
+      writeIndexSpec("v1/spec", branchName, "# Test\n\n- [x] item 1");
+
+      let mergeRan = false;
+      const { io, out } = captureIo();
+      const code = triageCommand({
+        projectRoot,
+        io,
+        worktreeName: "#42",
+        merge: true,
+        mergeTargetSeams: {
+          lookupPrHeadRef: () => ({ ok: true, headRef: branchName }),
+          findMatchingOpenPrs: () => [{ number: 42, isDraft: false }],
+        },
+        ghRunner: {
+          getPrState: () => ({ state: "OPEN", isDraft: false }),
+          getChecks: () => [{ name: "test", status: "success" }],
+        },
+        runGate: () => {},
+        adminMerge: () => {
+          mergeRan = true;
+        },
+      });
+
+      expect(code).toBe(0);
+      expect(mergeRan).toBe(true);
+      expect(out()).toContain("merged successfully");
+    });
   });
 
   describe("--merge flag", () => {

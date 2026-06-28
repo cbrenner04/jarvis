@@ -17,6 +17,7 @@ if (socketProbeErrored) {
 
 const SOCKET_PATH = join(tmpdir(), `jarvis-daemon-test-${process.pid}-${Date.now()}.sock`);
 const PID_PATH = join(tmpdir(), `jarvis-daemon-test-${process.pid}-${Date.now()}.pid`);
+const socketTest = test.skipIf(!canUseUnixSockets());
 
 beforeEach(() => {
   if (!canUseUnixSockets()) {
@@ -35,7 +36,7 @@ afterEach(() => {
 });
 
 describe("daemon (real process)", () => {
-  test.skipIf(!canUseUnixSockets())("startDaemon spawns detached process that serves health", async () => {
+  socketTest("startDaemon spawns detached process that serves health", async () => {
     const metadata = await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
 
     expect(typeof metadata.pid).toBe("number");
@@ -52,7 +53,7 @@ describe("daemon (real process)", () => {
     await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
   });
 
-  test.skipIf(!canUseUnixSockets())("getDaemonStatus reports running for live daemon", async () => {
+  socketTest("getDaemonStatus reports running for live daemon", async () => {
     const metadata = await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
 
     const status = await getDaemonStatus(metadata.pid, SOCKET_PATH);
@@ -61,7 +62,7 @@ describe("daemon (real process)", () => {
     await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
   });
 
-  test.skipIf(!canUseUnixSockets())("getDaemonStatus reports stopped after stopDaemon", async () => {
+  socketTest("getDaemonStatus reports stopped after stopDaemon", async () => {
     const metadata = await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
 
     await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
@@ -70,7 +71,7 @@ describe("daemon (real process)", () => {
     expect(status).toBe("stopped");
   });
 
-  test.skipIf(!canUseUnixSockets())("status RPC on live daemon reports running state", async () => {
+  socketTest("status RPC on live daemon reports running state", async () => {
     await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
 
     const client = await connectIpcClient(SOCKET_PATH);
@@ -83,7 +84,7 @@ describe("daemon (real process)", () => {
     await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
   });
 
-  test.skipIf(!canUseUnixSockets())("second startDaemon fails with typed error while health succeeds", async () => {
+  socketTest("second startDaemon fails with typed error while health succeeds", async () => {
     await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
 
     await expect(startDaemon(SOCKET_PATH, { pidPath: PID_PATH })).rejects.toThrow("already running");
@@ -91,7 +92,7 @@ describe("daemon (real process)", () => {
     await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
   });
 
-  test.skipIf(!canUseUnixSockets())("socket becomes unbound after stopDaemon", async () => {
+  socketTest("socket becomes unbound after stopDaemon", async () => {
     await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
 
     await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
@@ -101,7 +102,7 @@ describe("daemon (real process)", () => {
     await expect(connectIpcClient(SOCKET_PATH)).rejects.toThrow();
   });
 
-  test.skipIf(!canUseUnixSockets())("WorktreeOwnershipRegistry claim and release", async () => {
+  socketTest("WorktreeOwnershipRegistry claim and release", async () => {
     const registry = new WorktreeOwnershipRegistry();
     const key = { project: "test-proj", branch: "main" };
     const ownership = { runId: "run-123", worktreePath: "/tmp/wt" };
@@ -126,7 +127,7 @@ describe("daemon (real process)", () => {
     expect(registry.isClaimed(key)).toBe(false);
   });
 
-  test.skipIf(!canUseUnixSockets())("multiple independent worktree claims coexist", async () => {
+  socketTest("multiple independent worktree claims coexist", async () => {
     const registry = new WorktreeOwnershipRegistry();
     const key1 = { project: "proj1", branch: "main" };
     const key2 = { project: "proj1", branch: "dev" };

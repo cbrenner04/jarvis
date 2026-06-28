@@ -10,6 +10,7 @@ import { canUseUnixSockets } from "./testing/unix-socket.ts";
 import type { WriteLoopInput } from "./write-loop.ts";
 
 const SOCKET_PATH = join(tmpdir(), `jarvis-daemon-test-${process.pid}.sock`);
+const socketTest = test.skipIf(!canUseUnixSockets());
 
 type PendingExecutorRun = {
   signal: AbortSignal;
@@ -132,14 +133,14 @@ async function listRuns(client: Awaited<ReturnType<typeof connectIpcClient>>): P
   return frame.kind === "response" ? (frame.result as ListRunsResult)?.runs : undefined;
 }
 
-test.skipIf(!canUseUnixSockets())("start returns a run ID", async () => {
+socketTest("start returns a run ID", async () => {
   const client = await connectIpcClient(SOCKET_PATH);
   const runId = await startRun(client);
   expect(typeof runId).toBe("string");
   client.close();
 });
 
-test.skipIf(!canUseUnixSockets())("start rejects when any run is active (single in-flight guard)", async () => {
+socketTest("start rejects when any run is active (single in-flight guard)", async () => {
   const client = await connectIpcClient(SOCKET_PATH);
   await startRun(client);
 
@@ -153,7 +154,7 @@ test.skipIf(!canUseUnixSockets())("start rejects when any run is active (single 
   client.close();
 });
 
-test.skipIf(!canUseUnixSockets())(
+socketTest(
   "start rejects second start for same (project, branch) while first is active",
   async () => {
     const client = await connectIpcClient(SOCKET_PATH);
@@ -170,7 +171,7 @@ test.skipIf(!canUseUnixSockets())(
   },
 );
 
-test.skipIf(!canUseUnixSockets())("list returns durable runs with liveness info", async () => {
+socketTest("list returns durable runs with liveness info", async () => {
   const client = await connectIpcClient(SOCKET_PATH);
   await startRun(client);
   const runs = await listRuns(client);
@@ -190,7 +191,7 @@ test.skipIf(!canUseUnixSockets())("list returns durable runs with liveness info"
   client.close();
 });
 
-test.skipIf(!canUseUnixSockets())("settled run is no longer live in list", async () => {
+socketTest("settled run is no longer live in list", async () => {
   const client = await connectIpcClient(SOCKET_PATH);
   await startRun(client);
 
@@ -209,7 +210,7 @@ test.skipIf(!canUseUnixSockets())("settled run is no longer live in list", async
   client.close();
 });
 
-test.skipIf(!canUseUnixSockets())("pause signals graceful stop for an active run", async () => {
+socketTest("pause signals graceful stop for an active run", async () => {
   const client = await connectIpcClient(SOCKET_PATH);
   const runId = await startRun(client);
   if (!runId) {
@@ -227,7 +228,7 @@ test.skipIf(!canUseUnixSockets())("pause signals graceful stop for an active run
   client.close();
 });
 
-test.skipIf(!canUseUnixSockets())("pause rejects unknown run ID", async () => {
+socketTest("pause rejects unknown run ID", async () => {
   const client = await connectIpcClient(SOCKET_PATH);
 
   client.send({ kind: "request", id: "p1", method: "pause", params: { runId: "unknown-id" } });
@@ -239,7 +240,7 @@ test.skipIf(!canUseUnixSockets())("pause rejects unknown run ID", async () => {
   client.close();
 });
 
-test.skipIf(!canUseUnixSockets())("kill aborts an active run and records killed status", async () => {
+socketTest("kill aborts an active run and records killed status", async () => {
   const client = await connectIpcClient(SOCKET_PATH);
   const runId = await startRun(client);
   if (!runId) {
@@ -264,7 +265,7 @@ test.skipIf(!canUseUnixSockets())("kill aborts an active run and records killed 
   client.close();
 });
 
-test.skipIf(!canUseUnixSockets())("kill rejects unknown run ID", async () => {
+socketTest("kill rejects unknown run ID", async () => {
   const client = await connectIpcClient(SOCKET_PATH);
 
   client.send({ kind: "request", id: "k1", method: "kill", params: { runId: "unknown-id" } });
@@ -276,7 +277,7 @@ test.skipIf(!canUseUnixSockets())("kill rejects unknown run ID", async () => {
   client.close();
 });
 
-test.skipIf(!canUseUnixSockets())("resume rejects unknown run ID", async () => {
+socketTest("resume rejects unknown run ID", async () => {
   const client = await connectIpcClient(SOCKET_PATH);
 
   client.send({ kind: "request", id: "r1", method: "resume", params: { runId: "unknown-id" } });
@@ -288,7 +289,7 @@ test.skipIf(!canUseUnixSockets())("resume rejects unknown run ID", async () => {
   client.close();
 });
 
-test.skipIf(!canUseUnixSockets())("resume rejects terminal run status", async () => {
+socketTest("resume rejects terminal run status", async () => {
   const client = await connectIpcClient(SOCKET_PATH);
   const runId = await startRun(client);
   if (!runId) {
@@ -310,7 +311,7 @@ test.skipIf(!canUseUnixSockets())("resume rejects terminal run status", async ()
   client.close();
 });
 
-test.skipIf(!canUseUnixSockets())("resume rejects if another run is in-flight (single in-flight guard)", async () => {
+socketTest("resume rejects if another run is in-flight (single in-flight guard)", async () => {
   const client = await connectIpcClient(SOCKET_PATH);
   await startRun(client);
 
@@ -333,7 +334,7 @@ test.skipIf(!canUseUnixSockets())("resume rejects if another run is in-flight (s
   client.close();
 });
 
-test.skipIf(!canUseUnixSockets())("kill aborts the abort signal that bindings can observe", async () => {
+socketTest("kill aborts the abort signal that bindings can observe", async () => {
   const client = await connectIpcClient(SOCKET_PATH);
   const runId = await startRun(client);
   if (!runId) {

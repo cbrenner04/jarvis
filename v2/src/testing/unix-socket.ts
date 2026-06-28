@@ -36,14 +36,11 @@ await new Promise<void>((resolve) => {
 });
 
 /**
- * Read settled Unix-socket availability at call time.
+ * Settled Unix-socket availability under `tmpdir()`; read at call time.
  *
- * @returns Whether Unix sockets under `tmpdir()` are available per the module-load probe.
- *
- * `test.skipIf(!canUseUnixSockets())` captures this value when the test is
- * registered; post-settle false→true does not un-skip already-registered tests.
- * Hook guards (`beforeEach`/`afterEach`) re-read at hook time and may observe a
- * later flip. Consumers must not run their own socket probe.
+ * `test.skipIf(!canUseUnixSockets())` captures at registration; post-settle
+ * false→true does not un-skip registered tests. Hook guards re-read at hook time
+ * and may observe a later flip. Consumers must not run their own socket probe.
  */
 export function canUseUnixSockets(): boolean {
   return socketsAvailable;

@@ -14,6 +14,7 @@ if (socketProbeErrored) {
 }
 
 const SOCKET_PATH = join(tmpdir(), `jarvis-ipc-test-${process.pid}.sock`);
+const socketTest = test.skipIf(!canUseUnixSockets());
 
 let server: IpcServer;
 
@@ -37,7 +38,20 @@ function request(id: string, method: string, params?: unknown) {
   return { kind: "request" as const, id, method, ...(params !== undefined ? { params } : {}) };
 }
 
-test.skipIf(!canUseUnixSockets())("health RPC round-trips", async () => {
+async function connectRaw() {
+  const socket = connect(SOCKET_PATH);
+  await new Promise<void>((resolve, reject) => {
+    socket.once("connect", () => resolve());
+    socket.once("error", reject);
+  });
+  return socket;
+}
+
+function untilClose(socket: ReturnType<typeof connect>): Promise<void> {
+  return new Promise((resolve) => socket.once("close", () => resolve()));
+}
+
+socketTest("health RPC round-trips", async () => {
   const client = await connectIpcClient(SOCKET_PATH);
   client.send(request("h1", "health"));
   const frame = await client.nextFrame();
@@ -45,7 +59,7 @@ test.skipIf(!canUseUnixSockets())("health RPC round-trips", async () => {
   client.close();
 });
 
-test.skipIf(!canUseUnixSockets())("status RPC reports daemon-host liveness", async () => {
+socketTest("status RPC reports daemon-host liveness", async () => {
   const client = await connectIpcClient(SOCKET_PATH);
   client.send(request("s1", "status"));
   const frame = await client.nextFrame();
@@ -53,7 +67,7 @@ test.skipIf(!canUseUnixSockets())("status RPC reports daemon-host liveness", asy
   client.close();
 });
 
-test.skipIf(!canUseUnixSockets())("unknown method returns correlated error", async () => {
+socketTest("unknown method returns correlated error", async () => {
   const client = await connectIpcClient(SOCKET_PATH);
   client.send(request("e1", "nope"));
   const frame = await client.nextFrame();
@@ -65,7 +79,7 @@ test.skipIf(!canUseUnixSockets())("unknown method returns correlated error", asy
   client.close();
 });
 
-test.skipIf(!canUseUnixSockets())("serves multiple simultaneous client connections", async () => {
+socketTest("serves multiple simultaneous client connections", async () => {
   const [a, b] = await Promise.all([connectIpcClient(SOCKET_PATH), connectIpcClient(SOCKET_PATH)]);
   a.send(request("a1", "health"));
   b.send(request("b1", "status"));
@@ -76,73 +90,49 @@ test.skipIf(!canUseUnixSockets())("serves multiple simultaneous client connectio
   b.close();
 });
 
-test.skipIf(!canUseUnixSockets())("oversized length closes the connection", async () => {
-  const socket = connect(SOCKET_PATH);
-  await new Promise<void>((resolve, reject) => {
-    socket.once("connect", () => resolve());
-    socket.once("error", reject);
-  });
+socketTest("oversized length closes the connection", async () => {
+  const socket = await connectRaw();
   const header = Buffer.alloc(4);
   header.writeUInt32BE(16 * 1024 * 1024 + 1, 0);
   socket.write(header);
-  await new Promise<void>((resolve) => socket.once("close", () => resolve()));
+  await untilClose(socket);
 });
 
-test.skipIf(!canUseUnixSockets())("truncated body closes the connection", async () => {
-  const socket = connect(SOCKET_PATH);
-  await new Promise<void>((resolve, reject) => {
-    socket.once("connect", () => resolve());
-    socket.once("error", reject);
-  });
+socketTest("truncated body closes the connection", async () => {
+  const socket = await connectRaw();
   const header = Buffer.alloc(4);
   header.writeUInt32BE(32, 0);
   socket.write(header);
   socket.write(Buffer.from('{"kind":"request"'));
   socket.end();
-  await new Promise<void>((resolve) => socket.once("close", () => resolve()));
+  await untilClose(socket);
 });
 
-test.skipIf(!canUseUnixSockets())("invalid JSON closes the connection", async () => {
-  const socket = connect(SOCKET_PATH);
-  await new Promise<void>((resolve, reject) => {
-    socket.once("connect", () => resolve());
-    socket.once("error", reject);
-  });
+socketTest("invalid JSON closes the connection", async () => {
+  const socket = await connectRaw();
   const body = Buffer.from("{not-json", "utf8");
   const header = Buffer.alloc(4);
   header.writeUInt32BE(body.length, 0);
   socket.write(Buffer.concat([header, body]));
-  await new Promise<void>((resolve) => socket.once("close", () => resolve()));
+  await untilClose(socket);
 });
 
-test.skipIf(!canUseUnixSockets())("missing kind closes the connection", async () => {
-  const socket = connect(SOCKET_PATH);
-  await new Promise<void>((resolve, reject) => {
-    socket.once("connect", () => resolve());
-    socket.once("error", reject);
-  });
+socketTest("missing kind closes the connection", async () => {
+  const socket = await connectRaw();
   socket.write(encodeFrame({ id: "x" }));
-  await new Promise<void>((resolve) => socket.once("close", () => resolve()));
+  await untilClose(socket);
 });
 
-test.skipIf(!canUseUnixSockets())("invalid kind closes the connection", async () => {
-  const socket = connect(SOCKET_PATH);
-  await new Promise<void>((resolve, reject) => {
-    socket.once("connect", () => resolve());
-    socket.once("error", reject);
-  });
+socketTest("invalid kind closes the connection", async () => {
+  const socket = await connectRaw();
   socket.write(encodeFrame({ kind: "wat", id: "x" }));
-  await new Promise<void>((resolve) => socket.once("close", () => resolve()));
+  await untilClose(socket);
 });
 
-test.skipIf(!canUseUnixSockets())("server stays up after a malformed client disconnects", async () => {
-  const bad = connect(SOCKET_PATH);
-  await new Promise<void>((resolve, reject) => {
-    bad.once("connect", () => resolve());
-    bad.once("error", reject);
-  });
+socketTest("server stays up after a malformed client disconnects", async () => {
+  const bad = await connectRaw();
   bad.write(encodeFrame({ kind: "nope" }));
-  await new Promise<void>((resolve) => bad.once("close", () => resolve()));
+  await untilClose(bad);
 
   const client = await connectIpcClient(SOCKET_PATH);
   client.send(request("ok", "health"));
@@ -153,7 +143,7 @@ test.skipIf(!canUseUnixSockets())("server stays up after a malformed client disc
 // Tail-log stream tests
 const LOGS_PATH = join(tmpdir(), `jarvis-ipc-test-logs-${process.pid}.jsonl`);
 
-test.skipIf(!canUseUnixSockets())("tail-log stream replays persisted events in seq order", async () => {
+socketTest("tail-log stream replays persisted events in seq order", async () => {
   rmSync(LOGS_PATH, { force: true });
   const logSink = openLogSink(LOGS_PATH);
   const logReader = openLogReader(LOGS_PATH);
@@ -213,7 +203,7 @@ test.skipIf(!canUseUnixSockets())("tail-log stream replays persisted events in s
   rmSync(LOGS_PATH, { force: true });
 });
 
-test.skipIf(!canUseUnixSockets())("tail-log stream rejects unknown run ID", async () => {
+socketTest("tail-log stream rejects unknown run ID", async () => {
   rmSync(LOGS_PATH, { force: true });
   const logReader = openLogReader(LOGS_PATH);
 
@@ -249,7 +239,7 @@ test.skipIf(!canUseUnixSockets())("tail-log stream rejects unknown run ID", asyn
   await tailServer.close();
 });
 
-test.skipIf(!canUseUnixSockets())("tail-log stream closes on client stream-end", async () => {
+socketTest("tail-log stream closes on client stream-end", async () => {
   rmSync(LOGS_PATH, { force: true });
   const logSink = openLogSink(LOGS_PATH);
   const logReader = openLogReader(LOGS_PATH);

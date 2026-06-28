@@ -27,10 +27,10 @@ Use daemon run-control handler drift as the anti-pattern example:
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/test-writing.md` tells v2 test authors not to reimplement owned production behavior in local doubles when an exported production seam can be exercised with injected fakes.
-- [ ] `v2/docs/test-writing.md` allows ordinary fakes/spies for dependencies outside the logic boundary and defines the unit under test as the exported production unit that owns the behavior.
-- [ ] `v2/docs/test-writing.md` cites daemon run-control handler drift as the anti-pattern avoided by the expected `createRunControlHandlers` plus `daemon-start-list.test.ts` pattern.
-- [ ] `v2/docs/test-writing.md` keeps automated lint/review enforcement deferred; this slice adds documentation only.
+- [x] `v2/docs/test-writing.md` tells v2 test authors not to reimplement owned production behavior in local doubles when an exported production seam can be exercised with injected fakes.
+- [x] `v2/docs/test-writing.md` allows ordinary fakes/spies for dependencies outside the logic boundary and defines the unit under test as the exported production unit that owns the behavior.
+- [x] `v2/docs/test-writing.md` cites daemon run-control handler drift as the anti-pattern avoided by the expected `createRunControlHandlers` plus `daemon-start-list.test.ts` pattern.
+- [x] `v2/docs/test-writing.md` keeps automated lint/review enforcement deferred; this slice adds documentation only.
 
 ## Documentation updates
 

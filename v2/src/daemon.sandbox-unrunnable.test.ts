@@ -35,138 +35,114 @@ afterEach(() => {
 });
 
 describe("daemon (real process)", () => {
-  test.skipIf(!canUseUnixSockets())(
-    "startDaemon spawns detached process that serves health",
-    async () => {
-      const metadata = await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
+  test.skipIf(!canUseUnixSockets())("startDaemon spawns detached process that serves health", async () => {
+    const metadata = await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
 
-      expect(typeof metadata.pid).toBe("number");
-      expect(metadata.socketPath).toBe(SOCKET_PATH);
-      expect(metadata.pid).toBeGreaterThan(0);
+    expect(typeof metadata.pid).toBe("number");
+    expect(metadata.socketPath).toBe(SOCKET_PATH);
+    expect(metadata.pid).toBeGreaterThan(0);
 
-      const client = await connectIpcClient(SOCKET_PATH);
-      client.send({ kind: "request", id: "h1", method: "health" });
-      const frame = await client.nextFrame();
-      expect(frame.kind).toBe("response");
-      expect((frame as ResponseFrame).result).toEqual({ ok: true });
-      client.close();
+    const client = await connectIpcClient(SOCKET_PATH);
+    client.send({ kind: "request", id: "h1", method: "health" });
+    const frame = await client.nextFrame();
+    expect(frame.kind).toBe("response");
+    expect((frame as ResponseFrame).result).toEqual({ ok: true });
+    client.close();
 
-      await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
-    },
-  );
+    await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
+  });
 
-  test.skipIf(!canUseUnixSockets())(
-    "getDaemonStatus reports running for live daemon",
-    async () => {
-      const metadata = await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
+  test.skipIf(!canUseUnixSockets())("getDaemonStatus reports running for live daemon", async () => {
+    const metadata = await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
 
-      const status = await getDaemonStatus(metadata.pid, SOCKET_PATH);
-      expect(status).toBe("running");
+    const status = await getDaemonStatus(metadata.pid, SOCKET_PATH);
+    expect(status).toBe("running");
 
-      await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
-    },
-  );
+    await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
+  });
 
-  test.skipIf(!canUseUnixSockets())(
-    "getDaemonStatus reports stopped after stopDaemon",
-    async () => {
-      const metadata = await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
+  test.skipIf(!canUseUnixSockets())("getDaemonStatus reports stopped after stopDaemon", async () => {
+    const metadata = await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
 
-      await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
+    await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
 
-      const status = await getDaemonStatus(metadata.pid, SOCKET_PATH);
-      expect(status).toBe("stopped");
-    },
-  );
+    const status = await getDaemonStatus(metadata.pid, SOCKET_PATH);
+    expect(status).toBe("stopped");
+  });
 
-  test.skipIf(!canUseUnixSockets())(
-    "status RPC on live daemon reports running state",
-    async () => {
-      await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
+  test.skipIf(!canUseUnixSockets())("status RPC on live daemon reports running state", async () => {
+    await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
 
-      const client = await connectIpcClient(SOCKET_PATH);
-      client.send({ kind: "request", id: "s1", method: "status" });
-      const frame = await client.nextFrame();
-      expect(frame.kind).toBe("response");
-      expect((frame as ResponseFrame).result).toEqual({ state: "running" });
-      client.close();
+    const client = await connectIpcClient(SOCKET_PATH);
+    client.send({ kind: "request", id: "s1", method: "status" });
+    const frame = await client.nextFrame();
+    expect(frame.kind).toBe("response");
+    expect((frame as ResponseFrame).result).toEqual({ state: "running" });
+    client.close();
 
-      await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
-    },
-  );
+    await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
+  });
 
-  test.skipIf(!canUseUnixSockets())(
-    "second startDaemon fails with typed error while health succeeds",
-    async () => {
-      await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
+  test.skipIf(!canUseUnixSockets())("second startDaemon fails with typed error while health succeeds", async () => {
+    await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
 
-      await expect(startDaemon(SOCKET_PATH, { pidPath: PID_PATH })).rejects.toThrow("already running");
+    await expect(startDaemon(SOCKET_PATH, { pidPath: PID_PATH })).rejects.toThrow("already running");
 
-      await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
-    },
-  );
+    await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
+  });
 
-  test.skipIf(!canUseUnixSockets())(
-    "socket becomes unbound after stopDaemon",
-    async () => {
-      await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
+  test.skipIf(!canUseUnixSockets())("socket becomes unbound after stopDaemon", async () => {
+    await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
 
-      await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
+    await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
 
-      await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 100));
 
-      await expect(connectIpcClient(SOCKET_PATH)).rejects.toThrow();
-    },
-  );
+    await expect(connectIpcClient(SOCKET_PATH)).rejects.toThrow();
+  });
 
-  test.skipIf(!canUseUnixSockets())(
-    "WorktreeOwnershipRegistry claim and release",
-    async () => {
-      const registry = new WorktreeOwnershipRegistry();
-      const key = { project: "test-proj", branch: "main" };
-      const ownership = { runId: "run-123", worktreePath: "/tmp/wt" };
+  test.skipIf(!canUseUnixSockets())("WorktreeOwnershipRegistry claim and release", async () => {
+    const registry = new WorktreeOwnershipRegistry();
+    const key = { project: "test-proj", branch: "main" };
+    const ownership = { runId: "run-123", worktreePath: "/tmp/wt" };
 
-      // Initial claim succeeds
-      registry.claim(key, ownership);
-      expect(registry.isClaimed(key)).toBe(true);
-      expect(registry.get(key)).toEqual(ownership);
+    // Initial claim succeeds
+    registry.claim(key, ownership);
+    expect(registry.isClaimed(key)).toBe(true);
+    expect(registry.get(key)).toEqual(ownership);
 
-      // Second claim on same key fails
-      expect(() => {
-        registry.claim(key, { runId: "run-456", worktreePath: "/tmp/wt2" });
-      }).toThrow(DaemonDoubleClaimError);
+    // Second claim on same key fails
+    expect(() => {
+      registry.claim(key, { runId: "run-456", worktreePath: "/tmp/wt2" });
+    }).toThrow(DaemonDoubleClaimError);
 
-      // Release succeeds
-      registry.release(key);
-      expect(registry.isClaimed(key)).toBe(false);
-      expect(registry.get(key)).toBeUndefined();
+    // Release succeeds
+    registry.release(key);
+    expect(registry.isClaimed(key)).toBe(false);
+    expect(registry.get(key)).toBeUndefined();
 
-      // Release on unheld key is no-op
-      registry.release(key);
-      expect(registry.isClaimed(key)).toBe(false);
-    },
-  );
+    // Release on unheld key is no-op
+    registry.release(key);
+    expect(registry.isClaimed(key)).toBe(false);
+  });
 
-  test.skipIf(!canUseUnixSockets())(
-    "multiple independent worktree claims coexist",
-    async () => {
-      const registry = new WorktreeOwnershipRegistry();
-      const key1 = { project: "proj1", branch: "main" };
-      const key2 = { project: "proj1", branch: "dev" };
-      const key3 = { project: "proj2", branch: "main" };
+  test.skipIf(!canUseUnixSockets())("multiple independent worktree claims coexist", async () => {
+    const registry = new WorktreeOwnershipRegistry();
+    const key1 = { project: "proj1", branch: "main" };
+    const key2 = { project: "proj1", branch: "dev" };
+    const key3 = { project: "proj2", branch: "main" };
 
-      registry.claim(key1, { runId: "run-1", worktreePath: "/tmp/wt1" });
-      registry.claim(key2, { runId: "run-2", worktreePath: "/tmp/wt2" });
-      registry.claim(key3, { runId: "run-3", worktreePath: "/tmp/wt3" });
+    registry.claim(key1, { runId: "run-1", worktreePath: "/tmp/wt1" });
+    registry.claim(key2, { runId: "run-2", worktreePath: "/tmp/wt2" });
+    registry.claim(key3, { runId: "run-3", worktreePath: "/tmp/wt3" });
 
-      expect(registry.isClaimed(key1)).toBe(true);
-      expect(registry.isClaimed(key2)).toBe(true);
-      expect(registry.isClaimed(key3)).toBe(true);
+    expect(registry.isClaimed(key1)).toBe(true);
+    expect(registry.isClaimed(key2)).toBe(true);
+    expect(registry.isClaimed(key3)).toBe(true);
 
-      registry.release(key2);
-      expect(registry.isClaimed(key1)).toBe(true);
-      expect(registry.isClaimed(key2)).toBe(false);
-      expect(registry.isClaimed(key3)).toBe(true);
-    },
-  );
+    registry.release(key2);
+    expect(registry.isClaimed(key1)).toBe(true);
+    expect(registry.isClaimed(key2)).toBe(false);
+    expect(registry.isClaimed(key3)).toBe(true);
+  });
 });

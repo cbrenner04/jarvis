@@ -132,32 +132,26 @@ async function listRuns(client: Awaited<ReturnType<typeof connectIpcClient>>): P
   return frame.kind === "response" ? (frame.result as ListRunsResult)?.runs : undefined;
 }
 
-test.skipIf(!canUseUnixSockets())(
-  "start returns a run ID",
-  async () => {
-    const client = await connectIpcClient(SOCKET_PATH);
-    const runId = await startRun(client);
-    expect(typeof runId).toBe("string");
-    client.close();
-  },
-);
+test.skipIf(!canUseUnixSockets())("start returns a run ID", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+  const runId = await startRun(client);
+  expect(typeof runId).toBe("string");
+  client.close();
+});
 
-test.skipIf(!canUseUnixSockets())(
-  "start rejects when any run is active (single in-flight guard)",
-  async () => {
-    const client = await connectIpcClient(SOCKET_PATH);
-    await startRun(client);
+test.skipIf(!canUseUnixSockets())("start rejects when any run is active (single in-flight guard)", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+  await startRun(client);
 
-    const input2 = mockWriteLoopInput({ projectName: "other-project" });
-    client.send({ kind: "request", id: "s2", method: "start", params: { input: input2 } });
-    const response2 = await client.nextFrame();
-    expect(response2.kind).toBe("error");
-    if (response2.kind === "error") {
-      expect(response2.code).toBe("run_in_progress");
-    }
-    client.close();
-  },
-);
+  const input2 = mockWriteLoopInput({ projectName: "other-project" });
+  client.send({ kind: "request", id: "s2", method: "start", params: { input: input2 } });
+  const response2 = await client.nextFrame();
+  expect(response2.kind).toBe("error");
+  if (response2.kind === "error") {
+    expect(response2.code).toBe("run_in_progress");
+  }
+  client.close();
+});
 
 test.skipIf(!canUseUnixSockets())(
   "start rejects second start for same (project, branch) while first is active",
@@ -176,217 +170,187 @@ test.skipIf(!canUseUnixSockets())(
   },
 );
 
-test.skipIf(!canUseUnixSockets())(
-  "list returns durable runs with liveness info",
-  async () => {
-    const client = await connectIpcClient(SOCKET_PATH);
-    await startRun(client);
-    const runs = await listRuns(client);
-    if (!runs) {
-      client.close();
-      return;
-    }
-
-    expect(runs.length).toBeGreaterThan(0);
-    const run = runs[0];
-    expect(run).toHaveProperty("runId");
-    expect(run).toHaveProperty("project");
-    expect(run).toHaveProperty("branch");
-    expect(run).toHaveProperty("status");
-    expect(run).toHaveProperty("isLive");
-    expect(run?.isLive).toBe(true);
+test.skipIf(!canUseUnixSockets())("list returns durable runs with liveness info", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+  await startRun(client);
+  const runs = await listRuns(client);
+  if (!runs) {
     client.close();
-  },
-);
+    return;
+  }
 
-test.skipIf(!canUseUnixSockets())(
-  "settled run is no longer live in list",
-  async () => {
-    const client = await connectIpcClient(SOCKET_PATH);
-    await startRun(client);
+  expect(runs.length).toBeGreaterThan(0);
+  const run = runs[0];
+  expect(run).toHaveProperty("runId");
+  expect(run).toHaveProperty("project");
+  expect(run).toHaveProperty("branch");
+  expect(run).toHaveProperty("status");
+  expect(run).toHaveProperty("isLive");
+  expect(run?.isLive).toBe(true);
+  client.close();
+});
 
-    fakeExecutor.settleAll();
-    await flushBackgroundRuns();
+test.skipIf(!canUseUnixSockets())("settled run is no longer live in list", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+  await startRun(client);
 
-    const runs = await listRuns(client);
-    if (!runs) {
-      client.close();
-      return;
-    }
+  fakeExecutor.settleAll();
+  await flushBackgroundRuns();
 
-    expect(runs.length).toBeGreaterThan(0);
-    const run = runs[0];
-    expect(run?.isLive).toBe(false);
+  const runs = await listRuns(client);
+  if (!runs) {
     client.close();
-  },
-);
+    return;
+  }
 
-test.skipIf(!canUseUnixSockets())(
-  "pause signals graceful stop for an active run",
-  async () => {
-    const client = await connectIpcClient(SOCKET_PATH);
-    const runId = await startRun(client);
-    if (!runId) {
-      client.close();
-      return;
-    }
+  expect(runs.length).toBeGreaterThan(0);
+  const run = runs[0];
+  expect(run?.isLive).toBe(false);
+  client.close();
+});
 
-    client.send({ kind: "request", id: "p1", method: "pause", params: { runId } });
-    const pauseResponse = await client.nextFrame();
-    expect(pauseResponse.kind).toBe("response");
-    if (pauseResponse.kind === "response") {
-      expect((pauseResponse.result as { ok?: boolean } | undefined)?.ok).toBe(true);
-    }
-    expect(fakeExecutor.isPauseSignalTriggered()).toBe(true);
+test.skipIf(!canUseUnixSockets())("pause signals graceful stop for an active run", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+  const runId = await startRun(client);
+  if (!runId) {
     client.close();
-  },
-);
+    return;
+  }
 
-test.skipIf(!canUseUnixSockets())(
-  "pause rejects unknown run ID",
-  async () => {
-    const client = await connectIpcClient(SOCKET_PATH);
+  client.send({ kind: "request", id: "p1", method: "pause", params: { runId } });
+  const pauseResponse = await client.nextFrame();
+  expect(pauseResponse.kind).toBe("response");
+  if (pauseResponse.kind === "response") {
+    expect((pauseResponse.result as { ok?: boolean } | undefined)?.ok).toBe(true);
+  }
+  expect(fakeExecutor.isPauseSignalTriggered()).toBe(true);
+  client.close();
+});
 
-    client.send({ kind: "request", id: "p1", method: "pause", params: { runId: "unknown-id" } });
-    const pauseResponse = await client.nextFrame();
-    expect(pauseResponse.kind).toBe("error");
-    if (pauseResponse.kind === "error") {
-      expect(pauseResponse.code).toBe("unknown_run");
-    }
+test.skipIf(!canUseUnixSockets())("pause rejects unknown run ID", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+
+  client.send({ kind: "request", id: "p1", method: "pause", params: { runId: "unknown-id" } });
+  const pauseResponse = await client.nextFrame();
+  expect(pauseResponse.kind).toBe("error");
+  if (pauseResponse.kind === "error") {
+    expect(pauseResponse.code).toBe("unknown_run");
+  }
+  client.close();
+});
+
+test.skipIf(!canUseUnixSockets())("kill aborts an active run and records killed status", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+  const runId = await startRun(client);
+  if (!runId) {
     client.close();
-  },
-);
+    return;
+  }
 
-test.skipIf(!canUseUnixSockets())(
-  "kill aborts an active run and records killed status",
-  async () => {
-    const client = await connectIpcClient(SOCKET_PATH);
-    const runId = await startRun(client);
-    if (!runId) {
-      client.close();
-      return;
-    }
+  client.send({ kind: "request", id: "k1", method: "kill", params: { runId } });
+  const killResponse = await client.nextFrame();
+  expect(killResponse.kind).toBe("response");
+  if (killResponse.kind === "response") {
+    expect((killResponse.result as { ok?: boolean } | undefined)?.ok).toBe(true);
+  }
+  expect(fakeExecutor.isAbortSignalTriggered()).toBe(true);
 
-    client.send({ kind: "request", id: "k1", method: "kill", params: { runId } });
-    const killResponse = await client.nextFrame();
-    expect(killResponse.kind).toBe("response");
-    if (killResponse.kind === "response") {
-      expect((killResponse.result as { ok?: boolean } | undefined)?.ok).toBe(true);
-    }
-    expect(fakeExecutor.isAbortSignalTriggered()).toBe(true);
+  const runs = await listRuns(client);
+  if (runs) {
+    const run = runs.find((candidate) => candidate.runId === runId);
+    expect(run).toBeDefined();
+    expect(run?.status).toBe("killed");
+  }
+  client.close();
+});
 
-    const runs = await listRuns(client);
-    if (runs) {
-      const run = runs.find((candidate) => candidate.runId === runId);
-      expect(run).toBeDefined();
-      expect(run?.status).toBe("killed");
-    }
+test.skipIf(!canUseUnixSockets())("kill rejects unknown run ID", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+
+  client.send({ kind: "request", id: "k1", method: "kill", params: { runId: "unknown-id" } });
+  const killResponse = await client.nextFrame();
+  expect(killResponse.kind).toBe("error");
+  if (killResponse.kind === "error") {
+    expect(killResponse.code).toBe("unknown_run");
+  }
+  client.close();
+});
+
+test.skipIf(!canUseUnixSockets())("resume rejects unknown run ID", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+
+  client.send({ kind: "request", id: "r1", method: "resume", params: { runId: "unknown-id" } });
+  const resumeResponse = await client.nextFrame();
+  expect(resumeResponse.kind).toBe("error");
+  if (resumeResponse.kind === "error") {
+    expect(resumeResponse.code).toBe("unknown_run");
+  }
+  client.close();
+});
+
+test.skipIf(!canUseUnixSockets())("resume rejects terminal run status", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+  const runId = await startRun(client);
+  if (!runId) {
     client.close();
-  },
-);
+    return;
+  }
 
-test.skipIf(!canUseUnixSockets())(
-  "kill rejects unknown run ID",
-  async () => {
-    const client = await connectIpcClient(SOCKET_PATH);
+  fakeExecutor.settleAll();
+  await flushBackgroundRuns();
+  stateStore.setRunStatus(runId, "completed");
 
-    client.send({ kind: "request", id: "k1", method: "kill", params: { runId: "unknown-id" } });
-    const killResponse = await client.nextFrame();
-    expect(killResponse.kind).toBe("error");
-    if (killResponse.kind === "error") {
-      expect(killResponse.code).toBe("unknown_run");
-    }
+  client.send({ kind: "request", id: "r1", method: "resume", params: { runId } });
+  const resumeResponse = await client.nextFrame();
+  expect(resumeResponse.kind).toBe("error");
+  if (resumeResponse.kind === "error") {
+    expect(resumeResponse.code).toBe("terminal_run");
+    expect(resumeResponse.message).toBe("Cannot resume a completed run");
+  }
+  client.close();
+});
+
+test.skipIf(!canUseUnixSockets())("resume rejects if another run is in-flight (single in-flight guard)", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+  await startRun(client);
+
+  const pausedRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/other-worktree",
+    branch: "other-branch",
+    specPath: "/tmp/test-project/spec.md",
+  });
+  stateStore.setRunStatus(pausedRunId, "paused");
+
+  client.send({ kind: "request", id: "r1", method: "resume", params: { runId: pausedRunId } });
+  const resumeResponse = await client.nextFrame();
+  expect(resumeResponse.kind).toBe("error");
+  if (resumeResponse.kind === "error") {
+    expect(resumeResponse.code).toBe("run_in_progress");
+    expect(resumeResponse.message).toBe("A run is already in progress; at most one in-flight run globally");
+  }
+  client.close();
+});
+
+test.skipIf(!canUseUnixSockets())("kill aborts the abort signal that bindings can observe", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+  const runId = await startRun(client);
+  if (!runId) {
     client.close();
-  },
-);
+    return;
+  }
 
-test.skipIf(!canUseUnixSockets())(
-  "resume rejects unknown run ID",
-  async () => {
-    const client = await connectIpcClient(SOCKET_PATH);
+  client.send({ kind: "request", id: "k1", method: "kill", params: { runId } });
+  const killResponse = await client.nextFrame();
+  expect(killResponse.kind).toBe("response");
+  expect(fakeExecutor.isAbortSignalTriggered()).toBe(true);
 
-    client.send({ kind: "request", id: "r1", method: "resume", params: { runId: "unknown-id" } });
-    const resumeResponse = await client.nextFrame();
-    expect(resumeResponse.kind).toBe("error");
-    if (resumeResponse.kind === "error") {
-      expect(resumeResponse.code).toBe("unknown_run");
-    }
-    client.close();
-  },
-);
+  const runs = await listRuns(client);
+  if (runs) {
+    const run = runs.find((candidate) => candidate.runId === runId);
+    expect(run?.status).toBe("killed");
+  }
 
-test.skipIf(!canUseUnixSockets())(
-  "resume rejects terminal run status",
-  async () => {
-    const client = await connectIpcClient(SOCKET_PATH);
-    const runId = await startRun(client);
-    if (!runId) {
-      client.close();
-      return;
-    }
-
-    fakeExecutor.settleAll();
-    await flushBackgroundRuns();
-    stateStore.setRunStatus(runId, "completed");
-
-    client.send({ kind: "request", id: "r1", method: "resume", params: { runId } });
-    const resumeResponse = await client.nextFrame();
-    expect(resumeResponse.kind).toBe("error");
-    if (resumeResponse.kind === "error") {
-      expect(resumeResponse.code).toBe("terminal_run");
-      expect(resumeResponse.message).toBe("Cannot resume a completed run");
-    }
-    client.close();
-  },
-);
-
-test.skipIf(!canUseUnixSockets())(
-  "resume rejects if another run is in-flight (single in-flight guard)",
-  async () => {
-    const client = await connectIpcClient(SOCKET_PATH);
-    await startRun(client);
-
-    const pausedRunId = stateStore.createRun({
-      project: "test-project",
-      specRef: "main",
-      worktreePath: "/tmp/other-worktree",
-      branch: "other-branch",
-      specPath: "/tmp/test-project/spec.md",
-    });
-    stateStore.setRunStatus(pausedRunId, "paused");
-
-    client.send({ kind: "request", id: "r1", method: "resume", params: { runId: pausedRunId } });
-    const resumeResponse = await client.nextFrame();
-    expect(resumeResponse.kind).toBe("error");
-    if (resumeResponse.kind === "error") {
-      expect(resumeResponse.code).toBe("run_in_progress");
-      expect(resumeResponse.message).toBe("A run is already in progress; at most one in-flight run globally");
-    }
-    client.close();
-  },
-);
-
-test.skipIf(!canUseUnixSockets())(
-  "kill aborts the abort signal that bindings can observe",
-  async () => {
-    const client = await connectIpcClient(SOCKET_PATH);
-    const runId = await startRun(client);
-    if (!runId) {
-      client.close();
-      return;
-    }
-
-    client.send({ kind: "request", id: "k1", method: "kill", params: { runId } });
-    const killResponse = await client.nextFrame();
-    expect(killResponse.kind).toBe("response");
-    expect(fakeExecutor.isAbortSignalTriggered()).toBe(true);
-
-    const runs = await listRuns(client);
-    if (runs) {
-      const run = runs.find((candidate) => candidate.runId === runId);
-      expect(run?.status).toBe("killed");
-    }
-
-    client.close();
-  },
-);
+  client.close();
+});

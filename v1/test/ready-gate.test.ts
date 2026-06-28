@@ -83,6 +83,7 @@ describe("runReadyAndCommit", () => {
     runReadyAndCommit({
       cwd: dir,
       tier: "full",
+      runInstall: () => {},
       runFix: () => {
         calls.push("fix");
         writeFileSync(join(dir, "dirty.txt"), "x\n");
@@ -100,12 +101,43 @@ describe("runReadyAndCommit", () => {
     expect(commitCalled).toBe(true);
   });
 
-  test("full tier always runs fix even on a clean tree", () => {
+  test("full tier bootstraps install before fix when package.json exists and node_modules is missing", () => {
     const calls: string[] = [];
+
+    writeFileSync(join(dir, "package.json"), "{}\n");
+    execSync("git add package.json && git commit -q -m package", { cwd: dir });
 
     runReadyAndCommit({
       cwd: dir,
       tier: "full",
+      runInstall: () => {
+        calls.push("install");
+      },
+      runFix: () => {
+        calls.push("fix");
+      },
+      runReady: (_cwd, tier) => {
+        calls.push(`ready:${tier}`);
+      },
+      commitPreReadyFix: () => {},
+    });
+
+    expect(calls).toEqual(["install", "fix", "ready:full"]);
+  });
+
+  test("full tier skips install before fix when node_modules already exists", () => {
+    const calls: string[] = [];
+
+    writeFileSync(join(dir, ".gitignore"), "node_modules/\n", "utf8");
+    execSync("git add .gitignore && git commit -q -m ignore-node-modules", { cwd: dir });
+    execSync("mkdir node_modules", { cwd: dir });
+
+    runReadyAndCommit({
+      cwd: dir,
+      tier: "full",
+      runInstall: () => {
+        calls.push("install");
+      },
       runFix: () => {
         calls.push("fix");
       },
@@ -124,6 +156,7 @@ describe("runReadyAndCommit", () => {
       runReadyAndCommit({
         cwd: dir,
         tier: "full",
+        runInstall: () => {},
         runFix: () => {
           throw new FixCommandError("bun run fix failed");
         },
@@ -141,6 +174,7 @@ describe("runReadyAndCommit", () => {
       runReadyAndCommit({
         cwd: dir,
         tier: "full",
+        runInstall: () => {},
         runFix: () => {},
         runReady: () => {
           writeFileSync(join(dir, "override-dirt.txt"), "x\n");
@@ -154,6 +188,7 @@ describe("runReadyAndCommit", () => {
       runReadyAndCommit({
         cwd: dir,
         tier: "full",
+        runInstall: () => {},
         runFix: () => {},
         runReady: () => {
           throw new ReadyCommandError("bun run ready failed");
@@ -169,6 +204,7 @@ describe("runReadyAndCommit", () => {
       runReadyAndCommit({
         cwd: dir,
         tier: "full",
+        runInstall: () => {},
         runFix: () => {
           writeFileSync(join(dir, "dirty.txt"), "x\n");
         },
@@ -206,6 +242,7 @@ describe("runReadyAndCommit readyCommand", () => {
     runReadyAndCommit({
       cwd: dir,
       readyCommand: script,
+      runInstall: () => {},
       runFix: () => {
         writeFileSync(fixSentinel, "fix\n");
       },
@@ -242,6 +279,7 @@ describe("runReadyAndCommit readyCommand", () => {
       runReadyAndCommit({
         cwd: dir,
         readyCommand: script,
+        runInstall: () => {},
         runFix: () => {},
       }),
     ).toThrow(script);
@@ -262,6 +300,7 @@ exit 0
       runReadyAndCommit({
         cwd: dir,
         readyCommand: script,
+        runInstall: () => {},
         runFix: () => {},
       }),
     ).toThrow(ReadyVerificationDirtyError);
@@ -289,6 +328,7 @@ describe("runReadyGateWithTier readyCommand", () => {
       cwd: dir,
       agentLabel: "test",
       readyCommand: script,
+      runInstall: () => {},
       runFix: () => {},
     });
 
@@ -342,6 +382,7 @@ describe("runReadyGateWithTier", () => {
     const tier = runReadyGateWithTier({
       cwd: dir,
       agentLabel: "test",
+      runInstall: () => {},
       runFix: () => {
         calls.push("fix");
       },

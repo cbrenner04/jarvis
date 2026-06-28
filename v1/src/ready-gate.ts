@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { getCurrentBranch } from "../../shared/git.ts";
 import { appendAgentTrailer } from "./commit-trailer.ts";
 import { pushCurrent } from "./worktree.ts";
@@ -58,6 +60,8 @@ export type RunReadyAndCommitOpts = {
   agentLabel?: string;
   /** Per-project override for `bun run ready`. Tokenized on whitespace; no shell. Receives `JARVIS_READY_TIER`. */
   readyCommand?: string;
+  /** Seam for the pre-fix dependency bootstrap when `node_modules` is absent. */
+  runInstall?: (cwd: string) => void;
   /** Seam for built-in `bun run fix` on `full` tier. Defaults to execFileSync call. */
   runFix?: (cwd: string) => void;
   /** Seam for just `bun run ready` (or `readyCommand`). Defaults to execFileSync call. */
@@ -109,9 +113,32 @@ function readPorcelain(cwd: string): string {
   }).trim();
 }
 
-/** On `full` tier: run fix → commit-if-dirty → strict ready; on `fast`: verification only. */
+function shouldInstallBeforeFix(cwd: string): boolean {
+  return existsSync(join(cwd, "package.json")) && !existsSync(join(cwd, "node_modules"));
+}
+
+/** On `full` tier: install-if-missing → fix → commit-if-dirty → strict ready; on `fast`: verification only. */
 export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
   const tier = opts.tier ?? "full";
+
+  const realRunInstall = (cwd: string) => {
+    try {
+      execFileSync("bun", ["install", "--frozen-lockfile"], {
+        cwd,
+        env: { ...process.env },
+        stdio: "pipe",
+      });
+    } catch (err) {
+      const out = err as NodeJS.ErrnoException & {
+        stdout?: Buffer;
+        stderr?: Buffer;
+      };
+      const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
+      throw new FixCommandError(
+        captured ? `bun install --frozen-lockfile failed:\n${captured}` : "bun install --frozen-lockfile failed",
+      );
+    }
+  };
 
   const realRunFix = (cwd: string) => {
     try {
@@ -188,11 +215,15 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
     }
   };
 
+  const runInstallFn = opts.runInstall ?? realRunInstall;
   const runFixFn = opts.runFix ?? realRunFix;
   const commitPreReadyFixFn = opts.commitPreReadyFix ?? realCommitPreReadyFix;
   const runReadyFn = opts.runReady ?? realBunRunReady;
 
   if (tier === "full") {
+    if (shouldInstallBeforeFix(opts.cwd)) {
+      runInstallFn(opts.cwd);
+    }
     runFixFn(opts.cwd);
 
     const porcelainAfterFix = readPorcelain(opts.cwd);
@@ -223,6 +254,7 @@ export function runReadyGateWithTier(opts: {
   agentLabel: string;
   readyCommand?: string;
   recordedGreenResult?: RecordedGreenResult;
+  runInstall?: (cwd: string) => void;
   runFix?: (cwd: string) => void;
   runReady?: (cwd: string, tier: ReadyTier) => void;
   commitPreReadyFix?: (cwd: string, agentLabel: string) => void;
@@ -237,6 +269,7 @@ export function runReadyGateWithTier(opts: {
     tier,
     agentLabel: opts.agentLabel,
     ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
+    ...(opts.runInstall !== undefined ? { runInstall: opts.runInstall } : {}),
     ...(opts.runFix !== undefined ? { runFix: opts.runFix } : {}),
     ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
     ...(opts.commitPreReadyFix !== undefined ? { commitPreReadyFix: opts.commitPreReadyFix } : {}),

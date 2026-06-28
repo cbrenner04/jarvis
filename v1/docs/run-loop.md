@@ -218,8 +218,10 @@ shrink pre-gate and review baseline each run **`fast`**; review final skips.
 
 Built-in step details and the separate `fix` entrypoint live in
 [`v2/docs/v1-behaviors.md`](../../v2/docs/v1-behaviors.md). On **`full`**, the
-harness-side `runReadyAndCommit` path runs `bun run fix` and commits any dirty
-output **before** verification; **`fast`** never runs fix or commits output.
+harness-side `runReadyAndCommit` path bootstraps `node_modules` with
+`bun install --frozen-lockfile` when the worktree lacks it, then runs
+`bun run fix` and commits any dirty output **before** verification; **`fast`**
+never runs fix or commits output.
 
 Step definitions and install digest skip: [Ready script tiers](#ready-script-tiers) and subspec `00`.
 

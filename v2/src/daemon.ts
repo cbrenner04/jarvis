@@ -1,4 +1,4 @@
-import { startIpcServer, type IpcServer, type RpcHandler } from "./ipc/server";
+import { type IpcServer, type RpcHandler, startIpcServer } from "./ipc/server";
 
 const socketPathEnv = process.env.DAEMON_SOCKET_PATH;
 if (!socketPathEnv) {
@@ -31,10 +31,7 @@ export class WorktreeOwnershipRegistry {
     return `${key.project}:${key.branch}`;
   }
 
-  claim(
-    key: OwnershipKey,
-    ownership: WorktreeOwnership,
-  ): void {
+  claim(key: OwnershipKey, ownership: WorktreeOwnership): void {
     const ks = this.keyString(key);
     if (this.registry.has(ks)) {
       throw new DaemonDoubleClaimError(key);
@@ -57,7 +54,7 @@ export class WorktreeOwnershipRegistry {
 }
 
 async function main(): Promise<void> {
-  const registry = new WorktreeOwnershipRegistry();
+  const _registry = new WorktreeOwnershipRegistry();
   let shutdownRequested = false;
 
   const healthHandler: RpcHandler = () => {

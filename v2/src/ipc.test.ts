@@ -1,11 +1,11 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { connect } from "node:net";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectIpcClient } from "./ipc/client.ts";
 import { encodeFrame } from "./ipc/codec.ts";
-import { startIpcServer, type IpcServer } from "./ipc/server.ts";
+import { type IpcServer, startIpcServer } from "./ipc/server.ts";
 
 const SOCKET_PATH = join(tmpdir(), `jarvis-ipc-test-${process.pid}.sock`);
 

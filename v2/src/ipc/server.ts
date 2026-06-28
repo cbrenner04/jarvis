@@ -1,22 +1,13 @@
 import { rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { FrameDecoder, encodeFrame } from "./codec.ts";
+import { encodeFrame, FrameDecoder } from "./codec.ts";
 import type { ErrorFrame, IpcFrame, ResponseFrame } from "./types.ts";
 
 export type RpcHandler = (
   frame: IpcFrame & { kind: "request" },
-) =>
-  | { kind: "response"; result: unknown }
-  | { kind: "error"; code: string; message: string };
+) => { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string };
 
-const VALID_KINDS = new Set([
-  "request",
-  "response",
-  "error",
-  "stream-open",
-  "stream-data",
-  "stream-end",
-]);
+const VALID_KINDS = new Set(["request", "response", "error", "stream-open", "stream-data", "stream-end"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -79,11 +70,7 @@ function dispatchRequest(
   }
 }
 
-function handleFrame(
-  socket: Socket,
-  frame: unknown,
-  handlers?: Record<string, RpcHandler>,
-): void {
+function handleFrame(socket: Socket, frame: unknown, handlers?: Record<string, RpcHandler>): void {
   const kind = frameKind(frame);
   if (!isValidKind(kind)) {
     closeConnection(socket);
@@ -112,10 +99,7 @@ function handleFrame(
   }
 }
 
-function attachSocketHandlers(
-  socket: Socket,
-  handlers?: Record<string, RpcHandler>,
-): void {
+function attachSocketHandlers(socket: Socket, handlers?: Record<string, RpcHandler>): void {
   const decoder = new FrameDecoder();
 
   socket.on("data", (chunk: Buffer) => {
@@ -174,10 +158,7 @@ export type IpcServer = {
  * Removes an existing file at `socketPath` before bind.
  * Custom RPC handlers override built-in health/status if provided.
  */
-export function startIpcServer(
-  socketPath: string,
-  handlers?: Record<string, RpcHandler>,
-): Promise<IpcServer> {
+export function startIpcServer(socketPath: string, handlers?: Record<string, RpcHandler>): Promise<IpcServer> {
   rmSync(socketPath, { force: true });
 
   const activeSockets = new Set<Socket>();

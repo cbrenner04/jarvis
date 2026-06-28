@@ -1,5 +1,5 @@
 import { Socket } from "node:net";
-import { FrameDecoder, encodeFrame } from "./codec.ts";
+import { encodeFrame, FrameDecoder } from "./codec.ts";
 import type { IpcFrame } from "./types.ts";
 
 /** Connected Unix-socket IPC client for tests and thin callers. */

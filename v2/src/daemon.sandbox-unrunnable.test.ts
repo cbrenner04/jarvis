@@ -2,12 +2,13 @@
 // This requires real OS process spawn, wall-clock timing, and socket I/O.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { rmSync, existsSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startDaemon, stopDaemon, getDaemonStatus } from "./daemon-lifecycle";
+import { DaemonDoubleClaimError, WorktreeOwnershipRegistry } from "./daemon";
+import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon-lifecycle";
 import { connectIpcClient } from "./ipc/client";
-import { WorktreeOwnershipRegistry, DaemonDoubleClaimError } from "./daemon";
+import type { ResponseFrame } from "./ipc/types";
 
 const SOCKET_PATH = join(tmpdir(), `jarvis-daemon-test-${process.pid}-${Date.now()}.sock`);
 const PID_PATH = join(tmpdir(), `jarvis-daemon-test-${process.pid}-${Date.now()}.pid`);
@@ -34,7 +35,7 @@ describe("daemon (real process)", () => {
     client.send({ kind: "request", id: "h1", method: "health" });
     const frame = await client.nextFrame();
     expect(frame.kind).toBe("response");
-    expect((frame as any).result).toEqual({ ok: true });
+    expect((frame as ResponseFrame).result).toEqual({ ok: true });
     client.close();
 
     await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
@@ -59,30 +60,28 @@ describe("daemon (real process)", () => {
   });
 
   test("status RPC on live daemon reports running state", async () => {
-    const metadata = await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
+    const _metadata = await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
 
     const client = await connectIpcClient(SOCKET_PATH);
     client.send({ kind: "request", id: "s1", method: "status" });
     const frame = await client.nextFrame();
     expect(frame.kind).toBe("response");
-    expect((frame as any).result).toEqual({ state: "running" });
+    expect((frame as ResponseFrame).result).toEqual({ state: "running" });
     client.close();
 
     await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
   });
 
   test("second startDaemon fails with typed error while health succeeds", async () => {
-    const metadata = await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
+    const _metadata = await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
 
-    await expect(startDaemon(SOCKET_PATH, { pidPath: PID_PATH })).rejects.toThrow(
-      "already running",
-    );
+    await expect(startDaemon(SOCKET_PATH, { pidPath: PID_PATH })).rejects.toThrow("already running");
 
     await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
   });
 
   test("socket becomes unbound after stopDaemon", async () => {
-    const metadata = await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
+    const _metadata = await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
 
     await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
 

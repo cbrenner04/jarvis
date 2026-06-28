@@ -1,12 +1,12 @@
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
-  startDaemon,
-  stopDaemon,
-  getDaemonStatus,
   DaemonAlreadyRunningError,
   DaemonReadinessTimeoutError,
+  getDaemonStatus,
   type ProcessProber,
   type SocketProber,
+  startDaemon,
+  stopDaemon,
 } from "./daemon-lifecycle";
 
 describe("daemon-lifecycle", () => {

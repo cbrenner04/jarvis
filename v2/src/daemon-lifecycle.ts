@@ -1,8 +1,7 @@
 import { spawn } from "node:child_process";
-import { existsSync, writeFileSync, rmSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { connectIpcClient } from "./ipc/client";
-import type { HealthResult, IpcStatusResult } from "./ipc/types";
 
 export class DaemonAlreadyRunningError extends Error {
   constructor(socketPath: string) {
@@ -95,7 +94,10 @@ export async function startDaemon(
     env: { ...process.env, DAEMON_SOCKET_PATH: socketPath },
   });
 
-  const pid = proc.pid!;
+  if (proc.pid === undefined) {
+    throw new Error("Failed to spawn daemon process: pid is undefined");
+  }
+  const pid = proc.pid;
   proc.unref();
 
   if (options?.pidPath) {
@@ -119,6 +121,30 @@ export async function startDaemon(
   }
 
   throw new DaemonReadinessTimeoutError(socketPath, readinessTimeoutMs);
+}
+
+async function terminateProcess(pid: number, killTimeoutMs: number, processProber: ProcessProber): Promise<void> {
+  const killStart = Date.now();
+  let terminated = false;
+
+  while (Date.now() - killStart < killTimeoutMs) {
+    if (!processProber.isAlive(pid)) {
+      terminated = true;
+      break;
+    }
+    if (Date.now() - killStart < 100) {
+      process.kill(pid, "SIGTERM");
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+
+  if (!terminated && processProber.isAlive(pid)) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // process may have exited between check and kill
+    }
+  }
 }
 
 /**
@@ -164,27 +190,7 @@ export async function stopDaemon(
   }
 
   if (pid) {
-    const killStart = Date.now();
-    let terminated = false;
-
-    while (Date.now() - killStart < killTimeoutMs) {
-      if (!processProber.isAlive(pid)) {
-        terminated = true;
-        break;
-      }
-      if (Date.now() - killStart < 100) {
-        process.kill(pid, "SIGTERM");
-      }
-      await new Promise((r) => setTimeout(r, 50));
-    }
-
-    if (!terminated && processProber.isAlive(pid)) {
-      try {
-        process.kill(pid, "SIGKILL");
-      } catch {
-        // process may have exited between check and kill
-      }
-    }
+    await terminateProcess(pid, killTimeoutMs, processProber);
   }
 
   if (options?.pidPath) {

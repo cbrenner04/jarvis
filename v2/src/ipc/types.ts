@@ -43,13 +43,7 @@ export type StreamEndFrame = {
 };
 
 /** Discriminated wire envelope union keyed by `kind`. */
-export type IpcFrame =
-  | RequestFrame
-  | ResponseFrame
-  | ErrorFrame
-  | StreamOpenFrame
-  | StreamDataFrame
-  | StreamEndFrame;
+export type IpcFrame = RequestFrame | ResponseFrame | ErrorFrame | StreamOpenFrame | StreamDataFrame | StreamEndFrame;
 
 /** Parsed `health` RPC result. */
 export type HealthResult = {

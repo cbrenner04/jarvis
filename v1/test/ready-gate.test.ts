@@ -100,6 +100,23 @@ describe("runReadyAndCommit", () => {
     expect(commitCalled).toBe(true);
   });
 
+  test("full tier always runs fix even on a clean tree", () => {
+    const calls: string[] = [];
+
+    runReadyAndCommit({
+      cwd: dir,
+      tier: "full",
+      runFix: () => {
+        calls.push("fix");
+      },
+      runReady: (_cwd, tier) => {
+        calls.push(`ready:${tier}`);
+      },
+    });
+
+    expect(calls).toEqual(["fix", "ready:full"]);
+  });
+
   test("fix command failure aborts before ready", () => {
     let readyCalled = false;
 

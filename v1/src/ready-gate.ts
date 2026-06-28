@@ -109,7 +109,7 @@ function readPorcelain(cwd: string): string {
   }).trim();
 }
 
-/** On `full` tier: install-if-missing → fix → commit-if-dirty → strict ready; on `fast`: verification only. */
+/** On `full` tier: run fix → commit-if-dirty → strict ready; on `fast`: verification only. */
 export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
   const tier = opts.tier ?? "full";
 

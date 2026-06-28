@@ -3,10 +3,10 @@ import { rmSync } from "node:fs";
 import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { connectIpcClient } from "./ipc/client.ts";
-import { encodeFrame } from "./ipc/codec.ts";
-import { type IpcServer, type StreamHandler, startIpcServer } from "./ipc/server.ts";
-import { openLogReader, openLogSink } from "./log-stream.ts";
+import { openLogReader, openLogSink } from "../log-stream.ts";
+import { connectIpcClient } from "./client.ts";
+import { encodeFrame } from "./codec.ts";
+import { type IpcServer, type StreamHandler, startIpcServer } from "./server.ts";
 
 // Check if sockets can be created in /tmp; skip all tests if not (sandbox restriction)
 let canCreateSockets: boolean;

@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { branchExistsOnOrigin } from "../../../../shared/git.ts";
 import { type PatchTier, parseRunnableIndexTier, parseSpec } from "../../../../shared/spec-parser.ts";
@@ -179,10 +179,12 @@ export async function resolveModeSpecificPreflight(
   let agentWorkingDir = cwdOverride ?? project.root;
   let worktreeLocked = false;
   let stalepidRecovered: number | undefined;
+  let patchWorktreePrepared = false;
   if (!opts.skipGhCheck && gitEnabled) {
     try {
       const { createWorktreeSymlinks, ensureWorktree } = await import("../../worktree.ts");
       agentWorkingDir = await ensureWorktree(project.root, initialSpecPath);
+      patchWorktreePrepared = true;
       createWorktreeSymlinks(project.root, agentWorkingDir, cfg.worktreeSymlinks);
 
       const lockResult = acquireWorktreeLock(agentWorkingDir);
@@ -205,6 +207,14 @@ export async function resolveModeSpecificPreflight(
     agentWorkingDir,
     specPath: initialSpecPath,
   });
+  if (patchWorktreePrepared) {
+    try {
+      writeActiveSpecPathMarker(agentWorkingDir, specPath);
+    } catch (err) {
+      opts.io.stderr(`failed to write .active-spec-path marker: ${(err as Error).message}\n`);
+      return { kind: "error", exitCode: 1 };
+    }
+  }
   const specDirs = specOutsideWorktreeReadDirs({
     specPath,
     agentWorkingDir,
@@ -583,6 +593,41 @@ export function prepareActiveSpecPath(opts: {
     copyMissingRecursive(dirname(specPath), dirname(activeSpecPath));
   }
   return activeSpecPath;
+}
+
+function writeActiveSpecPathMarker(worktreeDir: string, activeSpecPath: string): void {
+  ensureWorktreeLocalExcludeEntry(worktreeDir, ".active-spec-path");
+  writeFileSync(join(worktreeDir, ".active-spec-path"), activeSpecPath, "utf8");
+}
+
+function ensureWorktreeLocalExcludeEntry(worktreeDir: string, entry: string): void {
+  let excludePath: string;
+  try {
+    const out = execFileSync("git", ["rev-parse", "--git-path", "info/exclude"], {
+      cwd: worktreeDir,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+    if (!out) return;
+    excludePath = out.startsWith("/") ? out : join(worktreeDir, out);
+  } catch {
+    return;
+  }
+
+  mkdirSync(dirname(excludePath), { recursive: true });
+
+  let existing = "";
+  try {
+    existing = readFileSync(excludePath, "utf8");
+  } catch {
+    // file may not exist yet; treat as empty
+  }
+
+  const hasEntry = existing.split("\n").some((line) => line.trim() === entry);
+  if (hasEntry) return;
+
+  const prefix = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+  writeFileSync(excludePath, `${existing}${prefix}${entry}\n`, "utf8");
 }
 
 function copyMissingRecursive(sourceDir: string, targetDir: string): void {

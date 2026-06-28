@@ -243,6 +243,25 @@ exit 1
   return { closeLog, oldPath };
 }
 
+function installGhReadyStub(): string {
+  const binDir = join(dir, "bin-gh-ready");
+  mkdirSync(binDir, { recursive: true });
+  const gh = join(binDir, "gh");
+  writeFileSync(
+    gh,
+    `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1 $2" == "auth status" ]]; then exit 0; fi
+if [[ "$1 $2" == "repo view" ]]; then printf 'main\\n'; exit 0; fi
+exit 1
+`,
+  );
+  chmodSync(gh, 0o755);
+  const oldPath = process.env.PATH ?? "";
+  process.env.PATH = `${binDir}:${oldPath}`;
+  return oldPath;
+}
+
 function repeatFailureText(failureText: string, count: number): string[] {
   return Array.from({ length: count }, () => failureText);
 }
@@ -5078,6 +5097,138 @@ exit 0
     expect(readFileSync(activeSpecPath, "utf8")).toBe("- [ ] [00 - Task](./00-task.md)\n");
     expect(readFileSync(join(targetSpecDir, "00-task.md"), "utf8")).toBe("# 00 - Task\n");
     expect(readFileSync(targetExisting, "utf8")).toBe("worktree content\n");
+  });
+
+  describe(".active-spec-path marker preflight", () => {
+    test("writes the worktree-local active spec path for a fresh git-backed patch run and keeps it unstaged", async () => {
+      const oldPath = installGhReadyStub();
+      try {
+        initGitRepoWithOrigin();
+        const specDir = join(projectRoot, "spec", "feature");
+        mkdirSync(specDir, { recursive: true });
+        const spec = join(specDir, "index.md");
+        const subspec = join(specDir, "00-one.md");
+        const gitignore = join(projectRoot, ".gitignore");
+        writeFileSync(spec, "repo: project\n\n# Feature\n\n- [ ] [00 - One](./00-one.md)\n");
+        writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n");
+        writeFileSync(gitignore, ".scratch/\n");
+        execSync("git add README.md spec .gitignore && git commit -m spec && git push origin main", { cwd: projectRoot });
+        const cap = captureIo();
+        const claude = new FakeAgent("claude", () => ({ kind: "error", exitCode: 1, stderr: "stop" }));
+
+        const code = await runCommand({
+          specPath: spec,
+          io: cap.io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          logClient: { assertReachable: async () => {}, send: async () => {} },
+          handleSignals: false,
+          reviewPasses: 0,
+        });
+
+        expect(code).toBe(3);
+        const worktreePath = join(projectRoot, ".worktree", "feature");
+        expect(readFileSync(join(worktreePath, ".active-spec-path"), "utf8")).toBe(join(worktreePath, "spec", "feature", "index.md"));
+        expect(readFileSync(gitignore, "utf8")).toBe(".scratch/\n");
+        const excludePath = execSync("git rev-parse --git-path info/exclude", {
+          cwd: worktreePath,
+          encoding: "utf8",
+        }).trim();
+        expect(readFileSync(excludePath, "utf8")).toContain(".active-spec-path");
+        expect(execSync("git status --short", { cwd: worktreePath, encoding: "utf8" })).toBe("");
+      } finally {
+        process.env.PATH = oldPath;
+      }
+    });
+
+    test("writes the external absolute active spec path and rewrites it on rerun", async () => {
+      const oldPath = installGhReadyStub();
+      try {
+        initGitRepoWithOrigin();
+        const externalA = join(dir, "external-a", "feature");
+        const externalB = join(dir, "external-b", "feature");
+        mkdirSync(externalA, { recursive: true });
+        mkdirSync(externalB, { recursive: true });
+        const specA = join(externalA, "index.md");
+        const specB = join(externalB, "index.md");
+        const subspecA = join(externalA, "00-one.md");
+        const subspecB = join(externalB, "00-one.md");
+        writeFileSync(specA, `repo: ${projectRoot}\n\n# Feature\n\n- [ ] [00 - One](./00-one.md)\n`);
+        writeFileSync(specB, `repo: ${projectRoot}\n\n# Feature\n\n- [ ] [00 - One](./00-one.md)\n`);
+        writeFileSync(subspecA, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n");
+        writeFileSync(subspecB, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n");
+        const cap = captureIo();
+        const claude = new FakeAgent("claude", () => ({ kind: "error", exitCode: 1, stderr: "stop" }));
+
+        const firstCode = await runCommand({
+          specPath: specA,
+          io: cap.io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          logClient: { assertReachable: async () => {}, send: async () => {} },
+          handleSignals: false,
+          reviewPasses: 0,
+        });
+        expect(firstCode).toBe(3);
+
+        const worktreePath = join(projectRoot, ".worktree", "feature");
+        expect(readFileSync(join(worktreePath, ".active-spec-path"), "utf8")).toBe(specA);
+
+        const secondCode = await runCommand({
+          specPath: specB,
+          io: cap.io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          logClient: { assertReachable: async () => {}, send: async () => {} },
+          handleSignals: false,
+          reviewPasses: 0,
+        });
+        expect(secondCode).toBe(3);
+        expect(readFileSync(join(worktreePath, ".active-spec-path"), "utf8")).toBe(specB);
+      } finally {
+        process.env.PATH = oldPath;
+      }
+    });
+
+    test("skips marker writes when git is false or worktree setup is bypassed", async () => {
+      initGitRepoWithOrigin();
+      const specDir = join(projectRoot, "spec", "feature");
+      mkdirSync(specDir, { recursive: true });
+      const spec = join(specDir, "index.md");
+      writeFileSync(spec, "repo: project\n\n# Feature\n\n- [ ] [00 - One](./00-one.md)\n");
+      writeFileSync(join(specDir, "00-one.md"), "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n");
+      execSync("git add README.md spec && git commit -m spec && git push origin main", { cwd: projectRoot });
+      const claude = new FakeAgent("claude", () => ({ kind: "error", exitCode: 1, stderr: "stop" }));
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.git = false;
+      writeConfig(cfg, { dir: cfgDir });
+
+      const gitOffCode = await runCommand({
+        specPath: spec,
+        io: captureIo().io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        logClient: { assertReachable: async () => {}, send: async () => {} },
+        handleSignals: false,
+        reviewPasses: 0,
+        skipGhCheck: true,
+        cwdFlag: projectRoot,
+      });
+      expect(gitOffCode).toBe(3);
+      expect(existsSync(join(projectRoot, ".active-spec-path"))).toBe(false);
+
+      cfg.git = true;
+      writeConfig(cfg, { dir: cfgDir });
+      const skippedCode = await runWithDefaults({
+        specPath: spec,
+        io: captureIo().io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+      expect(skippedCode).toBe(3);
+      expect(existsSync(join(projectRoot, ".worktree", "feature", ".active-spec-path"))).toBe(false);
+    });
   });
 
   test("prompts when no repo resolves; selection drives the run", async () => {

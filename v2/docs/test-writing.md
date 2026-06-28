@@ -22,6 +22,14 @@ Tests that require real OS processes or wall-clock timing are **marked exception
 
 Keep a real-process test only when the OS/git/process boundary is the behavior under test. If the subprocess or clock is incidental to the assertion, convert the test to an agent-runnable DI seam instead of keeping a real process.
 
+### v2 run-command routing
+
+- **`bun run test:v2`** — agent-runnable v2 tests only (`v2/**/*.test.ts` except `*.sandbox-unrunnable.test.ts`). This is the sandbox-agent-facing slice.
+- **`bun run test:integration:v2`** — v2 `*.sandbox-unrunnable.test.ts` at any depth under `v2/`; runs serially (no `--parallel`). Use outside the coding-agent sandbox.
+- **`bun run test`** — aggregate gate; still collects all v2 tests including sandbox-unrunnable files.
+
+Sources: `package.json`, `scripts/run-v2-tests.ts`, `scripts/v2-test-files.ts`, `test/test-slices.test.ts`
+
 ## Determinism smell checklist
 
 Treat these as triage smells for both new tests and existing ones:

@@ -2,6 +2,11 @@ import { describe, expect, it } from "bun:test";
 import { execSync } from "node:child_process";
 import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { basename, join } from "node:path";
+import {
+  agentRunnableV2Tests,
+  integrationV2Tests,
+  walkV2TestFiles,
+} from "../scripts/v2-test-files.ts";
 
 describe("Test slice boundaries", () => {
   it("test files are scoped to owner directories", () => {
@@ -60,13 +65,37 @@ describe("Test slice boundaries", () => {
     const pkgJsonText = await Bun.file("package.json").text();
     const pkgJson = JSON.parse(pkgJsonText);
     expect(pkgJson.scripts["test:v1"]).toBe("bun test ./v1/");
-    expect(pkgJson.scripts["test:v2"]).toBe("bun test ./v2/");
     expect(pkgJson.scripts["test:shared"]).toBe("bun test ./shared/ ./test/");
     // Aggregate run is parallel for wall-clock; coverage stays sequential
     // because --parallel implies --isolate and coverage does not merge across
     // worker processes.
     expect(pkgJson.scripts.test).toBe("bun test --parallel");
     expect(pkgJson.scripts.coverage).toBe("bun test --coverage");
+  });
+
+  it("test:v2 and test:integration:v2 enumerate disjoint v2 test file sets", async () => {
+    const pkgJsonText = await Bun.file("package.json").text();
+    const pkgJson = JSON.parse(pkgJsonText);
+    expect(pkgJson.scripts["test:v2"]).toBe("bun run scripts/run-v2-tests.ts agent");
+    expect(pkgJson.scripts["test:integration:v2"]).toBe(
+      "bun run scripts/run-v2-tests.ts integration",
+    );
+
+    const onDisk = walkV2TestFiles();
+    const agent = agentRunnableV2Tests();
+    const integration = integrationV2Tests();
+
+    expect([...agent, ...integration].sort()).toEqual(onDisk);
+    expect(agent.every((file) => !file.includes(".sandbox-unrunnable."))).toBeTrue();
+    expect(integration.every((file) => file.endsWith(".sandbox-unrunnable.test.ts"))).toBeTrue();
+    expect(integration).toEqual([
+      "v2/src/daemon.sandbox-unrunnable.test.ts",
+      "v2/src/external-worktree.sandbox-unrunnable.test.ts",
+      "v2/src/preload.sandbox-unrunnable.test.ts",
+    ]);
+
+    const runnerScript = await Bun.file("scripts/run-v2-tests.ts").text();
+    expect(runnerScript).not.toContain("--parallel");
   });
 
   it("bunfig.toml preload points to relocated setup file", async () => {

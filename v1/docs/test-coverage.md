@@ -8,7 +8,9 @@ Jarvis provides parallel coverage measurement scripts — one per test slice —
 | --- | --- | --- | --- |
 | `bun run coverage` | All | v1, v2, shared, scripts, root tests | Stdout table |
 | `bun run coverage:v1` | v1 | `v1/src/`, `v1/test/` | Stdout table |
-| `bun run coverage:v2` | v2 | `v2/` | Stdout table |
+| `bun run coverage:v2` | v2 | `v2/` (includes sandbox-unrunnable tests) | Stdout table |
+
+`coverage:v2` intentionally covers all of `v2/`, including `*.sandbox-unrunnable.test.ts` files excluded from agent-runnable `test:v2`. Sources: `package.json`, `scripts/v2-test-files.ts`, `v2/docs/v1-behaviors.md`
 | `bun run coverage:shared` | Shared infrastructure | `shared/`, `scripts/`, `./test/` (root) | Stdout table |
 
 Each command runs Bun's built-in coverage reporter, which prints a summary table to stdout with line coverage percentages for each file. No coverage artifacts are written to disk.

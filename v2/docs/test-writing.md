@@ -42,7 +42,7 @@ Use this review question set:
 
 ## Do not reimplement production logic in test doubles
 
-When an exported production seam owns a behavior, call that seam. Do not recreate the same logic in local doubles, stub handlers, or copied control flow.
+When an exported production seam can be exercised with injected fakes, call that seam. Do not recreate owned behavior in local doubles, stub handlers, or copied control flow.
 
 **Unit under test:** the exported production unit that owns the behavior (factory, handler set, module function, or class method path the assertion targets).
 
@@ -50,9 +50,9 @@ When an exported production seam owns a behavior, call that seam. Do not recreat
 
 ### Worked example: daemon run-control handler drift
 
-Daemon run-control tests drifted when `daemon-start-list.test.ts` carried inline `RpcHandler` copies of `start`/`list`/`pause`/`resume`/`kill`: separate active-run maps, simplified error shapes, and `setTimeout`-based settlement that mirrored but did not execute `createRunControlHandlers`.
+**Anti-pattern:** reimplementing run-control handler orchestration in test-local stubs when `createRunControlHandlers` already owns it. IPC assertions may pass against the fake handlers while production semantics drift unchecked.
 
-The expected pattern calls the exported factory with injected dependencies:
+**Expected pattern:** call the exported factory with injected dependency fakes, then wire its handlers through `startIpcServer`:
 
 ```typescript
 const handlers = createRunControlHandlers({
@@ -63,9 +63,9 @@ const handlers = createRunControlHandlers({
 server = await startIpcServer(SOCKET_PATH, handlers);
 ```
 
-The fake write-loop executor is a dependency fake; IPC assertions still run against real handler behavior. See [`v2/src/daemon-start-list.test.ts`](../src/daemon-start-list.test.ts).
+The write-loop executor fake is outside the owned boundary; assertions exercise real handler behavior. See [`v2/src/daemon-start-list.test.ts`](../src/daemon-start-list.test.ts).
 
-This documents the anti-pattern; it does not require unrelated test rewrites.
+This example documents the mistake class only; it does not require migrating unrelated tests.
 
 ## Worked example: DescendantTracker injection pattern
 

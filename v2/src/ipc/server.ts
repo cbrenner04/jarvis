@@ -77,11 +77,13 @@ function handleFrame(socket: Socket, frame: unknown, handlers?: Record<string, R
       return;
     case "stream-data": {
       const streamFrame = frame as IpcFrame & { kind: "stream-data" };
-      socket.write(encodeFrame({
-        kind: "stream-data",
-        streamId: streamFrame.streamId,
-        ...(streamFrame.payload !== undefined ? { payload: streamFrame.payload } : {}),
-      }));
+      socket.write(
+        encodeFrame({
+          kind: "stream-data",
+          streamId: streamFrame.streamId,
+          ...(streamFrame.payload !== undefined ? { payload: streamFrame.payload } : {}),
+        }),
+      );
       return;
     }
     case "stream-end":

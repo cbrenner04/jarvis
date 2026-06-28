@@ -2,7 +2,8 @@ import { appendFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { LogSink } from "./log-stream.ts";
-import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } from "./state-store.ts";
+import { type OutcomeKind, openStateStore, type StateStore } from "./state-store.ts";
+import type { RunStatus } from "./state-store-types.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";
 

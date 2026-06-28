@@ -15,7 +15,7 @@ Move generic daemon run-control test helpers such as `mockWriteLoopInput`, `star
 
 ## Prerequisites
 
-- Daemon run-control tests exercise real `createRunControlHandlers` instead of inline handler copies.
+- `daemon-start-list.test.ts` already exercises production `createRunControlHandlers` (shipped in `completed/2026-06-28T12-37-04Z-daemon-start-list-use-real-handlers-2`).
 - Socket-backed v2 tests use a shared socket skip fixture.
 
 ## Documentation updates

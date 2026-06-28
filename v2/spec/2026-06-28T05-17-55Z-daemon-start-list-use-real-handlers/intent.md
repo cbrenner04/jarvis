@@ -17,3 +17,10 @@ Rewrite `v2/src/daemon-start-list.test.ts` to wire the exported handler factory 
 
 - Run-control handler factory is exported from `daemon.ts` and consumed by `startDaemon`.
 - Factory accepts injected state store, log reader, and write-loop executor.
+
+## Blocker
+
+- No exported run-control handler factory in `v2/src/daemon.ts` — `start`/`list`/`pause`/`resume`/`kill` handlers are defined inline inside `startDaemon`; nothing is exported for tests to consume.
+- No injectable write-loop executor seam — `startDaemon` calls `executeWriteLoop` directly in background IIFEs; only optional `stateStore` and `logReader` params exist on `startDaemon`, not a factory with executor injection.
+
+Land `daemon-run-control-handler-factory` (ready intent at `v2/spec/ready-intents/daemon-run-control-handler-factory.md`) first, then re-run plan for this intent.

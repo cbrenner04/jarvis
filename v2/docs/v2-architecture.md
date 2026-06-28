@@ -247,6 +247,9 @@ A **run** is a workflow instance carrying:
 
 - **Identity** — run ID, target project, workflow name, spec/target ref, created-at.
 - **Status** — running / paused / awaiting-human / blocked / completed / killed / failed.
+  The write loop uses `paused` to record a graceful pause (last attempt committed at
+  boundary); orchestration-level statuses (pending daemon consumers) follow the same
+  vocabulary.
 - **Checkpoint** — one durable pointer to the next stable workflow step ID (`next_step_id`).
 - **Pointers to work** — worktree path, branch, spec path, PR. Not their contents.
 - **History linkage** — execution history is not embedded on `runs`; it is stored
@@ -329,6 +332,9 @@ streams stay out of the orchestration store.
 
 - **Pause is graceful** — takes effect at the next step/iteration boundary (TUI
   shows "pausing…" until the current iteration finishes), so no work is lost.
+  In the write loop, pause is a separate `pauseSignal` (AbortSignal) input,
+  checked only at the iteration boundary after the step completes; the abort
+  signal (for kill) interrupts immediately.
 - **Kill is immediate** — SIGTERM→SIGKILL the agent process group, like v1's
   abort. **Kill leaves a dirty worktree**; killed runs are recovered or cleaned
   up, never cleanly continued.

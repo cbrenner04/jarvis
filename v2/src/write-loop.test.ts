@@ -113,6 +113,57 @@ async function runLoop(args: {
   }
 }
 
+async function runLoopWithPause(args: {
+  jarvisRoot: string;
+  stateDbPath: string;
+  bindings: readonly InvocationBinding[];
+  maxIterations?: number;
+  pauseAfterAttempts?: number;
+  logSink?: LogSink;
+}) {
+  const store = openStateStore(args.stateDbPath);
+  const pauseController = new AbortController();
+  let attempts = 0;
+  const pausingBindings = args.bindings.map((binding) => ({
+    id: binding.id,
+    invoke: async (input: Parameters<typeof binding.invoke>[0]) => {
+      attempts += 1;
+      if (args.pauseAfterAttempts && attempts > args.pauseAfterAttempts) {
+        pauseController.abort();
+      }
+      return binding.invoke(input);
+    },
+  }));
+
+  const loopInput: WriteLoopInput = {
+    worktree: {
+      projectRoot: "/fake",
+      projectName: "demo",
+      branchName: "pause-run",
+      baseRef: "HEAD",
+      jarvisRoot: args.jarvisRoot,
+    },
+    specPath: "spec.md",
+    stepRules: "Return exactly one terminal token.",
+    expectedArtifactPath: "proof.txt",
+    bindings: pausingBindings,
+    stateStore: store,
+    pauseSignal: pauseController.signal,
+    withExternalWorktree: createFakeWithExternalWorktree(args.jarvisRoot),
+  };
+  if (args.maxIterations !== undefined) {
+    loopInput.maxIterations = args.maxIterations;
+  }
+  if (args.logSink !== undefined) {
+    loopInput.logSink = args.logSink;
+  }
+  try {
+    return await executeWriteLoop(loopInput);
+  } finally {
+    store.close();
+  }
+}
+
 function loadRunOnce(stateDbPath: string, runId: string) {
   const store = openStateStore(stateDbPath);
   try {
@@ -902,5 +953,146 @@ describe("write loop", () => {
     expect(result.kind).toBe("complete");
     expect(result.iterationsConsumed).toBe(3);
     expect(result.resumable).toBe(false);
+  });
+
+  test("pause at iteration boundary lets the in-flight step finish and commit its boundary", async () => {
+    const { jarvisRoot, stateDbPath } = setupRepo();
+    const dirtiedMarker = "paused.txt";
+    let attempts = 0;
+    const bindings: InvocationBinding[] = [
+      {
+        id: "agent",
+        invoke: async ({ cwd }) => {
+          attempts += 1;
+          writeFileSync(join(cwd, dirtiedMarker), `attempt-${attempts}\n`, "utf8");
+          return { kind: "ok", stdout: "progress", stderr: "" };
+        },
+      },
+    ];
+
+    const result = await runLoopWithPause({
+      jarvisRoot,
+      stateDbPath,
+      bindings,
+      pauseAfterAttempts: 2,
+      maxIterations: 10,
+    });
+
+    expect(result.kind).toBe("paused");
+    expect(result.iterationsConsumed).toBe(3);
+    expect(result.resumable).toBe(true);
+
+    // Verify the second attempt completed and persisted
+    const run = loadRunOnce(stateDbPath, result.runId);
+    expect(run?.status).toBe("paused");
+    expect(run?.attemptCount).toBe(3); // Three completed attempts
+    const lastAttempt = run?.attempts[run.attempts.length - 1];
+    expect(lastAttempt?.status).toBe("completed");
+    expect(lastAttempt?.outcomeKind).toBe("progress");
+
+    // Verify the marker was written
+    const markerPath = join(jarvisRoot, "worktrees", "demo", "pause-run", dirtiedMarker);
+    expect(existsSync(markerPath)).toBe(true);
+    expect(readFileSync(markerPath, "utf8")).toBe("attempt-3\n");
+  });
+
+  test("paused run outcome kind is distinct from budget-exhausted", async () => {
+    const { jarvisRoot, stateDbPath } = setupRepo();
+    const sink = new TestLogSink();
+
+    const result = await runLoopWithPause({
+      jarvisRoot,
+      stateDbPath,
+      bindings: simulatedBindings(["progress"]),
+      pauseAfterAttempts: 1,
+      maxIterations: 10,
+      logSink: sink,
+    });
+
+    expect(result.kind).toBe("paused");
+
+    const events = sink.getEventsForRun(result.runId);
+    const finishedEvent = events[events.length - 1];
+    expect(finishedEvent?.kind === "loop_finished" && finishedEvent.loopOutcomeKind).toBe("paused");
+    expect(finishedEvent?.kind === "loop_finished" && finishedEvent.resumable).toBe(true);
+  });
+
+  test("resuming a paused run starts a fresh attempt and continues", async () => {
+    const { jarvisRoot, stateDbPath } = setupRepo();
+
+    // First run: pause after 1 attempt
+    const pauseResult = await runLoopWithPause({
+      jarvisRoot,
+      stateDbPath,
+      bindings: simulatedBindings(["progress"]),
+      pauseAfterAttempts: 1,
+      maxIterations: 10,
+    });
+
+    expect(pauseResult.kind).toBe("paused");
+    expect(pauseResult.iterationsConsumed).toBe(2);
+
+    // Verify paused status
+    let run = loadRunOnce(stateDbPath, pauseResult.runId);
+    expect(run?.status).toBe("paused");
+    expect(run?.attemptCount).toBe(2);
+    expect(run?.branch).toBe("pause-run");
+
+    // Resume the run with a completing binding on the same branch
+    const resumeResult = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName: "pause-run",
+      bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+      maxIterations: 1,
+    });
+
+    expect(resumeResult.kind).toBe("complete");
+    expect(resumeResult.iterationsConsumed).toBe(1); // Fresh attempt
+    expect(resumeResult.runId).toBe(pauseResult.runId);
+
+    // Verify a new attempt was created
+    run = loadRunOnce(stateDbPath, pauseResult.runId);
+    expect(run?.status).toBe("completed");
+    expect(run?.attemptCount).toBe(3); // Two paused + one new
+    expect(run?.attempts).toHaveLength(3);
+    expect(run?.attempts[2]?.outcomeKind).toBe("done");
+  });
+
+  test("abort signal path unchanged: aborts stop the loop without committing the in-flight boundary", async () => {
+    const { jarvisRoot, stateDbPath } = setupRepo();
+    const sink = new TestLogSink();
+    const controller = new AbortController();
+    let calls = 0;
+    const bindings: InvocationBinding[] = [
+      {
+        id: "track",
+        invoke: async () => {
+          calls += 1;
+          if (calls > 1) controller.abort();
+          return { kind: "ok", stdout: "progress", stderr: "" };
+        },
+      },
+    ];
+
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings,
+      signal: controller.signal,
+      logSink: sink,
+    });
+
+    expect(result.kind).toBe("progress");
+    expect(result.iterationsConsumed).toBe(2);
+
+    // Verify the second attempt's boundary was committed (not the aborted one)
+    const run = loadRunOnce(stateDbPath, result.runId);
+    expect(run?.attempts).toHaveLength(2);
+    expect(run?.attempts[1]?.status).toBe("completed");
+
+    const events = sink.getEventsForRun(result.runId);
+    const finishedEvent = events[events.length - 1];
+    expect(finishedEvent?.kind === "loop_finished" && finishedEvent.loopOutcomeKind).toBe("progress");
   });
 });

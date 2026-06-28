@@ -13,7 +13,8 @@ export type WriteLoopOutcomeKind =
   | "blocked"
   | "contract_miss"
   | "invocation_failure"
-  | "budget-exhausted";
+  | "budget-exhausted"
+  | "paused";
 
 /** Result of a write loop invocation. */
 export type WriteLoopResult = {
@@ -28,6 +29,7 @@ export type WriteLoopInput = WriteExecuteInput & {
   maxIterations?: number;
   stateStore?: StateStore;
   logSink?: LogSink;
+  pauseSignal?: AbortSignal;
 };
 
 const DEFAULT_MAX_ITERATIONS = 10;
@@ -94,6 +96,20 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           outcomeKind: "progress",
           runStatus: "in-progress",
         });
+
+        // Check for graceful pause at the loop boundary
+        if (args.pauseSignal?.aborted) {
+          store.setRunStatus(runId, "paused");
+          const pauseResult = { kind: "paused" as const, runId, iterationsConsumed, resumable: true };
+          args.logSink?.append(runId, {
+            kind: "loop_finished",
+            loopOutcomeKind: "paused",
+            iterationsConsumed,
+            resumable: true,
+          });
+          return pauseResult;
+        }
+
         continue;
       }
 
@@ -191,7 +207,7 @@ function committedResult(run: StoredRun): WriteLoopResult | null {
       resumable: false,
     };
   }
-  return null; // in-progress or budget-soft-stopped: resume
+  return null; // in-progress, paused, or budget-soft-stopped: resume
 }
 
 function resolveSpecPath(worktreePath: string, specPath: string): string {

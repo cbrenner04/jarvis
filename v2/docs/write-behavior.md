@@ -4,11 +4,16 @@
 work is done, blocked, or the budget runs out. See [`state-store.md`](./state-store.md)
 for durable run state and resume mechanics.
 
-Kill-resume and crash-recovery are the same path: the loop never resumes
-mid-step. Resume branches from durable state at the last committed boundary:
+Pause, kill, and crash-recovery branch on how the loop stopped: the loop never
+resumes mid-step. Resume branches from durable state at the last committed boundary:
 
-- Last attempt still `in-progress`: the prior invocation died mid-step, so the
-  loop re-runs that same iteration over the existing dirty worktree.
+- Run `status = "paused"`: the prior invocation paused gracefully after committing
+  the last attempt's boundary, so the loop starts a fresh attempt and continues.
+  Pause is a separate `pauseSignal` (AbortSignal) input checked only at the
+  iteration boundary after each step completes (distinct from kill-abort, which
+  interrupts immediately).
+- Last attempt still `in-progress`: the prior invocation died mid-step (kill/crash),
+  so the loop re-runs that same iteration over the existing dirty worktree.
 - Run `status = "budget-soft-stopped"`: the prior invocation hit its
   per-invocation budget after a committed `progress` boundary, so the loop
   continues with a fresh budget.

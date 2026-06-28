@@ -1,0 +1,334 @@
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { type LogEvent, openLogReader, openLogSink, type PersistedRecord } from "./log-stream.ts";
+
+describe("log-stream", () => {
+  let tempDir: string;
+  let storagePath: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "log-stream-test-"));
+    storagePath = join(tempDir, "log-stream.jsonl");
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("persists structured records with round-trip kind and payload fields", () => {
+    const sink = openLogSink(storagePath);
+    const reader = openLogReader(storagePath);
+
+    const iterationEvent: LogEvent = { kind: "iteration_started", attemptId: "attempt-1" };
+    sink.append("run-1", iterationEvent);
+
+    const boundaryEvent: LogEvent = {
+      kind: "boundary_committed",
+      attemptId: "attempt-1",
+      outcomeKind: "progress",
+      runStatus: "in-progress",
+    };
+    sink.append("run-1", boundaryEvent);
+
+    const loopEvent: LogEvent = {
+      kind: "loop_finished",
+      loopOutcomeKind: "complete",
+      iterationsConsumed: 3,
+      resumable: false,
+    };
+    sink.append("run-1", loopEvent);
+
+    sink.close();
+
+    const records = reader.tail("run-1");
+    expect(records.length).toBe(3);
+
+    // Check iteration_started
+    const rec1 = records[0];
+    expect(rec1).toBeDefined();
+    if (rec1) {
+      expect(rec1.event.kind).toBe("iteration_started");
+      if (rec1.event.kind === "iteration_started") {
+        expect(rec1.event.attemptId).toBe("attempt-1");
+      }
+    }
+
+    // Check boundary_committed
+    const rec2 = records[1];
+    expect(rec2).toBeDefined();
+    if (rec2) {
+      expect(rec2.event.kind).toBe("boundary_committed");
+      if (rec2.event.kind === "boundary_committed") {
+        expect(rec2.event.attemptId).toBe("attempt-1");
+        expect(rec2.event.outcomeKind).toBe("progress");
+        expect(rec2.event.runStatus).toBe("in-progress");
+      }
+    }
+
+    // Check loop_finished
+    const rec3 = records[2];
+    expect(rec3).toBeDefined();
+    if (rec3) {
+      expect(rec3.event.kind).toBe("loop_finished");
+      if (rec3.event.kind === "loop_finished") {
+        expect(rec3.event.loopOutcomeKind).toBe("complete");
+        expect(rec3.event.iterationsConsumed).toBe(3);
+        expect(rec3.event.resumable).toBe(false);
+      }
+    }
+  });
+
+  it("tail returns only the specified run's events in ascending seq order starting at 1", () => {
+    const sink = openLogSink(storagePath);
+    const reader = openLogReader(storagePath);
+
+    // Interleave events from two runs
+    sink.append("run-1", { kind: "iteration_started", attemptId: "a1" });
+    sink.append("run-2", { kind: "iteration_started", attemptId: "b1" });
+    sink.append("run-1", { kind: "iteration_started", attemptId: "a2" });
+    sink.append("run-2", { kind: "iteration_started", attemptId: "b2" });
+    sink.append("run-1", { kind: "iteration_started", attemptId: "a3" });
+
+    sink.close();
+
+    const run1Records = reader.tail("run-1");
+    const run2Records = reader.tail("run-2");
+
+    expect(run1Records.length).toBe(3);
+    expect(run2Records.length).toBe(2);
+
+    // Check run-1 sequences
+    const r1_0 = run1Records[0];
+    const r1_1 = run1Records[1];
+    const r1_2 = run1Records[2];
+    expect(r1_0?.seq).toBe(1);
+    expect(r1_1?.seq).toBe(2);
+    expect(r1_2?.seq).toBe(3);
+
+    // Check run-2 sequences
+    const r2_0 = run2Records[0];
+    const r2_1 = run2Records[1];
+    expect(r2_0?.seq).toBe(1);
+    expect(r2_1?.seq).toBe(2);
+
+    // Verify payloads
+    if (r1_0?.event.kind === "iteration_started") {
+      expect(r1_0.event.attemptId).toBe("a1");
+    }
+    if (r1_1?.event.kind === "iteration_started") {
+      expect(r1_1.event.attemptId).toBe("a2");
+    }
+    if (r1_2?.event.kind === "iteration_started") {
+      expect(r1_2.event.attemptId).toBe("a3");
+    }
+  });
+
+  it("follow yields existing events from seq 1, then new appends in order", async () => {
+    const sink = openLogSink(storagePath);
+    const reader = openLogReader(storagePath);
+
+    // Append some initial events
+    sink.append("run-1", { kind: "iteration_started", attemptId: "a1" });
+    sink.append("run-1", { kind: "iteration_started", attemptId: "a2" });
+
+    sink.close();
+
+    // Start following with event-driven coordination and hang-guard
+    const events: PersistedRecord[] = [];
+    const replayedInitial = { resolved: false };
+    const deadlineController = new AbortController();
+    const deadlineTimer = setTimeout(() => deadlineController.abort(), 2000);
+
+    const followPromise = (async () => {
+      try {
+        for await (const event of reader.follow("run-1", deadlineController.signal)) {
+          events.push(event);
+          // Mark when initial events have been replayed
+          if (events.length === 2) {
+            replayedInitial.resolved = true;
+          }
+          if (events.length >= 4) {
+            break;
+          }
+        }
+      } finally {
+        clearTimeout(deadlineTimer);
+      }
+    })();
+
+    // Wait for follow to replay existing events instead of using setTimeout
+    let attempts = 0;
+    while (!replayedInitial.resolved && attempts < 200) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      attempts++;
+    }
+    expect(replayedInitial.resolved).toBe(true);
+
+    // Append new events from a new sink
+    const sink2 = openLogSink(storagePath);
+    sink2.append("run-1", { kind: "iteration_started", attemptId: "a3" });
+    sink2.append("run-1", { kind: "iteration_started", attemptId: "a4" });
+    sink2.close();
+
+    // Wait for follow to complete
+    await followPromise;
+
+    expect(events.length).toBe(4);
+    const e0 = events[0];
+    const e1 = events[1];
+    const e2 = events[2];
+    const e3 = events[3];
+    expect(e0?.seq).toBe(1);
+    expect(e1?.seq).toBe(2);
+    expect(e2?.seq).toBe(3);
+    expect(e3?.seq).toBe(4);
+
+    if (e0?.event.kind === "iteration_started") {
+      expect(e0.event.attemptId).toBe("a1");
+    }
+    if (e3?.event.kind === "iteration_started") {
+      expect(e3.event.attemptId).toBe("a4");
+    }
+  });
+
+  it("follow stops without error when AbortSignal aborts", async () => {
+    const sink = openLogSink(storagePath);
+    const reader = openLogReader(storagePath);
+
+    sink.append("run-1", { kind: "iteration_started", attemptId: "a1" });
+    sink.close();
+
+    const controller = new AbortController();
+    const events: PersistedRecord[] = [];
+
+    const followPromise = (async () => {
+      for await (const event of reader.follow("run-1", controller.signal)) {
+        events.push(event);
+      }
+    })();
+
+    // Give follow time to yield the first event
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Abort the signal
+    controller.abort();
+
+    // Follow should complete without throwing
+    await followPromise;
+
+    expect(events.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("tail and follow on unknown runId yield empty stream without error", async () => {
+    const sink = openLogSink(storagePath);
+    const reader = openLogReader(storagePath);
+
+    sink.append("run-1", { kind: "iteration_started", attemptId: "a1" });
+    sink.close();
+
+    const tailRecords = reader.tail("unknown-run");
+    expect(tailRecords).toEqual([]);
+
+    const followEvents: PersistedRecord[] = [];
+    const controller = new AbortController();
+
+    const followPromise = (async () => {
+      let count = 0;
+      for await (const event of reader.follow("unknown-run", controller.signal)) {
+        followEvents.push(event);
+        count++;
+        if (count > 10) {
+          break; // Safety exit for test
+        }
+      }
+    })();
+
+    // Give follow a moment to poll a few times
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    controller.abort();
+
+    await followPromise;
+
+    expect(followEvents).toEqual([]);
+  });
+
+  it("follow after sink close still replays persisted events", async () => {
+    const sink = openLogSink(storagePath);
+
+    // Append and close
+    sink.append("run-1", { kind: "iteration_started", attemptId: "a1" });
+    sink.append("run-1", { kind: "iteration_started", attemptId: "a2" });
+    sink.close();
+
+    // Open reader and follow after sink is closed
+    const reader = openLogReader(storagePath);
+    const events: PersistedRecord[] = [];
+    const controller = new AbortController();
+
+    const followPromise = (async () => {
+      for await (const event of reader.follow("run-1", controller.signal)) {
+        events.push(event);
+        if (events.length >= 2) {
+          break;
+        }
+      }
+    })();
+
+    await followPromise;
+
+    expect(events.length).toBe(2);
+    const ev0 = events[0];
+    const ev1 = events[1];
+    expect(ev0?.seq).toBe(1);
+    expect(ev1?.seq).toBe(2);
+  });
+
+  it("all records carry ISO-8601 timestamps", () => {
+    const sink = openLogSink(storagePath);
+    const reader = openLogReader(storagePath);
+
+    sink.append("run-1", { kind: "iteration_started", attemptId: "a1" });
+    sink.close();
+
+    const records = reader.tail("run-1");
+    expect(records.length).toBe(1);
+
+    const rec = records[0];
+    expect(rec).toBeDefined();
+    if (rec) {
+      const ts = rec.ts;
+      // Verify ISO-8601 format
+      const isoRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
+      expect(isoRegex.test(ts)).toBe(true);
+
+      // Verify it parses as a valid date
+      const date = new Date(ts);
+      expect(Number.isNaN(date.getTime())).toBe(false);
+    }
+  });
+
+  it("append throws when called on closed sink", () => {
+    const sink = openLogSink(storagePath);
+    sink.close();
+
+    expect(() => {
+      sink.append("run-1", { kind: "iteration_started", attemptId: "a1" });
+    }).toThrow();
+  });
+
+  it("idempotent close is safe", () => {
+    const sink = openLogSink(storagePath);
+    sink.append("run-1", { kind: "iteration_started", attemptId: "a1" });
+
+    // Multiple closes should not throw
+    sink.close();
+    sink.close();
+    sink.close();
+
+    const reader = openLogReader(storagePath);
+    const records = reader.tail("run-1");
+    expect(records.length).toBe(1);
+  });
+});

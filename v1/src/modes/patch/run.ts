@@ -137,6 +137,9 @@ export type RunIo = Io;
 
 export type ConfirmRun = (prompt: string) => string | Promise<string>;
 
+/** Test-only seam for patch preflight `.active-spec-path` marker writes. */
+export type WriteActiveSpecPathMarkerFn = (worktreeDir: string, activeSpecPath: string) => void;
+
 /** Test/production seam for patch-watchdog descendant snapshots at timeout fire. */
 export type WatchdogListProcessesFn = (rootPid: number) => ProcInfo[];
 
@@ -218,6 +221,11 @@ export type RunCommandOptions = {
    * unaffected. Production callers must not set this.
    */
   __testReapFn?: () => void;
+  /**
+   * Test-only override for patch preflight `.active-spec-path` marker writes.
+   * Production callers must not set this.
+   */
+  __testWriteActiveSpecPathMarker?: WriteActiveSpecPathMarkerFn;
   /**
    * Test-only override for the watchdog descendant-liveness process-table snapshot.
    * When set, the watchdog uses this injected listProcesses instead of reading the real OS table.

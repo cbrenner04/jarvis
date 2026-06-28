@@ -19,14 +19,14 @@ Patch runs create or reuse `.worktree/<spec-name>/`, but production preflight do
 
 ## Acceptance criteria
 
-- [ ] A git-backed `jarvis1 run <index.md>` fresh patch worktree contains `.active-spec-path` with the same active spec path value produced for the agent prompt.
-- [ ] Git-backed patch runs for external specs write `.active-spec-path` with the external absolute active spec path value produced for the agent prompt.
-- [ ] Re-running a git-backed patch run against an existing patch worktree rewrites `.active-spec-path` when the resolved active spec path changes.
-- [ ] Marker creation leaves repository-tracked ignore files unchanged and does not stage or commit `.active-spec-path`.
-- [ ] Effective `git:false` runs and worktree-skipped preflight do not write `.active-spec-path`.
-- [ ] Patch-run regression tests cover marker creation, rewrite, and skipped-write cases.
-- [ ] Patch-run regression tests cover in-repo and external absolute active spec path marker values.
-- [ ] `v2/docs/v1-behaviors.md` records that git-backed patch preflight populates `.active-spec-path` in patch worktrees and that `git:false` or worktree-skipped runs do not.
+- [x] A git-backed `jarvis1 run <index.md>` fresh patch worktree contains `.active-spec-path` with the same active spec path value produced for the agent prompt.
+- [x] Git-backed patch runs for external specs write `.active-spec-path` with the external absolute active spec path value produced for the agent prompt.
+- [x] Re-running a git-backed patch run against an existing patch worktree rewrites `.active-spec-path` when the resolved active spec path changes.
+- [x] Marker creation leaves repository-tracked ignore files unchanged and does not stage or commit `.active-spec-path`.
+- [x] Effective `git:false` runs and worktree-skipped preflight do not write `.active-spec-path`.
+- [x] Patch-run regression tests cover marker creation, rewrite, and skipped-write cases.
+- [x] Patch-run regression tests cover in-repo and external absolute active spec path marker values.
+- [x] `v2/docs/v1-behaviors.md` records that git-backed patch preflight populates `.active-spec-path` in patch worktrees and that `git:false` or worktree-skipped runs do not.
 
 ## Documentation updates
 

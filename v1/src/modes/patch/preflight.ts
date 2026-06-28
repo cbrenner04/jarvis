@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { branchExistsOnOrigin } from "../../../../shared/git.ts";
 import { type PatchTier, parseRunnableIndexTier, parseSpec } from "../../../../shared/spec-parser.ts";
@@ -27,7 +27,13 @@ import {
   getSpecName,
   removePatchWorktree,
 } from "../../worktree.ts";
-import { acquireWorktreeLock, getWorktreeLockPath, isProcessAlive, type WorktreeLock } from "../../worktree-lock.ts";
+import {
+  acquireWorktreeLock,
+  getWorktreeLockPath,
+  isProcessAlive,
+  releaseWorktreeLock,
+  type WorktreeLock,
+} from "../../worktree-lock.ts";
 import { computeProjectSafeId } from "../plan/spec-paths.ts";
 import { countUnchecked, getActiveLinkedSubspecPath } from "./completion.ts";
 import { applyReset, clearDelta, loadDelta } from "./no-commit-delta.ts";
@@ -179,10 +185,12 @@ export async function resolveModeSpecificPreflight(
   let agentWorkingDir = cwdOverride ?? project.root;
   let worktreeLocked = false;
   let stalepidRecovered: number | undefined;
+  let patchWorktreePrepared = false;
   if (!opts.skipGhCheck && gitEnabled) {
     try {
       const { createWorktreeSymlinks, ensureWorktree } = await import("../../worktree.ts");
       agentWorkingDir = await ensureWorktree(project.root, initialSpecPath);
+      patchWorktreePrepared = true;
       createWorktreeSymlinks(project.root, agentWorkingDir, cfg.worktreeSymlinks);
 
       const lockResult = acquireWorktreeLock(agentWorkingDir);
@@ -200,91 +208,107 @@ export async function resolveModeSpecificPreflight(
       return { kind: "error", exitCode: 1 };
     }
   }
-  let specPath = prepareActiveSpecPath({
-    projectRoot: project.root,
-    agentWorkingDir,
-    specPath: initialSpecPath,
-  });
-  const specDirs = specOutsideWorktreeReadDirs({
-    specPath,
-    agentWorkingDir,
-  });
+  let preflightOk = false;
+  try {
+    let specPath = prepareActiveSpecPath({
+      projectRoot: project.root,
+      agentWorkingDir,
+      specPath: initialSpecPath,
+    });
+    if (patchWorktreePrepared) {
+      try {
+        (opts.__testWriteActiveSpecPathMarker ?? writeActiveSpecPathMarker)(agentWorkingDir, specPath);
+      } catch (err) {
+        opts.io.stderr(`failed to write .active-spec-path marker: ${(err as Error).message}\n`);
+        return { kind: "error", exitCode: 1 };
+      }
+    }
+    const specDirs = specOutsideWorktreeReadDirs({
+      specPath,
+      agentWorkingDir,
+    });
 
-  // Reset delta for any external spec (broad predicate: outside agent working tree)
-  // This covers external specs regardless of whether they're in the Jarvis-managed dir
-  if (gitEnabled && specDirs !== undefined) {
-    resetTrackedSourceSpecDelta(specPath);
-  }
+    // Reset delta for any external spec (broad predicate: outside agent working tree)
+    // This covers external specs regardless of whether they're in the Jarvis-managed dir
+    if (gitEnabled && specDirs !== undefined) {
+      resetTrackedSourceSpecDelta(specPath);
+    }
 
-  const projectSiblings = cfg.projects[project.key]?.siblings ?? [];
-  for (const sibling of projectSiblings) {
-    if (!existsSync(sibling)) {
-      opts.io.stderr(
-        `error: configured sibling ${JSON.stringify(sibling)} does not exist for project ${JSON.stringify(project.key)}\n`,
-      );
+    const projectSiblings = cfg.projects[project.key]?.siblings ?? [];
+    for (const sibling of projectSiblings) {
+      if (!existsSync(sibling)) {
+        opts.io.stderr(
+          `error: configured sibling ${JSON.stringify(sibling)} does not exist for project ${JSON.stringify(project.key)}\n`,
+        );
+        return { kind: "error", exitCode: 1 };
+      }
+    }
+    const additionalReadDirs =
+      specDirs !== undefined || projectSiblings.length > 0
+        ? [...new Set([...(specDirs ?? []), ...projectSiblings])]
+        : undefined;
+
+    let isIndexSpec = basename(specPath) === "index.md";
+    if (!isIndexSpec) {
+      const specDir = dirname(specPath);
+      const siblingIndex = resolve(specDir, "index.md");
+      const hasSiblingIndex = existsSync(siblingIndex);
+
+      const promptLines = [
+        `${specPath} is not an index spec.`,
+        ...(hasSiblingIndex ? ["  [s] switch to ./index.md and run normally"] : []),
+        "  [e] exit",
+        "Choice [e]: ",
+      ];
+      const promptText = promptLines.join("\n");
+      opts.io.stdout(promptText);
+      const answer = (await (opts.confirmRun ?? confirmFromStdin)(promptText)).trim().toLowerCase();
+
+      if (answer === "s" && hasSiblingIndex) {
+        specPath = siblingIndex;
+        isIndexSpec = true;
+      } else {
+        // e, empty input, or unrecognized
+        return { kind: "exit", exitCode: 0 };
+      }
+    }
+
+    maybeWarnAboutUnmergedPlanBranch({
+      io: opts.io,
+      projectRoot: project.root,
+      specPath,
+      gitEnabled,
+    });
+
+    const resolvedPatchTier = resolvePatchTier(specPath, opts.tierOverride);
+    if ("error" in resolvedPatchTier) {
+      opts.io.stderr(`${resolvedPatchTier.error}\n`);
       return { kind: "error", exitCode: 1 };
     }
-  }
-  const additionalReadDirs =
-    specDirs !== undefined || projectSiblings.length > 0
-      ? [...new Set([...(specDirs ?? []), ...projectSiblings])]
-      : undefined;
 
-  let isIndexSpec = basename(specPath) === "index.md";
-  if (!isIndexSpec) {
-    const specDir = dirname(specPath);
-    const siblingIndex = resolve(specDir, "index.md");
-    const hasSiblingIndex = existsSync(siblingIndex);
-
-    const promptLines = [
-      `${specPath} is not an index spec.`,
-      ...(hasSiblingIndex ? ["  [s] switch to ./index.md and run normally"] : []),
-      "  [e] exit",
-      "Choice [e]: ",
-    ];
-    const promptText = promptLines.join("\n");
-    opts.io.stdout(promptText);
-    const answer = (await (opts.confirmRun ?? confirmFromStdin)(promptText)).trim().toLowerCase();
-
-    if (answer === "s" && hasSiblingIndex) {
-      specPath = siblingIndex;
-      isIndexSpec = true;
-    } else {
-      // e, empty input, or unrecognized
-      return { kind: "exit", exitCode: 0 };
+    const specIsExternal = specDirs !== undefined;
+    preflightOk = true;
+    return {
+      kind: "ok",
+      project,
+      projectMode,
+      cfg,
+      gitEnabled,
+      agentWorkingDir,
+      worktreeLocked,
+      stalepidRecovered,
+      specPath,
+      additionalReadDirs,
+      patchTier: resolvedPatchTier.tier,
+      trackSourceSpecDelta,
+      specIsExternal,
+    };
+  } finally {
+    if (!preflightOk && worktreeLocked) {
+      releaseWorktreeLock(agentWorkingDir);
+      worktreeLocked = false;
     }
   }
-
-  maybeWarnAboutUnmergedPlanBranch({
-    io: opts.io,
-    projectRoot: project.root,
-    specPath,
-    gitEnabled,
-  });
-
-  const resolvedPatchTier = resolvePatchTier(specPath, opts.tierOverride);
-  if ("error" in resolvedPatchTier) {
-    opts.io.stderr(`${resolvedPatchTier.error}\n`);
-    return { kind: "error", exitCode: 1 };
-  }
-
-  const specIsExternal = specDirs !== undefined;
-
-  return {
-    kind: "ok",
-    project,
-    projectMode,
-    cfg,
-    gitEnabled,
-    agentWorkingDir,
-    worktreeLocked,
-    stalepidRecovered,
-    specPath,
-    additionalReadDirs,
-    patchTier: resolvedPatchTier.tier,
-    trackSourceSpecDelta,
-    specIsExternal,
-  };
 }
 
 function deriveCleanupSpecPath(specPath: string): string {
@@ -583,6 +607,41 @@ export function prepareActiveSpecPath(opts: {
     copyMissingRecursive(dirname(specPath), dirname(activeSpecPath));
   }
   return activeSpecPath;
+}
+
+function writeActiveSpecPathMarker(worktreeDir: string, activeSpecPath: string): void {
+  ensureWorktreeLocalExcludeEntry(worktreeDir, ".active-spec-path");
+  writeFileSync(join(worktreeDir, ".active-spec-path"), activeSpecPath, "utf8");
+}
+
+function ensureWorktreeLocalExcludeEntry(worktreeDir: string, entry: string): void {
+  let excludePath: string;
+  try {
+    const out = execFileSync("git", ["rev-parse", "--git-path", "info/exclude"], {
+      cwd: worktreeDir,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+    if (!out) return;
+    excludePath = out.startsWith("/") ? out : join(worktreeDir, out);
+  } catch {
+    return;
+  }
+
+  mkdirSync(dirname(excludePath), { recursive: true });
+
+  let existing = "";
+  try {
+    existing = readFileSync(excludePath, "utf8");
+  } catch {
+    // file may not exist yet; treat as empty
+  }
+
+  const hasEntry = existing.split("\n").some((line) => line.trim() === entry);
+  if (hasEntry) return;
+
+  const prefix = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+  writeFileSync(excludePath, `${existing}${prefix}${entry}\n`, "utf8");
 }
 
 function copyMissingRecursive(sourceDir: string, targetDir: string): void {

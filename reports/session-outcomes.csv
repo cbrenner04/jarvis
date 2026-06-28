@@ -96,3 +96,4 @@ report,session_id,report_date,completed_work_units,success_status,failure_reason
 2026-06-27T18-36-37Z-operator,merge-target-by-worktree-or-spec,2026-06-27,1,completed,,patch,1,40.37,11,PR #695; operator integration-merge
 2026-06-27T18-36-37Z-operator,finalize-refuses-when-behind-base,2026-06-27,1,completed,,plan,1,6.38,4,plan-only; impl deferred (#693); completed_work_units=1 = finalized plan
 2026-06-27T18-36-37Z-operator,intent-emit-lint-md-clean-ready-intents-pinned-autofix,2026-06-27,1,completed,,patch,1,27.97,7,PR #677; run-only this session; exit-6 then operator manual-finalize
+2026-06-28T02-00-00Z-fix-commit-ready-order,fix-commit-ready-order,2026-06-28,1,completed,,patch,1,152.9,11,"manual rescue of WIP planned #723 (prior session); PR #734; 2 real source bugs under 31 red tests (bun execFileSync env, dropped verificationRed) + mis-modeled fixtures; 7 docs; all 25 ACs; finalized via triage mark-ready+merge; duration=operator wall (no jarvis run)"

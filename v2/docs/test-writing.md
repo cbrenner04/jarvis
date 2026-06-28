@@ -28,7 +28,7 @@ Keep a real-process test only when the OS/git/process boundary is the behavior u
 - **`bun run test:integration:v2`** — v2 `*.sandbox-unrunnable.test.ts` at any depth under `v2/`; runs serially (no `--parallel`). Use outside the coding-agent sandbox.
 - **`bun run test`** — aggregate gate; still collects all v2 tests including sandbox-unrunnable files.
 
-Sources: `package.json`, `scripts/run-v2-tests.ts`, `scripts/v2-test-files.ts`, `test/test-slices.test.ts`
+Sources: `package.json`, `scripts/run-v2-tests.ts`, `test/test-slices.test.ts`
 
 ## Determinism smell checklist
 

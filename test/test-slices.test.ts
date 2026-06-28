@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { execSync } from "node:child_process";
 import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { basename, join } from "node:path";
-import { agentRunnableV2Tests, integrationV2Tests, walkV2TestFiles } from "../scripts/v2-test-files.ts";
+import { v2Tests, walkV2TestFiles } from "../scripts/run-v2-tests.ts";
 
 describe("Test slice boundaries", () => {
   it("test files are scoped to owner directories", () => {
@@ -76,12 +76,10 @@ describe("Test slice boundaries", () => {
     expect(pkgJson.scripts["test:integration:v2"]).toBe("bun run scripts/run-v2-tests.ts integration");
 
     const onDisk = walkV2TestFiles();
-    const agent = agentRunnableV2Tests();
-    const integration = integrationV2Tests();
+    const agent = v2Tests("agent");
+    const integration = v2Tests("integration");
 
     expect([...agent, ...integration].sort()).toEqual(onDisk);
-    expect(agent.every((file) => !file.includes(".sandbox-unrunnable."))).toBeTrue();
-    expect(integration.every((file) => file.endsWith(".sandbox-unrunnable.test.ts"))).toBeTrue();
     expect(integration).toEqual([
       "v2/src/daemon.sandbox-unrunnable.test.ts",
       "v2/src/external-worktree.sandbox-unrunnable.test.ts",

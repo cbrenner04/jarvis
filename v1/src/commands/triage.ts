@@ -57,7 +57,6 @@ export type TriageCommandOptions = {
   adminMerge?: (branch: string, cwd: string) => void;
   pollIntervalMs?: number;
   pollTimeoutMs?: number;
-  planTargetDir?: string;
 };
 
 export type DirtyKind = "clean" | "untracked-only" | "modified" | "mixed";
@@ -1134,56 +1133,31 @@ function resolveSpecDir(dirPath: string): DeriveSpecResult {
 function deriveSpecPathFromBranch(branch: string, projectRoot: string, configuredTargetDir: string): DeriveSpecResult {
   const isPlan = branch.startsWith("plan/");
   const specName = isPlan ? branch.slice("plan/".length) : branch;
-  const seen = new Set<string>();
-  const homes: string[] = [];
-  for (const homeDir of [configuredTargetDir, "v1/spec", "v2/spec"]) {
-    if (!seen.has(homeDir)) {
-      seen.add(homeDir);
-      homes.push(homeDir);
-    }
-  }
 
-  for (const homeDir of homes) {
+  for (const homeDir of [...new Set([configuredTargetDir, "v1/spec", "v2/spec"])]) {
     const specRoot = join(projectRoot, homeDir);
     if (!existsSync(specRoot)) continue;
 
-    const exactPath = join(specRoot, specName);
-    if (existsSync(exactPath)) {
+    const candidates = [join(specRoot, specName), join(specRoot, `${specName}.md`)];
+    if (isPlan) {
       try {
-        if (statSync(exactPath).isDirectory()) {
-          return resolveSpecDir(exactPath);
-        }
-        if (exactPath.endsWith(".md")) {
-          return { ok: true, specPath: exactPath };
-        }
+        const timestamped = readdirSync(specRoot)
+          .filter((e) => e !== "completed")
+          .filter((e) => stripPlanSpecTimestampPrefix(e) === specName)
+          .sort()[0];
+        if (timestamped !== undefined) candidates.push(join(specRoot, timestamped));
       } catch {
-        // skip unreadable entry
+        // skip unreadable home
       }
-    }
-    const mdFile = join(specRoot, `${specName}.md`);
-    if (existsSync(mdFile)) {
-      return { ok: true, specPath: mdFile };
     }
 
-    if (isPlan) {
-      let entries: string[];
+    for (const candidate of candidates) {
+      if (!existsSync(candidate)) continue;
       try {
-        entries = readdirSync(specRoot);
+        if (statSync(candidate).isDirectory()) return resolveSpecDir(candidate);
+        if (candidate.endsWith(".md")) return { ok: true, specPath: candidate };
       } catch {
-        continue;
-      }
-      const matched = entries
-        .filter((e) => e !== "completed")
-        .filter((e) => stripPlanSpecTimestampPrefix(e) === specName)
-        .sort();
-      const first = matched[0];
-      if (first !== undefined) {
-        const dirPath = join(specRoot, first);
-        try {
-          if (statSync(dirPath).isDirectory()) {
-            return resolveSpecDir(dirPath);
-          }
-        } catch {}
+        // skip unreadable entry
       }
     }
   }
@@ -1192,7 +1166,6 @@ function deriveSpecPathFromBranch(branch: string, projectRoot: string, configure
 }
 
 function resolvePlanTargetDir(opts: TriageCommandOptions): string {
-  if (opts.planTargetDir !== undefined) return opts.planTargetDir;
   try {
     const fullConfig = loadConfig(opts.config);
     for (const project of Object.values(fullConfig.projects)) {

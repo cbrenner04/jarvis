@@ -3,51 +3,20 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
-// Check if sockets can be created in /tmp; skip all tests if not (sandbox restriction)
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DaemonDoubleClaimError, WorktreeOwnershipRegistry } from "./daemon";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon-lifecycle";
 import { connectIpcClient } from "./ipc/client";
 import type { ResponseFrame } from "./ipc/types";
+import { canCreateSockets, skipIfNoSockets, socketProbeErrored } from "./testing/unix-socket";
 
-let canCreateSockets: boolean;
-
-const testSocketPath = join(tmpdir(), `.jarvis-socket-test-${process.pid}-${Date.now()}`);
-const testServer = createServer();
-
-await new Promise<void>((resolve) => {
-  testServer.once("listening", () => {
-    canCreateSockets = true;
-    testServer.close();
-    try {
-      rmSync(testSocketPath, { force: true });
-    } catch {}
-    resolve();
-  });
-
-  testServer.once("error", () => {
-    canCreateSockets = false;
-    process.stderr.write("skip: daemon socket tests require socket support in /tmp\n");
-    resolve();
-  });
-
-  testServer.listen(testSocketPath);
-  setTimeout(() => resolve(), 100);
-});
+if (socketProbeErrored) {
+  process.stderr.write("skip: daemon socket tests require socket support in /tmp\n");
+}
 
 const SOCKET_PATH = join(tmpdir(), `jarvis-daemon-test-${process.pid}-${Date.now()}.sock`);
 const PID_PATH = join(tmpdir(), `jarvis-daemon-test-${process.pid}-${Date.now()}.pid`);
-
-function skipIfNoSockets(fn: () => Promise<void>): () => Promise<void> {
-  return async () => {
-    if (!canCreateSockets) {
-      return;
-    }
-    return fn();
-  };
-}
 
 beforeEach(() => {
   if (!canCreateSockets) {

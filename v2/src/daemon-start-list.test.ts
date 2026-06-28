@@ -1,37 +1,13 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRunControlHandlers } from "./daemon.ts";
 import { connectIpcClient } from "./ipc/client.ts";
 import { type IpcServer, startIpcServer } from "./ipc/server.ts";
 import { openStateStore, type StateStore } from "./state-store.ts";
+import { canCreateSockets, skipIfNoSockets } from "./testing/unix-socket.ts";
 import type { WriteLoopInput } from "./write-loop.ts";
-
-// Check if sockets can be created in /tmp; skip all tests if not (sandbox restriction)
-let canCreateSockets = false;
-
-const testSocketPath = join(tmpdir(), `.jarvis-socket-test-daemon-start-list-${process.pid}-${Date.now()}`);
-const testServer = createServer();
-await new Promise<void>((resolve) => {
-  testServer.once("listening", () => {
-    canCreateSockets = true;
-    testServer.close();
-    try {
-      rmSync(testSocketPath, { force: true });
-    } catch {}
-    resolve();
-  });
-
-  testServer.once("error", () => {
-    canCreateSockets = false;
-    resolve();
-  });
-
-  testServer.listen(testSocketPath);
-  setTimeout(() => resolve(), 100);
-});
 
 const SOCKET_PATH = join(tmpdir(), `jarvis-daemon-test-${process.pid}.sock`);
 
@@ -122,15 +98,6 @@ afterEach(async () => {
     // store may be closed
   }
 });
-
-function skipIfNoSockets(fn: () => Promise<void>): () => Promise<void> {
-  return async () => {
-    if (!canCreateSockets) {
-      return;
-    }
-    return fn();
-  };
-}
 
 function mockWriteLoopInput(worktreeOverrides: Partial<WriteLoopInput["worktree"]> = {}): WriteLoopInput {
   return {

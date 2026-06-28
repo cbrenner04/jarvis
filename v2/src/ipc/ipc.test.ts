@@ -1,38 +1,17 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
-import { connect, createServer } from "node:net";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openLogReader, openLogSink } from "../log-stream.ts";
+import { canCreateSockets, skipIfNoSockets, socketProbeErrored } from "../testing/unix-socket.ts";
 import { connectIpcClient } from "./client.ts";
 import { encodeFrame } from "./codec.ts";
 import { type IpcServer, type StreamHandler, startIpcServer } from "./server.ts";
 
-// Check if sockets can be created in /tmp; skip all tests if not (sandbox restriction)
-let canCreateSockets: boolean;
-
-const testSocketPath = join(tmpdir(), `.jarvis-socket-test-ipc-${process.pid}-${Date.now()}`);
-const testServer = createServer();
-
-await new Promise<void>((resolve) => {
-  testServer.once("listening", () => {
-    canCreateSockets = true;
-    testServer.close();
-    try {
-      rmSync(testSocketPath, { force: true });
-    } catch {}
-    resolve();
-  });
-
-  testServer.once("error", () => {
-    canCreateSockets = false;
-    process.stderr.write("skip: IPC tests require socket support in /tmp\n");
-    resolve();
-  });
-
-  testServer.listen(testSocketPath);
-  setTimeout(() => resolve(), 100);
-});
+if (socketProbeErrored) {
+  process.stderr.write("skip: IPC tests require socket support in /tmp\n");
+}
 
 const SOCKET_PATH = join(tmpdir(), `jarvis-ipc-test-${process.pid}.sock`);
 
@@ -56,15 +35,6 @@ afterEach(async () => {
 
 function request(id: string, method: string, params?: unknown) {
   return { kind: "request" as const, id, method, ...(params !== undefined ? { params } : {}) };
-}
-
-function skipIfNoSockets(fn: () => Promise<void>): () => Promise<void> {
-  return async () => {
-    if (!canCreateSockets) {
-      return;
-    }
-    return fn();
-  };
 }
 
 test(

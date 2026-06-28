@@ -32,14 +32,6 @@ function errorFrame(id: string, code: string, message: string): ErrorFrame {
   return { kind: "error", id, code, message };
 }
 
-function writeFrame(socket: Socket, frame: unknown): void {
-  socket.write(encodeFrame(frame));
-}
-
-function closeConnection(socket: Socket): void {
-  socket.destroy();
-}
-
 function dispatchRequest(
   socket: Socket,
   frame: IpcFrame & { kind: "request" },
@@ -51,29 +43,29 @@ function dispatchRequest(
   if (customHandler) {
     const response = customHandler(frame);
     if (response.kind === "response") {
-      writeFrame(socket, responseFrame(id, response.result));
+      socket.write(encodeFrame(responseFrame(id, response.result)));
     } else {
-      writeFrame(socket, errorFrame(id, response.code, response.message));
+      socket.write(encodeFrame(errorFrame(id, response.code, response.message)));
     }
     return;
   }
 
   switch (method) {
     case "health":
-      writeFrame(socket, responseFrame(id, { ok: true }));
+      socket.write(encodeFrame(responseFrame(id, { ok: true })));
       return;
     case "status":
-      writeFrame(socket, responseFrame(id, { state: "running" }));
+      socket.write(encodeFrame(responseFrame(id, { state: "running" })));
       return;
     default:
-      writeFrame(socket, errorFrame(id, "unknown_method", `unknown method: ${method}`));
+      socket.write(encodeFrame(errorFrame(id, "unknown_method", `unknown method: ${method}`)));
   }
 }
 
 function handleFrame(socket: Socket, frame: unknown, handlers?: Record<string, RpcHandler>): void {
   const kind = frameKind(frame);
   if (!isValidKind(kind)) {
-    closeConnection(socket);
+    socket.destroy();
     return;
   }
 
@@ -85,17 +77,17 @@ function handleFrame(socket: Socket, frame: unknown, handlers?: Record<string, R
       return;
     case "stream-data": {
       const streamFrame = frame as IpcFrame & { kind: "stream-data" };
-      writeFrame(socket, {
+      socket.write(encodeFrame({
         kind: "stream-data",
         streamId: streamFrame.streamId,
         ...(streamFrame.payload !== undefined ? { payload: streamFrame.payload } : {}),
-      });
+      }));
       return;
     }
     case "stream-end":
       return;
     default:
-      closeConnection(socket);
+      socket.destroy();
   }
 }
 
@@ -109,13 +101,13 @@ function attachSocketHandlers(socket: Socket, handlers?: Record<string, RpcHandl
         handleFrame(socket, frame, handlers);
       }
     } catch {
-      closeConnection(socket);
+      socket.destroy();
     }
   });
 
   socket.on("end", () => {
     if (decoder.hasPartialFrame()) {
-      closeConnection(socket);
+      socket.destroy();
     }
   });
 }
@@ -146,18 +138,11 @@ function waitForSocketDrain(activeSockets: Set<Socket>, timeoutMs: number): Prom
   });
 }
 
-/** In-process Unix-socket IPC listener bound at caller-supplied `socketPath`. */
 export type IpcServer = {
   socketPath: string;
-  /** Stops accepting, drains in-flight connections, then unbinds the socket. */
   close(options?: { drainTimeoutMs?: number }): Promise<void>;
 };
 
-/**
- * Binds a Unix domain socket and serves typed IPC frames.
- * Removes an existing file at `socketPath` before bind.
- * Custom RPC handlers override built-in health/status if provided.
- */
 export function startIpcServer(socketPath: string, handlers?: Record<string, RpcHandler>): Promise<IpcServer> {
   rmSync(socketPath, { force: true });
 

@@ -30,10 +30,6 @@ export type SocketProber = {
   probe(socketPath: string, timeoutMs: number): Promise<boolean>;
 };
 
-/**
- * Checks if a process with the given PID is alive.
- * Throws on invalid PID; returns false if process does not exist.
- */
 export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -43,9 +39,6 @@ export function isProcessAlive(pid: number): boolean {
   }
 }
 
-/**
- * Probes the daemon socket for health response.
- */
 export async function probeSocket(socketPath: string, timeoutMs: number): Promise<boolean> {
   try {
     const client = await connectIpcClient(socketPath);
@@ -61,12 +54,6 @@ export async function probeSocket(socketPath: string, timeoutMs: number): Promis
   }
 }
 
-/**
- * Starts a detached daemon process at the given socket path.
- * Waits (bounded) for the daemon to respond to health checks.
- * Throws `DaemonAlreadyRunningError` if the socket already responds.
- * Throws `DaemonReadinessTimeoutError` if startup times out.
- */
 export async function startDaemon(
   socketPath: string,
   options?: {
@@ -147,10 +134,6 @@ async function terminateProcess(pid: number, killTimeoutMs: number, processProbe
   }
 }
 
-/**
- * Stops a running daemon gracefully: rejects new connections, drains in-flight IPC,
- * then sends SIGTERM. If the process doesn't exit within the timeout, sends SIGKILL.
- */
 export async function stopDaemon(
   socketPath: string,
   options?: {
@@ -198,10 +181,6 @@ export async function stopDaemon(
   }
 }
 
-/**
- * Checks daemon liveness: first probes the process, then attempts a short-timeout health check.
- * Returns "running" only if both succeed; "stopped" otherwise.
- */
 export async function getDaemonStatus(
   pid: number,
   socketPath: string,

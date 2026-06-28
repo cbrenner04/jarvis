@@ -44,13 +44,3 @@ export type StreamEndFrame = {
 
 /** Discriminated wire envelope union keyed by `kind`. */
 export type IpcFrame = RequestFrame | ResponseFrame | ErrorFrame | StreamOpenFrame | StreamDataFrame | StreamEndFrame;
-
-/** Parsed `health` RPC result. */
-export type HealthResult = {
-  ok: true;
-};
-
-/** Parsed IPC `status` result — daemon-host liveness only. */
-export type IpcStatusResult = {
-  state: "running";
-};

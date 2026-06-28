@@ -2,7 +2,6 @@ import { Socket } from "node:net";
 import { encodeFrame, FrameDecoder } from "./codec.ts";
 import type { IpcFrame } from "./types.ts";
 
-/** Connected Unix-socket IPC client for tests and thin callers. */
 export type IpcClient = {
   send(frame: unknown): void;
   nextFrame(timeoutMs?: number): Promise<IpcFrame>;
@@ -18,10 +17,6 @@ function connectSocket(socketPath: string): Promise<Socket> {
   });
 }
 
-/**
- * Opens one IPC client connection to `socketPath`.
- * @throws when the socket cannot connect.
- */
 export async function connectIpcClient(socketPath: string): Promise<IpcClient> {
   const socket = await connectSocket(socketPath);
   const decoder = new FrameDecoder();

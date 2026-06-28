@@ -113,7 +113,7 @@ describe("daemon (real process)", () => {
   test(
     "status RPC on live daemon reports running state",
     skipIfNoSockets(async () => {
-      const _metadata = await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
+      await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
 
       const client = await connectIpcClient(SOCKET_PATH);
       client.send({ kind: "request", id: "s1", method: "status" });
@@ -129,7 +129,7 @@ describe("daemon (real process)", () => {
   test(
     "second startDaemon fails with typed error while health succeeds",
     skipIfNoSockets(async () => {
-      const _metadata = await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
+      await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
 
       await expect(startDaemon(SOCKET_PATH, { pidPath: PID_PATH })).rejects.toThrow("already running");
 
@@ -140,14 +140,12 @@ describe("daemon (real process)", () => {
   test(
     "socket becomes unbound after stopDaemon",
     skipIfNoSockets(async () => {
-      const _metadata = await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
+      await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
 
       await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
 
-      // Wait a moment for socket cleanup
       await new Promise((r) => setTimeout(r, 100));
 
-      // Attempting to connect should fail
       await expect(connectIpcClient(SOCKET_PATH)).rejects.toThrow();
     }),
   );

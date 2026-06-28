@@ -7,11 +7,15 @@ work.
 See [v2-architecture.md](./v2-architecture.md) Interface for daemon-first
 placement; this doc pins the transport contract only.
 
+Operator-facing `jarvis daemon ...` and `jarvis run ...` behavior lives in
+[`write-behavior.md`](./write-behavior.md).
+
 ## Socket path
 
 Callers supply `socketPath` explicitly. There is no production default,
-stale-socket recovery, or max concurrent client cap in the library yet — the
-first CLI/TUI consumer pins those.
+stale-socket recovery, or max concurrent client cap in the library. The CLI is
+the first production consumer and pins `~/.jarvis/daemon.sock` plus
+`~/.jarvis/daemon.pid`; other callers still pass explicit paths.
 
 ## Framing
 

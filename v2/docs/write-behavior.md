@@ -4,6 +4,10 @@
 work is done, blocked, or the budget runs out. See [`state-store.md`](./state-store.md)
 for durable run state and resume mechanics.
 
+`jarvis daemon` and `jarvis run` expose the same write-loop surface through the
+daemon IPC host. Transport and lifecycle wire contracts stay in
+[`daemon-host.md`](./daemon-host.md); this doc owns the operator CLI.
+
 Pause, kill, and crash-recovery branch on how the loop stopped: the loop never
 resumes mid-step. Resume branches from durable state at the last committed boundary:
 
@@ -52,6 +56,36 @@ jarvis write \
   [--max-iterations <n>]
 ```
 
+## Daemon CLI
+
+Daemon lifecycle commands use production defaults:
+
+- Socket: `~/.jarvis/daemon.sock`
+- PID file: `~/.jarvis/daemon.pid`
+
+| Command | Output | Exit |
+| --- | --- | --- |
+| `jarvis daemon start` | Compact JSON `{"pid":<n>,"socketPath":"..."}` | `0` on success, `1` with `<ErrorName>: <message>` on lifecycle failure |
+| `jarvis daemon stop` | `stopped` | `0` |
+| `jarvis daemon status` | `running` or `stopped` | `0` when running, `1` when stopped |
+
+## Run control CLI
+
+| Command | Input mapping | Output | Exit |
+| --- | --- | --- | --- |
+| `jarvis run start ...` | Same required flags as `jarvis write`; `--project-root`, `--project`, `--branch`, `--base`, `--spec`, `--artifact`, optional `--agents`, `--max-iterations`; mapped to the same `WriteLoopInput` fields and sent over IPC as one `start` request | Run ID | `0` on success |
+| `jarvis run list` | None | One tab-separated row per run: `runId project branch status liveness` | `0` on success |
+| `jarvis run log <run-id>` | Run ID | One compact JSON line per persisted record; replay first, then follow new records until stream end or client close | `0` on stream end/client close |
+| `jarvis run pause <run-id>` | Run ID | `paused <run-id>` | `0` on success |
+| `jarvis run resume <run-id>` | Run ID | `resumed <run-id>` | `0` on success |
+| `jarvis run kill <run-id>` | Run ID | `killed <run-id>` | `0` on success |
+
+Run-control transport failures print the connection error to stderr and exit `1`.
+Daemon RPC failures print `<code>: <message>` to stderr and exit `1`. The CLI
+passes through daemon guards such as `invalid_params`, `unknown_run`,
+`run_not_active`, `terminal_run`, `run_in_progress`, and `worktree_claimed`
+without local reclassification.
+
 - Worktree path: `~/.jarvis/worktrees/<project>/<branch>/`.
 - Locking uses v1-compatible `.jarvis.lock` semantics, in a dedicated lock tree
   (`~/.jarvis/worktree-locks/<project>/<branch>/`) so the run serializes on the
@@ -97,8 +131,8 @@ Drive the path through the test seam:
 - `bun test v2/src/write-loop.test.ts` proves the loop: repeated iterations,
   outcome routing, contract checks, blocker appending, state persistence, and
   cancellation via `AbortSignal`.
-- `bun test v2/src/cli.test.ts` proves CLI arg parsing, agent forwarding, and
-  exit-code mapping.
+- `bun test v2/src/cli.test.ts` proves foreground `write`, daemon lifecycle
+  commands, run-control success/error paths, and log JSONL streaming.
 
 A live `jarvis write ...` runs the full pipeline and reports
 `"kind": "invocation_failure"` until process bindings land.

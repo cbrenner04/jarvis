@@ -151,6 +151,12 @@
       "cache_write_per_mtok": 6.25,
       "source_url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
       "as_of": "2026-06-06"
+    },
+    "opencode/deepseek-v4-flash-free": {
+      "input_per_mtok": 0,
+      "output_per_mtok": 0,
+      "source_url": "https://opencode.ai/zen/#pricing",
+      "as_of": "2026-06-28"
     }
   }
 }

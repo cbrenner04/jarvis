@@ -4290,6 +4290,9 @@ exit 0
   });
 
   test("falls through claude to codex on quota", async () => {
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY];
+    writeConfig(cfg, { dir: cfgDir });
     const spec = writeSpec("- [ ] todo\n");
     const cap = captureIo();
     const claude = new FakeAgent("claude", () => ({
@@ -4318,6 +4321,9 @@ exit 0
   });
 
   test("falls through claude to codex on auth failure; emits auth-rotation note", async () => {
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY];
+    writeConfig(cfg, { dir: cfgDir });
     const spec = writeSpec("- [ ] todo\n");
     const cap = captureIo();
     const claude = new FakeAgent("claude", () => ({
@@ -4379,6 +4385,9 @@ exit 0
   });
 
   test("falls through claude to codex on zero-exit monthly-spend-limit JSON envelope", async () => {
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY];
+    writeConfig(cfg, { dir: cfgDir });
     const spec = writeSpec("- [ ] todo\n");
     const cap = captureIo();
     const claudeBin = fakeClaudeBinary(dir, {

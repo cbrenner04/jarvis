@@ -28,24 +28,24 @@
 
 ## Tasks
 
-- [ ] Add the owner price row to `data/prices.json`.
-- [ ] Extend `v1/test/prices.test.ts`: seed-row assertion for `opencode/glm-5.2` plus `computeCost(fixtureUsage, "opencode/glm-5.2", loadPrices())` with nonzero `cache_read_input_tokens` → `cost_source: "computed"` with non-null `cost_usd`.
-- [ ] Extend `v1/test/telemetry-enrichment.test.ts`: estimated opencode usage with `opencode/glm-5.2` yields `cost_source: "estimated"` and non-null `cost_usd`.
-- [ ] Extend `v1/test/telemetry-enrichment.test.ts`: agent-usage opencode with `opencode/glm-5.2` (usage present, `cost_usd` null) yields `cost_source: "computed"` and non-null `cost_usd`.
-- [ ] Update `v1/docs/operator-runbook.md`: GLM 5.2 `prices.json` row optional to run; row enables harness cost attribution on estimated and agent-usage-without-cost fallback enrichment paths.
+- [x] Add the owner price row to `data/prices.json`.
+- [x] Extend `v1/test/prices.test.ts`: seed-row assertion for `opencode/glm-5.2` plus `computeCost(fixtureUsage, "opencode/glm-5.2", loadPrices())` with nonzero `cache_read_input_tokens` → `cost_source: "computed"` with non-null `cost_usd`.
+- [x] Extend `v1/test/telemetry-enrichment.test.ts`: estimated opencode usage with `opencode/glm-5.2` yields `cost_source: "estimated"` and non-null `cost_usd`.
+- [x] Extend `v1/test/telemetry-enrichment.test.ts`: agent-usage opencode with `opencode/glm-5.2` (usage present, `cost_usd` null) yields `cost_source: "computed"` and non-null `cost_usd`.
+- [x] Update `v1/docs/operator-runbook.md`: GLM 5.2 `prices.json` row optional to run; row enables harness cost attribution on estimated and agent-usage-without-cost fallback enrichment paths.
 
 ## Acceptance criteria
 
-- [ ] `resolveAgentPriceKey("opencode", "opencode/glm-5.2")` returns `"opencode/glm-5.2"`.
-- [ ] `data/prices.json` includes the owner snapshot row (`input_per_mtok` 1.40, `output_per_mtok` 4.40, `cache_read_per_mtok` 0.26, cited `source_url`, `as_of` `2026-06-28`).
-- [ ] `prices.test.ts` seed assertion covers `opencode/glm-5.2`; `computeCost(fixtureUsage, "opencode/glm-5.2", loadPrices())` with nonzero `cache_read_input_tokens` yields `cost_source: "computed"` with non-null `cost_usd`.
-- [ ] `extractUsageAndCost` with `usage_source: "estimated"`, agent `opencode`, model `opencode/glm-5.2` yields `cost_source: "estimated"` with non-null `cost_usd`.
-- [ ] `extractUsageAndCost` with agent-reported usage, agent `opencode`, model `opencode/glm-5.2`, and `cost_usd` null yields `cost_source: "computed"` with non-null `cost_usd`.
-- [ ] `v1/docs/operator-runbook.md` states GLM 5.2 `prices.json` row is optional to run and enables harness cost attribution on estimated and agent-usage-without-cost fallback enrichment paths.
-- [ ] `config.test.ts` `"bootstraps from empty dir with defaults"` stays green.
+- [x] `resolveAgentPriceKey("opencode", "opencode/glm-5.2")` returns `"opencode/glm-5.2"`.
+- [x] `data/prices.json` includes the owner snapshot row (`input_per_mtok` 1.40, `output_per_mtok` 4.40, `cache_read_per_mtok` 0.26, cited `source_url`, `as_of` `2026-06-28`).
+- [x] `prices.test.ts` seed assertion covers `opencode/glm-5.2`; `computeCost(fixtureUsage, "opencode/glm-5.2", loadPrices())` with nonzero `cache_read_input_tokens` yields `cost_source: "computed"` with non-null `cost_usd`.
+- [x] `extractUsageAndCost` with `usage_source: "estimated"`, agent `opencode`, model `opencode/glm-5.2` yields `cost_source: "estimated"` with non-null `cost_usd`.
+- [x] `extractUsageAndCost` with agent-reported usage, agent `opencode`, model `opencode/glm-5.2`, and `cost_usd` null yields `cost_source: "computed"` with non-null `cost_usd`.
+- [x] `v1/docs/operator-runbook.md` states GLM 5.2 `prices.json` row is optional to run and enables harness cost attribution on estimated and agent-usage-without-cost fallback enrichment paths.
+- [x] `config.test.ts` `"bootstraps from empty dir with defaults"` stays green.
 - [ ] Live `opencode run --model opencode/glm-5.2` accepts the model. (Manual)
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes.
 
 ## Documentation updates
 

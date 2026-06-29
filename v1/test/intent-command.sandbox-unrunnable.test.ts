@@ -15,10 +15,10 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import { INTENT_USAGE, intentCommand, parseIntentArgs } from "../src/commands/intent.ts";
-import { HARNESS_MODEL_CONFIG_FALLBACK } from "../src/quota-harness-messages.ts";
 import { loadConfig, registerProject, writeConfig } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
 import { buildIntentSplitPrompt } from "../src/modes/plan/intent-split.ts";
+import { HARNESS_MODEL_CONFIG_FALLBACK } from "../src/quota-harness-messages.ts";
 
 const okLogClient: LogClient = {
   assertReachable: async () => {},

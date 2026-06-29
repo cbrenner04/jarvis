@@ -3,11 +3,10 @@ import { execSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import { HARNESS_MODEL_CONFIG_FALLBACK } from "../src/quota-harness-messages.ts";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import type { Config } from "../src/config.ts";
 import { runDraftPhase, validateDraftOutput } from "../src/modes/plan/draft.ts";
+import { HARNESS_MODEL_CONFIG_FALLBACK } from "../src/quota-harness-messages.ts";
 
 class FakeAgent implements Agent {
   readonly name: AgentName;

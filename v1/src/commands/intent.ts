@@ -980,11 +980,13 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
       }),
     );
     opts.io.stderr(`intent: draft PR #${prResult.number} ${prResult.created ? "opened" : "updated"}\n`);
+    const intentFixCommand = cfg.projects[project.key]?.fixCommand;
     try {
       maybeMarkPlanPrReady({
         branch,
         cwd: worktreePath,
         getOpenPrState,
+        ...(intentFixCommand !== undefined ? { fixCommand: intentFixCommand } : {}),
       });
     } catch (err) {
       opts.io.stderr(`warning: could not mark PR ready for review: ${(err as Error).message}\n`);

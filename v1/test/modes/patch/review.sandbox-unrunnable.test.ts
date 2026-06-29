@@ -965,6 +965,40 @@ while true; do :; done
     }
   });
 
+  test("invokes fixCommand at review baseline gate site", async () => {
+    const { dir: repoDir, specPath, cleanup } = setupPatchReviewRepo();
+    const sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-review-baseline-fix-cmd-"));
+    const sentinel = join(sentinelDir, "baseline-fix");
+    const script = join(sentinelDir, "fix.sh");
+    writeFileSync(script, `#!/bin/sh\ntouch "${sentinel}"\n`);
+    chmodSync(script, 0o755);
+    try {
+      const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "No issues", stderr: "" }));
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({ reviewPasses: 1, reviewOrder: [CLAUDE_ENTRY] }),
+        cwd: repoDir,
+        specPath,
+        reviewPassesOverride: 1,
+        fanout: () => {},
+        writeTelemetry: () => {},
+        agents: { claude },
+        iterationTimeoutMs: 30_000,
+        fixCommand: script,
+        runReady: () => {},
+        resumeReview: true,
+        checkPrExists: () => true,
+        checkBaseCurrent: currentBase(),
+        runFinalGate: (_branch, _tier) => {},
+        baseBranch: "main",
+      });
+      expect(code).toBe(0);
+      expect(existsSync(sentinel)).toBe(true);
+    } finally {
+      rmSync(sentinelDir, { recursive: true, force: true });
+      cleanup();
+    }
+  });
+
   test("invokes readyCommand at review baseline gate site", async () => {
     const { dir: repoDir, specPath, cleanup } = setupPatchReviewRepo();
     const sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-review-baseline-ready-cmd-"));
@@ -1022,6 +1056,40 @@ while true; do :; done
         readyCommand: script,
         runFix: () => {},
         runBaselineGate: () => {}, // stub baseline gate
+        checkPrExists: () => true,
+        checkBaseCurrent: currentBase(),
+        ghPrReady: () => {},
+        baseBranch: "main",
+      });
+      expect(code).toBe(0);
+      expect(existsSync(sentinel)).toBe(true);
+    } finally {
+      rmSync(sentinelDir, { recursive: true, force: true });
+      cleanup();
+    }
+  });
+
+  test("invokes fixCommand at review final gate site", async () => {
+    const { dir: repoDir, specPath, cleanup } = setupPatchReviewRepo();
+    const sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-review-final-fix-cmd-"));
+    const sentinel = join(sentinelDir, "final-fix");
+    const script = join(sentinelDir, "fix.sh");
+    writeFileSync(script, `#!/bin/sh\ntouch "${sentinel}"\n`);
+    chmodSync(script, 0o755);
+    try {
+      const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "No issues", stderr: "" }));
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({ reviewPasses: 1, reviewOrder: [CLAUDE_ENTRY] }),
+        cwd: repoDir,
+        specPath,
+        reviewPassesOverride: 1,
+        fanout: () => {},
+        writeTelemetry: () => {},
+        agents: { claude },
+        iterationTimeoutMs: 30_000,
+        fixCommand: script,
+        runReady: () => {},
+        runBaselineGate: () => {},
         checkPrExists: () => true,
         checkBaseCurrent: currentBase(),
         ghPrReady: () => {},

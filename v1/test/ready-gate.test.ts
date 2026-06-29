@@ -10,6 +10,7 @@ import {
   PostVerificationCommitError,
   PostVerificationPushError,
   PreReadyFixCommitError,
+  parsePackageManagerRunScript,
   postVerificationStillDirtyErrorMessage,
   ReadyCommandError,
   ReadyVerificationDirtyError,
@@ -379,6 +380,190 @@ exit 0
 
     expect(existsSync(join(dir, "dirty-from-override.txt"))).toBe(true);
     expect(execSync("git status --porcelain", { cwd: dir, encoding: "utf8" }).trim()).toBe("");
+  });
+});
+
+describe("runReadyAndCommit fixCommand", () => {
+  let sentinelDir: string;
+
+  beforeEach(() => {
+    sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-sentinel-fix-"));
+  });
+
+  afterEach(() => {
+    rmSync(sentinelDir, { recursive: true, force: true });
+  });
+
+  test("invokes fixCommand instead of bun run fix on full tier", () => {
+    const sentinel = join(sentinelDir, "fix-invoked");
+    const script = join(sentinelDir, "fix.sh");
+    writeFileSync(script, `#!/bin/sh\ntouch "${sentinel}"\n`);
+    chmodSync(script, 0o755);
+
+    runReadyAndCommit({
+      cwd: dir,
+      tier: "full",
+      fixCommand: script,
+      runReady: () => {},
+    });
+
+    expect(existsSync(sentinel)).toBe(true);
+  });
+
+  test("skips default bun run fix when fix script is absent from package.json", () => {
+    const calls: string[] = [];
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { ready: "echo ready" } }, null, 2));
+    execSync("git add package.json && git commit -m pkg", { cwd: dir });
+
+    runReadyAndCommit({
+      cwd: dir,
+      tier: "full",
+      runReady: () => {
+        calls.push("ready");
+      },
+    });
+
+    expect(calls).toEqual(["ready"]);
+  });
+
+  test("skips configured PM fixCommand when script is absent from package.json", () => {
+    const calls: string[] = [];
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: {} }, null, 2));
+    execSync("git add package.json && git commit -m pkg", { cwd: dir });
+
+    runReadyAndCommit({
+      cwd: dir,
+      tier: "full",
+      fixCommand: "npm run lint-fix",
+      runReady: () => {
+        calls.push("ready");
+      },
+    });
+
+    expect(calls).toEqual(["ready"]);
+  });
+
+  test("skips PM-shaped fix when package.json is missing", () => {
+    const calls: string[] = [];
+
+    runReadyAndCommit({
+      cwd: dir,
+      tier: "full",
+      runReady: () => {
+        calls.push("ready");
+      },
+    });
+
+    expect(calls).toEqual(["ready"]);
+  });
+
+  test("non-PM fixCommand runs without package.json script pre-check", () => {
+    const sentinel = join(sentinelDir, "direct-fix");
+    const script = join(sentinelDir, "direct.sh");
+    writeFileSync(script, `#!/bin/sh\ntouch "${sentinel}"\n`);
+    chmodSync(script, 0o755);
+
+    runReadyAndCommit({
+      cwd: dir,
+      tier: "full",
+      fixCommand: script,
+      runReady: () => {},
+    });
+
+    expect(existsSync(sentinel)).toBe(true);
+  });
+
+  test("error message names the fixCommand on failure", () => {
+    const script = join(sentinelDir, "failing-fix.sh");
+    writeFileSync(script, `#!/bin/sh\nexit 1\n`);
+    chmodSync(script, 0o755);
+
+    expect(() =>
+      runReadyAndCommit({
+        cwd: dir,
+        tier: "full",
+        fixCommand: script,
+        runReady: () => {},
+      }),
+    ).toThrow(script);
+  });
+
+  test("absent-script skip still commits dirty output after skipped autofix", () => {
+    let commitCalled = false;
+    writeFileSync(join(dir, "dirty.txt"), "x\n");
+
+    runReadyAndCommit({
+      cwd: dir,
+      tier: "full",
+      runReady: () => {},
+      commitPreReadyFix: () => {
+        commitCalled = true;
+        execSync("git add -A && git commit -q -m fix", { cwd: dir });
+      },
+    });
+
+    expect(commitCalled).toBe(true);
+  });
+  test("runs default bun run fix when fix script exists and fixCommand is unset", () => {
+    const sentinel = join(dir, "fix-ran");
+    const script = join(dir, "fix-touch.sh");
+    writeFileSync(script, `#!/bin/sh\ntouch "${sentinel}"\n`);
+    chmodSync(script, 0o755);
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { fix: "./fix-touch.sh" } }, null, 2));
+    execSync("git add package.json fix-touch.sh && git commit -m pkg", { cwd: dir });
+
+    runReadyAndCommit({
+      cwd: dir,
+      tier: "full",
+      runReady: () => {},
+      commitPreReadyFix: () => {
+        execSync("git add -A && git commit -q -m fix", { cwd: dir });
+      },
+    });
+
+    expect(existsSync(sentinel)).toBe(true);
+  });
+});
+
+describe("parsePackageManagerRunScript", () => {
+  test("parses bun/npm/pnpm/yarn run scripts", () => {
+    expect(parsePackageManagerRunScript(["bun", "run", "fix"])).toBe("fix");
+    expect(parsePackageManagerRunScript(["npm", "run", "--silent", "lint"])).toBe("lint");
+    expect(parsePackageManagerRunScript(["pnpm", "run", "fmt"])).toBe("fmt");
+    expect(parsePackageManagerRunScript(["yarn", "run", "test"])).toBe("test");
+  });
+
+  test("returns null for non-PM commands", () => {
+    expect(parsePackageManagerRunScript(["/bin/sh", "fix.sh"])).toBe(null);
+    expect(parsePackageManagerRunScript(["make", "fix"])).toBe(null);
+  });
+});
+
+describe("runReadyGateWithTier fixCommand", () => {
+  let sentinelDir: string;
+
+  beforeEach(() => {
+    sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-sentinel-fix-tier-"));
+  });
+
+  afterEach(() => {
+    rmSync(sentinelDir, { recursive: true, force: true });
+  });
+
+  test("threads fixCommand to runReadyAndCommit", () => {
+    const sentinel = join(sentinelDir, "fix-invoked");
+    const script = join(sentinelDir, "fix.sh");
+    writeFileSync(script, `#!/bin/sh\ntouch "${sentinel}"\n`);
+    chmodSync(script, 0o755);
+
+    runReadyGateWithTier({
+      cwd: dir,
+      agentLabel: "test",
+      fixCommand: script,
+      runReady: () => {},
+    });
+
+    expect(existsSync(sentinel)).toBe(true);
   });
 });
 

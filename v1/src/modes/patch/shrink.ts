@@ -86,6 +86,8 @@ export type PatchShrinkPhaseOptions = {
   refreshRecordedGreenResult?: (headSha: string) => void;
   /** Per-project override for `bun run ready`. Passed to `runReadyGateWithTier`. */
   readyCommand?: string;
+  /** Per-project override for `bun run fix`. Passed to `runReadyGateWithTier`. */
+  fixCommand?: string;
   /** Seam for built-in `bun run fix` on `full` tier. */
   runFix?: (cwd: string) => void;
   /** Seam for verification only. */
@@ -326,6 +328,7 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
           cwd: opts.cwd,
           agentLabel: "shrink-baseline",
           ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
+          ...(opts.fixCommand !== undefined ? { fixCommand: opts.fixCommand } : {}),
           ...(opts.recordedGreenResult !== undefined ? { recordedGreenResult: opts.recordedGreenResult } : {}),
           ...(opts.refreshRecordedGreenResult !== undefined
             ? { refreshRecordedGreenResult: opts.refreshRecordedGreenResult }

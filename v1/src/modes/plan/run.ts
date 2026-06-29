@@ -1457,10 +1457,12 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           // best-effort; completion still succeeds without a URL
         }
 
+        const planFixCommand = cfg.projects[project.key]?.fixCommand;
         safeMarkPlanPrReady({
           io: opts.io,
           branch: planBranch,
           worktreePath: worktreePath as string,
+          ...(planFixCommand !== undefined ? { fixCommand: planFixCommand } : {}),
         });
       } else {
         // For commit: false, show the absolute path and jarvis run command
@@ -1595,6 +1597,7 @@ function safeMarkPlanPrReady(args: {
   io: PlanIo;
   branch: string;
   worktreePath: string;
+  fixCommand?: string;
   markReady?: (branch: string, cwd: string) => void;
   getOpenPrState?: (branch: string, cwd: string) => OpenPrInfo;
 }): void {
@@ -1602,6 +1605,7 @@ function safeMarkPlanPrReady(args: {
     maybeMarkPlanPrReady({
       branch: args.branch,
       cwd: args.worktreePath,
+      ...(args.fixCommand !== undefined ? { fixCommand: args.fixCommand } : {}),
       ...(args.markReady ? { markReady: args.markReady } : {}),
       ...(args.getOpenPrState ? { getOpenPrState: args.getOpenPrState } : {}),
     });

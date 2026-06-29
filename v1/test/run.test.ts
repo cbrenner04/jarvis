@@ -1823,6 +1823,56 @@ Date: 2026-06-18`,
       expect(cap.out()).toContain("spec complete");
     });
 
+    test("uses project fixCommand at completion-transition gate site", async () => {
+      setupGit();
+      installNoopFixBun();
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+
+      const sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-sentinel-"));
+      try {
+        const fixSentinel = join(sentinelDir, "fix-invoked");
+        const fixScript = join(sentinelDir, "fix.sh");
+        writeFileSync(fixScript, `#!/bin/sh\ntouch "${fixSentinel}"\n`);
+        chmodSync(fixScript, 0o755);
+        const readyScript = join(sentinelDir, "ready.sh");
+        writeFileSync(readyScript, `#!/bin/sh\nexit 0\n`);
+        chmodSync(readyScript, 0o755);
+
+        const cfg = loadConfig({ dir: cfgDir });
+        if (cfg.projects.project === undefined) {
+          cfg.projects.project = { root: projectRoot };
+        }
+        cfg.projects.project.fixCommand = fixScript;
+        cfg.projects.project.readyCommand = readyScript;
+        writeConfig(cfg, { dir: cfgDir });
+
+        const cap = captureIo();
+        const claude = new FakeAgent("claude", () => {
+          writeFileSync(spec, "- [x] todo\n");
+          execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+          return { kind: "ok", stdout: "", stderr: "" };
+        });
+
+        const code = await runCommand({
+          specPath: spec,
+          io: cap.io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          handleSignals: false,
+          skipGhCheck: true,
+          reviewPasses: 0,
+          logClient: { assertReachable: async () => {}, send: async () => {} },
+        });
+
+        expect(code).toBe(0);
+        expect(cap.out()).toContain("spec complete");
+        expect(existsSync(fixSentinel)).toBe(true);
+      } finally {
+        rmSync(sentinelDir, { recursive: true, force: true });
+      }
+    });
+
     test("uses project readyCommand at completion-transition gate site", async () => {
       setupGit();
       installNoopFixBun();
@@ -2022,7 +2072,10 @@ exit 0
       execSync(`git remote add origin ${remoteDir}`, { cwd: projectRoot });
 
       const spec = writeSpec("- [ ] todo\n");
-      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      // Absent-script skip skips autofix when root package.json lacks the
+      // resolved script; declare a `fix` script so the shim runs and emits dirt.
+      writeFileSync(join(projectRoot, "package.json"), JSON.stringify({ scripts: { fix: "noop" } }));
+      execSync("git add index.md package.json && git commit -m init", { cwd: projectRoot });
       execSync("git push -u origin project", { cwd: projectRoot });
 
       const cap = captureIo();

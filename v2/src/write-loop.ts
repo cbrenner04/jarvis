@@ -1,6 +1,10 @@
 import { appendFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { getExternalWorktreePath } from "./external-worktree.ts";
+import {
+  invocationFailureDetailFromStepResult,
+  type InvocationFailureDetail,
+} from "./invocation-failure.ts";
 import type { LogSink } from "./log-stream.ts";
 import { type OutcomeKind, openStateStore, type StateStore } from "./state-store.ts";
 import type { RunStatus } from "./state-store-types.ts";
@@ -23,7 +27,22 @@ export type WriteLoopResult = {
   runId: string;
   iterationsConsumed: number;
   resumable: boolean;
-};
+} & Partial<InvocationFailureDetail>;
+
+/** Serialize foreground `jarvis write` JSON; binding-chain detail keys attach only when present. */
+export function writeLoopResultToJson(result: WriteLoopResult): string {
+  const payload: Record<string, unknown> = {
+    kind: result.kind,
+    runId: result.runId,
+    iterationsConsumed: result.iterationsConsumed,
+    resumable: result.resumable,
+  };
+  if (result.failureKind !== undefined) {
+    payload.failureKind = result.failureKind;
+    payload.bindingAttempts = result.bindingAttempts;
+  }
+  return JSON.stringify(payload, null, 2);
+}
 
 /** Input for the write loop. Run identity derives from `worktree` (project, branch, base). */
 export type WriteLoopInput = WriteExecuteInput & {
@@ -131,7 +150,14 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       }
 
       const terminal = terminalMapping(result);
-      store.commitCompletionBoundary({ attemptId, runStatus: terminal.runStatus, outcomeKind: terminal.outcomeKind });
+      const invocationFailureDetail =
+        result.kind === "invocation_failure" ? invocationFailureDetailFromStepResult(result) : undefined;
+      store.commitCompletionBoundary({
+        attemptId,
+        runStatus: terminal.runStatus,
+        outcomeKind: terminal.outcomeKind,
+        ...(invocationFailureDetail !== undefined ? { invocationFailureDetail } : {}),
+      });
       args.logSink?.append(runId, {
         kind: "boundary_committed",
         attemptId,
@@ -139,7 +165,13 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         runStatus: terminal.runStatus,
       });
 
-      const loopResult = { kind: terminal.kind, runId, iterationsConsumed, resumable: false };
+      const loopResult: WriteLoopResult = {
+        kind: terminal.kind,
+        runId,
+        iterationsConsumed,
+        resumable: false,
+        ...(invocationFailureDetail !== undefined ? invocationFailureDetail : {}),
+      };
       args.logSink?.append(runId, {
         kind: "loop_finished",
         loopOutcomeKind: terminal.kind,
@@ -202,6 +234,9 @@ function terminalMapping(result: Exclude<StepRunResult, { kind: "progress" }>): 
   if (result.kind === "contract_miss") {
     return { kind: "contract_miss", runStatus: "blocked", outcomeKind: "contract_miss" };
   }
+  if (result.kind === "invalid_token") {
+    return { kind: "invocation_failure", runStatus: "failed", outcomeKind: "invalid_token" };
+  }
   return { kind: "invocation_failure", runStatus: "failed", outcomeKind: "invocation_failure" };
 }
 
@@ -209,7 +244,15 @@ function terminalMapping(result: Exclude<StepRunResult, { kind: "progress" }>): 
 function committedResult(run: StoredRun): WriteLoopResult | null {
   if (run.status === "completed") return { kind: "complete", runId: run.id, iterationsConsumed: 0, resumable: false };
   if (run.status === "failed") {
-    return { kind: "invocation_failure", runId: run.id, iterationsConsumed: 0, resumable: false };
+    const lastAttempt = run.attempts[run.attempts.length - 1];
+    const detail = lastAttempt?.invocationFailureDetail ?? undefined;
+    return {
+      kind: "invocation_failure",
+      runId: run.id,
+      iterationsConsumed: 0,
+      resumable: false,
+      ...(detail !== undefined ? detail : {}),
+    };
   }
   if (run.status === "blocked") {
     const lastOutcome = run.attempts[run.attempts.length - 1]?.outcomeKind;

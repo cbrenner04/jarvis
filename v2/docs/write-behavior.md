@@ -37,10 +37,13 @@ canonical principle text and rationale.
 Current scope: real agent process spawning is not wired yet.
 `createAgentBindings` (see
 [`shared-invocation.md`](./shared-invocation.md)) returns terminal-`error`
-bindings, so a live `jarvis write` reports `invocation_failure` and exits 1.
-The control flow (loop, contract dispatch, outcome routing, state persistence,
-and resume) is exercised end-to-end in tests by injecting simulated bindings
-(`v2/src/testing/bindings.ts`); no simulation lives in the production CLI.
+bindings, so a live `jarvis write` reports `invocation_failure` with
+`failureKind: "error"` and exits `2`. The control flow (loop, contract dispatch,
+outcome routing, state persistence, and resume) is exercised end-to-end in tests
+by injecting simulated bindings (`v2/src/testing/bindings.ts`); no simulation
+lives in the production CLI. `failureKind: "no_binding"` is exercised today only
+via empty injected bindings in tests; live `createAgentBindings` always yields at
+least one binding.
 
 ## Command
 
@@ -110,7 +113,24 @@ The loop classifies and routes results:
 - **Budget exhausted** while still `progress`: loop exits with a soft-stop outcome
   (distinct from `blocked`, marked resumable). Re-invoking the same run resumes
   remaining spec work with a fresh per-invocation budget.
-- **`invocation_failure`**: all agents exhausted / not wired. Terminal stop.
+- **`invocation_failure`**: binding chain stopped without usable agent output, or
+  token parse failed after a successful invocation. Foreground `jarvis write`
+  stdout JSON uses `kind: "invocation_failure"` for both cases; see below.
+
+### Binding-chain `invocation_failure` JSON
+
+When the step result is binding-chain `invocation_failure`, stdout JSON includes:
+
+- `failureKind` — `quota` | `model_config` | `error` | `no_binding` (see
+  [`shared-invocation.md`](./shared-invocation.md))
+- `bindingAttempts` — ordered `{ bindingId, resultKind }[]` summarizing each
+  binding tried (`resultKind` is that attempt's `InvocationResult.kind`)
+
+`invalid_token` also maps to loop `kind: "invocation_failure"` but **omits**
+`failureKind` and `bindingAttempts`. Other terminal outcomes (`complete`,
+`blocked`, `contract_miss`, `budget-exhausted`) omit them too. Idempotent
+re-entry returns persisted detail only when the terminal attempt row has
+`invocation_failure_detail` stored; legacy rows without it resume detail-free.
 
 Resume identity is `(project, branch)` only. Re-invoking the same project and
 branch resumes the most recent durable run even if `--base`, `--spec`, or the

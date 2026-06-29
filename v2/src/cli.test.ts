@@ -203,6 +203,70 @@ describe("v2 cli", () => {
     expect(cap.read().stdout).toContain('"kind": "invocation_failure"');
   });
 
+  test("write stdout includes failureKind and bindingAttempts for binding-chain invocation_failure", async () => {
+    const cap = captureIo();
+    const result: WriteLoopResult = {
+      kind: "invocation_failure",
+      runId: "run-detail",
+      iterationsConsumed: 1,
+      resumable: false,
+      failureKind: "quota",
+      bindingAttempts: [
+        { bindingId: "sim.1", resultKind: "quota" },
+        { bindingId: "sim.2", resultKind: "quota" },
+      ],
+    };
+
+    await main(WRITE_ARGS, cap.io, {
+      executeWriteLoop: async () => result,
+    });
+
+    const parsed = JSON.parse(cap.read().stdout) as Record<string, unknown>;
+    expect(parsed.failureKind).toBe("quota");
+    expect(parsed.bindingAttempts).toEqual([
+      { bindingId: "sim.1", resultKind: "quota" },
+      { bindingId: "sim.2", resultKind: "quota" },
+    ]);
+  });
+
+  test("write stdout omits failureKind and bindingAttempts for invalid_token-shaped invocation_failure", async () => {
+    const cap = captureIo();
+    const result: WriteLoopResult = {
+      kind: "invocation_failure",
+      runId: "run-invalid",
+      iterationsConsumed: 1,
+      resumable: false,
+    };
+
+    await main(WRITE_ARGS, cap.io, {
+      executeWriteLoop: async () => result,
+    });
+
+    const parsed = JSON.parse(cap.read().stdout) as Record<string, unknown>;
+    expect(parsed.kind).toBe("invocation_failure");
+    expect(parsed).not.toHaveProperty("failureKind");
+    expect(parsed).not.toHaveProperty("bindingAttempts");
+  });
+
+  test("write stdout omits failureKind and bindingAttempts for non-invocation_failure outcomes", async () => {
+    const outcomes: WriteLoopResult[] = [
+      { kind: "complete", runId: "r1", iterationsConsumed: 1, resumable: false },
+      { kind: "blocked", runId: "r2", iterationsConsumed: 1, resumable: false },
+      { kind: "contract_miss", runId: "r3", iterationsConsumed: 1, resumable: false },
+      { kind: "budget-exhausted", runId: "r4", iterationsConsumed: 2, resumable: true },
+    ];
+
+    for (const result of outcomes) {
+      const cap = captureIo();
+      await main(WRITE_ARGS, cap.io, {
+        executeWriteLoop: async () => result,
+      });
+      const parsed = JSON.parse(cap.read().stdout) as Record<string, unknown>;
+      expect(parsed).not.toHaveProperty("failureKind");
+      expect(parsed).not.toHaveProperty("bindingAttempts");
+    }
+  });
+
   test("write command maps budget-exhausted to exit 5", async () => {
     const cap = captureIo();
     const result: WriteLoopResult = {

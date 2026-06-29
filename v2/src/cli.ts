@@ -8,7 +8,7 @@ import type { InvocationBinding } from "../../shared/invocation/execute.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon-lifecycle.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import type { ErrorFrame, ResponseFrame } from "./ipc/types.ts";
-import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
+import { executeWriteLoop, type WriteLoopInput, writeLoopResultToJson } from "./write-loop.ts";
 
 export type Io = {
   stdout: (s: string) => void;
@@ -71,18 +71,7 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
 
     const loopResult = await runtimeDeps.executeWriteLoop(parsed.input);
 
-    out.stdout(
-      `${JSON.stringify(
-        {
-          kind: loopResult.kind,
-          runId: loopResult.runId,
-          iterationsConsumed: loopResult.iterationsConsumed,
-          resumable: loopResult.resumable,
-        },
-        null,
-        2,
-      )}\n`,
-    );
+    out.stdout(`${writeLoopResultToJson(loopResult)}\n`);
 
     return exitCodeForWriteResult(loopResult.kind);
   }

@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import type { RunStatus } from "./state-store-types";
 
 export type AttemptStatus = "in-progress" | "completed";
@@ -37,6 +38,7 @@ export type Attempt = {
   startedAt: number;
   status: AttemptStatus;
   outcomeKind: OutcomeKind | null;
+  invocationFailureDetail: InvocationFailureDetail | null;
 };
 
 /** Repository-style durable state API, keyed by IDs; no generic SQL surface. */
@@ -63,6 +65,7 @@ export interface StateStore {
     attemptId: string;
     runStatus: RunStatus;
     outcomeKind: OutcomeKind;
+    invocationFailureDetail?: InvocationFailureDetail;
     beforeRunUpdate?: () => void;
   }): void;
 
@@ -105,7 +108,42 @@ const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, 
   attempt_count AS attemptCount, worktree_path AS worktreePath, branch, spec_path AS specPath`;
 
 const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, started_at AS startedAt, status,
-  outcome_kind AS outcomeKind`;
+  outcome_kind AS outcomeKind, invocation_failure_detail AS invocationFailureDetailJson`;
+
+const SCHEMA_MIGRATIONS = [
+  {
+    id: "004-invocation-failure-detail",
+    up: "ALTER TABLE attempts ADD COLUMN invocation_failure_detail TEXT",
+  },
+] as const;
+
+function applySchemaMigrations(db: Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS _migrations (
+      id TEXT PRIMARY KEY,
+      applied_at INTEGER NOT NULL
+    )
+  `);
+  for (const migration of SCHEMA_MIGRATIONS) {
+    const exists = db.prepare("SELECT 1 FROM _migrations WHERE id = ?").get(migration.id);
+    if (exists) continue;
+    db.exec(migration.up);
+    db.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(migration.id, Date.now());
+  }
+}
+
+function parseInvocationFailureDetail(raw: string | null): InvocationFailureDetail | null {
+  if (raw === null) return null;
+  return JSON.parse(raw) as InvocationFailureDetail;
+}
+
+function mapAttemptRow(row: Attempt & { invocationFailureDetailJson: string | null }): Attempt {
+  const { invocationFailureDetailJson, ...attempt } = row;
+  return {
+    ...attempt,
+    invocationFailureDetail: parseInvocationFailureDetail(invocationFailureDetailJson),
+  };
+}
 
 class StateStoreImpl implements StateStore {
   private db: Database;
@@ -114,6 +152,7 @@ class StateStoreImpl implements StateStore {
     mkdirSync(dirname(dbPath), { recursive: true });
     this.db = new Database(dbPath);
     this.db.exec(SCHEMA);
+    applySchemaMigrations(this.db);
   }
 
   createRun(args: {
@@ -137,9 +176,11 @@ class StateStoreImpl implements StateStore {
     const run = this.db.prepare(`SELECT ${RUN_COLUMNS} FROM runs WHERE id = ?`).get(runId) as Run | null;
     if (!run) return null;
 
-    const attempts = this.db
-      .prepare(`SELECT ${ATTEMPT_COLUMNS} FROM attempts WHERE run_id = ? ORDER BY attempt_number ASC`)
-      .all(runId) as Attempt[];
+    const attempts = (
+      this.db
+        .prepare(`SELECT ${ATTEMPT_COLUMNS} FROM attempts WHERE run_id = ? ORDER BY attempt_number ASC`)
+        .all(runId) as Array<Attempt & { invocationFailureDetailJson: string | null }>
+    ).map(mapAttemptRow);
 
     return { ...run, attempts };
   }
@@ -172,6 +213,7 @@ class StateStoreImpl implements StateStore {
     attemptId: string;
     runStatus: RunStatus;
     outcomeKind: OutcomeKind;
+    invocationFailureDetail?: InvocationFailureDetail;
     beforeRunUpdate?: () => void;
   }): void {
     this.db.transaction(() => {
@@ -181,9 +223,16 @@ class StateStoreImpl implements StateStore {
       if (!attempt) throw new Error(`Attempt ${args.attemptId} not found`);
       if (attempt.outcomeKind !== null) return; // already committed: idempotent no-op
 
+      const detailJson =
+        args.outcomeKind === "invocation_failure" && args.invocationFailureDetail !== undefined
+          ? JSON.stringify(args.invocationFailureDetail)
+          : null;
+
       this.db
-        .prepare("UPDATE attempts SET status = 'completed', outcome_kind = ?, completed_at = ? WHERE id = ?")
-        .run(args.outcomeKind, Date.now(), args.attemptId);
+        .prepare(
+          "UPDATE attempts SET status = 'completed', outcome_kind = ?, completed_at = ?, invocation_failure_detail = ? WHERE id = ?",
+        )
+        .run(args.outcomeKind, Date.now(), detailJson, args.attemptId);
 
       args.beforeRunUpdate?.();
 

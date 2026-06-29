@@ -43,63 +43,63 @@ bindings (`v2/src/testing/bindings.ts`).
 
 ## Task checklist
 
-- [ ] Export a shared invocation-failure detail type (`failureKind` + ordered
+- [x] Export a shared invocation-failure detail type (`failureKind` + ordered
   `bindingAttempts`) with inline doc-comments on exported symbols.
-- [ ] Append forward-only migration: nullable `invocation_failure_detail` JSON on
+- [x] Append forward-only migration: nullable `invocation_failure_detail` JSON on
   `attempts`; extend `commitCompletionBoundary` to persist it only for binding-
   chain `invocation_failure`; reload via `loadRun` / `findRunByProjectBranch`.
-- [ ] Thread `failureKind` and `bindingAttempts` from `runStep` through
+- [x] Thread `failureKind` and `bindingAttempts` from `runStep` through
   `executeWrite` / `executeWriteLoop` into boundary commit and `WriteLoopResult`
   only when `StepRunResult.kind === "invocation_failure"`.
-- [ ] Include `failureKind` and `bindingAttempts` in foreground `jarvis write`
+- [x] Include `failureKind` and `bindingAttempts` in foreground `jarvis write`
   JSON only for binding-chain `invocation_failure`.
-- [ ] Co-located tests for each `failureKind` path, negative attachment,
+- [x] Co-located tests for each `failureKind` path, negative attachment,
   `invalid_token`, legacy detail-free resume, and idempotent re-entry with detail.
-- [ ] Update durable docs per documentation updates; gate on acceptance criteria
+- [x] Update durable docs per documentation updates; gate on acceptance criteria
   below.
 
 ## Acceptance criteria
 
-- [ ] A binding chain where every configured agent returns `quota` ends with
+- [x] A binding chain where every configured agent returns `quota` ends with
   `failureKind: "quota"` and `bindingAttempts` listing each binding in order with
   `resultKind: "quota"` (test, injected bindings).
-- [ ] A chain stopped by `model_config` or `error` on the first non-quota result
+- [x] A chain stopped by `model_config` or `error` on the first non-quota result
   reports that `failureKind` and `bindingAttempts` ending at the terminal attempt
   (test, per kind).
-- [ ] An empty binding list reports `failureKind: "no_binding"` with
+- [x] An empty binding list reports `failureKind: "no_binding"` with
   `bindingAttempts: []` (test).
-- [ ] `jarvis write` stdout JSON on binding-chain `invocation_failure` includes
+- [x] `jarvis write` stdout JSON on binding-chain `invocation_failure` includes
   top-level keys `failureKind` and `bindingAttempts` with the persisted values
   (test, `cli.test.ts`).
-- [ ] `invalid_token` terminal: `jarvis write` stdout JSON has `kind:
+- [x] `invalid_token` terminal: `jarvis write` stdout JSON has `kind:
   "invocation_failure"` but omits `failureKind` and `bindingAttempts`; idempotent
   re-entry omits them too (test).
-- [ ] Terminal outcomes `complete`, `blocked`, `contract_miss`, and
+- [x] Terminal outcomes `complete`, `blocked`, `contract_miss`, and
   `budget-exhausted` omit `failureKind` and `bindingAttempts` on stdout JSON
   (test).
-- [ ] Re-invoking a run whose terminal attempt has persisted
+- [x] Re-invoking a run whose terminal attempt has persisted
   `invocation_failure_detail` returns the same `failureKind` and `bindingAttempts`
   without a new attempt (test).
-- [ ] Re-invoking a pre-migration `failed` run whose terminal attempt has
+- [x] Re-invoking a pre-migration `failed` run whose terminal attempt has
   `outcome_kind: "invocation_failure"` and null `invocation_failure_detail`
   returns `kind: "invocation_failure"` without `failureKind` or `bindingAttempts`
   (test).
-- [ ] `v2/src/write.test.ts` quota-fallback success test stays green (quota-only
+- [x] `v2/src/write.test.ts` quota-fallback success test stays green (quota-only
   advance unchanged).
-- [ ] `v2/src/write-loop.test.ts` structured-log-stream terminal tests stay green
+- [x] `v2/src/write-loop.test.ts` structured-log-stream terminal tests stay green
   (log-stream payloads unchanged by this slice).
-- [ ] `v2/docs/shared-invocation.md` documents terminal `failureKind` categories
+- [x] `v2/docs/shared-invocation.md` documents terminal `failureKind` categories
   and quota-only fallback stop.
-- [ ] `v2/docs/write-behavior.md` documents `failureKind` / `bindingAttempts` on
+- [x] `v2/docs/write-behavior.md` documents `failureKind` / `bindingAttempts` on
   binding-chain `invocation_failure`, states `no_binding` is exercised via empty
   injected bindings today (live `createAgentBindings` yields `error`), and exit
   `2` for `invocation_failure` (replaces stale exhausted/not-wired prose).
-- [ ] `v2/docs/state-store.md` documents nullable `invocation_failure_detail` on
+- [x] `v2/docs/state-store.md` documents nullable `invocation_failure_detail` on
   terminal binding-chain attempts, forward-only migration, and legacy rows omit
   detail on load.
-- [ ] `v2/docs/v1-behaviors.md`: no v1 change — additive v2 operator JSON on
+- [x] `v2/docs/v1-behaviors.md`: no v1 change — additive v2 operator JSON on
   existing `invocation_failure` outcome.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

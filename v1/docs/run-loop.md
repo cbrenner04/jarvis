@@ -980,7 +980,7 @@ jarvis1 log-server
 
 | Exit | Reason | Meaning |
 | --- | --- | --- |
-| `0` | `criteria-complete` | Spec complete. |
+| `0` | `criteria-complete` | Spec complete. False completion on multi-subspec indexes (`criteria-complete`, `iterations: 0`, no `spec complete` on stdout) — see exit `6` uncommitted-ticks note. |
 | `1` | `error` | Bad input (unknown command, missing args, invalid `--max-iterations`, unregistered project, `--resume-review` guard failure, etc.). `--resume-review` guard failures include: review passes resolve to `0`, effective `git` is `false`, no implementation PR/remote branch exists for the spec's branch, or the spec has unchecked tasks. Each guard prints a distinct message before exiting. |
 | `2` | `quota-exhausted` | Every configured agent was quota-exhausted. |
 | `3` | `agent-error` | The active agent failed for a non-quota reason. In `git: true` runs, jarvis first commits partial progress as `WIP:` when the failed iteration left tracked edits or newly checked acceptance criteria; untracked-only litter does not trigger a WIP commit. |

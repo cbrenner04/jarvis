@@ -7,8 +7,8 @@ distinct paths.
 
 The three modes chain: `jarvis1 intent` fans one seed out into authored
 ready-intents, `jarvis1 plan` drafts a spec tree from one ready-intent, and
-`jarvis1 run` implements that spec. Each stage opens its own draft PR for a
-human to review and merge before the next stage runs.
+`jarvis1 run` implements that spec. Each stage opens its own PR for a human to
+review and merge before the next stage runs.
 
 Authoritative behavior lives in [intent-mode.md](./intent-mode.md),
 [plan-mode.md](./plan-mode.md), and [run-loop.md](./run-loop.md); this document
@@ -63,7 +63,7 @@ flowchart TD
     direction TB
     intentEntry["Preflight + worktree"]:::det
     intentEntry --> split(["Split seed into N<br/>behavior-level intents"]):::llm
-    split --> writeIntents["Validate + write N files to<br/>&lt;targetDir&gt;/ready-intents/ · commit · draft PR"]:::det
+    split --> writeIntents["Validate + write N files to<br/>&lt;targetDir&gt;/ready-intents/ · commit · ready PR"]:::det
   end
 
   writeIntents --> intentHandoff["Human reviews the split,<br/>picks one ready-intent"]:::det
@@ -107,7 +107,7 @@ Intent is a **single split call** that sizes work before planning. Plan is a
 **fixed pipeline**: draft → review, with the review iteration count set up front
 by `--review-passes`. Patch is a **single implementation loop** that terminates
 when the spec's checklist is empty, followed by optional post-completion shrink
-and review phases. All three modes produce a draft PR that a human reviews and
+and review phases. All three modes produce a PR that a human reviews and
 merges. Intent never drafts spec directories; plan never writes outside its
 spec tree; patch is free to edit anywhere in its worktree. Blocker exits, quota
 fallback, the prerequisite gate, and the full set of patch exit codes are
@@ -131,7 +131,7 @@ flowchart TD
   stage --> valid{"Valid + no name collision?"}:::dec
   valid -- no --> abort["Abort: no ready-intents written,<br/>no PR · exit non-zero"]:::stop
   valid -- yes --> writeFiles["Write N files to<br/>&lt;targetDir&gt;/ready-intents/ · commit · push"]:::det
-  writeFiles --> pr["Open draft PR for split review"]:::det
+  writeFiles --> pr["Open PR and flip ready<br/>for split review"]:::det
   pr --> done["exit 0 · operator picks one ready-intent"]:::stop
 
   classDef det fill:#dff5e1,stroke:#2f7d3a,color:#0b3d16;

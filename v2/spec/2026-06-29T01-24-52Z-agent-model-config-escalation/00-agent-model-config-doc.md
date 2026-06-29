@@ -166,7 +166,7 @@ implementation is blocked on this design contract.
       sketch with multi-rung escalation for a non-`actuator` role.
 - [x] The doc records load-bearing decisions in a ledger and cross-links
       `v2/docs/role-resolution.md`.
-- [ ] No thinking/reviewing/executing category appears as a model-resolution
+- [x] No thinking/reviewing/executing category appears as a model-resolution
       key in `agent-model-config.md`. (Manual)
 
 ## Documentation updates

@@ -26,8 +26,7 @@ names in project config and model rungs in the global store.
 ## Types
 
 Resolution keys are concrete **roles** from the closed union in
-[`role-resolution.md`](role-resolution.md) — not `thinking` / `reviewing` /
-`executing` categories.
+[`role-resolution.md`](role-resolution.md). This schema uses role names only.
 
 ### `Agent`
 

@@ -141,6 +141,46 @@ describe("StateStore", () => {
     expect(run.attemptCount).toBe(2);
   });
 
+  test("commit boundary persists invocation_failure_detail only for binding-chain failures", () => {
+    const runId = seedRun(store);
+    const withDetail = store.recordAttemptStart(runId);
+    store.commitCompletionBoundary({
+      attemptId: withDetail,
+      runStatus: "failed",
+      outcomeKind: "invocation_failure",
+      invocationFailureDetail: {
+        failureKind: "error",
+        bindingAttempts: [{ bindingId: "sim.1", resultKind: "error" }],
+      },
+    });
+
+    const withoutDetail = store.recordAttemptStart(runId);
+    store.commitCompletionBoundary({ attemptId: withoutDetail, runStatus: "failed", outcomeKind: "invalid_token" });
+
+    const run = loadRunOrThrow(store, runId);
+    expect(run.attempts[0]?.invocationFailureDetail).toEqual({
+      failureKind: "error",
+      bindingAttempts: [{ bindingId: "sim.1", resultKind: "error" }],
+    });
+    expect(run.attempts[1]?.invocationFailureDetail).toBeNull();
+  });
+
+  test("schema migration is idempotent on re-open", () => {
+    seedRun(store);
+    store.close();
+
+    store = openStateStore(TEST_DB_PATH);
+    const runId = seedRun(store);
+    const attemptId = store.recordAttemptStart(runId);
+    store.commitCompletionBoundary({
+      attemptId,
+      runStatus: "failed",
+      outcomeKind: "invocation_failure",
+      invocationFailureDetail: { failureKind: "quota", bindingAttempts: [] },
+    });
+    expect(loadRunOrThrow(store, runId).attempts[0]?.invocationFailureDetail?.failureKind).toBe("quota");
+  });
+
   test("finds the latest run by project and branch even when specRef and worktree differ", () => {
     const olderRunId = seedRun(store, { specRef: "old-ref", worktreePath: "/tmp/worktree-a", specPath: "spec-a.md" });
     const newerRunId = seedRun(store, { specRef: "new-ref", worktreePath: "/tmp/worktree-b", specPath: "spec-b.md" });

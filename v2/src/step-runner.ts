@@ -4,6 +4,7 @@ import {
   type InvocationExecution,
   type InvocationResult,
 } from "../../shared/invocation/execute.ts";
+import type { InvocationFailureKind } from "./invocation-failure.ts";
 
 const TERMINAL_TOKENS = ["done", "no-work", "blocked", "progress"] as const;
 
@@ -36,7 +37,7 @@ export type StepRunResult = { invocation: InvocationExecution } & (
   | { kind: "invalid_token"; tokenText: string }
   | {
       kind: "invocation_failure";
-      failureKind: "quota" | "model_config" | "error" | "no_binding";
+      failureKind: InvocationFailureKind;
     }
 );
 

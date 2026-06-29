@@ -383,6 +383,10 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
 
 ## Completion, blockers, exit codes, and failure handling
 
+### v2 write (`jarvis write`)
+
+- [v2 additive] Foreground `jarvis write` on binding-chain `invocation_failure` adds top-level JSON fields `failureKind` and `bindingAttempts` to the existing `kind: "invocation_failure"` outcome; exit code remains `2`. No v1 surface change. Sources: `v2/src/write-loop.ts`, `v2/src/cli.ts`, `v2/docs/write-behavior.md`
+
 ### Patch mode
 
 - Patch spec completion is checkbox-driven: parser counts unchecked GitHub-task items, and a spec with zero task items is malformed (`MalformedSpecError`) rather than complete. Sources: `v1/src/modes/patch/completion.ts`, `shared/spec-parser.ts`

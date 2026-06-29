@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
+import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
 import type { LogEvent, LogSink } from "./log-stream.ts";
 import { openStateStore, type StateStore } from "./state-store.ts";
 import { simulatedBindings } from "./testing/bindings.ts";
@@ -308,17 +309,187 @@ describe("write loop", () => {
     expect(result.resumable).toBe(true);
   });
 
-  test("invocation_failure is terminal", async () => {
+  test("binding-chain invocation failures report failureKind and bindingAttempts", async () => {
+    const cases: Array<{
+      branchName: string;
+      bindings: readonly InvocationBinding[];
+      failureKind: InvocationFailureKind;
+      bindingAttempts: BindingAttemptSummary[];
+    }> = [
+      {
+        branchName: "quota-run",
+        bindings: simulatedBindings(["quota", "quota"]),
+        failureKind: "quota",
+        bindingAttempts: [
+          { bindingId: "sim.1", resultKind: "quota" },
+          { bindingId: "sim.2", resultKind: "quota" },
+        ],
+      },
+      {
+        branchName: "model-config-run",
+        bindings: simulatedBindings(["quota", "model_config"]),
+        failureKind: "model_config",
+        bindingAttempts: [
+          { bindingId: "sim.1", resultKind: "quota" },
+          { bindingId: "sim.2", resultKind: "model_config" },
+        ],
+      },
+      {
+        branchName: "error-run",
+        bindings: simulatedBindings(["error"]),
+        failureKind: "error",
+        bindingAttempts: [{ bindingId: "sim.1", resultKind: "error" }],
+      },
+      {
+        branchName: "no-binding-run",
+        bindings: [] as InvocationBinding[],
+        failureKind: "no_binding" as const,
+        bindingAttempts: [],
+      },
+    ];
+
+    for (const testCase of cases) {
+      const { jarvisRoot, stateDbPath } = setupRepo();
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName: testCase.branchName,
+        bindings: testCase.bindings,
+      });
+
+      expect(result.kind).toBe("invocation_failure");
+      expect(result.resumable).toBe(false);
+      expect(result.failureKind).toBe(testCase.failureKind);
+      expect(result.bindingAttempts).toEqual(testCase.bindingAttempts);
+    }
+  });
+
+  const invalidTokenBindings: InvocationBinding[] = [
+    {
+      id: "agent",
+      invoke: async () => ({ kind: "ok", stdout: "not a terminal token", stderr: "" }),
+    },
+  ];
+
+  test("invalid_token omits failureKind and bindingAttempts", async () => {
     const { jarvisRoot, stateDbPath } = setupRepo();
+
+    const result = await runLoop({ jarvisRoot, stateDbPath, bindings: invalidTokenBindings });
+
+    expect(result.kind).toBe("invocation_failure");
+    expect(result.failureKind).toBeUndefined();
+    expect(result.bindingAttempts).toBeUndefined();
+    expect(loadRunOnce(stateDbPath, result.runId)?.attempts[0]?.outcomeKind).toBe("invalid_token");
+  });
+
+  test("complete, blocked, contract_miss, and budget-exhausted omit failure detail", async () => {
+    const { jarvisRoot, stateDbPath } = setupRepo();
+
+    const complete = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+    });
+    expect(complete.failureKind).toBeUndefined();
+
+    const blocked = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName: "blocked-run",
+      bindings: simulatedBindings(["blocked"]),
+    });
+    expect(blocked.failureKind).toBeUndefined();
+
+    const contractMiss = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName: "contract-miss-run",
+      bindings: simulatedBindings(["done"]),
+    });
+    expect(contractMiss.failureKind).toBeUndefined();
+
+    const budget = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName: "budget-run",
+      bindings: simulatedBindings(["progress"]),
+      maxIterations: 1,
+    });
+    expect(budget.failureKind).toBeUndefined();
+  });
+
+  test("re-invoking binding-chain invocation_failure returns persisted detail without a new attempt", async () => {
+    const { jarvisRoot, stateDbPath } = setupRepo();
+
+    const first = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings: simulatedBindings(["quota", "model_config"]),
+    });
+
+    const second = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+    });
+
+    expect(second.kind).toBe("invocation_failure");
+    expect(second.runId).toBe(first.runId);
+    expect(second.failureKind).toBe("model_config");
+    expect(second.bindingAttempts).toEqual(first.bindingAttempts);
+    expect(loadRunOnce(stateDbPath, first.runId)?.attemptCount).toBe(1);
+  });
+
+  test("pre-migration failed run resumes invocation_failure without failure detail", async () => {
+    const { jarvisRoot, stateDbPath } = setupRepo();
+    const store = openStateStore(stateDbPath);
+    const runId = store.createRun({
+      project: "demo",
+      specRef: "HEAD",
+      worktreePath: join(jarvisRoot, "worktrees", "demo", "legacy-run"),
+      branch: "legacy-run",
+      specPath: "spec.md",
+    });
+    const attemptId = store.recordAttemptStart(runId);
+    store.commitCompletionBoundary({
+      attemptId,
+      runStatus: "failed",
+      outcomeKind: "invocation_failure",
+    });
+    store.close();
 
     const result = await runLoop({
       jarvisRoot,
       stateDbPath,
-      bindings: simulatedBindings(["quota", "quota"]),
+      branchName: "legacy-run",
+      bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
     });
 
     expect(result.kind).toBe("invocation_failure");
-    expect(result.resumable).toBe(false);
+    expect(result.failureKind).toBeUndefined();
+    expect(result.bindingAttempts).toBeUndefined();
+  });
+
+  test("invalid_token idempotent re-entry omits failure detail", async () => {
+    const { jarvisRoot, stateDbPath } = setupRepo();
+
+    const first = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings: invalidTokenBindings,
+      branchName: "invalid-token-run",
+    });
+    const second = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName: "invalid-token-run",
+      bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+    });
+
+    expect(second.kind).toBe("invocation_failure");
+    expect(second.failureKind).toBeUndefined();
+    expect(second.bindingAttempts).toBeUndefined();
+    expect(second.runId).toBe(first.runId);
   });
 
   test("max iterations per-invocation with default constant", async () => {

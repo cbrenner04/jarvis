@@ -1,3 +1,3 @@
 # Typed invocation failure reasons
 
-- [ ] [00 - Invocation failure reasons](./00-invocation-failure-reasons.md)
+- [x] [00 - Invocation failure reasons](./00-invocation-failure-reasons.md)

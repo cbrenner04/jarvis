@@ -1,6 +1,7 @@
 import { appendFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { getExternalWorktreePath } from "./external-worktree.ts";
+import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import type { LogSink } from "./log-stream.ts";
 import { type OutcomeKind, openStateStore, type StateStore } from "./state-store.ts";
 import type { RunStatus } from "./state-store-types.ts";
@@ -23,7 +24,7 @@ export type WriteLoopResult = {
   runId: string;
   iterationsConsumed: number;
   resumable: boolean;
-};
+} & Partial<InvocationFailureDetail>;
 
 /** Input for the write loop. Run identity derives from `worktree` (project, branch, base). */
 export type WriteLoopInput = WriteExecuteInput & {
@@ -62,14 +63,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
     while (iterationsConsumed < maxIterations) {
       if (args.signal?.aborted) {
-        const result = { kind: "progress" as const, runId, iterationsConsumed, resumable: true };
-        args.logSink?.append(runId, {
-          kind: "loop_finished",
-          loopOutcomeKind: "progress",
-          iterationsConsumed,
-          resumable: true,
-        });
-        return result;
+        return finishLoop(args, runId, "progress", iterationsConsumed, true);
       }
 
       const attemptId = resumedAttemptId ?? store.recordAttemptStart(runId);
@@ -91,14 +85,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       // If the abort signal was triggered while the step was running, skip boundary commit
       if (args.signal?.aborted) {
-        const result = { kind: "progress" as const, runId, iterationsConsumed, resumable: true };
-        args.logSink?.append(runId, {
-          kind: "loop_finished",
-          loopOutcomeKind: "progress",
-          iterationsConsumed,
-          resumable: true,
-        });
-        return result;
+        return finishLoop(args, runId, "progress", iterationsConsumed, true);
       }
 
       if (result.kind === "progress") {
@@ -113,14 +100,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         // Check for graceful pause at the loop boundary
         if (args.pauseSignal?.aborted) {
           store.setRunStatus(runId, "paused");
-          const pauseResult = { kind: "paused" as const, runId, iterationsConsumed, resumable: true };
-          args.logSink?.append(runId, {
-            kind: "loop_finished",
-            loopOutcomeKind: "paused",
-            iterationsConsumed,
-            resumable: true,
-          });
-          return pauseResult;
+          return finishLoop(args, runId, "paused", iterationsConsumed, true);
         }
 
         continue;
@@ -131,7 +111,22 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       }
 
       const terminal = terminalMapping(result);
-      store.commitCompletionBoundary({ attemptId, runStatus: terminal.runStatus, outcomeKind: terminal.outcomeKind });
+      const detail =
+        result.kind === "invocation_failure"
+          ? {
+              failureKind: result.failureKind,
+              bindingAttempts: result.invocation.attempts.map((attempt) => ({
+                bindingId: attempt.binding.id,
+                resultKind: attempt.result.kind,
+              })),
+            }
+          : undefined;
+      store.commitCompletionBoundary({
+        attemptId,
+        runStatus: terminal.runStatus,
+        outcomeKind: terminal.outcomeKind,
+        ...(detail !== undefined ? { invocationFailureDetail: detail } : {}),
+      });
       args.logSink?.append(runId, {
         kind: "boundary_committed",
         attemptId,
@@ -139,14 +134,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         runStatus: terminal.runStatus,
       });
 
-      const loopResult = { kind: terminal.kind, runId, iterationsConsumed, resumable: false };
-      args.logSink?.append(runId, {
-        kind: "loop_finished",
-        loopOutcomeKind: terminal.kind,
-        iterationsConsumed,
-        resumable: false,
-      });
-      return loopResult;
+      return finishLoop(args, runId, terminal.kind, iterationsConsumed, false, detail);
     }
 
     store.setRunStatus(runId, "budget-soft-stopped");
@@ -162,6 +150,29 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       store.close();
     }
   }
+}
+
+function finishLoop(
+  args: WriteLoopInput,
+  runId: string,
+  kind: WriteLoopOutcomeKind,
+  iterationsConsumed: number,
+  resumable: boolean,
+  detail?: InvocationFailureDetail,
+): WriteLoopResult {
+  args.logSink?.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: kind,
+    iterationsConsumed,
+    resumable,
+  });
+  return {
+    kind,
+    runId,
+    iterationsConsumed,
+    resumable,
+    ...(detail !== undefined ? detail : {}),
+  };
 }
 
 function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {
@@ -202,6 +213,9 @@ function terminalMapping(result: Exclude<StepRunResult, { kind: "progress" }>): 
   if (result.kind === "contract_miss") {
     return { kind: "contract_miss", runStatus: "blocked", outcomeKind: "contract_miss" };
   }
+  if (result.kind === "invalid_token") {
+    return { kind: "invocation_failure", runStatus: "failed", outcomeKind: "invalid_token" };
+  }
   return { kind: "invocation_failure", runStatus: "failed", outcomeKind: "invocation_failure" };
 }
 
@@ -209,7 +223,14 @@ function terminalMapping(result: Exclude<StepRunResult, { kind: "progress" }>): 
 function committedResult(run: StoredRun): WriteLoopResult | null {
   if (run.status === "completed") return { kind: "complete", runId: run.id, iterationsConsumed: 0, resumable: false };
   if (run.status === "failed") {
-    return { kind: "invocation_failure", runId: run.id, iterationsConsumed: 0, resumable: false };
+    const detail = run.attempts[run.attempts.length - 1]?.invocationFailureDetail ?? undefined;
+    return {
+      kind: "invocation_failure",
+      runId: run.id,
+      iterationsConsumed: 0,
+      resumable: false,
+      ...(detail !== undefined ? detail : {}),
+    };
   }
   if (run.status === "blocked") {
     const lastOutcome = run.attempts[run.attempts.length - 1]?.outcomeKind;

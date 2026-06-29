@@ -203,6 +203,41 @@ describe("v2 cli", () => {
     expect(cap.read().stdout).toContain('"kind": "invocation_failure"');
   });
 
+  test("write stdout failureKind and bindingAttempts attach only on binding-chain invocation_failure", async () => {
+    const withoutDetail: WriteLoopResult[] = [
+      { kind: "invocation_failure", runId: "run-invalid", iterationsConsumed: 1, resumable: false },
+      { kind: "complete", runId: "r1", iterationsConsumed: 1, resumable: false },
+      { kind: "blocked", runId: "r2", iterationsConsumed: 1, resumable: false },
+      { kind: "contract_miss", runId: "r3", iterationsConsumed: 1, resumable: false },
+      { kind: "budget-exhausted", runId: "r4", iterationsConsumed: 2, resumable: true },
+    ];
+
+    for (const result of withoutDetail) {
+      const cap = captureIo();
+      await main(WRITE_ARGS, cap.io, { executeWriteLoop: async () => result });
+      const parsed = JSON.parse(cap.read().stdout) as Record<string, unknown>;
+      expect(parsed).not.toHaveProperty("failureKind");
+      expect(parsed).not.toHaveProperty("bindingAttempts");
+    }
+
+    const cap = captureIo();
+    const withDetail: WriteLoopResult = {
+      kind: "invocation_failure",
+      runId: "run-detail",
+      iterationsConsumed: 1,
+      resumable: false,
+      failureKind: "quota",
+      bindingAttempts: [
+        { bindingId: "sim.1", resultKind: "quota" },
+        { bindingId: "sim.2", resultKind: "quota" },
+      ],
+    };
+    await main(WRITE_ARGS, cap.io, { executeWriteLoop: async () => withDetail });
+    const parsed = JSON.parse(cap.read().stdout) as Record<string, unknown>;
+    expect(parsed.failureKind).toBe("quota");
+    expect(parsed.bindingAttempts).toEqual(withDetail.bindingAttempts);
+  });
+
   test("write command maps budget-exhausted to exit 5", async () => {
     const cap = captureIo();
     const result: WriteLoopResult = {

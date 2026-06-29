@@ -1,14 +1,17 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { getCurrentBranch } from "../../shared/git.ts";
+import { appendAgentTrailer } from "../src/commit-trailer.ts";
 import {
   FixCommandError,
   PostVerificationCommitError,
   PostVerificationPushError,
   PreReadyFixCommitError,
   ReadyCommandError,
+  postVerificationStillDirtyErrorMessage,
   ReadyVerificationDirtyError,
   runReadyAndCommit,
   runReadyGateWithTier,
@@ -183,7 +186,8 @@ describe("runReadyAndCommit", () => {
   });
 
   test("full tier aborts when post-verification commit leaves tree dirty", () => {
-    expect(() =>
+    let err: ReadyVerificationDirtyError | undefined;
+    try {
       runReadyAndCommit({
         cwd: dir,
         tier: "full",
@@ -191,17 +195,36 @@ describe("runReadyAndCommit", () => {
         runReady: () => {
           writeFileSync(join(dir, "override-dirt.txt"), "x\n");
         },
-        commitPostVerification: (cwd) => {
-          execSync("git add -A && git commit -q -m post", { cwd });
+        commitPostVerification: (cwd, agentLabel) => {
+          execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe" });
+          const commitMessage = appendAgentTrailer("chore: apply post-ready verification output", agentLabel);
+          execFileSync("git", ["commit", "-F", "-"], {
+            cwd,
+            env: process.env,
+            stdio: ["pipe", "pipe", "pipe"],
+            input: commitMessage,
+          });
           writeFileSync(join(cwd, "still-dirty.txt"), "y\n");
-          const porcelain = execSync("git status --porcelain", { cwd, encoding: "utf8" }).trim();
-          const dirtyBranch = execSync("git branch --show-current", { cwd, encoding: "utf8" }).trim();
-          throw new ReadyVerificationDirtyError(
-            `verification returned green but worktree is still dirty on branch ${dirtyBranch}:\n${porcelain}\nDo not call gh pr ready. Inspect the branch and commit or discard the unexpected changes.`,
-          );
+          const porcelain = execFileSync("git", ["status", "--porcelain"], {
+            cwd,
+            encoding: "utf8",
+            stdio: "pipe",
+          }).trim();
+          const dirtyBranch = getCurrentBranch(cwd);
+          throw new ReadyVerificationDirtyError(postVerificationStillDirtyErrorMessage(dirtyBranch, porcelain));
         },
-      }),
-    ).toThrow(ReadyVerificationDirtyError);
+      });
+    } catch (e) {
+      err = e as ReadyVerificationDirtyError;
+    }
+
+    expect(err).toBeInstanceOf(ReadyVerificationDirtyError);
+    expect(err?.message).toBe(
+      postVerificationStillDirtyErrorMessage(
+        "main",
+        execFileSync("git", ["status", "--porcelain"], { cwd: dir, encoding: "utf8", stdio: "pipe" }).trim(),
+      ),
+    );
   });
 
   test("post-verification commit failure aborts after green verification", () => {

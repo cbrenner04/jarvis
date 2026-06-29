@@ -117,6 +117,10 @@ export class ReadyVerificationDirtyError extends Error {
   }
 }
 
+export function postVerificationStillDirtyErrorMessage(branch: string, porcelain: string): string {
+  return `post-verification commit succeeded but worktree is still dirty on branch ${branch}:\n${porcelain}\nDo not call gh pr ready. Inspect the branch and commit or discard the unexpected changes.`;
+}
+
 function readPorcelain(cwd: string): string {
   return execFileSync("git", ["status", "--porcelain"], {
     cwd,
@@ -169,7 +173,7 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
     if (porcelain !== "") {
       const dirtyBranch = getCurrentBranch(cwd);
       throw new ReadyVerificationDirtyError(
-        `verification returned green but worktree is still dirty on branch ${dirtyBranch}:\n${porcelain}\nDo not call gh pr ready. Inspect the branch and commit or discard the unexpected changes.`,
+        postVerificationStillDirtyErrorMessage(dirtyBranch, porcelain),
       );
     }
 

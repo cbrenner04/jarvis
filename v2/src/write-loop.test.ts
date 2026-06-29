@@ -7,6 +7,7 @@ import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-wo
 import type { LogEvent, LogSink } from "./log-stream.ts";
 import { openStateStore, type StateStore } from "./state-store.ts";
 import { simulatedBindings } from "./testing/bindings.ts";
+import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
 
 const roots: string[] = [];
@@ -308,87 +309,72 @@ describe("write loop", () => {
     expect(result.resumable).toBe(true);
   });
 
-  test("invocation_failure is terminal", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
-
-    const result = await runLoop({
-      jarvisRoot,
-      stateDbPath,
-      bindings: simulatedBindings(["quota", "quota"]),
-    });
-
-    expect(result.kind).toBe("invocation_failure");
-    expect(result.resumable).toBe(false);
-  });
-
-  test("quota-exhausted binding chain reports failureKind quota and ordered bindingAttempts", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
-
-    const result = await runLoop({
-      jarvisRoot,
-      stateDbPath,
-      bindings: simulatedBindings(["quota", "quota"]),
-    });
-
-    expect(result.failureKind).toBe("quota");
-    expect(result.bindingAttempts).toEqual([
-      { bindingId: "sim.1", resultKind: "quota" },
-      { bindingId: "sim.2", resultKind: "quota" },
-    ]);
-  });
-
-  test("model_config stops chain with failureKind and bindingAttempts ending at terminal attempt", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
-
-    const result = await runLoop({
-      jarvisRoot,
-      stateDbPath,
-      bindings: simulatedBindings(["quota", "model_config"]),
-    });
-
-    expect(result.failureKind).toBe("model_config");
-    expect(result.bindingAttempts).toEqual([
-      { bindingId: "sim.1", resultKind: "quota" },
-      { bindingId: "sim.2", resultKind: "model_config" },
-    ]);
-  });
-
-  test("error stops chain with failureKind and bindingAttempts ending at terminal attempt", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
-
-    const result = await runLoop({
-      jarvisRoot,
-      stateDbPath,
-      bindings: simulatedBindings(["error"]),
-    });
-
-    expect(result.failureKind).toBe("error");
-    expect(result.bindingAttempts).toEqual([{ bindingId: "sim.1", resultKind: "error" }]);
-  });
-
-  test("empty bindings report failureKind no_binding with empty bindingAttempts", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
-
-    const result = await runLoop({
-      jarvisRoot,
-      stateDbPath,
-      bindings: [],
-    });
-
-    expect(result.failureKind).toBe("no_binding");
-    expect(result.bindingAttempts).toEqual([]);
-  });
-
-  test("invalid_token omits failureKind and bindingAttempts", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
-    const bindings: InvocationBinding[] = [
+  test("binding-chain invocation failures report failureKind and bindingAttempts", async () => {
+    const cases: Array<{
+      branchName: string;
+      bindings: readonly InvocationBinding[];
+      failureKind: InvocationFailureKind;
+      bindingAttempts: BindingAttemptSummary[];
+    }> = [
       {
-        id: "agent",
-        invoke: async () => ({ kind: "ok", stdout: "not a terminal token", stderr: "" }),
+        branchName: "quota-run",
+        bindings: simulatedBindings(["quota", "quota"]),
+        failureKind: "quota",
+        bindingAttempts: [
+          { bindingId: "sim.1", resultKind: "quota" },
+          { bindingId: "sim.2", resultKind: "quota" },
+        ],
+      },
+      {
+        branchName: "model-config-run",
+        bindings: simulatedBindings(["quota", "model_config"]),
+        failureKind: "model_config",
+        bindingAttempts: [
+          { bindingId: "sim.1", resultKind: "quota" },
+          { bindingId: "sim.2", resultKind: "model_config" },
+        ],
+      },
+      {
+        branchName: "error-run",
+        bindings: simulatedBindings(["error"]),
+        failureKind: "error",
+        bindingAttempts: [{ bindingId: "sim.1", resultKind: "error" }],
+      },
+      {
+        branchName: "no-binding-run",
+        bindings: [] as InvocationBinding[],
+        failureKind: "no_binding" as const,
+        bindingAttempts: [],
       },
     ];
 
-    const result = await runLoop({ jarvisRoot, stateDbPath, bindings });
+    for (const testCase of cases) {
+      const { jarvisRoot, stateDbPath } = setupRepo();
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName: testCase.branchName,
+        bindings: testCase.bindings,
+      });
+
+      expect(result.kind).toBe("invocation_failure");
+      expect(result.resumable).toBe(false);
+      expect(result.failureKind).toBe(testCase.failureKind);
+      expect(result.bindingAttempts).toEqual(testCase.bindingAttempts);
+    }
+  });
+
+  const invalidTokenBindings: InvocationBinding[] = [
+    {
+      id: "agent",
+      invoke: async () => ({ kind: "ok", stdout: "not a terminal token", stderr: "" }),
+    },
+  ];
+
+  test("invalid_token omits failureKind and bindingAttempts", async () => {
+    const { jarvisRoot, stateDbPath } = setupRepo();
+
+    const result = await runLoop({ jarvisRoot, stateDbPath, bindings: invalidTokenBindings });
 
     expect(result.kind).toBe("invocation_failure");
     expect(result.failureKind).toBeUndefined();
@@ -486,14 +472,8 @@ describe("write loop", () => {
 
   test("invalid_token idempotent re-entry omits failure detail", async () => {
     const { jarvisRoot, stateDbPath } = setupRepo();
-    const bindings: InvocationBinding[] = [
-      {
-        id: "agent",
-        invoke: async () => ({ kind: "ok", stdout: "not a terminal token", stderr: "" }),
-      },
-    ];
 
-    const first = await runLoop({ jarvisRoot, stateDbPath, bindings, branchName: "invalid-token-run" });
+    const first = await runLoop({ jarvisRoot, stateDbPath, bindings: invalidTokenBindings, branchName: "invalid-token-run" });
     const second = await runLoop({
       jarvisRoot,
       stateDbPath,

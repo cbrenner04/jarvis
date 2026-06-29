@@ -141,12 +141,11 @@ describe("StateStore", () => {
     expect(run.attemptCount).toBe(2);
   });
 
-  test("commit boundary persists invocation_failure_detail for binding-chain failures", () => {
+  test("commit boundary persists invocation_failure_detail only for binding-chain failures", () => {
     const runId = seedRun(store);
-    const attemptId = store.recordAttemptStart(runId);
-
+    const withDetail = store.recordAttemptStart(runId);
     store.commitCompletionBoundary({
-      attemptId,
+      attemptId: withDetail,
       runStatus: "failed",
       outcomeKind: "invocation_failure",
       invocationFailureDetail: {
@@ -155,21 +154,15 @@ describe("StateStore", () => {
       },
     });
 
+    const withoutDetail = store.recordAttemptStart(runId);
+    store.commitCompletionBoundary({ attemptId: withoutDetail, runStatus: "failed", outcomeKind: "invalid_token" });
+
     const run = loadRunOrThrow(store, runId);
     expect(run.attempts[0]?.invocationFailureDetail).toEqual({
       failureKind: "error",
       bindingAttempts: [{ bindingId: "sim.1", resultKind: "error" }],
     });
-  });
-
-  test("commit boundary omits invocation_failure_detail for non-binding-chain outcomes", () => {
-    const runId = seedRun(store);
-    const attemptId = store.recordAttemptStart(runId);
-
-    store.commitCompletionBoundary({ attemptId, runStatus: "failed", outcomeKind: "invalid_token" });
-
-    const run = loadRunOrThrow(store, runId);
-    expect(run.attempts[0]?.invocationFailureDetail).toBeNull();
+    expect(run.attempts[1]?.invocationFailureDetail).toBeNull();
   });
 
   test("schema migration is idempotent on re-open", () => {

@@ -34,9 +34,6 @@ chain stops, `failureKind` encodes why:
 | `error` | First non-quota result was `error`; chain stops (no advance) |
 | `no_binding` | No bindings configured (`final === null`) |
 
-Fallback advances **only** on `quota`. `model_config` and `error` are terminal
-on the binding that returned them — the harness does not try the next agent.
-
 Detail (`failureKind` plus ordered `bindingAttempts`) attaches only for
 binding-chain `invocation_failure`. Post-invocation token parse failure
 (`invalid_token`) maps to loop `kind: "invocation_failure"` but omits these

@@ -1,5 +1,4 @@
-import type { InvocationExecution, InvocationResult } from "../../shared/invocation/execute.ts";
-import type { StepRunResult } from "./step-runner.ts";
+import type { InvocationResult } from "../../shared/invocation/execute.ts";
 
 /** Terminal binding-chain stop cause from `runStep` when `kind === "invocation_failure"`. */
 export type InvocationFailureKind = "quota" | "model_config" | "error" | "no_binding";
@@ -15,21 +14,3 @@ export type InvocationFailureDetail = {
   failureKind: InvocationFailureKind;
   bindingAttempts: BindingAttemptSummary[];
 };
-
-/** Summarize invocation attempts for durable state and foreground JSON. */
-export function bindingAttemptsFromInvocation(invocation: InvocationExecution): BindingAttemptSummary[] {
-  return invocation.attempts.map((attempt) => ({
-    bindingId: attempt.binding.id,
-    resultKind: attempt.result.kind,
-  }));
-}
-
-/** Build detail from a binding-chain step failure. */
-export function invocationFailureDetailFromStepResult(
-  result: Extract<StepRunResult, { kind: "invocation_failure" }>,
-): InvocationFailureDetail {
-  return {
-    failureKind: result.failureKind,
-    bindingAttempts: bindingAttemptsFromInvocation(result.invocation),
-  };
-}

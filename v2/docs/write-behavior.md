@@ -141,7 +141,7 @@ run.
 
 - `0`: `complete` (success)
 - `1`: `blocked` or `contract_miss` (blocked on agent or spec)
-- `2`: `invocation_failure` (all agents failed)
+- `2`: `invocation_failure` (binding chain or token parse failure)
 - `5`: `budget-exhausted` (soft-stop, resumable per spec 02)
 
 ## Verification

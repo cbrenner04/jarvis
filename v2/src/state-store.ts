@@ -132,16 +132,12 @@ function applySchemaMigrations(db: Database): void {
   }
 }
 
-function parseInvocationFailureDetail(raw: string | null): InvocationFailureDetail | null {
-  if (raw === null) return null;
-  return JSON.parse(raw) as InvocationFailureDetail;
-}
-
 function mapAttemptRow(row: Attempt & { invocationFailureDetailJson: string | null }): Attempt {
   const { invocationFailureDetailJson, ...attempt } = row;
   return {
     ...attempt,
-    invocationFailureDetail: parseInvocationFailureDetail(invocationFailureDetailJson),
+    invocationFailureDetail:
+      invocationFailureDetailJson === null ? null : (JSON.parse(invocationFailureDetailJson) as InvocationFailureDetail),
   };
 }
 

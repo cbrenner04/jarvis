@@ -73,7 +73,8 @@ Load-bearing taxonomy choices recorded here:
   Phase 9 routes NL prompts.
 - **`cheap` role deferred** — pin when a real non-deterministic consumer exists;
   deterministic commit-message/summary work stays on existing paths.
-- **`v2-build-order.md` refresh deferred** — stale category prose there is
-  refreshed when agent-model-config or Phase 5 implementation lands.
+- **`v2-build-order.md` aligned** — Phase 5 and related forward refs in
+  [`v2-build-order.md`](v2-build-order.md) use role→model semantics per this file
+  and [`agent-model-config.md`](agent-model-config.md).
 - **No v1 config migration** — document equivalence only; no dual-write or
   migration tooling in this taxonomy slice.

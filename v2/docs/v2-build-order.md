@@ -94,16 +94,14 @@ operator surface, early — when rework is still cheap.
 Linear-with-bounded-loops array of steps. Durable state grows step IDs and
 cross-step attempt history here, behind the runner that reads them. The project
 config layer lands here: the **per-machine agent fallback order** and the
-**machine-independent role→model store** (steps name a **role**; the runner
-resolves `(agent, role) → rungs`, missing required `(agent, role)` = hard error
-at load). Phase 5 planning and implementation depend on
-[`role-resolution.md`](role-resolution.md) and
-[`agent-model-config.md`](agent-model-config.md) committed on `main` — must not
-use retired category taxonomy (`thinking` / `reviewing` / `executing` as
-model-resolution keys). Defines workflow presets; includes the workflow-authoring
-helper and the config-vs-source validation check. Run a two-step write→write workflow.
-Retires: the source-vs-config seam (steps name roles in source; the agent order
-and role→model store are data). *TUI: workflow/step view of a run.*
+**machine-independent role→model store** (steps name a role; runner resolves
+`(agent, role) → rungs`; missing required `(agent, role)` = hard error at load).
+Depends on [`role-resolution.md`](role-resolution.md) and
+[`agent-model-config.md`](agent-model-config.md) on `main` — not category
+taxonomy. Defines workflow presets; includes the workflow-authoring helper and
+the config-vs-source validation check. Run a two-step write→write workflow.
+Retires: the source-vs-config seam (steps name roles in source; agent order and
+role→model store are data). *TUI: workflow/step view of a run.*
 
 ### Phase 6 — Remaining behaviors: review-and-update, human
 
@@ -147,9 +145,8 @@ routed run.*
   above). Highest-uncertainty track; specced just-in-time, expected to churn.
 - **Quota fallback**: agent order folds into Phase 1's invocation layer (a single
   agent+model passed directly); the configurable agent fallback order and the
-  role→model store are Phase 5, where role-based resolution composes over the same
-  fallback (outer agent fallback, inner rungs per
-  [`agent-model-config.md`](agent-model-config.md)).
+  role→model store are Phase 5 — outer agent fallback, inner rungs per
+  [`agent-model-config.md`](agent-model-config.md).
 - **Evals**: deferred — on-demand only, no architectural impact yet.
 - **Specless one-shot** (v1's `jarvis prompt`): the minimal preset — the Phase 1
   write step with no spec, exposed as a user command. Reaches v1 parity once the

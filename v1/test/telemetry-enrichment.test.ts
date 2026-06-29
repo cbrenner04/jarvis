@@ -80,22 +80,4 @@ describe("extractUsageAndCost: estimated usage", () => {
     expect(result.cost_usd).toBeNull();
   });
 
-  test("estimated aider usage always yields no-price because aider has no price key", () => {
-    const result = extractUsageAndCost(
-      {
-        usage_source: "estimated",
-        usage: {
-          input_tokens: 42,
-          output_tokens: 21,
-          cache_read_input_tokens: 0,
-          cache_creation_input_tokens: 0,
-        },
-      },
-      "aider",
-      "ollama_chat/qwen3.6:35b",
-    );
-    expect(result.usage_source).toBe("estimated");
-    expect(result.cost_source).toBe("no-price");
-    expect(result.cost_usd).toBeNull();
-  });
 });

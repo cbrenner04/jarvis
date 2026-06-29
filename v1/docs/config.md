@@ -21,7 +21,7 @@ server.
 ## Schema (v2)
 
 ```ts
-type AgentName = "claude" | "codex" | "cursor" | "opencode" | "aider";
+type AgentName = "claude" | "codex" | "cursor" | "opencode";
 
 type Project = {
   root: string; // absolute path to a target-repo root

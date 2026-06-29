@@ -25,7 +25,7 @@ Prerequisites:
 - [Bun](https://bun.sh/)
 - [GitHub CLI](https://cli.github.com/) (`gh`) installed and authenticated
 - At least one supported agent CLI on `PATH`: `claude`, `codex`, `cursor`,
-  `opencode`, or `aider`
+  or `opencode`
 
 Install from a local checkout:
 
@@ -225,10 +225,6 @@ Config version 2 is mode-specific. Patch mode (`jarvis1 run`) and plan mode
         {
           "agent": "cursor",
           "model": "Composer 2.5"
-        },
-        {
-          "agent": "aider",
-          "model": "ollama_chat/qwen3.6:35b"
         }
       ]
     },
@@ -245,10 +241,6 @@ Config version 2 is mode-specific. Patch mode (`jarvis1 run`) and plan mode
         {
           "agent": "cursor",
           "model": "Composer 2.5"
-        },
-        {
-          "agent": "aider",
-          "model": "ollama_chat/qwen3.6:35b"
         }
       ],
       "specTimestamp": false,
@@ -311,8 +303,8 @@ Config version 2 is mode-specific. Patch mode (`jarvis1 run`) and plan mode
 }
 ```
 
-Default agent order is `claude`, `codex`, then `cursor`. `opencode` and
-`aider` are supported but opt in; add them to `modes.patch.agentOrder` or
+Default agent order is `claude`, `codex`, then `cursor`. `opencode` is
+supported but opt in; add it to `modes.patch.agentOrder` or
 `modes.plan.agentOrder` with an explicit model string. `jarvis1 config
 set-patch-order` and `jarvis1 config set-plan-order` replace a whole order with
 comma-separated `agent:model` pairs.
@@ -346,7 +338,6 @@ Supported agents:
   and otherwise recorded as unavailable.
 - `opencode`: opt-in `opencode run`; permissions are configured in opencode's
   config file.
-- `aider`: opt-in `aider --message`; useful for local model workflows.
 
 Run output is split by purpose:
 

@@ -32,14 +32,14 @@
 
 ## Acceptance criteria
 
-- [ ] `v1/src/agents/aider.ts` is absent and `createAgent("aider", …)` is unreachable (no factory case).
-- [ ] `AgentName` and config validation allow only `claude`, `codex`, `cursor`, `opencode`; a config with `{ "agent": "aider", … }` rejects with `unknown agent`.
-- [ ] `v1/docs/aider-model-warnings.md` is absent; `agents.md`, `config.md`, `plan-mode.md`, `run-loop.md`, `quota-signals.md`, and root `README.md` document no `aider` agent.
-- [ ] `grep -rin aider` outside `reports/**`, `v1/spec/completed/**`, `v1/spec/2026-06-29T07-14-37Z-drop-aider-agent-support/**`, and `.gitignore` reports no matches.
-- [ ] `v2/docs/v1-behaviors.md` records four supported adapters and no aider-specific runtime behavior or dead links.
-- [ ] `v1/test/agents/claude.test.ts`, `codex.test.ts`, `cursor.test.ts`, and `opencode.test.ts` stay green (other adapters unchanged).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes.
+- [x] `v1/src/agents/aider.ts` is absent and `createAgent("aider", …)` is unreachable (no factory case).
+- [x] `AgentName` and config validation allow only `claude`, `codex`, `cursor`, `opencode`; a config with `{ "agent": "aider", … }` rejects with `unknown agent`.
+- [x] `v1/docs/aider-model-warnings.md` is absent; `agents.md`, `config.md`, `plan-mode.md`, `run-loop.md`, `quota-signals.md`, and root `README.md` document no `aider` agent.
+- [x] `grep -rin aider` outside `reports/**`, `v1/spec/completed/**`, `v1/spec/2026-06-29T07-14-37Z-drop-aider-agent-support/**`, and `.gitignore` reports no matches.
+- [x] `v2/docs/v1-behaviors.md` records four supported adapters and no aider-specific runtime behavior or dead links.
+- [x] `v1/test/agents/claude.test.ts`, `codex.test.ts`, `cursor.test.ts`, and `opencode.test.ts` stay green (other adapters unchanged).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes.
 
 ## Documentation updates
 

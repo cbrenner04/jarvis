@@ -56,7 +56,7 @@ describe("plan mode: no-commit Intent: output", () => {
       projectConfig.plan = { commit: false };
 
       // Use a failing agent so we fail early (simulates draft failure)
-      cfg.modes.plan.agentOrder = [{ agent: "aider", model: "nonexistent-for-test" }];
+      cfg.modes.plan.agentOrder = [{ agent: "opencode", model: "nonexistent-for-test" }];
       writeConfig(cfg, { dir: cfgDir });
 
       const intentPath = writeReadyIntent(projectRoot, "test-intent");
@@ -93,7 +93,7 @@ describe("plan mode: no-commit Intent: output", () => {
       const projectConfig = cfg.projects["test-project"];
       if (!projectConfig) throw new Error("expected registered project");
       projectConfig.plan = { commit: false };
-      cfg.modes.plan.agentOrder = [{ agent: "aider", model: "nonexistent-for-test" }];
+      cfg.modes.plan.agentOrder = [{ agent: "opencode", model: "nonexistent-for-test" }];
       writeConfig(cfg, { dir: cfgDir });
 
       const intentPath = writeReadyIntent(projectRoot, "absolute-path-test");
@@ -136,7 +136,7 @@ describe("plan mode: no-commit spec preservation on failure", () => {
       projectConfig.plan = { commit: false };
 
       // Use a bad agent model to trigger draft failure
-      cfg.modes.plan.agentOrder = [{ agent: "aider", model: "nonexistent-for-test" }];
+      cfg.modes.plan.agentOrder = [{ agent: "opencode", model: "nonexistent-for-test" }];
       writeConfig(cfg, { dir: cfgDir });
 
       const intentPath = writeReadyIntent(projectRoot, "draft-failure-test");
@@ -179,7 +179,7 @@ describe("plan mode: no-commit spec preservation on failure", () => {
       projectConfig.plan = { commit: false };
 
       // Use a bad agent model to trigger failures in both draft and review phases
-      cfg.modes.plan.agentOrder = [{ agent: "aider", model: "nonexistent-for-test" }];
+      cfg.modes.plan.agentOrder = [{ agent: "opencode", model: "nonexistent-for-test" }];
       writeConfig(cfg, { dir: cfgDir });
 
       const intentPath = writeReadyIntent(projectRoot, "review-failure-test");
@@ -222,7 +222,7 @@ describe("plan mode: no-commit spec preservation on failure", () => {
       projectConfig.plan = { commit: false };
 
       // Use a bad agent model to trigger draft failure and boundary violation
-      cfg.modes.plan.agentOrder = [{ agent: "aider", model: "nonexistent-for-test" }];
+      cfg.modes.plan.agentOrder = [{ agent: "opencode", model: "nonexistent-for-test" }];
       writeConfig(cfg, { dir: cfgDir });
 
       const intentPath = writeReadyIntent(projectRoot, "boundary-test");
@@ -265,7 +265,7 @@ describe("plan mode: no-commit spec preservation on failure", () => {
       if (!projectConfig) throw new Error("expected registered project");
       projectConfig.plan = { commit: false };
 
-      cfg.modes.plan.agentOrder = [{ agent: "aider", model: "nonexistent-for-test" }];
+      cfg.modes.plan.agentOrder = [{ agent: "opencode", model: "nonexistent-for-test" }];
       writeConfig(cfg, { dir: cfgDir });
 
       const intentPath = writeReadyIntent(projectRoot, "breadcrumb-draft-test");
@@ -310,7 +310,7 @@ describe("plan mode: no-commit spec preservation on failure", () => {
       projectConfig.plan = { commit: false };
 
       // Use bad model to trigger failures
-      cfg.modes.plan.agentOrder = [{ agent: "aider", model: "nonexistent-for-test" }];
+      cfg.modes.plan.agentOrder = [{ agent: "opencode", model: "nonexistent-for-test" }];
       writeConfig(cfg, { dir: cfgDir });
 
       const intentPath = writeReadyIntent(projectRoot, "quota-breadcrumb-test");

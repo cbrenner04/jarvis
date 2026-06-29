@@ -1,4 +1,3 @@
-import { AIDER_HAS_PRICED_MODELS, resolveAiderPriceKey } from "./aider.ts";
 import { CLAUDE_HAS_PRICED_MODELS, resolveClaudePriceKey } from "./claude.ts";
 import { CODEX_HAS_PRICED_MODELS, resolveCodexPriceKey } from "./codex.ts";
 import { CURSOR_HAS_PRICED_MODELS, resolveCursorPriceKey } from "./cursor.ts";
@@ -15,8 +14,6 @@ export function resolveAgentPriceKey(agent: AgentName, model: string | undefined
       return resolveCursorPriceKey(model);
     case "opencode":
       return resolveOpencodePriceKey(model);
-    case "aider":
-      return resolveAiderPriceKey(model);
   }
 }
 
@@ -30,7 +27,5 @@ export function agentHasPricedModels(agent: AgentName): boolean {
       return CURSOR_HAS_PRICED_MODELS;
     case "opencode":
       return OPENCODE_HAS_PRICED_MODELS;
-    case "aider":
-      return AIDER_HAS_PRICED_MODELS;
   }
 }

@@ -16,10 +16,9 @@ and the binary each one invokes:
 | `codex` | `codex exec --color never --sandbox workspace-write -c approval_policy="on-request"` | Prompt is piped on stdin; `--color never` disables ANSI for log-friendly text; `--sandbox workspace-write` allows writes inside the workspace and blocks network and out-of-workspace writes; `-c approval_policy="on-request"` pins approval behavior through Codex's config override channel (`codex exec --help`). Jarvis appends `--add-dir <path>` for each configured project sibling and external spec directory. Token usage is **correlated from session JSONL** under `~/.codex/sessions/`: Jarvis appends a unique HTML comment marker to each prompt, snapshots session files before the invocation, and only records usage when exactly one changed session file matches that marker (and cwd metadata when present). Ambiguous or missing correlation is recorded as `usage_source: "unavailable"` rather than guessing. **Codex `input_tokens` is normalized to fresh-only before costing**: OpenAI reports `input_tokens` inclusive of `cached_input_tokens`, but jarvis normalizes `input_tokens = max(0, input - cached)` to match the disjoint-bucket convention `computeCost` assumes, preventing double-billing of cached tokens. |
 | `cursor` | `cursor agent -p --output-format text --force --workspace <cwd> "<prompt>"` | Headless print mode; `--force` enables file writes in print mode; `--output-format text` matches transcript shape of other agents; prompt is the trailing positional argument (`cursor agent --help`). Although Cursor exposes JSON and stream JSON transcript formats, token usage is not currently exposed in a stable machine-readable field for jarvis extraction, so successful cursor iterations record `usage_source: "unavailable"`. When project siblings are configured, their paths are listed in the prompt as part of the allowed project workspace, allowing Cursor to reason about cross-repo work. |
 | `opencode` | `opencode run --dir <cwd> --model <provider/model> --format json <prompt>` | Uses OpenCode Zen (`opencode/deepseek-v4-flash-free`) by default. `--dir` is set to the working directory for the run; `--model` is required and read from the opencode entry's `model` field in `modes.patch.agentOrder`; `--format json` causes opencode to emit one JSON object per line to stdout, including token usage and cost data; prompt is the trailing positional argument. Jarvis extracts usage from `step_finish.part.tokens` and `step_finish.part.cost` fields in the JSON stream for successful opencode iterations, recording `usage_source: "agent"` and `cost_source: "agent"`. When no complete `step_finish` events are present in the stream, the run falls back to the legacy token estimator path (`usage_source: "estimated"`) and generates a per-iteration warning. Permissions are configured via `~/.config/opencode/opencode.json` rather than a CLI flag — see [Opencode setup](#opencode-setup). When project siblings are configured, their paths are listed in the prompt as part of the allowed project workspace, allowing Opencode to reason about cross-repo work. |
-| `aider` | `aider --message "<prompt>" --model <provider/model> --yes-always --no-auto-commits --no-git --no-stream [<sibling1> <sibling2> ...]` | `--model` is required and read from the aider entry's `model` field in `modes.patch.agentOrder`; prompt is passed via `--message`; `--yes-always` keeps runs non-interactive; `--no-auto-commits` keeps jarvis as the only committer; `--no-git` prevents aider from managing the worktree's git state. When project siblings are configured, Jarvis appends each sibling directory as a positional argument (Aider `[FILE ...]` syntax), allowing Aider to reason about and edit files across multiple repositories in a single invocation. Jarvis estimates usage volume for successful aider runs (`usage_source: "estimated"`); local-model runs typically remain `cost_source: "no-price"` because those model strings are usually not priced in `data/prices.json`. |
 
-The default fallback order is `claude → codex → cursor`. `opencode` and
-`aider` are supported but **opt-in** — they are not in the default
+The default fallback order is `claude → codex → cursor`. `opencode` is
+supported but **opt-in** — it is not in the default
 `agentOrder`. Change the order with `jarvis1 config set-order <a,b,c>` (see
 [config.md](./config.md)).
 Quota detection is per-agent and based on documented or observed stderr
@@ -92,8 +91,6 @@ to each upstream CLI. Current defaults:
   Cursor's JSON/stream modes do not expose stable usage metadata for jarvis.
 - **Opencode**: `--format json` — emits JSON objects per line, including
   token usage and cost data that jarvis parses for cost attribution.
-- **Aider**: `--no-stream` — keeps output in a compact, non-streaming
-  transcript shape.
 
 ## Permission posture
 
@@ -161,42 +158,6 @@ model name configured for that provider. For example,
 provider, while `github-copilot/claude-opus-4.8` routes through the
 `github-copilot` provider. Providers are not separate jarvis agents; they
 are selected only through the opencode entry's `model` value.
-
-## Aider setup
-
-Aider is supported but opt-in: it is not included in the default
-`modes.patch.agentOrder` or `modes.plan.agentOrder`. Its primary use case in
-jarvis is local LLM runs, where you bring your own runtime.
-
-Worked example (Ollama):
-
-1. Install Ollama and start it.
-2. Pull a local model:
-
-```sh
-ollama pull qwen3.6:35b
-```
-
-3. Add an aider entry with an Ollama Chat model string to
-   `~/.jarvis/config.json`:
-
-```json
-{
-  "modes": {
-    "patch": {
-      "agentOrder": [
-        { "agent": "aider", "model": "ollama_chat/qwen3.6:35b" },
-        { "agent": "claude", "model": "haiku" },
-        { "agent": "codex", "model": "gpt-5.4" },
-        { "agent": "cursor", "model": "Composer 2.5" }
-      ]
-    }
-  }
-}
-```
-
-Aider also supports hosted providers and other local runtimes such as
-llama.cpp and LM Studio; see <https://aider.chat/docs/llms.html>.
 
 ## Plan-mode prompts
 

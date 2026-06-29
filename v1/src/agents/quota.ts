@@ -52,13 +52,6 @@ const opencodeQuotaPatterns = [
   /\byou have exceeded your\b/i,
 ];
 
-const aiderQuotaPatterns = [
-  /\brate limit\b/i,
-  /\bquota exceeded\b/i,
-  /\binsufficient_quota\b/i,
-  ...guardedStatusPatterns([429]),
-];
-
 const modelConfigurationPatterns = [
   /\bunknown model\b/i,
   /\bunsupported model\b/i,
@@ -71,13 +64,6 @@ const modelConfigurationPatterns = [
 ];
 
 const opencodeModelConfigurationPatterns = [/\bno provider configured for\b/i];
-const aiderModelConfigurationPatterns = [
-  /\bcould not connect to ollama\b/i,
-  /\bconnection refused\b.*\b(model|host|localhost|127\.0\.0\.1|ollama|llama\.cpp|lm studio)\b/i,
-  /\b(model|host|localhost|127\.0\.0\.1|ollama|llama\.cpp|lm studio)\b.*\bconnection refused\b/i,
-  /\bmodel is not loaded\b/i,
-  /\bno such model\b/i,
-];
 
 const codexCredentialAuthPatterns = [
   /\brefresh token was revoked\b/i,
@@ -126,9 +112,7 @@ export function isModelConfigurationSignal(nameOrStderr: AgentName | string, may
   const patterns =
     name === "opencode"
       ? [...modelConfigurationPatterns, ...opencodeModelConfigurationPatterns]
-      : name === "aider"
-        ? [...modelConfigurationPatterns, ...aiderModelConfigurationPatterns]
-        : modelConfigurationPatterns;
+      : modelConfigurationPatterns;
 
   return patterns.some((pattern) => pattern.test(stderr));
 }
@@ -156,8 +140,6 @@ export function isQuotaSignal(name: AgentName, exitCode: number, stderr: string)
         return cursorQuotaPatterns;
       case "opencode":
         return opencodeQuotaPatterns;
-      case "aider":
-        return aiderQuotaPatterns;
     }
   })();
 

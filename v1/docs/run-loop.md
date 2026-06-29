@@ -938,11 +938,6 @@ Cursor usage is currently recorded as unavailable in telemetry
 one-time notice on first cursor success per run:
 `cursor: token usage not available for this CLI version (recording usage as unavailable)`.
 
-Aider usage is estimated from prompt/stdout text on successful runs
-(`usage_source: "estimated"`). Local-model deployments typically do not have
-matching `data/prices.json` entries, so these runs usually record
-`cost_source: "no-price"` while still preserving usage volume.
-
 ### End-of-run summary
 
 After `jarvis1 run` exits (success or failure after at least one iteration),

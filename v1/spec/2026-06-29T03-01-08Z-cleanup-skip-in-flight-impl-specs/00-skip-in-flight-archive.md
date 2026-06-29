@@ -65,17 +65,17 @@ preview today).
 
 ## Acceptance criteria
 
-- [ ] After removing a merged `plan/<name>` worktree whose archive source is `v1/spec/<timestamped-basename>/`, when `.worktree/<timestamped-basename>/` still exists, the spec directory stays in place and stdout logs a skip naming `<timestamped-basename>` and the in-flight worktree guard.
-- [ ] After removing a merged `plan/<name>` worktree whose archive source is timestamped, when an open PR exists on branch `<timestamped-basename>`, the spec directory stays in place and stdout logs a skip naming `<timestamped-basename>` and the open-PR guard.
-- [ ] After removing a merged worktree, when the resolved archive source still has an unchecked non-human-only acceptance criterion (index or linked subspec), the spec directory stays in place and stdout logs a skip naming the incomplete-spec guard.
-- [ ] When the spec would be vacuous-complete and an in-flight patch worktree or open implementation PR exists for `specName`, archival is skipped.
-- [ ] When `findMatchingOpenPrs(<specName>)` throws, archival is skipped with a logged inspection-failure reason, other worktrees continue, and exit is `0`.
-- [ ] When more than one open PR matches `specName`, archival is skipped with a logged reason distinct from the single open-PR case.
-- [ ] After removing a merged worktree, when all three preconditions pass, archival behaves as today (in-repo move + commit/push; external rename + ready-intent prune).
-- [ ] A skipped archive for one worktree does not block cleanup of other eligible merged worktrees in the same invocation.
-- [ ] Under `commit:false`, the same three guards run before external rename to `completed/`.
-- [ ] `jarvis1 cleanup --abandon` behavior is unchanged (`cleanup-command.sandbox-unrunnable.test.ts` abandon tests stay green).
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] After removing a merged `plan/<name>` worktree whose archive source is `v1/spec/<timestamped-basename>/`, when `.worktree/<timestamped-basename>/` still exists, the spec directory stays in place and stdout logs a skip naming `<timestamped-basename>` and the in-flight worktree guard.
+- [x] After removing a merged `plan/<name>` worktree whose archive source is timestamped, when an open PR exists on branch `<timestamped-basename>`, the spec directory stays in place and stdout logs a skip naming `<timestamped-basename>` and the open-PR guard.
+- [x] After removing a merged worktree, when the resolved archive source still has an unchecked non-human-only acceptance criterion (index or linked subspec), the spec directory stays in place and stdout logs a skip naming the incomplete-spec guard.
+- [x] When the spec would be vacuous-complete and an in-flight patch worktree or open implementation PR exists for `specName`, archival is skipped.
+- [x] When `findMatchingOpenPrs(<specName>)` throws, archival is skipped with a logged inspection-failure reason, other worktrees continue, and exit is `0`.
+- [x] When more than one open PR matches `specName`, archival is skipped with a logged reason distinct from the single open-PR case.
+- [x] After removing a merged worktree, when all three preconditions pass, archival behaves as today (in-repo move + commit/push; external rename + ready-intent prune).
+- [x] A skipped archive for one worktree does not block cleanup of other eligible merged worktrees in the same invocation.
+- [x] Under `commit:false`, the same three guards run before external rename to `completed/`.
+- [x] `jarvis1 cleanup --abandon` behavior is unchanged (`cleanup-command.sandbox-unrunnable.test.ts` abandon tests stay green).
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

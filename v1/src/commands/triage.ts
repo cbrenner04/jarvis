@@ -1330,24 +1330,41 @@ function nonHumanOnlyAcceptanceComplete(specPath: string): boolean {
   return existsSync(specPath) && snapshotAcceptanceCriteria(specPath).every((c) => c.humanOnly || c.checked);
 }
 
-function isSpecComplete(specPath: string): boolean {
+function specCompletionPaths(specPath: string): string[] | null {
   if (!specPath || !existsSync(specPath)) {
-    return false;
+    return null;
   }
-
   try {
     if (basename(specPath) !== "index.md") {
-      return nonHumanOnlyAcceptanceComplete(specPath);
+      return [specPath];
     }
     const parsed = parseSpec(readFileSync(specPath, "utf8"));
     const paths =
       parsed.linkedSubspecs.length === 0
         ? [specPath]
         : parsed.linkedSubspecs.map((linked) => resolve(dirname(specPath), linked.path));
-    return paths.every(nonHumanOnlyAcceptanceComplete);
+    return paths;
   } catch {
+    return null;
+  }
+}
+
+/** Exported for cleanup reuse (same non-human-only linked-subspec semantics). */
+export function isSpecComplete(specPath: string): boolean {
+  const paths = specCompletionPaths(specPath);
+  if (paths === null) {
     return false;
   }
+  return paths.every(nonHumanOnlyAcceptanceComplete);
+}
+
+/** Reports whether the spec at `specPath` has any non-human-only acceptance criteria across its linked subspecs (or the sole spec file). Returns `false` when the spec path cannot be resolved. Exported for cleanup reuse to detect vacuous-complete specs while an in-flight owner exists. */
+export function specHasNonHumanOnlyAcceptanceCriteria(specPath: string): boolean {
+  const paths = specCompletionPaths(specPath);
+  if (paths === null) {
+    return false;
+  }
+  return paths.some((p) => existsSync(p) && snapshotAcceptanceCriteria(p).some((c) => !c.humanOnly));
 }
 
 type CiCheckClassification = "green" | "pending" | "red";

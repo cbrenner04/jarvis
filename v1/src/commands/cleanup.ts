@@ -4,6 +4,7 @@ import { join, relative } from "node:path";
 import { stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
 import { closePr, findMatchingOpenPrs, type MatchingOpenPr } from "../pr.ts";
 import { deleteLocalBranch, deleteRemoteBranch } from "../worktree.ts";
+import { isSpecComplete, specHasNonHumanOnlyAcceptanceCriteria } from "./triage.ts";
 
 export type CleanupIo = {
   stdout: (s: string) => void;
@@ -164,6 +165,65 @@ function archiveResolvedSpec(args: {
     io.stderr(`failed to archive spec directory ${source} -> ${destination}: ${(err as Error).message}\n`);
     return false;
   }
+}
+
+function resolveCompletionSpecFile(sourceDir: string): string | null {
+  const indexPath = join(sourceDir, "index.md");
+  if (existsSync(indexPath)) {
+    return indexPath;
+  }
+  if (!existsSync(sourceDir)) {
+    return null;
+  }
+  const mdFiles = readdirSync(sourceDir).filter((entry) => entry.endsWith(".md"));
+  if (mdFiles.length === 1) {
+    return join(sourceDir, mdFiles[0] as string);
+  }
+  return null;
+}
+
+function checkArchivePreconditions(args: {
+  io: CleanupIo;
+  projectRoot: string;
+  source: string;
+  specName: string;
+  removedWorktreeDir: string;
+  findMatchingOpenPrs: (branch: string, cwd?: string) => MatchingOpenPr[];
+}): boolean {
+  const { io, projectRoot, source, specName, removedWorktreeDir, findMatchingOpenPrs } = args;
+  const hasInFlightWorktree = specName !== removedWorktreeDir && existsSync(join(projectRoot, ".worktree", specName));
+
+  let openPrCount: number;
+  try {
+    openPrCount = findMatchingOpenPrs(specName, projectRoot).length;
+  } catch {
+    io.stdout(`skipping archival of ${specName}: failed to inspect open PRs\n`);
+    return false;
+  }
+  if (openPrCount > 1) {
+    io.stdout(`skipping archival of ${specName}: multiple open PRs match branch ${specName}\n`);
+    return false;
+  }
+
+  const specFile = resolveCompletionSpecFile(source);
+  if (specFile !== null) {
+    const complete = isSpecComplete(specFile);
+    const inFlightOwner = hasInFlightWorktree || openPrCount > 0;
+    if (!complete || (complete && !specHasNonHumanOnlyAcceptanceCriteria(specFile) && inFlightOwner)) {
+      io.stdout(`skipping archival of ${specName}: spec not complete\n`);
+      return false;
+    }
+  }
+
+  if (hasInFlightWorktree) {
+    io.stdout(`skipping archival of ${specName}: in-flight patch worktree ${specName} still exists\n`);
+    return false;
+  }
+  if (openPrCount === 1) {
+    io.stdout(`skipping archival of ${specName}: open implementation PR on ${specName}\n`);
+    return false;
+  }
+  return true;
 }
 
 function deleteMergedBranch(projectRoot: string, branch: string): void {
@@ -332,42 +392,52 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
         hadFailures = true;
         continue;
       }
-      let archived: boolean;
+      let source: string;
+      let specName: string;
+      let missingSource: string;
+      let archiveRoot: string;
+      let onArchive: ((destination: string, resolvedSpecName: string) => void) | undefined;
       if (commit) {
-        const { source, specName, missingSource, sourceHome } = resolveSpecArchiveSource(
-          opts.projectRoot,
-          targetDir,
-          item.branch,
-          candidateHomes,
-        );
-        archived = archiveResolvedSpec({
-          io: opts.io,
-          branch: item.branch,
-          dir: item.dir,
-          archiveRoot: join(opts.projectRoot, sourceHome),
-          source,
-          specName,
-          missingSource,
-          onArchive: (destination, resolvedSpecName) => {
-            commitArchivedSpecMove(opts.projectRoot, source, destination, resolvedSpecName);
-          },
-        });
+        const r = resolveSpecArchiveSource(opts.projectRoot, targetDir, item.branch, candidateHomes);
+        source = r.source;
+        specName = r.specName;
+        missingSource = r.missingSource;
+        archiveRoot = join(opts.projectRoot, r.sourceHome);
+        onArchive = (destination, resolvedSpecName) => {
+          commitArchivedSpecMove(opts.projectRoot, r.source, destination, resolvedSpecName);
+        };
       } else {
         const externalSpecsRoot = opts.externalSpecsRoot as string;
-        const { source, specName, missingSource } = resolveExternalSpecArchiveSource(externalSpecsRoot, item.branch);
-        archived = archiveResolvedSpec({
+        ({ source, specName, missingSource } = resolveExternalSpecArchiveSource(externalSpecsRoot, item.branch));
+        archiveRoot = externalSpecsRoot;
+        onArchive = () => {
+          rmSync(join(externalSpecsRoot, "ready-intents", `${branchSlug}.md`), { force: true });
+        };
+      }
+
+      if (
+        !checkArchivePreconditions({
           io: opts.io,
-          branch: item.branch,
-          dir: item.dir,
-          archiveRoot: externalSpecsRoot,
+          projectRoot: opts.projectRoot,
           source,
           specName,
-          missingSource,
-          onArchive: () => {
-            rmSync(join(externalSpecsRoot, "ready-intents", `${branchSlug}.md`), { force: true });
-          },
-        });
+          removedWorktreeDir: item.dir,
+          findMatchingOpenPrs: deps.findMatchingOpenPrs,
+        })
+      ) {
+        continue;
       }
+
+      const archived = archiveResolvedSpec({
+        io: opts.io,
+        branch: item.branch,
+        dir: item.dir,
+        archiveRoot,
+        source,
+        specName,
+        missingSource,
+        onArchive,
+      });
       if (!archived) {
         hadFailures = true;
       }

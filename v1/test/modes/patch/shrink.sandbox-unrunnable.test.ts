@@ -1,5 +1,5 @@
 // This test requires real git history rewriting / branch movement semantics.
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,7 +17,16 @@ import {
 } from "../../../src/modes/patch/shrink.ts";
 import type { AcceptanceCriterion } from "../../../src/modes/patch/subspec.ts";
 import { HARNESS_QUOTA_FALLBACK_STRICT, harnessAuthRotateLine } from "../../../src/quota-harness-messages.ts";
-import { IdleHangAgent, stripDelimitedBlocks, writeIdleHangScript } from "./review.sandbox-unrunnable.test.ts";
+import { beginHangFixtureTracking, reapActiveHangFixtures, writeIdleHangScript } from "../../idle-hang-fixtures.ts";
+import { IdleHangAgent, stripDelimitedBlocks } from "./review.sandbox-unrunnable.test.ts";
+
+beforeEach(() => {
+  beginHangFixtureTracking();
+});
+
+afterEach(() => {
+  reapActiveHangFixtures();
+});
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 

@@ -1,5 +1,5 @@
 // This test requires real repo / branch / remote state for review-flow integration behavior.
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,6 +18,7 @@ import {
 } from "../../../src/modes/patch/review.ts";
 import { HARNESS_QUOTA_FALLBACK_STRICT, harnessAuthRotateLine } from "../../../src/quota-harness-messages.ts";
 import { FAKE_AGENT_SPAWN_PID, waitForPollCount } from "../../descendant-poll-test-helpers.ts";
+import { beginHangFixtureTracking, hangFixtureOnSpawned, reapActiveHangFixtures, writeIdleHangScript } from "../../idle-hang-fixtures.ts";
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 const CODEX_ENTRY = { agent: "codex" as const, model: "gpt-5.3-codex" };
@@ -25,6 +26,14 @@ const currentBase =
   (baseRefName: string | null = "main") =>
   () => ({ status: "current" as const, baseRefName });
 const behindBase = (baseRefName: string) => () => ({ status: "behind" as const, baseRefName });
+
+beforeEach(() => {
+  beginHangFixtureTracking();
+});
+
+afterEach(() => {
+  reapActiveHangFixtures();
+});
 
 class FakeAgent implements Agent {
   readonly name: AgentName;
@@ -130,16 +139,7 @@ function setupPatchReviewRepoWithBranchChange(): {
   return { dir, specPath, cleanup };
 }
 
-export const IDLE_HANG_WAIT = "exec tail -f /dev/null";
-export const IDLE_HANG_BODY = `set -euo pipefail
-${IDLE_HANG_WAIT}
-`;
-
-export function writeIdleHangScript(path: string): string {
-  writeFileSync(path, `#!/usr/bin/env bash\n${IDLE_HANG_BODY}`);
-  chmodSync(path, 0o755);
-  return path;
-}
+export { IDLE_HANG_BODY, writeIdleHangScript } from "../../idle-hang-fixtures.ts";
 
 export class IdleHangAgent implements Agent {
   readonly name = "claude" as const;
@@ -160,7 +160,13 @@ export class IdleHangAgent implements Agent {
         streamErrorPrefix: "test:",
       },
       prompt,
-      opts,
+      {
+        ...opts,
+        onSpawned: (child) => {
+          hangFixtureOnSpawned(child);
+          opts.onSpawned?.(child);
+        },
+      },
     );
   }
 

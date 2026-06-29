@@ -19,7 +19,14 @@ import type {
 } from "../src/modes/patch/run.ts";
 import { runCommand } from "../src/modes/patch/run.ts";
 import { HARNESS_IDLE_TIMEOUT_FALLBACK } from "../src/quota-harness-messages.ts";
-import { IDLE_HANG_BODY, IDLE_HANG_WAIT } from "./modes/patch/review.sandbox-unrunnable.test.ts";
+import {
+  beginHangFixtureTracking,
+  hangFixtureOnSpawned,
+  IDLE_HANG_BODY,
+  IDLE_HANG_WAIT,
+  reapActiveHangFixtures,
+  trackHangFixtureScript,
+} from "./idle-hang-fixtures.ts";
 
 function captureIo(): { io: RunIo; out: () => string; err: () => string } {
   let out = "";
@@ -163,6 +170,9 @@ function writeAgentScript(filename: string, body: string): string {
   const script = join(projectRoot, filename);
   writeFileSync(script, body.startsWith("#!") ? body : `#!/usr/bin/env bash\n${body}`);
   chmodSync(script, 0o755);
+  if (filename.endsWith("-hang.sh")) {
+    trackHangFixtureScript(script);
+  }
   return script;
 }
 
@@ -186,7 +196,13 @@ class ScriptAgent implements Agent {
         streamErrorPrefix: "test:",
       },
       prompt,
-      opts,
+      {
+        ...opts,
+        onSpawned: (child) => {
+          hangFixtureOnSpawned(child);
+          opts.onSpawned?.(child);
+        },
+      },
     );
   }
 
@@ -213,9 +229,11 @@ beforeEach(() => {
   originalPath = process.env.PATH;
   mkdirSync(projectRoot);
   registerProject("project", projectRoot, { dir: cfgDir });
+  beginHangFixtureTracking();
 });
 
 afterEach(() => {
+  reapActiveHangFixtures();
   if (originalPath === undefined) {
     delete process.env.PATH;
   } else {

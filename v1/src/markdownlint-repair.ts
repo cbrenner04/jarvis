@@ -102,8 +102,6 @@ export function runMarkdownlintAutofix(args: {
       args.warn("warning: bun executable not found; skipping markdownlint autofix\n");
       return;
     }
-    args.warn(
-      `warning: could not run markdownlint autofix (${spawnError.code ?? "spawn failed"}); skipping autofix\n`,
-    );
+    args.warn(`warning: could not run markdownlint autofix (${spawnError.code ?? "spawn failed"}); skipping autofix\n`);
   }
 }

@@ -53,10 +53,7 @@ describe("readRepoPath + resolveProject", () => {
     }
 
     const bracketSpec = join(dir, "bracket-index.md");
-    writeFileSync(
-      bracketSpec,
-      "# Spec\n\nrepo: <https://github.com/example/project-a.git>\n\n- [ ] todo\n",
-    );
+    writeFileSync(bracketSpec, "# Spec\n\nrepo: <https://github.com/example/project-a.git>\n\n- [ ] todo\n");
     const bracketRepo = readRepoPath(bracketSpec);
     expect(bracketRepo).toBe("https://github.com/example/project-a.git");
     const bracketResult = resolveProject({

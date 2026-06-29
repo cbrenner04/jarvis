@@ -5,11 +5,8 @@ import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import type { Agent, AgentName } from "../agents/types.ts";
 import { CONFIG_DIR, loadConfig, resolvePlanFlags, validateTargetDir } from "../config.ts";
 import type { LogClient } from "../logging.ts";
+import { keepIssueReferencesOffLineStart, runMarkdownlintAutofix } from "../markdownlint-repair.ts";
 import { enterMode } from "../mode-entry.ts";
-import {
-  keepIssueReferencesOffLineStart,
-  runMarkdownlintAutofix,
-} from "../markdownlint-repair.ts";
 import { listStageMarkdownFiles, runIntentSplitTurn } from "../modes/plan/intent-split.ts";
 import { getOpenPrState, maybeMarkPlanPrReady } from "../modes/plan/pr.ts";
 import { computeProjectSafeId } from "../modes/plan/spec-paths.ts";

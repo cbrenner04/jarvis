@@ -38,7 +38,6 @@ type Project = {
 type AgentEntry = {
   agent: AgentName;
   model: string; // CLI/account-specific model identifier
-  capability?: number; // optional numeric rank; higher = more capable
 };
 
 type ModeConfig = {
@@ -48,11 +47,9 @@ type ModeConfig = {
   subRoleAgentOrder?: {
     reviewPanel?: AgentEntry[];
     reviewActuator?: AgentEntry[];
-    patchActuator?: AgentEntry[];
   }; // patch mode only: optional per-sub-role agent-order overrides
   commit?: boolean; // plan mode only: whether to commit specs to the target repo (default true)
   targetDir?: string; // plan and intent modes: relative path where committed specs are routed (default "spec")
-  actuationCapabilityFloor?: number; // patch mode only: minimum capability rank to use (default unset = no floor)
 };
 
 // For modes.prompt specifically, only agentOrder is used. The commit and targetDir fields have no effect.
@@ -301,8 +298,7 @@ The optional `modes.patch.subRoleAgentOrder` block adds per-sub-role agent-order
 Allowed keys:
 
 - `reviewPanel`: read-only review roles (`adversary`, `advocate`, `adjudicator`)
-- `reviewActuator`: verdict actuator (head-only) and shrink agent (full list)
-- `patchActuator`: implementation loop
+- `reviewActuator`: verdict actuator (head-only) and shrink agent (full list). This is the actuator-tiering lever: agents listed here are the only agents used for review actuator turns; when unset, all agents from `modes.patch.agentOrder` are eligible.
 
 Each present key uses the same `AgentEntry[]` schema and validation contract as `modes.patch.agentOrder`: the array must be non-empty, agents must be known, agents must not repeat, and each model must be valid for its agent. Unknown keys under `subRoleAgentOrder` are rejected at config load.
 
@@ -322,49 +318,11 @@ Example:
         ],
         "reviewActuator": [
           { "agent": "codex", "model": "gpt-5.4" }
-        ],
-        "patchActuator": [
-          { "agent": "claude", "model": "sonnet" },
-          { "agent": "codex", "model": "gpt-5.4" }
         ]
       }
     }
   }
 }
-```
-
-## `modes.patch.actuationCapabilityFloor`
-
-The optional `modes.patch.actuationCapabilityFloor` field (default unset) establishes a minimum capability rank that patch-mode agents must meet. When set, it filters the `modes.patch.agentOrder` to skip agents below the floor, allowing later subspecs to enforce a minimum model tier during actuation.
-
-**Capability ranking:** Each entry in `modes.patch.agentOrder` must carry an optional numeric `capability` field. Higher numbers indicate more capable agents. No specific range or unit is enforced — any finite number works.
-
-**Floor semantics:** An agent is below-floor iff `agent.capability < floor`. When the floor is unset, no filtering occurs and the feature is disabled.
-
-**Validation:** When `actuationCapabilityFloor` is set:
-- Every entry in `modes.patch.agentOrder` must carry a numeric `capability` field (missing or non-numeric capability triggers a validation error naming the entry).
-- `actuationCapabilityFloor` itself must be a finite number (non-numeric or non-finite values trigger a validation error).
-
-When `actuationCapabilityFloor` is unset, entries may carry `capability` fields or omit them — the field is ignored on non-patch modes and optional always.
-
-Example configuration enforcing a floor of 5 across three agents:
-
-```json
-{
-  "modes": {
-    "patch": {
-      "agentOrder": [
-        { "agent": "claude", "model": "haiku", "capability": 3 },
-        { "agent": "codex", "model": "gpt-5.3-codex", "capability": 6 },
-        { "agent": "cursor", "model": "Composer 2.5", "capability": 8 }
-      ],
-      "actuationCapabilityFloor": 5
-    }
-  }
-}
-```
-
-In this example, `claude` (capability 3) is below the floor and would be skipped during actuation; `codex` and `cursor` meet the floor and remain in the fallback order.
 
 ## `worktreeSymlinks`
 

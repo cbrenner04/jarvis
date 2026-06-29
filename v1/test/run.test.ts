@@ -3416,6 +3416,44 @@ exit 0
     expect(claude.calls.length).toBe(0);
   });
 
+  test("uncommitted ticks on a completed subspec continue to the next linked subspec", async () => {
+    setupGit();
+    const specDir = join(projectRoot, "spec", "feature");
+    mkdirSync(specDir, { recursive: true });
+    const spec = join(specDir, "index.md");
+    const firstSubspec = join(specDir, "00-one.md");
+    const secondSubspec = join(specDir, "01-two.md");
+    writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n- [ ] [01 - Two](./01-two.md)\n"));
+    writeFileSync(firstSubspec, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n");
+    writeFileSync(secondSubspec, "# 01 - Two\n\n## Acceptance criteria\n\n- [ ] Two accepted.\n");
+    execSync("git add -A && git commit -m init", { cwd: projectRoot });
+    writeFileSync(firstSubspec, "# 00 - One\n\n## Acceptance criteria\n\n- [x] One accepted.\n");
+
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir, maxIterations: 2 },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).not.toBe(0);
+    expect(claude.calls).toHaveLength(1);
+    expect(claude.calls[0]?.prompt).toContain(secondSubspec);
+    expect(claude.calls[0]?.prompt).not.toContain(firstSubspec);
+    expect(execSync("git log -1 --format=%s", { cwd: projectRoot, encoding: "utf8" })).toContain("00 - One");
+    const committedIndex = execSync("git show HEAD:spec/feature/index.md", {
+      cwd: projectRoot,
+      encoding: "utf8",
+    });
+    expect(committedIndex).toContain("- [x] [00 - One](./00-one.md)");
+    expect(committedIndex).toContain("- [ ] [01 - Two](./01-two.md)");
+    expect(cap.out()).not.toContain("spec complete");
+  });
+
   test("bounded tick-retry: an AC tick between edited-but-unticked iterations resets the count", async () => {
     execSync("git init -b jarvis-e2e", { cwd: projectRoot });
     execSync('git config user.email "jarvis-test@example.com"', { cwd: projectRoot });

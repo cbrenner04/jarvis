@@ -651,7 +651,11 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
 
       if (allNonHumanOnlyChecked) {
         state.iteration += 1;
-        const done = (await tryFinishSpecIfDone(ctx)) ?? 0;
+        const done = await tryFinishSpecIfDone(ctx);
+        // Subspec AC complete ≠ index complete; null means linked subspecs remain (before===0/after===0 coalesce null→0 because countUnchecked was already 0).
+        if (done === null) {
+          return { kind: "continue" };
+        }
         if (state.completionLoopbackSignal !== null) {
           return { kind: "continue" };
         }

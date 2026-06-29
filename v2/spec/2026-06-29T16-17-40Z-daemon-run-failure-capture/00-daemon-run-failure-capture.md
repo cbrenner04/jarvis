@@ -72,40 +72,40 @@ log stream.
 
 ## Acceptance criteria
 
-- [ ] When the injected `writeLoopExecutor` rejects, the durable run row ends
+- [x] When the injected `writeLoopExecutor` rejects, the durable run row ends
   with `status: "failed"` (not `blocked` or `in-progress`).
-- [ ] When the injected `writeLoopExecutor` rejects and the failure reporter is
+- [x] When the injected `writeLoopExecutor` rejects and the failure reporter is
   reachable, exactly one `run_execution_failed` event is appended for that
   `runId`.
-- [ ] After executor rejection capture, durable run is `failed` even when the
+- [x] After executor rejection capture, durable run is `failed` even when the
   latest attempt row remains `in-progress`.
-- [ ] After executor rejection settles, `list` reports `isLive: false` for that
+- [x] After executor rejection settles, `list` reports `isLive: false` for that
   run and a second `start` for the same `(project, branch)` is accepted.
-- [ ] When the failure reporter throws after durable status is set to `failed`,
+- [x] When the failure reporter throws after durable status is set to `failed`,
   the run remains `failed`, ownership is released, and `list` reports
   `isLive: false`.
-- [ ] The spawn boundary surfaces the original rejection value to the injected
+- [x] The spawn boundary surfaces the original rejection value to the injected
   failure reporter without replacing it (test asserts same `message` or
   `instanceof` as thrown).
-- [ ] When durable status is already terminal before spawn-boundary capture runs,
+- [x] When durable status is already terminal before spawn-boundary capture runs,
   `setRunStatus` is not called with `failed` and the prior terminal status is
   unchanged.
-- [ ] When the injected `writeLoopExecutor` resolves without throwing, the
+- [x] When the injected `writeLoopExecutor` resolves without throwing, the
   failure reporter is not called and no `run_execution_failed` event is
   appended.
-- [ ] `startDaemon` supplies a failure reporter that appends `run_execution_failed`
+- [x] `startDaemon` supplies a failure reporter that appends `run_execution_failed`
   through the production log sink (integration-style or thin dep injection).
-- [ ] `daemon-start-list.test.ts` stays green (updated for required
+- [x] `daemon-start-list.test.ts` stays green (updated for required
   `failureReporter` noop as needed).
-- [ ] `v2/docs/v2-architecture.md` documents daemon-owned run-execution failure
+- [x] `v2/docs/v2-architecture.md` documents daemon-owned run-execution failure
   capture (`failed` status, one `run_execution_failed` log event, ownership
   release, original error preserved to reporter).
-- [ ] `v2/docs/daemon-host.md` documents spawn-boundary failure capture order,
+- [x] `v2/docs/daemon-host.md` documents spawn-boundary failure capture order,
   dual-outage out-of-scope case, and post-failure operator shape (`list`:
   `status: "failed"`, `isLive: false`).
-- [ ] Inline doc-comments on changed exported symbols (`RunControlHandlerDeps`,
+- [x] Inline doc-comments on changed exported symbols (`RunControlHandlerDeps`,
   `createRunControlHandlers`) per `v2/docs/documentation-standard.md`.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

@@ -21,3 +21,13 @@ After operator ticks a subspec's AC, patch mode's uncommitted-ticks path commits
 - [ ] `v2/docs/v1-behaviors.md` — uncommitted-ticks finish path continues when index tasks remain.
 
 ## Prerequisites
+
+
+## Blocker
+
+Out-of-bounds write detected. The following paths were modified outside `v1/spec/2026-06-29T01-17-39Z-uncommitted-ticks-continue-on-index-open/` and have been reverted:
+
+  - `PR_DESCRIPTION.md`
+  - `.jarvis-review-plan-adversary-1`
+
+Spec-file write boundary is enforced: only files under `v1/spec/2026-06-29T01-17-39Z-uncommitted-ticks-continue-on-index-open/` may be modified.

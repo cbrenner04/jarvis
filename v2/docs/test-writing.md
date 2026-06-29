@@ -72,6 +72,7 @@ When an exported production seam can be exercised with injected fakes, call that
 const handlers = createRunControlHandlers({
   stateStore,
   writeLoopExecutor: fakeExecutor.executor,
+  failureReporter: () => {},
 });
 
 server = await startIpcServer(SOCKET_PATH, handlers);

@@ -27,6 +27,7 @@ import type { LogClient } from "../../logging.ts";
 import { enterMode } from "../../mode-entry.ts";
 import { ensureDraftPr, renderAttribution } from "../../pr.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
+import { normalizeRepoUrl } from "../../repo-url.ts";
 import { planSummary } from "../../run-summary.ts";
 import { createPlanWorktree, createWorktreeSymlinks, ensureExistingBranchWorktree } from "../../worktree.ts";
 import {
@@ -39,6 +40,7 @@ import {
 import { commitPlanBlocker, commitPlanDraft } from "./commits.ts";
 import { runDraftPhase, validateDraftOutput } from "./draft.ts";
 import { stripNonContractIndexLines } from "./index-cleanup.ts";
+import { repairPlanSpecMarkdown } from "./markdown-repair.ts";
 import { createPlanTelemetryWriter, type PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { buildPlanPrHeader, maybeMarkPlanPrReady, type OpenPrInfo, updatePlanPrBody } from "./pr.ts";
 import { type PlanReviewPhaseOptions, runPlanReviewPhase } from "./review.ts";
@@ -802,10 +804,11 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         });
       };
 
+      const resumeSpecPath = resume.externalSpecRoot
+        ? join(resume.externalSpecRoot, resume.specDirBasename)
+        : join(resume.worktreePath, resumeTargetDir, resume.specDirBasename);
+
       if (reviewPasses > 0) {
-        const resumeSpecPath = resume.externalSpecRoot
-          ? join(resume.externalSpecRoot, resume.specDirBasename)
-          : join(resume.worktreePath, resumeTargetDir, resume.specDirBasename);
         const reviewResult = await runPlanReviewPhase({
           onOutboundPrompt: logOutboundPrompt,
           worktreePath: resume.worktreePath,
@@ -890,6 +893,15 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             }),
           );
         }
+        const planFixCommand = cfg.projects[project.key]?.fixCommand;
+        safeMarkPlanPrReady({
+          io: opts.io,
+          branch,
+          worktreePath: resume.worktreePath,
+          specDirPath: resumeSpecPath,
+          commit: true,
+          ...(planFixCommand !== undefined ? { fixCommand: planFixCommand } : {}),
+        });
       } else {
         const indexPath = join(resume.externalSpecRoot ?? resume.worktreePath, resume.specDirBasename, "index.md");
         emitNoCommitPlanNextSteps(opts.io, indexPath);
@@ -1462,6 +1474,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           io: opts.io,
           branch: planBranch,
           worktreePath: worktreePath as string,
+          specDirPath: finalSpecPath,
+          commit: true,
           ...(planFixCommand !== undefined ? { fixCommand: planFixCommand } : {}),
         });
       } else {
@@ -1597,11 +1611,20 @@ function safeMarkPlanPrReady(args: {
   io: PlanIo;
   branch: string;
   worktreePath: string;
+  specDirPath?: string;
+  commit?: boolean;
   fixCommand?: string;
   markReady?: (branch: string, cwd: string) => void;
   getOpenPrState?: (branch: string, cwd: string) => OpenPrInfo;
 }): void {
   try {
+    if (args.commit === true && args.specDirPath !== undefined) {
+      repairPlanSpecMarkdown({
+        specDirPath: args.specDirPath,
+        commit: true,
+        warn: (message) => args.io.stderr(message),
+      });
+    }
     maybeMarkPlanPrReady({
       branch: args.branch,
       cwd: args.worktreePath,
@@ -1684,6 +1707,22 @@ function detectGitOrigin(projectRoot: string): string | undefined {
 }
 
 /**
+ * Format a raw repo origin/key for MD034-safe `repo:` inject (`commit: false` only).
+ * GitHub HTTPS/SSH/scp origins become `owner/repo`; other http(s) URLs wrap in `<>`.
+ */
+function formatInjectedRepoValue(raw: string): string {
+  const trimmed = raw.trim();
+  const normalized = normalizeRepoUrl(trimmed);
+  if (normalized?.startsWith("github.com/")) {
+    return normalized.slice("github.com/".length);
+  }
+  if (/^https?:\/\//i.test(trimmed)) {
+    return `<${trimmed}>`;
+  }
+  return trimmed;
+}
+
+/**
  * Inject a `repo:` line into the index.md if not already present.
  * Prefers origin URL if available; falls back to detected git origin; falls back to project key.
  */
@@ -1714,11 +1753,13 @@ export function injectRepoLineIntoIndex(specDirPath: string, project: ProjectMat
     return; // Can't inject if no repo identifier
   }
 
+  const repoLineValue = formatInjectedRepoValue(repoValue);
+
   // Insert repo: line after the first line (which is usually a heading like # ...)
   const lines = content.replace(/\r\n/g, "\n").split("\n");
   if (lines.length > 0) {
     // Insert after the first line
-    lines.splice(1, 0, `repo: ${repoValue}`);
+    lines.splice(1, 0, `repo: ${repoLineValue}`);
     content = lines.join("\n");
     writeFileSync(indexPath, content, "utf8");
   }

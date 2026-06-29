@@ -5,6 +5,7 @@ import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import type { Agent, AgentName } from "../agents/types.ts";
 import { CONFIG_DIR, loadConfig, resolvePlanFlags, validateTargetDir } from "../config.ts";
 import type { LogClient } from "../logging.ts";
+import { keepIssueReferencesOffLineStart, runMarkdownlintAutofix } from "../markdownlint-repair.ts";
 import { enterMode } from "../mode-entry.ts";
 import { listStageMarkdownFiles, runIntentSplitTurn } from "../modes/plan/intent-split.ts";
 import { getOpenPrState, maybeMarkPlanPrReady } from "../modes/plan/pr.ts";
@@ -263,18 +264,6 @@ function normalizePrerequisitesSectionSpacing(text: string): string {
   return changed ? lines.join("\n") : text;
 }
 
-function keepIssueReferencesOffLineStart(text: string): string {
-  const lines = text.split("\n");
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i] ?? "";
-    // If a line is just an issue reference like #123, prepend "See: "
-    if (/^#\d+\s*$/.test(line)) {
-      lines[i] = `See: ${line}`;
-    }
-  }
-  return lines.join("\n");
-}
-
 function repairIntentFile(path: string, slug: string): void {
   const content = readFileSync(path, "utf8");
   let text = content.replace(/\r\n/g, "\n");
@@ -355,87 +344,6 @@ function repairIntentFile(path: string, slug: string): void {
   }
 }
 
-function resolveHarnessRoot(override?: string | null): string | null {
-  if (override !== undefined) {
-    return override;
-  }
-  let current = import.meta.dir;
-  const maxDepth = 10;
-  let depth = 0;
-
-  while (depth < maxDepth) {
-    const nodeModulesPath = join(current, "node_modules");
-    const markdownlintPath = join(nodeModulesPath, "markdownlint-cli2");
-    const configPath = join(current, ".markdownlint-cli2.jsonc");
-
-    try {
-      if (existsSync(markdownlintPath) && existsSync(configPath)) {
-        return current;
-      }
-    } catch {
-      // Continue
-    }
-
-    const parent = resolve(current, "..");
-    if (parent === current) {
-      break;
-    }
-    current = parent;
-    depth += 1;
-  }
-
-  return null;
-}
-
-function runMarkdownlintAutofix(
-  stagingDir: string,
-  warn: (message: string) => void,
-  harnessRootOverride?: string | null,
-): void {
-  const harnessRoot = resolveHarnessRoot(harnessRootOverride);
-  if (harnessRoot === null) {
-    warn("warning: could not locate markdownlint binary; skipping autofix\n");
-    return;
-  }
-
-  const binaryPath = join(harnessRoot, "node_modules", "markdownlint-cli2", "markdownlint-cli2.js");
-  const configPath = join(harnessRoot, ".markdownlint-cli2.jsonc");
-
-  if (!existsSync(binaryPath)) {
-    warn("warning: markdownlint binary not found; skipping autofix\n");
-    return;
-  }
-
-  if (!existsSync(configPath)) {
-    warn("warning: markdownlint config not found; skipping autofix\n");
-    return;
-  }
-
-  const files = listStageMarkdownFiles(stagingDir);
-  if (files.length === 0) {
-    return;
-  }
-
-  try {
-    execFileSync("bun", [binaryPath, "--fix", "--config", configPath, ...files], {
-      cwd: harnessRoot,
-      env: process.env,
-      stdio: "pipe",
-    });
-  } catch (err) {
-    // Residual lint violations return a status code; subprocess launch failures do not.
-    const spawnError = err as NodeJS.ErrnoException & { status?: number | null };
-    if (typeof spawnError.status === "number") {
-      return;
-    }
-    if (spawnError.code === "ENOENT") {
-      warn("warning: bun executable not found; skipping markdownlint autofix\n");
-      return;
-    }
-    warn(`warning: could not run markdownlint autofix (${spawnError.code ?? "spawn failed"}); skipping autofix\n`);
-  }
-}
-
 function repairIntentStageContent(
   stagingDir: string,
   warn: (message: string) => void,
@@ -447,8 +355,11 @@ function repairIntentStageContent(
     repairIntentFile(path, slug);
   }
 
-  // Run markdownlint autofix as a general net over any markdown violations
-  runMarkdownlintAutofix(stagingDir, warn, harnessRootOverride);
+  runMarkdownlintAutofix({
+    files: listStageMarkdownFiles(stagingDir),
+    warn,
+    ...(harnessRootOverride !== undefined ? { harnessRootOverride } : {}),
+  });
 }
 
 function validateIntentFilenames(files: string[]):

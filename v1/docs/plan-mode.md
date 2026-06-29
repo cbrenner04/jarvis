@@ -251,7 +251,7 @@ In that git-disabled path, fresh-name collision checks come only from the extern
 
 ### `repo:` binding and origin detection
 
-Plan mode writes a `repo:` line into the generated `index.md`. When the target project has a configured `origin` URL, that URL is used directly for portability. When `origin` is not configured but the project root is a git checkout with an `origin` remote, plan mode automatically detects that remote via `git remote get-url origin` and emits it as the portable `repo:` value. This detection is read-only and does not persist the origin back to `~/.jarvis/config.json`. On any detection failure (non-git directory, no `origin` remote, missing `git` binary, etc.), plan mode falls back silently to the registered project key, which remains resolver-safe for `jarvis1 run`.
+Plan mode writes a `repo:` line into the generated `index.md` when `commit: false` (programmatic inject only; `commit: true` strips non-contract index lines including `repo:`). GitHub HTTPS, SSH, and scp-style origins normalize to the slug form `repo: owner/repo`. Other `http:`/`https:` URLs emit `repo: <url>` (angle brackets) so bare URLs do not trip `lint:md`. When the target project has a configured `origin` URL, that value drives inject after normalization. When `origin` is not configured but the project root is a git checkout with an `origin` remote, plan mode automatically detects that remote via `git remote get-url origin` and emits the MD034-safe `repo:` form. This detection is read-only and does not persist the origin back to `~/.jarvis/config.json`. On any detection failure (non-git directory, no `origin` remote, missing `git` binary, etc.), plan mode falls back silently to the registered project key, which remains resolver-safe for `jarvis1 run`.
 
 ## Flags
 
@@ -387,13 +387,15 @@ On fresh `commit: true` runs, the first `plan: draft` commit triggers the `ensur
 
 Like patch mode, plan mode runs the built-in `full` gate automatically once every scripted phase succeeds (no blocker): built-in `bun run fix` (committing any dirty output first), then built-in `bun run ready`, then post-verification commit-if-dirty when verification leaves non-empty porcelain. Built-in `ready` is strict verification-only; see [`v2/docs/v1-behaviors.md`](../../v2/docs/v1-behaviors.md) for the authoritative built-in ready/fix split and step order. Unlike patch mode, committed plan-mode readiness does not thread the per-project `readyCommand` override today; it always runs the built-ins.
 
+**Pre-ready markdown repair (`commit: true` only):** Immediately before the ready gate, jarvis runs `repairPlanSpecMarkdown` on the active spec directory: `index.md`, `intent.md`, and numbered `NN-*.md` subspecs (excluding `verdict-*.md`). Each file gets the same MD018 issue-reference guard intent emit uses, then harness-pinned markdownlint `--fix` against `.markdownlint-cli2.jsonc` with cwd anchored to the harness repo. Residual non-autofixable violations do not fail plan; `lint:md` in the ready gate remains authoritative. After autofix, non-contract `index.md` lines are stripped again. Spawn failure or a missing markdownlint binary warns to stderr and continues. Successful fresh runs and successful `--resume` runs share this repair-then-ready path.
+
 **Readiness transition behavior:**
 - If the branch's open PR is **draft**, plan first resolves the PR's actual base, fetches `origin/<base>`, and confirms `HEAD` contains that fetched base tip. If the branch is behind or diverged from base, jarvis emits a stderr message, skips the ready flip, and leaves the PR draft. If the base check cannot resolve or fetch, it soft-fails open and continues. After a passing base-current check, the gate runs built-in `bun run fix` (committing any dirty output before verification), then built-in `bun run ready`, then post-verification commit-if-dirty when applicable. On success, `gh pr ready` flips the PR to ready. This call site is not wired to `readyCommand`. On gate failure, the PR remains draft.
 - If the branch's open PR is **already ready**, both the gate and GitHub transition are skipped; the PR remains ready and emits no warning.
 - If **no open PR exists**, the readiness helper is a silent no-op.
 
 **Recovery on resume:** A later successful `jarvis1 plan --resume …` invocation retries the readiness transition:
-- If the PR is still **draft** (because an earlier ready gate failed or did not run), the gate runs again and may flip the PR to ready.
+- If the PR is still **draft** (because an earlier ready gate failed or did not run), the gate runs again after `repairPlanSpecMarkdown` and may flip the PR to ready.
 - If the PR is **already ready**, the resume path does nothing (idempotent no-op).
 - If the gate fails again, the PR remains draft; the recovery trigger is a subsequent successful committed resume run.
 

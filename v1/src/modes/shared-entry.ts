@@ -328,7 +328,7 @@ function _looksLikeUrlOrSlug(value: string): boolean {
   return false;
 }
 
-function readRepoPath(specPath: string): string | undefined {
+export function readRepoPath(specPath: string): string | undefined {
   // The spec path may be a synthetic anchor (e.g. the project-resolution
   // anchor used by location-based preflight) that never exists on disk. A
   // missing file simply means there is no `repo:` line to read.
@@ -346,7 +346,11 @@ function readRepoPath(specPath: string): string | undefined {
     }
     const match = line.match(/^repo:\s*(.+?)\s*$/);
     if (match?.[1]) {
-      return match[1].trim();
+      let value = match[1].trim();
+      if (value.startsWith("<") && value.endsWith(">")) {
+        value = value.slice(1, -1);
+      }
+      return value;
     }
   }
   return undefined;

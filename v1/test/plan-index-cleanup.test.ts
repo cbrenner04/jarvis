@@ -5,6 +5,38 @@ import { join } from "node:path";
 import { stripNonContractIndexLines } from "../src/modes/plan/index-cleanup.ts";
 
 describe("stripNonContractIndexLines", () => {
+  test("removes a stray repo: line surrounded by blank lines without MD012 doubles", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-index-cleanup-repo-blanks-"));
+    try {
+      const specDir = join(dir, "spec");
+      mkdirSync(specDir);
+      const indexPath = join(specDir, "index.md");
+      const original = `# My Spec
+
+repo: https://github.com/cbrenner04/jarvis
+
+- [ ] [01 — Foo](./01-foo.md)
+`;
+      writeFileSync(indexPath, original);
+
+      const stderr: string[] = [];
+      stripNonContractIndexLines({
+        specDirPath: specDir,
+        stderr: (s) => stderr.push(s),
+      });
+
+      const content = readFileSync(indexPath, "utf8");
+      expect(content).toBe(`# My Spec
+
+- [ ] [01 — Foo](./01-foo.md)
+`);
+      expect(stderr).toHaveLength(1);
+      expect(stderr[0]).toContain("stripped 1 non-contract line");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("removes a stray repo: line from index.md", () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-index-cleanup-repo-"));
     try {

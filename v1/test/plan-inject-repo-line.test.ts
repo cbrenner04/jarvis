@@ -7,20 +7,17 @@ import { injectRepoLineIntoIndex } from "../src/commands/plan.ts";
 import type { ProjectMatch } from "../src/config.ts";
 
 describe("injectRepoLineIntoIndex", () => {
-  test("when project.origin is set, emits repo: <origin> (existing behavior preserved)", () => {
+  test("when project.origin is a GitHub HTTPS URL, emits repo: owner/repo slug", () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-inject-repo-1-"));
     try {
-      // Create a spec directory with index.md
       const specDir = join(dir, "spec");
       mkdirSync(specDir);
       const indexPath = join(specDir, "index.md");
       writeFileSync(indexPath, "# My Spec\n\nContent here.\n");
 
-      // Create a temporary project root (not a git repo)
       const projectRoot = join(dir, "project");
       mkdirSync(projectRoot);
 
-      // Create a ProjectMatch with origin set
       const project: ProjectMatch = {
         key: "my-key",
         root: projectRoot,
@@ -30,34 +27,28 @@ describe("injectRepoLineIntoIndex", () => {
       injectRepoLineIntoIndex(specDir, project);
 
       const content = readFileSync(indexPath, "utf8");
-      expect(content).toContain("repo: https://github.com/example/repo.git");
+      expect(content).toContain("repo: example/repo");
+      expect(content).not.toContain("https://");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  test("when project.origin is undefined and root is a git checkout with origin remote, emits repo: <detected-origin>", () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-inject-repo-2-detected-origin-"));
+  test("when project.origin is undefined and root has GitHub SSH origin, emits repo: owner/repo slug", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-inject-repo-2-ssh-"));
     try {
-      // Create a git repo with a remote origin
       const projectRoot = join(dir, "project");
       mkdirSync(projectRoot);
       execSync("git init -b main", { cwd: projectRoot });
-      execSync("git config user.email 'test@example.com'", {
-        cwd: projectRoot,
-      });
+      execSync("git config user.email 'test@example.com'", { cwd: projectRoot });
       execSync("git config user.name 'Test User'", { cwd: projectRoot });
-      execSync("git remote add origin https://github.com/detected/repo.git", {
-        cwd: projectRoot,
-      });
+      execSync("git remote add origin git@github.com:detected/repo.git", { cwd: projectRoot });
 
-      // Create a spec directory with index.md
       const specDir = join(dir, "spec");
       mkdirSync(specDir);
       const indexPath = join(specDir, "index.md");
       writeFileSync(indexPath, "# My Spec\n\nContent here.\n");
 
-      // Create a ProjectMatch without origin
       const project: ProjectMatch = {
         key: "my-key",
         root: projectRoot,
@@ -66,7 +57,34 @@ describe("injectRepoLineIntoIndex", () => {
       injectRepoLineIntoIndex(specDir, project);
 
       const content = readFileSync(indexPath, "utf8");
-      expect(content).toContain("repo: https://github.com/detected/repo.git");
+      expect(content).toContain("repo: detected/repo");
+      expect(content).not.toContain("git@");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("when origin is a non-GitHub https URL, emits angle-bracket wrapped repo line", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-inject-repo-bracket-"));
+    try {
+      const specDir = join(dir, "spec");
+      mkdirSync(specDir);
+      const indexPath = join(specDir, "index.md");
+      writeFileSync(indexPath, "# My Spec\n\nContent here.\n");
+
+      const projectRoot = join(dir, "project");
+      mkdirSync(projectRoot);
+
+      const project: ProjectMatch = {
+        key: "my-key",
+        root: projectRoot,
+        origin: "https://gitlab.com/example/repo.git",
+      };
+
+      injectRepoLineIntoIndex(specDir, project);
+
+      const content = readFileSync(indexPath, "utf8");
+      expect(content).toContain("repo: <https://gitlab.com/example/repo.git>");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -75,17 +93,14 @@ describe("injectRepoLineIntoIndex", () => {
   test("when project.origin is undefined and root is not a git checkout, emits repo: <project.key> (fallback preserved)", () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-inject-repo-3-fallback-"));
     try {
-      // Create a temporary project root (NOT a git repo)
       const projectRoot = join(dir, "project");
       mkdirSync(projectRoot);
 
-      // Create a spec directory with index.md
       const specDir = join(dir, "spec");
       mkdirSync(specDir);
       const indexPath = join(specDir, "index.md");
       writeFileSync(indexPath, "# My Spec\n\nContent here.\n");
 
-      // Create a ProjectMatch without origin
       const project: ProjectMatch = {
         key: "my-key-fallback",
         root: projectRoot,
@@ -103,23 +118,17 @@ describe("injectRepoLineIntoIndex", () => {
   test("when project.origin is undefined, root is a git checkout with no origin remote, emits repo: <project.key> (fallback preserved)", () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-inject-repo-4-no-remote-"));
     try {
-      // Create a git repo WITHOUT a remote origin
       const projectRoot = join(dir, "project");
       mkdirSync(projectRoot);
       execSync("git init -b main", { cwd: projectRoot });
-      execSync("git config user.email 'test@example.com'", {
-        cwd: projectRoot,
-      });
+      execSync("git config user.email 'test@example.com'", { cwd: projectRoot });
       execSync("git config user.name 'Test User'", { cwd: projectRoot });
-      // Note: no git remote add origin — just a bare git repo
 
-      // Create a spec directory with index.md
       const specDir = join(dir, "spec");
       mkdirSync(specDir);
       const indexPath = join(specDir, "index.md");
       writeFileSync(indexPath, "# My Spec\n\nContent here.\n");
 
-      // Create a ProjectMatch without origin
       const project: ProjectMatch = {
         key: "my-key-no-remote",
         root: projectRoot,

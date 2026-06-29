@@ -75,35 +75,35 @@ there.
 
 ## Acceptance criteria
 
-- [ ] `repairPlanSpecMarkdown` runs markdownlint `--fix` on the active spec dir's
+- [x] `repairPlanSpecMarkdown` runs markdownlint `--fix` on the active spec dir's
   `index.md`, `intent.md`, and `NN-*.md` (excluding `verdict-*.md`) via the pinned
   binary and harness `.markdownlint-cli2.jsonc` with cwd anchored to the harness
   repo, immediately before `maybeMarkPlanPrReady` enters `runReadyAndCommit`.
-- [ ] `repairPlanSpecMarkdown` applies `keepIssueReferencesOffLineStart` to each
+- [x] `repairPlanSpecMarkdown` applies `keepIssueReferencesOffLineStart` to each
   target file before autofix.
-- [ ] After `repairPlanSpecMarkdown`, `stripNonContractIndexLines` runs on
+- [x] After `repairPlanSpecMarkdown`, `stripNonContractIndexLines` runs on
   `index.md` when `commit: true`.
-- [ ] Successful `commit: true` `jarvis1 plan --resume …` invokes
+- [x] Successful `commit: true` `jarvis1 plan --resume …` invokes
   `repairPlanSpecMarkdown` then `safeMarkPlanPrReady` (same as fresh-run success).
-- [ ] `injectRepoLineIntoIndex` writes `repo: owner/repo` (no bare URL) when the
+- [x] `injectRepoLineIntoIndex` writes `repo: owner/repo` (no bare URL) when the
   chosen value is a GitHub HTTPS or SSH/scp-style origin normalizable to
   `github.com/owner/repo`.
-- [ ] `injectRepoLineIntoIndex` writes `repo: <https://…>` (angle-bracket wrapped,
+- [x] `injectRepoLineIntoIndex` writes `repo: <https://…>` (angle-bracket wrapped,
   no bare URL) when the chosen value is an `http:`/`https:` URL that does not
   normalize to a GitHub slug.
-- [ ] `readRepoPath` resolves `repo: <https://github.com/owner/repo>` and
+- [x] `readRepoPath` resolves `repo: <https://github.com/owner/repo>` and
   `repo: owner/repo` to values `jarvis1 run` can match against registered origins.
-- [ ] A test seeds a spec tree with bare `https://` in a subspec and/or injectable
+- [x] A test seeds a spec tree with bare `https://` in a subspec and/or injectable
   `repo:` line plus an `intent.md` violation, runs `repairPlanSpecMarkdown`, and
   asserts `bun run lint:md` exits 0 over that tree afterward; skips with a signal
   when the markdownlint binary is absent.
-- [ ] Residual non-autofixable markdownlint violations after autofix do not fail
+- [x] Residual non-autofixable markdownlint violations after autofix do not fail
   plan; spawn failure or missing binary warns to stderr and continues.
-- [ ] `lint:md` remains a step in the full ready tier in its existing position in
+- [x] `lint:md` remains a step in the full ready tier in its existing position in
   `scripts/ready.ts` — not relaxed or reordered.
-- [ ] `v1/test/intent-command.sandbox-unrunnable.test.ts` emit-repair cases stay
+- [x] `v1/test/intent-command.sandbox-unrunnable.test.ts` emit-repair cases stay
   green after shared-helper extraction.
-- [ ] After a successful `commit: true` `jarvis1 plan` run whose spec lives under
+- [x] After a successful `commit: true` `jarvis1 plan` run whose spec lives under
   `lint:md` globs and auto-ready transition succeeds, `bun run lint:md` exits 0
   with no operator edits to the generated spec tree. (Manual)
 

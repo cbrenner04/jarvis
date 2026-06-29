@@ -48,6 +48,7 @@ function setupMarkReadyWorktree(
     makeDirty?: boolean;
     specBody?: string;
     indexSpec?: { indexPath: string; subspecPath: string; subspecBody: string };
+    setUpstream?: boolean;
   },
 ): { worktreePath: string; specPath: string } {
   const worktreePath = join(worktreeDir, worktreeName);
@@ -56,7 +57,8 @@ function setupMarkReadyWorktree(
   const barePath = join(root, `${worktreeName}-remote.git`);
   execSync(`git init --bare "${barePath}"`, { stdio: "pipe" });
   execSync(`git remote add origin "${barePath}"`, { cwd: worktreePath, stdio: "pipe" });
-  execSync("git push -u origin main", { cwd: worktreePath, stdio: "pipe" });
+  const initialPush = opts?.setUpstream === false ? "git push origin main" : "git push -u origin main";
+  execSync(initialPush, { cwd: worktreePath, stdio: "pipe" });
 
   let specPath: string;
   if (opts?.indexSpec) {
@@ -75,7 +77,8 @@ function setupMarkReadyWorktree(
   writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
   execSync("git add .active-spec-path", { cwd: worktreePath });
   execSync("git commit -m 'marker'", { cwd: worktreePath });
-  execSync("git push", { cwd: worktreePath, stdio: "pipe" });
+  const markerPush = opts?.setUpstream === false ? "git push origin main" : "git push";
+  execSync(markerPush, { cwd: worktreePath, stdio: "pipe" });
 
   if (opts?.makeDirty) {
     writeFileSync(join(worktreePath, "test.txt"), "dirty");
@@ -1324,9 +1327,50 @@ describe("triage --mark-ready", () => {
     expect(lastCommit).toContain("Jarvis-Agent: completion-ready");
   });
 
+  test("--mark-ready on complete dirty worktree with no upstream pushes with -u, gates, and promotes", async () => {
+    const worktreeName = "branch-no-upstream";
+    const { worktreePath } = setupMarkReadyWorktree(worktreeName, { makeDirty: true, setUpstream: false });
+
+    let ensureDraftPrRan = false;
+    let gateRan = false;
+    let prReadyRan = false;
+
+    const { io, out } = captureIo();
+    const code = await triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ...currentBaseSeam,
+      ghRunner: { getPrState: () => null },
+      ensureDraftPr: async () => {
+        ensureDraftPrRan = true;
+        return { number: 1, created: true };
+      },
+      runGate: () => {
+        gateRan = true;
+      },
+      prReady: () => {
+        prReadyRan = true;
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(
+      execSync("git rev-parse --abbrev-ref --symbolic-full-name @{u}", {
+        cwd: worktreePath,
+        encoding: "utf8",
+      }).trim(),
+    ).toBe("origin/main");
+    expect(ensureDraftPrRan).toBe(true);
+    expect(gateRan).toBe(true);
+    expect(prReadyRan).toBe(true);
+    expect(out()).toContain("promoted to ready");
+  });
+
   test("--mark-ready push failure after finalize commit skips PR open and gate", async () => {
-    const worktreeName = "branch-1";
-    setupMarkReadyWorktree(worktreeName);
+    const worktreeName = "branch-push-fail";
+    const { worktreePath } = setupMarkReadyWorktree(worktreeName, { makeDirty: true });
 
     let ensureDraftPrRan = false;
     let gateRan = false;
@@ -1341,7 +1385,9 @@ describe("triage --mark-ready", () => {
       ghRunner: {
         getPrState: () => null,
       },
-      commitAndPushDirty: () => ({ ok: false, reason: "push-failed", message: "push rejected" }),
+      pushCurrent: () => {
+        throw new Error("error: failed to push some refs to 'origin'\nfatal: push rejected");
+      },
       ensureDraftPr: async () => {
         ensureDraftPrRan = true;
         return { number: 1, created: true };
@@ -1353,8 +1399,14 @@ describe("triage --mark-ready", () => {
 
     expect(code).toBe(1);
     expect(err()).toContain("failed to push finalize commit");
+    expect(err()).toContain("push rejected");
     expect(ensureDraftPrRan).toBe(false);
     expect(gateRan).toBe(false);
+    const lastCommit = execSync("git log -1 --pretty=%B", {
+      cwd: worktreePath,
+      encoding: "utf8",
+    });
+    expect(lastCommit).toContain("chore: complete-but-dirty commit");
   });
 
   test("--mark-ready still-dirty after finalize commit leaves PR draft and exits non-zero", async () => {

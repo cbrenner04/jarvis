@@ -27,11 +27,11 @@ In scope: paths that already reach `pushWorktreeOrFail` (dirty finalize commit; 
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 triage <worktree> --mark-ready` on a complete dirty worktree with remote `origin` and no upstream tracking commits the dirty work, push succeeds, opens a draft PR when absent, runs the ready gate once, and promotes on green (exit 0).
-- [ ] When finalize push runs on a no-upstream worktree, `pushCurrent` receives `firstPush: true` — verified by triage seam capture or post-success `@{u}` equals `origin/<branch>`.
-- [ ] A push failure after a real finalize commit on the `pushWorktreeOrFail` path exits non-zero with `failed to push finalize commit` and git stderr, opens no PR, runs no gate, and leaves the finalize commit at HEAD.
-- [ ] `v1/test/triage-command.test.ts` behind-base refusal tests (`--mark-ready refuses when behind base with open PR`, `--mark-ready refuses when behind base with no PR`) stay green.
-- [ ] `v1/test/triage-command.test.ts` `--mark-ready with locked worktree returns error` stays green.
+- [x] `jarvis1 triage <worktree> --mark-ready` on a complete dirty worktree with remote `origin` and no upstream tracking commits the dirty work, push succeeds, opens a draft PR when absent, runs the ready gate once, and promotes on green (exit 0).
+- [x] When finalize push runs on a no-upstream worktree, `pushCurrent` receives `firstPush: true` — verified by triage seam capture or post-success `@{u}` equals `origin/<branch>`.
+- [x] A push failure after a real finalize commit on the `pushWorktreeOrFail` path exits non-zero with `failed to push finalize commit` and git stderr, opens no PR, runs no gate, and leaves the finalize commit at HEAD.
+- [x] `v1/test/triage-command.test.ts` behind-base refusal tests (`--mark-ready refuses when behind base with open PR`, `--mark-ready refuses when behind base with no PR`) stay green.
+- [x] `v1/test/triage-command.test.ts` `--mark-ready with locked worktree returns error` stays green.
 
 ## Documentation updates
 

@@ -107,7 +107,7 @@ codes after fallback exhaustion, and telemetry semantics.
 | Non-zero exit + both strict quota and model-configuration signals | `quota` | Rotate immediately to next agent | Rotate immediately to next agent | `2` (quota exhausted) | `quota` / `quota-exhausted` |
 | Non-zero exit + weak quota signal (lenient), guard passes (`allowLenientWeakQuotaFallback=true`) | `quota` (upgraded from weak `error`) | Rotate to next agent only when no-progress guard passes | Rotate to next agent only when unchanged-porcelain guard passes | `2` (quota exhausted) | `quota` / `quota-exhausted` |
 | Non-zero exit + weak quota signal (lenient), guard fails | `error` (no upgrade) | No quota rotation; treated as hard failure for that iteration | In current behavior, plan inner loop still continues to later agents on hard `error` (see mode difference below) | Patch exits `1` for error when no fallback path applies | `error` / `agent-error` |
-| Non-zero exit + model configuration signal | `model_config` | Stop immediately; do not rotate | Stop immediately; do not rotate | `3` (model configuration error) | `model_config` / `model-config` |
+| Non-zero exit + model configuration signal | `model_config` | Stop immediately; do not rotate | Rotate to next agent in draft/intent-split inner loops; fatal in review | `3` (model configuration error) when chain ends on `model_config` without `ok` | `model_config` / `model-config` |
 | Timeout / interrupt signal from harness or process control | `timeout` / interrupted run state | Stop run (no quota rotation) | Stop run (no quota rotation) | `124` (timeout) or `130` (SIGINT) | `timeout` / `timeout` or interrupted terminal reason |
 | Non-zero exit + generic error (no quota/model-config classification) | `error` | Stop run for that iteration path (no quota rotation) | In current behavior, plan inner loop may continue to next agent after hard `error` | `1` (error) | `error` / `agent-error` |
 | Zero exit (spawn layer; no adapter reclassification) | `ok` | Continue normal post-iteration completion/progress logic | Continue normal phase progression | `0` (when run/phase completes) | `ok` / completion or progress reason |
@@ -129,6 +129,13 @@ line, not multiple:
 - **Per-agent rotation (plain quota):** `quota exhausted; falling back` (strict spawn-side
   quota) and `probable quota-like error (exit N); falling back` (lenient
   weak-quota upgrade when the no-progress / porcelain guard passes).
+- **Per-agent rotation (model configuration):** `model configuration error; falling back`
+  on draft and intent-split inner loops when the configured model is rejected for
+  that agent but a later agent may succeed. Plan lines use the `plan: <agent>:`
+  prefix; intent-split uses `intent: <agent>:`. Non-empty agent stderr follows the
+  harness line. Grep rotation with `; falling back`; terminal exhaustion uses
+  `intent: model configuration error` or `plan: model configuration error` without
+  that suffix.
 - **Per-agent rotation (auth failure):** When a quota-classified result carries
   an `authFailure: true` marker, both patch and plan emit `<agent> auth failed;
   re-authenticate and rerun` instead of quota phrasing, naming the agent needing

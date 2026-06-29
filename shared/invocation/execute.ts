@@ -39,11 +39,11 @@ export type InvocationExecution<T extends InvocationResult = InvocationResult> =
 };
 
 /**
- * Run bindings in order, advancing to the next only on `quota`.
+ * Run bindings in order, advancing when the binding's `shouldAdvance` predicate
+ * returns true (default: `result.kind === "quota"`).
  *
- * Fallback is quota-only by design: `model_config` and `error` are terminal and
- * stop the chain, since a misconfigured or crashing agent is not something the
- * next agent can paper over. Mirrors v1 fallback semantics.
+ * Plan/intent inner loops override the predicate to also advance on `error` and
+ * `model_config`; patch/review/shrink keep terminal `model_config` and `error`.
  */
 export async function executeWithQuotaFallback<T extends InvocationResult = InvocationResult>(args: {
   prompt: string;

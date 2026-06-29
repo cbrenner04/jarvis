@@ -103,7 +103,7 @@ Per-project config:
   [`role-resolution.md`](role-resolution.md) — e.g. write-loop implement steps bind
   `implement`; plan draft/refine bind `plan`; review debate binds `adversary`,
   `advocate`, `adjudicator`, then `actuator`.
-- **Exactly one model per (role, agent); a gap is a hard error at load** — no
+- **Exactly one model per (agent, role); a gap is a hard error at load** — no
   skip, no default fallback. Price/model validation runs per (agent, model) pair,
   now per role.
 - **Quota fallback composes unchanged.** Agent order is the outer loop; a role

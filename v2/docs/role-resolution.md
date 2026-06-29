@@ -13,7 +13,7 @@ union:
 
 | Role | Purpose |
 | --- | --- |
-| `plan` | Spec and plan authoring — draft, refine, and apply verdicts to the spec tree. |
+| `plan` | Spec and plan authoring — draft and refine spec and plan documents. |
 | `implement` | Implementation authoring — write-loop code changes and post-completion shrink. |
 | `adversary` | Read-only critique in a review debate — surfaces findings against the artifact. |
 | `advocate` | Read-only defense in a review debate — responds to adversary findings. |
@@ -67,6 +67,7 @@ Load-bearing taxonomy choices recorded here:
   implementation cleanup, not review-and-update verdict application; it does
   not map to `actuator` (which would collide with `reviewActuator` verdict-only
   tier semantics).
+- **`implement` collapses two independently configurable v1 tiers** — v1's `patchActuator` and `reviewActuator` (implement-side) each map to different configurable tiers; v2 maps both to `implement`, yielding one `(agent, implement) → model` binding per agent. When those v1 tiers differ, v2 cannot represent both independently without disambiguation beyond bare `(agent, role)`. Agent-model-config must not assume full v1 tier parity through a single `implement` key.
 - **`operator` documented now, wired in Phase 9** — taxonomy is not blocked on
   NL-router implementation; behavior binding for `operator` is deferred until
   Phase 9 routes NL prompts.

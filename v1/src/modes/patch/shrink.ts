@@ -556,7 +556,7 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
       return;
     }
 
-    // Recover the configured model from eligible agents to reconstruct agent with correct attribution label
+    // Recover the configured model from the reviewActuator agent order to reconstruct agent with correct attribution label
     const winningEntry = reviewActuatorOrder.find(
       (entry) => createAgentForBinding(entry.agent, entry.model).attributionLabel() === finalAttempt.binding.id,
     );

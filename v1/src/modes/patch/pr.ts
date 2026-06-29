@@ -5,6 +5,7 @@ import { getCurrentBranch } from "../../../../shared/git.ts";
 import { parseSpec } from "../../../../shared/spec-parser.ts";
 import type { Agent, AgentRunOptions } from "../../agents/types.ts";
 import { type SyncTransientRetryOptions, withSyncTransientRetry } from "../../gh.ts";
+import { tryAutoIntegrateBase } from "../../git/auto-integrate-base.ts";
 import { type BaseCurrentCheckResult, checkBaseCurrent, writeReadyFlipBlocked } from "../../git/base-current.ts";
 import { checkPrExists, extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER } from "../../pr.ts";
 import { updatePrBody as updatePrBodyShared } from "../../pr-module.ts";
@@ -302,6 +303,10 @@ export type MaybeMarkReadyOpts = {
   refreshRecordedGreenResult?: (headSha: string) => void;
   /** Test seam: operator-visible stderr sink for blocked flips. Defaults to `process.stderr.write`. */
   stderr?: (s: string) => void;
+  /** When true at enabled sites, attempt conflict-free `origin/<base>` merge before ready flip. */
+  autoIntegrateBase?: boolean;
+  /** Test seam: override auto-integrate helper. */
+  tryAutoIntegrateBase?: typeof tryAutoIntegrateBase;
 };
 
 export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
@@ -320,6 +325,27 @@ export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
 
   const baseCurrent = (opts.checkBaseCurrent ?? checkBaseCurrent)({ branch, cwd: opts.cwd });
   if (baseCurrent.status === "behind") {
+    if (opts.autoIntegrateBase === true) {
+      const integrate = opts.tryAutoIntegrateBase ?? tryAutoIntegrateBase;
+      integrate({
+        branch,
+        cwd: opts.cwd,
+        baseRefName: baseCurrent.baseRefName,
+        agentLabel: opts.agentLabel ?? "",
+        ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
+        ...(opts.fixCommand !== undefined ? { fixCommand: opts.fixCommand } : {}),
+        ...(opts.runFix !== undefined ? { runFix: opts.runFix } : {}),
+        ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
+        ...(opts.commitPreReadyFix !== undefined ? { commitPreReadyFix: opts.commitPreReadyFix } : {}),
+        ...(opts.ghPrReady !== undefined ? { ghPrReady: opts.ghPrReady } : {}),
+        ...(opts.ghPrReadyRetryOpts !== undefined ? { ghPrReadyRetryOpts: opts.ghPrReadyRetryOpts } : {}),
+        ...(opts.stderr !== undefined ? { stderr: opts.stderr } : {}),
+        ...(opts.refreshRecordedGreenResult !== undefined
+          ? { refreshRecordedGreenResult: opts.refreshRecordedGreenResult }
+          : {}),
+      });
+      return;
+    }
     writeReadyFlipBlocked(opts.stderr ?? process.stderr.write.bind(process.stderr), branch, baseCurrent.baseRefName);
     return;
   }

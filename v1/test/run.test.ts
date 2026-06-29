@@ -2484,6 +2484,30 @@ exit 0
       expect(readFileSync(env.prReadyLog, "utf8").trim().split("\n")).toEqual(["ready"]);
     });
 
+    test("no-review path emits at most one behind-base auto-integrate", async () => {
+      const env = setupReviewEnv({ reviewPasses: 0, behindBase: true });
+      const cap = captureIo();
+      const claude = reviewFakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
+
+      const code = await runCommand({
+        specPath: env.spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        reviewPasses: 0,
+        agents: { claude },
+        logClient: { assertReachable: async () => {}, send: async () => {} },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      const merges = readFileSync(env.mergeLog, "utf8")
+        .trim()
+        .split("\n")
+        .filter((line) => line.includes(" merge "));
+      expect(merges).toHaveLength(1);
+      expect(readFileSync(env.prReadyLog, "utf8").trim().split("\n")).toEqual(["ready"]);
+    });
+
     test("resume-review: baseline and final each run full (no in-run carrier)", async () => {
       const env = setupReviewEnv({ reviewPasses: 1 });
       writeFileSync(env.spec, `repo: ${projectRoot}\n\n# Feature\n\n- [x] [00 - One](./00-one.md)\n`);
@@ -7040,6 +7064,7 @@ type ReviewEnv = {
   prCommentLog: string;
   prCommentBody: string;
   failReviewPush: string;
+  mergeLog: string;
   reviewCommitSubjects: () => string[];
   reviewCommitFiles: () => string[];
 };
@@ -7051,6 +7076,7 @@ function setupReviewEnv(opts: {
   patchAgentOrder?: AgentEntry[];
   maxIterations?: number;
   reviewPasses?: number;
+  behindBase?: boolean;
 }): ReviewEnv {
   const origin = join(dir, "origin.git");
   execSync(`git init --bare ${origin}`);
@@ -7066,6 +7092,14 @@ function setupReviewEnv(opts: {
   writeFileSync(join(specDir, "00-one.md"), "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n");
   execSync("git add -A && git commit -m init && git push -u origin main", { cwd: projectRoot });
 
+  if (opts.behindBase === true) {
+    execSync("git checkout -b feature", { cwd: projectRoot });
+    execSync("git push -u origin feature", { cwd: projectRoot });
+    execSync("git checkout main", { cwd: projectRoot });
+    writeFileSync(join(projectRoot, "sibling-merge.txt"), "sibling\n");
+    execSync("git add -A && git commit -m 'advance main' && git push origin main", { cwd: projectRoot });
+  }
+
   const binDir = join(dir, "bin");
   mkdirSync(binDir);
   const realGit = execSync("command -v git", { encoding: "utf8" }).trim();
@@ -7080,11 +7114,15 @@ function setupReviewEnv(opts: {
   const prState = join(dir, "pr-state");
   const readyState = join(dir, "ready-state");
   const failReviewPush = join(dir, "fail-review-push");
+  const mergeLog = join(dir, "merge-log");
 
   writeFileSync(
     git,
     `#!/usr/bin/env bash
 set -euo pipefail
+if [[ "$1" == "merge" ]]; then
+  printf 'git %s\\n' "$*" >> "${mergeLog}"
+fi
 if [[ "$1" == "push" && -f "${failReviewPush}" ]]; then
   printf 'forced review push failure\\n' >&2
   exit 1
@@ -7120,6 +7158,7 @@ if [[ "$1 $2" == "pr view" ]]; then
     if [[ -f "${readyState}" ]]; then printf 'false\\n'; else printf 'true\\n'; fi
   elif [[ "$*" == *"--json body"* ]]; then
     if [[ -f "${prBody}" ]]; then cat "${prBody}"; fi
+  elif [[ "$*" == *"baseRefName"* ]]; then printf 'main\\n';
   elif [[ "$*" == *"--json number,state"* ]]; then printf '1\\n';
   elif [[ "$*" == *"--json url"* ]]; then printf 'https://example/pull/1\\n';
   else printf '1\\n'; fi
@@ -7150,7 +7189,10 @@ exit 1
     {
       version: 2,
       modes: {
-        patch: { agentOrder: opts.patchAgentOrder ?? [CLAUDE_ENTRY] },
+        patch: {
+          agentOrder: opts.patchAgentOrder ?? [CLAUDE_ENTRY],
+          ...(opts.behindBase === true ? { shrink: "off" as const } : {}),
+        },
         plan: { agentOrder: [CLAUDE_ENTRY] },
         prompt: { agentOrder: opts.patchAgentOrder ?? [CLAUDE_ENTRY] },
         review: {
@@ -7188,6 +7230,7 @@ exit 1
     prCommentLog,
     prCommentBody,
     failReviewPush,
+    mergeLog,
     reviewCommitSubjects,
     reviewCommitFiles,
   };

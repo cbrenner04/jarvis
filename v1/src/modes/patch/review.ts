@@ -8,7 +8,7 @@ import { appendAgentTrailer } from "../../commit-trailer.ts";
 import { type AgentEntry, type Config, resolveSubRoleAgentOrder } from "../../config.ts";
 import { getBaseBranch, postPrComment, withSyncTransientRetry } from "../../gh.ts";
 import { tryAutoIntegrateBase } from "../../git/auto-integrate-base.ts";
-import { checkBaseCurrent, writeReadyFlipBlocked } from "../../git/base-current.ts";
+import { checkBaseCurrent } from "../../git/base-current.ts";
 import { checkPrExists } from "../../pr.ts";
 import {
   HARNESS_QUOTA_FALLBACK_STRICT,

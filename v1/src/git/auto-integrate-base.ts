@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { type SyncTransientRetryOptions, withSyncTransientRetry } from "../gh.ts";
-import { getCurrentHeadSha, runReadyAndCommit, type RunReadyAndCommitOpts } from "../ready-gate.ts";
+import { getCurrentHeadSha, type RunReadyAndCommitOpts, runReadyAndCommit } from "../ready-gate.ts";
 import { pushCurrent } from "../worktree.ts";
 import { writeReadyFlipBlocked } from "./base-current.ts";
 

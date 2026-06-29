@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { runAgent } from "../../../src/agents/spawn.ts";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
 import type { Config } from "../../../src/config.ts";
+import { writeReadyFlipBlocked } from "../../../src/git/base-current.ts";
 import { buildReviewPrompt, buildVerdictActuatorPrompt } from "../../../src/modes/patch/prompt.ts";
 import {
   consumeReviewBlocker,
@@ -16,7 +17,6 @@ import {
   revertSpecTreeEdits,
   runPatchReviewPhase,
 } from "../../../src/modes/patch/review.ts";
-import { writeReadyFlipBlocked } from "../../../src/git/base-current.ts";
 import { HARNESS_QUOTA_FALLBACK_STRICT, harnessAuthRotateLine } from "../../../src/quota-harness-messages.ts";
 import { FAKE_AGENT_SPAWN_PID, waitForPollCount } from "../../descendant-poll-test-helpers.ts";
 import {

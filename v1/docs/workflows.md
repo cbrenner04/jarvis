@@ -334,12 +334,14 @@ What loops vs. what's a distinct path:
   unchecked boxes.
 - **Completion-transition ready gate**: reached at most once per run, when a
   `git: true` run first observes zero unchecked boxes. On `full` it runs
-  `bun run fix` → commit-if-dirty (and push) → strict verification, and on a
-  clean green records the result keyed to post-fix-commit HEAD + clean worktree
-  (a green over a still-dirty tree aborts at exit 6). The post-completion phases
-  (shrink, review, `maybeMarkReady`) **reuse** that recorded green result and
-  skip re-running verification whenever the tree is unchanged since the
-  recording. See [run-loop.md](./run-loop.md#completion-transition-ready-gate).
+  `bun run fix` → commit-if-dirty (and push) → strict verification →
+  post-verification commit-if-dirty (and push) when applicable, and on a clean
+  green records the result keyed to post-post-verification-commit HEAD + clean
+  worktree (residual still-dirty porcelain after post-verification commit
+  aborts at exit 6). The post-completion phases (shrink, review,
+  `maybeMarkReady`) **reuse** that recorded green result and skip re-running
+  verification whenever the tree is unchanged since the recording. See
+  [run-loop.md](./run-loop.md#completion-transition-ready-gate).
 - **Shrink phase** (post-completion): a single shrink agent call that tries to
   simplify the implementation diff. Runs only when ≥1 implementation iteration
   completed and git is enabled. Out-of-scope and spec-tree edits are reverted;
@@ -351,7 +353,8 @@ What loops vs. what's a distinct path:
   implementation iteration ran. Each pass is **one flow** through a read-only
   **adversary → advocate → adjudicator** debate; a non-empty adjudicator verdict
   then drives an **actuator** call that applies it to the code. Ends with a final
-  `full` gate (`bun run fix` → commit-if-dirty → `bun run ready`) + `gh pr ready`.
+  `full` gate (`bun run fix` → commit-if-dirty → `bun run ready` →
+  post-verification commit-if-dirty when applicable) + `gh pr ready`.
   Blockers (`.jarvis-review-blocker`) exit 7 immediately.
 - **Distinct exit paths**: In the implementation loop, `kind ∈ {ok, quota,
   model_config, error}` fan out from a single decision; the same iteration
@@ -368,10 +371,12 @@ What loops vs. what's a distinct path:
   `jarvis:narrative` markers across rewrites.
 - **Readiness gates**: on `full`, the completion-transition gate and the review
   final gate run `bun run fix` → commit-if-dirty (and push) → strict
-  verification; `readyCommand` overrides the verification command only, and a
-  green over a still-dirty tree aborts at exit 6 rather than flipping ready.
-  `fast` baseline gates run neither fix nor the abort. The authoritative
-  built-in ready/fix split, gate ordering, and step order live in
+  verification → post-verification commit-if-dirty (and push) when applicable;
+  `readyCommand` overrides the verification command only, and residual
+  still-dirty porcelain after post-verification commit aborts at exit 6 rather
+  than flipping ready. `fast` baseline gates run neither fix, pre-ready commit,
+  post-verification commit, nor post-verification porcelain enforcement. The
+  authoritative built-in ready/fix split, gate ordering, and step order live in
   [`v2/docs/v1-behaviors.md`](../../v2/docs/v1-behaviors.md). The baseline
   gates reuse the recorded green result when the tree is unchanged; the final
   gate always verifies before the draft→ready flip. If any step fails, the PR

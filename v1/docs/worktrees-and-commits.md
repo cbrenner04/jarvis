@@ -169,18 +169,22 @@ with built-in `bun run fix`; if that leaves the tree dirty the harness commits
 it (message `chore: apply pre-ready check:fix`, preserving the per-call-site
 `Jarvis-Agent` trailer) and pushes **before** verification. It then runs strict
 verification — built-in `bun run ready`, or the project's `readyCommand` if set —
-against the committed tree, and finally `gh pr ready`. There is no post-ready
-dirty commit: if verification returns green but the tree is still dirty, the
-gate aborts (exit 6) and leaves the PR draft. Built-in `ready` is strict
-verification-only and built-in autofix lives in `bun run fix`; the authoritative
-built-in ready/fix split, gate ordering, and step order live in
+against the committed tree. When verification is green and porcelain is
+non-empty, the harness commits that output (message
+`chore: apply post-ready verification output`, preserving the per-call-site
+`Jarvis-Agent` trailer) and pushes before `gh pr ready`. Residual still-dirty
+porcelain after the post-verification commit aborts (exit 6) and leaves the PR
+draft. Built-in `ready` is strict verification-only and built-in autofix lives
+in `bun run fix`; the authoritative built-in ready/fix split, gate ordering, and
+step order live in
 [`v2/docs/v1-behaviors.md`](../../v2/docs/v1-behaviors.md). The test phase
 still runs `bun run test` (the aggregate test command that covers all slices);
 see
 [v2/docs/v1-behaviors.md#test-execution-and-development-workflows](../../v2/docs/v1-behaviors.md#test-execution-and-development-workflows)
 for the test-command contract. If the ready gate fails, the PR remains in draft
 for manual correction. `fast`-tier gates are unchanged: they do not run `bun run
-fix`, commit fix output, or apply the green+dirty abort.
+fix`, commit fix output, post-verification commit, or post-verification
+porcelain enforcement.
 
 After all readiness steps succeed, the harness calls `gh pr ready`. Jarvis never merges; human
 reviewers are responsible for approval and merge decisions.
@@ -290,7 +294,7 @@ The first push uses `git push -u origin plan/<plan-name>` to set up tracking;
 later pushes use plain `git push`.
 
 When every scripted phase succeeds, plan mode attempts a readiness transition (mirroring **`jarvis run`** readiness semantics):
-- If the branch's open PR is **draft**, the ready gate runs built-in `bun run fix` (committing any dirty output first), then built-in `bun run ready` (plan is not wired to `readyCommand`). On success, `gh pr ready` flips it to ready. On gate failure, the PR remains draft.
+- If the branch's open PR is **draft**, the ready gate runs built-in `bun run fix` (committing any dirty output first), then built-in `bun run ready`, then post-verification commit-if-dirty when applicable (plan is not wired to `readyCommand`). On success, `gh pr ready` flips it to ready. On gate failure, the PR remains draft.
 - If the branch's open PR is **already ready**, it remains untouched (idempotent).
 - A later successful `jarvis plan --resume …` invocation retries the transition for still-draft PRs.
 

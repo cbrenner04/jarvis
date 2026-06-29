@@ -33,11 +33,11 @@ codes) keep the existing finish path.
 
 ## Acceptance criteria
 
-- [ ] Uncommitted-ticks completion commit on a multi-subspec index where more subspecs remain does **not** exit `0`; the harness returns `{ kind: "continue" }` before any `completed-spec` telemetry or terminal finish return.
-- [ ] Regression test: multi-subspec index, `maxIterations >= 2`, uncommitted ticks on subspec 00 only — subspec-00 commit in git history; committed index `- [x]` on 00 and `- [ ]` on 01; no exit `0`; first agent prompt references subspec 01.
-- [ ] `run.test.ts` “uncommitted ticks present at iteration start are committed and advance the spec (no deadlock)” stays green.
-- [ ] `v2/docs/v1-behaviors.md` records uncommitted-ticks finish path continues when index tasks remain.
-- [ ] `v1/docs/run-loop.md` documents multi-subspec false `criteria-complete` triage (`criteria-complete` + `iterations: 0` without `spec complete` on stdout) and post-subspec continuation after uncommitted-ticks commit.
+- [x] Uncommitted-ticks completion commit on a multi-subspec index where more subspecs remain does **not** exit `0`; the harness returns `{ kind: "continue" }` before any `completed-spec` telemetry or terminal finish return.
+- [x] Regression test: multi-subspec index, `maxIterations >= 2`, uncommitted ticks on subspec 00 only — subspec-00 commit in git history; committed index `- [x]` on 00 and `- [ ]` on 01; no exit `0`; first agent prompt references subspec 01.
+- [x] `run.test.ts` “uncommitted ticks present at iteration start are committed and advance the spec (no deadlock)” stays green.
+- [x] `v2/docs/v1-behaviors.md` records uncommitted-ticks finish path continues when index tasks remain.
+- [x] `v1/docs/run-loop.md` documents multi-subspec false `criteria-complete` triage (`criteria-complete` + `iterations: 0` without `spec complete` on stdout) and post-subspec continuation after uncommitted-ticks commit.
 
 ## Documentation updates
 

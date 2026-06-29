@@ -72,50 +72,50 @@ Workflows should stay mostly linear. A workflow is an ordered list of behavior s
 
 Loop counts are maximums. A workflow can force the full maximum when desired, but agent-driven loops may be allowed to stop early after a minimum number of passes when the agent reports that no useful work remains. That early-stop path needs an explicit outcome, not silent agent discretion.
 
-Plan mode today can be described as a fixed composition of those behavior steps (each binds **behavior** + **prompt** + **role**; human checkpoints bind behavior only):
+Plan mode today can be described as a fixed composition of those behavior steps (write → **`plan`**; review → debate roles; human → behavior only):
 
-1. "Write" loop 1 time — intent-creation prompt, **`plan`** role.
-2. "Review and update" loop `N` times — intent-refinement prompt, debate roles (`adversary` → `advocate` → `adjudicator`, then `actuator`).
+1. "Write" loop 1 time with an intent-creation prompt.
+2. "Review and update" loop `N` times with an intent-refinement prompt.
 3. "Human" loop `N` times for intent approval.
-4. "Write" loop 1 time — draft-spec prompt, **`plan`** role.
-5. "Review and update" loop `N` times — spec-review prompt, debate roles.
+4. "Write" loop 1 time with a draft-spec prompt.
+5. "Review and update" loop `N` times with a spec-review prompt.
 6. "Human" loop `N` times for final review and merge.
 
 Different projects should be able to choose different compositions without changing the underlying behavior implementations. A lightweight project might run only steps `1, 3, 4, 6`. A stricter project might run `1-6`, then repeat spec review + human review (`5, 6`) until the spec is accepted. The same behavior pieces are reused; only the workflow graph changes.
 
 The floor of this is a **specless one-shot** — a single write loop with no spec and no spec artifact contract, committing its diff and opening a draft PR (today's `jarvis prompt "<text>"`). It is not a special mechanism, just the shortest workflow: the same behavior vocabulary covers the "just do this" path with no plan or review at all.
 
-The same idea also describes implementation. Patch mode today is roughly:
+The same idea also describes implementation. Patch mode today is roughly write loops (**`implement`**) plus human checkpoints:
 
-1. "Write" loop `N` times — implementation prompt, **`implement`** role.
+1. "Write" loop `N` times with an implementation prompt.
 2. "Human" loop `N` times for PR review and merge.
 
 A common stricter implementation workflow might instead be:
 
-1. "Write" loop `N` times — implementation prompt, **`implement`** role.
-2. "Review and update" loop `N` times — code-review prompt, debate roles.
-3. "Review and update" loop `N` times — security-review prompt, debate roles.
+1. "Write" loop `N` times with an implementation prompt.
+2. "Review and update" loop `N` times with a code-review prompt.
+3. "Review and update" loop `N` times with a security-review prompt.
 4. "Human" loop `N` times for final review and merge.
 
 An example of a YOLO workflow would be:
 
-1. "Write" loop 1 time — intent-creation prompt, **`plan`** role.
-2. "Review and update" loop `N` times — intent-refinement prompt, debate roles.
-3. "Write" loop 1 time — draft-spec prompt, **`plan`** role.
-4. "Review and update" loop `N` times — spec-review prompt, debate roles.
-5. "Write" loop `N` times — implementation prompt, **`implement`** role.
-6. "Review and update" loop `N` times — code-review prompt, debate roles.
-7. "Review and update" loop `N` times — security-review prompt, debate roles.
+1. "Write" loop 1 time with an intent-creation prompt.
+2. "Review and update" loop `N` times with an intent-refinement prompt.
+3. "Write" loop 1 time with a draft-spec prompt.
+4. "Review and update" loop `N` times with a spec-review prompt.
+5. "Write" loop `N` times with an implementation prompt.
+6. "Review and update" loop `N` times with a code-review prompt.
+7. "Review and update" loop `N` times with a security-review prompt.
 8. "Human" loop `N` times for final review and merge.
 
 Or
 
-1. "Write" loop 1 time — intent-creation prompt, **`plan`** role.
-2. "Write" loop 1 time — draft-spec prompt, **`plan`** role.
-3. "Write" loop `N` times — implementation prompt, **`implement`** role.
+1. "Write" loop 1 time with an intent-creation prompt.
+2. "Write" loop 1 time with a draft-spec prompt.
+3. "Write" loop `N` times with an implementation prompt.
 4. "Human" loop `N` times for final review and merge.
 
-This is the v2 architecture: "plan", "implement", "review", and "yolo" are not hardcoded modes in Jarvis source. They are named workflow presets composed from the smaller behavior vocabulary Jarvis exposes. Each step binds **behavior**, **prompt**, and **role** — not a concrete agent or model. The host/runner owns sequencing, bounded repeats, state handoff, quota fallback, telemetry, and human checkpoints. The concrete workflow/step/config model, the execution model (output contract, runs, state, the human loop), concurrency, and git mechanics are worked out in [`v2-architecture.md`](v2-architecture.md). Role taxonomy and resolution live in [`role-resolution.md`](role-resolution.md).
+This is the v2 architecture: "plan", "implement", "review", and "yolo" are not hardcoded modes in Jarvis source. They are named workflow presets composed from the smaller behavior vocabulary Jarvis exposes. Prompts and **roles** become step inputs, not hardcoded mode internals. The host/runner owns sequencing, bounded repeats, state handoff, quota fallback, telemetry, and human checkpoints. The concrete workflow/step/config model, the execution model (output contract, runs, state, the human loop), concurrency, and git mechanics are worked out in [`v2-architecture.md`](v2-architecture.md); role taxonomy in [`role-resolution.md`](role-resolution.md).
 
 ## Architectural constraints
 

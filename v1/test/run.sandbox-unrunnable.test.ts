@@ -806,7 +806,7 @@ while true; do :; done
       expect(cap.err()).not.toContain("iteration 1 exceeded idle timeout");
       expect(codex.calls).toHaveLength(1);
 
-      const telemetryPath = join(cfgDir, "runs.jsonl");
+      const _telemetryPath = join(cfgDir, "runs.jsonl");
       const rows = readTelemetryRows();
       const fallbackRow = rows.find((row) => row.exit_reason === "watchdog-idle-timeout-fallback");
       expect(fallbackRow).toBeDefined();
@@ -910,9 +910,7 @@ while true; do :; done
       expect(cap.err()).not.toContain("probable quota-like error");
       expect(codex.calls).toHaveLength(1);
 
-      const fallbackRow = readTelemetryRows().find(
-        (row) => row.exit_reason === "watchdog-idle-timeout-fallback",
-      );
+      const fallbackRow = readTelemetryRows().find((row) => row.exit_reason === "watchdog-idle-timeout-fallback");
       expect(fallbackRow).toBeDefined();
       expect(fallbackRow?.kind).toBe("timeout");
     });

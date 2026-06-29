@@ -217,6 +217,14 @@ describe("loadConfig", () => {
     expect(cfg.modes.patch.agentOrder).toEqual([{ agent: "aider", model: "ollama/llama3.1:8b" }]);
   });
 
+  test("accepts codex gpt-5.4-mini in patch agentOrder via writeConfig round-trip", () => {
+    const entry: AgentEntry = { agent: "codex", model: "gpt-5.4-mini" };
+    const cfg = loadConfig({ dir });
+    cfg.modes.patch.agentOrder = [entry];
+    writeConfig(cfg, { dir });
+    expect(loadConfig({ dir }).modes.patch.agentOrder).toEqual([entry]);
+  });
+
   test("defaults maxIterations when an existing config omits it", () => {
     writeFileSync(
       join(dir, "config.json"),

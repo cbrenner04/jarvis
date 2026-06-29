@@ -11,6 +11,9 @@ implementation is blocked on this design contract.
 
 - **Durable home is `v2/docs/agent-model-config.md`** — rules out folding the
   schema into `v2-architecture.md` or `role-resolution.md`.
+- **Role→model store is one harness-global artifact** beside `data/prices.json`
+  (`v2/docs/v2-architecture.md`) — rules out per-project role→model stores;
+  per-project variance is only the ordered `agents` list in `~/.jarvis`.
 - **`ModelEscalation` is an ordered `rungs` list** — harness tries
   `rungs[0]`, then `rungs[1]`, … — rules out unordered pools and
   config-defined non-quota escalation triggers.
@@ -19,15 +22,22 @@ implementation is blocked on this design contract.
   if a future consumer adds it; not part of this schema).
 - **`model_config` and `error` are terminal at the current rung** — no rung
   advance, no outer advance — rules out treating them like quota for either
-  loop.
+  loop; aligns with `v2/docs/shared-invocation.md`.
 - **Per-machine `agents` is an ordered `Agent[]` name list** in `~/.jarvis`
   project config — rules out v1's combined `{agent, model}` `agentOrder`
   entries.
-- **Per-agent role→model assignments live in a machine-independent data file
+- **Per-agent role→model assignments live in the harness-global data file
   beside `data/prices.json`** — version-controlled, not `config.json` — rules
   out storing `ModelsByRole` in per-machine config.
-- **Missing `(agent, role)` is a hard error at load** — rules out
-  skip-with-fallback-role and silent default models.
+- **Agents in the data file but absent from project `agents` are ignored at
+  runtime** — not load errors — rules out requiring data-file rows to match
+  every project's agent list.
+- **Missing `(agent, role)` for any project-configured agent and any required
+  role is a hard load error** — rules out skip-with-fallback-role and silent
+  default models.
+- **Empty `rungs` is a load error** — rules out zero-length escalation lists.
+- **Duplicate entries in project `agents` is a load error** — rules out
+  ambiguous outer-loop order.
 - **Closed `Role` keys from `role-resolution.md`** — every role in the union
   except `operator` must have a `ModelEscalation` entry for each agent listed
   in the project `agents` order — rules out category keys and rules out
@@ -43,12 +53,29 @@ implementation is blocked on this design contract.
   landed agent; actuator quota advances the outer agent loop — rules out
   walking actuator rungs 1..n on the same agent (v1 `reviewActuator` verdict
   tier semantics).
+- **Quota after the last inner rung on an agent advances the outer agent loop
+  for the same role** — next agent starts at `rungs[0]` — rules out stopping
+  when inner rungs exhaust on one agent.
+- **Binding lists are built fresh per step invocation** — rung index does not
+  carry across invocations — rules out cross-invocation rung cursor state.
+- **Flat binding construction** — per step, flatten outer `agents` order × inner
+  rungs (full-list or head-only `actuator`); each outer landing resets to
+  `rungs[0]` — rules out a single global rung cursor across agents.
+- **Outer advance trigger is quota-only** — no role-driven agent reorder —
+  parity baseline is patch/plan + `shared-invocation.md`, **not** v1 prompt mode
+  (where `model_config` can advance agents) — rules out claiming full v1
+  combined `{agent, model}` chain parity.
 - **`Model` carries `adapterModel` + `priceKey`** — `adapterModel` is passed
-  to the agent CLI; `priceKey` names a `data/prices.json` `models` entry —
-  rules out bare agent-name price lookup and rules out implicit key derivation
-  in the schema doc (validation mechanics deferred).
-- **CLI `--agent` / `--model` bypasses both loops for one invocation** — fixed
-  pair, no role lookup, no rung walk — rules out per-step config override.
+  to the agent CLI; `priceKey` names one adapter-specific row in
+  `data/prices.json` `models` — rules out bare agent-name price lookup,
+  multi-key maps on one logical model, and implicit key derivation in the
+  schema doc (validation mechanics deferred).
+- **Misconfigured `rungs[0]` hitting `model_config` is terminal** — remedy is
+  rung reordering — rules out auto-advancing past a bad first rung.
+- **CLI override requires both `--agent` and `--model`** — bypasses load
+  validation and both loops for one invocation; no matching `(agent, role)`
+  entry needed — rules out single-flag override and per-step config override;
+  interim shipped surface is `--agents` CSV per `write-behavior.md`.
 - **Price projection uses rung order × per-step role invocation estimates** —
   document the formula; do not ship projection code in this slice.
 - **Deferred to first consumer: on-disk data filename** — pin when Phase 5
@@ -67,24 +94,32 @@ implementation is blocked on this design contract.
 
 ## Task checklist
 
-- Add `v2/docs/agent-model-config.md` as the canonical schema home.
+- Add `v2/docs/agent-model-config.md` as the canonical schema home (schema,
+  validation matrix, flattening algorithm, consumption modes, terminal outcomes,
+  price derivation, example profiles).
 - Document types: `Agent`, `Model`, `ModelEscalation`, `ModelsByRole`,
   `AgentModelConfig` (field names, JSON shapes, relationships).
-- Document storage split: per-machine project `agents` vs machine-independent
-  `AgentModelConfig` data file beside `data/prices.json`.
-- Document outer agent loop (quota-only agent fallback, unchanged semantics)
-  and inner rung loop (ordered models per `(agent, role)`, quota-only advance).
-- Document rung terminal outcomes (`model_config`, `error`) and outer-loop
-  composition when inner rungs exhaust.
-- Document load-time validation rules (complete matrix, `operator` optional,
-  hard error on gap).
+- Document storage split: harness-global role→model artifact beside
+  `data/prices.json`; per-machine project `agents` only.
+- Document outer agent loop (quota-only advance) and inner rung loop (ordered
+  models per `(agent, role)`, quota-only advance).
+- Document flat binding construction: outer `agents` × inner rungs per step,
+  fresh per invocation, outer landing resets to `rungs[0]`.
+- Document rung terminal outcomes (`model_config`, `error`) and inner exhaustion
+  → outer fallback composition.
+- Document load-time validation rules (complete matrix, `operator` optional at
+  load, hard error on gap, empty `rungs`, duplicate `agents`).
+- Document runtime ignore rule for data-file agents not in project `agents`.
 - Document per-role rung consumption modes (full-list vs head-only `actuator`).
-- Document `--agent` / `--model` CLI override interaction with role config.
-- Document price derivation: `Model.priceKey` → `data/prices.json`; cost
+- Document CLI override: both `--agent` and `--model` required; interim
+  `--agents` CSV per `write-behavior.md`; bypasses validation and both loops.
+- Document price derivation: `Model.priceKey` → one `prices.json` row; cost
   projection from rung order and per-role invocation counts.
-- Include at least one non-normative example operator profile sketch.
+- Include at least one non-normative example operator profile sketch (include
+  multi-rung escalation for a non-`actuator` role).
 - Record the load-bearing decisions above in the doc ledger.
-- Cross-link `v2/docs/role-resolution.md` (role keys) and `data/prices.json`.
+- Cross-link `v2/docs/role-resolution.md`, `v2/docs/shared-invocation.md`, and
+  `data/prices.json`.
 - Note `implement` collapses two v1 tiers under one role (footnoted; no full v1
   tier parity claim).
 
@@ -93,22 +128,42 @@ implementation is blocked on this design contract.
 - [ ] `v2/docs/agent-model-config.md` exists and documents `Agent`, `Model`,
       `ModelEscalation`, `ModelsByRole`, and `AgentModelConfig` with JSON
       field names and relationships.
-- [ ] The doc states per-machine project config holds an ordered `agents` list
-      (agent names only); role→model data lives in a machine-independent file
-      beside `data/prices.json` (exact filename deferred to first consumer).
+- [ ] The doc states role→model data is one harness-global artifact beside
+      `data/prices.json`; per-machine project config holds only an ordered
+      `agents` list (exact filename deferred to first consumer).
+- [ ] The doc states agents present in the data file but not in project
+      `agents` are ignored at runtime (not load errors).
+- [ ] The doc states missing `(agent, role)` for any project-configured agent
+      and any required role (closed `Role` union minus optional `operator`) is
+      a hard load error (no skip, no fallback role).
+- [ ] The doc states empty `rungs` and duplicate project `agents` entries are
+      load errors.
+- [ ] Load succeeds when `operator` bindings are absent; resolving `operator`
+      before Phase 9 is a runtime error.
 - [ ] The doc states inner rung escalation is an ordered list per
       `(agent, role)`, advances **only** on quota, and treats `model_config`
       and `error` as terminal at the current rung.
-- [ ] The doc states missing `(agent, role)` for a configured agent and required
-      role is a hard error at load (no skip, no fallback role).
-- [ ] The doc documents full-list rung consumption for `plan`, `implement`, and
-      review debate roles and head-only consumption for `actuator`.
-- [ ] The doc documents `--agent` / `--model` as a single-invocation bypass of
-      both agent fallback and rung resolution.
-- [ ] The doc documents `Model.priceKey` mapping to `data/prices.json` and how
-      rung order plus role invocation counts support cost projection.
+- [ ] Quota after the last inner rung on an agent advances the outer agent
+      loop for the same role, starting at the next agent's `rungs[0]`.
+- [ ] Head-only `actuator` quota advances the outer agent loop only (no inner
+      walk beyond `rungs[0]`).
+- [ ] The doc documents full-list rung consumption for `plan`, `implement`,
+      `adversary`, `advocate`, and `adjudicator`, and head-only consumption
+      for `actuator`.
+- [ ] The doc documents flat binding construction (outer `agents` × inner rungs,
+      fresh per step invocation, outer landing resets to `rungs[0]`) and
+      cross-links `v2/docs/shared-invocation.md` for terminal outcomes.
+- [ ] The doc documents CLI override: both `--agent` and `--model` required;
+      bypasses load validation and both loops for one invocation with no
+      matching `(agent, role)` entry; notes interim `--agents` CSV per
+      `write-behavior.md`.
+- [ ] The doc documents `Model.priceKey` as one adapter-specific row in
+      `data/prices.json` and how rung order plus role invocation counts
+      support cost projection.
+- [ ] The doc states misconfigured `rungs[0]` hitting `model_config` is
+      terminal; remedy is rung reordering.
 - [ ] The doc includes at least one non-normative example operator profile
-      sketch.
+      sketch with multi-rung escalation for a non-`actuator` role.
 - [ ] The doc records load-bearing decisions in a ledger and cross-links
       `v2/docs/role-resolution.md`.
 - [ ] No thinking/reviewing/executing category appears as a model-resolution
@@ -117,5 +172,5 @@ implementation is blocked on this design contract.
 ## Documentation updates
 
 - `v2/docs/agent-model-config.md` (new) — canonical schema, validation rules,
-  outer/inner loop semantics, price derivation, example profiles, decisions
-  ledger.
+  flattening algorithm, consumption modes, terminal outcomes, price
+  derivation, example profiles, decisions ledger.

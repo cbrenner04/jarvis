@@ -1330,24 +1330,59 @@ function nonHumanOnlyAcceptanceComplete(specPath: string): boolean {
   return existsSync(specPath) && snapshotAcceptanceCriteria(specPath).every((c) => c.humanOnly || c.checked);
 }
 
-function isSpecComplete(specPath: string): boolean {
+/**
+ * Resolves the spec file paths whose acceptance criteria determine completion.
+ * For `index.md`, returns the index itself (when it has no linked subspecs) or
+ * each linked subspec path; for any other file, returns `[specPath]`. Returns
+ * `null` when the path is missing or unreadable. Shared by completion checks
+ * so cleanup reuses triage routing rather than duplicating it.
+ */
+function specCompletionPaths(specPath: string): string[] | null {
   if (!specPath || !existsSync(specPath)) {
-    return false;
+    return null;
   }
-
   try {
     if (basename(specPath) !== "index.md") {
-      return nonHumanOnlyAcceptanceComplete(specPath);
+      return [specPath];
     }
     const parsed = parseSpec(readFileSync(specPath, "utf8"));
     const paths =
       parsed.linkedSubspecs.length === 0
         ? [specPath]
         : parsed.linkedSubspecs.map((linked) => resolve(dirname(specPath), linked.path));
-    return paths.every(nonHumanOnlyAcceptanceComplete);
+    return paths;
   } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether every non-human-only acceptance criterion in the spec (index-routed
+ * across linked subspecs, or a single file) is checked. Vacuous-complete specs
+ * (no non-human-only criteria) return `true`; pair with
+ * `specHasNonHumanOnlyAcceptanceCriteria` to detect that case. Returns `false`
+ * when the path is missing or unreadable. Exported for cleanup reuse.
+ */
+export function isSpecComplete(specPath: string): boolean {
+  const paths = specCompletionPaths(specPath);
+  if (paths === null) {
     return false;
   }
+  return paths.every(nonHumanOnlyAcceptanceComplete);
+}
+
+/**
+ * Whether the spec (index-routed across linked subspecs, or a single file) has
+ * at least one non-human-only acceptance criterion. Lets cleanup treat
+ * vacuous-complete specs as incomplete while implementation is in flight.
+ * Returns `false` when the path is missing or unreadable.
+ */
+export function specHasNonHumanOnlyAcceptanceCriteria(specPath: string): boolean {
+  const paths = specCompletionPaths(specPath);
+  if (paths === null) {
+    return false;
+  }
+  return paths.some((p) => existsSync(p) && snapshotAcceptanceCriteria(p).some((c) => !c.humanOnly));
 }
 
 type CiCheckClassification = "green" | "pending" | "red";

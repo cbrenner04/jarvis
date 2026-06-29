@@ -70,30 +70,30 @@ implementation proceeds.
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/v2-build-order.md` Phase 5 section names a machine-independent
+- [x] `v2/docs/v2-build-order.md` Phase 5 section names a machine-independent
       **role→model store** (not `category→agent→model` or `category→model store`);
       steps name a **role** (not categories); runner resolves `(agent, role) →
       rungs`; missing required `(agent, role)` is a hard error at load; Retires
       clause contains no category-as-resolution-key phrasing.
-- [ ] `v2/docs/v2-build-order.md` Phase 5 section states Phase 5 planning and
+- [x] `v2/docs/v2-build-order.md` Phase 5 section states Phase 5 planning and
       implementation depend on `role-resolution.md` and `agent-model-config.md`
       committed on `main` and must not use retired category taxonomy.
-- [ ] `v2/docs/v2-build-order.md` Phase 1 forward reference names a **role→model
+- [x] `v2/docs/v2-build-order.md` Phase 1 forward reference names a **role→model
       store** (not category store).
-- [ ] `v2/docs/v2-build-order.md` Cross-cutting Quota fallback bullets name a
+- [x] `v2/docs/v2-build-order.md` Cross-cutting Quota fallback bullets name a
       **role→model store** and role-based resolution composition (outer agent
       fallback, inner rungs per `agent-model-config.md`), not category-based
       composition.
-- [ ] `v2/docs/v2-build-order.md` contains no `category→agent→model`,
+- [x] `v2/docs/v2-build-order.md` contains no `category→agent→model`,
       `category→model store`, `category store`, or steps-name-a-category wording
       outside `reviewing-class` / `executing-class` in `### Phase 6`
       debate-structure prose.
-- [ ] `v2/spec/v2-meta-index.md` Phase 5 line encodes role-named steps,
+- [x] `v2/spec/v2-meta-index.md` Phase 5 line encodes role-named steps,
       role→model store (not category store), `(agent, role) → rungs`, and hard
       error on missing required `(agent, role)` at load.
-- [ ] `v2/spec/v2-meta-index.md` Phase 5 line states the design dependency on
+- [x] `v2/spec/v2-meta-index.md` Phase 5 line states the design dependency on
       `role-resolution.md` and `agent-model-config.md` committed on `main`.
-- [ ] `v2/docs/role-resolution.md` no longer defers `v2-build-order.md` refresh;
+- [x] `v2/docs/role-resolution.md` no longer defers `v2-build-order.md` refresh;
       the `v2-build-order.md refresh deferred` decision is retracted or revised.
 
 ## Documentation updates

@@ -30,3 +30,7 @@ Update phase-tracking docs so Phase 5 (workflow runner + project config binding)
 
 - Role keys are documented as v2 invocation-resolution keys (replacing thinking/reviewing/executing categories).
 - `AgentModelConfig` schema and per-agent per-role model escalation are documented in v2 durable docs.
+
+## Blocker
+
+- **`AgentModelConfig` schema and per-agent per-role model escalation not in v2 durable docs** — `v2/docs/role-resolution.md` defers them to the agent-model-config slice; `v2/docs/agent-model-config.md` is absent. Land `v2/spec/2026-06-29T01-24-52Z-agent-model-config-escalation` (or equivalent durable doc) before drafting this gate.

@@ -4,7 +4,6 @@ import { execSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runAgent } from "../../../src/agents/spawn.ts";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
 import type { Config } from "../../../src/config.ts";
 import { buildShrinkPrompt } from "../../../src/modes/patch/prompt.ts";
@@ -18,7 +17,7 @@ import {
 } from "../../../src/modes/patch/shrink.ts";
 import type { AcceptanceCriterion } from "../../../src/modes/patch/subspec.ts";
 import { HARNESS_QUOTA_FALLBACK_STRICT, harnessAuthRotateLine } from "../../../src/quota-harness-messages.ts";
-import { stripDelimitedBlocks } from "./review.sandbox-unrunnable.test.ts";
+import { IdleHangAgent, stripDelimitedBlocks, writeIdleHangScript } from "./review.sandbox-unrunnable.test.ts";
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 
@@ -518,37 +517,7 @@ describe("runPatchShrinkPhase", () => {
       const tmpDir = join(dir, "tmp");
       mkdirSync(tmpDir, { recursive: true });
 
-      const idleScript = join(tmpDir, "idle-hang.sh");
-      writeFileSync(
-        idleScript,
-        `#!/usr/bin/env bash
-set -euo pipefail
-# Hang without emitting output — will hit idle timeout
-while true; do :; done
-`,
-      );
-      chmodSync(idleScript, 0o755);
-
-      class IdleAgent implements Agent {
-        readonly name = "claude" as const;
-        async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
-          return runAgent(
-            {
-              name: this.name,
-              binary: idleScript,
-              cwd: opts.cwd,
-              buildArgv: () => [],
-              stdio: ["ignore", "pipe", "pipe"],
-              streamErrorPrefix: "test:",
-            },
-            prompt,
-            opts,
-          );
-        }
-        attributionLabel(): string {
-          return "fake-claude";
-        }
-      }
+      const idleScript = writeIdleHangScript(join(tmpDir, "idle-hang.sh"));
 
       const cap = { out: "", err: "" };
       const fanout = (_tag: string, text: string) => {
@@ -568,7 +537,7 @@ while true; do :; done
         writeTelemetry: (record) => {
           telemetry.push(record);
         },
-        agents: { claude: new IdleAgent() },
+        agents: { claude: new IdleHangAgent(idleScript) },
         iterationTimeoutMs: 30_000,
         skipPreShrinkGate: true,
         baseBranch: "main",

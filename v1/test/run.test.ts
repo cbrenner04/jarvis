@@ -43,6 +43,7 @@ import {
   harnessQuotaFallbackLenientLine,
 } from "../src/quota-harness-messages.ts";
 import { getWorktreeLockPath } from "../src/worktree-lock.ts";
+import { writeIdleHangScript } from "./modes/patch/review.sandbox-unrunnable.test.ts";
 
 function captureIo(): { io: RunIo; out: () => string; err: () => string } {
   let out = "";
@@ -1282,9 +1283,7 @@ describe("runCommand", () => {
   test("completion: fix-up idle stall exits 8 terminally without agentOrder escalation", async () => {
     const spec = initCompletionGateRepo();
     const idleTimeoutMs = 1000;
-    const hangScript = join(dir, "idle-hang.sh");
-    writeFileSync(hangScript, "#!/usr/bin/env bash\nwhile true; do :; done\n");
-    chmodSync(hangScript, 0o755);
+    const hangScript = writeIdleHangScript(join(dir, "idle-hang.sh"));
 
     const cap = captureIo();
     const claude = createCompletionThenIdleAgent(spec, hangScript);

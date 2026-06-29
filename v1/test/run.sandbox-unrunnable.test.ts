@@ -19,6 +19,7 @@ import type {
 } from "../src/modes/patch/run.ts";
 import { runCommand } from "../src/modes/patch/run.ts";
 import { HARNESS_IDLE_TIMEOUT_FALLBACK } from "../src/quota-harness-messages.ts";
+import { IDLE_HANG_BODY, IDLE_HANG_WAIT } from "./modes/patch/review.sandbox-unrunnable.test.ts";
 
 function captureIo(): { io: RunIo; out: () => string; err: () => string } {
   let out = "";
@@ -164,10 +165,6 @@ function writeAgentScript(filename: string, body: string): string {
   chmodSync(script, 0o755);
   return script;
 }
-
-const IDLE_HANG_BODY = `set -euo pipefail
-while true; do :; done
-`;
 
 class ScriptAgent implements Agent {
   readonly name: AgentName;
@@ -344,35 +341,7 @@ wait
     test("watchdog timeout records watchdog_descendants_alive false for agent-only stall", async () => {
       const spec = writeSpec("- [ ] todo\n");
       const cap = captureIo();
-      const hangScript = join(projectRoot, "agent-only-hang.sh");
-      writeFileSync(
-        hangScript,
-        `#!/usr/bin/env bash
-while true; do :; done
-`,
-      );
-      chmodSync(hangScript, 0o755);
-
-      class HangingAgent implements Agent {
-        readonly name = "claude" as const;
-        async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
-          return runAgent(
-            {
-              name: this.name,
-              binary: hangScript,
-              cwd: opts.cwd,
-              buildArgv: () => [],
-              stdio: ["ignore", "pipe", "pipe"],
-              streamErrorPrefix: "test:",
-            },
-            prompt,
-            opts,
-          );
-        }
-        attributionLabel(): string {
-          return "fake-claude";
-        }
-      }
+      const hangScript = writeAgentScript("agent-only-hang.sh", `${IDLE_HANG_WAIT}\n`);
 
       writeConfig(
         {
@@ -397,7 +366,7 @@ while true; do :; done
         specPath: spec,
         io: cap.io,
         config: { dir: cfgDir },
-        agents: { claude: new HangingAgent() },
+        agents: { claude: new ScriptAgent("claude", hangScript) },
         handleSignals: false,
         __testKillGraceMs: 200,
         __testWatchdogListProcesses: () => {
@@ -672,7 +641,7 @@ echo "done"
           `set -euo pipefail
 sleep 1.5
 echo "output after stall" >&2
-while true; do :; done
+${IDLE_HANG_WAIT}
 `,
         ),
       );
@@ -1025,7 +994,7 @@ echo "done"
         specPath: spec,
         io: cap.io,
         config: { dir: cfgDir },
-        agents: { claude: idleHangAgent("claude", "while true; do :; done\n") },
+        agents: { claude: idleHangAgent() },
         handleSignals: false,
         __testKillGraceMs: 200,
       });

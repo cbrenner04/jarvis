@@ -6,12 +6,12 @@ import { join } from "node:path";
 import {
   FixCommandError,
   PreReadyFixCommitError,
+  parsePackageManagerRunScript,
   ReadyCommandError,
   ReadyVerificationDirtyError,
   runReadyAndCommit,
   runReadyGateWithTier,
   selectReadyTier,
-  parsePackageManagerRunScript,
 } from "../src/ready-gate.ts";
 
 let dir = "";
@@ -298,10 +298,7 @@ describe("runReadyAndCommit fixCommand", () => {
 
   test("skips default bun run fix when fix script is absent from package.json", () => {
     const calls: string[] = [];
-    writeFileSync(
-      join(dir, "package.json"),
-      JSON.stringify({ scripts: { ready: "echo ready" } }, null, 2),
-    );
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { ready: "echo ready" } }, null, 2));
     execSync("git add package.json && git commit -m pkg", { cwd: dir });
 
     runReadyAndCommit({
@@ -398,10 +395,7 @@ describe("runReadyAndCommit fixCommand", () => {
     const script = join(dir, "fix-touch.sh");
     writeFileSync(script, `#!/bin/sh\ntouch "${sentinel}"\n`);
     chmodSync(script, 0o755);
-    writeFileSync(
-      join(dir, "package.json"),
-      JSON.stringify({ scripts: { fix: "./fix-touch.sh" } }, null, 2),
-    );
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { fix: "./fix-touch.sh" } }, null, 2));
     execSync("git add package.json fix-touch.sh && git commit -m pkg", { cwd: dir });
 
     runReadyAndCommit({

@@ -58,11 +58,13 @@ whose items link to atomic subspec files:
 ```md
 # <Feature>
 
-repo: https://github.com/owner/target-repo
+repo: owner/target-repo
 
 - [ ] [00 - First task](./00-first-task.md)
 - [ ] [01 - Second task](./01-second-task.md)
 ```
+
+External specs (`commit: false`) may also use `repo: <https://example.com/repo>` when the origin is not a GitHub slug.
 
 Run Jarvis against the index:
 
@@ -72,9 +74,9 @@ jarvis1 run spec/2026-05-17T22-14-03Z-my-feature/index.md
 
 Specs may live anywhere. The `repo:` line is **optional** for in-repo specs (since the spec location implies the target repo), but **required** for external specs authored with `modes.plan.commit: false` (since the spec path no longer resides inside the target directory). When present, `repo:` identifies the target repository in a portable way. Accepted forms:
 
-- HTTPS URL: `https://github.com/owner/repo[.git]`
+- HTTPS URL: `https://github.com/owner/repo[.git]` (or angle-bracket wrapped: `repo: <https://…>`)
 - SSH URL: `git@github.com:owner/repo[.git]`
-- Slug: `owner/repo` (interpreted as `github.com/owner/repo`)
+- Slug: `owner/repo` (interpreted as `github.com/owner/repo`; preferred canonical form for GitHub)
 - Registered project key (local-only, not portable across machines)
 
 Jarvis resolves the target repo at run time in this order:

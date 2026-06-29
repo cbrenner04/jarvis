@@ -28,6 +28,8 @@ import {
   withHangFixtureSpawned,
 } from "./idle-hang-fixtures.ts";
 
+const HANG_FIXTURE_TRACKING_ID = import.meta.path;
+
 function captureIo(): { io: RunIo; out: () => string; err: () => string } {
   let out = "";
   let err = "";
@@ -223,11 +225,11 @@ beforeEach(() => {
   originalPath = process.env.PATH;
   mkdirSync(projectRoot);
   registerProject("project", projectRoot, { dir: cfgDir });
-  beginHangFixtureTracking();
+  beginHangFixtureTracking(HANG_FIXTURE_TRACKING_ID);
 });
 
 afterEach(() => {
-  reapActiveHangFixtures();
+  reapActiveHangFixtures(HANG_FIXTURE_TRACKING_ID);
   if (originalPath === undefined) {
     delete process.env.PATH;
   } else {

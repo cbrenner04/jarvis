@@ -15,34 +15,36 @@ import {
   waitForProcessExit,
   waitForScriptExit,
   waitForScriptRunning,
-  waitForSubtreeExit,
-  waitForSubtreeGrowth,
   writeIdleHangScript,
 } from "./idle-hang-fixtures.ts";
+
+const HANG_FIXTURE_TRACKING_ID = import.meta.path;
 
 let dir: string;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "jarvis-idle-hang-fixture-"));
-  beginHangFixtureTracking();
+  beginHangFixtureTracking(HANG_FIXTURE_TRACKING_ID);
 });
 
 afterEach(() => {
-  reapActiveHangFixtures();
+  reapActiveHangFixtures(HANG_FIXTURE_TRACKING_ID);
   rmSync(dir, { recursive: true, force: true });
 });
 
 describe("idle hang fixture self-clean (sandbox-unrunnable)", () => {
   test("exits when immediate bash parent is killed", async () => {
     const script = writeIdleHangScript(join(dir, "idle-hang.sh"));
-    const wrapper = spawn("bash", ["-c", `exec bash ${JSON.stringify(script)}`], { stdio: "ignore" });
-    const wrapperPid = wrapper.pid;
-    expect(wrapperPid).toBeGreaterThan(0);
+    const spawner = spawn("bash", ["-c", `bash ${JSON.stringify(script)} & while kill -0 $! 2>/dev/null; do sleep 0.05; done`], {
+      stdio: "ignore",
+    });
+    const spawnerPid = spawner.pid;
+    expect(spawnerPid).toBeGreaterThan(0);
 
-    await waitForSubtreeGrowth(wrapperPid!, 2, HANG_FIXTURE_EXIT_DEADLINE_MS);
+    await waitForScriptRunning(script, HANG_FIXTURE_EXIT_DEADLINE_MS);
 
-    process.kill(wrapperPid!, "SIGKILL");
-    await waitForSubtreeExit(wrapperPid!, HANG_FIXTURE_EXIT_DEADLINE_MS);
+    process.kill(spawnerPid!, "SIGKILL");
+    await waitForScriptExit(script, HANG_FIXTURE_EXIT_DEADLINE_MS);
   });
 
   test("registered teardown kills helper after simulated test-body abort", async () => {
@@ -73,7 +75,7 @@ describe("idle hang fixture self-clean (sandbox-unrunnable)", () => {
       try {
         throw new Error("simulated test failure");
       } finally {
-        reapActiveHangFixtures();
+        reapActiveHangFixtures(HANG_FIXTURE_TRACKING_ID);
       }
     }).toThrow("simulated test failure");
 

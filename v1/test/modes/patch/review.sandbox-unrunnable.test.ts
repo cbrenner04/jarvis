@@ -25,6 +25,8 @@ import {
   writeIdleHangScript,
 } from "../../idle-hang-fixtures.ts";
 
+const HANG_FIXTURE_TRACKING_ID = import.meta.path;
+
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 const CODEX_ENTRY = { agent: "codex" as const, model: "gpt-5.3-codex" };
 const currentBase =
@@ -33,11 +35,11 @@ const currentBase =
 const behindBase = (baseRefName: string) => () => ({ status: "behind" as const, baseRefName });
 
 beforeEach(() => {
-  beginHangFixtureTracking();
+  beginHangFixtureTracking(HANG_FIXTURE_TRACKING_ID);
 });
 
 afterEach(() => {
-  reapActiveHangFixtures();
+  reapActiveHangFixtures(HANG_FIXTURE_TRACKING_ID);
 });
 
 class FakeAgent implements Agent {

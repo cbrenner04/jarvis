@@ -20,12 +20,14 @@ import { HARNESS_QUOTA_FALLBACK_STRICT, harnessAuthRotateLine } from "../../../s
 import { beginHangFixtureTracking, reapActiveHangFixtures, writeIdleHangScript } from "../../idle-hang-fixtures.ts";
 import { IdleHangAgent, stripDelimitedBlocks } from "./review.sandbox-unrunnable.test.ts";
 
+const HANG_FIXTURE_TRACKING_ID = import.meta.path;
+
 beforeEach(() => {
-  beginHangFixtureTracking();
+  beginHangFixtureTracking(HANG_FIXTURE_TRACKING_ID);
 });
 
 afterEach(() => {
-  reapActiveHangFixtures();
+  reapActiveHangFixtures(HANG_FIXTURE_TRACKING_ID);
 });
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };

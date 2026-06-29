@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { execSync } from "node:child_process";
 import { chmodSync, writeFileSync } from "node:fs";
 import { isProcessAlive } from "../../shared/worktree-lock.ts";
@@ -10,13 +11,12 @@ export const HANG_FIXTURE_EXIT_DEADLINE_MS = 600;
 const IDLE_HANG_MAX_LIFETIME_SEC = 3600;
 
 export const IDLE_HANG_WAIT = `_idle_hang_main=$$
+_idle_hang_parent=$PPID
 (
-  _idle_hang_parent=$PPID
-  while kill -0 "$_idle_hang_parent" 2>/dev/null; do sleep 0.05; done
-  kill -TERM "$_idle_hang_main" 2>/dev/null || exit 0
-) &
-(
-  sleep ${IDLE_HANG_MAX_LIFETIME_SEC}
+  _idle_hang_deadline=$((SECONDS + ${IDLE_HANG_MAX_LIFETIME_SEC}))
+  while kill -0 "$_idle_hang_parent" 2>/dev/null && kill -0 "$_idle_hang_main" 2>/dev/null && [ "$SECONDS" -lt "$_idle_hang_deadline" ]; do
+    sleep 0.05
+  done
   kill -TERM "$_idle_hang_main" 2>/dev/null || exit 0
 ) &
 exec tail -f /dev/null`;
@@ -33,11 +33,11 @@ export function writeIdleHangScript(path: string): string {
 }
 
 export function trackHangFixtureScript(path: string): void {
-  activeRegistry?.scriptPaths.add(path);
+  currentRegistry()?.scriptPaths.add(path);
 }
 
 export function trackHangFixtureRoot(rootPid: number): void {
-  activeRegistry?.rootPids.add(rootPid);
+  currentRegistry()?.rootPids.add(rootPid);
 }
 
 export function withHangFixtureSpawned<T extends { onSpawned?: (child: { pid: number }) => void }>(opts: T): T {
@@ -55,23 +55,34 @@ type HangFixtureRegistry = {
   scriptPaths: Set<string>;
 };
 
-let activeRegistry: HangFixtureRegistry | null = null;
+const trackingStore = new AsyncLocalStorage<string>();
+const registries = new Map<string, HangFixtureRegistry>();
 
-export function beginHangFixtureTracking(): void {
-  activeRegistry = { rootPids: new Set(), scriptPaths: new Set() };
+function currentRegistry(): HangFixtureRegistry | undefined {
+  const trackingId = trackingStore.getStore();
+  if (trackingId === undefined) {
+    return undefined;
+  }
+  return registries.get(trackingId);
 }
 
-export function reapActiveHangFixtures(): void {
-  if (activeRegistry === null) {
+export function beginHangFixtureTracking(trackingId: string): void {
+  registries.set(trackingId, { rootPids: new Set(), scriptPaths: new Set() });
+  trackingStore.enterWith(trackingId);
+}
+
+export function reapActiveHangFixtures(trackingId: string): void {
+  const registry = registries.get(trackingId);
+  registries.delete(trackingId);
+  if (registry === undefined) {
     return;
   }
-  const rootPids = new Set(activeRegistry.rootPids);
-  for (const scriptPath of activeRegistry.scriptPaths) {
+  const rootPids = new Set(registry.rootPids);
+  for (const scriptPath of registry.scriptPaths) {
     for (const pid of findPidsForScriptPath(scriptPath)) {
       rootPids.add(pid);
     }
   }
-  activeRegistry = null;
   if (rootPids.size === 0) {
     return;
   }

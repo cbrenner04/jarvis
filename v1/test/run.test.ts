@@ -50,6 +50,8 @@ import {
   writeIdleHangScript,
 } from "./idle-hang-fixtures.ts";
 
+const HANG_FIXTURE_TRACKING_ID = import.meta.path;
+
 function captureIo(): { io: RunIo; out: () => string; err: () => string } {
   let out = "";
   let err = "";
@@ -304,11 +306,11 @@ beforeEach(() => {
   mkdirSync(projectRoot);
   registerProject("project", projectRoot, { dir: cfgDir });
   __testSetDeltaStateDir(join(dir, "delta-state"));
-  beginHangFixtureTracking();
+  beginHangFixtureTracking(HANG_FIXTURE_TRACKING_ID);
 });
 
 afterEach(() => {
-  reapActiveHangFixtures();
+  reapActiveHangFixtures(HANG_FIXTURE_TRACKING_ID);
   __testClearDeltaStateDir();
   if (originalPath === undefined) {
     delete process.env.PATH;

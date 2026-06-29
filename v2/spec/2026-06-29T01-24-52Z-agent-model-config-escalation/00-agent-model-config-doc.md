@@ -125,48 +125,48 @@ implementation is blocked on this design contract.
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/agent-model-config.md` exists and documents `Agent`, `Model`,
+- [x] `v2/docs/agent-model-config.md` exists and documents `Agent`, `Model`,
       `ModelEscalation`, `ModelsByRole`, and `AgentModelConfig` with JSON
       field names and relationships.
-- [ ] The doc states role→model data is one harness-global artifact beside
+- [x] The doc states role→model data is one harness-global artifact beside
       `data/prices.json`; per-machine project config holds only an ordered
       `agents` list (exact filename deferred to first consumer).
-- [ ] The doc states agents present in the data file but not in project
+- [x] The doc states agents present in the data file but not in project
       `agents` are ignored at runtime (not load errors).
-- [ ] The doc states missing `(agent, role)` for any project-configured agent
+- [x] The doc states missing `(agent, role)` for any project-configured agent
       and any required role (closed `Role` union minus optional `operator`) is
       a hard load error (no skip, no fallback role).
-- [ ] The doc states empty `rungs` and duplicate project `agents` entries are
+- [x] The doc states empty `rungs` and duplicate project `agents` entries are
       load errors.
-- [ ] Load succeeds when `operator` bindings are absent; resolving `operator`
+- [x] Load succeeds when `operator` bindings are absent; resolving `operator`
       before Phase 9 is a runtime error.
-- [ ] The doc states inner rung escalation is an ordered list per
+- [x] The doc states inner rung escalation is an ordered list per
       `(agent, role)`, advances **only** on quota, and treats `model_config`
       and `error` as terminal at the current rung.
-- [ ] Quota after the last inner rung on an agent advances the outer agent
+- [x] Quota after the last inner rung on an agent advances the outer agent
       loop for the same role, starting at the next agent's `rungs[0]`.
-- [ ] Head-only `actuator` quota advances the outer agent loop only (no inner
+- [x] Head-only `actuator` quota advances the outer agent loop only (no inner
       walk beyond `rungs[0]`).
-- [ ] The doc documents full-list rung consumption for `plan`, `implement`,
+- [x] The doc documents full-list rung consumption for `plan`, `implement`,
       `adversary`, `advocate`, and `adjudicator`, and head-only consumption
       for `actuator`.
-- [ ] The doc documents flat binding construction (outer `agents` × inner rungs,
+- [x] The doc documents flat binding construction (outer `agents` × inner rungs,
       fresh per step invocation, outer landing resets to `rungs[0]`) and
       cross-links `v2/docs/shared-invocation.md` for terminal outcomes.
-- [ ] The doc documents CLI override: both `--agent` and `--model` required;
+- [x] The doc documents CLI override: both `--agent` and `--model` required;
       bypasses load validation and both loops for one invocation with no
       matching `(agent, role)` entry; notes interim `--agents` CSV per
       `write-behavior.md`.
-- [ ] The doc documents `Model.priceKey` as one adapter-specific row in
+- [x] The doc documents `Model.priceKey` as one adapter-specific row in
       `data/prices.json` and how rung order plus role invocation counts
       support cost projection.
-- [ ] The doc states misconfigured `rungs[0]` hitting `model_config` is
+- [x] The doc states misconfigured `rungs[0]` hitting `model_config` is
       terminal; remedy is rung reordering.
-- [ ] The doc includes at least one non-normative example operator profile
+- [x] The doc includes at least one non-normative example operator profile
       sketch with multi-rung escalation for a non-`actuator` role.
-- [ ] The doc records load-bearing decisions in a ledger and cross-links
+- [x] The doc records load-bearing decisions in a ledger and cross-links
       `v2/docs/role-resolution.md`.
-- [ ] No thinking/reviewing/executing category appears as a model-resolution
+- [x] No thinking/reviewing/executing category appears as a model-resolution
       key in `agent-model-config.md`. (Manual)
 
 ## Documentation updates

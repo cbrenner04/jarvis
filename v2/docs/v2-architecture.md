@@ -93,25 +93,28 @@ Per-project config:
     between the personal and work machines.
   - **Role→model bindings** — each workflow step names a **role** (see
     [`role-resolution.md`](role-resolution.md)); the store maps `(agent, role) →
-    model`. Lives in a **separate, machine-independent, version-controlled store**
-    (a checked-in data file beside the global `data/prices.json`), not
-    `config.json`: the assignments are the same on every machine, change often,
-    and would bloat per-machine config.
+    ordered model rungs` (`AgentModelConfig`). Lives in a **separate,
+    machine-independent, version-controlled store** (a checked-in data file beside
+    the global `data/prices.json`), not `config.json`: the assignments are the
+    same on every machine, change often, and would bloat per-machine config.
+    Schema, validation, flattening, and price derivation:
+    [`agent-model-config.md`](agent-model-config.md).
 - **A step names a role, not a model.** The runner walks the agent fallback
-  order; for whichever agent it lands on, it resolves `(agent, role) → model`
-  from the store. Step→role bindings follow the closed union in
-  [`role-resolution.md`](role-resolution.md) — e.g. write-loop implement steps bind
-  `implement`; plan draft/refine bind `plan`; review debate binds `adversary`,
-  `advocate`, `adjudicator`, then `actuator`.
-- **Exactly one model per (agent, role); a gap is a hard error at load** — no
-  skip, no default fallback. Price/model validation runs per (agent, model) pair,
-  now per role.
-- **Quota fallback composes unchanged.** Agent order is the outer loop; a role
-  never reorders agents. When the landed agent is quota-exhausted, fallback
-  advances to the next agent and re-resolves the *same* role against it.
-- **CLI override.** The only override is a command-line `--agent` / `--model` pair
-  (the single-write-step override) that bypasses resolution for that run. There is
-  no per-step config override.
+  order; for whichever agent it lands on, it resolves `(agent, role) → rungs`
+  from the store and walks the inner rung list. Step→role bindings follow the
+  closed union in [`role-resolution.md`](role-resolution.md) — e.g. write-loop
+  implement steps bind `implement`; plan draft/refine bind `plan`; review debate
+  binds `adversary`, `advocate`, `adjudicator`, then `actuator`.
+- **One ordered rung list per (agent, role); a gap is a hard error at load** —
+  no skip, no default fallback. Load rules and validation matrix:
+  [`agent-model-config.md`](agent-model-config.md).
+- **Nested fallback: outer `agents` order, inner rungs per `(agent, role)`.**
+  Both axes advance on **quota** only; `model_config` and `error` are terminal.
+  Flattening, consumption modes (`actuator` head-only), and composition:
+  [`agent-model-config.md`](agent-model-config.md).
+- **CLI override.** Target: `--agent` and `--model` together. Interim:
+  `--agents` CSV on write/run start ([`write-behavior.md`](write-behavior.md)).
+  Details: [`agent-model-config.md`](agent-model-config.md).
 - **Local model is the terminal quota fallback.** When every paid CLI/platform in
   the agent fallback order is quota-exhausted, a locally-run model is the last
   resort rather than v1's hard exit `2` ("all agents quota-exhausted"). It sits at

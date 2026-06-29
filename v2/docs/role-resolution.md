@@ -3,8 +3,8 @@
 Canonical home for the v2 **role** taxonomy and how roles bind to workflow
 steps. Behavior vocabulary lives in [`v2-vision.md`](v2-vision.md); the layered
 model and orchestration context live in [`v2-architecture.md`](v2-architecture.md).
-The `AgentModelConfig` schema and inner rung resolution land in a follow-on
-agent-model-config slice.
+The `AgentModelConfig` schema and inner rung resolution are documented in
+[`agent-model-config.md`](agent-model-config.md).
 
 ## Closed `Role` union
 
@@ -31,11 +31,11 @@ match roles.
 At invocation the runner:
 
 1. Walks the per-machine **agent fallback order** (availability/quota chain).
-2. Resolves **`(agent, role) → model`** from the role→model store for the
-   landed agent.
+2. Resolves **`(agent, role) → rungs`** from the role→model store for the
+   landed agent and walks the inner rung list.
 
-Inner rung detail (tier start-index, head-only vs full-list consumption,
-capability floors) is deferred to the agent-model-config slice.
+Inner rung detail (consumption modes, flattening, terminal outcomes):
+[`agent-model-config.md`](agent-model-config.md).
 
 ## Role ↔ behavior reference
 

@@ -78,7 +78,6 @@ export function releaseWorktreeLock(worktreeDir: string): void {
   releaseLock(getWorktreeLockPath(worktreeDir));
 }
 
-/** Return a live `.jarvis.lock` holder when the lock file exists and the PID is alive. */
 export function readLiveWorktreeLock(worktreePath: string): WorktreeLock | null {
   const lockPath = getWorktreeLockPath(worktreePath);
   if (!existsSync(lockPath)) {

@@ -302,7 +302,6 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
       dryRun: opts.dryRun ?? false,
       io: opts.io,
       projectRoot: opts.projectRoot,
-      worktreeDir,
       worktreeName: opts.worktreeName,
     });
   }
@@ -322,16 +321,20 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
     }
 
     if (abandon) {
-      if (
-        !isEligibleForAbandon({
-          branch,
-          io: opts.io,
-          isMergedPr: deps.isMergedPr,
-          findMatchingOpenPrs: deps.findMatchingOpenPrs,
-          projectRoot: opts.projectRoot,
-          worktreeName,
-        })
-      ) {
+      const eligibility = checkAbandonPrEligibility({
+        branch,
+        isMergedPr: deps.isMergedPr,
+        findMatchingOpenPrs: deps.findMatchingOpenPrs,
+        projectRoot: opts.projectRoot,
+      });
+      if (eligibility.kind !== "eligible") {
+        if (eligibility.kind === "inspection_failed") {
+          opts.io.stdout(`skipping ${worktreeName}: failed to inspect PRs: ${eligibility.message}\n`);
+        } else if (eligibility.kind === "multiple_open") {
+          opts.io.stdout(`skipping ${worktreeName}: multiple open PRs match branch ${branch}\n`);
+        } else if (eligibility.kind === "ready_pr") {
+          opts.io.stdout(`skipping ${worktreeName}: open ready PR #${eligibility.prNumber}\n`);
+        }
         continue;
       }
       toRemove.push({ path: worktreePath, branch, dir: worktreeName });
@@ -513,41 +516,14 @@ function checkAbandonPrEligibility(args: {
   return { kind: "eligible" };
 }
 
-function scopedAbandonRefusal(
-  check: Exclude<AbandonPrEligibility, { kind: "eligible" }>,
-  args: { branch: string; io: CleanupIo; worktreeName: string },
-): number {
-  switch (check.kind) {
-    case "merged":
-      args.io.stderr(`cannot abandon ${args.worktreeName}: branch ${args.branch} PR is merged\n`);
-      return 1;
-    case "inspection_failed":
-      args.io.stderr(`failed to inspect PR state for branch ${args.branch}: ${check.message}\n`);
-      return 1;
-    case "multiple_open":
-      args.io.stderr(`unsafe PR state for branch ${args.branch}: multiple open PRs match; refusing abandon\n`);
-      return 1;
-    case "ready_pr":
-      args.io.stderr(`unsafe PR state for branch ${args.branch}: matching open PR #${check.prNumber} is not draft\n`);
-      return 1;
-  }
-}
-
-function printScopedAbandonPreview(io: CleanupIo, item: CleanupItem): void {
-  const tag = isPlanBranch(item.branch) ? " (plan)" : "";
-  io.stdout("\nWorktree to remove:\n");
-  io.stdout(`${item.path} (${item.branch}${tag})\n`);
-}
-
 function scopedAbandonCleanup(args: {
   deps: CleanupDeps;
   dryRun: boolean;
   io: CleanupIo;
   projectRoot: string;
-  worktreeDir: string;
   worktreeName: string;
 }): number {
-  const worktreePath = join(args.worktreeDir, args.worktreeName);
+  const worktreePath = join(args.projectRoot, ".worktree", args.worktreeName);
   if (!existsSync(worktreePath)) {
     args.io.stderr(`unknown worktree: ${args.worktreeName}\n`);
     return 1;
@@ -574,15 +550,29 @@ function scopedAbandonCleanup(args: {
     projectRoot: args.projectRoot,
   });
   if (eligibility.kind !== "eligible") {
-    return scopedAbandonRefusal(eligibility, {
-      branch,
-      io: args.io,
-      worktreeName: args.worktreeName,
-    });
+    switch (eligibility.kind) {
+      case "merged":
+        args.io.stderr(`cannot abandon ${args.worktreeName}: branch ${branch} PR is merged\n`);
+        break;
+      case "inspection_failed":
+        args.io.stderr(`failed to inspect PR state for branch ${branch}: ${eligibility.message}\n`);
+        break;
+      case "multiple_open":
+        args.io.stderr(`unsafe PR state for branch ${branch}: multiple open PRs match; refusing abandon\n`);
+        break;
+      case "ready_pr":
+        args.io.stderr(
+          `unsafe PR state for branch ${branch}: matching open PR #${eligibility.prNumber} is not draft\n`,
+        );
+        break;
+    }
+    return 1;
   }
 
   const item: CleanupItem = { path: worktreePath, branch, dir: args.worktreeName };
-  printScopedAbandonPreview(args.io, item);
+  const tag = isPlanBranch(branch) ? " (plan)" : "";
+  args.io.stdout("\nWorktree to remove:\n");
+  args.io.stdout(`${worktreePath} (${branch}${tag})\n`);
 
   if (args.dryRun) {
     return 0;
@@ -604,44 +594,11 @@ function scopedAbandonCleanup(args: {
       projectRoot: args.projectRoot,
       io: args.io,
     });
-    const tag = isPlanBranch(item.branch) ? " (plan)" : "";
-    args.io.stdout(`removed ${item.branch}${tag}\n`);
+    args.io.stdout(`removed ${branch}${tag}\n`);
     return 0;
   } catch (err) {
     args.io.stderr(`failed to remove ${item.branch}: ${(err as Error).message}\n`);
     return 1;
-  }
-}
-
-function isEligibleForAbandon(args: {
-  branch: string;
-  io: CleanupIo;
-  isMergedPr: (branch: string) => boolean;
-  findMatchingOpenPrs: (branch: string, cwd?: string) => MatchingOpenPr[];
-  projectRoot: string;
-  worktreeName: string;
-}): boolean {
-  const eligibility = checkAbandonPrEligibility({
-    branch: args.branch,
-    isMergedPr: args.isMergedPr,
-    findMatchingOpenPrs: args.findMatchingOpenPrs,
-    projectRoot: args.projectRoot,
-  });
-
-  switch (eligibility.kind) {
-    case "eligible":
-      return true;
-    case "merged":
-      return false;
-    case "inspection_failed":
-      args.io.stdout(`skipping ${args.worktreeName}: failed to inspect PRs: ${eligibility.message}\n`);
-      return false;
-    case "multiple_open":
-      args.io.stdout(`skipping ${args.worktreeName}: multiple open PRs match branch ${args.branch}\n`);
-      return false;
-    case "ready_pr":
-      args.io.stdout(`skipping ${args.worktreeName}: open ready PR #${eligibility.prNumber}\n`);
-      return false;
   }
 }
 

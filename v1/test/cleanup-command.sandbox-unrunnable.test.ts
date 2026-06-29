@@ -1030,6 +1030,13 @@ describe("cleanupCommand", () => {
     });
   }
 
+  function writeWorktreeLock(worktreePath: string, pid: number): void {
+    writeFileSync(
+      join(worktreePath, ".jarvis.lock"),
+      `${JSON.stringify({ pid, started_at: "2026-06-29T00:00:00.000Z", host: "test" }, null, 2)}\n`,
+    );
+  }
+
   test("scoped abandon retires only the named eligible worktree", () => {
     const { io } = captureIo(["yes"]);
 
@@ -1088,63 +1095,45 @@ describe("cleanupCommand", () => {
     expect(err()).toBe("unknown worktree: missing-tree\n");
   });
 
-  test("scoped abandon refuses merged branch", () => {
-    const { io, err } = captureIo();
-
-    const specName = "scoped-merged";
-    createTrackedWorktree(specName);
-
-    const code = runScopedAbandon(specName, io, { isMergedPr: () => true });
-
-    expect(code).toBe(1);
-    expect(err()).toBe(`cannot abandon ${specName}: branch ${specName} PR is merged\n`);
-  });
-
-  test("scoped abandon refuses ready PR", () => {
-    const { io, err } = captureIo();
-
-    const specName = "scoped-ready-pr";
-    createTrackedWorktree(specName);
-
-    const code = runScopedAbandon(specName, io, {
-      findMatchingOpenPrs: () => [{ number: 7, isDraft: false }],
-    });
-
-    expect(code).toBe(1);
-    expect(err()).toBe(`unsafe PR state for branch ${specName}: matching open PR #7 is not draft\n`);
-  });
-
-  test("scoped abandon refuses multiple open PRs", () => {
-    const { io, err } = captureIo();
-
-    const specName = "scoped-multi-pr";
-    createTrackedWorktree(specName);
-
-    const code = runScopedAbandon(specName, io, {
-      findMatchingOpenPrs: () => [
-        { number: 8, isDraft: true },
-        { number: 9, isDraft: true },
-      ],
-    });
-
-    expect(code).toBe(1);
-    expect(err()).toBe(`unsafe PR state for branch ${specName}: multiple open PRs match; refusing abandon\n`);
-  });
-
-  test("scoped abandon refuses when PR inspection fails", () => {
-    const { io, err } = captureIo();
-
-    const specName = "scoped-pr-inspect";
-    createTrackedWorktree(specName);
-
-    const code = runScopedAbandon(specName, io, {
-      findMatchingOpenPrs: () => {
-        throw new Error("gh down");
+  test.each([
+    [
+      "merged branch",
+      "scoped-merged",
+      { isMergedPr: () => true },
+      (name: string) => `cannot abandon ${name}: branch ${name} PR is merged\n`,
+    ],
+    [
+      "ready PR",
+      "scoped-ready-pr",
+      { findMatchingOpenPrs: () => [{ number: 7, isDraft: false }] },
+      (name: string) => `unsafe PR state for branch ${name}: matching open PR #7 is not draft\n`,
+    ],
+    [
+      "multiple open PRs",
+      "scoped-multi-pr",
+      {
+        findMatchingOpenPrs: () => [
+          { number: 8, isDraft: true },
+          { number: 9, isDraft: true },
+        ],
       },
-    });
-
-    expect(code).toBe(1);
-    expect(err()).toBe(`failed to inspect PR state for branch ${specName}: gh down\n`);
+      (name: string) => `unsafe PR state for branch ${name}: multiple open PRs match; refusing abandon\n`,
+    ],
+    [
+      "PR inspection failure",
+      "scoped-pr-inspect",
+      {
+        findMatchingOpenPrs: () => {
+          throw new Error("gh down");
+        },
+      },
+      (name: string) => `failed to inspect PR state for branch ${name}: gh down\n`,
+    ],
+  ])("scoped abandon refuses %s", (_label, specName, opts, expectedErr) => {
+    const { io, err } = captureIo();
+    createTrackedWorktree(specName);
+    expect(runScopedAbandon(specName, io, opts)).toBe(1);
+    expect(err()).toBe(expectedErr(specName));
   });
 
   test("scoped abandon refuses when branch cannot be determined", () => {
@@ -1166,10 +1155,7 @@ describe("cleanupCommand", () => {
 
     const specName = "scoped-live-lock";
     const worktreePath = createTrackedWorktree(specName);
-    writeFileSync(
-      join(worktreePath, ".jarvis.lock"),
-      `${JSON.stringify({ pid: process.pid, started_at: "2026-06-29T00:00:00.000Z", host: "test" }, null, 2)}\n`,
-    );
+    writeWorktreeLock(worktreePath, process.pid);
 
     const code = runScopedAbandon(specName, io);
 
@@ -1183,10 +1169,7 @@ describe("cleanupCommand", () => {
 
     const specName = "scoped-stale-lock";
     const worktreePath = createTrackedWorktree(specName);
-    writeFileSync(
-      join(worktreePath, ".jarvis.lock"),
-      `${JSON.stringify({ pid: 2_147_483_647, started_at: "2026-06-29T00:00:00.000Z", host: "test" }, null, 2)}\n`,
-    );
+    writeWorktreeLock(worktreePath, 2_147_483_647);
 
     const code = runScopedAbandon(specName, io);
 

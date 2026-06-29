@@ -314,16 +314,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       if (positionals.length > 1) {
         return { kind: "error", message: "cleanup: too many arguments" };
       }
-      const result: { kind: "cleanup"; dryRun?: boolean; abandon?: boolean; worktreeName?: string } = {
+      return {
         kind: "cleanup",
         dryRun,
         abandon,
+        ...(positionals[0] !== undefined ? { worktreeName: positionals[0] } : {}),
       };
-      const worktreeName = positionals[0];
-      if (worktreeName !== undefined) {
-        result.worktreeName = worktreeName;
-      }
-      return result;
     }
     case "triage": {
       if (rest.includes("--help") || rest.includes("-h")) {

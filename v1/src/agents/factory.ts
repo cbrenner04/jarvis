@@ -1,4 +1,3 @@
-import { AiderAgent } from "./aider.ts";
 import { ClaudeAgent } from "./claude.ts";
 import { CodexAgent } from "./codex.ts";
 import { CursorAgent } from "./cursor.ts";
@@ -15,7 +14,5 @@ export function createAgent(agentName: AgentName, model: string): Agent {
       return new CursorAgent({ model });
     case "opencode":
       return new OpencodeAgent({ model });
-    case "aider":
-      return new AiderAgent({ model });
   }
 }

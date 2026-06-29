@@ -144,7 +144,7 @@ function failingLogClient(message: string): LogClient {
 
 describe("planCommand", () => {
   test("renderPlanNextSteps includes PR URL and timestamped spec path command hints", () => {
-    const specDirBasename = "2026-05-17T123456-aider-agent";
+    const specDirBasename = "2026-05-17T123456-opencode-agent";
     const text = renderPlanNextSteps({
       prUrl: "https://github.com/acme/repo/pull/123",
       specDirBasename,
@@ -157,7 +157,7 @@ describe("planCommand", () => {
   });
 
   test("successful-plan next steps omit ready-flip wording; plan.ts omits redundant stderr footers", () => {
-    const specDirBasename = "2026-05-17T123456-aider-agent";
+    const specDirBasename = "2026-05-17T123456-opencode-agent";
     const text = renderPlanNextSteps({
       prUrl: "https://github.com/acme/repo/pull/555",
       specDirBasename,
@@ -203,14 +203,12 @@ describe("planCommand", () => {
       // Verify project is not a git repo
       expect(!existsSync(join(project, ".git"))).toBe(true);
 
-      // Stub `aider` on PATH with a fake binary that fails immediately. This
-      // keeps the test from spawning the real aider, which would otherwise try
-      // to open a browser to litellm/aider docs on an unknown model.
+      // Stub `opencode` on PATH with a fake binary that fails immediately.
       const binDir = join(dir, "bin");
       mkdirSync(binDir);
-      const aider = join(binDir, "aider");
-      writeFileSync(aider, "#!/usr/bin/env bash\nexit 1\n");
-      chmodSync(aider, 0o755);
+      const opencode = join(binDir, "opencode");
+      writeFileSync(opencode, "#!/usr/bin/env bash\nexit 1\n");
+      chmodSync(opencode, 0o755);
       process.env.PATH = `${binDir}:${originalPath ?? ""}`;
 
       // Set project-level config to commit: false and add a no-op agent
@@ -220,8 +218,8 @@ describe("planCommand", () => {
         throw new Error("expected registered project");
       }
       projectConfig.plan = { commit: false };
-      // Configure the (now stubbed) aider agent so it fails at invocation
-      cfg.modes.plan.agentOrder = [{ agent: "aider", model: "non-existent-model-for-test" }];
+      // Configure the (now stubbed) opencode agent so it fails at invocation
+      cfg.modes.plan.agentOrder = [{ agent: "opencode", model: "non-existent-model-for-test" }];
       writeConfig(cfg, { dir: cfgDir });
 
       // Run plan without skipGhCheck to exercise the actual git-gating logic

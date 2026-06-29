@@ -45,7 +45,7 @@ model-config pattern co-occurrence.
 - [x] Non-zero exit whose merged diagnostics match both a per-agent strict quota pattern and a model-configuration pattern classifies as `kind: "quota"` (not `model_config`) at spawn — codex fixture in `v1/test/agents/spawn-classification.test.ts` exercising both `isQuotaSignal` and `isModelConfigurationSignal` (not `shell_snapshot` noise).
 - [x] Genuine model-id misconfiguration with no strict quota signal still classifies as `kind: "model_config"` — `v1/test/agents/spawn-classification.test.ts` (`genuine model-id misconfiguration stays model_config`) stays green.
 - [x] Strict quota-only and auth/transient precedence cases in `v1/test/agents/spawn-classification.test.ts` stay green.
-- [x] Per-agent `model_config`-only adapter tests stay green: `v1/test/agents/claude.test.ts`, `v1/test/agents/codex.test.ts`, `v1/test/agents/cursor.test.ts`, `v1/test/agents/opencode.test.ts`, `v1/test/agents/aider.test.ts`.
+- [x] Per-agent `model_config`-only adapter tests stay green: `v1/test/agents/claude.test.ts`, `v1/test/agents/codex.test.ts`, `v1/test/agents/cursor.test.ts`, `v1/test/agents/opencode.test.ts`.
 - [x] `v1/docs/quota-signals.md` includes the co-occurrence matrix row and a short spawn-order line cross-linking `v1/docs/agent-cli-failure-pipeline.md` (no duplicated full precedence list).
 - [x] `v1/docs/agent-cli-failure-pipeline.md` documents step 3 full spawn order, step 4 transient cap (3 re-attempts / 4 total spawns), and classification-vs-retry separation.
 - [x] `v2/docs/v1-behaviors.md` updates both spawn-order bullets to **transient → auth → quota → model_config** and notes dual-match → `quota`.

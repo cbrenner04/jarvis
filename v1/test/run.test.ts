@@ -4430,55 +4430,6 @@ exit 0
     );
   });
 
-  test("patch mode constructs an AiderAgent for aider entries", async () => {
-    const spec = writeSpec("- [ ] todo\n");
-    const binDir = join(dir, "bin");
-    mkdirSync(binDir);
-    const aider = join(binDir, "aider");
-    writeFileSync(
-      aider,
-      `#!/usr/bin/env bash
-: > "${dir}/aider-argv"
-for a in "$@"; do printf '%s\\0' "$a" >> "${dir}/aider-argv"; done
-exit 0
-`,
-    );
-    chmodSync(aider, 0o755);
-    process.env.PATH = `${binDir}:${originalPath ?? ""}`;
-
-    writeConfig(
-      {
-        version: 2,
-        modes: {
-          patch: {
-            agentOrder: [{ agent: "aider", model: "ollama/llama3.1:8b" }],
-          },
-          plan: { agentOrder: [CLAUDE_ENTRY] },
-          prompt: { agentOrder: [CLAUDE_ENTRY] },
-          review: { passes: 2 },
-        },
-        quotaFallback: "lenient",
-        weakQuotaExitCodes: [],
-        maxIterations: 10,
-        iterationTimeoutMs: 30 * 60_000,
-        git: true,
-        projects: { project: { root: projectRoot } },
-      },
-      { dir: cfgDir },
-    );
-    const cap = captureIo();
-
-    const code = await runWithDefaults({
-      specPath: spec,
-      io: cap.io,
-      config: { dir: cfgDir },
-      handleSignals: false,
-    });
-
-    expect(code).toBe(4);
-    expect(readFileSync(join(dir, "aider-argv"), "utf8")).toContain("--model\0ollama/llama3.1:8b\0");
-  });
-
   test("CLI maxIterations overrides config maxIterations", async () => {
     const spec = writeSpec("- [ ] one\n- [ ] two\n");
     const cap = captureIo();

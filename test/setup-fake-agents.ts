@@ -32,7 +32,7 @@ function setEnv(key: string, value: string): void {
 }
 
 const binDir = mkdtempSync(join(tmpdir(), "jarvis-test-fake-agents-"));
-for (const name of ["claude", "codex", "cursor", "aider", "opencode"]) {
+for (const name of ["claude", "codex", "cursor", "opencode"]) {
   const bin = join(binDir, name);
   writeFileSync(bin, "#!/usr/bin/env bash\nexit 0\n");
   chmodSync(bin, 0o755);

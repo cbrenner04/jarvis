@@ -196,27 +196,6 @@ describe("loadConfig", () => {
     });
   });
 
-  test("accepts aider in patch agentOrder", () => {
-    writeFileSync(
-      join(dir, "config.json"),
-      JSON.stringify({
-        version: 2,
-        modes: {
-          patch: {
-            agentOrder: [{ agent: "aider", model: "ollama/llama3.1:8b" }],
-          },
-          plan: { agentOrder: CLAUDE_ONLY },
-          prompt: { agentOrder: CLAUDE_ONLY },
-          review: { passes: 2 },
-        },
-        projects: {},
-      }),
-    );
-
-    const cfg = loadConfig({ dir });
-    expect(cfg.modes.patch.agentOrder).toEqual([{ agent: "aider", model: "ollama/llama3.1:8b" }]);
-  });
-
   test("accepts codex gpt-5.4-mini in patch agentOrder via writeConfig round-trip", () => {
     const entry: AgentEntry = { agent: "codex", model: "gpt-5.4-mini" };
     const cfg = loadConfig({ dir });
@@ -449,13 +428,13 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ dir })).toThrow(/modes\.patch\.agentOrder\[0\]\.model/);
   });
 
-  test("rejects aider agentOrder entry with empty model", () => {
+  test("rejects opencode agentOrder entry with empty model", () => {
     writeFileSync(
       join(dir, "config.json"),
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: [{ agent: "aider", model: "  " }] },
+          patch: { agentOrder: [{ agent: "opencode", model: "  " }] },
           plan: { agentOrder: CLAUDE_ONLY },
           prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
@@ -663,7 +642,7 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ dir })).toThrow(/modes\.patch\.agentOrder.*duplicate/);
   });
 
-  test("rejects duplicate aider entries in patch agentOrder", () => {
+  test("rejects duplicate opencode entries in patch agentOrder", () => {
     writeFileSync(
       join(dir, "config.json"),
       JSON.stringify({
@@ -671,8 +650,8 @@ describe("loadConfig", () => {
         modes: {
           patch: {
             agentOrder: [
-              { agent: "aider", model: "ollama/llama3.1:8b" },
-              { agent: "aider", model: "ollama/qwen3:8b" },
+              { agent: "opencode", model: "opencode/deepseek-v4-flash-free" },
+              { agent: "opencode", model: "opencode/gpt-5-nano" },
             ],
           },
           plan: { agentOrder: CLAUDE_ONLY },
@@ -2560,7 +2539,7 @@ describe("resolveSubRoleAgentOrder", () => {
   test("returns sub-role override when configured", () => {
     const patchOrder: AgentEntry[] = [{ agent: "claude", model: "haiku" }];
     const reviewActuator: AgentEntry[] = [{ agent: "codex", model: "gpt-5.4" }];
-    const reviewPanel: AgentEntry[] = [{ agent: "aider", model: "ollama_chat/qwen3.6:35b" }];
+    const reviewPanel: AgentEntry[] = [{ agent: "opencode", model: "opencode/deepseek-v4-flash-free" }];
     const cfg: Config = {
       version: 2,
       modes: {

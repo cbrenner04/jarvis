@@ -6,8 +6,7 @@ name: opencode-ollama-local-model-run
 
 A patch run configured with `opencode` pointed at a model served by a local
 `ollama` server completes a task instead of erroring — the intended v2
-terminal local-model fallback (qwen via opencode + ollama, replacing the
-dropped aider path).
+terminal local-model fallback (qwen via opencode + ollama).
 
 First establish whether the current failure is harness wiring (opencode
 adapter invocation, model/endpoint/provider config against ollama) or
@@ -16,7 +15,7 @@ the harness side. If the failure is environment-only, say so and change no
 harness code.
 
 Operator-facing setup docs cover configuring opencode + ollama as the
-local-model path, replacing the now-dropped aider Ollama worked example.
+local-model path.
 
 ## Prerequisites
 

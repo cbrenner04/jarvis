@@ -6,7 +6,7 @@ import {
   warnAboutPoolContentionIfDetected,
 } from "../src/modes/patch/pool-contention.ts";
 
-function fakeAgent(name: "claude" | "codex" | "cursor" | "opencode" | "aider"): Agent {
+function fakeAgent(name: "claude" | "codex" | "cursor" | "opencode"): Agent {
   return {
     name,
     run: async () => ({ kind: "ok" as const, stdout: "", stderr: "" }),

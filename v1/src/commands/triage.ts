@@ -1006,8 +1006,7 @@ async function triageMarkReady(opts: TriageCommandOptions): Promise<number> {
   }
 
   const commitResult = (
-    opts.commitAndPushDirty ??
-    ((wp: string) => commitAndPushFinalizeDirtyWorktree(wp, opts.pushCurrent))
+    opts.commitAndPushDirty ?? ((wp: string) => commitAndPushFinalizeDirtyWorktree(wp, opts.pushCurrent))
   )(worktreePath);
   if (!commitResult.ok) {
     if (commitResult.reason === "still-dirty") {

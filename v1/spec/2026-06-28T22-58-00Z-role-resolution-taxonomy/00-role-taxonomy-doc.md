@@ -69,7 +69,7 @@ are actually invoked.
       `v2-build-order.md` deferral; no v1 migration).
 - [x] The doc cross-links `v2/docs/v2-vision.md` and notes `AgentModelConfig`
       schema lands in a follow-on slice.
-- [ ] No thinking/reviewing/executing category appears as a model-resolution
+- [x] No thinking/reviewing/executing category appears as a model-resolution
       key in `role-resolution.md`. (Manual)
 
 ## Documentation updates

@@ -60,7 +60,7 @@ agent quota-fallback composes with inner per-role model rungs.
       content).
 - [x] `v2/docs/role-resolution.md` cross-links `agent-model-config.md` for
       inner rung resolution instead of deferring to a follow-on slice.
-- [ ] No thinking/reviewing/executing category appears as a model-resolution
+- [x] No thinking/reviewing/executing category appears as a model-resolution
       key in the edited architecture sections. (Manual)
 
 ## Documentation updates

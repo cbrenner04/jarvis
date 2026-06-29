@@ -893,15 +893,13 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         idleTelemetryRecord.watchdog_descendants_alive = idleWatchdogDescendantsAlive;
       }
 
-      if (!isFixupIteration) {
+      if (!isFixupIteration && activeAgents.length > 1) {
         activeAgents.shift();
-        if (activeAgents.length > 0) {
-          fanout("harness", `${agent.name}: ${HARNESS_IDLE_TIMEOUT_FALLBACK}\n`, "stderr");
-          idleTelemetryRecord.exitReason = "watchdog-idle-timeout-fallback";
-          writeTelemetry(idleTelemetryRecord);
-          state.iteration += 1;
-          return { kind: "continue" };
-        }
+        fanout("harness", `${agent.name}: ${HARNESS_IDLE_TIMEOUT_FALLBACK}\n`, "stderr");
+        idleTelemetryRecord.exitReason = "watchdog-idle-timeout-fallback";
+        writeTelemetry(idleTelemetryRecord);
+        state.iteration += 1;
+        return { kind: "continue" };
       }
 
       fanout("harness", `iteration ${iteration} exceeded idle timeout of ${cfg.idleOutputTimeoutMs}ms\n`, "stderr");

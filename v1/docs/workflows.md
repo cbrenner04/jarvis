@@ -356,15 +356,10 @@ What loops vs. what's a distinct path:
 - **Distinct exit paths**: In the implementation loop, `kind ∈ {ok, quota,
   model_config, error}` fan out from a single decision; the same iteration
   cannot take two of them.
-- **Quota rotation** drops the current agent from `agentOrder` and continues
-  the same loop with the next agent. Unlike plan mode, a generic `error`
-  *does not* rotate — it exits 3 — except when `quotaFallback: "lenient"`
-  upgrades the classification, or when the error is an idle-timeout abort
-  with a later ladder rung remaining (patch implementation only).
-- **No-progress and idle-timeout rotation** (patch implementation): each
-  no-progress or idle-stall iteration shifts the current agent and retries the
-  same subspec; exit `4` or terminal idle exit `8` is reached only after the
-  final rung also stalls.
+- **Agent ladder rotation** (patch implementation): quota, lenient probable-quota,
+  no-progress, and idle-timeout each drop the current agent and retry the same
+  subspec when a later `agentOrder` rung remains. Generic `error` exits 3.
+  Terminal exit `4` or `8` only after the final rung stalls (or `maxIterations`).
 - **Determinism**: the agent's edits and the model-authored PR narrative
   (Description + Decisions) are non-deterministic, but the rest of the
   downstream (acceptance-criteria diff, commit-shape selection, the PR-body

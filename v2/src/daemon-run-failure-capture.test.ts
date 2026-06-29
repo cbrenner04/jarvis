@@ -46,11 +46,15 @@ function mockWriteLoopInput(worktreeOverrides: Partial<WriteLoopInput["worktree"
 async function startRun(
   client: Awaited<ReturnType<typeof connectIpcClient>>,
   input = mockWriteLoopInput(),
-): Promise<string | undefined> {
+): Promise<string> {
   client.send({ kind: "request", id: "s1", method: "start", params: { input } });
   const frame = await client.nextFrame();
   expect(frame.kind).toBe("response");
-  return frame.kind === "response" ? (frame.result as { runId?: string } | undefined)?.runId : undefined;
+  const runId = frame.kind === "response" ? (frame.result as { runId?: string } | undefined)?.runId : undefined;
+  if (!runId) {
+    throw new Error("start run did not return runId");
+  }
+  return runId;
 }
 
 async function listRuns(client: Awaited<ReturnType<typeof connectIpcClient>>): Promise<RunSummary[] | undefined> {
@@ -114,10 +118,9 @@ afterEach(async () => {
 socketTest("executor rejection sets durable status to failed", async () => {
   const client = await connectIpcClient(SOCKET_PATH);
   const runId = await startRun(client);
-  expect(runId).toBeDefined();
   await flushBackgroundRuns();
 
-  const run = stateStore.loadRun(runId!);
+  const run = stateStore.loadRun(runId);
   expect(run?.status).toBe("failed");
   client.close();
 });
@@ -132,7 +135,7 @@ socketTest("executor rejection appends exactly one run_execution_failed via fail
   const runId = await startRun(client);
   await flushBackgroundRuns();
 
-  const records = openLogReader(logsPath).tail(runId!);
+  const records = openLogReader(logsPath).tail(runId);
   expect(records).toHaveLength(1);
   expect(records[0]?.event).toEqual({ kind: "run_execution_failed" });
   client.close();
@@ -141,11 +144,10 @@ socketTest("executor rejection appends exactly one run_execution_failed via fail
 socketTest("failed run keeps in-progress attempt row", async () => {
   const client = await connectIpcClient(SOCKET_PATH);
   const runId = await startRun(client);
-  expect(runId).toBeDefined();
-  stateStore.recordAttemptStart(runId!);
+  stateStore.recordAttemptStart(runId);
   await flushBackgroundRuns();
 
-  const run = stateStore.loadRun(runId!);
+  const run = stateStore.loadRun(runId);
   expect(run?.status).toBe("failed");
   const latestAttempt = run?.attempts.at(-1);
   expect(latestAttempt?.status).toBe("in-progress");
@@ -183,7 +185,7 @@ socketTest("failure reporter throw keeps failed status and releases ownership", 
   const runId = await startRun(client, input);
   await flushBackgroundRuns();
 
-  const run = stateStore.loadRun(runId!);
+  const run = stateStore.loadRun(runId);
   expect(run?.status).toBe("failed");
 
   const runs = await listRuns(client);
@@ -259,11 +261,11 @@ socketTest("terminal durable status is not overwritten on executor rejection", a
   const runId = await startRun(client);
   await flushBackgroundRuns();
 
-  stateStore.setRunStatus(runId!, "killed");
+  stateStore.setRunStatus(runId, "killed");
   releaseExecutor(new Error("executor boom"));
   await flushBackgroundRuns();
 
-  const run = stateStore.loadRun(runId!);
+  const run = stateStore.loadRun(runId);
   expect(run?.status).toBe("killed");
   expect(setRunStatusCalls.filter((status) => status === "failed")).toHaveLength(0);
   client.close();

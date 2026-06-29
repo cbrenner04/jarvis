@@ -17,9 +17,7 @@ export type InvocationFailureDetail = {
 };
 
 /** Summarize invocation attempts for durable state and foreground JSON. */
-export function bindingAttemptsFromInvocation(
-  invocation: InvocationExecution,
-): BindingAttemptSummary[] {
+export function bindingAttemptsFromInvocation(invocation: InvocationExecution): BindingAttemptSummary[] {
   return invocation.attempts.map((attempt) => ({
     bindingId: attempt.binding.id,
     resultKind: attempt.result.kind,

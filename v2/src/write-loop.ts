@@ -1,10 +1,7 @@
 import { appendFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { getExternalWorktreePath } from "./external-worktree.ts";
-import {
-  invocationFailureDetailFromStepResult,
-  type InvocationFailureDetail,
-} from "./invocation-failure.ts";
+import { type InvocationFailureDetail, invocationFailureDetailFromStepResult } from "./invocation-failure.ts";
 import type { LogSink } from "./log-stream.ts";
 import { type OutcomeKind, openStateStore, type StateStore } from "./state-store.ts";
 import type { RunStatus } from "./state-store-types.ts";
@@ -57,6 +54,91 @@ type StoredRun = NonNullable<ReturnType<StateStore["loadRun"]>>;
 type PreparedRun =
   | { runId: string; worktreePath: string; resumedAttemptId: string | null }
   | { result: WriteLoopResult };
+type TerminalStepResult = Exclude<StepRunResult, { kind: "progress" }>;
+
+function progressOutcome(logSink: LogSink | undefined, runId: string, iterationsConsumed: number): WriteLoopResult {
+  logSink?.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "progress",
+    iterationsConsumed,
+    resumable: true,
+  });
+  return { kind: "progress", runId, iterationsConsumed, resumable: true };
+}
+
+function handleProgressIteration(
+  args: WriteLoopInput,
+  store: StateStore,
+  runId: string,
+  attemptId: string,
+  iterationsConsumed: number,
+): WriteLoopResult | null {
+  store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
+  args.logSink?.append(runId, {
+    kind: "boundary_committed",
+    attemptId,
+    outcomeKind: "progress",
+    runStatus: "in-progress",
+  });
+
+  if (!args.pauseSignal?.aborted) {
+    return null;
+  }
+
+  store.setRunStatus(runId, "paused");
+  args.logSink?.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "paused",
+    iterationsConsumed,
+    resumable: true,
+  });
+  return { kind: "paused", runId, iterationsConsumed, resumable: true };
+}
+
+function finishTerminalIteration(
+  args: WriteLoopInput,
+  store: StateStore,
+  runId: string,
+  worktreePath: string,
+  attemptId: string,
+  result: TerminalStepResult,
+  iterationsConsumed: number,
+): WriteLoopResult {
+  if (result.kind === "contract_miss") {
+    appendBlockerToSpec(resolveSpecPath(worktreePath, args.specPath), result.failedContractId);
+  }
+
+  const terminal = terminalMapping(result);
+  const invocationFailureDetail =
+    result.kind === "invocation_failure" ? invocationFailureDetailFromStepResult(result) : undefined;
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: terminal.runStatus,
+    outcomeKind: terminal.outcomeKind,
+    ...(invocationFailureDetail !== undefined ? { invocationFailureDetail } : {}),
+  });
+  args.logSink?.append(runId, {
+    kind: "boundary_committed",
+    attemptId,
+    outcomeKind: terminal.outcomeKind,
+    runStatus: terminal.runStatus,
+  });
+
+  const loopResult: WriteLoopResult = {
+    kind: terminal.kind,
+    runId,
+    iterationsConsumed,
+    resumable: false,
+    ...(invocationFailureDetail !== undefined ? invocationFailureDetail : {}),
+  };
+  args.logSink?.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: terminal.kind,
+    iterationsConsumed,
+    resumable: false,
+  });
+  return loopResult;
+}
 
 /**
  * Execute a resumable write loop: repeatedly call executeWrite until work is
@@ -81,14 +163,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
     while (iterationsConsumed < maxIterations) {
       if (args.signal?.aborted) {
-        const result = { kind: "progress" as const, runId, iterationsConsumed, resumable: true };
-        args.logSink?.append(runId, {
-          kind: "loop_finished",
-          loopOutcomeKind: "progress",
-          iterationsConsumed,
-          resumable: true,
-        });
-        return result;
+        return progressOutcome(args.logSink, runId, iterationsConsumed);
       }
 
       const attemptId = resumedAttemptId ?? store.recordAttemptStart(runId);
@@ -108,77 +183,19 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       const { result } = await executeWrite(writeArgs);
       iterationsConsumed += 1;
 
-      // If the abort signal was triggered while the step was running, skip boundary commit
       if (args.signal?.aborted) {
-        const result = { kind: "progress" as const, runId, iterationsConsumed, resumable: true };
-        args.logSink?.append(runId, {
-          kind: "loop_finished",
-          loopOutcomeKind: "progress",
-          iterationsConsumed,
-          resumable: true,
-        });
-        return result;
+        return progressOutcome(args.logSink, runId, iterationsConsumed);
       }
 
       if (result.kind === "progress") {
-        store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
-        args.logSink?.append(runId, {
-          kind: "boundary_committed",
-          attemptId,
-          outcomeKind: "progress",
-          runStatus: "in-progress",
-        });
-
-        // Check for graceful pause at the loop boundary
-        if (args.pauseSignal?.aborted) {
-          store.setRunStatus(runId, "paused");
-          const pauseResult = { kind: "paused" as const, runId, iterationsConsumed, resumable: true };
-          args.logSink?.append(runId, {
-            kind: "loop_finished",
-            loopOutcomeKind: "paused",
-            iterationsConsumed,
-            resumable: true,
-          });
-          return pauseResult;
+        const progressResult = handleProgressIteration(args, store, runId, attemptId, iterationsConsumed);
+        if (progressResult !== null) {
+          return progressResult;
         }
-
         continue;
       }
 
-      if (result.kind === "contract_miss") {
-        appendBlockerToSpec(resolveSpecPath(worktreePath, args.specPath), result.failedContractId);
-      }
-
-      const terminal = terminalMapping(result);
-      const invocationFailureDetail =
-        result.kind === "invocation_failure" ? invocationFailureDetailFromStepResult(result) : undefined;
-      store.commitCompletionBoundary({
-        attemptId,
-        runStatus: terminal.runStatus,
-        outcomeKind: terminal.outcomeKind,
-        ...(invocationFailureDetail !== undefined ? { invocationFailureDetail } : {}),
-      });
-      args.logSink?.append(runId, {
-        kind: "boundary_committed",
-        attemptId,
-        outcomeKind: terminal.outcomeKind,
-        runStatus: terminal.runStatus,
-      });
-
-      const loopResult: WriteLoopResult = {
-        kind: terminal.kind,
-        runId,
-        iterationsConsumed,
-        resumable: false,
-        ...(invocationFailureDetail !== undefined ? invocationFailureDetail : {}),
-      };
-      args.logSink?.append(runId, {
-        kind: "loop_finished",
-        loopOutcomeKind: terminal.kind,
-        iterationsConsumed,
-        resumable: false,
-      });
-      return loopResult;
+      return finishTerminalIteration(args, store, runId, worktreePath, attemptId, result, iterationsConsumed);
     }
 
     store.setRunStatus(runId, "budget-soft-stopped");
@@ -224,7 +241,7 @@ function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {
   return committed === null ? { runId: existingRun.id, worktreePath, resumedAttemptId: null } : { result: committed };
 }
 
-function terminalMapping(result: Exclude<StepRunResult, { kind: "progress" }>): {
+function terminalMapping(result: TerminalStepResult): {
   kind: WriteLoopOutcomeKind;
   runStatus: RunStatus;
   outcomeKind: OutcomeKind;

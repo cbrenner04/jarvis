@@ -46,7 +46,7 @@ export type IntentParseResult =
 const FLAGS_WITH_VALUE = new Set(["--repo", "--cwd", "--target-dir"]);
 
 export const INTENT_USAGE = `Usage: jarvis1 intent [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] <raw-seed-file|"inline text">
-                             Split one seed into authored intents under ready-intents/ and open a draft PR.
+                             Split one seed into authored intents under ready-intents/ and open a PR.
 `;
 
 const STAGE_DIR_NAME = ".jarvis-intent-stage";
@@ -897,6 +897,8 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
         branch,
         cwd: worktreePath,
         getOpenPrState,
+        skipBaseCurrentCheck: true,
+        skipReadyGate: true,
         ...(intentFixCommand !== undefined ? { fixCommand: intentFixCommand } : {}),
       });
     } catch (err) {

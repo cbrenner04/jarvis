@@ -281,8 +281,12 @@ export type MaybeMarkPlanPrReadyOpts = {
   getOpenPrState?: (branch: string, cwd: string) => OpenPrInfo;
   /** Test seam: resolve/fetch/compare the PR base. Defaults to `checkBaseCurrent`. */
   checkBaseCurrent?: (opts: { branch: string; cwd: string }) => BaseCurrentCheckResult;
+  /** Skip the base-current guard before `gh pr ready`. */
+  skipBaseCurrentCheck?: boolean;
   /** Short-circuit seam: stubs the entire ready + commit + gh-pr-ready sequence. */
   markReady?: (branch: string, cwd: string) => void;
+  /** Skip the local ready gate before `gh pr ready`. */
+  skipReadyGate?: boolean;
   /** Seam for built-in `bun run fix` on `full` tier. Used by tests when markReady is absent. */
   runFix?: (cwd: string) => void;
   /** Per-project override for `bun run fix`. Tokenized on whitespace; no shell. */
@@ -304,7 +308,7 @@ export type MaybeMarkPlanPrReadyOpts = {
  *
  * Behavior depends on the current PR state:
  * - `none` (no open PR): silent no-op
- * - `draft` (open draft PR): run `bun run ready` gate, then `gh pr ready` transition
+ * - `draft` (open draft PR): run `bun run ready` gate unless skipped, then `gh pr ready` transition
  * - `ready` (open ready PR): skip both gate and transition, silent no-op
  *
  * Throws on `gh` failure or gate failure; callers wrap with try/catch and warn-and-continue.
@@ -323,14 +327,16 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
     return;
   }
 
-  const baseCurrent = (opts.checkBaseCurrent ?? checkBaseCurrent)({ branch: opts.branch, cwd: opts.cwd });
-  if (baseCurrent.status === "behind") {
-    writeReadyFlipBlocked(
-      opts.stderr ?? process.stderr.write.bind(process.stderr),
-      opts.branch,
-      baseCurrent.baseRefName,
-    );
-    return;
+  if (opts.skipBaseCurrentCheck !== true) {
+    const baseCurrent = (opts.checkBaseCurrent ?? checkBaseCurrent)({ branch: opts.branch, cwd: opts.cwd });
+    if (baseCurrent.status === "behind") {
+      writeReadyFlipBlocked(
+        opts.stderr ?? process.stderr.write.bind(process.stderr),
+        opts.branch,
+        baseCurrent.baseRefName,
+      );
+      return;
+    }
   }
 
   // Draft PR: run gate and transition
@@ -356,14 +362,16 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
     );
   };
 
-  runReadyAndCommit({
-    cwd: opts.cwd,
-    ...(opts.agentLabel !== undefined ? { agentLabel: opts.agentLabel } : {}),
-    ...(opts.fixCommand !== undefined ? { fixCommand: opts.fixCommand } : {}),
-    ...(opts.runFix !== undefined ? { runFix: opts.runFix } : {}),
-    ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
-    ...(opts.commitPreReadyFix !== undefined ? { commitPreReadyFix: opts.commitPreReadyFix } : {}),
-  });
+  if (opts.skipReadyGate !== true) {
+    runReadyAndCommit({
+      cwd: opts.cwd,
+      ...(opts.agentLabel !== undefined ? { agentLabel: opts.agentLabel } : {}),
+      ...(opts.fixCommand !== undefined ? { fixCommand: opts.fixCommand } : {}),
+      ...(opts.runFix !== undefined ? { runFix: opts.runFix } : {}),
+      ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
+      ...(opts.commitPreReadyFix !== undefined ? { commitPreReadyFix: opts.commitPreReadyFix } : {}),
+    });
+  }
 
   const ghPrReadyFn = opts.ghPrReady ?? retryGhPrReady;
   ghPrReadyFn(opts.branch, opts.cwd);

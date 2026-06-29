@@ -308,6 +308,38 @@ describe("maybeMarkPlanPrReady", () => {
     expect(ghPrReadyCalled).toBe(true);
   });
 
+  test("skip gates flips draft PR without base check, fix, or ready gate", () => {
+    let runFixCalled = false;
+    let runReadyCalled = false;
+    let ghPrReadyCalled = false;
+
+    maybeMarkPlanPrReady({
+      branch: "feature",
+      cwd: gitDir,
+      skipBaseCurrentCheck: true,
+      skipReadyGate: true,
+      getOpenPrState: () => ({ state: "draft", number: 123 }),
+      checkBaseCurrent: () => {
+        throw new Error("checkBaseCurrent should not execute");
+      },
+      runFix: () => {
+        runFixCalled = true;
+      },
+      runReady: () => {
+        runReadyCalled = true;
+      },
+      ghPrReady: (branch, cwd) => {
+        ghPrReadyCalled = true;
+        expect(branch).toBe("feature");
+        expect(cwd).toBe(gitDir);
+      },
+    });
+
+    expect(runFixCalled).toBe(false);
+    expect(runReadyCalled).toBe(false);
+    expect(ghPrReadyCalled).toBe(true);
+  });
+
   test("runFix dirties tree -> commitPreReadyFix called with correct args before runReady, then ghPrReady", () => {
     const calls: string[] = [];
     let commitPreReadyFixCwd = "";

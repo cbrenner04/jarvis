@@ -96,9 +96,10 @@ cross-step attempt history here, behind the runner that reads them. The project
 config layer lands here: the **per-machine agent fallback order** and the
 **machine-independent role→model store** (steps name a role; runner resolves
 `(agent, role) → rungs`; missing required `(agent, role)` = hard error at load).
-Depends on [`role-resolution.md`](role-resolution.md) and
-[`agent-model-config.md`](agent-model-config.md) on `main` — not category
-taxonomy. Defines workflow presets; includes the workflow-authoring helper and
+Phase 5 planning and implementation depend on
+[`role-resolution.md`](role-resolution.md) and
+[`agent-model-config.md`](agent-model-config.md) committed on `main` and must
+not use retired category taxonomy. Defines workflow presets; includes the workflow-authoring helper and
 the config-vs-source validation check. Run a two-step write→write workflow.
 Retires: the source-vs-config seam (steps name roles in source; agent order and
 role→model store are data). *TUI: workflow/step view of a run.*

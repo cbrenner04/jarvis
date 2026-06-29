@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
+import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
 import type { LogEvent, LogSink } from "./log-stream.ts";
 import { openStateStore, type StateStore } from "./state-store.ts";
 import { simulatedBindings } from "./testing/bindings.ts";
-import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
 
 const roots: string[] = [];
@@ -473,7 +473,12 @@ describe("write loop", () => {
   test("invalid_token idempotent re-entry omits failure detail", async () => {
     const { jarvisRoot, stateDbPath } = setupRepo();
 
-    const first = await runLoop({ jarvisRoot, stateDbPath, bindings: invalidTokenBindings, branchName: "invalid-token-run" });
+    const first = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings: invalidTokenBindings,
+      branchName: "invalid-token-run",
+    });
     const second = await runLoop({
       jarvisRoot,
       stateDbPath,

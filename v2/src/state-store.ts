@@ -137,7 +137,9 @@ function mapAttemptRow(row: Attempt & { invocationFailureDetailJson: string | nu
   return {
     ...attempt,
     invocationFailureDetail:
-      invocationFailureDetailJson === null ? null : (JSON.parse(invocationFailureDetailJson) as InvocationFailureDetail),
+      invocationFailureDetailJson === null
+        ? null
+        : (JSON.parse(invocationFailureDetailJson) as InvocationFailureDetail),
   };
 }
 

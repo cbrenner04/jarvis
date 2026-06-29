@@ -132,6 +132,8 @@ Improving the harness means experimenting (cheaper agents, model tiering, cost/s
 - **Pursue cost/speed through sanctioned channels** (model-tiering / codex-cache / transient-backoff intents), not corner-cutting.
 - **Never circumvent prescribed process.** No hand-implementing specs; they go through plan→run→gate. Hand work is limited to *sanctioned recovery* (below) and must always re-run the gate.
 
+**Observed actuator tiers (2026-06-29, claude-sparing config).** cursor (Composer 2.5) is a solid free primary — plans + implements most specs solo (~$0.03/phase, estimated), but can stall (idle-watchdog exit 8) or blow the 30-min iteration timeout on a complex spec. `opencode/deepseek-v4-flash-free` is **not viable solo** (cascades to cursor for what it can't finish; "unusable" per another repo's operator) — cheap filler only. `opencode/glm-5.2` is a **capable paid escalation** (~$2.50/run metered, priced via opencode's own cost reporting — no `prices.json` row needed to run): it solo-completed an impl cursor timed out on. When cursor stalls/times-out on a hard spec, escalate to GLM 5.2. To swap actuators per-invocation without global `config.json` churn, see seed `per-run-agent-override-flag`.
+
 ## Harness suggestions from other repos
 
 **Dual audience:** submit path (other-repo operator) and triage path (Jarvis-on-Jarvis operator).
@@ -265,6 +267,8 @@ The sandbox (e.g. in Claude Code) can hide real state.
 ### Localhost/auth/TLS blindness
 
 `gh`/`git` network calls, `localhost` requests, and auth/keychain reads may fail *inside* the sandbox with TLS-cert or permission errors that are **false negatives**. Re-run sandbox-off before debugging — if it succeeds there, the sandbox was the cause.
+
+Specific case: `jarvis1 plan`/`run` aborting with `log server unreachable at http://127.0.0.1:4310/logs` is usually this false-negative — the log server is up, but the startup healthcheck's `localhost` request is blocked inside the sandbox. Don't restart the log server (you'll hit `port 4310 in use`); just run the `plan`/`run` **sandbox-off**.
 
 ## Merging
 

@@ -770,25 +770,9 @@ selected agent CLI reports that the configured model is unsupported, jarvis
 exits with a model-configuration message and does not fall back to another
 agent.
 
-When `modes.patch.actuationCapabilityFloor` is configured, initial agent
-selection and fallback chains respect the minimum capability gate. Agents are
-filtered at preflight before tier start-index resolution: only entries with
-`capability >= floor` are used; if unset, all entries are eligible. Tier
-selection (trivial/standard/hard) is resolved against the floor-eligible
-ladder length, so tier positioning is independent of filtered-out agents. When
-no agents meet the floor, a fatal preflight error exits `1` with the role and
-floor named (before any agent runs). Fallback is reserved for quota exhaustion: if an agent reports quota exhaustion, jarvis removes it from the active list for that run and falls back to
-the next configured agent **in the floor-eligible ladder**. The floor is applied once via the active ladder for iteration and review phases. Shrink re-applies the floor independently to `modes.patch.agentOrder` before building shrink bindings; if no agents meet the floor, shrink is skipped with an error on the same channel as the patch-phase floor error, and the completed run's outcome is preserved. An explicit `--agents` override (patch-spawn CLI flag) can place a below-floor model on an eligible slot by operator intent — the floor gates configured entries, not overrides. See [quota-signals.md](./quota-signals.md) for the
-detection rules and
-[Classification and fallback outcome matrix](./quota-signals.md#classification-and-fallback-outcome-matrix)
-for the authoritative outcome mapping. Operator-visible quota stderr phrases
-(including the exact grep substrings shared with plan mode) are listed under
-[Operator-visible stderr](./quota-signals.md#operator-visible-stderr-grep-contract)
-in that doc.
-
 ### Shared model pool contention warning
 
-When the selected patch primary agent is Claude (after tier, floor, and override resolution), Jarvis probes for live Jarvis-owned operator/orchestration Claude sessions at run start. If any are detected, Jarvis emits a single non-blocking warning to the terminal and session log:
+When the selected patch primary agent is Claude (after tier and override resolution), Jarvis probes for live Jarvis-owned operator/orchestration Claude sessions at run start. If any are detected, Jarvis emits a single non-blocking warning to the terminal and session log:
 
 ```
 warning: selected patch primary shares Claude pool with a live Jarvis operator/orchestration session. Pause the competing session to avoid contention.
@@ -796,7 +780,7 @@ warning: selected patch primary shares Claude pool with a live Jarvis operator/o
 
 The warning is informational and non-blocking: the run proceeds normally with the same resolved primary agent, quota fallback behavior, and no-progress escalation. The warning fires once per run, before the first patch actuator invocation, and only when:
 
-- The resolved selected primary agent is Claude (checked after tier, floor, and override resolution; unused fallback rungs do not trigger the warning).
+- The resolved selected primary agent is Claude (checked after tier and override resolution; unused fallback rungs do not trigger the warning).
 - At least one live process tree exists with a Jarvis-owned ancestor process and a Claude process child.
 
 The probing is best-effort: process-tree read errors are silent and non-blocking. No warning is printed for unrelated generic Claude processes outside Jarvis ownership, or when the selected primary is a non-Claude model (e.g., Codex, Cursor) even if later fallback entries specify Claude.

@@ -741,7 +741,6 @@ describe("runSummary", () => {
     ["sigint (exit code 130)", "Resume-first guidance"],
     ["worktree-locked (exit code 9)", "Resume-first guidance"],
     ["error (exit code 1)", "Recovery by exit reason"],
-    ["floor-error", "Recovery by exit reason"],
     ["quota-exhausted", "Recovery by exit reason"],
     ["agent-error", "Recovery by exit reason"],
     ["max-iterations", "Recovery by exit reason"],

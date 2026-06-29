@@ -298,14 +298,15 @@ read-only review roles while keeping stronger models on actuators.
   `modes.patch.subRoleAgentOrder.reviewPanel` when set, else
   `modes.review.agentOrder` falling back to `modes.plan.agentOrder`.
 - Patch implementation loop: resolves from
-  `modes.patch.subRoleAgentOrder.patchActuator` when set, else
-  `modes.patch.agentOrder`. Patch `tier:` / `--tier` slicing applies to this
-  resolved ladder.
+  `modes.patch.agentOrder` directly. Patch `tier:` / `--tier` slicing applies to
+  this resolved ladder.
 - Review actuator and shrink actuator: resolve from
   `modes.patch.subRoleAgentOrder.reviewActuator` when set, else
   `modes.patch.agentOrder`. The shared `reviewActuator` key governs both code-
   writing roles, but they consume it differently: the verdict actuator stays
   head-only (`reviewActuator[0]`), while shrink keeps full-list quota fallback.
+- `reviewActuator` tiers review actuator and shrink agents via
+  `subRoleAgentOrder.reviewActuator`; unset uses full `modes.patch.agentOrder`.
 
 This separation enables tiering: assign a fast/cheap reviewer tier to read-only
 roles (e.g., Haiku or a smaller Codex variant) while keeping an

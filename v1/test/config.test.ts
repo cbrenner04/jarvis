@@ -20,6 +20,8 @@ import {
   setProjectOrigin,
   writeConfig,
 } from "../src/config.ts";
+import { buildActiveAgents } from "../src/modes/patch/preflight.ts";
+import type { RunCommandOptions } from "../src/modes/patch/run.ts";
 
 let dir: string;
 
@@ -128,17 +130,16 @@ describe("loadConfig", () => {
     expect(cfg.projects.jarvis).toEqual({ root: "/Users/me/jarvis" });
   });
 
-  test("accepts patch sub-role agent orders", () => {
+  test("rejects patchActuator in subRoleAgentOrder", () => {
+    const file = join(dir, "config.json");
     writeFileSync(
-      join(dir, "config.json"),
+      file,
       JSON.stringify({
         version: 2,
         modes: {
           patch: {
             agentOrder: CLAUDE_ONLY,
             subRoleAgentOrder: {
-              reviewPanel: [{ agent: "codex", model: "gpt-5.3-codex" }],
-              reviewActuator: [{ agent: "claude", model: "haiku" }],
               patchActuator: [{ agent: "cursor", model: "Composer 2.5" }],
             },
           },
@@ -149,13 +150,7 @@ describe("loadConfig", () => {
         projects: {},
       }),
     );
-
-    const cfg = loadConfig({ dir });
-    expect(cfg.modes.patch.subRoleAgentOrder).toEqual({
-      reviewPanel: [{ agent: "codex", model: "gpt-5.3-codex" }],
-      reviewActuator: [{ agent: "claude", model: "haiku" }],
-      patchActuator: [{ agent: "cursor", model: "Composer 2.5" }],
-    });
+    expect(() => loadConfig({ dir })).toThrow(/unknown key.*patchActuator/i);
   });
 
   test("accepts patch config without sub-role agent orders", () => {
@@ -2461,14 +2456,12 @@ describe("resolveSubRoleAgentOrder", () => {
       projects: {},
     };
 
-    expect(resolveSubRoleAgentOrder(cfg, "patchActuator")).toEqual(patchOrder);
     expect(resolveSubRoleAgentOrder(cfg, "reviewActuator")).toEqual(patchOrder);
     expect(resolveSubRoleAgentOrder(cfg, "reviewPanel")).toEqual(reviewOrder);
   });
 
   test("returns sub-role override when configured", () => {
     const patchOrder: AgentEntry[] = [{ agent: "claude", model: "haiku" }];
-    const patchActuator: AgentEntry[] = [{ agent: "cursor", model: "Composer 2.5" }];
     const reviewActuator: AgentEntry[] = [{ agent: "codex", model: "gpt-5.4" }];
     const reviewPanel: AgentEntry[] = [{ agent: "aider", model: "ollama_chat/qwen3.6:35b" }];
     const cfg: Config = {
@@ -2476,7 +2469,7 @@ describe("resolveSubRoleAgentOrder", () => {
       modes: {
         patch: {
           agentOrder: patchOrder,
-          subRoleAgentOrder: { patchActuator, reviewActuator, reviewPanel },
+          subRoleAgentOrder: { reviewActuator, reviewPanel },
         },
         plan: { agentOrder: patchOrder },
         prompt: { agentOrder: patchOrder },
@@ -2492,7 +2485,6 @@ describe("resolveSubRoleAgentOrder", () => {
       projects: {},
     };
 
-    expect(resolveSubRoleAgentOrder(cfg, "patchActuator")).toEqual(patchActuator);
     expect(resolveSubRoleAgentOrder(cfg, "reviewActuator")).toEqual(reviewActuator);
     expect(resolveSubRoleAgentOrder(cfg, "reviewPanel")).toEqual(reviewPanel);
   });
@@ -2710,172 +2702,32 @@ describe("review mode config validation", () => {
     expect(() => loadConfig({ dir })).toThrow(/off.*agent/);
   });
 
-  test("accepts modes.patch.agentOrder entries with numeric capability", () => {
-    writeFileSync(
-      join(dir, "config.json"),
-      JSON.stringify({
-        version: 2,
-        modes: {
-          patch: {
-            agentOrder: [
-              { agent: "claude", model: "haiku", capability: 3 },
-              { agent: "codex", model: "gpt-5.3-codex", capability: 6 },
-            ],
-          },
-          plan: { agentOrder: CLAUDE_ONLY },
-          prompt: { agentOrder: CLAUDE_ONLY },
-          review: { passes: 2 },
-        },
-        projects: {},
-      }),
-    );
-    const cfg = loadConfig({ dir });
-    expect(cfg.modes.patch.agentOrder).toEqual([
-      { agent: "claude", model: "haiku", capability: 3 },
-      { agent: "codex", model: "gpt-5.3-codex", capability: 6 },
-    ]);
-  });
-
-  test("accepts modes.patch.agentOrder without capability when floor is not set", () => {
-    writeFileSync(
-      join(dir, "config.json"),
-      JSON.stringify({
-        version: 2,
-        modes: {
-          patch: { agentOrder: CLAUDE_ONLY },
-          plan: { agentOrder: CLAUDE_ONLY },
-          prompt: { agentOrder: CLAUDE_ONLY },
-          review: { passes: 2 },
-        },
-        projects: {},
-      }),
-    );
-    const cfg = loadConfig({ dir });
-    expect(cfg.modes.patch.agentOrder).toEqual(CLAUDE_ONLY);
-    expect(cfg.modes.patch.actuationCapabilityFloor).toBeUndefined();
-  });
-
-  test("accepts modes.patch.actuationCapabilityFloor with numeric value when all entries have capability", () => {
-    writeFileSync(
-      join(dir, "config.json"),
-      JSON.stringify({
-        version: 2,
-        modes: {
-          patch: {
-            agentOrder: [
-              { agent: "claude", model: "haiku", capability: 3 },
-              { agent: "codex", model: "gpt-5.3-codex", capability: 6 },
-            ],
-            actuationCapabilityFloor: 5,
-          },
-          plan: { agentOrder: CLAUDE_ONLY },
-          prompt: { agentOrder: CLAUDE_ONLY },
-          review: { passes: 2 },
-        },
-        projects: {},
-      }),
-    );
-    const cfg = loadConfig({ dir });
-    expect(cfg.modes.patch.actuationCapabilityFloor).toBe(5);
-  });
-
-  test("rejects modes.patch.actuationCapabilityFloor when any entry lacks capability", () => {
+  test.each([
+    [
+      "modes.patch.agentOrder",
+      {
+        patch: { agentOrder: [{ agent: "claude", model: "haiku", capability: 3 }] },
+        plan: { agentOrder: CLAUDE_ONLY },
+        prompt: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
+      },
+    ],
+    [
+      "modes.plan.agentOrder",
+      {
+        patch: { agentOrder: CLAUDE_ONLY },
+        plan: { agentOrder: [{ agent: "claude", model: "haiku", capability: 3 }] },
+        prompt: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
+      },
+    ],
+  ])("rejects capability on %s", (_field, modes) => {
     const file = join(dir, "config.json");
-    writeFileSync(
-      file,
-      JSON.stringify({
-        version: 2,
-        modes: {
-          patch: {
-            agentOrder: [
-              { agent: "claude", model: "haiku", capability: 3 },
-              { agent: "codex", model: "gpt-5.3-codex" },
-            ],
-            actuationCapabilityFloor: 5,
-          },
-          plan: { agentOrder: CLAUDE_ONLY },
-          prompt: { agentOrder: CLAUDE_ONLY },
-          review: { passes: 2 },
-        },
-        projects: {},
-      }),
-    );
-    expect(() => loadConfig({ dir })).toThrow(file);
-    expect(() => loadConfig({ dir })).toThrow(/actuationCapabilityFloor is set/);
-    expect(() => loadConfig({ dir })).toThrow(/modes\.patch\.agentOrder/);
-    expect(() => loadConfig({ dir })).toThrow(/missing capability/);
-    expect(() => loadConfig({ dir })).toThrow(/codex/);
-  });
-
-  test("rejects non-numeric modes.patch.actuationCapabilityFloor", () => {
-    const file = join(dir, "config.json");
-    writeFileSync(
-      file,
-      JSON.stringify({
-        version: 2,
-        modes: {
-          patch: {
-            agentOrder: [{ agent: "claude", model: "haiku", capability: 3 }],
-            actuationCapabilityFloor: "5",
-          },
-          plan: { agentOrder: CLAUDE_ONLY },
-          prompt: { agentOrder: CLAUDE_ONLY },
-          review: { passes: 2 },
-        },
-        projects: {},
-      }),
-    );
-    expect(() => loadConfig({ dir })).toThrow(file);
-    expect(() => loadConfig({ dir })).toThrow(/actuationCapabilityFloor/);
-    expect(() => loadConfig({ dir })).toThrow(/finite number/);
-  });
-
-  test("rejects non-finite modes.patch.actuationCapabilityFloor", () => {
-    const file = join(dir, "config.json");
-    writeFileSync(
-      file,
-      JSON.stringify({
-        version: 2,
-        modes: {
-          patch: {
-            agentOrder: [{ agent: "claude", model: "haiku", capability: 3 }],
-            actuationCapabilityFloor: Infinity,
-          },
-          plan: { agentOrder: CLAUDE_ONLY },
-          prompt: { agentOrder: CLAUDE_ONLY },
-          review: { passes: 2 },
-        },
-        projects: {},
-      }),
-    );
-    expect(() => loadConfig({ dir })).toThrow(file);
-    expect(() => loadConfig({ dir })).toThrow(/actuationCapabilityFloor/);
-    expect(() => loadConfig({ dir })).toThrow(/finite number/);
-  });
-
-  test("rejects non-numeric capability in agentOrder", () => {
-    const file = join(dir, "config.json");
-    writeFileSync(
-      file,
-      JSON.stringify({
-        version: 2,
-        modes: {
-          patch: {
-            agentOrder: [{ agent: "claude", model: "haiku", capability: "3" }],
-          },
-          plan: { agentOrder: CLAUDE_ONLY },
-          prompt: { agentOrder: CLAUDE_ONLY },
-          review: { passes: 2 },
-        },
-        projects: {},
-      }),
-    );
-    expect(() => loadConfig({ dir })).toThrow(file);
+    writeFileSync(file, JSON.stringify({ version: 2, modes, projects: {} }));
     expect(() => loadConfig({ dir })).toThrow(/capability/);
-    expect(() => loadConfig({ dir })).toThrow(/finite number/);
   });
 
-  test("rejects non-finite capability in agentOrder", () => {
+  test("rejects actuationCapabilityFloor as unknown key", () => {
     const file = join(dir, "config.json");
     writeFileSync(
       file,
@@ -2883,7 +2735,8 @@ describe("review mode config validation", () => {
         version: 2,
         modes: {
           patch: {
-            agentOrder: [{ agent: "claude", model: "haiku", capability: NaN }],
+            agentOrder: CLAUDE_ONLY,
+            actuationCapabilityFloor: 3,
           },
           plan: { agentOrder: CLAUDE_ONLY },
           prompt: { agentOrder: CLAUDE_ONLY },
@@ -2892,28 +2745,20 @@ describe("review mode config validation", () => {
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(file);
-    expect(() => loadConfig({ dir })).toThrow(/capability/);
-    expect(() => loadConfig({ dir })).toThrow(/finite number/);
+    expect(() => loadConfig({ dir })).toThrow(/actuationCapabilityFloor/);
   });
 
-  test("allows capability in plan mode agentOrder (ignored)", () => {
-    writeFileSync(
-      join(dir, "config.json"),
-      JSON.stringify({
-        version: 2,
-        modes: {
-          patch: { agentOrder: CLAUDE_ONLY },
-          plan: {
-            agentOrder: [{ agent: "claude", model: "haiku", capability: 3 }],
-          },
-          prompt: { agentOrder: CLAUDE_ONLY },
-          review: { passes: 2 },
-        },
-        projects: {},
-      }),
-    );
-    const cfg = loadConfig({ dir });
-    expect(cfg.modes.plan.agentOrder).toEqual([{ agent: "claude", model: "haiku", capability: 3 }]);
+  test("buildActiveAgents selects all agents from agentOrder with trivial tier", () => {
+    const cfg = testConfig({
+      patch: { agentOrder: DEFAULT_AGENT_ORDER },
+      plan: { agentOrder: DEFAULT_AGENT_ORDER },
+      prompt: { agentOrder: DEFAULT_AGENT_ORDER },
+      review: { passes: 1 },
+    });
+    const opts: RunCommandOptions = {
+      specPath: "/tmp/test.md",
+      io: { stdout: () => {}, stderr: () => {} },
+    };
+    expect(buildActiveAgents(opts, cfg, "trivial")).toHaveLength(3);
   });
 });

@@ -47,18 +47,18 @@ agent quota-fallback composes with inner per-role model rungs.
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/v2-architecture.md` per-project config documents outer agent
+- [x] `v2/docs/v2-architecture.md` per-project config documents outer agent
       quota-fallback and inner per-role model rung escalation as composed
       loops, with quota as the sole inner advance trigger.
-- [ ] `v2-architecture.md` states `model_config` and `error` do not advance
+- [x] `v2-architecture.md` states `model_config` and `error` do not advance
       rungs or agents.
-- [ ] `v2-architecture.md` states quota after inner rung exhaustion advances
+- [x] `v2-architecture.md` states quota after inner rung exhaustion advances
       the outer agent loop for the same role (next agent's `rungs[0]`); see
       `agent-model-config.md` for head-only `actuator` and flattening detail.
-- [ ] `v2-architecture.md` cross-links `v2/docs/agent-model-config.md` for
+- [x] `v2-architecture.md` cross-links `v2/docs/agent-model-config.md` for
       schema, validation, and loop detail (does not duplicate durable-home
       content).
-- [ ] `v2/docs/role-resolution.md` cross-links `agent-model-config.md` for
+- [x] `v2/docs/role-resolution.md` cross-links `agent-model-config.md` for
       inner rung resolution instead of deferring to a follow-on slice.
 - [ ] No thinking/reviewing/executing category appears as a model-resolution
       key in the edited architecture sections. (Manual)

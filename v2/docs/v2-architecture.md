@@ -93,22 +93,39 @@ Per-project config:
     between the personal and work machines.
   - **Role→model bindings** — each workflow step names a **role** (see
     [`role-resolution.md`](role-resolution.md)); the store maps `(agent, role) →
-    model`. Lives in a **separate, machine-independent, version-controlled store**
-    (a checked-in data file beside the global `data/prices.json`), not
-    `config.json`: the assignments are the same on every machine, change often,
-    and would bloat per-machine config.
+    ordered model rungs` (`AgentModelConfig`). Lives in a **separate,
+    machine-independent, version-controlled store** (a checked-in data file beside
+    the global `data/prices.json`), not `config.json`: the assignments are the
+    same on every machine, change often, and would bloat per-machine config.
+    Schema, validation, flattening, and price derivation:
+    [`agent-model-config.md`](agent-model-config.md).
 - **A step names a role, not a model.** The runner walks the agent fallback
-  order; for whichever agent it lands on, it resolves `(agent, role) → model`
-  from the store. Step→role bindings follow the closed union in
-  [`role-resolution.md`](role-resolution.md) — e.g. write-loop implement steps bind
-  `implement`; plan draft/refine bind `plan`; review debate binds `adversary`,
-  `advocate`, `adjudicator`, then `actuator`.
-- **Exactly one model per (agent, role); a gap is a hard error at load** — no
-  skip, no default fallback. Price/model validation runs per (agent, model) pair,
-  now per role.
-- **Quota fallback composes unchanged.** Agent order is the outer loop; a role
-  never reorders agents. When the landed agent is quota-exhausted, fallback
-  advances to the next agent and re-resolves the *same* role against it.
+  order; for whichever agent it lands on, it resolves `(agent, role) → rungs`
+  from the store and walks the inner rung list. Step→role bindings follow the
+  closed union in [`role-resolution.md`](role-resolution.md) — e.g. write-loop
+  implement steps bind `implement`; plan draft/refine bind `plan`; review debate
+  binds `adversary`, `advocate`, `adjudicator`, then `actuator`.
+- **One ordered rung list per (agent, role); a gap is a hard error at load** —
+  no skip, no default fallback. Load rules and validation matrix:
+  [`agent-model-config.md`](agent-model-config.md).
+- **Nested fallback: outer agent loop, inner rung loop.** Two composed loops;
+  full schema and consumption modes in
+  [`agent-model-config.md`](agent-model-config.md).
+  - **Outer loop** — walks the per-machine `agents` order. Advances **only** on
+    `quota`. Role never reorders agents (parity baseline is patch/plan +
+    [`shared-invocation.md`](shared-invocation.md), not v1 prompt mode where
+    `model_config` can advance agents).
+  - **Inner loop** — per `(agent, role)`, walks that agent's ordered `rungs`.
+    Advances **only** on `quota`. Landing on an agent always starts at
+    `rungs[0]` for the step's role; no rung index carries across agents or
+    invocations.
+  - **Composition** — quota on the current rung tries the next inner rung on the
+    same agent; quota after the last inner rung advances the outer loop (same
+    role, next agent's `rungs[0]`). Head-only `actuator` uses only `rungs[0]` per
+    agent — quota on actuator advances outer only (see
+    [`agent-model-config.md`](agent-model-config.md)).
+  - **`model_config` and `error` are terminal** — no inner rung advance, no outer
+    agent advance.
 - **CLI override.** The only override is a command-line `--agent` / `--model` pair
   (the single-write-step override) that bypasses resolution for that run. There is
   no per-step config override.

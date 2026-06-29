@@ -77,6 +77,45 @@ function runExternalCleanup(io: CleanupIo, root: string = externalSpecsRoot): nu
     commit: false,
     externalSpecsRoot: root,
     isMergedPr: () => true,
+    findMatchingOpenPrs: () => [],
+  });
+}
+
+/** A spec with one checked non-human-only acceptance criterion (genuinely complete, non-vacuous). */
+function completeSpec(title: string): string {
+  return `# ${title}\n\n## Acceptance criteria\n- [x] done\n`;
+}
+
+function runMergedCleanup(io: CleanupIo, opts: Partial<Parameters<typeof cleanupCommand>[0]> = {}): number {
+  return cleanupCommand({
+    projectRoot,
+    io,
+    isMergedPr: () => true,
+    findMatchingOpenPrs: () => [],
+    ...opts,
+  });
+}
+
+function timestampedSlug(name: string): string {
+  return `2026-06-29T00-00-00Z-${name}`;
+}
+
+function writeV1TimestampedSpec(name: string, body: string): { slug: string; source: string } {
+  const slug = timestampedSlug(name);
+  const source = join(projectRoot, "v1", "spec", slug);
+  mkdirSync(source, { recursive: true });
+  writeFileSync(join(source, "index.md"), body);
+  return { slug, source };
+}
+
+function runMergedPlanCleanup(io: CleanupIo, opts: Partial<Parameters<typeof cleanupCommand>[0]> = {}): number {
+  return cleanupCommand({
+    projectRoot,
+    io,
+    targetDir: "v1/spec",
+    isMergedPr: (branch) => branch.startsWith("plan/"),
+    findMatchingOpenPrs: () => [],
+    ...opts,
   });
 }
 
@@ -133,7 +172,7 @@ describe("cleanupCommand", () => {
     mkdirSync(source, { recursive: true });
     writeFileSync(join(source, "index.md"), "# patch\n");
 
-    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true });
+    const code = runMergedCleanup(io);
 
     expect(code).toBe(0);
     expect(existsSync(worktreePath)).toBe(false);
@@ -173,7 +212,7 @@ describe("cleanupCommand", () => {
     mkdirSync(source, { recursive: true });
     writeFileSync(join(source, "index.md"), "# plan\n");
 
-    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true });
+    const code = runMergedCleanup(io);
 
     expect(code).toBe(0);
     expect(existsSync(worktreePath)).toBe(false);
@@ -197,6 +236,7 @@ describe("cleanupCommand", () => {
       io,
       targetDir: "v1/spec",
       isMergedPr: () => true,
+      findMatchingOpenPrs: () => [],
     });
 
     expect(code).toBe(0);
@@ -221,6 +261,7 @@ describe("cleanupCommand", () => {
       io,
       targetDir: "v1/spec",
       isMergedPr: () => true,
+      findMatchingOpenPrs: () => [],
     });
 
     expect(code).toBe(0);
@@ -258,7 +299,7 @@ describe("cleanupCommand", () => {
     const specName = "missing-spec";
     const worktreePath = createTrackedWorktree(specName);
 
-    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true });
+    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true, findMatchingOpenPrs: () => [] });
 
     expect(code).toBe(0);
     expect(existsSync(worktreePath)).toBe(false);
@@ -275,7 +316,7 @@ describe("cleanupCommand", () => {
     const safeDestination = join(projectRoot, "spec", "completed", "safe-spec");
     mkdirSync(safeSource, { recursive: true });
 
-    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true });
+    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true, findMatchingOpenPrs: () => [] });
 
     expect(code).toBe(1);
     expect(existsSync(unsafe)).toBe(false);
@@ -299,7 +340,7 @@ describe("cleanupCommand", () => {
     mkdirSync(collidingDestination, { recursive: true });
     mkdirSync(okSource, { recursive: true });
 
-    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true });
+    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true, findMatchingOpenPrs: () => [] });
 
     expect(code).toBe(1);
     expect(existsSync(collidingSource)).toBe(true);
@@ -349,7 +390,7 @@ describe("cleanupCommand", () => {
       stdio: "pipe",
     });
 
-    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true });
+    const code = runMergedCleanup(io);
 
     expect(code).toBe(0);
     expect(existsSync(worktreePath)).toBe(false);
@@ -379,7 +420,7 @@ describe("cleanupCommand", () => {
       stdio: "pipe",
     });
 
-    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true });
+    const code = runMergedCleanup(io);
 
     expect(code).toBe(0);
     expect(existsSync(worktreePath)).toBe(false);
@@ -406,7 +447,7 @@ describe("cleanupCommand", () => {
     writeFileSync(join(projectRoot, "README.md"), "modified main checkout\n");
     writeFileSync(join(projectRoot, "scratch.txt"), "untracked\n");
 
-    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true });
+    const code = runMergedCleanup(io);
 
     expect(code).toBe(0);
     expect(existsSync(source)).toBe(false);
@@ -442,7 +483,7 @@ describe("cleanupCommand", () => {
     mkdirSync(coincidentalV1, { recursive: true });
     writeFileSync(join(source, "index.md"), "# default spec\n");
 
-    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true });
+    const code = runMergedCleanup(io);
 
     expect(code).toBe(0);
     expect(existsSync(worktreePath)).toBe(false);
@@ -805,5 +846,171 @@ describe("cleanupCommand", () => {
         encoding: "utf8",
       }).trim(),
     ).toBe(specName);
+  });
+
+  test("skips archive when an in-flight patch worktree remains for the timestamped spec name", () => {
+    const { io, out } = captureIo(["yes"]);
+    const name = "skip-worktree";
+    const planWorktreePath = createTrackedPlanWorktree(name);
+    const patchWorktreePath = createTrackedWorktree(timestampedSlug(name));
+    const { slug, source } = writeV1TimestampedSpec(name, completeSpec(name));
+
+    const code = runMergedPlanCleanup(io);
+
+    expect(code).toBe(0);
+    expect(existsSync(planWorktreePath)).toBe(false);
+    expect(existsSync(patchWorktreePath)).toBe(true);
+    expect(existsSync(source)).toBe(true);
+    expect(out()).toContain(`skipping archival of ${slug}`);
+    expect(out()).toContain("in-flight");
+  });
+
+  test("skips archive when an open implementation PR exists for the timestamped spec name", () => {
+    const { io, out } = captureIo(["yes"]);
+    const name = "skip-open-pr";
+    const { slug, source } = writeV1TimestampedSpec(name, completeSpec(name));
+    createTrackedPlanWorktree(name);
+
+    const code = runMergedPlanCleanup(io, {
+      findMatchingOpenPrs: (branch) => (branch === slug ? [{ number: 7, isDraft: true }] : []),
+    });
+
+    expect(code).toBe(0);
+    expect(existsSync(source)).toBe(true);
+    expect(out()).toContain(`skipping archival of ${slug}`);
+    expect(out()).toContain("open implementation PR");
+  });
+
+  test("skips archive when the resolved spec still has an unchecked non-human-only acceptance criterion", () => {
+    const { io, out } = captureIo(["yes"]);
+    const name = "skip-incomplete";
+    const { slug, source } = writeV1TimestampedSpec(name, `# ${name}\n\n## Acceptance criteria\n- [ ] not done\n`);
+    createTrackedPlanWorktree(name);
+
+    const code = runMergedPlanCleanup(io);
+
+    expect(code).toBe(0);
+    expect(existsSync(source)).toBe(true);
+    expect(out()).toContain(`skipping archival of ${slug}`);
+    expect(out()).toContain("spec not complete");
+  });
+
+  test("skips archive when a vacuous-complete spec has an in-flight patch worktree", () => {
+    const { io, out } = captureIo(["yes"]);
+    const name = "skip-vacuous";
+    const { slug, source } = writeV1TimestampedSpec(name, `# ${name}\n`);
+    createTrackedPlanWorktree(name);
+    createTrackedWorktree(slug);
+
+    const code = runMergedPlanCleanup(io);
+
+    expect(code).toBe(0);
+    expect(existsSync(source)).toBe(true);
+    expect(out()).toContain(`skipping archival of ${slug}`);
+    expect(out()).toContain("spec not complete");
+  });
+
+  test("skips archive with a logged reason when findMatchingOpenPrs throws, and other worktrees continue", () => {
+    const { io, out } = captureIo(["yes"]);
+    const throwName = "skip-inspection";
+    const okName = "inspection-ok";
+    const { slug: throwSlug, source: throwSource } = writeV1TimestampedSpec(throwName, completeSpec(throwName));
+    const { slug: okSlug, source: okSource } = writeV1TimestampedSpec(okName, completeSpec(okName));
+    const okDestination = join(projectRoot, "v1", "spec", "completed", okSlug);
+    createTrackedPlanWorktree(throwName);
+    createTrackedPlanWorktree(okName);
+
+    const code = runMergedPlanCleanup(io, {
+      findMatchingOpenPrs: (branch) => {
+        if (branch === throwSlug) {
+          throw new Error("gh down");
+        }
+        return [];
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(existsSync(throwSource)).toBe(true);
+    expect(existsSync(okSource)).toBe(false);
+    expect(existsSync(okDestination)).toBe(true);
+    expect(out()).toContain(`skipping archival of ${throwSlug}`);
+    expect(out()).toContain("failed to inspect open PRs");
+  });
+
+  test("skips archive with a distinct reason when more than one open PR matches", () => {
+    const { io, out } = captureIo(["yes"]);
+    const name = "skip-multi-pr";
+    const { slug, source } = writeV1TimestampedSpec(name, completeSpec(name));
+    createTrackedPlanWorktree(name);
+
+    const code = runMergedPlanCleanup(io, {
+      findMatchingOpenPrs: () => [
+        { number: 1, isDraft: true },
+        { number: 2, isDraft: true },
+      ],
+    });
+
+    expect(code).toBe(0);
+    expect(existsSync(source)).toBe(true);
+    expect(out()).toContain(`skipping archival of ${slug}`);
+    expect(out()).toContain("multiple open PRs");
+    expect(out()).not.toContain("open implementation PR");
+  });
+
+  test("archives when all three preconditions pass", () => {
+    const { io, out } = captureIo(["yes"]);
+    const name = "all-clear";
+    const { slug, source } = writeV1TimestampedSpec(name, completeSpec(name));
+    const planWorktreePath = createTrackedPlanWorktree(name);
+    const destination = join(projectRoot, "v1", "spec", "completed", slug);
+
+    const code = runMergedPlanCleanup(io);
+
+    expect(code).toBe(0);
+    expect(existsSync(planWorktreePath)).toBe(false);
+    expect(existsSync(source)).toBe(false);
+    expect(existsSync(destination)).toBe(true);
+    expect(out()).not.toContain("skipping archival of");
+  });
+
+  test("a skipped archive for one worktree does not block cleanup of other eligible merged worktrees", () => {
+    const { io, out } = captureIo(["yes"]);
+    const skippedName = "queue-skip";
+    const archivedName = "queue-archive";
+    const { slug: skippedSlug, source: skippedSource } = writeV1TimestampedSpec(skippedName, completeSpec(skippedName));
+    const { slug: archivedSlug, source: archivedSource } = writeV1TimestampedSpec(
+      archivedName,
+      completeSpec(archivedName),
+    );
+    const archivedDestination = join(projectRoot, "v1", "spec", "completed", archivedSlug);
+    createTrackedPlanWorktree(skippedName);
+    createTrackedPlanWorktree(archivedName);
+    createTrackedWorktree(skippedSlug);
+
+    const code = runMergedPlanCleanup(io);
+
+    expect(code).toBe(0);
+    expect(existsSync(skippedSource)).toBe(true);
+    expect(existsSync(archivedSource)).toBe(false);
+    expect(existsSync(archivedDestination)).toBe(true);
+    expect(out()).toContain(`skipping archival of ${skippedSlug}`);
+  });
+
+  test("commit:false obeys the same archival preconditions before external rename", () => {
+    const { io, out } = captureIo(["yes"]);
+    const name = "external-skip";
+    const slug = timestampedSlug(name);
+    createTrackedPlanWorktree(name);
+    createTrackedWorktree(slug);
+    const source = join(externalSpecsRoot, slug);
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "index.md"), completeSpec(name));
+
+    const code = runMergedPlanCleanup(io, { commit: false, externalSpecsRoot });
+
+    expect(code).toBe(0);
+    expect(existsSync(source)).toBe(true);
+    expect(out()).toContain(`skipping archival of ${slug}`);
+    expect(out()).toContain("in-flight");
   });
 });

@@ -5,6 +5,7 @@ import { getExternalWorktreePath } from "./external-worktree.ts";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "./ipc/server";
 import { type LogReader, openLogReader, openLogSink } from "./log-stream.ts";
 import { openStateStore, type StateStore } from "./state-store.ts";
+import type { RunStatus } from "./state-store-types.ts";
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
 
 export type WorktreeOwnership = {
@@ -66,6 +67,27 @@ export class WorktreeOwnershipRegistry {
   }
 }
 
+function isTerminalRunStatus(status: RunStatus): boolean {
+  return (
+    status === "completed" || status === "blocked" || status === "killed" || status === "paused" || status === "failed"
+  );
+}
+
+/**
+ * Production failure reporter: opens the log sink and appends one
+ * `run_execution_failed` event. Used by {@link startDaemon}; exported for tests.
+ */
+export function createRunExecutionFailureReporter(logsPath: string): (runId: string, reason: unknown) => Promise<void> {
+  return async (runId, _reason) => {
+    const logSink = openLogSink(logsPath);
+    try {
+      logSink.append(runId, { kind: "run_execution_failed" });
+    } finally {
+      logSink.close();
+    }
+  };
+}
+
 function normalizeBindings(input: WriteLoopInput): WriteLoopInput {
   const bindingIds = input.bindings
     .map((binding) => {
@@ -94,14 +116,17 @@ function normalizeBindings(input: WriteLoopInput): WriteLoopInput {
  * Injectable dependencies for {@link createRunControlHandlers}.
  *
  * - `stateStore`: durable run rows — `createRun` on start, `listRuns`/`loadRun` on
- *   list/pause/resume/kill, `setRunStatus` on kill.
+ *   list/pause/resume/kill, `setRunStatus` on kill and spawn-boundary failure capture.
  * - `writeLoopExecutor`: write-loop body only; factory owns claim/release and
  *   fire-and-forget spawn. Log-sink open/close stays in {@link startDaemon}'s
  *   production wrapper. Executor rejections do not propagate to RPC callers.
+ * - `failureReporter`: invoked on spawn-boundary executor rejection with the original
+ *   rejection value; awaited before ownership release. Sync or async.
  */
 export type RunControlHandlerDeps = {
   stateStore: StateStore;
   writeLoopExecutor: (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => Promise<void>;
+  failureReporter: (runId: string, reason: unknown) => void | Promise<void>;
 };
 
 /**
@@ -113,12 +138,13 @@ export type RunControlHandlerDeps = {
  * @throws Never — factory and handlers are non-throwing at the RPC boundary.
  * @invariant Each invocation gets a fresh `WorktreeOwnershipRegistry` and `activeRuns` map.
  * @invariant Write loops spawn fire-and-forget; settlement always releases registry and
- *   active-run entries. `writeLoopExecutor` rejections are swallowed at the spawn boundary.
+ *   active-run entries. Spawn-boundary executor rejections best-effort persist `failed`,
+ *   await `failureReporter`, then release — they do not propagate to RPC callers.
  */
 export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const _registry = new WorktreeOwnershipRegistry();
   const activeRuns = new Map<string, ActiveRun>();
-  const { stateStore: store, writeLoopExecutor } = deps;
+  const { stateStore: store, writeLoopExecutor, failureReporter } = deps;
 
   const spawnWriteLoop = (key: OwnershipKey, runId: string, worktreePath: string, input: WriteLoopInput): void => {
     const ks = ownershipKeyString(key);
@@ -131,6 +157,20 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     (async () => {
       try {
         await writeLoopExecutor(input, abortController.signal, pauseController.signal);
+      } catch (reason) {
+        try {
+          const run = store.loadRun(runId);
+          if (run && !isTerminalRunStatus(run.status)) {
+            store.setRunStatus(runId, "failed");
+          }
+        } catch {
+          // best-effort persist; cleanup still runs
+        }
+        try {
+          await failureReporter(runId, reason);
+        } catch {
+          // reporter failure does not block cleanup or roll back status
+        }
       } finally {
         activeRuns.delete(ks);
         _registry.release(key);
@@ -372,7 +412,11 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
     health: healthHandler,
     status: statusHandler,
     shutdown: shutdownHandler,
-    ...createRunControlHandlers({ stateStore: store, writeLoopExecutor }),
+    ...createRunControlHandlers({
+      stateStore: store,
+      writeLoopExecutor,
+      failureReporter: createRunExecutionFailureReporter(logsPath),
+    }),
   };
 
   let server: IpcServer;

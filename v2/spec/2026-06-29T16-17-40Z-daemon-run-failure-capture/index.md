@@ -1,3 +1,3 @@
 # Daemon run failure capture
 
-- [ ] [00 - Daemon run failure capture](./00-daemon-run-failure-capture.md)
+- [x] [00 - Daemon run failure capture](./00-daemon-run-failure-capture.md)

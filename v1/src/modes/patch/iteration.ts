@@ -652,10 +652,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
       if (allNonHumanOnlyChecked) {
         state.iteration += 1;
         const done = await tryFinishSpecIfDone(ctx);
-        if (done === null) {
-          return { kind: "continue" };
-        }
-        if (state.completionLoopbackSignal !== null) {
+        if (done === null || state.completionLoopbackSignal !== null) {
           return { kind: "continue" };
         }
         writeTelemetry({

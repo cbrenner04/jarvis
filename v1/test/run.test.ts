@@ -3417,9 +3417,7 @@ exit 0
   });
 
   test("uncommitted ticks on a completed subspec continue to the next linked subspec", async () => {
-    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-    execSync('git config user.email "jarvis-test@example.com"', { cwd: projectRoot });
-    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    setupGit();
     const specDir = join(projectRoot, "spec", "feature");
     mkdirSync(specDir, { recursive: true });
     const spec = join(specDir, "index.md");
@@ -3443,16 +3441,12 @@ exit 0
     });
 
     expect(code).not.toBe(0);
-    expect(claude.calls.length).toBeGreaterThanOrEqual(1);
+    expect(claude.calls).toHaveLength(1);
     expect(claude.calls[0]?.prompt).toContain(secondSubspec);
     expect(claude.calls[0]?.prompt).not.toContain(firstSubspec);
-    const subjects = execSync("git log --format=%s", {
-      cwd: projectRoot,
-      encoding: "utf8",
-    })
-      .trim()
-      .split("\n");
-    expect(subjects).toContain("00 - One");
+    expect(
+      execSync("git log -1 --format=%s", { cwd: projectRoot, encoding: "utf8" }),
+    ).toContain("00 - One");
     const committedIndex = execSync("git show HEAD:spec/feature/index.md", {
       cwd: projectRoot,
       encoding: "utf8",

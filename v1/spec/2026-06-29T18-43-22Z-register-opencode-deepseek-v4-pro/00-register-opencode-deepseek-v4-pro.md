@@ -4,7 +4,8 @@
 
 ## Prerequisites
 
-- Owner-confirmed `opencode run --model opencode/deepseek-v4-pro` reachability — verified slug `opencode/deepseek-v4-pro` (`opencode models` lists it; owner Zen snapshot `as_of` `2026-06-29`).
+- Draft-time verified: slug `opencode/deepseek-v4-pro` in `opencode models`; owner Zen snapshot `as_of` `2026-06-29`.
+- Live `opencode run --model opencode/deepseek-v4-pro` acceptance unverified at draft time — deferred to human-only AC.
 
 ## Decisions
 
@@ -24,7 +25,6 @@
 - Omit `cache_write_per_mtok` from the owner row; rules out adding the field unless Zen lists a distinct rate at implementation time (`computeCost` falls back to `input_per_mtok`, matching `opencode/deepseek-v4-flash-free`).
 - Keep `OPENCODE_MODEL_LABELS` empty; rules out a one-off friendly attribution label.
 - Pass `opencode/deepseek-v4-pro` through to `opencode run --model` unchanged; rules out a preemptive alias map without CLI evidence.
-- Deferred to first consumer: automatic free-tier rotation between DeepSeek V4 Pro and other opencode models — pin when quota-cascade intents need it.
 
 ## Tasks
 

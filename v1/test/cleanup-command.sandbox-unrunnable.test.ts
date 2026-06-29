@@ -299,7 +299,7 @@ describe("cleanupCommand", () => {
     const specName = "missing-spec";
     const worktreePath = createTrackedWorktree(specName);
 
-    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true });
+    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true, findMatchingOpenPrs: () => [] });
 
     expect(code).toBe(0);
     expect(existsSync(worktreePath)).toBe(false);
@@ -316,7 +316,7 @@ describe("cleanupCommand", () => {
     const safeDestination = join(projectRoot, "spec", "completed", "safe-spec");
     mkdirSync(safeSource, { recursive: true });
 
-    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true });
+    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true, findMatchingOpenPrs: () => [] });
 
     expect(code).toBe(1);
     expect(existsSync(unsafe)).toBe(false);
@@ -340,7 +340,7 @@ describe("cleanupCommand", () => {
     mkdirSync(collidingDestination, { recursive: true });
     mkdirSync(okSource, { recursive: true });
 
-    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true });
+    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true, findMatchingOpenPrs: () => [] });
 
     expect(code).toBe(1);
     expect(existsSync(collidingSource)).toBe(true);

@@ -191,11 +191,6 @@ function checkArchivePreconditions(args: {
   findMatchingOpenPrs: (branch: string, cwd?: string) => MatchingOpenPr[];
 }): boolean {
   const { io, projectRoot, source, specName, removedWorktreeDir, findMatchingOpenPrs } = args;
-  const specFile = resolveCompletionSpecFile(source);
-  if (specFile === null) {
-    return true;
-  }
-
   const hasInFlightWorktree = specName !== removedWorktreeDir && existsSync(join(projectRoot, ".worktree", specName));
 
   let openPrCount: number;
@@ -210,12 +205,16 @@ function checkArchivePreconditions(args: {
     return false;
   }
 
-  const complete = isSpecComplete(specFile);
-  const inFlightOwner = hasInFlightWorktree || openPrCount > 0;
-  if (!complete || (complete && !specHasNonHumanOnlyAcceptanceCriteria(specFile) && inFlightOwner)) {
-    io.stdout(`skipping archival of ${specName}: spec not complete\n`);
-    return false;
+  const specFile = resolveCompletionSpecFile(source);
+  if (specFile !== null) {
+    const complete = isSpecComplete(specFile);
+    const inFlightOwner = hasInFlightWorktree || openPrCount > 0;
+    if (!complete || (complete && !specHasNonHumanOnlyAcceptanceCriteria(specFile) && inFlightOwner)) {
+      io.stdout(`skipping archival of ${specName}: spec not complete\n`);
+      return false;
+    }
   }
+
   if (hasInFlightWorktree) {
     io.stdout(`skipping archival of ${specName}: in-flight patch worktree ${specName} still exists\n`);
     return false;

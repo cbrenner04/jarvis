@@ -1358,6 +1358,7 @@ export function isSpecComplete(specPath: string): boolean {
   return paths.every(nonHumanOnlyAcceptanceComplete);
 }
 
+/** Reports whether the spec at `specPath` has any non-human-only acceptance criteria across its linked subspecs (or the sole spec file). Returns `false` when the spec path cannot be resolved. Exported for cleanup reuse to detect vacuous-complete specs while an in-flight owner exists. */
 export function specHasNonHumanOnlyAcceptanceCriteria(specPath: string): boolean {
   const paths = specCompletionPaths(specPath);
   if (paths === null) {

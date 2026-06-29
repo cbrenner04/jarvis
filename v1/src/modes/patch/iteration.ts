@@ -8,6 +8,7 @@ import type { LogClient } from "../../logging.ts";
 import { ensureDraftPr, renderAttributionSummary } from "../../pr.ts";
 import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
+  HARNESS_IDLE_TIMEOUT_FALLBACK,
   HARNESS_NO_PROGRESS_FALLBACK,
   HARNESS_QUOTA_FALLBACK_STRICT,
   harnessAuthRotateLine,
@@ -875,8 +876,6 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
 
     // Check for idle timeout
     if (result.kind === "error" && result.stderr.includes("aborted: idle-timeout")) {
-      fanout("harness", `iteration ${iteration} exceeded idle timeout of ${cfg.idleOutputTimeoutMs}ms\n`, "stderr");
-      captureInterruptedDelta(activeSubspecPath, beforeCriteria, hasBlockerBefore);
       const idleTelemetryRecord: TelemetryRecord = {
         agent: agent.name,
         iteration,
@@ -885,16 +884,28 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         exitReason: "watchdog-idle-timeout",
         last_output_age_ms: idleWatchdogLastOutputAgeMs,
         last_file_activity_age_ms: idleWatchdogLastFileActivityAgeMs,
+        ...telemetryMeta,
       };
-      if (configuredPatchModelEntry?.model !== undefined) {
-        idleTelemetryRecord.configured_model = configuredPatchModelEntry.model;
-      }
       if (watchdogPgid !== null) {
         idleTelemetryRecord.watchdog_pgid = watchdogPgid;
       }
       if (idleWatchdogDescendantsAlive !== undefined) {
         idleTelemetryRecord.watchdog_descendants_alive = idleWatchdogDescendantsAlive;
       }
+
+      if (!isFixupIteration) {
+        activeAgents.shift();
+        if (activeAgents.length > 0) {
+          fanout("harness", `${agent.name}: ${HARNESS_IDLE_TIMEOUT_FALLBACK}\n`, "stderr");
+          idleTelemetryRecord.exitReason = "watchdog-idle-timeout-fallback";
+          writeTelemetry(idleTelemetryRecord);
+          state.iteration += 1;
+          return { kind: "continue" };
+        }
+      }
+
+      fanout("harness", `iteration ${iteration} exceeded idle timeout of ${cfg.idleOutputTimeoutMs}ms\n`, "stderr");
+      captureInterruptedDelta(activeSubspecPath, beforeCriteria, hasBlockerBefore);
       writeTelemetry(idleTelemetryRecord);
       return { kind: "return", exitCode: 8 };
     }

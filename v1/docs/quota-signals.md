@@ -147,6 +147,8 @@ lines are emitted from `src/modes/plan/emit-plan-quota-stderr.ts`.
 
 **No-progress escalation (patch only):** When an iteration makes no progress, patch mode also advances `agentOrder` before exiting 4. The per-agent advance line is `<agent>: no progress; escalating to next agent` — distinct from quota-fallback phrasing so operators can distinguish the cause. Exit 4 is reached only after the last rung also makes no progress. See [agents.md § agentOrder as an escalation ladder](./agents.md) for full semantics.
 
+**Idle-timeout escalation (patch implementation only):** When the idle-output watchdog fires and at least one later `agentOrder` entry remains, patch mode advances `agentOrder` before any terminal stop. The per-agent advance line is `<agent>: idle timeout; escalating to next agent`. Terminal exit `8` with `watchdog-idle-timeout` is returned only after the final rung stalls. Fix-up iterations do not escalate on idle abort.
+
 ### Patch telemetry (`~/.jarvis/runs.jsonl`)
 
 Only **`jarvis1 run`** (patch mode) appends JSONL via `writeTelemetry` today.
@@ -164,7 +166,8 @@ Timeout records use **`kind`: `"timeout"`** with:
 | exitReason | When |
 | --- | --- |
 | `watchdog-iteration-timeout` | Iteration watchdog timer fired (`iterationTimeoutMs` elapsed). When the agent root pid was known at fire time, Jarvis also logged `[watchdog] …`, SIGTERM→(5s)→SIGKILL'd that process group, and may include `watchdog_pgid` and `watchdog_descendants_alive`. When pid was still unavailable (watchdog fired before `onSpawned`), telemetry still records `last_output_age_ms` but omits `watchdog_pgid` and `watchdog_descendants_alive`, and no `[watchdog]` line is emitted. |
-| `watchdog-idle-timeout` | Idle-output watchdog fired (`idleOutputTimeoutMs` elapsed without agent stdout/stderr). Behavior mirrors wall-clock timeout: when pgid is known, Jarvis logs `[watchdog] idle timeout fired after Nms; …`, kills the process group, and records `watchdog_pgid` and `watchdog_descendants_alive`; when pgid is unavailable, telemetry includes `last_output_age_ms` only. **Not classified as quota**; no agent fallback is triggered. |
+| `watchdog-idle-timeout` | Idle-output watchdog fired on patch implementation with no later `agentOrder` rung (or on fix-up iteration). Terminal `kind: "timeout"` row. When pgid is known, Jarvis logs `[watchdog] idle timeout fired after Nms; …`, kills the process group, and records `watchdog_pgid` and `watchdog_descendants_alive`; when pgid is unavailable, telemetry includes stall fields only. **Not classified as quota.** Review/shrink/plan idle aborts always use this terminal reason. |
+| `watchdog-idle-timeout-fallback` | Patch implementation idle advance: the current agent stalled and at least one later agent remains. Non-terminal per-rung row despite `kind: "timeout"` (same class as `no-progress-fallback`). |
 | `iteration-timeout` | Iteration timeout result was returned without watchdog-fire context. |
 | `run-timeout` | Global run timeout fired. |
 

@@ -17,7 +17,7 @@ Per-invocation record fields (append-only, patch mode only):
 - `agent`: The agent CLI name (`claude`, `codex`, `cursor`, etc.).
 - `configured_model`: Model string from `modes.patch.agentOrder` entry at invocation time (optional).
 - `kind`: Classification of the outcome (`ok`, `quota`, `error`, `timeout`, `model_config`).
-- `exitReason`: Semantic category of the outcome (e.g., `quota-exhausted`, `no-progress-fallback`, `agent-error`, `watchdog-iteration-timeout`).
+- `exitReason`: Semantic category of the outcome (e.g., `quota-exhausted`, `no-progress-fallback`, `watchdog-idle-timeout-fallback`, `agent-error`, `watchdog-iteration-timeout`).
 - `mode`: Always `"patch"` (included for Jarvis spec execution context).
 - `patch_phase`: Phase name, if available.
 - `namespace`: Agent invocation context identifier.
@@ -26,6 +26,8 @@ Per-invocation record fields (append-only, patch mode only):
 - `cost_usd`: Estimated cost (`number | null`).
 - `cost_source`: One of `"computed"`, `"estimated"`, `"unavailable"`, or `null`.
 - `record_role`: Optional; `"run_terminal"` marks end-of-run summary rows that mirror `completed-spec` and must not be double-summed.
+
+Non-terminal per-rung rows (`no-progress-fallback`, `watchdog-idle-timeout-fallback`, `quota-fallback`, `probable-quota-fallback`) record ladder advances without ending the run. `watchdog-idle-timeout-fallback` uses `kind: "timeout"` (unlike `no-progress-fallback`, which uses `kind: "ok"`). Run-level outcome hints (`success_status`, `failure_reason`) derive from the final identity-bound row — typically terminal `watchdog-idle-timeout`, `no-progress`, or `completed-spec`, not the intermediate fallback rows.
 
 Watchdog-triggered timeouts may additionally include:
 

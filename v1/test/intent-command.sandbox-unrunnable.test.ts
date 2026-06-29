@@ -474,6 +474,15 @@ if [[ "$1 $2" == "repo view" ]]; then printf 'main\\n'; exit 0; fi
 if [[ "$1 $2" == "pr create" ]]; then touch "$PR_STATE_FILE"; exit 0; fi
 if [[ "$1 $2" == "pr view" ]]; then
   if [[ "$*" == *"--json url"* ]]; then printf 'https://example.com/pull/1\\n'; exit 0; fi
+  if [[ "$*" == *"number,state,isDraft"* ]]; then
+    if [[ ! -f "$PR_STATE_FILE" ]]; then exit 1; fi
+    if [[ -f "$PR_READY_FILE" ]]; then
+      printf '{"number":1,"state":"OPEN","isDraft":false}\\n'
+    else
+      printf '{"number":1,"state":"OPEN","isDraft":true}\\n'
+    fi
+    exit 0
+  fi
   # More specific patterns first (with select)
   if [[ "$*" == *"select(.state=="OPEN") | {number: .number, isDraft: .isDraft}"* ]]; then
     if [[ ! -f "$PR_STATE_FILE" ]]; then exit 1; fi
@@ -1462,7 +1471,7 @@ describe("intentCommand", () => {
     }
   });
 
-  test("auto-ready AC1: committed run exercises auto-ready path", async () => {
+  test("auto-ready AC1: committed run flips ready immediately", async () => {
     const env = setupEnv();
     try {
       const cap = captureIo();
@@ -1474,17 +1483,17 @@ describe("intentCommand", () => {
         logClient: okLogClient,
         createAgent: createSplitAgentFactory({ claude: "ok-two" }),
       });
-      // AC1: Successful committed run exercises auto-ready code path
       expect(code).toBe(0);
       expect(cap.err()).toContain("intent: split commit pushed");
       expect(cap.err()).toContain("intent: draft PR #1 opened");
       expect(cap.out()).toContain("https://example.com/pull/1");
+      expect(existsSync(env.prReady)).toBe(true);
     } finally {
       env.cleanup();
     }
   });
 
-  test("auto-ready AC2: ready failure path is exercised and exits 0", async () => {
+  test("auto-ready AC2: gh ready failure exits 0", async () => {
     const env = setupEnv({ kind: "ready-fails" });
     try {
       const cap = captureIo();
@@ -1496,12 +1505,11 @@ describe("intentCommand", () => {
         logClient: okLogClient,
         createAgent: createSplitAgentFactory({ claude: "ok-two" }),
       });
-      // AC2: Ready gate or gh pr ready failure still exits 0 (not 1)
-      // The maybeMarkPlanPrReady call wraps the ready gate in try/catch
-      // and warns but doesn't fail the overall operation
       expect(code).toBe(0);
       expect(cap.err()).toContain("intent: split commit pushed");
       expect(cap.err()).toContain("intent: draft PR #1 opened");
+      expect(cap.err()).toContain("warning: could not mark PR ready for review");
+      expect(existsSync(env.prReady)).toBe(false);
     } finally {
       env.cleanup();
     }

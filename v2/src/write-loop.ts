@@ -63,14 +63,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
     while (iterationsConsumed < maxIterations) {
       if (args.signal?.aborted) {
-        const result = { kind: "progress" as const, runId, iterationsConsumed, resumable: true };
-        args.logSink?.append(runId, {
-          kind: "loop_finished",
-          loopOutcomeKind: "progress",
-          iterationsConsumed,
-          resumable: true,
-        });
-        return result;
+        return finishLoop(args, runId, "progress", iterationsConsumed, true);
       }
 
       const attemptId = resumedAttemptId ?? store.recordAttemptStart(runId);
@@ -92,14 +85,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       // If the abort signal was triggered while the step was running, skip boundary commit
       if (args.signal?.aborted) {
-        const result = { kind: "progress" as const, runId, iterationsConsumed, resumable: true };
-        args.logSink?.append(runId, {
-          kind: "loop_finished",
-          loopOutcomeKind: "progress",
-          iterationsConsumed,
-          resumable: true,
-        });
-        return result;
+        return finishLoop(args, runId, "progress", iterationsConsumed, true);
       }
 
       if (result.kind === "progress") {
@@ -114,14 +100,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         // Check for graceful pause at the loop boundary
         if (args.pauseSignal?.aborted) {
           store.setRunStatus(runId, "paused");
-          const pauseResult = { kind: "paused" as const, runId, iterationsConsumed, resumable: true };
-          args.logSink?.append(runId, {
-            kind: "loop_finished",
-            loopOutcomeKind: "paused",
-            iterationsConsumed,
-            resumable: true,
-          });
-          return pauseResult;
+          return finishLoop(args, runId, "paused", iterationsConsumed, true);
         }
 
         continue;
@@ -155,20 +134,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         runStatus: terminal.runStatus,
       });
 
-      const loopResult: WriteLoopResult = {
-        kind: terminal.kind,
-        runId,
-        iterationsConsumed,
-        resumable: false,
-        ...(detail !== undefined ? detail : {}),
-      };
-      args.logSink?.append(runId, {
-        kind: "loop_finished",
-        loopOutcomeKind: terminal.kind,
-        iterationsConsumed,
-        resumable: false,
-      });
-      return loopResult;
+      return finishLoop(args, runId, terminal.kind, iterationsConsumed, false, detail);
     }
 
     store.setRunStatus(runId, "budget-soft-stopped");
@@ -184,6 +150,29 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       store.close();
     }
   }
+}
+
+function finishLoop(
+  args: WriteLoopInput,
+  runId: string,
+  kind: WriteLoopOutcomeKind,
+  iterationsConsumed: number,
+  resumable: boolean,
+  detail?: InvocationFailureDetail,
+): WriteLoopResult {
+  args.logSink?.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: kind,
+    iterationsConsumed,
+    resumable,
+  });
+  return {
+    kind,
+    runId,
+    iterationsConsumed,
+    resumable,
+    ...(detail !== undefined ? detail : {}),
+  };
 }
 
 function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {

@@ -14,7 +14,7 @@ import { snapshotAcceptanceCriteria } from "../modes/patch/subspec.ts";
 import { stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
 import { type EnsureDraftPrOpts, ensureDraftPr, findMatchingOpenPrs, renderAttributionSummary } from "../pr.ts";
 import { runReadyGateWithTier } from "../ready-gate.ts";
-import { pushCurrent } from "../worktree.ts";
+import { hasUpstream, pushCurrent } from "../worktree.ts";
 import { getWorktreeLockPath, isProcessAlive, type WorktreeLock } from "../worktree-lock.ts";
 import { type MergeTargetResolutionSeams, resolveMergeTarget } from "./resolve-merge-target.ts";
 
@@ -48,6 +48,7 @@ export type TriageCommandOptions = {
   runGate?: (cwd: string, readyCommand?: string, fixCommand?: string) => void;
   prReady?: (branch: string, cwd: string) => void;
   commitAndPushDirty?: (worktreePath: string) => CommitAndPushDirtyResult;
+  pushCurrent?: typeof pushCurrent;
   checkBaseCurrent?: (opts: {
     branch: string;
     cwd: string;
@@ -1004,7 +1005,9 @@ async function triageMarkReady(opts: TriageCommandOptions): Promise<number> {
     return 1;
   }
 
-  const commitResult = (opts.commitAndPushDirty ?? commitAndPushFinalizeDirtyWorktree)(worktreePath);
+  const commitResult = (
+    opts.commitAndPushDirty ?? ((wp: string) => commitAndPushFinalizeDirtyWorktree(wp, opts.pushCurrent ?? pushCurrent))
+  )(worktreePath);
   if (!commitResult.ok) {
     if (commitResult.reason === "still-dirty") {
       opts.io.stderr(`${label}: worktree still dirty after finalize commit\n`);
@@ -1059,19 +1062,22 @@ async function triageMarkReady(opts: TriageCommandOptions): Promise<number> {
   }
 }
 
-function pushWorktreeOrFail(worktreePath: string): CommitAndPushDirtyResult {
-  try {
-    pushCurrent({ cwd: worktreePath, firstPush: false });
-    return { ok: true };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { ok: false, reason: "push-failed", message };
-  }
-}
+function commitAndPushFinalizeDirtyWorktree(
+  worktreePath: string,
+  pushCurrentFn: typeof pushCurrent,
+): CommitAndPushDirtyResult {
+  const pushOrFail = (): CommitAndPushDirtyResult => {
+    try {
+      pushCurrentFn({ cwd: worktreePath, firstPush: !hasUpstream(worktreePath) });
+      return { ok: true };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { ok: false, reason: "push-failed", message };
+    }
+  };
 
-function commitAndPushFinalizeDirtyWorktree(worktreePath: string): CommitAndPushDirtyResult {
   if (computeDirtyKind(worktreePath) === "clean") {
-    return computeUnpushed(worktreePath) === 0 ? { ok: true } : pushWorktreeOrFail(worktreePath);
+    return computeUnpushed(worktreePath) === 0 ? { ok: true } : pushOrFail();
   }
 
   try {
@@ -1090,7 +1096,7 @@ function commitAndPushFinalizeDirtyWorktree(worktreePath: string): CommitAndPush
     if (porcelain !== "") {
       return { ok: false, reason: "still-dirty" };
     }
-    return pushWorktreeOrFail(worktreePath);
+    return pushOrFail();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false, reason: "commit-failed", message };

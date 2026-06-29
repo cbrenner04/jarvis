@@ -17,7 +17,7 @@ jarvis1 intent "<prompt>"        (or <targetDir>/seeds/<seed>.md)
   → write N files to <targetDir>/ready-intents/
   → commit
   → open draft PR for split review
-  → attempt the guarded draft→ready transition for operator review
+  → flip the PR ready for operator review
 ```
 
 Intent mode does **not** run refine, does **not** draft spec directories, and
@@ -118,10 +118,9 @@ abort the run without partial `ready-intents/` writes and without opening a PR.
 When `modes.plan.commit` is `true` (default), intent mode creates a dedicated
 git worktree/branch for the split commit and draft PR, and uses the shared
 draft-PR helper used elsewhere in v1. On successful completion, the split PR
-automatically attempts the same guarded draft→ready transition as plan mode:
-run the local `ready` gate, then flip the PR only when the branch contains its
-fetched PR base tip. Behind/diverged branches stay draft; base-resolution/fetch
-failures soft-fail open to proceed.
+automatically flips from draft to ready immediately after push, without waiting
+for local gates, base freshness checks, or remote checks. The operator handles
+any failures on the PR.
 
 ### No-commit mode (`commit: false`)
 

@@ -72,9 +72,9 @@ Decided:
   sub-sequence (e.g. `review-bundle` = code-review + security-review) so step
   lists aren't repeated across workflows. Keep nesting **shallow — one level, no recursion** —
   to avoid the workflow-graph explosion the vision warns against.
-- **Steps have stable IDs.** Config maps step → agent, so bindings follow IDs,
-  not positions; reordering or inserting steps must not silently re-target
-  bindings.
+- **Steps have stable IDs.** Role-bearing step bindings and their resolved
+  role/agent pairs follow IDs, not positions; reordering or inserting steps
+  must not silently re-target resolution.
 
 Per-project config:
 
@@ -121,14 +121,15 @@ Per-project config:
 - **Focused show/edit.** The config will be large. `jarvis config <project>`
   shows enabled workflows + the agent fallback order; `jarvis config <project>
   <workflow>` drills into one workflow's steps, each step's role and its
-  resolved `(agent, role) → model`. Mirrors v1's `prices show/edit`.
+  resolved role/agent pair (`(agent, role) → model`). Mirrors v1's `prices
+  show/edit`.
 - **Config-vs-source validation.** Because workflows are source and bindings are
   data, ship a check (companion to the workflow helper) that validates a
   project's config against the workflows it opts into — flags unknown workflow
   names, unknown step IDs, unknown agent/model values, and any missing
-  `(role, agent)` model assignment (the hard-error-at-load rule). This is what makes "build
-  workflows as they come" safe: a new workflow tells each project what, if
-  anything, it must configure.
+  role/agent assignment in the role→model store (the hard-error-at-load rule).
+  This is what makes "build workflows as they come" safe: a new workflow tells
+  each project what, if anything, it must configure.
 
 ### Review as debate
 

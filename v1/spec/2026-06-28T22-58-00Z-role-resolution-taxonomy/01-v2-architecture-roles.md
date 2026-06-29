@@ -45,7 +45,7 @@ split via thinking/reviewing/executing classes.
 - [x] Review-as-debate section explains reviewer vs actuator model split using
       role names, not thinking/reviewing/executing classes.
 - [x] The file cross-links `v2/docs/role-resolution.md`.
-- [ ] No thinking/reviewing/executing category is used as a model-resolution key
+- [x] No thinking/reviewing/executing category is used as a model-resolution key
       anywhere in `v2-architecture.md`. (Manual)
 
 ## Documentation updates

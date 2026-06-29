@@ -87,15 +87,15 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
           const exitCode = code ?? -1;
           const diagnostics = `${errBuf}${outBuf}`;
 
-          // Classification order: transient → auth → model_config → quota
+          // Classification order: transient → auth → quota → model_config
           if (isTransientSignal(config.name, exitCode, diagnostics)) {
             settle({ kind: "error", exitCode, stderr: diagnostics });
           } else if (isCredentialAuthSignal(config.name, exitCode, diagnostics)) {
             settle({ kind: "quota", stderr: diagnostics, authFailure: true });
-          } else if (isModelConfigurationSignal(config.name, diagnostics)) {
-            settle({ kind: "model_config", stderr: diagnostics });
           } else if (isQuotaSignal(config.name, exitCode, diagnostics)) {
             settle({ kind: "quota", stderr: diagnostics });
+          } else if (isModelConfigurationSignal(config.name, diagnostics)) {
+            settle({ kind: "model_config", stderr: diagnostics });
           } else {
             settle({ kind: "error", exitCode, stderr: diagnostics });
           }

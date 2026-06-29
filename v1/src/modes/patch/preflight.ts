@@ -520,9 +520,9 @@ export function maybeWarnAboutUnmergedPlanBranch(args: {
 export function buildActiveAgents(opts: RunCommandOptions, cfg: Config, patchTier: PatchTier): Agent[] {
   const overrides = opts.agents;
   const agents: Agent[] = [];
-  const eligibleAgents = cfg.modes.patch.agentOrder;
-  const startIndex = resolvePatchTierStartIndex(patchTier, eligibleAgents.length);
-  for (const entry of eligibleAgents.slice(startIndex)) {
+  const patchOrder = cfg.modes.patch.agentOrder;
+  const startIndex = resolvePatchTierStartIndex(patchTier, patchOrder.length);
+  for (const entry of patchOrder.slice(startIndex)) {
     const override = overrides?.[entry.agent];
     if (override !== undefined) {
       agents.push(override);

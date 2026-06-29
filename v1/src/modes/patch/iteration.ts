@@ -507,9 +507,8 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
   }
 
   const configuredPatchModelEntry = cfg.modes.patch.agentOrder.find((entry) => entry.agent === agent.name);
-  const telemetryMeta =
-    configuredPatchModelEntry?.model !== undefined ? { configured_model: configuredPatchModelEntry.model } : {};
   const configuredPatchModel = configuredPatchModelEntry?.model;
+  const telemetryMeta = configuredPatchModel !== undefined ? { configured_model: configuredPatchModel } : {};
 
   // For fix-up iterations, we don't get a task from the spec; instead we use the captured failure text
   const task = isFixupIteration ? null : getFirstUncheckedTask(specPath);

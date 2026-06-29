@@ -7898,8 +7898,6 @@ exit 1
     // Even with maxIterations: 5, should still show iterations: 0.
     expect(cap.out()).toContain("iterations: 0");
   });
-
-  // floor-error and shrink floor tests removed — capability floor is no longer supported
 });
 
 function setupGit(): void {

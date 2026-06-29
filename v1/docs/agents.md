@@ -305,10 +305,8 @@ read-only review roles while keeping stronger models on actuators.
   `modes.patch.agentOrder`. The shared `reviewActuator` key governs both code-
   writing roles, but they consume it differently: the verdict actuator stays
   head-only (`reviewActuator[0]`), while shrink keeps full-list quota fallback.
-- `reviewActuator` is the actuator-tiering lever: agents listed in
-  `subRoleAgentOrder.reviewActuator` are the only agents used for review
-  actuator and shrink turns; when unset, all agents from
-  `modes.patch.agentOrder` are eligible.
+- `reviewActuator` tiers review actuator and shrink agents via
+  `subRoleAgentOrder.reviewActuator`; unset uses full `modes.patch.agentOrder`.
 
 This separation enables tiering: assign a fast/cheap reviewer tier to read-only
 roles (e.g., Haiku or a smaller Codex variant) while keeping an

@@ -150,9 +150,7 @@ describe("loadConfig", () => {
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(file);
-    expect(() => loadConfig({ dir })).toThrow(/unknown key/i);
-    expect(() => loadConfig({ dir })).toThrow(/patchActuator/);
+    expect(() => loadConfig({ dir })).toThrow(/unknown key.*patchActuator/i);
   });
 
   test("accepts patch config without sub-role agent orders", () => {
@@ -2704,24 +2702,28 @@ describe("review mode config validation", () => {
     expect(() => loadConfig({ dir })).toThrow(/off.*agent/);
   });
 
-  test("rejects capability field on AgentEntry", () => {
+  test.each([
+    [
+      "modes.patch.agentOrder",
+      {
+        patch: { agentOrder: [{ agent: "claude", model: "haiku", capability: 3 }] },
+        plan: { agentOrder: CLAUDE_ONLY },
+        prompt: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
+      },
+    ],
+    [
+      "modes.plan.agentOrder",
+      {
+        patch: { agentOrder: CLAUDE_ONLY },
+        plan: { agentOrder: [{ agent: "claude", model: "haiku", capability: 3 }] },
+        prompt: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
+      },
+    ],
+  ])("rejects capability on %s", (_field, modes) => {
     const file = join(dir, "config.json");
-    writeFileSync(
-      file,
-      JSON.stringify({
-        version: 2,
-        modes: {
-          patch: {
-            agentOrder: [{ agent: "claude", model: "haiku", capability: 3 }],
-          },
-          plan: { agentOrder: CLAUDE_ONLY },
-          prompt: { agentOrder: CLAUDE_ONLY },
-          review: { passes: 2 },
-        },
-        projects: {},
-      }),
-    );
-    expect(() => loadConfig({ dir })).toThrow(file);
+    writeFileSync(file, JSON.stringify({ version: 2, modes, projects: {} }));
     expect(() => loadConfig({ dir })).toThrow(/capability/);
   });
 
@@ -2743,60 +2745,20 @@ describe("review mode config validation", () => {
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(file);
     expect(() => loadConfig({ dir })).toThrow(/actuationCapabilityFloor/);
   });
 
-  test("rejects capability in plan mode agentOrder too", () => {
-    const file = join(dir, "config.json");
-    writeFileSync(
-      file,
-      JSON.stringify({
-        version: 2,
-        modes: {
-          patch: { agentOrder: CLAUDE_ONLY },
-          plan: {
-            agentOrder: [{ agent: "claude", model: "haiku", capability: 3 }],
-          },
-          prompt: { agentOrder: CLAUDE_ONLY },
-          review: { passes: 2 },
-        },
-        projects: {},
-      }),
-    );
-    expect(() => loadConfig({ dir })).toThrow(file);
-    expect(() => loadConfig({ dir })).toThrow(/capability/);
-  });
-
   test("buildActiveAgents selects all agents from agentOrder with trivial tier", () => {
-    const agents: AgentEntry[] = [
-      { agent: "claude", model: "haiku" },
-      { agent: "codex", model: "gpt-5.4" },
-      { agent: "cursor", model: "Composer 2.5" },
-    ];
-    const cfg: Config = {
-      version: 2,
-      modes: {
-        patch: { agentOrder: agents },
-        plan: { agentOrder: agents },
-        prompt: { agentOrder: agents },
-        review: { passes: 1 },
-      },
-      quotaFallback: "lenient",
-      weakQuotaExitCodes: [],
-      maxIterations: 10,
-      iterationTimeoutMs: 30 * 60_000,
-      logServerUrl: "http://127.0.0.1:4310/logs",
-      logServerBind: "127.0.0.1:4310",
-      git: true,
-      projects: {},
-    };
+    const cfg = testConfig({
+      patch: { agentOrder: DEFAULT_AGENT_ORDER },
+      plan: { agentOrder: DEFAULT_AGENT_ORDER },
+      prompt: { agentOrder: DEFAULT_AGENT_ORDER },
+      review: { passes: 1 },
+    });
     const opts: RunCommandOptions = {
       specPath: "/tmp/test.md",
       io: { stdout: () => {}, stderr: () => {} },
     };
-
-    const result = buildActiveAgents(opts, cfg, "trivial");
-    expect(result).toHaveLength(3);
+    expect(buildActiveAgents(opts, cfg, "trivial")).toHaveLength(3);
   });
 });

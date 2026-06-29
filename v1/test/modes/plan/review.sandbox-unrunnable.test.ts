@@ -100,6 +100,34 @@ function setupReviewWorktree(name = "p-review"): { worktreePath: string; specDir
   return { worktreePath, specDir, cleanup };
 }
 
+function makeIntentDriftActuatorAgent(
+  acMarker: string,
+  opts?: { adjudicatorVerdict?: string; onActuator?: (agentOpts: AgentRunOptions) => void },
+) {
+  return new FakeAgent("claude", (_c, prompt, agentOpts) => {
+    if (prompt.includes("Review Actuator")) {
+      const specRoot = join(agentOpts.cwd, "spec", "p-review");
+      writeFileSync(
+        join(specRoot, "00-one.md"),
+        `# One\n\n## Acceptance criteria\n\n- [ ] ${acMarker}\n`,
+        "utf8",
+      );
+      const intentPath = join(specRoot, "intent.md");
+      writeFileSync(intentPath, `${readFileSync(intentPath, "utf8")}\n# dirty\n`, "utf8");
+      opts?.onActuator?.(agentOpts);
+      return { kind: "ok", stdout: "", stderr: "" };
+    }
+    if (prompt.includes("Review: Adjudicator")) {
+      return {
+        kind: "ok",
+        stdout: opts?.adjudicatorVerdict ?? "Tighten intent.md and the acceptance criterion.\n",
+        stderr: "",
+      };
+    }
+    return { kind: "ok", stdout: "", stderr: "" };
+  });
+}
+
 describe("snapshotSpecFiles", () => {
   test("returns files in deterministic sorted order regardless of disk order", () => {
     // Create a temporary directory with files in reverse alphabetical order on disk
@@ -425,19 +453,6 @@ describe("runPlanReviewPhase", () => {
       const intentPath = join(specDir, "intent.md");
       const specPath = join(specDir, "00-one.md");
       const originalIntent = readFileSync(intentPath, "utf8");
-      const agent = new FakeAgent("claude", (_c, prompt, opts) => {
-        if (prompt.includes("Review Actuator")) {
-          writeFileSync(specPath, "# One\n\n## Acceptance criteria\n\n- [ ] recovered\n", "utf8");
-          const intent = readFileSync(join(opts.cwd, "spec", "p-review", "intent.md"), "utf8");
-          writeFileSync(join(opts.cwd, "spec", "p-review", "intent.md"), `${intent}\n# dirty\n`, "utf8");
-          return { kind: "ok", stdout: "", stderr: "" };
-        }
-        if (prompt.includes("Review: Adjudicator")) {
-          return { kind: "ok", stdout: "Tighten intent.md and the acceptance criterion.\n", stderr: "" };
-        }
-        return { kind: "ok", stdout: "", stderr: "" };
-      });
-
       const stderr: string[] = [];
       const result = await runPlanReviewPhase({
         worktreePath: dir,
@@ -447,16 +462,17 @@ describe("runPlanReviewPhase", () => {
         reviewPassesOverride: 1,
         commit: false,
         specDirPath: specDir,
-        createAgent: () => agent,
+        createAgent: () => makeIntentDriftActuatorAgent("recovered"),
         stderr: (line) => stderr.push(line),
       });
 
-      expect(result.exitCode, stderr.join("")).toBe(0);
+      const err = stderr.join("");
+      expect(result.exitCode, err).toBe(0);
       expect(readFileSync(intentPath, "utf8")).toBe(originalIntent);
       expect(readFileSync(specPath, "utf8")).toContain("recovered");
-      expect(stderr.join("")).toContain("plan: actuator reverted immutable-copy overreach:");
-      expect(stderr.join("")).toContain("  intent.md");
-      expect(stderr.join("")).toContain("verdict requirements for intent.md were not applied");
+      expect(err).toContain("plan: actuator reverted immutable-copy overreach:");
+      expect(err).toContain("  intent.md");
+      expect(err).toContain("verdict requirements for intent.md were not applied");
     } finally {
       cleanup();
     }
@@ -468,19 +484,6 @@ describe("runPlanReviewPhase", () => {
       const intentPath = join(specDir, "intent.md");
       const specPath = join(specDir, "00-one.md");
       const originalIntent = readFileSync(intentPath, "utf8");
-      const agent = new FakeAgent("claude", (_c, prompt, opts) => {
-        if (prompt.includes("Review Actuator")) {
-          writeFileSync(specPath, "# One\n\n## Acceptance criteria\n\n- [ ] committed-recovery\n", "utf8");
-          const intent = readFileSync(join(opts.cwd, "spec", "p-review", "intent.md"), "utf8");
-          writeFileSync(join(opts.cwd, "spec", "p-review", "intent.md"), `${intent}\n# dirty\n`, "utf8");
-          return { kind: "ok", stdout: "", stderr: "" };
-        }
-        if (prompt.includes("Review: Adjudicator")) {
-          return { kind: "ok", stdout: "Add a concrete acceptance criterion.\n", stderr: "" };
-        }
-        return { kind: "ok", stdout: "", stderr: "" };
-      });
-
       let stderr = "";
       const result = await runPlanReviewPhase({
         worktreePath,
@@ -489,7 +492,10 @@ describe("runPlanReviewPhase", () => {
         config: makeReviewConfig({ planOrder: [CLAUDE_ENTRY], reviewPasses: 1 }),
         reviewPassesOverride: 1,
         commit: true,
-        createAgent: () => agent,
+        createAgent: () =>
+          makeIntentDriftActuatorAgent("committed-recovery", {
+            adjudicatorVerdict: "Add a concrete acceptance criterion.\n",
+          }),
         stderr: (line) => {
           stderr += line;
         },
@@ -509,24 +515,6 @@ describe("runPlanReviewPhase", () => {
   test("does not recover when intent drift coexists with missing index.md", async () => {
     const { dir, specDir, cleanup } = setupReviewRepo();
     try {
-      const agent = new FakeAgent("claude", (_c, prompt, opts) => {
-        if (prompt.includes("Review Actuator")) {
-          writeFileSync(
-            join(opts.cwd, "spec", "p-review", "00-one.md"),
-            "# One\n\n## Acceptance criteria\n\n- [ ] still-fails\n",
-            "utf8",
-          );
-          const intent = readFileSync(join(opts.cwd, "spec", "p-review", "intent.md"), "utf8");
-          writeFileSync(join(opts.cwd, "spec", "p-review", "intent.md"), `${intent}\n# dirty\n`, "utf8");
-          rmSync(join(opts.cwd, "spec", "p-review", "index.md"));
-          return { kind: "ok", stdout: "", stderr: "" };
-        }
-        if (prompt.includes("Review: Adjudicator")) {
-          return { kind: "ok", stdout: "Tighten the spec.\n", stderr: "" };
-        }
-        return { kind: "ok", stdout: "", stderr: "" };
-      });
-
       let stderr = "";
       const result = await runPlanReviewPhase({
         worktreePath: dir,
@@ -536,7 +524,11 @@ describe("runPlanReviewPhase", () => {
         reviewPassesOverride: 1,
         commit: false,
         specDirPath: specDir,
-        createAgent: () => agent,
+        createAgent: () =>
+          makeIntentDriftActuatorAgent("still-fails", {
+            adjudicatorVerdict: "Tighten the spec.\n",
+            onActuator: (agentOpts) => rmSync(join(agentOpts.cwd, "spec", "p-review", "index.md")),
+          }),
         stderr: (line) => {
           stderr += line;
         },

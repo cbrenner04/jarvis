@@ -980,16 +980,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
             throw new ReviewTerminalError(message, 1);
           }
 
-          recoverImmutableCopyOverreach({
-            copies: [],
-            readCurrent: () => "",
-            writeSnapshot: () => {},
-            validation: { valid: true, error: null },
-            revalidate: () => ({ valid: true, error: null }),
-            emitNotice: (text) => {
-              opts.fanout("harness", text, "stderr");
-            },
-          });
+          recoverImmutableCopyOverreach({ copies: [], validation: { valid: true, error: null } });
 
           // Revert spec edits (reviewers are read-only on spec)
           const editedSpecFiles = detectSpecTreeEdits(specDir, opts.cwd);

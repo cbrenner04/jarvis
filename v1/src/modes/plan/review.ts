@@ -863,34 +863,26 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
       const revalidateActuatorOutput = () =>
         validateReviewOutput(opts.worktreePath, opts.specDirBasename, intentBefore, opts.specDirPath, targetDir);
 
-      const validation = revalidateActuatorOutput();
-      const recovery = recoverImmutableCopyOverreach({
+      const validation = recoverImmutableCopyOverreach({
         copies: [
           {
             relativePath: "intent.md",
             snapshot: intentBefore,
-            isRecoverableDrift: (_snapshot, current) => {
-              const blockerDetection = detectBlocker(current);
-              if (blockerDetection.hasBlocker && !isValidIntentModification(intentBefore, current)) {
-                return false;
-              }
-              return true;
-            },
+            isRecoverableDrift: (_snapshot, current) =>
+              !detectBlocker(current).hasBlocker || isValidIntentModification(intentBefore, current),
           },
         ],
         readCurrent: (relativePath) => readFileSync(join(finalSpecPath, relativePath), "utf8"),
         writeSnapshot: (relativePath, bytes) => writeFileSync(join(finalSpecPath, relativePath), bytes, "utf8"),
-        validation,
+        validation: revalidateActuatorOutput(),
         revalidate: revalidateActuatorOutput,
         verdict,
         noticePrefix: "plan: actuator reverted immutable-copy overreach:",
-        emitNotice: (text) => {
-          opts.stderr?.(text);
-        },
+        emitNotice: (text) => opts.stderr?.(text),
       });
-      if (!recovery.validation.valid) {
-        opts.stderr?.(`plan: actuator validation failed: ${recovery.validation.error}\n`);
-        throw new ReviewTerminalError(recovery.validation.error ?? "validation failed", 1);
+      if (!validation.valid) {
+        opts.stderr?.(`plan: actuator validation failed: ${validation.error}\n`);
+        throw new ReviewTerminalError(validation.error ?? "validation failed", 1);
       }
 
       if (!opts.commit) {

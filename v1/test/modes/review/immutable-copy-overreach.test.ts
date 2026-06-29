@@ -1,18 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  IMMUTABLE_COPY_OVERREACH_NOTICE_PREFIX,
-  recoverImmutableCopyOverreach,
-  verdictReferencesPinnedIntentPath,
-} from "../../../src/modes/review/immutable-copy-overreach.ts";
-
-describe("verdictReferencesPinnedIntentPath", () => {
-  test("detects literal and backtick-wrapped intent.md references", () => {
-    expect(verdictReferencesPinnedIntentPath("Update intent.md frontmatter")).toBe(true);
-    expect(verdictReferencesPinnedIntentPath("Do not edit `intent.md`.")).toBe(true);
-    expect(verdictReferencesPinnedIntentPath("Update INTENT.md")).toBe(false);
-    expect(verdictReferencesPinnedIntentPath("No path reference here.")).toBe(false);
-  });
-});
+import { recoverImmutableCopyOverreach } from "../../../src/modes/review/immutable-copy-overreach.ts";
 
 describe("recoverImmutableCopyOverreach", () => {
   test("no-ops when validation already passes", () => {
@@ -29,8 +16,7 @@ describe("recoverImmutableCopyOverreach", () => {
         throw new Error("should not emit");
       },
     });
-    expect(result.recovered).toBe(false);
-    expect(result.validation.valid).toBe(true);
+    expect(result.valid).toBe(true);
     expect(writes).toEqual([]);
   });
 
@@ -50,10 +36,10 @@ describe("recoverImmutableCopyOverreach", () => {
         notices.push(text);
       },
     });
-    expect(result.recovered).toBe(true);
+    expect(result.valid).toBe(true);
     expect(current).toBe("before\n");
     expect(notices).toHaveLength(1);
-    expect(notices[0]).toContain(IMMUTABLE_COPY_OVERREACH_NOTICE_PREFIX);
+    expect(notices[0]).toContain("review: reverted immutable-copy overreach:");
     expect(notices[0]).toContain("  intent.md\n");
     expect(notices[0]).toContain("  verdict requirements for intent.md were not applied\n");
   });
@@ -72,8 +58,8 @@ describe("recoverImmutableCopyOverreach", () => {
         throw new Error("should not emit");
       },
     });
-    expect(result.recovered).toBe(false);
-    expect(result.validation.error).toBe("index.md was deleted");
+    expect(result.valid).toBe(false);
+    expect(result.error).toBe("index.md was deleted");
   });
 
   test("does not recover when isRecoverableDrift rejects drift", () => {
@@ -96,7 +82,7 @@ describe("recoverImmutableCopyOverreach", () => {
         throw new Error("should not emit");
       },
     });
-    expect(result.recovered).toBe(false);
+    expect(result.valid).toBe(false);
     expect(current).toBe("dirty\n");
   });
 });

@@ -79,5 +79,4 @@ describe("extractUsageAndCost: estimated usage", () => {
     expect(result.cost_source).toBe("no-price");
     expect(result.cost_usd).toBeNull();
   });
-
 });

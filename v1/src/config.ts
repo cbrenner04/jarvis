@@ -81,13 +81,11 @@ export type ProjectMatch = {
 export type AgentEntry = {
   agent: AgentName;
   model: string;
-  capability?: number;
 };
 
 export type PatchSubRoleAgentOrder = Partial<{
   reviewPanel: AgentEntry[];
   reviewActuator: AgentEntry[];
-  patchActuator: AgentEntry[];
 }>;
 
 export type PatchSubRole = keyof PatchSubRoleAgentOrder;
@@ -100,7 +98,6 @@ export type ModeConfig = {
   prNarrative?: "template" | "agent";
   shrink?: "off" | "agent";
   subRoleAgentOrder?: PatchSubRoleAgentOrder;
-  actuationCapabilityFloor?: number;
 };
 
 export type ReviewModeConfig = {
@@ -247,23 +244,10 @@ function validateConfig(input: unknown, file: string): Config {
     patchSubRoleAgentOrder = validatePatchSubRoleAgentOrder(patchModeObj.subRoleAgentOrder, file);
   }
 
-  let patchActuationCapabilityFloor: number | undefined;
-  if (patchModeObj.actuationCapabilityFloor !== undefined) {
-    if (
-      typeof patchModeObj.actuationCapabilityFloor !== "number" ||
-      !Number.isFinite(patchModeObj.actuationCapabilityFloor)
-    ) {
-      fail(file, "modes.patch.actuationCapabilityFloor must be a finite number");
-    }
-    patchActuationCapabilityFloor = patchModeObj.actuationCapabilityFloor;
-    // Enforce coupling: if floor is set, all entries must have numeric capability
-    for (const entry of patchAgentOrder) {
-      if (entry.capability === undefined) {
-        fail(
-          file,
-          `modes.patch.actuationCapabilityFloor is set but modes.patch.agentOrder entry (${entry.agent}) is missing capability`,
-        );
-      }
+  const patchAllowedKeys = new Set(["agentOrder", "agents", "prNarrative", "shrink", "subRoleAgentOrder"]);
+  for (const key of Object.keys(patchModeObj)) {
+    if (!patchAllowedKeys.has(key)) {
+      fail(file, `modes.patch: unknown key ${JSON.stringify(key)}`);
     }
   }
 
@@ -577,9 +561,6 @@ function validateConfig(input: unknown, file: string): Config {
         prNarrative: patchPrNarrative,
         shrink: patchShrink,
         ...(patchSubRoleAgentOrder !== undefined ? { subRoleAgentOrder: patchSubRoleAgentOrder } : {}),
-        ...(patchActuationCapabilityFloor !== undefined
-          ? { actuationCapabilityFloor: patchActuationCapabilityFloor }
-          : {}),
       },
       plan: {
         agentOrder: planAgentOrder,
@@ -623,6 +604,11 @@ function validateAgentOrder(input: unknown, fieldName: string, file: string): Ag
       fail(file, `${fieldName}[${i}] must be an object with "agent" and "model"`);
     }
     const entry = raw as Record<string, unknown>;
+    for (const key of Object.keys(entry)) {
+      if (key !== "agent" && key !== "model") {
+        fail(file, `${fieldName}[${i}]: unknown key ${JSON.stringify(key)}`);
+      }
+    }
     if (!isAgentName(entry.agent)) {
       fail(
         file,
@@ -642,14 +628,7 @@ function validateAgentOrder(input: unknown, fieldName: string, file: string): Ag
         `${fieldName}[${i}].model: ${JSON.stringify(entry.model)} is not a known priced model for agent ${JSON.stringify(entry.agent)}`,
       );
     }
-    let capability: number | undefined;
-    if (entry.capability !== undefined) {
-      if (typeof entry.capability !== "number" || !Number.isFinite(entry.capability)) {
-        fail(file, `${fieldName}[${i}].capability must be a finite number`);
-      }
-      capability = entry.capability;
-    }
-    agentOrder.push({ agent: entry.agent, model: entry.model, ...(capability !== undefined ? { capability } : {}) });
+    agentOrder.push({ agent: entry.agent, model: entry.model });
   }
   return agentOrder;
 }
@@ -660,7 +639,7 @@ function validatePatchSubRoleAgentOrder(input: unknown, file: string): PatchSubR
   }
 
   const raw = input as Record<string, unknown>;
-  const allowedKeys = ["reviewPanel", "reviewActuator", "patchActuator"] as const;
+  const allowedKeys = ["reviewPanel", "reviewActuator"] as const;
   const allowedKeySet = new Set<string>(allowedKeys);
   for (const key of Object.keys(raw)) {
     if (!allowedKeySet.has(key)) {
@@ -966,16 +945,8 @@ export function resolveSubRoleAgentOrder(cfg: Config, subRole: PatchSubRole): Ag
     case "reviewPanel":
       return resolveReviewAgentOrder(cfg);
     case "reviewActuator":
-    case "patchActuator":
       return cfg.modes.patch.agentOrder;
   }
-}
-
-export function filterAgentsByCapabilityFloor(agents: AgentEntry[], floor: number | undefined): AgentEntry[] {
-  if (floor === undefined) {
-    return agents;
-  }
-  return agents.filter((entry) => entry.capability !== undefined && entry.capability >= floor);
 }
 
 export function findProjectForPath(p: string, opts?: ConfigOptions): Project | undefined {

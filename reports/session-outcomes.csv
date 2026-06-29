@@ -108,3 +108,8 @@ report,session_id,report_date,completed_work_units,success_status,failure_reason
 2026-06-28T23-01-08Z-operator,v2-integration-test-runner,2026-06-28,1,completed,,patch,1,30.15,6,test:v2/test:integration:v2 split; agent_count=cursor; gate timeout was parallel-load flake
 2026-06-28T23-01-08Z-operator,shared-socket-test-fixture,2026-06-28,1,completed,,patch,1,40.75,5,shared unix-socket fixture; behind-base + biome CI fail hand-finalized; agent_count=cursor
 2026-06-28T23-01-08Z-operator,v2-socket-tests-skip-honestly,2026-06-28,1,completed,,patch,1,36.93,5,test.skipIf honest skips; behind-base hand integration-merge; agent_count=cursor
+2026-06-29T04-57-44Z-operator,spawn-quota-before-model-config,2026-06-29,1,completed,,patch,1,34.93,8,all cursor; agent_count=cursor; files=impl-PR #784 count incl spec/verdict md
+2026-06-29T04-57-44Z-operator,remove-actuation-capability-floor,2026-06-29,2,completed,,patch,2,44.86,18,cursor+DeepSeek; run#1 idle-watchdog exit8 resumed; behind-base; files=PR #790
+2026-06-29T04-57-44Z-operator,watchdog-idle-timeout-advances-cascade,2026-06-29,1,completed,,patch,1,51.20,14,cursor; behind-base; files=PR #795
+2026-06-29T04-57-44Z-operator,verdict-actuator-recovers-from-immutable-overreach,2026-06-29,1,completed,,patch,1,34.42,11,cursor; plan#1 transient ENOTFOUND resumed; behind-base; files=PR #801
+2026-06-29T04-57-44Z-operator,cleanup-skip-in-flight-impl-specs,2026-06-29,1,completed,,patch,2,49.98,8,GLM5.2 solo impl after 2 cursor timeouts; cursor review subroles; behind-base; files=PR #803

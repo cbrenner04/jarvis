@@ -288,47 +288,28 @@ treating it as complete.
 When a `git: true` patch run reaches the completion transition (zero unchecked
 boxes and a clean worktree), Jarvis runs the **`full`** completion gate once,
 harness-side, before proceeding to post-completion phases (shrink, review,
-<<<<<<< HEAD
 `maybeMarkReady`). On `full` the gate order is: (1) run the project's `fixCommand`
 when set, else built-in `bun run fix` (skipped when the resolved package-manager
 script is absent from root `package.json`); (2) if the tree is dirty after fix,
 commit it (default message `chore: apply pre-ready check:fix`, preserving the
 per-call-site `Jarvis-Agent` trailer) and push **before** verification; (3) run
 strict verification — built-in `bun run ready`, or the project's `readyCommand`
-if set — against the committed tree; (4) there is no post-ready dirty commit,
-so if verification returns green with a still-dirty tree the gate aborts
+if set — against the committed tree; (4) if verification is green and porcelain
+is non-empty, commit it (default message `chore: apply post-ready verification
+output`, preserving the per-call-site `Jarvis-Agent` trailer) and push — no
+second verification pass; (5) if porcelain remains non-empty after the
+post-verification commit attempt (or commit/push fails), the gate aborts
 (exit 6) before `gh pr ready`. Built-in `bun run ready` is verification-only;
 autofix is `fixCommand` / `bun run fix`. The `readyCommand` override replaces
 the verification command only at patch-mode gate sites (completion transition,
 pre-shrink, review baseline, review final, `maybeMarkReady`); on `full` the
-harness still runs autofix and the commit-if-dirty step before the override.
-Non-bun or no-`fix`-script repos must configure `fixCommand`. The override is
-tokenized on whitespace and invoked via `execFileSync` (no shell) with
-`JARVIS_READY_TIER` set in the environment. Plan-mode readiness threads
-`fixCommand` only (not `readyCommand`); its committed-path ready flip runs
-configured or built-in autofix then built-in `bun run ready`.
-=======
-`maybeMarkReady`). On `full` the gate order is: (1) run built-in `bun run fix`
-(autofix); (2) if the tree is dirty after fix, commit it (default message
-`chore: apply pre-ready check:fix`, preserving the per-call-site `Jarvis-Agent`
-trailer) and push **before** verification; (3) run strict verification —
-built-in `bun run ready`, or the project's `readyCommand` if set — against the
-committed tree; (4) if verification is green and porcelain is non-empty,
-commit it (default message `chore: apply post-ready verification output`,
-preserving the per-call-site `Jarvis-Agent` trailer) and push — no second
-verification pass; (5) if porcelain remains non-empty after the
-post-verification commit attempt (or commit/push fails), the gate aborts
-(exit 6) before `gh pr ready`. Built-in `bun run ready` is verification-only;
-built-in autofix lives in `bun run fix`. The `readyCommand` override replaces
-the verification command only at the five patch-mode gate sites (completion
-transition, pre-shrink, review baseline, review final, `maybeMarkReady`); on
-`full` the harness still runs built-in `bun run fix`, the pre-ready
-commit-if-dirty step, and the post-verification commit-if-dirty step when
-applicable. The override is tokenized on whitespace and invoked via
-`execFileSync` (no shell) with `JARVIS_READY_TIER` set in the environment.
-Plan-mode readiness does not thread `readyCommand`; its committed-path ready
-flip runs built-in `bun run fix` then built-in `bun run ready`.
->>>>>>> origin/main
+harness still runs autofix, the pre-ready commit-if-dirty step, and the
+post-verification commit-if-dirty step when applicable. Non-bun or no-`fix`-script
+repos must configure `fixCommand`. The override is tokenized on whitespace and
+invoked via `execFileSync` (no shell) with `JARVIS_READY_TIER` set in the
+environment. Plan-mode readiness threads `fixCommand` only (not `readyCommand`);
+its committed-path ready flip runs configured or built-in autofix then built-in
+`bun run ready`.
 This completion-transition gate always runs the **`full`** tier through
 `runReadyAndCommit` and consumes zero agent tokens.
 

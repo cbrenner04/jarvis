@@ -126,9 +126,13 @@ Per-project config:
     [`agent-model-config.md`](agent-model-config.md)).
   - **`model_config` and `error` are terminal** — no inner rung advance, no outer
     agent advance.
-- **CLI override.** The only override is a command-line `--agent` / `--model` pair
-  (the single-write-step override) that bypasses resolution for that run. There is
-  no per-step config override.
+- **CLI override.** **Target surface:** `--agent` and `--model` together bypass
+  both loops and load validation for one invocation (no matching `(agent, role)`
+  entry needed). **Interim shipped surface:** `jarvis write` / `jarvis run start`
+  accept `--agents <csv>` as the ordered outer fallback list only (agent IDs, no
+  per-role models) — see [`write-behavior.md`](write-behavior.md); predates full
+  `AgentModelConfig` resolution. No single-flag override; no per-step config
+  override. Details: [`agent-model-config.md`](agent-model-config.md).
 - **Local model is the terminal quota fallback.** When every paid CLI/platform in
   the agent fallback order is quota-exhausted, a locally-run model is the last
   resort rather than v1's hard exit `2` ("all agents quota-exhausted"). It sits at

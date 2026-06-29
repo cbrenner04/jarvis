@@ -14,11 +14,14 @@ Two axes, two stores:
 | Axis | Store | Contents |
 | --- | --- | --- |
 | **Agent fallback order** | Per-machine `~/.jarvis` project config | Ordered `agents: Agent[]` — availability/quota chain only |
-| **Role→model bindings** | One harness-global, version-controlled data file beside `data/prices.json` | `AgentModelConfig` — `(agent, role) → ModelEscalation` for every agent the harness knows |
+| **Role→model bindings** | One harness-global, version-controlled data file beside `data/prices.json` | `AgentModelConfig` — `(agent, role) → ModelEscalation`; may catalog agents beyond any one project's `agents` list |
 
 Per-project variance is **only** the ordered `agents` list. Role→model assignments
-are shared across machines and projects. The on-disk filename for the global data
-file is deferred to the first consumer that implements load.
+are shared across machines and projects. Load validation applies **only** to
+agents listed in the project's `agents` order — extra agents in the global file
+are ignored at load (see [Load-time validation](#load-time-validation)). The
+on-disk filename for the global data file is deferred to the first consumer that
+implements load.
 
 v1's combined `{agent, model}` `agentOrder` entries are retired. v2 holds agent
 names in project config and model rungs in the global store.
@@ -194,10 +197,17 @@ Aligned with [`shared-invocation.md`](shared-invocation.md):
 
 | Result | Inner advance | Outer advance |
 | --- | --- | --- |
-| `quota` | yes (next binding in flat list) | yes when flat list crosses to next agent |
+| `quota` | yes, if another binding follows in the flat list | yes, when the next binding is on a different agent |
+| `quota` (last binding) | **no** | **no** — invocation failure |
 | `model_config` | **no** | **no** |
 | `error` | **no** | **no** |
 | `ok` | stop (success) | — |
+
+`quota` on the final flat binding does not advance to another agent or rung —
+[`shared/invocation/execute.ts`](../../shared/invocation/execute.ts) returns that
+attempt and the step runner classifies the non-`ok` result as invocation failure
+(step 5 in [Composed fallback](#composed-fallback)). Mid-chain `quota` advances
+along the flat list (inner rung, then outer agent at `rungs[0]`).
 
 `model_config` and `error` are terminal at the current binding. A misconfigured
 or crashing model is not recoverable by trying the next rung or the next agent.
@@ -260,7 +270,9 @@ projected_cost(role, workflow) =
 
 ## Example operator profile (non-normative)
 
-Illustrative sketch — not a shipped default. Global data file (excerpt):
+Illustrative sketch — not a shipped default, **not load-valid as written** (each
+project-configured agent needs every required role; excerpts show only the roles
+relevant to the flat-binding examples below). Global data file (fragment):
 
 ```json
 {
@@ -282,6 +294,11 @@ Illustrative sketch — not a shipped default. Global data file (excerpt):
       "rungs": [
         { "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }
       ]
+    },
+    "actuator": {
+      "rungs": [
+        { "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }
+      ]
     }
   }
 }
@@ -291,14 +308,14 @@ Per-machine project config (excerpt):
 
 ```json
 {
-  "agents": ["claude", "codex", "cursor"]
+  "agents": ["claude", "codex"]
 }
 ```
 
 For an `implement` step: flat bindings =
-`claude/sonnet → claude/haiku → codex/gpt-5.4 → cursor/…` (cursor rungs omitted).
-For an `actuator` step: `claude/haiku → codex/head → cursor/head` — only each
-agent's `rungs[0]`.
+`claude/sonnet → claude/haiku → codex/gpt-5.4`.
+For an `actuator` step: `claude/haiku → codex/gpt-5.4` — only each agent's
+`rungs[0]`.
 
 ## Decisions
 

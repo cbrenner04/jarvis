@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync, execSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
@@ -511,6 +511,10 @@ describe("runPlanReviewPhase", () => {
   test("does not recover when intent drift coexists with missing index.md", async () => {
     const { dir, specDir, cleanup } = setupReviewRepo();
     try {
+      const intentPath = join(specDir, "intent.md");
+      const specPath = join(specDir, "00-one.md");
+      const indexPath = join(specDir, "index.md");
+      const originalIntent = readFileSync(intentPath, "utf8");
       let stderr = "";
       const result = await runPlanReviewPhase({
         worktreePath: dir,
@@ -533,6 +537,9 @@ describe("runPlanReviewPhase", () => {
       expect(result.exitCode).toBe(1);
       expect(stderr).toContain("plan: actuator validation failed: index.md was deleted");
       expect(stderr).not.toContain("reverted immutable-copy overreach");
+      expect(readFileSync(intentPath, "utf8")).toBe(originalIntent);
+      expect(readFileSync(specPath, "utf8")).toContain("still-fails");
+      expect(existsSync(indexPath)).toBe(false);
     } finally {
       cleanup();
     }

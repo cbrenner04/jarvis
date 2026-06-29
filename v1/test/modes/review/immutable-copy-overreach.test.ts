@@ -60,6 +60,7 @@ describe("recoverImmutableCopyOverreach", () => {
     });
     expect(result.valid).toBe(false);
     expect(result.error).toBe("index.md was deleted");
+    expect(current).toBe("before\n");
   });
 
   test("does not recover when isRecoverableDrift rejects drift", () => {

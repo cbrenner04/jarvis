@@ -93,7 +93,7 @@ before and after `agent.run` via `src/modes/plan/git-porcelain.ts`). If the work
 quota fallback is skipped so partial writes are not mistaken for a clean miss. Strict spawn-side
 **`kind: "quota"`** still triggers fallback immediately (no guard).
 
-For spawn ordering, harness **`agent.run`** callsites, and mode guards end-to-end, see [Agent CLI failure pipeline](agent-cli-failure-pipeline.md).
+Spawn order **transient → auth → quota → model_config** ([pipeline](agent-cli-failure-pipeline.md)); same doc covers **`agent.run`** callsites and mode guards.
 
 ## Classification and fallback outcome matrix
 
@@ -104,6 +104,7 @@ codes after fallback exhaustion, and telemetry semantics.
 | --- | --- | --- | --- | --- | --- |
 | Non-zero exit + durable credential/auth signal from stderr patterns | `quota` (with `authFailure: true` marker) | Rotate immediately to next agent | Rotate immediately to next agent | `2` (quota exhausted) | `quota` / `quota-exhausted` |
 | Non-zero exit + strict quota signal from stderr patterns | `quota` | Rotate immediately to next agent | Rotate immediately to next agent | `2` (quota exhausted) | `quota` / `quota-exhausted` |
+| Non-zero exit + both strict quota and model-configuration signals | `quota` | Rotate immediately to next agent | Rotate immediately to next agent | `2` (quota exhausted) | `quota` / `quota-exhausted` |
 | Non-zero exit + weak quota signal (lenient), guard passes (`allowLenientWeakQuotaFallback=true`) | `quota` (upgraded from weak `error`) | Rotate to next agent only when no-progress guard passes | Rotate to next agent only when unchanged-porcelain guard passes | `2` (quota exhausted) | `quota` / `quota-exhausted` |
 | Non-zero exit + weak quota signal (lenient), guard fails | `error` (no upgrade) | No quota rotation; treated as hard failure for that iteration | In current behavior, plan inner loop still continues to later agents on hard `error` (see mode difference below) | Patch exits `1` for error when no fallback path applies | `error` / `agent-error` |
 | Non-zero exit + model configuration signal | `model_config` | Stop immediately; do not rotate | Stop immediately; do not rotate | `3` (model configuration error) | `model_config` / `model-config` |

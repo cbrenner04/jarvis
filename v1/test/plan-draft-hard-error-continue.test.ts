@@ -3,10 +3,10 @@ import { execSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import type { Config } from "../src/config.ts";
 import { runDraftPhase, validateDraftOutput } from "../src/modes/plan/draft.ts";
+import { HARNESS_MODEL_CONFIG_FALLBACK } from "../src/quota-harness-messages.ts";
 
 class FakeAgent implements Agent {
   readonly name: AgentName;
@@ -49,6 +49,28 @@ const testConfig: Config = {
   git: true,
   projects: {},
 };
+
+function setupDraftRepo(tmpPrefix: string): { dir: string; name: string } {
+  const dir = mkdtempSync(join(tmpdir(), tmpPrefix));
+  execSync("git init -b main", { cwd: dir });
+  execSync("git config user.email 'test@example.com'", { cwd: dir });
+  execSync("git config user.name 'Test User'", { cwd: dir });
+  const name = "p-draft";
+  const specDir = join(dir, "spec", name);
+  mkdirSync(specDir, { recursive: true });
+  writeFileSync(join(specDir, "intent.md"), "---\nname: p-draft\n---\n\n# Intent\n\nseed\n");
+  return { dir, name };
+}
+
+function codexWritesOkDraft(name: string): FakeAgent {
+  return new FakeAgent("codex", (_c, _p, opts) => {
+    const d = join(opts.cwd, "spec", name);
+    mkdirSync(d, { recursive: true });
+    writeFileSync(join(d, "index.md"), "# Draft spec\n\n- [ ] [00](./00-one.md)\n");
+    writeFileSync(join(d, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] x\n");
+    return { kind: "ok", stdout: "", stderr: "" };
+  });
+}
 
 describe("runDraftPhase (plan inner loop on hard error)", () => {
   test("draft phase tries the next agent after a classified hard error", async () => {
@@ -403,6 +425,78 @@ describe("runDraftPhase (plan inner loop on hard error)", () => {
       expect(result.valid).toBe(true);
       expect(result.error).toBeNull();
       expect(result.warnings).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("draft phase tries the next agent after model_config", async () => {
+    const { dir, name } = setupDraftRepo("jarvis-plan-draft-model-config-");
+    const stderrLines: string[] = [];
+    try {
+      const claude = new FakeAgent("claude", () => ({
+        kind: "model_config",
+        stderr: "unknown model",
+      }));
+
+      const out = await runDraftPhase({
+        worktreePath: dir,
+        name,
+        config: testConfig,
+        stderr: (line) => stderrLines.push(line),
+        createAgent: (agentName) => {
+          if (agentName === "claude") {
+            return claude;
+          }
+          if (agentName === "codex") {
+            return codexWritesOkDraft(name);
+          }
+          throw new Error(`unexpected agent: ${agentName}`);
+        },
+      });
+
+      expect(out.result.kind).toBe("ok");
+      expect(out.subspecCount).toBe(1);
+      expect(claude.calls).toHaveLength(1);
+      expect(stderrLines.join("")).toContain(`plan: claude: ${HARNESS_MODEL_CONFIG_FALLBACK}`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("draft phase returns model_config when every agent rejects the model", async () => {
+    const { dir, name } = setupDraftRepo("jarvis-plan-draft-all-model-config-");
+    const stderrLines: string[] = [];
+    try {
+      const claude = new FakeAgent("claude", () => ({
+        kind: "model_config",
+        stderr: "bad claude model",
+      }));
+      const codex = new FakeAgent("codex", () => ({
+        kind: "model_config",
+        stderr: "bad codex model",
+      }));
+
+      const out = await runDraftPhase({
+        worktreePath: dir,
+        name,
+        config: testConfig,
+        stderr: (line) => stderrLines.push(line),
+        createAgent: (agentName) => {
+          if (agentName === "claude") {
+            return claude;
+          }
+          if (agentName === "codex") {
+            return codex;
+          }
+          throw new Error(`unexpected agent: ${agentName}`);
+        },
+      });
+
+      expect(out.result.kind).toBe("model_config");
+      const err = stderrLines.join("");
+      expect(err).toContain(`plan: claude: ${HARNESS_MODEL_CONFIG_FALLBACK}`);
+      expect(err).toContain(`plan: codex: ${HARNESS_MODEL_CONFIG_FALLBACK}`);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -252,17 +252,22 @@ invocation bindings that wrap agents and handle spawn + classification together:
 - The binding factory (`createPlanInvocationBinding`) closes over per-consumer
   parameters: stderr emitter, telemetry sink, spawn options (e.g.
   `additionalReadDirs` for no-commit specs), pre-spin hooks (e.g. intent-split's
-  stage directory reset), and advance predicates (default: continue on quota only;
-  draft continues on hard error).
+  stage directory reset), and advance predicates (draft, intent-split, and
+  dormant `name-only` advance on `quota`, hard `error`, and `model_config`;
+  review/patch keep terminal `model_config`).
 - The shared executor loops through bindings, advancing to the next only when the
   binding's advance predicate returns true (default: `result.kind === "quota"`).
 - Git porcelain snapshots and classification happen inside the binding's
   `invoke()` method; the executor and binding stay generic over
   `InvocationResult` subtypes and do not flatten rich results (e.g. cost/usage
   in ok results pass through unchanged).
-- Each phase preserves its exact pre-shared-executor behavior: success/quota/
-  error/model_config outcomes, stderr lines (byte-identical), per-attempt
-  telemetry, and advance/stop-on-error semantics.
+- Per-attempt telemetry and spawn/classification plumbing are shared;
+  advance/stop semantics remain phase-specific. Draft and intent-split rotate on
+  `model_config` (rotation stderr via `emitPlanAgentQuotaFallback` with `plan:` /
+  `intent:` prefixes); chain exhaustion still exits `3` via terminal handlers in
+  `plan/run.ts` and `intent.ts`. Review, patch, and prompt keep fatal
+  `model_config`. The `name-only` export shares the advance predicate but has no
+  live operator path and no `model_config` rotation-stderr requirement.
 
 ## Patch invocation architecture
 

@@ -348,6 +348,41 @@ describe("planCommand", () => {
     }
   });
 
+  test("all agents model_config during draft exits 3 with terminal message", async () => {
+    const { dir, cfgDir, project } = setupRegisteredGitWorktreeProject();
+    try {
+      configureGitDisabledPlanProject(cfgDir, 0);
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.modes.plan.agentOrder = [
+        { agent: "claude", model: "haiku" },
+        { agent: "codex", model: "gpt-5.3-codex" },
+      ];
+      writeConfig(cfg, { dir: cfgDir });
+
+      const intentPath = writeReadyIntent(project, "all-model-config-draft");
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        args: [intentPath],
+        cwd: project,
+        config: { dir: cfgDir },
+        logClient: okLogClient,
+        skipGhCheck: true,
+        createAgent: (agentName) =>
+          new FakeAgent(agentName, () => ({
+            kind: "model_config",
+            stderr: agentName === "codex" ? "bad codex model" : "bad claude model",
+          })),
+      });
+
+      expect(code).toBe(3);
+      expect(cap.err()).toContain("plan: model configuration error");
+      expect(cap.err()).toContain("bad codex model");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("resume honors git: false even when plan.commit is true", async () => {
     const { dir, cfgDir, project } = setupRegisteredGitWorktreeProject();
     try {

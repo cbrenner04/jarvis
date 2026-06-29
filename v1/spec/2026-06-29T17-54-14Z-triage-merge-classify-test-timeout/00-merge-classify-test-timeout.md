@@ -32,9 +32,9 @@ whether flakes persist at the 30s bound under full-suite parallel load.
 
 ## Acceptance criteria
 
-- [ ] `v1/test/triage-command.test.ts` › `--merge classifies all spec check statuses correctly` passes under `bun run test`.
-- [ ] `v1/test/triage-command.test.ts` › `--merge classifies all spec check statuses correctly` stays green with unchanged assertions (green merge, red refusal, pending `pollCount >= 1`).
-- [ ] `bun run typecheck` passes.
+- [x] `v1/test/triage-command.test.ts` › `--merge classifies all spec check statuses correctly` passes under `bun run test`.
+- [x] `v1/test/triage-command.test.ts` › `--merge classifies all spec check statuses correctly` stays green with unchanged assertions (green merge, red refusal, pending `pollCount >= 1`).
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

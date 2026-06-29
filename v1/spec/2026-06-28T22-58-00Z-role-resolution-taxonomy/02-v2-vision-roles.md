@@ -24,13 +24,13 @@ store.
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/v2-vision.md` behavior-loop, composability summary, and workflow
+- [x] `v2/docs/v2-vision.md` behavior-loop, composability summary, and workflow
       step prose describe steps binding `behavior` + `prompt` + **role**, not
       model category.
-- [ ] "Models separate from agents" (and related constraint prose) cites
+- [x] "Models separate from agents" (and related constraint prose) cites
       role→model resolution, not category→agent→model.
-- [ ] The file cross-links `v2/docs/role-resolution.md`.
-- [ ] No thinking/reviewing/executing category is used as a model-resolution key
+- [x] The file cross-links `v2/docs/role-resolution.md`.
+- [x] No thinking/reviewing/executing category is used as a model-resolution key
       anywhere in `v2-vision.md`. (Manual)
 
 ## Documentation updates

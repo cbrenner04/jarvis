@@ -36,16 +36,16 @@ split via thinking/reviewing/executing classes.
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/v2-architecture.md` layered-model table, terminology block, and
+- [x] `v2/docs/v2-architecture.md` layered-model table, terminology block, and
       workflow step prose cite **role**, not model category, as the step
       resolution field.
-- [ ] Per-project config section documents role→model resolution (agent fallback
+- [x] Per-project config section documents role→model resolution (agent fallback
       order outer loop; `(agent, role) → model` inner resolution) with no
       category→model store wording.
-- [ ] Review-as-debate section explains reviewer vs actuator model split using
+- [x] Review-as-debate section explains reviewer vs actuator model split using
       role names, not thinking/reviewing/executing classes.
-- [ ] The file cross-links `v2/docs/role-resolution.md`.
-- [ ] No thinking/reviewing/executing category is used as a model-resolution key
+- [x] The file cross-links `v2/docs/role-resolution.md`.
+- [x] No thinking/reviewing/executing category is used as a model-resolution key
       anywhere in `v2-architecture.md`. (Manual)
 
 ## Documentation updates

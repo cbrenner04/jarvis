@@ -40,15 +40,15 @@ role mapping for parity readers.
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/v1-behaviors.md` `[v2 divergence]` bullet cites role→model
+- [x] `v2/docs/v1-behaviors.md` `[v2 divergence]` bullet cites role→model
       resolution instead of category→agent→model.
-- [ ] The file documents `modes.patch.subRoleAgentOrder` tier → v2 role mapping
+- [x] The file documents `modes.patch.subRoleAgentOrder` tier → v2 role mapping
       for `reviewPanel`, `patchActuator`, and `reviewActuator`.
-- [ ] Mapping prose footnotes that `reviewActuator` tier equivalence covers
+- [x] Mapping prose footnotes that `reviewActuator` tier equivalence covers
       verdict actuator (`actuator`, head-only) and shrink (`implement`,
       full-list fallback).
-- [ ] The file cross-links `v2/docs/role-resolution.md`.
-- [ ] No v1 migration or dual-write guidance appears in the updated prose.
+- [x] The file cross-links `v2/docs/role-resolution.md`.
+- [x] No v1 migration or dual-write guidance appears in the updated prose.
 
 ## Documentation updates
 

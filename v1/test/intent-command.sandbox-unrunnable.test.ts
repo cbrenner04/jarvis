@@ -172,11 +172,11 @@ class SplitAgent implements Agent {
     if (this.#mode === "quota") {
       return { kind: "quota", stderr: "synthetic quota" };
     }
-    if (this.#mode === "model_config") {
-      return { kind: "model_config", stderr: "" };
-    }
-    if (this.#mode === "model_config-with-stderr") {
-      return { kind: "model_config", stderr: "unknown model: fake-model" };
+    if (this.#mode === "model_config" || this.#mode === "model_config-with-stderr") {
+      return {
+        kind: "model_config",
+        stderr: this.#mode === "model_config-with-stderr" ? "unknown model: fake-model" : "",
+      };
     }
     if (this.#mode === "hard-error") {
       return { kind: "error", exitCode: 1, stderr: "synthetic hard error" };

@@ -225,7 +225,7 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
       spawnOptions: opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : undefined,
       lastOutputAtMs: draftLastOutputAtMs,
       onQuotaFallbackEmit: (agentName, spawnResult, classified) => {
-        emitPlanAgentQuotaFallback(opts.stderr, agentName, spawnResult, classified, "plan", true);
+        emitPlanAgentQuotaFallback(opts.stderr, agentName, spawnResult, classified, "draft");
       },
       recordAgentAttempt: (data) => {
         opts.planTelemetry?.recordAgentAttempt({

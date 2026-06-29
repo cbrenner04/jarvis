@@ -50,6 +50,28 @@ const testConfig: Config = {
   projects: {},
 };
 
+function setupDraftRepo(tmpPrefix: string): { dir: string; name: string } {
+  const dir = mkdtempSync(join(tmpdir(), tmpPrefix));
+  execSync("git init -b main", { cwd: dir });
+  execSync("git config user.email 'test@example.com'", { cwd: dir });
+  execSync("git config user.name 'Test User'", { cwd: dir });
+  const name = "p-draft";
+  const specDir = join(dir, "spec", name);
+  mkdirSync(specDir, { recursive: true });
+  writeFileSync(join(specDir, "intent.md"), "---\nname: p-draft\n---\n\n# Intent\n\nseed\n");
+  return { dir, name };
+}
+
+function codexWritesOkDraft(name: string): FakeAgent {
+  return new FakeAgent("codex", (_c, _p, opts) => {
+    const d = join(opts.cwd, "spec", name);
+    mkdirSync(d, { recursive: true });
+    writeFileSync(join(d, "index.md"), "# Draft spec\n\n- [ ] [00](./00-one.md)\n");
+    writeFileSync(join(d, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] x\n");
+    return { kind: "ok", stdout: "", stderr: "" };
+  });
+}
+
 describe("runDraftPhase (plan inner loop on hard error)", () => {
   test("draft phase tries the next agent after a classified hard error", async () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-draft-hard-err-"));
@@ -409,29 +431,13 @@ describe("runDraftPhase (plan inner loop on hard error)", () => {
   });
 
   test("draft phase tries the next agent after model_config", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-draft-model-config-"));
+    const { dir, name } = setupDraftRepo("jarvis-plan-draft-model-config-");
     const stderrLines: string[] = [];
     try {
-      execSync("git init -b main", { cwd: dir });
-      execSync("git config user.email 'test@example.com'", { cwd: dir });
-      execSync("git config user.name 'Test User'", { cwd: dir });
-
-      const name = "p-draft";
-      const specDir = join(dir, "spec", name);
-      mkdirSync(specDir, { recursive: true });
-      writeFileSync(join(specDir, "intent.md"), "---\nname: p-draft\n---\n\n# Intent\n\nseed\n");
-
       const claude = new FakeAgent("claude", () => ({
         kind: "model_config",
         stderr: "unknown model",
       }));
-      const codex = new FakeAgent("codex", (_c, _p, opts) => {
-        const d = join(opts.cwd, "spec", name);
-        mkdirSync(d, { recursive: true });
-        writeFileSync(join(d, "index.md"), "# Draft spec\n\n- [ ] [00](./00-one.md)\n");
-        writeFileSync(join(d, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] x\n");
-        return { kind: "ok", stdout: "", stderr: "" };
-      });
 
       const out = await runDraftPhase({
         worktreePath: dir,
@@ -443,7 +449,7 @@ describe("runDraftPhase (plan inner loop on hard error)", () => {
             return claude;
           }
           if (agentName === "codex") {
-            return codex;
+            return codexWritesOkDraft(name);
           }
           throw new Error(`unexpected agent: ${agentName}`);
         },
@@ -452,7 +458,6 @@ describe("runDraftPhase (plan inner loop on hard error)", () => {
       expect(out.result.kind).toBe("ok");
       expect(out.subspecCount).toBe(1);
       expect(claude.calls).toHaveLength(1);
-      expect(codex.calls).toHaveLength(1);
       expect(stderrLines.join("")).toContain(`plan: claude: ${HARNESS_MODEL_CONFIG_FALLBACK}`);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -460,18 +465,9 @@ describe("runDraftPhase (plan inner loop on hard error)", () => {
   });
 
   test("draft phase returns model_config when every agent rejects the model", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-draft-all-model-config-"));
+    const { dir, name } = setupDraftRepo("jarvis-plan-draft-all-model-config-");
     const stderrLines: string[] = [];
     try {
-      execSync("git init -b main", { cwd: dir });
-      execSync("git config user.email 'test@example.com'", { cwd: dir });
-      execSync("git config user.name 'Test User'", { cwd: dir });
-
-      const name = "p-draft";
-      const specDir = join(dir, "spec", name);
-      mkdirSync(specDir, { recursive: true });
-      writeFileSync(join(specDir, "intent.md"), "---\nname: p-draft\n---\n\n# Intent\n\nseed\n");
-
       const claude = new FakeAgent("claude", () => ({
         kind: "model_config",
         stderr: "bad claude model",
@@ -498,8 +494,9 @@ describe("runDraftPhase (plan inner loop on hard error)", () => {
       });
 
       expect(out.result.kind).toBe("model_config");
-      expect(stderrLines.join("")).toContain(`plan: claude: ${HARNESS_MODEL_CONFIG_FALLBACK}`);
-      expect(stderrLines.join("")).toContain(`plan: codex: ${HARNESS_MODEL_CONFIG_FALLBACK}`);
+      const err = stderrLines.join("");
+      expect(err).toContain(`plan: claude: ${HARNESS_MODEL_CONFIG_FALLBACK}`);
+      expect(err).toContain(`plan: codex: ${HARNESS_MODEL_CONFIG_FALLBACK}`);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

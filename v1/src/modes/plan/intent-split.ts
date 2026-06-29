@@ -126,7 +126,7 @@ export async function runIntentSplitTurn(opts: {
       preSpinHook,
       spawnOptions: opts.additionalReadDirs ? { additionalReadDirs: opts.additionalReadDirs } : undefined,
       onQuotaFallbackEmit: (agentName, spawnResult, classified) => {
-        emitPlanAgentQuotaFallback(opts.stderr, agentName, spawnResult, classified, "intent", true);
+        emitPlanAgentQuotaFallback(opts.stderr, agentName, spawnResult, classified, "intent");
       },
       shouldAdvance: (result) => result.kind === "quota" || result.kind === "error" || result.kind === "model_config",
     }),

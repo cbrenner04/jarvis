@@ -7,7 +7,7 @@ import {
   harnessQuotaFallbackLenientLine,
 } from "../../quota-harness-messages.ts";
 
-export type PlanRotationPhase = "intent" | "plan";
+type PlanRotationKind = "draft" | "intent" | "quota";
 
 /**
  * When plan or intent inner loops rotate to the next agent after a
@@ -19,13 +19,14 @@ export function emitPlanAgentQuotaFallback(
   agent: AgentName,
   spawnResult: AgentResult,
   classified: AgentResult,
-  phase: PlanRotationPhase = "plan",
-  rotateModelConfig = false,
+  rotation: PlanRotationKind = "quota",
 ): void {
   if (stderrFn === undefined) return;
 
-  if (classified.kind === "model_config" && rotateModelConfig) {
-    stderrFn(`${phase}: ${agent}: ${HARNESS_MODEL_CONFIG_FALLBACK}\n`);
+  const prefix = rotation === "intent" ? "intent" : "plan";
+
+  if (classified.kind === "model_config" && rotation !== "quota") {
+    stderrFn(`${prefix}: ${agent}: ${HARNESS_MODEL_CONFIG_FALLBACK}\n`);
     if (spawnResult.stderr.length > 0) {
       stderrFn(spawnResult.stderr.endsWith("\n") ? spawnResult.stderr : `${spawnResult.stderr}\n`);
     }
@@ -35,13 +36,13 @@ export function emitPlanAgentQuotaFallback(
   if (classified.kind !== "quota") return;
   if (spawnResult.kind === "quota") {
     if (spawnResult.authFailure === true) {
-      stderrFn(`${phase}: ${agent}: ${harnessAuthRotateLine(agent)}\n`);
+      stderrFn(`${prefix}: ${agent}: ${harnessAuthRotateLine(agent)}\n`);
     } else {
-      stderrFn(`${phase}: ${agent}: ${HARNESS_QUOTA_FALLBACK_STRICT}\n`);
+      stderrFn(`${prefix}: ${agent}: ${HARNESS_QUOTA_FALLBACK_STRICT}\n`);
     }
     return;
   }
   if (spawnResult.kind === "error") {
-    stderrFn(`${phase}: ${agent}: ${harnessQuotaFallbackLenientLine(spawnResult.exitCode)}\n`);
+    stderrFn(`${prefix}: ${agent}: ${harnessQuotaFallbackLenientLine(spawnResult.exitCode)}\n`);
   }
 }

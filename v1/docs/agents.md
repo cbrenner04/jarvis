@@ -264,8 +264,7 @@ invocation bindings that wrap agents and handle spawn + classification together:
 - Each phase preserves its exact pre-shared-executor behavior: success/quota/
   error/model_config outcomes, per-attempt telemetry, and advance/stop semantics.
   Draft and intent-split rotation stderr uses `emitPlanAgentQuotaFallback` with
-  harness fallback phrases (`quota exhausted; falling back`, `model configuration
-  error; falling back`, etc.) and mode-specific prefixes (`plan:` / `intent:`).
+  harness fallback phrases and `plan:` / `intent:` prefixes.
 
 ## Patch invocation architecture
 

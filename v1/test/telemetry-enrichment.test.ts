@@ -79,4 +79,44 @@ describe("extractUsageAndCost: estimated usage", () => {
     expect(result.cost_source).toBe("no-price");
     expect(result.cost_usd).toBeNull();
   });
+
+  test("estimated opencode usage with opencode/glm-5.2 yields cost_source=estimated", () => {
+    const result = extractUsageAndCost(
+      {
+        usage_source: "estimated",
+        usage: {
+          input_tokens: 100,
+          output_tokens: 50,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+      },
+      "opencode",
+      "opencode/glm-5.2",
+    );
+    expect(result.usage_source).toBe("estimated");
+    expect(result.cost_source).toBe("estimated");
+    expect(result.cost_usd).toBeTypeOf("number");
+  });
+});
+
+describe("extractUsageAndCost: agent usage without cost", () => {
+  test("agent-reported opencode usage with opencode/glm-5.2 and cost_usd null yields cost_source=computed", () => {
+    const result = extractUsageAndCost(
+      {
+        usage: {
+          input_tokens: 100,
+          output_tokens: 50,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+        cost_usd: null,
+      },
+      "opencode",
+      "opencode/glm-5.2",
+    );
+    expect(result.usage_source).toBe("agent");
+    expect(result.cost_source).toBe("computed");
+    expect(result.cost_usd).toBeTypeOf("number");
+  });
 });

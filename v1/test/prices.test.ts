@@ -209,6 +209,29 @@ describe("loadPrices", () => {
     expect(result.cost_source).toBe("computed");
     expect(result.cost_usd).not.toBeNull();
   });
+
+  it("checked-in seed data includes opencode/glm-5.2 and computes cost", () => {
+    const prices = loadPrices();
+    expect(prices.models["opencode/glm-5.2"]).toMatchObject({
+      input_per_mtok: 1.4,
+      output_per_mtok: 4.4,
+      cache_read_per_mtok: 0.26,
+      source_url: "https://opencode.ai/zen/v1/models",
+      as_of: "2026-06-28",
+    });
+    const result = computeCost(
+      {
+        input_tokens: 1000,
+        output_tokens: 500,
+        cache_read_input_tokens: 200,
+        cache_creation_input_tokens: 0,
+      },
+      "opencode/glm-5.2",
+      prices,
+    );
+    expect(result.cost_source).toBe("computed");
+    expect(result.cost_usd).not.toBeNull();
+  });
 });
 
 describe("computeCost", () => {

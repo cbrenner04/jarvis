@@ -37,7 +37,7 @@ Default merged-cleanup (no `--abandon`) is unchanged.
 - Retire step stays on `retireAbandonedWorktree` — rules out a parallel retire implementation with different PR/branch semantics.
 - Scoped mode refuses ineligible named targets with stderr + non-zero exit — rules out global-mode skip-and-continue when the operator named one tree.
 - Scoped dry-run lists only the named target — rules out previewing unrelated abandoned worktrees.
-- Scoped preview on stdout: header `Worktree to remove:` then one line `  <worktree-path> (<branch>)` with optional ` (plan)` when the branch is `plan/*` — rules out reusing global `Worktrees to remove:` branch-only listing.
+- Scoped preview on stdout: header `Worktree to remove:` then one line `<worktree-path> (<branch>)` with optional `(plan)` when the branch is `plan/*` — rules out reusing global `Worktrees to remove:` branch-only listing.
 - Guard refusals on stderr; preview on stdout — rules out mixing guard text into preview output.
 - Scoped confirmation inherits global `[y/N]`, `cancelled` on decline, exit `0`, no side effects — rules out a different confirm/cancel contract; deferral limited to prompt copy before `[y/N]`.
 - Live-lock guard uses exported/shared `readLiveWorktreeLock` semantics on `.worktree/<worktree-name>/.jarvis.lock` (alive PID blocks, stale ignored) — rules out duplicating lock probe logic and rules out refusing on stale lock files.
@@ -68,7 +68,7 @@ Default merged-cleanup (no `--abandon`) is unchanged.
 ## Acceptance criteria
 
 - [ ] `jarvis1 cleanup --abandon <worktree-name>` retires only the named eligible worktree: closes at most one matching draft PR best-effort, force-removes the worktree, deletes local and remote branch, and leaves the source spec directory on disk unmodified.
-- [ ] Scoped abandon prints stdout preview `Worktree to remove:` then `  <worktree-path> (<branch>)` (with ` (plan)` when applicable) before the confirmation prompt or before exiting on `--dry-run`.
+- [ ] Scoped abandon prints stdout preview `Worktree to remove:` then `<worktree-path> (<branch>)` (with `(plan)` when applicable) before the confirmation prompt or before exiting on `--dry-run`.
 - [ ] Unknown `<worktree-name>` (missing `.worktree/<name>/`) refuses stderr `unknown worktree: <name>`, exits `1`, and makes no changes.
 - [ ] Named target whose branch PR is merged refuses stderr `cannot abandon <worktree-name>: branch <branch> PR is merged`, exits `1`, and makes no changes.
 - [ ] Named target with an open ready/non-draft PR refuses stderr `unsafe PR state for branch <branch>: matching open PR #<n> is not draft`, exits `1`, and makes no changes.

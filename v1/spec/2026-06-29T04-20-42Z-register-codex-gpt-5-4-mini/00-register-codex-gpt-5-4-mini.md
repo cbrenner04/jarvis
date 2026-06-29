@@ -37,15 +37,15 @@
 
 ## Acceptance criteria
 
-- [ ] `writeConfig` / `loadConfig` accept `{ agent: "codex", model: "gpt-5.4-mini" }` in a representative `agentOrder` field exercised by `validateAgentOrder` (e.g. `modes.patch.agentOrder`).
-- [ ] `resolveAgentPriceKey("codex", "gpt-5.4-mini")` returns `"gpt-5.4-mini"`.
-- [ ] `CodexAgent` with `model: "gpt-5.4-mini"` passes the verified CLI slug to `codex exec --model` and `attributionLabel()` returns the raw model string.
-- [ ] `data/prices.json` includes the owner snapshot row (`input_per_mtok` 0.75, `output_per_mtok` 4.5, `cache_read_per_mtok` 0.075, cited `source_url`, `as_of` `2026-06-27`).
-- [ ] `prices.test.ts` seed assertion covers `gpt-5.4-mini`; `computeCost(fixtureUsage, "gpt-5.4-mini", loadPrices())` yields `cost_source: "computed"` with non-null `cost_usd`.
-- [ ] `config.test.ts` `"bootstraps from empty dir with defaults"` stays green.
+- [x] `writeConfig` / `loadConfig` accept `{ agent: "codex", model: "gpt-5.4-mini" }` in a representative `agentOrder` field exercised by `validateAgentOrder` (e.g. `modes.patch.agentOrder`).
+- [x] `resolveAgentPriceKey("codex", "gpt-5.4-mini")` returns `"gpt-5.4-mini"`.
+- [x] `CodexAgent` with `model: "gpt-5.4-mini"` passes the verified CLI slug to `codex exec --model` and `attributionLabel()` returns the raw model string.
+- [x] `data/prices.json` includes the owner snapshot row (`input_per_mtok` 0.75, `output_per_mtok` 4.5, `cache_read_per_mtok` 0.075, cited `source_url`, `as_of` `2026-06-27`).
+- [x] `prices.test.ts` seed assertion covers `gpt-5.4-mini`; `computeCost(fixtureUsage, "gpt-5.4-mini", loadPrices())` yields `cost_source: "computed"` with non-null `cost_usd`.
+- [x] `config.test.ts` `"bootstraps from empty dir with defaults"` stays green.
 - [ ] Live `codex exec --model <verified slug>` accepts the model. (Manual)
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes.
 
 ## Documentation updates
 

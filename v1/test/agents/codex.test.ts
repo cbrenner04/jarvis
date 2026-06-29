@@ -66,6 +66,28 @@ describe("CodexAgent", () => {
     });
   });
 
+  test("passes gpt-5.4-mini through to --model", async () => {
+    const { home, cwd } = prepareTempDirs();
+    await withHome(home, async () => {
+      const recorder = createFakeSpawnWithOutput({
+        codex: { exit: 0, stdout: "ok", stderr: "" },
+      });
+      const agent = new CodexAgent({ spawn: recorder.spawn, model: "gpt-5.4-mini" });
+
+      await agent.run("the prompt", { cwd });
+
+      expect(recorder.records).toHaveLength(1);
+      const record = recorder.only();
+      expect(record.argv).toContain("--model");
+      expect(record.argv).toContain("gpt-5.4-mini");
+    });
+  });
+
+  test("attributionLabel returns raw gpt-5.4-mini string", () => {
+    const agent = new CodexAgent({ binary: "fake", model: "gpt-5.4-mini" });
+    expect(agent.attributionLabel()).toBe("gpt-5.4-mini");
+  });
+
   test("includes model flag when model is configured", async () => {
     const { home, cwd } = prepareTempDirs();
     await withHome(home, async () => {

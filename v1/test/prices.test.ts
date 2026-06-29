@@ -186,9 +186,33 @@ describe("loadPrices", () => {
       cache_read_per_mtok: 0.25,
     });
   });
+
+  it("checked-in seed data includes gpt-5.4-mini", () => {
+    const prices = loadPrices();
+    expect(prices.models["gpt-5.4-mini"]).toMatchObject({
+      input_per_mtok: 0.75,
+      output_per_mtok: 4.5,
+      cache_read_per_mtok: 0.075,
+      source_url: "https://developers.openai.com/api/docs/models/gpt-5.4-mini",
+      as_of: "2026-06-27",
+    });
+  });
 });
 
 describe("computeCost", () => {
+  const fixtureUsage = {
+    input_tokens: 1000,
+    output_tokens: 500,
+    cache_read_input_tokens: 200,
+    cache_creation_input_tokens: 0,
+  };
+
+  it("computes cost for gpt-5.4-mini from checked-in prices", () => {
+    const result = computeCost(fixtureUsage, "gpt-5.4-mini", loadPrices());
+    expect(result.cost_source).toBe("computed");
+    expect(result.cost_usd).not.toBeNull();
+  });
+
   const prices = {
     version: 1,
     models: {

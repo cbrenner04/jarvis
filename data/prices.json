@@ -32,6 +32,13 @@
       "source_url": "https://developers.openai.com/api/docs/models/gpt-5.4",
       "as_of": "2026-06-06"
     },
+    "gpt-5.4-mini": {
+      "input_per_mtok": 0.75,
+      "output_per_mtok": 4.5,
+      "cache_read_per_mtok": 0.075,
+      "source_url": "https://developers.openai.com/api/docs/models/gpt-5.4-mini",
+      "as_of": "2026-06-27"
+    },
     "gpt-5.5": {
       "input_per_mtok": 5.0,
       "output_per_mtok": 30.0,

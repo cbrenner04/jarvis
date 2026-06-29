@@ -172,9 +172,7 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
     const porcelain = readPorcelain(cwd);
     if (porcelain !== "") {
       const dirtyBranch = getCurrentBranch(cwd);
-      throw new ReadyVerificationDirtyError(
-        postVerificationStillDirtyErrorMessage(dirtyBranch, porcelain),
-      );
+      throw new ReadyVerificationDirtyError(postVerificationStillDirtyErrorMessage(dirtyBranch, porcelain));
     }
 
     try {

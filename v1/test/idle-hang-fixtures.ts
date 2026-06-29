@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { chmodSync, writeFileSync } from "node:fs";
 import { isProcessAlive } from "../../shared/worktree-lock.ts";
 import { collectSubtree, DescendantTracker, listProcesses } from "../src/modes/patch/reap.ts";
@@ -115,7 +115,7 @@ export function reapActiveHangFixtures(trackingId: string): void {
 
 function findPidsForScriptPath(scriptPath: string): number[] {
   try {
-    const out = execSync(`pgrep -f ${JSON.stringify(scriptPath)}`, {
+    const out = execFileSync("pgrep", ["-f", scriptPath], {
       encoding: "utf8",
       stdio: ["pipe", "pipe", "ignore"],
     });

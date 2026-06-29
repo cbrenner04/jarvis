@@ -103,7 +103,7 @@ there.
   `scripts/ready.ts` — not relaxed or reordered.
 - [x] `v1/test/intent-command.sandbox-unrunnable.test.ts` emit-repair cases stay
   green after shared-helper extraction.
-- [ ] After a successful `commit: true` `jarvis1 plan` run whose spec lives under
+- [x] After a successful `commit: true` `jarvis1 plan` run whose spec lives under
   `lint:md` globs and auto-ready transition succeeds, `bun run lint:md` exits 0
   with no operator edits to the generated spec tree. (Manual)
 

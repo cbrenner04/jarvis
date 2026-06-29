@@ -107,11 +107,7 @@ function makeIntentDriftActuatorAgent(
   return new FakeAgent("claude", (_c, prompt, agentOpts) => {
     if (prompt.includes("Review Actuator")) {
       const specRoot = join(agentOpts.cwd, "spec", "p-review");
-      writeFileSync(
-        join(specRoot, "00-one.md"),
-        `# One\n\n## Acceptance criteria\n\n- [ ] ${acMarker}\n`,
-        "utf8",
-      );
+      writeFileSync(join(specRoot, "00-one.md"), `# One\n\n## Acceptance criteria\n\n- [ ] ${acMarker}\n`, "utf8");
       const intentPath = join(specRoot, "intent.md");
       writeFileSync(intentPath, `${readFileSync(intentPath, "utf8")}\n# dirty\n`, "utf8");
       opts?.onActuator?.(agentOpts);

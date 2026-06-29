@@ -15,9 +15,10 @@ export type RecoverImmutableCopyOverreachOpts = {
   emitNotice?: ((text: string) => void) | undefined;
 };
 
-export function recoverImmutableCopyOverreach(
-  opts: RecoverImmutableCopyOverreachOpts,
-): { valid: boolean; error: string | null } {
+export function recoverImmutableCopyOverreach(opts: RecoverImmutableCopyOverreachOpts): {
+  valid: boolean;
+  error: string | null;
+} {
   if (opts.copies.length === 0 || opts.validation.valid) {
     return opts.validation;
   }

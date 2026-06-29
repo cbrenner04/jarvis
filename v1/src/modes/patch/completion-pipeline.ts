@@ -12,6 +12,8 @@ import {
   FixCommandError,
   PreReadyFixCommitError,
   PreReadyFixPushError,
+  PostVerificationCommitError,
+  PostVerificationPushError,
   ReadyCommandError,
   ReadyVerificationDirtyError,
   runReadyAndCommit,
@@ -295,7 +297,11 @@ async function runCompletionReadyGate(
           result = { kind: "red", failureText: message, retryable: true, verificationRed: true };
         } else if (err instanceof PreReadyFixCommitError || err instanceof PreReadyFixPushError) {
           result = { kind: "red", failureText: message, retryable: false, verificationRed: false };
-        } else if (err instanceof ReadyVerificationDirtyError) {
+        } else if (
+          err instanceof PostVerificationCommitError ||
+          err instanceof PostVerificationPushError ||
+          err instanceof ReadyVerificationDirtyError
+        ) {
           result = { kind: "red", failureText: message, retryable: false, verificationRed: false };
         } else {
           result = { kind: "red", failureText: message, retryable: false };

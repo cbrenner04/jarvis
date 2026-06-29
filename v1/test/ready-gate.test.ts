@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   FixCommandError,
+  PostVerificationCommitError,
+  PostVerificationPushError,
   PreReadyFixCommitError,
   ReadyCommandError,
   ReadyVerificationDirtyError,
@@ -136,7 +138,51 @@ describe("runReadyAndCommit", () => {
     expect(readyCalled).toBe(false);
   });
 
-  test("full tier aborts when verification is green but tree is dirty", () => {
+  test("full tier commits post-verification churn when verification is green but tree is dirty", () => {
+    const calls: string[] = [];
+    let commitCalled = false;
+
+    runReadyAndCommit({
+      cwd: dir,
+      tier: "full",
+      agentLabel: "test-agent",
+      runFix: () => {
+        calls.push("fix");
+      },
+      runReady: () => {
+        calls.push("ready");
+        writeFileSync(join(dir, "post-ready.txt"), "x\n");
+      },
+      commitPostVerification: (cwd, agentLabel) => {
+        commitCalled = true;
+        expect(cwd).toBe(dir);
+        expect(agentLabel).toBe("test-agent");
+        execSync("git add -A && git commit -q -m post", { cwd: dir });
+      },
+    });
+
+    expect(calls).toEqual(["fix", "ready"]);
+    expect(commitCalled).toBe(true);
+    expect(execSync("git status --porcelain", { cwd: dir, encoding: "utf8" }).trim()).toBe("");
+  });
+
+  test("full tier skips post-verification commit when verification leaves clean tree", () => {
+    let commitCalled = false;
+
+    runReadyAndCommit({
+      cwd: dir,
+      tier: "full",
+      runFix: () => {},
+      runReady: () => {},
+      commitPostVerification: () => {
+        commitCalled = true;
+      },
+    });
+
+    expect(commitCalled).toBe(false);
+  });
+
+  test("full tier aborts when post-verification commit leaves tree dirty", () => {
     expect(() =>
       runReadyAndCommit({
         cwd: dir,
@@ -145,8 +191,49 @@ describe("runReadyAndCommit", () => {
         runReady: () => {
           writeFileSync(join(dir, "override-dirt.txt"), "x\n");
         },
+        commitPostVerification: (cwd) => {
+          execSync("git add -A && git commit -q -m post", { cwd });
+          writeFileSync(join(cwd, "still-dirty.txt"), "y\n");
+          const porcelain = execSync("git status --porcelain", { cwd, encoding: "utf8" }).trim();
+          const dirtyBranch = execSync("git branch --show-current", { cwd, encoding: "utf8" }).trim();
+          throw new ReadyVerificationDirtyError(
+            `verification returned green but worktree is still dirty on branch ${dirtyBranch}:\n${porcelain}\nDo not call gh pr ready. Inspect the branch and commit or discard the unexpected changes.`,
+          );
+        },
       }),
     ).toThrow(ReadyVerificationDirtyError);
+  });
+
+  test("post-verification commit failure aborts after green verification", () => {
+    expect(() =>
+      runReadyAndCommit({
+        cwd: dir,
+        tier: "full",
+        runFix: () => {},
+        runReady: () => {
+          writeFileSync(join(dir, "dirty.txt"), "x\n");
+        },
+        commitPostVerification: () => {
+          throw new PostVerificationCommitError("commit failed");
+        },
+      }),
+    ).toThrow(PostVerificationCommitError);
+  });
+
+  test("post-verification push failure aborts after green verification", () => {
+    expect(() =>
+      runReadyAndCommit({
+        cwd: dir,
+        tier: "full",
+        runFix: () => {},
+        runReady: () => {
+          writeFileSync(join(dir, "dirty.txt"), "x\n");
+        },
+        commitPostVerification: () => {
+          throw new PostVerificationPushError("push failed");
+        },
+      }),
+    ).toThrow(PostVerificationPushError);
   });
 
   test("ready command failure is ReadyCommandError after fix", () => {
@@ -247,7 +334,7 @@ describe("runReadyAndCommit readyCommand", () => {
     ).toThrow(script);
   });
 
-  test("custom readyCommand green with dirty porcelain aborts on full tier", () => {
+  test("custom readyCommand green with dirty porcelain commits on full tier", () => {
     const script = join(sentinelDir, "dirty-green.sh");
     writeFileSync(
       script,
@@ -258,13 +345,17 @@ exit 0
     );
     chmodSync(script, 0o755);
 
-    expect(() =>
-      runReadyAndCommit({
-        cwd: dir,
-        readyCommand: script,
-        runFix: () => {},
-      }),
-    ).toThrow(ReadyVerificationDirtyError);
+    runReadyAndCommit({
+      cwd: dir,
+      readyCommand: script,
+      runFix: () => {},
+      commitPostVerification: () => {
+        execSync("git add -A && git commit -q -m post", { cwd: dir });
+      },
+    });
+
+    expect(existsSync(join(dir, "dirty-from-override.txt"))).toBe(true);
+    expect(execSync("git status --porcelain", { cwd: dir, encoding: "utf8" }).trim()).toBe("");
   });
 });
 
@@ -358,5 +449,29 @@ describe("runReadyGateWithTier", () => {
     expect(tiers).toEqual(["full"]);
     expect(calls).toEqual(["fix", "ready:full"]);
     expect(refreshedSha).toBe(execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim());
+  });
+
+  test("records HEAD after post-verification commit advances SHA", () => {
+    const headBefore = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim();
+    let refreshedSha = "";
+
+    runReadyGateWithTier({
+      cwd: dir,
+      agentLabel: "test",
+      runFix: () => {},
+      runReady: () => {
+        writeFileSync(join(dir, "post-ready.txt"), "x\n");
+      },
+      commitPostVerification: () => {
+        execSync("git add -A && git commit -q -m post", { cwd: dir });
+      },
+      refreshRecordedGreenResult: (sha) => {
+        refreshedSha = sha;
+      },
+    });
+
+    const headAfter = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim();
+    expect(headAfter).not.toBe(headBefore);
+    expect(refreshedSha).toBe(headAfter);
   });
 });

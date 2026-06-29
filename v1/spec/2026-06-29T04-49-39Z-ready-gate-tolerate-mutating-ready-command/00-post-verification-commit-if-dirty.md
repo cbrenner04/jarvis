@@ -50,24 +50,24 @@ Extend `runReadyAndCommit` in `v1/src/ready-gate.ts` and align completion-gate e
 
 ## Acceptance criteria
 
-- [ ] On `full` tier, green verification with non-empty porcelain runs post-verification commit-if-dirty (add, commit with `agentLabel` trailer, push) instead of throwing `ReadyVerificationDirtyError` before commit.
-- [ ] On `full` tier, green verification with clean porcelain skips post-verification commit and proceeds without error (common path unchanged).
-- [ ] Post-verification commit failure, push failure, or still-dirty porcelain after post-verification commit aborts before `gh pr ready`; completion-gate failures in this class exit `6`.
-- [ ] A mutating `readyCommand` that dirties the tree on green verification can complete the gate when post-verification commit leaves clean porcelain (patch completion path reaches `gh pr ready` / exit 0 in tests).
-- [ ] Residual still-dirty porcelain after post-verification commit throws `ReadyVerificationDirtyError` (or successor) matching the pre-ready still-dirty message structure: green verification, commit attempted, worktree still dirty, inspect — with guidance to inspect unexpected changes, not to fold autofix into `readyCommand`.
-- [ ] `fast` tier skips fix, pre-ready commit, post-verification commit, and post-verification porcelain enforcement — `ready-gate.test.ts` fast-tier tests stay green.
-- [ ] Completion-gate retry re-runs the full `full`-tier sequence including post-verification commit-if-dirty; post-verification commit/push/residual-dirty failures are non-retryable.
-- [ ] Recorded-green HEAD is captured only after successful `full` gate with clean porcelain (after post-verification commit when applicable).
-- [ ] `ready-gate.test.ts` covers a case where post-verification commit advances HEAD and recorded-green captures the post-commit SHA, not pre-commit.
-- [ ] Patch completion, pre-shrink, review baseline/final, `maybeMarkReady`, plan-mode ready transition, and triage `--mark-ready`/`--merge` inherit the new ordering through `runReadyAndCommit` / `runReadyGateWithTier` without call-site forks.
-- [ ] Non-completion gate call sites surface the same post-verification error types/messages with caller-specific exit mapping unchanged.
-- [ ] `ready-gate.test.ts` and `run.test.ts` cover committable post-verify churn, residual still-dirty abort, and unchanged clean post-verify path.
-- [ ] `v2/docs/v1-behaviors.md` records post-verification commit-if-dirty, updated gate ordering, error classification, recorded-green timing, retry semantics, and that post-verify commit does not re-run verification (CI backstop).
-- [ ] `v1/docs/operator-runbook.md` **The gate** section describes when the harness commits after verification, notes mutating-`readyCommand` auto-commit expectation shift, and cross-links `v2/docs/v1-behaviors.md`.
-- [ ] Stale gate-order recitations in `v1/docs/run-loop.md`, `v1/docs/config.md`, `v1/docs/worktrees-and-commits.md`, `v1/docs/workflows.md`, and `v1/docs/plan-mode.md` are updated or deduped per `v2/docs/documentation-standard.md`.
-- [ ] `v1/docs/run-loop.md` exit-6 table includes post-verification failure rows and extends the `dirty-worktree` harness-commit exclusion to `chore: apply post-ready verification output`.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes.
+- [x] On `full` tier, green verification with non-empty porcelain runs post-verification commit-if-dirty (add, commit with `agentLabel` trailer, push) instead of throwing `ReadyVerificationDirtyError` before commit.
+- [x] On `full` tier, green verification with clean porcelain skips post-verification commit and proceeds without error (common path unchanged).
+- [x] Post-verification commit failure, push failure, or still-dirty porcelain after post-verification commit aborts before `gh pr ready`; completion-gate failures in this class exit `6`.
+- [x] A mutating `readyCommand` that dirties the tree on green verification can complete the gate when post-verification commit leaves clean porcelain (patch completion path reaches `gh pr ready` / exit 0 in tests).
+- [x] Residual still-dirty porcelain after post-verification commit throws `ReadyVerificationDirtyError` (or successor) matching the pre-ready still-dirty message structure: green verification, commit attempted, worktree still dirty, inspect — with guidance to inspect unexpected changes, not to fold autofix into `readyCommand`.
+- [x] `fast` tier skips fix, pre-ready commit, post-verification commit, and post-verification porcelain enforcement — `ready-gate.test.ts` fast-tier tests stay green.
+- [x] Completion-gate retry re-runs the full `full`-tier sequence including post-verification commit-if-dirty; post-verification commit/push/residual-dirty failures are non-retryable.
+- [x] Recorded-green HEAD is captured only after successful `full` gate with clean porcelain (after post-verification commit when applicable).
+- [x] `ready-gate.test.ts` covers a case where post-verification commit advances HEAD and recorded-green captures the post-commit SHA, not pre-commit.
+- [x] Patch completion, pre-shrink, review baseline/final, `maybeMarkReady`, plan-mode ready transition, and triage `--mark-ready`/`--merge` inherit the new ordering through `runReadyAndCommit` / `runReadyGateWithTier` without call-site forks.
+- [x] Non-completion gate call sites surface the same post-verification error types/messages with caller-specific exit mapping unchanged.
+- [x] `ready-gate.test.ts` and `run.test.ts` cover committable post-verify churn, residual still-dirty abort, and unchanged clean post-verify path.
+- [x] `v2/docs/v1-behaviors.md` records post-verification commit-if-dirty, updated gate ordering, error classification, recorded-green timing, retry semantics, and that post-verify commit does not re-run verification (CI backstop).
+- [x] `v1/docs/operator-runbook.md` **The gate** section describes when the harness commits after verification, notes mutating-`readyCommand` auto-commit expectation shift, and cross-links `v2/docs/v1-behaviors.md`.
+- [x] Stale gate-order recitations in `v1/docs/run-loop.md`, `v1/docs/config.md`, `v1/docs/worktrees-and-commits.md`, `v1/docs/workflows.md`, and `v1/docs/plan-mode.md` are updated or deduped per `v2/docs/documentation-standard.md`.
+- [x] `v1/docs/run-loop.md` exit-6 table includes post-verification failure rows and extends the `dirty-worktree` harness-commit exclusion to `chore: apply post-ready verification output`.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes.
 
 ## Documentation updates
 

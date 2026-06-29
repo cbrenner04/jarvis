@@ -1870,6 +1870,68 @@ Date: 2026-06-18`,
       }
     });
 
+    test("mutating readyCommand green dirties tree and completion commits post-verification churn", async () => {
+      execSync("git init -b project", { cwd: projectRoot });
+      execSync('git config user.email "jarvis-test@example.com"', { cwd: projectRoot });
+      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      installNoopFixBun();
+      const remoteDir = mkdtempSync(join(tmpdir(), "jarvis-mutating-ready-remote-"));
+      execSync("git init --bare -b project", { cwd: remoteDir });
+      execSync(`git remote add origin ${remoteDir}`, { cwd: projectRoot });
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      execSync("git push -u origin project", { cwd: projectRoot });
+
+      const sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-mutating-ready-"));
+      try {
+        const churnFile = join(projectRoot, "coverage-threshold.txt");
+        const script = join(sentinelDir, "ready.sh");
+        writeFileSync(
+          script,
+          `#!/bin/sh
+printf 'auto-updated\\n' > "${churnFile}"
+exit 0
+`,
+        );
+        chmodSync(script, 0o755);
+
+        const cfg = loadConfig({ dir: cfgDir });
+        if (cfg.projects.project === undefined) {
+          cfg.projects.project = { root: projectRoot };
+        }
+        cfg.projects.project.readyCommand = script;
+        writeConfig(cfg, { dir: cfgDir });
+
+        const cap = captureIo();
+        const claude = new FakeAgent("claude", () => {
+          writeFileSync(spec, "- [x] todo\n");
+          execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+          return { kind: "ok", stdout: "", stderr: "" };
+        });
+
+        const code = await runCommand({
+          specPath: spec,
+          io: cap.io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          handleSignals: false,
+          skipGhCheck: true,
+          reviewPasses: 0,
+          logClient: { assertReachable: async () => {}, send: async () => {} },
+        });
+
+        expect(code).toBe(0);
+        expect(existsSync(churnFile)).toBe(true);
+        expect(execSync("git status --porcelain", { cwd: projectRoot, encoding: "utf8" }).trim()).toBe("");
+        expect(execSync("git log -1 --pretty=%s", { cwd: projectRoot, encoding: "utf8" }).trim()).toBe(
+          "chore: apply post-ready verification output",
+        );
+      } finally {
+        rmSync(sentinelDir, { recursive: true, force: true });
+        rmSync(remoteDir, { recursive: true, force: true });
+      }
+    });
+
     test("real path: red-then-green completion readyCommand leaves a clean HEAD-recordable tree", async () => {
       execSync("git init -b project", { cwd: projectRoot });
       execSync('git config user.email "jarvis-test@example.com"', { cwd: projectRoot });

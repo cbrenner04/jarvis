@@ -293,14 +293,18 @@ harness-side, before proceeding to post-completion phases (shrink, review,
 `chore: apply pre-ready check:fix`, preserving the per-call-site `Jarvis-Agent`
 trailer) and push **before** verification; (3) run strict verification —
 built-in `bun run ready`, or the project's `readyCommand` if set — against the
-committed tree; (4) there is no post-ready dirty commit, so if verification
-returns green with a still-dirty tree the gate aborts (exit 6) before
-`gh pr ready`. Built-in `bun run ready` is verification-only; built-in autofix
-lives in `bun run fix`. The `readyCommand` override replaces the verification
-command only at the five patch-mode gate sites (completion transition,
-pre-shrink, review baseline, review final, `maybeMarkReady`); on `full` the
-harness still runs built-in `bun run fix` and the commit-if-dirty step before
-the override. The override is tokenized on whitespace and invoked via
+committed tree; (4) if verification is green and porcelain is non-empty,
+commit it (default message `chore: apply post-ready verification output`,
+preserving the per-call-site `Jarvis-Agent` trailer) and push — no second
+verification pass; (5) if porcelain remains non-empty after the
+post-verification commit attempt (or commit/push fails), the gate aborts
+(exit 6) before `gh pr ready`. Built-in `bun run ready` is verification-only;
+built-in autofix lives in `bun run fix`. The `readyCommand` override replaces
+the verification command only at the five patch-mode gate sites (completion
+transition, pre-shrink, review baseline, review final, `maybeMarkReady`); on
+`full` the harness still runs built-in `bun run fix`, the pre-ready
+commit-if-dirty step, and the post-verification commit-if-dirty step when
+applicable. The override is tokenized on whitespace and invoked via
 `execFileSync` (no shell) with `JARVIS_READY_TIER` set in the environment.
 Plan-mode readiness does not thread `readyCommand`; its committed-path ready
 flip runs built-in `bun run fix` then built-in `bun run ready`.
@@ -308,21 +312,25 @@ This completion-transition gate always runs the **`full`** tier through
 `runReadyAndCommit` and consumes zero agent tokens.
 
 If verification fails, the harness re-runs the same whole completion gate
-unchanged — the full fix → commit-if-dirty → verify sequence — up to a fixed
-bound of 2 retries (3 total attempts). No agent runs between attempts. A
-successful fix-commit **persists** across verification reds; there is no
-implicit rollback between attempts. A non-zero `bun run fix` is retryable; a
-fix-commit failure, push failure, post-commit-still-dirty, or a green
-verification over a dirty tree are non-retryable and exit `6`. If any retry
-turns green over a clean tree, the gate records the same green result as a
-first-try pass. Commit/push failures are not retried: the run stays non-green
-and stops for operator intervention instead of entering fix-up or reaching PR
-readiness with the remote behind HEAD.
+unchanged — the full fix → commit-if-dirty → verify → post-verification
+commit-if-dirty sequence — up to a fixed bound of 2 retries (3 total
+attempts). No agent runs between attempts. A successful fix-commit
+**persists** across verification reds; there is no implicit rollback between
+attempts. A non-zero `bun run fix` is retryable; a fix-commit failure, push
+failure, post-commit-still-dirty after pre-ready fix commit,
+post-verification commit failure, post-verification push failure, or residual
+still-dirty porcelain after post-verification commit are non-retryable and
+exit `6`. If any retry turns green over a clean tree, the gate records the
+same green result as a first-try pass. Commit/push failures are not retried:
+the run stays non-green and stops for operator intervention instead of
+entering fix-up or reaching PR readiness with the remote behind HEAD.
 
-On success (strict verification green over a clean porcelain), the harness
-records a green result keyed to:
+On success (strict verification green over a clean porcelain after the
+post-verification commit when applicable), the harness records a green result
+keyed to:
 - **HEAD sha**: Read via a separate `git rev-parse HEAD` *after* the gate
-  returns, capturing the post-fix-commit HEAD.
+  returns, capturing the post-post-verification-commit HEAD when that step
+  ran.
 - **Clean worktree**: A green result is recorded only with a clean porcelain,
   not after a fix commit alone.
 
@@ -501,32 +509,36 @@ After the spec is complete (zero unchecked boxes) and `git: true` is in effect,
 the harness runs a completion-stage `ready` gate before any shrink or review
 phases. On `full` the gate runs built-in `bun run fix`, commits-and-pushes any
 dirty output **before** verification, then runs strict verification against the
-committed tree; there is no post-ready dirty commit.
+committed tree, then commits-and-pushes any post-verification churn when
+verification is green and porcelain is non-empty.
 
 The completion gate:
 
 1. Runs only when `gitEnabled`, the tree is clean, and at least one 
    implementation iteration occurred (checkpoint: not on `git: false` modes or 
    checkbox-only completion).
-2. On verification green over a clean tree: proceeds to shrink → review
-   → `maybeMarkReady` (if configured). If verification returns green but the
-   tree is still dirty, the gate aborts (exit `6` class) without marking ready.
+2. On verification green over a clean tree (after post-verification commit when
+   applicable): proceeds to shrink → review → `maybeMarkReady` (if configured).
+   Residual still-dirty porcelain after the post-verification commit aborts
+   (exit `6` class) without marking ready.
 3. On verification red: re-runs the same whole gate unchanged — the full
-   fix → commit-if-dirty → verify sequence — up to a per-project retry
-   bound (default 2 retries, 3 total attempts). The bound is configured via
-   the `readyGateRetryBound` knob in `~/.jarvis/config.json`; set it to 0 for
-   fail-fast with no retries. No agent runs between attempts. A successful
-   fix-commit persists across reds; there is no rollback or dirty-tree reuse
-   between attempts.
+   fix → commit-if-dirty → verify → post-verification commit-if-dirty
+   sequence — up to a per-project retry bound (default 2 retries, 3 total
+   attempts). The bound is configured via the `readyGateRetryBound` knob in
+   `~/.jarvis/config.json`; set it to 0 for fail-fast with no retries. No agent
+   runs between attempts. A successful fix-commit persists across reds; there is
+   no rollback or dirty-tree reuse between attempts.
 4. If any retry turns green over a clean tree: records the same
-   completion-transition green result keyed to post-fix-commit HEAD + clean
-   worktree, and proceeds to shrink → review → `maybeMarkReady` exactly like a
-   first-try green. The operator log distinguishes this from a first-try pass
-   with `completion: ready gate passed on retry (attempt N)`.
+   completion-transition green result keyed to post-post-verification-commit
+   HEAD + clean worktree, and proceeds to shrink → review → `maybeMarkReady`
+   exactly like a first-try green. The operator log distinguishes this from a
+   first-try pass with `completion: ready gate passed on retry (attempt N)`.
 5. Only verification failures are retried. A non-zero `bun run fix` is
-   retryable; a fix-commit failure, push failure, post-commit-still-dirty, or a
-   green verification over a dirty tree are non-retryable and stop the run
-   non-green (exit `6` class) — no fix-up, no ready flip.
+   retryable; a fix-commit failure, push failure, post-commit-still-dirty after
+   pre-ready fix commit, post-verification commit failure, post-verification
+   push failure, or residual still-dirty porcelain after post-verification
+   commit are non-retryable and stop the run non-green (exit `6` class) — no
+   fix-up, no ready flip.
 6. Only when the initial run and every verification retry stay red does the
    harness capture the final attempt's failure text and hand off to the
    loop-back completion behavior (specs `01-red-loopback-iteration.md` and
@@ -986,7 +998,7 @@ jarvis1 log-server
 | `3` | `agent-error` | The active agent failed for a non-quota reason. In `git: true` runs, jarvis first commits partial progress as `WIP:` when the failed iteration left tracked edits or newly checked acceptance criteria; untracked-only litter does not trigger a WIP commit. |
 | `4` | `no-progress` | The last configured `agentOrder` entry made no progress (unchecked count unchanged, spec still incomplete). Before reaching this exit, the harness advances through `agentOrder` on each no-progress iteration — shifting the current agent off and retrying the same subspec with the next entry (emitting `<agent>: no progress; escalating to next agent` on stderr). Exit 4 is returned only when the final rung also makes no progress, or `maxIterations` is reached first. The bounded tail, "stopping" message, and unticked-criteria diagnostic (listing acceptance criteria with guidance to tick and rerun) print only on this terminal stop, not on each advance. |
 | `5` | `max-iterations` | The configured `maxIterations` was reached. Default is 10; override with `--max-iterations <n>`. |
-| `6` | `dirty-worktree` | The run cannot continue because the worktree is dirty. This includes a completed checklist with uncommitted changes (excluding the harness-owned pre-ready `chore: apply pre-ready check:fix` commit, which runs automatically on **`full`** gates only), or an agent iteration that edited files without ticking any new acceptance-criteria checkbox in the active subspec. When an agent iteration edits files but checks no new acceptance criteria on the same active subspec, the harness loops back for a bounded number of retries (2 consecutive edited-but-unticked iterations on the same subspec before exiting 6) to allow the agent to complete its work in one run—retries count against `maxIterations`. Acceptance criteria ticked in the working tree but absent from the committed HEAD version are committed at iteration start as progress and counted toward completion, so re-runs do not deadlock on uncommitted ticks. On a multi-subspec index, uncommitted-ticks completion of one subspec loops back when linked subspecs remain (not exit `0`; false completion: `criteria-complete`, `iterations: 0`, no `spec complete` on stdout). If acceptance criteria tick(s) or other progress occurs during the retry window, the counter resets and the run continues normally. On a **`full`** gate the harness runs `bun run fix` and commits any dirty output **before** verification, so a clean tree is the norm at `gh pr ready`; if verification returns green over a still-dirty tree (or a fix-commit/push fails), the gate aborts here at exit 6 rather than flipping ready. Intermediate **`fast`** gates do not run fix or commit dirty output. `maybeMarkReady` on an unchanged tree runs **`fast`** then `gh pr ready` with the recorded-green predicate guaranteeing cleanliness. Exit 6 is otherwise reserved for genuinely unexpected dirty state (forgotten staged files, untracked artifacts). The bail message ends with a pointer to `jarvis1 triage <worktree-name>` to inspect state and see suggested next moves. Tick satisfied acceptance criteria, fix, or revert the dirty changes before rerunning. |
+| `6` | `dirty-worktree` | The run cannot continue because the worktree is dirty. This includes a completed checklist with uncommitted changes (excluding harness-owned pre-ready `chore: apply pre-ready check:fix` and post-verification `chore: apply post-ready verification output` commits, which run automatically on **`full`** gates only), or an agent iteration that edited files without ticking any new acceptance-criteria checkbox in the active subspec. When an agent iteration edits files but checks no new acceptance criteria on the same active subspec, the harness loops back for a bounded number of retries (2 consecutive edited-but-unticked iterations on the same subspec before exiting 6) to allow the agent to complete its work in one run—retries count against `maxIterations`. Acceptance criteria ticked in the working tree but absent from the committed HEAD version are committed at iteration start as progress and counted toward completion, so re-runs do not deadlock on uncommitted ticks. On a multi-subspec index, uncommitted-ticks completion of one subspec loops back when linked subspecs remain (not exit `0`; false completion: `criteria-complete`, `iterations: 0`, no `spec complete` on stdout). If acceptance criteria tick(s) or other progress occurs during the retry window, the counter resets and the run continues normally. On a **`full`** gate the harness runs `bun run fix` and commits any dirty output **before** verification, then commits any post-verification churn after green verification, so a clean tree is the norm at `gh pr ready`; if residual porcelain remains after the post-verification commit attempt (or a fix-commit, post-verification commit, or push fails), the gate aborts here at exit 6 rather than flipping ready. Intermediate **`fast`** gates do not run fix, pre-ready commit, post-verification commit, or post-verification porcelain enforcement. `maybeMarkReady` on an unchanged tree runs **`fast`** then `gh pr ready` with the recorded-green predicate guaranteeing cleanliness. Exit 6 is otherwise reserved for genuinely unexpected dirty state (forgotten staged files, untracked artifacts). The bail message ends with a pointer to `jarvis1 triage <worktree-name>` to inspect state and see suggested next moves. Tick satisfied acceptance criteria, fix, or revert the dirty changes before rerunning. |
 | `7` | `blocked` | The run is blocked. The active subspec gained a `## Blocker` section (or already had one at the start). Any work from the iteration is committed and pushed. The blocker body is printed to stderr. Fix the underlying issue or remove the blocker section from the spec, then rerun. |
 | `8` | `timeout` | An iteration or global run timeout was exceeded, or patch implementation idle-output watchdog fired on the final `agentOrder` rung. Configure `iterationTimeoutMs` (default 30 minutes) and optional `runTimeoutMs` in config. Per-iteration wall-clock timeout (`iterationTimeoutMs` / `runTimeoutMs`) is always terminal — no agent cascade. Patch implementation idle stalls escalate through `agentOrder` when later rungs remain (see idle-output watchdog below). |
 | `9` | `worktree-locked` | The worktree is in use by another process. A process with a higher `pid` is currently operating on this worktree. Wait for that process to finish or use `jarvis1 triage <worktree-name>` to inspect the lock state. |

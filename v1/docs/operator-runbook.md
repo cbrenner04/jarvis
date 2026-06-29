@@ -79,7 +79,7 @@ Every session closes four cumulative CSVs (spec rows separate from operator rows
 - **`reports/operator-outcomes.csv`** — one outcome row per operator cost row.
 - **`reports/efficiency.csv`** — derived per-report rollup for trend analysis, regenerated from the four source CSVs.
 
-**Sources:** spec/`session-*` figures come from `~/.jarvis/runs.jsonl` (the `namespace`, `mode`, `run_start_ts`/`run_end_ts`, `run_base`, and per-run cost/token fields). Operator/`operator-*` figures come from the operator's own Claude Code `/cost` for the session. The audit in [outcome-data-source-audit.md](../../v2/docs/outcome-data-source-audit.md) is the authority on which field derives from which source.
+**Sources:** spec/`session-*` figures come from `~/.jarvis/runs.jsonl` (the `namespace`, `mode`, `run_start_ts`/`run_end_ts`, `run_base`, and per-run cost/token fields). Operator/`operator-*` figures come from the operator's own session-cost source, which depends on the CLI the operator drove: Claude Code `/cost` for a Claude operator; the opencode SQLite db (`~/.local/share/opencode/opencode.db`, `session` table — `cost`, `tokens_input`, `tokens_output`, `tokens_cache_read`, `tokens_cache_write`, filtered by session `id`) for an opencode/GLM operator; `opencode stats` gives lifetime aggregates, per-session attribution needs a direct SQL query. `api_time` is blank for opencode (no `/cost` equivalent field). The audit in [outcome-data-source-audit.md](../../v2/docs/outcome-data-source-audit.md) is the authority on which field derives from which source.
 
 **Columns:**
 

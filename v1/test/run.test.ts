@@ -43,7 +43,14 @@ import {
   harnessQuotaFallbackLenientLine,
 } from "../src/quota-harness-messages.ts";
 import { getWorktreeLockPath } from "../src/worktree-lock.ts";
-import { writeIdleHangScript } from "./modes/patch/review.sandbox-unrunnable.test.ts";
+import {
+  beginHangFixtureTracking,
+  reapActiveHangFixtures,
+  withHangFixtureSpawned,
+  writeIdleHangScript,
+} from "./idle-hang-fixtures.ts";
+
+const HANG_FIXTURE_TRACKING_ID = import.meta.path;
 
 function captureIo(): { io: RunIo; out: () => string; err: () => string } {
   let out = "";
@@ -177,7 +184,7 @@ function createCompletionThenIdleAgent(spec: string, hangScript: string): FakeAg
         streamErrorPrefix: "test:",
       },
       prompt,
-      opts,
+      withHangFixtureSpawned(opts),
     );
   });
 }
@@ -299,9 +306,11 @@ beforeEach(() => {
   mkdirSync(projectRoot);
   registerProject("project", projectRoot, { dir: cfgDir });
   __testSetDeltaStateDir(join(dir, "delta-state"));
+  beginHangFixtureTracking(HANG_FIXTURE_TRACKING_ID);
 });
 
 afterEach(() => {
+  reapActiveHangFixtures(HANG_FIXTURE_TRACKING_ID);
   __testClearDeltaStateDir();
   if (originalPath === undefined) {
     delete process.env.PATH;

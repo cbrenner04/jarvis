@@ -82,10 +82,10 @@ Every session closes four cumulative CSVs (spec rows separate from operator rows
 
 **Columns:**
 
-- `session-costs`: `report, name, plan_model, plan_cost, plan_time, plan_tokens_in, plan_tokens_out, run_model, run_cost, run_time, run_tokens_in, run_tokens_out, total_cost, notes`
-- `operator-costs`: `report, session, session_count, model, total_cost, avg_cost_per_spec, api_time, tokens_in, tokens_out, cache_read, cache_write, notes`
-- `session-outcomes`: `report, session_id, report_date, completed_work_units, success_status, failure_reason, session_type, agent_count, duration_minutes, files_touched, notes`
-- `operator-outcomes`: `report, session_id, report_date, specs_driven, overall_success, failure_reason, session_type, duration_minutes, files_touched, notes`
+- `session-costs`: `report, name, plan_model, plan_cost, plan_time, plan_tokens_in, plan_tokens_out, run_model, run_cost, run_time, run_tokens_in, run_tokens_out, total_cost, total_tokens, cost_per_1k_tokens, notes`
+- `operator-costs`: `report, session, session_count, model, total_cost, cost_per_session, api_time, tokens_in, tokens_out, cache_read, cache_write, total_tokens, cost_per_1k_tokens, notes`
+- `session-outcomes`: `report, session_id, report_date, cost, completed_work_units, success_status, failure_reason, session_type, agent_count, duration_minutes, cost_per_minute, files_touched, cost_per_file, notes`
+- `operator-outcomes`: `report, session_id, report_date, specs_driven, cost, overall_success, failure_reason, session_type, duration_minutes, cost_per_minute, files_touched, cost_per_file, notes`
 
 **Identity & joins:**
 
@@ -101,8 +101,8 @@ Every session closes four cumulative CSVs (spec rows separate from operator rows
 
 **Cost-sheet rules:**
 
-- Spec rows: plan + run on one row; `total_cost` = plan + run. Blank columns where a phase doesn't apply (plan-only, blocked-run).
-- One operator cost row per session; `total_cost` = the operator's `/cost` total. A session spanning a compaction boundary (multiple reports, same `/cost`) is one row.
+- Spec rows: plan + run on one row; `total_cost` = plan + run. `total_tokens` = `plan_tokens_in + plan_tokens_out + run_tokens_in + run_tokens_out`; `cost_per_1k_tokens` = `total_cost / total_tokens * 1000`. Blank columns where a phase doesn't apply (plan-only, blocked-run).
+- One operator cost row per session; `total_cost` = the operator's `/cost` total. `total_tokens` = `tokens_in + tokens_out`; cache columns are tracked separately and are not included. A session spanning a compaction boundary (multiple reports, same `/cost`) is one row.
 - Dedupe repeated specs across combined reports — one completed row, note the alternate accounting.
 - Token columns are raw integers (expand `k`/`M`); costs are dollars; times are `HH:MM:SS`.
 
@@ -110,7 +110,8 @@ Every session closes four cumulative CSVs (spec rows separate from operator rows
 
 - Write/amend exactly one outcome row per uniquely identified cost row; on rerun, amend — never append a second row. Reconcile pre-existing duplicates back to one row when attribution is certain; otherwise leave the conflict and explain in `notes`.
 - Shared fields (`report_date`, `session_type`, `failure_reason`, `duration_minutes`, `files_touched`, `notes`) mean the same on both sheets so rows can union later.
-- `duration_minutes`: plan + run execution time, decimal minutes, 2dp — not the operator `api_time`. `files_touched`: count of distinct changed paths (operator row = whole-session union). The operator `session_type` is always `orchestration`.
+- `cost`: matching cost-row total. `duration_minutes`: plan + run execution time, decimal minutes, 2dp — not the operator `api_time`. `cost_per_minute` = `cost / duration_minutes`.
+- `files_touched`: count of distinct changed paths (operator row = whole-session union). `cost_per_file` = `cost / files_touched`; leave blank or spreadsheet-error only when `files_touched` is blank/zero. The operator `session_type` is always `orchestration`.
 
 **Status semantics:**
 

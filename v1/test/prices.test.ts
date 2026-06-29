@@ -215,6 +215,16 @@ describe("loadPrices", () => {
         as_of: "2026-06-28",
       },
     ],
+    [
+      "opencode/deepseek-v4-pro",
+      {
+        input_per_mtok: 1.74,
+        output_per_mtok: 3.48,
+        cache_read_per_mtok: 0.145,
+        source_url: "https://opencode.ai/zen/v1/models",
+        as_of: "2026-06-29",
+      },
+    ],
   ])("checked-in seed data includes %s and computes cost", (model, expected) => {
     const prices = loadPrices();
     expect(prices.models[model]).toMatchObject(expected);

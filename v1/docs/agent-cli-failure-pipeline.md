@@ -6,15 +6,14 @@ How a vendor CLI invocation becomes an `AgentResult`, then a mode-specific outco
 
 1. **Harness schedules `agent.run(prompt, opts)`** — Each concrete agent adapter eventually drives `runAgent` in `src/agents/spawn.ts` (argv, cwd, stdio, streaming).
 2. **Process completes** — Exit code plus accumulated **stderr** and **stdout** buffers are combined into a single **`diagnostics`** string on non-zero exits (`stderr` then `stdout`).
-3. **`AgentResult` from spawn** — On exit `0`: `{ kind: "ok", stdout, stderr }`. On non-zero, **`checkSettlement`** classifies merged **`diagnostics`** (stderr then stdout) in this order:
-   - **transient** — **`isTransientSignal`** → **`kind: "error"`** (enables step 4 retry; not a terminal classification by itself).
+3. **`AgentResult` from spawn** — On exit `0`: `{ kind: "ok", stdout, stderr }`. On non-zero, **`checkSettlement`** classifies merged **`diagnostics`** (stderr then stdout) **transient → auth → quota → model_config**, else **`kind: "error"`** with `exitCode` and **`stderr` = `diagnostics`**:
+   - **transient** — **`isTransientSignal`** → **`kind: "error"`** (step 4 may retry).
    - **auth** — **`isCredentialAuthSignal`** → **`kind: "quota"`** with **`authFailure: true`**.
-   - **quota** — **`isQuotaSignal`** (strict per-agent patterns; exit must be non-zero) → **`kind: "quota"`**. Wins over model-config when both match.
+   - **quota** — **`isQuotaSignal`** (strict per-agent patterns; exit must be non-zero) → **`kind: "quota"`**.
    - **model_config** — **`isModelConfigurationSignal`** (patterns in `src/agents/quota.ts`; opencode uses agent-aware helpers) → **`kind: "model_config"`**.
-   - **generic error** — otherwise **`kind: "error"`** with `exitCode` and **`stderr` set to `diagnostics`**.
    **`weakQuotaPatterns`** / **`weakQuotaExitCodes`** do **not** run in spawn; they apply only inside **`applyQuotaFallbackToAgentResult`** when **`quotaFallback: "lenient"`** and the mode guard allows it (step 5).
    - **Abort:** `opts.signal` can settle early as **`error`** with `stderr` like `aborted: …` (iteration/run timeout or SIGINT path).
-4. **Transient retry** — Separate from step 3 classification: when **`runAgent`** receives **`kind: "error"`** from **`singleSpawn`**, if **`isTransientSignal`** still matches the settled result and the invocation is not aborted, spawn re-attempts the **same** agent up to a fixed cap of **3 re-attempts (4 total spawns)**. Fires optional `onTransientRetry` callback per attempt before re-spawn; whole-iteration timeouts accrue across all attempts. Returns the eventual non-transient result or the final `error` at cap. Step 3 precedence and step 4 retry are not one combined chain — transient wins at settlement, then post-settlement retry re-checks transient on the `error` result.
+4. **Transient retry** — Separate from step 3: when **`runAgent`** gets **`kind: "error"`** from **`singleSpawn`**, if **`isTransientSignal`** still matches and the invocation is not aborted, re-attempt the **same** agent up to **3 re-attempts (4 total spawns)**. Optional `onTransientRetry` per attempt; whole-iteration timeouts accrue. Returns the eventual non-transient result or final `error` at cap.
 5. **Mode-specific post-processing** — Callers apply **`applyQuotaFallbackWhenAllowed`** (`src/agents/quota.ts`) where configured:
    - **Plan phases:** porcelain snapshot before/after `agent.run` (`src/modes/plan/git-porcelain.ts`); **`allowLenientWeakQuotaFallback`** is equivalent to unchanged porcelain across that invocation.
    - **Patch (`jarvis run`):** Strict spawn-side **`quota`** is handled **before** lenient fallback. For spawn **`error`**, **`allowLenientWeakQuotaFallback`** is true only when the iteration checked **no** new acceptance criteria **and** the git worktree shows **no** completion-blocking edits (`src/modes/patch/run.ts`).

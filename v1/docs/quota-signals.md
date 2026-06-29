@@ -93,7 +93,7 @@ before and after `agent.run` via `src/modes/plan/git-porcelain.ts`). If the work
 quota fallback is skipped so partial writes are not mistaken for a clean miss. Strict spawn-side
 **`kind: "quota"`** still triggers fallback immediately (no guard).
 
-Spawn classification order (non-zero exits): **transient → auth → quota → model_config** — canonical full precedence in [Agent CLI failure pipeline](agent-cli-failure-pipeline.md). For harness **`agent.run`** callsites and mode guards end-to-end, see that doc.
+Spawn order **transient → auth → quota → model_config** ([pipeline](agent-cli-failure-pipeline.md)); same doc covers **`agent.run`** callsites and mode guards.
 
 ## Classification and fallback outcome matrix
 

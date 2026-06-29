@@ -8,6 +8,7 @@ import { createFakeSpawnWithOutput } from "./fake-spawn.ts";
 
 const CODEX_REFRESH_TOKEN_REVOKED =
   "Your access token could not be refreshed because your refresh token was revoked. Please log out and sign in again.";
+const CODEX_STRICT_QUOTA = "You've reached your usage limit";
 
 async function classifyAgentError(agentName: AgentName, exitCode: number, stderr: string): Promise<AgentResult> {
   const cwd = mkdtempSync(join(tmpdir(), "spawn-test-"));
@@ -54,21 +55,15 @@ describe("spawn classification order: transient → auth → quota → model_con
   });
 
   test("strict quota wins over model_config when both match", async () => {
-    const stderr = "You've reached your usage limit\nunknown model: fake-model-xyz";
-    const result = await classifyAgentError("codex", 1, stderr);
-    expect(result).toEqual({ kind: "quota", stderr });
-    if (result.kind === "quota") {
-      expect(result.authFailure).toBeUndefined();
-    }
+    const stderr = `${CODEX_STRICT_QUOTA}\nunknown model: fake-model-xyz`;
+    expect(await classifyAgentError("codex", 1, stderr)).toEqual({ kind: "quota", stderr });
   });
 
   test("regular quota signal stays quota without authFailure marker", async () => {
-    const stderr = "You've reached your usage limit";
-    const result = await classifyAgentError("codex", 1, stderr);
-    expect(result).toEqual({ kind: "quota", stderr });
-    if (result.kind === "quota") {
-      expect(result.authFailure).toBeUndefined();
-    }
+    expect(await classifyAgentError("codex", 1, CODEX_STRICT_QUOTA)).toEqual({
+      kind: "quota",
+      stderr: CODEX_STRICT_QUOTA,
+    });
   });
 
   test("auth failure on non-codex agents does not rotate", async () => {

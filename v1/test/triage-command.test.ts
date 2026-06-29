@@ -7,7 +7,6 @@ import { type MergeTargetResolutionSeams, resolveMergeTarget } from "../src/comm
 import type { SuggestedMovesInput, TriageCommandOptions, TriageGhRunner, TriageIo } from "../src/commands/triage.ts";
 import { getSuggestedMoves, triageCommand } from "../src/commands/triage.ts";
 import type { BaseCurrentCheckResult } from "../src/git/base-current.ts";
-import { hasUpstream, pushCurrent } from "../src/worktree.ts";
 
 const currentBase =
   (baseRefName: string | null = "main") =>
@@ -49,6 +48,7 @@ function setupMarkReadyWorktree(
     makeDirty?: boolean;
     specBody?: string;
     indexSpec?: { indexPath: string; subspecPath: string; subspecBody: string };
+    setUpstream?: boolean;
   },
 ): { worktreePath: string; specPath: string } {
   const worktreePath = join(worktreeDir, worktreeName);
@@ -57,7 +57,8 @@ function setupMarkReadyWorktree(
   const barePath = join(root, `${worktreeName}-remote.git`);
   execSync(`git init --bare "${barePath}"`, { stdio: "pipe" });
   execSync(`git remote add origin "${barePath}"`, { cwd: worktreePath, stdio: "pipe" });
-  execSync("git push -u origin main", { cwd: worktreePath, stdio: "pipe" });
+  const initialPush = opts?.setUpstream === false ? "git push origin main" : "git push -u origin main";
+  execSync(initialPush, { cwd: worktreePath, stdio: "pipe" });
 
   let specPath: string;
   if (opts?.indexSpec) {
@@ -76,39 +77,8 @@ function setupMarkReadyWorktree(
   writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
   execSync("git add .active-spec-path", { cwd: worktreePath });
   execSync("git commit -m 'marker'", { cwd: worktreePath });
-  execSync("git push", { cwd: worktreePath, stdio: "pipe" });
-
-  if (opts?.makeDirty) {
-    writeFileSync(join(worktreePath, "test.txt"), "dirty");
-  }
-
-  return { worktreePath, specPath };
-}
-
-function setupMarkReadyWorktreeNoUpstream(
-  worktreeName: string,
-  opts?: {
-    makeDirty?: boolean;
-    specBody?: string;
-  },
-): { worktreePath: string; specPath: string } {
-  const worktreePath = join(worktreeDir, worktreeName);
-  setupWorktree(worktreePath);
-
-  const barePath = join(root, `${worktreeName}-remote.git`);
-  execSync(`git init --bare "${barePath}"`, { stdio: "pipe" });
-  execSync(`git remote add origin "${barePath}"`, { cwd: worktreePath, stdio: "pipe" });
-  execSync("git push origin main", { cwd: worktreePath, stdio: "pipe" });
-
-  const specDir = join(projectRoot, "v1", "spec");
-  mkdirSync(specDir, { recursive: true });
-  const specPath = join(specDir, `${worktreeName}-spec.md`);
-  writeFileSync(specPath, opts?.specBody ?? "# Test\n\n## Acceptance criteria\n\n- [x] done");
-
-  writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
-  execSync("git add .active-spec-path", { cwd: worktreePath });
-  execSync("git commit -m 'marker'", { cwd: worktreePath });
-  execSync("git push origin main", { cwd: worktreePath, stdio: "pipe" });
+  const markerPush = opts?.setUpstream === false ? "git push origin main" : "git push";
+  execSync(markerPush, { cwd: worktreePath, stdio: "pipe" });
 
   if (opts?.makeDirty) {
     writeFileSync(join(worktreePath, "test.txt"), "dirty");
@@ -1359,11 +1329,8 @@ describe("triage --mark-ready", () => {
 
   test("--mark-ready on complete dirty worktree with no upstream pushes with -u, gates, and promotes", async () => {
     const worktreeName = "branch-no-upstream";
-    const { worktreePath } = setupMarkReadyWorktreeNoUpstream(worktreeName, { makeDirty: true });
+    const { worktreePath } = setupMarkReadyWorktree(worktreeName, { makeDirty: true, setUpstream: false });
 
-    expect(hasUpstream(worktreePath)).toBe(false);
-
-    const pushes: Array<{ cwd: string; firstPush: boolean }> = [];
     let ensureDraftPrRan = false;
     let gateRan = false;
     let prReadyRan = false;
@@ -1376,10 +1343,6 @@ describe("triage --mark-ready", () => {
       markReady: true,
       ...currentBaseSeam,
       ghRunner: { getPrState: () => null },
-      pushCurrent: (args) => {
-        pushes.push(args);
-        pushCurrent(args);
-      },
       ensureDraftPr: async () => {
         ensureDraftPrRan = true;
         return { number: 1, created: true };
@@ -1393,12 +1356,12 @@ describe("triage --mark-ready", () => {
     });
 
     expect(code).toBe(0);
-    expect(pushes.some((p) => p.firstPush)).toBe(true);
-    const upstream = execSync("git rev-parse --abbrev-ref --symbolic-full-name @{u}", {
-      cwd: worktreePath,
-      encoding: "utf8",
-    }).trim();
-    expect(upstream).toBe("origin/main");
+    expect(
+      execSync("git rev-parse --abbrev-ref --symbolic-full-name @{u}", {
+        cwd: worktreePath,
+        encoding: "utf8",
+      }).trim(),
+    ).toBe("origin/main");
     expect(ensureDraftPrRan).toBe(true);
     expect(gateRan).toBe(true);
     expect(prReadyRan).toBe(true);

@@ -18,7 +18,12 @@ import {
 } from "../../../src/modes/patch/review.ts";
 import { HARNESS_QUOTA_FALLBACK_STRICT, harnessAuthRotateLine } from "../../../src/quota-harness-messages.ts";
 import { FAKE_AGENT_SPAWN_PID, waitForPollCount } from "../../descendant-poll-test-helpers.ts";
-import { beginHangFixtureTracking, hangFixtureOnSpawned, reapActiveHangFixtures, writeIdleHangScript } from "../../idle-hang-fixtures.ts";
+import {
+  beginHangFixtureTracking,
+  hangFixtureOnSpawned,
+  reapActiveHangFixtures,
+  writeIdleHangScript,
+} from "../../idle-hang-fixtures.ts";
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 const CODEX_ENTRY = { agent: "codex" as const, model: "gpt-5.3-codex" };

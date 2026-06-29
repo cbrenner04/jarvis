@@ -43,7 +43,12 @@ import {
   harnessQuotaFallbackLenientLine,
 } from "../src/quota-harness-messages.ts";
 import { getWorktreeLockPath } from "../src/worktree-lock.ts";
-import { writeIdleHangScript, beginHangFixtureTracking, hangFixtureOnSpawned, reapActiveHangFixtures } from "./idle-hang-fixtures.ts";
+import {
+  beginHangFixtureTracking,
+  hangFixtureOnSpawned,
+  reapActiveHangFixtures,
+  writeIdleHangScript,
+} from "./idle-hang-fixtures.ts";
 
 function captureIo(): { io: RunIo; out: () => string; err: () => string } {
   let out = "";

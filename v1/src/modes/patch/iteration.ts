@@ -651,7 +651,10 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
 
       if (allNonHumanOnlyChecked) {
         state.iteration += 1;
-        const done = (await tryFinishSpecIfDone(ctx)) ?? 0;
+        const done = await tryFinishSpecIfDone(ctx);
+        if (done === null) {
+          return { kind: "continue" };
+        }
         if (state.completionLoopbackSignal !== null) {
           return { kind: "continue" };
         }

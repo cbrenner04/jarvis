@@ -3444,9 +3444,7 @@ exit 0
     expect(claude.calls).toHaveLength(1);
     expect(claude.calls[0]?.prompt).toContain(secondSubspec);
     expect(claude.calls[0]?.prompt).not.toContain(firstSubspec);
-    expect(
-      execSync("git log -1 --format=%s", { cwd: projectRoot, encoding: "utf8" }),
-    ).toContain("00 - One");
+    expect(execSync("git log -1 --format=%s", { cwd: projectRoot, encoding: "utf8" })).toContain("00 - One");
     const committedIndex = execSync("git show HEAD:spec/feature/index.md", {
       cwd: projectRoot,
       encoding: "utf8",

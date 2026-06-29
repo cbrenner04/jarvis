@@ -76,6 +76,7 @@ beforeEach(async () => {
   const handlers = createRunControlHandlers({
     stateStore,
     writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
   });
 
   server = await startIpcServer(SOCKET_PATH, handlers);

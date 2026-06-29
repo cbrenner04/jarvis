@@ -31,7 +31,18 @@ export type LoopFinishedEvent = {
   resumable: boolean;
 };
 
-export type LogEvent = IterationStartedEvent | BoundaryCommittedEvent | LoopFinishedEvent;
+/**
+ * Event emitted when the daemon spawn boundary catches an unexpected executor rejection.
+ */
+export type RunExecutionFailedEvent = {
+  kind: "run_execution_failed";
+};
+
+export type LogEvent =
+  | IterationStartedEvent
+  | BoundaryCommittedEvent
+  | LoopFinishedEvent
+  | RunExecutionFailedEvent;
 
 /**
  * Persisted record of an event with metadata.

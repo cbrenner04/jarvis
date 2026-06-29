@@ -1713,7 +1713,7 @@ describe("plan flags", () => {
     expect(() => loadConfig({ dir })).toThrow(/myproject/);
     expect(() => loadConfig({ dir })).toThrow(/oringn/);
     expect(() => loadConfig({ dir })).toThrow(
-      /root, origin, git, siblings, plan, updateSnapshotsCommand, readyCommand/,
+      /root, origin, git, siblings, plan, updateSnapshotsCommand, readyCommand, fixCommand/,
     );
   });
 
@@ -1866,6 +1866,95 @@ describe("plan flags", () => {
       plan: { specTimestamp: false, commit: true },
       readyCommand: "my-ready.sh",
     });
+  });
+
+  test("round-trips fixCommand", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {
+          myproject: {
+            root: "/tmp/jarvis-fix-cmd",
+            fixCommand: "npm run lint-fix",
+          },
+        },
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.projects.myproject?.fixCommand).toBe("npm run lint-fix");
+  });
+
+  test("rejects empty fixCommand", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {
+          myproject: {
+            root: "/tmp/jarvis-fix-cmd-empty",
+            fixCommand: "",
+          },
+        },
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(/fixCommand/);
+  });
+
+  test("rejects whitespace-only fixCommand", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {
+          myproject: {
+            root: "/tmp/jarvis-fix-cmd-ws",
+            fixCommand: "   ",
+          },
+        },
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(/fixCommand/);
+  });
+
+  test("rejects non-string fixCommand", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {
+          myproject: {
+            root: "/tmp/jarvis-fix-cmd-bad",
+            fixCommand: 42,
+          },
+        },
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(/fixCommand/);
   });
 });
 

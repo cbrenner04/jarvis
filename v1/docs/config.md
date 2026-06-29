@@ -31,6 +31,7 @@ type Project = {
   plan?: { specTimestamp?: boolean; commit?: boolean; targetDir?: string }; // optional per-project plan-mode overrides
   updateSnapshotsCommand?: string; // optional update-snapshots command for the snapshot-churn blocker gate
   readyCommand?: string; // optional per-project ready command override
+  fixCommand?: string; // optional per-project autofix command override
   readyGateRetryBound?: number; // optional per-project completion ready-gate retry bound (default 2)
   installCommand?: string; // optional install command for dependency installation (default "bun install")
 };
@@ -82,11 +83,13 @@ type Config = {
 };
 ```
 
-**Project object keys are validated strictly:** only `root`, `origin`, `git`, `siblings`, `plan`, `updateSnapshotsCommand`, `readyCommand`, `readyGateRetryBound`, and `installCommand` are allowed. Unknown keys (including a flat `specTimestamp` or `commit` at the project level instead of nested under `plan`) cause `loadConfig` to throw with a descriptive error. This catches misconfigurations early.
+**Project object keys are validated strictly:** only `root`, `origin`, `git`, `siblings`, `plan`, `updateSnapshotsCommand`, `readyCommand`, `fixCommand`, `readyGateRetryBound`, and `installCommand` are allowed. Unknown keys (including a flat `specTimestamp` or `commit` at the project level instead of nested under `plan`) cause `loadConfig` to throw with a descriptive error. This catches misconfigurations early.
 
 **`updateSnapshotsCommand`** (per-project, optional): the command the snapshot-churn blocker gate runs to refresh outdated snapshots before re-testing (e.g. `bun test --update-snapshots`, `vitest -u`, `jest -u`). Takes precedence over auto-detection from the target repo's root `package.json`; if neither is set, the gate fail-safes (the blocker stands). Used only by that gate.
 
-**`readyCommand`** (per-project, optional): overrides the **verification** command at all patch-mode ready gate sites (completion transition, pre-shrink, review baseline, review final, and `maybeMarkReady`). Value is tokenized on whitespace and run via `execFileSync` (no shell). Must be a non-empty, non-whitespace-only string; rejected at `loadConfig` otherwise. Receives the `JARVIS_READY_TIER` env var (`"fast"` or `"full"`) unchanged. When unset, verification falls back to `bun run ready`. The override is verification-only: on a `full` gate the harness still runs built-in `bun run fix` and commits any dirty output before invoking the override, and if the override returns green with a dirty tree the gate aborts (no second harness fix pass).
+**`readyCommand`** (per-project, optional): overrides the **verification** command at all patch-mode ready gate sites (completion transition, pre-shrink, review baseline, review final, and `maybeMarkReady`). Value is tokenized on whitespace and run via `execFileSync` (no shell). Must be a non-empty, non-whitespace-only string; rejected at `loadConfig` otherwise. Receives the `JARVIS_READY_TIER` env var (`"fast"` or `"full"`) unchanged. When unset, verification falls back to `bun run ready`. The override is verification-only: on a `full` gate the harness runs the project's `fixCommand` (or built-in `bun run fix` when unset) and commits any dirty output before invoking the override, and if the override returns green with a dirty tree the gate aborts (no second harness fix pass).
+
+**`fixCommand`** (per-project, optional): overrides the **autofix** command on `full`-tier ready gates (completion transition, pre-shrink, review baseline and final, `maybeMarkReady`, triage `--mark-ready` / `--merge`, and plan-mode draft→ready). Tokenized on whitespace and run via `execFileSync` (no shell). Must be a non-empty, non-whitespace-only string; rejected at `loadConfig` otherwise. When unset, autofix falls back to `bun run fix`. For package-manager-shaped commands (`bun`/`npm`/`pnpm`/`yarn run <script>`), the harness skips autofix when root `package.json` is missing, unreadable, or lacks that script — verification and commit-if-dirty still run. Non-bun repos or repos without a `fix` script must set `fixCommand` (or accept absent-script skip on the default). Verification stays on `readyCommand` / `bun run ready`; do not fold autofix into `readyCommand`.
 
 **`readyGateRetryBound`** (per-project, optional): sets the completion ready gate's retry bound (number of retries before entering fix-up, not counting the initial attempt). A non-negative integer; default is 2 (meaning 3 total attempts). Value 0 runs once and enters fix-up immediately on retryable red. Applies only to the completion-transition ready gate (the only ready gate with a retry loop); other ready gates always run once. Absent the knob, behavior is unchanged (2 retries).
 

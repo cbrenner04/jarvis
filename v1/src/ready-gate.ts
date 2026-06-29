@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { getCurrentBranch } from "../../shared/git.ts";
 import { appendAgentTrailer } from "./commit-trailer.ts";
 import { pushCurrent } from "./worktree.ts";
@@ -58,6 +60,8 @@ export type RunReadyAndCommitOpts = {
   agentLabel?: string;
   /** Per-project override for `bun run ready`. Tokenized on whitespace; no shell. Receives `JARVIS_READY_TIER`. */
   readyCommand?: string;
+  /** Per-project override for `bun run fix`. Tokenized on whitespace; no shell. */
+  fixCommand?: string;
   /** Seam for built-in `bun run fix` on `full` tier. Defaults to execFileSync call. */
   runFix?: (cwd: string) => void;
   /** Seam for just `bun run ready` (or `readyCommand`). Defaults to execFileSync call. */
@@ -109,13 +113,67 @@ function readPorcelain(cwd: string): string {
   }).trim();
 }
 
+const PACKAGE_MANAGERS = new Set(["bun", "npm", "pnpm", "yarn"]);
+
+/** When tokens match `<pm> run [<flags>…] <script>`, return `<script>`; else `null`. */
+export function parsePackageManagerRunScript(tokens: string[]): string | null {
+  if (tokens.length < 3) {
+    return null;
+  }
+  const [pm, run, ...rest] = tokens;
+  if (pm === undefined || run === undefined || !PACKAGE_MANAGERS.has(pm) || run !== "run") {
+    return null;
+  }
+  for (const token of rest) {
+    if (!token.startsWith("-")) {
+      return token;
+    }
+  }
+  return null;
+}
+
+function packageJsonLacksScript(cwd: string, scriptName: string): boolean {
+  const pkgPath = join(cwd, "package.json");
+  if (!existsSync(pkgPath)) {
+    return true;
+  }
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { scripts?: Record<string, unknown> };
+    return typeof pkg.scripts?.[scriptName] !== "string";
+  } catch {
+    return true;
+  }
+}
+
+function resolveAutofixTokens(fixCommand: string | undefined): string[] {
+  return fixCommand !== undefined ? fixCommand.trim().split(/\s+/) : ["bun", "run", "fix"];
+}
+
+function displayAutofixCommand(fixCommand: string | undefined): string {
+  return fixCommand ?? "bun run fix";
+}
+
+function shouldSkipAutofixForAbsentScript(cwd: string, tokens: string[]): boolean {
+  const scriptName = parsePackageManagerRunScript(tokens);
+  return scriptName !== null && packageJsonLacksScript(cwd, scriptName);
+}
+
 /** On `full` tier: run fix → commit-if-dirty → strict ready; on `fast`: verification only. */
 export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
   const tier = opts.tier ?? "full";
 
   const realRunFix = (cwd: string) => {
+    const tokens = resolveAutofixTokens(opts.fixCommand);
+    const displayCmd = displayAutofixCommand(opts.fixCommand);
+    if (shouldSkipAutofixForAbsentScript(cwd, tokens)) {
+      return;
+    }
+    const [head, ...args] = tokens;
+    if (head === undefined) {
+      throw new FixCommandError(`invalid fix command: ${displayCmd}`);
+    }
     try {
-      execFileSync("bun", ["run", "fix"], {
+      execFileSync(head, args, {
         cwd,
         env: { ...process.env },
         stdio: "pipe",
@@ -126,7 +184,7 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
         stderr?: Buffer;
       };
       const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
-      throw new FixCommandError(captured ? `bun run fix failed:\n${captured}` : "bun run fix failed");
+      throw new FixCommandError(captured ? `${displayCmd} failed:\n${captured}` : `${displayCmd} failed`);
     }
   };
 
@@ -208,7 +266,7 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
     if (porcelainAfterReady !== "") {
       const dirtyBranch = getCurrentBranch(opts.cwd);
       throw new ReadyVerificationDirtyError(
-        `verification returned green but worktree is still dirty on branch ${dirtyBranch}:\n${porcelainAfterReady}\nDo not call gh pr ready. Fold autofix into your readyCommand or discard the unexpected changes.`,
+        `verification returned green but worktree is still dirty on branch ${dirtyBranch}:\n${porcelainAfterReady}\nDo not call gh pr ready. Configure fixCommand for autofix or discard the unexpected changes.`,
       );
     }
   }
@@ -222,6 +280,7 @@ export function runReadyGateWithTier(opts: {
   cwd: string;
   agentLabel: string;
   readyCommand?: string;
+  fixCommand?: string;
   recordedGreenResult?: RecordedGreenResult;
   runFix?: (cwd: string) => void;
   runReady?: (cwd: string, tier: ReadyTier) => void;
@@ -237,6 +296,7 @@ export function runReadyGateWithTier(opts: {
     tier,
     agentLabel: opts.agentLabel,
     ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
+    ...(opts.fixCommand !== undefined ? { fixCommand: opts.fixCommand } : {}),
     ...(opts.runFix !== undefined ? { runFix: opts.runFix } : {}),
     ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
     ...(opts.commitPreReadyFix !== undefined ? { commitPreReadyFix: opts.commitPreReadyFix } : {}),

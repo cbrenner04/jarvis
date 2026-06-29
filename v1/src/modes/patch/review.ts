@@ -293,6 +293,8 @@ export type PatchReviewPhaseOptions = {
   refreshRecordedGreenResult?: (headSha: string) => void;
   /** Per-project override for `bun run ready`. Passed to `runReadyAndCommit` at baseline and final gate sites. */
   readyCommand?: string;
+  /** Per-project override for `bun run fix`. Passed to `runReadyAndCommit` at baseline and final gate sites. */
+  fixCommand?: string;
   /** Seam for built-in `bun run fix` on `full` tier. */
   runFix?: (cwd: string) => void;
   /** Seam for verification only. */
@@ -791,6 +793,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           agentLabel: "review-baseline",
           tier,
           ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
+          ...(opts.fixCommand !== undefined ? { fixCommand: opts.fixCommand } : {}),
           ...(opts.runFix !== undefined ? { runFix: opts.runFix } : {}),
           ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
           ...(opts.commitPreReadyFix !== undefined ? { commitPreReadyFix: opts.commitPreReadyFix } : {}),
@@ -1283,6 +1286,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           agentLabel: "review-final",
           tier: "full",
           ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
+          ...(opts.fixCommand !== undefined ? { fixCommand: opts.fixCommand } : {}),
           ...(opts.runFix !== undefined ? { runFix: opts.runFix } : {}),
           ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
           ...(opts.commitPreReadyFix !== undefined ? { commitPreReadyFix: opts.commitPreReadyFix } : {}),

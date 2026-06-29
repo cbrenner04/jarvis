@@ -1,7 +1,7 @@
 // This test requires real git commit / diff state for plan PR rendering and commit selection.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync, execSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent, AgentResult } from "../../../src/agents/types.ts";
@@ -399,6 +399,31 @@ describe("maybeMarkPlanPrReady", () => {
 
     expect(runReadyCalled).toBe(false);
     expect(ghPrReadyCalled).toBe(false);
+  });
+
+  test("invokes fixCommand at plan draft→ready gate site", () => {
+    const sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-plan-fix-cmd-"));
+    try {
+      const sentinel = join(sentinelDir, "fix-invoked");
+      const script = join(sentinelDir, "fix.sh");
+      writeFileSync(script, `#!/bin/sh\ntouch "${sentinel}"\n`);
+      chmodSync(script, 0o755);
+
+      maybeMarkPlanPrReady({
+        branch: "feature",
+        cwd: gitDir,
+        fixCommand: script,
+        getOpenPrState: () => ({ state: "draft", number: 123 }),
+        checkBaseCurrent: currentBase(),
+        runReady: () => {},
+        commitPreReadyFix: () => {},
+        ghPrReady: () => {},
+      });
+
+      expect(existsSync(sentinel)).toBe(true);
+    } finally {
+      rmSync(sentinelDir, { recursive: true, force: true });
+    }
   });
 
   test("fetch/base resolution failure does not block ready flip", () => {

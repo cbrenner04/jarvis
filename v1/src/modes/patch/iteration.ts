@@ -1329,11 +1329,16 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
                   const willRunShrink = gitEnabled && implementationIterations > 0 && cfg.modes.patch.shrink !== "off";
                   const willRunReview =
                     gitEnabled && resolveReviewPasses(cfg, opts.reviewPasses) > 0 && implementationIterations > 0;
+                  const projectCfg = cfg.projects[preflight.project.key];
+                  const readyCommand = projectCfg?.readyCommand;
+                  const fixCommand = projectCfg?.fixCommand;
                   if (!willRunReview && !willRunShrink) {
                     maybeMarkReady({
                       indexPath: afterSpecPath,
                       cwd: agentWorkingDir,
                       agentLabel: agent.attributionLabel(),
+                      ...(readyCommand !== undefined ? { readyCommand } : {}),
+                      ...(fixCommand !== undefined ? { fixCommand } : {}),
                       ...(ctx.state.completionTransitionReadyResult !== undefined
                         ? { recordedGreenResult: ctx.state.completionTransitionReadyResult }
                         : {}),
@@ -1423,11 +1428,16 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
                 const willRunShrink = gitEnabled && implementationIterations > 0 && cfg.modes.patch.shrink !== "off";
                 const willRunReview =
                   gitEnabled && resolveReviewPasses(cfg, opts.reviewPasses) > 0 && implementationIterations > 0;
+                const projectCfg = cfg.projects[preflight.project.key];
+                const readyCommand = projectCfg?.readyCommand;
+                const fixCommand = projectCfg?.fixCommand;
                 if (!willRunReview && !willRunShrink) {
                   maybeMarkReady({
                     indexPath: afterSpecPath,
                     cwd: agentWorkingDir,
                     agentLabel: agent.attributionLabel(),
+                    ...(readyCommand !== undefined ? { readyCommand } : {}),
+                    ...(fixCommand !== undefined ? { fixCommand } : {}),
                     ...(ctx.state.completionTransitionReadyResult !== undefined
                       ? { recordedGreenResult: ctx.state.completionTransitionReadyResult }
                       : {}),

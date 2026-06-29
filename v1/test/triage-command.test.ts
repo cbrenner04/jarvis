@@ -1453,6 +1453,47 @@ describe("triage --mark-ready", () => {
     expect(err()).toContain("gh pr ready failed");
   });
 
+  test("resolves fixCommand from registered project at --mark-ready", async () => {
+    const worktreeName = "branch-1";
+    setupMarkReadyWorktree(worktreeName);
+    const configDir = mkdtempSync(join(tmpdir(), "jarvis-triage-fix-cfg-"));
+    writeFileSync(
+      join(configDir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: [{ agent: "claude", model: "haiku" }] },
+          plan: { agentOrder: [{ agent: "claude", model: "haiku" }] },
+          prompt: { agentOrder: [{ agent: "claude", model: "haiku" }] },
+          review: { passes: 1 },
+        },
+        projects: {
+          app: { root: projectRoot, fixCommand: "npm run lint-fix" },
+        },
+      }),
+    );
+
+    let capturedFix: string | undefined;
+    const { io } = captureIo();
+    const code = await triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      config: { dir: configDir },
+      ...currentBaseSeam,
+      ghRunner: draftPrGhRunner,
+      runGate: (_cwd, _ready, fix) => {
+        capturedFix = fix;
+      },
+      prReady: () => {},
+    });
+
+    expect(code).toBe(0);
+    expect(capturedFix).toBe("npm run lint-fix");
+    rmSync(configDir, { recursive: true, force: true });
+  });
+
   test("--mark-ready calls both runGate and prReady seams", async () => {
     const worktreeName = "branch-1";
     setupMarkReadyWorktree(worktreeName);

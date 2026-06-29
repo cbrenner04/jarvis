@@ -285,6 +285,8 @@ export type MaybeMarkPlanPrReadyOpts = {
   markReady?: (branch: string, cwd: string) => void;
   /** Seam for built-in `bun run fix` on `full` tier. Used by tests when markReady is absent. */
   runFix?: (cwd: string) => void;
+  /** Per-project override for `bun run fix`. Tokenized on whitespace; no shell. */
+  fixCommand?: string;
   /** Seam for verification only (`bun run ready`). Used by tests when markReady is absent. */
   runReady?: (cwd: string, tier: ReadyTier) => void;
   /** Seam for pre-ready fix commit/push on `full` tier when porcelain is non-empty after fix. */
@@ -357,6 +359,7 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
   runReadyAndCommit({
     cwd: opts.cwd,
     ...(opts.agentLabel !== undefined ? { agentLabel: opts.agentLabel } : {}),
+    ...(opts.fixCommand !== undefined ? { fixCommand: opts.fixCommand } : {}),
     ...(opts.runFix !== undefined ? { runFix: opts.runFix } : {}),
     ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
     ...(opts.commitPreReadyFix !== undefined ? { commitPreReadyFix: opts.commitPreReadyFix } : {}),

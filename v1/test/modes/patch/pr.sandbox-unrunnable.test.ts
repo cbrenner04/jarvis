@@ -643,6 +643,35 @@ describe("maybeMarkReady", () => {
     expect(ghPrReadyCalled).toBe(false);
   });
 
+  test("invokes fixCommand at maybeMarkReady gate site", () => {
+    writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
+    execSync("git add -A", { cwd: dir, stdio: "pipe" });
+    execSync("git commit -q -m 'add spec'", { cwd: dir, stdio: "pipe" });
+
+    const sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-pr-fix-cmd-"));
+    try {
+      const sentinel = join(sentinelDir, "invoked");
+      const script = join(sentinelDir, "fix.sh");
+      writeFileSync(script, `#!/bin/sh\ntouch "${sentinel}"\n`);
+      chmodSync(script, 0o755);
+
+      maybeMarkReady({
+        indexPath,
+        cwd: dir,
+        fixCommand: script,
+        checkPrExists: () => true,
+        checkBaseCurrent: currentBase(),
+        runReady: () => {},
+        commitPreReadyFix: () => {},
+        ghPrReady: () => {},
+      });
+
+      expect(existsSync(sentinel)).toBe(true);
+    } finally {
+      rmSync(sentinelDir, { recursive: true, force: true });
+    }
+  });
+
   test("invokes readyCommand at maybeMarkReady gate site", () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
     execSync("git add -A", { cwd: dir, stdio: "pipe" });

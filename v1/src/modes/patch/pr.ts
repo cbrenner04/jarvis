@@ -281,6 +281,8 @@ export type MaybeMarkReadyOpts = {
   markReady?: (branch: string, cwd: string) => void;
   /** Per-project override for `bun run ready`. Passed to `runReadyGateWithTier`. */
   readyCommand?: string;
+  /** Per-project override for `bun run fix`. Passed to `runReadyGateWithTier`. */
+  fixCommand?: string;
   /** Seam for built-in `bun run fix` on `full` tier. Used by tests when markReady is absent. */
   runFix?: (cwd: string) => void;
   /** Seam for verification only (`bun run ready` or `readyCommand`). Used by tests when markReady is absent. */
@@ -350,6 +352,7 @@ export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
     cwd: opts.cwd,
     agentLabel: opts.agentLabel ?? "",
     ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
+    ...(opts.fixCommand !== undefined ? { fixCommand: opts.fixCommand } : {}),
     ...(opts.recordedGreenResult !== undefined ? { recordedGreenResult: opts.recordedGreenResult } : {}),
     ...(opts.runFix !== undefined ? { runFix: opts.runFix } : {}),
     ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),

@@ -586,6 +586,38 @@ while true; do :; done
     }
   });
 
+  test("invokes fixCommand at pre-shrink gate site", async () => {
+    const { dir: repoDir, specPath, cleanup } = setupShrinkRepo();
+    const sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-shrink-fix-cmd-"));
+    const sentinel = join(sentinelDir, "fix-invoked");
+    const script = join(sentinelDir, "fix.sh");
+    writeFileSync(script, `#!/bin/sh\ntouch "${sentinel}"\n`);
+    chmodSync(script, 0o755);
+    const harness: string[] = [];
+    try {
+      const agent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
+      await runPatchShrinkPhase({
+        config: makeShrinkConfig(),
+        cwd: repoDir,
+        specPath,
+        allowlist: new Set(["impl.txt"]),
+        fixCommand: script,
+        runReady: () => {},
+        fanout: (tag, text) => {
+          if (tag === "harness") harness.push(text.trim());
+        },
+        writeTelemetry: () => {},
+        agents: { claude: agent },
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+      });
+      expect(existsSync(sentinel)).toBe(true);
+    } finally {
+      rmSync(sentinelDir, { recursive: true, force: true });
+      cleanup();
+    }
+  });
+
   test("invokes readyCommand at pre-shrink gate site", async () => {
     const { dir: repoDir, specPath, cleanup } = setupShrinkRepo();
     const sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-shrink-ready-cmd-"));

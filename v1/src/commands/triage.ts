@@ -45,7 +45,7 @@ export type TriageCommandOptions = {
   merge?: boolean;
   ghRunner?: TriageGhRunner;
   mergeTargetSeams?: MergeTargetResolutionSeams;
-  runGate?: (cwd: string, readyCommand?: string) => void;
+  runGate?: (cwd: string, readyCommand?: string, fixCommand?: string) => void;
   prReady?: (branch: string, cwd: string) => void;
   commitAndPushDirty?: (worktreePath: string) => CommitAndPushDirtyResult;
   checkBaseCurrent?: (opts: {
@@ -1036,7 +1036,13 @@ async function triageMarkReady(opts: TriageCommandOptions): Promise<number> {
     }
   }
 
-  const gateError = triageRunReadyGate(opts, worktreePath, resolveReadyCommand(opts), "triage-mark-ready");
+  const gateError = triageRunReadyGate(
+    opts,
+    worktreePath,
+    resolveReadyCommand(opts),
+    resolveFixCommand(opts),
+    "triage-mark-ready",
+  );
   if (gateError) {
     opts.io.stderr(`${label}: ready gate failed\n${gateError.message}\n`);
     return 1;
@@ -1287,21 +1293,37 @@ function resolveReadyCommand(opts: TriageCommandOptions): string | undefined {
   return undefined;
 }
 
+function resolveFixCommand(opts: TriageCommandOptions): string | undefined {
+  try {
+    const fullConfig = loadConfig(opts.config);
+    for (const project of Object.values(fullConfig.projects)) {
+      if (project.root === opts.projectRoot) {
+        return project.fixCommand;
+      }
+    }
+  } catch {
+    // Ignore config loading errors, use default fixCommand
+  }
+  return undefined;
+}
+
 function triageRunReadyGate(
   opts: TriageCommandOptions,
   worktreePath: string,
   readyCommand: string | undefined,
+  fixCommand: string | undefined,
   agentLabel: string,
 ): Error | null {
-  const defaultRunGate = (cwd: string, cmd?: string) => {
+  const defaultRunGate = (cwd: string, cmd?: string, fixCmd?: string) => {
     runReadyGateWithTier({
       cwd,
       agentLabel,
       ...(cmd !== undefined ? { readyCommand: cmd } : {}),
+      ...(fixCmd !== undefined ? { fixCommand: fixCmd } : {}),
     });
   };
   try {
-    (opts.runGate ?? defaultRunGate)(worktreePath, readyCommand);
+    (opts.runGate ?? defaultRunGate)(worktreePath, readyCommand, fixCommand);
     return null;
   } catch (err) {
     return err instanceof Error ? err : new Error(String(err));
@@ -1472,7 +1494,13 @@ function triageMerge(opts: TriageCommandOptions): number {
     return 1;
   }
 
-  const gateError = triageRunReadyGate(opts, worktreePath, resolveReadyCommand(opts), "triage-merge");
+  const gateError = triageRunReadyGate(
+    opts,
+    worktreePath,
+    resolveReadyCommand(opts),
+    resolveFixCommand(opts),
+    "triage-merge",
+  );
   if (gateError) {
     opts.io.stderr(`${label}: ready gate failed\n${gateError.message}\n`);
     return 1;

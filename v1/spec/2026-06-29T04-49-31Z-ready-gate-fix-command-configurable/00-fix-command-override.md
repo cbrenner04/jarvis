@@ -32,17 +32,17 @@ Full-tier ready gates hardcode `bun run fix`. Repos without a `fix` script (or n
 
 ## Acceptance criteria
 
-- [ ] A registered project with `fixCommand` set runs that command in place of `bun run fix` on forced `full` tier, with a test per gate site asserting the configured command is invoked: patch completion transition, pre-shrink, review baseline, review final (force `full` when tier-selecting, e.g. `--resume-review` or no recorded-green carrier), `maybeMarkReady` at each caller (`completion-pipeline` patch-complete and review-incomplete; `iteration.ts` early-ready when shrink/review deferred — force `full` when the site would otherwise select `fast` on an unchanged tree), triage shared gate helper for `--mark-ready` and `--merge`, and plan-mode draft→ready.
-- [ ] Triage resolves `fixCommand` from the registered project whose `root` matches `opts.projectRoot` and passes it to the gate (test asserts configured autofix at `--mark-ready` or `--merge`).
-- [ ] On `full` tier with no `fix` script in `package.json` and unset `fixCommand`, the gate skips autofix and still runs commit-if-dirty (when applicable) and verification without `FixCommandError`.
-- [ ] On `full` tier with `fixCommand` naming a package-manager script absent from `package.json`, the gate skips autofix and still runs commit-if-dirty (when applicable) and verification without `FixCommandError`.
-- [ ] On `full` tier with missing or unparseable root `package.json` and a PM-shaped default or configured `fixCommand`, the gate skips autofix without `FixCommandError`.
-- [ ] A non-PM `fixCommand` (e.g. a direct executable path) runs with no `package.json` script pre-check.
-- [ ] When autofix runs and exits non-zero, the gate surfaces `FixCommandError` naming the configured or default fix command with captured output (retryable classification unchanged).
-- [ ] `loadConfig` rejects `fixCommand` that is empty, whitespace-only, or non-string; a config with `fixCommand` round-trips through load/write unchanged.
-- [ ] A project with no `fixCommand` and a repo that has a `fix` script still runs `bun run fix` on `full` tier; commit-if-dirty, verification (`readyCommand` or `bun run ready`), and green-over-dirty abort behavior are unchanged.
-- [ ] `fast` tier never invokes autofix or pre-ready commit; `ready-gate.test.ts` fast-tier tests stay green.
-- [ ] `ready-gate.test.ts` and existing gate-site tests that stub `runFix` and omit `fixCommand` stay green.
+- [x] A registered project with `fixCommand` set runs that command in place of `bun run fix` on forced `full` tier, with a test per gate site asserting the configured command is invoked: patch completion transition, pre-shrink, review baseline, review final (force `full` when tier-selecting, e.g. `--resume-review` or no recorded-green carrier), `maybeMarkReady` at each caller (`completion-pipeline` patch-complete and review-incomplete; `iteration.ts` early-ready when shrink/review deferred — force `full` when the site would otherwise select `fast` on an unchanged tree), triage shared gate helper for `--mark-ready` and `--merge`, and plan-mode draft→ready.
+- [x] Triage resolves `fixCommand` from the registered project whose `root` matches `opts.projectRoot` and passes it to the gate (test asserts configured autofix at `--mark-ready` or `--merge`).
+- [x] On `full` tier with no `fix` script in `package.json` and unset `fixCommand`, the gate skips autofix and still runs commit-if-dirty (when applicable) and verification without `FixCommandError`.
+- [x] On `full` tier with `fixCommand` naming a package-manager script absent from `package.json`, the gate skips autofix and still runs commit-if-dirty (when applicable) and verification without `FixCommandError`.
+- [x] On `full` tier with missing or unparseable root `package.json` and a PM-shaped default or configured `fixCommand`, the gate skips autofix without `FixCommandError`.
+- [x] A non-PM `fixCommand` (e.g. a direct executable path) runs with no `package.json` script pre-check.
+- [x] When autofix runs and exits non-zero, the gate surfaces `FixCommandError` naming the configured or default fix command with captured output (retryable classification unchanged).
+- [x] `loadConfig` rejects `fixCommand` that is empty, whitespace-only, or non-string; a config with `fixCommand` round-trips through load/write unchanged.
+- [x] A project with no `fixCommand` and a repo that has a `fix` script still runs `bun run fix` on `full` tier; commit-if-dirty, verification (`readyCommand` or `bun run ready`), and green-over-dirty abort behavior are unchanged.
+- [x] `fast` tier never invokes autofix or pre-ready commit; `ready-gate.test.ts` fast-tier tests stay green.
+- [x] `ready-gate.test.ts` and existing gate-site tests that stub `runFix` and omit `fixCommand` stay green.
 
 ## Documentation updates
 

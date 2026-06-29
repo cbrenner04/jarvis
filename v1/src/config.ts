@@ -68,6 +68,7 @@ export type Project = {
   plan?: { specTimestamp?: boolean; commit?: boolean; targetDir?: string };
   updateSnapshotsCommand?: string;
   readyCommand?: string;
+  fixCommand?: string;
   readyGateRetryBound?: number;
   installCommand?: string;
 };
@@ -504,6 +505,16 @@ function validateConfig(input: unknown, file: string): Config {
       }
       project.readyCommand = readyCommandRaw;
     }
+    const fixCommandRaw = (value as Record<string, unknown>).fixCommand;
+    if (fixCommandRaw !== undefined) {
+      if (typeof fixCommandRaw !== "string") {
+        fail(file, `project ${JSON.stringify(name)} fixCommand must be a string`);
+      }
+      if (fixCommandRaw.trim() === "") {
+        fail(file, `project ${JSON.stringify(name)} fixCommand must be a non-empty string`);
+      }
+      project.fixCommand = fixCommandRaw;
+    }
     const installCommandRaw = (value as Record<string, unknown>).installCommand;
     if (installCommandRaw !== undefined) {
       if (typeof installCommandRaw !== "string") {
@@ -531,6 +542,7 @@ function validateConfig(input: unknown, file: string): Config {
       "plan",
       "updateSnapshotsCommand",
       "readyCommand",
+      "fixCommand",
       "readyGateRetryBound",
       "installCommand",
     ]);
@@ -546,7 +558,7 @@ function validateConfig(input: unknown, file: string): Config {
         }
         fail(
           file,
-          `project ${JSON.stringify(name)}: unknown key ${JSON.stringify(key)} (allowed: root, origin, git, siblings, plan, updateSnapshotsCommand, readyCommand, readyGateRetryBound, installCommand)`,
+          `project ${JSON.stringify(name)}: unknown key ${JSON.stringify(key)} (allowed: root, origin, git, siblings, plan, updateSnapshotsCommand, readyCommand, fixCommand, readyGateRetryBound, installCommand)`,
         );
       }
     }

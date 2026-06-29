@@ -130,6 +130,45 @@ function setupPatchReviewRepoWithBranchChange(): {
   return { dir, specPath, cleanup };
 }
 
+export const IDLE_HANG_WAIT = "exec tail -f /dev/null";
+export const IDLE_HANG_BODY = `set -euo pipefail
+${IDLE_HANG_WAIT}
+`;
+
+export function writeIdleHangScript(path: string): string {
+  writeFileSync(path, `#!/usr/bin/env bash\n${IDLE_HANG_BODY}`);
+  chmodSync(path, 0o755);
+  return path;
+}
+
+export class IdleHangAgent implements Agent {
+  readonly name = "claude" as const;
+  readonly #binary: string;
+
+  constructor(binary: string) {
+    this.#binary = binary;
+  }
+
+  async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+    return runAgent(
+      {
+        name: this.name,
+        binary: this.#binary,
+        cwd: opts.cwd,
+        buildArgv: () => [],
+        stdio: ["ignore", "pipe", "pipe"],
+        streamErrorPrefix: "test:",
+      },
+      prompt,
+      opts,
+    );
+  }
+
+  attributionLabel(): string {
+    return "fake-claude";
+  }
+}
+
 export function stripDelimitedBlocks(prompt: string, beginMarker: string, endMarker: string): string {
   let text = prompt;
   for (;;) {
@@ -810,37 +849,7 @@ describe("runPatchReviewPhase", () => {
       const tmpDir = join(dir, "tmp");
       mkdirSync(tmpDir, { recursive: true });
 
-      const idleScript = join(tmpDir, "idle-hang.sh");
-      writeFileSync(
-        idleScript,
-        `#!/usr/bin/env bash
-set -euo pipefail
-# Hang without emitting output — will hit idle timeout
-exec tail -f /dev/null
-`,
-      );
-      chmodSync(idleScript, 0o755);
-
-      class IdleAgent implements Agent {
-        readonly name = "claude" as const;
-        async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
-          return runAgent(
-            {
-              name: this.name,
-              binary: idleScript,
-              cwd: opts.cwd,
-              buildArgv: () => [],
-              stdio: ["ignore", "pipe", "pipe"],
-              streamErrorPrefix: "test:",
-            },
-            prompt,
-            opts,
-          );
-        }
-        attributionLabel(): string {
-          return "fake-claude";
-        }
-      }
+      const idleScript = writeIdleHangScript(join(tmpDir, "idle-hang.sh"));
 
       const cap = { out: "", err: "" };
       const fanout = (_tag: string, text: string) => {
@@ -861,7 +870,7 @@ exec tail -f /dev/null
         writeTelemetry: (record) => {
           telemetry.push(record);
         },
-        agents: { claude: new IdleAgent() },
+        agents: { claude: new IdleHangAgent(idleScript) },
         iterationTimeoutMs: 30_000,
         baseBranch: "main",
         patchWorktreeDir: dir,
@@ -889,37 +898,7 @@ exec tail -f /dev/null
       const tmpDir = join(dir, "..", "idle-actuator");
       mkdirSync(tmpDir, { recursive: true });
 
-      const idleScript = join(tmpDir, "idle-hang.sh");
-      writeFileSync(
-        idleScript,
-        `#!/usr/bin/env bash
-set -euo pipefail
-# Hang without emitting output — will hit idle timeout
-exec tail -f /dev/null
-`,
-      );
-      chmodSync(idleScript, 0o755);
-
-      class IdleAgent implements Agent {
-        readonly name = "claude" as const;
-        async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
-          return runAgent(
-            {
-              name: this.name,
-              binary: idleScript,
-              cwd: opts.cwd,
-              buildArgv: () => [],
-              stdio: ["ignore", "pipe", "pipe"],
-              streamErrorPrefix: "test:",
-            },
-            prompt,
-            opts,
-          );
-        }
-        attributionLabel(): string {
-          return "fake-claude";
-        }
-      }
+      const idleScript = writeIdleHangScript(join(tmpDir, "idle-hang.sh"));
 
       const reviewer = new FakeAgent("claude", () => ({
         kind: "ok",
@@ -949,7 +928,7 @@ exec tail -f /dev/null
         agents: { claude: reviewer },
         iterationTimeoutMs: 30_000,
         baseBranch: "main",
-        actuatorAgents: [new IdleAgent()],
+        actuatorAgents: [new IdleHangAgent(idleScript)],
         patchWorktreeDir: dir,
         idleOutputTimeoutMs: reviewIdleTimeoutMs,
         __testKillGraceMs: 200,

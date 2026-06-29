@@ -28,22 +28,22 @@
 
 ## Tasks
 
-- [ ] Add the owner price row to `data/prices.json`.
-- [ ] Extend `v1/test/prices.test.ts`: seed-row assertion for `opencode/deepseek-v4-pro` plus `computeCost(fixtureUsage, "opencode/deepseek-v4-pro", loadPrices())` with nonzero `cache_read_input_tokens` → `cost_source: "computed"` with non-null `cost_usd`.
-- [ ] Extend `v1/test/telemetry-enrichment.test.ts`: estimated opencode usage with `opencode/deepseek-v4-pro` yields `cost_source: "estimated"` and non-null `cost_usd`.
-- [ ] Extend `v1/test/telemetry-enrichment.test.ts`: agent-usage opencode with `opencode/deepseek-v4-pro` (usage present, `cost_usd` null) yields `cost_source: "computed"` and non-null `cost_usd`.
+- [x] Add the owner price row to `data/prices.json`.
+- [x] Extend `v1/test/prices.test.ts`: seed-row assertion for `opencode/deepseek-v4-pro` plus `computeCost(fixtureUsage, "opencode/deepseek-v4-pro", loadPrices())` with nonzero `cache_read_input_tokens` → `cost_source: "computed"` with non-null `cost_usd`.
+- [x] Extend `v1/test/telemetry-enrichment.test.ts`: estimated opencode usage with `opencode/deepseek-v4-pro` yields `cost_source: "estimated"` and non-null `cost_usd`.
+- [x] Extend `v1/test/telemetry-enrichment.test.ts`: agent-usage opencode with `opencode/deepseek-v4-pro` (usage present, `cost_usd` null) yields `cost_source: "computed"` and non-null `cost_usd`.
 
 ## Acceptance criteria
 
-- [ ] `resolveAgentPriceKey("opencode", "opencode/deepseek-v4-pro")` returns `"opencode/deepseek-v4-pro"`.
-- [ ] `data/prices.json` includes the owner snapshot row (`input_per_mtok` 1.74, `output_per_mtok` 3.48, `cache_read_per_mtok` 0.145, cited `source_url`, `as_of` `2026-06-29`).
-- [ ] `prices.test.ts` seed assertion covers `opencode/deepseek-v4-pro`; `computeCost(fixtureUsage, "opencode/deepseek-v4-pro", loadPrices())` with nonzero `cache_read_input_tokens` yields `cost_source: "computed"` with non-null `cost_usd`.
-- [ ] `extractUsageAndCost` with `usage_source: "estimated"`, agent `opencode`, model `opencode/deepseek-v4-pro` yields `cost_source: "estimated"` with non-null `cost_usd`.
-- [ ] `extractUsageAndCost` with agent-reported usage, agent `opencode`, model `opencode/deepseek-v4-pro`, and `cost_usd` null yields `cost_source: "computed"` with non-null `cost_usd`.
-- [ ] `config.test.ts` `"bootstraps from empty dir with defaults"` stays green.
+- [x] `resolveAgentPriceKey("opencode", "opencode/deepseek-v4-pro")` returns `"opencode/deepseek-v4-pro"`.
+- [x] `data/prices.json` includes the owner snapshot row (`input_per_mtok` 1.74, `output_per_mtok` 3.48, `cache_read_per_mtok` 0.145, cited `source_url`, `as_of` `2026-06-29`).
+- [x] `prices.test.ts` seed assertion covers `opencode/deepseek-v4-pro`; `computeCost(fixtureUsage, "opencode/deepseek-v4-pro", loadPrices())` with nonzero `cache_read_input_tokens` yields `cost_source: "computed"` with non-null `cost_usd`.
+- [x] `extractUsageAndCost` with `usage_source: "estimated"`, agent `opencode`, model `opencode/deepseek-v4-pro` yields `cost_source: "estimated"` with non-null `cost_usd`.
+- [x] `extractUsageAndCost` with agent-reported usage, agent `opencode`, model `opencode/deepseek-v4-pro`, and `cost_usd` null yields `cost_source: "computed"` with non-null `cost_usd`.
+- [x] `config.test.ts` `"bootstraps from empty dir with defaults"` stays green.
 - [ ] Live `opencode run --model opencode/deepseek-v4-pro` accepts the model. (Manual)
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes.
 
 ## Documentation updates
 

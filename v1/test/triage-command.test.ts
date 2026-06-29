@@ -7,6 +7,7 @@ import { type MergeTargetResolutionSeams, resolveMergeTarget } from "../src/comm
 import type { SuggestedMovesInput, TriageCommandOptions, TriageGhRunner, TriageIo } from "../src/commands/triage.ts";
 import { getSuggestedMoves, triageCommand } from "../src/commands/triage.ts";
 import type { BaseCurrentCheckResult } from "../src/git/base-current.ts";
+import { hasUpstream, pushCurrent } from "../src/worktree.ts";
 
 const currentBase =
   (baseRefName: string | null = "main") =>
@@ -76,6 +77,38 @@ function setupMarkReadyWorktree(
   execSync("git add .active-spec-path", { cwd: worktreePath });
   execSync("git commit -m 'marker'", { cwd: worktreePath });
   execSync("git push", { cwd: worktreePath, stdio: "pipe" });
+
+  if (opts?.makeDirty) {
+    writeFileSync(join(worktreePath, "test.txt"), "dirty");
+  }
+
+  return { worktreePath, specPath };
+}
+
+function setupMarkReadyWorktreeNoUpstream(
+  worktreeName: string,
+  opts?: {
+    makeDirty?: boolean;
+    specBody?: string;
+  },
+): { worktreePath: string; specPath: string } {
+  const worktreePath = join(worktreeDir, worktreeName);
+  setupWorktree(worktreePath);
+
+  const barePath = join(root, `${worktreeName}-remote.git`);
+  execSync(`git init --bare "${barePath}"`, { stdio: "pipe" });
+  execSync(`git remote add origin "${barePath}"`, { cwd: worktreePath, stdio: "pipe" });
+  execSync("git push origin main", { cwd: worktreePath, stdio: "pipe" });
+
+  const specDir = join(projectRoot, "v1", "spec");
+  mkdirSync(specDir, { recursive: true });
+  const specPath = join(specDir, `${worktreeName}-spec.md`);
+  writeFileSync(specPath, opts?.specBody ?? "# Test\n\n## Acceptance criteria\n\n- [x] done");
+
+  writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+  execSync("git add .active-spec-path", { cwd: worktreePath });
+  execSync("git commit -m 'marker'", { cwd: worktreePath });
+  execSync("git push origin main", { cwd: worktreePath, stdio: "pipe" });
 
   if (opts?.makeDirty) {
     writeFileSync(join(worktreePath, "test.txt"), "dirty");
@@ -1324,9 +1357,57 @@ describe("triage --mark-ready", () => {
     expect(lastCommit).toContain("Jarvis-Agent: completion-ready");
   });
 
+  test("--mark-ready on complete dirty worktree with no upstream pushes with -u, gates, and promotes", async () => {
+    const worktreeName = "branch-no-upstream";
+    const { worktreePath } = setupMarkReadyWorktreeNoUpstream(worktreeName, { makeDirty: true });
+
+    expect(hasUpstream(worktreePath)).toBe(false);
+
+    const pushes: Array<{ cwd: string; firstPush: boolean }> = [];
+    let ensureDraftPrRan = false;
+    let gateRan = false;
+    let prReadyRan = false;
+
+    const { io, out } = captureIo();
+    const code = await triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ...currentBaseSeam,
+      ghRunner: { getPrState: () => null },
+      pushCurrent: (args) => {
+        pushes.push(args);
+        pushCurrent(args);
+      },
+      ensureDraftPr: async () => {
+        ensureDraftPrRan = true;
+        return { number: 1, created: true };
+      },
+      runGate: () => {
+        gateRan = true;
+      },
+      prReady: () => {
+        prReadyRan = true;
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(pushes.some((p) => p.firstPush)).toBe(true);
+    const upstream = execSync("git rev-parse --abbrev-ref --symbolic-full-name @{u}", {
+      cwd: worktreePath,
+      encoding: "utf8",
+    }).trim();
+    expect(upstream).toBe("origin/main");
+    expect(ensureDraftPrRan).toBe(true);
+    expect(gateRan).toBe(true);
+    expect(prReadyRan).toBe(true);
+    expect(out()).toContain("promoted to ready");
+  });
+
   test("--mark-ready push failure after finalize commit skips PR open and gate", async () => {
-    const worktreeName = "branch-1";
-    setupMarkReadyWorktree(worktreeName);
+    const worktreeName = "branch-push-fail";
+    const { worktreePath } = setupMarkReadyWorktree(worktreeName, { makeDirty: true });
 
     let ensureDraftPrRan = false;
     let gateRan = false;
@@ -1341,7 +1422,9 @@ describe("triage --mark-ready", () => {
       ghRunner: {
         getPrState: () => null,
       },
-      commitAndPushDirty: () => ({ ok: false, reason: "push-failed", message: "push rejected" }),
+      pushCurrent: () => {
+        throw new Error("error: failed to push some refs to 'origin'\nfatal: push rejected");
+      },
       ensureDraftPr: async () => {
         ensureDraftPrRan = true;
         return { number: 1, created: true };
@@ -1353,8 +1436,14 @@ describe("triage --mark-ready", () => {
 
     expect(code).toBe(1);
     expect(err()).toContain("failed to push finalize commit");
+    expect(err()).toContain("push rejected");
     expect(ensureDraftPrRan).toBe(false);
     expect(gateRan).toBe(false);
+    const lastCommit = execSync("git log -1 --pretty=%B", {
+      cwd: worktreePath,
+      encoding: "utf8",
+    });
+    expect(lastCommit).toContain("chore: complete-but-dirty commit");
   });
 
   test("--mark-ready still-dirty after finalize commit leaves PR draft and exits non-zero", async () => {

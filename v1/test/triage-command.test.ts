@@ -2565,6 +2565,73 @@ describe("triage --mark-ready", () => {
       expect(mergeRan).toBe(true);
     });
 
+    test("resolves timestamped plan spec path via plan-slug without marker", () => {
+      const planName = "triage-resolve-plan-spec-path-merge-target";
+      const worktreeName = `plan-${planName}`;
+      const specDir = join(projectRoot, "v1", "spec", `2026-06-29T21-34-56Z-${planName}`);
+      mkdirSync(specDir, { recursive: true });
+      const specPath = join(specDir, "index.md");
+      writeFileSync(specPath, "# Test\n\n- [x] item 1");
+      const worktreePath = join(worktreeDir, worktreeName);
+      setupWorktree(worktreePath);
+      execSync(`git branch -M plan/${planName}`, { cwd: worktreePath, stdio: "pipe" });
+
+      let mergeRan = false;
+      const { io, out } = captureIo();
+      const code = triageCommand(
+        triageMergeOpts({
+          projectRoot,
+          cwd: projectRoot,
+          io,
+          worktreeName: `v1/spec/2026-06-29T21-34-56Z-${planName}/index.md`,
+          ghRunner: {
+            getPrState: () => ({ state: "OPEN", isDraft: false }),
+            getChecks: () => [{ name: "test", status: "success" }],
+          },
+          runGate: () => {},
+          adminMerge: () => {
+            mergeRan = true;
+          },
+        }),
+      );
+
+      expect(code).toBe(0);
+      expect(mergeRan).toBe(true);
+      expect(out()).toContain("merged successfully");
+    });
+
+    test("ambiguous plan spec path (marker vs plan-slug) lists candidates without merge", () => {
+      const planSlug = "merge-target-by-worktree-or-spec";
+      const specDir = join(projectRoot, "v1", "spec", `2026-06-27T17-26-00Z-${planSlug}`);
+      mkdirSync(specDir, { recursive: true });
+      const specPath = join(specDir, "index.md");
+      writeFileSync(specPath, "# Test\n\n- [x] item 1");
+
+      const planWorktreePath = join(worktreeDir, `plan-${planSlug}`);
+      setupWorktree(planWorktreePath);
+      setupResolvableMergeWorktree("branch-marker", { markerSpecPath: specPath });
+
+      let mergeRan = false;
+      const { io, err } = captureIo();
+      const code = triageCommand(
+        triageMergeOpts({
+          projectRoot,
+          cwd: projectRoot,
+          io,
+          worktreeName: specPath,
+          adminMerge: () => {
+            mergeRan = true;
+          },
+        }),
+      );
+
+      expect(code).toBe(1);
+      expect(err()).toContain("multiple worktrees match spec path");
+      expect(err()).toContain(`plan-${planSlug}`);
+      expect(err()).toContain("branch-marker");
+      expect(mergeRan).toBe(false);
+    });
+
     test("resolves bare .md filename via marker scan only", () => {
       const worktreeName = "branch-1";
       const specDir = join(projectRoot, "v1", "spec");

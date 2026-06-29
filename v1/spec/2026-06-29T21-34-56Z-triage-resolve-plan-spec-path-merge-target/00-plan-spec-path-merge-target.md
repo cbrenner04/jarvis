@@ -24,10 +24,10 @@
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 triage v1/spec/<timestamp>-<plan-name>/index.md --merge` resolves to `.worktree/plan-<plan-name>/` without `.active-spec-path` and admin-squash-merges when gates pass.
-- [ ] `jarvis1 triage <plan-spec-path> --merge` still resolves plan worktrees when `.active-spec-path` points at that spec path.
-- [ ] `triage-command.test.ts` `merge target resolution` describe block tests stay green.
-- [ ] Unresolvable or ambiguous plan spec paths exit non-zero with the existing merge-target stderr shapes and perform no merge side effects.
+- [x] `jarvis1 triage v1/spec/<timestamp>-<plan-name>/index.md --merge` resolves to `.worktree/plan-<plan-name>/` without `.active-spec-path` and admin-squash-merges when gates pass.
+- [x] `jarvis1 triage <plan-spec-path> --merge` still resolves plan worktrees when `.active-spec-path` points at that spec path.
+- [x] `triage-command.test.ts` `merge target resolution` describe block tests stay green.
+- [x] Unresolvable or ambiguous plan spec paths exit non-zero with the existing merge-target stderr shapes and perform no merge side effects.
 
 ## Documentation updates
 

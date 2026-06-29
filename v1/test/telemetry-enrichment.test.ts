@@ -54,13 +54,13 @@ describe("extractUsageAndCost: estimated usage", () => {
     expect(result.cost_usd).toBeNull();
   });
 
-  test.each(["opencode/glm-5.2", "opencode/deepseek-v4-pro"])(
-    "agent-reported opencode usage without cost_usd yields cost_source=computed (%s)",
-    (model) => {
-      const result = extractUsageAndCost({ usage: usage100x50, cost_usd: null }, "opencode", model);
-      expect(result.usage_source).toBe("agent");
-      expect(result.cost_source).toBe("computed");
-      expect(result.cost_usd).toBeTypeOf("number");
-    },
-  );
+  test.each([
+    "opencode/glm-5.2",
+    "opencode/deepseek-v4-pro",
+  ])("agent-reported opencode usage without cost_usd yields cost_source=computed (%s)", (model) => {
+    const result = extractUsageAndCost({ usage: usage100x50, cost_usd: null }, "opencode", model);
+    expect(result.usage_source).toBe("agent");
+    expect(result.cost_source).toBe("computed");
+    expect(result.cost_usd).toBeTypeOf("number");
+  });
 });

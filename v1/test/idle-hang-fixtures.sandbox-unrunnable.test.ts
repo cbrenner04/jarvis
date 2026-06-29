@@ -35,9 +35,13 @@ afterEach(() => {
 describe("idle hang fixture self-clean (sandbox-unrunnable)", () => {
   test("exits when immediate bash parent is killed", async () => {
     const script = writeIdleHangScript(join(dir, "idle-hang.sh"));
-    const spawner = spawn("bash", ["-c", `bash ${JSON.stringify(script)} & while kill -0 $! 2>/dev/null; do sleep 0.05; done`], {
-      stdio: "ignore",
-    });
+    const spawner = spawn(
+      "bash",
+      ["-c", `bash ${JSON.stringify(script)} & while kill -0 $! 2>/dev/null; do sleep 0.05; done`],
+      {
+        stdio: "ignore",
+      },
+    );
     const spawnerPid = spawner.pid;
     expect(spawnerPid).toBeGreaterThan(0);
 

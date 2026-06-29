@@ -77,6 +77,7 @@ Every session closes four cumulative CSVs (spec rows separate from operator rows
 - **`reports/operator-costs.csv`** — one row per operator session.
 - **`reports/session-outcomes.csv`** — one outcome row per session cost row.
 - **`reports/operator-outcomes.csv`** — one outcome row per operator cost row.
+- **`reports/efficiency.csv`** — derived per-report rollup for trend analysis, regenerated from the four source CSVs.
 
 **Sources:** spec/`session-*` figures come from `~/.jarvis/runs.jsonl` (the `namespace`, `mode`, `run_start_ts`/`run_end_ts`, `run_base`, and per-run cost/token fields). Operator/`operator-*` figures come from the operator's own Claude Code `/cost` for the session. The audit in [outcome-data-source-audit.md](../../v2/docs/outcome-data-source-audit.md) is the authority on which field derives from which source.
 
@@ -86,6 +87,7 @@ Every session closes four cumulative CSVs (spec rows separate from operator rows
 - `operator-costs`: `report, session, session_count, model, total_cost, cost_per_session, api_time, tokens_in, tokens_out, cache_read, cache_write, total_tokens, cost_per_1k_tokens, notes`
 - `session-outcomes`: `report, session_id, report_date, cost, completed_work_units, success_status, failure_reason, session_type, agent_count, duration_minutes, cost_per_minute, files_touched, cost_per_file, notes`
 - `operator-outcomes`: `report, session_id, report_date, specs_driven, cost, overall_success, failure_reason, session_type, duration_minutes, cost_per_minute, files_touched, cost_per_file, notes`
+- `efficiency`: `report, specs_driven, completed_specs, partial_or_blocked, session_active_tokens, operator_active_tokens, cache_read, observed_cost, paid_cost_only, tokens_per_completed_spec, paid_cost_per_completed_spec`
 
 **Identity & joins:**
 
@@ -105,6 +107,7 @@ Every session closes four cumulative CSVs (spec rows separate from operator rows
 - One operator cost row per session; `total_cost` = the operator's `/cost` total. `total_tokens` = `tokens_in + tokens_out`; cache columns are tracked separately and are not included. A session spanning a compaction boundary (multiple reports, same `/cost`) is one row.
 - Dedupe repeated specs across combined reports — one completed row, note the alternate accounting.
 - Token columns are raw integers (expand `k`/`M`); costs are dollars; times are `HH:MM:SS`.
+- Efficiency rows are derived snapshots. `observed_cost` includes recorded session + operator costs. `paid_cost_only` excludes Cursor/free-subscription rows, includes Claude/Codex/GPT/OpenAI and opencode GLM 5.2 rows, and should be revised if model billing changes.
 
 **Outcome reconciliation** (run after final cost-row reconciliation, before closing the report):
 

@@ -369,22 +369,6 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
   };
 
   try {
-    if (activeAgents.length === 0 && preflight.cfg.modes.patch.actuationCapabilityFloor !== undefined) {
-      const floorValue = preflight.cfg.modes.patch.actuationCapabilityFloor;
-      const errorMsg = `error: patch actuation has no agents meeting capability floor ${floorValue}`;
-      logging.fanout("harness", errorMsg, "stderr");
-      logging.writeTelemetry({
-        agent: "harness",
-        iteration: 0,
-        durationMs: Date.now() - runStartedMs,
-        kind: "error",
-        exitReason: "floor-error",
-        record_role: "run_terminal",
-      });
-      runExitReason = "floor-error";
-      return 1;
-    }
-
     // Warn about Claude pool contention if the selected primary agent is Claude
     // and there are live Jarvis-owned operator/orchestration sessions using Claude.
     const [primaryAgent] = activeAgents;

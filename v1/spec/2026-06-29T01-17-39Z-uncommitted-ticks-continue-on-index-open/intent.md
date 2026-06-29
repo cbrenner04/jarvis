@@ -19,5 +19,3 @@ After operator ticks a subspec's AC, patch mode's uncommitted-ticks path commits
 - [ ] Regression test covers multi-subspec index, uncommitted ticks on subspec 00, verifies commit + no exit 0 + next subspec targeted.
 - [ ] `v1/docs/operator-runbook.md` — note that a `criteria-complete` summary with `iterations: 0` on a multi-subspec index may mean this bug (rerun; triage index unchecked count) until fixed.
 - [ ] `v2/docs/v1-behaviors.md` — uncommitted-ticks finish path continues when index tasks remain.
-
-## Prerequisites

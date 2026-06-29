@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { closeSync, existsSync, readFileSync, writeFileSync, writeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { detectBlockerClaim, parseSpec, stripBlockerSection } from "../../../../shared/spec-parser.ts";
-import { openSessionLog, resolveReviewPasses, resolveSubRoleAgentOrder } from "../../config.ts";
+import { openSessionLog, resolveReviewPasses } from "../../config.ts";
 import { getBaseBranch } from "../../gh.ts";
 import type { LogClient } from "../../logging.ts";
 import { ensureDraftPr, renderAttributionSummary } from "../../pr.ts";
@@ -506,12 +506,9 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     return { kind: "return", exitCode: 2 };
   }
 
-  const configuredPatchModelEntry = resolveSubRoleAgentOrder(cfg, "patchActuator").find(
-    (entry) => entry.agent === agent.name,
-  );
-  const telemetryMeta =
-    configuredPatchModelEntry?.model !== undefined ? { configured_model: configuredPatchModelEntry.model } : {};
+  const configuredPatchModelEntry = cfg.modes.patch.agentOrder.find((entry) => entry.agent === agent.name);
   const configuredPatchModel = configuredPatchModelEntry?.model;
+  const telemetryMeta = configuredPatchModel !== undefined ? { configured_model: configuredPatchModel } : {};
 
   // For fix-up iterations, we don't get a task from the spec; instead we use the captured failure text
   const task = isFixupIteration ? null : getFirstUncheckedTask(specPath);
@@ -654,7 +651,11 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
 
       if (allNonHumanOnlyChecked) {
         state.iteration += 1;
-        const done = (await tryFinishSpecIfDone(ctx)) ?? 0;
+        const done = await tryFinishSpecIfDone(ctx);
+        // Subspec AC complete ≠ index complete; null means linked subspecs remain (before===0/after===0 coalesce null→0 because countUnchecked was already 0).
+        if (done === null) {
+          return { kind: "continue" };
+        }
         if (state.completionLoopbackSignal !== null) {
           return { kind: "continue" };
         }
@@ -1696,7 +1697,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
       return { kind: "continue" };
     }
     if (result.kind === "model_config") {
-      const entry = resolveSubRoleAgentOrder(cfg, "patchActuator").find((e) => e.agent === agent.name);
+      const entry = cfg.modes.patch.agentOrder.find((e) => e.agent === agent.name);
       const configErr = `${agent.name}: configured patch model ${JSON.stringify(entry?.model)} is not supported by this CLI/account\n`;
       fanout("harness", configErr, "stderr");
       if (result.stderr.length > 0) {

@@ -31,11 +31,11 @@
 
 ## Acceptance criteria
 
-- [ ] `v1/docs/config.md` contains no mention of `actuationCapabilityFloor`, `patchActuator`, or `capability` on `AgentEntry`; contains positive `reviewActuator` tiering guidance.
-- [ ] `v1/docs/agents.md` references only `reviewPanel` and `reviewActuator` as sub-role overrides; `patchActuator` is absent; `reviewActuator` is documented as the actuator-tiering lever.
-- [ ] `v1/docs/run-loop.md` contains no capability-floor or residual floor references.
-- [ ] `v1/docs/operator-runbook.md` contains no capability-floor references.
-- [ ] `v2/docs/v1-behaviors.md` contains no capability-floor, `patchActuator`, or pool-contention-floor entries; lists only `reviewPanel` and `reviewActuator` as sub-role tiering surfaces; documents `reviewActuator` as the sole actuator-tiering lever.
+- [x] `v1/docs/config.md` contains no mention of `actuationCapabilityFloor`, `patchActuator`, or `capability` on `AgentEntry`; contains positive `reviewActuator` tiering guidance.
+- [x] `v1/docs/agents.md` references only `reviewPanel` and `reviewActuator` as sub-role overrides; `patchActuator` is absent; `reviewActuator` is documented as the actuator-tiering lever.
+- [x] `v1/docs/run-loop.md` contains no capability-floor or residual floor references.
+- [x] `v1/docs/operator-runbook.md` contains no capability-floor references.
+- [x] `v2/docs/v1-behaviors.md` contains no capability-floor, `patchActuator`, or pool-contention-floor entries; lists only `reviewPanel` and `reviewActuator` as sub-role tiering surfaces; documents `reviewActuator` as the sole actuator-tiering lever.
 
 ## Documentation updates
 

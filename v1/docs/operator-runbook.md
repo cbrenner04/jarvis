@@ -317,7 +317,7 @@ warning: selected patch primary shares Claude pool with a live Jarvis operator/o
 
 This is **informational and non-blocking**: the run proceeds normally. The warning tells you that:
 
-- The selected patch primary is Claude (after tier/floor/override resolution).
+- The selected patch primary is Claude (after tier and override resolution).
 - Another Jarvis operator or orchestration session is actively running a Claude agent.
 - Both will compete for the same Claude API quota/pool during their concurrent runs.
 

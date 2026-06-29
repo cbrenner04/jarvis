@@ -770,25 +770,9 @@ selected agent CLI reports that the configured model is unsupported, jarvis
 exits with a model-configuration message and does not fall back to another
 agent.
 
-When `modes.patch.actuationCapabilityFloor` is configured, initial agent
-selection and fallback chains respect the minimum capability gate. Agents are
-filtered at preflight before tier start-index resolution: only entries with
-`capability >= floor` are used; if unset, all entries are eligible. Tier
-selection (trivial/standard/hard) is resolved against the floor-eligible
-ladder length, so tier positioning is independent of filtered-out agents. When
-no agents meet the floor, a fatal preflight error exits `1` with the role and
-floor named (before any agent runs). Fallback is reserved for quota exhaustion: if an agent reports quota exhaustion, jarvis removes it from the active list for that run and falls back to
-the next configured agent **in the floor-eligible ladder**. The floor is applied once via the active ladder for iteration and review phases. Shrink re-applies the floor independently to `modes.patch.agentOrder` before building shrink bindings; if no agents meet the floor, shrink is skipped with an error on the same channel as the patch-phase floor error, and the completed run's outcome is preserved. An explicit `--agents` override (patch-spawn CLI flag) can place a below-floor model on an eligible slot by operator intent — the floor gates configured entries, not overrides. See [quota-signals.md](./quota-signals.md) for the
-detection rules and
-[Classification and fallback outcome matrix](./quota-signals.md#classification-and-fallback-outcome-matrix)
-for the authoritative outcome mapping. Operator-visible quota stderr phrases
-(including the exact grep substrings shared with plan mode) are listed under
-[Operator-visible stderr](./quota-signals.md#operator-visible-stderr-grep-contract)
-in that doc.
-
 ### Shared model pool contention warning
 
-When the selected patch primary agent is Claude (after tier, floor, and override resolution), Jarvis probes for live Jarvis-owned operator/orchestration Claude sessions at run start. If any are detected, Jarvis emits a single non-blocking warning to the terminal and session log:
+When the selected patch primary agent is Claude (after tier and override resolution), Jarvis probes for live Jarvis-owned operator/orchestration Claude sessions at run start. If any are detected, Jarvis emits a single non-blocking warning to the terminal and session log:
 
 ```
 warning: selected patch primary shares Claude pool with a live Jarvis operator/orchestration session. Pause the competing session to avoid contention.
@@ -796,7 +780,7 @@ warning: selected patch primary shares Claude pool with a live Jarvis operator/o
 
 The warning is informational and non-blocking: the run proceeds normally with the same resolved primary agent, quota fallback behavior, and no-progress escalation. The warning fires once per run, before the first patch actuator invocation, and only when:
 
-- The resolved selected primary agent is Claude (checked after tier, floor, and override resolution; unused fallback rungs do not trigger the warning).
+- The resolved selected primary agent is Claude (checked after tier and override resolution; unused fallback rungs do not trigger the warning).
 - At least one live process tree exists with a Jarvis-owned ancestor process and a Claude process child.
 
 The probing is best-effort: process-tree read errors are silent and non-blocking. No warning is printed for unrelated generic Claude processes outside Jarvis ownership, or when the selected primary is a non-Claude model (e.g., Codex, Cursor) even if later fallback entries specify Claude.
@@ -996,13 +980,13 @@ jarvis1 log-server
 
 | Exit | Reason | Meaning |
 | --- | --- | --- |
-| `0` | `criteria-complete` | Spec complete. |
+| `0` | `criteria-complete` | Spec complete. False completion on multi-subspec indexes (`criteria-complete`, `iterations: 0`, no `spec complete` on stdout) — see exit `6` uncommitted-ticks note. |
 | `1` | `error` | Bad input (unknown command, missing args, invalid `--max-iterations`, unregistered project, `--resume-review` guard failure, etc.). `--resume-review` guard failures include: review passes resolve to `0`, effective `git` is `false`, no implementation PR/remote branch exists for the spec's branch, or the spec has unchecked tasks. Each guard prints a distinct message before exiting. |
 | `2` | `quota-exhausted` | Every configured agent was quota-exhausted. |
 | `3` | `agent-error` | The active agent failed for a non-quota reason. In `git: true` runs, jarvis first commits partial progress as `WIP:` when the failed iteration left tracked edits or newly checked acceptance criteria; untracked-only litter does not trigger a WIP commit. |
 | `4` | `no-progress` | The last configured `agentOrder` entry made no progress (unchecked count unchanged, spec still incomplete). Before reaching this exit, the harness advances through `agentOrder` on each no-progress iteration — shifting the current agent off and retrying the same subspec with the next entry (emitting `<agent>: no progress; escalating to next agent` on stderr). Exit 4 is returned only when the final rung also makes no progress, or `maxIterations` is reached first. The bounded tail, "stopping" message, and unticked-criteria diagnostic (listing acceptance criteria with guidance to tick and rerun) print only on this terminal stop, not on each advance. |
 | `5` | `max-iterations` | The configured `maxIterations` was reached. Default is 10; override with `--max-iterations <n>`. |
-| `6` | `dirty-worktree` | The run cannot continue because the worktree is dirty. This includes a completed checklist with uncommitted changes (excluding the harness-owned pre-ready `chore: apply pre-ready check:fix` commit, which runs automatically on **`full`** gates only), or an agent iteration that edited files without ticking any new acceptance-criteria checkbox in the active subspec. When an agent iteration edits files but checks no new acceptance criteria on the same active subspec, the harness loops back for a bounded number of retries (2 consecutive edited-but-unticked iterations on the same subspec before exiting 6) to allow the agent to complete its work in one run—retries count against `maxIterations`. Acceptance criteria ticked in the working tree but absent from the committed HEAD version are committed at iteration start as progress and counted toward completion, so re-runs do not deadlock on uncommitted ticks. If acceptance criteria tick(s) or other progress occurs during the retry window, the counter resets and the run continues normally. On a **`full`** gate the harness runs `bun run fix` and commits any dirty output **before** verification, so a clean tree is the norm at `gh pr ready`; if verification returns green over a still-dirty tree (or a fix-commit/push fails), the gate aborts here at exit 6 rather than flipping ready. Intermediate **`fast`** gates do not run fix or commit dirty output. `maybeMarkReady` on an unchanged tree runs **`fast`** then `gh pr ready` with the recorded-green predicate guaranteeing cleanliness. Exit 6 is otherwise reserved for genuinely unexpected dirty state (forgotten staged files, untracked artifacts). The bail message ends with a pointer to `jarvis1 triage <worktree-name>` to inspect state and see suggested next moves. Tick satisfied acceptance criteria, fix, or revert the dirty changes before rerunning. |
+| `6` | `dirty-worktree` | The run cannot continue because the worktree is dirty. This includes a completed checklist with uncommitted changes (excluding the harness-owned pre-ready `chore: apply pre-ready check:fix` commit, which runs automatically on **`full`** gates only), or an agent iteration that edited files without ticking any new acceptance-criteria checkbox in the active subspec. When an agent iteration edits files but checks no new acceptance criteria on the same active subspec, the harness loops back for a bounded number of retries (2 consecutive edited-but-unticked iterations on the same subspec before exiting 6) to allow the agent to complete its work in one run—retries count against `maxIterations`. Acceptance criteria ticked in the working tree but absent from the committed HEAD version are committed at iteration start as progress and counted toward completion, so re-runs do not deadlock on uncommitted ticks. On a multi-subspec index, uncommitted-ticks completion of one subspec loops back when linked subspecs remain (not exit `0`; false completion: `criteria-complete`, `iterations: 0`, no `spec complete` on stdout). If acceptance criteria tick(s) or other progress occurs during the retry window, the counter resets and the run continues normally. On a **`full`** gate the harness runs `bun run fix` and commits any dirty output **before** verification, so a clean tree is the norm at `gh pr ready`; if verification returns green over a still-dirty tree (or a fix-commit/push fails), the gate aborts here at exit 6 rather than flipping ready. Intermediate **`fast`** gates do not run fix or commit dirty output. `maybeMarkReady` on an unchanged tree runs **`fast`** then `gh pr ready` with the recorded-green predicate guaranteeing cleanliness. Exit 6 is otherwise reserved for genuinely unexpected dirty state (forgotten staged files, untracked artifacts). The bail message ends with a pointer to `jarvis1 triage <worktree-name>` to inspect state and see suggested next moves. Tick satisfied acceptance criteria, fix, or revert the dirty changes before rerunning. |
 | `7` | `blocked` | The run is blocked. The active subspec gained a `## Blocker` section (or already had one at the start). Any work from the iteration is committed and pushed. The blocker body is printed to stderr. Fix the underlying issue or remove the blocker section from the spec, then rerun. |
 | `8` | `timeout` | An iteration or global run timeout was exceeded. Configure `iterationTimeoutMs` (default 30 minutes) and optional `runTimeoutMs` in config. |
 | `9` | `worktree-locked` | The worktree is in use by another process. A process with a higher `pid` is currently operating on this worktree. Wait for that process to finish or use `jarvis1 triage <worktree-name>` to inspect the lock state. |

@@ -39,15 +39,15 @@ The `actuationCapabilityFloor` config + `capability` AgentEntry field + `filterA
 
 ## Acceptance criteria
 
-- [ ] Configuring `modes.patch.actuationCapabilityFloor` in `~/.jarvis/config.json` is rejected at load with an error naming the unknown key.
-- [ ] Configuring `capability` on any `AgentEntry` (not only `modes.patch.agentOrder`) is rejected at load with an error naming the unknown field.
-- [ ] Configuring `modes.patch.subRoleAgentOrder.patchActuator` is rejected at load with an error naming the unknown key.
-- [ ] Patch implementation loop resolves its agent order from `modes.patch.agentOrder` directly with no capability filtering; `patchActuator` sub-role no longer exists.
-- [ ] Shrink resolves its agent order from `subRoleAgentOrder.reviewActuator` (fallback to `modes.patch.agentOrder`) with no floor filtering; the empty-eligible skip-path is removed — the full ladder always runs.
-- [ ] `floor-error` exit reason is removed; `exitReason: "floor-error"` no longer appears in code or run summary.
-- [ ] `config.test.ts` remaining tests stay green (floor/capability/patchActuator cases removed or rewritten to reject).
-- [ ] `run.test.ts` remaining tests stay green (floor references removed).
-- [ ] `patch-actuator-floor.test.ts` non-floor tier tests survive in their new home.
+- [x] Configuring `modes.patch.actuationCapabilityFloor` in `~/.jarvis/config.json` is rejected at load with an error naming the unknown key.
+- [x] Configuring `capability` on any `AgentEntry` (not only `modes.patch.agentOrder`) is rejected at load with an error naming the unknown field.
+- [x] Configuring `modes.patch.subRoleAgentOrder.patchActuator` is rejected at load with an error naming the unknown key.
+- [x] Patch implementation loop resolves its agent order from `modes.patch.agentOrder` directly with no capability filtering; `patchActuator` sub-role no longer exists.
+- [x] Shrink resolves its agent order from `subRoleAgentOrder.reviewActuator` (fallback to `modes.patch.agentOrder`) with no floor filtering; the empty-eligible skip-path is removed — the full ladder always runs.
+- [x] `floor-error` exit reason is removed; `exitReason: "floor-error"` no longer appears in code or run summary.
+- [x] `config.test.ts` remaining tests stay green (floor/capability/patchActuator cases removed or rewritten to reject).
+- [x] `run.test.ts` remaining tests stay green (floor references removed).
+- [x] `patch-actuator-floor.test.ts` non-floor tier tests survive in their new home.
 
 ## Documentation updates
 

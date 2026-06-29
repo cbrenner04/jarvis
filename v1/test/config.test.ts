@@ -222,9 +222,7 @@ describe("loadConfig", () => {
     const cfg = loadConfig({ dir });
     cfg.modes.patch.agentOrder = [entry];
     writeConfig(cfg, { dir });
-
-    const reloaded = loadConfig({ dir });
-    expect(reloaded.modes.patch.agentOrder).toEqual([entry]);
+    expect(loadConfig({ dir }).modes.patch.agentOrder).toEqual([entry]);
   });
 
   test("defaults maxIterations when an existing config omits it", () => {

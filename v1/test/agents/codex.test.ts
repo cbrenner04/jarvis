@@ -66,42 +66,20 @@ describe("CodexAgent", () => {
     });
   });
 
-  test("passes gpt-5.4-mini through to --model", async () => {
+  test.each(["gpt-5.4", "gpt-5.4-mini"] as const)("passes %s through to --model", async (model) => {
     const { home, cwd } = prepareTempDirs();
     await withHome(home, async () => {
       const recorder = createFakeSpawnWithOutput({
         codex: { exit: 0, stdout: "ok", stderr: "" },
       });
-      const agent = new CodexAgent({ spawn: recorder.spawn, model: "gpt-5.4-mini" });
+      const agent = new CodexAgent({ spawn: recorder.spawn, model });
 
       await agent.run("the prompt", { cwd });
 
       expect(recorder.records).toHaveLength(1);
       const record = recorder.only();
       expect(record.argv).toContain("--model");
-      expect(record.argv).toContain("gpt-5.4-mini");
-    });
-  });
-
-  test("attributionLabel returns raw gpt-5.4-mini string", () => {
-    const agent = new CodexAgent({ binary: "fake", model: "gpt-5.4-mini" });
-    expect(agent.attributionLabel()).toBe("gpt-5.4-mini");
-  });
-
-  test("includes model flag when model is configured", async () => {
-    const { home, cwd } = prepareTempDirs();
-    await withHome(home, async () => {
-      const recorder = createFakeSpawnWithOutput({
-        codex: { exit: 0, stdout: "ok", stderr: "" },
-      });
-      const agent = new CodexAgent({ spawn: recorder.spawn, model: "gpt-5.4" });
-
-      await agent.run("the prompt", { cwd });
-
-      expect(recorder.records).toHaveLength(1);
-      const record = recorder.only();
-      expect(record.argv).toContain("--model");
-      expect(record.argv).toContain("gpt-5.4");
+      expect(record.argv).toContain(model);
     });
   });
 
@@ -252,12 +230,9 @@ describe("CodexAgent", () => {
     });
   });
 
-  test("attributionLabel returns raw string for model ID", () => {
-    const agent = new CodexAgent({
-      binary: "fake",
-      model: "gpt-4-codex",
-    });
-    expect(agent.attributionLabel()).toBe("gpt-4-codex");
+  test.each(["gpt-4-codex", "gpt-5.4-mini"] as const)("attributionLabel returns raw %s string", (model) => {
+    const agent = new CodexAgent({ binary: "fake", model });
+    expect(agent.attributionLabel()).toBe(model);
   });
 
   test("attributionLabel returns default fallback when model is undefined", () => {

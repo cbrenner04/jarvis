@@ -69,11 +69,7 @@ export class WorktreeOwnershipRegistry {
 
 function isTerminalRunStatus(status: RunStatus): boolean {
   return (
-    status === "completed" ||
-    status === "blocked" ||
-    status === "killed" ||
-    status === "paused" ||
-    status === "failed"
+    status === "completed" || status === "blocked" || status === "killed" || status === "paused" || status === "failed"
   );
 }
 
@@ -81,9 +77,7 @@ function isTerminalRunStatus(status: RunStatus): boolean {
  * Production failure reporter: opens the log sink and appends one
  * `run_execution_failed` event. Used by {@link startDaemon}; exported for tests.
  */
-export function createRunExecutionFailureReporter(
-  logsPath: string,
-): (runId: string, reason: unknown) => Promise<void> {
+export function createRunExecutionFailureReporter(logsPath: string): (runId: string, reason: unknown) => Promise<void> {
   return async (runId, _reason) => {
     const logSink = openLogSink(logsPath);
     try {

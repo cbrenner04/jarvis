@@ -42,8 +42,8 @@ import {
   harnessAuthRotateLine,
   harnessQuotaFallbackLenientLine,
 } from "../src/quota-harness-messages.ts";
-import { writeIdleHangScript } from "./modes/patch/review.sandbox-unrunnable.test.ts";
 import { getWorktreeLockPath } from "../src/worktree-lock.ts";
+import { writeIdleHangScript } from "./modes/patch/review.sandbox-unrunnable.test.ts";
 
 function captureIo(): { io: RunIo; out: () => string; err: () => string } {
   let out = "";

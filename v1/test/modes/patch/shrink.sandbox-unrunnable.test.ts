@@ -17,7 +17,7 @@ import {
 } from "../../../src/modes/patch/shrink.ts";
 import type { AcceptanceCriterion } from "../../../src/modes/patch/subspec.ts";
 import { HARNESS_QUOTA_FALLBACK_STRICT, harnessAuthRotateLine } from "../../../src/quota-harness-messages.ts";
-import { stripDelimitedBlocks, IdleHangAgent, writeIdleHangScript } from "./review.sandbox-unrunnable.test.ts";
+import { IdleHangAgent, stripDelimitedBlocks, writeIdleHangScript } from "./review.sandbox-unrunnable.test.ts";
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 

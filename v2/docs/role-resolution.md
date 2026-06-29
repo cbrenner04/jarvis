@@ -34,8 +34,7 @@ At invocation the runner:
 2. Resolves **`(agent, role) → rungs`** from the role→model store for the
    landed agent and walks the inner rung list.
 
-Outer/inner loop composition, rung consumption modes (including head-only
-`actuator`), flattening, and terminal outcomes:
+Inner rung detail (consumption modes, flattening, terminal outcomes):
 [`agent-model-config.md`](agent-model-config.md).
 
 ## Role ↔ behavior reference

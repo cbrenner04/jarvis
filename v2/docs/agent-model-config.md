@@ -203,14 +203,9 @@ Aligned with [`shared-invocation.md`](shared-invocation.md):
 | `error` | **no** | **no** |
 | `ok` | stop (success) | — |
 
-`quota` on the final flat binding does not advance to another agent or rung —
-[`shared/invocation/execute.ts`](../../shared/invocation/execute.ts) returns that
-attempt and the step runner classifies the non-`ok` result as invocation failure
-(step 5 in [Composed fallback](#composed-fallback)). Mid-chain `quota` advances
-along the flat list (inner rung, then outer agent at `rungs[0]`).
-
-`model_config` and `error` are terminal at the current binding. A misconfigured
-or crashing model is not recoverable by trying the next rung or the next agent.
+`quota` on the final flat binding is invocation failure (step 5 in
+[Composed fallback](#composed-fallback)). Mid-chain `quota` walks the flat list.
+`model_config` and `error` do not advance.
 
 ## Load-time validation
 
@@ -246,27 +241,11 @@ No single-flag override. No per-step config override.
 ## Price derivation
 
 Each `Model.priceKey` selects one adapter-specific row in
-[`data/prices.json`](../../data/prices.json) → `models` (input/output/cache rates).
-
-**Cost projection** (documented here; implementation deferred):
-
-```
-projected_cost(role, workflow) =
-  Σ over steps with that role (
-    invocations_per_step(role, workflow)
-    × Σ over flat bindings for (agents, role) (
-        P(binding.model.priceKey) × estimated_tokens(binding)
-      )
-  )
-```
-
-- Flat bindings follow [flat binding construction](#flat-binding-construction)
-  (full-list or head-only `actuator`).
-- `P(priceKey)` is the price row for that key.
-- `invocations_per_step` comes from workflow structure (loop counts, review
-  cycles). Rung order matters: earlier rungs are tried first on quota, so
-  projection weights should reflect expected quota fallthrough, not assume every
-  rung fires every time.
+[`data/prices.json`](../../data/prices.json) → `models`. Cost projection (deferred
+to implementation) multiplies per-step invocation counts by the flat binding list
+for that role ([flat binding construction](#flat-binding-construction)), looks up
+each binding's `priceKey`, and weights by expected quota fallthrough — earlier
+rungs are tried first, so not every rung fires every time.
 
 ## Example operator profile (non-normative)
 
@@ -319,30 +298,11 @@ For an `actuator` step: `claude/haiku → codex/gpt-5.4` — only each agent's
 
 ## Decisions
 
-Load-bearing choices recorded here:
+Load-bearing choices are in the sections above. Pins for first consumer:
 
-- **Durable home is this file** — schema does not fold into `v2-architecture.md`
-  or `role-resolution.md`.
-- **Harness-global role→model store** beside `data/prices.json` — not per-project,
-  not `config.json`.
-- **Per-machine project `agents` only** — ordered `Agent[]`; no `{agent, model}` pairs.
-- **`ModelEscalation.rungs` is ordered** — quota walks in order; no unordered pools.
-- **Inner and outer advance are quota-only** — not `model_config`, not `error`,
-  not no-progress at the model axis.
-- **`model_config` / `error` terminal** — per [`shared-invocation.md`](shared-invocation.md).
-- **Data-file agents ∉ project `agents` ignored at runtime** — not load errors.
-- **Complete `(agent, role)` required at load** for every project agent and
-  required role — hard error on gap.
-- **`operator` optional at load** — runtime error if resolved before Phase 9.
-- **Empty `rungs` and duplicate `agents` are load errors.**
-- **Full-list** for `plan`, `implement`, `adversary`, `advocate`, `adjudicator`;
-  **head-only** for `actuator`.
-- **Fresh flat bindings per invocation** — no cross-step rung cursor.
-- **Outer landing resets to `rungs[0]`.**
-- **`Model.adapterModel` + `Model.priceKey`** — one `prices.json` row per key.
-- **CLI override needs `--agent` + `--model`** — interim `--agents` CSV per
-  `write-behavior.md`.
-- **Deferred:** data filename, `priceKey` validation, tier→rung index,
-  capability-floor filtering — pin with first consumer.
-- **No v1 migration or dual-write** — equivalence documented only; see
-  [`role-resolution.md`](role-resolution.md) and v1 tier footnote above.
+- **On-disk data filename** — when Phase 5 implements load.
+- **`Model` / `priceKey` validation** — adapter catalog + `prices.json` key existence.
+- **Tier→initial rung index** — when a workflow consumer maps runnable `tier:` metadata.
+- **Capability-floor filtering** — when Phase 5 wires v1 `actuationCapabilityFloor` parity.
+
+No v1 migration or dual-write. v1 tier equivalence: [`role-resolution.md`](role-resolution.md) and the `implement` footnote in [Per-role rung consumption](#per-role-rung-consumption).

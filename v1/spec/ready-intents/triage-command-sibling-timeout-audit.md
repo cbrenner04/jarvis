@@ -29,4 +29,4 @@ of their timeout get a per-test bump so parallel-load slowdown cannot tip them.
 
 ## Prerequisites
 
-- The `--merge classifies all spec check statuses correctly` test passes reliably under full-suite parallel load.
+- The `--merge classifies all spec check statuses correctly` test passes under full-suite parallel gate (`bun run test`).

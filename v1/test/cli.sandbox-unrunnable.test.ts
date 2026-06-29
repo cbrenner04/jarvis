@@ -266,6 +266,35 @@ describe("parseArgs", () => {
     });
   });
 
+  test("cleanup scoped abandon parses worktree name with flag order independence", () => {
+    expect(parseArgs(["cleanup", "--abandon", "my-tree"])).toEqual({
+      kind: "cleanup",
+      abandon: true,
+      dryRun: false,
+      worktreeName: "my-tree",
+    });
+    expect(parseArgs(["cleanup", "my-tree", "--abandon"])).toEqual({
+      kind: "cleanup",
+      abandon: true,
+      dryRun: false,
+      worktreeName: "my-tree",
+    });
+    expect(parseArgs(["cleanup", "--dry-run", "--abandon", "my-tree"])).toEqual({
+      kind: "cleanup",
+      abandon: true,
+      dryRun: true,
+      worktreeName: "my-tree",
+    });
+  });
+
+  test("cleanup scoped abandon extra positional is usage error", () => {
+    const parsed = parseArgs(["cleanup", "--abandon", "one", "two"]);
+    expect(parsed.kind).toBe("error");
+    if (parsed.kind === "error") {
+      expect(parsed.message).toContain("too many arguments");
+    }
+  });
+
   test.each([
     ["run", "--help", "run"],
     ["run", "-h", "run"],
@@ -583,7 +612,7 @@ describe("run", () => {
     ["init", ["Register the current target repo"]],
     ["config", ["View or edit"]],
     ["log-server", ["log aggregation server"]],
-    ["cleanup", ["--abandon", "Remove merged worktrees, or retire abandoned worktrees"]],
+    ["cleanup", ["--abandon", "[<worktree-name>]", "Remove merged worktrees, or retire abandoned worktrees"]],
     ["triage", ["Inspect"]],
     ["review-feedback", ["PR review feedback"]],
     ["plan", []],

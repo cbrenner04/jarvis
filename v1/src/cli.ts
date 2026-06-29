@@ -55,7 +55,7 @@ export type ParsedArgs =
   | { kind: "init" }
   | { kind: "config"; rest: string[] }
   | { kind: "log-server" }
-  | { kind: "cleanup"; dryRun?: boolean; abandon?: boolean }
+  | { kind: "cleanup"; dryRun?: boolean; abandon?: boolean; worktreeName?: string }
   | { kind: "triage"; worktreeName?: string; markReady?: boolean; merge?: boolean }
   | { kind: "review-feedback"; worktreeName?: string }
   | {
@@ -90,7 +90,7 @@ Commands:
   init              Register the current target repo.
   config            View or edit the jarvis config.
   log-server        Run the local log aggregation server.
-  cleanup [--abandon] [--dry-run]
+  cleanup [--abandon] [--dry-run] [<worktree-name>]
                     Remove merged or abandoned worktrees.
   triage [target] [--mark-ready] [--merge]
                     Inspect a dirty or orphaned worktree. --mark-ready or --merge on a named worktree.
@@ -135,9 +135,10 @@ Flags:
 
   Run the local log aggregation server.
 `,
-  cleanup: `Usage: jarvis1 cleanup [--abandon] [--dry-run]
+  cleanup: `Usage: jarvis1 cleanup [--abandon] [--dry-run] [<worktree-name>]
 
   Remove merged worktrees, or retire abandoned worktrees with --abandon.
+  With --abandon, an optional worktree name retires only that tree.
 `,
   triage: `Usage: jarvis1 triage [target] [--mark-ready] [--merge]
 
@@ -306,7 +307,19 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       }
       const dryRun = rest.includes("--dry-run");
       const abandon = rest.includes("--abandon");
-      return { kind: "cleanup", dryRun, abandon };
+      const positionals = rest.filter((arg) => arg !== "--dry-run" && arg !== "--abandon");
+      if (positionals.length > 0 && !abandon) {
+        return { kind: "error", message: "cleanup: [<worktree-name>] requires --abandon" };
+      }
+      if (positionals.length > 1) {
+        return { kind: "error", message: "cleanup: too many arguments" };
+      }
+      return {
+        kind: "cleanup",
+        dryRun,
+        abandon,
+        ...(positionals[0] !== undefined ? { worktreeName: positionals[0] } : {}),
+      };
     }
     case "triage": {
       if (rest.includes("--help") || rest.includes("-h")) {
@@ -611,6 +624,7 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
         externalSpecsRoot: join(opts.config?.dir ?? CONFIG_DIR, "specs", computeProjectSafeId(project)),
         ...(parsed.dryRun !== undefined ? { dryRun: parsed.dryRun } : {}),
         ...(parsed.abandon !== undefined ? { abandon: parsed.abandon } : {}),
+        ...(parsed.worktreeName !== undefined ? { worktreeName: parsed.worktreeName } : {}),
       });
     }
     case "triage": {

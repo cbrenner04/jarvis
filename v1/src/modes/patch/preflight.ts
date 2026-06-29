@@ -25,13 +25,7 @@ import {
   getSpecName,
   removePatchWorktree,
 } from "../../worktree.ts";
-import {
-  acquireWorktreeLock,
-  getWorktreeLockPath,
-  isProcessAlive,
-  releaseWorktreeLock,
-  type WorktreeLock,
-} from "../../worktree-lock.ts";
+import { acquireWorktreeLock, readLiveWorktreeLock, releaseWorktreeLock } from "../../worktree-lock.ts";
 import { computeProjectSafeId } from "../plan/spec-paths.ts";
 import { countUnchecked, getActiveLinkedSubspecPath } from "./completion.ts";
 import { applyReset, clearDelta, loadDelta } from "./no-commit-delta.ts";
@@ -344,19 +338,6 @@ function resetTrackedSourceSpecDelta(indexPath: string): void {
   }
   applyReset(activeSubspecPath, priorDelta);
   clearDelta(activeSubspecPath);
-}
-
-function readLiveWorktreeLock(worktreePath: string): WorktreeLock | null {
-  const lockPath = getWorktreeLockPath(worktreePath);
-  if (!existsSync(lockPath)) {
-    return null;
-  }
-  try {
-    const lock = JSON.parse(readFileSync(lockPath, "utf8")) as WorktreeLock;
-    return isProcessAlive(lock.pid) ? lock : null;
-  } catch {
-    return null;
-  }
 }
 
 async function maybeCleanupStaleExternalSpecWorkspace(args: {

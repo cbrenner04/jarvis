@@ -294,7 +294,11 @@ flowchart TD
   kind -- model_config --> mcExit["exit 3: model-config"]:::stop
   kind -- error --> lenient{"Lenient quota fallback applies?"}:::dec
   lenient -- yes --> rotate
-  lenient -- no --> errExit["exit 3: agent-error"]:::stop
+  lenient -- no --> idleQ{"aborted: idle-timeout?"}:::dec
+  idleQ -- yes --> idleAgentQ{"Later agentOrder rung?"}:::dec
+  idleAgentQ -- yes --> idleRotate["Drop agent · telemetry: watchdog-idle-timeout-fallback"]:::det --> top
+  idleAgentQ -- no --> idleExit["exit 8: watchdog-idle-timeout"]:::stop
+  idleQ -- no --> errExit["exit 3: agent-error"]:::stop
 
   kind -- ok --> diff["Diff acceptance criteria<br/>before / after"]:::det
   diff --> blkPost{"Blocker added this iteration?"}:::dec
@@ -307,11 +311,13 @@ flowchart TD
   progQ -- no --> editedQ{"Files edited but nothing ticked?"}:::dec
   editedQ -- yes --> dirtyMid["exit 6: dirty worktree mid-run"]:::stop
   editedQ -- no --> noProg{"countUnchecked unchanged?"}:::dec
-  noProg -- yes --> noprogExit["exit 4: no-progress"]:::stop
+  noProg -- yes --> noProgAgentQ{"Later agentOrder rung?"}:::dec
+  noProgAgentQ -- yes --> noProgRotate["Drop agent · telemetry: no-progress-fallback"]:::det --> top
+  noProgAgentQ -- no --> noprogExit["exit 4: no-progress"]:::stop
   noProg -- no --> top
 
   top -.->|maxIterations reached| maxExit["exit 5: max-iterations"]:::stop
-  top -.->|iteration/run timeout fires| toExit["exit 8: timeout"]:::stop
+  top -.->|iteration/run wall-clock timeout| toExit["exit 8: timeout (terminal)"]:::stop
   top -.->|SIGINT| sigExit["exit 130"]:::stop
 
   classDef det fill:#dff5e1,stroke:#2f7d3a,color:#0b3d16;
@@ -350,10 +356,10 @@ What loops vs. what's a distinct path:
 - **Distinct exit paths**: In the implementation loop, `kind ∈ {ok, quota,
   model_config, error}` fan out from a single decision; the same iteration
   cannot take two of them.
-- **Quota rotation** drops the current agent from `agentOrder` and continues
-  the same loop with the next agent. Unlike plan mode, a generic `error`
-  *does not* rotate — it exits 3 — except when `quotaFallback: "lenient"`
-  upgrades the classification.
+- **Agent ladder rotation** (patch implementation): quota, lenient probable-quota,
+  no-progress, and idle-timeout each drop the current agent and retry the same
+  subspec when a later `agentOrder` rung remains. Generic `error` exits 3.
+  Terminal exit `4` or `8` only after the final rung stalls (or `maxIterations`).
 - **Determinism**: the agent's edits and the model-authored PR narrative
   (Description + Decisions) are non-deterministic, but the rest of the
   downstream (acceptance-criteria diff, commit-shape selection, the PR-body

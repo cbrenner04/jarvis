@@ -1,0 +1,7 @@
+## Verdict — required outcomes
+
+1. **Finish `v2/docs/v1-behaviors.md` alignment.** The idle-watchdog bullet (~311) is correct, but other bullets still describe idle abort as unconditionally exit `8`. The patch-tier ladder bullet (~43) must list idle-timeout alongside quota and no-progress as a shared-ladder escalation trigger and must not imply every timeout class cascades. The `idleOutputTimeoutMs` config row (~240) must state patch-implementation escalate-then-terminal semantics (fallback rungs continue; exit `8` only on final rung or fix-up). This subspec’s documentation updates explicitly require `v1-behaviors.md`; partial update leaves contradictory operator-facing semantics.
+
+2. **Bind fix-up idle suppression with an automated test.** The implementation correctly guards escalation with `!isFixupIteration`, and v1 docs state fix-up does not escalate, but no test proves a multi-agent `agentOrder` idle stall during a fix-up iteration exits `8` with terminal `watchdog-idle-timeout`, emits no `watchdog-idle-timeout-fallback` row, and does not shift to the next agent. That behavior is an explicit spec decision (parity with no-progress fix-up terminality); without coverage it can regress silently.
+
+**Not required (implementation and bound ACs are sufficient):** escalation telemetry field parity beyond construction (shared record object), same-subspec prompt assertions, `maxIterations` idle interaction, `workflows.md` fix-up diagram node, `agents.md` terminal-stop bullet extension, and cosmetic ladder-guard style unification.

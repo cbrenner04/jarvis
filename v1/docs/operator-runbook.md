@@ -201,6 +201,8 @@ When a PR branched before recent merges (`mergeStateStatus: BEHIND`/`DIRTY`):
 
 When a patch run (`jarvis run`) ends with a non-success exit reason, the summary includes a `see runbook: OPERATOR_RUNBOOK.md › <section>` pointer that routes you to recovery guidance for that failure reason. The section names match the scaffolded headings in the runbook — follow the pointer to find the recovery steps.
 
+During patch implementation, an idle-output stall (no stdout/stderr and no file activity for `idleOutputTimeoutMs`) auto-escalates through `modes.patch.agentOrder` when fallback rungs remain — same ladder as quota and no-progress. You may see `<agent>: idle timeout; escalating to next agent` before a stronger agent retries the same subspec. Exit `8` on idle abort means the final rung stalled (or a fix-up iteration timed out).
+
 When automated gates fail or are unsafe to re-run, finalize by hand **in the worktree** (the operator is finalizing, not an agent editing mid-run):
 
 ```sh

@@ -27,12 +27,13 @@ signals; see [quota-signals.md](./quota-signals.md).
 
 ### agentOrder as an escalation ladder
 
-`modes.patch.agentOrder` is an escalation ladder: when an agent hits quota **or makes no progress**, the harness shifts it off the front of `activeAgents` and retries the same subspec with the next agent. The intent is to order entries cheap→strong so cheap actuators run first and stronger (more expensive) models are reached only when needed.
+`modes.patch.agentOrder` is an escalation ladder: when an agent hits quota, makes no progress, or stalls on idle output during patch implementation, the harness shifts it off the front of `activeAgents` and retries the same subspec with the next agent. The intent is to order entries cheap→strong so cheap actuators run first and stronger (more expensive) models are reached only when needed.
 
 - **Quota escalation**: on a quota-classified result, the current agent is shifted and the next agent takes over immediately.
 - **No-progress escalation**: on a successful iteration that ticked no new acceptance criteria and changed no files, the current agent is shifted and the next entry retries the same subspec at the next iteration number. The advance emits `<agent>: no progress; escalating to next agent` to stderr — distinct from the quota-fallback line.
+- **Idle-timeout escalation (patch implementation only)**: when the idle-output watchdog fires and at least one later `agentOrder` entry remains, the current agent is shifted and the next entry retries the same subspec. The advance emits `<agent>: idle timeout; escalating to next agent`. Exit `8` with `watchdog-idle-timeout` is returned only after the final rung stalls (or on fix-up iterations, which do not escalate). Review, shrink, plan, and wall-clock timeouts stay terminal with no cascade.
 - **Terminal stop**: exit 4 (`no-progress`) is returned only after the last ladder rung also makes no progress (or `maxIterations` is reached first, since each advance increments the iteration counter). The bounded tail, "stopping" message, and unticked-criteria diagnostic print only on this terminal stop.
-- **Shared ladder**: both quota and no-progress signals consume the same `activeAgents` list. A quota on one rung followed by a no-progress on the next each shift one entry; the two signals share the finite ladder.
+- **Shared ladder**: quota, no-progress, and idle-timeout signals consume the same `activeAgents` list. A quota on one rung followed by an idle stall on the next each shift one entry; all three signals share the finite ladder.
 - **Run-wide**: once shifted, the actuator stays escalated for all subsequent subspecs in the run (identical to quota-fallback semantics).
 
 Each `agentOrder` entry couples an **agent CLI** with a **model**; advancing the ladder changes both simultaneously.

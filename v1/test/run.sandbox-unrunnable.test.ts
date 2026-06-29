@@ -18,6 +18,7 @@ import type {
   RunIo,
 } from "../src/modes/patch/run.ts";
 import { runCommand } from "../src/modes/patch/run.ts";
+import { HARNESS_IDLE_TIMEOUT_FALLBACK } from "../src/quota-harness-messages.ts";
 
 function captureIo(): { io: RunIo; out: () => string; err: () => string } {
   let out = "";
@@ -155,6 +156,57 @@ async function runWithDefaults(opts: RunCommandOptions): Promise<number> {
     ...disableReviewByDefault(opts),
     skipGhCheck: true,
   });
+}
+
+function writeAgentScript(filename: string, body: string): string {
+  const script = join(projectRoot, filename);
+  writeFileSync(script, body.startsWith("#!") ? body : `#!/usr/bin/env bash\n${body}`);
+  chmodSync(script, 0o755);
+  return script;
+}
+
+const IDLE_HANG_BODY = `set -euo pipefail
+while true; do :; done
+`;
+
+class ScriptAgent implements Agent {
+  readonly name: AgentName;
+  readonly #binary: string;
+
+  constructor(name: AgentName, binary: string) {
+    this.name = name;
+    this.#binary = binary;
+  }
+
+  async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+    return runAgent(
+      {
+        name: this.name,
+        binary: this.#binary,
+        cwd: opts.cwd,
+        buildArgv: () => [],
+        stdio: ["ignore", "pipe", "pipe"],
+        streamErrorPrefix: "test:",
+      },
+      prompt,
+      opts,
+    );
+  }
+
+  attributionLabel(): string {
+    return `fake-${this.name}`;
+  }
+}
+
+function idleHangAgent(name: AgentName = "claude", body = IDLE_HANG_BODY): ScriptAgent {
+  return new ScriptAgent(name, writeAgentScript("idle-hang.sh", body));
+}
+
+function readTelemetryRows(): Record<string, unknown>[] {
+  return readFileSync(join(cfgDir, "runs.jsonl"), "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
 beforeEach(() => {
@@ -481,37 +533,6 @@ done
       const iterationTimeoutMs = 5000;
       const spec = writeSpec("- [ ] todo\n");
       const cap = captureIo();
-      const idleScript = join(projectRoot, "idle-hang.sh");
-      writeFileSync(
-        idleScript,
-        `#!/usr/bin/env bash
-set -euo pipefail
-# Hang without emitting output — will hit idle timeout before iteration timeout
-while true; do :; done
-`,
-      );
-      chmodSync(idleScript, 0o755);
-
-      class IdleAgent implements Agent {
-        readonly name = "claude" as const;
-        async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
-          return runAgent(
-            {
-              name: this.name,
-              binary: idleScript,
-              cwd: opts.cwd,
-              buildArgv: () => [],
-              stdio: ["ignore", "pipe", "pipe"],
-              streamErrorPrefix: "test:",
-            },
-            prompt,
-            opts,
-          );
-        }
-        attributionLabel(): string {
-          return "fake-claude";
-        }
-      }
 
       writeConfig(
         {
@@ -538,7 +559,7 @@ while true; do :; done
         specPath: spec,
         io: cap.io,
         config: { dir: cfgDir },
-        agents: { claude: new IdleAgent() },
+        agents: { claude: idleHangAgent() },
         handleSignals: false,
         __testKillGraceMs: 200,
       });
@@ -644,39 +665,17 @@ echo "done"
     test("idle watchdog disabled when idleOutputTimeoutMs is 0", async () => {
       const spec = writeSpec("- [ ] todo\n");
       const cap = captureIo();
-      const idleScript = join(projectRoot, "idle-hang.sh");
-      writeFileSync(
-        idleScript,
-        `#!/usr/bin/env bash
-set -euo pipefail
+      const claude = new ScriptAgent(
+        "claude",
+        writeAgentScript(
+          "idle-hang.sh",
+          `set -euo pipefail
 sleep 1.5
-# After 1.5s, emit output to show we're not aborted yet
 echo "output after stall" >&2
 while true; do :; done
 `,
+        ),
       );
-      chmodSync(idleScript, 0o755);
-
-      class IdleAgent implements Agent {
-        readonly name = "claude" as const;
-        async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
-          return runAgent(
-            {
-              name: this.name,
-              binary: idleScript,
-              cwd: opts.cwd,
-              buildArgv: () => [],
-              stdio: ["ignore", "pipe", "pipe"],
-              streamErrorPrefix: "test:",
-            },
-            prompt,
-            opts,
-          );
-        }
-        attributionLabel(): string {
-          return "fake-claude";
-        }
-      }
 
       writeConfig(
         {
@@ -702,7 +701,7 @@ while true; do :; done
         specPath: spec,
         io: cap.io,
         config: { dir: cfgDir },
-        agents: { claude: new IdleAgent() },
+        agents: { claude },
         handleSignals: false,
         __testKillGraceMs: 200,
       });
@@ -724,35 +723,6 @@ while true; do :; done
       const idleTimeoutMs = 1000;
       const spec = writeSpec("- [ ] todo\n");
       const cap = captureIo();
-      const idleScript = join(projectRoot, "idle-hang.sh");
-      writeFileSync(
-        idleScript,
-        `#!/usr/bin/env bash
-while true; do :; done
-`,
-      );
-      chmodSync(idleScript, 0o755);
-
-      class IdleAgent implements Agent {
-        readonly name = "claude" as const;
-        async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
-          return runAgent(
-            {
-              name: this.name,
-              binary: idleScript,
-              cwd: opts.cwd,
-              buildArgv: () => [],
-              stdio: ["ignore", "pipe", "pipe"],
-              streamErrorPrefix: "test:",
-            },
-            prompt,
-            opts,
-          );
-        }
-        attributionLabel(): string {
-          return "fake-claude";
-        }
-      }
 
       writeConfig(
         {
@@ -778,7 +748,7 @@ while true; do :; done
         specPath: spec,
         io: cap.io,
         config: { dir: cfgDir },
-        agents: { claude: new IdleAgent() },
+        agents: { claude: idleHangAgent() },
         handleSignals: false,
         __testKillGraceMs: 200,
       });
@@ -795,46 +765,12 @@ while true; do :; done
       expect(idleRow).toBeDefined();
     });
 
-    test("idle abort is not classified as quota and does not trigger fallback", async () => {
+    test("idle watchdog escalates through agentOrder when fallback rung remains", async () => {
       const idleTimeoutMs = 1000;
       const spec = writeSpec("- [ ] todo\n");
       const cap = captureIo();
-      const idleScript = join(projectRoot, "idle-hang.sh");
-      writeFileSync(
-        idleScript,
-        `#!/usr/bin/env bash
-while true; do :; done
-`,
-      );
-      chmodSync(idleScript, 0o755);
-
-      class IdleAgent implements Agent {
-        readonly name = "claude" as const;
-        async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
-          return runAgent(
-            {
-              name: this.name,
-              binary: idleScript,
-              cwd: opts.cwd,
-              buildArgv: () => [],
-              stdio: ["ignore", "pipe", "pipe"],
-              streamErrorPrefix: "test:",
-            },
-            prompt,
-            opts,
-          );
-        }
-        attributionLabel(): string {
-          return "fake-claude";
-        }
-      }
-
-      const claude = new IdleAgent();
-      const codex = new FakeAgent("codex", () => ({
-        kind: "error",
-        exitCode: 1,
-        stderr: "fallback should not be triggered",
-      }));
+      const claude = idleHangAgent();
+      const codex = new FakeAgent("codex", () => ({ kind: "ok", stdout: "", stderr: "" }));
 
       writeConfig(
         {
@@ -847,7 +783,56 @@ while true; do :; done
           },
           quotaFallback: "lenient",
           weakQuotaExitCodes: [],
-          maxIterations: 1,
+          maxIterations: 3,
+          iterationTimeoutMs: 30 * 60_000,
+          idleOutputTimeoutMs: idleTimeoutMs,
+          git: true,
+          projects: { project: { root: projectRoot } },
+        },
+        { dir: cfgDir },
+      );
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude, codex },
+        handleSignals: false,
+        __testKillGraceMs: 200,
+      });
+
+      expect(code).toBe(4);
+      expect(cap.err()).toContain(`claude: ${HARNESS_IDLE_TIMEOUT_FALLBACK}`);
+      expect(cap.err()).not.toContain("iteration 1 exceeded idle timeout");
+      expect(codex.calls).toHaveLength(1);
+
+      const _telemetryPath = join(cfgDir, "runs.jsonl");
+      const rows = readTelemetryRows();
+      const fallbackRow = rows.find((row) => row.exit_reason === "watchdog-idle-timeout-fallback");
+      expect(fallbackRow).toBeDefined();
+      expect(fallbackRow?.kind).toBe("timeout");
+      expect(fallbackRow?.agent).toBe("claude");
+    });
+
+    test("idle watchdog on final rung exits 8 with terminal watchdog-idle-timeout", async () => {
+      const idleTimeoutMs = 1000;
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+      const claude = idleHangAgent("claude");
+      const codex = idleHangAgent("codex");
+
+      writeConfig(
+        {
+          version: 2,
+          modes: {
+            patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+            plan: { agentOrder: [CLAUDE_ENTRY] },
+            prompt: { agentOrder: [CLAUDE_ENTRY] },
+            review: { passes: 2 },
+          },
+          quotaFallback: "lenient",
+          weakQuotaExitCodes: [],
+          maxIterations: 5,
           iterationTimeoutMs: 30 * 60_000,
           idleOutputTimeoutMs: idleTimeoutMs,
           git: true,
@@ -866,18 +851,68 @@ while true; do :; done
       });
 
       expect(code).toBe(8);
-      expect(cap.err()).toContain("idle timeout fired");
-      // Should NOT contain fallback message for codex
-      expect(cap.err()).not.toContain("fallback should not be triggered");
+      expect(cap.err()).toContain(`claude: ${HARNESS_IDLE_TIMEOUT_FALLBACK}`);
+      expect(cap.err()).toContain("iteration 2 exceeded idle timeout");
 
-      const telemetryPath = join(cfgDir, "runs.jsonl");
-      const rows = readFileSync(telemetryPath, "utf8")
-        .trim()
-        .split("\n")
-        .map((line) => JSON.parse(line) as Record<string, unknown>);
-      const idleRow = rows.find((row) => row.exit_reason === "watchdog-idle-timeout");
-      expect(idleRow).toBeDefined();
-      expect(idleRow?.kind).toBe("timeout");
+      const rows = readTelemetryRows();
+      const fallbackRow = rows.find((row) => row.exit_reason === "watchdog-idle-timeout-fallback");
+      const terminalRow = rows.find((row) => row.exit_reason === "watchdog-idle-timeout");
+      expect(fallbackRow).toBeDefined();
+      expect(fallbackRow?.agent).toBe("claude");
+      expect(terminalRow).toBeDefined();
+      expect(terminalRow?.agent).toBe("codex");
+      expect(terminalRow?.kind).toBe("timeout");
+    });
+
+    test("idle abort is not classified as quota and escalates via idle ladder", async () => {
+      const idleTimeoutMs = 1000;
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+      const claude = idleHangAgent();
+      const codex = new FakeAgent("codex", () => ({
+        kind: "error",
+        exitCode: 1,
+        stderr: "fallback should not be triggered",
+      }));
+
+      writeConfig(
+        {
+          version: 2,
+          modes: {
+            patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+            plan: { agentOrder: [CLAUDE_ENTRY] },
+            prompt: { agentOrder: [CLAUDE_ENTRY] },
+            review: { passes: 2 },
+          },
+          quotaFallback: "lenient",
+          weakQuotaExitCodes: [],
+          maxIterations: 3,
+          iterationTimeoutMs: 30 * 60_000,
+          idleOutputTimeoutMs: idleTimeoutMs,
+          git: true,
+          projects: { project: { root: projectRoot } },
+        },
+        { dir: cfgDir },
+      );
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude, codex },
+        handleSignals: false,
+        __testKillGraceMs: 200,
+      });
+
+      expect(code).toBe(3);
+      expect(cap.err()).toContain(`claude: ${HARNESS_IDLE_TIMEOUT_FALLBACK}`);
+      expect(cap.err()).toContain("fallback should not be triggered");
+      expect(cap.err()).not.toContain("probable quota-like error");
+      expect(codex.calls).toHaveLength(1);
+
+      const fallbackRow = readTelemetryRows().find((row) => row.exit_reason === "watchdog-idle-timeout-fallback");
+      expect(fallbackRow).toBeDefined();
+      expect(fallbackRow?.kind).toBe("timeout");
     });
 
     test("silent but file-editing agent is not killed by idle watchdog", async () => {
@@ -965,35 +1000,6 @@ echo "done"
       const idleTimeoutMs = 800;
       const spec = writeSpec("- [ ] todo\n");
       const cap = captureIo();
-      const fullyIdleScript = join(projectRoot, "fully-idle.sh");
-      writeFileSync(
-        fullyIdleScript,
-        `#!/usr/bin/env bash
-while true; do :; done
-`,
-      );
-      chmodSync(fullyIdleScript, 0o755);
-
-      class FullyIdleAgent implements Agent {
-        readonly name = "claude" as const;
-        async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
-          return runAgent(
-            {
-              name: this.name,
-              binary: fullyIdleScript,
-              cwd: opts.cwd,
-              buildArgv: () => [],
-              stdio: ["ignore", "pipe", "pipe"],
-              streamErrorPrefix: "test:",
-            },
-            prompt,
-            opts,
-          );
-        }
-        attributionLabel(): string {
-          return "fake-claude";
-        }
-      }
 
       writeConfig(
         {
@@ -1019,7 +1025,7 @@ while true; do :; done
         specPath: spec,
         io: cap.io,
         config: { dir: cfgDir },
-        agents: { claude: new FullyIdleAgent() },
+        agents: { claude: idleHangAgent("claude", "while true; do :; done\n") },
         handleSignals: false,
         __testKillGraceMs: 200,
       });
@@ -1046,35 +1052,6 @@ while true; do :; done
       const idleTimeoutMs = 1000;
       const spec = writeSpec("- [ ] todo\n");
       const cap = captureIo();
-      const idleScript = join(projectRoot, "idle-hang.sh");
-      writeFileSync(
-        idleScript,
-        `#!/usr/bin/env bash
-while true; do :; done
-`,
-      );
-      chmodSync(idleScript, 0o755);
-
-      class IdleAgent implements Agent {
-        readonly name = "claude" as const;
-        async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
-          return runAgent(
-            {
-              name: this.name,
-              binary: idleScript,
-              cwd: opts.cwd,
-              buildArgv: () => [],
-              stdio: ["ignore", "pipe", "pipe"],
-              streamErrorPrefix: "test:",
-            },
-            prompt,
-            opts,
-          );
-        }
-        attributionLabel(): string {
-          return "fake-claude";
-        }
-      }
 
       writeConfig(
         {
@@ -1100,7 +1077,7 @@ while true; do :; done
         specPath: spec,
         io: cap.io,
         config: { dir: cfgDir },
-        agents: { claude: new IdleAgent() },
+        agents: { claude: idleHangAgent() },
         handleSignals: false,
         __testKillGraceMs: 200,
       });

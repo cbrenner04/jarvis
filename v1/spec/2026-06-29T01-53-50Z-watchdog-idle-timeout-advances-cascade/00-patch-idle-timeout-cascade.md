@@ -67,19 +67,19 @@ while a fallback rung exists.
 
 ## Acceptance criteria
 
-- [ ] `run.sandbox-unrunnable.test.ts` `idle watchdog escalates through
+- [x] `run.sandbox-unrunnable.test.ts` `idle watchdog escalates through
   agentOrder when fallback rung remains` passes (shifts stalled agent,
   `<agent>: idle timeout; escalating to next agent` stderr,
   `watchdog-idle-timeout-fallback` telemetry, same subspec on next rung, run
   continues).
-- [ ] `run.sandbox-unrunnable.test.ts` `idle watchdog on final rung exits 8
+- [x] `run.sandbox-unrunnable.test.ts` `idle watchdog on final rung exits 8
   with terminal watchdog-idle-timeout` passes.
-- [ ] `run.sandbox-unrunnable.test.ts` single-agent idle-watchdog tests stay
+- [x] `run.sandbox-unrunnable.test.ts` single-agent idle-watchdog tests stay
   green (terminal exit `8` behavior unchanged when no fallback rung exists).
-- [ ] `modes/patch/review.sandbox-unrunnable.test.ts` and
+- [x] `modes/patch/review.sandbox-unrunnable.test.ts` and
   `modes/patch/shrink.sandbox-unrunnable.test.ts` idle-watchdog tests stay green
   (review/shrink idle abort remains terminal, no cascade).
-- [ ] Per-iteration wall-clock timeout and whole-run timeout paths remain
+- [x] Per-iteration wall-clock timeout and whole-run timeout paths remain
   terminal with no agent cascade (`run.sandbox-unrunnable.test.ts` iteration-
   timeout coverage stays green).
 

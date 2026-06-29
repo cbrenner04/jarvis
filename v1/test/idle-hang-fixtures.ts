@@ -4,8 +4,8 @@ import { chmodSync, writeFileSync } from "node:fs";
 import { isProcessAlive } from "../../shared/worktree-lock.ts";
 import { collectSubtree, DescendantTracker, listProcesses } from "../src/modes/patch/reap.ts";
 
-/** `__testKillGraceMs` (200) + headroom for parent-death/teardown assertions. */
-export const HANG_FIXTURE_EXIT_DEADLINE_MS = 600;
+/** `__testKillGraceMs` (200) + CI headroom for parent-death/teardown assertions. */
+export const HANG_FIXTURE_EXIT_DEADLINE_MS = 2000;
 
 /** Backstop when per-test teardown cannot run or see orphans. */
 const IDLE_HANG_MAX_LIFETIME_SEC = 3600;

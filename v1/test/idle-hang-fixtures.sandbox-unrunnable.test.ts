@@ -3,6 +3,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,6 +22,13 @@ import {
 const HANG_FIXTURE_TRACKING_ID = import.meta.path;
 
 let dir: string;
+
+function waitForClose(child: ChildProcess): Promise<void> {
+  return new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", () => resolve());
+  });
+}
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "jarvis-idle-hang-fixture-"));
@@ -44,10 +52,14 @@ describe("idle hang fixture self-clean (sandbox-unrunnable)", () => {
     );
     const spawnerPid = spawner.pid;
     expect(spawnerPid).toBeGreaterThan(0);
+    if (spawnerPid === undefined) {
+      throw new Error("spawner pid unavailable");
+    }
 
     await waitForScriptRunning(script, HANG_FIXTURE_EXIT_DEADLINE_MS);
 
-    process.kill(spawnerPid!, "SIGKILL");
+    process.kill(spawnerPid, "SIGKILL");
+    await waitForClose(spawner);
     await waitForScriptExit(script, HANG_FIXTURE_EXIT_DEADLINE_MS);
   });
 

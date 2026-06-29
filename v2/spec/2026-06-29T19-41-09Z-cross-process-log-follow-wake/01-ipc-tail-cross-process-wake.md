@@ -36,3 +36,11 @@ Depends on [00](./00-cross-process-follow-wake.md).
 ## Documentation updates
 
 - No change — cross-process wake and IPC inheritance are documented in 00's `v2/docs/v2-architecture.md` update.
+
+## Blocker
+
+Prerequisite unmet: exported tail-stream handler factory from `daemon.ts` does not exist. `daemon.ts:374` still defines `tailStreamHandler` inline inside `startDaemon`; no factory is exported. The ready-intent `v2/spec/ready-intents/daemon-tail-stream-handler-factory.md` remains in `ready-intents/` (not `completed/`), so the extraction has not shipped.
+
+Cannot satisfy the task checklist or acceptance criteria — they require "factory-backed" tests wiring an exported factory with injected `stateStore`/`logReader`. Wiring tests to the inline closure is not possible without first extracting the factory, which is the ready-intent's own scope (an unauthorized harness change outside this subspec's listed steps).
+
+Resolution: implement `daemon-tail-stream-handler-factory` as a separate slice (extract handler into exported factory consuming injected `stateStore` + `logReader`; `startDaemon` wires production deps), then re-run this subspec.

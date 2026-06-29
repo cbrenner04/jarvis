@@ -35,14 +35,14 @@ Plan review actuator runs after the adjudicator, then `validateReviewOutput` gat
 
 ## Acceptance criteria
 
-- [ ] When plan review actuator agent success is followed by `validateReviewOutput` failure only because registered `intent.md` drifted from its pre-actuator snapshot (non-blocker body/frontmatter edit), Jarvis writes pre-actuator snapshot bytes back to `intent.md`, re-validates successfully, keeps allowed spec/`verdict-plan.md` edits, and completes the review pass (commit/push when `commit: true`, phase success when `commit: false`).
-- [ ] `commit: true` integration: immutable-only `intent.md` drift recovers via snapshot write, re-validate passes, and `plan: review: actuator` commit proceeds.
-- [ ] `commit: false` integration: same drift recovers via snapshot write before phase success; stderr notice emitted.
-- [ ] When immutable drift coexists with any other `validateReviewOutput` failure (e.g. missing `index.md`), Jarvis does not recover and the pass still fails with the current error behavior.
-- [ ] When `intent.md` changes include an invalid blocker composite (e.g. frontmatter edit plus `## Blocker`), Jarvis does not recover and hard-fails as today.
-- [ ] Recovery emits a stderr notice with a fixed prefix and a line naming the reverted `intent.md` path; when the verdict text contains literal or backtick-wrapped `intent.md` (case-sensitive), the notice includes a fallout line that those verdict requirements were not applied.
-- [ ] Patch review actuator post-success path invokes the shared recovery hook; with today's registry, existing completed-spec revert and commit behavior are unchanged (`review.sandbox-unrunnable.test.ts` actuator preservation tests stay green).
-- [ ] Helper unit tests cover immutable-only recovery, mixed-failure no-recovery, no-op when validation already passes, and fallout detection for pinned `intent.md` verdict references.
+- [x] When plan review actuator agent success is followed by `validateReviewOutput` failure only because registered `intent.md` drifted from its pre-actuator snapshot (non-blocker body/frontmatter edit), Jarvis writes pre-actuator snapshot bytes back to `intent.md`, re-validates successfully, keeps allowed spec/`verdict-plan.md` edits, and completes the review pass (commit/push when `commit: true`, phase success when `commit: false`).
+- [x] `commit: true` integration: immutable-only `intent.md` drift recovers via snapshot write, re-validate passes, and `plan: review: actuator` commit proceeds.
+- [x] `commit: false` integration: same drift recovers via snapshot write before phase success; stderr notice emitted.
+- [x] When immutable drift coexists with any other `validateReviewOutput` failure (e.g. missing `index.md`), Jarvis does not recover and the pass still fails with the current error behavior.
+- [x] When `intent.md` changes include an invalid blocker composite (e.g. frontmatter edit plus `## Blocker`), Jarvis does not recover and hard-fails as today.
+- [x] Recovery emits a stderr notice with a fixed prefix and a line naming the reverted `intent.md` path; when the verdict text contains literal or backtick-wrapped `intent.md` (case-sensitive), the notice includes a fallout line that those verdict requirements were not applied.
+- [x] Patch review actuator post-success path invokes the shared recovery hook; with today's registry, existing completed-spec revert and commit behavior are unchanged (`review.sandbox-unrunnable.test.ts` actuator preservation tests stay green).
+- [x] Helper unit tests cover immutable-only recovery, mixed-failure no-recovery, no-op when validation already passes, and fallout detection for pinned `intent.md` verdict references.
 
 ## Documentation updates
 

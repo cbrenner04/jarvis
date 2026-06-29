@@ -172,6 +172,16 @@ The actuator prompt:
 - Forbids editing `verdict-plan.md` and forbids creation of unrelated files.
 - Forbids modifications to `intent.md` except for appending a `## Blocker` section.
 
+When post-actuator `validateReviewOutput` fails only because `intent.md` drifted from its pre-actuator snapshot (non-blocker body/frontmatter edit), Jarvis writes the snapshot bytes back, re-validates, keeps allowed subspec/`verdict-plan.md` edits, and continues the pass. Recovery does **not** run when drift includes an invalid blocker composite (e.g. frontmatter edit plus `## Blocker`), when a valid blocker-only append would have passed validation, or when another validation failure coexists (e.g. missing `index.md`). Stderr notice shape:
+
+```
+plan: actuator reverted immutable-copy overreach:
+  intent.md
+  verdict requirements for intent.md were not applied
+```
+
+The fixed prefix and one line per reverted path are always emitted on recovery; the fallout line appears only when the verdict text contains literal or backtick-wrapped `intent.md` (case-sensitive).
+
 Each cycle is bounded by the configured pass count; the agents do not decide when to stop or how many cycles to run. Non-empty role and actuator artifacts are staged and committed as `plan: review: <role>` / `plan: review: actuator` (with resume suffixes when applicable). Empty verdicts skip the actuator and produce no actuator commit.
 
 **Prompt rendering:** Like the draft phase, review prompts use non-recursive template rendering so that placeholder-looking text in the current spec (e.g., `<CURRENT_SPEC>` appearing in the snapshot) is treated as literal data without recursive substitution.

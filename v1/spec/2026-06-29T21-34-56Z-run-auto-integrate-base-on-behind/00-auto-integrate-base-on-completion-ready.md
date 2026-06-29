@@ -28,33 +28,33 @@ tree, so post-actuator lint dirt can reach CI (observed PR #773).
 
 ## Task checklist
 
-- [ ] Add `v1/src/git/` auto-integrate helper: merge, gate, push, ready flip, abort/reset on failure; injectable git/gate/push seams for tests.
-- [ ] Wire helper into `maybeMarkReady` behind-base branch when `autoIntegrateBase: true`.
-- [ ] Pass `autoIntegrateBase: true` from completion-pipeline `patch-complete` only; remove duplicate `iteration.ts` `maybeMarkReady` on that path.
-- [ ] Wire the same helper into review-final behind-base branch before gate/ready.
-- [ ] Tests per acceptance criteria (new + preservation anchors).
-- [ ] Documentation updates per section below.
+- [x] Add `v1/src/git/` auto-integrate helper: merge, gate, push, ready flip, abort/reset on failure; injectable git/gate/push seams for tests.
+- [x] Wire helper into `maybeMarkReady` behind-base branch when `autoIntegrateBase: true`.
+- [x] Pass `autoIntegrateBase: true` from completion-pipeline `patch-complete` only; remove duplicate `iteration.ts` `maybeMarkReady` on that path.
+- [x] Wire the same helper into review-final behind-base branch before gate/ready.
+- [x] Tests per acceptance criteria (new + preservation anchors).
+- [x] Documentation updates per section below.
 
 ## Acceptance criteria
 
-- [ ] `v1/test/git/auto-integrate-base.test.ts` `conflict-free behind merges, full gates, pushes, and marks ready` — behind-base at enabled site with clean porcelain and conflict-free `origin/<base>` merge.
-- [ ] `v1/test/git/auto-integrate-base.test.ts` `merge conflict aborts and blocks ready` — abort merge, `writeReadyFlipBlocked` stderr, no `gh pr ready`.
-- [ ] `v1/test/git/auto-integrate-base.test.ts` `post-merge gate failure resets local tree and blocks ready` — restore pre-merge `HEAD`, same blocked stderr, no `gh pr ready`.
-- [ ] `v1/test/git/auto-integrate-base.test.ts` `pushes merge commit when gate is clean` — no fix/post-verify commits from gate; `pushCurrent` still runs before ready flip.
-- [ ] `v1/test/git/auto-integrate-base.test.ts` `dirty pre-merge porcelain blocks without merge` — immediate blocked stderr, no merge attempt.
-- [ ] `v1/test/git/auto-integrate-base.test.ts` `gh pr ready failure after integrate warns without throwing` — draft PR; push may have succeeded.
-- [ ] `v1/test/modes/patch/pr.sandbox-unrunnable.test.ts` `autoIntegrateBase merges behind base on conflict-free completion` — `maybeMarkReady` with `autoIntegrateBase: true` success path.
-- [ ] `v1/test/modes/patch/pr.sandbox-unrunnable.test.ts` `blocks ready flip when branch is behind base` stays green (`autoIntegrateBase` default).
-- [ ] `v1/test/modes/patch/review.sandbox-unrunnable.test.ts` `review final auto-integrates behind base on conflict-free merge` — replaces `review final leaves PR draft when branch is behind base` success coverage.
-- [ ] `v1/test/modes/patch/review.sandbox-unrunnable.test.ts` `review final aborts merge conflict and blocks ready` — same blocked contract as helper.
-- [ ] `v1/test/modes/patch/review.sandbox-unrunnable.test.ts` `review final resets on post-merge gate failure and blocks ready` — same blocked contract as helper.
-- [ ] `v1/test/run.test.ts` `no-review path emits at most one behind-base auto-integrate` — no-shrink/no-review completion does not double-call on behind base.
-- [ ] `v1/test/git/auto-integrate-base.test.ts` `maybeMarkReady and review-final share behind-base outcomes` — cross-path parity on success, conflict abort, and gate-failure reset.
-- [ ] `v1/test/triage-command.test.ts` behind-base `--mark-ready` refusal tests stay green.
-- [ ] `v1/test/modes/plan/pr.sandbox-unrunnable.test.ts` `blocks ready flip when branch is behind base` stays green.
+- [x] `v1/test/git/auto-integrate-base.test.ts` `conflict-free behind merges, full gates, pushes, and marks ready` — behind-base at enabled site with clean porcelain and conflict-free `origin/<base>` merge.
+- [x] `v1/test/git/auto-integrate-base.test.ts` `merge conflict aborts and blocks ready` — abort merge, `writeReadyFlipBlocked` stderr, no `gh pr ready`.
+- [x] `v1/test/git/auto-integrate-base.test.ts` `post-merge gate failure resets local tree and blocks ready` — restore pre-merge `HEAD`, same blocked stderr, no `gh pr ready`.
+- [x] `v1/test/git/auto-integrate-base.test.ts` `pushes merge commit when gate is clean` — no fix/post-verify commits from gate; `pushCurrent` still runs before ready flip.
+- [x] `v1/test/git/auto-integrate-base.test.ts` `dirty pre-merge porcelain blocks without merge` — immediate blocked stderr, no merge attempt.
+- [x] `v1/test/git/auto-integrate-base.test.ts` `gh pr ready failure after integrate warns without throwing` — draft PR; push may have succeeded.
+- [x] `v1/test/modes/patch/pr.sandbox-unrunnable.test.ts` `autoIntegrateBase merges behind base on conflict-free completion` — `maybeMarkReady` with `autoIntegrateBase: true` success path.
+- [x] `v1/test/modes/patch/pr.sandbox-unrunnable.test.ts` `blocks ready flip when branch is behind base` stays green (`autoIntegrateBase` default).
+- [x] `v1/test/modes/patch/review.sandbox-unrunnable.test.ts` `review final auto-integrates behind base on conflict-free merge` — replaces `review final leaves PR draft when branch is behind base` success coverage.
+- [x] `v1/test/modes/patch/review.sandbox-unrunnable.test.ts` `review final aborts merge conflict and blocks ready` — same blocked contract as helper.
+- [x] `v1/test/modes/patch/review.sandbox-unrunnable.test.ts` `review final resets on post-merge gate failure and blocks ready` — same blocked contract as helper.
+- [x] `v1/test/run.test.ts` `no-review path emits at most one behind-base auto-integrate` — no-shrink/no-review completion does not double-call on behind base.
+- [x] `v1/test/git/auto-integrate-base.test.ts` `maybeMarkReady and review-final share behind-base outcomes` — cross-path parity on success, conflict abort, and gate-failure reset.
+- [x] `v1/test/triage-command.test.ts` behind-base `--mark-ready` refusal tests stay green.
+- [x] `v1/test/modes/plan/pr.sandbox-unrunnable.test.ts` `blocks ready flip when branch is behind base` stays green.
 
 ## Documentation updates
 
-- [ ] `v1/docs/operator-runbook.md`: conflict-free behind-base auto-integrates at patch-run completion; Integration-merge-then-retest remains for conflicts; manual `--no-commit` trial merge unchanged (harness auto-path commits on conflict-free merge); remove concurrency caveat referencing this seed; align behind-base finalize wording across sections.
-- [ ] `v1/docs/run-loop.md`: at `patch-complete` and review-final, behind-base intentionally merges then runs post-merge `full` gate (reverses guard-before-gate fail-fast at those sites); note push-before-ready ordering.
-- [ ] `v2/docs/v1-behaviors.md`: record behind-base auto-merge + post-merge `full` gate at `patch-complete` and review-final; state guard-before-gate reversal at those sites; note triage/plan unchanged.
+- [x] `v1/docs/operator-runbook.md`: conflict-free behind-base auto-integrates at patch-run completion; Integration-merge-then-retest remains for conflicts; manual `--no-commit` trial merge unchanged (harness auto-path commits on conflict-free merge); remove concurrency caveat referencing this seed; align behind-base finalize wording across sections.
+- [x] `v1/docs/run-loop.md`: at `patch-complete` and review-final, behind-base intentionally merges then runs post-merge `full` gate (reverses guard-before-gate fail-fast at those sites); note push-before-ready ordering.
+- [x] `v2/docs/v1-behaviors.md`: record behind-base auto-merge + post-merge `full` gate at `patch-complete` and review-final; state guard-before-gate reversal at those sites; note triage/plan unchanged.

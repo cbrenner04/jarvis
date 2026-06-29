@@ -416,6 +416,34 @@ describe("maybeMarkReady", () => {
     ).toThrow("cannot mark PR ready: no PR found");
   });
 
+  test("autoIntegrateBase merges behind base on conflict-free completion", () => {
+    writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
+
+    let integrateCalled = false;
+    let ghReadyCalled = false;
+
+    maybeMarkReady({
+      indexPath,
+      cwd: dir,
+      checkPrExists: () => true,
+      checkBaseCurrent: behindBase("main"),
+      autoIntegrateBase: true,
+      tryAutoIntegrateBase: () => {
+        integrateCalled = true;
+        return "integrated";
+      },
+      ghPrReady: () => {
+        ghReadyCalled = true;
+      },
+      markReady: () => {
+        throw new Error("markReady should not run");
+      },
+    });
+
+    expect(integrateCalled).toBe(true);
+    expect(ghReadyCalled).toBe(false);
+  });
+
   test("blocks ready flip when branch is behind base", () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
 

@@ -16,6 +16,7 @@ import {
   revertSpecTreeEdits,
   runPatchReviewPhase,
 } from "../../../src/modes/patch/review.ts";
+import { writeReadyFlipBlocked } from "../../../src/git/base-current.ts";
 import { HARNESS_QUOTA_FALLBACK_STRICT, harnessAuthRotateLine } from "../../../src/quota-harness-messages.ts";
 import { FAKE_AGENT_SPAWN_PID, waitForPollCount } from "../../descendant-poll-test-helpers.ts";
 import {
@@ -1087,7 +1088,38 @@ describe("runPatchReviewPhase", () => {
     }
   });
 
-  test("review final leaves PR draft when branch is behind base", async () => {
+  test("review final auto-integrates behind base on conflict-free merge", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    let integrateCalled = false;
+    try {
+      const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "No issues", stderr: "" }));
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({ reviewPasses: 1, reviewOrder: [CLAUDE_ENTRY] }),
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        fanout: () => {},
+        writeTelemetry: () => {},
+        agents: { claude },
+        iterationTimeoutMs: 30_000,
+        runBaselineGate: () => {},
+        checkPrExists: () => true,
+        checkBaseCurrent: behindBase("main"),
+        tryAutoIntegrateBase: () => {
+          integrateCalled = true;
+          return "integrated";
+        },
+        baseBranch: "main",
+      });
+
+      expect(code).toBe(0);
+      expect(integrateCalled).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("review final aborts merge conflict and blocks ready", async () => {
     const { dir, specPath, cleanup } = setupPatchReviewRepo();
     const stderr: string[] = [];
     let ghReadyCalled = false;
@@ -1105,6 +1137,10 @@ describe("runPatchReviewPhase", () => {
         runBaselineGate: () => {},
         checkPrExists: () => true,
         checkBaseCurrent: behindBase("main"),
+        tryAutoIntegrateBase: (opts) => {
+          writeReadyFlipBlocked(opts.stderr ?? (() => {}), opts.branch, opts.baseRefName);
+          return "blocked";
+        },
         ghPrReady: () => {
           ghReadyCalled = true;
         },
@@ -1116,7 +1152,48 @@ describe("runPatchReviewPhase", () => {
 
       expect(code).toBe(0);
       expect(ghReadyCalled).toBe(false);
-      expect(stderr.join("")).toContain("ready flip blocked: branch main does not contain base main; PR stays draft");
+      expect(stderr.join("")).toContain("ready flip blocked");
+      expect(stderr.join("")).toContain("PR stays draft");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("review final resets on post-merge gate failure and blocks ready", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    const stderr: string[] = [];
+    let ghReadyCalled = false;
+    try {
+      const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "No issues", stderr: "" }));
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({ reviewPasses: 1, reviewOrder: [CLAUDE_ENTRY] }),
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        fanout: () => {},
+        writeTelemetry: () => {},
+        agents: { claude },
+        iterationTimeoutMs: 30_000,
+        runBaselineGate: () => {},
+        checkPrExists: () => true,
+        checkBaseCurrent: behindBase("main"),
+        tryAutoIntegrateBase: (opts) => {
+          writeReadyFlipBlocked(opts.stderr ?? (() => {}), opts.branch, opts.baseRefName);
+          return "blocked";
+        },
+        ghPrReady: () => {
+          ghReadyCalled = true;
+        },
+        stderr: (line) => {
+          stderr.push(line);
+        },
+        baseBranch: "main",
+      });
+
+      expect(code).toBe(0);
+      expect(ghReadyCalled).toBe(false);
+      expect(stderr.join("")).toContain("ready flip blocked");
+      expect(stderr.join("")).toContain("PR stays draft");
     } finally {
       cleanup();
     }

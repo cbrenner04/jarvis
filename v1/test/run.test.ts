@@ -1283,7 +1283,7 @@ describe("runCommand", () => {
     const spec = initCompletionGateRepo();
     const idleTimeoutMs = 1000;
     const hangScript = join(dir, "idle-hang.sh");
-    writeFileSync(hangScript, "#!/usr/bin/env bash\nwhile true; do :; done\n");
+    writeFileSync(hangScript, "#!/usr/bin/env bash\nexec tail -f /dev/null\n");
     chmodSync(hangScript, 0o755);
 
     const cap = captureIo();

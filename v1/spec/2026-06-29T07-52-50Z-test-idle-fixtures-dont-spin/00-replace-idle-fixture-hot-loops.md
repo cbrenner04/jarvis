@@ -15,31 +15,31 @@ Idle/no-output test agent scripts use `while true; do :; done`, burning a core u
 
 ## Tasks
 
-- [ ] Update `IDLE_HANG_BODY`, `idleHangAgent` defaults and overrides (including ~L1028 inline string), `writeAgentScript('idle-hang.sh', …)` inline bodies, `agent-only-hang.sh`, and the `idle watchdog disabled when idleOutputTimeoutMs is 0` inline stall tail in `v1/test/run.sandbox-unrunnable.test.ts`.
-- [ ] Update idle-hang scripts in `v1/test/modes/patch/shrink.sandbox-unrunnable.test.ts` and `v1/test/modes/patch/review.sandbox-unrunnable.test.ts`.
-- [ ] Update the fix-up idle stall hang script in `v1/test/run.test.ts`.
-- [ ] Run `bun run typecheck` and `bun run test`.
+- [x] Update `IDLE_HANG_BODY`, `idleHangAgent` defaults and overrides (including ~L1028 inline string), `writeAgentScript('idle-hang.sh', …)` inline bodies, `agent-only-hang.sh`, and the `idle watchdog disabled when idleOutputTimeoutMs is 0` inline stall tail in `v1/test/run.sandbox-unrunnable.test.ts`.
+- [x] Update idle-hang scripts in `v1/test/modes/patch/shrink.sandbox-unrunnable.test.ts` and `v1/test/modes/patch/review.sandbox-unrunnable.test.ts`.
+- [x] Update the fix-up idle stall hang script in `v1/test/run.test.ts`.
+- [x] Run `bun run typecheck` and `bun run test`.
 
 ## Acceptance criteria
 
-- [ ] In-scope hang bodies (`IDLE_HANG_BODY`, `idleHangAgent(...)` defaults and overrides, `writeAgentScript('idle-hang.sh', …)` inline bodies, `agent-only-hang.sh`, shrink/review idle-hang scripts, `run.test.ts` fix-up hang script) contain no `while true; do :; done`.
-- [ ] `run.sandbox-unrunnable.test.ts` `"idle watchdog timeout fires before iteration timeout when agent emits no output"` stays green.
-- [ ] `run.sandbox-unrunnable.test.ts` `"idle watchdog armed by default when idleOutputTimeoutMs unset"` stays green.
-- [ ] `run.sandbox-unrunnable.test.ts` `"idle watchdog escalates through agentOrder when fallback rung remains"` stays green.
-- [ ] `run.sandbox-unrunnable.test.ts` `"idle watchdog on final rung exits 8 with terminal watchdog-idle-timeout"` stays green.
-- [ ] `run.sandbox-unrunnable.test.ts` `"idle abort is not classified as quota and escalates via idle ladder"` stays green.
-- [ ] `run.sandbox-unrunnable.test.ts` `"fully idle agent (no output, no file writes) is killed by idle watchdog"` stays green.
-- [ ] `run.sandbox-unrunnable.test.ts` `"idle watchdog includes last_file_activity_age_ms in telemetry"` stays green.
-- [ ] `run.sandbox-unrunnable.test.ts` `"idle watchdog disabled when idleOutputTimeoutMs is 0"` stays green.
-- [ ] `run.sandbox-unrunnable.test.ts` `"watchdog timeout records watchdog_descendants_alive false for agent-only stall"` stays green.
-- [ ] `run.sandbox-unrunnable.test.ts` `"watchdog timeout records last_output_age_ms from early output then stall"` stays green (`emit-then-hang.sh` unchanged).
-- [ ] `run.sandbox-unrunnable.test.ts` `"watchdog timeout kills SIGTERM-ignoring grandchildren and records pgid telemetry"` stays green (`ignore-term.sh` unchanged).
-- [ ] `shrink.sandbox-unrunnable.test.ts` `"idle watchdog timeout fires in shrink phase"` stays green.
-- [ ] `review.sandbox-unrunnable.test.ts` `"idle watchdog timeout fires in review debate phase"` stays green.
-- [ ] `review.sandbox-unrunnable.test.ts` `"idle watchdog timeout fires in review actuator phase"` stays green.
-- [ ] `run.test.ts` `"completion: fix-up idle stall exits 8 terminally without agentOrder escalation"` stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes.
+- [x] In-scope hang bodies (`IDLE_HANG_BODY`, `idleHangAgent(...)` defaults and overrides, `writeAgentScript('idle-hang.sh', …)` inline bodies, `agent-only-hang.sh`, shrink/review idle-hang scripts, `run.test.ts` fix-up hang script) contain no `while true; do :; done`.
+- [x] `run.sandbox-unrunnable.test.ts` `"idle watchdog timeout fires before iteration timeout when agent emits no output"` stays green.
+- [x] `run.sandbox-unrunnable.test.ts` `"idle watchdog armed by default when idleOutputTimeoutMs unset"` stays green.
+- [x] `run.sandbox-unrunnable.test.ts` `"idle watchdog escalates through agentOrder when fallback rung remains"` stays green.
+- [x] `run.sandbox-unrunnable.test.ts` `"idle watchdog on final rung exits 8 with terminal watchdog-idle-timeout"` stays green.
+- [x] `run.sandbox-unrunnable.test.ts` `"idle abort is not classified as quota and escalates via idle ladder"` stays green.
+- [x] `run.sandbox-unrunnable.test.ts` `"fully idle agent (no output, no file writes) is killed by idle watchdog"` stays green.
+- [x] `run.sandbox-unrunnable.test.ts` `"idle watchdog includes last_file_activity_age_ms in telemetry"` stays green.
+- [x] `run.sandbox-unrunnable.test.ts` `"idle watchdog disabled when idleOutputTimeoutMs is 0"` stays green.
+- [x] `run.sandbox-unrunnable.test.ts` `"watchdog timeout records watchdog_descendants_alive false for agent-only stall"` stays green.
+- [x] `run.sandbox-unrunnable.test.ts` `"watchdog timeout records last_output_age_ms from early output then stall"` stays green (`emit-then-hang.sh` unchanged).
+- [x] `run.sandbox-unrunnable.test.ts` `"watchdog timeout kills SIGTERM-ignoring grandchildren and records pgid telemetry"` stays green (`ignore-term.sh` unchanged).
+- [x] `shrink.sandbox-unrunnable.test.ts` `"idle watchdog timeout fires in shrink phase"` stays green.
+- [x] `review.sandbox-unrunnable.test.ts` `"idle watchdog timeout fires in review debate phase"` stays green.
+- [x] `review.sandbox-unrunnable.test.ts` `"idle watchdog timeout fires in review actuator phase"` stays green.
+- [x] `run.test.ts` `"completion: fix-up idle stall exits 8 terminally without agentOrder escalation"` stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes.
 
 ## Documentation updates
 

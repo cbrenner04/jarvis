@@ -816,7 +816,7 @@ describe("runPatchReviewPhase", () => {
         `#!/usr/bin/env bash
 set -euo pipefail
 # Hang without emitting output — will hit idle timeout
-while true; do :; done
+exec tail -f /dev/null
 `,
       );
       chmodSync(idleScript, 0o755);
@@ -895,7 +895,7 @@ while true; do :; done
         `#!/usr/bin/env bash
 set -euo pipefail
 # Hang without emitting output — will hit idle timeout
-while true; do :; done
+exec tail -f /dev/null
 `,
       );
       chmodSync(idleScript, 0o755);

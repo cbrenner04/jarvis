@@ -166,7 +166,7 @@ function writeAgentScript(filename: string, body: string): string {
 }
 
 const IDLE_HANG_BODY = `set -euo pipefail
-while true; do :; done
+exec tail -f /dev/null
 `;
 
 class ScriptAgent implements Agent {
@@ -348,7 +348,7 @@ wait
       writeFileSync(
         hangScript,
         `#!/usr/bin/env bash
-while true; do :; done
+exec tail -f /dev/null
 `,
       );
       chmodSync(hangScript, 0o755);
@@ -672,7 +672,7 @@ echo "done"
           `set -euo pipefail
 sleep 1.5
 echo "output after stall" >&2
-while true; do :; done
+exec tail -f /dev/null
 `,
         ),
       );
@@ -1025,7 +1025,7 @@ echo "done"
         specPath: spec,
         io: cap.io,
         config: { dir: cfgDir },
-        agents: { claude: idleHangAgent("claude", "while true; do :; done\n") },
+        agents: { claude: idleHangAgent("claude", "exec tail -f /dev/null\n") },
         handleSignals: false,
         __testKillGraceMs: 200,
       });

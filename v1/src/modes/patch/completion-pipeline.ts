@@ -10,10 +10,10 @@ import { checkPrExists, readBranchCommits } from "../../pr.ts";
 import { type DiffStat, generateTemplateNarrative } from "../../pr-shared.ts";
 import {
   FixCommandError,
-  PreReadyFixCommitError,
-  PreReadyFixPushError,
   PostVerificationCommitError,
   PostVerificationPushError,
+  PreReadyFixCommitError,
+  PreReadyFixPushError,
   ReadyCommandError,
   ReadyVerificationDirtyError,
   runReadyAndCommit,

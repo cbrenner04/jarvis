@@ -108,10 +108,7 @@ function writeV1TimestampedSpec(name: string, body: string): { slug: string; sou
   return { slug, source };
 }
 
-function runMergedPlanCleanup(
-  io: CleanupIo,
-  opts: Partial<Parameters<typeof cleanupCommand>[0]> = {},
-): number {
+function runMergedPlanCleanup(io: CleanupIo, opts: Partial<Parameters<typeof cleanupCommand>[0]> = {}): number {
   return cleanupCommand({
     projectRoot,
     io,
@@ -887,10 +884,7 @@ describe("cleanupCommand", () => {
   test("skips archive when the resolved spec still has an unchecked non-human-only acceptance criterion", () => {
     const { io, out } = captureIo(["yes"]);
     const name = "skip-incomplete";
-    const { slug, source } = writeV1TimestampedSpec(
-      name,
-      `# ${name}\n\n## Acceptance criteria\n- [ ] not done\n`,
-    );
+    const { slug, source } = writeV1TimestampedSpec(name, `# ${name}\n\n## Acceptance criteria\n- [ ] not done\n`);
     createTrackedPlanWorktree(name);
 
     const code = runMergedPlanCleanup(io);
@@ -983,10 +977,7 @@ describe("cleanupCommand", () => {
     const { io, out } = captureIo(["yes"]);
     const skippedName = "queue-skip";
     const archivedName = "queue-archive";
-    const { slug: skippedSlug, source: skippedSource } = writeV1TimestampedSpec(
-      skippedName,
-      completeSpec(skippedName),
-    );
+    const { slug: skippedSlug, source: skippedSource } = writeV1TimestampedSpec(skippedName, completeSpec(skippedName));
     const { slug: archivedSlug, source: archivedSource } = writeV1TimestampedSpec(
       archivedName,
       completeSpec(archivedName),

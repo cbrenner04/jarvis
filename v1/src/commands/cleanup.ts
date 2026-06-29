@@ -196,8 +196,7 @@ function checkArchivePreconditions(args: {
     return true;
   }
 
-  const hasInFlightWorktree =
-    specName !== removedWorktreeDir && existsSync(join(projectRoot, ".worktree", specName));
+  const hasInFlightWorktree = specName !== removedWorktreeDir && existsSync(join(projectRoot, ".worktree", specName));
 
   let openPrCount: number;
   try {
@@ -213,10 +212,7 @@ function checkArchivePreconditions(args: {
 
   const complete = isSpecComplete(specFile);
   const inFlightOwner = hasInFlightWorktree || openPrCount > 0;
-  if (
-    !complete ||
-    (complete && !specHasNonHumanOnlyAcceptanceCriteria(specFile) && inFlightOwner)
-  ) {
+  if (!complete || (complete && !specHasNonHumanOnlyAcceptanceCriteria(specFile) && inFlightOwner)) {
     io.stdout(`skipping archival of ${specName}: spec not complete\n`);
     return false;
   }

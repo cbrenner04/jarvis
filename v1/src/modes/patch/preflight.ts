@@ -25,11 +25,7 @@ import {
   getSpecName,
   removePatchWorktree,
 } from "../../worktree.ts";
-import {
-  acquireWorktreeLock,
-  readLiveWorktreeLock,
-  releaseWorktreeLock,
-} from "../../worktree-lock.ts";
+import { acquireWorktreeLock, readLiveWorktreeLock, releaseWorktreeLock } from "../../worktree-lock.ts";
 import { computeProjectSafeId } from "../plan/spec-paths.ts";
 import { countUnchecked, getActiveLinkedSubspecPath } from "./completion.ts";
 import { applyReset, clearDelta, loadDelta } from "./no-commit-delta.ts";

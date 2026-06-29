@@ -3,8 +3,8 @@ import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs"
 import { join, relative } from "node:path";
 import { stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
 import { closePr, findMatchingOpenPrs, type MatchingOpenPr } from "../pr.ts";
-import { readLiveWorktreeLock } from "../worktree-lock.ts";
 import { deleteLocalBranch, deleteRemoteBranch } from "../worktree.ts";
+import { readLiveWorktreeLock } from "../worktree-lock.ts";
 import { isSpecComplete, specHasNonHumanOnlyAcceptanceCriteria } from "./triage.ts";
 
 export type CleanupIo = {
@@ -525,14 +525,10 @@ function scopedAbandonRefusal(
       args.io.stderr(`failed to inspect PR state for branch ${args.branch}: ${check.message}\n`);
       return 1;
     case "multiple_open":
-      args.io.stderr(
-        `unsafe PR state for branch ${args.branch}: multiple open PRs match; refusing abandon\n`,
-      );
+      args.io.stderr(`unsafe PR state for branch ${args.branch}: multiple open PRs match; refusing abandon\n`);
       return 1;
     case "ready_pr":
-      args.io.stderr(
-        `unsafe PR state for branch ${args.branch}: matching open PR #${check.prNumber} is not draft\n`,
-      );
+      args.io.stderr(`unsafe PR state for branch ${args.branch}: matching open PR #${check.prNumber} is not draft\n`);
       return 1;
   }
 }

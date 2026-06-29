@@ -861,13 +861,7 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
       }
 
       const revalidateActuatorOutput = () =>
-        validateReviewOutput(
-          opts.worktreePath,
-          opts.specDirBasename,
-          intentBefore,
-          opts.specDirPath,
-          targetDir,
-        );
+        validateReviewOutput(opts.worktreePath, opts.specDirBasename, intentBefore, opts.specDirPath, targetDir);
 
       const validation = revalidateActuatorOutput();
       const recovery = recoverImmutableCopyOverreach({

@@ -22,10 +22,9 @@ export type MergeTargetResolution = { ok: true; worktreeName: string } | { ok: f
 
 /**
  * Resolve a `triage --merge` positional target to a local worktree name.
- * Order: (1) `.worktree/<arg>` directory, (2) PR reference, (3) spec-path shape
- * (path separator or bare `.md` filename) via spec-directory basename, plan-slug
- * (timestamp-stripped spec dir → `.worktree/plan-<slug>`), and/or `.active-spec-path`
- * marker scan — unioned and deduped. Bare `.md` filenames use marker scan only.
+ * Order: (1) `.worktree/<arg>`, (2) PR reference, (3) spec-path via basename,
+ * plan-slug (`plan-<timestamp-stripped-dir>`), and marker scan (unioned).
+ * Bare `.md` filenames: marker scan only.
  */
 export function resolveMergeTarget(
   projectRoot: string,
@@ -150,8 +149,7 @@ function resolveWorktreeFromSpecPath(args: {
     if (existsSync(basenameWorktree)) {
       candidates.add(basenameWorktree);
     }
-    const planSlug = stripPlanSpecTimestampPrefix(specDirBasename);
-    const planWorktree = join(args.worktreeDir, `plan-${planSlug}`);
+    const planWorktree = join(args.worktreeDir, `plan-${stripPlanSpecTimestampPrefix(specDirBasename)}`);
     if (existsSync(planWorktree)) {
       candidates.add(planWorktree);
     }

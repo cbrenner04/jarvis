@@ -30,6 +30,7 @@ import {
   reconcileActuatorCommit,
   tryConvergeNonFfActuatorPush,
 } from "../../worktree.ts";
+import { recoverImmutableCopyOverreach } from "../review/immutable-copy-overreach.ts";
 import { type RunReviewOptions, runReview } from "../review/run.ts";
 import {
   type ReviewAdapter,
@@ -978,6 +979,8 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
             opts.fanout("harness", `review: failed to restore verdict: ${message}\n`, "stderr");
             throw new ReviewTerminalError(message, 1);
           }
+
+          recoverImmutableCopyOverreach({ copies: [], validation: { valid: true, error: null } });
 
           // Revert spec edits (reviewers are read-only on spec)
           const editedSpecFiles = detectSpecTreeEdits(specDir, opts.cwd);

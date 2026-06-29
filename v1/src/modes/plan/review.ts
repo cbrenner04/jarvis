@@ -9,6 +9,7 @@ import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
 import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "../patch/idle-watchdog.ts";
+import { recoverImmutableCopyOverreach } from "../review/immutable-copy-overreach.ts";
 import { runReview } from "../review/run.ts";
 import {
   type ReviewAdapter,
@@ -859,13 +860,26 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
         throw new ReviewTerminalError(message, 1);
       }
 
-      const validation = validateReviewOutput(
-        opts.worktreePath,
-        opts.specDirBasename,
-        intentBefore,
-        opts.specDirPath,
-        targetDir,
-      );
+      const revalidateActuatorOutput = () =>
+        validateReviewOutput(opts.worktreePath, opts.specDirBasename, intentBefore, opts.specDirPath, targetDir);
+
+      const validation = recoverImmutableCopyOverreach({
+        copies: [
+          {
+            relativePath: "intent.md",
+            snapshot: intentBefore,
+            isRecoverableDrift: (_snapshot, current) =>
+              !detectBlocker(current).hasBlocker || isValidIntentModification(intentBefore, current),
+          },
+        ],
+        readCurrent: (relativePath) => readFileSync(join(finalSpecPath, relativePath), "utf8"),
+        writeSnapshot: (relativePath, bytes) => writeFileSync(join(finalSpecPath, relativePath), bytes, "utf8"),
+        validation: revalidateActuatorOutput(),
+        revalidate: revalidateActuatorOutput,
+        verdict,
+        noticePrefix: "plan: actuator reverted immutable-copy overreach:",
+        emitNotice: (text) => opts.stderr?.(text),
+      });
       if (!validation.valid) {
         opts.stderr?.(`plan: actuator validation failed: ${validation.error}\n`);
         throw new ReviewTerminalError(validation.error ?? "validation failed", 1);

@@ -30,7 +30,7 @@ async function classifyAgentError(agentName: AgentName, exitCode: number, stderr
   );
 }
 
-describe("spawn classification order: transient → auth → model_config → quota", () => {
+describe("spawn classification order: transient → auth → quota → model_config", () => {
   test("durable auth stderr surfaces as quota with authFailure: true for Codex", async () => {
     const result = await classifyAgentError("codex", 1, CODEX_REFRESH_TOKEN_REVOKED);
     expect(result).toEqual({ kind: "quota", stderr: CODEX_REFRESH_TOKEN_REVOKED, authFailure: true });
@@ -51,6 +51,15 @@ describe("spawn classification order: transient → auth → model_config → qu
   test("genuine model-id misconfiguration stays model_config", async () => {
     const result = await classifyAgentError("codex", 1, "unknown model: fake-model-xyz");
     expect(result).toEqual({ kind: "model_config", stderr: "unknown model: fake-model-xyz" });
+  });
+
+  test("strict quota wins over model_config when both match", async () => {
+    const stderr = "You've reached your usage limit\nunknown model: fake-model-xyz";
+    const result = await classifyAgentError("codex", 1, stderr);
+    expect(result).toEqual({ kind: "quota", stderr });
+    if (result.kind === "quota") {
+      expect(result.authFailure).toBeUndefined();
+    }
   });
 
   test("regular quota signal stays quota without authFailure marker", async () => {

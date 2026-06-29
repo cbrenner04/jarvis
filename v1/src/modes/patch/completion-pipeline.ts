@@ -10,6 +10,8 @@ import { checkPrExists, readBranchCommits } from "../../pr.ts";
 import { type DiffStat, generateTemplateNarrative } from "../../pr-shared.ts";
 import {
   FixCommandError,
+  PostVerificationCommitError,
+  PostVerificationPushError,
   PreReadyFixCommitError,
   PreReadyFixPushError,
   ReadyCommandError,
@@ -297,7 +299,11 @@ async function runCompletionReadyGate(
           result = { kind: "red", failureText: message, retryable: true, verificationRed: true };
         } else if (err instanceof PreReadyFixCommitError || err instanceof PreReadyFixPushError) {
           result = { kind: "red", failureText: message, retryable: false, verificationRed: false };
-        } else if (err instanceof ReadyVerificationDirtyError) {
+        } else if (
+          err instanceof PostVerificationCommitError ||
+          err instanceof PostVerificationPushError ||
+          err instanceof ReadyVerificationDirtyError
+        ) {
           result = { kind: "red", failureText: message, retryable: false, verificationRed: false };
         } else {
           result = { kind: "red", failureText: message, retryable: false };

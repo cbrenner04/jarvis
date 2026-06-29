@@ -68,6 +68,8 @@ export type RunReadyAndCommitOpts = {
   runReady?: (cwd: string, tier: ReadyTier) => void;
   /** Seam for pre-ready fix output: git add -A, git commit, idempotency re-check, and pushCurrent together. Called only on `full` when porcelain is non-empty after fix. */
   commitPreReadyFix?: (cwd: string, agentLabel: string) => void;
+  /** Seam for post-verification output: git add -A, git commit, idempotency re-check, and pushCurrent together. Called only on `full` when porcelain is non-empty after green verification. */
+  commitPostVerification?: (cwd: string, agentLabel: string) => void;
 };
 
 export class FixCommandError extends Error {
@@ -98,11 +100,29 @@ export class PreReadyFixPushError extends Error {
   }
 }
 
+export class PostVerificationCommitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PostVerificationCommitError";
+  }
+}
+
+export class PostVerificationPushError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PostVerificationPushError";
+  }
+}
+
 export class ReadyVerificationDirtyError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ReadyVerificationDirtyError";
   }
+}
+
+export function postVerificationStillDirtyErrorMessage(branch: string, porcelain: string): string {
+  return `post-verification commit succeeded but worktree is still dirty on branch ${branch}:\n${porcelain}\nDo not call gh pr ready. Inspect the branch and commit or discard the unexpected changes.`;
 }
 
 function readPorcelain(cwd: string): string {
@@ -188,6 +208,39 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
     }
   };
 
+  const realCommitPostVerification = (cwd: string, agentLabel: string) => {
+    execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe" });
+    const commitMessage = appendAgentTrailer("chore: apply post-ready verification output", agentLabel);
+    try {
+      execFileSync("git", ["commit", "-F", "-"], {
+        cwd,
+        env: process.env,
+        stdio: ["pipe", "pipe", "pipe"],
+        input: commitMessage,
+      });
+    } catch (err) {
+      const out = err as NodeJS.ErrnoException & {
+        stdout?: Buffer;
+        stderr?: Buffer;
+      };
+      const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
+      throw new PostVerificationCommitError(captured ? captured : "git commit failed");
+    }
+
+    const porcelain = readPorcelain(cwd);
+    if (porcelain !== "") {
+      const dirtyBranch = getCurrentBranch(cwd);
+      throw new ReadyVerificationDirtyError(postVerificationStillDirtyErrorMessage(dirtyBranch, porcelain));
+    }
+
+    try {
+      pushCurrent({ cwd, firstPush: false });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new PostVerificationPushError(message);
+    }
+  };
+
   const realCommitPreReadyFix = (cwd: string, agentLabel: string) => {
     execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe" });
     const commitMessage = appendAgentTrailer("chore: apply pre-ready check:fix", agentLabel);
@@ -248,6 +301,7 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
 
   const runFixFn = opts.runFix ?? realRunFix;
   const commitPreReadyFixFn = opts.commitPreReadyFix ?? realCommitPreReadyFix;
+  const commitPostVerificationFn = opts.commitPostVerification ?? realCommitPostVerification;
   const runReadyFn = opts.runReady ?? realBunRunReady;
 
   if (tier === "full") {
@@ -264,10 +318,7 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
   if (tier === "full") {
     const porcelainAfterReady = readPorcelain(opts.cwd);
     if (porcelainAfterReady !== "") {
-      const dirtyBranch = getCurrentBranch(opts.cwd);
-      throw new ReadyVerificationDirtyError(
-        `verification returned green but worktree is still dirty on branch ${dirtyBranch}:\n${porcelainAfterReady}\nDo not call gh pr ready. Configure fixCommand for autofix or discard the unexpected changes.`,
-      );
+      commitPostVerificationFn(opts.cwd, opts.agentLabel ?? "");
     }
   }
 }
@@ -285,6 +336,7 @@ export function runReadyGateWithTier(opts: {
   runFix?: (cwd: string) => void;
   runReady?: (cwd: string, tier: ReadyTier) => void;
   commitPreReadyFix?: (cwd: string, agentLabel: string) => void;
+  commitPostVerification?: (cwd: string, agentLabel: string) => void;
   refreshRecordedGreenResult?: (headSha: string) => void;
 }): ReadyTier {
   const tier = selectReadyTier({
@@ -300,6 +352,7 @@ export function runReadyGateWithTier(opts: {
     ...(opts.runFix !== undefined ? { runFix: opts.runFix } : {}),
     ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
     ...(opts.commitPreReadyFix !== undefined ? { commitPreReadyFix: opts.commitPreReadyFix } : {}),
+    ...(opts.commitPostVerification !== undefined ? { commitPostVerification: opts.commitPostVerification } : {}),
   });
   if (tier === "full" && opts.refreshRecordedGreenResult !== undefined) {
     opts.refreshRecordedGreenResult(getCurrentHeadSha(opts.cwd));

@@ -45,8 +45,8 @@ import {
 import { getWorktreeLockPath } from "../src/worktree-lock.ts";
 import {
   beginHangFixtureTracking,
-  hangFixtureOnSpawned,
   reapActiveHangFixtures,
+  withHangFixtureSpawned,
   writeIdleHangScript,
 } from "./idle-hang-fixtures.ts";
 
@@ -182,13 +182,7 @@ function createCompletionThenIdleAgent(spec: string, hangScript: string): FakeAg
         streamErrorPrefix: "test:",
       },
       prompt,
-      {
-        ...opts,
-        onSpawned: (child) => {
-          hangFixtureOnSpawned(child);
-          opts.onSpawned?.(child);
-        },
-      },
+      withHangFixtureSpawned(opts),
     );
   });
 }

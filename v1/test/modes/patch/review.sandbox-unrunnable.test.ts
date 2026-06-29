@@ -20,8 +20,8 @@ import { HARNESS_QUOTA_FALLBACK_STRICT, harnessAuthRotateLine } from "../../../s
 import { FAKE_AGENT_SPAWN_PID, waitForPollCount } from "../../descendant-poll-test-helpers.ts";
 import {
   beginHangFixtureTracking,
-  hangFixtureOnSpawned,
   reapActiveHangFixtures,
+  withHangFixtureSpawned,
   writeIdleHangScript,
 } from "../../idle-hang-fixtures.ts";
 
@@ -144,8 +144,6 @@ function setupPatchReviewRepoWithBranchChange(): {
   return { dir, specPath, cleanup };
 }
 
-export { IDLE_HANG_BODY, writeIdleHangScript } from "../../idle-hang-fixtures.ts";
-
 export class IdleHangAgent implements Agent {
   readonly name = "claude" as const;
   readonly #binary: string;
@@ -165,13 +163,7 @@ export class IdleHangAgent implements Agent {
         streamErrorPrefix: "test:",
       },
       prompt,
-      {
-        ...opts,
-        onSpawned: (child) => {
-          hangFixtureOnSpawned(child);
-          opts.onSpawned?.(child);
-        },
-      },
+      withHangFixtureSpawned(opts),
     );
   }
 

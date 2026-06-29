@@ -69,17 +69,13 @@ describe("idle hang fixture self-clean (sandbox-unrunnable)", () => {
 
     await waitForScriptRunning(script, HANG_FIXTURE_EXIT_DEADLINE_MS);
 
-    let simulatedAbort = false;
-    const runBody = (): void => {
+    expect(() => {
       try {
-        simulatedAbort = true;
         throw new Error("simulated test failure");
       } finally {
         reapActiveHangFixtures();
       }
-    };
-    expect(runBody).toThrow("simulated test failure");
-    expect(simulatedAbort).toBe(true);
+    }).toThrow("simulated test failure");
 
     await waitForScriptExit(script, HANG_FIXTURE_EXIT_DEADLINE_MS);
     expect(agentRootPid).toBeDefined();

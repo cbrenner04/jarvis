@@ -21,11 +21,11 @@ import { runCommand } from "../src/modes/patch/run.ts";
 import { HARNESS_IDLE_TIMEOUT_FALLBACK } from "../src/quota-harness-messages.ts";
 import {
   beginHangFixtureTracking,
-  hangFixtureOnSpawned,
   IDLE_HANG_BODY,
   IDLE_HANG_WAIT,
   reapActiveHangFixtures,
   trackHangFixtureScript,
+  withHangFixtureSpawned,
 } from "./idle-hang-fixtures.ts";
 
 function captureIo(): { io: RunIo; out: () => string; err: () => string } {
@@ -196,13 +196,7 @@ class ScriptAgent implements Agent {
         streamErrorPrefix: "test:",
       },
       prompt,
-      {
-        ...opts,
-        onSpawned: (child) => {
-          hangFixtureOnSpawned(child);
-          opts.onSpawned?.(child);
-        },
-      },
+      withHangFixtureSpawned(opts),
     );
   }
 

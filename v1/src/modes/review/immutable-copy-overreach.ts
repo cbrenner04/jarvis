@@ -23,9 +23,12 @@ export function recoverImmutableCopyOverreach(opts: RecoverImmutableCopyOverreac
     return opts.validation;
   }
 
-  const readCurrent = opts.readCurrent!;
-  const writeSnapshot = opts.writeSnapshot!;
-  const revalidate = opts.revalidate!;
+  const readCurrent = opts.readCurrent;
+  const writeSnapshot = opts.writeSnapshot;
+  const revalidate = opts.revalidate;
+  if (readCurrent === undefined || writeSnapshot === undefined || revalidate === undefined) {
+    return opts.validation;
+  }
 
   const drifted: ImmutableCopyEntry[] = [];
   for (const copy of opts.copies) {

@@ -54,9 +54,9 @@ export function stripNonContractIndexLines(args: { specDirPath: string; stderr?:
       continue;
     }
 
-    // All other lines are removed
+    // All other lines are removed. Keep blank-run state so blanks around removed
+    // lines do not collapse into MD012 double-blank violations after stripping.
     removedCount += 1;
-    previousRetainedBlank = false;
   }
 
   // Reconstruct the content

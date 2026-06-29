@@ -11,7 +11,7 @@ import {
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
-import { HARNESS_QUOTA_FALLBACK_STRICT, harnessQuotaFallbackLenientLine } from "../../quota-harness-messages.ts";
+import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { createPlanInvocationBinding } from "./plan-invocation-binding.ts";
 
 export function buildIntentSplitPrompt(opts: {
@@ -126,16 +126,9 @@ export async function runIntentSplitTurn(opts: {
       preSpinHook,
       spawnOptions: opts.additionalReadDirs ? { additionalReadDirs: opts.additionalReadDirs } : undefined,
       onQuotaFallbackEmit: (agentName, spawnResult, classified) => {
-        if (opts.stderr === undefined || classified.kind !== "quota") return;
-        if (spawnResult.kind === "quota") {
-          opts.stderr(`intent: ${agentName}: ${HARNESS_QUOTA_FALLBACK_STRICT}\n`);
-          return;
-        }
-        if (spawnResult.kind === "error") {
-          opts.stderr(`intent: ${agentName}: ${harnessQuotaFallbackLenientLine(spawnResult.exitCode)}\n`);
-        }
+        emitPlanAgentQuotaFallback(opts.stderr, agentName, spawnResult, classified, "intent", true);
       },
-      shouldAdvance: (result) => result.kind === "quota" || result.kind === "error",
+      shouldAdvance: (result) => result.kind === "quota" || result.kind === "error" || result.kind === "model_config",
     }),
   );
 

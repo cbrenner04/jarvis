@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import { INTENT_USAGE, intentCommand, parseIntentArgs } from "../src/commands/intent.ts";
+import { HARNESS_MODEL_CONFIG_FALLBACK } from "../src/quota-harness-messages.ts";
 import { loadConfig, registerProject, writeConfig } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
 import { buildIntentSplitPrompt } from "../src/modes/plan/intent-split.ts";
@@ -122,6 +123,9 @@ class SplitAgent implements Agent {
     | "invalid-prerequisites"
     | "quota"
     | "quota-dirty"
+    | "model_config"
+    | "model_config-with-stderr"
+    | "hard-error"
     | "checkout-pollution"
     | "stage-out-of-bounds"
     | "repair-mismatched-name"
@@ -144,6 +148,9 @@ class SplitAgent implements Agent {
       | "invalid-prerequisites"
       | "quota"
       | "quota-dirty"
+      | "model_config"
+      | "model_config-with-stderr"
+      | "hard-error"
       | "checkout-pollution"
       | "stage-out-of-bounds"
       | "repair-mismatched-name"
@@ -164,6 +171,15 @@ class SplitAgent implements Agent {
   async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
     if (this.#mode === "quota") {
       return { kind: "quota", stderr: "synthetic quota" };
+    }
+    if (this.#mode === "model_config") {
+      return { kind: "model_config", stderr: "" };
+    }
+    if (this.#mode === "model_config-with-stderr") {
+      return { kind: "model_config", stderr: "unknown model: fake-model" };
+    }
+    if (this.#mode === "hard-error") {
+      return { kind: "error", exitCode: 1, stderr: "synthetic hard error" };
     }
     let stageDir: string;
     const match = prompt.match(/Write the authored intents as markdown files under `([^`]+)`/);
@@ -531,6 +547,9 @@ function createSplitAgentFactory(
       | "invalid-prerequisites"
       | "quota"
       | "quota-dirty"
+      | "model_config"
+      | "model_config-with-stderr"
+      | "hard-error"
       | "checkout-pollution"
       | "stage-out-of-bounds"
       | "repair-mismatched-name"
@@ -832,6 +851,84 @@ describe("intentCommand", () => {
       const worktree = findIntentWorktree(env.projectRoot);
       expect(existsSync(join(worktree, "spec", "ready-intents", "stale.md"))).toBe(false);
       expect(existsSync(join(worktree, "spec", "ready-intents", "single-behavior.md"))).toBe(true);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("model_config falls through to the next configured agent", async () => {
+    const env = setupEnv();
+    try {
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "model_config", codex: "ok-two" }),
+      });
+      expect(code).toBe(0);
+      expect(cap.err()).toContain(`intent: claude: ${HARNESS_MODEL_CONFIG_FALLBACK}`);
+      expect(cap.out()).toContain("jarvis1 plan spec/ready-intents/slice-two.md");
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("all agents model_config exits 3 with terminal message", async () => {
+    const env = setupEnv();
+    try {
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "model_config", codex: "model_config" }),
+      });
+      expect(code).toBe(3);
+      expect(cap.err()).toContain("intent: model configuration error");
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("hard error falls through to the next configured agent", async () => {
+    const env = setupEnv();
+    try {
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "hard-error", codex: "ok-two" }),
+      });
+      expect(code).toBe(0);
+      expect(cap.out()).toContain("jarvis1 plan spec/ready-intents/slice-two.md");
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("model_config rotation includes agent stderr when non-empty", async () => {
+    const env = setupEnv();
+    try {
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "model_config-with-stderr", codex: "ok-one" }),
+      });
+      expect(code).toBe(0);
+      expect(cap.err()).toContain(`intent: claude: ${HARNESS_MODEL_CONFIG_FALLBACK}`);
+      expect(cap.err()).toContain("unknown model: fake-model");
     } finally {
       env.cleanup();
     }

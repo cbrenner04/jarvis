@@ -252,8 +252,9 @@ invocation bindings that wrap agents and handle spawn + classification together:
 - The binding factory (`createPlanInvocationBinding`) closes over per-consumer
   parameters: stderr emitter, telemetry sink, spawn options (e.g.
   `additionalReadDirs` for no-commit specs), pre-spin hooks (e.g. intent-split's
-  stage directory reset), and advance predicates (default: continue on quota only;
-  draft continues on hard error).
+  stage directory reset), and advance predicates (draft/intent-split advance on
+  `quota`, hard `error`, and `model_config`; review/patch keep terminal
+  `model_config`).
 - The shared executor loops through bindings, advancing to the next only when the
   binding's advance predicate returns true (default: `result.kind === "quota"`).
 - Git porcelain snapshots and classification happen inside the binding's
@@ -261,8 +262,10 @@ invocation bindings that wrap agents and handle spawn + classification together:
   `InvocationResult` subtypes and do not flatten rich results (e.g. cost/usage
   in ok results pass through unchanged).
 - Each phase preserves its exact pre-shared-executor behavior: success/quota/
-  error/model_config outcomes, stderr lines (byte-identical), per-attempt
-  telemetry, and advance/stop-on-error semantics.
+  error/model_config outcomes, per-attempt telemetry, and advance/stop semantics.
+  Draft and intent-split rotation stderr uses `emitPlanAgentQuotaFallback` with
+  harness fallback phrases (`quota exhausted; falling back`, `model configuration
+  error; falling back`, etc.) and mode-specific prefixes (`plan:` / `intent:`).
 
 ## Patch invocation architecture
 

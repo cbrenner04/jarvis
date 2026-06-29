@@ -225,7 +225,7 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
       spawnOptions: opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : undefined,
       lastOutputAtMs: draftLastOutputAtMs,
       onQuotaFallbackEmit: (agentName, spawnResult, classified) => {
-        emitPlanAgentQuotaFallback(opts.stderr, agentName, spawnResult, classified);
+        emitPlanAgentQuotaFallback(opts.stderr, agentName, spawnResult, classified, "plan", true);
       },
       recordAgentAttempt: (data) => {
         opts.planTelemetry?.recordAgentAttempt({
@@ -236,7 +236,7 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
           result: data.result,
         });
       },
-      shouldAdvance: (result) => result.kind === "quota" || result.kind === "error",
+      shouldAdvance: (result) => result.kind === "quota" || result.kind === "error" || result.kind === "model_config",
     }),
   );
 

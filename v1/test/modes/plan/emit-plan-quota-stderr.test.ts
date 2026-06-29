@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { emitPlanAgentQuotaFallback } from "../../../src/modes/plan/emit-plan-quota-stderr.ts";
 import {
+  HARNESS_MODEL_CONFIG_FALLBACK,
   HARNESS_QUOTA_FALLBACK_STRICT,
   harnessAuthRotateLine,
   harnessQuotaFallbackLenientLine,
@@ -58,5 +59,48 @@ describe("emitPlanAgentQuotaFallback", () => {
     );
     expect(out).not.toContain("auth failed");
     expect(out).toContain(HARNESS_QUOTA_FALLBACK_STRICT);
+  });
+
+  test("model_config rotation on draft uses plan prefix and harness fallback phrase", () => {
+    let out = "";
+    emitPlanAgentQuotaFallback(
+      (s: string) => {
+        out += s;
+      },
+      "claude",
+      { kind: "model_config", stderr: "unknown model" },
+      { kind: "model_config", stderr: "unknown model" },
+      "plan",
+      true,
+    );
+    expect(out).toBe(`plan: claude: ${HARNESS_MODEL_CONFIG_FALLBACK}\nunknown model\n`);
+  });
+
+  test("model_config rotation on intent uses intent prefix", () => {
+    let out = "";
+    emitPlanAgentQuotaFallback(
+      (s: string) => {
+        out += s;
+      },
+      "codex",
+      { kind: "model_config", stderr: "" },
+      { kind: "model_config", stderr: "" },
+      "intent",
+      true,
+    );
+    expect(out).toBe(`intent: codex: ${HARNESS_MODEL_CONFIG_FALLBACK}\n`);
+  });
+
+  test("model_config rotation is suppressed without rotateModelConfig flag", () => {
+    let out = "";
+    emitPlanAgentQuotaFallback(
+      (s: string) => {
+        out += s;
+      },
+      "claude",
+      { kind: "model_config", stderr: "unknown model" },
+      { kind: "model_config", stderr: "unknown model" },
+    );
+    expect(out).toBe("");
   });
 });

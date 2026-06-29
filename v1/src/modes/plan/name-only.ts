@@ -85,7 +85,7 @@ export async function runNameOnlyPhase(opts: {
           result: data.result,
         });
       },
-      shouldAdvance: (result) => result.kind === "quota" || result.kind === "error",
+      shouldAdvance: (result) => result.kind === "quota" || result.kind === "error" || result.kind === "model_config",
     }),
   );
 

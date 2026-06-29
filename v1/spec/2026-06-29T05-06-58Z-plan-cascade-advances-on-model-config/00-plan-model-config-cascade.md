@@ -39,16 +39,16 @@ advances on every `model_config`; plan intent-split does not.
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 intent` splitter: first agent `model_config`, second `ok` → exit `0`; stderr contains `intent: claude: model configuration error; falling back` (agent names per fake order).
-- [ ] `jarvis1 intent` splitter: every agent `model_config` → exit `3`; stderr contains `intent: model configuration error`.
-- [ ] `jarvis1 intent` splitter: first agent hard `error`, second `ok` → exit `0` (error rotation preserved).
-- [ ] `jarvis1 intent` splitter: first agent `model_config` with non-empty agent stderr → stderr contains harness fallback line then agent stderr.
-- [ ] `runDraftPhase`: first agent `model_config`, second `ok` → `result.kind === "ok"`; stderr contains `plan: claude: model configuration error; falling back`.
-- [ ] `runDraftPhase`: every agent `model_config` → `result.kind === "model_config"`; stderr contains `plan: model configuration error`.
-- [ ] `plan-draft-hard-error-continue.test.ts` stays green (hard `error` rotation unchanged).
-- [ ] `modes/patch/review.sandbox-unrunnable.test.ts` `model_config exits 11 and all-agent quota exits 11` stays green.
-- [ ] `modes/review/run.test.ts` `exits 3 for model_config and stops on hard errors` stays green.
-- [ ] `modes/prompt/run.test.ts` `exits 3 when model_config fallthrough ends without success` stays green.
+- [x] `jarvis1 intent` splitter: first agent `model_config`, second `ok` → exit `0`; stderr contains `intent: claude: model configuration error; falling back` (agent names per fake order).
+- [x] `jarvis1 intent` splitter: every agent `model_config` → exit `3`; stderr contains `intent: model configuration error`.
+- [x] `jarvis1 intent` splitter: first agent hard `error`, second `ok` → exit `0` (error rotation preserved).
+- [x] `jarvis1 intent` splitter: first agent `model_config` with non-empty agent stderr → stderr contains harness fallback line then agent stderr.
+- [x] `runDraftPhase`: first agent `model_config`, second `ok` → `result.kind === "ok"`; stderr contains `plan: claude: model configuration error; falling back`.
+- [x] `runDraftPhase`: every agent `model_config` → `result.kind === "model_config"`; stderr contains `plan: model configuration error`.
+- [x] `plan-draft-hard-error-continue.test.ts` stays green (hard `error` rotation unchanged).
+- [x] `modes/patch/review.sandbox-unrunnable.test.ts` `model_config exits 11 and all-agent quota exits 11` stays green.
+- [x] `modes/review/run.test.ts` `exits 3 for model_config and stops on hard errors` stays green.
+- [x] `modes/prompt/run.test.ts` `exits 3 when model_config fallthrough ends without success` stays green.
 
 ## Documentation updates
 

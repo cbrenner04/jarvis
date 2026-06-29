@@ -106,6 +106,7 @@ Intent mode reuses the existing plan-mode plumbing:
 
 - the same repo resolution and log-server preflight as other top-level modes
 - the same plan agent order and quota fallback rules as plan mode
+- intent-split inner loops also advance on `model_config` (per-agent environment noise may be agent-specific); rotation stderr uses `intent: <agent>: model configuration error; falling back`
 
 Splitter output is staged first, mechanically repaired (frontmatter `name:` and
 `## Prerequisites`), and validated before anything moves into `ready-intents/`.

@@ -216,9 +216,9 @@ What loops vs. what's a distinct path:
   call, if the chosen agent reports a quota signal, the harness rotates to the
   next agent in that phase's chain (`modes.plan.agentOrder` for draft; review
   uses `modes.review.agentOrder` → `modes.plan.agentOrder`). During draft a
-  generic agent error *also* rotates; review matches patch review (quota
-  rotates, `model_config` exits 3, other hard errors stop the pass). Only
-  `model_config` exits immediately with code 3.
+  generic agent error *also* rotates; `model_config` rotates on draft and
+  intent-split only. Review matches patch review (quota rotates, `model_config`
+  exits 3, other hard errors stop the pass).
 - **Determinism**: every green box is reproducible from the same git state.
   Every purple box reads files + emits files; jarvis enforces invariants
   *after* the call (write boundary, append-only on `intent.md`, validation

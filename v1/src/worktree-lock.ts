@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { acquireLock, isProcessAlive, releaseLock, type WorktreeLock } from "../../shared/worktree-lock.ts";
 
@@ -76,4 +76,18 @@ export function acquireWorktreeLock(
 
 export function releaseWorktreeLock(worktreeDir: string): void {
   releaseLock(getWorktreeLockPath(worktreeDir));
+}
+
+/** Return a live `.jarvis.lock` holder when the lock file exists and the PID is alive. */
+export function readLiveWorktreeLock(worktreePath: string): WorktreeLock | null {
+  const lockPath = getWorktreeLockPath(worktreePath);
+  if (!existsSync(lockPath)) {
+    return null;
+  }
+  try {
+    const lock = JSON.parse(readFileSync(lockPath, "utf8")) as WorktreeLock;
+    return isProcessAlive(lock.pid) ? lock : null;
+  } catch {
+    return null;
+  }
 }

@@ -1013,4 +1013,237 @@ describe("cleanupCommand", () => {
     expect(out()).toContain(`skipping archival of ${slug}`);
     expect(out()).toContain("in-flight");
   });
+
+  function runScopedAbandon(
+    worktreeName: string,
+    io: CleanupIo,
+    opts: Partial<Parameters<typeof cleanupCommand>[0]> = {},
+  ): number {
+    return cleanupCommand({
+      projectRoot,
+      io,
+      abandon: true,
+      worktreeName,
+      isMergedPr: () => false,
+      findMatchingOpenPrs: () => [],
+      ...opts,
+    });
+  }
+
+  test("scoped abandon retires only the named eligible worktree", () => {
+    const { io } = captureIo(["yes"]);
+
+    const targetName = "scoped-target";
+    const otherName = "scoped-other";
+    const targetPath = createTrackedWorktree(targetName);
+    const otherPath = createTrackedWorktree(otherName);
+    const specDir = join(projectRoot, "spec", targetName);
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# keep me\n");
+
+    const code = runScopedAbandon(targetName, io);
+
+    expect(code).toBe(0);
+    expect(existsSync(targetPath)).toBe(false);
+    expect(existsSync(otherPath)).toBe(true);
+    expect(existsSync(specDir)).toBe(true);
+    expect(() =>
+      execSync(`git rev-parse --verify ${targetName}`, {
+        cwd: projectRoot,
+        stdio: "pipe",
+      }),
+    ).toThrow();
+  });
+
+  test("scoped abandon prints path preview before confirmation", () => {
+    const { io, out } = captureIo(["yes"]);
+
+    const specName = "scoped-preview";
+    const worktreePath = createTrackedWorktree(specName);
+
+    runScopedAbandon(specName, io);
+
+    expect(out()).toContain("Worktree to remove:");
+    expect(out()).toContain(`${worktreePath} (${specName})`);
+    expect(out()).not.toContain("Worktrees to remove:");
+  });
+
+  test("scoped abandon plan branch preview includes (plan)", () => {
+    const { io, out } = captureIo(["yes"]);
+
+    const name = "scoped-plan";
+    const worktreePath = createTrackedPlanWorktree(name);
+
+    runScopedAbandon(`plan-${name}`, io);
+
+    expect(out()).toContain(`${worktreePath} (plan/${name} (plan))`);
+  });
+
+  test("scoped abandon unknown worktree refuses without changes", () => {
+    const { io, err } = captureIo();
+
+    const code = runScopedAbandon("missing-tree", io);
+
+    expect(code).toBe(1);
+    expect(err()).toBe("unknown worktree: missing-tree\n");
+  });
+
+  test("scoped abandon refuses merged branch", () => {
+    const { io, err } = captureIo();
+
+    const specName = "scoped-merged";
+    createTrackedWorktree(specName);
+
+    const code = runScopedAbandon(specName, io, { isMergedPr: () => true });
+
+    expect(code).toBe(1);
+    expect(err()).toBe(`cannot abandon ${specName}: branch ${specName} PR is merged\n`);
+  });
+
+  test("scoped abandon refuses ready PR", () => {
+    const { io, err } = captureIo();
+
+    const specName = "scoped-ready-pr";
+    createTrackedWorktree(specName);
+
+    const code = runScopedAbandon(specName, io, {
+      findMatchingOpenPrs: () => [{ number: 7, isDraft: false }],
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toBe(`unsafe PR state for branch ${specName}: matching open PR #7 is not draft\n`);
+  });
+
+  test("scoped abandon refuses multiple open PRs", () => {
+    const { io, err } = captureIo();
+
+    const specName = "scoped-multi-pr";
+    createTrackedWorktree(specName);
+
+    const code = runScopedAbandon(specName, io, {
+      findMatchingOpenPrs: () => [
+        { number: 8, isDraft: true },
+        { number: 9, isDraft: true },
+      ],
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toBe(`unsafe PR state for branch ${specName}: multiple open PRs match; refusing abandon\n`);
+  });
+
+  test("scoped abandon refuses when PR inspection fails", () => {
+    const { io, err } = captureIo();
+
+    const specName = "scoped-pr-inspect";
+    createTrackedWorktree(specName);
+
+    const code = runScopedAbandon(specName, io, {
+      findMatchingOpenPrs: () => {
+        throw new Error("gh down");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toBe(`failed to inspect PR state for branch ${specName}: gh down\n`);
+  });
+
+  test("scoped abandon refuses when branch cannot be determined", () => {
+    const { io, err } = captureIo();
+
+    const specName = "scoped-no-branch";
+    const worktreePath = join(worktreeDir, specName);
+    mkdirSync(worktreePath, { recursive: true });
+    writeFileSync(join(worktreePath, ".git"), "gitdir: /nonexistent/worktree-gitdir\n");
+
+    const code = runScopedAbandon(specName, io);
+
+    expect(code).toBe(1);
+    expect(err()).toBe(`cannot abandon ${specName}: could not determine branch\n`);
+  });
+
+  test("scoped abandon refuses live lock", () => {
+    const { io, err } = captureIo();
+
+    const specName = "scoped-live-lock";
+    const worktreePath = createTrackedWorktree(specName);
+    writeFileSync(
+      join(worktreePath, ".jarvis.lock"),
+      `${JSON.stringify({ pid: process.pid, started_at: "2026-06-29T00:00:00.000Z", host: "test" }, null, 2)}\n`,
+    );
+
+    const code = runScopedAbandon(specName, io);
+
+    expect(code).toBe(9);
+    expect(err()).toBe(`worktree is in use by process ${process.pid} (started at 2026-06-29T00:00:00.000Z)\n`);
+    expect(existsSync(worktreePath)).toBe(true);
+  });
+
+  test("scoped abandon ignores stale lock", () => {
+    const { io } = captureIo(["yes"]);
+
+    const specName = "scoped-stale-lock";
+    const worktreePath = createTrackedWorktree(specName);
+    writeFileSync(
+      join(worktreePath, ".jarvis.lock"),
+      `${JSON.stringify({ pid: 2_147_483_647, started_at: "2026-06-29T00:00:00.000Z", host: "test" }, null, 2)}\n`,
+    );
+
+    const code = runScopedAbandon(specName, io);
+
+    expect(code).toBe(0);
+    expect(existsSync(worktreePath)).toBe(false);
+  });
+
+  test("scoped abandon dry-run previews only named target", () => {
+    const { io, out } = captureIo();
+
+    const targetName = "scoped-dry-run";
+    const otherName = "scoped-dry-other";
+    const targetPath = createTrackedWorktree(targetName);
+    createTrackedWorktree(otherName);
+
+    const code = runScopedAbandon(targetName, io, { dryRun: true });
+
+    expect(code).toBe(0);
+    expect(out()).toContain(targetPath);
+    expect(out()).not.toContain(otherName);
+    expect(out()).not.toContain("Remove these worktrees?");
+    expect(existsSync(targetPath)).toBe(true);
+  });
+
+  test("scoped abandon cancel leaves worktree and branches untouched", () => {
+    const { io, out } = captureIo(["n"]);
+
+    const specName = "scoped-cancel";
+    const worktreePath = createTrackedWorktree(specName);
+
+    const code = runScopedAbandon(specName, io);
+
+    expect(code).toBe(0);
+    expect(out()).toContain("cancelled");
+    expect(existsSync(worktreePath)).toBe(true);
+    expect(
+      execSync(`git rev-parse --abbrev-ref ${specName}`, {
+        cwd: projectRoot,
+        stdio: "pipe",
+        encoding: "utf8",
+      }).trim(),
+    ).toBe(specName);
+  });
+
+  test("scoped abandon retire failure exits 1", () => {
+    const { io, err } = captureIo(["yes"]);
+
+    const specName = "scoped-retire-fail";
+    createTrackedWorktree(specName);
+
+    const code = runScopedAbandon(specName, io, {
+      deleteLocalBranch: () => {
+        throw new Error("simulated branch delete failure");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toContain(`failed to remove ${specName}: simulated branch delete failure`);
+  });
 });

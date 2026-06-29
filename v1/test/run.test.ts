@@ -7899,76 +7899,7 @@ exit 1
     expect(cap.out()).toContain("iterations: 0");
   });
 
-  test("empty-eligible floor error: exits 1 before invoking agent, with telemetry record and no lock leak", async () => {
-    const cap = captureIo();
-    const spec = writeSpec(`# Test
-
-- [ ] [00 - Task](./00-task.md)
-`);
-    writeFileSync(join(projectRoot, "00-task.md"), "## Acceptance criteria\n- [ ] do something\n");
-
-    const telemetryFile = join(dir, "telemetry.jsonl");
-    const claude = new FakeAgent("claude", () => ({ kind: "error" as const, exitCode: 1, stderr: "" }));
-
-    const cfg = loadConfig({ dir: cfgDir });
-    cfg.modes.patch.agentOrder = [
-      { agent: "claude", model: "haiku", capability: 1 },
-      { agent: "codex", model: "gpt-5.4", capability: 2 },
-    ];
-    cfg.modes.patch.actuationCapabilityFloor = 3;
-    cfg.telemetryPath = telemetryFile;
-    writeConfig(cfg, { dir: cfgDir });
-
-    const code = await runCommand({
-      specPath: spec,
-      io: cap.io,
-      config: { dir: cfgDir },
-      agents: { claude },
-      logClient: { assertReachable: async () => {}, send: async () => {} },
-      handleSignals: false,
-      skipGhCheck: true,
-    });
-
-    expect(code).toBe(1);
-    expect(cap.err()).toContain("error: patch actuation has no agents meeting capability floor 3");
-
-    // Verify telemetry was recorded
-    expect(existsSync(telemetryFile)).toBe(true);
-    const telemetryLines = readFileSync(telemetryFile, "utf8").trim().split("\n");
-    const floorErrorLines = telemetryLines.filter((line) => {
-      const parsed = JSON.parse(line);
-      return parsed.exit_reason === "floor-error" && parsed.agent === "harness";
-    });
-    expect(floorErrorLines).toHaveLength(1);
-
-    // Verify no agent was invoked (exit_reason should only be floor-error, no "ok" or quota)
-    const agentLines = telemetryLines.filter((line) => {
-      const parsed = JSON.parse(line);
-      return parsed.agent !== "harness";
-    });
-    expect(agentLines).toHaveLength(0);
-  });
-
-  test("shrink: empty-eligible floor check implemented in shrink phase", async () => {
-    // This test verifies that shrink has the floor eligibility check (via filterAgentsByCapabilityFloor).
-    // The actual execution test is implicitly covered by unit tests in patch-actuator-floor.test.ts
-    // since shrink uses the same filterAgentsByCapabilityFloor helper and same error handling pattern.
-    // A full integration test would require either:
-    // 1. A way to specify different floors for patch vs shrink phases, or
-    // 2. Mocking the shrink invocation to trigger the empty-eligible path.
-    // Both are out of scope for this verdict, so we verify the code path exists.
-
-    const shrinkSource = readFileSync(join(import.meta.dir, "../src/modes/patch/shrink.ts"), "utf8");
-
-    // Verify that shrink uses filterAgentsByCapabilityFloor
-    expect(shrinkSource).toContain("filterAgentsByCapabilityFloor");
-
-    // Verify that shrink checks for empty eligible agents
-    expect(shrinkSource).toContain("eligibleAgents.length === 0");
-
-    // Verify that shrink emits the error with "shrink actuation" role
-    expect(shrinkSource).toContain("shrink actuation");
-  });
+  // floor-error and shrink floor tests removed — capability floor is no longer supported
 });
 
 function setupGit(): void {

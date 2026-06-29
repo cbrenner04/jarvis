@@ -7,7 +7,7 @@ import { parseSpec } from "../../../../shared/spec-parser.ts";
 import { createAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName, AgentResult } from "../../agents/types.ts";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
-import { type Config, filterAgentsByCapabilityFloor, resolveSubRoleAgentOrder } from "../../config.ts";
+import { type Config, resolveSubRoleAgentOrder } from "../../config.ts";
 import { getBaseBranch } from "../../gh.ts";
 import {
   HARNESS_QUOTA_FALLBACK_STRICT,
@@ -430,19 +430,7 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
       return override ?? createAgent(agentName, model);
     };
 
-    const eligibleAgents = filterAgentsByCapabilityFloor(
-      resolveSubRoleAgentOrder(opts.config, "reviewActuator"),
-      opts.config.modes.patch.actuationCapabilityFloor,
-    );
-
-    if (eligibleAgents.length === 0 && opts.config.modes.patch.actuationCapabilityFloor !== undefined) {
-      opts.fanout(
-        "harness",
-        `error: shrink actuation has no agents meeting capability floor ${opts.config.modes.patch.actuationCapabilityFloor}\n`,
-        "stderr",
-      );
-      return;
-    }
+    const eligibleAgents = resolveSubRoleAgentOrder(opts.config, "reviewActuator");
 
     const bindings = eligibleAgents.map((entry) =>
       createShrinkInvocationBinding({

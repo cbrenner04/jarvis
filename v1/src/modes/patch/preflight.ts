@@ -10,11 +10,9 @@ import {
   CONFIG_DIR,
   type Config,
   effectiveGit,
-  filterAgentsByCapabilityFloor,
   findProjectMatchForPath,
   type ProjectMatch,
   resolveReviewPasses,
-  resolveSubRoleAgentOrder,
   setProjectOrigin,
 } from "../../config.ts";
 import { assertGhReady, withSyncTransientRetry } from "../../gh.ts";
@@ -522,10 +520,7 @@ export function maybeWarnAboutUnmergedPlanBranch(args: {
 export function buildActiveAgents(opts: RunCommandOptions, cfg: Config, patchTier: PatchTier): Agent[] {
   const overrides = opts.agents;
   const agents: Agent[] = [];
-  const eligibleAgents = filterAgentsByCapabilityFloor(
-    resolveSubRoleAgentOrder(cfg, "patchActuator"),
-    cfg.modes.patch.actuationCapabilityFloor,
-  );
+  const eligibleAgents = cfg.modes.patch.agentOrder;
   const startIndex = resolvePatchTierStartIndex(patchTier, eligibleAgents.length);
   for (const entry of eligibleAgents.slice(startIndex)) {
     const override = overrides?.[entry.agent];

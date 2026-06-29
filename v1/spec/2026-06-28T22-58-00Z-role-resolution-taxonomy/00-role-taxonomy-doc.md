@@ -53,23 +53,23 @@ are actually invoked.
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/role-resolution.md` exists with the closed `Role` union and a
+- [x] `v2/docs/role-resolution.md` exists with the closed `Role` union and a
       one-line purpose per role: `plan`, `implement`, `adversary`, `advocate`,
       `adjudicator`, `actuator`, `operator`.
-- [ ] The role ↔ behavior reference table has one row per role; each row names
+- [x] The role ↔ behavior reference table has one row per role; each row names
       bound behavior(s) or notes `human` = no agent resolution and `operator` =
       behavior binding deferred to Phase 9; the shrink row binds `implement`
       under `write`.
-- [ ] The doc states workflow steps bind `behavior` + `prompt` + `role`; the
+- [x] The doc states workflow steps bind `behavior` + `prompt` + `role`; the
       runner walks per-machine agent fallback order, then resolves
       `(agent, role) → model` (inner rung detail deferred to agent-model-config
       slice).
-- [ ] The doc records load-bearing taxonomy decisions (categories retired;
+- [x] The doc records load-bearing taxonomy decisions (categories retired;
       one `actuator`; shrink → `implement`; `operator` and `cheap` deferrals;
       `v2-build-order.md` deferral; no v1 migration).
-- [ ] The doc cross-links `v2/docs/v2-vision.md` and notes `AgentModelConfig`
+- [x] The doc cross-links `v2/docs/v2-vision.md` and notes `AgentModelConfig`
       schema lands in a follow-on slice.
-- [ ] No thinking/reviewing/executing category appears as a model-resolution
+- [x] No thinking/reviewing/executing category appears as a model-resolution
       key in `role-resolution.md`. (Manual)
 
 ## Documentation updates

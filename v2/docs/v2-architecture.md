@@ -15,13 +15,14 @@ config. Naming them separately is what keeps the design from feeling tangled.
 | --- | --- | --- |
 | **Behaviors** | source | Loop primitives: write, review-and-update, human. See `v2-vision.md`. |
 | **Prompts** | source | Per-behavior prompts, rendered by layering fragments + per-step overrides. |
-| **Workflows** | source | Named, linear-with-loops sequences of **steps** (behavior + prompt + output contract + model category). No agent/model. |
-| **Project config** | data (`~/.jarvis`, per machine) | Per project: enabled workflows + the agent fallback order. Model categories bind separately, in a machine-independent store. |
+| **Workflows** | source | Named, linear-with-loops sequences of **steps** (behavior + prompt + output contract + role). No agent/model. |
+| **Project config** | data (`~/.jarvis`, per machine) | Per project: enabled workflows + the agent fallback order. Role→model bindings live separately, in a machine-independent store. |
 
 **Terminology change.** The earlier framing of a "building block = prompt + agent" is retired.
 The reusable source unit is a **step** (behavior + prompt + output contract); a step names a
-**model category**, never a concrete model. The **agent** is a per-machine fallback order and
-the **model** resolves per agent from the step's category — neither is baked into the step.
+**role**, never a concrete model. The **agent** is a per-machine fallback order and
+the **model** resolves per agent from the step's role — neither is baked into the step.
+See [`role-resolution.md`](role-resolution.md) for the closed `Role` union.
 Keeping "building block" as "prompt + agent" is exactly what pulls the design back toward
 baking models into source, so we drop the term.
 
@@ -65,23 +66,23 @@ Decided:
   new workflow go through a Jarvis change?" — yes, it's source.)
 - **A workflow scaffolding helper.** Since workflows are authored often, ship a
   generator that stubs a new workflow (steps referencing prompts + contracts).
-- **Steps reference prompts and a model category, never a concrete agent/model.**
+- **Steps reference prompts and a role, never a concrete agent/model.**
   The agent fallback order and the per-agent model are config.
 - **Authoring reuse via named step-groups.** A workflow can embed a reusable
   sub-sequence (e.g. `review-bundle` = code-review + security-review) so step
   lists aren't repeated across workflows. Keep nesting **shallow — one level, no recursion** —
   to avoid the workflow-graph explosion the vision warns against.
-- **Steps have stable IDs.** Config maps step → agent, so bindings follow IDs,
-  not positions; reordering or inserting steps must not silently re-target
-  bindings.
+- **Steps have stable IDs.** Role-bearing step bindings and their resolved
+  role/agent pairs follow IDs, not positions; reordering or inserting steps
+  must not silently re-target resolution.
 
 Per-project config:
 
 - **No Jarvis artifacts in target repos.** Jarvis is used on personal repos and
   at work where the setup isn't ours and personal artifacts aren't welcome. A
   project opts into workflows and its agent order entirely in `~/.jarvis` (the
-  model-category store is separate and machine-independent, below).
-- **Two axes: agent fallback order vs. model categories.** v1 conflated them — each
+  role→model store is separate and machine-independent, below).
+- **Two axes: agent fallback order vs. model resolution.** v1 conflated them — each
   `modes.{patch,plan}.agentOrder` entry is one `{agent, model}` pair, so the
   availability chain and the model choice are a single list. v2 splits them, since
   the hierarchy exists for *agents* (preference-then-fallback) and a model always
@@ -90,28 +91,24 @@ Per-project config:
     cursor → opencode`), the availability/quota chain. Lives in **per-machine**
     `~/.jarvis` config: which agents are installed/licensed genuinely differs
     between the personal and work machines.
-  - **Model categories** — models grouped by the *kind of work*, each category
-    mapping per-agent to that agent's model for that work. Lives in a **separate,
-    machine-independent, version-controlled store** (a checked-in data file beside
-    the global `data/prices.json`), not `config.json`: the assignments are the same
-    on every machine, change often, and would bloat per-machine config.
-- **Three categories: thinking / reviewing / executing.** *thinking* =
-  heavyweight reasoning (plan draft/refine, hard design); *reviewing* = critique
-  passes (the review debate's reviewer roles); *executing* = routine
-  implementation (the write loop, the review debate's verdict actuator). The code
-  allows adding more later, but this set is fixed. (Supersedes the earlier coarse
-  "heavy/cheap" split.)
-- **A step names a category, not a model.** The runner walks the agent fallback
-  order; for whichever agent it lands on, it uses that agent's model for the
-  step's category. Step→category: write/implement = executing; plan draft/refine =
-  thinking; review reviewer roles = reviewing; the verdict actuator runs in its
-  mode's authoring category (implement → executing, plan → thinking).
-- **Exactly one model per (category, agent); a gap is a hard error at load** — no
+  - **Role→model bindings** — each workflow step names a **role** (see
+    [`role-resolution.md`](role-resolution.md)); the store maps `(agent, role) →
+    model`. Lives in a **separate, machine-independent, version-controlled store**
+    (a checked-in data file beside the global `data/prices.json`), not
+    `config.json`: the assignments are the same on every machine, change often,
+    and would bloat per-machine config.
+- **A step names a role, not a model.** The runner walks the agent fallback
+  order; for whichever agent it lands on, it resolves `(agent, role) → model`
+  from the store. Step→role bindings follow the closed union in
+  [`role-resolution.md`](role-resolution.md) — e.g. write-loop implement steps bind
+  `implement`; plan draft/refine bind `plan`; review debate binds `adversary`,
+  `advocate`, `adjudicator`, then `actuator`.
+- **Exactly one model per (agent, role); a gap is a hard error at load** — no
   skip, no default fallback. Price/model validation runs per (agent, model) pair,
-  now per category.
-- **Quota fallback composes unchanged.** Agent order is the outer loop; a category
+  now per role.
+- **Quota fallback composes unchanged.** Agent order is the outer loop; a role
   never reorders agents. When the landed agent is quota-exhausted, fallback
-  advances to the next agent and re-resolves the *same* category against it.
+  advances to the next agent and re-resolves the *same* role against it.
 - **CLI override.** The only override is a command-line `--agent` / `--model` pair
   (the single-write-step override) that bypasses resolution for that run. There is
   no per-step config override.
@@ -123,15 +120,16 @@ Per-project config:
   Ollama server resident, qwen on-demand, reached via opencode.
 - **Focused show/edit.** The config will be large. `jarvis config <project>`
   shows enabled workflows + the agent fallback order; `jarvis config <project>
-  <workflow>` drills into one workflow's steps, each step's category and its
-  resolved `(agent, category) → model`. Mirrors v1's `prices show/edit`.
+  <workflow>` drills into one workflow's steps, each step's role and its
+  resolved role/agent pair (`(agent, role) → model`). Mirrors v1's `prices
+  show/edit`.
 - **Config-vs-source validation.** Because workflows are source and bindings are
   data, ship a check (companion to the workflow helper) that validates a
   project's config against the workflows it opts into — flags unknown workflow
   names, unknown step IDs, unknown agent/model values, and any missing
-  `(category, agent)` model assignment (the hard-error-at-load rule). This is what makes "build
-  workflows as they come" safe: a new workflow tells each project what, if
-  anything, it must configure.
+  role/agent assignment in the role→model store (the hard-error-at-load rule).
+  This is what makes "build workflows as they come" safe: a new workflow tells
+  each project what, if anything, it must configure.
 
 ### Review as debate
 
@@ -144,14 +142,16 @@ The **review-and-update** behavior is a debate, not N identical critique passes
   why, never the diff). The actuator is the *only* writer; for implement it updates
   implementation files, while for plan it updates the generated spec tree from a
   review-actuator prompt. Intent refinement remains a separate pre-draft behavior.
-- **This is why categories matter.** Reviewers are **reviewing**-class; the
-  actuator runs in the mode's *authoring* category — implement → **executing**,
-  plan → **thinking** (applying a verdict to a spec is still spec-authoring work).
-  The split that matters is reviewers ≠ actuator with different models, not that
-  the actuator is always "cheap." One role would force one model to do both — the
-  conflation the agent/model split above exists to avoid. Splitting adjudicator from
-  actuator also stops a reviewer grading its own fix, and lets the actuator's diff
-  re-enter the next cycle's debate.
+- **This is why roles matter.** Reviewers bind **`adversary`**, **`advocate`**, and
+  **`adjudicator`** — read-only debate roles with critique-appropriate models; the
+  actuator binds **`actuator`** and is the only writer (implement context →
+  implementation files; plan context → spec tree). Plan authoring steps elsewhere
+  bind **`plan`**; implement write-loop steps bind **`implement`**. The split that
+  matters is reviewers ≠ actuator with different models, not that the actuator is
+  always "cheap." One role would force one model to do both — the conflation the
+  agent/model split above exists to avoid. Splitting adjudicator from actuator also
+  stops a reviewer grading its own fix, and lets the actuator's diff re-enter the
+  next cycle's debate. See [`role-resolution.md`](role-resolution.md).
 - **Verdict lives next to the spec**, distinct plan/patch filenames, overwritten
   each cycle (full trail in git). Empty verdict → no actuator run. Default is one
   cycle; the harness adjudicates no materiality — nothing to find means an empty

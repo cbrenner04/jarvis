@@ -496,6 +496,14 @@ Run orchestration verbs over the daemon's IPC interface:
   only while its loop Promise is executing. Allows a client to distinguish a live
   run from a crashed daemon's stale row — the canonical use case for
   durable-plus-liveness merge.
+- **Daemon-owned run-execution failure capture:** When the spawn-boundary
+  `writeLoopExecutor` rejects outside normal loop settlement, the factory
+  best-effort persists durable `status: "failed"` (skipped when status is already
+  terminal), awaits a required `failureReporter` with the original rejection value,
+  appends one `run_execution_failed` log event via the production reporter, then
+  releases in-memory worktree ownership. Does not call `commitCompletionBoundary`;
+  latest attempt may remain `in-progress`. See [`daemon-host.md`](daemon-host.md)
+  for capture order and operator shape after failure.
 
 ## Constraints & guiding principles
 

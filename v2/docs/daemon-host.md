@@ -50,7 +50,7 @@ Valid JSON with missing or invalid `kind` closes the connection.
 | `health` | — | `{ ok: true }` | Channel liveness |
 | `status` | — | `{ state: "running" }` | Daemon-host liveness only — not run orchestration status |
 | `start` | `{ input: WriteLoopInput }` | `{ runId: string }` | Spawn a write loop in the background; returns immediately with run ID. Rejected if any run is in-flight (single in-flight guard) or if a run is active for the same `(project, branch)` (per-key guard). |
-| `list` | — | `{ runs: Array<{runId, project, branch, status, isLive}> }` | List durable runs merged with in-memory liveness; `isLive=true` only while the loop's Promise is executing. |
+| `list` | — | `{ runs: Array<{runId, project, branch, status, isLive}> }` | List durable runs merged with in-memory liveness; `isLive=true` only while the loop's Promise is executing. After spawn-boundary executor failure: `status: "failed"`, `isLive: false` (see [Spawn-boundary failure capture](#spawn-boundary-failure-capture)). |
 | `pause` | `{ runId: string }` | `{ ok: true }` | Signal graceful pause for an active run. The run continues at the next iteration boundary (in-flight step is not aborted). Rejected if run is unknown or not active. |
 | `kill` | `{ runId: string }` | `{ ok: true }` | Abort the run's signal immediately and record durable status `killed`. Leaves the worktree dirty. Rejected if run is unknown or not active. |
 | `resume` | `{ runId: string }` | `{ ok: true }` | Resume a paused/killed run, re-invoking `executeWriteLoop` under the start guards. A paused run continues with a fresh attempt; a killed run re-runs the interrupted step. Rejected if run is unknown, in terminal status, or if another run is active (single in-flight guard or per-key guard violation). |
@@ -133,6 +133,31 @@ Each entry records `{ runId, worktreePath }`.
 
 **No disk writes:** Registry is in-memory only. Cross-process coordination uses
 `.jarvis.lock` and git worktrees locking (unchanged).
+
+## Spawn-boundary failure capture
+
+When the factory's background `writeLoopExecutor` rejects (harness fault outside
+normal `loop_finished` settlement), capture runs in the spawn IIFE after the RPC
+returns — `start` and `resume` share this path:
+
+1. If durable status is not already terminal (`completed`, `blocked`, `killed`,
+   `paused`, `failed`), best-effort `setRunStatus("failed")`. Persist errors do
+   not block cleanup.
+2. Await the injected `failureReporter(runId, reason)` with the original
+   rejection value (production: open log sink via `logsPath`, append one
+   `run_execution_failed` event, close sink).
+3. Release in-memory worktree ownership and active-run entries (`finally`).
+
+Does not call `commitCompletionBoundary`; latest attempt may stay `in-progress`.
+Does not rethrow to RPC callers or emit daemon stderr — diagnostics flow through
+the reporter contract only.
+
+**Dual-outage (out of scope):** When both `stateStore` and the log reporter are
+unreachable on failure, no orphan repair is attempted.
+
+**Post-failure operator shape:** `list` reports `status: "failed"`, `isLive:
+false`; a new `start` for the same `(project, branch)` is accepted once capture
+settles.
 
 ## Library surface
 

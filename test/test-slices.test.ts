@@ -83,6 +83,7 @@ describe("Test slice boundaries", () => {
     expect(integration).toEqual([
       "v2/src/daemon.sandbox-unrunnable.test.ts",
       "v2/src/external-worktree.sandbox-unrunnable.test.ts",
+      "v2/src/log-stream.sandbox-unrunnable.test.ts",
       "v2/src/preload.sandbox-unrunnable.test.ts",
     ]);
 

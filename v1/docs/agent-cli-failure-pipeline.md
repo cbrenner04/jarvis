@@ -17,7 +17,7 @@ How a vendor CLI invocation becomes an `AgentResult`, then a mode-specific outco
 5. **Mode-specific post-processing** — Callers apply **`applyQuotaFallbackWhenAllowed`** (`src/agents/quota.ts`) where configured:
    - **Plan phases:** porcelain snapshot before/after `agent.run` (`src/modes/plan/git-porcelain.ts`); **`allowLenientWeakQuotaFallback`** is equivalent to unchanged porcelain across that invocation.
    - **Patch (`jarvis run`):** Strict spawn-side **`quota`** is handled **before** lenient fallback. For spawn **`error`**, **`allowLenientWeakQuotaFallback`** is true only when the iteration checked **no** new acceptance criteria **and** the git worktree shows **no** completion-blocking edits (`src/modes/patch/run.ts`).
-6. **`emitPlanAgentQuotaFallback`** (plan only) — Logs rotation lines after quota fallback (`src/modes/plan/emit-plan-quota-stderr.ts`).
+6. **`emitPlanAgentQuotaFallback`** (draft and intent-split inner loops) — Logs rotation lines when the phase advances after quota or **`model_config`** (`src/modes/plan/emit-plan-quota-stderr.ts`). Uses `plan:` / `intent:` prefixes and harness fallback phrases; the `; falling back` suffix disambiguates rotation from terminal `plan: model configuration error` / `intent: model configuration error` lines in `plan/run.ts` and `intent.ts`.
 7. **User-visible outcome** — Harness stderr banners, continuation vs return, telemetry (`writeTelemetry` in patch), and process exit codes follow the outcome matrix in `docs/quota-signals.md`.
 
 ### Legacy field naming
@@ -41,7 +41,7 @@ rg '\bagent\.run\(' src --glob '*.ts' -l
 | `src/modes/review/run.ts` | Shared review pass loop (plan + patch): porcelain guard + **`applyQuotaFallbackWhenAllowed`**; **`quota`** rotates within a pass; **`model_config`** → exit `3`; other **`error`** exits that pass (no agent rotation). Agent chain resets each pass. |
 | `src/modes/plan/review.ts` | Plan review adapter + **`emitPlanAgentQuotaFallback`** via **`onQuotaRotation`**. |
 | `src/modes/patch/review.ts` | Patch review adapter; per-pass timeout in **`loadAgent`**; harness quota stderr via **`onQuotaRotation`**. |
-| `src/modes/plan/name-only.ts` | Naming-only phase inner loop: porcelain + quota fallback; **`ok`** → return; **`quota`** → next agent; **`model_config`** → fatal; **`error`** → next agent. |
+| `src/modes/plan/name-only.ts` | Naming-only phase inner loop (dormant export): porcelain + quota fallback; **`ok`** → return; **`quota`**, **`model_config`**, and **`error`** → next agent; no live operator path today. |
 
 ### Tests (`test/`)
 

@@ -37,6 +37,7 @@ import {
 import { NARRATIVE_END_MARKER } from "../src/pr.ts";
 import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
+  HARNESS_IDLE_TIMEOUT_FALLBACK,
   HARNESS_QUOTA_FALLBACK_STRICT,
   harnessAuthRotateLine,
   harnessQuotaFallbackLenientLine,
@@ -155,6 +156,28 @@ function createCompletionAgent(spec: string, onFixup?: (callCount: number) => vo
       onFixup?.(callCount);
     }
     return { kind: "ok", stdout: "", stderr: "" };
+  });
+}
+
+function createCompletionThenIdleAgent(spec: string, hangScript: string): FakeAgent {
+  return new FakeAgent("claude", (callCount, prompt, opts) => {
+    if (callCount === 1) {
+      writeFileSync(spec, readFileSync(spec, "utf8").replace("- [ ]", "- [x]"));
+      execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+      return { kind: "ok", stdout: "", stderr: "" };
+    }
+    return runAgent(
+      {
+        name: "claude",
+        binary: hangScript,
+        cwd: opts.cwd,
+        buildArgv: () => [],
+        stdio: ["ignore", "pipe", "pipe"],
+        streamErrorPrefix: "test:",
+      },
+      prompt,
+      opts,
+    );
   });
 }
 
@@ -1254,6 +1277,58 @@ describe("runCommand", () => {
     expect(gateCalls).toBe(6);
     // Agent called once normally, once for fix-up.
     expect(claude.calls).toHaveLength(2);
+  });
+
+  test("completion: fix-up idle stall exits 8 terminally without agentOrder escalation", async () => {
+    const spec = initCompletionGateRepo();
+    const idleTimeoutMs = 1000;
+    const hangScript = join(dir, "idle-hang.sh");
+    writeFileSync(hangScript, "#!/usr/bin/env bash\nwhile true; do :; done\n");
+    chmodSync(hangScript, 0o755);
+
+    const cap = captureIo();
+    const claude = createCompletionThenIdleAgent(spec, hangScript);
+    const codex = new FakeAgent("codex", () => {
+      throw new Error("codex should not be invoked on fix-up idle abort");
+    });
+
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY];
+    cfg.idleOutputTimeoutMs = idleTimeoutMs;
+    cfg.maxIterations = 3;
+    writeConfig(cfg, { dir: cfgDir });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude, codex },
+      handleSignals: false,
+      reviewPasses: 0,
+      __testKillGraceMs: 200,
+      runCompletionReadyGate: () => ({
+        kind: "red",
+        failureText: "bun run ready failed:\nboom",
+        verificationRed: true,
+      }),
+    });
+
+    expect(code).toBe(8);
+    expect(cap.err()).not.toContain(`claude: ${HARNESS_IDLE_TIMEOUT_FALLBACK}`);
+    expect(cap.err()).toContain("iteration 2 exceeded idle timeout");
+    expect(claude.calls).toHaveLength(2);
+    expect(codex.calls).toHaveLength(0);
+
+    const rows = readFileSync(join(cfgDir, "runs.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const fallbackRow = rows.find((row) => row.exit_reason === "watchdog-idle-timeout-fallback");
+    const terminalRow = rows.find((row) => row.exit_reason === "watchdog-idle-timeout");
+    expect(fallbackRow).toBeUndefined();
+    expect(terminalRow).toBeDefined();
+    expect(terminalRow?.agent).toBe("claude");
+    expect(terminalRow?.kind).toBe("timeout");
   });
 
   test("completion: stuck-red stop (exit 10) when failure unchanged after fix-up iteration", async () => {

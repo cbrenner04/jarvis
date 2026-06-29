@@ -18,14 +18,18 @@ A jarvis command emits or amends session cost and outcome rows for one
 
 **Session-costs:** one row per spec/intent in the session; plan + run on the
 same row; derive models, costs, times, tokens, and `total_cost` from the
-run-summary aggregation path (backed by `runs.jsonl`); record durable bindings
+run-summary aggregation path (backed by `runs.jsonl`); compute `total_tokens`
+as `plan_tokens_in + plan_tokens_out + run_tokens_in + run_tokens_out` and
+`cost_per_1k_tokens` from that denominator; record durable bindings
 (`namespace`, `run_start_ts`, `run_end_ts`, `run_base`) in `notes` per the
 runbook.
 
 **Session-outcomes:** one row per session cost row; join on
 `(report, session_id)` → `(report, name)` where `session_id` is the cost-row
 `name`; derive fields per
-[outcome-data-source-audit.md](../../v2/docs/outcome-data-source-audit.md).
+[outcome-data-source-audit.md](../../v2/docs/outcome-data-source-audit.md),
+including `cost` from `total_cost` and cost-per-minute/file ratios from the
+reconciled duration/file fields.
 
 **Idempotency:** amend on `(report, name)` for costs and matching outcome
 identity — never duplicate rows within a report.

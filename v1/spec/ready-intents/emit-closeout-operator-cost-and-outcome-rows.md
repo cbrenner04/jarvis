@@ -18,16 +18,17 @@ Extend the close-out cost command to accept the operator's `/cost` output
 amend operator cost and outcome rows for one `report`.
 
 **Operator-costs:** one row per operator session; parse `total_cost`, `api_time`,
-tokens, cache, and any lines-changed figure the standard names; compute
-`session_count` and `avg_cost_per_spec` from the session's `session-costs`
-member set for that `report`; record the member `(report, name)` set and
-`session_base` in `notes`.
+tokens, and cache; compute `total_tokens` as `tokens_in + tokens_out`,
+`cost_per_1k_tokens` from that denominator, and `session_count` /
+`cost_per_session` from the session's `session-costs` member set for that
+`report`; record the member `(report, name)` set and `session_base` in `notes`.
 
 **Operator-outcomes:** one row per operator cost row; join on
 `(report, session_id)` → `(report, session)`; derive fields per
 [outcome-data-source-audit.md](../../v2/docs/outcome-data-source-audit.md)
 (`specs_driven` from cost-row `session_count`, `report_date` from matched
-session outcomes, etc.).
+session outcomes, `cost` from `total_cost`, and cost-per-minute/file ratios
+from the reconciled duration/file fields).
 
 **Idempotency:** amend on `(report, session)` — never duplicate operator rows
 within a report.
@@ -39,7 +40,7 @@ what `/cost` and bound session rows supply.
 
 - `/cost` is operator-supplied at close-out — rules out in-session capture or
   telemetry inference of operator spend.
-- Aggregates (`session_count`, `avg_cost_per_spec`) come from emitted
+- Aggregates (`session_count`, `cost_per_session`) come from emitted
   `session-costs` rows for the same `report` — rules out a separate manual spec
   count.
 - Operator outcome derivations require bound session-cost/outcome identities —

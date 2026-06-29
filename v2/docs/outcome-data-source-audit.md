@@ -43,13 +43,13 @@ Documented in [v1/docs/operator-runbook.md](../../../v1/docs/operator-runbook.md
 
 **`reports/session-costs.csv` columns:**
 
-`report, name, plan_model, plan_cost, plan_time, plan_tokens_in, plan_tokens_out, run_model, run_cost, run_time, run_tokens_in, run_tokens_out, total_cost, notes`
+`report, name, plan_model, plan_cost, plan_time, plan_tokens_in, plan_tokens_out, run_model, run_cost, run_time, run_tokens_in, run_tokens_out, total_cost, total_tokens, cost_per_1k_tokens, notes`
 
 **`reports/operator-costs.csv` columns:**
 
-`report, session, session_count, model, total_cost, avg_cost_per_spec, api_time, tokens_in, tokens_out, cache_read, cache_write, notes`
+`report, session, session_count, model, total_cost, cost_per_session, api_time, tokens_in, tokens_out, cache_read, cache_write, total_tokens, cost_per_1k_tokens, notes`
 
-Key columns: `session_count` is the number of `session-costs.csv` rows (spec count); `api_time` is total API runtime.
+Key columns: `session_count` is the number of `session-costs.csv` rows (spec count); `api_time` is total API runtime. For session costs, `total_tokens` is `plan_tokens_in + plan_tokens_out + run_tokens_in + run_tokens_out`. For operator costs, `total_tokens` is `tokens_in + tokens_out`; cache columns are separate.
 
 ## Classification table
 
@@ -67,13 +67,16 @@ Each proposed outcome column is classified as one of:
 |--------|----------------|---------------------|-------|
 | `session_id` | Join key (cost CSV) | From `reports/session-costs.csv` `name` field | Not an outcome; matches spec identifier in cost CSV |
 | `report_date` | Derivable | From `run_start_ts` in the JSONL rows durably bound to `(report, name)`; convert to date | Requires a durable binding from the session cost identity to one JSONL namespace and run window; without that binding or source row, leave blank |
+| `cost` | Already-logged | From matching `reports/session-costs.csv` `total_cost` | Mirrors the authoritative cost row |
 | `completed_work_units` | Not-captured | Operator judgment | Count of completed subspecs at session end (single-file spec = 1); harness does not track subspec/criterion intent |
 | `success_status` | Derived-hint + operator-override | Hint from the final identity-bound JSONL `exitReason` (`ok` → successful, `error`/`quota`/`timeout` → failure); operator overrides | Without the durable JSONL binding, the hint is unavailable and judgment stays operator-provided |
 | `failure_reason` | Derived-hint + operator-override | Hint from the final identity-bound JSONL `exitReason` and `kind`; operator records if not captured | If `success_status` is failure, harness provides signal (quota, agent-error, timeout, model-config) only when the JSONL binding is durable |
 | `session_type` | Already-logged | From `mode` field in the identity-bound JSONL rows (always `"patch"` for patch runs) | For plan/intent runs, recorded by operator; for patch, only when the JSONL binding is durable |
 | `agent_count` | Derivable | Distinct agent names in the identity-bound JSONL rows, excluding `record_role: "run_terminal"` rows and synthetic `agent: "harness"` rows | Filter: count unique `agent` values where `record_role ≠ "run_terminal"` and `agent ≠ "harness"` |
 | `duration_minutes` | Derivable | From `reports/session-costs.csv` `plan_time` and `run_time` fields (in seconds, already-logged); sum and convert to minutes | Cost row is the primary and only automatic source in the standard |
+| `cost_per_minute` | Derivable | `cost / duration_minutes` | Leave blank when either input is unavailable or zero |
 | `files_touched` | Derivable | From the run-base git diff bound durably to `(report, name)` | Requires the session cost identity to carry its run base; absent that binding, leave blank |
+| `cost_per_file` | Derivable | `cost / files_touched` | Leave blank when files are unavailable or zero |
 | `notes` | Not-captured | Operator recorded | Free-form context; harness does not record per-spec notes |
 
 ### Operator-sheet proposed roll-up columns
@@ -81,11 +84,14 @@ Each proposed outcome column is classified as one of:
 | Column | Classification | Source / Derivation | Notes |
 |--------|----------------|---------------------|-------|
 | `specs_driven` | Already-logged | From `reports/operator-costs.csv` `session_count` field | Number of `session-costs.csv` rows in this operator session; cost CSV already records it |
+| `cost` | Already-logged | From matching `reports/operator-costs.csv` `total_cost` | Mirrors the authoritative operator cost row |
 | `overall_success` | Derived-hint + operator-override | Hint: aggregate per-session `success_status` (derived hints from `exitReason`); operator overrides if needed | Harness derives per-session success hints from JSONL `exitReason` and aggregates across the session; operator may record aggregate judgment (e.g., "partial success") |
 | `session_type` | Pinned constant | Value is always `"orchestration"` for operator sheets (not recorded in CSV, derived from sheet context) | Not per-spec; marks the row as operator-generated |
 | `report_date` | Derivable | Earliest matched session outcome date across the exact member `(report, name)` set bound to `(report, session)` | Requires a durable mapping from the operator cost identity to its member session-cost identities; `session_count` alone is insufficient |
 | `duration_minutes` | Derivable | Sum `plan_time + run_time` across the exact member session-cost rows bound to `(report, session)` | Do not substitute `api_time`; without exact member mapping, leave blank |
+| `cost_per_minute` | Derivable | `cost / duration_minutes` | Leave blank when either input is unavailable or zero |
 | `files_touched` | Derivable (with caveat) | Distinct-path union across the exact member session set from the shared bound `session_base` | Requires a durable member mapping plus session base; without both, leave blank |
+| `cost_per_file` | Derivable (with caveat) | `cost / files_touched` | Leave blank when files are unavailable or zero |
 
 ## Derivation details
 
@@ -144,12 +150,16 @@ Use this only for the legacy header-only outcome sheets.
    - `report_date` from the bound patch namespace start, or the bound plan namespace start for plan-only rows.
    - `agent_count` only from bound patch telemetry; leave plan-only counts blank unless exact operator evidence survives.
    - `duration_minutes` only from that cost row's `plan_time + run_time`.
+   - `cost` from that cost row's `total_cost`, and `cost_per_minute` from cost divided by duration.
    - `files_touched` only from the bound run diff or exact merged-squash fallback.
+   - `cost_per_file` only when `files_touched` is non-blank and non-zero.
    - `success_status`, `failure_reason`, and `completed_work_units` from runbook judgment semantics; leave unknown judgment blank with a note.
 5. Reconcile `reports/operator-outcomes.csv` one row per unique operator cost identity only after recording the exact member session set and shared `session_base`. Derive:
    - `report_date` from the earliest matched member outcome date.
    - `duration_minutes` from the sum of exact member session-cost durations.
+   - `cost` from that operator cost row's `total_cost`, and `cost_per_minute` from cost divided by duration.
    - `files_touched` from the distinct-path union across exact member session diffs.
+   - `cost_per_file` only when `files_touched` is non-blank and non-zero.
 6. Every non-blank historical field must cite its exact binding or fallback provenance in `notes`. Report/date/name similarity is never enough.
 
 ## Historical evidence limits

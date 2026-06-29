@@ -16,16 +16,26 @@ Register `opencode/glm-5.2` (exact zen slug TBD by owner) so an operator can set
 `{ agent: "opencode", model: "opencode/glm-5.2" }` and have validation accept it,
 `opencode run` receive the model, and usage cost against its price row.
 
-## Owner help required (not implementable until provided)
+## Resolved inputs (owner-provided 2026-06-28)
 
-- **Exact zen model slug** for GLM 5.2 as `opencode run --model` expects it
-  (e.g. `opencode/glm-5.2` vs a vendor-prefixed form) — confirm from the zen catalog.
-- **Pricing snapshot** (input/output/cache per-mtok + `source_url` + `as_of`). Zen
-  free models are `0`/`0` like the DeepSeek row; if GLM 5.2 is metered after a free
-  allotment, capture the metered rates.
-- **opencode auth/access** for zen GLM is an opencode-side setup step (operator runs
-  `opencode auth`), not harness work — but note it in the seed so the registration
-  isn't merged before the model is actually reachable.
+- **Slug:** `opencode/glm-5.2` (zen model id `glm-5.2`, `owned_by: opencode`).
+- **Pricing** (metered — GLM 5.2 is not free; allotment-limited):
+
+  ```json
+  "opencode/glm-5.2": {
+    "input_per_mtok": 1.40,
+    "output_per_mtok": 4.40,
+    "cache_read_per_mtok": 0.26,
+    "source_url": "https://opencode.ai/zen/v1/models",
+    "as_of": "2026-06-28"
+  }
+  ```
+
+- **opencode auth/access** is set up owner-side (`opencode auth`); the model is reachable.
+
+Note: config validation already accepts `opencode/glm-5.2` without this row
+(`resolveOpencodePriceKey` returns the model verbatim) — so an operator can select it
+today; the row only fixes cost attribution (avoids an unpriced run).
 
 ## Decisions
 

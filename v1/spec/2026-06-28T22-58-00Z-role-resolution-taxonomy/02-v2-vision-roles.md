@@ -30,7 +30,7 @@ store.
 - [x] "Models separate from agents" (and related constraint prose) cites
       role→model resolution, not category→agent→model.
 - [x] The file cross-links `v2/docs/role-resolution.md`.
-- [ ] No thinking/reviewing/executing category is used as a model-resolution key
+- [x] No thinking/reviewing/executing category is used as a model-resolution key
       anywhere in `v2-vision.md`. (Manual)
 
 ## Documentation updates

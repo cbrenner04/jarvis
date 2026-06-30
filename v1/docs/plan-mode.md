@@ -371,7 +371,7 @@ If every agent in the order fails without `ok`, the phase returns the last failu
 
 Plan mode uses `config.modes.plan.agentOrder` for draft (not `modes.patch.agentOrder`). Review uses `modes.review.agentOrder ?? modes.plan.agentOrder`. Config v2 requires patch and plan orders to be explicit. The quota fallback chain is the same as patch mode: if the chosen agent reports a quota signal, advance to the next in that phase's chain; if all are exhausted, exit with code and message.
 
-**Per-run `--agent` split ladder:** When `jarvis1 plan --agent …` is present, plan actuators (draft, verdict-actuator, PR narrative agent) use the flag sequence as `modes.plan.agentOrder` for that invocation. The review panel and review-panel quota rotation keep the pre-override snapshot (`modes.review.agentOrder ?? modes.plan.agentOrder` before substitution). `jarvis1 plan --resume` with `--agent` applies the override to verdict-actuator only; the review panel stays on the snapshot. Persisted config is unchanged. See [agents.md](./agents.md#per-run---agent-override-jarvis1-plan).
+**Per-run `--agent`:** actuators use the flag ladder; review panel keeps the pre-override snapshot. `--resume` + `--agent` applies override to verdict-actuator only. See [agents.md](./agents.md#per-run---agent-override).
 
 There is no fallback to patch-mode order; both must be configured.
 

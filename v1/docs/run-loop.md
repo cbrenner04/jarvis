@@ -52,7 +52,7 @@ The `repo:` metadata in the spec guides jarvis to resolve the target checkout. I
 
 From that point, Jarvis runs agents from `modes.patch.agentOrder` until the active spec has no unchecked boxes.
 
-Per-run `--agent` on `jarvis1 run` replaces `modes.patch.agentOrder` for that invocation without mutating config; see [agents.md](./agents.md#per-run---agent-override-jarvis1-run). Plan mode has the same flag with split-ladder semantics for actuators vs the review panel — [plan-mode.md § Agent selection](./plan-mode.md#agent-selection).
+Per-run `--agent` on `jarvis1 run` replaces `modes.patch.agentOrder` for that invocation without mutating config; plan mode uses the same flag with split-ladder semantics — [agents.md](./agents.md#per-run---agent-override), [plan-mode.md § Agent selection](./plan-mode.md#agent-selection).
 
 ### Disambiguation prompt
 

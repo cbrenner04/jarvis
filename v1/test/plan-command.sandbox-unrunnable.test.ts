@@ -1211,6 +1211,22 @@ describe("parsePlanArgs", () => {
       teardown();
     }
   });
+
+  test("repeatable --agent values collected in order", () => {
+    setup();
+    try {
+      const intent = join(tmp, "ready-intents", "feat.md");
+      mkdirSync(join(tmp, "ready-intents"), { recursive: true });
+      writeFileSync(intent, "---\nname: feat\n---\n\n## Prerequisites\n\nnone\n");
+      const res = parsePlanArgs(["--agent", "codex", "--agent", "claude:haiku", intent], tmp);
+      expect(res.ok).toBe(true);
+      if (res.ok) {
+        expect(res.invocation.agentFlags).toEqual(["codex", "claude:haiku"]);
+      }
+    } finally {
+      teardown();
+    }
+  });
 });
 
 describe("resolveResumeSpecPath", () => {

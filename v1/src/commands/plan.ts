@@ -22,7 +22,6 @@ export type PlanCommandOptions = {
     agentName: import("../agents/types.ts").AgentName,
     model: string | undefined,
   ) => import("../agents/types.ts").Agent;
-  /** One-run plan actuator ladder from repeatable `jarvis1 plan --agent` (test seam). */
   agentOrderOverride?: import("../config.ts").AgentEntry[];
 };
 

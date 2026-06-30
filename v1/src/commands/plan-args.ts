@@ -9,7 +9,6 @@ export type PlanInvocationCommon = {
   cwd: string;
   resume: boolean;
   resumeDraft: boolean;
-  /** Raw repeatable `--agent` values; resolved after `loadConfig`. */
   agentFlags?: string[];
 };
 

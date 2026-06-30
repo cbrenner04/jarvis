@@ -322,7 +322,6 @@ export type PlanReviewPhaseOptions = {
   name: string;
   specDirBasename: string;
   config: Config;
-  /** Pre-override review-panel order; when set, panel roles ignore substituted `modes.plan.agentOrder`. */
   reviewAgentOrder?: AgentEntry[];
   reviewPassesOverride?: number;
   startPassNumber?: number;

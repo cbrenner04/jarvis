@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import { planCommand } from "../src/commands/plan.ts";
-import { parsePlanArgs } from "../src/commands/plan-args.ts";
 import type { AgentEntry, Config } from "../src/config.ts";
 import { loadConfig, registerProject, writeConfig } from "../src/config.ts";
 import { runDraftPhase } from "../src/modes/plan/draft.ts";
@@ -13,6 +12,7 @@ import { runPlanReviewPhase } from "../src/modes/plan/review.ts";
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 const CODEX_ENTRY = { agent: "codex" as const, model: "gpt-5.3-codex" };
+const LADDER = [CLAUDE_ENTRY, CODEX_ENTRY];
 
 class FakeAgent implements Agent {
   readonly name: AgentName;
@@ -34,73 +34,82 @@ class FakeAgent implements Agent {
   }
 }
 
-function isPlanReviewPanelPrompt(prompt: string): boolean {
-  return prompt.includes("Plan Mode — Review:");
-}
+const isPanel = (p: string) => p.includes("Plan Mode — Review:");
+const isActuator = (p: string) => p.includes("Plan Mode — Review Actuator");
 
-function isPlanVerdictActuatorPrompt(prompt: string): boolean {
-  return prompt.includes("Plan Mode — Review Actuator");
-}
-
-function captureIo() {
-  let out = "";
+function captureStderr() {
   let err = "";
   return {
-    io: {
-      stdout: (s: string) => {
-        out += s;
-      },
-      stderr: (s: string) => {
-        err += s;
-      },
-    },
-    out: () => out,
+    io: { stdout: () => {}, stderr: (s: string) => { err += s; } },
     err: () => err,
   };
 }
 
-function setupDraftRepo(tmpPrefix: string): { dir: string; name: string } {
-  const dir = mkdtempSync(join(tmpdir(), tmpPrefix));
+function initGit(dir: string): void {
   execSync("git init -b main", { cwd: dir });
   execSync("git config user.email 'test@example.com'", { cwd: dir });
   execSync("git config user.name 'Test User'", { cwd: dir });
-  const name = "p-override";
-  const specDir = join(dir, "spec", name);
-  mkdirSync(specDir, { recursive: true });
-  writeFileSync(join(specDir, "intent.md"), "---\nname: p-override\n---\n\n# Intent\n\nseed\n");
-  return { dir, name };
 }
 
 function withPlanOrder(cfg: Config, order: AgentEntry[]): Config {
+  return { ...cfg, modes: { ...cfg.modes, plan: { ...cfg.modes.plan, agentOrder: order } } };
+}
+
+function baseCfg(review: { passes: number; agentOrder?: AgentEntry[] }): Config {
   return {
-    ...cfg,
+    version: 2,
     modes: {
-      ...cfg.modes,
-      plan: {
-        ...cfg.modes.plan,
-        agentOrder: order,
-      },
+      patch: { agentOrder: LADDER },
+      plan: { agentOrder: LADDER },
+      prompt: { agentOrder: LADDER },
+      review,
+    },
+    quotaFallback: "strict",
+    weakQuotaExitCodes: [],
+    maxIterations: 10,
+    iterationTimeoutMs: 30 * 60_000,
+    git: true,
+    projects: {},
+  };
+}
+
+function seedReviewRepo(name: string, withSubspec = true): { dir: string; specDir: string } {
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-review-"));
+  initGit(dir);
+  const specDir = join(dir, "spec", name);
+  mkdirSync(specDir, { recursive: true });
+  writeFileSync(join(specDir, "intent.md"), `---\nname: ${name}\n---\n\n# Intent\n\nseed\n`);
+  writeFileSync(join(specDir, "index.md"), "# Draft\n\n- [ ] [00](./00-one.md)\n");
+  if (withSubspec) {
+    writeFileSync(join(specDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] x\n");
+  }
+  execSync("git add -A", { cwd: dir });
+  execSync("git commit -m seed", { cwd: dir });
+  return { dir, specDir };
+}
+
+function agentsForSplitLadder(verdict: string) {
+  const claude = new FakeAgent("claude", (prompt) => ({
+    kind: "ok",
+    stdout: prompt.includes("Plan Mode — Review: Adjudicator") ? `${verdict}\n` : "",
+    stderr: "",
+  }));
+  const codex = new FakeAgent("codex", (prompt) => {
+    if (isPanel(prompt)) throw new Error("review panel must not use override plan ladder");
+    return { kind: "ok", stdout: "", stderr: "" };
+  });
+  return {
+    claude,
+    codex,
+    createAgent: (agentName: AgentName) => {
+      if (agentName === "claude") return claude;
+      if (agentName === "codex") return codex;
+      throw new Error(`unexpected agent: ${agentName}`);
     },
   };
 }
 
 describe("plan --agent override", () => {
-  test("parsePlanArgs collects repeatable --agent values", () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-agent-args-"));
-    try {
-      const intent = join(dir, "ready-intents", "feat.md");
-      mkdirSync(join(dir, "ready-intents"), { recursive: true });
-      writeFileSync(intent, "---\nname: feat\n---\n\n## Prerequisites\n\nnone\n");
-      const res = parsePlanArgs(["--agent", "codex", "--agent", "claude:haiku", intent], dir);
-      expect(res.ok).toBe(true);
-      if (res.ok) {
-        expect(res.invocation.agentFlags).toEqual(["codex", "claude:haiku"]);
-      }
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
   test("invalid --agent exits before agent spawn", async () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-agent-invalid-"));
     const cfgDir = join(dir, "cfg");
@@ -111,7 +120,7 @@ describe("plan --agent override", () => {
       const intent = join(project, "ready-intents", "feat.md");
       mkdirSync(join(project, "ready-intents"), { recursive: true });
       writeFileSync(intent, "---\nname: feat\n---\n\n## Prerequisites\n\nnone\n");
-      const cap = captureIo();
+      const cap = captureStderr();
       const code = await planCommand({
         io: cap.io,
         args: ["--agent", "bogus", intent],
@@ -131,12 +140,17 @@ describe("plan --agent override", () => {
     const cfgDir = join(dir, "cfg");
     try {
       const cfg = loadConfig({ dir: cfgDir });
-      cfg.modes.plan.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY];
+      cfg.modes.plan.agentOrder = LADDER;
       writeConfig(cfg, { dir: cfgDir });
       const configBefore = readFileSync(join(cfgDir, "config.json"), "utf8");
 
-      const { dir: repo, name } = setupDraftRepo("jarvis-plan-agent-draft-repo-");
+      const repo = mkdtempSync(join(tmpdir(), "jarvis-plan-agent-draft-repo-"));
+      const name = "p-override";
       try {
+        initGit(repo);
+        mkdirSync(join(repo, "spec", name), { recursive: true });
+        writeFileSync(join(repo, "spec", name, "intent.md"), "---\nname: p-override\n---\n\n# Intent\n\nseed\n");
+
         const claude = new FakeAgent("claude", () => {
           throw new Error("claude should be skipped by override");
         });
@@ -172,150 +186,50 @@ describe("plan --agent override", () => {
     }
   });
 
-  test("review panel and quota ignore override; verdict actuator uses override", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-agent-review-"));
-    try {
-      execSync("git init -b main", { cwd: dir });
-      execSync("git config user.email 'test@example.com'", { cwd: dir });
-      execSync("git config user.name 'Test User'", { cwd: dir });
-      const name = "p-review-override";
-      const specDir = join(dir, "spec", name);
-      mkdirSync(specDir, { recursive: true });
-      writeFileSync(join(specDir, "intent.md"), "---\nname: p-review-override\n---\n\n# Intent\n\nseed\n");
-      writeFileSync(join(specDir, "index.md"), "# Draft\n\n- [ ] [00](./00-one.md)\n");
-      writeFileSync(join(specDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] x\n");
-      execSync("git add -A", { cwd: dir });
-      execSync("git commit -m seed", { cwd: dir });
+  test.each([
+    {
+      label: "fresh review",
+      cfg: baseCfg({ passes: 1, agentOrder: [CLAUDE_ENTRY] }),
+      reviewAgentOrder: [CLAUDE_ENTRY],
+      verdict: "Apply this verdict.",
+    },
+    {
+      label: "resume review",
+      cfg: baseCfg({ passes: 1 }),
+      reviewAgentOrder: [CLAUDE_ENTRY],
+      verdict: "Resume verdict.",
+      startPassNumber: 2,
+      subjectSuffix: "r1",
+    },
+  ])(
+    "$label: panel on pre-override order, verdict actuator on override",
+    async ({ label, cfg, reviewAgentOrder, verdict, startPassNumber, subjectSuffix }) => {
+      const name = `p-${label.replace(/\s+/g, "-")}`;
+      const { dir, specDir } = seedReviewRepo(name, label === "fresh review");
+      try {
+        const { claude, codex, createAgent } = agentsForSplitLadder(verdict);
+        const result = await runPlanReviewPhase({
+          worktreePath: dir,
+          name,
+          specDirBasename: name,
+          specDirPath: specDir,
+          config: withPlanOrder(cfg, [CODEX_ENTRY]),
+          reviewAgentOrder: [...reviewAgentOrder],
+          reviewPassesOverride: 1,
+          ...(startPassNumber !== undefined ? { startPassNumber } : {}),
+          ...(subjectSuffix !== undefined ? { subjectSuffix } : {}),
+          commit: false,
+          gitEnabled: false,
+          createAgent,
+        });
 
-      const baseCfg: Config = {
-        version: 2,
-        modes: {
-          patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
-          plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
-          prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
-          review: { passes: 1, agentOrder: [CLAUDE_ENTRY] },
-        },
-        quotaFallback: "strict",
-        weakQuotaExitCodes: [],
-        maxIterations: 10,
-        iterationTimeoutMs: 30 * 60_000,
-        git: true,
-        projects: {},
-      };
-      const planCfg = withPlanOrder(baseCfg, [CODEX_ENTRY]);
-
-      let codexReviewCalls = 0;
-      const codex = new FakeAgent("codex", (prompt) => {
-        if (isPlanReviewPanelPrompt(prompt)) {
-          codexReviewCalls += 1;
-          throw new Error("review panel must not use override plan ladder");
-        }
-        if (isPlanVerdictActuatorPrompt(prompt)) {
-          return { kind: "ok", stdout: "", stderr: "" };
-        }
-        return { kind: "ok", stdout: "", stderr: "" };
-      });
-      const claude = new FakeAgent("claude", (prompt) => ({
-        kind: "ok",
-        stdout: prompt.includes("Plan Mode — Review: Adjudicator") ? "Apply this verdict.\n" : "",
-        stderr: "",
-      }));
-
-      const reviewAgentOrder = baseCfg.modes.review.agentOrder ?? [];
-      const result = await runPlanReviewPhase({
-        worktreePath: dir,
-        name,
-        specDirBasename: name,
-        specDirPath: specDir,
-        config: planCfg,
-        reviewAgentOrder,
-        reviewPassesOverride: 1,
-        commit: false,
-        gitEnabled: false,
-        createAgent: (agentName) => {
-          if (agentName === "claude") return claude;
-          if (agentName === "codex") return codex;
-          throw new Error(`unexpected agent: ${agentName}`);
-        },
-      });
-
-      expect(result.exitCode).toBe(0);
-      expect(codexReviewCalls).toBe(0);
-      expect(claude.calls.filter((c) => isPlanReviewPanelPrompt(c.prompt))).toHaveLength(3);
-      expect(codex.calls.filter((c) => isPlanVerdictActuatorPrompt(c.prompt))).toHaveLength(1);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("resume-style review keeps panel on pre-override order with --agent override on actuator only", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-agent-resume-"));
-    try {
-      execSync("git init -b main", { cwd: dir });
-      execSync("git config user.email 'test@example.com'", { cwd: dir });
-      execSync("git config user.name 'Test User'", { cwd: dir });
-      const name = "p-resume-override";
-      const specDir = join(dir, "spec", name);
-      mkdirSync(specDir, { recursive: true });
-      writeFileSync(join(specDir, "intent.md"), "---\nname: p-resume-override\n---\n\n# Intent\n\nseed\n");
-      writeFileSync(join(specDir, "index.md"), "# Draft\n\n- [ ] [00](./00-one.md)\n");
-      execSync("git add -A", { cwd: dir });
-      execSync("git commit -m seed", { cwd: dir });
-
-      const baseCfg: Config = {
-        version: 2,
-        modes: {
-          patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
-          plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
-          prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
-          review: { passes: 1 },
-        },
-        quotaFallback: "strict",
-        weakQuotaExitCodes: [],
-        maxIterations: 10,
-        iterationTimeoutMs: 30 * 60_000,
-        git: true,
-        projects: {},
-      };
-      const planCfg = withPlanOrder(baseCfg, [CODEX_ENTRY]);
-      const reviewAgentOrder = [CLAUDE_ENTRY];
-
-      const claude = new FakeAgent("claude", (prompt) => ({
-        kind: "ok",
-        stdout: prompt.includes("Plan Mode — Review: Adjudicator") ? "Resume verdict.\n" : "",
-        stderr: "",
-      }));
-      const codex = new FakeAgent("codex", (prompt) => {
-        if (isPlanReviewPanelPrompt(prompt)) {
-          throw new Error("resume review panel must stay on pre-override snapshot");
-        }
-        return { kind: "ok", stdout: "", stderr: "" };
-      });
-
-      const result = await runPlanReviewPhase({
-        worktreePath: dir,
-        name,
-        specDirBasename: name,
-        specDirPath: specDir,
-        config: planCfg,
-        reviewAgentOrder,
-        startPassNumber: 2,
-        subjectSuffix: "r1",
-        reviewPassesOverride: 1,
-        commit: false,
-        gitEnabled: false,
-        createAgent: (agentName) => {
-          if (agentName === "claude") return claude;
-          if (agentName === "codex") return codex;
-          throw new Error(`unexpected agent: ${agentName}`);
-        },
-      });
-
-      expect(result.exitCode).toBe(0);
-      expect(claude.calls.filter((c) => isPlanReviewPanelPrompt(c.prompt))).toHaveLength(3);
-      expect(codex.calls.filter((c) => isPlanVerdictActuatorPrompt(c.prompt))).toHaveLength(1);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
+        expect(result.exitCode).toBe(0);
+        expect(codex.calls.filter((c) => isPanel(c.prompt))).toHaveLength(0);
+        expect(claude.calls.filter((c) => isPanel(c.prompt))).toHaveLength(3);
+        expect(codex.calls.filter((c) => isActuator(c.prompt))).toHaveLength(1);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
 });

@@ -267,7 +267,7 @@ Example configuration enabling review with a custom agent order:
 The `--review-passes` CLI flag overrides config for both patch and plan review:
 `jarvis run --review-passes 0 <spec>` disables patch review without changing config, while `jarvis1 plan --review-passes 3 …` runs 3 plan self-review passes instead of the configured number.
 
-Repeatable `--agent <name>[:<model>]` on `jarvis1 run` or `jarvis1 plan` replaces the in-memory `modes.patch.agentOrder` or `modes.plan.agentOrder` ladder for that invocation only. Persisted `agentOrder` in `~/.jarvis/config.json` is unchanged. See [agents.md](./agents.md#per-run---agent-override-jarvis1-run).
+Repeatable `--agent <name>[:<model>]` on `jarvis1 run` or `jarvis1 plan` replaces the in-memory mode `agentOrder` for that invocation only; persisted config is unchanged. See [agents.md](./agents.md#per-run---agent-override).
 
 When `git: false`, patch review is skipped entirely regardless of review-pass configuration.
 

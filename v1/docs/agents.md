@@ -39,46 +39,19 @@ Each `agentOrder` entry couples an **agent CLI** with a **model**; advancing the
 
 Patch runs can also start partway up this ladder via runnable-spec `tier:` metadata or `jarvis1 run --tier ...`; the durable patch-only mapping rules live in [v2/docs/v1-behaviors.md#patch-mode-run-workflow](../v2/docs/v1-behaviors.md#patch-mode-run-workflow).
 
-### Per-run `--agent` override (`jarvis1 run`)
+### Per-run `--agent` override
 
-`jarvis1 run` accepts repeatable `--agent <name>[:<model>]`. When any `--agent` is present, the flag sequence replaces `modes.patch.agentOrder` for that invocation only; `~/.jarvis/config.json` is unchanged. Omitted `:model` inherits from the configured `modes.patch.agentOrder` entry for that agent; when no matching entry exists, the run exits non-zero before any agent spawns.
+Repeatable `--agent <name>[:<model>]` on `jarvis1 run` or `jarvis1 plan` replaces the mode's in-memory `agentOrder` for that invocation; `~/.jarvis/config.json` is unchanged. Omitted `:model` inherits from the configured entry for that agent; no matching entry exits non-zero before spawn.
 
-Precedence: CLI `--agent` ladder beats configured `modes.patch.agentOrder` for patch **implementation** iterations only. Quota, no-progress, idle-timeout escalation, and `--tier` slicing all operate on the overridden ladder.
+**`jarvis1 run`** — replaces `modes.patch.agentOrder` for implementation iterations (quota, no-progress, idle-timeout, `--tier`). Review panel, review actuator, and shrink stay on pre-override config. `--resume-review` does not use `--agent` for implementation.
 
-Scope boundaries:
+**`jarvis1 plan`** — replaces `modes.plan.agentOrder` for actuators (draft, verdict-actuator, PR narrative). Review panel and quota use pre-override `modes.review.agentOrder ?? modes.plan.agentOrder`. `--resume` + `--agent` applies override to verdict-actuator only.
 
-- **Review panel** and **review actuator** (verdict application) resolve from pre-override config — `modes.patch.subRoleAgentOrder` when set, else `modes.review.agentOrder` / `modes.plan.agentOrder` for the panel and `modes.patch.agentOrder` for the actuator fallback — not from `--agent`.
-- **Shrink** uses the same pre-override `reviewActuator` resolution; it does not inherit the implementation override.
-- **`--resume-review`** runs review only; `--agent` does not supply implementation agents on that path.
-- **`jarvis1 intent`** and **`jarvis1 prompt`** do not accept `--agent` in this release.
-
-Example — probe codex as the sole implementation actuator without editing config:
+`jarvis1 intent` and `jarvis1 prompt` do not accept `--agent`.
 
 ```sh
 jarvis1 run --agent codex:gpt-5.4 path/to/spec/index.md
-```
-
-Example — one-run two-rung ladder starting at the configured codex model:
-
-```sh
 jarvis1 run --agent codex --agent claude:haiku path/to/spec/index.md
-```
-
-### Per-run `--agent` override (`jarvis1 plan`)
-
-`jarvis1 plan` accepts repeatable `--agent <name>[:<model>]`. When any `--agent` is present, the flag sequence replaces `modes.plan.agentOrder` in memory for that invocation only; `~/.jarvis/config.json` is unchanged. Omitted `:model` inherits from the configured `modes.plan.agentOrder` entry for that agent; when no matching entry exists, the run exits non-zero before any agent spawns.
-
-Precedence: CLI `--agent` ladder beats configured `modes.plan.agentOrder` for plan **actuator** phases only — draft, intent-draft (when wired), verdict-actuator, and plan PR narrative agent (`prNarrative: agent`). Quota and `model_config` cascades on those phases advance through the overridden ladder.
-
-Scope boundaries:
-
-- **Review panel** (adversary, advocate, adjudicator) and review-panel quota rotation resolve from a pre-override snapshot (`modes.review.agentOrder ?? modes.plan.agentOrder` before substitution), not from `--agent`.
-- **`jarvis1 plan --resume` with `--agent`**: verdict-actuator uses the override; the review panel stays on the pre-override snapshot (same split-ladder semantics as a fresh run with review enabled).
-- **`jarvis1 intent`** and **`jarvis1 prompt`** do not accept `--agent` in this release.
-
-Example — probe codex as the sole plan draft actuator without editing config:
-
-```sh
 jarvis1 plan --agent codex:gpt-5.4 path/to/ready-intents/my-feature.md
 ```
 

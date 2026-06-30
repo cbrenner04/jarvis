@@ -16,7 +16,6 @@ import type { Agent, AgentName } from "../../agents/types.ts";
 import type { PlanCommandOptions, PlanIo } from "../../commands/plan.ts";
 import { describePlanInvocation, isExistingFile, parsePlanArgs } from "../../commands/plan-args.ts";
 import {
-  type AgentEntry,
   CONFIG_DIR,
   type Config,
   effectiveGit,
@@ -68,22 +67,6 @@ function planHarnessLog(logClient: LogClient, text: string, tag: "harness" | "ou
       tag,
     })
     .catch(() => {});
-}
-
-function withPlanAgentOrderOverride(cfg: Config, override: AgentEntry[] | undefined): Config {
-  if (override === undefined) {
-    return cfg;
-  }
-  return {
-    ...cfg,
-    modes: {
-      ...cfg.modes,
-      plan: {
-        ...cfg.modes.plan,
-        agentOrder: override,
-      },
-    },
-  };
 }
 
 export function parseIntentFrontmatter(text: string): {
@@ -713,9 +696,17 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       }
       agentOrderOverride = parsedAgents.agentOrder;
     }
-    const reviewCfg = rawCfg;
-    const planCfg = withPlanAgentOrderOverride(rawCfg, agentOrderOverride);
-    const reviewAgentOrder = resolveReviewAgentOrder(reviewCfg);
+    const reviewAgentOrder = resolveReviewAgentOrder(rawCfg);
+    const planCfg =
+      agentOrderOverride === undefined
+        ? rawCfg
+        : {
+            ...rawCfg,
+            modes: {
+              ...rawCfg.modes,
+              plan: { ...rawCfg.modes.plan, agentOrder: agentOrderOverride },
+            },
+          };
     // Agent used to author the model-written PR narrative (Description +
     // Decisions). Resolved from the head of the plan agent order; generation
     // degrades gracefully to no narrative if it fails or is unavailable.

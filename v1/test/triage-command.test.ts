@@ -5,8 +5,16 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { type MergeTargetResolutionSeams, resolveMergeTarget } from "../src/commands/resolve-merge-target.ts";
 import type { SuggestedMovesInput, TriageCommandOptions, TriageGhRunner, TriageIo } from "../src/commands/triage.ts";
-import { getSuggestedMoves, triageCommand } from "../src/commands/triage.ts";
+import {
+  adaptCheckRunsToCiStates,
+  extractFailingTestFilePaths,
+  getSuggestedMoves,
+  recoveryProbeExitFromExecError,
+  runRecoveryProbeWithExec,
+  triageCommand,
+} from "../src/commands/triage.ts";
 import type { BaseCurrentCheckResult } from "../src/git/base-current.ts";
+import { FixCommandError, ReadyCommandError } from "../src/ready-gate.ts";
 
 const currentBase =
   (baseRefName: string | null = "main") =>
@@ -200,6 +208,65 @@ const mergeReadyGhRunner = {
   getPrState: () => ({ state: "OPEN" as const, isDraft: false }),
   getChecks: () => [{ name: "test", status: "success" as const }],
 };
+
+const RECOVERY_STDOUT = "triage --merge: local ready flake recovered (CI green at HEAD); proceeding";
+
+/** Anchored against bun test failure lines from a real gate stderr capture. */
+const GATE_TEST_FLAKE_STDERR = `bun run ready failed:
+ready: parallel test failed (code 1); retrying serially
+ready: serial test failed (code 1)
+
+v1/test/run.sandbox-unrunnable.test.ts:
+      at failCase (/repo/v1/test/run.sandbox-unrunnable.test.ts:42:10)
+(fail) sandbox runnable > flaky case [1.00ms]
+      at otherCase (/repo/v1/test/triage-command.test.ts:100:5)
+(fail) triage command > another case [0.50ms]
+`;
+
+function readyTestFlakeError(stderr = GATE_TEST_FLAKE_STDERR): ReadyCommandError {
+  return new ReadyCommandError(stderr);
+}
+
+const headShaGreenGh = {
+  ...mergeReadyGhRunner,
+  getPrState: () => ({ state: "OPEN" as const, isDraft: true }),
+  getChecksForSha: () => [{ name: "ci", status: "success" as const }],
+};
+
+function runMergeFlakeRecovery(overrides: Partial<TriageCommandOptions> = {}) {
+  setupMergeWorktree("branch-1");
+  let probeCalls = 0;
+  const probeArgs: string[][] = [];
+  const { runRecoveryProbe: userProbe, ...rest } = overrides;
+  const { io, out, err } = captureIo();
+  const code = triageCommand(
+    triageMergeOpts({
+      projectRoot,
+      io,
+      worktreeName: "branch-1",
+      ghRunner: headShaGreenGh,
+      runGate: () => {
+        throw readyTestFlakeError();
+      },
+      runRecoveryProbe: (cwd, args) => {
+        probeCalls += 1;
+        probeArgs.push(args);
+        return userProbe ? userProbe(cwd, args) : 0;
+      },
+      prReady: () => {},
+      adminMerge: () => {},
+      ...rest,
+    }),
+  );
+  return { code, probeCalls, probeArgs, out: out(), err: err() };
+}
+
+function expectMergeRecoveryRefused(overrides: Partial<TriageCommandOptions>, expectedProbeCalls: number): void {
+  const { code, probeCalls, err } = runMergeFlakeRecovery(overrides);
+  expect(code).toBe(1);
+  expect(probeCalls).toBe(expectedProbeCalls);
+  expectMergeRefusal(err, "implementation PR", "ready gate failed");
+}
 
 function expectMergeRefusal(stderr: string, mergeClass: string, stem?: string) {
   expect(stderr).toContain(`triage --merge (${mergeClass}):`);
@@ -2768,6 +2835,208 @@ describe("triage --mark-ready", () => {
           expectMergeRefusal(errorOutput, "implementation PR", "CI check failed");
         }
       }
+    });
+
+    test("extractFailingTestFilePaths dedupes and caps paths from gate stderr fixture", () => {
+      expect(extractFailingTestFilePaths(GATE_TEST_FLAKE_STDERR)).toEqual([
+        "/repo/v1/test/run.sandbox-unrunnable.test.ts",
+        "/repo/v1/test/triage-command.test.ts",
+      ]);
+      expect(extractFailingTestFilePaths("no failure markers here")).toEqual([]);
+    });
+
+    test("adaptCheckRunsToCiStates maps GitHub check-run status and conclusion", () => {
+      expect(
+        adaptCheckRunsToCiStates([
+          { name: "ok", status: "completed", conclusion: "success" },
+          { name: "skip", status: "completed", conclusion: "skipped" },
+          { name: "wait", status: "in_progress", conclusion: null },
+          { name: "open", status: "completed", conclusion: null },
+          { name: "bad", status: "completed", conclusion: "failure" },
+        ]),
+      ).toEqual([
+        { name: "ok", status: "success" },
+        { name: "skip", status: "skipped" },
+        { name: "wait", status: "in_progress" },
+        { name: "open", status: "pending" },
+        { name: "bad", status: "failure" },
+      ]);
+    });
+
+    test("--merge recovers on test flake when HEAD-sha CI green and serial probe passes", () => {
+      let mergeRan = false;
+      const { code, probeCalls, out } = runMergeFlakeRecovery({
+        adminMerge: () => {
+          mergeRan = true;
+        },
+      });
+
+      expect(code).toBe(0);
+      expect(probeCalls).toBe(1);
+      expect(mergeRan).toBe(true);
+      expect(out).toContain(RECOVERY_STDOUT);
+      expect(out).toContain("merged successfully");
+    });
+
+    test("--merge recovers with targeted file probe when serial probe stays red", () => {
+      let mergeRan = false;
+      const { code, probeArgs, out } = runMergeFlakeRecovery({
+        runRecoveryProbe: (_cwd, args) => (args.length === 1 ? 1 : 0),
+        adminMerge: () => {
+          mergeRan = true;
+        },
+      });
+
+      expect(code).toBe(0);
+      expect(probeArgs).toEqual([
+        ["test"],
+        ["test", "/repo/v1/test/run.sandbox-unrunnable.test.ts", "/repo/v1/test/triage-command.test.ts"],
+      ]);
+      expect(mergeRan).toBe(true);
+      expect(out).toContain(RECOVERY_STDOUT);
+    });
+
+    test("--merge refuses recovery on FixCommandError even when HEAD-sha CI is green", () => {
+      expectMergeRecoveryRefused(
+        {
+          runGate: () => {
+            throw new FixCommandError("bun run fix failed");
+          },
+        },
+        0,
+      );
+    });
+
+    test("--merge refuses recovery on generic Error with test-like message", () => {
+      expectMergeRecoveryRefused(
+        {
+          runGate: () => {
+            throw new Error("ready: serial test failed (code 1)");
+          },
+        },
+        0,
+      );
+    });
+
+    test("--merge refuses recovery when HEAD-sha CI is not green", () => {
+      for (const getChecksForSha of [
+        () => [{ name: "ci", status: "failure" as const }],
+        () => {
+          throw new Error("gh api failed");
+        },
+        () => null,
+      ]) {
+        expectMergeRecoveryRefused({ ghRunner: { ...headShaGreenGh, getChecksForSha } }, 0);
+      }
+    });
+
+    test("--merge refuses recovery on deadline exceeded or missing harness test markers", () => {
+      for (const message of [
+        `bun run ready failed:\nready: deadline exceeded after 600000ms; killing child tree\n`,
+        "bun run ready failed:\nbun run typecheck failed\n",
+      ]) {
+        expectMergeRecoveryRefused(
+          {
+            runGate: () => {
+              throw new ReadyCommandError(message);
+            },
+          },
+          0,
+        );
+      }
+    });
+
+    test("--merge refuses recovery when probe 1 red and extraction yields zero paths", () => {
+      expectMergeRecoveryRefused(
+        {
+          runGate: () => {
+            throw readyTestFlakeError("bun run ready failed:\nready: serial test failed (code 1)\n");
+          },
+          runRecoveryProbe: () => 1,
+        },
+        1,
+      );
+    });
+
+    test("--merge refuses recovery when probes stay red", () => {
+      expectMergeRecoveryRefused({ runRecoveryProbe: () => 1 }, 2);
+    });
+
+    test("--merge refuses recovery when probe exits with signal or timeout code", () => {
+      for (const exitCode of [124, 130, 143]) {
+        expectMergeRecoveryRefused({ runRecoveryProbe: () => exitCode }, 1);
+      }
+    });
+
+    test("recoveryProbeExitFromExecError maps execFileSync signal and timeout failure shapes", () => {
+      const execError = (overrides: { status?: number | null; signal?: NodeJS.Signals | null }) =>
+        Object.assign(new Error("Command failed: bun test"), overrides);
+
+      expect(recoveryProbeExitFromExecError(execError({ status: null, signal: "SIGINT" }))).toBe(130);
+      expect(recoveryProbeExitFromExecError(execError({ status: null, signal: "SIGTERM" }))).toBe(143);
+      expect(recoveryProbeExitFromExecError(execError({ status: 124 }))).toBe(124);
+      expect(recoveryProbeExitFromExecError(execError({ status: null, signal: null }))).toBe(1);
+    });
+
+    test("--merge refuses recovery when default probe runner hits execFileSync signal kill (no probe 2)", () => {
+      setupMergeWorktree("branch-1");
+      let probeCalls = 0;
+      const signalExecError = Object.assign(new Error("Command failed: bun test"), {
+        status: null,
+        signal: "SIGINT" as const,
+      });
+      const signalExec = (() => {
+        throw signalExecError;
+      }) as typeof import("node:child_process").execFileSync;
+
+      const { io, err } = captureIo();
+      const code = triageCommand(
+        triageMergeOpts({
+          projectRoot,
+          io,
+          worktreeName: "branch-1",
+          ghRunner: headShaGreenGh,
+          runGate: () => {
+            throw readyTestFlakeError();
+          },
+          runRecoveryProbe: (cwd, args) => {
+            probeCalls += 1;
+            return runRecoveryProbeWithExec(cwd, args, signalExec);
+          },
+          prReady: () => {},
+          adminMerge: () => {},
+        }),
+      );
+
+      expect(code).toBe(1);
+      expect(probeCalls).toBe(1);
+      expectMergeRefusal(err(), "implementation PR", "ready gate failed");
+    });
+
+    test("--merge with passing gate runs no recovery probes", () => {
+      setupMergeWorktree("branch-1");
+
+      let probeCalls = 0;
+      const { io, out } = captureIo();
+      const code = triageCommand(
+        triageMergeOpts({
+          projectRoot,
+          io,
+          worktreeName: "branch-1",
+          ghRunner: mergeReadyGhRunner,
+          runGate: () => {},
+          runRecoveryProbe: () => {
+            probeCalls += 1;
+            return 0;
+          },
+          adminMerge: () => {},
+        }),
+      );
+
+      expect(code).toBe(0);
+      expect(probeCalls).toBe(0);
+      expect(out()).not.toContain(RECOVERY_STDOUT);
+      expect(out()).toContain("merged successfully");
     });
   });
 

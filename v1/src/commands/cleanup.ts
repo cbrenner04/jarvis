@@ -3,10 +3,7 @@ import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs"
 import { join, relative } from "node:path";
 import { stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
 import { closePr, findMatchingOpenPrs, type MatchingOpenPr } from "../pr.ts";
-import {
-  checkAbandonPrEligibility,
-  checkScopedAbandonPreflight,
-} from "../scoped-abandon-preflight.ts";
+import { checkAbandonPrEligibility, checkScopedAbandonPreflight } from "../scoped-abandon-preflight.ts";
 import { deleteLocalBranch, deleteRemoteBranch } from "../worktree.ts";
 import { isSpecComplete, specHasNonHumanOnlyAcceptanceCriteria } from "./triage.ts";
 

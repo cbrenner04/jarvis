@@ -323,12 +323,7 @@ function emitVerdict(io: TriageIo, statuses: WorktreeStatus[]): void {
   }
 }
 
-function triageDrillDown(
-  projectRoot: string,
-  worktreeDir: string,
-  worktreeName: string,
-  io: TriageIo,
-): number {
+function triageDrillDown(projectRoot: string, worktreeDir: string, worktreeName: string, io: TriageIo): number {
   const worktreePath = join(worktreeDir, worktreeName);
 
   if (!existsSync(worktreePath)) {

@@ -1,7 +1,7 @@
 import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { type MatchingOpenPr } from "./pr.ts";
+import type { MatchingOpenPr } from "./pr.ts";
 import { readLiveWorktreeLock, type WorktreeLock } from "./worktree-lock.ts";
 
 /** PR guards for scoped abandon: merged, inspection failure, multiple open, or ready open PR block retire. */

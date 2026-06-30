@@ -3,9 +3,7 @@ import { execSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { getWorktreeLockPath } from "../src/worktree-lock.ts";
 import { type MergeTargetResolutionSeams, resolveMergeTarget } from "../src/commands/resolve-merge-target.ts";
-import { checkScopedAbandonPreflight } from "../src/scoped-abandon-preflight.ts";
 import type { SuggestedMovesInput, TriageCommandOptions, TriageGhRunner, TriageIo } from "../src/commands/triage.ts";
 import {
   extractFailingTestFilePaths,
@@ -16,6 +14,8 @@ import {
 } from "../src/commands/triage.ts";
 import type { BaseCurrentCheckResult } from "../src/git/base-current.ts";
 import { FixCommandError, ReadyCommandError } from "../src/ready-gate.ts";
+import { checkScopedAbandonPreflight } from "../src/scoped-abandon-preflight.ts";
+import { getWorktreeLockPath } from "../src/worktree-lock.ts";
 
 const currentBase =
   (baseRefName: string | null = "main") =>

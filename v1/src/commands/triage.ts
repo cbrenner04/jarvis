@@ -16,7 +16,7 @@ import { type EnsureDraftPrOpts, ensureDraftPr, findMatchingOpenPrs, renderAttri
 import { runReadyGateWithTier } from "../ready-gate.ts";
 import { hasUpstream, pushCurrent } from "../worktree.ts";
 import { getWorktreeLockPath, isProcessAlive, type WorktreeLock } from "../worktree-lock.ts";
-import { type MergeTargetResolutionSeams, resolveMergeTarget } from "./resolve-merge-target.ts";
+import { type MergeTargetResolutionSeams, emitMergeRefusal, isPlanBranch, mergeRefusalClassForBranch, resolveMergeTarget } from "./resolve-merge-target.ts";
 
 export type TriageIo = {
   stdout: (s: string) => void;
@@ -1196,16 +1196,34 @@ type TriageNamedWorktree =
   | { ok: true; worktreePath: string; branch: string; specPath: string }
   | { ok: false; code: number };
 
+function emitTriageNamedRefusal(
+  io: TriageIo,
+  label: string,
+  message: string,
+  mergeClass?: "unknown worktree" | "plan PR" | "implementation PR",
+): void {
+  if (label === "triage --merge" && mergeClass !== undefined) {
+    emitMergeRefusal(io, mergeClass, message);
+  } else {
+    io.stderr(`${label}: ${message}\n`);
+  }
+}
+
 function resolveTriageNamedWorktree(opts: TriageCommandOptions, label: string): TriageNamedWorktree {
   const worktreeName = opts.worktreeName;
   if (!worktreeName) {
-    opts.io.stderr(`${label}: internal error - no worktree name\n`);
+    emitTriageNamedRefusal(opts.io, label, "internal error - no worktree name");
     return { ok: false, code: 1 };
   }
 
   const worktreePath = join(opts.projectRoot, ".worktree", worktreeName);
   if (!existsSync(worktreePath)) {
-    opts.io.stderr(`${label}: unknown worktree: ${worktreeName}\n`);
+    emitTriageNamedRefusal(
+      opts.io,
+      label,
+      `unknown worktree: ${worktreeName}`,
+      label === "triage --merge" ? "unknown worktree" : undefined,
+    );
     return { ok: false, code: 1 };
   }
 
@@ -1217,9 +1235,16 @@ function resolveTriageNamedWorktree(opts: TriageCommandOptions, label: string): 
       encoding: "utf8",
     }).trim();
   } catch {
-    opts.io.stderr(`${label}: unable to get branch name\n`);
+    emitTriageNamedRefusal(
+      opts.io,
+      label,
+      "unable to get branch name",
+      label === "triage --merge" ? "unknown worktree" : undefined,
+    );
     return { ok: false, code: 1 };
   }
+
+  const mergeClass = label === "triage --merge" ? mergeRefusalClassForBranch(branch) : undefined;
 
   let specPath: string;
 
@@ -1229,12 +1254,12 @@ function resolveTriageNamedWorktree(opts: TriageCommandOptions, label: string): 
     try {
       markerSpecPath = readFileSync(specMarkerPath, "utf8").trim();
     } catch {
-      opts.io.stderr(`${label}: unable to read .active-spec-path marker\n`);
+      emitTriageNamedRefusal(opts.io, label, "unable to read .active-spec-path marker", mergeClass);
       return { ok: false, code: 1 };
     }
 
     if (!markerSpecPath) {
-      opts.io.stderr(`${label}: spec file not found: (unknown)\n`);
+      emitTriageNamedRefusal(opts.io, label, "spec file not found: (unknown)", mergeClass);
       return { ok: false, code: 1 };
     }
 
@@ -1244,7 +1269,7 @@ function resolveTriageNamedWorktree(opts: TriageCommandOptions, label: string): 
       markerSpecPath,
     });
     if (!existsSync(resolvedPath)) {
-      opts.io.stderr(`${label}: spec file not found: ${resolvedPath}\n`);
+      emitTriageNamedRefusal(opts.io, label, `spec file not found: ${resolvedPath}`, mergeClass);
       return { ok: false, code: 1 };
     }
     specPath = resolvedPath;
@@ -1253,11 +1278,16 @@ function resolveTriageNamedWorktree(opts: TriageCommandOptions, label: string): 
     const derived = deriveSpecPathFromBranch(branch, opts.projectRoot, targetDir);
     if (!derived.ok) {
       if (derived.reason === "no-match") {
-        opts.io.stderr(`${label}: no spec found for branch ${branch}\n`);
+        emitTriageNamedRefusal(opts.io, label, `no spec found for branch ${branch}`, mergeClass);
       } else if (derived.reason === "zero-md") {
-        opts.io.stderr(`${label}: spec directory has no markdown files: ${derived.dirPath}\n`);
+        emitTriageNamedRefusal(opts.io, label, `spec directory has no markdown files: ${derived.dirPath}`, mergeClass);
       } else {
-        opts.io.stderr(`${label}: spec directory is ambiguous (multiple .md files, no index.md): ${derived.dirPath}\n`);
+        emitTriageNamedRefusal(
+          opts.io,
+          label,
+          `spec directory is ambiguous (multiple .md files, no index.md): ${derived.dirPath}`,
+          mergeClass,
+        );
       }
       return { ok: false, code: 1 };
     }
@@ -1274,7 +1304,12 @@ function resolveTriageNamedWorktree(opts: TriageCommandOptions, label: string): 
     try {
       const lock: WorktreeLock = JSON.parse(readFileSync(lockPath, "utf8"));
       if (isProcessAlive(lock.pid)) {
-        opts.io.stderr(`${label}: worktree is locked by live run (PID ${lock.pid}). Cannot proceed.\n`);
+        emitTriageNamedRefusal(
+          opts.io,
+          label,
+          `worktree is locked by live run (PID ${lock.pid}). Cannot proceed.`,
+          mergeClass,
+        );
         return { ok: false, code: 1 };
       }
     } catch {
@@ -1440,6 +1475,7 @@ function waitForCiGreen(
   io: TriageIo,
   pollIntervalMs: number,
   timeoutMs: number,
+  mergeClass: "plan PR" | "implementation PR",
 ): number {
   const startTime = Date.now();
   // eslint-disable-next-line no-constant-condition
@@ -1451,11 +1487,11 @@ function waitForCiGreen(
       return 0;
     }
     if (classification === "red") {
-      io.stderr(`triage --merge: CI check failed: ${failingCheck}\n`);
+      emitMergeRefusal(io, mergeClass, `CI check failed: ${failingCheck}`);
       return 1;
     }
     if (Date.now() - startTime > timeoutMs) {
-      io.stderr(`triage --merge: CI checks timed out. Still pending: ${pendingCheck}\n`);
+      emitMergeRefusal(io, mergeClass, `CI checks timed out. Still pending: ${pendingCheck}`);
       return 1;
     }
     sleepMs(pollIntervalMs);
@@ -1469,34 +1505,35 @@ function triageMerge(opts: TriageCommandOptions): number {
     return ctx.code;
   }
   const { worktreePath, branch, specPath } = ctx;
+  const mergeClass = mergeRefusalClassForBranch(branch);
 
   const findOpenPrs = opts.mergeTargetSeams?.findMatchingOpenPrs ?? findMatchingOpenPrs;
   try {
     const matchingOpenPrs = findOpenPrs(branch, opts.projectRoot);
     if (matchingOpenPrs.length > 1) {
-      opts.io.stderr(`${label}: multiple open PRs match branch ${branch}\n`);
+      emitMergeRefusal(opts.io, mergeClass, `multiple open PRs match branch ${branch}`);
       return 1;
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    opts.io.stderr(`${label}: failed to inspect PR state for branch ${branch}: ${message}\n`);
+    emitMergeRefusal(opts.io, mergeClass, `failed to inspect PR state for branch ${branch}: ${message}`);
     return 1;
   }
 
   const ghRunner = opts.ghRunner ?? createDefaultGhRunner();
   const prState = ghRunner.getPrState(branch);
   if (!prState) {
-    opts.io.stderr(`${label}: no PR found for branch ${branch}\n`);
+    emitMergeRefusal(opts.io, mergeClass, `no PR found for branch ${branch}`);
     return 1;
   }
 
   if (prState.state === "MERGED" || prState.state === "CLOSED") {
-    opts.io.stderr(`${label}: PR is already ${prState.state.toLowerCase()}. Cannot merge.\n`);
+    emitMergeRefusal(opts.io, mergeClass, `PR is already ${prState.state.toLowerCase()}. Cannot merge.`);
     return 1;
   }
 
-  if (!isSpecComplete(specPath)) {
-    opts.io.stderr(`${label}: spec is not complete — linked subspecs have unchecked items\n`);
+  if (!isPlanBranch(branch) && !isSpecComplete(specPath)) {
+    emitMergeRefusal(opts.io, mergeClass, "spec is not complete — linked subspecs have unchecked items");
     return 1;
   }
 
@@ -1508,7 +1545,7 @@ function triageMerge(opts: TriageCommandOptions): number {
     "triage-merge",
   );
   if (gateError) {
-    opts.io.stderr(`${label}: ready gate failed\n${gateError.message}\n`);
+    emitMergeRefusal(opts.io, mergeClass, `ready gate failed\n${gateError.message}`);
     return 1;
   }
 
@@ -1518,7 +1555,7 @@ function triageMerge(opts: TriageCommandOptions): number {
       opts.io.stdout(`${label}: PR promoted to ready\n`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      opts.io.stderr(`${label}: failed to mark PR ready\n${message}\n`);
+      emitMergeRefusal(opts.io, mergeClass, `failed to mark PR ready\n${message}`);
       return 1;
     }
   }
@@ -1530,6 +1567,7 @@ function triageMerge(opts: TriageCommandOptions): number {
     opts.io,
     opts.pollIntervalMs ?? MERGE_CI_POLL_INTERVAL_MS,
     opts.pollTimeoutMs ?? MERGE_CI_POLL_TIMEOUT_MS,
+    mergeClass,
   );
   if (pollCode !== 0) {
     return pollCode;
@@ -1541,7 +1579,7 @@ function triageMerge(opts: TriageCommandOptions): number {
     return 0;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    opts.io.stderr(`${label}: failed to merge PR\n${message}\n`);
+    emitMergeRefusal(opts.io, mergeClass, `failed to merge PR\n${message}`);
     return 1;
   }
 }

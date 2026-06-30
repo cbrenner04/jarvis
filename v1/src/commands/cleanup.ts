@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs"
 import { join, relative } from "node:path";
 import { stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
 import { closePr, findMatchingOpenPrs, type MatchingOpenPr } from "../pr.ts";
-import { checkAbandonPrEligibility, checkScopedAbandonPreflight } from "../scoped-abandon-preflight.ts";
+import { checkAbandonPrEligibility, checkScopedAbandonPreflight, isMergedPr } from "../scoped-abandon-preflight.ts";
 import { deleteLocalBranch, deleteRemoteBranch } from "../worktree.ts";
 import { isSpecComplete, specHasNonHumanOnlyAcceptanceCriteria } from "./triage.ts";
 
@@ -467,19 +467,6 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
   return hadFailures ? 1 : 0;
 }
 
-function isMergedPr(branch: string): boolean {
-  try {
-    const output = execFileSync("gh", ["pr", "view", branch, "--json", "state", "-q", ".state"], {
-      env: process.env,
-      encoding: "utf8",
-      stdio: "pipe",
-    });
-    return output.trim() === "MERGED";
-  } catch {
-    return false;
-  }
-}
-
 function scopedAbandonCleanup(args: {
   deps: CleanupDeps;
   dryRun: boolean;
@@ -490,7 +477,6 @@ function scopedAbandonCleanup(args: {
   const worktreePath = join(args.projectRoot, ".worktree", args.worktreeName);
   const preflight = checkScopedAbandonPreflight({
     projectRoot: args.projectRoot,
-    worktreeName: args.worktreeName,
     worktreePath,
     deps: args.deps,
   });

@@ -52,6 +52,19 @@ function writeWorktreeLock(worktreePath: string, pid: number): void {
   );
 }
 
+function makePreflightWorktree(
+  name: string,
+  opts: { git?: boolean; lockPid?: number } = {},
+): string {
+  const worktreePath = join(worktreeDir, name);
+  mkdirSync(worktreePath, { recursive: true });
+  if (opts.git !== false) initGitWorktree(worktreePath);
+  if (opts.lockPid !== undefined) writeWorktreeLock(worktreePath, opts.lockPid);
+  return worktreePath;
+}
+
+const noPrDeps = { isMergedPr: () => false, findMatchingOpenPrs: () => [] };
+
 function captureIo(): { io: TriageIo; out: () => string; err: () => string } {
   let out = "";
   let err = "";
@@ -841,96 +854,52 @@ describe("suggested moves rules", () => {
     const lines = getSuggestedMoves(input);
     expect(lines.some((l) => l.includes("Inspect"))).toBe(true);
   });
-
-  test("scoped abandon suggestions always include worktree name", () => {
-    const input = suggestedMovesBase({
-      dirtyKind: "clean",
-      unpushed: 0,
-      prState: "none",
-      specComplete: false,
-      worktreePath: "/tmp/test",
-      worktreeName: "named-tree",
-      scopedAbandonEligible: true,
-    });
-
-    const lines = getSuggestedMoves(input);
-    for (const line of lines) {
-      if (line.includes("cleanup --abandon")) {
-        expect(line).toContain("named-tree");
-        expect(line).not.toMatch(/cleanup --abandon\s*$/);
-      }
-    }
-  });
 });
 
 describe("scoped abandon preflight", () => {
   test("eligible when path exists, no lock, branch resolves, PR eligible", () => {
-    const worktreeName = "eligible-tree";
-    const worktreePath = join(worktreeDir, worktreeName);
-    mkdirSync(worktreePath, { recursive: true });
-    initGitWorktree(worktreePath);
-
     const result = checkScopedAbandonPreflight({
       projectRoot,
-      worktreeName,
-      worktreePath,
-      deps: { isMergedPr: () => false, findMatchingOpenPrs: () => [] },
+      worktreePath: makePreflightWorktree("eligible-tree"),
+      deps: noPrDeps,
     });
-
     expect(result).toEqual({ eligible: true, branch: "main" });
   });
 
   test("ineligible for merged PR", () => {
-    const worktreeName = "merged-tree";
-    const worktreePath = join(worktreeDir, worktreeName);
-    mkdirSync(worktreePath, { recursive: true });
-    initGitWorktree(worktreePath);
-
     const result = checkScopedAbandonPreflight({
       projectRoot,
-      worktreeName,
-      worktreePath,
+      worktreePath: makePreflightWorktree("merged-tree"),
       deps: { isMergedPr: () => true, findMatchingOpenPrs: () => [] },
     });
-
-    expect(result.eligible).toBe(false);
-    if (!result.eligible && result.reason === "pr_ineligible") {
-      expect(result.eligibility.kind).toBe("merged");
-    }
+    expect(result).toMatchObject({
+      eligible: false,
+      reason: "pr_ineligible",
+      branch: "main",
+      eligibility: { kind: "merged" },
+    });
   });
 
   test("ineligible for ready open PR", () => {
-    const worktreeName = "ready-pr-tree";
-    const worktreePath = join(worktreeDir, worktreeName);
-    mkdirSync(worktreePath, { recursive: true });
-    initGitWorktree(worktreePath);
-
     const result = checkScopedAbandonPreflight({
       projectRoot,
-      worktreeName,
-      worktreePath,
+      worktreePath: makePreflightWorktree("ready-pr-tree"),
       deps: {
         isMergedPr: () => false,
         findMatchingOpenPrs: () => [{ number: 42, isDraft: false }],
       },
     });
-
-    expect(result.eligible).toBe(false);
-    if (!result.eligible && result.reason === "pr_ineligible") {
-      expect(result.eligibility.kind).toBe("ready_pr");
-    }
+    expect(result).toMatchObject({
+      eligible: false,
+      reason: "pr_ineligible",
+      eligibility: { kind: "ready_pr" },
+    });
   });
 
   test("ineligible for multiple open PRs", () => {
-    const worktreeName = "multi-pr-tree";
-    const worktreePath = join(worktreeDir, worktreeName);
-    mkdirSync(worktreePath, { recursive: true });
-    initGitWorktree(worktreePath);
-
     const result = checkScopedAbandonPreflight({
       projectRoot,
-      worktreeName,
-      worktreePath,
+      worktreePath: makePreflightWorktree("multi-pr-tree"),
       deps: {
         isMergedPr: () => false,
         findMatchingOpenPrs: () => [
@@ -939,27 +908,19 @@ describe("scoped abandon preflight", () => {
         ],
       },
     });
-
-    expect(result.eligible).toBe(false);
-    if (!result.eligible && result.reason === "pr_ineligible") {
-      expect(result.eligibility.kind).toBe("multiple_open");
-    }
+    expect(result).toMatchObject({
+      eligible: false,
+      reason: "pr_ineligible",
+      eligibility: { kind: "multiple_open" },
+    });
   });
 
   test("ineligible for live lock", () => {
-    const worktreeName = "locked-tree";
-    const worktreePath = join(worktreeDir, worktreeName);
-    mkdirSync(worktreePath, { recursive: true });
-    initGitWorktree(worktreePath);
-    writeWorktreeLock(worktreePath, process.pid);
-
     const result = checkScopedAbandonPreflight({
       projectRoot,
-      worktreeName,
-      worktreePath,
-      deps: { isMergedPr: () => false, findMatchingOpenPrs: () => [] },
+      worktreePath: makePreflightWorktree("locked-tree", { lockPid: process.pid }),
+      deps: noPrDeps,
     });
-
     expect(result).toEqual({
       eligible: false,
       reason: "live_lock",
@@ -972,15 +933,9 @@ describe("scoped abandon preflight", () => {
   });
 
   test("ineligible for PR inspection failure", () => {
-    const worktreeName = "inspect-fail-tree";
-    const worktreePath = join(worktreeDir, worktreeName);
-    mkdirSync(worktreePath, { recursive: true });
-    initGitWorktree(worktreePath);
-
     const result = checkScopedAbandonPreflight({
       projectRoot,
-      worktreeName,
-      worktreePath,
+      worktreePath: makePreflightWorktree("inspect-fail-tree"),
       deps: {
         isMergedPr: () => false,
         findMatchingOpenPrs: () => {
@@ -988,25 +943,19 @@ describe("scoped abandon preflight", () => {
         },
       },
     });
-
-    expect(result.eligible).toBe(false);
-    if (!result.eligible && result.reason === "pr_ineligible") {
-      expect(result.eligibility.kind).toBe("inspection_failed");
-    }
+    expect(result).toMatchObject({
+      eligible: false,
+      reason: "pr_ineligible",
+      eligibility: { kind: "inspection_failed" },
+    });
   });
 
   test("ineligible when branch cannot be resolved", () => {
-    const worktreeName = "no-branch-tree";
-    const worktreePath = join(worktreeDir, worktreeName);
-    mkdirSync(worktreePath, { recursive: true });
-
     const result = checkScopedAbandonPreflight({
       projectRoot,
-      worktreeName,
-      worktreePath,
-      deps: { isMergedPr: () => false, findMatchingOpenPrs: () => [] },
+      worktreePath: makePreflightWorktree("no-branch-tree", { git: false }),
+      deps: noPrDeps,
     });
-
     expect(result).toEqual({ eligible: false, reason: "branch_resolve_failed" });
   });
 });

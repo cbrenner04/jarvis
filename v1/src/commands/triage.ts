@@ -15,7 +15,7 @@ import { snapshotAcceptanceCriteria } from "../modes/patch/subspec.ts";
 import { stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
 import { type EnsureDraftPrOpts, ensureDraftPr, findMatchingOpenPrs, renderAttributionSummary } from "../pr.ts";
 import { ReadyCommandError, runReadyGateWithTier } from "../ready-gate.ts";
-import { isScopedAbandonEligible } from "../scoped-abandon-preflight.ts";
+import { checkScopedAbandonPreflight, isMergedPr } from "../scoped-abandon-preflight.ts";
 import { hasUpstream, pushCurrent } from "../worktree.ts";
 import { getWorktreeLockPath, isProcessAlive, type WorktreeLock } from "../worktree-lock.ts";
 import { emitMergeRefusal, type MergeTargetResolutionSeams, resolveMergeTarget } from "./resolve-merge-target.ts";
@@ -714,15 +714,11 @@ function buildSuggestedMovesInput(
   const unpushed = computeUnpushed(worktreePath);
   const prState = computePrState(worktreePath);
   const specComplete = computeSpecComplete(specPath);
-  const scopedAbandonEligible = isScopedAbandonEligible({
+  const scopedAbandonEligible = checkScopedAbandonPreflight({
     projectRoot,
-    worktreeName,
     worktreePath,
-    deps: {
-      isMergedPr: triageIsMergedPr,
-      findMatchingOpenPrs,
-    },
-  });
+    deps: { isMergedPr, findMatchingOpenPrs },
+  }).eligible;
 
   return {
     dirtyKind,
@@ -734,18 +730,6 @@ function buildSuggestedMovesInput(
     scopedAbandonEligible,
     specPath,
   };
-}
-
-function triageIsMergedPr(branch: string): boolean {
-  try {
-    const output = execSync(`gh pr view "${branch}" --json state -q .state`, {
-      stdio: "pipe",
-      encoding: "utf8",
-    }).trim();
-    return output === "MERGED";
-  } catch {
-    return false;
-  }
 }
 
 function computeDirtyKind(worktreePath: string): DirtyKind {

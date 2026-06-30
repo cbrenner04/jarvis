@@ -1,10 +1,9 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { getCurrentBranch } from "../../shared/git.ts";
 import type { MatchingOpenPr } from "./pr.ts";
 import { readLiveWorktreeLock, type WorktreeLock } from "./worktree-lock.ts";
 
-/** PR guards for scoped abandon: merged, inspection failure, multiple open, or ready open PR block retire. */
 export type AbandonPrEligibility =
   | { kind: "eligible" }
   | { kind: "merged" }
@@ -24,29 +23,35 @@ export type ScopedAbandonPreflightResult =
   | { eligible: false; reason: "branch_resolve_failed" }
   | { eligible: false; reason: "pr_ineligible"; branch: string; eligibility: AbandonPrEligibility };
 
-/**
- * Composite preflight for scoped abandon: worktree exists, no live lock, branch resolves, PR guards pass.
- * Stale locks are ignored; any step failure is ineligible (conservative).
- */
+export function isMergedPr(branch: string): boolean {
+  try {
+    const output = execFileSync("gh", ["pr", "view", branch, "--json", "state", "-q", ".state"], {
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    return output.trim() === "MERGED";
+  } catch {
+    return false;
+  }
+}
+
 export function checkScopedAbandonPreflight(args: {
   projectRoot: string;
-  worktreeName: string;
-  worktreePath?: string;
+  worktreePath: string;
   deps: ScopedAbandonPreflightDeps;
 }): ScopedAbandonPreflightResult {
-  const worktreePath = args.worktreePath ?? join(args.projectRoot, ".worktree", args.worktreeName);
-  if (!existsSync(worktreePath)) {
+  if (!existsSync(args.worktreePath)) {
     return { eligible: false, reason: "missing" };
   }
 
-  const liveLock = readLiveWorktreeLock(worktreePath);
+  const liveLock = readLiveWorktreeLock(args.worktreePath);
   if (liveLock !== null) {
     return { eligible: false, reason: "live_lock", lock: liveLock };
   }
 
   let branch: string;
   try {
-    branch = branchForWorktree(worktreePath);
+    branch = getCurrentBranch(args.worktreePath);
   } catch {
     return { eligible: false, reason: "branch_resolve_failed" };
   }
@@ -64,17 +69,6 @@ export function checkScopedAbandonPreflight(args: {
   return { eligible: true, branch };
 }
 
-/** True when {@link checkScopedAbandonPreflight} returns eligible. */
-export function isScopedAbandonEligible(args: {
-  projectRoot: string;
-  worktreeName: string;
-  worktreePath?: string;
-  deps: ScopedAbandonPreflightDeps;
-}): boolean {
-  return checkScopedAbandonPreflight(args).eligible;
-}
-
-/** PR-only abandon guards shared by global abandon scan and scoped preflight. */
 export function checkAbandonPrEligibility(args: {
   branch: string;
   isMergedPr: (branch: string) => boolean;
@@ -102,12 +96,4 @@ export function checkAbandonPrEligibility(args: {
   }
 
   return { kind: "eligible" };
-}
-
-function branchForWorktree(worktreePath: string): string {
-  return execSync("git rev-parse --abbrev-ref HEAD", {
-    cwd: worktreePath,
-    stdio: "pipe",
-    encoding: "utf8",
-  }).trim();
 }

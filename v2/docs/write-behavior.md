@@ -81,9 +81,14 @@ which `jarvis tui` uses after `health` to prove the channel is live. See
 
 Socket default: `~/.jarvis/daemon.sock` (same as daemon lifecycle commands).
 
+Flow: connect → IPC `health` → IPC `status` → ink field collection → one IPC
+`start`. Field contract matches [`jarvis run start`](#run-control-cli) (same required
+flags as `jarvis write`; optional `--agents`, `--max-iterations`). Does not call
+`executeWriteLoop` locally.
+
 | Command | Output | Exit |
 | --- | --- | --- |
-| `jarvis tui` | Connected: ink feedback showing IPC `health` `{ ok: true }` and IPC `status` `{ state: "running" }`; unavailable: message naming `~/.jarvis/daemon.sock` and `jarvis daemon start` | `0` connected, `1` unavailable |
+| `jarvis tui` | Success: ink feedback with returned run ID; validation failure: ink field errors; guard/RPC failure: ink `<code>: <message>`; unavailable: message naming `~/.jarvis/daemon.sock` and `jarvis daemon start` | `0` success, `1` validation/guard/RPC/unavailable |
 
 When the daemon is not reachable, start it with [`jarvis daemon start`](#daemon-cli)
 before retrying `jarvis tui`.
@@ -194,8 +199,9 @@ Drive the path through the test seam:
 - `bun test v2/src/cli.test.ts` proves foreground `write`, daemon lifecycle
   commands, run-control success/error paths, log JSONL streaming, `jarvis run wait`
   (blocking resolve, exit mapping, error pass-through), and `jarvis tui` dispatch.
-- `bun test v2/src/tui-entry.test.tsx` proves TUI connect/liveness and
-  unavailable-daemon paths with injectable client and view-host fakes.
+- `bun test v2/src/tui-entry.test.tsx` proves TUI launch flow (liveness, field
+  collection, IPC `start`, guard/validation/RPC/unavailable paths) with
+  injectable client, field collector, and view-host fakes.
 
 A live `jarvis write ...` runs the full pipeline and reports
 `"kind": "invocation_failure"` until process bindings land.

@@ -8,6 +8,21 @@ import { type IpcServer, startIpcServer } from "./ipc/server.ts";
 import type { IpcFrame } from "./ipc/types.ts";
 import { canUseUnixSockets, socketProbeErrored } from "./testing/unix-socket.ts";
 import { connectTuiDaemon, TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-client.ts";
+import { simulatedBindings } from "./testing/bindings.ts";
+import type { WriteLoopInput } from "./write-loop.ts";
+
+const START_INPUT: WriteLoopInput = {
+  worktree: {
+    projectRoot: "/tmp/repo",
+    projectName: "demo",
+    branchName: "write-run",
+    baseRef: "HEAD",
+  },
+  specPath: "spec.md",
+  stepRules: "Return exactly one terminal token: done|no-work|blocked|progress.",
+  expectedArtifactPath: "proof.txt",
+  bindings: simulatedBindings(["done"]),
+};
 
 if (socketProbeErrored) {
   process.stderr.write("skip: TUI daemon client socket tests require socket support in /tmp\n");
@@ -20,6 +35,7 @@ const socketTest = test.skipIf(!canUseUnixSockets());
 
 const HEALTH_REQUEST_ID = "00000000-0000-4000-8000-000000000001";
 const STATUS_REQUEST_ID = "00000000-0000-4000-8000-000000000002";
+const START_REQUEST_ID = "00000000-0000-4000-8000-000000000003";
 
 function withFixedUuids<T>(ids: string[], fn: () => Promise<T>): Promise<T> {
   const queue = [...ids];
@@ -221,4 +237,87 @@ socketTest("rejects unreachable socket with TuiDaemonConnectionError and sends n
     connectTuiDaemon({ socketPath: UNREACHABLE_SOCKET_PATH, connectIpcClient: trackingConnect }),
   ).rejects.toBeInstanceOf(TuiDaemonConnectionError);
   expect(sent).toEqual([]);
+});
+
+test("start sends one correlated IPC start request and returns runId", async () => {
+  const sent: unknown[] = [];
+  await withFixedUuids([START_REQUEST_ID], async () => {
+    const client = await connectTuiDaemon({
+      connectIpcClient: async () =>
+        makeClient([{ kind: "response", id: START_REQUEST_ID, result: { runId: "run-999" } }], sent),
+    });
+
+    await expect(client.start(START_INPUT)).resolves.toEqual({ runId: "run-999" });
+    expect(sent).toEqual([
+      {
+        kind: "request",
+        id: START_REQUEST_ID,
+        method: "start",
+        params: { input: START_INPUT },
+      },
+    ]);
+    client.close();
+  });
+});
+
+test("start rejects run_in_progress as TuiDaemonRpcError", async () => {
+  await withFixedUuids([START_REQUEST_ID], async () => {
+    const client = await connectTuiDaemon({
+      connectIpcClient: async () =>
+        makeClient([
+          {
+            kind: "error",
+            id: START_REQUEST_ID,
+            code: "run_in_progress",
+            message: "A run is already in progress; at most one in-flight run globally",
+          },
+        ]),
+    });
+
+    await expect(client.start(START_INPUT)).rejects.toMatchObject({
+      name: "TuiDaemonRpcError",
+      code: "run_in_progress",
+    });
+    client.close();
+  });
+});
+
+test("start rejects worktree_claimed as TuiDaemonRpcError", async () => {
+  await withFixedUuids([START_REQUEST_ID], async () => {
+    const client = await connectTuiDaemon({
+      connectIpcClient: async () =>
+        makeClient([
+          {
+            kind: "error",
+            id: START_REQUEST_ID,
+            code: "worktree_claimed",
+            message: "Run already active for project/branch",
+          },
+        ]),
+    });
+
+    await expect(client.start(START_INPUT)).rejects.toMatchObject({
+      code: "worktree_claimed",
+    });
+    client.close();
+  });
+});
+
+test("start rejects generic daemon error frames as TuiDaemonRpcError", async () => {
+  await withFixedUuids([START_REQUEST_ID], async () => {
+    const client = await connectTuiDaemon({
+      connectIpcClient: async () =>
+        makeClient([
+          {
+            kind: "error",
+            id: START_REQUEST_ID,
+            code: "invalid_params",
+            message: "missing input",
+          },
+        ]),
+    });
+
+    await expect(client.start(START_INPUT)).rejects.toBeInstanceOf(TuiDaemonRpcError);
+    client.close();
+  });
 });

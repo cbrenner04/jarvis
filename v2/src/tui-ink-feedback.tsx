@@ -1,9 +1,5 @@
 import { type ComponentType, createElement, Fragment, type ReactElement, type ReactNode } from "react";
-import {
-  TUI_DAEMON_SOCKET_DISPLAY,
-  type TuiDaemonHealthResult,
-  type TuiDaemonStatusResult,
-} from "./tui-daemon-client.ts";
+import { TUI_DAEMON_SOCKET_DISPLAY } from "./tui-daemon-client.ts";
 import type { TuiViewState } from "./tui-entry.tsx";
 
 /** Injectable ink `render` seam for tests. */
@@ -11,21 +7,19 @@ export type InkRender = typeof import("ink").render;
 
 type TextComponent = ComponentType<{ children?: ReactNode }>;
 
-function ConnectedFeedback({
-  health,
-  status,
-  Text,
-}: {
-  health: TuiDaemonHealthResult;
-  status: TuiDaemonStatusResult;
-  Text: TextComponent;
-}): ReactElement {
+function LaunchSuccessFeedback({ runId, Text }: { runId: string; Text: TextComponent }): ReactElement {
+  return createElement(Text, null, `Run started: ${runId}`);
+}
+
+function RpcErrorFeedback({ code, message, Text }: { code: string; message: string; Text: TextComponent }): ReactElement {
+  return createElement(Text, null, `${code}: ${message}`);
+}
+
+function ValidationFailureFeedback({ errors, Text }: { errors: readonly string[]; Text: TextComponent }): ReactElement {
   return createElement(
     Fragment,
     null,
-    createElement(Text, null, "Connected to daemon"),
-    createElement(Text, null, `health: ${JSON.stringify(health)}`),
-    createElement(Text, null, `status: ${JSON.stringify(status)}`),
+    ...errors.map((error) => createElement(Text, { key: error }, error)),
   );
 }
 
@@ -38,13 +32,13 @@ function UnavailableFeedback({ Text }: { Text: TextComponent }): ReactElement {
 }
 
 /**
- * Render operator-visible TUI connect feedback through ink.
+ * Render operator-visible TUI launch feedback through ink.
  *
  * When `inkRender` is provided, ink is not loaded — the caller owns rendering.
  * When omitted, ink is dynamically imported to avoid yoga-layout TLA TDZ on
  * module evaluation (Bun/Linux).
  *
- * @param state Connected liveness proof or unavailable-daemon state.
+ * @param state Launch outcome or unavailable-daemon state.
  * @param inkRender Injectable ink render; defaults to production ink `render`.
  */
 export async function showTuiInkFeedback(state: TuiViewState, inkRender?: InkRender): Promise<void> {
@@ -60,10 +54,21 @@ export async function showTuiInkFeedback(state: TuiViewState, inkRender?: InkRen
     Text = ink.Text;
   }
 
-  const element: ReactElement =
-    state.kind === "connected"
-      ? createElement(ConnectedFeedback, { health: state.health, status: state.status, Text })
-      : createElement(UnavailableFeedback, { Text });
+  let element: ReactElement;
+  switch (state.kind) {
+    case "launch-success":
+      element = createElement(LaunchSuccessFeedback, { runId: state.runId, Text });
+      break;
+    case "rpc-error":
+      element = createElement(RpcErrorFeedback, { code: state.code, message: state.message, Text });
+      break;
+    case "validation-failure":
+      element = createElement(ValidationFailureFeedback, { errors: state.errors, Text });
+      break;
+    case "unavailable":
+      element = createElement(UnavailableFeedback, { Text });
+      break;
+  }
 
   const instance = renderFn(element);
   await instance.waitUntilRenderFlush();

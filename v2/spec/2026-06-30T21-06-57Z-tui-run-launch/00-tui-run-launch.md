@@ -55,25 +55,25 @@ scope.
 
 ## Acceptance criteria
 
-- [ ] `TuiDaemonClient.start` sends one correlated IPC `start` request carrying `WriteLoopInput` and returns `{ runId }` on success.
-- [ ] `TuiDaemonClient.start` rejects `run_in_progress`, `worktree_claimed`, and other daemon `error` frames as `TuiDaemonRpcError` without local guard logic.
-- [ ] Every exported symbol added or changed on `TuiDaemonClient` for `start` has an inline doc-comment per `v2/docs/documentation-standard.md` (mirror scaffold 00).
-- [ ] For a fixed field fixture (required fields plus omitted optional flags), the shared builder produces the same `WriteLoopInput` whether invoked from `jarvis run start` argv mapping or the TUI field collector seam.
-- [ ] When the daemon is reachable, `jarvis tui` runs `health` then IPC `status`, collects launch fields via ink, sends one `start` with matching `WriteLoopInput`, and does not call `executeWriteLoop` locally.
-- [ ] On successful `start`, the injectable view host records a launch-success state including the returned run ID and `jarvis tui` exits `0`.
-- [ ] On daemon `run_in_progress` or `worktree_claimed`, the view host records `<code>: <message>`, `jarvis tui` exits `1`, and no local guard logic runs.
-- [ ] On other `TuiDaemonRpcError` from `start`, the view host records `<code>: <message>` and `jarvis tui` exits `1`.
-- [ ] On `TuiDaemonRpcError` from `health` or IPC `status` after connect, the view host records `<code>: <message>` and `jarvis tui` exits `1`.
-- [ ] On missing or invalid required launch fields, the view host records a validation-failure state, `jarvis tui` exits `1`, and does not send `start`.
-- [ ] When the daemon socket is unreachable at connect or `TuiDaemonConnectionError` occurs before or during `start`, `jarvis tui` records scaffold unavailable-daemon feedback (names `~/.jarvis/daemon.sock`, mentions `jarvis daemon start`) and exits `1`.
-- [ ] `jarvis tui` does not invoke `list`, `wait`, log streams, `pause`, `resume`, or `kill`.
-- [ ] Co-located tests cover `TuiDaemonClient.start` success, both admission guards, and a generic RPC error with injectable IPC fakes.
-- [ ] Co-located tests cover launch-flow success, both admission guards, validation failure, generic `start` RPC error, liveness RPC error, and unavailable daemon with injectable daemon client, field collector, and view-host fakes.
-- [ ] `v2/src/tui-entry.test.tsx` stays green with expectations updated for launch flow (supersedes connect-only `health`/`status`-then-exit contract).
-- [ ] `v2/src/cli.test.ts` coverage for `jarvis write`, `jarvis daemon`, and `jarvis run` stays green.
-- [ ] `v2/docs/write-behavior.md` `jarvis tui` row is revised for launch: field contract (same as `jarvis run start`), ink feedback for run ID on success, guard/validation/RPC errors as `<code>: <message>`, exit codes (`0` success, `1` validation/guard/RPC/unavailable).
-- [ ] `v2/docs/v2-architecture.md` shipped TUI bullet records connect → liveness → launch via IPC `start`; monitor and steer remain sibling work.
-- [ ] `v2/docs/daemon-host.md` cross-links `jarvis tui` as a consumer of IPC `start` over the production socket.
+- [x] `TuiDaemonClient.start` sends one correlated IPC `start` request carrying `WriteLoopInput` and returns `{ runId }` on success.
+- [x] `TuiDaemonClient.start` rejects `run_in_progress`, `worktree_claimed`, and other daemon `error` frames as `TuiDaemonRpcError` without local guard logic.
+- [x] Every exported symbol added or changed on `TuiDaemonClient` for `start` has an inline doc-comment per `v2/docs/documentation-standard.md` (mirror scaffold 00).
+- [x] For a fixed field fixture (required fields plus omitted optional flags), the shared builder produces the same `WriteLoopInput` whether invoked from `jarvis run start` argv mapping or the TUI field collector seam.
+- [x] When the daemon is reachable, `jarvis tui` runs `health` then IPC `status`, collects launch fields via ink, sends one `start` with matching `WriteLoopInput`, and does not call `executeWriteLoop` locally.
+- [x] On successful `start`, the injectable view host records a launch-success state including the returned run ID and `jarvis tui` exits `0`.
+- [x] On daemon `run_in_progress` or `worktree_claimed`, the view host records `<code>: <message>`, `jarvis tui` exits `1`, and no local guard logic runs.
+- [x] On other `TuiDaemonRpcError` from `start`, the view host records `<code>: <message>` and `jarvis tui` exits `1`.
+- [x] On `TuiDaemonRpcError` from `health` or IPC `status` after connect, the view host records `<code>: <message>` and `jarvis tui` exits `1`.
+- [x] On missing or invalid required launch fields, the view host records a validation-failure state, `jarvis tui` exits `1`, and does not send `start`.
+- [x] When the daemon socket is unreachable at connect or `TuiDaemonConnectionError` occurs before or during `start`, `jarvis tui` records scaffold unavailable-daemon feedback (names `~/.jarvis/daemon.sock`, mentions `jarvis daemon start`) and exits `1`.
+- [x] `jarvis tui` does not invoke `list`, `wait`, log streams, `pause`, `resume`, or `kill`.
+- [x] Co-located tests cover `TuiDaemonClient.start` success, both admission guards, and a generic RPC error with injectable IPC fakes.
+- [x] Co-located tests cover launch-flow success, both admission guards, validation failure, generic `start` RPC error, liveness RPC error, and unavailable daemon with injectable daemon client, field collector, and view-host fakes.
+- [x] `v2/src/tui-entry.test.tsx` stays green with expectations updated for launch flow (supersedes connect-only `health`/`status`-then-exit contract).
+- [x] `v2/src/cli.test.ts` coverage for `jarvis write`, `jarvis daemon`, and `jarvis run` stays green.
+- [x] `v2/docs/write-behavior.md` `jarvis tui` row is revised for launch: field contract (same as `jarvis run start`), ink feedback for run ID on success, guard/validation/RPC errors as `<code>: <message>`, exit codes (`0` success, `1` validation/guard/RPC/unavailable).
+- [x] `v2/docs/v2-architecture.md` shipped TUI bullet records connect → liveness → launch via IPC `start`; monitor and steer remain sibling work.
+- [x] `v2/docs/daemon-host.md` cross-links `jarvis tui` as a consumer of IPC `start` over the production socket.
 
 ## Documentation updates
 

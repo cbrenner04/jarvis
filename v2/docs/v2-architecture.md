@@ -211,11 +211,12 @@ a server/runner world (pause + route to a human loop vs. process exit).
   on memory than a web UI (matters with concurrent agents + the local model) and
   works over SSH to the work machine without port-forwarding. Richer clients
   (web) can be added later over the same API.
-- **Shipped TUI scaffold (`jarvis tui`).** Connects over the production IPC
-  socket (`~/.jarvis/daemon.sock`), proves liveness via IPC `health` and IPC
-  `status` (`{ state: "running" }`), renders feedback through ink, then exits.
-  Launch, monitor, and steer remain sibling work over the same daemon surface.
-  Operator contract: [`write-behavior.md`](./write-behavior.md#tui-cli).
+- **Shipped TUI (`jarvis tui`).** Connects over the production IPC socket
+  (`~/.jarvis/daemon.sock`), proves liveness via IPC `health` and IPC `status`
+  (`{ state: "running" }`), collects launch fields through ink, sends one IPC
+  `start`, and renders run ID or errors through ink. Monitor and steer remain
+  sibling work over the same daemon surface. Operator contract:
+  [`write-behavior.md`](./write-behavior.md#tui-cli).
 - **Observability log stream.** Structured event log (`iteration_started`,
   `boundary_committed`, `loop_finished`) keyed by run ID, queryable by sink +
   reader interfaces. Appended directly by the write loop; not part of the

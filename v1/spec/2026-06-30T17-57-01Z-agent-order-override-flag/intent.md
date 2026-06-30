@@ -21,7 +21,8 @@ Patch and plan actuator experiments both require hand-editing `modes.patch.agent
 - Repeatable `--agent` builds the one-off ladder in flag order — rules out a single-value flag that drops fallback.
 - Invalid agent, empty model, unknown/unpriced model, or duplicate agent exits non-zero using the same validation as config `agentOrder` — rules out a lax bypass path.
 - Override replaces only the resolved mode's `agentOrder` for the invocation — rules out writing config or overriding the other mode's order, review/shrink sub-role orders, or plan review-panel order.
-- Deferred to first consumer: model resolution when `--agent <name>` omits `:model` — pin when the parser is drafted.
+- Omitted `:model` inherits from the mode's configured `agentOrder` before override; no matching entry requires `:model` — rules out agent-CLI default models.
+- `jarvis1 intent` and `jarvis1 prompt` do not get `--agent` in this spec — rules out assuming command parity.
 
 ## Documentation updates
 

@@ -28,9 +28,9 @@ None — parser-only; operator docs land in `02`.
 
 ## Acceptance criteria
 
-- [ ] Repeatable `--agent` values parse into an `AgentEntry[]` in flag order with the same validation rules as config `agentOrder`.
-- [ ] `--agent <name>` without `:model` uses the model from the fallback `agentOrder` entry for that agent when present.
-- [ ] `--agent <name>` without `:model` and no matching fallback entry exits non-zero with a message requiring `:model`.
-- [ ] Invalid agent, empty model, unknown/unpriced model (when priced), or duplicate agent exits non-zero with an error naming the offending value.
-- [ ] Values with multiple colons split on the first colon only (agent name before first `:`, remainder is model).
-- [ ] Callers surface parser errors prefixed with `run:` or `plan:` and exit `1`.
+- [x] Repeatable `--agent` values parse into an `AgentEntry[]` in flag order with the same validation rules as config `agentOrder`.
+- [x] `--agent <name>` without `:model` uses the model from the fallback `agentOrder` entry for that agent when present.
+- [x] `--agent <name>` without `:model` and no matching fallback entry exits non-zero with a message requiring `:model`.
+- [x] Invalid agent, empty model, unknown/unpriced model (when priced), or duplicate agent exits non-zero with an error naming the offending value.
+- [x] Values with multiple colons split on the first colon only (agent name before first `:`, remainder is model).
+- [x] Callers surface parser errors prefixed with `run:` or `plan:` and exit `1`.

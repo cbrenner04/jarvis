@@ -106,4 +106,12 @@ describe("prefixAgentFlagError", () => {
       expect(prefixAgentFlagError("plan", result.message)).toMatch(/^plan: /);
     }
   });
+
+  test("prefixes intent errors", () => {
+    const result = parseAgentFlagValues(["bogus"], FALLBACK);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(prefixAgentFlagError("intent", result.message)).toMatch(/^intent: /);
+    }
+  });
 });

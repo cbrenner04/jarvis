@@ -86,25 +86,25 @@ only.
 
 ## Acceptance criteria
 
-- [ ] When the daemon socket is unreachable, `jarvis tui` shows the scaffold unavailable-daemon feedback naming `~/.jarvis/daemon.sock` and `jarvis daemon start`, exits `1`, and does not invoke `list` or `wait`.
-- [ ] When the daemon is reachable, `jarvis tui` proves IPC `health` and `status`, then enters the run monitor on the same open client and stays interactive until the operator quits.
-- [ ] On launch with a non-empty list, `jarvis tui` calls daemon `list`, selects the first row (newest-first), issues `wait` for that `runId`, and renders one row per run with `runId`, `project`, `branch`, `status`, and liveness (`live` / `not-live`).
-- [ ] On launch with an empty list, `jarvis tui` shows an explicit empty state, does not select a run, and does not invoke `wait`.
-- [ ] With an injectable refresh scheduler and fixture client, a later `list` response updates displayed status/liveness without relaunching `jarvis tui`.
-- [ ] With an injectable refresh scheduler and fixture client, when a refreshed `list` omits the selected `runId`, selection clears and any pending `wait` is abandoned.
-- [ ] With fixture runs and injectable view-host seam, selecting a quiescent run issues `wait` for that `runId` and the outcome panel shows `runStatus` plus only present optional fields from the daemon result.
-- [ ] With a fixture client that defers `wait`, the outcome panel shows a pending state until the boundary response arrives.
-- [ ] With injectable view-host seam, changing the selected run while `wait` is pending abandons the prior wait and issues `wait` for the newly selected `runId`.
-- [ ] With injectable view-host seam and a fixture that emits a late reply for an abandoned `wait`, the outcome panel stays on the newly selected run and does not show the stale result.
-- [ ] `jarvis tui` does not send `start`, `pause`, `resume`, `kill`, log-stream frames, or other steering RPCs.
-- [ ] Operator quit (`q` or Ctrl-C) closes the client and exits `0`.
-- [ ] Co-located tests cover connected monitor paths with injectable daemon client, refresh scheduler, and view-host fakes.
-- [ ] `v2/src/tui-entry.test.tsx` stays green (updated for interactive run monitor).
-- [ ] `v2/docs/write-behavior.md` TUI section documents the run monitor: list fields vs outcome `runStatus`, liveness labels, live refresh behavior, outcome panel (`wait` fields), selection, quit, and unavailable-daemon contract.
-- [ ] `v2/docs/write-behavior.md` Verification section updates the `tui-entry.test.tsx` bullet for interactive run-monitor scope.
-- [ ] `v2/docs/v2-architecture.md` Interface cross-links `jarvis tui` run monitor to daemon `list`/`wait` (one sentence; no duplicate wire contract).
-- [ ] `v2/docs/v1-behaviors.md` has a `[v2 additive]` entry for interactive `jarvis tui` run monitor under TUI/observability.
-- [ ] `v2/src/cli.test.ts` coverage for `jarvis write`, `jarvis daemon`, and `jarvis run` stays green.
+- [x] When the daemon socket is unreachable, `jarvis tui` shows the scaffold unavailable-daemon feedback naming `~/.jarvis/daemon.sock` and `jarvis daemon start`, exits `1`, and does not invoke `list` or `wait`.
+- [x] When the daemon is reachable, `jarvis tui` proves IPC `health` and `status`, then enters the run monitor on the same open client and stays interactive until the operator quits.
+- [x] On launch with a non-empty list, `jarvis tui` calls daemon `list`, selects the first row (newest-first), issues `wait` for that `runId`, and renders one row per run with `runId`, `project`, `branch`, `status`, and liveness (`live` / `not-live`).
+- [x] On launch with an empty list, `jarvis tui` shows an explicit empty state, does not select a run, and does not invoke `wait`.
+- [x] With an injectable refresh scheduler and fixture client, a later `list` response updates displayed status/liveness without relaunching `jarvis tui`.
+- [x] With an injectable refresh scheduler and fixture client, when a refreshed `list` omits the selected `runId`, selection clears and any pending `wait` is abandoned.
+- [x] With fixture runs and injectable view-host seam, selecting a quiescent run issues `wait` for that `runId` and the outcome panel shows `runStatus` plus only present optional fields from the daemon result.
+- [x] With a fixture client that defers `wait`, the outcome panel shows a pending state until the boundary response arrives.
+- [x] With injectable view-host seam, changing the selected run while `wait` is pending abandons the prior wait and issues `wait` for the newly selected `runId`.
+- [x] With injectable view-host seam and a fixture that emits a late reply for an abandoned `wait`, the outcome panel stays on the newly selected run and does not show the stale result.
+- [x] `jarvis tui` does not send `start`, `pause`, `resume`, `kill`, log-stream frames, or other steering RPCs.
+- [x] Operator quit (`q` or Ctrl-C) closes the client and exits `0`.
+- [x] Co-located tests cover connected monitor paths with injectable daemon client, refresh scheduler, and view-host fakes.
+- [x] `v2/src/tui-entry.test.tsx` stays green (updated for interactive run monitor).
+- [x] `v2/docs/write-behavior.md` TUI section documents the run monitor: list fields vs outcome `runStatus`, liveness labels, live refresh behavior, outcome panel (`wait` fields), selection, quit, and unavailable-daemon contract.
+- [x] `v2/docs/write-behavior.md` Verification section updates the `tui-entry.test.tsx` bullet for interactive run-monitor scope.
+- [x] `v2/docs/v2-architecture.md` Interface cross-links `jarvis tui` run monitor to daemon `list`/`wait` (one sentence; no duplicate wire contract).
+- [x] `v2/docs/v1-behaviors.md` has a `[v2 additive]` entry for interactive `jarvis tui` run monitor under TUI/observability.
+- [x] `v2/src/cli.test.ts` coverage for `jarvis write`, `jarvis daemon`, and `jarvis run` stays green.
 - [ ] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
@@ -118,3 +118,12 @@ only.
   cross-link from TUI to daemon `list`/`wait`.
 - [`v2/docs/v1-behaviors.md`](../../docs/v1-behaviors.md) — `[v2 additive]`
   interactive `jarvis tui` run monitor.
+
+## Blocker
+
+`bun run typecheck` passes, but `bun run test` does not reach green in this
+worktree. The required serial retry (`bun test`) also fails to produce a clean
+repo result after the same unrelated v1 failures surfaced under parallel run:
+`v1/test/idle-hang-fixtures.sandbox-unrunnable.test.ts` fails its helper-process
+cleanup assertions, and `v1/test/snapshot-update-retest-runner.test.ts` /
+`v1/test/base-ref-test-runner.test.ts` emit existing snapshot/base-ref failures.

@@ -213,9 +213,8 @@ a server/runner world (pause + route to a human loop vs. process exit).
   (web) can be added later over the same API.
 - **Shipped TUI (`jarvis tui`).** Connects over the production IPC socket
   (`~/.jarvis/daemon.sock`), proves liveness via IPC `health` and IPC `status`
-  (`{ state: "running" }`), collects launch fields through ink, sends one IPC
-  `start`, and renders run ID or errors through ink. Monitor and steer remain
-  sibling work over the same daemon surface. Operator contract:
+  (`{ state: "running" }`), then enters a read-only run monitor backed by daemon
+  `list` and `wait`; operator contract:
   [`write-behavior.md`](./write-behavior.md#tui-cli).
 - **Observability log stream.** Structured event log (`iteration_started`,
   `boundary_committed`, `loop_finished`) keyed by run ID, queryable by sink +

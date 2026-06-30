@@ -7,7 +7,7 @@ export type InkRender = typeof import("ink").render;
 
 type TextComponent = ComponentType<{ children?: ReactNode }>;
 
-/** Render operator-visible TUI launch feedback through ink. */
+/** Render operator-visible non-monitor TUI feedback through ink. */
 export async function showTuiInkFeedback(state: TuiViewState, inkRender?: InkRender): Promise<void> {
   let renderFn: InkRender;
   let Text: TextComponent;
@@ -22,17 +22,9 @@ export async function showTuiInkFeedback(state: TuiViewState, inkRender?: InkRen
   }
 
   const element: ReactElement =
-    state.kind === "launch-success"
-      ? createElement(Text, null, `Run started: ${state.runId}`)
-      : state.kind === "rpc-error"
-        ? createElement(Text, null, `${state.code}: ${state.message}`)
-        : state.kind === "validation-failure"
-          ? createElement(Fragment, null, ...state.errors.map((error) => createElement(Text, { key: error }, error)))
-          : createElement(
-              Text,
-              null,
-              `Daemon unavailable at ${TUI_DAEMON_SOCKET_DISPLAY}. Start with: jarvis daemon start`,
-            );
+    state.kind === "rpc-error"
+      ? createElement(Text, null, `${state.code}: ${state.message}`)
+      : createElement(Text, null, `Daemon unavailable at ${TUI_DAEMON_SOCKET_DISPLAY}. Start with: jarvis daemon start`);
 
   const instance = renderFn(element);
   await instance.waitUntilRenderFlush();

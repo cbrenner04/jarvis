@@ -81,14 +81,40 @@ which `jarvis tui` uses after `health` to prove the channel is live. See
 
 Socket default: `~/.jarvis/daemon.sock` (same as daemon lifecycle commands).
 
-Flow: connect → IPC `health` → IPC `status` → ink field collection → one IPC
-`start`. Field contract matches [`jarvis run start`](#run-control-cli) (same required
-flags as `jarvis write`; optional `--agents`, `--max-iterations`). Does not call
-`executeWriteLoop` locally.
+Flow: connect → IPC `health` → IPC `status` → daemon `list` → interactive run
+monitor. `jarvis tui` is read-only in this slice: it does not call
+`executeWriteLoop` locally and does not send `start`, `pause`, `resume`, `kill`,
+or log-stream frames.
 
 | Command | Output | Exit |
 | --- | --- | --- |
-| `jarvis tui` | Success: ink feedback with returned run ID; validation failure: ink field errors; guard/RPC failure: ink `<code>: <message>`; unavailable: message naming `~/.jarvis/daemon.sock` and `jarvis daemon start` | `0` success, `1` validation/guard/RPC/unavailable |
+| `jarvis tui` | Interactive ink run monitor; guard/RPC failure: ink `<code>: <message>`; unavailable: message naming `~/.jarvis/daemon.sock` and `jarvis daemon start` | `0` operator quit, `1` guard/RPC/unavailable |
+
+On entry with a non-empty daemon `list`, the monitor selects the first row
+(daemon order is newest-first), issues daemon `wait` for that `runId`, and shows
+one row per run with `runId`, `project`, `branch`, `status`, and liveness
+(`live` / `not-live`, matching `jarvis run list`). List-row `status` is the
+poll-time value from `list` only.
+
+On entry with an empty daemon `list`, the monitor shows an explicit empty state,
+keeps no selection, and sends no `wait`.
+
+The run list refreshes every second from daemon `list`, preserving selection by
+`runId`. If the selected run disappears on a later poll, the monitor clears
+selection and abandons the prior `wait` client-side. Mid-session refresh and
+`wait` failures keep the last good monitor snapshot.
+
+The outcome panel is sourced from daemon `wait`, not from `list`. While `wait`
+is pending it shows an explicit pending state. Once the next invocation boundary
+arrives it shows `runStatus` plus only present optional fields:
+`loopOutcomeKind`, `iterationsConsumed`, and `resumable`. These fields are
+resolve-time values from `wait`; the monitor does not infer them from list
+polls. Selection changes abandon the prior `wait` client-side, start a fresh
+`wait` for the newly selected run, and ignore any late reply from the abandoned
+request.
+
+Operator quit is `q` or Ctrl-C. Quit closes the connected daemon client and
+exits `0`.
 
 When the daemon is not reachable, start it with [`jarvis daemon start`](#daemon-cli)
 before retrying `jarvis tui`.
@@ -199,9 +225,10 @@ Drive the path through the test seam:
 - `bun test v2/src/cli.test.ts` proves foreground `write`, daemon lifecycle
   commands, run-control success/error paths, log JSONL streaming, `jarvis run wait`
   (blocking resolve, exit mapping, error pass-through), and `jarvis tui` dispatch.
-- `bun test v2/src/tui-entry.test.tsx` proves TUI launch flow (liveness, field
-  collection, IPC `start`, guard/validation/RPC/unavailable paths) with
-  injectable client, field collector, and view-host fakes.
+- `bun test v2/src/tui-entry.test.tsx` proves TUI run-monitor flow: liveness,
+  initial list/empty states, refresh, selection changes, pending and late
+  abandoned waits, quit, and unavailable/RPC feedback with injectable daemon
+  client, refresh scheduler, and view-host fakes.
 
 A live `jarvis write ...` runs the full pipeline and reports
 `"kind": "invocation_failure"` until process bindings land.

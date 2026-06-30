@@ -1449,32 +1449,22 @@ function classifyCiChecks(checks: CiCheckState[] | null): {
 }
 
 const MERGE_FLAKE_RECOVERY_STDOUT = "triage --merge: local ready flake recovered (CI green at HEAD); proceeding";
-const READY_PARALLEL_TEST_FAILED = "ready: parallel test failed";
-const READY_SERIAL_TEST_FAILED = "ready: serial test failed";
-const READY_DEADLINE_EXCEEDED = "ready: deadline exceeded";
+const READY_TEST_STEP_MARKERS = ["ready: parallel test failed", "ready: serial test failed"] as const;
 const PROBE_SIGNAL_TIMEOUT_EXIT_CODES = new Set([124, 130, 143]);
 
-type GhApiCheckRun = { name: string; status: string; conclusion: string | null };
-
-export function adaptCheckRunsToCiStates(checkRuns: GhApiCheckRun[]): CiCheckState[] {
-  return checkRuns.map((run) => ({
-    name: run.name,
-    status: mapCheckRunToCiStatus(run.status, run.conclusion),
-  }));
-}
-
-function mapCheckRunToCiStatus(status: string, conclusion: string | null): string {
-  const normalizedStatus = status.toLowerCase();
-  if (normalizedStatus === "completed") {
-    if (conclusion === null) {
-      return "pending";
+export function adaptCheckRunsToCiStates(
+  checkRuns: { name: string; status: string; conclusion: string | null }[],
+): CiCheckState[] {
+  return checkRuns.map((run) => {
+    const status = run.status.toLowerCase();
+    let mapped: string;
+    if (status === "completed") {
+      mapped = run.conclusion === null ? "pending" : run.conclusion.toLowerCase();
+    } else {
+      mapped = status;
     }
-    return conclusion.toLowerCase();
-  }
-  if (normalizedStatus === "queued" || normalizedStatus === "in_progress") {
-    return normalizedStatus;
-  }
-  return normalizedStatus;
+    return { name: run.name, status: mapped };
+  });
 }
 
 function resolveOwnerRepoFromWorktree(worktreePath: string): { owner: string; repo: string } | null {
@@ -1484,17 +1474,8 @@ function resolveOwnerRepoFromWorktree(worktreePath: string): { owner: string; re
       encoding: "utf8",
       stdio: "pipe",
     }).trim();
-    const normalized = normalizeRepoUrl(origin);
-    if (normalized === undefined) {
-      return null;
-    }
-    const parts = normalized.split("/");
-    const owner = parts[1];
-    const repo = parts[2];
-    if (owner === undefined || repo === undefined) {
-      return null;
-    }
-    return { owner, repo };
+    const [, owner, repo] = normalizeRepoUrl(origin)?.split("/") ?? [];
+    return owner !== undefined && repo !== undefined ? { owner, repo } : null;
   } catch {
     return null;
   }
@@ -1507,7 +1488,7 @@ function fetchCommitChecksForSha(worktreePath: string, sha: string): CiCheckStat
   }
   const { owner, repo } = ownerRepo;
   try {
-    const checkRuns: GhApiCheckRun[] = [];
+    const checkRuns: { name: string; status: string; conclusion: string | null }[] = [];
     let page = 1;
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -1520,19 +1501,18 @@ function fetchCommitChecksForSha(worktreePath: string, sha: string): CiCheckStat
         break;
       }
       for (const entry of data.check_runs) {
-        if (
-          typeof entry === "object" &&
-          entry !== null &&
-          typeof (entry as { name?: unknown }).name === "string" &&
-          typeof (entry as { status?: unknown }).status === "string"
-        ) {
-          const run = entry as { name: string; status: string; conclusion?: unknown };
-          checkRuns.push({
-            name: run.name,
-            status: run.status,
-            conclusion: typeof run.conclusion === "string" ? run.conclusion : null,
-          });
+        if (typeof entry !== "object" || entry === null) {
+          continue;
         }
+        const run = entry as { name?: unknown; status?: unknown; conclusion?: unknown };
+        if (typeof run.name !== "string" || typeof run.status !== "string") {
+          continue;
+        }
+        checkRuns.push({
+          name: run.name,
+          status: run.status,
+          conclusion: typeof run.conclusion === "string" ? run.conclusion : null,
+        });
       }
       if (data.check_runs.length < 100) {
         break;
@@ -1545,22 +1525,6 @@ function fetchCommitChecksForSha(worktreePath: string, sha: string): CiCheckStat
   }
 }
 
-function isRecoverableReadyTestFlake(gateError: Error): boolean {
-  if (!(gateError instanceof ReadyCommandError)) {
-    return false;
-  }
-  const captured = gateError.message;
-  if (captured.includes(READY_DEADLINE_EXCEEDED)) {
-    return false;
-  }
-  return captured.includes(READY_PARALLEL_TEST_FAILED) || captured.includes(READY_SERIAL_TEST_FAILED);
-}
-
-function isProbeSignalOrTimeout(exitCode: number): boolean {
-  return PROBE_SIGNAL_TIMEOUT_EXIT_CODES.has(exitCode);
-}
-
-/** Extract deduped failing test file paths from gate stderr; cap at 8 first-seen. */
 export function extractFailingTestFilePaths(gateStderr: string): string[] {
   if (!gateStderr.includes("(fail)")) {
     return [];
@@ -1568,11 +1532,9 @@ export function extractFailingTestFilePaths(gateStderr: string): string[] {
   const paths: string[] = [];
   const seen = new Set<string>();
   const atPathRe = /at (?:\S+ )?\(?([^():\n]+?\.(?:test|spec)\.[tj]sx?):\d+/g;
-  let match = atPathRe.exec(gateStderr);
-  while (match !== null) {
+  for (const match of gateStderr.matchAll(atPathRe)) {
     const path = match[1];
     if (path === undefined || seen.has(path)) {
-      match = atPathRe.exec(gateStderr);
       continue;
     }
     seen.add(path);
@@ -1580,7 +1542,6 @@ export function extractFailingTestFilePaths(gateStderr: string): string[] {
     if (paths.length >= 8) {
       break;
     }
-    match = atPathRe.exec(gateStderr);
   }
   return paths;
 }
@@ -1601,7 +1562,14 @@ function tryRecoverMergeFlake(
   gateError: Error,
   getChecksForSha: (sha: string) => CiCheckState[] | null,
 ): boolean {
-  if (!isRecoverableReadyTestFlake(gateError)) {
+  if (!(gateError instanceof ReadyCommandError)) {
+    return false;
+  }
+  const gateStderr = gateError.message;
+  if (
+    gateStderr.includes("ready: deadline exceeded") ||
+    !READY_TEST_STEP_MARKERS.some((marker) => gateStderr.includes(marker))
+  ) {
     return false;
   }
 
@@ -1627,26 +1595,28 @@ function tryRecoverMergeFlake(
   }
 
   const runProbe = opts.runRecoveryProbe ?? defaultRunRecoveryProbe;
-  const probe1 = runProbe(worktreePath, ["test"]);
-  if (probe1 === 0) {
+  const probeGreen = (exitCode: number): boolean => {
+    if (exitCode !== 0) {
+      return false;
+    }
     opts.io.stdout(`${MERGE_FLAKE_RECOVERY_STDOUT}\n`);
     return true;
+  };
+
+  const probe1 = runProbe(worktreePath, ["test"]);
+  if (probeGreen(probe1)) {
+    return true;
   }
-  if (isProbeSignalOrTimeout(probe1)) {
+  if (PROBE_SIGNAL_TIMEOUT_EXIT_CODES.has(probe1)) {
     return false;
   }
 
-  const failingPaths = extractFailingTestFilePaths(gateError.message);
+  const failingPaths = extractFailingTestFilePaths(gateStderr);
   if (failingPaths.length === 0) {
     return false;
   }
 
-  const probe2 = runProbe(worktreePath, ["test", ...failingPaths]);
-  if (probe2 === 0) {
-    opts.io.stdout(`${MERGE_FLAKE_RECOVERY_STDOUT}\n`);
-    return true;
-  }
-  return false;
+  return probeGreen(runProbe(worktreePath, ["test", ...failingPaths]));
 }
 
 function waitForCiGreen(

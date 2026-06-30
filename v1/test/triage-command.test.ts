@@ -226,10 +226,48 @@ function readyTestFlakeError(stderr = GATE_TEST_FLAKE_STDERR): ReadyCommandError
 }
 
 const headShaGreenGh = {
+  ...mergeReadyGhRunner,
   getPrState: () => ({ state: "OPEN" as const, isDraft: true }),
-  getChecks: () => [{ name: "test", status: "success" as const }],
   getChecksForSha: () => [{ name: "ci", status: "success" as const }],
 };
+
+function runMergeFlakeRecovery(overrides: Partial<TriageCommandOptions> = {}) {
+  setupMergeWorktree("branch-1");
+  let probeCalls = 0;
+  const probeArgs: string[][] = [];
+  const { runRecoveryProbe: userProbe, ...rest } = overrides;
+  const { io, out, err } = captureIo();
+  const code = triageCommand(
+    triageMergeOpts({
+      projectRoot,
+      io,
+      worktreeName: "branch-1",
+      ghRunner: headShaGreenGh,
+      runGate: () => {
+        throw readyTestFlakeError();
+      },
+      runRecoveryProbe: (cwd, args) => {
+        probeCalls += 1;
+        probeArgs.push(args);
+        return userProbe ? userProbe(cwd, args) : 0;
+      },
+      prReady: () => {},
+      adminMerge: () => {},
+      ...rest,
+    }),
+  );
+  return { code, probeCalls, probeArgs, out: out(), err: err() };
+}
+
+function expectMergeRecoveryRefused(
+  overrides: Partial<TriageCommandOptions>,
+  expectedProbeCalls: number,
+): void {
+  const { code, probeCalls, err } = runMergeFlakeRecovery(overrides);
+  expect(code).toBe(1);
+  expect(probeCalls).toBe(expectedProbeCalls);
+  expectMergeRefusal(err, "implementation PR", "ready gate failed");
+}
 
 function expectMergeRefusal(stderr: string, mergeClass: string, stem?: string) {
   expect(stderr).toContain(`triage --merge (${mergeClass}):`);
@@ -2827,65 +2865,28 @@ describe("triage --mark-ready", () => {
     });
 
     test("--merge recovers on test flake when HEAD-sha CI green and serial probe passes", () => {
-      setupMergeWorktree("branch-1");
-
-      let probeCalls = 0;
       let mergeRan = false;
-
-      const { io, out } = captureIo();
-      const code = triageCommand(
-        triageMergeOpts({
-          projectRoot,
-          io,
-          worktreeName: "branch-1",
-          ghRunner: headShaGreenGh,
-          runGate: () => {
-            throw readyTestFlakeError();
-          },
-          runRecoveryProbe: () => {
-            probeCalls += 1;
-            return 0;
-          },
-          prReady: () => {},
-          adminMerge: () => {
-            mergeRan = true;
-          },
-        }),
-      );
+      const { code, probeCalls, out } = runMergeFlakeRecovery({
+        adminMerge: () => {
+          mergeRan = true;
+        },
+      });
 
       expect(code).toBe(0);
       expect(probeCalls).toBe(1);
       expect(mergeRan).toBe(true);
-      expect(out()).toContain(RECOVERY_STDOUT);
-      expect(out()).toContain("merged successfully");
+      expect(out).toContain(RECOVERY_STDOUT);
+      expect(out).toContain("merged successfully");
     });
 
     test("--merge recovers with targeted file probe when serial probe stays red", () => {
-      setupMergeWorktree("branch-1");
-
-      const probeArgs: string[][] = [];
       let mergeRan = false;
-
-      const { io, out } = captureIo();
-      const code = triageCommand(
-        triageMergeOpts({
-          projectRoot,
-          io,
-          worktreeName: "branch-1",
-          ghRunner: headShaGreenGh,
-          runGate: () => {
-            throw readyTestFlakeError();
-          },
-          runRecoveryProbe: (_cwd, args) => {
-            probeArgs.push(args);
-            return probeArgs.length === 1 ? 1 : 0;
-          },
-          prReady: () => {},
-          adminMerge: () => {
-            mergeRan = true;
-          },
-        }),
-      );
+      const { code, probeArgs, out } = runMergeFlakeRecovery({
+        runRecoveryProbe: (_cwd, args) => (args.length === 1 ? 1 : 0),
+        adminMerge: () => {
+          mergeRan = true;
+        },
+      });
 
       expect(code).toBe(0);
       expect(probeArgs).toEqual([
@@ -2893,258 +2894,78 @@ describe("triage --mark-ready", () => {
         ["test", "/repo/v1/test/run.sandbox-unrunnable.test.ts", "/repo/v1/test/triage-command.test.ts"],
       ]);
       expect(mergeRan).toBe(true);
-      expect(out()).toContain(RECOVERY_STDOUT);
+      expect(out).toContain(RECOVERY_STDOUT);
     });
 
     test("--merge refuses recovery on FixCommandError even when HEAD-sha CI is green", () => {
-      setupMergeWorktree("branch-1");
-
-      let probeCalls = 0;
-      const { io, err } = captureIo();
-      const code = triageCommand(
-        triageMergeOpts({
-          projectRoot,
-          io,
-          worktreeName: "branch-1",
-          ghRunner: headShaGreenGh,
+      expectMergeRecoveryRefused(
+        {
           runGate: () => {
             throw new FixCommandError("bun run fix failed");
           },
-          runRecoveryProbe: () => {
-            probeCalls += 1;
-            return 0;
-          },
-        }),
+        },
+        0,
       );
-
-      expect(code).toBe(1);
-      expect(probeCalls).toBe(0);
-      expectMergeRefusal(err(), "implementation PR", "ready gate failed");
     });
 
     test("--merge refuses recovery on generic Error with test-like message", () => {
-      setupMergeWorktree("branch-1");
-
-      let probeCalls = 0;
-      const { io, err } = captureIo();
-      const code = triageCommand(
-        triageMergeOpts({
-          projectRoot,
-          io,
-          worktreeName: "branch-1",
-          ghRunner: headShaGreenGh,
+      expectMergeRecoveryRefused(
+        {
           runGate: () => {
             throw new Error("ready: serial test failed (code 1)");
           },
-          runRecoveryProbe: () => {
-            probeCalls += 1;
-            return 0;
-          },
-        }),
+        },
+        0,
       );
-
-      expect(code).toBe(1);
-      expect(probeCalls).toBe(0);
-      expectMergeRefusal(err(), "implementation PR", "ready gate failed");
     });
 
-    test("--merge refuses recovery when HEAD-sha CI is red", () => {
-      setupMergeWorktree("branch-1");
-
-      let probeCalls = 0;
-      const { io, err } = captureIo();
-      const code = triageCommand(
-        triageMergeOpts({
-          projectRoot,
-          io,
-          worktreeName: "branch-1",
-          ghRunner: {
-            ...headShaGreenGh,
-            getChecksForSha: () => [{ name: "ci", status: "failure" }],
-          },
-          runGate: () => {
-            throw readyTestFlakeError();
-          },
-          runRecoveryProbe: () => {
-            probeCalls += 1;
-            return 0;
-          },
-        }),
-      );
-
-      expect(code).toBe(1);
-      expect(probeCalls).toBe(0);
-      expectMergeRefusal(err(), "implementation PR", "ready gate failed");
-    });
-
-    test("--merge refuses recovery when getChecksForSha throws", () => {
-      setupMergeWorktree("branch-1");
-
-      let probeCalls = 0;
-      const { io, err } = captureIo();
-      const code = triageCommand(
-        triageMergeOpts({
-          projectRoot,
-          io,
-          worktreeName: "branch-1",
-          ghRunner: {
-            ...headShaGreenGh,
-            getChecksForSha: () => {
-              throw new Error("gh api failed");
-            },
-          },
-          runGate: () => {
-            throw readyTestFlakeError();
-          },
-          runRecoveryProbe: () => {
-            probeCalls += 1;
-            return 0;
-          },
-        }),
-      );
-
-      expect(code).toBe(1);
-      expect(probeCalls).toBe(0);
-      expectMergeRefusal(err(), "implementation PR", "ready gate failed");
-    });
-
-    test("--merge refuses recovery when getChecksForSha returns unusable data", () => {
-      setupMergeWorktree("branch-1");
-
-      let probeCalls = 0;
-      const { io, err } = captureIo();
-      const code = triageCommand(
-        triageMergeOpts({
-          projectRoot,
-          io,
-          worktreeName: "branch-1",
-          ghRunner: {
-            ...headShaGreenGh,
-            getChecksForSha: () => null,
-          },
-          runGate: () => {
-            throw readyTestFlakeError();
-          },
-          runRecoveryProbe: () => {
-            probeCalls += 1;
-            return 0;
-          },
-        }),
-      );
-
-      expect(code).toBe(1);
-      expect(probeCalls).toBe(0);
-      expectMergeRefusal(err(), "implementation PR", "ready gate failed");
+    test("--merge refuses recovery when HEAD-sha CI is not green", () => {
+      for (const getChecksForSha of [
+        () => [{ name: "ci", status: "failure" as const }],
+        () => {
+          throw new Error("gh api failed");
+        },
+        () => null,
+      ]) {
+        expectMergeRecoveryRefused({ ghRunner: { ...headShaGreenGh, getChecksForSha } }, 0);
+      }
     });
 
     test("--merge refuses recovery on deadline exceeded or missing harness test markers", () => {
-      setupMergeWorktree("branch-1");
-
       for (const message of [
         `bun run ready failed:\nready: deadline exceeded after 600000ms; killing child tree\n`,
         "bun run ready failed:\nbun run typecheck failed\n",
       ]) {
-        let probeCalls = 0;
-        const { io, err } = captureIo();
-        const code = triageCommand(
-          triageMergeOpts({
-            projectRoot,
-            io,
-            worktreeName: "branch-1",
-            ghRunner: headShaGreenGh,
+        expectMergeRecoveryRefused(
+          {
             runGate: () => {
               throw new ReadyCommandError(message);
             },
-            runRecoveryProbe: () => {
-              probeCalls += 1;
-              return 0;
-            },
-          }),
+          },
+          0,
         );
-
-        expect(code).toBe(1);
-        expect(probeCalls).toBe(0);
-        expectMergeRefusal(err(), "implementation PR", "ready gate failed");
       }
     });
 
     test("--merge refuses recovery when probe 1 red and extraction yields zero paths", () => {
-      setupMergeWorktree("branch-1");
-
-      let probeCalls = 0;
-      const { io, err } = captureIo();
-      const code = triageCommand(
-        triageMergeOpts({
-          projectRoot,
-          io,
-          worktreeName: "branch-1",
-          ghRunner: headShaGreenGh,
+      expectMergeRecoveryRefused(
+        {
           runGate: () => {
             throw readyTestFlakeError("bun run ready failed:\nready: serial test failed (code 1)\n");
           },
-          runRecoveryProbe: () => {
-            probeCalls += 1;
-            return 1;
-          },
-        }),
+          runRecoveryProbe: () => 1,
+        },
+        1,
       );
-
-      expect(code).toBe(1);
-      expect(probeCalls).toBe(1);
-      expectMergeRefusal(err(), "implementation PR", "ready gate failed");
     });
 
     test("--merge refuses recovery when probes stay red", () => {
-      setupMergeWorktree("branch-1");
-
-      let probeCalls = 0;
-      const { io, err } = captureIo();
-      const code = triageCommand(
-        triageMergeOpts({
-          projectRoot,
-          io,
-          worktreeName: "branch-1",
-          ghRunner: headShaGreenGh,
-          runGate: () => {
-            throw readyTestFlakeError();
-          },
-          runRecoveryProbe: () => {
-            probeCalls += 1;
-            return 1;
-          },
-        }),
-      );
-
-      expect(code).toBe(1);
-      expect(probeCalls).toBe(2);
-      expectMergeRefusal(err(), "implementation PR", "ready gate failed");
+      expectMergeRecoveryRefused({ runRecoveryProbe: () => 1 }, 2);
     });
 
     test("--merge refuses recovery when probe exits with signal or timeout code", () => {
-      setupMergeWorktree("branch-1");
-
       for (const exitCode of [124, 130, 143]) {
-        let probeCalls = 0;
-        const { io, err } = captureIo();
-        const code = triageCommand(
-          triageMergeOpts({
-            projectRoot,
-            io,
-            worktreeName: "branch-1",
-            ghRunner: headShaGreenGh,
-            runGate: () => {
-              throw readyTestFlakeError();
-            },
-            runRecoveryProbe: () => {
-              probeCalls += 1;
-              return exitCode;
-            },
-          }),
-        );
-
-        expect(code).toBe(1);
-        expect(probeCalls).toBe(1);
-        expectMergeRefusal(err(), "implementation PR", "ready gate failed");
+        expectMergeRecoveryRefused({ runRecoveryProbe: () => exitCode }, 1);
       }
     });
 

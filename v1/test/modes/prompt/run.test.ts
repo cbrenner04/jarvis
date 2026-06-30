@@ -182,6 +182,7 @@ async function runPrompt(
   cap: ReturnType<typeof captureIo>,
   promptText = "do the thing",
   testHooks?: PromptTestHooks,
+  agentPin?: { agent: AgentName; inlineModel?: string; cliModel?: string },
 ): Promise<number> {
   return promptCommand({
     promptText,
@@ -190,6 +191,7 @@ async function runPrompt(
     config: { dir: cfgDir },
     skipGhCheck: true,
     agents,
+    ...(agentPin !== undefined ? { agentPin } : {}),
     ...(testHooks?.testReapFn !== undefined ? { __testReapFn: testHooks.testReapFn } : {}),
     ...(testHooks?.testAfterPollFn !== undefined ? { __testAfterPollFn: testHooks.testAfterPollFn } : {}),
     ...(testHooks?.testDescendantPollIntervalMs !== undefined
@@ -508,5 +510,132 @@ describe("promptCommand", () => {
     });
 
     expect(code).toBe(2);
+  });
+
+  test("pinned opencode runs before config order when absent from agentOrder", async () => {
+    setupPromptEnv();
+    writeConfig(
+      {
+        version: 2,
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          prompt: {
+            agentOrder: [
+              { agent: "claude", model: "haiku" },
+              { agent: "cursor", model: "Composer 2.5" },
+            ],
+          },
+          review: { passes: 2 },
+        },
+        quotaFallback: "strict",
+        weakQuotaExitCodes: [],
+        maxIterations: 10,
+        iterationTimeoutMs: 30 * 60_000,
+        git: true,
+        projects: { project: { root: projectRoot } },
+      },
+      { dir: cfgDir },
+    );
+    const cap = captureIo();
+    const opencode = new FakeAgent("opencode", () => ({ kind: "ok", stdout: "open answer\n", stderr: "" }));
+    const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
+
+    const code = await runPrompt({ opencode, claude }, cap, "probe", undefined, {
+      agent: "opencode",
+      inlineModel: "opencode/deepseek-v4-flash-free",
+    });
+
+    expect(code).toBe(0);
+    expect(opencode.calls).toHaveLength(1);
+    expect(claude.calls).toHaveLength(0);
+    expect(cap.out()).toContain("open answer");
+  });
+
+  test("pinned agent dedupes config suffix and falls through on quota", async () => {
+    setupPromptEnv();
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({ kind: "quota", stderr: "limit" }));
+    const codex = new FakeAgent("codex", () => ({ kind: "ok", stdout: "codex wins\n", stderr: "" }));
+
+    const code = await runPrompt({ claude, codex }, cap, "probe", undefined, { agent: "claude" });
+
+    expect(code).toBe(0);
+    expect(claude.calls).toHaveLength(1);
+    expect(codex.calls).toHaveLength(1);
+    expect(cap.out()).toContain("codex wins");
+  });
+
+  test("pinned agent runs before earlier config order entry", async () => {
+    setupPromptEnv();
+    writeConfig(
+      {
+        version: 2,
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          prompt: {
+            agentOrder: [
+              { agent: "codex", model: "gpt-5.3-codex" },
+              { agent: "claude", model: "haiku" },
+            ],
+          },
+          review: { passes: 2 },
+        },
+        quotaFallback: "strict",
+        weakQuotaExitCodes: [],
+        maxIterations: 10,
+        iterationTimeoutMs: 30 * 60_000,
+        git: true,
+        projects: { project: { root: projectRoot } },
+      },
+      { dir: cfgDir },
+    );
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "claude first\n", stderr: "" }));
+    const codex = new FakeAgent("codex", () => ({ kind: "ok", stdout: "", stderr: "" }));
+
+    const code = await runPrompt({ claude, codex }, cap, "probe", undefined, { agent: "claude" });
+
+    expect(code).toBe(0);
+    expect(claude.calls).toHaveLength(1);
+    expect(codex.calls).toHaveLength(0);
+  });
+
+
+  test("telemetry configured_model follows effective list override", async () => {
+    const telemetryPath = join(dir, "runs.jsonl");
+    setupPromptEnv();
+    writeConfig(
+      {
+        version: 2,
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          prompt: { agentOrder: [CLAUDE_ENTRY] },
+          review: { passes: 2 },
+        },
+        quotaFallback: "strict",
+        weakQuotaExitCodes: [],
+        maxIterations: 10,
+        iterationTimeoutMs: 30 * 60_000,
+        git: true,
+        telemetryPath,
+        projects: { project: { root: projectRoot } },
+      },
+      { dir: cfgDir },
+    );
+    const cap = captureIo();
+    const opencode = new FakeAgent("opencode", () => ({ kind: "ok", stdout: "answer\n", stderr: "" }));
+
+    const code = await runPrompt({ opencode }, cap, "probe", undefined, {
+      agent: "opencode",
+      inlineModel: "opencode/custom-model",
+    });
+
+    expect(code).toBe(0);
+    const row = JSON.parse(readFileSync(telemetryPath, "utf8").trim().split("\n").at(-1)!);
+    expect(row.configured_model).toBe("opencode/custom-model");
+    expect(row.agent).toBe("opencode");
   });
 });

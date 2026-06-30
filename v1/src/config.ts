@@ -140,6 +140,10 @@ const DEFAULT_AGENT_MODELS: Record<AgentName, string> = {
   opencode: "opencode/deepseek-v4-flash-free",
 };
 
+export function defaultAgentModel(agent: AgentName): string {
+  return DEFAULT_AGENT_MODELS[agent];
+}
+
 const DEFAULT_AGENT_ORDER: AgentEntry[] = [
   { agent: "claude", model: DEFAULT_AGENT_MODELS.claude },
   { agent: "codex", model: DEFAULT_AGENT_MODELS.codex },

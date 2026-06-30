@@ -5,18 +5,23 @@
 ## Invocation
 
 ```sh
-jarvis1 prompt [--repo <name|path|url>] <text>
+jarvis1 prompt [--repo <name|path|url>] [--agent <name>[:<model>]] [--model <model>] <text>
 ```
 
 The `<text>` argument is treated as the prompt. If it contains spaces or special characters, quote it:
 
 ```sh
 jarvis1 prompt "fix the broken test in test/auth.test.ts"
+jarvis1 prompt --agent opencode "probe opencode in this repo"
+jarvis1 prompt --agent codex:gpt-5.3-codex "try this model"
+jarvis1 prompt --agent claude --model sonnet "override model without colon syntax"
 ```
 
 ### Flags
 
 - `--repo <name|path|url>` — optional project specifier (name, path, or GitHub URL). If omitted, resolution falls back to parent `.git` directory detection.
+- `--agent <name>[:<model>]` — pin the primary agent for this invocation; config `modes.prompt.agentOrder` suffix follows with duplicates skipped.
+- `--model <model>` — model for the pinned agent when `--agent` omits `:model`. Requires `--agent`. When both `--agent <name>:<model>` and `--model` are set, the colon form wins.
 - `--cwd` — **not allowed** in prompt mode; the agent always runs in the resolved project root.
 
 ## Preflight rejections
@@ -39,7 +44,7 @@ The worktree is derived from the project root and includes a 6-character random 
 
 ## Single-pass execution
 
-Prompt mode is strictly single-pass: it invokes agents from `modes.prompt.agentOrder` in order until one succeeds or the chain ends:
+Prompt mode is strictly single-pass: it invokes agents from the effective prompt list (pinned `--agent` first when set, then `modes.prompt.agentOrder` with duplicates skipped) in order until one succeeds or the chain ends:
 
 1. Load the prompt using the shared template system.
 2. Try agents in configured order. Fallback-eligible outcomes (`quota`, `model_config`) advance to the next agent; generic `error` (exit 3) and iteration timeout (exit 8) halt immediately on the failing agent.

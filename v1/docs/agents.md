@@ -47,13 +47,22 @@ Repeatable `--agent <name>[:<model>]` on `jarvis1 run` or `jarvis1 plan` replace
 
 **`jarvis1 plan`** — replaces `modes.plan.agentOrder` for actuators (draft, verdict-actuator, PR narrative). Review panel and quota use pre-override `modes.review.agentOrder ?? modes.plan.agentOrder`. `--resume` + `--agent` applies override to verdict-actuator only.
 
-`jarvis1 intent` and `jarvis1 prompt` do not accept `--agent`.
+`jarvis1 intent` does not accept `--agent`. `jarvis1 prompt` accepts a single `--agent` pin (see [Prompt `--agent` override](#prompt---agent-override)).
 
 ```sh
 jarvis1 run --agent codex:gpt-5.4 path/to/spec/index.md
 jarvis1 run --agent codex --agent claude:haiku path/to/spec/index.md
 jarvis1 plan --agent codex:gpt-5.4 path/to/ready-intents/my-feature.md
+jarvis1 prompt --agent opencode path/to/prompt-text
 ```
+
+### Prompt `--agent` override
+
+Single `--agent <name>[:<model>]` on `jarvis1 prompt` pins the primary agent for one invocation; `modes.prompt.agentOrder` on disk is unchanged. The pinned agent runs first; remaining config entries follow in order with duplicate names skipped. Optional `--model <model>` sets the pinned agent's model when `--agent` omits `:model`; when both `--agent <name>:<model>` and `--model` are set, the colon form wins.
+
+Model resolution for the pinned agent: `--agent <name>:<model>` → `--model` → matching `modes.prompt.agentOrder` row → agent default (`haiku`, `gpt-5.4`, `Composer 2.5`, `opencode/deepseek-v4-flash-free`). Quota and `model_config` still advance through the effective list; generic `error` and iteration timeout halt immediately.
+
+Repeatable `--agent` on `jarvis1 run` / `jarvis1 plan` replaces the whole mode ladder for that invocation (see above). Prompt uses a pin-plus-suffix model, not a full ladder replacement.
 
 Jarvis normalizes the `PWD` environment variable for every spawned agent so
 that agents that read `PWD` (e.g., opencode) operate on the working directory

@@ -6,6 +6,7 @@ import type { Agent, AgentName } from "../../agents/types.ts";
 import type { Io } from "../../cli.ts";
 import { readGitOriginUrl } from "../../commands/init.ts";
 import {
+  type AgentEntry,
   type Config,
   type ConfigOptions,
   findProjectMatchForPath,
@@ -24,6 +25,10 @@ import { appendTelemetryLine, type TelemetryKind } from "../../telemetry.ts";
 import { extractUsageAndCost, type UsageCostFields } from "../../telemetry-enrichment.ts";
 import { createPromptWorktree, pushCurrent } from "../../worktree.ts";
 import { acquireWorktreeLock, releaseWorktreeLock } from "../../worktree-lock.ts";
+import {
+  buildEffectivePromptAgentEntries,
+  type PromptAgentPin,
+} from "../../prompt-agent-override.ts";
 import { DESCENDANT_POLL_INTERVAL_MS, DescendantTracker } from "../patch/reap.ts";
 import { buildPrompt } from "./prompt.ts";
 
@@ -33,6 +38,7 @@ export type PromptRunOptions = {
   projectPath: string;
   config: ConfigOptions | undefined;
   skipGhCheck?: boolean | undefined;
+  agentPin?: PromptAgentPin | undefined;
   agents?: Partial<Record<AgentName, Agent>>;
   /**
    * Test-only override for the orphan-reap entry point. Lets an induced reap
@@ -46,18 +52,18 @@ export type PromptRunOptions = {
   __testDescendantPollIntervalMs?: number;
 };
 
-function buildActivePromptAgents(opts: PromptRunOptions, cfg: Config): Agent[] {
+type PromptAgentSlot = {
+  entry: AgentEntry;
+  agent: Agent;
+};
+
+function buildActivePromptAgents(opts: PromptRunOptions, cfg: Config): PromptAgentSlot[] {
   const overrides = opts.agents;
-  const agents: Agent[] = [];
-  for (const entry of cfg.modes.prompt.agentOrder) {
-    const override = overrides?.[entry.agent];
-    if (override !== undefined) {
-      agents.push(override);
-      continue;
-    }
-    agents.push(createAgent(entry.agent, entry.model));
-  }
-  return agents;
+  const entries = buildEffectivePromptAgentEntries(opts.agentPin, cfg.modes.prompt.agentOrder);
+  return entries.map((entry) => ({
+    entry,
+    agent: overrides?.[entry.agent] ?? createAgent(entry.agent, entry.model),
+  }));
 }
 
 function generateNonce(): string {
@@ -201,17 +207,16 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
     let sawNonQuotaFallthrough = false;
 
     for (let agentIndex = 0; agentIndex < agents.length; agentIndex += 1) {
-      const agent = agents[agentIndex];
-      if (agent === undefined) {
+      const slot = agents[agentIndex];
+      if (slot === undefined) {
         continue;
       }
+      const { agent, entry } = slot;
       const isLastAgent = agentIndex === agents.length - 1;
       attemptedAgentCount += 1;
       opts.io.stderr(`jarvis1: invoking ${agent.name}...\n`);
 
-      // Look up configured model for this agent
-      const agentConfigEntry = cfg.modes.prompt.agentOrder.find((entry) => entry.agent === agent.name);
-      configuredModel = agentConfigEntry?.model;
+      configuredModel = entry.model;
 
       const descendantTracker = new DescendantTracker();
       const descendantPollIntervalMs =

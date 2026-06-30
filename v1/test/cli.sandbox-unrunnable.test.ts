@@ -274,6 +274,72 @@ describe("parseArgs", () => {
     }
   });
 
+  test("prompt with --agent and --model flags", () => {
+    expect(
+      parseArgs(["prompt", "--repo", "my-project", "--agent", "codex", "--model", "gpt-5.3-codex", "multi word text"]),
+    ).toEqual({
+      kind: "prompt",
+      text: "multi word text",
+      repo: "my-project",
+      agentPin: { agent: "codex", cliModel: "gpt-5.3-codex" },
+    });
+  });
+
+  test("prompt with --agent inline model", () => {
+    expect(parseArgs(["prompt", "--agent", "claude:sonnet", "hello"])).toEqual({
+      kind: "prompt",
+      text: "hello",
+      agentPin: { agent: "claude", inlineModel: "sonnet" },
+    });
+  });
+
+  test("prompt with unknown --agent → error", () => {
+    const parsed = parseArgs(["prompt", "--agent", "bogus", "hello"]);
+    expect(parsed.kind).toBe("error");
+    if (parsed.kind === "error") {
+      expect(parsed.message).toContain("bogus");
+      expect(parsed.message).toContain("claude");
+    }
+  });
+
+  test("prompt with missing --agent value → error", () => {
+    const parsed = parseArgs(["prompt", "--agent"]);
+    expect(parsed.kind).toBe("error");
+    if (parsed.kind === "error") {
+      expect(parsed.message).toContain("missing value for --agent");
+    }
+  });
+
+  test("prompt with duplicate --agent → error", () => {
+    const parsed = parseArgs(["prompt", "--agent", "claude", "--agent", "codex", "hello"]);
+    expect(parsed.kind).toBe("error");
+    if (parsed.kind === "error") {
+      expect(parsed.message).toContain("duplicate --agent");
+    }
+  });
+
+  test("prompt with empty agent name → error", () => {
+    const parsed = parseArgs(["prompt", "--agent", ":model", "hello"]);
+    expect(parsed.kind).toBe("error");
+    if (parsed.kind === "error") {
+      expect(parsed.message).toContain("invalid value");
+    }
+  });
+
+  test("init with --agent → error", () => {
+    const parsed = parseArgs(["init", "--agent", "claude"]);
+    expect(parsed.kind).toBe("error");
+    if (parsed.kind === "error") {
+      expect(parsed.message).toContain("--agent is not supported");
+    }
+  });
+
+  test("intent with --agent → error via unknown flag", () => {
+    const parsed = parseArgs(["intent", "--agent", "claude", "seed.md"]);
+    expect(parsed.kind).toBe("intent");
+    expect(parsed.rest).toEqual(["--agent", "claude", "seed.md"]);
+  });
+
   test("cleanup with --abandon and --dry-run", () => {
     expect(parseArgs(["cleanup", "--abandon", "--dry-run"])).toEqual({
       kind: "cleanup",

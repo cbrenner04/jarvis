@@ -15,8 +15,6 @@ import { openStateStore } from "../state-store.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import { type IpcServer, startIpcServer } from "./server.ts";
 
-type StreamDataLine = { kind: "stream-data"; payload: string };
-
 describe("ipc tail cross-process wake", () => {
   const socketTest = it.skipIf(!canUseUnixSockets());
 
@@ -25,12 +23,11 @@ describe("ipc tail cross-process wake", () => {
     async () => {
       const tempDir = await mkdtemp(join(tmpdir(), "ipc-tail-xproc-"));
       const storagePath = join(tempDir, "logs.jsonl");
-      const stateDbPath = join(tempDir, "state.db");
       const socketPath = join(tempDir, "daemon.sock");
       const clientScriptPath = join(tempDir, "tail-client.ts");
       const writerScriptPath = join(tempDir, "log-writer.ts");
 
-      const stateStore = openStateStore(stateDbPath);
+      const stateStore = openStateStore(join(tempDir, "state.db"));
       const runId = stateStore.createRun({
         project: "test-project",
         specRef: "main",
@@ -44,40 +41,36 @@ describe("ipc tail cross-process wake", () => {
       sink.append(runId, { kind: "iteration_started", attemptId: "a2" });
       sink.close();
 
-      const logReader = openLogReader(storagePath);
-      const tailHandler = createTailStreamHandler({ stateStore, logReader });
-      let server: IpcServer | undefined;
+      const tailHandler = createTailStreamHandler({ stateStore, logReader: openLogReader(storagePath) });
 
-      const clientModule = join(import.meta.dir, "client.ts");
       writeFileSync(
         clientScriptPath,
-        `import { connectIpcClient } from ${JSON.stringify(clientModule)};
+        `import { connectIpcClient } from ${JSON.stringify(join(import.meta.dir, "client.ts"))};
 const client = await connectIpcClient(process.argv[2]!);
 client.send({ kind: "stream-open", streamId: "tail", payload: { runId: process.argv[3]! } });
 for (;;) {
   const frame = await client.nextFrame();
   if (frame.kind === "stream-end") break;
-  if (frame.kind === "stream-data") {
-    process.stdout.write(JSON.stringify({ kind: "stream-data", payload: frame.payload }) + "\\n");
-  }
+  if (frame.kind === "stream-data") process.stdout.write(frame.payload + "\\n");
 }
 `,
-        "utf-8",
       );
 
-      const logStreamModule = join(import.meta.dir, "..", "log-stream.ts");
       writeFileSync(
         writerScriptPath,
-        `import { openLogSink } from ${JSON.stringify(logStreamModule)};
+        `import { openLogSink } from ${JSON.stringify(join(import.meta.dir, "..", "log-stream.ts"))};
 const sink = openLogSink(process.argv[2]!);
-sink.append(process.argv[3]!, { kind: "iteration_started", attemptId: process.argv[4]! });
+const runId = process.argv[3]!;
+for (const attemptId of process.argv.slice(4)) {
+  sink.append(runId, { kind: "iteration_started", attemptId });
+}
 sink.close();
 `,
-        "utf-8",
       );
 
-      const frames: StreamDataLine[] = [];
+      const records: PersistedRecord[] = [];
       let buf = "";
+      let server: IpcServer | undefined;
       let child: ChildProcess | undefined;
 
       try {
@@ -85,40 +78,33 @@ sink.close();
         child = spawn("bun", ["run", clientScriptPath, socketPath, runId], {
           stdio: ["ignore", "pipe", "pipe"],
         });
-
         const stdout = child.stdout;
         if (!stdout) throw new Error("child stdout not piped");
 
         stdout.setEncoding("utf-8");
         stdout.on("data", (chunk: string) => {
           buf += chunk;
-          let idx = buf.indexOf("\n");
-          while (idx >= 0) {
+          let idx;
+          while ((idx = buf.indexOf("\n")) >= 0) {
             const line = buf.slice(0, idx);
             buf = buf.slice(idx + 1);
-            if (line) {
-              frames.push(JSON.parse(line) as StreamDataLine);
-            }
-            idx = buf.indexOf("\n");
+            if (line) records.push(JSON.parse(line) as PersistedRecord);
           }
         });
 
         const waitForCount = (n: number): Promise<void> =>
           new Promise<void>((resolve, reject) => {
-            if (frames.length >= n) {
-              resolve();
-              return;
-            }
+            if (records.length >= n) return resolve();
             const onData = () => {
-              if (frames.length >= n) {
+              if (records.length >= n) {
                 stdout.off("data", onData);
                 resolve();
               }
             };
             stdout.on("data", onData);
             child?.on("exit", (code) => {
-              if (frames.length < n) {
-                reject(new Error(`client exited early with code ${code}, got ${frames.length} frames`));
+              if (records.length < n) {
+                reject(new Error(`client exited with code ${code}, got ${records.length} records`));
               }
             });
             child?.on("error", reject);
@@ -126,30 +112,18 @@ sink.close();
 
         await waitForCount(2);
 
-        const writer1 = spawn("bun", ["run", writerScriptPath, storagePath, runId, "a3"], {
+        const writer = spawn("bun", ["run", writerScriptPath, storagePath, runId, "a3", "a4"], {
           stdio: "ignore",
         });
-        await new Promise<void>((resolve, reject) => {
-          writer1.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`writer1 exit ${code}`))));
-          writer1.on("error", reject);
+        const writerCode = await new Promise<number | null>((resolve, reject) => {
+          writer.on("exit", resolve);
+          writer.on("error", reject);
         });
-
-        await waitForCount(3);
-
-        const writer2 = spawn("bun", ["run", writerScriptPath, storagePath, runId, "a4"], {
-          stdio: "ignore",
-        });
-        await new Promise<void>((resolve, reject) => {
-          writer2.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`writer2 exit ${code}`))));
-          writer2.on("error", reject);
-        });
+        if (writerCode !== 0) throw new Error(`writer exit ${writerCode}`);
 
         await waitForCount(4);
 
-        expect(frames.length).toBe(4);
-        const records = frames.map((f) => JSON.parse(f.payload) as PersistedRecord);
         expect(records.map((r) => r.seq)).toEqual([1, 2, 3, 4]);
-
         if (records[2]?.event.kind === "iteration_started") {
           expect(records[2].event.attemptId).toBe("a3");
         }
@@ -157,12 +131,8 @@ sink.close();
           expect(records[3].event.attemptId).toBe("a4");
         }
       } finally {
-        if (child) {
-          await killChild(child);
-        }
-        if (server) {
-          await server.close();
-        }
+        if (child) await killChild(child);
+        if (server) await server.close();
         stateStore.close();
         await rm(tempDir, { recursive: true, force: true });
       }

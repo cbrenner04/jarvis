@@ -44,6 +44,8 @@ Long-lived v2 reference docs live in `v2/docs/`. Multi-file specs go in `<target
 - Keep changes minimal and within the active subspec's scope — no speculative refactors, no unauthorized harness changes.
 - **Concise updates.** When reporting back, report only what's needed: the command run and the landed result, plus a concise session summary after each landed intent. No running commentary. See [v1/docs/operator-runbook.md#operator-feedback-cadence](v1/docs/operator-runbook.md#operator-feedback-cadence).
 - **No planning labels in code.** Phase/milestone/slice names are sequencing artifacts — never bake them into identifiers, filenames, or public API. A spec saying "Phase 1 state store" names *the state store*; call it that.
+- **Log server is always running** on the operator machine (`jarvis1 log-server` on `127.0.0.1:4310`, started and owned outside agent sessions). **Never** start, stop, restart, or kill port-4310 processes from an agent session — a second instance fights for the port or displaces the operator's long-lived server. `plan`/`run` preflight `log server unreachable` is almost always sandbox blindness; see [operator-runbook.md § Log server](v1/docs/operator-runbook.md#log-server).
+- **Log server is always running** on the operator machine (`jarvis1 log-server` on `127.0.0.1:4310`, started and owned outside agent sessions). **Never** start, stop, restart, or kill port-4310 processes from an agent session — a second instance fights for the port or displaces the operator's long-lived server. `plan`/`run` preflight `log server unreachable` is almost always sandbox blindness; see [operator-runbook.md § Log server](v1/docs/operator-runbook.md#log-server).
 
 ## PR attribution
 

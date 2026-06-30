@@ -1,4 +1,4 @@
 [test]
 timeout = 30000
-preload = ["./test/setup-fake-agents.ts"]
+preload = ["./test/setup-fake-agents.ts", "./test/preload-yoga-layout.ts"]
 onlyFailures = true

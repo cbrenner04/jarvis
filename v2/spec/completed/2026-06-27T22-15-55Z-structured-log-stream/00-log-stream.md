@@ -43,9 +43,10 @@ write-loop wiring (01) and no real agent bindings.
   — pin when daemon or TUI needs it.
 - Deferred to first consumer: exact sink medium (append-only file vs. SQLite
   table vs. hybrid) — pin in refine; injectable path suffices for tests.
-- Deferred to first consumer: cross-process `follow` wake — pin in Phase 3
-  daemon refine before daemon tail ships; in-process proofs in 00 suffice for
-  this slice.
+- Cross-process `follow` wake: settled in
+  `v2/spec/2026-06-29T19-41-09Z-cross-process-log-follow-wake/` (append-driven
+  `fs.watch` notification on shared storage; detached readers receive live
+  appends without fixed-interval polling).
 
 ### Event kinds (minimum vocabulary)
 

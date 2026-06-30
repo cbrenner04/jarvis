@@ -35,19 +35,19 @@ unchanged.
 
 ## Acceptance criteria
 
-- [ ] `daemon.ts` exports `createTailStreamHandler` returning a `StreamHandler` with injectable `stateStore` and `logReader` via `TailStreamHandlerDeps`.
-- [ ] `startDaemon` registers the factory-produced tail handler with production dependencies (no duplicate handler body in the closure).
-- [ ] `daemon-tail-stream.test.ts` wires `startIpcServer` with `createTailStreamHandler` over injected fakes.
-- [ ] `daemon-tail-stream.test.ts`: opening a tail stream for a run with a durable row and persisted log events replays them in `seq` order.
-- [ ] `daemon-tail-stream.test.ts`: opening a tail stream with missing or non-string `runId` closes without `stream-data`.
-- [ ] `daemon-tail-stream.test.ts`: opening a tail stream for a `runId` with no `loadRun` row closes without `stream-data`.
-- [ ] `daemon-tail-stream.test.ts`: after client `stream-end`, the `AbortSignal` passed to `logReader.follow` is aborted.
-- [ ] `createTailStreamHandler` and `TailStreamHandlerDeps` doc-comments state purpose, params, returns, thrown errors, and invariants per `v2/docs/documentation-standard.md` (deps fields; handler: `loadRun` before `follow`, `onClose` in `finally`, non-throwing).
-- [ ] `daemon.sandbox-unrunnable.test.ts` stays green.
-- [ ] `daemon-start-list.test.ts` stays green.
-- [ ] `daemon-run-failure-capture.test.ts` stays green.
-- [ ] `ipc.test.ts` stays green.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `daemon.ts` exports `createTailStreamHandler` returning a `StreamHandler` with injectable `stateStore` and `logReader` via `TailStreamHandlerDeps`.
+- [x] `startDaemon` registers the factory-produced tail handler with production dependencies (no duplicate handler body in the closure).
+- [x] `daemon-tail-stream.test.ts` wires `startIpcServer` with `createTailStreamHandler` over injected fakes.
+- [x] `daemon-tail-stream.test.ts`: opening a tail stream for a run with a durable row and persisted log events replays them in `seq` order.
+- [x] `daemon-tail-stream.test.ts`: opening a tail stream with missing or non-string `runId` closes without `stream-data`.
+- [x] `daemon-tail-stream.test.ts`: opening a tail stream for a `runId` with no `loadRun` row closes without `stream-data`.
+- [x] `daemon-tail-stream.test.ts`: after client `stream-end`, the `AbortSignal` passed to `logReader.follow` is aborted.
+- [x] `createTailStreamHandler` and `TailStreamHandlerDeps` doc-comments state purpose, params, returns, thrown errors, and invariants per `v2/docs/documentation-standard.md` (deps fields; handler: `loadRun` before `follow`, `onClose` in `finally`, non-throwing).
+- [x] `daemon.sandbox-unrunnable.test.ts` stays green.
+- [x] `daemon-start-list.test.ts` stays green.
+- [x] `daemon-run-failure-capture.test.ts` stays green.
+- [x] `ipc.test.ts` stays green.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

@@ -35,13 +35,13 @@ log stream planning.
 
 ## Acceptance criteria
 
-- [ ] `log-stream.test.ts` `"follow yields existing events from seq 1, then new appends in order"` stays green.
-- [ ] `log-stream.test.ts` `"follow stops without error when AbortSignal aborts"` stays green.
-- [ ] `log-stream.test.ts` `"tail and follow on unknown runId yield empty stream without error"` stays green.
-- [ ] `log-stream.test.ts` `"follow after sink close still replays persisted events"` stays green.
-- [ ] Agent-runnable `follow` tests coordinate live-append blocking through an injected wake-wait seam with no wall-clock dependence (`log-stream.test.ts`).
-- [ ] A detached reader on shared injectable storage receives records appended by a separate writer process for the same `runId` in ascending `seq` order without fixed-interval polling (`log-stream.sandbox-unrunnable.test.ts`; verify with `bun run test:integration:v2`).
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `log-stream.test.ts` `"follow yields existing events from seq 1, then new appends in order"` stays green.
+- [x] `log-stream.test.ts` `"follow stops without error when AbortSignal aborts"` stays green.
+- [x] `log-stream.test.ts` `"tail and follow on unknown runId yield empty stream without error"` stays green.
+- [x] `log-stream.test.ts` `"follow after sink close still replays persisted events"` stays green.
+- [x] Agent-runnable `follow` tests coordinate live-append blocking through an injected wake-wait seam with no wall-clock dependence (`log-stream.test.ts`).
+- [x] A detached reader on shared injectable storage receives records appended by a separate writer process for the same `runId` in ascending `seq` order without fixed-interval polling (`log-stream.sandbox-unrunnable.test.ts`; verify with `bun run test:integration:v2`).
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

@@ -176,7 +176,8 @@ Drive the path through the test seam:
   outcome routing, contract checks, blocker appending, state persistence, and
   cancellation via `AbortSignal`.
 - `bun test v2/src/cli.test.ts` proves foreground `write`, daemon lifecycle
-  commands, run-control success/error paths, and log JSONL streaming.
+  commands, run-control success/error paths, log JSONL streaming, and `jarvis run wait`
+  (blocking resolve, exit mapping, error pass-through).
 
 A live `jarvis write ...` runs the full pipeline and reports
 `"kind": "invocation_failure"` until process bindings land.

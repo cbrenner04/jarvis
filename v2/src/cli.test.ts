@@ -827,6 +827,9 @@ describe("v2 cli", () => {
     const code = await runWait(cap, "run-123", [waitResponse(result)]);
 
     expect(code).toBe(expectedExit);
+    if (!("loopOutcomeKind" in result)) {
+      expect(cap.read().stdout).toBe(`${JSON.stringify({ runStatus: result.runStatus })}\n`);
+    }
   });
 
   test("run wait with empty run ID forwards to daemon for invalid_params", async () => {

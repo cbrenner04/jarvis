@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import type { ErrorFrame, IpcFrame, ResponseFrame } from "./ipc/types.ts";
+import type { WriteLoopInput } from "./write-loop.ts";
 
 /** Operator-facing socket path in unavailable-daemon feedback. */
 export const TUI_DAEMON_SOCKET_DISPLAY = "~/.jarvis/daemon.sock";
@@ -9,8 +10,11 @@ export const TUI_DAEMON_SOCKET_DISPLAY = "~/.jarvis/daemon.sock";
 /** Successful `health` RPC payload from the daemon host. */
 export type TuiDaemonHealthResult = { ok: true };
 
-/** Successful `status` RPC payload when the daemon host is live. */
+/** Successful IPC `status` RPC payload when the daemon host is live. */
 export type TuiDaemonStatusResult = { state: "running" };
+
+/** Successful IPC `start` RPC payload with the spawned run id. */
+export type TuiDaemonStartResult = { runId: string };
 
 /** Transport or wire-protocol failure while talking to the daemon socket. */
 export class TuiDaemonConnectionError extends Error {
@@ -40,7 +44,7 @@ export class TuiDaemonRpcError extends Error {
   }
 }
 
-/** Connected TUI daemon client: `health`, `status`, and `close` over one IPC transport. */
+/** Connected TUI daemon client: `health`, `status`, `start`, and `close` over one IPC transport. */
 export type TuiDaemonClient = {
   /**
    * Round-trip `health`; reuses the open transport.
@@ -56,6 +60,14 @@ export type TuiDaemonClient = {
    * @throws {TuiDaemonRpcError} When the daemon returns a correlated `error` frame.
    */
   status(): Promise<TuiDaemonStatusResult>;
+  /**
+   * Round-trip IPC `start` with one `WriteLoopInput` payload.
+   * @param input Daemon launch payload matching `jarvis run start`.
+   * @returns Spawned run id `{ runId }`.
+   * @throws {TuiDaemonConnectionError} On wire or transport failure.
+   * @throws {TuiDaemonRpcError} When the daemon returns a correlated `error` frame.
+   */
+  start(input: WriteLoopInput): Promise<TuiDaemonStartResult>;
   /** Tear down the underlying IPC transport; does not throw. */
   close(): void;
 };
@@ -74,9 +86,9 @@ function isCorrelatedRpcFrame(frame: IpcFrame): frame is ResponseFrame | ErrorFr
   return (frame.kind === "response" || frame.kind === "error") && typeof frame.id === "string";
 }
 
-async function rpcRequest(client: IpcClient, method: string): Promise<unknown> {
+async function rpcRequest(client: IpcClient, method: string, params?: unknown): Promise<unknown> {
   const id = crypto.randomUUID();
-  client.send({ kind: "request", id, method });
+  client.send({ kind: "request", id, method, ...(params !== undefined ? { params } : {}) });
 
   while (true) {
     let frame: IpcFrame;
@@ -120,11 +132,18 @@ function parseStatusResult(result: unknown): TuiDaemonStatusResult {
   throw new TuiDaemonConnectionError("malformed RPC reply: invalid status result");
 }
 
+function parseStartResult(result: unknown): TuiDaemonStartResult {
+  if (typeof result === "object" && result !== null && typeof (result as { runId?: unknown }).runId === "string") {
+    return { runId: (result as { runId: string }).runId };
+  }
+  throw new TuiDaemonConnectionError("malformed RPC reply: invalid start result");
+}
+
 /**
  * Open a TUI daemon client on the production or injected socket.
  *
  * @param options Optional socket path and `connectIpcClient` seam.
- * @returns A client exposing `health`, `status`, and `close` on one connection.
+ * @returns A client exposing `health`, `status`, `start`, and `close` on one connection.
  * @throws {TuiDaemonConnectionError} When the socket is unreachable or RPC wire protocol fails.
  */
 export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promise<TuiDaemonClient> {
@@ -144,6 +163,9 @@ export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promi
     },
     async status(): Promise<TuiDaemonStatusResult> {
       return parseStatusResult(await rpcRequest(client, "status"));
+    },
+    async start(input: WriteLoopInput): Promise<TuiDaemonStartResult> {
+      return parseStartResult(await rpcRequest(client, "start", { input }));
     },
     close(): void {
       client.close();

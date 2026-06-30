@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
 import { createAgentBindings } from "../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
@@ -17,6 +16,7 @@ import {
   type WriteLoopOutcomeKind,
   type WriteLoopResult,
 } from "./write-loop.ts";
+import { buildWriteLoopInputFromCliValues, parseWriteArgs } from "./write-loop-input.ts";
 
 export type Io = {
   stdout: (s: string) => void;
@@ -37,8 +37,6 @@ type CliDeps = {
 
 type WriteCliInput = { ok: true; input: WriteLoopInput } | { ok: false; message?: string };
 
-const DEFAULT_STEP_RULES = "Return exactly one terminal token: done|no-work|blocked|progress.";
-const DEFAULT_AGENTS = ["claude"] as const;
 const DEFAULT_SOCKET_PATH = join(homedir(), ".jarvis", "daemon.sock");
 const DEFAULT_PID_PATH = join(homedir(), ".jarvis", "daemon.pid");
 const DAEMON_USAGE = "usage: jarvis daemon <start|stop|status>\n";
@@ -354,82 +352,11 @@ function parseWriteCliInput(argv: readonly string[], deps: CliDeps): WriteCliInp
     return { ok: false };
   }
 
-  const required = parseRequiredWriteValues(values);
-  const agents = parseAgents(stringValue(values.agents));
-  if (required === null || agents === null) return { ok: false };
-
-  const maxIterations = parseMaxIterations(stringValue(values["max-iterations"]));
-  if (maxIterations === null) {
-    return { ok: false, message: "Error: --max-iterations must be a positive integer\n" };
+  const built = buildWriteLoopInputFromCliValues(values, deps.createBindings);
+  if (!built.ok) {
+    return "message" in built ? { ok: false, message: built.message } : { ok: false };
   }
-
-  const input: WriteLoopInput = {
-    worktree: {
-      projectRoot: required.projectRoot,
-      projectName: required.projectName,
-      branchName: required.branchName,
-      baseRef: required.baseRef,
-    },
-    specPath: required.specPath,
-    stepRules: DEFAULT_STEP_RULES,
-    expectedArtifactPath: required.artifactPath,
-    bindings: deps.createBindings(agents),
-  };
-
-  return maxIterations === undefined ? { ok: true, input } : { ok: true, input: { ...input, maxIterations } };
-}
-
-function parseWriteArgs(argv: readonly string[]): Record<string, string | boolean | string[] | undefined> {
-  return parseArgs({
-    args: [...argv],
-    allowPositionals: false,
-    strict: true,
-    options: {
-      "project-root": { type: "string" },
-      project: { type: "string" },
-      branch: { type: "string" },
-      base: { type: "string" },
-      spec: { type: "string" },
-      artifact: { type: "string" },
-      agents: { type: "string" },
-      "max-iterations": { type: "string" },
-    },
-  }).values;
-}
-
-function parseRequiredWriteValues(values: Record<string, string | boolean | string[] | undefined>): {
-  projectRoot: string;
-  projectName: string;
-  branchName: string;
-  baseRef: string;
-  specPath: string;
-  artifactPath: string;
-} | null {
-  const projectRoot = stringValue(values["project-root"]);
-  const projectName = stringValue(values.project);
-  const branchName = stringValue(values.branch);
-  const baseRef = stringValue(values.base);
-  const specPath = stringValue(values.spec);
-  const artifactPath = stringValue(values.artifact);
-
-  if (
-    projectRoot === undefined ||
-    projectName === undefined ||
-    branchName === undefined ||
-    baseRef === undefined ||
-    specPath === undefined ||
-    artifactPath === undefined
-  ) {
-    return null;
-  }
-
-  return { projectRoot, projectName, branchName, baseRef, specPath, artifactPath };
-}
-
-function parseMaxIterations(raw: string | undefined): number | undefined | null {
-  if (raw === undefined) return undefined;
-  const maxIterations = parseInt(raw, 10);
-  return Number.isNaN(maxIterations) || maxIterations < 1 ? null : maxIterations;
+  return { ok: true, input: built.input };
 }
 
 function writeStdoutJson(result: WriteLoopResult): string {
@@ -512,19 +439,6 @@ function exitCodeForWaitResult(result: WaitRunCompletionResult): number {
     default:
       return 1;
   }
-}
-
-function stringValue(value: string | boolean | string[] | undefined): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
-function parseAgents(raw: string | undefined): readonly string[] | null {
-  if (raw === undefined) return DEFAULT_AGENTS;
-  const agents = raw
-    .split(",")
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0);
-  return agents.length === 0 ? null : agents;
 }
 
 if (import.meta.main) {

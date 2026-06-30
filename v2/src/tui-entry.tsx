@@ -1,79 +1,100 @@
+import { createAgentBindings } from "../../shared/invocation/agents.ts";
+import type { InvocationBinding } from "../../shared/invocation/execute.ts";
 import {
   type ConnectTuiDaemonOptions,
   connectTuiDaemon,
   TUI_DAEMON_SOCKET_DISPLAY,
   type TuiDaemonClient,
   TuiDaemonConnectionError,
-  type TuiDaemonHealthResult,
-  type TuiDaemonStatusResult,
+  TuiDaemonRpcError,
 } from "./tui-daemon-client.ts";
+import {
+  collectLaunchFieldsViaInk,
+  type LaunchFieldCollectionResult,
+  type TuiLaunchFieldCollector,
+} from "./tui-field-collector.tsx";
 import type { InkRender } from "./tui-ink-feedback.tsx";
+import { buildWriteLoopInput } from "./write-loop-input.ts";
 
 export { TUI_DAEMON_SOCKET_DISPLAY };
 
-/** Operator-visible TUI connect scaffold state. */
+/** Operator-visible TUI view state for launch and unavailable feedback. */
 export type TuiViewState =
-  | { kind: "connected"; health: TuiDaemonHealthResult; status: TuiDaemonStatusResult }
+  | { kind: "launch-success"; runId: string }
+  | { kind: "rpc-error"; code: string; message: string }
+  | { kind: "validation-failure"; errors: readonly string[] }
   | { kind: "unavailable" };
 
 /** Injectable view host for tests and alternate renderers. */
 export type TuiViewHost = {
   /**
-   * Record or render operator-visible connect feedback.
-   * @param state Connected liveness proof or unavailable-daemon state.
+   * Record or render operator-visible launch feedback.
+   * @param state Launch outcome or unavailable-daemon state.
    */
   show(state: TuiViewState): void | Promise<void>;
 };
-
-export type { InkRender };
 
 /** Dependencies for {@link runTuiEntry}. */
 export type RunTuiEntryDeps = {
   /** Unix socket path; production default is `~/.jarvis/daemon.sock`. */
   socketPath?: string;
-  /** Injectable 00 client seam; defaults to {@link connectTuiDaemon}. */
+  /** Injectable daemon client seam; defaults to {@link connectTuiDaemon}. */
   connectTuiDaemon?: (options?: ConnectTuiDaemonOptions) => Promise<TuiDaemonClient>;
+  /** Injectable launch field collector; defaults to {@link collectLaunchFieldsViaInk}. */
+  collectLaunchFields?: TuiLaunchFieldCollector;
+  /** Binding factory for launch payload construction; defaults to {@link createAgentBindings}. */
+  createBindings?: (agentIds: readonly string[]) => readonly InvocationBinding[];
   /** When set, skips ink and records state (tests). */
   viewHost?: TuiViewHost;
   /** Injectable ink render; defaults to production `render`. */
   inkRender?: InkRender;
 };
 
-async function showWithInk(state: TuiViewState, inkRender?: InkRender): Promise<void> {
-  const { showTuiInkFeedback } = await import("./tui-ink-feedback.tsx");
-  await showTuiInkFeedback(state, inkRender);
-}
-
 async function present(state: TuiViewState, deps: RunTuiEntryDeps): Promise<void> {
   if (deps.viewHost !== undefined) {
     await deps.viewHost.show(state);
     return;
   }
-  await showWithInk(state, deps.inkRender);
+  const { showTuiInkFeedback } = await import("./tui-ink-feedback.tsx");
+  await showTuiInkFeedback(state, deps.inkRender);
 }
 
-/**
- * Connect to the daemon, prove IPC liveness, render ink feedback, and exit.
- *
- * @param deps Optional socket path, 00 client, view host, and ink render seams.
- * @returns `0` when `health` and IPC `status` succeed; `1` when the socket is unreachable.
- * @throws Re-throws non-connection errors from the 00 client.
- */
+/** Connect, prove liveness, collect launch fields, start a detached run, and exit. */
 export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
   const resolved = deps ?? {};
   const connectFn = resolved.connectTuiDaemon ?? connectTuiDaemon;
+  const collectFields = resolved.collectLaunchFields ?? collectLaunchFieldsViaInk;
+  const createBindings = resolved.createBindings ?? createAgentBindings;
   const connectOptions = resolved.socketPath !== undefined ? { socketPath: resolved.socketPath } : undefined;
 
   let client: TuiDaemonClient | undefined;
   try {
     client = await connectFn(connectOptions);
-    const health = await client.health();
-    const status = await client.status();
-    await present({ kind: "connected", health, status }, resolved);
+    await client.health();
+    await client.status();
+
+    const collected: LaunchFieldCollectionResult = await collectFields();
+    if (!collected.ok) {
+      await present({ kind: "validation-failure", errors: collected.errors }, resolved);
+      return 1;
+    }
+
+    const built = buildWriteLoopInput(collected.fields, createBindings);
+    if (!built.ok) {
+      await present({ kind: "validation-failure", errors: built.errors }, resolved);
+      return 1;
+    }
+
+    const started = await client.start(built.input);
+    await present({ kind: "launch-success", runId: started.runId }, resolved);
     return 0;
   } catch (error) {
     if (error instanceof TuiDaemonConnectionError) {
       await present({ kind: "unavailable" }, resolved);
+      return 1;
+    }
+    if (error instanceof TuiDaemonRpcError) {
+      await present({ kind: "rpc-error", code: error.code, message: error.message }, resolved);
       return 1;
     }
     throw error;

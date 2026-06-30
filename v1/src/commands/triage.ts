@@ -714,11 +714,13 @@ function buildSuggestedMovesInput(
   const unpushed = computeUnpushed(worktreePath);
   const prState = computePrState(worktreePath);
   const specComplete = computeSpecComplete(specPath);
-  const scopedAbandonEligible = checkScopedAbandonPreflight({
-    projectRoot,
-    worktreePath,
-    deps: { isMergedPr, findMatchingOpenPrs },
-  }).eligible;
+  const scopedAbandonEligible =
+    prState !== "unknown" &&
+    checkScopedAbandonPreflight({
+      projectRoot,
+      worktreePath,
+      deps: { isMergedPr, findMatchingOpenPrs },
+    }).eligible;
 
   return {
     dirtyKind,
@@ -919,9 +921,10 @@ const suggestedMovesRules: Array<{
   {
     match: (input) => ["modified", "mixed"].includes(input.dirtyKind) && input.specComplete === false,
     format: (input) => {
-      const discardLine = input.scopedAbandonEligible
-        ? `3. Discard: jarvis1 cleanup --abandon ${input.worktreeName}`
-        : `3. Discard: git -C ${input.worktreePath} reset --hard && git -C ${input.worktreePath} clean -fd`;
+      const discardLine =
+        input.scopedAbandonEligible && input.prState !== "unknown"
+          ? `3. Discard: jarvis1 cleanup --abandon ${input.worktreeName}`
+          : `3. Discard: git -C ${input.worktreePath} reset --hard && git -C ${input.worktreePath} clean -fd`;
       return [
         `1. Inspect: git -C ${input.worktreePath} diff`,
         `2. Resume: jarvis1 run ${input.specPath || "(spec path unknown)"}`,

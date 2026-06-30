@@ -782,6 +782,23 @@ describe("suggested moves rules", () => {
     expect(lines.some((l) => l.includes("cleanup --abandon"))).toBe(false);
   });
 
+  test("unknown prState with scoped abandon eligible does not suggest scoped abandon", () => {
+    const input = suggestedMovesBase({
+      dirtyKind: "modified",
+      unpushed: 0,
+      prState: "unknown",
+      specComplete: false,
+      worktreePath: "/tmp/test",
+      worktreeName: "uncertain-tree",
+      scopedAbandonEligible: true,
+      specPath: "/path/to/spec.md",
+    });
+
+    const lines = getSuggestedMoves(input);
+    expect(lines.some((l) => l.includes("cleanup --abandon"))).toBe(false);
+    expect(lines.some((l) => l.includes("reset --hard"))).toBe(true);
+  });
+
   test("fallback suggestion includes diff and session log", () => {
     const input = suggestedMovesBase({
       dirtyKind: "clean",

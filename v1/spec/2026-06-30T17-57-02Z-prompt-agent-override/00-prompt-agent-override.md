@@ -16,14 +16,14 @@
 - Effective prompt agent list replaces `buildActivePromptAgents` with per-entry `{ agent, model }` used for invocation and summary/telemetry attribution; rules out config-only model lookup that misreports `configuredModel` for pinned agents absent from config or using override models.
 - Quota, `model_config`, generic `error`, timeout, and exit-code policy stay on the existing prompt loop; rules out a parallel invocation path that masks real agent failures.
 - `modes.prompt.agentOrder` on disk is unchanged; rules out persisting override into config.
-- Non-`prompt` subcommands that receive `--agent` exit non-zero with a usage error; rules out silent ignore on other modes.
+- Subcommands without `--agent` support (`intent`, `config`, `cleanup`, …) exit non-zero with a usage error; `run` and `plan` already accept `--agent` via the agent-order-override spec. Rules out silent ignore on unsupported modes.
 
 ## Tasks
 
 - [ ] Parse `--agent` and optional `--model` on `jarvis1 prompt`; update usage/help strings.
 - [ ] Build effective prompt agent list (pinned first, deduped config suffix) as `{ agent, model }[]`; wire through invocation and telemetry.
 - [ ] Reject unknown/malformed `--agent` in `parseArgs` before worktree creation.
-- [ ] Reject `--agent` on non-prompt subcommands.
+- [ ] Reject `--agent` on unsupported subcommands (`intent`, `config`, `cleanup`, …); `run`/`plan` already accept it.
 - [ ] Add `parseArgs` tests in `v1/test/cli.sandbox-unrunnable.test.ts` (flag parsing, validation, malformed flags).
 - [ ] Add `promptCommand` integration tests (effective list, fallback, telemetry model).
 - [ ] Update durable docs listed below.
@@ -44,7 +44,7 @@
 - [ ] With no CLI model override, a pinned agent with a matching `agentOrder` row uses that row's model; a pinned agent absent from `agentOrder` uses the agent default.
 - [ ] When both `--agent <name>:<model>` and `--model <other>` are set, the pinned agent receives the colon model, not `--model`.
 - [ ] Effective-list `{ agent, model }` drives invocation and summary/telemetry `configuredModel` for pinned agents absent from config or using override models.
-- [ ] `jarvis1 run --agent claude <spec>` (and `jarvis1 plan --agent claude <target>`) exits non-zero with a clear usage error; no agent invocation.
+- [ ] `jarvis1 intent --agent claude <seed>` exits non-zero with a clear usage error; no agent invocation (`run`/`plan` already accept `--agent`).
 - [ ] `v1/test/cli.sandbox-unrunnable.test.ts` covers `--agent` / `--model` parseArgs (valid, malformed, non-prompt rejection).
 - [ ] `promptCommand` integration tests cover effective list, quota fallback, and telemetry model attribution.
 - [ ] `v1/test/modes/prompt/run.test.ts` stays green when `--agent` is omitted (behavior unchanged).

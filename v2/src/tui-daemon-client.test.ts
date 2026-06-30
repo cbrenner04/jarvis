@@ -4,14 +4,10 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { IpcClient } from "./ipc/client.ts";
 import { connectIpcClient } from "./ipc/client.ts";
+import { type IpcServer, startIpcServer } from "./ipc/server.ts";
 import type { IpcFrame } from "./ipc/types.ts";
-import { startIpcServer, type IpcServer } from "./ipc/server.ts";
 import { canUseUnixSockets, socketProbeErrored } from "./testing/unix-socket.ts";
-import {
-  connectTuiDaemon,
-  TuiDaemonConnectionError,
-  TuiDaemonRpcError,
-} from "./tui-daemon-client.ts";
+import { connectTuiDaemon, TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-client.ts";
 
 if (socketProbeErrored) {
   process.stderr.write("skip: TUI daemon client socket tests require socket support in /tmp\n");
@@ -149,9 +145,7 @@ test("rejects correlated health error frames as TuiDaemonRpcError", async () => 
   await withFixedUuids([HEALTH_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeClient([
-          { kind: "error", id: HEALTH_REQUEST_ID, code: "unhealthy", message: "daemon not ready" },
-        ]),
+        makeClient([{ kind: "error", id: HEALTH_REQUEST_ID, code: "unhealthy", message: "daemon not ready" }]),
     });
 
     await expect(client.health()).rejects.toMatchObject({
@@ -167,9 +161,7 @@ test("rejects correlated status error frames as TuiDaemonRpcError", async () => 
   await withFixedUuids([STATUS_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeClient([
-          { kind: "error", id: STATUS_REQUEST_ID, code: "status_unavailable", message: "no status" },
-        ]),
+        makeClient([{ kind: "error", id: STATUS_REQUEST_ID, code: "status_unavailable", message: "no status" }]),
     });
 
     await expect(client.status()).rejects.toBeInstanceOf(TuiDaemonRpcError);
@@ -180,8 +172,7 @@ test("rejects correlated status error frames as TuiDaemonRpcError", async () => 
 test("rejects malformed RPC replies with TuiDaemonConnectionError", async () => {
   await withFixedUuids([HEALTH_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
-      connectIpcClient: async () =>
-        makeClient([{ kind: "stream-open", streamId: "s1" } as IpcFrame]),
+      connectIpcClient: async () => makeClient([{ kind: "stream-open", streamId: "s1" } as IpcFrame]),
     });
 
     await expect(client.health()).rejects.toBeInstanceOf(TuiDaemonConnectionError);
@@ -192,8 +183,7 @@ test("rejects malformed RPC replies with TuiDaemonConnectionError", async () => 
 test("rejects non-correlated RPC replies with TuiDaemonConnectionError", async () => {
   await withFixedUuids([HEALTH_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
-      connectIpcClient: async () =>
-        makeClient([{ kind: "response", id: "other-id", result: { ok: true } }]),
+      connectIpcClient: async () => makeClient([{ kind: "response", id: "other-id", result: { ok: true } }]),
     });
 
     await expect(client.health()).rejects.toBeInstanceOf(TuiDaemonConnectionError);

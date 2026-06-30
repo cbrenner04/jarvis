@@ -111,11 +111,7 @@ function parseHealthResult(result: unknown): TuiDaemonHealthResult {
 }
 
 function parseStatusResult(result: unknown): TuiDaemonStatusResult {
-  if (
-    typeof result === "object" &&
-    result !== null &&
-    (result as { state?: unknown }).state === "running"
-  ) {
+  if (typeof result === "object" && result !== null && (result as { state?: unknown }).state === "running") {
     return { state: "running" };
   }
   throw new TuiDaemonConnectionError("malformed RPC reply: invalid status result");

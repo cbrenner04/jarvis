@@ -19,13 +19,17 @@ import {
   CONFIG_DIR,
   effectiveGit,
   loadConfig,
+  type AgentEntry,
+  type Config,
   type ProjectMatch,
   resolvePlanFlags,
+  resolveReviewAgentOrder,
   resolveReviewPasses,
 } from "../../config.ts";
 import type { LogClient } from "../../logging.ts";
 import { enterMode } from "../../mode-entry.ts";
 import { ensureDraftPr, renderAttribution } from "../../pr.ts";
+import { prefixAgentFlagError, parseAgentFlagValues } from "../../parse-agent-flag.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { normalizeRepoUrl } from "../../repo-url.ts";
 import { planSummary } from "../../run-summary.ts";
@@ -51,7 +55,7 @@ import {
   stripPlanSpecTimestampPrefix,
 } from "./spec-paths.ts";
 
-export const PLAN_USAGE = `Usage: jarvis1 plan [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] [--resume] <targetDir>/ready-intents/<name>.md
+export const PLAN_USAGE = `Usage: jarvis1 plan [--review-passes <n>] [--agent <name>[:<model>]] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] [--resume] <targetDir>/ready-intents/<name>.md
                             Run plan mode (draft specs under spec/…); see docs/plan-mode.md.
 `;
 
@@ -64,6 +68,22 @@ function planHarnessLog(logClient: LogClient, text: string, tag: "harness" | "ou
       tag,
     })
     .catch(() => {});
+}
+
+function withPlanAgentOrderOverride(cfg: Config, override: AgentEntry[] | undefined): Config {
+  if (override === undefined) {
+    return cfg;
+  }
+  return {
+    ...cfg,
+    modes: {
+      ...cfg.modes,
+      plan: {
+        ...cfg.modes.plan,
+        agentOrder: override,
+      },
+    },
+  };
 }
 
 export function parseIntentFrontmatter(text: string): {
@@ -683,18 +703,30 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
     const inv = result.invocation;
     const candidatePath = inv.readyIntentPath;
-    const cfg = loadConfig(opts.config);
+    const rawCfg = loadConfig(opts.config);
+    let agentOrderOverride = opts.agentOrderOverride;
+    if (inv.agentFlags !== undefined && inv.agentFlags.length > 0) {
+      const parsedAgents = parseAgentFlagValues(inv.agentFlags, rawCfg.modes.plan.agentOrder);
+      if (!parsedAgents.ok) {
+        opts.io.stderr(`${prefixAgentFlagError("plan", parsedAgents.message)}\n`);
+        return 1;
+      }
+      agentOrderOverride = parsedAgents.agentOrder;
+    }
+    const reviewCfg = rawCfg;
+    const planCfg = withPlanAgentOrderOverride(rawCfg, agentOrderOverride);
+    const reviewAgentOrder = resolveReviewAgentOrder(reviewCfg);
     // Agent used to author the model-written PR narrative (Description +
     // Decisions). Resolved from the head of the plan agent order; generation
     // degrades gracefully to no narrative if it fails or is unavailable.
-    const prAgentEntry = cfg.modes.plan.agentOrder[0];
+    const prAgentEntry = planCfg.modes.plan.agentOrder[0];
     const resolveAgent: (agentName: AgentName, model: string | undefined) => Agent =
       opts.createAgent ?? ((agentName, model) => defaultCreateAgent(agentName, model ?? ""));
     const prDescAgent = prAgentEntry ? resolveAgent(prAgentEntry.agent, prAgentEntry.model) : undefined;
     const entryOpts: Parameters<typeof enterMode>[0] = {
       candidatePath,
       io: { stderr: opts.io.stderr },
-      logServerUrl: cfg.logServerUrl,
+      logServerUrl: rawCfg.logServerUrl,
     };
     if (inv.repo !== undefined) {
       entryOpts.repoFlag = inv.repo;
@@ -731,13 +763,13 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     const project = entry.resolution.resolved.project;
     planHarnessLog(planLogClient, `plan: target project=${project.key} root=${project.root}`);
 
-    const fullProject = cfg.projects[project.key];
-    const gitEnabled = effectiveGit(cfg, project.key);
+    const fullProject = rawCfg.projects[project.key];
+    const gitEnabled = effectiveGit(rawCfg, project.key);
     const {
       specTimestamp,
       commit: configuredCommit,
       targetDir: resolvedTargetDir,
-    } = resolvePlanFlags(cfg, fullProject);
+    } = resolvePlanFlags(rawCfg, fullProject);
     const commit = gitEnabled ? configuredCommit : false;
     const targetDir = inv.targetDir ?? resolvedTargetDir;
     planHarnessLog(
@@ -752,7 +784,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         );
         return 1;
       }
-      const reviewPasses = resolveReviewPasses(cfg, inv.reviewPasses);
+      const reviewPasses = resolveReviewPasses(rawCfg, inv.reviewPasses);
       if (reviewPasses === 0) {
         opts.io.stderr(`--resume requires at least one review pass\n`);
         return 1;
@@ -761,7 +793,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       let resume: ResumePrep;
       try {
         resume = prepareResume({
-          cfg,
+          cfg: rawCfg,
           project,
           specPath: inv.readyIntentPath,
           mode: "resume",
@@ -785,7 +817,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       const resumeTargetDir = targetDir;
       const resumePlanStartedAt = new Date();
       const resumePlanStartedMs = Date.now();
-      const resumeTelemetryPath = cfg.telemetryPath ?? null;
+      const resumeTelemetryPath = rawCfg.telemetryPath ?? null;
       const resumePlanNs = `plan:${project.key}:${resume.specDirBasename}`;
       const resumePlanTelemetry = createPlanTelemetryWriter({
         telemetryPath: resumeTelemetryPath,
@@ -815,7 +847,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           name: resume.specDirBasename,
           specDirBasename: resume.specDirBasename,
           ...(resume.externalSpecRoot ? { specDirPath: resumeSpecPath } : {}),
-          config: cfg,
+          config: planCfg,
+          reviewAgentOrder,
           ...(inv.reviewPasses !== undefined ? { reviewPassesOverride: inv.reviewPasses } : {}),
           startPassNumber: nextReviewIndex,
           subjectSuffix: suffix,
@@ -828,20 +861,20 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           logNoChangeSkip: false,
           createAgent: resolveAgent,
           planWorktreeDir: resume.worktreePath,
-          idleOutputTimeoutMs: cfg.idleOutputTimeoutMs,
+          idleOutputTimeoutMs: rawCfg.idleOutputTimeoutMs,
           ...(commit
             ? {
                 updatePrBody: async () => {
                   await safeUpdatePrBody({
                     agent: prDescAgent,
-                    timeoutMs: cfg.iterationTimeoutMs,
+                    timeoutMs: rawCfg.iterationTimeoutMs,
                     io: opts.io,
                     branch,
                     base: getCurrentBranch(project.root),
                     worktreePath: resume.worktreePath,
                     name: resume.planName,
                     specDirBasename: resume.specDirBasename,
-                    prNarrative: cfg.modes.plan.prNarrative ?? "template",
+                    prNarrative: planCfg.modes.plan.prNarrative ?? "template",
                     targetDir: resumeTargetDir,
                   });
                 },
@@ -893,7 +926,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             }),
           );
         }
-        const planFixCommand = cfg.projects[project.key]?.fixCommand;
+        const planFixCommand = rawCfg.projects[project.key]?.fixCommand;
         safeMarkPlanPrReady({
           io: opts.io,
           branch,
@@ -986,7 +1019,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             projectRoot: project.root,
             name: planName,
           });
-          createWorktreeSymlinks(project.root, worktreePath, cfg.worktreeSymlinks);
+          createWorktreeSymlinks(project.root, worktreePath, rawCfg.worktreeSymlinks);
           planHarnessLog(planLogClient, `plan: worktree created at ${worktreePath}`);
         } catch (err) {
           const message = (err as Error).message;
@@ -1049,7 +1082,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
       const planStartedAt = new Date();
       const planStartedMs = Date.now();
-      const planTelemetryPath = cfg.telemetryPath ?? null;
+      const planTelemetryPath = rawCfg.telemetryPath ?? null;
       const planNsBase = `plan:${project.key}:${planName}`;
       const planTelemetryWriter = createPlanTelemetryWriter({
         telemetryPath: planTelemetryPath,
@@ -1093,14 +1126,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           worktreePath,
           name: specDirBasename,
           ...(commit ? {} : { specDirPath: finalSpecPath, additionalReadDirs: [finalSpecPath] }),
-          config: cfg,
+          config: planCfg,
           intentBefore,
           stderr: opts.io.stderr,
           planTelemetry: planTelemetryWriter,
           targetDir,
           createAgent: resolveAgent,
           planWorktreeDir: worktreePath,
-          idleOutputTimeoutMs: cfg.idleOutputTimeoutMs,
+          idleOutputTimeoutMs: rawCfg.idleOutputTimeoutMs,
         });
 
         // Check if draft succeeded
@@ -1227,14 +1260,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
             await safeUpdatePrBody({
               agent: prDescAgent,
-              timeoutMs: cfg.iterationTimeoutMs,
+              timeoutMs: rawCfg.iterationTimeoutMs,
               io: opts.io,
               branch: planBranch,
               base: baseBranch as string,
               worktreePath: worktreePath as string,
               name: planName,
               specDirBasename,
-              prNarrative: cfg.modes.plan.prNarrative ?? "template",
+              prNarrative: planCfg.modes.plan.prNarrative ?? "template",
               targetDir,
             });
           } catch (err) {
@@ -1332,14 +1365,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
             await safeUpdatePrBody({
               agent: prDescAgent,
-              timeoutMs: cfg.iterationTimeoutMs,
+              timeoutMs: rawCfg.iterationTimeoutMs,
               io: opts.io,
               branch: planBranch,
               base: baseBranch as string,
               worktreePath: worktreePath as string,
               name: planName,
               specDirBasename,
-              prNarrative: cfg.modes.plan.prNarrative ?? "template",
+              prNarrative: planCfg.modes.plan.prNarrative ?? "template",
               targetDir,
             });
           } catch (err) {
@@ -1362,20 +1395,20 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       if (commit) {
         await safeUpdatePrBody({
           agent: prDescAgent,
-          timeoutMs: cfg.iterationTimeoutMs,
+          timeoutMs: rawCfg.iterationTimeoutMs,
           io: opts.io,
           branch: planBranch,
           base: baseBranch as string,
           worktreePath: worktreePath as string,
           name: planName,
           specDirBasename,
-          prNarrative: cfg.modes.plan.prNarrative ?? "template",
+          prNarrative: planCfg.modes.plan.prNarrative ?? "template",
           targetDir,
         });
       }
 
       // Self-review phase
-      const reviewPasses = resolveReviewPasses(cfg, inv.reviewPasses);
+      const reviewPasses = resolveReviewPasses(rawCfg, inv.reviewPasses);
       if (reviewPasses > 0) {
         const reviewOpts: PlanReviewPhaseOptions = {
           onOutboundPrompt: logOutboundPrompt,
@@ -1383,7 +1416,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           name: specDirBasename,
           specDirBasename,
           ...(commit ? {} : { specDirPath: finalSpecPath, additionalReadDirs: [finalSpecPath] }),
-          config: cfg,
+          config: planCfg,
+          reviewAgentOrder,
           ...(inv.reviewPasses !== undefined ? { reviewPassesOverride: inv.reviewPasses } : {}),
           stderr: opts.io.stderr,
           planTelemetry: planTelemetryWriter,
@@ -1395,7 +1429,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           createAgent: resolveAgent,
           projectRoot: project.root,
           planWorktreeDir: worktreePath,
-          idleOutputTimeoutMs: cfg.idleOutputTimeoutMs,
+          idleOutputTimeoutMs: rawCfg.idleOutputTimeoutMs,
         };
         if (externalSpecRoot !== undefined) {
           reviewOpts.externalSpecRoot = externalSpecRoot;
@@ -1407,14 +1441,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                 updatePrBody: async () => {
                   await safeUpdatePrBody({
                     agent: prDescAgent,
-                    timeoutMs: cfg.iterationTimeoutMs,
+                    timeoutMs: rawCfg.iterationTimeoutMs,
                     io: opts.io,
                     branch: planBranch,
                     base: baseBranch as string,
                     worktreePath: worktreePath as string,
                     name: planName,
                     specDirBasename,
-                    prNarrative: cfg.modes.plan.prNarrative ?? "template",
+                    prNarrative: planCfg.modes.plan.prNarrative ?? "template",
                     targetDir,
                   });
                 },
@@ -1469,7 +1503,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           // best-effort; completion still succeeds without a URL
         }
 
-        const planFixCommand = cfg.projects[project.key]?.fixCommand;
+        const planFixCommand = rawCfg.projects[project.key]?.fixCommand;
         safeMarkPlanPrReady({
           io: opts.io,
           branch: planBranch,

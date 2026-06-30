@@ -1198,6 +1198,19 @@ describe("parsePlanArgs", () => {
       teardown();
     }
   });
+
+  test("missing --agent value → exit 1", () => {
+    setup();
+    try {
+      const res = parsePlanArgs(["--agent"], tmp);
+      expect(res.ok).toBe(false);
+      if (res.ok) return;
+      expect(res.exitCode).toBe(1);
+      expect(res.message).toContain("missing value for --agent");
+    } finally {
+      teardown();
+    }
+  });
 });
 
 describe("resolveResumeSpecPath", () => {

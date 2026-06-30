@@ -7,7 +7,7 @@ import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
 import { detectBlocker } from "../../../../shared/spec-parser.ts";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName } from "../../agents/types.ts";
-import type { Config } from "../../config.ts";
+import type { AgentEntry, Config } from "../../config.ts";
 import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "../patch/idle-watchdog.ts";
 import { recoverImmutableCopyOverreach } from "../review/immutable-copy-overreach.ts";
 import { runReview } from "../review/run.ts";
@@ -322,6 +322,8 @@ export type PlanReviewPhaseOptions = {
   name: string;
   specDirBasename: string;
   config: Config;
+  /** Pre-override review-panel order; when set, panel roles ignore substituted `modes.plan.agentOrder`. */
+  reviewAgentOrder?: AgentEntry[];
   reviewPassesOverride?: number;
   startPassNumber?: number;
   subjectSuffix?: string;
@@ -937,6 +939,7 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
     const exitCode = await runReview({
       config: opts.config,
       cwd: opts.agentCwd ?? opts.worktreePath,
+      ...(opts.reviewAgentOrder !== undefined ? { reviewAgentOrder: opts.reviewAgentOrder } : {}),
       ...(opts.reviewPassesOverride !== undefined ? { reviewPassesOverride: opts.reviewPassesOverride } : {}),
       ...(opts.startPassNumber !== undefined ? { startPassNumber: opts.startPassNumber } : {}),
       ...(opts.isInterrupted !== undefined ? { isInterrupted: opts.isInterrupted } : {}),

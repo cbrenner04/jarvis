@@ -64,6 +64,24 @@ Example — one-run two-rung ladder starting at the configured codex model:
 jarvis1 run --agent codex --agent claude:haiku path/to/spec/index.md
 ```
 
+### Per-run `--agent` override (`jarvis1 plan`)
+
+`jarvis1 plan` accepts repeatable `--agent <name>[:<model>]`. When any `--agent` is present, the flag sequence replaces `modes.plan.agentOrder` in memory for that invocation only; `~/.jarvis/config.json` is unchanged. Omitted `:model` inherits from the configured `modes.plan.agentOrder` entry for that agent; when no matching entry exists, the run exits non-zero before any agent spawns.
+
+Precedence: CLI `--agent` ladder beats configured `modes.plan.agentOrder` for plan **actuator** phases only — draft, intent-draft (when wired), verdict-actuator, and plan PR narrative agent (`prNarrative: agent`). Quota and `model_config` cascades on those phases advance through the overridden ladder.
+
+Scope boundaries:
+
+- **Review panel** (adversary, advocate, adjudicator) and review-panel quota rotation resolve from a pre-override snapshot (`modes.review.agentOrder ?? modes.plan.agentOrder` before substitution), not from `--agent`.
+- **`jarvis1 plan --resume` with `--agent`**: verdict-actuator uses the override; the review panel stays on the pre-override snapshot (same split-ladder semantics as a fresh run with review enabled).
+- **`jarvis1 intent`** and **`jarvis1 prompt`** do not accept `--agent` in this release.
+
+Example — probe codex as the sole plan draft actuator without editing config:
+
+```sh
+jarvis1 plan --agent codex:gpt-5.4 path/to/ready-intents/my-feature.md
+```
+
 Jarvis normalizes the `PWD` environment variable for every spawned agent so
 that agents that read `PWD` (e.g., opencode) operate on the working directory
 (worktree or project root) rather than inheriting the harness's `PWD`.

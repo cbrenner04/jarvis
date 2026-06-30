@@ -36,11 +36,11 @@ Plan actuator experiments require editing `modes.plan.agentOrder` in config, run
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 plan --agent <name>[:<model>] …` uses the flag sequence as `modes.plan.agentOrder` for that invocation; persisted config is unchanged.
-- [ ] Plan draft, intent-draft, verdict-actuator, and plan PR narrative agent phases use the overridden plan ladder.
-- [ ] Actuator quota and `model_config` cascades on substituted `modes.plan.agentOrder` (draft, intent-draft, verdict-actuator, PR narrative) advance through the overridden ladder.
-- [ ] Plan review adversary/advocate/adjudicator resolution and review-panel quota rotation ignore `--agent` and use the pre-override `modes.review.agentOrder ?? modes.plan.agentOrder` snapshot (panel never reads post-override `modes.plan.agentOrder`).
-- [ ] `jarvis1 plan --resume` with `--agent` applies override to verdict-actuator only; review panel stays on pre-override snapshot.
-- [ ] `jarvis1 plan` with no `--agent` behaves as before.
-- [ ] `v1/docs/agents.md`, `v1/docs/config.md`, `v1/docs/plan-mode.md`, `v1/docs/run-loop.md`, and `v1/docs/operator-runbook.md` document `--agent` per Documentation updates.
-- [ ] `v2/docs/v1-behaviors.md` records per-invocation `--agent` override for patch and plan modes and lists `--agent` on `run` and `plan`.
+- [x] `jarvis1 plan --agent <name>[:<model>] …` uses the flag sequence as `modes.plan.agentOrder` for that invocation; persisted config is unchanged.
+- [x] Plan draft, intent-draft, verdict-actuator, and plan PR narrative agent phases use the overridden plan ladder.
+- [x] Actuator quota and `model_config` cascades on substituted `modes.plan.agentOrder` (draft, intent-draft, verdict-actuator, PR narrative) advance through the overridden ladder.
+- [x] Plan review adversary/advocate/adjudicator resolution and review-panel quota rotation ignore `--agent` and use the pre-override `modes.review.agentOrder ?? modes.plan.agentOrder` snapshot (panel never reads post-override `modes.plan.agentOrder`).
+- [x] `jarvis1 plan --resume` with `--agent` applies override to verdict-actuator only; review panel stays on pre-override snapshot.
+- [x] `jarvis1 plan` with no `--agent` behaves as before.
+- [x] `v1/docs/agents.md`, `v1/docs/config.md`, `v1/docs/plan-mode.md`, `v1/docs/run-loop.md`, and `v1/docs/operator-runbook.md` document `--agent` per Documentation updates.
+- [x] `v2/docs/v1-behaviors.md` records per-invocation `--agent` override for patch and plan modes and lists `--agent` on `run` and `plan`.

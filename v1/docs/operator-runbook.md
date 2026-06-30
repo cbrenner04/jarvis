@@ -27,6 +27,14 @@ Touch **only `jarvis1` commands — as few as possible.** Every hands-on step th
 
 But **"fewer manual steps" is not "more commands."** The fix is almost always to fold the behavior into an *existing* command's automatic flow, **not** add a subcommand. New commands are a last resort for a genuinely distinct operator intent. The aim is a **shrinking count of manual interventions per session** — a qualitative read, not a tracked field; not every turn surfaces a gap, so don't force one.
 
+## Log server
+
+`jarvis1 log-server` runs **continuously** on the operator machine (default `http://127.0.0.1:4310/logs`). The operator starts it once and leaves it up across sessions — not per `plan`/`run`, not per agent chat.
+
+**Coding agents:** assume it is already running. **Do not** run `jarvis1 log-server`, kill processes bound to port 4310, or restart the server when `plan`/`run` preflight reports `log server unreachable`. A second instance collides on the port or displaces the operator's long-lived process — agents routinely cause this by treating the preflight error as "server down."
+
+When preflight fails inside a sandbox, the server is usually fine — see [Sandbox blindness](#sandbox-blindness-and-false-negatives) § localhost. Only the operator restarts the log server when it is genuinely down (nothing listening on 4310 outside a sandbox).
+
 ## Operator feedback cadence
 
 The orchestration loop (the operator's own model calls) dominates session cost — far above the jarvis runs. So narrate sparingly:
@@ -273,7 +281,7 @@ The sandbox (e.g. in Claude Code) can hide real state.
 
 `gh`/`git` network calls, `localhost` requests, and auth/keychain reads may fail *inside* the sandbox with TLS-cert or permission errors that are **false negatives**. Re-run sandbox-off before debugging — if it succeeds there, the sandbox was the cause.
 
-Specific case: `jarvis1 plan`/`run` aborting with `log server unreachable at http://127.0.0.1:4310/logs` is usually this false-negative — the log server is up, but the startup healthcheck's `localhost` request is blocked inside the sandbox. Don't restart the log server (you'll hit `port 4310 in use`); just run the `plan`/`run` **sandbox-off**.
+Specific case: `jarvis1 plan`/`run` aborting with `log server unreachable at http://127.0.0.1:4310/logs` is usually this false-negative — the log server is up ([Log server](#log-server)), but the startup healthcheck's `localhost` request is blocked inside the sandbox. **Do not** restart the log server (you'll hit `port 4310 in use` or kill the operator's process); run the `plan`/`run` **sandbox-off**.
 
 ## Merging
 

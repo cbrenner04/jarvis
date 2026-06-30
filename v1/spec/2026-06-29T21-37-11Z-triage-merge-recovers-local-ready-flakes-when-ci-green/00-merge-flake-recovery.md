@@ -101,35 +101,35 @@ manually or `gh pr merge --admin`.
 
 ## Acceptance criteria
 
-- [ ] When `triage --merge` local ready gate fails on a typed `ReadyCommandError` with harness
+- [x] When `triage --merge` local ready gate fails on a typed `ReadyCommandError` with harness
       test-step markers and commit check-runs are green for worktree `HEAD`, an additional serial
       `bun test` probe that passes allows merge to complete (draft→ready when needed, CI poll,
       admin-squash) and stdout includes exactly
       `triage --merge: local ready flake recovered (CI green at HEAD); proceeding`.
-- [ ] When the serial probe still fails but gate stderr yields failing file paths, one targeted
+- [x] When the serial probe still fails but gate stderr yields failing file paths, one targeted
       serial `bun test <paths…>` probe that passes allows the same merge completion and the exact
       recovery stdout line above.
-- [ ] When commit check-runs for worktree `HEAD` are not green (red, pending, empty, fetch
+- [x] When commit check-runs for worktree `HEAD` are not green (red, pending, empty, fetch
       failure, or `getChecksForSha` throw/unusable data), `triage --merge` refuses merge on local
       gate failure with no recovery attempt.
-- [ ] When the local gate throws `FixCommandError`, `triage --merge` refuses merge with no
+- [x] When the local gate throws `FixCommandError`, `triage --merge` refuses merge with no
       recovery attempt even if HEAD-sha CI is green.
-- [ ] When the local gate throws a generic `Error` whose message mimics test failure text,
+- [x] When the local gate throws a generic `Error` whose message mimics test failure text,
       `triage --merge` refuses merge with no recovery attempt even if HEAD-sha CI is green.
-- [ ] When gate stderr contains substring `ready: deadline exceeded`, or `ReadyCommandError` lacks
+- [x] When gate stderr contains substring `ready: deadline exceeded`, or `ReadyCommandError` lacks
       harness test-step markers (e.g. lint/check failure or custom `readyCommand`), `triage
       --merge` refuses merge with no recovery attempt even if HEAD-sha CI is green.
-- [ ] When probe 1 stays red and failing-file extraction yields zero paths, `triage --merge`
+- [x] When probe 1 stays red and failing-file extraction yields zero paths, `triage --merge`
       refuses merge with no probe 2 and no recovery.
-- [ ] When recovery probes (serial and targeted when applicable) still fail, or a probe exits with
+- [x] When recovery probes (serial and targeted when applicable) still fail, or a probe exits with
       signal/timeout codes (124/130/143), `triage --merge` refuses merge with `ready gate failed`
       surfaced and no admin merge.
-- [ ] When the first local ready gate passes, `triage --merge` runs no recovery probes and
+- [x] When the first local ready gate passes, `triage --merge` runs no recovery probes and
       behavior matches the pre-change merge flow.
-- [ ] `triage-command.test.ts` › `--merge with local gate failure refuses to merge` stays green
+- [x] `triage-command.test.ts` › `--merge with local gate failure refuses to merge` stays green
       (typecheck failure path unchanged).
-- [ ] `triage-command.test.ts` › `--merge with green CI checks merges the PR` stays green.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `triage-command.test.ts` › `--merge with green CI checks merges the PR` stays green.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

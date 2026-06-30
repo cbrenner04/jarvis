@@ -10,11 +10,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTailStreamHandler } from "../daemon.ts";
-import { connectIpcClient } from "./client.ts";
-import { type IpcServer, startIpcServer } from "./server.ts";
 import { openLogReader, openLogSink, type PersistedRecord } from "../log-stream.ts";
 import { openStateStore } from "../state-store.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
+import { type IpcServer, startIpcServer } from "./server.ts";
 
 type StreamDataLine = { kind: "stream-data"; payload: string };
 

@@ -58,10 +58,10 @@ that logic must be reusable without a parallel CI vocabulary or full workflow-lo
 
 ## Acceptance criteria
 
-- [ ] `triage-command.test.ts` adapter/classification and `--merge` CI cases stay green after extraction.
-- [ ] HEAD-sha fetch returns `{ ok: false }` on gh API error, unresolvable `origin`, JSON/parse failure, or pagination abort — not `null` consumed as classifiable empty input.
-- [ ] `collectFailingCiContext` on red-classified check data returns every red check name with excerpt = `summary` + newline + `text` (when both present), capped at 2048 bytes tail-preserved on the combined string, or `(no excerpt available)` when output is absent.
-- [ ] `renderCiFailurePrompt` emits a CI-focused agent prompt listing each failing check and its excerpt and ends with patch mode rules; no review-comment sections appear.
+- [x] `triage-command.test.ts` adapter/classification and `--merge` CI cases stay green after extraction.
+- [x] HEAD-sha fetch returns `{ ok: false }` on gh API error, unresolvable `origin`, JSON/parse failure, or pagination abort — not `null` consumed as classifiable empty input.
+- [x] `collectFailingCiContext` on red-classified check data returns every red check name with excerpt = `summary` + newline + `text` (when both present), capped at 2048 bytes tail-preserved on the combined string, or `(no excerpt available)` when output is absent.
+- [x] `renderCiFailurePrompt` emits a CI-focused agent prompt listing each failing check and its excerpt and ends with patch mode rules; no review-comment sections appear.
 
 ## Documentation updates
 

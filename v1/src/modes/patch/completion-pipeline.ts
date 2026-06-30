@@ -648,6 +648,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         indexPath: preflight.specPath,
         cwd: preflight.agentWorkingDir,
         agentLabel: "patch-complete",
+        autoIntegrateBase: true,
         ...(readyCommand !== undefined ? { readyCommand } : {}),
         ...(fixCommand !== undefined ? { fixCommand } : {}),
         ...(ctx.state.completionTransitionReadyResult !== undefined

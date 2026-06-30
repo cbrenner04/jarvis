@@ -67,23 +67,23 @@ Default merged-cleanup (no `--abandon`) is unchanged.
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 cleanup --abandon <worktree-name>` retires only the named eligible worktree: closes at most one matching draft PR best-effort, force-removes the worktree, deletes local and remote branch, and leaves the source spec directory on disk unmodified.
-- [ ] Scoped abandon prints stdout preview `Worktree to remove:` then `<worktree-path> (<branch>)` (with `(plan)` when applicable) before the confirmation prompt or before exiting on `--dry-run`.
-- [ ] Unknown `<worktree-name>` (missing `.worktree/<name>/`) refuses stderr `unknown worktree: <name>`, exits `1`, and makes no changes.
-- [ ] Named target whose branch PR is merged refuses stderr `cannot abandon <worktree-name>: branch <branch> PR is merged`, exits `1`, and makes no changes.
-- [ ] Named target with an open ready/non-draft PR refuses stderr `unsafe PR state for branch <branch>: matching open PR #<n> is not draft`, exits `1`, and makes no changes.
-- [ ] Named target with multiple open matching PRs refuses stderr `unsafe PR state for branch <branch>: multiple open PRs match; refusing abandon`, exits `1`, and makes no changes.
-- [ ] Named target when `findMatchingOpenPrs` inspection fails refuses stderr `failed to inspect PR state for branch <branch>: <message>`, exits `1`, and makes no changes.
-- [ ] Named target when `.worktree/<name>/` exists but branch cannot be determined refuses stderr `cannot abandon <worktree-name>: could not determine branch`, exits `1`, and makes no changes.
-- [ ] Named target with a live `.jarvis.lock` refuses stderr `worktree is in use by process <pid> (started at <timestamp>)`, exits `9`, and makes no changes.
-- [ ] Named target with only a stale `.jarvis.lock` (dead PID) is not blocked from scoped abandon.
-- [ ] `jarvis1 cleanup --abandon --dry-run <worktree-name>` (and equivalent flag order) previews only the named target (no unrelated worktrees listed), suppresses confirmation, and makes no changes.
-- [ ] Declining scoped confirmation prints `cancelled`, exits `0`, and makes no changes (`cleanup-command.sandbox-unrunnable.test.ts` `abandon cancel leaves worktree and branches untouched` pattern).
-- [ ] Scoped retire-step failure (e.g. worktree remove throws) prints stderr `failed to remove <branch>: <message>`, exits `1`, and leaves prior side effects as global `hadFailures` semantics dictate.
-- [ ] `jarvis1 cleanup --abandon` without `<worktree-name>` behavior is unchanged (`cleanup-command.sandbox-unrunnable.test.ts` global abandon tests stay green).
-- [ ] `jarvis1 cleanup --abandon <worktree-name>` and `jarvis1 cleanup <worktree-name> --abandon` parse equivalently; extra positionals exit with usage error.
-- [ ] `cleanup` help/usage documents optional `[<worktree-name>]` with `--abandon`.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `jarvis1 cleanup --abandon <worktree-name>` retires only the named eligible worktree: closes at most one matching draft PR best-effort, force-removes the worktree, deletes local and remote branch, and leaves the source spec directory on disk unmodified.
+- [x] Scoped abandon prints stdout preview `Worktree to remove:` then `<worktree-path> (<branch>)` (with `(plan)` when applicable) before the confirmation prompt or before exiting on `--dry-run`.
+- [x] Unknown `<worktree-name>` (missing `.worktree/<name>/`) refuses stderr `unknown worktree: <name>`, exits `1`, and makes no changes.
+- [x] Named target whose branch PR is merged refuses stderr `cannot abandon <worktree-name>: branch <branch> PR is merged`, exits `1`, and makes no changes.
+- [x] Named target with an open ready/non-draft PR refuses stderr `unsafe PR state for branch <branch>: matching open PR #<n> is not draft`, exits `1`, and makes no changes.
+- [x] Named target with multiple open matching PRs refuses stderr `unsafe PR state for branch <branch>: multiple open PRs match; refusing abandon`, exits `1`, and makes no changes.
+- [x] Named target when `findMatchingOpenPrs` inspection fails refuses stderr `failed to inspect PR state for branch <branch>: <message>`, exits `1`, and makes no changes.
+- [x] Named target when `.worktree/<name>/` exists but branch cannot be determined refuses stderr `cannot abandon <worktree-name>: could not determine branch`, exits `1`, and makes no changes.
+- [x] Named target with a live `.jarvis.lock` refuses stderr `worktree is in use by process <pid> (started at <timestamp>)`, exits `9`, and makes no changes.
+- [x] Named target with only a stale `.jarvis.lock` (dead PID) is not blocked from scoped abandon.
+- [x] `jarvis1 cleanup --abandon --dry-run <worktree-name>` (and equivalent flag order) previews only the named target (no unrelated worktrees listed), suppresses confirmation, and makes no changes.
+- [x] Declining scoped confirmation prints `cancelled`, exits `0`, and makes no changes (`cleanup-command.sandbox-unrunnable.test.ts` `abandon cancel leaves worktree and branches untouched` pattern).
+- [x] Scoped retire-step failure (e.g. worktree remove throws) prints stderr `failed to remove <branch>: <message>`, exits `1`, and leaves prior side effects as global `hadFailures` semantics dictate.
+- [x] `jarvis1 cleanup --abandon` without `<worktree-name>` behavior is unchanged (`cleanup-command.sandbox-unrunnable.test.ts` global abandon tests stay green).
+- [x] `jarvis1 cleanup --abandon <worktree-name>` and `jarvis1 cleanup <worktree-name> --abandon` parse equivalently; extra positionals exit with usage error.
+- [x] `cleanup` help/usage documents optional `[<worktree-name>]` with `--abandon`.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

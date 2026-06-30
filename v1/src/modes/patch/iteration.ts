@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { closeSync, existsSync, readFileSync, writeFileSync, writeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { detectBlockerClaim, parseSpec, stripBlockerSection } from "../../../../shared/spec-parser.ts";
-import { openSessionLog, resolveReviewPasses } from "../../config.ts";
+import { openSessionLog } from "../../config.ts";
 import { getBaseBranch } from "../../gh.ts";
 import type { LogClient } from "../../logging.ts";
 import { ensureDraftPr, renderAttributionSummary } from "../../pr.ts";
@@ -52,7 +52,6 @@ import {
   saveDelta,
 } from "./no-commit-delta.ts";
 import { createPatchInvocationBinding } from "./patch-invocation-binding.ts";
-import { maybeMarkReady } from "./pr.ts";
 import { findRelocatedSpecFile, refreshActiveSpecPath } from "./preflight.ts";
 import { buildFixupPrompt, buildPrompt, readRepoGuidance } from "./prompt.ts";
 import { collectSubtree, DESCENDANT_POLL_INTERVAL_MS, listProcesses } from "./reap.ts";
@@ -1323,30 +1322,6 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
                     _createdThisIteration = ensured.created;
                     state.draftPrEnsured = true;
                   }
-                  // When post-completion shrink or review will run, defer PR
-                  // readiness to those phases.
-                  const implementationIterations = logging.patchIterationsCompletedForSummary() + 1;
-                  const willRunShrink = gitEnabled && implementationIterations > 0 && cfg.modes.patch.shrink !== "off";
-                  const willRunReview =
-                    gitEnabled && resolveReviewPasses(cfg, opts.reviewPasses) > 0 && implementationIterations > 0;
-                  const projectCfg = cfg.projects[preflight.project.key];
-                  const readyCommand = projectCfg?.readyCommand;
-                  const fixCommand = projectCfg?.fixCommand;
-                  if (!willRunReview && !willRunShrink) {
-                    maybeMarkReady({
-                      indexPath: afterSpecPath,
-                      cwd: agentWorkingDir,
-                      agentLabel: agent.attributionLabel(),
-                      ...(readyCommand !== undefined ? { readyCommand } : {}),
-                      ...(fixCommand !== undefined ? { fixCommand } : {}),
-                      ...(ctx.state.completionTransitionReadyResult !== undefined
-                        ? { recordedGreenResult: ctx.state.completionTransitionReadyResult }
-                        : {}),
-                      refreshRecordedGreenResult: (headSha: string) => {
-                        ctx.state.completionTransitionReadyResult = { headSha };
-                      },
-                    });
-                  }
                 } catch (err) {
                   const message = err instanceof Error ? err.message : String(err);
                   fanout(
@@ -1421,30 +1396,6 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
                   });
                   _createdThisIteration = ensured.created;
                   state.draftPrEnsured = true;
-                }
-                // When post-completion shrink or review will run, defer PR
-                // readiness to those phases.
-                const implementationIterations = logging.patchIterationsCompletedForSummary() + 1;
-                const willRunShrink = gitEnabled && implementationIterations > 0 && cfg.modes.patch.shrink !== "off";
-                const willRunReview =
-                  gitEnabled && resolveReviewPasses(cfg, opts.reviewPasses) > 0 && implementationIterations > 0;
-                const projectCfg = cfg.projects[preflight.project.key];
-                const readyCommand = projectCfg?.readyCommand;
-                const fixCommand = projectCfg?.fixCommand;
-                if (!willRunReview && !willRunShrink) {
-                  maybeMarkReady({
-                    indexPath: afterSpecPath,
-                    cwd: agentWorkingDir,
-                    agentLabel: agent.attributionLabel(),
-                    ...(readyCommand !== undefined ? { readyCommand } : {}),
-                    ...(fixCommand !== undefined ? { fixCommand } : {}),
-                    ...(ctx.state.completionTransitionReadyResult !== undefined
-                      ? { recordedGreenResult: ctx.state.completionTransitionReadyResult }
-                      : {}),
-                    refreshRecordedGreenResult: (headSha: string) => {
-                      ctx.state.completionTransitionReadyResult = { headSha };
-                    },
-                  });
                 }
               } catch (err) {
                 const message = err instanceof Error ? err.message : String(err);

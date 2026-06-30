@@ -5,10 +5,10 @@ import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
 import { createAgentBindings } from "../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
+import type { WaitRunCompletionResult } from "./daemon.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon-lifecycle.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import type { ErrorFrame, ResponseFrame } from "./ipc/types.ts";
-import type { WaitRunCompletionResult } from "./daemon.ts";
 import type { RunStatus } from "./state-store-types.ts";
 import {
   executeWriteLoop,

@@ -6,13 +6,14 @@ import type { Agent, AgentName } from "../../agents/types.ts";
 import type { Io } from "../../cli.ts";
 import { readGitOriginUrl } from "../../commands/init.ts";
 import {
-  type Config,
+  type AgentEntry,
   type ConfigOptions,
   findProjectMatchForPath,
   loadConfig,
   setProjectOrigin,
 } from "../../config.ts";
 import { assertGhReady, getBaseBranch } from "../../gh.ts";
+import { buildEffectivePromptAgentEntries } from "../../parse-agent-flag.ts";
 import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
   HARNESS_QUOTA_FALLBACK_STRICT,
@@ -32,6 +33,7 @@ export type PromptRunOptions = {
   io: Io;
   projectPath: string;
   config: ConfigOptions | undefined;
+  pinnedAgent?: AgentEntry;
   skipGhCheck?: boolean | undefined;
   agents?: Partial<Record<AgentName, Agent>>;
   /**
@@ -45,20 +47,6 @@ export type PromptRunOptions = {
   /** Test-only poll interval when `__testAfterPollFn` is set. */
   __testDescendantPollIntervalMs?: number;
 };
-
-function buildActivePromptAgents(opts: PromptRunOptions, cfg: Config): Agent[] {
-  const overrides = opts.agents;
-  const agents: Agent[] = [];
-  for (const entry of cfg.modes.prompt.agentOrder) {
-    const override = overrides?.[entry.agent];
-    if (override !== undefined) {
-      agents.push(override);
-      continue;
-    }
-    agents.push(createAgent(entry.agent, entry.model));
-  }
-  return agents;
-}
 
 function generateNonce(): string {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -183,9 +171,9 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
   try {
     const basePrompt = buildPrompt(opts.promptText);
 
-    const agents = buildActivePromptAgents(opts, cfg);
+    const effectiveEntries = buildEffectivePromptAgentEntries(opts.pinnedAgent, cfg.modes.prompt.agentOrder);
 
-    if (agents.length === 0) {
+    if (effectiveEntries.length === 0) {
       opts.io.stderr("jarvis1: no agents configured\n");
       exitCode = 1;
       exitReason = "no-agents-configured";
@@ -200,18 +188,17 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
     let quotaAttemptCount = 0;
     let sawNonQuotaFallthrough = false;
 
-    for (let agentIndex = 0; agentIndex < agents.length; agentIndex += 1) {
-      const agent = agents[agentIndex];
-      if (agent === undefined) {
+    for (let agentIndex = 0; agentIndex < effectiveEntries.length; agentIndex += 1) {
+      const entry = effectiveEntries[agentIndex];
+      if (entry === undefined) {
         continue;
       }
-      const isLastAgent = agentIndex === agents.length - 1;
+      const agent = opts.agents?.[entry.agent] ?? createAgent(entry.agent, entry.model);
+      const isLastAgent = agentIndex === effectiveEntries.length - 1;
       attemptedAgentCount += 1;
       opts.io.stderr(`jarvis1: invoking ${agent.name}...\n`);
 
-      // Look up configured model for this agent
-      const agentConfigEntry = cfg.modes.prompt.agentOrder.find((entry) => entry.agent === agent.name);
-      configuredModel = agentConfigEntry?.model;
+      configuredModel = entry.model;
 
       const descendantTracker = new DescendantTracker();
       const descendantPollIntervalMs =

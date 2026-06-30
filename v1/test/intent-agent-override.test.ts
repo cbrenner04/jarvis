@@ -61,10 +61,7 @@ function writeSplitOutput(worktreePath: string, stagingDir: string, names: strin
   const stagePath = join(worktreePath, stagingDir);
   mkdirSync(stagePath, { recursive: true });
   for (const name of names) {
-    writeFileSync(
-      join(stagePath, `${name}.md`),
-      `---\nname: ${name}\n---\n\n## Intent\n\nbody\n\n## Prerequisites\n`,
-    );
+    writeFileSync(join(stagePath, `${name}.md`), `---\nname: ${name}\n---\n\n## Intent\n\nbody\n\n## Prerequisites\n`);
   }
 }
 

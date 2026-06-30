@@ -236,13 +236,17 @@ describe("plan --agent override", () => {
     try {
       const { claude, codex, createAgent } = agentsForSplitLadder(verdict);
       const wiring = useProductionWiring === true ? productionReviewWiring(cfg, [CODEX_ENTRY]) : undefined;
+      const resolvedReviewAgentOrder = wiring?.reviewAgentOrder ?? reviewAgentOrder;
+      if (!resolvedReviewAgentOrder) {
+        throw new Error("reviewAgentOrder required");
+      }
       const result = await runPlanReviewPhase({
         worktreePath: dir,
         name,
         specDirBasename: name,
         specDirPath: specDir,
         config: wiring?.config ?? withPlanOrder(cfg, [CODEX_ENTRY]),
-        reviewAgentOrder: wiring?.reviewAgentOrder ?? [...reviewAgentOrder!],
+        reviewAgentOrder: [...resolvedReviewAgentOrder],
         reviewPassesOverride: 1,
         ...(startPassNumber !== undefined ? { startPassNumber } : {}),
         ...(subjectSuffix !== undefined ? { subjectSuffix } : {}),

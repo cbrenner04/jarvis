@@ -633,7 +633,10 @@ describe("promptCommand", () => {
     });
 
     expect(code).toBe(0);
-    const row = JSON.parse(readFileSync(telemetryPath, "utf8").trim().split("\n").at(-1)!);
+    const lines = readFileSync(telemetryPath, "utf8").trim().split("\n");
+    const lastLine = lines.at(-1);
+    expect(lastLine).toBeDefined();
+    const row = JSON.parse(lastLine ?? "");
     expect(row.configured_model).toBe("opencode/custom-model");
     expect(row.agent).toBe("opencode");
   });

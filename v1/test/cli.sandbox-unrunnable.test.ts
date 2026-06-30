@@ -335,9 +335,10 @@ describe("parseArgs", () => {
   });
 
   test("intent with --agent → error via unknown flag", () => {
-    const parsed = parseArgs(["intent", "--agent", "claude", "seed.md"]);
-    expect(parsed.kind).toBe("intent");
-    expect(parsed.rest).toEqual(["--agent", "claude", "seed.md"]);
+    expect(parseArgs(["intent", "--agent", "claude", "seed.md"])).toEqual({
+      kind: "intent",
+      rest: ["--agent", "claude", "seed.md"],
+    });
   });
 
   test("cleanup with --abandon and --dry-run", () => {

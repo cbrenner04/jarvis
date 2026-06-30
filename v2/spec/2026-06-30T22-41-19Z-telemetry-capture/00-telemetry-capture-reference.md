@@ -49,14 +49,14 @@ Doc-only: no runtime sink, types, backfill, export commands, or analysis tooling
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/telemetry-capture.md` exists and documents the three-store model (orchestration SQLite, observability log, telemetry JSONL) with recovery limited to orchestration + git.
-- [ ] The doc defines `record_kind` variants `invocation_completed`, `work_boundary_recorded`, and `run_terminal` with stable join IDs (`run_id`, `attempt_id`, `invocation_id`) at emission.
-- [ ] The doc states observability `boundary_committed` and telemetry `work_boundary_recorded` are distinct consumers and must not be aliased.
-- [ ] The doc requires explicit `null` for unavailable usage/cost keys and the same telemetry schema across write, review-debate, and plan steps.
-- [ ] The doc maps operator judgment columns to an annotation layer (not reconstructible from harness facts) and cross-links `outcome-data-source-audit.md` without duplicating its classification tables.
-- [ ] The doc classifies v1 `runs.jsonl` and cost CSV as legacy derived-export targets and rules out v1 `notes` bindings as v2 join keys.
-- [ ] The doc names default telemetry path under `~/.jarvis/` with injectable override for tests and records both deferred implementation questions from the intent.
-- [ ] The doc states no runtime sink, backfill, export command, analysis tooling, or v1 harness change in this deliverable.
+- [x] `v2/docs/telemetry-capture.md` exists and documents the three-store model (orchestration SQLite, observability log, telemetry JSONL) with recovery limited to orchestration + git.
+- [x] The doc defines `record_kind` variants `invocation_completed`, `work_boundary_recorded`, and `run_terminal` with stable join IDs (`run_id`, `attempt_id`, `invocation_id`) at emission.
+- [x] The doc states observability `boundary_committed` and telemetry `work_boundary_recorded` are distinct consumers and must not be aliased.
+- [x] The doc requires explicit `null` for unavailable usage/cost keys and the same telemetry schema across write, review-debate, and plan steps.
+- [x] The doc maps operator judgment columns to an annotation layer (not reconstructible from harness facts) and cross-links `outcome-data-source-audit.md` without duplicating its classification tables.
+- [x] The doc classifies v1 `runs.jsonl` and cost CSV as legacy derived-export targets and rules out v1 `notes` bindings as v2 join keys.
+- [x] The doc names default telemetry path under `~/.jarvis/` with injectable override for tests and records both deferred implementation questions from the intent.
+- [x] The doc states no runtime sink, backfill, export command, analysis tooling, or v1 harness change in this deliverable.
 
 ## Documentation updates
 

@@ -30,12 +30,12 @@ Depends on [00 - Telemetry capture reference doc](./00-telemetry-capture-referen
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/v2-architecture.md` links to `telemetry-capture.md` and states telemetry JSONL is a third persistence role separate from orchestration SQLite and the observability log.
-- [ ] `v2/docs/v2-build-order.md` cross-cutting section includes a telemetry bullet naming doc landing and deferred runtime emitter placement.
-- [ ] `v2/docs/shared-step-runner.md` points emission boundaries to `telemetry-capture.md`.
-- [ ] `v2/docs/state-store.md` cross-links `telemetry-capture.md` and states token/cost streams stay out of the orchestration store.
-- [ ] `v2/docs/outcome-data-source-audit.md` forward-links the v2 telemetry capture contract.
-- [ ] No sibling doc duplicates telemetry schema detail from `telemetry-capture.md`.
+- [x] `v2/docs/v2-architecture.md` links to `telemetry-capture.md` and states telemetry JSONL is a third persistence role separate from orchestration SQLite and the observability log.
+- [x] `v2/docs/v2-build-order.md` cross-cutting section includes a telemetry bullet naming doc landing and deferred runtime emitter placement.
+- [x] `v2/docs/shared-step-runner.md` points emission boundaries to `telemetry-capture.md`.
+- [x] `v2/docs/state-store.md` cross-links `telemetry-capture.md` and states token/cost streams stay out of the orchestration store.
+- [x] `v2/docs/outcome-data-source-audit.md` forward-links the v2 telemetry capture contract.
+- [x] No sibling doc duplicates telemetry schema detail from `telemetry-capture.md`.
 
 ## Documentation updates
 

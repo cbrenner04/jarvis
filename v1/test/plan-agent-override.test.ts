@@ -10,10 +10,7 @@ import { loadConfig, registerProject, resolveReviewAgentOrder, writeConfig } fro
 import { runDraftPhase } from "../src/modes/plan/draft.ts";
 import { generatePrDescription } from "../src/modes/plan/pr.ts";
 import { runPlanReviewPhase } from "../src/modes/plan/review.ts";
-import {
-  HARNESS_MODEL_CONFIG_FALLBACK,
-  HARNESS_QUOTA_FALLBACK_STRICT,
-} from "../src/quota-harness-messages.ts";
+import { HARNESS_MODEL_CONFIG_FALLBACK, HARNESS_QUOTA_FALLBACK_STRICT } from "../src/quota-harness-messages.ts";
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 const CODEX_ENTRY = { agent: "codex" as const, model: "gpt-5.3-codex" };
@@ -275,7 +272,11 @@ describe("plan --agent override", () => {
           return { kind: "quota", stderr: "limit" };
         }
         if (isPanel(prompt)) {
-          return { kind: "ok", stdout: prompt.includes("Plan Mode — Review: Adjudicator") ? "Verdict.\n" : "", stderr: "" };
+          return {
+            kind: "ok",
+            stdout: prompt.includes("Plan Mode — Review: Adjudicator") ? "Verdict.\n" : "",
+            stderr: "",
+          };
         }
         throw new Error("claude must not run actuator under override");
       });

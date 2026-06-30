@@ -3538,7 +3538,7 @@ exit 0
         );
         return { kind: "ok", stdout: "", stderr: "" };
       });
-      const claude = new FakeAgent("claude", (callCount, prompt, opts) => {
+      const claude = new FakeAgent("claude", (_callCount, prompt, opts) => {
         if (isPatchReviewPrompt(prompt)) {
           return {
             kind: "ok",

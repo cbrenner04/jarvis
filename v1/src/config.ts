@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve, sep } from "node:path";
-import { AGENT_NAMES, isAgentName, validateAgentOrderEntries, type AgentName } from "./agent-order-validation.ts";
+import { AGENT_NAMES, type AgentName, isAgentName, validateAgentOrderEntries } from "./agent-order-validation.ts";
 
 export type { AgentName };
 export { AGENT_NAMES };

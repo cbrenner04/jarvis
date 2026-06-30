@@ -25,16 +25,16 @@ run orchestration or UI rendering.
 
 ## Acceptance criteria
 
-- [ ] With an injectable socket path to a test IPC server, the client completes `health` and returns `{ ok: true }`.
-- [ ] With an injectable socket path to a test IPC server, the client completes `status` and returns `{ state: "running" }`.
-- [ ] `health` then `status` on one open connection reuse the same transport without reconnecting.
-- [ ] When the socket path is unreachable, the client rejects with `TuiDaemonConnectionError` and does not send run-control RPCs.
-- [ ] When the peer returns a malformed or non-correlated RPC reply, the client rejects with `TuiDaemonConnectionError`.
-- [ ] When connect succeeds but `health` or `status` returns a correlated `error` frame, the client rejects with `TuiDaemonRpcError` (not `TuiDaemonConnectionError`).
-- [ ] When the caller omits `socketPath`, the client targets `~/.jarvis/daemon.sock`.
-- [ ] Co-located tests inject a fake `connectIpcClient` and assert the client uses the injected transport (not production `connectIpcClient`).
-- [ ] Co-located tests include socket-backed success and unreachable-socket cases registered with `test.skipIf(!canUseUnixSockets(), ...)`.
-- [ ] Every exported symbol in the client module has an inline doc-comment stating purpose, params, returns, and thrown errors.
+- [x] With an injectable socket path to a test IPC server, the client completes `health` and returns `{ ok: true }`.
+- [x] With an injectable socket path to a test IPC server, the client completes `status` and returns `{ state: "running" }`.
+- [x] `health` then `status` on one open connection reuse the same transport without reconnecting.
+- [x] When the socket path is unreachable, the client rejects with `TuiDaemonConnectionError` and does not send run-control RPCs.
+- [x] When the peer returns a malformed or non-correlated RPC reply, the client rejects with `TuiDaemonConnectionError`.
+- [x] When connect succeeds but `health` or `status` returns a correlated `error` frame, the client rejects with `TuiDaemonRpcError` (not `TuiDaemonConnectionError`).
+- [x] When the caller omits `socketPath`, the client targets `~/.jarvis/daemon.sock`.
+- [x] Co-located tests inject a fake `connectIpcClient` and assert the client uses the injected transport (not production `connectIpcClient`).
+- [x] Co-located tests include socket-backed success and unreachable-socket cases registered with `test.skipIf(!canUseUnixSockets(), ...)`.
+- [x] Every exported symbol in the client module has an inline doc-comment stating purpose, params, returns, and thrown errors.
 
 ## Documentation updates
 

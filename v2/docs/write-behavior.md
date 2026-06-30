@@ -72,6 +72,22 @@ Daemon lifecycle commands use production defaults:
 | `jarvis daemon stop` | `stopped` | `0` |
 | `jarvis daemon status` | `running` or `stopped` | `0` when running, `1` when stopped |
 
+`jarvis daemon status` probes the PID file and socket for lifecycle state. This is
+distinct from the daemon IPC `status` RPC (`{ state: "running" }` host liveness),
+which `jarvis tui` uses after `health` to prove the channel is live. See
+[TUI CLI](#tui-cli).
+
+## TUI CLI
+
+Socket default: `~/.jarvis/daemon.sock` (same as daemon lifecycle commands).
+
+| Command | Output | Exit |
+| --- | --- | --- |
+| `jarvis tui` | Connected: ink feedback showing IPC `health` `{ ok: true }` and IPC `status` `{ state: "running" }`; unavailable: message naming `~/.jarvis/daemon.sock` and `jarvis daemon start` | `0` connected, `1` unavailable |
+
+When the daemon is not reachable, start it with [`jarvis daemon start`](#daemon-cli)
+before retrying `jarvis tui`.
+
 ## Run control CLI
 
 | Command | Input mapping | Output | Exit |
@@ -176,8 +192,10 @@ Drive the path through the test seam:
   outcome routing, contract checks, blocker appending, state persistence, and
   cancellation via `AbortSignal`.
 - `bun test v2/src/cli.test.ts` proves foreground `write`, daemon lifecycle
-  commands, run-control success/error paths, log JSONL streaming, and `jarvis run wait`
-  (blocking resolve, exit mapping, error pass-through).
+  commands, run-control success/error paths, log JSONL streaming, `jarvis run wait`
+  (blocking resolve, exit mapping, error pass-through), and `jarvis tui` dispatch.
+- `bun test v2/src/tui-entry.test.tsx` proves TUI connect/liveness and
+  unavailable-daemon paths with injectable client and view-host fakes.
 
 A live `jarvis write ...` runs the full pipeline and reports
 `"kind": "invocation_failure"` until process bindings land.

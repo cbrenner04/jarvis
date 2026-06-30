@@ -35,17 +35,17 @@ operator feedback when the daemon is unavailable. No run orchestration.
 
 ## Acceptance criteria
 
-- [ ] `jarvis tui` launches the ink-based TUI entry using `~/.jarvis/daemon.sock` unless tests inject a socket path.
-- [ ] Production `jarvis tui` imports and renders through `ink` (not a stdout-only shim).
-- [ ] When the daemon is reachable, `jarvis tui` completes IPC `health` and IPC `status` through the 00 client, the injectable view host records both successes, then exits `0`.
-- [ ] When the daemon socket is unreachable, `jarvis tui` records operator-visible feedback that names `~/.jarvis/daemon.sock`, mentions `jarvis daemon start`, exits `1`, and does not invoke run-control RPCs or `executeWriteLoop`.
-- [ ] `jarvis tui` invokes only IPC `health` and `status`; it does not send `start`, `list`, `pause`, `resume`, `kill`, `wait`, `shutdown`, or stream frames.
-- [ ] `v2/src/cli.test.ts` coverage for `jarvis write`, `jarvis daemon`, and `jarvis run` stays green.
-- [ ] Co-located tests cover connected and unavailable-daemon paths with injectable daemon client and view-host fakes.
-- [ ] `v2/docs/write-behavior.md` adds a `jarvis tui` row in the daemon/run command table shape: production socket default, connected vs unavailable operator contract, exit codes (`0` connected, `1` unavailable), cross-links to daemon lifecycle commands.
-- [ ] `v2/docs/v2-architecture.md` Interface reconciles the aspirational TUI paragraph with a shipped scaffold subsection (connect/liveness over production IPC; launch/monitor/steer remain sibling work) and removes stale “production defaults deferred to first consumer” lifecycle wording now that CLI and TUI pin paths.
-- [ ] `v2/docs/daemon-host.md` cross-links `jarvis tui` as a consumer-layer socket-default caller (`~/.jarvis/daemon.sock`), not a transport-layer default.
-- [ ] Operator docs distinguish IPC `status` (`{ state: "running" }` liveness RPC) from `jarvis daemon status` CLI output (`running`/`stopped` lifecycle probe).
+- [x] `jarvis tui` launches the ink-based TUI entry using `~/.jarvis/daemon.sock` unless tests inject a socket path.
+- [x] Production `jarvis tui` imports and renders through `ink` (not a stdout-only shim).
+- [x] When the daemon is reachable, `jarvis tui` completes IPC `health` and IPC `status` through the 00 client, the injectable view host records both successes, then exits `0`.
+- [x] When the daemon socket is unreachable, `jarvis tui` records operator-visible feedback that names `~/.jarvis/daemon.sock`, mentions `jarvis daemon start`, exits `1`, and does not invoke run-control RPCs or `executeWriteLoop`.
+- [x] `jarvis tui` invokes only IPC `health` and `status`; it does not send `start`, `list`, `pause`, `resume`, `kill`, `wait`, `shutdown`, or stream frames.
+- [x] `v2/src/cli.test.ts` coverage for `jarvis write`, `jarvis daemon`, and `jarvis run` stays green.
+- [x] Co-located tests cover connected and unavailable-daemon paths with injectable daemon client and view-host fakes.
+- [x] `v2/docs/write-behavior.md` adds a `jarvis tui` row in the daemon/run command table shape: production socket default, connected vs unavailable operator contract, exit codes (`0` connected, `1` unavailable), cross-links to daemon lifecycle commands.
+- [x] `v2/docs/v2-architecture.md` Interface reconciles the aspirational TUI paragraph with a shipped scaffold subsection (connect/liveness over production IPC; launch/monitor/steer remain sibling work) and removes stale “production defaults deferred to first consumer” lifecycle wording now that CLI and TUI pin paths.
+- [x] `v2/docs/daemon-host.md` cross-links `jarvis tui` as a consumer-layer socket-default caller (`~/.jarvis/daemon.sock`), not a transport-layer default.
+- [x] Operator docs distinguish IPC `status` (`{ state: "running" }` liveness RPC) from `jarvis daemon status` CLI output (`running`/`stopped` lifecycle probe).
 
 ## Documentation updates
 

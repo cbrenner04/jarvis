@@ -15,8 +15,6 @@ export type CiCheckRun = {
   };
 };
 
-export type CiCheckClassification = "green" | "pending" | "red";
-
 /** Discriminated HEAD-sha check-runs fetch result; hard failures are not classifiable check data. */
 export type CommitCheckRunsFetchResult = { ok: true; checkRuns: CiCheckRun[] } | { ok: false; reason: string };
 
@@ -37,12 +35,9 @@ const CI_RED_STATUSES = new Set(["failure", "cancelled", "timed_out", "startup_f
 const CI_EXCERPT_MAX_BYTES = 2048;
 const NO_EXCERPT = "(no excerpt available)";
 
-/**
- * Classify adapted CI checks as green, pending, or red using triage `--merge` vocabulary.
- * Invariant: `null` or empty input fail-closes to red with `failingCheck: "no checks found"`.
- */
+/** Invariant: `null` or empty input fail-closes to red with `failingCheck: "no checks found"`. */
 export function classifyCiChecks(checks: CiCheckState[] | null): {
-  classification: CiCheckClassification;
+  classification: "green" | "pending" | "red";
   failingCheck?: string;
   pendingCheck?: string;
 } {
@@ -72,9 +67,7 @@ export function classifyCiChecks(checks: CiCheckState[] | null): {
   return { classification: "green" };
 }
 
-/**
- * Map GitHub commit check-run `status` + `conclusion` into `CiCheckState[]` for `classifyCiChecks`.
- */
+/** Maps GitHub check-run `status` + `conclusion` into classifier input. */
 export function adaptCheckRunsToCiStates(
   checkRuns: { name: string; status: string; conclusion: string | null }[],
 ): CiCheckState[] {
@@ -90,10 +83,7 @@ export function adaptCheckRunsToCiStates(
   });
 }
 
-/**
- * Paginated HEAD-sha commit check-runs fetch via `gh api`.
- * Returns `{ ok: false }` on gh API error, unresolvable `origin`, JSON/parse failure, or pagination abort.
- */
+/** Hard failures are not classifiable check data. */
 export function fetchCommitCheckRunsForSha(
   worktreePath: string,
   sha: string,
@@ -108,78 +98,67 @@ export function fetchCommitCheckRunsForSha(
   }
   const { owner, repo } = ownerRepo;
 
-  try {
-    const checkRuns: CiCheckRun[] = [];
-    let page = 1;
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      let output: string;
-      try {
-        output = execSyncFn(`gh api "repos/${owner}/${repo}/commits/${sha}/check-runs?per_page=100&page=${page}"`, {
-          stdio: "pipe",
-          encoding: "utf8",
-        });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { ok: false, reason: `gh api error: ${message}` };
-      }
-
-      let data: { check_runs?: unknown };
-      try {
-        data = JSON.parse(output) as { check_runs?: unknown };
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { ok: false, reason: `check-runs JSON parse failure: ${message}` };
-      }
-
-      if (!Array.isArray(data.check_runs)) {
-        return { ok: false, reason: "check-runs response missing check_runs array" };
-      }
-      if (data.check_runs.length === 0) {
-        break;
-      }
-
-      for (const rawEntry of data.check_runs) {
-        if (typeof rawEntry !== "object" || rawEntry === null) {
-          continue;
-        }
-        const run = rawEntry as {
-          name?: unknown;
-          status?: unknown;
-          conclusion?: unknown;
-          output?: unknown;
-        };
-        if (typeof run.name !== "string" || typeof run.status !== "string") {
-          continue;
-        }
-        const parsedOutput = parseCheckRunOutput(run.output);
-        const entry: CiCheckRun = {
-          name: run.name,
-          status: run.status,
-          conclusion: typeof run.conclusion === "string" ? run.conclusion : null,
-        };
-        if (parsedOutput !== undefined) {
-          entry.output = parsedOutput;
-        }
-        checkRuns.push(entry);
-      }
-
-      if (data.check_runs.length < 100) {
-        break;
-      }
-      page += 1;
+  const checkRuns: CiCheckRun[] = [];
+  let page = 1;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    let output: string;
+    try {
+      output = execSyncFn(`gh api "repos/${owner}/${repo}/commits/${sha}/check-runs?per_page=100&page=${page}"`, {
+        stdio: "pipe",
+        encoding: "utf8",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { ok: false, reason: `gh api error: ${message}` };
     }
-    return { ok: true, checkRuns };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { ok: false, reason: `check-runs pagination abort: ${message}` };
+
+    let data: { check_runs?: unknown };
+    try {
+      data = JSON.parse(output) as { check_runs?: unknown };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { ok: false, reason: `check-runs JSON parse failure: ${message}` };
+    }
+
+    if (!Array.isArray(data.check_runs)) {
+      return { ok: false, reason: "check-runs response missing check_runs array" };
+    }
+    if (data.check_runs.length === 0) {
+      break;
+    }
+
+    for (const rawEntry of data.check_runs) {
+      if (typeof rawEntry !== "object" || rawEntry === null) {
+        continue;
+      }
+      const run = rawEntry as {
+        name?: unknown;
+        status?: unknown;
+        conclusion?: unknown;
+        output?: unknown;
+      };
+      if (typeof run.name !== "string" || typeof run.status !== "string") {
+        continue;
+      }
+      const outputFields = parseCheckRunOutput(run.output);
+      checkRuns.push({
+        name: run.name,
+        status: run.status,
+        conclusion: typeof run.conclusion === "string" ? run.conclusion : null,
+        ...(outputFields !== undefined ? { output: outputFields } : {}),
+      });
+    }
+
+    if (data.check_runs.length < 100) {
+      break;
+    }
+    page += 1;
   }
+  return { ok: true, checkRuns };
 }
 
-/**
- * Triage flake-recovery compatibility: adapted states, or `null` when fetch hard-fails.
- * `classifyCiChecks(null)` fail-closes to red — callers must not confuse that with fetch errors on the review-feedback path.
- */
+/** Triage flake-recovery: `null` on hard fetch failure (not classifiable empty input). */
 export function fetchCommitChecksForSha(
   worktreePath: string,
   sha: string,
@@ -192,10 +171,7 @@ export function fetchCommitChecksForSha(
   return adaptCheckRunsToCiStates(result.checkRuns);
 }
 
-/**
- * Collect every red-classified check from a successful fetch payload with bounded output excerpts.
- * Invariant: no second gh call; operates only on `fetchResult.checkRuns`.
- */
+/** Operates only on `fetchResult.checkRuns` — no second gh call. */
 export function collectFailingCiContext(fetchResult: { ok: true; checkRuns: CiCheckRun[] }): FailingCiCheck[] {
   const states = adaptCheckRunsToCiStates(fetchResult.checkRuns);
   const failing: FailingCiCheck[] = [];
@@ -203,7 +179,7 @@ export function collectFailingCiContext(fetchResult: { ok: true; checkRuns: CiCh
   for (let index = 0; index < states.length; index += 1) {
     const state = states[index];
     const run = fetchResult.checkRuns[index];
-    if (state === undefined || run === undefined || !isRedCiStatus(state.status)) {
+    if (state === undefined || run === undefined || classifyCiChecks([state]).classification !== "red") {
       continue;
     }
     failing.push({
@@ -215,26 +191,15 @@ export function collectFailingCiContext(fetchResult: { ok: true; checkRuns: CiCh
   return failing;
 }
 
-function isRedCiStatus(status: string): boolean {
-  if (CI_RED_STATUSES.has(status)) {
-    return true;
-  }
-  if (CI_PENDING_STATUSES.has(status) || CI_GREEN_STATUSES.has(status)) {
-    return false;
-  }
-  return true;
-}
-
 function buildCheckExcerpt(output: CiCheckRun["output"]): string {
   const summary = output?.summary?.trim();
   const text = output?.text?.trim();
-  if (summary === undefined && text === undefined) {
+  const combined =
+    summary !== undefined && text !== undefined ? `${summary}\n${text}` : (summary ?? text);
+  if (combined === undefined) {
     return NO_EXCERPT;
   }
-  if (summary !== undefined && text !== undefined) {
-    return capExcerptTail(`${summary}\n${text}`);
-  }
-  return capExcerptTail(summary ?? text ?? NO_EXCERPT);
+  return capExcerptTail(combined);
 }
 
 function capExcerptTail(text: string): string {
@@ -255,14 +220,10 @@ function parseCheckRunOutput(output: unknown): CiCheckRun["output"] | undefined 
   if (summary === undefined && text === undefined) {
     return undefined;
   }
-  const parsed: NonNullable<CiCheckRun["output"]> = {};
-  if (summary !== undefined) {
-    parsed.summary = summary;
-  }
-  if (text !== undefined) {
-    parsed.text = text;
-  }
-  return parsed;
+  return {
+    ...(summary !== undefined ? { summary } : {}),
+    ...(text !== undefined ? { text } : {}),
+  };
 }
 
 function resolveOwnerRepoFromWorktree(

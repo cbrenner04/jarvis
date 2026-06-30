@@ -48,23 +48,7 @@ describe("ci-checks", () => {
     }
   });
 
-  test("fetch error is not consumed as classifiable empty input", () => {
-    const worktree = mkdtempSync(join(tmpdir(), "jarvis-ci-checks-"));
-    try {
-      const result = fetchCommitCheckRunsForSha(worktree, "abc123", {
-        execFileSync: (() => {
-          throw new Error("no origin");
-        }) as typeof execFileSync,
-      });
-      expect(result.ok).toBe(false);
-      expect(classifyCiChecks(null).classification).toBe("red");
-      expect(classifyCiChecks(null).failingCheck).toBe("no checks found");
-    } finally {
-      rmSync(worktree, { recursive: true, force: true });
-    }
-  });
-
-  test("fetchCommitCheckRunsForSha returns ok:false on unresolvable origin", () => {
+  test("fetch error is not classifiable empty input and surfaces unresolvable origin", () => {
     const worktree = mkdtempSync(join(tmpdir(), "jarvis-ci-checks-"));
     try {
       const result = fetchCommitCheckRunsForSha(worktree, "abc123", {
@@ -73,6 +57,8 @@ describe("ci-checks", () => {
         }) as typeof execFileSync,
       });
       expect(result).toEqual({ ok: false, reason: "unresolvable origin remote" });
+      expect(classifyCiChecks(null).classification).toBe("red");
+      expect(classifyCiChecks(null).failingCheck).toBe("no checks found");
     } finally {
       rmSync(worktree, { recursive: true, force: true });
     }

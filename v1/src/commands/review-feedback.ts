@@ -146,12 +146,10 @@ export async function reviewFeedbackCommand(opts: ReviewCommandOptions): Promise
         opts.io.stderr(`jarvis1 review-feedback: ${fetchResult.reason}\n`);
         return 1;
       }
-      if (fetchResult.checkRuns.length === 0) {
-        opts.io.stdout("jarvis1 review-feedback: no open review comments\n");
-        return 0;
-      }
-      const classification = classifyCiChecks(adaptCheckRunsToCiStates(fetchResult.checkRuns));
-      if (classification.classification !== "red") {
+      if (
+        fetchResult.checkRuns.length === 0 ||
+        classifyCiChecks(adaptCheckRunsToCiStates(fetchResult.checkRuns)).classification !== "red"
+      ) {
         opts.io.stdout("jarvis1 review-feedback: no open review comments\n");
         return 0;
       }

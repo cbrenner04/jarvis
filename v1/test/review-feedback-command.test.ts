@@ -616,57 +616,36 @@ describe("review-feedback command", () => {
     expect(cap.out()).toContain("committed and pushed review feedback updates via claude");
   });
 
-  test("no comments and green CI exits 0 without agent", async () => {
-    createGitWorktree("ci-green");
-    const cap = captureIo();
-    let agentCalled = false;
-    const code = await reviewFeedbackCommand({
-      projectRoot,
-      worktreeName: "ci-green",
-      io: cap.io,
-      loadConfigFn: () => cfg([{ agent: "claude", model: "haiku" }]),
-      assertGhReadyFn: async () => {},
-      checkPrExistsFn: () => 123,
-      collectReviewFeedbackFn: async () => ({
-        inlineThreads: [],
-        topLevelComments: [],
-      }),
-      ...noCommentsFetchStub([greenCheckRun()]),
-      createAgentFn: () => {
-        agentCalled = true;
-        return fakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
-      },
+  for (const [label, checkRuns] of [
+    ["green", [greenCheckRun()]],
+    ["pending", [pendingCheckRun()]],
+  ] as [string, CiCheckRun[]][]) {
+    test(`no comments and ${label} CI exits 0 without agent`, async () => {
+      createGitWorktree(`ci-${label}`);
+      const cap = captureIo();
+      let agentCalled = false;
+      const code = await reviewFeedbackCommand({
+        projectRoot,
+        worktreeName: `ci-${label}`,
+        io: cap.io,
+        loadConfigFn: () => cfg([{ agent: "claude", model: "haiku" }]),
+        assertGhReadyFn: async () => {},
+        checkPrExistsFn: () => 123,
+        collectReviewFeedbackFn: async () => ({
+          inlineThreads: [],
+          topLevelComments: [],
+        }),
+        ...noCommentsFetchStub(checkRuns),
+        createAgentFn: () => {
+          agentCalled = true;
+          return fakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
+        },
+      });
+      expect(code).toBe(0);
+      expect(agentCalled).toBe(false);
+      expect(cap.out()).toContain("no open review comments");
     });
-    expect(code).toBe(0);
-    expect(agentCalled).toBe(false);
-    expect(cap.out()).toContain("no open review comments");
-  });
-
-  test("no comments and pending CI exits 0 without agent", async () => {
-    createGitWorktree("ci-pending");
-    const cap = captureIo();
-    let agentCalled = false;
-    const code = await reviewFeedbackCommand({
-      projectRoot,
-      worktreeName: "ci-pending",
-      io: cap.io,
-      loadConfigFn: () => cfg([{ agent: "claude", model: "haiku" }]),
-      assertGhReadyFn: async () => {},
-      checkPrExistsFn: () => 123,
-      collectReviewFeedbackFn: async () => ({
-        inlineThreads: [],
-        topLevelComments: [],
-      }),
-      ...noCommentsFetchStub([pendingCheckRun()]),
-      createAgentFn: () => {
-        agentCalled = true;
-        return fakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
-      },
-    });
-    expect(code).toBe(0);
-    expect(agentCalled).toBe(false);
-    expect(cap.out()).toContain("no open review comments");
-  });
+  }
 
   test("comments and red CI use comment prompt and address PR review comments", async () => {
     const worktreePath = createGitWorktree("comments-red-ci");

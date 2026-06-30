@@ -261,7 +261,7 @@ export function renderReviewPrompt(args: {
   return lines.join("\n");
 }
 
-/** Agent prompt for fixing failing CI when no open review comments are present. */
+/** CI-failure agent prompt when no open review comments are present. */
 export function renderCiFailurePrompt(args: {
   branch: string;
   prNumber: number;

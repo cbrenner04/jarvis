@@ -13,7 +13,7 @@ import {
   setProjectOrigin,
 } from "../../config.ts";
 import { assertGhReady, getBaseBranch } from "../../gh.ts";
-import { buildEffectivePromptAgentEntries, type PromptAgentOverride } from "../../parse-agent-flag.ts";
+import { buildEffectivePromptAgentEntries } from "../../parse-agent-flag.ts";
 import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
   HARNESS_QUOTA_FALLBACK_STRICT,
@@ -33,7 +33,7 @@ export type PromptRunOptions = {
   io: Io;
   projectPath: string;
   config: ConfigOptions | undefined;
-  pinnedAgent?: PromptAgentOverride;
+  pinnedAgent?: AgentEntry;
   skipGhCheck?: boolean | undefined;
   agents?: Partial<Record<AgentName, Agent>>;
   /**
@@ -47,22 +47,6 @@ export type PromptRunOptions = {
   /** Test-only poll interval when `__testAfterPollFn` is set. */
   __testDescendantPollIntervalMs?: number;
 };
-
-type ActivePromptAgent = {
-  agent: Agent;
-  model: string;
-};
-
-function buildActivePromptAgents(opts: PromptRunOptions, entries: readonly AgentEntry[]): ActivePromptAgent[] {
-  const overrides = opts.agents;
-  return entries.map((entry) => {
-    const override = overrides?.[entry.agent];
-    if (override !== undefined) {
-      return { agent: override, model: entry.model };
-    }
-    return { agent: createAgent(entry.agent, entry.model), model: entry.model };
-  });
-}
 
 function generateNonce(): string {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -188,9 +172,8 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
     const basePrompt = buildPrompt(opts.promptText);
 
     const effectiveEntries = buildEffectivePromptAgentEntries(opts.pinnedAgent, cfg.modes.prompt.agentOrder);
-    const agents = buildActivePromptAgents(opts, effectiveEntries);
 
-    if (agents.length === 0) {
+    if (effectiveEntries.length === 0) {
       opts.io.stderr("jarvis1: no agents configured\n");
       exitCode = 1;
       exitReason = "no-agents-configured";
@@ -205,17 +188,17 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
     let quotaAttemptCount = 0;
     let sawNonQuotaFallthrough = false;
 
-    for (let agentIndex = 0; agentIndex < agents.length; agentIndex += 1) {
-      const active = agents[agentIndex];
-      if (active === undefined) {
+    for (let agentIndex = 0; agentIndex < effectiveEntries.length; agentIndex += 1) {
+      const entry = effectiveEntries[agentIndex];
+      if (entry === undefined) {
         continue;
       }
-      const { agent, model: entryModel } = active;
-      const isLastAgent = agentIndex === agents.length - 1;
+      const agent = opts.agents?.[entry.agent] ?? createAgent(entry.agent, entry.model);
+      const isLastAgent = agentIndex === effectiveEntries.length - 1;
       attemptedAgentCount += 1;
       opts.io.stderr(`jarvis1: invoking ${agent.name}...\n`);
 
-      configuredModel = entryModel;
+      configuredModel = entry.model;
 
       const descendantTracker = new DescendantTracker();
       const descendantPollIntervalMs =

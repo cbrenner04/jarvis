@@ -12,6 +12,7 @@ import { RUNBOOK_USAGE, runbookCommand } from "./commands/runbook.ts";
 import { type TriageCommandOptions, triageCommand } from "./commands/triage.ts";
 import {
   CONFIG_DIR,
+  type AgentEntry,
   type ConfigOptions,
   findProjectMatchForPath,
   loadConfig,
@@ -25,7 +26,6 @@ import { computeProjectSafeId } from "./modes/plan/spec-paths.ts";
 import { promptCommand } from "./modes/prompt/run.ts";
 import { runSharedProjectPreflight } from "./modes/shared-entry.ts";
 import {
-  type PromptAgentOverride,
   parseAgentFlagValues,
   parsePromptAgentOverride,
   prefixAgentFlagError,
@@ -184,17 +184,15 @@ Flags:
 // Populate from plan and intent modules to avoid duplication
 Object.assign(COMMAND_USAGE, { plan: PLAN_USAGE, intent: INTENT_USAGE, runbook: RUNBOOK_USAGE });
 
-function rejectUnsupportedAgentFlag(subcommand: string, argv: readonly string[]): ParsedArgs | undefined {
-  if (argv.includes("--agent")) {
-    return { kind: "error", message: `${subcommand}: --agent is not supported` };
-  }
-  return undefined;
-}
+const AGENT_FLAG_SUBCOMMANDS = new Set(["run", "plan", "prompt"]);
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const [first, ...rest] = argv;
   if (first === undefined || first === "help" || first === "-h" || first === "--help") {
     return { kind: "help" };
+  }
+  if (!AGENT_FLAG_SUBCOMMANDS.has(first) && rest.includes("--agent")) {
+    return { kind: "error", message: `${first}: --agent is not supported` };
   }
   switch (first) {
     case "run": {
@@ -326,44 +324,20 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       if (rest.includes("--help") || rest.includes("-h")) {
         return { kind: "help", command: "init" };
       }
-      {
-        const rejected = rejectUnsupportedAgentFlag("init", rest);
-        if (rejected !== undefined) {
-          return rejected;
-        }
-      }
       return { kind: "init" };
     case "config":
       if (rest.includes("--help") || rest.includes("-h")) {
         return { kind: "help", command: "config" };
-      }
-      {
-        const rejected = rejectUnsupportedAgentFlag("config", rest);
-        if (rejected !== undefined) {
-          return rejected;
-        }
       }
       return { kind: "config", rest };
     case "log-server":
       if (rest.includes("--help") || rest.includes("-h")) {
         return { kind: "help", command: "log-server" };
       }
-      {
-        const rejected = rejectUnsupportedAgentFlag("log-server", rest);
-        if (rejected !== undefined) {
-          return rejected;
-        }
-      }
       return { kind: "log-server" };
     case "cleanup": {
       if (rest.includes("--help") || rest.includes("-h")) {
         return { kind: "help", command: "cleanup" };
-      }
-      {
-        const rejected = rejectUnsupportedAgentFlag("cleanup", rest);
-        if (rejected !== undefined) {
-          return rejected;
-        }
       }
       const dryRun = rest.includes("--dry-run");
       const abandon = rest.includes("--abandon");
@@ -384,12 +358,6 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     case "triage": {
       if (rest.includes("--help") || rest.includes("-h")) {
         return { kind: "help", command: "triage" };
-      }
-      {
-        const rejected = rejectUnsupportedAgentFlag("triage", rest);
-        if (rejected !== undefined) {
-          return rejected;
-        }
       }
       const markReady = rest.includes("--mark-ready");
       const merge = rest.includes("--merge");
@@ -431,12 +399,6 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       if (rest.includes("--help") || rest.includes("-h")) {
         return { kind: "help", command: "review-feedback" };
       }
-      {
-        const rejected = rejectUnsupportedAgentFlag("review-feedback", rest);
-        if (rejected !== undefined) {
-          return rejected;
-        }
-      }
       const worktreeName = rest[0];
       const result: { kind: "review-feedback"; worktreeName?: string } = {
         kind: "review-feedback",
@@ -454,12 +416,6 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     case "intent":
       if (rest.includes("--help") || rest.includes("-h")) {
         return { kind: "help", command: "intent" };
-      }
-      {
-        const rejected = rejectUnsupportedAgentFlag("intent", rest);
-        if (rejected !== undefined) {
-          return rejected;
-        }
       }
       return { kind: "intent", rest };
     case "prompt": {
@@ -526,38 +482,22 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       if (text === undefined) {
         return { kind: "error", message: "prompt: missing <text>" };
       }
-      const parsed: ParsedArgs = { kind: "prompt", text };
-      if (repo !== undefined) {
-        parsed.repo = repo;
-      }
-      if (agentFlag !== undefined) {
-        parsed.agentFlag = agentFlag;
-      }
-      if (modelFlag !== undefined) {
-        parsed.modelFlag = modelFlag;
-      }
-      return parsed;
+      return {
+        kind: "prompt",
+        text,
+        ...(repo !== undefined ? { repo } : {}),
+        ...(agentFlag !== undefined ? { agentFlag } : {}),
+        ...(modelFlag !== undefined ? { modelFlag } : {}),
+      };
     }
     case "prices":
       if (rest.includes("--help") || rest.includes("-h")) {
         return { kind: "help", command: "prices" };
       }
-      {
-        const rejected = rejectUnsupportedAgentFlag("prices", rest);
-        if (rejected !== undefined) {
-          return rejected;
-        }
-      }
       return { kind: "prices", rest };
     case "runbook": {
       if (rest.includes("--help") || rest.includes("-h")) {
         return { kind: "help", command: "runbook" };
-      }
-      {
-        const rejected = rejectUnsupportedAgentFlag("runbook", rest);
-        if (rejected !== undefined) {
-          return rejected;
-        }
       }
       if (rest.length === 0) {
         return { kind: "runbook", action: "" };
@@ -901,7 +841,7 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
         }
       }
 
-      let pinnedAgent: PromptAgentOverride | undefined;
+      let pinnedAgent: AgentEntry | undefined;
       if (parsed.agentFlag !== undefined) {
         const parsedAgent = parsePromptAgentOverride(parsed.agentFlag, parsed.modelFlag, cfg.modes.prompt.agentOrder);
         if (!parsedAgent.ok) {

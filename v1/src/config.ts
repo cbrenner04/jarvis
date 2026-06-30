@@ -133,16 +133,12 @@ export type ConfigOptions = {
   maxIterations?: number;
 };
 
-const DEFAULT_AGENT_MODELS: Record<AgentName, string> = {
+export const DEFAULT_AGENT_MODELS: Record<AgentName, string> = {
   claude: "haiku",
   codex: "gpt-5.4",
   cursor: "Composer 2.5",
   opencode: "opencode/deepseek-v4-flash-free",
 };
-
-export function defaultAgentModel(agent: AgentName): string {
-  return DEFAULT_AGENT_MODELS[agent];
-}
 
 const DEFAULT_AGENT_ORDER: AgentEntry[] = [
   { agent: "claude", model: DEFAULT_AGENT_MODELS.claude },

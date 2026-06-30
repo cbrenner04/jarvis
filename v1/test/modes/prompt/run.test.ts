@@ -514,24 +514,6 @@ describe("promptCommand", () => {
 
   test("pinned agent runs first when absent from config order", async () => {
     setupPromptEnv();
-    writeConfig(
-      {
-        version: 2,
-        modes: {
-          patch: { agentOrder: [CLAUDE_ENTRY, { agent: "cursor", model: "Composer 2" }] },
-          plan: { agentOrder: [CLAUDE_ENTRY, { agent: "cursor", model: "Composer 2" }] },
-          prompt: { agentOrder: [CLAUDE_ENTRY, { agent: "cursor", model: "Composer 2" }] },
-          review: { passes: 2 },
-        },
-        quotaFallback: "strict",
-        weakQuotaExitCodes: [],
-        maxIterations: 10,
-        iterationTimeoutMs: 30 * 60_000,
-        git: true,
-        projects: { project: { root: projectRoot } },
-      },
-      { dir: cfgDir },
-    );
     const cap = captureIo();
     const opencode = new FakeAgent("opencode", () => ({ kind: "ok", stdout: "opencode answer\n", stderr: "" }));
     const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "claude answer\n", stderr: "" }));

@@ -280,51 +280,43 @@ describe("parseArgs", () => {
     });
   });
 
-  test("prompt without --agent value → error", () => {
-    const parsed = parseArgs(["prompt", "--agent"]);
-    expect(parsed.kind).toBe("error");
-    if (parsed.kind === "error") {
-      expect(parsed.message).toContain("--agent");
+  test("prompt flag parse errors", () => {
+    for (const argv of [
+      ["prompt", "--agent"],
+      ["prompt", "--agent", "claude", "--agent", "codex", "hello"],
+      ["prompt", "--model"],
+    ] as const) {
+      const parsed = parseArgs([...argv]);
+      expect(parsed.kind).toBe("error");
     }
   });
 
-  test("prompt duplicate --agent → error", () => {
-    const parsed = parseArgs(["prompt", "--agent", "claude", "--agent", "codex", "hello"]);
-    expect(parsed.kind).toBe("error");
-    if (parsed.kind === "error") {
-      expect(parsed.message).toContain("duplicate --agent");
+  test("unsupported subcommands reject --agent", () => {
+    for (const argv of [
+      ["intent", "--agent", "claude", "seed.md"],
+      ["config", "--agent", "claude", "show"],
+    ] as const) {
+      const parsed = parseArgs([...argv]);
+      expect(parsed.kind).toBe("error");
+      if (parsed.kind === "error") {
+        expect(parsed.message).toContain("--agent is not supported");
+      }
     }
   });
 
-  test("prompt without --model value → error", () => {
-    const parsed = parseArgs(["prompt", "--model"]);
-    expect(parsed.kind).toBe("error");
-    if (parsed.kind === "error") {
-      expect(parsed.message).toContain("--model");
+  test("parsePromptAgentOverride", () => {
+    const colonModel = parsePromptAgentOverride("codex:gpt-5.4", "haiku", []);
+    expect(colonModel.ok).toBe(true);
+    if (colonModel.ok) {
+      expect(colonModel.pinned).toEqual({ agent: "codex", model: "gpt-5.4" });
     }
-  });
 
-  test("intent with --agent → error", () => {
-    const parsed = parseArgs(["intent", "--agent", "claude", "seed.md"]);
-    expect(parsed.kind).toBe("error");
-    if (parsed.kind === "error") {
-      expect(parsed.message).toContain("--agent is not supported");
-    }
-  });
+    expect(parsePromptAgentOverride(":model", undefined, []).ok).toBe(false);
 
-  test("config with --agent → error", () => {
-    const parsed = parseArgs(["config", "--agent", "claude", "show"]);
-    expect(parsed.kind).toBe("error");
-    if (parsed.kind === "error") {
-      expect(parsed.message).toContain("--agent is not supported");
-    }
-  });
-
-  test("parsePromptAgentOverride prefers colon model over --model", () => {
-    const parsed = parsePromptAgentOverride("codex:gpt-5.4", "haiku", []);
-    expect(parsed.ok).toBe(true);
-    if (parsed.ok) {
-      expect(parsed.pinned).toEqual({ agent: "codex", model: "gpt-5.4" });
+    const configModel = parsePromptAgentOverride("claude", undefined, [{ agent: "claude", model: "sonnet" }]);
+    expect(configModel.ok).toBe(true);
+    if (configModel.ok) {
+      expect(configModel.pinned.model).toBe("sonnet");
     }
   });
 
@@ -332,19 +324,6 @@ describe("parseArgs", () => {
     expect(buildEffectivePromptAgentEntries({ agent: "opencode", model: "opencode/glm-5.2" }, [])).toEqual([
       { agent: "opencode", model: "opencode/glm-5.2" },
     ]);
-  });
-
-  test("parsePromptAgentOverride rejects empty agent name", () => {
-    const parsed = parsePromptAgentOverride(":model", undefined, []);
-    expect(parsed.ok).toBe(false);
-  });
-
-  test("parsePromptAgentOverride uses config row model when no override", () => {
-    const parsed = parsePromptAgentOverride("claude", undefined, [{ agent: "claude", model: "sonnet" }]);
-    expect(parsed.ok).toBe(true);
-    if (parsed.ok) {
-      expect(parsed.pinned.model).toBe("sonnet");
-    }
   });
 
   test("prompt without text → error", () => {

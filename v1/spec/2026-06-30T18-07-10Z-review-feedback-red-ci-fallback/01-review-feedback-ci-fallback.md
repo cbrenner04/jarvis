@@ -61,12 +61,12 @@ routed through failing-check context instead of manual log triage.
 
 ## Acceptance criteria
 
-- [ ] When the PR has open review comments and red CI, `review-feedback` uses the comment prompt and commits `address PR review comments` — unchanged from today's comment path.
-- [ ] When the PR has no open review comments and red CI at HEAD, `review-feedback` prints `collected <N> failing CI checks for PR #<n>`, runs the patch-mode agent loop from a CI-failure prompt, commits `address failing CI checks` on change, pushes, prints `committed and pushed review feedback updates via <agent>`, and exits `0`.
-- [ ] When the PR has no open review comments and CI is green, pending, or a successful fetch returns zero check-runs at HEAD, `review-feedback` exits `0` with line body `jarvis1 review-feedback: no open review comments` (trailing newline per existing convention) and does not spawn an agent.
-- [ ] When HEAD-sha check-runs fetch returns `{ ok: false }` (gh API error, unresolvable `origin`, JSON/parse failure, or pagination abort) on the no-comments branch, `review-feedback` exits `1` with a surfaced error and does not report `no open review comments`.
-- [ ] When the CI fallback agent makes no file changes, `review-feedback` exits `1` with `agent run completed with no file changes; no commit created` and does not commit.
-- [ ] `review-feedback-command.test.ts` `"no actionable comments exits 0 with no-open-comments message"`, `"lock contention exits through normal lock failure path"`, `"no-op agent exits non-zero and does not commit"`, `"falls through failing/quota agent to later success and commits once"`, and `"all agents quota-exhausted exits non-zero with no commit"` stay green aside from new CI-fallback cases above.
+- [x] When the PR has open review comments and red CI, `review-feedback` uses the comment prompt and commits `address PR review comments` — unchanged from today's comment path.
+- [x] When the PR has no open review comments and red CI at HEAD, `review-feedback` prints `collected <N> failing CI checks for PR #<n>`, runs the patch-mode agent loop from a CI-failure prompt, commits `address failing CI checks` on change, pushes, prints `committed and pushed review feedback updates via <agent>`, and exits `0`.
+- [x] When the PR has no open review comments and CI is green, pending, or a successful fetch returns zero check-runs at HEAD, `review-feedback` exits `0` with line body `jarvis1 review-feedback: no open review comments` (trailing newline per existing convention) and does not spawn an agent.
+- [x] When HEAD-sha check-runs fetch returns `{ ok: false }` (gh API error, unresolvable `origin`, JSON/parse failure, or pagination abort) on the no-comments branch, `review-feedback` exits `1` with a surfaced error and does not report `no open review comments`.
+- [x] When the CI fallback agent makes no file changes, `review-feedback` exits `1` with `agent run completed with no file changes; no commit created` and does not commit.
+- [x] `review-feedback-command.test.ts` `"no actionable comments exits 0 with no-open-comments message"`, `"lock contention exits through normal lock failure path"`, `"no-op agent exits non-zero and does not commit"`, `"falls through failing/quota agent to later success and commits once"`, and `"all agents quota-exhausted exits non-zero with no commit"` stay green aside from new CI-fallback cases above.
 
 ## Documentation updates
 

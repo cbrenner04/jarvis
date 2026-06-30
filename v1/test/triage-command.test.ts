@@ -6,7 +6,6 @@ import { dirname, join } from "node:path";
 import { type MergeTargetResolutionSeams, resolveMergeTarget } from "../src/commands/resolve-merge-target.ts";
 import type { SuggestedMovesInput, TriageCommandOptions, TriageGhRunner, TriageIo } from "../src/commands/triage.ts";
 import {
-  adaptCheckRunsToCiStates,
   extractFailingTestFilePaths,
   getSuggestedMoves,
   recoveryProbeExitFromExecError,
@@ -2843,24 +2842,6 @@ describe("triage --mark-ready", () => {
         "/repo/v1/test/triage-command.test.ts",
       ]);
       expect(extractFailingTestFilePaths("no failure markers here")).toEqual([]);
-    });
-
-    test("adaptCheckRunsToCiStates maps GitHub check-run status and conclusion", () => {
-      expect(
-        adaptCheckRunsToCiStates([
-          { name: "ok", status: "completed", conclusion: "success" },
-          { name: "skip", status: "completed", conclusion: "skipped" },
-          { name: "wait", status: "in_progress", conclusion: null },
-          { name: "open", status: "completed", conclusion: null },
-          { name: "bad", status: "completed", conclusion: "failure" },
-        ]),
-      ).toEqual([
-        { name: "ok", status: "success" },
-        { name: "skip", status: "skipped" },
-        { name: "wait", status: "in_progress" },
-        { name: "open", status: "pending" },
-        { name: "bad", status: "failure" },
-      ]);
     });
 
     test("--merge recovers on test flake when HEAD-sha CI green and serial probe passes", () => {

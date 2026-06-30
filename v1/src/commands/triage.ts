@@ -2,6 +2,7 @@ import { execFileSync, execSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseSpec } from "../../../shared/spec-parser.ts";
+import { type CiCheckState, classifyCiChecks, fetchCommitChecksForSha } from "../ci-checks.ts";
 import { appendAgentTrailer } from "../commit-trailer.ts";
 import type { ConfigOptions } from "../config.ts";
 import { loadConfig, resolvePlanFlags } from "../config.ts";
@@ -14,7 +15,6 @@ import { snapshotAcceptanceCriteria } from "../modes/patch/subspec.ts";
 import { stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
 import { type EnsureDraftPrOpts, ensureDraftPr, findMatchingOpenPrs, renderAttributionSummary } from "../pr.ts";
 import { ReadyCommandError, runReadyGateWithTier } from "../ready-gate.ts";
-import { normalizeRepoUrl } from "../repo-url.ts";
 import { hasUpstream, pushCurrent } from "../worktree.ts";
 import { getWorktreeLockPath, isProcessAlive, type WorktreeLock } from "../worktree-lock.ts";
 import { emitMergeRefusal, type MergeTargetResolutionSeams, resolveMergeTarget } from "./resolve-merge-target.ts";
@@ -24,7 +24,7 @@ export type TriageIo = {
   stderr: (s: string) => void;
 };
 
-export type CiCheckState = { name: string; status: string };
+export type { CiCheckState };
 
 export type TriageGhRunner = {
   getPrState: (branch: string) => { state: string; isDraft: boolean } | null;
@@ -1409,45 +1409,6 @@ export function specHasNonHumanOnlyAcceptanceCriteria(specPath: string): boolean
   return paths.some((p) => existsSync(p) && snapshotAcceptanceCriteria(p).some((c) => !c.humanOnly));
 }
 
-type CiCheckClassification = "green" | "pending" | "red";
-
-const CI_GREEN_STATUSES = new Set(["success", "skipped", "neutral"]);
-const CI_PENDING_STATUSES = new Set(["pending", "queued", "in_progress", "action_required", "stale"]);
-const CI_RED_STATUSES = new Set(["failure", "cancelled", "timed_out", "startup_failure"]);
-
-function classifyCiChecks(checks: CiCheckState[] | null): {
-  classification: CiCheckClassification;
-  failingCheck?: string;
-  pendingCheck?: string;
-} {
-  // Fail-closed: null or empty checks list is treated as red
-  if (!checks || checks.length === 0) {
-    return { classification: "red", failingCheck: "no checks found" };
-  }
-
-  let failingCheck: string | undefined;
-  let pendingCheck: string | undefined;
-
-  for (const check of checks) {
-    if (CI_RED_STATUSES.has(check.status)) {
-      failingCheck ??= check.name;
-    } else if (CI_PENDING_STATUSES.has(check.status)) {
-      pendingCheck ??= check.name;
-    } else if (!CI_GREEN_STATUSES.has(check.status)) {
-      // Unknown status is treated as red
-      failingCheck ??= check.name;
-    }
-  }
-
-  if (failingCheck !== undefined) {
-    return { classification: "red", failingCheck };
-  }
-  if (pendingCheck !== undefined) {
-    return { classification: "pending", pendingCheck };
-  }
-  return { classification: "green" };
-}
-
 const MERGE_FLAKE_RECOVERY_STDOUT = "triage --merge: local ready flake recovered (CI green at HEAD); proceeding";
 const READY_TEST_STEP_MARKERS = ["ready: parallel test failed", "ready: serial test failed"] as const;
 const PROBE_SIGNAL_TIMEOUT_EXIT_CODES = new Set([124, 130, 143]);
@@ -1482,79 +1443,6 @@ export function runRecoveryProbeWithExec(
     return 0;
   } catch (err) {
     return recoveryProbeExitFromExecError(err);
-  }
-}
-
-export function adaptCheckRunsToCiStates(
-  checkRuns: { name: string; status: string; conclusion: string | null }[],
-): CiCheckState[] {
-  return checkRuns.map((run) => {
-    const status = run.status.toLowerCase();
-    let mapped: string;
-    if (status === "completed") {
-      mapped = run.conclusion === null ? "pending" : run.conclusion.toLowerCase();
-    } else {
-      mapped = status;
-    }
-    return { name: run.name, status: mapped };
-  });
-}
-
-function resolveOwnerRepoFromWorktree(worktreePath: string): { owner: string; repo: string } | null {
-  try {
-    const origin = execFileSync("git", ["remote", "get-url", "origin"], {
-      cwd: worktreePath,
-      encoding: "utf8",
-      stdio: "pipe",
-    }).trim();
-    const [, owner, repo] = normalizeRepoUrl(origin)?.split("/") ?? [];
-    return owner !== undefined && repo !== undefined ? { owner, repo } : null;
-  } catch {
-    return null;
-  }
-}
-
-function fetchCommitChecksForSha(worktreePath: string, sha: string): CiCheckState[] | null {
-  const ownerRepo = resolveOwnerRepoFromWorktree(worktreePath);
-  if (ownerRepo === null) {
-    return null;
-  }
-  const { owner, repo } = ownerRepo;
-  try {
-    const checkRuns: { name: string; status: string; conclusion: string | null }[] = [];
-    let page = 1;
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const output = execSync(`gh api "repos/${owner}/${repo}/commits/${sha}/check-runs?per_page=100&page=${page}"`, {
-        stdio: "pipe",
-        encoding: "utf8",
-      });
-      const data = JSON.parse(output) as { check_runs?: unknown };
-      if (!Array.isArray(data.check_runs) || data.check_runs.length === 0) {
-        break;
-      }
-      for (const entry of data.check_runs) {
-        if (typeof entry !== "object" || entry === null) {
-          continue;
-        }
-        const run = entry as { name?: unknown; status?: unknown; conclusion?: unknown };
-        if (typeof run.name !== "string" || typeof run.status !== "string") {
-          continue;
-        }
-        checkRuns.push({
-          name: run.name,
-          status: run.status,
-          conclusion: typeof run.conclusion === "string" ? run.conclusion : null,
-        });
-      }
-      if (data.check_runs.length < 100) {
-        break;
-      }
-      page += 1;
-    }
-    return adaptCheckRunsToCiStates(checkRuns);
-  } catch {
-    return null;
   }
 }
 

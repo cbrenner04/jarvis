@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { FailingCiCheck } from "./ci-checks.ts";
 import { runGhCommand } from "./gh.ts";
 
 export type ReviewThreadComment = {
@@ -252,6 +253,35 @@ export function renderReviewPrompt(args: {
   }
   for (const comment of args.feedback.topLevelComments) {
     lines.push(`- ${comment.createdAt} ${comment.author}: ${comment.body.replaceAll("\n", " ")}`);
+  }
+  lines.push("");
+  lines.push("Patch mode rules:");
+  lines.push(args.patchRulesText.trimEnd());
+  lines.push("");
+  return lines.join("\n");
+}
+
+/** CI-failure agent prompt when no open review comments are present. */
+export function renderCiFailurePrompt(args: {
+  branch: string;
+  prNumber: number;
+  failingChecks: FailingCiCheck[];
+  patchRulesText: string;
+}): string {
+  const lines: string[] = [];
+  lines.push(`Fix failing CI on branch ${args.branch} for PR #${args.prNumber}.`);
+  lines.push("CI fix instructions:");
+  lines.push("- Fix every listed failing check in one pass.");
+  lines.push("- Do not create commits or push; Jarvis owns commit/push.");
+  lines.push("- If any failure cannot be handled safely, leave it unresolved and explain why in your response.");
+  lines.push("");
+  lines.push("Failing CI checks:");
+  if (args.failingChecks.length === 0) {
+    lines.push("- (none)");
+  }
+  for (const check of args.failingChecks) {
+    lines.push(`- ${check.name}`);
+    lines.push(`  ${check.excerpt}`);
   }
   lines.push("");
   lines.push("Patch mode rules:");

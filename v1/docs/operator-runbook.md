@@ -31,8 +31,8 @@ But **"fewer manual steps" is not "more commands."** The fix is almost always to
 
 The orchestration loop (the operator's own model calls) dominates session cost — far above the jarvis runs. So narrate sparingly:
 
-- **Status updates only when something lands** — a PR merges, a stage completes, a seed ships. Tersely.
-- **Otherwise, radio silence.** After launching background work, stop; the completion notification re-wakes you. No "still running" turns.
+- **Two update points only: when you run a jarvis command, and when it lands.** One line each — name the command/spec when you launch it, name the landed result when it merges. Nothing in between: no "still running" turns, no stage-by-stage narration. After launching background work, stop; the completion notification re-wakes you.
+- **After every landed intent (fully implemented and on `main`), give a concise update on the full session** — what shipped, what's still in flight, what's blocked. One short paragraph, not the close-out report.
 - **Interrupt only for a decision** you genuinely can't resolve yourself.
 
 ## Operator responsibilities (definition of done)

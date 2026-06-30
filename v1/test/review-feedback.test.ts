@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { collectActionableReviewFeedback, renderReviewPrompt } from "../src/review-feedback.ts";
+import { collectActionableReviewFeedback, renderCiFailurePrompt, renderReviewPrompt } from "../src/review-feedback.ts";
 
 describe("collectActionableReviewFeedback", () => {
   test("excludes resolved threads and bot-authored inline comments", async () => {
@@ -238,5 +238,30 @@ describe("renderReviewPrompt", () => {
     expect(prompt).toContain("lead: please add a test");
     expect(prompt).toContain("Do not create commits or push");
     expect(prompt).toContain("# Patch Mode");
+  });
+});
+
+describe("renderCiFailurePrompt", () => {
+  test("renders CI identity, failing checks with excerpts, and patch rules without review sections", () => {
+    const prompt = renderCiFailurePrompt({
+      branch: "feature/ci-fix",
+      prNumber: 7,
+      failingChecks: [
+        { name: "test", excerpt: "summary line\nfailure details" },
+        { name: "lint", excerpt: "(no excerpt available)" },
+      ],
+      patchRulesText: "# Patch Mode\n- Do work",
+    });
+    expect(prompt).toContain("branch feature/ci-fix");
+    expect(prompt).toContain("PR #7");
+    expect(prompt).toContain("Fix every listed failing check");
+    expect(prompt).toContain("- test");
+    expect(prompt).toContain("summary line\nfailure details");
+    expect(prompt).toContain("- lint");
+    expect(prompt).toContain("(no excerpt available)");
+    expect(prompt).toContain("Do not create commits or push");
+    expect(prompt).toContain("# Patch Mode");
+    expect(prompt).not.toContain("Actionable unresolved inline threads");
+    expect(prompt).not.toContain("Actionable top-level PR comments");
   });
 });

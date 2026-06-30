@@ -40,7 +40,12 @@ const isActuator = (p: string) => p.includes("Plan Mode — Review Actuator");
 function captureStderr() {
   let err = "";
   return {
-    io: { stdout: () => {}, stderr: (s: string) => { err += s; } },
+    io: {
+      stdout: () => {},
+      stderr: (s: string) => {
+        err += s;
+      },
+    },
     err: () => err,
   };
 }
@@ -201,35 +206,39 @@ describe("plan --agent override", () => {
       startPassNumber: 2,
       subjectSuffix: "r1",
     },
-  ])(
-    "$label: panel on pre-override order, verdict actuator on override",
-    async ({ label, cfg, reviewAgentOrder, verdict, startPassNumber, subjectSuffix }) => {
-      const name = `p-${label.replace(/\s+/g, "-")}`;
-      const { dir, specDir } = seedReviewRepo(name, label === "fresh review");
-      try {
-        const { claude, codex, createAgent } = agentsForSplitLadder(verdict);
-        const result = await runPlanReviewPhase({
-          worktreePath: dir,
-          name,
-          specDirBasename: name,
-          specDirPath: specDir,
-          config: withPlanOrder(cfg, [CODEX_ENTRY]),
-          reviewAgentOrder: [...reviewAgentOrder],
-          reviewPassesOverride: 1,
-          ...(startPassNumber !== undefined ? { startPassNumber } : {}),
-          ...(subjectSuffix !== undefined ? { subjectSuffix } : {}),
-          commit: false,
-          gitEnabled: false,
-          createAgent,
-        });
+  ])("$label: panel on pre-override order, verdict actuator on override", async ({
+    label,
+    cfg,
+    reviewAgentOrder,
+    verdict,
+    startPassNumber,
+    subjectSuffix,
+  }) => {
+    const name = `p-${label.replace(/\s+/g, "-")}`;
+    const { dir, specDir } = seedReviewRepo(name, label === "fresh review");
+    try {
+      const { claude, codex, createAgent } = agentsForSplitLadder(verdict);
+      const result = await runPlanReviewPhase({
+        worktreePath: dir,
+        name,
+        specDirBasename: name,
+        specDirPath: specDir,
+        config: withPlanOrder(cfg, [CODEX_ENTRY]),
+        reviewAgentOrder: [...reviewAgentOrder],
+        reviewPassesOverride: 1,
+        ...(startPassNumber !== undefined ? { startPassNumber } : {}),
+        ...(subjectSuffix !== undefined ? { subjectSuffix } : {}),
+        commit: false,
+        gitEnabled: false,
+        createAgent,
+      });
 
-        expect(result.exitCode).toBe(0);
-        expect(codex.calls.filter((c) => isPanel(c.prompt))).toHaveLength(0);
-        expect(claude.calls.filter((c) => isPanel(c.prompt))).toHaveLength(3);
-        expect(codex.calls.filter((c) => isActuator(c.prompt))).toHaveLength(1);
-      } finally {
-        rmSync(dir, { recursive: true, force: true });
-      }
-    },
-  );
+      expect(result.exitCode).toBe(0);
+      expect(codex.calls.filter((c) => isPanel(c.prompt))).toHaveLength(0);
+      expect(claude.calls.filter((c) => isPanel(c.prompt))).toHaveLength(3);
+      expect(codex.calls.filter((c) => isActuator(c.prompt))).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

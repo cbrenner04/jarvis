@@ -17,7 +17,6 @@ import type { PlanCommandOptions, PlanIo } from "../../commands/plan.ts";
 import { describePlanInvocation, isExistingFile, parsePlanArgs } from "../../commands/plan-args.ts";
 import {
   CONFIG_DIR,
-  type Config,
   effectiveGit,
   loadConfig,
   type ProjectMatch,

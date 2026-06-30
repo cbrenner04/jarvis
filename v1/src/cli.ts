@@ -24,7 +24,7 @@ import { type RunCommandOptions, runCommand } from "./modes/patch/run.ts";
 import { computeProjectSafeId } from "./modes/plan/spec-paths.ts";
 import { promptCommand } from "./modes/prompt/run.ts";
 import { runSharedProjectPreflight } from "./modes/shared-entry.ts";
-import { parseAgentFlagValues, prefixAgentFlagError } from "./parse-agent-flag.ts";
+import { buildEffectivePromptAgentEntries, parseAgentFlagValues, parsePromptAgentOverride, prefixAgentFlagError, type PromptAgentOverride } from "./parse-agent-flag.ts";
 
 export type Subcommand =
   | "run"
@@ -73,6 +73,8 @@ export type ParsedArgs =
       kind: "prompt";
       text: string;
       repo?: string;
+      agentFlag?: string;
+      modelFlag?: string;
     }
   | { kind: "prices"; rest: string[] }
   | { kind: "unknown"; name: string }
@@ -104,7 +106,7 @@ Commands:
                     Draft specs via plan mode with intent refinement and self-review (--resume expects spec/<…>/index.md; --resume-draft expects spec/<…>/intent.md).
   intent [--repo <name|path|url>] [--cwd <dir>] <raw-seed-file|"inline text">
                     Split one seed into authored intents under ready-intents/ and open a PR.
-  prompt [--repo <name|path|url>] <text>
+  prompt [--repo <name|path|url>] [--agent <name>[:<model>]] [--model <model>] <text>
                     Run an agent against a prompt in a registered project.
   prices            View or edit pricing data for cost tracking.
   help              Show this message.
@@ -159,12 +161,14 @@ Flags:
 
   Address PR review feedback on an existing patch worktree.
 `,
-  prompt: `Usage: jarvis1 prompt [--repo <name|path|url>] <text>
+  prompt: `Usage: jarvis1 prompt [--repo <name|path|url>] [--agent <name>[:<model>]] [--model <model>] <text>
 
   Run an agent against a prompt in a registered project.
 
 Flags:
   --repo <name|path|url>      Override project resolution via name, path, or URL.
+  --agent <name>[:<model>]    Pin the primary agent for this invocation.
+  --model <model>             Model for the pinned agent when --agent omits :model.
 `,
   prices: `Usage: jarvis1 prices [show|edit]
 
@@ -174,6 +178,13 @@ Flags:
 
 // Populate from plan and intent modules to avoid duplication
 Object.assign(COMMAND_USAGE, { plan: PLAN_USAGE, intent: INTENT_USAGE, runbook: RUNBOOK_USAGE });
+
+function rejectUnsupportedAgentFlag(subcommand: string, argv: readonly string[]): ParsedArgs | undefined {
+  if (argv.includes("--agent")) {
+    return { kind: "error", message: `${subcommand}: --agent is not supported` };
+  }
+  return undefined;
+}
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const [first, ...rest] = argv;
@@ -310,20 +321,44 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       if (rest.includes("--help") || rest.includes("-h")) {
         return { kind: "help", command: "init" };
       }
+      {
+        const rejected = rejectUnsupportedAgentFlag("init", rest);
+        if (rejected !== undefined) {
+          return rejected;
+        }
+      }
       return { kind: "init" };
     case "config":
       if (rest.includes("--help") || rest.includes("-h")) {
         return { kind: "help", command: "config" };
+      }
+      {
+        const rejected = rejectUnsupportedAgentFlag("config", rest);
+        if (rejected !== undefined) {
+          return rejected;
+        }
       }
       return { kind: "config", rest };
     case "log-server":
       if (rest.includes("--help") || rest.includes("-h")) {
         return { kind: "help", command: "log-server" };
       }
+      {
+        const rejected = rejectUnsupportedAgentFlag("log-server", rest);
+        if (rejected !== undefined) {
+          return rejected;
+        }
+      }
       return { kind: "log-server" };
     case "cleanup": {
       if (rest.includes("--help") || rest.includes("-h")) {
         return { kind: "help", command: "cleanup" };
+      }
+      {
+        const rejected = rejectUnsupportedAgentFlag("cleanup", rest);
+        if (rejected !== undefined) {
+          return rejected;
+        }
       }
       const dryRun = rest.includes("--dry-run");
       const abandon = rest.includes("--abandon");
@@ -344,6 +379,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     case "triage": {
       if (rest.includes("--help") || rest.includes("-h")) {
         return { kind: "help", command: "triage" };
+      }
+      {
+        const rejected = rejectUnsupportedAgentFlag("triage", rest);
+        if (rejected !== undefined) {
+          return rejected;
+        }
       }
       const markReady = rest.includes("--mark-ready");
       const merge = rest.includes("--merge");
@@ -385,6 +426,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       if (rest.includes("--help") || rest.includes("-h")) {
         return { kind: "help", command: "review-feedback" };
       }
+      {
+        const rejected = rejectUnsupportedAgentFlag("review-feedback", rest);
+        if (rejected !== undefined) {
+          return rejected;
+        }
+      }
       const worktreeName = rest[0];
       const result: { kind: "review-feedback"; worktreeName?: string } = {
         kind: "review-feedback",
@@ -403,12 +450,20 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       if (rest.includes("--help") || rest.includes("-h")) {
         return { kind: "help", command: "intent" };
       }
+      {
+        const rejected = rejectUnsupportedAgentFlag("intent", rest);
+        if (rejected !== undefined) {
+          return rejected;
+        }
+      }
       return { kind: "intent", rest };
     case "prompt": {
       if (rest.includes("--help") || rest.includes("-h")) {
         return { kind: "help", command: "prompt" };
       }
       let repo: string | undefined;
+      let agentFlag: string | undefined;
+      let modelFlag: string | undefined;
       const args = [...rest];
       for (let i = 0; i < args.length; i += 1) {
         if (args[i] === "--cwd") {
@@ -428,6 +483,38 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
           repo = value;
           args.splice(i, 2);
           i -= 1;
+          continue;
+        }
+        if (args[i] === "--agent") {
+          if (agentFlag !== undefined) {
+            return {
+              kind: "error",
+              message: "prompt: duplicate --agent flag",
+            };
+          }
+          const value = args[i + 1];
+          if (value === undefined) {
+            return {
+              kind: "error",
+              message: "prompt: missing value for --agent",
+            };
+          }
+          agentFlag = value;
+          args.splice(i, 2);
+          i -= 1;
+          continue;
+        }
+        if (args[i] === "--model") {
+          const value = args[i + 1];
+          if (value === undefined) {
+            return {
+              kind: "error",
+              message: "prompt: missing value for --model",
+            };
+          }
+          modelFlag = value;
+          args.splice(i, 2);
+          i -= 1;
         }
       }
       const text = args[0];
@@ -438,16 +525,34 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       if (repo !== undefined) {
         parsed.repo = repo;
       }
+      if (agentFlag !== undefined) {
+        parsed.agentFlag = agentFlag;
+      }
+      if (modelFlag !== undefined) {
+        parsed.modelFlag = modelFlag;
+      }
       return parsed;
     }
     case "prices":
       if (rest.includes("--help") || rest.includes("-h")) {
         return { kind: "help", command: "prices" };
       }
+      {
+        const rejected = rejectUnsupportedAgentFlag("prices", rest);
+        if (rejected !== undefined) {
+          return rejected;
+        }
+      }
       return { kind: "prices", rest };
     case "runbook": {
       if (rest.includes("--help") || rest.includes("-h")) {
         return { kind: "help", command: "runbook" };
+      }
+      {
+        const rejected = rejectUnsupportedAgentFlag("runbook", rest);
+        if (rejected !== undefined) {
+          return rejected;
+        }
       }
       if (rest.length === 0) {
         return { kind: "runbook", action: "" };
@@ -791,11 +896,29 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
         }
       }
 
+      let pinnedAgent: PromptAgentOverride | undefined;
+      if (parsed.agentFlag !== undefined) {
+        const parsedAgent = parsePromptAgentOverride(
+          parsed.agentFlag,
+          parsed.modelFlag,
+          cfg.modes.prompt.agentOrder,
+        );
+        if (!parsedAgent.ok) {
+          io.stderr(`jarvis1: ${prefixAgentFlagError("prompt", parsedAgent.message)}\n`);
+          return 1;
+        }
+        pinnedAgent = parsedAgent.pinned;
+      } else if (parsed.modelFlag !== undefined) {
+        io.stderr("jarvis1: prompt: --model requires --agent\n");
+        return 1;
+      }
+
       return promptCommand({
         promptText: parsed.text,
         io,
         projectPath: opts.cwd ?? process.cwd(),
         config: opts.config,
+        ...(pinnedAgent !== undefined ? { pinnedAgent } : {}),
       });
     }
     case "prices":

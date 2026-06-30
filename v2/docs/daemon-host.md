@@ -54,9 +54,29 @@ Valid JSON with missing or invalid `kind` closes the connection.
 | `pause` | `{ runId: string }` | `{ ok: true }` | Signal graceful pause for an active run. The run continues at the next iteration boundary (in-flight step is not aborted). Rejected if run is unknown or not active. |
 | `kill` | `{ runId: string }` | `{ ok: true }` | Abort the run's signal immediately and record durable status `killed`. Leaves the worktree dirty. Rejected if run is unknown or not active. |
 | `resume` | `{ runId: string }` | `{ ok: true }` | Resume a paused/killed run, re-invoking `executeWriteLoop` under the start guards. A paused run continues with a fresh attempt; a killed run re-runs the interrupted step. Rejected if run is unknown, in terminal status, or if another run is active (single in-flight guard or per-key guard violation). |
+| `wait` | `{ runId: string }` | `{ runStatus, loopOutcomeKind?, iterationsConsumed?, resumable? }` | Long-running one-shot wait for the next invocation boundary. In-progress runs resolve on the next `loop_finished` or `run_execution_failed` after the subscribe cursor. Quiescent runs return immediately from durable status plus the last terminal log signal. |
 
 Unknown `method` returns `error` correlated to the request `id` (connection
 stays open).
+
+### Wait result contract
+
+`wait` validates `params.runId` before reading logs. Missing or empty `runId`
+returns `invalid_params`; unknown runs return `unknown_run`.
+
+The response is deferred on the same request `id` while a run is in progress.
+Other RPCs on that connection continue to receive normal correlated responses
+while the wait is pending. Disconnecting the socket detaches only that waiter:
+no response is sent for the abandoned request, the durable run is unchanged, and
+other waiters for the same run continue.
+
+Result fields:
+
+- Always present: `runStatus`, re-read from durable state at resolve time.
+- Present when the terminal signal is `loop_finished`: `loopOutcomeKind`,
+  `iterationsConsumed`, and `resumable`.
+- Omitted when resolving from `run_execution_failed`, kill-before-log, or a
+  durable terminal row without a persisted `loop_finished`.
 
 ### Admission guards for `start`
 

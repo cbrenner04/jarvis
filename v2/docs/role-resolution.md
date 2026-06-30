@@ -18,14 +18,14 @@ union:
 | `adversary` | Read-only critique in a review debate — surfaces findings against the artifact. |
 | `advocate` | Read-only defense in a review debate — responds to adversary findings. |
 | `adjudicator` | Read-only verdict synthesis — emits the outcome-altitude instruction the actuator applies. |
-| `actuator` | Verdict application — the only writer in a review-and-update cycle after the debate. |
+| `actuator` | Verdict application — the only writer in a review-debate cycle after the debate panel. |
 | `operator` | Natural-language routing and steering (wired in Phase 9; behavior binding deferred). |
 
 ## Step binding and resolution
 
 A workflow **step** binds three inputs: **behavior** (loop primitive), **prompt**
 (task text), and **role** (model-resolution key). Behaviors are orchestration
-primitives (`write`, `review-and-update`, `human`); they are not renamed to
+primitives (`write`, `review-debate`, `human`); they are not renamed to
 match roles.
 
 At invocation the runner:
@@ -43,10 +43,10 @@ Inner rung detail (consumption modes, flattening, terminal outcomes):
 | --- | --- | --- |
 | `plan` | `write` | Plan-mode spec authoring steps. |
 | `implement` | `write` | Implement-mode write-loop steps; **shrink** (post-completion cleanup) also binds `implement` under `write`. |
-| `adversary` | `review-and-update` | Read-only; first reviewer in each debate cycle. |
-| `advocate` | `review-and-update` | Read-only; second reviewer. |
-| `adjudicator` | `review-and-update` | Read-only; emits verdict. |
-| `actuator` | `review-and-update` | Verdict application only — not shrink. Plan vs implement context comes from step metadata, not split resolution keys. |
+| `adversary` | `review-debate` | Read-only; first reviewer in each debate cycle. |
+| `advocate` | `review-debate` | Read-only; second reviewer. |
+| `adjudicator` | `review-debate` | Read-only; emits verdict. |
+| `actuator` | `review-debate` | Verdict application only — not shrink. Plan vs implement context comes from step metadata, not split resolution keys. |
 | `operator` | — | Behavior binding deferred to Phase 9. |
 | — | `human` | No agent resolution; pause for human review, approval, or resume. |
 
@@ -59,12 +59,12 @@ Load-bearing taxonomy choices recorded here:
   the contract.
 - **Categories retired** — `thinking` / `reviewing` / `executing` are not
   model-resolution keys. Roles align with how agents are actually invoked.
-- **Behaviors stay orchestration primitives** — `write`, `review-and-update`,
+- **Behaviors stay orchestration primitives** — `write`, `review-debate`,
   `human`; roles specialize steps, behaviors do not rename to match roles.
 - **One `actuator` role** — plan vs implement context comes from step metadata,
   not `actuator-plan` / `actuator-implement` split keys.
 - **Shrink binds `implement`** — post-completion shrink is `write`-loop
-  implementation cleanup, not review-and-update verdict application; it does
+  implementation cleanup, not review-debate verdict application; it does
   not map to `actuator` (which would collide with `reviewActuator` verdict-only
   tier semantics).
 - **`implement` collapses two independently configurable v1 tiers** — v1's `patchActuator` and `reviewActuator` (implement-side) each map to different configurable tiers; v2 maps both to `implement`, yielding one `(agent, implement) → model` binding per agent. When those v1 tiers differ, v2 cannot represent both independently without disambiguation beyond bare `(agent, role)`. Agent-model-config must not assume full v1 tier parity through a single `implement` key.

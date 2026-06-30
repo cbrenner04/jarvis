@@ -65,7 +65,7 @@ The composability target is not only "modes are pipelines." It is that the repea
 Useful behavior shapes:
 
 - **Write loop**: run an agent until a requested artifact exists, acceptance criteria move, or a blocker is declared. Prompt + **role** + artifact contract turn this into concrete steps such as create-intent, draft-spec, or implement-code.
-- **Review and update loop**: review existing artifacts and apply the upheld findings. Structured as a *debate*, not in-place self-editing: read-only adversary → advocate → adjudicator roles emit a verdict, then a separate actuator applies it (a reviewer never grades its own fix). Prompt + **role** + artifact contract turn this into concrete steps such as refine-intent, review-spec, implementation-review, or security-review.
+- **Review-debate loop**: review existing artifacts via a structured debate and apply upheld findings. Read-only adversary → advocate → adjudicator roles emit a verdict, then a separate actuator applies it (a reviewer never grades its own fix). Prompt + **role** + artifact contract turn this into concrete steps such as refine-intent, review-spec, implementation-review, or security-review.
 - **Human loop**: pause automation for human review, approval, edits, merge, or an explicit resume command. v2 should make this less clunky than today, but the core architecture should not depend on brittle external resume conditions from day one.
 
 Workflows should stay mostly linear. A workflow is an ordered list of behavior steps with bounded repeat patterns, not an arbitrary graph. It should be possible to repeat a previous range of steps a fixed number of times, such as "repeat spec review + human review up to `N` times," while avoiding free-form branching that could make workflows surprising or hard to reason about.
@@ -75,10 +75,10 @@ Loop counts are maximums. A workflow can force the full maximum when desired, bu
 Plan mode today can be described as a fixed composition of those behavior steps (write → **`plan`**; review → debate roles; human → behavior only):
 
 1. "Write" loop 1 time with an intent-creation prompt.
-2. "Review and update" loop `N` times with an intent-refinement prompt.
+2. "Review-debate" loop `N` times with an intent-refinement prompt.
 3. "Human" loop `N` times for intent approval.
 4. "Write" loop 1 time with a draft-spec prompt.
-5. "Review and update" loop `N` times with a spec-review prompt.
+5. "Review-debate" loop `N` times with a spec-review prompt.
 6. "Human" loop `N` times for final review and merge.
 
 Different projects should be able to choose different compositions without changing the underlying behavior implementations. A lightweight project might run only steps `1, 3, 4, 6`. A stricter project might run `1-6`, then repeat spec review + human review (`5, 6`) until the spec is accepted. The same behavior pieces are reused; only the workflow graph changes.
@@ -93,19 +93,19 @@ The same idea also describes implementation. Patch mode today is roughly write l
 A common stricter implementation workflow might instead be:
 
 1. "Write" loop `N` times with an implementation prompt.
-2. "Review and update" loop `N` times with a code-review prompt.
-3. "Review and update" loop `N` times with a security-review prompt.
+2. "Review-debate" loop `N` times with a code-review prompt.
+3. "Review-debate" loop `N` times with a security-review prompt.
 4. "Human" loop `N` times for final review and merge.
 
 An example of a YOLO workflow would be:
 
 1. "Write" loop 1 time with an intent-creation prompt.
-2. "Review and update" loop `N` times with an intent-refinement prompt.
+2. "Review-debate" loop `N` times with an intent-refinement prompt.
 3. "Write" loop 1 time with a draft-spec prompt.
-4. "Review and update" loop `N` times with a spec-review prompt.
+4. "Review-debate" loop `N` times with a spec-review prompt.
 5. "Write" loop `N` times with an implementation prompt.
-6. "Review and update" loop `N` times with a code-review prompt.
-7. "Review and update" loop `N` times with a security-review prompt.
+6. "Review-debate" loop `N` times with a code-review prompt.
+7. "Review-debate" loop `N` times with a security-review prompt.
 8. "Human" loop `N` times for final review and merge.
 
 Or

@@ -5,7 +5,11 @@ import type { ErrorFrame, IpcFrame, ResponseFrame, StreamDataFrame, StreamEndFra
 
 export type RpcHandler = (
   frame: IpcFrame & { kind: "request" },
-) => { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string };
+  signal: AbortSignal,
+) =>
+  | { kind: "response"; result: unknown }
+  | { kind: "error"; code: string; message: string }
+  | Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }>;
 
 export type StreamHandler = (
   streamId: string,
@@ -44,17 +48,31 @@ function dispatchRequest(
   socket: Socket,
   frame: IpcFrame & { kind: "request" },
   handlers?: Record<string, RpcHandler>,
+  activeRequests?: Map<string, AbortController>,
 ): void {
   const { id, method } = frame;
 
   const customHandler = handlers?.[method];
   if (customHandler) {
-    const response = customHandler(frame);
-    if (response.kind === "response") {
-      socket.write(encodeFrame(responseFrame(id, response.result)));
-    } else {
-      socket.write(encodeFrame(errorFrame(id, response.code, response.message)));
-    }
+    const abortController = new AbortController();
+    activeRequests?.set(id, abortController);
+    Promise.resolve(customHandler(frame, abortController.signal))
+      .then((response) => {
+        if (abortController.signal.aborted || socket.destroyed) return;
+        if (response.kind === "response") {
+          socket.write(encodeFrame(responseFrame(id, response.result)));
+        } else {
+          socket.write(encodeFrame(errorFrame(id, response.code, response.message)));
+        }
+      })
+      .catch((err: unknown) => {
+        if (abortController.signal.aborted || socket.destroyed) return;
+        const message = err instanceof Error ? err.message : "unknown error";
+        socket.write(encodeFrame(errorFrame(id, "internal_error", message)));
+      })
+      .finally(() => {
+        activeRequests?.delete(id);
+      });
     return;
   }
 
@@ -76,6 +94,7 @@ function handleFrame(
   handlers?: Record<string, RpcHandler>,
   streamHandler?: StreamHandler,
   activeStreams?: Map<string, AbortController>,
+  activeRequests?: Map<string, AbortController>,
 ): void {
   const kind = frameKind(frame);
   if (!isValidKind(kind)) {
@@ -85,7 +104,7 @@ function handleFrame(
 
   switch (kind) {
     case "request":
-      dispatchRequest(socket, frame as IpcFrame & { kind: "request" }, handlers);
+      dispatchRequest(socket, frame as IpcFrame & { kind: "request" }, handlers, activeRequests);
       return;
     case "stream-open": {
       const openFrame = frame as IpcFrame & { kind: "stream-open" };
@@ -165,12 +184,13 @@ function attachSocketHandlers(
 ): void {
   const decoder = new FrameDecoder();
   const activeStreams = new Map<string, AbortController>();
+  const activeRequests = new Map<string, AbortController>();
 
   socket.on("data", (chunk: Buffer) => {
     try {
       const frames = decoder.push(chunk);
       for (const frame of frames) {
-        handleFrame(socket, frame, handlers, streamHandler, activeStreams);
+        handleFrame(socket, frame, handlers, streamHandler, activeStreams, activeRequests);
       }
     } catch {
       socket.destroy();
@@ -185,6 +205,10 @@ function attachSocketHandlers(
       controller.abort();
     }
     activeStreams.clear();
+    for (const controller of activeRequests.values()) {
+      controller.abort();
+    }
+    activeRequests.clear();
   });
 
   socket.on("close", () => {
@@ -192,6 +216,10 @@ function attachSocketHandlers(
       controller.abort();
     }
     activeStreams.clear();
+    for (const controller of activeRequests.values()) {
+      controller.abort();
+    }
+    activeRequests.clear();
   });
 }
 

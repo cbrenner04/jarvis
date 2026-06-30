@@ -3,7 +3,14 @@ import { join } from "node:path";
 import { createAgentBindings } from "../../shared/invocation/agents.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "./ipc/server";
-import { type LogReader, openLogReader, openLogSink } from "./log-stream.ts";
+import {
+  type LogReader,
+  type LoopFinishedEvent,
+  openLogReader,
+  openLogSink,
+  type PersistedRecord,
+  type RunExecutionFailedEvent,
+} from "./log-stream.ts";
 import { openStateStore, type StateStore } from "./state-store.ts";
 import type { RunStatus } from "./state-store-types.ts";
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
@@ -125,8 +132,31 @@ function normalizeBindings(input: WriteLoopInput): WriteLoopInput {
  */
 export type RunControlHandlerDeps = {
   stateStore: StateStore;
+  logReader?: LogReader;
   writeLoopExecutor: (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => Promise<void>;
   failureReporter: (runId: string, reason: unknown) => void | Promise<void>;
+};
+
+export type WaitRunCompletionResult = {
+  runStatus: RunStatus;
+  loopOutcomeKind?: LoopFinishedEvent["loopOutcomeKind"];
+  iterationsConsumed?: number;
+  resumable?: boolean;
+};
+
+type TerminalRecord = PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent };
+
+type Waiter = {
+  minSeq: number;
+  resolve: (value: WaitRunCompletionResult) => void;
+  reject: (reason: unknown) => void;
+  signal: AbortSignal;
+  abortListener: () => void;
+};
+
+type WaitFanout = {
+  controller: AbortController;
+  waiters: Set<Waiter>;
 };
 
 /**
@@ -144,7 +174,82 @@ export type RunControlHandlerDeps = {
 export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const _registry = new WorktreeOwnershipRegistry();
   const activeRuns = new Map<string, ActiveRun>();
-  const { stateStore: store, writeLoopExecutor, failureReporter } = deps;
+  const waitFanouts = new Map<string, WaitFanout>();
+  const { stateStore: store, logReader, writeLoopExecutor, failureReporter } = deps;
+
+  const terminalRecord = (records: PersistedRecord[]): TerminalRecord | undefined => {
+    for (let i = records.length - 1; i >= 0; i -= 1) {
+      const record = records[i];
+      if (!record) continue;
+      if (record.event.kind === "loop_finished" || record.event.kind === "run_execution_failed") {
+        return record as TerminalRecord;
+      }
+    }
+    return undefined;
+  };
+
+  const resultFrom = (runStatus: RunStatus, record?: TerminalRecord): WaitRunCompletionResult => {
+    if (record?.event.kind !== "loop_finished") {
+      return { runStatus };
+    }
+    return {
+      runStatus,
+      loopOutcomeKind: record.event.loopOutcomeKind,
+      iterationsConsumed: record.event.iterationsConsumed,
+      resumable: record.event.resumable,
+    };
+  };
+
+  const detachWaiter = (runId: string, waiter: Waiter): void => {
+    waiter.signal.removeEventListener("abort", waiter.abortListener);
+    const fanout = waitFanouts.get(runId);
+    if (!fanout) return;
+    fanout.waiters.delete(waiter);
+    if (fanout.waiters.size === 0) {
+      fanout.controller.abort();
+      waitFanouts.delete(runId);
+    }
+  };
+
+  const resolveWaiters = (runId: string, record: TerminalRecord): void => {
+    const fanout = waitFanouts.get(runId);
+    if (!fanout) return;
+    const run = store.loadRun(runId);
+    const runStatus = run?.status ?? "failed";
+    for (const waiter of Array.from(fanout.waiters)) {
+      if (record.seq <= waiter.minSeq) continue;
+      detachWaiter(runId, waiter);
+      waiter.resolve(resultFrom(runStatus, record));
+    }
+  };
+
+  const ensureWaitFanout = (runId: string): WaitFanout => {
+    const existing = waitFanouts.get(runId);
+    if (existing) return existing;
+
+    const fanout: WaitFanout = { controller: new AbortController(), waiters: new Set() };
+    waitFanouts.set(runId, fanout);
+    (async () => {
+      try {
+        if (!logReader) return;
+        for await (const record of logReader.follow(runId, fanout.controller.signal)) {
+          if (record.event.kind === "loop_finished" || record.event.kind === "run_execution_failed") {
+            resolveWaiters(runId, record as TerminalRecord);
+          }
+          if (fanout.waiters.size === 0) break;
+        }
+      } catch (err) {
+        for (const waiter of Array.from(fanout.waiters)) {
+          detachWaiter(runId, waiter);
+          waiter.reject(err);
+        }
+      } finally {
+        fanout.controller.abort();
+        waitFanouts.delete(runId);
+      }
+    })();
+    return fanout;
+  };
 
   const spawnWriteLoop = (key: OwnershipKey, runId: string, worktreePath: string, input: WriteLoopInput): void => {
     const ks = ownershipKeyString(key);
@@ -341,12 +446,57 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return { kind: "response", result: { ok: true } };
   };
 
+  const waitHandler: RpcHandler = async (frame, signal) => {
+    if (!logReader) {
+      return { kind: "error", code: "internal_error", message: "wait requires logReader" };
+    }
+    const params = frame.params as { runId?: string } | undefined;
+    if (!params?.runId || typeof params.runId !== "string") {
+      return { kind: "error", code: "invalid_params", message: "Missing runId" };
+    }
+
+    const runId = params.runId;
+    const run = store.loadRun(runId);
+    if (!run) {
+      return { kind: "error", code: "unknown_run", message: `Run ${runId} not found` };
+    }
+
+    const records = logReader.tail(runId);
+    const subscribeSeq = records.at(-1)?.seq ?? 0;
+    if (run.status !== "in-progress") {
+      return { kind: "response", result: resultFrom(run.status, terminalRecord(records)) };
+    }
+
+    return {
+      kind: "response",
+      result: await new Promise<WaitRunCompletionResult>((resolve, reject) => {
+        const waiter: Waiter = {
+          minSeq: subscribeSeq,
+          resolve,
+          reject,
+          signal,
+          abortListener: () => {
+            detachWaiter(runId, waiter);
+            reject(new Error("wait aborted"));
+          },
+        };
+        if (signal.aborted) {
+          reject(new Error("wait aborted"));
+          return;
+        }
+        signal.addEventListener("abort", waiter.abortListener, { once: true });
+        ensureWaitFanout(runId).waiters.add(waiter);
+      }),
+    };
+  };
+
   return {
     start: startHandler,
     list: listHandler,
     pause: pauseHandler,
     resume: resumeHandler,
     kill: killHandler,
+    wait: waitHandler,
   };
 }
 
@@ -446,6 +596,7 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
     shutdown: shutdownHandler,
     ...createRunControlHandlers({
       stateStore: store,
+      logReader: logReaderInstance,
       writeLoopExecutor,
       failureReporter: createRunExecutionFailureReporter(logsPath),
     }),

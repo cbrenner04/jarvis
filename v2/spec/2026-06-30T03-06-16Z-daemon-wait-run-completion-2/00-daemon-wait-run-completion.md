@@ -83,17 +83,17 @@ detaches only that waiter.
 
 ## Acceptance criteria
 
-- [ ] `wait` on a run with `runStatus === "in-progress"` returns only after a persisted terminal log signal with `seq` greater than the subscribe cursor; the response includes that signal's `loopOutcomeKind`, `iterationsConsumed`, and `resumable` (when `loop_finished`) plus durable `runStatus` at resolve time.
-- [ ] `wait` on a resumed in-progress run (prior `loop_finished` rows in the log) blocks until the next terminal log signal after subscribe, not the replayed historical edge.
-- [ ] `wait` on a quiescent run (`runStatus !== "in-progress"`, including `paused`, `killed`, and `budget-soft-stopped`) returns immediately without blocking; the response includes the last persisted `loop_finished` fields (when present) and current durable `runStatus`.
-- [ ] Two concurrent `wait` calls on the same in-progress run both resolve when the run hits the next terminal edge, each with the same terminal payload.
-- [ ] Disconnecting a client blocked on `wait` sends no RPC response for that request, does not change the run's durable status, and does not prevent other waiters on that run from resolving at the terminal edge.
-- [ ] `wait` on a run that ends with `run_execution_failed` and no `loop_finished` resolves with `runStatus: "failed"` and omits `loopOutcomeKind`, `iterationsConsumed`, and `resumable`.
-- [ ] `wait` on a run with durable terminal `runStatus` (`killed` or `failed`) and no persisted `loop_finished` resolves with that `runStatus` only and omits `loopOutcomeKind`, `iterationsConsumed`, and `resumable`.
-- [ ] `wait` with a missing or empty `runId` returns `invalid_params`; `wait` with an unknown `runId` returns `unknown_run` before any blocking `follow`.
-- [ ] A client with a pending `wait` on one connection can send and receive other RPCs on that same connection while the wait is open.
-- [ ] Existing run-control verb behavior is unchanged (`daemon-start-list.test.ts`, `daemon-run-failure-capture.test.ts`, and `daemon-tail-stream.test.ts` stay green).
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `wait` on a run with `runStatus === "in-progress"` returns only after a persisted terminal log signal with `seq` greater than the subscribe cursor; the response includes that signal's `loopOutcomeKind`, `iterationsConsumed`, and `resumable` (when `loop_finished`) plus durable `runStatus` at resolve time.
+- [x] `wait` on a resumed in-progress run (prior `loop_finished` rows in the log) blocks until the next terminal log signal after subscribe, not the replayed historical edge.
+- [x] `wait` on a quiescent run (`runStatus !== "in-progress"`, including `paused`, `killed`, and `budget-soft-stopped`) returns immediately without blocking; the response includes the last persisted `loop_finished` fields (when present) and current durable `runStatus`.
+- [x] Two concurrent `wait` calls on the same in-progress run both resolve when the run hits the next terminal edge, each with the same terminal payload.
+- [x] Disconnecting a client blocked on `wait` sends no RPC response for that request, does not change the run's durable status, and does not prevent other waiters on that run from resolving at the terminal edge.
+- [x] `wait` on a run that ends with `run_execution_failed` and no `loop_finished` resolves with `runStatus: "failed"` and omits `loopOutcomeKind`, `iterationsConsumed`, and `resumable`.
+- [x] `wait` on a run with durable terminal `runStatus` (`killed` or `failed`) and no persisted `loop_finished` resolves with that `runStatus` only and omits `loopOutcomeKind`, `iterationsConsumed`, and `resumable`.
+- [x] `wait` with a missing or empty `runId` returns `invalid_params`; `wait` with an unknown `runId` returns `unknown_run` before any blocking `follow`.
+- [x] A client with a pending `wait` on one connection can send and receive other RPCs on that same connection while the wait is open.
+- [x] Existing run-control verb behavior is unchanged (`daemon-start-list.test.ts`, `daemon-run-failure-capture.test.ts`, and `daemon-tail-stream.test.ts` stay green).
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

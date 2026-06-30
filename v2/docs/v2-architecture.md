@@ -246,6 +246,18 @@ Observability (log follow interface):
   then streaming new appends. Each record is serialized as JSON and sent as one
   `stream-data` frame. The stream closes when the client sends `stream-end` or
   disconnects.
+- **`wait` blocks on the next invocation boundary.** The run-control RPC
+  validates and loads the run, captures the current tail `seq` as a subscribe
+  cursor, then waits on `follow(runId, signal)` for the next `loop_finished` or
+  `run_execution_failed` with a greater `seq`. Durable `runStatus` is re-read at
+  resolve time. Already quiescent runs (`runStatus !== "in-progress"`) return
+  immediately from durable state plus the last terminal log signal.
+- **Waiters are detached clients, not run owners.** Multiple waiters for the
+  same run share one terminal fan-out and all receive the same payload at the
+  terminal edge. Disconnecting one socket aborts only that waiter: the run and
+  other waiters continue. `wait` is a long-running RPC response on the original
+  request `id`; other RPCs on the same connection remain usable while it is
+  pending.
 
 ## Runs, state & the human loop
 
@@ -500,6 +512,12 @@ Run orchestration verbs over the daemon's IPC interface:
   only while its loop Promise is executing. Allows a client to distinguish a live
   run from a crashed daemon's stale row — the canonical use case for
   durable-plus-liveness merge.
+- **`wait({runId}): {runStatus, loopOutcomeKind?, iterationsConsumed?,
+  resumable?}`** — Long-running one-shot RPC for a run's next invocation
+  boundary. In-progress runs resolve on the next terminal log signal after the
+  subscribe cursor; quiescent runs resolve immediately. `loop_finished` supplies
+  loop fields; `run_execution_failed` or durable terminal rows without
+  `loop_finished` return durable `runStatus` only.
 - **Daemon-owned run-execution failure capture:** When the spawn-boundary
   `writeLoopExecutor` rejects outside normal loop settlement, the factory
   best-effort persists durable `status: "failed"` (skipped when status is already

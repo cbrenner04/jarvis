@@ -371,8 +371,6 @@ export type TailStreamHandlerDeps = {
  * @invariant Always invokes `onClose` in a `finally` block after `follow` completes or aborts.
  */
 export function createTailStreamHandler(deps: TailStreamHandlerDeps): StreamHandler {
-  const { stateStore: store, logReader } = deps;
-
   return async (_streamId, payload, onData, onClose, signal) => {
     const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
     if (!params?.runId || typeof params.runId !== "string") {
@@ -380,15 +378,14 @@ export function createTailStreamHandler(deps: TailStreamHandlerDeps): StreamHand
       return;
     }
 
-    const runId = params.runId as string;
-    const run = store.loadRun(runId);
-    if (!run) {
+    const runId = params.runId;
+    if (!deps.stateStore.loadRun(runId)) {
       onClose();
       return;
     }
 
     try {
-      for await (const record of logReader.follow(runId, signal)) {
+      for await (const record of deps.logReader.follow(runId, signal)) {
         if (signal.aborted) break;
         onData(record);
       }

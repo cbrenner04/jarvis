@@ -1,14 +1,14 @@
 import { createElement, Fragment, type ReactElement, type ReactNode } from "react";
+import type { WaitRunCompletionResult } from "./daemon.ts";
 import {
   type ConnectTuiDaemonOptions,
   connectTuiDaemon,
   TUI_DAEMON_SOCKET_DISPLAY,
   type TuiDaemonClient,
-  type TuiDaemonRunSummary,
   TuiDaemonConnectionError,
   TuiDaemonRpcError,
+  type TuiDaemonRunSummary,
 } from "./tui-daemon-client.ts";
-import type { WaitRunCompletionResult } from "./daemon.ts";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 
 export { TUI_DAEMON_SOCKET_DISPLAY };
@@ -143,7 +143,11 @@ async function showTuiInkFeedback(state: TuiViewState, inkRender?: InkRender): P
   const element =
     state.kind === "rpc-error"
       ? createElement(Text, null, `${state.code}: ${state.message}`)
-      : createElement(Text, null, `Daemon unavailable at ${TUI_DAEMON_SOCKET_DISPLAY}. Start with: jarvis daemon start`);
+      : createElement(
+          Text,
+          null,
+          `Daemon unavailable at ${TUI_DAEMON_SOCKET_DISPLAY}. Start with: jarvis daemon start`,
+        );
 
   const instance = renderFn(element);
   await instance.waitUntilRenderFlush();
@@ -354,15 +358,19 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
       setSelection(currentState.selectedRunId);
     }
 
-    session = await openMonitor(currentState, {
-      selectRun(runId) {
-        if (!currentState.runs.some((run) => run.runId === runId) || currentState.selectedRunId === runId) return;
-        setSelection(runId);
+    session = await openMonitor(
+      currentState,
+      {
+        selectRun(runId) {
+          if (!currentState.runs.some((run) => run.runId === runId) || currentState.selectedRunId === runId) return;
+          setSelection(runId);
+        },
+        quit() {
+          resolveQuit();
+        },
       },
-      quit() {
-        resolveQuit();
-      },
-    }, resolved);
+      resolved,
+    );
 
     refreshHandle = refreshScheduler.start(() => {
       void refreshRuns(false).catch(() => {});

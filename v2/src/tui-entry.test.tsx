@@ -284,10 +284,7 @@ describe("runTuiEntry", () => {
     const refresh = createRefreshScheduler();
     const { deps } = entryDeps(
       {
-        listResponses: [
-          { runs: [RUN_ALPHA] },
-          { runs: [{ ...RUN_ALPHA, status: "completed", isLive: false }] },
-        ],
+        listResponses: [{ runs: [RUN_ALPHA] }, { runs: [{ ...RUN_ALPHA, status: "completed", isLive: false }] }],
         waitImpl: async () => ({ runStatus: "completed" }),
       },
       { viewHost: view.host, refreshScheduler: refresh.scheduler },
@@ -342,9 +339,7 @@ describe("runTuiEntry", () => {
         methods: [],
         listResponses: [{ runs: [RUN_ALPHA, RUN_BETA] }],
         waitImpl: async (runId) =>
-          runId === "run-alpha"
-            ? { runStatus: "completed" }
-            : { runStatus: "blocked", iterationsConsumed: 3 },
+          runId === "run-alpha" ? { runStatus: "completed" } : { runStatus: "blocked", iterationsConsumed: 3 },
       },
       { viewHost: view.host },
     );

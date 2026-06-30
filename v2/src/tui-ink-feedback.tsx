@@ -24,7 +24,11 @@ export async function showTuiInkFeedback(state: TuiViewState, inkRender?: InkRen
   const element: ReactElement =
     state.kind === "rpc-error"
       ? createElement(Text, null, `${state.code}: ${state.message}`)
-      : createElement(Text, null, `Daemon unavailable at ${TUI_DAEMON_SOCKET_DISPLAY}. Start with: jarvis daemon start`);
+      : createElement(
+          Text,
+          null,
+          `Daemon unavailable at ${TUI_DAEMON_SOCKET_DISPLAY}. Start with: jarvis daemon start`,
+        );
 
   const instance = renderFn(element);
   await instance.waitUntilRenderFlush();

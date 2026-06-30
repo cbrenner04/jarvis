@@ -2,7 +2,10 @@ import { randomBytes } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve, sep } from "node:path";
-import { agentHasPricedModels, resolveAgentPriceKey } from "./agents/price-keys.ts";
+import { AGENT_NAMES, type AgentName, isAgentName, validateAgentOrderEntries } from "./agent-order-validation.ts";
+
+export type { AgentName };
+export { AGENT_NAMES };
 
 let configWriteLocked = false;
 
@@ -56,9 +59,6 @@ export const CONFIG_DIR = join(homedir(), ".jarvis");
 export const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 export const SESSIONS_DIR = join(CONFIG_DIR, "sessions");
 export const TELEMETRY_PATH = join(CONFIG_DIR, "runs.jsonl");
-
-const AGENT_NAMES = ["claude", "codex", "cursor", "opencode"] as const;
-export type AgentName = (typeof AGENT_NAMES)[number];
 
 export type Project = {
   root: string;
@@ -182,10 +182,6 @@ function resolvePaths(opts?: ConfigOptions): { dir: string; file: string } {
 function resolveSessionsDir(opts?: ConfigOptions): string {
   const dir = opts?.dir ?? CONFIG_DIR;
   return join(dir, "sessions");
-}
-
-function isAgentName(value: unknown): value is AgentName {
-  return typeof value === "string" && (AGENT_NAMES as readonly string[]).includes(value);
 }
 
 function fail(file: string, message: string): never {
@@ -608,7 +604,6 @@ function validateAgentOrder(input: unknown, fieldName: string, file: string): Ag
     fail(file, `${fieldName} must be a non-empty array`);
   }
   const agentOrder: AgentEntry[] = [];
-  const seen = new Set<string>();
   for (let i = 0; i < input.length; i++) {
     const raw = input[i];
     if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
@@ -620,7 +615,7 @@ function validateAgentOrder(input: unknown, fieldName: string, file: string): Ag
         fail(file, `${fieldName}[${i}]: unknown key ${JSON.stringify(key)}`);
       }
     }
-    if (!isAgentName(entry.agent)) {
+    if (typeof entry.agent !== "string" || !isAgentName(entry.agent)) {
       fail(
         file,
         `${fieldName}[${i}].agent: unknown agent ${JSON.stringify(entry.agent)} (allowed: ${AGENT_NAMES.join(", ")})`,
@@ -629,17 +624,11 @@ function validateAgentOrder(input: unknown, fieldName: string, file: string): Ag
     if (typeof entry.model !== "string" || entry.model.trim() === "") {
       fail(file, `${fieldName}[${i}].model must be a non-empty string`);
     }
-    if (seen.has(entry.agent)) {
-      fail(file, `${fieldName}: duplicate agent ${JSON.stringify(entry.agent)}`);
-    }
-    seen.add(entry.agent);
-    if (agentHasPricedModels(entry.agent) && resolveAgentPriceKey(entry.agent, entry.model) === null) {
-      fail(
-        file,
-        `${fieldName}[${i}].model: ${JSON.stringify(entry.model)} is not a known priced model for agent ${JSON.stringify(entry.agent)}`,
-      );
-    }
     agentOrder.push({ agent: entry.agent, model: entry.model });
+  }
+  const validationError = validateAgentOrderEntries(agentOrder, fieldName);
+  if (validationError !== null) {
+    fail(file, validationError);
   }
   return agentOrder;
 }

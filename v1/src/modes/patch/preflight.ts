@@ -285,6 +285,7 @@ export async function resolveModeSpecificPreflight(
       project,
       projectMode,
       cfg,
+      subRoleResolutionCfg: cfg,
       gitEnabled,
       agentWorkingDir,
       worktreeLocked,

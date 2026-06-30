@@ -24,6 +24,7 @@ import { type RunCommandOptions, runCommand } from "./modes/patch/run.ts";
 import { computeProjectSafeId } from "./modes/plan/spec-paths.ts";
 import { promptCommand } from "./modes/prompt/run.ts";
 import { runSharedProjectPreflight } from "./modes/shared-entry.ts";
+import { parseAgentFlagValues, prefixAgentFlagError } from "./parse-agent-flag.ts";
 
 export type Subcommand =
   | "run"
@@ -51,6 +52,7 @@ export type ParsedArgs =
       repo?: string;
       cwd?: string;
       resumeReview?: boolean;
+      agentFlags?: string[];
     }
   | { kind: "init" }
   | { kind: "config"; rest: string[] }
@@ -84,7 +86,7 @@ export type Io = {
 const USAGE = `Usage: jarvis1 <command> [args]
 
 Commands:
-  run [--max-iterations <n>] [--review-passes <n>] [--tier <tier>] [--repo <name|path|url>] [--cwd <dir>] [--resume-review] <spec-path>
+  run [--max-iterations <n>] [--review-passes <n>] [--tier <tier>] [--agent <name>[:<model>]] [--repo <name|path|url>] [--cwd <dir>] [--resume-review] <spec-path>
                     Run the loop against a spec file in a registered project.
                     Use --resume-review to run the post-completion review phase on an already-complete spec.
   init              Register the current target repo.
@@ -98,7 +100,7 @@ Commands:
                     Address PR review feedback on an existing patch worktree.
   runbook add [--section <heading>] [--issue-url <url>] <entry>
                     Append a learning to the project's OPERATOR_RUNBOOK.md.
-  plan [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] [--resume] <targetDir>/ready-intents/<name>.md
+  plan [--review-passes <n>] [--agent <name>[:<model>]] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] [--resume] <targetDir>/ready-intents/<name>.md
                     Draft specs via plan mode with intent refinement and self-review (--resume expects spec/<…>/index.md; --resume-draft expects spec/<…>/intent.md).
   intent [--repo <name|path|url>] [--cwd <dir>] <raw-seed-file|"inline text">
                     Split one seed into authored intents under ready-intents/ and open a PR.
@@ -109,7 +111,7 @@ Commands:
 `;
 
 const COMMAND_USAGE: Record<string, string> = {
-  run: `Usage: jarvis1 run [--max-iterations <n>] [--review-passes <n>] [--tier <tier>] [--repo <name|path|url>] [--cwd <dir>] [--resume-review] <spec-path>
+  run: `Usage: jarvis1 run [--max-iterations <n>] [--review-passes <n>] [--tier <tier>] [--agent <name>[:<model>]] [--repo <name|path|url>] [--cwd <dir>] [--resume-review] <spec-path>
 
   Run the loop against a spec file in a registered project.
   Use --resume-review to run the post-completion review phase on an already-complete spec.
@@ -118,6 +120,7 @@ Flags:
   --max-iterations <n>        Maximum number of patch iterations (default: 10).
   --review-passes <n>         Number of review cycles after completion (default: 1).
   --tier <tier>               Patch ladder start tier: trivial, standard, or hard.
+  --agent <name>[:<model>]    Repeatable; one-run patch implementation ladder override.
   --repo <name|path|url>      Override project resolution via name, path, or URL.
   --cwd <dir>                 Working directory (only with git: false).
   --resume-review             Re-enter the review phase on a completed spec.
@@ -188,6 +191,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       let repo: string | undefined;
       let cwd: string | undefined;
       let resumeReview = false;
+      const agentFlags: string[] = [];
       const args = [...rest];
       for (let i = 0; i < args.length; i += 1) {
         if (args[i] === "--max-iterations") {
@@ -259,6 +263,19 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
           resumeReview = true;
           args.splice(i, 1);
           i -= 1;
+          continue;
+        }
+        if (args[i] === "--agent") {
+          const value = args[i + 1];
+          if (value === undefined) {
+            return {
+              kind: "error",
+              message: "run: missing value for --agent",
+            };
+          }
+          agentFlags.push(value);
+          args.splice(i, 2);
+          i -= 1;
         }
       }
       const specPath = args[0];
@@ -283,6 +300,9 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       }
       if (resumeReview) {
         parsed.resumeReview = true;
+      }
+      if (agentFlags.length > 0) {
+        parsed.agentFlags = agentFlags;
       }
       return parsed;
     }
@@ -571,6 +591,15 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
       }
       if (parsed.resumeReview) {
         runOpts.resumeReview = true;
+      }
+      if (parsed.agentFlags !== undefined && parsed.agentFlags.length > 0) {
+        const cfg = loadConfig(opts.config);
+        const parsedAgents = parseAgentFlagValues(parsed.agentFlags, cfg.modes.patch.agentOrder);
+        if (!parsedAgents.ok) {
+          io.stderr(`jarvis1: ${prefixAgentFlagError("run", parsedAgents.message)}\n`);
+          return 1;
+        }
+        runOpts.agentOrderOverride = parsedAgents.agentOrder;
       }
       if (opts.run?.agents !== undefined) {
         runOpts.agents = opts.run.agents;

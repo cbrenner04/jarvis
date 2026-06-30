@@ -1198,6 +1198,35 @@ describe("parsePlanArgs", () => {
       teardown();
     }
   });
+
+  test("missing --agent value → exit 1", () => {
+    setup();
+    try {
+      const res = parsePlanArgs(["--agent"], tmp);
+      expect(res.ok).toBe(false);
+      if (res.ok) return;
+      expect(res.exitCode).toBe(1);
+      expect(res.message).toContain("missing value for --agent");
+    } finally {
+      teardown();
+    }
+  });
+
+  test("repeatable --agent values collected in order", () => {
+    setup();
+    try {
+      const intent = join(tmp, "ready-intents", "feat.md");
+      mkdirSync(join(tmp, "ready-intents"), { recursive: true });
+      writeFileSync(intent, "---\nname: feat\n---\n\n## Prerequisites\n\nnone\n");
+      const res = parsePlanArgs(["--agent", "codex", "--agent", "claude:haiku", intent], tmp);
+      expect(res.ok).toBe(true);
+      if (res.ok) {
+        expect(res.invocation.agentFlags).toEqual(["codex", "claude:haiku"]);
+      }
+    } finally {
+      teardown();
+    }
+  });
 });
 
 describe("resolveResumeSpecPath", () => {

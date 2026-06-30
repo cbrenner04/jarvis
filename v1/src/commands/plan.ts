@@ -22,6 +22,7 @@ export type PlanCommandOptions = {
     agentName: import("../agents/types.ts").AgentName,
     model: string | undefined,
   ) => import("../agents/types.ts").Agent;
+  agentOrderOverride?: import("../config.ts").AgentEntry[];
 };
 
 // Re-exports from orchestration module

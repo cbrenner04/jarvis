@@ -9,6 +9,7 @@ export type PlanInvocationCommon = {
   cwd: string;
   resume: boolean;
   resumeDraft: boolean;
+  agentFlags?: string[];
 };
 
 export type PlanInvocation = PlanInvocationCommon & { mode: "file"; readyIntentPath: string };
@@ -54,10 +55,24 @@ export function parsePlanArgs(argv: readonly string[], processCwd: string): Plan
   let cwdFlag: string | undefined;
   let resume = false;
   let resumeDraft = false;
+  const agentFlags: string[] = [];
   const positional: string[] = [];
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] as string;
+    if (arg === "--agent") {
+      const value = argv[i + 1];
+      if (value === undefined) {
+        return {
+          ok: false,
+          exitCode: 1,
+          message: "plan: missing value for --agent",
+        };
+      }
+      i += 1;
+      agentFlags.push(value);
+      continue;
+    }
     if (arg === "--resume") {
       resume = true;
       continue;
@@ -138,6 +153,7 @@ export function parsePlanArgs(argv: readonly string[], processCwd: string): Plan
   if (reviewPasses !== undefined) common.reviewPasses = reviewPasses;
   if (repo !== undefined) common.repo = repo;
   if (targetDir !== undefined) common.targetDir = targetDir;
+  if (agentFlags.length > 0) common.agentFlags = agentFlags;
 
   if (positional.length === 0) {
     return {

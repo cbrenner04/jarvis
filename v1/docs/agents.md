@@ -39,6 +39,22 @@ Each `agentOrder` entry couples an **agent CLI** with a **model**; advancing the
 
 Patch runs can also start partway up this ladder via runnable-spec `tier:` metadata or `jarvis1 run --tier ...`; the durable patch-only mapping rules live in [v2/docs/v1-behaviors.md#patch-mode-run-workflow](../v2/docs/v1-behaviors.md#patch-mode-run-workflow).
 
+### Per-run `--agent` override
+
+Repeatable `--agent <name>[:<model>]` on `jarvis1 run` or `jarvis1 plan` replaces the mode's in-memory `agentOrder` for that invocation; `~/.jarvis/config.json` is unchanged. Omitted `:model` inherits from the configured entry for that agent; no matching entry exits non-zero before spawn.
+
+**`jarvis1 run`** — replaces `modes.patch.agentOrder` for implementation iterations (quota, no-progress, idle-timeout, `--tier`, and `prNarrative: "agent"`). Review panel, review actuator, and shrink stay on pre-override config. `--resume-review` does not use `--agent` for implementation.
+
+**`jarvis1 plan`** — replaces `modes.plan.agentOrder` for actuators (draft, verdict-actuator, PR narrative). Review panel and quota use pre-override `modes.review.agentOrder ?? modes.plan.agentOrder`. `--resume` + `--agent` applies override to verdict-actuator only.
+
+`jarvis1 intent` and `jarvis1 prompt` do not accept `--agent`.
+
+```sh
+jarvis1 run --agent codex:gpt-5.4 path/to/spec/index.md
+jarvis1 run --agent codex --agent claude:haiku path/to/spec/index.md
+jarvis1 plan --agent codex:gpt-5.4 path/to/ready-intents/my-feature.md
+```
+
 Jarvis normalizes the `PWD` environment variable for every spawned agent so
 that agents that read `PWD` (e.g., opencode) operate on the working directory
 (worktree or project root) rather than inheriting the harness's `PWD`.

@@ -30,11 +30,11 @@ Patch actuator experiments require editing `modes.patch.agentOrder` in config, r
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 run --agent <name>[:<model>] …` uses the flag sequence as `modes.patch.agentOrder` for that invocation; persisted config is unchanged.
-- [ ] Quota, no-progress, and idle-timeout escalation on patch implementation operate on the overridden ladder.
-- [ ] `--tier` start selection applies to the overridden `modes.patch.agentOrder` ladder; single-rung override with a tier that slices past the ladder end exits non-zero per existing tier validation.
-- [ ] With `--agent` set, patch review panel and review actuator resolve from pre-override config / `subRoleAgentOrder`, not the override ladder (override-negative test).
-- [ ] With `--agent` set, shrink resolution ignores the implementation override ladder (override-negative test).
-- [ ] `--resume-review` with `--agent` invokes no implementation agents from the override ladder (`run.test.ts` `no implementation agent is invoked under --resume-review` stays green).
-- [ ] `jarvis1 run` with no `--agent` behaves as before (`config.test.ts` `buildActiveAgents selects all agents from agentOrder with trivial tier` stays green).
-- [ ] `v1/docs/agents.md` documents patch `--agent` scope and precedence.
+- [x] `jarvis1 run --agent <name>[:<model>] …` uses the flag sequence as `modes.patch.agentOrder` for that invocation; persisted config is unchanged.
+- [x] Quota, no-progress, and idle-timeout escalation on patch implementation operate on the overridden ladder.
+- [x] `--tier` start selection applies to the overridden `modes.patch.agentOrder` ladder; single-rung override with a tier that slices past the ladder end exits non-zero per existing tier validation.
+- [x] With `--agent` set, patch review panel and review actuator resolve from pre-override config / `subRoleAgentOrder`, not the override ladder (override-negative test).
+- [x] With `--agent` set, shrink resolution ignores the implementation override ladder (override-negative test).
+- [x] `--resume-review` with `--agent` invokes no implementation agents from the override ladder (`run.test.ts` `no implementation agent is invoked under --resume-review` stays green).
+- [x] `jarvis1 run` with no `--agent` behaves as before (`config.test.ts` `buildActiveAgents selects all agents from agentOrder with trivial tier` stays green).
+- [x] `v1/docs/agents.md` documents patch `--agent` scope and precedence.

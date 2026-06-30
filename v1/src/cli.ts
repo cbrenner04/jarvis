@@ -22,9 +22,9 @@ import {
 } from "./config.ts";
 import { type RunCommandOptions, runCommand } from "./modes/patch/run.ts";
 import { computeProjectSafeId } from "./modes/plan/spec-paths.ts";
-import { parseAgentFlagValues, prefixAgentFlagError } from "./parse-agent-flag.ts";
 import { promptCommand } from "./modes/prompt/run.ts";
 import { runSharedProjectPreflight } from "./modes/shared-entry.ts";
+import { parseAgentFlagValues, prefixAgentFlagError } from "./parse-agent-flag.ts";
 
 export type Subcommand =
   | "run"

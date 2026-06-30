@@ -16,11 +16,11 @@ import type { Agent, AgentName } from "../../agents/types.ts";
 import type { PlanCommandOptions, PlanIo } from "../../commands/plan.ts";
 import { describePlanInvocation, isExistingFile, parsePlanArgs } from "../../commands/plan-args.ts";
 import {
+  type AgentEntry,
   CONFIG_DIR,
+  type Config,
   effectiveGit,
   loadConfig,
-  type AgentEntry,
-  type Config,
   type ProjectMatch,
   resolvePlanFlags,
   resolveReviewAgentOrder,
@@ -28,8 +28,8 @@ import {
 } from "../../config.ts";
 import type { LogClient } from "../../logging.ts";
 import { enterMode } from "../../mode-entry.ts";
+import { parseAgentFlagValues, prefixAgentFlagError } from "../../parse-agent-flag.ts";
 import { ensureDraftPr, renderAttribution } from "../../pr.ts";
-import { prefixAgentFlagError, parseAgentFlagValues } from "../../parse-agent-flag.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { normalizeRepoUrl } from "../../repo-url.ts";
 import { planSummary } from "../../run-summary.ts";

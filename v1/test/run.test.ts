@@ -3400,7 +3400,7 @@ exit 0
 
       const cap = captureIo();
       let codexReviewCalls = 0;
-      const codex = new FakeAgent("codex", (callCount, prompt) => {
+      const codex = new FakeAgent("codex", (_callCount, prompt) => {
         if (isPatchReviewPrompt(prompt) || isPatchReviewActuatorPrompt(prompt)) {
           codexReviewCalls += 1;
           throw new Error("review must not use override implementation agent");
@@ -3455,7 +3455,7 @@ exit 0
       writeConfig(cfg, { dir: cfgDir });
 
       const cap = captureIo();
-      const codex = new FakeAgent("codex", (callCount, prompt, opts) => {
+      const codex = new FakeAgent("codex", (callCount, _prompt, opts) => {
         if (callCount > 2) {
           throw new Error("codex must not run shrink when reviewActuator is claude");
         }

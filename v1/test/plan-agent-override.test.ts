@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import { planCommand } from "../src/commands/plan.ts";
 import { parsePlanArgs } from "../src/commands/plan-args.ts";
-import type { Config, AgentEntry } from "../src/config.ts";
+import type { AgentEntry, Config } from "../src/config.ts";
 import { loadConfig, registerProject, writeConfig } from "../src/config.ts";
 import { runDraftPhase } from "../src/modes/plan/draft.ts";
 import { runPlanReviewPhase } from "../src/modes/plan/review.ts";

@@ -1,9 +1,7 @@
 import { AGENT_NAMES, isAgentName, validateAgentOrderEntries } from "./agent-order-validation.ts";
 import type { AgentEntry } from "./config.ts";
 
-export type ParseAgentFlagResult =
-  | { ok: true; agentOrder: AgentEntry[] }
-  | { ok: false; message: string };
+export type ParseAgentFlagResult = { ok: true; agentOrder: AgentEntry[] } | { ok: false; message: string };
 
 const FIELD_NAME = "--agent";
 

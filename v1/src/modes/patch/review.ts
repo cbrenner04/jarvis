@@ -7,7 +7,8 @@ import type { Agent, AgentName, AgentRunOptions } from "../../agents/types.ts";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
 import { type AgentEntry, type Config, resolveSubRoleAgentOrder } from "../../config.ts";
 import { getBaseBranch, postPrComment, withSyncTransientRetry } from "../../gh.ts";
-import { checkBaseCurrent, writeReadyFlipBlocked } from "../../git/base-current.ts";
+import { tryAutoIntegrateBase } from "../../git/auto-integrate-base.ts";
+import { checkBaseCurrent } from "../../git/base-current.ts";
 import { checkPrExists } from "../../pr.ts";
 import {
   HARNESS_QUOTA_FALLBACK_STRICT,
@@ -280,6 +281,8 @@ export type PatchReviewPhaseOptions = {
   ghPrReadyRetryOpts?: MaybeMarkReadyOpts["ghPrReadyRetryOpts"];
   /** Test seam: operator-visible stderr sink for blocked review-final flips. */
   stderr?: MaybeMarkReadyOpts["stderr"];
+  /** Test seam: override auto-integrate helper at review-final. */
+  tryAutoIntegrateBase?: typeof tryAutoIntegrateBase;
   /** Test seam: fixed base branch instead of `getBaseBranch`. */
   baseBranch?: string;
   /** Test override: substitute agents for the resolved review actuator order by index. */
@@ -1254,11 +1257,24 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       }
       const baseCurrent = (opts.checkBaseCurrent ?? checkBaseCurrent)({ branch, cwd: opts.cwd });
       if (baseCurrent.status === "behind") {
-        writeReadyFlipBlocked(
-          opts.stderr ?? process.stderr.write.bind(process.stderr),
+        const integrate = opts.tryAutoIntegrateBase ?? tryAutoIntegrateBase;
+        integrate({
           branch,
-          baseCurrent.baseRefName,
-        );
+          cwd: opts.cwd,
+          baseRefName: baseCurrent.baseRefName,
+          agentLabel: "review-final",
+          ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
+          ...(opts.fixCommand !== undefined ? { fixCommand: opts.fixCommand } : {}),
+          ...(opts.runFix !== undefined ? { runFix: opts.runFix } : {}),
+          ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
+          ...(opts.commitPreReadyFix !== undefined ? { commitPreReadyFix: opts.commitPreReadyFix } : {}),
+          ...(opts.ghPrReady !== undefined ? { ghPrReady: opts.ghPrReady } : {}),
+          ...(opts.ghPrReadyRetryOpts !== undefined ? { ghPrReadyRetryOpts: opts.ghPrReadyRetryOpts } : {}),
+          ...(opts.stderr !== undefined ? { stderr: opts.stderr } : {}),
+          ...(opts.refreshRecordedGreenResult !== undefined
+            ? { refreshRecordedGreenResult: opts.refreshRecordedGreenResult }
+            : {}),
+        });
         return 0;
       }
 

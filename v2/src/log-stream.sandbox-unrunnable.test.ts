@@ -2,8 +2,8 @@
 // so a detached reader process receives appends from a separate writer process.
 
 import { describe, expect, it } from "bun:test";
-import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
+import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -50,13 +50,14 @@ for await (const record of reader.follow(process.argv[3]!, controller.signal)) {
     stdout.setEncoding("utf-8");
     stdout.on("data", (chunk: string) => {
       buf += chunk;
-      let idx: number;
-      while ((idx = buf.indexOf("\n")) >= 0) {
+      let idx = buf.indexOf("\n");
+      while (idx >= 0) {
         const line = buf.slice(0, idx);
         buf = buf.slice(idx + 1);
         if (line) {
           records.push(JSON.parse(line) as PersistedRecord);
         }
+        idx = buf.indexOf("\n");
       }
     });
 

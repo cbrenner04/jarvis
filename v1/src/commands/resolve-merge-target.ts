@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getCurrentBranch } from "../../../shared/git.ts";
+import { stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
 import { findMatchingOpenPrs, type MatchingOpenPr } from "../pr.ts";
 import type { TriageIo } from "./triage.ts";
 
@@ -19,6 +20,12 @@ export type MergeTargetResolutionSeams = {
 
 export type MergeTargetResolution = { ok: true; worktreeName: string } | { ok: false };
 
+/**
+ * Resolve a `triage --merge` positional target to a local worktree name.
+ * Order: (1) `.worktree/<arg>`, (2) PR reference, (3) spec-path via basename,
+ * plan-slug (`plan-<timestamp-stripped-dir>`), and marker scan (unioned).
+ * Bare `.md` filenames: marker scan only.
+ */
 export function resolveMergeTarget(
   projectRoot: string,
   arg: string,
@@ -141,6 +148,10 @@ function resolveWorktreeFromSpecPath(args: {
     const basenameWorktree = join(args.worktreeDir, specDirBasename);
     if (existsSync(basenameWorktree)) {
       candidates.add(basenameWorktree);
+    }
+    const planWorktree = join(args.worktreeDir, `plan-${stripPlanSpecTimestampPrefix(specDirBasename)}`);
+    if (existsSync(planWorktree)) {
+      candidates.add(planWorktree);
     }
   }
 

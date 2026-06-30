@@ -2487,13 +2487,41 @@ describe("triage --mark-ready", () => {
   });
 
   describe("merge target resolution", () => {
+    const completeSpecBody = "# Test\n\n- [x] item 1";
+    const greenMergeGh = {
+      ghRunner: {
+        getPrState: () => ({ state: "OPEN" as const, isDraft: false }),
+        getChecks: () => [{ name: "test", status: "success" as const }],
+      },
+      runGate: () => {},
+    };
+
+    function writeCompleteSpec(relPath: string): string {
+      const specPath = join(projectRoot, "v1", "spec", relPath);
+      mkdirSync(dirname(specPath), { recursive: true });
+      writeFileSync(specPath, completeSpecBody);
+      return specPath;
+    }
+
     function setupResolvableMergeWorktree(
       worktreeName: string,
-      opts?: { branch?: string; markerSpecPath?: string },
+      opts?: { branch?: string; markerSpecPath?: string; planBranch?: string },
     ): { worktreePath: string; specPath: string } {
-      const { worktreePath, specPath } = setupMergeWorktree(worktreeName);
-      if (opts?.branch !== undefined) {
-        execSync(`git branch -M ${opts.branch}`, { cwd: worktreePath, stdio: "pipe" });
+      let worktreePath: string;
+      let specPath: string;
+      if (opts?.planBranch !== undefined) {
+        worktreePath = join(worktreeDir, worktreeName);
+        setupWorktree(worktreePath);
+        execSync(`git branch -M plan/${opts.planBranch}`, { cwd: worktreePath, stdio: "pipe" });
+        const specDir = join(projectRoot, "v1", "spec");
+        mkdirSync(specDir, { recursive: true });
+        specPath = join(specDir, "test-spec.md");
+        writeFileSync(specPath, completeSpecBody);
+      } else {
+        ({ worktreePath, specPath } = setupMergeWorktree(worktreeName));
+        if (opts?.branch !== undefined) {
+          execSync(`git branch -M ${opts.branch}`, { cwd: worktreePath, stdio: "pipe" });
+        }
       }
       if (opts?.markerSpecPath !== undefined) {
         writeFileSync(join(worktreePath, ".active-spec-path"), opts.markerSpecPath);
@@ -2503,10 +2531,7 @@ describe("triage --mark-ready", () => {
 
     test("resolves spec path via spec-directory basename", () => {
       const worktreeName = "2026-06-27T17-26-00Z-merge-target-by-worktree-or-spec";
-      const specDir = join(projectRoot, "v1", "spec", worktreeName);
-      mkdirSync(specDir, { recursive: true });
-      const specPath = join(specDir, "index.md");
-      writeFileSync(specPath, "# Test\n\n- [x] item 1");
+      const specPath = writeCompleteSpec(`${worktreeName}/index.md`);
       setupResolvableMergeWorktree(worktreeName, { markerSpecPath: specPath });
 
       let mergeRan = false;
@@ -2517,11 +2542,7 @@ describe("triage --mark-ready", () => {
           cwd: projectRoot,
           io,
           worktreeName: `v1/spec/${worktreeName}/index.md`,
-          ghRunner: {
-            getPrState: () => ({ state: "OPEN", isDraft: false }),
-            getChecks: () => [{ name: "test", status: "success" }],
-          },
-          runGate: () => {},
+          ...greenMergeGh,
           adminMerge: () => {
             mergeRan = true;
           },
@@ -2536,10 +2557,7 @@ describe("triage --mark-ready", () => {
     test("resolves spec path via .active-spec-path marker (plan worktree)", () => {
       const planName = "plan-merge-target";
       const worktreeName = `plan-${planName}`;
-      const specDir = join(projectRoot, "v1", "spec", "2026-06-27T17-26-00Z-merge-target-by-worktree-or-spec");
-      mkdirSync(specDir, { recursive: true });
-      const specPath = join(specDir, "index.md");
-      writeFileSync(specPath, "# Test\n\n- [x] item 1");
+      const specPath = writeCompleteSpec("2026-06-27T17-26-00Z-merge-target-by-worktree-or-spec/index.md");
       setupResolvableMergeWorktree(worktreeName, { markerSpecPath: specPath });
 
       let mergeRan = false;
@@ -2550,11 +2568,7 @@ describe("triage --mark-ready", () => {
           cwd: projectRoot,
           io,
           worktreeName: specPath,
-          ghRunner: {
-            getPrState: () => ({ state: "OPEN", isDraft: false }),
-            getChecks: () => [{ name: "test", status: "success" }],
-          },
-          runGate: () => {},
+          ...greenMergeGh,
           adminMerge: () => {
             mergeRan = true;
           },
@@ -2565,12 +2579,62 @@ describe("triage --mark-ready", () => {
       expect(mergeRan).toBe(true);
     });
 
+    test("resolves timestamped plan spec path via plan-slug without marker", () => {
+      const planName = "triage-resolve-plan-spec-path-merge-target";
+      const specBasename = `2026-06-29T21-34-56Z-${planName}`;
+      writeCompleteSpec(`${specBasename}/index.md`);
+      setupResolvableMergeWorktree(`plan-${planName}`, { planBranch: planName });
+
+      let mergeRan = false;
+      const { io, out } = captureIo();
+      const code = triageCommand(
+        triageMergeOpts({
+          projectRoot,
+          cwd: projectRoot,
+          io,
+          worktreeName: `v1/spec/${specBasename}/index.md`,
+          ...greenMergeGh,
+          adminMerge: () => {
+            mergeRan = true;
+          },
+        }),
+      );
+
+      expect(code).toBe(0);
+      expect(mergeRan).toBe(true);
+      expect(out()).toContain("merged successfully");
+    });
+
+    test("ambiguous plan spec path (marker vs plan-slug) lists candidates without merge", () => {
+      const planSlug = "merge-target-by-worktree-or-spec";
+      const specPath = writeCompleteSpec(`2026-06-27T17-26-00Z-${planSlug}/index.md`);
+      setupResolvableMergeWorktree(`plan-${planSlug}`, { planBranch: planSlug });
+      setupResolvableMergeWorktree("branch-marker", { markerSpecPath: specPath });
+
+      let mergeRan = false;
+      const { io, err } = captureIo();
+      const code = triageCommand(
+        triageMergeOpts({
+          projectRoot,
+          cwd: projectRoot,
+          io,
+          worktreeName: specPath,
+          adminMerge: () => {
+            mergeRan = true;
+          },
+        }),
+      );
+
+      expect(code).toBe(1);
+      expect(err()).toContain("multiple worktrees match spec path");
+      expect(err()).toContain(`plan-${planSlug}`);
+      expect(err()).toContain("branch-marker");
+      expect(mergeRan).toBe(false);
+    });
+
     test("resolves bare .md filename via marker scan only", () => {
       const worktreeName = "branch-1";
-      const specDir = join(projectRoot, "v1", "spec");
-      mkdirSync(specDir, { recursive: true });
-      const specPath = join(specDir, "test-spec.md");
-      writeFileSync(specPath, "# Test\n\n- [x] item 1");
+      const specPath = writeCompleteSpec("test-spec.md");
       setupResolvableMergeWorktree(worktreeName, { markerSpecPath: specPath });
 
       let mergeRan = false;
@@ -2578,14 +2642,10 @@ describe("triage --mark-ready", () => {
       const code = triageCommand(
         triageMergeOpts({
           projectRoot,
-          cwd: specDir,
+          cwd: join(projectRoot, "v1", "spec"),
           io,
           worktreeName: "test-spec.md",
-          ghRunner: {
-            getPrState: () => ({ state: "OPEN", isDraft: false }),
-            getChecks: () => [{ name: "test", status: "success" }],
-          },
-          runGate: () => {},
+          ...greenMergeGh,
           adminMerge: () => {
             mergeRan = true;
           },
@@ -2615,11 +2675,7 @@ describe("triage --mark-ready", () => {
               lookupPrHeadRef: () => ({ ok: true, headRef: branch }),
               findMatchingOpenPrs: () => [{ number: 42, isDraft: false }],
             },
-            ghRunner: {
-              getPrState: () => ({ state: "OPEN", isDraft: false }),
-              getChecks: () => [{ name: "test", status: "success" }],
-            },
-            runGate: () => {},
+            ...greenMergeGh,
             adminMerge: () => {
               mergeRan = true;
             },
@@ -2652,11 +2708,7 @@ describe("triage --mark-ready", () => {
             },
             findMatchingOpenPrs: () => [{ number: 42, isDraft: false }],
           },
-          ghRunner: {
-            getPrState: () => ({ state: "OPEN", isDraft: false }),
-            getChecks: () => [{ name: "test", status: "success" }],
-          },
-          runGate: () => {},
+          ...greenMergeGh,
           adminMerge: () => {
             mergeRan = true;
           },
@@ -2690,10 +2742,7 @@ describe("triage --mark-ready", () => {
     });
 
     test("ambiguous spec path lists candidates without merge", () => {
-      const specDir = join(projectRoot, "v1", "spec", "shared-spec");
-      mkdirSync(specDir, { recursive: true });
-      const specPath = join(specDir, "index.md");
-      writeFileSync(specPath, "# Test\n\n- [x] item 1");
+      const specPath = writeCompleteSpec("shared-spec/index.md");
 
       setupResolvableMergeWorktree("branch-a", { markerSpecPath: specPath });
       setupResolvableMergeWorktree("branch-b", { markerSpecPath: specPath });

@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, watch, type FSWatcher } from "node:fs";
+import { appendFileSync, existsSync, type FSWatcher, mkdirSync, readFileSync, watch } from "node:fs";
 import { basename, dirname } from "node:path";
 import type { OutcomeKind, RunStatus } from "./state-store-types.ts";
 import type { WriteLoopOutcomeKind } from "./write-loop.ts";

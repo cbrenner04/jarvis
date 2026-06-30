@@ -341,16 +341,24 @@ verification red, at post-fix-commit HEAD; stuck-red/changing-failure discard
 resets to that baseline and cannot reset below persisted harness fix commits.
 
 This recorded result is available to post-completion phases (shrink and review
-gates, plus `maybeMarkReady` at both the completion-transition and per-iteration
-early-ready sites). On the common path (green completion gate, default config
+gates, plus `maybeMarkReady` at `patch-complete` when shrink and review are
+both skipped). On the common path (green completion gate, default config
 with review enabled, no-op shrink, review makes no commits), shrink pre-gate and
 review baseline each run **`fast`** on the unchanged tree; review final skips
 `ready` and runs the same guarded draft→ready helper used by `maybeMarkReady`.
 Before any patch-mode draft→ready flip, the harness resolves the PR's actual
 base, fetches `origin/<base>`, and confirms `HEAD` contains that fetched base
 tip. If the branch is behind or diverged from base, the harness emits a stderr
-message, skips `gh pr ready`, and leaves the PR draft. If base resolution or
-fetch fails, the guard soft-fails open and the normal ready flow proceeds. If the
+message, skips `gh pr ready`, and leaves the PR draft — except at
+`patch-complete` (`maybeMarkReady` with `autoIntegrateBase`) and review-final,
+where a clean worktree triggers `git merge --no-edit origin/<base>` first; on
+conflict-free merge the harness runs a post-merge **`full`** gate, pushes, then
+`gh pr ready` (push before ready). Merge conflict, dirty pre-merge porcelain,
+or post-merge gate failure restores the pre-merge tree locally, emits the same
+blocked stderr, and leaves the PR draft. Triage `--mark-ready` and plan-mode
+draft→ready keep the guard-before-gate block without auto-merge. If base
+resolution or fetch fails, the guard soft-fails open and the normal ready flow
+proceeds. If the
 completion-transition ready fails, no green result is recorded and the run
 proceeds unchanged into the existing post-completion phases with the same exit
 code and stop reasons.

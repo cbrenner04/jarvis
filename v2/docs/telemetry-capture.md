@@ -1,0 +1,191 @@
+# Telemetry capture
+
+Durable contract for **analysis facts** in v2: where they live, how they are
+emitted, which IDs join them across stores, and what stays operator judgment.
+Implementation of sinks and emitters is deferred to first consumers; this doc is
+the reference planners and implementers use so harness-known data is never
+re-keyed through v1-style CSV `notes` bindings (`plan_ns`, `patch_ns`,
+`git_fallback`).
+
+**Non-goals for this doc:** runtime code, backfill, export commands, analysis
+UI, v1 harness changes, or extending the orchestration SQLite schema with
+token/cost columns.
+
+## Three-store model
+
+| Store | Default path | Role | Recovery? | Consumer |
+| --- | --- | --- | --- | --- |
+| **Orchestration** | `~/.jarvis/state/v2.sqlite` | Run lifecycle, attempt outcomes, checkpoint | **Yes** — resume derives from here + git | Write loop, workflow runner, daemon `wait` |
+| **Observability** | injectable (shared `logs.jsonl`) | Loop lifecycle for tail/follow | **No** | TUI log follow, daemon IPC tail |
+| **Telemetry** | `~/.jarvis/telemetry.jsonl` (injectable) | Append-only analysis facts | **No** | Future export, offline analysis |
+
+Rules:
+
+- **Recovery** reads orchestration store + git worktree only — never telemetry
+  or the observability log ([`v2-architecture.md`](v2-architecture.md)
+  Recovery).
+- **Observability** events (`iteration_started`, `boundary_committed`,
+  `loop_finished`, …) are for live visibility — not a substitute for per-invocation
+  usage/cost ([`log-stream.ts`](../src/log-stream.ts)).
+- **Telemetry** carries token/cost/usage and work facts — never orchestration
+  checkpoint rows ([`state-store.md`](state-store.md)).
+
+```text
+orchestration (v2.sqlite)  →  resume / checkpoint
+observability (logs.jsonl) →  tail / follow loop events
+telemetry (telemetry.jsonl)→  append-only facts for analysis
+```
+
+## Event grains and join keys
+
+| Grain | ID | When assigned |
+| --- | --- | --- |
+| Operator session | `operator_session_id` | CLI/daemon session bootstrap or first `start` |
+| Run | `run_id` | `createRun` |
+| Attempt | `attempt_id` | `recordAttemptStart` |
+| Invocation | `invocation_id` | Each agent subprocess through the binding chain |
+
+v1 `(report, name)` and `(report, session)` keys are **export labels**, not
+harness join keys. Facts carry `run_id` / `attempt_id` / `invocation_id` at
+emission. Optional denormalized `report_label` or `spec_display_name` may
+appear for CSV export compatibility — never as the primary key.
+
+## Record kinds
+
+One JSON object per JSONL line. Top-level envelope on every record:
+
+- `schema_version`: `1`
+- `record_kind`: see below
+- `ts`: ISO-8601 emission time
+
+### `invocation_completed`
+
+Emitted after each agent subprocess settles (shared invocation seam). Required
+context: `operator_session_id`, `run_id`, `attempt_id`, `invocation_id`,
+`project`, `workflow`, `step_id`, `role`, `agent`, `model`, `binding_index`,
+`duration_ms`, `worktree_path`, `branch`, `spec_ref`.
+
+Usage and cost — **emit keys with explicit `null` when unavailable** (do not
+omit keys):
+
+- `usage`: `{ input_tokens, output_tokens, cache_read_input_tokens,
+  cache_creation_input_tokens }` — each `number | null`
+- `usage_source`: `"agent" | "estimated" | "unavailable" | null`
+- `cost_usd`: `number | null`
+- `cost_source`: `"computed" | "estimated" | "unavailable" | null`
+- `exit_kind`, `exit_reason`
+
+Same shape for write, review-debate, and plan steps — only `workflow`, `step_id`,
+`role`, and optional `phase` differ. No patch-only fork.
+
+### `work_boundary_recorded`
+
+Emitted at `commitCompletionBoundary` with work facts for analysis. Distinct from
+observability `boundary_committed` — different consumer, different file, different
+name. Required: `run_id`, `attempt_id`, `outcome_kind`, `run_status`,
+`commit_sha`, `files_changed` (count; path list deferred — see [Deferred
+questions](#deferred-implementation-questions)).
+
+Orchestration `outcome_kind` on the attempt row is authoritative for resume;
+telemetry rows are authoritative for analysis history.
+
+### `run_terminal`
+
+Run-level summary when the loop or runner settles. Mirrors v1
+`record_role: "run_terminal"` — exit summary without double-counting invocation
+usage in roll-ups. Required: `run_id`, `loop_outcome_kind` or terminal
+`run_status`, `iterations_consumed` when applicable.
+
+## Emission boundaries
+
+| Record kind | Code seam | Notes |
+| --- | --- | --- |
+| `invocation_completed` | `shared/invocation/execute.ts` (or immediate wrapper) | Runner passes full ID context in; emitter does not re-parse logs |
+| `work_boundary_recorded` | Write loop / workflow runner at `commitCompletionBoundary` | Git facts from harness commit, not agent |
+| `run_terminal` | Loop finish / run failure path | One row per terminal run edge |
+
+[`shared-step-runner.md`](shared-step-runner.md) owns token parsing and contract
+dispatch; telemetry emission sits **below** the runner at the invocation layer
+and **above** git at the boundary layer — not in the orchestration store API.
+
+Observability `boundary_committed` ≠ telemetry `work_boundary_recorded`. Do not
+alias event kinds across stores.
+
+## Operator session
+
+`operator_session_id` tags all runs started in one operator sitting. Operator
+roll-ups (`operator-costs`, `operator-outcomes` grain) are
+`GROUP BY operator_session_id` over telemetry — not a separate manual CSV row
+the harness does not know about.
+
+External operator CLI cost (Claude `/cost`, opencode SQLite) joins at **export
+time** by time overlap or explicit session tag until a concrete integration
+exists. That join is not a capture-path requirement for v2 telemetry v1.
+
+## Harness facts vs operator judgment
+
+Classification tables live in
+[`outcome-data-source-audit.md`](outcome-data-source-audit.md) — do not
+duplicate them here. Summary:
+
+| Category | v2 stance |
+| --- | --- |
+| Cost, tokens, duration, `agent_count`, `session_type`, failure hints, `files_touched` | Harness-emitted or derivable from telemetry |
+| `success_status`, `overall_success`, `completed_work_units`, free-form `notes` | Operator **annotation** layer — optional future export columns, not reconstructed from facts |
+
+v2 eliminates re-keying harness-known fields; it does not eliminate operator
+judgment.
+
+## v1 legacy
+
+| v1 | v2 |
+| --- | --- |
+| `~/.jarvis/runs.jsonl` per-invocation rows | `invocation_completed` in `telemetry.jsonl` |
+| `namespace` | `run_id` + `attempt_id` + `spec_ref` |
+| `mode` / `plan_phase` / `patch_phase` | `workflow` + `step_id` + `role` (+ optional `phase`) |
+| `record_role: run_terminal` | `record_kind: run_terminal` |
+| `reports/*.csv` + `notes` bindings | **Derived exports** keyed by stable IDs — no `plan_ns` / `patch_ns` / `git_fallback` in v2 export schema |
+
+**No backfill.** v1 files remain historical archives; v2 emits forward from the
+first implementation slice.
+
+## Build-order placement
+
+| Milestone | Deliverable |
+| --- | --- |
+| **This doc** (plan spec) | Capture contract only |
+| **Phase 5** (workflow runner) | Minimal `invocation_completed` from shared step-runner |
+| **Phase 6** (review-debate + human) | Same schema for all behaviors |
+| **Phase 8** (PR lifecycle) | `work_boundary_recorded` with `commit_sha` / `files_changed` |
+| **Post-parity** | Export commands replacing manual CSV reconciliation |
+
+Do not block TUI/daemon on telemetry; do not defer ID-stamped facts until
+post-parity (that recreates v1 binding pain). Pin emitter phase numbers to the
+first consumer that wires each seam — not ahead of it
+([`v2-build-order.md`](v2-build-order.md)).
+
+## Testing contract (future emitter subspecs)
+
+- Telemetry sink path is injectable (temp file per test).
+- Contract tests assert required IDs and fields after a mocked invocation; no
+  harness roll-up assertions in unit tests.
+- `schema_version` bumps get golden-file or fixture checks only when the envelope
+  changes.
+
+No new tests ship with this doc-only deliverable.
+
+## Deferred implementation questions
+
+Pin when the first emitter subspec lands — do not block this reference doc:
+
+1. **Quota fallback grain** — one `invocation_completed` row per binding attempt
+   vs one aggregated row per logical invocation.
+2. **`files_changed` shape** — count-only vs path list on `work_boundary_recorded`.
+
+## Related docs
+
+- [`v2-architecture.md`](v2-architecture.md) — persistence split
+- [`state-store.md`](state-store.md) — what stays out of SQLite
+- [`log-stream.ts`](../src/log-stream.ts) — observability events (contrast)
+- [`shared-invocation.md`](shared-invocation.md) — invocation seam
+- [`outcome-data-source-audit.md`](outcome-data-source-audit.md) — v1 column classifications

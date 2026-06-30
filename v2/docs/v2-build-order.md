@@ -144,6 +144,10 @@ routed run.*
 - **Durable state**: first rows in Phase 2 (loop resume), grown behind each
   consumer (cross-step history in Phase 5). Never built ahead of a caller.
 - **Structured logging**: lands in Phase 3, consumed throughout.
+- **Telemetry capture**: reference contract in [`telemetry-capture.md`](telemetry-capture.md)
+  (doc-only, no runtime sink). Runtime `invocation_completed` emission follows
+  Phase 5 workflow runner; cross-behavior parity Phase 6; `work_boundary_recorded`
+  Phase 8. Never in orchestration SQLite.
 - **TUI**: seeded at Phase 4, extended by each later phase (the *TUI:* notes
   above). Highest-uncertainty track; specced just-in-time, expected to churn.
 - **Quota fallback**: agent order folds into Phase 1's invocation layer (a single

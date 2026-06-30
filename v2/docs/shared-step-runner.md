@@ -24,6 +24,9 @@ Boundary:
   dispatch.
 - Runner does not own workflow looping, CLI exit mapping/formatting, or
   git/worktree side effects.
+- Future per-invocation telemetry (`invocation_completed`) emits at the shared
+  invocation layer below this runner, with IDs passed in from the caller. Capture
+  contract: [`telemetry-capture.md`](telemetry-capture.md).
 
 Operator flow for the first `write` consumer is documented in
 [`write-behavior.md`](./write-behavior.md).

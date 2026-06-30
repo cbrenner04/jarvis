@@ -27,11 +27,11 @@ Depends on [00](./00-cross-process-follow-wake.md).
 
 ## Acceptance criteria
 
-- [ ] While an IPC client holds an open tail stream, records appended for that `runId` from a separate process on shared storage arrive as `stream-data` frames in ascending `seq` order (`ipc.sandbox-unrunnable.test.ts`; verify with `bun run test:integration:v2`).
-- [ ] Each live record arrives as its own `stream-data` frame (not batched).
-- [ ] Factory-backed agent-runnable test for unknown-run tail rejection stays green (`loadRun` miss → immediate `stream-end`, no `stream-data`).
-- [ ] Factory-backed agent-runnable test for client `stream-end` aborting the server-side `follow` pump stays green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] While an IPC client holds an open tail stream, records appended for that `runId` from a separate process on shared storage arrive as `stream-data` frames in ascending `seq` order (`ipc.sandbox-unrunnable.test.ts`; verify with `bun run test:integration:v2`).
+- [x] Each live record arrives as its own `stream-data` frame (not batched).
+- [x] Factory-backed agent-runnable test for unknown-run tail rejection stays green (`loadRun` miss → immediate `stream-end`, no `stream-data`).
+- [x] Factory-backed agent-runnable test for client `stream-end` aborting the server-side `follow` pump stays green.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

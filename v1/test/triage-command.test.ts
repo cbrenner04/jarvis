@@ -52,10 +52,7 @@ function writeWorktreeLock(worktreePath: string, pid: number): void {
   );
 }
 
-function makePreflightWorktree(
-  name: string,
-  opts: { git?: boolean; lockPid?: number } = {},
-): string {
+function makePreflightWorktree(name: string, opts: { git?: boolean; lockPid?: number } = {}): string {
   const worktreePath = join(worktreeDir, name);
   mkdirSync(worktreePath, { recursive: true });
   if (opts.git !== false) initGitWorktree(worktreePath);

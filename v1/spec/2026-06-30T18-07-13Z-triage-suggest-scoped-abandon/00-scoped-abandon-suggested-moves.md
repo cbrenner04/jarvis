@@ -85,16 +85,16 @@ eligibility is false.
 
 ## Acceptance criteria
 
-- [ ] Shared scoped-abandon preflight returns eligible for a passing composite and ineligible for merged PR, ready open PR, multiple open PRs, live lock, PR inspection failure, and branch resolution failure (`triage-command.test.ts` eligibility derivation tests).
-- [ ] Rule 6 on an eligible incomplete dirty worktree includes `Discard: jarvis1 cleanup --abandon <worktree-name>` and still includes a resume line when `specPath` is set.
-- [ ] Rule 6 on the same shape when not abandon-eligible keeps `Discard: git -C <path> reset --hard && git -C <path> clean -fd` and omits scoped abandon.
-- [ ] Rule 7 on `clean` + incomplete + `prState` `CLOSED` or `none` + eligible emits only `Retire this worktree: jarvis1 cleanup --abandon <worktree-name>` (no resume line).
-- [ ] `clean` + incomplete + `prState` `DRAFT` or `OPEN` + abandon-eligible falls through to fallback (no scoped abandon).
-- [ ] `triage-command.test.ts` suggested-moves rule 1–5 tests stay green.
-- [ ] `triage-command.test.ts` `fallback suggestion includes diff and session log` and `untracked-only with MERGED (no spec path) falls through to fallback` tests stay green.
-- [ ] `prState = unknown` never emits scoped abandon (`triage-command.test.ts` unknown-prState tests stay green).
-- [ ] No suggested-moves line contains bare `jarvis1 cleanup --abandon` without `<worktree-name>`.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] Shared scoped-abandon preflight returns eligible for a passing composite and ineligible for merged PR, ready open PR, multiple open PRs, live lock, PR inspection failure, and branch resolution failure (`triage-command.test.ts` eligibility derivation tests).
+- [x] Rule 6 on an eligible incomplete dirty worktree includes `Discard: jarvis1 cleanup --abandon <worktree-name>` and still includes a resume line when `specPath` is set.
+- [x] Rule 6 on the same shape when not abandon-eligible keeps `Discard: git -C <path> reset --hard && git -C <path> clean -fd` and omits scoped abandon.
+- [x] Rule 7 on `clean` + incomplete + `prState` `CLOSED` or `none` + eligible emits only `Retire this worktree: jarvis1 cleanup --abandon <worktree-name>` (no resume line).
+- [x] `clean` + incomplete + `prState` `DRAFT` or `OPEN` + abandon-eligible falls through to fallback (no scoped abandon).
+- [x] `triage-command.test.ts` suggested-moves rule 1–5 tests stay green.
+- [x] `triage-command.test.ts` `fallback suggestion includes diff and session log` and `untracked-only with MERGED (no spec path) falls through to fallback` tests stay green.
+- [x] `prState = unknown` never emits scoped abandon (`triage-command.test.ts` unknown-prState tests stay green).
+- [x] No suggested-moves line contains bare `jarvis1 cleanup --abandon` without `<worktree-name>`.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

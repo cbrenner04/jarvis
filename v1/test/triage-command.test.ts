@@ -14,12 +14,53 @@ import {
 } from "../src/commands/triage.ts";
 import type { BaseCurrentCheckResult } from "../src/git/base-current.ts";
 import { FixCommandError, ReadyCommandError } from "../src/ready-gate.ts";
+import { checkScopedAbandonPreflight } from "../src/scoped-abandon-preflight.ts";
+import { getWorktreeLockPath } from "../src/worktree-lock.ts";
 
 const currentBase =
   (baseRefName: string | null = "main") =>
   (): BaseCurrentCheckResult => ({ status: "current", baseRefName });
 
 const behindBase = (baseRefName: string) => (): BaseCurrentCheckResult => ({ status: "behind", baseRefName });
+
+function suggestedMovesBase(
+  input: Omit<SuggestedMovesInput, "worktreeName" | "scopedAbandonEligible"> &
+    Partial<Pick<SuggestedMovesInput, "worktreeName" | "scopedAbandonEligible">>,
+): SuggestedMovesInput {
+  return {
+    worktreeName: "test-tree",
+    scopedAbandonEligible: false,
+    ...input,
+  };
+}
+
+function initGitWorktree(worktreePath: string): void {
+  execSync("git init -b main", { cwd: worktreePath });
+  execSync("git config user.email test@example.com", { cwd: worktreePath });
+  execSync("git config user.name Test", { cwd: worktreePath });
+  execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
+}
+
+function writeWorktreeLock(worktreePath: string, pid: number): void {
+  writeFileSync(
+    getWorktreeLockPath(worktreePath),
+    JSON.stringify({
+      pid,
+      started_at: "2026-06-29T00:00:00.000Z",
+      host: "test",
+    }),
+  );
+}
+
+function makePreflightWorktree(name: string, opts: { git?: boolean; lockPid?: number } = {}): string {
+  const worktreePath = join(worktreeDir, name);
+  mkdirSync(worktreePath, { recursive: true });
+  if (opts.git !== false) initGitWorktree(worktreePath);
+  if (opts.lockPid !== undefined) writeWorktreeLock(worktreePath, opts.lockPid);
+  return worktreePath;
+}
+
+const noPrDeps = { isMergedPr: () => false, findMatchingOpenPrs: () => [] };
 
 function captureIo(): { io: TriageIo; out: () => string; err: () => string } {
   let out = "";
@@ -499,13 +540,13 @@ describe("triage command", () => {
 
 describe("suggested moves rules", () => {
   test("rule 1: clean + unpushed > 0 + prState OPEN", () => {
-    const input: SuggestedMovesInput = {
+    const input = suggestedMovesBase({
       dirtyKind: "clean",
       unpushed: 1,
       prState: "OPEN",
       specComplete: false,
       worktreePath: "/tmp/test",
-    };
+    });
 
     const lines = getSuggestedMoves(input);
     expect(lines.length).toBeGreaterThan(0);
@@ -513,13 +554,13 @@ describe("suggested moves rules", () => {
   });
 
   test("rule 1: clean + unpushed > 0 + prState DRAFT", () => {
-    const input: SuggestedMovesInput = {
+    const input = suggestedMovesBase({
       dirtyKind: "clean",
       unpushed: 2,
       prState: "DRAFT",
       specComplete: false,
       worktreePath: "/tmp/test",
-    };
+    });
 
     const lines = getSuggestedMoves(input);
     expect(lines.length).toBeGreaterThan(0);
@@ -527,13 +568,13 @@ describe("suggested moves rules", () => {
   });
 
   test("rule 1: clean + unpushed > 0 + prState none", () => {
-    const input: SuggestedMovesInput = {
+    const input = suggestedMovesBase({
       dirtyKind: "clean",
       unpushed: 1,
       prState: "none",
       specComplete: false,
       worktreePath: "/tmp/test",
-    };
+    });
 
     const lines = getSuggestedMoves(input);
     expect(lines.length).toBeGreaterThan(0);
@@ -541,13 +582,13 @@ describe("suggested moves rules", () => {
   });
 
   test("rule 2: clean + prState MERGED", () => {
-    const input: SuggestedMovesInput = {
+    const input = suggestedMovesBase({
       dirtyKind: "clean",
       unpushed: 0,
       prState: "MERGED",
       specComplete: false,
       worktreePath: "/tmp/test",
-    };
+    });
 
     const lines = getSuggestedMoves(input);
     expect(lines.length).toBeGreaterThan(0);
@@ -556,13 +597,13 @@ describe("suggested moves rules", () => {
   });
 
   test("rule 4: modified + prState MERGED", () => {
-    const input: SuggestedMovesInput = {
+    const input = suggestedMovesBase({
       dirtyKind: "modified",
       unpushed: 0,
       prState: "MERGED",
       specComplete: false,
       worktreePath: "/tmp/test",
-    };
+    });
 
     const lines = getSuggestedMoves(input);
     expect(lines.length).toBeGreaterThan(0);
@@ -571,13 +612,13 @@ describe("suggested moves rules", () => {
   });
 
   test("rule 4: mixed + prState MERGED", () => {
-    const input: SuggestedMovesInput = {
+    const input = suggestedMovesBase({
       dirtyKind: "mixed",
       unpushed: 0,
       prState: "MERGED",
       specComplete: false,
       worktreePath: "/tmp/test",
-    };
+    });
 
     const lines = getSuggestedMoves(input);
     expect(lines.length).toBeGreaterThan(0);
@@ -585,13 +626,13 @@ describe("suggested moves rules", () => {
   });
 
   test("rule 5: modified + specComplete true", () => {
-    const input: SuggestedMovesInput = {
+    const input = suggestedMovesBase({
       dirtyKind: "modified",
       unpushed: 0,
       prState: "OPEN",
       specComplete: true,
       worktreePath: "/tmp/test",
-    };
+    });
 
     const lines = getSuggestedMoves(input);
     expect(lines.length).toBeGreaterThan(0);
@@ -600,75 +641,172 @@ describe("suggested moves rules", () => {
   });
 
   test("rule 5: mixed + specComplete true", () => {
-    const input: SuggestedMovesInput = {
+    const input = suggestedMovesBase({
       dirtyKind: "mixed",
       unpushed: 0,
       prState: "OPEN",
       specComplete: true,
       worktreePath: "/tmp/test",
-    };
+    });
 
     const lines = getSuggestedMoves(input);
     expect(lines.length).toBeGreaterThan(0);
     expect(lines.some((l) => l.includes("Spec checklists are complete"))).toBe(true);
   });
 
-  test("rule 6: modified + specComplete false", () => {
-    const input: SuggestedMovesInput = {
+  test("rule 6: modified + specComplete false keeps git discard when ineligible", () => {
+    const input = suggestedMovesBase({
       dirtyKind: "modified",
       unpushed: 0,
       prState: "OPEN",
       specComplete: false,
       worktreePath: "/tmp/test",
       specPath: "/path/to/spec.md",
-    };
+    });
 
     const lines = getSuggestedMoves(input);
     expect(lines.length).toBeGreaterThan(0);
     expect(lines.some((l) => l.includes("Inspect"))).toBe(true);
     expect(lines.some((l) => l.includes("Resume"))).toBe(true);
+    expect(lines.some((l) => l.includes("reset --hard"))).toBe(true);
+    expect(lines.some((l) => l.includes("cleanup --abandon"))).toBe(false);
   });
 
   test("rule 6: mixed + specComplete false", () => {
-    const input: SuggestedMovesInput = {
+    const input = suggestedMovesBase({
       dirtyKind: "mixed",
       unpushed: 0,
       prState: "OPEN",
       specComplete: false,
       worktreePath: "/tmp/test",
       specPath: "/path/to/spec.md",
-    };
+    });
 
     const lines = getSuggestedMoves(input);
     expect(lines.length).toBeGreaterThan(0);
     expect(lines.some((l) => l.includes("reset --hard"))).toBe(true);
   });
 
-  test("prState unknown falls through to fallback", () => {
-    const input: SuggestedMovesInput = {
+  test("rule 6: eligible dirty incomplete suggests scoped abandon and keeps resume", () => {
+    const input = suggestedMovesBase({
       dirtyKind: "modified",
       unpushed: 0,
-      prState: "unknown",
+      prState: "CLOSED",
       specComplete: false,
       worktreePath: "/tmp/test",
-    };
+      worktreeName: "my-tree",
+      scopedAbandonEligible: true,
+      specPath: "/path/to/spec.md",
+    });
 
     const lines = getSuggestedMoves(input);
-    expect(lines.length).toBeGreaterThan(0);
-    // Should not suggest destructive commands
-    expect(lines.some((l) => l.includes("--force"))).toBe(false);
-    expect(lines.some((l) => l.includes("-D"))).toBe(false);
-    expect(lines.some((l) => l.includes("--no-verify"))).toBe(false);
+    expect(lines.some((l) => l.includes("Resume: jarvis1 run /path/to/spec.md"))).toBe(true);
+    expect(lines.some((l) => l.includes("Discard: jarvis1 cleanup --abandon my-tree"))).toBe(true);
+    expect(lines.some((l) => l.includes("reset --hard"))).toBe(false);
   });
 
-  test("fallback suggestion includes diff and session log", () => {
-    const input: SuggestedMovesInput = {
+  test("rule 7: clean incomplete closed PR with scoped abandon eligible", () => {
+    const input = suggestedMovesBase({
       dirtyKind: "clean",
       unpushed: 0,
       prState: "CLOSED",
       specComplete: false,
       worktreePath: "/tmp/test",
-    };
+      worktreeName: "retire-me",
+      scopedAbandonEligible: true,
+    });
+
+    const lines = getSuggestedMoves(input);
+    expect(lines).toEqual(["1. Retire this worktree: jarvis1 cleanup --abandon retire-me"]);
+  });
+
+  test("rule 7: clean incomplete no PR with scoped abandon eligible", () => {
+    const input = suggestedMovesBase({
+      dirtyKind: "clean",
+      unpushed: 0,
+      prState: "none",
+      specComplete: false,
+      worktreePath: "/tmp/test",
+      worktreeName: "orphan-tree",
+      scopedAbandonEligible: true,
+    });
+
+    const lines = getSuggestedMoves(input);
+    expect(lines).toEqual(["1. Retire this worktree: jarvis1 cleanup --abandon orphan-tree"]);
+  });
+
+  test("clean incomplete DRAFT with abandon eligible falls through to fallback", () => {
+    const input = suggestedMovesBase({
+      dirtyKind: "clean",
+      unpushed: 0,
+      prState: "DRAFT",
+      specComplete: false,
+      worktreePath: "/tmp/test",
+      scopedAbandonEligible: true,
+    });
+
+    const lines = getSuggestedMoves(input);
+    expect(lines[0]).toContain("Inspect");
+    expect(lines.some((l) => l.includes("cleanup --abandon"))).toBe(false);
+  });
+
+  test("clean incomplete OPEN with abandon eligible falls through to fallback", () => {
+    const input = suggestedMovesBase({
+      dirtyKind: "clean",
+      unpushed: 0,
+      prState: "OPEN",
+      specComplete: false,
+      worktreePath: "/tmp/test",
+      scopedAbandonEligible: true,
+    });
+
+    const lines = getSuggestedMoves(input);
+    expect(lines[0]).toContain("Inspect");
+    expect(lines.some((l) => l.includes("cleanup --abandon"))).toBe(false);
+  });
+
+  test("prState unknown falls through to fallback", () => {
+    const input = suggestedMovesBase({
+      dirtyKind: "modified",
+      unpushed: 0,
+      prState: "unknown",
+      specComplete: false,
+      worktreePath: "/tmp/test",
+    });
+
+    const lines = getSuggestedMoves(input);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.some((l) => l.includes("--force"))).toBe(false);
+    expect(lines.some((l) => l.includes("-D"))).toBe(false);
+    expect(lines.some((l) => l.includes("--no-verify"))).toBe(false);
+    expect(lines.some((l) => l.includes("cleanup --abandon"))).toBe(false);
+  });
+
+  test("unknown prState with scoped abandon eligible does not suggest scoped abandon", () => {
+    const input = suggestedMovesBase({
+      dirtyKind: "modified",
+      unpushed: 0,
+      prState: "unknown",
+      specComplete: false,
+      worktreePath: "/tmp/test",
+      worktreeName: "uncertain-tree",
+      scopedAbandonEligible: true,
+      specPath: "/path/to/spec.md",
+    });
+
+    const lines = getSuggestedMoves(input);
+    expect(lines.some((l) => l.includes("cleanup --abandon"))).toBe(false);
+    expect(lines.some((l) => l.includes("reset --hard"))).toBe(true);
+  });
+
+  test("fallback suggestion includes diff and session log", () => {
+    const input = suggestedMovesBase({
+      dirtyKind: "clean",
+      unpushed: 0,
+      prState: "CLOSED",
+      specComplete: false,
+      worktreePath: "/tmp/test",
+    });
 
     const lines = getSuggestedMoves(input);
     expect(lines.length).toBeGreaterThan(0);
@@ -678,31 +816,31 @@ describe("suggested moves rules", () => {
   test("no rule matches a destructive suggestion for unknown prState", () => {
     const scenarios: Array<[SuggestedMovesInput]> = [
       [
-        {
+        suggestedMovesBase({
           dirtyKind: "clean",
           unpushed: 5,
           prState: "unknown",
           specComplete: false,
           worktreePath: "/tmp/test",
-        },
+        }),
       ],
       [
-        {
+        suggestedMovesBase({
           dirtyKind: "modified",
           unpushed: 0,
           prState: "unknown",
           specComplete: false,
           worktreePath: "/tmp/test",
-        },
+        }),
       ],
       [
-        {
+        suggestedMovesBase({
           dirtyKind: "mixed",
           unpushed: 0,
           prState: "unknown",
           specComplete: true,
           worktreePath: "/tmp/test",
-        },
+        }),
       ],
     ];
 
@@ -712,25 +850,127 @@ describe("suggested moves rules", () => {
         expect(line).not.toContain("--force");
         expect(line).not.toContain(" -D ");
         expect(line).not.toContain("--no-verify");
+        expect(line).not.toContain("cleanup --abandon");
       }
     }
   });
 
   test("untracked-only with MERGED (no spec path) falls through to fallback", () => {
-    // untracked-only + MERGED doesn't match rule 4 (which requires modified/mixed)
-    // and rule 3 requires a spec path. So it falls through to fallback.
-    const input: SuggestedMovesInput = {
+    const input = suggestedMovesBase({
       dirtyKind: "untracked-only",
       unpushed: 0,
       prState: "MERGED",
       specComplete: false,
       worktreePath: "/tmp/test",
       specPath: undefined,
-    };
+    });
 
     const lines = getSuggestedMoves(input);
-    // Should fall through to the fallback suggestion
     expect(lines.some((l) => l.includes("Inspect"))).toBe(true);
+  });
+});
+
+describe("scoped abandon preflight", () => {
+  test("eligible when path exists, no lock, branch resolves, PR eligible", () => {
+    const result = checkScopedAbandonPreflight({
+      projectRoot,
+      worktreePath: makePreflightWorktree("eligible-tree"),
+      deps: noPrDeps,
+    });
+    expect(result).toEqual({ eligible: true, branch: "main" });
+  });
+
+  test("ineligible for merged PR", () => {
+    const result = checkScopedAbandonPreflight({
+      projectRoot,
+      worktreePath: makePreflightWorktree("merged-tree"),
+      deps: { isMergedPr: () => true, findMatchingOpenPrs: () => [] },
+    });
+    expect(result).toMatchObject({
+      eligible: false,
+      reason: "pr_ineligible",
+      branch: "main",
+      eligibility: { kind: "merged" },
+    });
+  });
+
+  test("ineligible for ready open PR", () => {
+    const result = checkScopedAbandonPreflight({
+      projectRoot,
+      worktreePath: makePreflightWorktree("ready-pr-tree"),
+      deps: {
+        isMergedPr: () => false,
+        findMatchingOpenPrs: () => [{ number: 42, isDraft: false }],
+      },
+    });
+    expect(result).toMatchObject({
+      eligible: false,
+      reason: "pr_ineligible",
+      eligibility: { kind: "ready_pr" },
+    });
+  });
+
+  test("ineligible for multiple open PRs", () => {
+    const result = checkScopedAbandonPreflight({
+      projectRoot,
+      worktreePath: makePreflightWorktree("multi-pr-tree"),
+      deps: {
+        isMergedPr: () => false,
+        findMatchingOpenPrs: () => [
+          { number: 1, isDraft: true },
+          { number: 2, isDraft: true },
+        ],
+      },
+    });
+    expect(result).toMatchObject({
+      eligible: false,
+      reason: "pr_ineligible",
+      eligibility: { kind: "multiple_open" },
+    });
+  });
+
+  test("ineligible for live lock", () => {
+    const result = checkScopedAbandonPreflight({
+      projectRoot,
+      worktreePath: makePreflightWorktree("locked-tree", { lockPid: process.pid }),
+      deps: noPrDeps,
+    });
+    expect(result).toEqual({
+      eligible: false,
+      reason: "live_lock",
+      lock: {
+        pid: process.pid,
+        started_at: "2026-06-29T00:00:00.000Z",
+        host: "test",
+      },
+    });
+  });
+
+  test("ineligible for PR inspection failure", () => {
+    const result = checkScopedAbandonPreflight({
+      projectRoot,
+      worktreePath: makePreflightWorktree("inspect-fail-tree"),
+      deps: {
+        isMergedPr: () => false,
+        findMatchingOpenPrs: () => {
+          throw new Error("gh unavailable");
+        },
+      },
+    });
+    expect(result).toMatchObject({
+      eligible: false,
+      reason: "pr_ineligible",
+      eligibility: { kind: "inspection_failed" },
+    });
+  });
+
+  test("ineligible when branch cannot be resolved", () => {
+    const result = checkScopedAbandonPreflight({
+      projectRoot,
+      worktreePath: makePreflightWorktree("no-branch-tree", { git: false }),
+      deps: noPrDeps,
+    });
+    expect(result).toEqual({ eligible: false, reason: "branch_resolve_failed" });
   });
 });
 

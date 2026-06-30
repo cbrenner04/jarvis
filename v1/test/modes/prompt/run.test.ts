@@ -602,7 +602,6 @@ describe("promptCommand", () => {
     expect(codex.calls).toHaveLength(0);
   });
 
-
   test("telemetry configured_model follows effective list override", async () => {
     const telemetryPath = join(dir, "runs.jsonl");
     setupPromptEnv();

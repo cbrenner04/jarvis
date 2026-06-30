@@ -14,6 +14,7 @@ import {
   setProjectOrigin,
 } from "../../config.ts";
 import { assertGhReady, getBaseBranch } from "../../gh.ts";
+import { buildEffectivePromptAgentEntries, type PromptAgentPin } from "../../prompt-agent-override.ts";
 import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
   HARNESS_QUOTA_FALLBACK_STRICT,
@@ -25,10 +26,6 @@ import { appendTelemetryLine, type TelemetryKind } from "../../telemetry.ts";
 import { extractUsageAndCost, type UsageCostFields } from "../../telemetry-enrichment.ts";
 import { createPromptWorktree, pushCurrent } from "../../worktree.ts";
 import { acquireWorktreeLock, releaseWorktreeLock } from "../../worktree-lock.ts";
-import {
-  buildEffectivePromptAgentEntries,
-  type PromptAgentPin,
-} from "../../prompt-agent-override.ts";
 import { DESCENDANT_POLL_INTERVAL_MS, DescendantTracker } from "../patch/reap.ts";
 import { buildPrompt } from "./prompt.ts";
 

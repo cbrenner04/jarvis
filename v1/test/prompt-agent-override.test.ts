@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  buildEffectivePromptAgentEntries,
-  parsePromptAgentFlagValue,
-} from "../src/prompt-agent-override.ts";
+import { buildEffectivePromptAgentEntries, parsePromptAgentFlagValue } from "../src/prompt-agent-override.ts";
 
 const CONFIG_ORDER = [
   { agent: "claude" as const, model: "haiku" },
@@ -49,9 +46,7 @@ describe("buildEffectivePromptAgentEntries", () => {
   });
 
   test("dedupes agent already in config order", () => {
-    expect(
-      buildEffectivePromptAgentEntries({ agent: "claude", inlineModel: "sonnet" }, CONFIG_ORDER),
-    ).toEqual([
+    expect(buildEffectivePromptAgentEntries({ agent: "claude", inlineModel: "sonnet" }, CONFIG_ORDER)).toEqual([
       { agent: "claude", model: "sonnet" },
       { agent: "cursor", model: "Composer 2.5" },
     ]);
@@ -65,10 +60,10 @@ describe("buildEffectivePromptAgentEntries", () => {
 
   test("--model overrides config but loses to inline model", () => {
     expect(
-      buildEffectivePromptAgentEntries(
-        { agent: "claude", inlineModel: "sonnet", cliModel: "haiku" },
-        CONFIG_ORDER,
-      ),
-    ).toEqual([{ agent: "claude", model: "sonnet" }, { agent: "cursor", model: "Composer 2.5" }]);
+      buildEffectivePromptAgentEntries({ agent: "claude", inlineModel: "sonnet", cliModel: "haiku" }, CONFIG_ORDER),
+    ).toEqual([
+      { agent: "claude", model: "sonnet" },
+      { agent: "cursor", model: "Composer 2.5" },
+    ]);
   });
 });

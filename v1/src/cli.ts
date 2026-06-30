@@ -1,5 +1,6 @@
 import { isAbsolute, join, resolve } from "node:path";
 import { PATCH_TIERS, type PatchTier } from "../../shared/spec-parser.ts";
+import { validateAgentOrderEntries } from "./agent-order-validation.ts";
 import { cleanupCommand } from "./commands/cleanup.ts";
 import { configCommand } from "./commands/config.ts";
 import { init as runInit } from "./commands/init.ts";
@@ -27,10 +28,9 @@ import { runSharedProjectPreflight } from "./modes/shared-entry.ts";
 import { parseAgentFlagValues, prefixAgentFlagError } from "./parse-agent-flag.ts";
 import {
   buildEffectivePromptAgentEntries,
-  parsePromptAgentFlagValue,
   type PromptAgentPin,
+  parsePromptAgentFlagValue,
 } from "./prompt-agent-override.ts";
-import { validateAgentOrderEntries } from "./agent-order-validation.ts";
 
 export type Subcommand =
   | "run"
@@ -508,7 +508,6 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
           modelFlag = value;
           args.splice(i, 2);
           i -= 1;
-          continue;
         }
       }
       if (modelFlag !== undefined && agentPin === undefined) {
@@ -891,10 +890,7 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
       }
 
       if (parsed.agentPin !== undefined) {
-        const effectiveEntries = buildEffectivePromptAgentEntries(
-          parsed.agentPin,
-          cfg.modes.prompt.agentOrder,
-        );
+        const effectiveEntries = buildEffectivePromptAgentEntries(parsed.agentPin, cfg.modes.prompt.agentOrder);
         const validationError = validateAgentOrderEntries(effectiveEntries, "prompt");
         if (validationError !== null) {
           io.stderr(`prompt: ${validationError}\n`);

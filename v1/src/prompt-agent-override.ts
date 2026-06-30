@@ -1,4 +1,4 @@
-import { AGENT_NAMES, isAgentName, type AgentName } from "./agent-order-validation.ts";
+import { AGENT_NAMES, type AgentName, isAgentName } from "./agent-order-validation.ts";
 import { type AgentEntry, defaultAgentModel } from "./config.ts";
 
 export type PromptAgentPin = {
@@ -7,9 +7,7 @@ export type PromptAgentPin = {
   cliModel?: string;
 };
 
-export type ParsePromptAgentFlagResult =
-  | { ok: true; pin: PromptAgentPin }
-  | { ok: false; message: string };
+export type ParsePromptAgentFlagResult = { ok: true; pin: PromptAgentPin } | { ok: false; message: string };
 
 function splitPromptAgentFlagValue(value: string): { agent: string; inlineModel?: string } {
   const colonIndex = value.indexOf(":");

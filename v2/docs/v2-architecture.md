@@ -315,6 +315,11 @@ streams stay out of the orchestration store.
   structured event log is a distinct injectable artifact, not persisted in
   `v2.sqlite`. Append/read/follow are stateless interfaces; log persistence is
   independent of run recovery.
+- **Telemetry facts are a third persistence role.** Append-only analysis
+  substrate (default `~/.jarvis/telemetry.jsonl`, injectable) — per-invocation
+  usage/cost and boundary work facts keyed by `run_id` / `attempt_id` /
+  `invocation_id`. Not used for recovery; not the observability log. Capture
+  contract: [`telemetry-capture.md`](telemetry-capture.md).
 - **Repository-style operations, no generic query layer.** The store exposes
   named operations at workflow boundaries (create a run, record a step start,
   commit a step boundary, load a run for resume, read step history) keyed by

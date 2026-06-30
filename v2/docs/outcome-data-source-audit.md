@@ -4,6 +4,10 @@
 
 Before the outcome sheets are implemented, classify which proposed outcome columns the harness already records, which are derivable from existing telemetry, and which genuinely require operator input. This classification drives the outcome schema design and clarifies the contract between harness and operator.
 
+**v2 forward reference:** capture contract for stable-ID telemetry (replacing v1
+`notes` bindings) lives in [`telemetry-capture.md`](telemetry-capture.md). This
+audit's classification tables are not duplicated there — cross-link only.
+
 ## Recorded telemetry inventory
 
 ### Patch telemetry JSONL (`~/.jarvis/runs.jsonl`)

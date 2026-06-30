@@ -22,9 +22,7 @@ export type WriteLaunchFieldValues = {
   maxIterations?: string;
 };
 
-export type BuildWriteLoopInputResult =
-  | { ok: true; input: WriteLoopInput }
-  | { ok: false; errors: string[] };
+export type BuildWriteLoopInputResult = { ok: true; input: WriteLoopInput } | { ok: false; errors: string[] };
 
 /**
  * Map validated launch fields to the daemon `start` / foreground write payload.
@@ -149,7 +147,9 @@ function parseMaxIterations(raw: string | undefined, errors: string[]): number |
   return maxIterations;
 }
 
-function toLaunchFields(values: Record<string, string | boolean | string[] | undefined>): Partial<WriteLaunchFieldValues> {
+function toLaunchFields(
+  values: Record<string, string | boolean | string[] | undefined>,
+): Partial<WriteLaunchFieldValues> {
   const fields: Partial<WriteLaunchFieldValues> = {};
   const projectRoot = stringValue(values["project-root"]);
   const projectName = stringValue(values.project);

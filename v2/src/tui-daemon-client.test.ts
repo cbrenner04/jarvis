@@ -6,9 +6,9 @@ import type { IpcClient } from "./ipc/client.ts";
 import { connectIpcClient } from "./ipc/client.ts";
 import { type IpcServer, startIpcServer } from "./ipc/server.ts";
 import type { IpcFrame } from "./ipc/types.ts";
+import { simulatedBindings } from "./testing/bindings.ts";
 import { canUseUnixSockets, socketProbeErrored } from "./testing/unix-socket.ts";
 import { connectTuiDaemon, TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-client.ts";
-import { simulatedBindings } from "./testing/bindings.ts";
 import type { WriteLoopInput } from "./write-loop.ts";
 
 const START_INPUT: WriteLoopInput = {

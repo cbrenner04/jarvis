@@ -1,11 +1,6 @@
 import { createAgentBindings } from "../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
 import {
-  collectLaunchFieldsViaInk,
-  type LaunchFieldCollectionResult,
-  type TuiLaunchFieldCollector,
-} from "./tui-field-collector.tsx";
-import {
   type ConnectTuiDaemonOptions,
   connectTuiDaemon,
   TUI_DAEMON_SOCKET_DISPLAY,
@@ -13,6 +8,11 @@ import {
   TuiDaemonConnectionError,
   TuiDaemonRpcError,
 } from "./tui-daemon-client.ts";
+import {
+  collectLaunchFieldsViaInk,
+  type LaunchFieldCollectionResult,
+  type TuiLaunchFieldCollector,
+} from "./tui-field-collector.tsx";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import { buildWriteLoopInput } from "./write-loop-input.ts";
 

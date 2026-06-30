@@ -1,4 +1,4 @@
-import { createElement, Fragment, useState, type ReactElement } from "react";
+import { createElement, Fragment, type ReactElement, useState } from "react";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import type { WriteLaunchFieldValues } from "./write-loop-input.ts";
 
@@ -24,7 +24,12 @@ const LAUNCH_FIELD_PROMPTS: readonly FieldPrompt[] = [
 ];
 
 type TextComponent = (props: { children?: string }) => ReactElement;
-type UseInputHook = (inputHandler: (input: string, key: { return?: boolean; backspace?: boolean; delete?: boolean; ctrl?: boolean }) => void) => void;
+type UseInputHook = (
+  inputHandler: (
+    input: string,
+    key: { return?: boolean; backspace?: boolean; delete?: boolean; ctrl?: boolean },
+  ) => void,
+) => void;
 
 function LaunchFieldForm({
   onDone,

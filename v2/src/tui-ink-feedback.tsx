@@ -11,16 +11,20 @@ function LaunchSuccessFeedback({ runId, Text }: { runId: string; Text: TextCompo
   return createElement(Text, null, `Run started: ${runId}`);
 }
 
-function RpcErrorFeedback({ code, message, Text }: { code: string; message: string; Text: TextComponent }): ReactElement {
+function RpcErrorFeedback({
+  code,
+  message,
+  Text,
+}: {
+  code: string;
+  message: string;
+  Text: TextComponent;
+}): ReactElement {
   return createElement(Text, null, `${code}: ${message}`);
 }
 
 function ValidationFailureFeedback({ errors, Text }: { errors: readonly string[]; Text: TextComponent }): ReactElement {
-  return createElement(
-    Fragment,
-    null,
-    ...errors.map((error) => createElement(Text, { key: error }, error)),
-  );
+  return createElement(Fragment, null, ...errors.map((error) => createElement(Text, { key: error }, error)));
 }
 
 function UnavailableFeedback({ Text }: { Text: TextComponent }): ReactElement {

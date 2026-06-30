@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { buildWriteLoopInput, buildWriteLoopInputFromCliValues, parseWriteArgs } from "./write-loop-input.ts";
 import { simulatedBindings } from "./testing/bindings.ts";
+import { buildWriteLoopInput, buildWriteLoopInputFromCliValues, parseWriteArgs } from "./write-loop-input.ts";
 
 const FIXTURE_CLI_VALUES = {
   "project-root": "/tmp/repo",

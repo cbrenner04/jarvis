@@ -5,8 +5,8 @@ import type { TuiDaemonClient } from "./tui-daemon-client.ts";
 import { TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-client.ts";
 import { runTuiEntry, TUI_DAEMON_SOCKET_DISPLAY, type TuiViewState } from "./tui-entry.tsx";
 import type { LaunchFieldCollectionResult } from "./tui-field-collector.tsx";
-import { DEFAULT_WRITE_STEP_RULES, type WriteLaunchFieldValues } from "./write-loop-input.ts";
 import type { WriteLoopInput } from "./write-loop.ts";
+import { DEFAULT_WRITE_STEP_RULES, type WriteLaunchFieldValues } from "./write-loop-input.ts";
 
 const FIXTURE_FIELDS: WriteLaunchFieldValues = {
   projectRoot: "/tmp/repo",
@@ -284,7 +284,7 @@ describe("runTuiEntry", () => {
       collectLaunchFields: async () => ({ ok: true, fields: FIXTURE_FIELDS }),
       createBindings: () => simulatedBindings(["done"]),
       connectTuiDaemon: async () => fakeClient({ methods, startResult: { runId: "run-ink" } }),
-      inkRender: (node) => {
+      inkRender: (_node) => {
         inkRendered = true;
         return {
           rerender: () => {},

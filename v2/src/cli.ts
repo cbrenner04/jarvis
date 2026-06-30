@@ -8,7 +8,13 @@ import type { InvocationBinding } from "../../shared/invocation/execute.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon-lifecycle.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import type { ErrorFrame, ResponseFrame } from "./ipc/types.ts";
-import { executeWriteLoop, type WriteLoopInput, type WriteLoopResult } from "./write-loop.ts";
+import type { RunStatus } from "./state-store-types.ts";
+import {
+  executeWriteLoop,
+  type WriteLoopInput,
+  type WriteLoopOutcomeKind,
+  type WriteLoopResult,
+} from "./write-loop.ts";
 
 export type Io = {
   stdout: (s: string) => void;
@@ -33,7 +39,7 @@ const DEFAULT_AGENTS = ["claude"] as const;
 const DEFAULT_SOCKET_PATH = join(homedir(), ".jarvis", "daemon.sock");
 const DEFAULT_PID_PATH = join(homedir(), ".jarvis", "daemon.pid");
 const DAEMON_USAGE = "usage: jarvis daemon <start|stop|status>\n";
-const RUN_USAGE = "usage: jarvis run <start|list|log|pause|resume|kill> [args]\n";
+const RUN_USAGE = "usage: jarvis run <start|list|log|pause|resume|kill|wait> [args]\n";
 const WRITE_USAGE =
   "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--agents <csv>] [--max-iterations <n>]\n";
 const LOG_FRAME_WAIT_MS = 86_400_000;
@@ -226,6 +232,23 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
     });
   }
 
+  if (subcommand === "wait" && argv.length === 2) {
+    return withRunClient(io, deps, async (client) => {
+      const response = await request(client, "wait", { runId: argv[1] });
+      if (response.kind === "error") {
+        io.stderr(formatRpcError(response));
+        return 1;
+      }
+      const result = parseWaitResult(response.result);
+      if (result === undefined) {
+        io.stderr("invalid daemon response\n");
+        return 1;
+      }
+      io.stdout(`${waitStdoutJson(result)}\n`);
+      return exitCodeForWaitResult(result);
+    });
+  }
+
   io.stderr(subcommand === "start" ? WRITE_USAGE : RUN_USAGE);
   return 1;
 }
@@ -411,6 +434,82 @@ function exitCodeForWriteResult(kind: Awaited<ReturnType<typeof executeWriteLoop
   if (kind === "invocation_failure") return 2;
   if (kind === "budget-exhausted") return 5;
   return 1;
+}
+
+type WaitResult = {
+  runStatus: RunStatus;
+  loopOutcomeKind?: WriteLoopOutcomeKind;
+  iterationsConsumed?: number;
+  resumable?: boolean;
+};
+
+const RUN_STATUSES = new Set<RunStatus>([
+  "in-progress",
+  "completed",
+  "blocked",
+  "budget-soft-stopped",
+  "paused",
+  "failed",
+  "killed",
+]);
+
+const LOOP_OUTCOME_KINDS = new Set<WriteLoopOutcomeKind>([
+  "complete",
+  "progress",
+  "blocked",
+  "contract_miss",
+  "invocation_failure",
+  "budget-exhausted",
+  "paused",
+]);
+
+function parseWaitResult(value: unknown): WaitResult | undefined {
+  const runStatus = stringProperty(value, "runStatus");
+  if (runStatus === undefined || !RUN_STATUSES.has(runStatus as RunStatus)) return undefined;
+
+  const result: WaitResult = { runStatus: runStatus as RunStatus };
+
+  const loopOutcomeKind = stringProperty(value, "loopOutcomeKind");
+  if (loopOutcomeKind !== undefined) {
+    if (!LOOP_OUTCOME_KINDS.has(loopOutcomeKind as WriteLoopOutcomeKind)) return undefined;
+    result.loopOutcomeKind = loopOutcomeKind as WriteLoopOutcomeKind;
+  }
+
+  const iterationsConsumed = numberProperty(value, "iterationsConsumed");
+  if (iterationsConsumed !== undefined) result.iterationsConsumed = iterationsConsumed;
+
+  const resumable = booleanProperty(value, "resumable");
+  if (resumable !== undefined) result.resumable = resumable;
+
+  return result;
+}
+
+function waitStdoutJson(result: WaitResult): string {
+  const payload: Record<string, unknown> = { runStatus: result.runStatus };
+  if (result.loopOutcomeKind !== undefined) payload.loopOutcomeKind = result.loopOutcomeKind;
+  if (result.iterationsConsumed !== undefined) payload.iterationsConsumed = result.iterationsConsumed;
+  if (result.resumable !== undefined) payload.resumable = result.resumable;
+  return JSON.stringify(payload);
+}
+
+function exitCodeForWaitResult(result: WaitResult): number {
+  if (result.loopOutcomeKind !== undefined) {
+    if (result.loopOutcomeKind === "complete") return 0;
+    if (result.loopOutcomeKind === "invocation_failure") return 2;
+    if (result.loopOutcomeKind === "budget-exhausted") return 5;
+    return 1;
+  }
+
+  if (result.runStatus === "failed") return 3;
+  if (result.runStatus === "killed") return 4;
+  if (result.runStatus === "budget-soft-stopped") return 5;
+  return 1;
+}
+
+function numberProperty(value: unknown, key: string): number | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const prop = (value as Record<string, unknown>)[key];
+  return typeof prop === "number" && Number.isFinite(prop) ? prop : undefined;
 }
 
 function stringValue(value: string | boolean | string[] | undefined): string | undefined {

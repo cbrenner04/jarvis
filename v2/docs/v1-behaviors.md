@@ -386,6 +386,7 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
 ### v2 write (`jarvis write`)
 
 - [v2 additive] Foreground `jarvis write` on binding-chain `invocation_failure` adds top-level JSON fields `failureKind` and `bindingAttempts` to the existing `kind: "invocation_failure"` outcome; exit code remains `2`. No v1 surface change. Sources: `v2/src/write-loop.ts`, `v2/src/cli.ts`, `v2/docs/write-behavior.md`
+- [v2 additive] `jarvis run wait <run-id>` resolves once per invocation boundary via daemon `wait`; when `loopOutcomeKind` is present it maps like `jarvis write` (`0`/`1`/`2`/`5`), otherwise `runStatus`-only fallbacks use `3` (`failed`), `4` (`killed`), `5` (`budget-soft-stopped`), or `1` (other terminal). Sources: `v2/src/cli.ts`, `v2/docs/write-behavior.md`
 
 ### Patch mode
 

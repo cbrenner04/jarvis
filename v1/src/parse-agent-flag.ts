@@ -68,7 +68,7 @@ export function parseAgentFlagValues(
   return { ok: true, agentOrder: entries };
 }
 
-export function prefixAgentFlagError(mode: "run" | "plan" | "prompt", message: string): string {
+export function prefixAgentFlagError(mode: "run" | "plan" | "intent" | "prompt", message: string): string {
   return `${mode}: ${message}`;
 }
 

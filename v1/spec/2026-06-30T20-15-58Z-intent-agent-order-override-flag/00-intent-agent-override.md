@@ -34,11 +34,11 @@ Intent-split runs read `modes.plan.agentOrder` from config. Seed-to-intent exper
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 intent --agent <name>[:<model>] …` uses the flag sequence as `modes.plan.agentOrder` for that invocation's intent-split step; persisted config is unchanged.
-- [ ] Intent-split quota and `model_config` cascades advance through the overridden ladder.
-- [ ] `intent-command.sandbox-unrunnable.test.ts` stays green (no `--agent` behavior unchanged).
-- [ ] `jarvis1 intent --agent` with no following value exits `1` before agent spawn or worktree setup with an `intent:`-prefixed error from `parseIntentArgs`.
-- [ ] Invalid `--agent` value exits `1` before agent spawn or worktree setup with an `intent:`-prefixed error from `prefixAgentFlagError`.
-- [ ] `v1/docs/agents.md` documents `--agent` on `jarvis1 intent` per Documentation updates (including removal of the prior denial).
-- [ ] `v1/docs/config.md` and `v1/docs/operator-runbook.md` include `jarvis1 intent` in per-run `--agent` coverage per Documentation updates.
-- [ ] `v2/docs/v1-behaviors.md` revises the intent flag inventory and L173 per Documentation updates (not append-only).
+- [x] `jarvis1 intent --agent <name>[:<model>] …` uses the flag sequence as `modes.plan.agentOrder` for that invocation's intent-split step; persisted config is unchanged.
+- [x] Intent-split quota and `model_config` cascades advance through the overridden ladder.
+- [x] `intent-command.sandbox-unrunnable.test.ts` stays green (no `--agent` behavior unchanged).
+- [x] `jarvis1 intent --agent` with no following value exits `1` before agent spawn or worktree setup with an `intent:`-prefixed error from `parseIntentArgs`.
+- [x] Invalid `--agent` value exits `1` before agent spawn or worktree setup with an `intent:`-prefixed error from `prefixAgentFlagError`.
+- [x] `v1/docs/agents.md` documents `--agent` on `jarvis1 intent` per Documentation updates (including removal of the prior denial).
+- [x] `v1/docs/config.md` and `v1/docs/operator-runbook.md` include `jarvis1 intent` in per-run `--agent` coverage per Documentation updates.
+- [x] `v2/docs/v1-behaviors.md` revises the intent flag inventory and L173 per Documentation updates (not append-only).

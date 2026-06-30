@@ -2,7 +2,57 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type LogEvent, openLogReader, openLogSink, type PersistedRecord } from "./log-stream.ts";
+import { type AppendWake, type LogEvent, openLogReader, openLogSink, type PersistedRecord } from "./log-stream.ts";
+
+/**
+ * Test-only `AppendWake` that tests wake deterministically via `notify()`.
+ * `blocking` resolves when `wait` is first about to block, so tests can
+ * coordinate append-then-notify without wall-clock sleeps.
+ */
+class ControllableWake implements AppendWake {
+  private resolveFns: Array<() => void> = [];
+  private dirty = false;
+  private closed = false;
+  private signalBlocking: (() => void) | null = null;
+
+  readonly blocking: Promise<void>;
+
+  constructor() {
+    this.blocking = new Promise<void>((resolve) => {
+      this.signalBlocking = resolve;
+    });
+  }
+
+  /** Simulate a storage-artifact change. Wakes a blocked `wait` or sets dirty. */
+  notify(): void {
+    const resolve = this.resolveFns.shift();
+    if (resolve) {
+      resolve();
+    } else {
+      this.dirty = true;
+    }
+  }
+
+  async wait(signal?: AbortSignal): Promise<void> {
+    if (this.closed || signal?.aborted) return;
+    if (this.dirty) {
+      this.dirty = false;
+      return;
+    }
+    this.signalBlocking?.();
+    this.signalBlocking = null;
+    await new Promise<void>((resolve) => {
+      this.resolveFns.push(resolve);
+      signal?.addEventListener("abort", () => resolve(), { once: true });
+    });
+  }
+
+  close(): void {
+    this.closed = true;
+    for (const resolve of this.resolveFns) resolve();
+    this.resolveFns = [];
+  }
+}
 
 describe("log-stream", () => {
   let tempDir: string;
@@ -126,8 +176,9 @@ describe("log-stream", () => {
   });
 
   it("follow yields existing events from seq 1, then new appends in order", async () => {
+    const wake = new ControllableWake();
     const sink = openLogSink(storagePath);
-    const reader = openLogReader(storagePath);
+    const reader = openLogReader(storagePath, () => wake);
 
     // Append some initial events
     sink.append("run-1", { kind: "iteration_started", attemptId: "a1" });
@@ -135,44 +186,29 @@ describe("log-stream", () => {
 
     sink.close();
 
-    // Start following with event-driven coordination and hang-guard
+    // Start following with deterministic wake coordination
     const events: PersistedRecord[] = [];
-    const replayedInitial = { resolved: false };
-    const deadlineController = new AbortController();
-    const deadlineTimer = setTimeout(() => deadlineController.abort(), 2000);
 
     const followPromise = (async () => {
-      try {
-        for await (const event of reader.follow("run-1", deadlineController.signal)) {
-          events.push(event);
-          // Mark when initial events have been replayed
-          if (events.length === 2) {
-            replayedInitial.resolved = true;
-          }
-          if (events.length >= 4) {
-            break;
-          }
+      for await (const event of reader.follow("run-1")) {
+        events.push(event);
+        if (events.length >= 4) {
+          break;
         }
-      } finally {
-        clearTimeout(deadlineTimer);
       }
     })();
 
-    // Wait for follow to replay existing events instead of using setTimeout
-    let attempts = 0;
-    while (!replayedInitial.resolved && attempts < 200) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      attempts++;
-    }
-    expect(replayedInitial.resolved).toBe(true);
+    // Wait for follow to replay existing events and block on the wake seam
+    await wake.blocking;
 
-    // Append new events from a new sink
+    // Append new events from a new sink (separate writer on shared storage)
     const sink2 = openLogSink(storagePath);
     sink2.append("run-1", { kind: "iteration_started", attemptId: "a3" });
     sink2.append("run-1", { kind: "iteration_started", attemptId: "a4" });
     sink2.close();
 
-    // Wait for follow to complete
+    // Wake the follow loop so it scans and yields the new records
+    wake.notify();
     await followPromise;
 
     expect(events.length).toBe(4);
@@ -194,8 +230,9 @@ describe("log-stream", () => {
   });
 
   it("follow stops without error when AbortSignal aborts", async () => {
+    const wake = new ControllableWake();
     const sink = openLogSink(storagePath);
-    const reader = openLogReader(storagePath);
+    const reader = openLogReader(storagePath, () => wake);
 
     sink.append("run-1", { kind: "iteration_started", attemptId: "a1" });
     sink.close();
@@ -209,8 +246,8 @@ describe("log-stream", () => {
       }
     })();
 
-    // Give follow time to yield the first event
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    // Wait for follow to replay the existing event and block on the wake seam
+    await wake.blocking;
 
     // Abort the signal
     controller.abort();
@@ -222,8 +259,9 @@ describe("log-stream", () => {
   });
 
   it("tail and follow on unknown runId yield empty stream without error", async () => {
+    const wake = new ControllableWake();
     const sink = openLogSink(storagePath);
-    const reader = openLogReader(storagePath);
+    const reader = openLogReader(storagePath, () => wake);
 
     sink.append("run-1", { kind: "iteration_started", attemptId: "a1" });
     sink.close();
@@ -235,18 +273,14 @@ describe("log-stream", () => {
     const controller = new AbortController();
 
     const followPromise = (async () => {
-      let count = 0;
       for await (const event of reader.follow("unknown-run", controller.signal)) {
         followEvents.push(event);
-        count++;
-        if (count > 10) {
-          break; // Safety exit for test
-        }
       }
     })();
 
-    // Give follow a moment to poll a few times
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    // Wait for follow to finish replay (empty) and block on the wake seam
+    await wake.blocking;
+
     controller.abort();
 
     await followPromise;

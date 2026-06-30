@@ -2,6 +2,7 @@ import { execFileSync, execSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseSpec } from "../../../shared/spec-parser.ts";
+import { type CiCheckState, classifyCiChecks, fetchCommitChecksForSha } from "../ci-checks.ts";
 import { appendAgentTrailer } from "../commit-trailer.ts";
 import type { ConfigOptions } from "../config.ts";
 import { loadConfig, resolvePlanFlags } from "../config.ts";
@@ -14,11 +15,6 @@ import { snapshotAcceptanceCriteria } from "../modes/patch/subspec.ts";
 import { stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
 import { type EnsureDraftPrOpts, ensureDraftPr, findMatchingOpenPrs, renderAttributionSummary } from "../pr.ts";
 import { ReadyCommandError, runReadyGateWithTier } from "../ready-gate.ts";
-import {
-  classifyCiChecks,
-  type CiCheckState,
-  fetchCommitChecksForSha,
-} from "../ci-checks.ts";
 import { hasUpstream, pushCurrent } from "../worktree.ts";
 import { getWorktreeLockPath, isProcessAlive, type WorktreeLock } from "../worktree-lock.ts";
 import { emitMergeRefusal, type MergeTargetResolutionSeams, resolveMergeTarget } from "./resolve-merge-target.ts";

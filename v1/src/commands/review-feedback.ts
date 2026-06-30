@@ -4,6 +4,13 @@ import { join } from "node:path";
 import { createAgent } from "../agents/factory.ts";
 import { applyQuotaFallbackWhenAllowed } from "../agents/quota.ts";
 import type { Agent, AgentName, AgentResult } from "../agents/types.ts";
+import {
+  adaptCheckRunsToCiStates,
+  type CommitCheckRunsFetchResult,
+  classifyCiChecks,
+  collectFailingCiContext,
+  fetchCommitCheckRunsForSha,
+} from "../ci-checks.ts";
 import { type Config, type ConfigOptions, loadConfig } from "../config.ts";
 import { assertGhReady } from "../gh.ts";
 import { checkPrExists } from "../pr.ts";
@@ -12,13 +19,6 @@ import {
   HARNESS_QUOTA_FALLBACK_STRICT,
   harnessQuotaFallbackLenientLine,
 } from "../quota-harness-messages.ts";
-import {
-  adaptCheckRunsToCiStates,
-  classifyCiChecks,
-  collectFailingCiContext,
-  type CommitCheckRunsFetchResult,
-  fetchCommitCheckRunsForSha,
-} from "../ci-checks.ts";
 import {
   type ActionableReviewFeedback,
   collectActionableReviewFeedback,

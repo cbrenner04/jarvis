@@ -18,9 +18,7 @@ export type CiCheckRun = {
 export type CiCheckClassification = "green" | "pending" | "red";
 
 /** Discriminated HEAD-sha check-runs fetch result; hard failures are not classifiable check data. */
-export type CommitCheckRunsFetchResult =
-  | { ok: true; checkRuns: CiCheckRun[] }
-  | { ok: false; reason: string };
+export type CommitCheckRunsFetchResult = { ok: true; checkRuns: CiCheckRun[] } | { ok: false; reason: string };
 
 export type FailingCiCheck = {
   name: string;

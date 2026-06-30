@@ -40,3 +40,7 @@ Add a `wait <runId>` run-control RPC that resolves when the run reaches a termin
 - Structured log stream emits terminal `loop_finished` with `loopOutcomeKind`, `iterationsConsumed`, and `resumable`.
 - State store runs rows carry durable terminal status.
 - Daemon run-control typed IPC serves existing run verbs over Unix socket.
+
+## Blocker
+
+- **Cross-process `follow` wake on append** — not observable in shipped code. `v2/src/log-stream.ts` `follow` still blocks on a fixed 100ms poll after replay (L154–164). Draft spec `v2/spec/2026-06-29T19-41-09Z-cross-process-log-follow-wake/` is unchecked and not under `completed/`. No `log-stream.sandbox-unrunnable.test.ts` detached-reader proof. `v2/docs/v2-architecture.md` Observability documents replay-then-block but not append-driven cross-process wake. Merge and implement `2026-06-29T19-41-09Z-cross-process-log-follow-wake` first, then re-run plan for this intent.

@@ -102,7 +102,7 @@ Commands:
                     Append a learning to the project's OPERATOR_RUNBOOK.md.
   plan [--review-passes <n>] [--agent <name>[:<model>]] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] [--resume] <targetDir>/ready-intents/<name>.md
                     Draft specs via plan mode with intent refinement and self-review (--resume expects spec/<…>/index.md; --resume-draft expects spec/<…>/intent.md).
-  intent [--repo <name|path|url>] [--cwd <dir>] <raw-seed-file|"inline text">
+  intent [--agent <name>[:<model>]] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] <raw-seed-file|"inline text">
                     Split one seed into authored intents under ready-intents/ and open a PR.
   prompt [--repo <name|path|url>] <text>
                     Run an agent against a prompt in a registered project.

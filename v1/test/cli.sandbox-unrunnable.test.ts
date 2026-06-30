@@ -354,7 +354,9 @@ describe("run", () => {
     expect(out).toContain("review-feedback <worktree-name>");
     expect(out).toContain("plan [--review-passes <n>]");
     expect(out).toContain("Draft specs via plan mode");
-    expect(out).toContain('intent [--repo <name|path|url>] [--cwd <dir>] <raw-seed-file|"inline text">');
+    expect(out).toContain(
+      'intent [--agent <name>[:<model>]] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] <raw-seed-file|"inline text">',
+    );
     expect(out).toContain("help");
   });
 

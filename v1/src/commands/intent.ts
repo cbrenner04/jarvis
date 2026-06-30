@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, s
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import type { Agent, AgentName } from "../agents/types.ts";
 import { CONFIG_DIR, loadConfig, resolvePlanFlags, validateTargetDir } from "../config.ts";
+import { parseAgentFlagValues, prefixAgentFlagError } from "../parse-agent-flag.ts";
 import type { LogClient } from "../logging.ts";
 import { keepIssueReferencesOffLineStart, runMarkdownlintAutofix } from "../markdownlint-repair.ts";
 import { enterMode } from "../mode-entry.ts";
@@ -33,6 +34,7 @@ type IntentInvocationCommon = {
   repo?: string;
   targetDir?: string;
   cwd: string;
+  agentFlags?: string[];
 };
 
 export type IntentInvocation =
@@ -45,7 +47,7 @@ export type IntentParseResult =
 
 const FLAGS_WITH_VALUE = new Set(["--repo", "--cwd", "--target-dir"]);
 
-export const INTENT_USAGE = `Usage: jarvis1 intent [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] <raw-seed-file|"inline text">
+export const INTENT_USAGE = `Usage: jarvis1 intent [--agent <name>[:<model>]] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] <raw-seed-file|"inline text">
                              Split one seed into authored intents under ready-intents/ and open a PR.
 `;
 
@@ -81,10 +83,24 @@ export function parseIntentArgs(argv: readonly string[], processCwd: string): In
   let repo: string | undefined;
   let cwdFlag: string | undefined;
   let targetDir: string | undefined;
+  const agentFlags: string[] = [];
   const positional: string[] = [];
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] as string;
+    if (arg === "--agent") {
+      const value = argv[i + 1];
+      if (value === undefined) {
+        return {
+          ok: false,
+          exitCode: 1,
+          message: "intent: missing value for --agent",
+        };
+      }
+      i += 1;
+      agentFlags.push(value);
+      continue;
+    }
     if (FLAGS_WITH_VALUE.has(arg)) {
       const value = argv[i + 1];
       if (value === undefined) {
@@ -150,6 +166,9 @@ export function parseIntentArgs(argv: readonly string[], processCwd: string): In
   }
   if (targetDir !== undefined) {
     invocation.targetDir = targetDir;
+  }
+  if (agentFlags.length > 0) {
+    invocation.agentFlags = agentFlags;
   }
   return { ok: true, invocation };
 }
@@ -620,12 +639,27 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
   }
 
   const inv = parsed.invocation;
+  const rawCfg = loadConfig(opts.config);
+  let cfg = rawCfg;
+  if (inv.agentFlags !== undefined && inv.agentFlags.length > 0) {
+    const parsedAgents = parseAgentFlagValues(inv.agentFlags, rawCfg.modes.plan.agentOrder);
+    if (!parsedAgents.ok) {
+      opts.io.stderr(`${prefixAgentFlagError("intent", parsedAgents.message)}\n`);
+      return 1;
+    }
+    cfg = {
+      ...rawCfg,
+      modes: {
+        ...rawCfg.modes,
+        plan: { ...rawCfg.modes.plan, agentOrder: parsedAgents.agentOrder },
+      },
+    };
+  }
   const candidatePath = inv.mode === "file" ? inv.seedPath : join(inv.cwd, "intent");
-  const cfg = loadConfig(opts.config);
   const entryOpts: Parameters<typeof enterMode>[0] = {
     candidatePath,
     io: { stderr: opts.io.stderr },
-    logServerUrl: cfg.logServerUrl,
+    logServerUrl: rawCfg.logServerUrl,
   };
   if (inv.repo !== undefined) {
     entryOpts.repoFlag = inv.repo;

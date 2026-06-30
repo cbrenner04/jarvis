@@ -44,8 +44,5 @@
     "ink": "^7.1.0",
     "js-tiktoken": "^1.0.21",
     "react": "^19.2.7"
-  },
-  "patchedDependencies": {
-    "ink@7.1.0": "patches/ink@7.1.0.patch"
   }
 }

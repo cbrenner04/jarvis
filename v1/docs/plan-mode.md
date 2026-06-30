@@ -155,7 +155,7 @@ Rendered prompt snapshots for this phase are reviewed from revision-keyed fixtur
 
 ### Phase 2: Self-review
 
-After `plan: draft` is pushed, jarvis runs zero or more review cycles (default: `modes.review.passes`, currently `1`; overridable via `--review-passes`). Review agents come from `modes.review.agentOrder`, falling back to `modes.plan.agentOrder`. Each cycle runs read-only adversary, advocate, and adjudicator prompts (`prompts/plan/review-*.md`). The adjudicator writes a self-contained verdict; when non-empty, jarvis persists it as `verdict-plan.md` and invokes the actuator prompt (`prompts/plan/review-actuator.md`) to apply the verdict to generated spec files.
+After `plan: draft` is pushed, jarvis runs zero or more review cycles (default: `modes.review.passes`, currently `1`; overridable via `--review-passes`). Review agents come from `modes.review.agentOrder`, falling back to `modes.plan.agentOrder`. Each cycle runs read-only adversary, advocate, and adjudicator prompts (`prompts/plan/review-*.md`). The adjudicator writes a self-contained verdict; when non-empty, jarvis persists it as `verdict-plan.md` and invokes the actuator prompt (`prompts/plan/review-actuator.md`) to apply the verdict to generated spec files. Under per-run `--agent`, the review panel and its quota rotation use the pre-override snapshot of that chain; the verdict actuator uses the override ladder — see [agents.md § Per-run `--agent` override](./agents.md#per-run---agent-override).
 
 Reviewer role prompts:
 

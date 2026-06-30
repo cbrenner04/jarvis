@@ -189,6 +189,23 @@ function createCompletionThenIdleAgent(spec: string, hangScript: string): FakeAg
   });
 }
 
+function createIdleHangAgent(name: AgentName, hangScript: string): FakeAgent {
+  return new FakeAgent(name, (_callCount, prompt, opts) =>
+    runAgent(
+      {
+        name,
+        binary: hangScript,
+        cwd: opts.cwd,
+        buildArgv: () => [],
+        stdio: ["ignore", "pipe", "pipe"],
+        streamErrorPrefix: "test:",
+      },
+      prompt,
+      withHangFixtureSpawned(opts),
+    ),
+  );
+}
+
 const DRAFT_PR_17_JSON =
   '[{"number":17,"isDraft":true,"headRefName":"feature","headRepository":{"name":"repo"},"headRepositoryOwner":{"login":"owner"}}]\n';
 
@@ -3492,6 +3509,137 @@ exit 0
       expect(code).toBe(0);
       expect(codex.calls).toHaveLength(2);
       expect(claude.calls).toHaveLength(1);
+    });
+
+    test("review and shrink use pre-override patch order without subRoleAgentOrder", async () => {
+      const env = setupReviewEnv({
+        reviewPasses: 1,
+        patchAgentOrder: [CLAUDE_ENTRY, CODEX_ENTRY],
+        reviewAgentOrder: [CLAUDE_ENTRY],
+      });
+
+      const cap = captureIo();
+      let codexReviewCalls = 0;
+      const codex = new FakeAgent("codex", (_callCount, prompt) => {
+        if (isPatchReviewPrompt(prompt) || isPatchReviewActuatorPrompt(prompt)) {
+          codexReviewCalls += 1;
+          throw new Error("review must not use override implementation agent");
+        }
+        if (prompt.includes("Simplification checklist")) {
+          throw new Error("codex must not run shrink");
+        }
+        if (prompt.includes("PR description")) {
+          return { kind: "ok", stdout: "Implements the feature.\n", stderr: "" };
+        }
+        writeFileSync(join(env.worktree, "impl.txt"), "impl\n");
+        writeFileSync(
+          join(env.worktree, "spec", "feature", "00-one.md"),
+          "# 00 - One\n\n## Acceptance criteria\n\n- [x] One accepted.\n",
+        );
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+      const claude = new FakeAgent("claude", (callCount, prompt, opts) => {
+        if (isPatchReviewPrompt(prompt)) {
+          return {
+            kind: "ok",
+            stdout: prompt.includes("Review: Adjudicator") ? "Refine code output.\n" : "",
+            stderr: "",
+          };
+        }
+        if (isPatchReviewActuatorPrompt(prompt)) {
+          writeFileSync(join(opts.cwd, "code.txt"), "refined\n");
+          return { kind: "ok", stdout: "", stderr: "" };
+        }
+        if (prompt.includes("Simplification checklist")) {
+          return { kind: "ok", stdout: "", stderr: "" };
+        }
+        throw new Error("claude must not run implementation under override");
+      });
+
+      const code = await runCommand({
+        specPath: env.spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude, codex },
+        agentOrderOverride: [CODEX_ENTRY],
+        logClient: { assertReachable: async () => {}, send: async () => {} },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(codexReviewCalls).toBe(0);
+      expect(claude.calls.filter((c) => isPatchReviewPrompt(c.prompt))).toHaveLength(3);
+      expect(claude.calls.filter((c) => isPatchReviewActuatorPrompt(c.prompt))).toHaveLength(1);
+      expect(claude.calls.filter((c) => c.prompt.includes("Simplification checklist"))).toHaveLength(1);
+      expect(codex.calls.filter((c) => c.prompt.includes("PR description"))).toHaveLength(1);
+    });
+
+    test("quota escalation operates on the overridden ladder", async () => {
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.git = false;
+      cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY, CURSOR_ENTRY];
+      writeConfig(cfg, { dir: cfgDir });
+
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        throw new Error("claude should be skipped by override");
+      });
+      const codex = new FakeAgent("codex", () => ({ kind: "quota", stderr: "limit" }));
+      const cursor = new FakeAgent("cursor", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude, codex, cursor },
+        handleSignals: false,
+        agentOrderOverride: [CODEX_ENTRY, CURSOR_ENTRY],
+      });
+
+      expect(code).toBe(0);
+      expect(claude.calls).toHaveLength(0);
+      expect(codex.calls).toHaveLength(1);
+      expect(cursor.calls).toHaveLength(1);
+      expect(cap.err()).toContain(`codex: ${HARNESS_QUOTA_FALLBACK_STRICT}`);
+    });
+
+    test("idle-timeout escalation operates on the overridden ladder", async () => {
+      const idleTimeoutMs = 1000;
+      const hangScript = writeIdleHangScript(join(dir, "override-idle-hang.sh"));
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.git = false;
+      cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY, CURSOR_ENTRY];
+      cfg.idleOutputTimeoutMs = idleTimeoutMs;
+      cfg.maxIterations = 3;
+      writeConfig(cfg, { dir: cfgDir });
+
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        throw new Error("claude should be skipped by override");
+      });
+      const codex = createIdleHangAgent("codex", hangScript);
+      const cursor = new FakeAgent("cursor", () => ({ kind: "ok", stdout: "", stderr: "" }));
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude, codex, cursor },
+        handleSignals: false,
+        agentOrderOverride: [CODEX_ENTRY, CURSOR_ENTRY],
+        __testKillGraceMs: 200,
+      });
+
+      expect(code).toBe(4);
+      expect(claude.calls).toHaveLength(0);
+      expect(codex.calls).toHaveLength(1);
+      expect(cursor.calls).toHaveLength(1);
+      expect(cap.err()).toContain(`codex: ${HARNESS_IDLE_TIMEOUT_FALLBACK}`);
     });
 
     test("--resume-review with override invokes no implementation agents", async () => {

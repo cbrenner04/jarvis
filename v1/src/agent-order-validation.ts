@@ -1,7 +1,8 @@
 import { agentHasPricedModels, resolveAgentPriceKey } from "./agents/price-keys.ts";
-import type { AgentEntry, AgentName } from "./config.ts";
+import type { AgentEntry } from "./config.ts";
 
 export const AGENT_NAMES = ["claude", "codex", "cursor", "opencode"] as const;
+export type AgentName = (typeof AGENT_NAMES)[number];
 
 export function isAgentName(value: string): value is AgentName {
   return (AGENT_NAMES as readonly string[]).includes(value);

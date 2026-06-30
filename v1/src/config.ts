@@ -2,7 +2,10 @@ import { randomBytes } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve, sep } from "node:path";
-import { isAgentName, validateAgentOrderEntries } from "./agent-order-validation.ts";
+import { AGENT_NAMES, isAgentName, validateAgentOrderEntries, type AgentName } from "./agent-order-validation.ts";
+
+export type { AgentName };
+export { AGENT_NAMES };
 
 let configWriteLocked = false;
 
@@ -56,9 +59,6 @@ export const CONFIG_DIR = join(homedir(), ".jarvis");
 export const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 export const SESSIONS_DIR = join(CONFIG_DIR, "sessions");
 export const TELEMETRY_PATH = join(CONFIG_DIR, "runs.jsonl");
-
-const AGENT_NAMES = ["claude", "codex", "cursor", "opencode"] as const;
-export type AgentName = (typeof AGENT_NAMES)[number];
 
 export type Project = {
   root: string;

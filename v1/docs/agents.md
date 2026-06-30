@@ -43,7 +43,7 @@ Patch runs can also start partway up this ladder via runnable-spec `tier:` metad
 
 Repeatable `--agent <name>[:<model>]` on `jarvis1 run` or `jarvis1 plan` replaces the mode's in-memory `agentOrder` for that invocation; `~/.jarvis/config.json` is unchanged. Omitted `:model` inherits from the configured entry for that agent; no matching entry exits non-zero before spawn.
 
-**`jarvis1 run`** — replaces `modes.patch.agentOrder` for implementation iterations (quota, no-progress, idle-timeout, `--tier`). Review panel, review actuator, and shrink stay on pre-override config. `--resume-review` does not use `--agent` for implementation.
+**`jarvis1 run`** — replaces `modes.patch.agentOrder` for implementation iterations (quota, no-progress, idle-timeout, `--tier`, and `prNarrative: "agent"`). Review panel, review actuator, and shrink stay on pre-override config. `--resume-review` does not use `--agent` for implementation.
 
 **`jarvis1 plan`** — replaces `modes.plan.agentOrder` for actuators (draft, verdict-actuator, PR narrative). Review panel and quota use pre-override `modes.review.agentOrder ?? modes.plan.agentOrder`. `--resume` + `--agent` applies override to verdict-actuator only.
 

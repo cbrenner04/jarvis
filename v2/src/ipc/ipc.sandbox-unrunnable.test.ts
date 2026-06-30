@@ -84,11 +84,12 @@ sink.close();
         stdout.setEncoding("utf-8");
         stdout.on("data", (chunk: string) => {
           buf += chunk;
-          let idx;
-          while ((idx = buf.indexOf("\n")) >= 0) {
+          let idx = buf.indexOf("\n");
+          while (idx >= 0) {
             const line = buf.slice(0, idx);
             buf = buf.slice(idx + 1);
             if (line) records.push(JSON.parse(line) as PersistedRecord);
+            idx = buf.indexOf("\n");
           }
         });
 

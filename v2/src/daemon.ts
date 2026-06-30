@@ -353,8 +353,14 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 /**
  * Injectable dependencies for {@link createTailStreamHandler}.
  *
- * - `stateStore`: durable run rows — `loadRun` gates unknown runs before replay.
- * - `logReader`: persisted log events — `follow` replays and streams appends for known runs.
+ * - `stateStore`: durable run rows — `loadRun` gates unknown runs; falsy closes without calling
+ *   `follow`. Guard paths are non-throwing; `loadRun` rejections propagate to IPC.
+ * - `logReader`: persisted log events — `follow` replays and streams appends only after a truthy
+ *   `loadRun`. `follow` and `onData` failures propagate to IPC as error `stream-end`.
+ *
+ * @throws N/A — deps bag only; the factory does not throw at construction.
+ * @invariant Handler never invokes `logReader.follow` without a prior truthy `loadRun`.
+ * @invariant Malformed payload and unknown-run guard paths close synchronously without `follow`.
  */
 export type TailStreamHandlerDeps = {
   stateStore: StateStore;
@@ -366,9 +372,12 @@ export type TailStreamHandlerDeps = {
  *
  * @param deps - {@link TailStreamHandlerDeps}
  * @returns A {@link StreamHandler} — replays persisted events and streams live appends for known runs.
- * @throws Never — handler is non-throwing at the stream boundary.
+ * @throws N/A at factory call — returned handler may throw/reject on string-payload `JSON.parse`,
+ *   `loadRun`, `follow`, or `onData` failures; IPC server maps those to error `stream-end`.
  * @invariant Validates `loadRun` before calling `follow`; unknown or malformed `runId` closes without data.
- * @invariant Always invokes `onClose` in a `finally` block after `follow` completes or aborts.
+ * @invariant Guard paths (malformed/missing `runId`, unknown run) invoke `onClose` once synchronously
+ *   and never call `follow`.
+ * @invariant Follow path invokes `onClose` in `finally` after `follow` completes or aborts.
  */
 export function createTailStreamHandler(deps: TailStreamHandlerDeps): StreamHandler {
   return async (_streamId, payload, onData, onClose, signal) => {

@@ -16,6 +16,7 @@ const socketTest = test.skipIf(!canUseUnixSockets());
 let stateStore: StateStore;
 let server: IpcServer;
 let onFollow: ((signal?: AbortSignal) => void) | undefined;
+let followCalled: boolean;
 
 function seedRun(): string {
   return stateStore.createRun({
@@ -52,6 +53,7 @@ async function expectTailClosesWithoutData(streamId: string, payload: Record<str
   }
 
   client.close();
+  expect(followCalled).toBe(false);
 }
 
 beforeEach(async () => {
@@ -59,6 +61,7 @@ beforeEach(async () => {
     return;
   }
   onFollow = undefined;
+  followCalled = false;
   rmSync(SOCKET_PATH, { force: true });
   rmSync(LOGS_PATH, { force: true });
   stateStore = openStateStore(join(tmpdir(), `jarvis-tail-state-${process.pid}-${Date.now()}.db`));
@@ -67,6 +70,7 @@ beforeEach(async () => {
   const logReader = {
     ...baseReader,
     follow(runId: string, signal?: AbortSignal) {
+      followCalled = true;
       onFollow?.(signal);
       return baseReader.follow(runId, signal);
     },
@@ -127,9 +131,20 @@ socketTest("tail stream closes without stream-data for non-string runId", () =>
   expectTailClosesWithoutData("tail-bad", { runId: 123 }),
 );
 
-socketTest("tail stream closes without stream-data for unknown runId", () =>
-  expectTailClosesWithoutData("tail-unknown", { runId: "unknown-run" }),
-);
+socketTest("tail stream closes without stream-data for unknown runId", async () => {
+  const orphanRunId = "unknown-run";
+  const logSink = openLogSink(LOGS_PATH);
+  logSink.append(orphanRunId, { kind: "iteration_started", attemptId: "attempt-1" });
+  logSink.append(orphanRunId, {
+    kind: "boundary_committed",
+    attemptId: "attempt-1",
+    outcomeKind: "progress",
+    runStatus: "in-progress",
+  });
+  logSink.close();
+
+  await expectTailClosesWithoutData("tail-unknown", { runId: orphanRunId });
+});
 
 socketTest("tail stream aborts follow signal on client stream-end", async () => {
   let followSignal: AbortSignal | undefined;

@@ -120,13 +120,16 @@ socketTest("tail stream replays persisted events in seq order for known run", as
 });
 
 socketTest("tail stream closes without stream-data for missing runId", () =>
-  expectTailClosesWithoutData("tail-missing", {}));
+  expectTailClosesWithoutData("tail-missing", {}),
+);
 
 socketTest("tail stream closes without stream-data for non-string runId", () =>
-  expectTailClosesWithoutData("tail-bad", { runId: 123 }));
+  expectTailClosesWithoutData("tail-bad", { runId: 123 }),
+);
 
 socketTest("tail stream closes without stream-data for unknown runId", () =>
-  expectTailClosesWithoutData("tail-unknown", { runId: "unknown-run" }));
+  expectTailClosesWithoutData("tail-unknown", { runId: "unknown-run" }),
+);
 
 socketTest("tail stream aborts follow signal on client stream-end", async () => {
   let followSignal: AbortSignal | undefined;

@@ -104,9 +104,9 @@ the config-vs-source validation check. Run a two-step write→write workflow.
 Retires: the source-vs-config seam (steps name roles in source; agent order and
 role→model store are data). *TUI: workflow/step view of a run.*
 
-### Phase 6 — Remaining behaviors: review-and-update, human
+### Phase 6 — Remaining behaviors: review-debate, human
 
-The review-and-update loop — structured as the debate (read-only adversary →
+The review-debate loop — structured as the debate (read-only adversary →
 advocate → adjudicator → verdict, then a separate actuator applies it; reviewers are
 reviewing-class, the actuator executing-class) — and the human loop (pause
 graceful / resume / kill immediate), made less clunky than v1 using the daemon

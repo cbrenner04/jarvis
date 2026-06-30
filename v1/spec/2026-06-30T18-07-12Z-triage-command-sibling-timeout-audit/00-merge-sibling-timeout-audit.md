@@ -45,14 +45,43 @@ are unaudited.
 - Run `bun run typecheck` and `bun run test`.
 - Append **Outcome** (inventory, timings, bump table or none-needed rationale; explicit no-override rows for paths (a) and (c)) **before** ticking acceptance criteria.
 
+## Outcome
+
+Effective bound 30000ms; marginal threshold ~20000ms (÷1.5). Prerequisite classify test green
+(filtered standalone ~5.3s). Full suite `bun run test`: 2151 tests, 0 fail, ~285s. **No per-test
+`{ timeout: N }` overrides added** (zero-bump audit).
+
+Eligible inventory (13): poll ×3, recovery/probe ×10. No seed misses after enumerate. Ineligible
+confirmed: sync refusal/merge cases, `extractFailingTestFilePaths`, `recoveryProbeExitFromExecError`,
+`--merge with passing gate runs no recovery probes`, excluded classify test.
+
+Timings = wall-clock filtered `bun test v1/test/triage-command.test.ts -t "<name>"` (standalone) and
+same with `--parallel` on that file (loaded proxy). All closure **(a) below marginal** — no override.
+
+| Test | Standalone | Loaded proxy | Closure |
+| --- | ---: | ---: | --- |
+| `--merge on plan worktree CI poll timeout uses plan PR refusal class` | 453ms | 508ms | (a) |
+| `--merge with pending CI checks waits` | 394ms | 486ms | (a) |
+| `--merge with poll timeout refuses to merge` | 399ms | 460ms | (a) |
+| `--merge recovers on test flake when HEAD-sha CI green and serial probe passes` | 408ms | 458ms | (a) |
+| `--merge recovers with targeted file probe when serial probe stays red` | 432ms | 408ms | (a) |
+| `--merge refuses recovery on FixCommandError even when HEAD-sha CI is green` | 398ms | 368ms | (a) |
+| `--merge refuses recovery on generic Error with test-like message` | 388ms | 509ms | (a) |
+| `--merge refuses recovery when HEAD-sha CI is not green` | 872ms | 956ms | (a) |
+| `--merge refuses recovery on deadline exceeded or missing harness test markers` | 666ms | 729ms | (a) |
+| `--merge refuses recovery when probe 1 red and extraction yields zero paths` | 433ms | 460ms | (a) |
+| `--merge refuses recovery when probes stay red` | 433ms | 463ms | (a) |
+| `--merge refuses recovery when probe exits with signal or timeout code` | 964ms | 1062ms | (a) |
+| `--merge refuses recovery when default probe runner hits execFileSync signal kill (no probe 2)` | 159ms | 182ms | (a) |
+
 ## Acceptance criteria
 
-- [ ] `bun run test` passes under the full-suite parallel gate.
-- [ ] `bun run typecheck` passes.
-- [ ] `v1/test/triage-command.test.ts` › `--merge classifies all spec check statuses correctly` stays green with unchanged assertions.
-- [ ] Every inventoried eligible case without a `{ timeout: N }` override passes under `bun run test` with unchanged assertions.
-- [ ] Every inventoried eligible case with an applied override has a matching `{ timeout: N }` on that `test()` in `v1/test/triage-command.test.ts` and passes under `bun run test` with unchanged assertions.
-- [ ] **Outcome** covers every eligible `describe("--merge flag")` case with timings and one closure path: override applied (file matches), below marginal threshold (no override), or marginal standalone with loaded within default (no override, rationale recorded); zero-bump audit states no overrides were added.
+- [x] `bun run test` passes under the full-suite parallel gate.
+- [x] `bun run typecheck` passes.
+- [x] `v1/test/triage-command.test.ts` › `--merge classifies all spec check statuses correctly` stays green with unchanged assertions.
+- [x] Every inventoried eligible case without a `{ timeout: N }` override passes under `bun run test` with unchanged assertions.
+- [x] Every inventoried eligible case with an applied override has a matching `{ timeout: N }` on that `test()` in `v1/test/triage-command.test.ts` and passes under `bun run test` with unchanged assertions.
+- [x] **Outcome** covers every eligible `describe("--merge flag")` case with timings and one closure path: override applied (file matches), below marginal threshold (no override), or marginal standalone with loaded within default (no override, rationale recorded); zero-bump audit states no overrides were added.
 
 ## Documentation updates
 

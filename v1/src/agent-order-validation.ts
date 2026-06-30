@@ -14,8 +14,7 @@ export function validateAgentOrderEntries(entries: readonly AgentEntry[], fieldN
     return `${fieldName} must be a non-empty array`;
   }
   const seen = new Set<string>();
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i]!;
+  for (const [i, entry] of entries.entries()) {
     if (!isAgentName(entry.agent)) {
       return `${fieldName}[${i}].agent: unknown agent ${JSON.stringify(entry.agent)} (allowed: ${AGENT_NAMES.join(", ")})`;
     }

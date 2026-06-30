@@ -242,7 +242,7 @@ describe("plan --agent override", () => {
         specDirBasename: name,
         specDirPath: specDir,
         config: wiring?.config ?? withPlanOrder(cfg, [CODEX_ENTRY]),
-        reviewAgentOrder: wiring?.reviewAgentOrder ?? [...reviewAgentOrder!],
+        reviewAgentOrder: wiring?.reviewAgentOrder ?? [...(reviewAgentOrder ?? [])],
         reviewPassesOverride: 1,
         ...(startPassNumber !== undefined ? { startPassNumber } : {}),
         ...(subjectSuffix !== undefined ? { subjectSuffix } : {}),

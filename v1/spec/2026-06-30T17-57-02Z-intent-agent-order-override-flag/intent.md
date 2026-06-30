@@ -25,3 +25,8 @@ Intent-split runs (`jarvis1 intent`) read `modes.plan.agentOrder` for the split 
 
 - Repeatable `--agent` values parse and validate into an `agentOrder` with the same rules as config, without persisting config
 - `jarvis1 plan` honors per-run `--agent` override of `modes.plan.agentOrder`
+
+## Blocker
+
+- No shared repeatable `--agent` CLI parse/validate/apply path in committed code (`v1/src/commands/plan-args.ts`, `v1/src/cli.ts`, or shared helper); ready-intent `agent-order-override-flag` is unimplemented.
+- `jarvis1 plan` does not accept or honor `--agent`; `modes.plan.agentOrder` is read directly from config in plan actuators (`intent-split.ts`, `draft.ts`, etc.).

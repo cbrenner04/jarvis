@@ -20,3 +20,4 @@ report,specs_driven,completed_specs,partial_or_blocked,session_active_tokens,ope
 2026-06-29T14-20-08Z-operator,6,6,0,738927,1060577,28569088,21.35,20.49,299917,3.41
 TOTAL,121,107,12,20555859,5332550,1080069088,1370.96,1346.70,241948,12.59
 2026-06-29T19-52-38Z-operator,4,4,0,279293,410450,3935799,$1.99,$0.00,69823,$0.00,"operator $1.78 (GLM-5.2 opencode SQLite); all cursor (free-subscription) estimated; 1 behind-base recovery (integration-merge-then-retest)"
+2026-06-30T04-05-24Z-operator,5,5,0,369962,1195011,15523913,$8.86,$6.38,73992,$1.28

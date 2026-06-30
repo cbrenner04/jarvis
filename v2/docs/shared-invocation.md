@@ -42,6 +42,10 @@ fields. See [`write-behavior.md`](./write-behavior.md).
 Boundary:
 
 - This module owns fallback iteration and ordering.
+- It owns **invocation liveness policy evaluation** — stall vs slow work, progress
+  signal categories, and profile selection by behavior × role. Workflow loops consume
+  liveness outcomes; they do not reimplement watchdog wiring per phase. Policy:
+  [`invocation-liveness.md`](./invocation-liveness.md).
 - It does not own token parsing, output-contract checks, workflow loops, CLI
   formatting, or git/worktree side effects.
 - Token parsing and contract dispatch are documented in

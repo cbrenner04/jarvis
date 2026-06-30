@@ -94,44 +94,44 @@ policy in durable docs before Phase 6 ports review-debate.
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/invocation-liveness.md` defines **stall** and **slow work**
+- [x] `v2/docs/invocation-liveness.md` defines **stall** and **slow work**
   non-circularly with positive examples (actuator verdict apply, implement touching
   acceptance-criteria files, read-only debate producing review artifacts) and a
   negative stall candidate (process up, no output, no outcome-relevant workspace
   movement).
-- [ ] `v2/docs/invocation-liveness.md` documents progress signal categories
+- [x] `v2/docs/invocation-liveness.md` documents progress signal categories
   (agent output, workspace activity toward step outcome, step-completion markers)
   and defers weights, intervals, and thresholds to first enforcement consumer.
-- [ ] `v2/docs/invocation-liveness.md` documents stall-response categories
+- [x] `v2/docs/invocation-liveness.md` documents stall-response categories
   (terminal abort after bounded stall; binding advance when later rungs remain;
   role-dependent mix) without kill-path wiring.
-- [ ] `v2/docs/invocation-liveness.md` defines liveness profiles as behavior × role,
+- [x] `v2/docs/invocation-liveness.md` defines liveness profiles as behavior × role,
   cross-links `role-resolution.md`, and differentiates read-only debate roles from
   `actuator`/`implement`, with open-ended (`implement` under `write`) and short
   bounded (review-debate actuator apply) exemplars.
-- [ ] `v2/docs/invocation-liveness.md` states profile shape at category level (stall
+- [x] `v2/docs/invocation-liveness.md` states profile shape at category level (stall
   detection plus optional absolute ceiling) and defers profile tables.
-- [ ] `v2/docs/invocation-liveness.md` includes a **Guarantees** section (or
+- [x] `v2/docs/invocation-liveness.md` includes a **Guarantees** section (or
   equivalent) covering operator promises at termination and in-flight observability
   of legitimate long work (not pre-termination stall forensics).
-- [ ] `v2/docs/invocation-liveness.md` states stall termination is not quota
+- [x] `v2/docs/invocation-liveness.md` states stall termination is not quota
   exhaustion and separates binding advance on stall from quota fallback.
-- [ ] `v2/docs/invocation-liveness.md` disambiguates invocation liveness from run
+- [x] `v2/docs/invocation-liveness.md` disambiguates invocation liveness from run
   orchestration liveness (`isLive`).
-- [ ] `v2/docs/invocation-liveness.md` states liveness policy is owned by the shared
+- [x] `v2/docs/invocation-liveness.md` states liveness policy is owned by the shared
   invocation layer (one policy surface, not per-phase watchdog copy-paste).
-- [ ] `v2/docs/invocation-liveness.md` records deferrals for signal algorithms,
+- [x] `v2/docs/invocation-liveness.md` records deferrals for signal algorithms,
   timeout tables, operator-visible stall diagnostics at termination, and human-step
   interaction with invocation stall termination.
-- [ ] `v2/docs/shared-invocation.md` **Boundary** section links to
+- [x] `v2/docs/shared-invocation.md` **Boundary** section links to
   `invocation-liveness.md` and states invocation owns liveness policy evaluation;
   workflow loops consume it.
-- [ ] `v2/docs/v2-build-order.md` **Cross-cutting (not phases)** records policy doc
+- [x] `v2/docs/v2-build-order.md` **Cross-cutting (not phases)** records policy doc
   merge before Phase 6 review-debate implementation.
-- [ ] `v2/docs/v1-behaviors.md` cross-links `invocation-liveness.md` with substantive
+- [x] `v2/docs/v1-behaviors.md` cross-links `invocation-liveness.md` with substantive
   v1 contrast (idle false-kill, stall riding 30-minute wall, patch-only escalation
   asymmetry) and notes v1 interim vs v2 target where they diverge.
-- [ ] `bun run lint:md` passes.
+- [x] `bun run lint:md` passes.
 
 ## Documentation updates
 

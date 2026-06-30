@@ -139,6 +139,8 @@ routed run.*
 
 ## Cross-cutting (not phases)
 
+- **Invocation liveness policy**: [`invocation-liveness.md`](invocation-liveness.md) merges
+  before Phase 6 review-debate; enforcement follows first consumer.
 - **Durable state**: first rows in Phase 2 (loop resume), grown behind each
   consumer (cross-step history in Phase 5). Never built ahead of a caller.
 - **Structured logging**: lands in Phase 3, consumed throughout.

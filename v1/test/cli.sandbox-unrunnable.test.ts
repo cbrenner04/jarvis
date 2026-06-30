@@ -313,6 +313,12 @@ describe("parseArgs", () => {
 
     expect(parsePromptAgentOverride(":model", undefined, []).ok).toBe(false);
 
+    const emptyColonModel = parsePromptAgentOverride("claude:", undefined, []);
+    expect(emptyColonModel.ok).toBe(false);
+    if (!emptyColonModel.ok) {
+      expect(emptyColonModel.message).toContain("non-empty string");
+    }
+
     const configModel = parsePromptAgentOverride("claude", undefined, [{ agent: "claude", model: "sonnet" }]);
     expect(configModel.ok).toBe(true);
     if (configModel.ok) {
@@ -719,6 +725,36 @@ describe("run", () => {
       expect(cap.err()).toContain("bogus");
       expect(cap.err()).toContain("claude");
       expect(cap.err()).toContain("codex");
+      const worktreeDir = join(projectDir, ".worktree");
+      const { existsSync } = require("node:fs") as typeof import("node:fs");
+      expect(existsSync(worktreeDir)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("prompt with empty colon --agent model exits before worktree creation", () => {
+    const cap = captureIo();
+    const root = mkdtempSync(join(tmpdir(), "jarvis-prompt-agent-colon-"));
+    const workRoot = join(root, "Work");
+    const projectDir = join(workRoot, "app");
+    const { mkdirSync } = require("node:fs") as typeof import("node:fs");
+    mkdirSync(projectDir, { recursive: true });
+    try {
+      run(["init"], {
+        io: cap.io,
+        config: { dir: cfgDir },
+        cwd: projectDir,
+        init: { workRoot },
+      });
+      const code = run(["prompt", "--agent", "claude:", "hello"], {
+        io: cap.io,
+        config: { dir: cfgDir },
+        cwd: projectDir,
+      });
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("prompt:");
+      expect(cap.err()).toContain("non-empty string");
       const worktreeDir = join(projectDir, ".worktree");
       const { existsSync } = require("node:fs") as typeof import("node:fs");
       expect(existsSync(worktreeDir)).toBe(false);

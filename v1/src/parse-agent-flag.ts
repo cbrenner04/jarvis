@@ -92,6 +92,11 @@ export function parsePromptAgentOverride(
     model = promptAgentOrder.find((entry) => entry.agent === agent)?.model ?? DEFAULT_AGENT_MODELS[agent];
   }
 
+  const validationError = validateAgentOrderEntries([{ agent, model }], FIELD_NAME);
+  if (validationError !== null) {
+    return { ok: false, message: validationError };
+  }
+
   return { ok: true, pinned: { agent, model } };
 }
 

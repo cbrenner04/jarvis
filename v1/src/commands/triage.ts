@@ -1451,6 +1451,39 @@ function classifyCiChecks(checks: CiCheckState[] | null): {
 const MERGE_FLAKE_RECOVERY_STDOUT = "triage --merge: local ready flake recovered (CI green at HEAD); proceeding";
 const READY_TEST_STEP_MARKERS = ["ready: parallel test failed", "ready: serial test failed"] as const;
 const PROBE_SIGNAL_TIMEOUT_EXIT_CODES = new Set([124, 130, 143]);
+const RECOVERY_PROBE_SIGNAL_EXIT_CODES: Partial<Record<NodeJS.Signals, number>> = {
+  SIGINT: 130,
+  SIGTERM: 143,
+};
+
+/** Map an `execFileSync` failure to a probe exit code (signal/timeout parity with `scripts/ready.ts`). */
+export function recoveryProbeExitFromExecError(err: unknown): number {
+  const procErr = err as NodeJS.ErrnoException & { status?: number | null; signal?: NodeJS.Signals | null };
+  if (procErr.status != null) {
+    return procErr.status;
+  }
+  if (procErr.signal != null) {
+    const mapped = RECOVERY_PROBE_SIGNAL_EXIT_CODES[procErr.signal];
+    if (mapped != null) {
+      return mapped;
+    }
+  }
+  return 1;
+}
+
+/** Default merge recovery probe runner (`bun test` via `execFileSync`). */
+export function runRecoveryProbeWithExec(
+  cwd: string,
+  args: string[],
+  execFn: typeof execFileSync = execFileSync,
+): number {
+  try {
+    execFn("bun", args, { cwd, stdio: "pipe" });
+    return 0;
+  } catch (err) {
+    return recoveryProbeExitFromExecError(err);
+  }
+}
 
 export function adaptCheckRunsToCiStates(
   checkRuns: { name: string; status: string; conclusion: string | null }[],
@@ -1547,13 +1580,7 @@ export function extractFailingTestFilePaths(gateStderr: string): string[] {
 }
 
 function defaultRunRecoveryProbe(cwd: string, args: string[]): number {
-  try {
-    execFileSync("bun", args, { cwd, stdio: "pipe" });
-    return 0;
-  } catch (err) {
-    const procErr = err as NodeJS.ErrnoException & { status?: number };
-    return procErr.status ?? 1;
-  }
+  return runRecoveryProbeWithExec(cwd, args);
 }
 
 function tryRecoverMergeFlake(

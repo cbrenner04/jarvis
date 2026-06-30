@@ -9,6 +9,8 @@ import {
   adaptCheckRunsToCiStates,
   extractFailingTestFilePaths,
   getSuggestedMoves,
+  recoveryProbeExitFromExecError,
+  runRecoveryProbeWithExec,
   triageCommand,
 } from "../src/commands/triage.ts";
 import type { BaseCurrentCheckResult } from "../src/git/base-current.ts";
@@ -2964,6 +2966,51 @@ describe("triage --mark-ready", () => {
       for (const exitCode of [124, 130, 143]) {
         expectMergeRecoveryRefused({ runRecoveryProbe: () => exitCode }, 1);
       }
+    });
+
+    test("recoveryProbeExitFromExecError maps execFileSync signal and timeout failure shapes", () => {
+      const execError = (overrides: { status?: number | null; signal?: NodeJS.Signals | null }) =>
+        Object.assign(new Error("Command failed: bun test"), overrides);
+
+      expect(recoveryProbeExitFromExecError(execError({ status: null, signal: "SIGINT" }))).toBe(130);
+      expect(recoveryProbeExitFromExecError(execError({ status: null, signal: "SIGTERM" }))).toBe(143);
+      expect(recoveryProbeExitFromExecError(execError({ status: 124 }))).toBe(124);
+      expect(recoveryProbeExitFromExecError(execError({ status: null, signal: null }))).toBe(1);
+    });
+
+    test("--merge refuses recovery when default probe runner hits execFileSync signal kill (no probe 2)", () => {
+      setupMergeWorktree("branch-1");
+      let probeCalls = 0;
+      const signalExecError = Object.assign(new Error("Command failed: bun test"), {
+        status: null,
+        signal: "SIGINT" as const,
+      });
+      const signalExec = (() => {
+        throw signalExecError;
+      }) as typeof import("node:child_process").execFileSync;
+
+      const { io, err } = captureIo();
+      const code = triageCommand(
+        triageMergeOpts({
+          projectRoot,
+          io,
+          worktreeName: "branch-1",
+          ghRunner: headShaGreenGh,
+          runGate: () => {
+            throw readyTestFlakeError();
+          },
+          runRecoveryProbe: (cwd, args) => {
+            probeCalls += 1;
+            return runRecoveryProbeWithExec(cwd, args, signalExec);
+          },
+          prReady: () => {},
+          adminMerge: () => {},
+        }),
+      );
+
+      expect(code).toBe(1);
+      expect(probeCalls).toBe(1);
+      expectMergeRefusal(err(), "implementation PR", "ready gate failed");
     });
 
     test("--merge with passing gate runs no recovery probes", () => {

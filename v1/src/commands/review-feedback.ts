@@ -13,9 +13,17 @@ import {
   harnessQuotaFallbackLenientLine,
 } from "../quota-harness-messages.ts";
 import {
+  adaptCheckRunsToCiStates,
+  classifyCiChecks,
+  collectFailingCiContext,
+  type CommitCheckRunsFetchResult,
+  fetchCommitCheckRunsForSha,
+} from "../ci-checks.ts";
+import {
   type ActionableReviewFeedback,
   collectActionableReviewFeedback,
   readPatchRulesText,
+  renderCiFailurePrompt,
   renderReviewPrompt,
 } from "../review-feedback.ts";
 import { ensurePatchWorktreeForExistingBranch, hasUpstream, pushCurrent } from "../worktree.ts";
@@ -34,6 +42,8 @@ export type ReviewCommandOptions = {
   assertGhReadyFn?: () => Promise<void>;
   checkPrExistsFn?: (branch: string, cwd: string) => number | null;
   collectReviewFeedbackFn?: (args: { prNumber: number; cwd: string }) => Promise<ActionableReviewFeedback>;
+  resolveHeadShaFn?: (cwd: string) => string;
+  fetchCommitCheckRunsFn?: (worktreePath: string, sha: string) => CommitCheckRunsFetchResult;
   readPatchRulesFn?: () => string;
   createAgentFn?: (agentName: AgentName, model: string) => Agent;
   loadConfigFn?: (opts?: ConfigOptions) => Config;
@@ -125,19 +135,50 @@ export async function reviewFeedbackCommand(opts: ReviewCommandOptions): Promise
       prNumber,
       cwd: worktreePath,
     });
+
+    let prompt: string;
+    let commitMessage: string;
+
     if (feedback.inlineThreads.length === 0 && feedback.topLevelComments.length === 0) {
-      opts.io.stdout("jarvis1 review-feedback: no open review comments\n");
-      return 0;
+      const headSha = (opts.resolveHeadShaFn ?? resolveHeadSha)(worktreePath);
+      const fetchResult = (opts.fetchCommitCheckRunsFn ?? fetchCommitCheckRunsForSha)(worktreePath, headSha);
+      if (!fetchResult.ok) {
+        opts.io.stderr(`jarvis1 review-feedback: ${fetchResult.reason}\n`);
+        return 1;
+      }
+      if (fetchResult.checkRuns.length === 0) {
+        opts.io.stdout("jarvis1 review-feedback: no open review comments\n");
+        return 0;
+      }
+      const classification = classifyCiChecks(adaptCheckRunsToCiStates(fetchResult.checkRuns));
+      if (classification.classification !== "red") {
+        opts.io.stdout("jarvis1 review-feedback: no open review comments\n");
+        return 0;
+      }
+      const failingChecks = collectFailingCiContext(fetchResult);
+      prompt = renderCiFailurePrompt({
+        branch,
+        prNumber,
+        failingChecks,
+        patchRulesText: (opts.readPatchRulesFn ?? readPatchRulesText)(),
+      });
+      opts.io.stdout(
+        `jarvis1 review-feedback: collected ${failingChecks.length} failing CI checks for PR #${prNumber}\n`,
+      );
+      commitMessage = "address failing CI checks";
+    } else {
+      prompt = renderReviewPrompt({
+        branch,
+        prNumber,
+        feedback,
+        patchRulesText: (opts.readPatchRulesFn ?? readPatchRulesText)(),
+      });
+      opts.io.stdout(
+        `jarvis1 review-feedback: collected ${feedback.inlineThreads.length} unresolved inline threads and ${feedback.topLevelComments.length} top-level comments for PR #${prNumber}\n`,
+      );
+      commitMessage = "address PR review comments";
     }
-    const prompt = renderReviewPrompt({
-      branch,
-      prNumber,
-      feedback,
-      patchRulesText: (opts.readPatchRulesFn ?? readPatchRulesText)(),
-    });
-    opts.io.stdout(
-      `jarvis1 review-feedback: collected ${feedback.inlineThreads.length} unresolved inline threads and ${feedback.topLevelComments.length} top-level comments for PR #${prNumber}\n`,
-    );
+
     opts.io.stdout(`jarvis1 review-feedback: review prompt prepared (${prompt.length} chars)\n`);
 
     const resolveAgent = opts.createAgentFn ?? createAgent;
@@ -208,7 +249,7 @@ export async function reviewFeedbackCommand(opts: ReviewCommandOptions): Promise
 
     const commitAll = opts.commitAllFn ?? commitAllChanges;
     try {
-      commitAll(worktreePath, "address PR review comments");
+      commitAll(worktreePath, commitMessage);
     } catch (err) {
       opts.io.stderr(`jarvis1 review-feedback: failed to commit review feedback changes: ${errorMessage(err)}\n`);
       return 1;
@@ -231,6 +272,14 @@ export async function reviewFeedbackCommand(opts: ReviewCommandOptions): Promise
   } finally {
     releaseWorktreeLock(worktreePath);
   }
+}
+
+function resolveHeadSha(cwd: string): string {
+  return execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd,
+    encoding: "utf8",
+    stdio: "pipe",
+  }).trim();
 }
 
 function currentBranch(cwd: string): string {

@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent, AgentName, AgentResult } from "../src/agents/types.ts";
+import type { CiCheckRun, CommitCheckRunsFetchResult } from "../src/ci-checks.ts";
 import { type ReviewIo, reviewFeedbackCommand } from "../src/commands/review-feedback.ts";
 import type { Config } from "../src/config.ts";
 import { getWorktreeLockPath } from "../src/worktree-lock.ts";
@@ -82,6 +83,28 @@ function fakeAgent(name: AgentName, runImpl: () => Promise<AgentResult> | AgentR
     run: async () => runImpl(),
     attributionLabel: () => `${name}-model`,
   };
+}
+
+function noCommentsFetchStub(checkRuns: CiCheckRun[] = []): {
+  resolveHeadShaFn: () => string;
+  fetchCommitCheckRunsFn: () => CommitCheckRunsFetchResult;
+} {
+  return {
+    resolveHeadShaFn: () => "abc123",
+    fetchCommitCheckRunsFn: () => ({ ok: true, checkRuns }),
+  };
+}
+
+function failingCheckRun(name = "ci-test"): CiCheckRun {
+  return { name, status: "completed", conclusion: "failure" };
+}
+
+function greenCheckRun(name = "ci-test"): CiCheckRun {
+  return { name, status: "completed", conclusion: "success" };
+}
+
+function pendingCheckRun(name = "ci-test"): CiCheckRun {
+  return { name, status: "in_progress", conclusion: null };
 }
 
 describe("review-feedback command", () => {
@@ -342,6 +365,7 @@ describe("review-feedback command", () => {
         inlineThreads: [],
         topLevelComments: [],
       }),
+      ...noCommentsFetchStub(),
     });
     expect(code).toBe(0);
     expect(cap.out()).toContain("no open review comments");
@@ -554,5 +578,176 @@ describe("review-feedback command", () => {
     expect(code).toBe(1);
     expect(commitCount).toBe(1);
     expect(cap.err()).toContain("push failed after commit creation");
+  });
+
+  test("no comments and red CI runs agent and commits address failing CI checks", async () => {
+    const worktreePath = createGitWorktree("ci-red");
+    const cap = captureIo();
+    let commitMessage = "";
+    let agentCalled = false;
+    const code = await reviewFeedbackCommand({
+      projectRoot,
+      worktreeName: "ci-red",
+      io: cap.io,
+      assertGhReadyFn: async () => {},
+      checkPrExistsFn: () => 456,
+      collectReviewFeedbackFn: async () => ({
+        inlineThreads: [],
+        topLevelComments: [],
+      }),
+      ...noCommentsFetchStub([failingCheckRun()]),
+      readPatchRulesFn: () => "rules",
+      loadConfigFn: () => cfg([{ agent: "claude", model: "haiku" }]),
+      createAgentFn: () =>
+        fakeAgent("claude", () => {
+          agentCalled = true;
+          writeFileSync(join(worktreePath, "ci-fix.txt"), "fixed\n");
+          return { kind: "ok", stdout: "ok", stderr: "" };
+        }),
+      commitAllFn: (_cwd, message) => {
+        commitMessage = message;
+      },
+      pushCurrentFn: () => {},
+    });
+    expect(code).toBe(0);
+    expect(agentCalled).toBe(true);
+    expect(commitMessage).toBe("address failing CI checks");
+    expect(cap.out()).toContain("collected 1 failing CI checks for PR #456");
+    expect(cap.out()).toContain("committed and pushed review feedback updates via claude");
+  });
+
+  test("no comments and green CI exits 0 without agent", async () => {
+    createGitWorktree("ci-green");
+    const cap = captureIo();
+    let agentCalled = false;
+    const code = await reviewFeedbackCommand({
+      projectRoot,
+      worktreeName: "ci-green",
+      io: cap.io,
+      loadConfigFn: () => cfg([{ agent: "claude", model: "haiku" }]),
+      assertGhReadyFn: async () => {},
+      checkPrExistsFn: () => 123,
+      collectReviewFeedbackFn: async () => ({
+        inlineThreads: [],
+        topLevelComments: [],
+      }),
+      ...noCommentsFetchStub([greenCheckRun()]),
+      createAgentFn: () => {
+        agentCalled = true;
+        return fakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
+      },
+    });
+    expect(code).toBe(0);
+    expect(agentCalled).toBe(false);
+    expect(cap.out()).toContain("no open review comments");
+  });
+
+  test("no comments and pending CI exits 0 without agent", async () => {
+    createGitWorktree("ci-pending");
+    const cap = captureIo();
+    let agentCalled = false;
+    const code = await reviewFeedbackCommand({
+      projectRoot,
+      worktreeName: "ci-pending",
+      io: cap.io,
+      loadConfigFn: () => cfg([{ agent: "claude", model: "haiku" }]),
+      assertGhReadyFn: async () => {},
+      checkPrExistsFn: () => 123,
+      collectReviewFeedbackFn: async () => ({
+        inlineThreads: [],
+        topLevelComments: [],
+      }),
+      ...noCommentsFetchStub([pendingCheckRun()]),
+      createAgentFn: () => {
+        agentCalled = true;
+        return fakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
+      },
+    });
+    expect(code).toBe(0);
+    expect(agentCalled).toBe(false);
+    expect(cap.out()).toContain("no open review comments");
+  });
+
+  test("comments and red CI use comment prompt and address PR review comments", async () => {
+    const worktreePath = createGitWorktree("comments-red-ci");
+    const cap = captureIo();
+    let commitMessage = "";
+    const code = await reviewFeedbackCommand({
+      projectRoot,
+      worktreeName: "comments-red-ci",
+      io: cap.io,
+      assertGhReadyFn: async () => {},
+      checkPrExistsFn: () => 789,
+      collectReviewFeedbackFn: async () => ({
+        inlineThreads: [{ comments: [] }],
+        topLevelComments: [],
+      }),
+      resolveHeadShaFn: () => "abc123",
+      fetchCommitCheckRunsFn: () => ({ ok: true, checkRuns: [failingCheckRun()] }),
+      readPatchRulesFn: () => "rules",
+      loadConfigFn: () => cfg([{ agent: "claude", model: "haiku" }]),
+      createAgentFn: () =>
+        fakeAgent("claude", () => {
+          writeFileSync(join(worktreePath, "review-fix.txt"), "fixed\n");
+          return { kind: "ok", stdout: "ok", stderr: "" };
+        }),
+      commitAllFn: (_cwd, message) => {
+        commitMessage = message;
+      },
+      pushCurrentFn: () => {},
+    });
+    expect(code).toBe(0);
+    expect(commitMessage).toBe("address PR review comments");
+    expect(cap.out()).toContain("unresolved inline threads");
+    expect(cap.out()).not.toContain("failing CI checks");
+  });
+
+  test("no comments and check-runs fetch error exits 1", async () => {
+    createGitWorktree("ci-fetch-fail");
+    const cap = captureIo();
+    const code = await reviewFeedbackCommand({
+      projectRoot,
+      worktreeName: "ci-fetch-fail",
+      io: cap.io,
+      loadConfigFn: () => cfg([{ agent: "claude", model: "haiku" }]),
+      assertGhReadyFn: async () => {},
+      checkPrExistsFn: () => 123,
+      collectReviewFeedbackFn: async () => ({
+        inlineThreads: [],
+        topLevelComments: [],
+      }),
+      resolveHeadShaFn: () => "abc123",
+      fetchCommitCheckRunsFn: () => ({ ok: false, reason: "gh api error: boom" }),
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("gh api error: boom");
+    expect(cap.out()).not.toContain("no open review comments");
+  });
+
+  test("no comments CI no-op agent exits non-zero and does not commit", async () => {
+    createGitWorktree("ci-noop");
+    const cap = captureIo();
+    let committed = false;
+    const code = await reviewFeedbackCommand({
+      projectRoot,
+      worktreeName: "ci-noop",
+      io: cap.io,
+      assertGhReadyFn: async () => {},
+      checkPrExistsFn: () => 123,
+      collectReviewFeedbackFn: async () => ({
+        inlineThreads: [],
+        topLevelComments: [],
+      }),
+      ...noCommentsFetchStub([failingCheckRun()]),
+      readPatchRulesFn: () => "rules",
+      loadConfigFn: () => cfg([{ agent: "claude", model: "haiku" }]),
+      createAgentFn: () => fakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" })),
+      commitAllFn: () => {
+        committed = true;
+      },
+    });
+    expect(code).toBe(1);
+    expect(committed).toBe(false);
+    expect(cap.err()).toContain("no file changes");
   });
 });

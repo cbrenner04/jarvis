@@ -1208,7 +1208,7 @@ function resolveTriageNamedWorktree(opts: TriageCommandOptions, label: string): 
 
   const worktreeName = opts.worktreeName;
   if (!worktreeName) {
-    refuse("internal error - no worktree name");
+    refuse("internal error - no worktree name", isMerge ? "unknown worktree" : undefined);
     return { ok: false, code: 1 };
   }
 

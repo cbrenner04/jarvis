@@ -2221,6 +2221,124 @@ describe("triage --mark-ready", () => {
       expect(err()).not.toContain("implementation PR");
     });
 
+    test("--merge on plan worktree CI red uses plan PR refusal class", () => {
+      const planName = "plan-merge-ci-red";
+      setupPlanMergeWorktree(planName);
+
+      let mergeRan = false;
+      const { io, err } = captureIo();
+      const code = triageCommand(
+        triageMergeOpts({
+          projectRoot,
+          io,
+          worktreeName: `plan-${planName}`,
+          ghRunner: {
+            getPrState: () => ({ state: "OPEN", isDraft: true }),
+            getChecks: () => [{ name: "lint", status: "failure" }],
+          },
+          runGate: () => {},
+          prReady: () => {},
+          adminMerge: () => {
+            mergeRan = true;
+          },
+        }),
+      );
+
+      expect(code).toBe(1);
+      expect(mergeRan).toBe(false);
+      expectMergeRefusal(err(), "plan PR", "CI check failed");
+      expect(err()).not.toContain("implementation PR");
+    });
+
+    test("--merge on plan worktree CI poll timeout uses plan PR refusal class", () => {
+      const planName = "plan-merge-ci-timeout";
+      setupPlanMergeWorktree(planName);
+
+      let mergeRan = false;
+      const { io, err } = captureIo();
+      const code = triageCommand(
+        triageMergeOpts({
+          projectRoot,
+          io,
+          worktreeName: `plan-${planName}`,
+          pollIntervalMs: 0,
+          pollTimeoutMs: 0,
+          ghRunner: {
+            getPrState: () => ({ state: "OPEN", isDraft: true }),
+            getChecks: () => [{ name: "test", status: "in_progress" }],
+          },
+          runGate: () => {},
+          prReady: () => {},
+          adminMerge: () => {
+            mergeRan = true;
+          },
+        }),
+      );
+
+      expect(code).toBe(1);
+      expect(mergeRan).toBe(false);
+      expectMergeRefusal(err(), "plan PR", "timed out");
+      expect(err()).not.toContain("implementation PR");
+    });
+
+    test("--merge on plan worktree lock uses plan PR refusal class", () => {
+      const planName = "plan-merge-lock";
+      const { worktreePath } = setupPlanMergeWorktree(planName);
+
+      writeFileSync(
+        join(worktreePath, ".jarvis.lock"),
+        JSON.stringify({
+          pid: process.pid,
+          started_at: new Date().toISOString(),
+          host: "test",
+        }),
+      );
+
+      let mergeRan = false;
+      const { io, err } = captureIo();
+      const code = triageCommand(
+        triageMergeOpts({
+          projectRoot,
+          io,
+          worktreeName: `plan-${planName}`,
+          ghRunner: {
+            getPrState: () => ({ state: "OPEN", isDraft: false }),
+          },
+          adminMerge: () => {
+            mergeRan = true;
+          },
+        }),
+      );
+
+      expect(code).toBe(1);
+      expect(mergeRan).toBe(false);
+      expectMergeRefusal(err(), "plan PR", "worktree is locked by live run");
+      expect(err()).not.toContain("implementation PR");
+    });
+
+    test("--merge on plan worktree adminMerge failure uses plan PR refusal class", () => {
+      const planName = "plan-merge-transport";
+      setupPlanMergeWorktree(planName);
+
+      const { io, err } = captureIo();
+      const code = triageCommand(
+        triageMergeOpts({
+          projectRoot,
+          io,
+          worktreeName: `plan-${planName}`,
+          ghRunner: mergeReadyGhRunner,
+          runGate: () => {},
+          adminMerge: () => {
+            throw new Error("merge rejected by branch protection");
+          },
+        }),
+      );
+
+      expect(code).toBe(1);
+      expectMergeRefusal(err(), "plan PR", "failed to merge PR");
+      expect(err()).not.toContain("implementation PR");
+    });
+
     test("--merge with green CI checks merges the PR", () => {
       setupMergeWorktree("branch-1");
 
@@ -2427,8 +2545,64 @@ describe("triage --mark-ready", () => {
 
       expect(code).toBe(1);
       expect(mergeRan).toBe(false);
-      expect(err()).toContain("timed out");
+      expectMergeRefusal(err(), "implementation PR", "timed out");
       expect(err()).toContain("Still pending");
+    });
+
+    test("--merge with locked worktree refuses to merge", () => {
+      const worktreeName = "branch-1";
+      const { worktreePath } = setupMergeWorktree(worktreeName);
+
+      writeFileSync(
+        join(worktreePath, ".jarvis.lock"),
+        JSON.stringify({
+          pid: process.pid,
+          started_at: new Date().toISOString(),
+          host: "test",
+        }),
+      );
+
+      let mergeRan = false;
+      const { io, err } = captureIo();
+      const code = triageCommand(
+        triageMergeOpts({
+          projectRoot,
+          io,
+          worktreeName,
+          ghRunner: {
+            getPrState: () => ({ state: "OPEN", isDraft: false }),
+          },
+          adminMerge: () => {
+            mergeRan = true;
+          },
+        }),
+      );
+
+      expect(code).toBe(1);
+      expect(mergeRan).toBe(false);
+      expectMergeRefusal(err(), "implementation PR", "worktree is locked by live run");
+    });
+
+    test("--merge with adminMerge failure refuses to merge", () => {
+      setupMergeWorktree("branch-1");
+
+      const { io, err } = captureIo();
+      const code = triageCommand(
+        triageMergeOpts({
+          projectRoot,
+          io,
+          worktreeName: "branch-1",
+          ghRunner: mergeReadyGhRunner,
+          runGate: () => {},
+          adminMerge: () => {
+            throw new Error("merge rejected by branch protection");
+          },
+        }),
+      );
+
+      expect(code).toBe(1);
+      expectMergeRefusal(err(), "implementation PR", "failed to merge PR");
+      expect(err()).toContain("merge rejected by branch protection");
     });
 
     test("--merge with local gate failure on already-ready PR refuses to merge", () => {
@@ -2459,7 +2633,7 @@ describe("triage --mark-ready", () => {
 
       expect(code).toBe(1);
       expect(mergeRan).toBe(false);
-      expect(err()).toContain("ready gate failed");
+      expectMergeRefusal(err(), "implementation PR", "ready gate failed");
       expect(err()).toContain("test failure");
     });
 
@@ -2491,7 +2665,7 @@ describe("triage --mark-ready", () => {
 
       expect(code).toBe(1);
       expect(mergeRan).toBe(false);
-      expect(err()).toContain("CI check failed");
+      expectMergeRefusal(err(), "implementation PR", "CI check failed");
       expect(err()).toContain("no checks found");
     });
 
@@ -2523,7 +2697,7 @@ describe("triage --mark-ready", () => {
 
       expect(code).toBe(1);
       expect(mergeRan).toBe(false);
-      expect(err()).toContain("CI check failed");
+      expectMergeRefusal(err(), "implementation PR", "CI check failed");
     });
 
     test("--merge classifies all spec check statuses correctly", () => {
@@ -2591,7 +2765,7 @@ describe("triage --mark-ready", () => {
           expect(pollCount).toBeGreaterThanOrEqual(1);
         } else {
           expect(code).toBe(1);
-          expect(errorOutput).toContain("CI check failed");
+          expectMergeRefusal(errorOutput, "implementation PR", "CI check failed");
         }
       }
     });

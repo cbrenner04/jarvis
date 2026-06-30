@@ -259,10 +259,7 @@ function runMergeFlakeRecovery(overrides: Partial<TriageCommandOptions> = {}) {
   return { code, probeCalls, probeArgs, out: out(), err: err() };
 }
 
-function expectMergeRecoveryRefused(
-  overrides: Partial<TriageCommandOptions>,
-  expectedProbeCalls: number,
-): void {
+function expectMergeRecoveryRefused(overrides: Partial<TriageCommandOptions>, expectedProbeCalls: number): void {
   const { code, probeCalls, err } = runMergeFlakeRecovery(overrides);
   expect(code).toBe(1);
   expect(probeCalls).toBe(expectedProbeCalls);

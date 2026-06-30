@@ -251,7 +251,9 @@ Observability (log follow interface):
   cursor, then waits on `follow(runId, signal)` for the next `loop_finished` or
   `run_execution_failed` with a greater `seq`. Durable `runStatus` is re-read at
   resolve time. Already quiescent runs (`runStatus !== "in-progress"`) return
-  immediately from durable state plus the last terminal log signal.
+  immediately from durable state plus the last terminal log signal. Operator
+  CLI: `jarvis run wait <run-id>` invokes this RPC; see
+  [`write-behavior.md`](./write-behavior.md#wait-exit-codes).
 - **Waiters are detached clients, not run owners.** Multiple waiters for the
   same run share one terminal fan-out and all receive the same payload at the
   terminal edge. Disconnecting one socket aborts only that waiter: the run and

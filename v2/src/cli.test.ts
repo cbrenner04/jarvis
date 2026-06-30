@@ -93,6 +93,60 @@ function makeClient(frames: Array<unknown>, sent: unknown[] = []): IpcClient {
   };
 }
 
+function makeBlockingClient(sent: unknown[] = []): { client: IpcClient; resolve: (frame: IpcFrame) => void } {
+  let resolver: ((frame: IpcFrame) => void) | undefined;
+  const client: IpcClient = {
+    send(frame: unknown): void {
+      sent.push(frame);
+    },
+    async nextFrame(): Promise<IpcFrame> {
+      return new Promise<IpcFrame>((resolve) => {
+        resolver = resolve;
+      });
+    },
+    close(): void {},
+  };
+  return {
+    client,
+    resolve: (frame: IpcFrame) => {
+      if (resolver === undefined) throw new Error("no pending nextFrame");
+      resolver(frame);
+      resolver = undefined;
+    },
+  };
+}
+
+function withFixedUuid<T>(id: string, fn: () => Promise<T>): Promise<T> {
+  const originalRandomUuid = crypto.randomUUID;
+  crypto.randomUUID = () => id as `${string}-${string}-${string}-${string}-${string}`;
+  return fn().finally(() => {
+    crypto.randomUUID = originalRandomUuid;
+  });
+}
+
+const WAIT_REQUEST_ID = "00000000-0000-4000-8000-000000000010";
+
+function waitResponse(result: unknown): unknown {
+  return { kind: "response", id: WAIT_REQUEST_ID, result };
+}
+
+function waitError(code: string, message: string): unknown {
+  return { kind: "error", id: WAIT_REQUEST_ID, code, message };
+}
+
+async function runWait(
+  cap: ReturnType<typeof captureIo>,
+  runId: string,
+  frames: unknown[],
+  sent: unknown[] = [],
+): Promise<number> {
+  return withFixedUuid(WAIT_REQUEST_ID, () =>
+    main(["run", "wait", runId], cap.io, {
+      connectIpcClient: async () => makeClient(frames, sent),
+    }),
+  );
+}
+
 function logRecord(seq: number, eventKind: PersistedRecord["event"]["kind"]): PersistedRecord {
   return {
     runId: "run-123",
@@ -651,6 +705,166 @@ describe("v2 cli", () => {
     const cap = captureIo();
 
     const code = await main(["run", "list"], cap.io, {
+      connectIpcClient: async () => {
+        throw new Error("connect ENOENT /tmp/jarvis.sock");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "connect ENOENT /tmp/jarvis.sock\n" });
+  });
+
+  test("run wait missing run ID prints run-control usage and exits 1", async () => {
+    const cap = captureIo();
+
+    const code = await main(["run", "wait"], cap.io);
+
+    expect(code).toBe(1);
+    expect(cap.read().stdout).toBe("");
+    expect(cap.read().stderr).toContain("usage: jarvis run");
+    expect(cap.read().stderr).toContain("wait");
+  });
+
+  test("run wait sends one IPC wait request and prints minified JSON", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await runWait(
+      cap,
+      "run-123",
+      [
+        waitResponse({
+          runStatus: "completed",
+          loopOutcomeKind: "complete",
+          iterationsConsumed: 2,
+          resumable: false,
+        }),
+      ],
+      sent,
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([
+      {
+        kind: "request",
+        id: WAIT_REQUEST_ID,
+        method: "wait",
+        params: { runId: "run-123" },
+      },
+    ]);
+    expect(cap.read()).toEqual({
+      stdout: '{"runStatus":"completed","loopOutcomeKind":"complete","iterationsConsumed":2,"resumable":false}\n',
+      stderr: "",
+    });
+  });
+
+  test("run wait blocks until the correlated wait response arrives", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const { client, resolve } = makeBlockingClient(sent);
+
+    const pending = withFixedUuid(WAIT_REQUEST_ID, async () =>
+      main(["run", "wait", "run-123"], cap.io, {
+        connectIpcClient: async () => client,
+      }),
+    );
+
+    await new Promise((r) => setTimeout(r, 10));
+    expect(cap.read().stdout).toBe("");
+
+    resolve(
+      waitResponse({
+        runStatus: "completed",
+        loopOutcomeKind: "complete",
+        iterationsConsumed: 1,
+        resumable: false,
+      }) as IpcFrame,
+    );
+
+    const code = await pending;
+
+    expect(code).toBe(0);
+    expect(cap.read().stdout).toBe(
+      '{"runStatus":"completed","loopOutcomeKind":"complete","iterationsConsumed":1,"resumable":false}\n',
+    );
+  });
+
+  test("run wait returns immediately for an already-quiescent run", async () => {
+    const cap = captureIo();
+
+    const code = await runWait(cap, "run-paused", [
+      waitResponse({
+        runStatus: "paused",
+        loopOutcomeKind: "paused",
+        iterationsConsumed: 3,
+        resumable: true,
+      }),
+    ]);
+
+    expect(code).toBe(1);
+    expect(cap.read().stdout).toBe(
+      '{"runStatus":"paused","loopOutcomeKind":"paused","iterationsConsumed":3,"resumable":true}\n',
+    );
+  });
+
+  test.each([
+    [{ runStatus: "completed", loopOutcomeKind: "complete" }, 0],
+    [{ runStatus: "failed", loopOutcomeKind: "complete" }, 0],
+    [{ runStatus: "blocked", loopOutcomeKind: "blocked" }, 1],
+    [{ runStatus: "blocked", loopOutcomeKind: "contract_miss" }, 1],
+    [{ runStatus: "paused", loopOutcomeKind: "paused" }, 1],
+    [{ runStatus: "in-progress", loopOutcomeKind: "progress" }, 1],
+    [{ runStatus: "failed", loopOutcomeKind: "invocation_failure" }, 2],
+    [{ runStatus: "budget-soft-stopped", loopOutcomeKind: "budget-exhausted" }, 5],
+    [{ runStatus: "failed" }, 3],
+    [{ runStatus: "killed" }, 4],
+    [{ runStatus: "budget-soft-stopped" }, 5],
+    [{ runStatus: "completed" }, 1],
+    [{ runStatus: "blocked" }, 1],
+  ] as const)("run wait maps %p to exit %i", async (result, expectedExit) => {
+    const cap = captureIo();
+
+    const code = await runWait(cap, "run-123", [waitResponse(result)]);
+
+    expect(code).toBe(expectedExit);
+    if (!("loopOutcomeKind" in result)) {
+      expect(cap.read().stdout).toBe(`${JSON.stringify({ runStatus: result.runStatus })}\n`);
+    }
+  });
+
+  test("run wait with empty run ID forwards to daemon for invalid_params", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await runWait(cap, "", [waitError("invalid_params", "runId is required")], sent);
+
+    expect(code).toBe(1);
+    expect(sent[0]).toMatchObject({ method: "wait", params: { runId: "" } });
+    expect(cap.read()).toEqual({ stdout: "", stderr: "invalid_params: runId is required\n" });
+  });
+
+  test("run wait passes through unknown_run errors", async () => {
+    const cap = captureIo();
+
+    const code = await runWait(cap, "run-404", [waitError("unknown_run", "Run run-404 not found")]);
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "unknown_run: Run run-404 not found\n" });
+  });
+
+  test("run wait prints invalid daemon response for malformed success payload", async () => {
+    const cap = captureIo();
+
+    const code = await runWait(cap, "run-123", [waitResponse({ loopOutcomeKind: "complete" })]);
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
+  });
+
+  test("run wait prints terse connection errors when the socket is unavailable", async () => {
+    const cap = captureIo();
+
+    const code = await main(["run", "wait", "run-123"], cap.io, {
       connectIpcClient: async () => {
         throw new Error("connect ENOENT /tmp/jarvis.sock");
       },

@@ -55,26 +55,26 @@ shell composition. One `wait` call resolves once per boundary — not lifecycle 
 
 ## Acceptance criteria
 
-- [ ] `jarvis run wait <run-id>` sends one IPC `wait` request with `{ runId }`, blocks until the correlated response arrives, prints one minified JSON line (newline-terminated) with `runStatus` and only present optional fields (`loopOutcomeKind`, `iterationsConsumed`, `resumable`), and does not open a log stream or poll `list`.
-- [ ] On an in-progress run, injected IPC client does not receive the `wait` response until the simulated next invocation boundary resolves.
-- [ ] On an already-quiescent run (e.g. `paused` or `budget-exhausted` with present `loopOutcomeKind`), `jarvis run wait <run-id>` returns immediately with the correct non-zero exit for that outcome.
-- [ ] `jarvis run wait <run-id>` exits `0` when the daemon result includes `loopOutcomeKind: "complete"`, including when `runStatus` would otherwise imply a non-zero code.
-- [ ] `jarvis run wait <run-id>` exits `1` when `loopOutcomeKind` is `blocked`, `contract_miss`, `paused`, or `progress`.
-- [ ] `jarvis run wait <run-id>` exits `2` when `loopOutcomeKind` is `invocation_failure`.
-- [ ] `jarvis run wait <run-id>` exits `5` when `loopOutcomeKind` is `budget-exhausted`, or when `loopOutcomeKind` is omitted and `runStatus` is `budget-soft-stopped`.
-- [ ] `jarvis run wait <run-id>` exits `3` when `loopOutcomeKind` is omitted and `runStatus` is `failed`.
-- [ ] `jarvis run wait <run-id>` exits `4` when `loopOutcomeKind` is omitted and `runStatus` is `killed`.
-- [ ] `jarvis run wait <run-id>` exits `1` when `loopOutcomeKind` is omitted and `runStatus` is another durable terminal status (e.g. `completed` or `blocked`).
-- [ ] `jarvis run wait` with missing run ID prints run-control usage (including `wait`) to stderr and exits `1`.
-- [ ] `jarvis run wait` with empty-string run ID forwards to the daemon, prints `<code>: <message>` on stderr for `invalid_params`, and exits `1`.
-- [ ] `jarvis run wait <run-id>` passes through daemon `invalid_params` and `unknown_run` as `<code>: <message>` on stderr and exits `1`.
-- [ ] `jarvis run wait <run-id>` exits `1` and prints a terse connection error when the daemon socket is unavailable.
-- [ ] `jarvis run wait <run-id>` exits `1` and prints `invalid daemon response` on stderr when the daemon success payload is malformed.
-- [ ] `v2/docs/write-behavior.md` documents `jarvis run wait <run-id>`: invocation-boundary resolve (loop until exit `0` for lifecycle success; non-zero does not imply non-resumable), input, minified JSON stdout shape, exit-code mapping with `loopOutcomeKind` precedence, RPC/connection errors.
-- [ ] `v2/docs/v2-architecture.md` cross-links operator `jarvis run wait` to the daemon `wait` verb under Observability or Orchestration API (one sentence; no duplicate wire contract).
-- [ ] `v2/docs/v1-behaviors.md` has a `[v2 additive]` entry for `jarvis run wait` exit semantics under Completion/exit codes.
-- [ ] Existing `v2/src/cli.test.ts` coverage for `jarvis write` and other run-control verbs stays green.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `jarvis run wait <run-id>` sends one IPC `wait` request with `{ runId }`, blocks until the correlated response arrives, prints one minified JSON line (newline-terminated) with `runStatus` and only present optional fields (`loopOutcomeKind`, `iterationsConsumed`, `resumable`), and does not open a log stream or poll `list`.
+- [x] On an in-progress run, injected IPC client does not receive the `wait` response until the simulated next invocation boundary resolves.
+- [x] On an already-quiescent run (e.g. `paused` or `budget-exhausted` with present `loopOutcomeKind`), `jarvis run wait <run-id>` returns immediately with the correct non-zero exit for that outcome.
+- [x] `jarvis run wait <run-id>` exits `0` when the daemon result includes `loopOutcomeKind: "complete"`, including when `runStatus` would otherwise imply a non-zero code.
+- [x] `jarvis run wait <run-id>` exits `1` when `loopOutcomeKind` is `blocked`, `contract_miss`, `paused`, or `progress`.
+- [x] `jarvis run wait <run-id>` exits `2` when `loopOutcomeKind` is `invocation_failure`.
+- [x] `jarvis run wait <run-id>` exits `5` when `loopOutcomeKind` is `budget-exhausted`, or when `loopOutcomeKind` is omitted and `runStatus` is `budget-soft-stopped`.
+- [x] `jarvis run wait <run-id>` exits `3` when `loopOutcomeKind` is omitted and `runStatus` is `failed`.
+- [x] `jarvis run wait <run-id>` exits `4` when `loopOutcomeKind` is omitted and `runStatus` is `killed`.
+- [x] `jarvis run wait <run-id>` exits `1` when `loopOutcomeKind` is omitted and `runStatus` is another durable terminal status (e.g. `completed` or `blocked`).
+- [x] `jarvis run wait` with missing run ID prints run-control usage (including `wait`) to stderr and exits `1`.
+- [x] `jarvis run wait` with empty-string run ID forwards to the daemon, prints `<code>: <message>` on stderr for `invalid_params`, and exits `1`.
+- [x] `jarvis run wait <run-id>` passes through daemon `invalid_params` and `unknown_run` as `<code>: <message>` on stderr and exits `1`.
+- [x] `jarvis run wait <run-id>` exits `1` and prints a terse connection error when the daemon socket is unavailable.
+- [x] `jarvis run wait <run-id>` exits `1` and prints `invalid daemon response` on stderr when the daemon success payload is malformed.
+- [x] `v2/docs/write-behavior.md` documents `jarvis run wait <run-id>`: invocation-boundary resolve (loop until exit `0` for lifecycle success; non-zero does not imply non-resumable), input, minified JSON stdout shape, exit-code mapping with `loopOutcomeKind` precedence, RPC/connection errors.
+- [x] `v2/docs/v2-architecture.md` cross-links operator `jarvis run wait` to the daemon `wait` verb under Observability or Orchestration API (one sentence; no duplicate wire contract).
+- [x] `v2/docs/v1-behaviors.md` has a `[v2 additive]` entry for `jarvis run wait` exit semantics under Completion/exit codes.
+- [x] Existing `v2/src/cli.test.ts` coverage for `jarvis write` and other run-control verbs stays green.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

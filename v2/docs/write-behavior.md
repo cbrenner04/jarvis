@@ -82,6 +82,7 @@ Daemon lifecycle commands use production defaults:
 | `jarvis run pause <run-id>` | Run ID | `paused <run-id>` | `0` on success |
 | `jarvis run resume <run-id>` | Run ID | `resumed <run-id>` | `0` on success |
 | `jarvis run kill <run-id>` | Run ID | `killed <run-id>` | `0` on success |
+| `jarvis run wait <run-id>` | Run ID | One minified JSON line: `{runStatus, loopOutcomeKind?, iterationsConsumed?, resumable?}` — only present optional fields included | See [wait exit codes](#wait-exit-codes) |
 
 Run-control transport failures print the connection error to stderr and exit `1`.
 Daemon RPC failures print `<code>: <message>` to stderr and exit `1`. The CLI
@@ -144,6 +145,29 @@ run.
 - `2`: `invocation_failure` (binding chain or token parse failure)
 - `5`: `budget-exhausted` (soft-stop, resumable per spec 02)
 
+### Wait exit codes
+
+`jarvis run wait <run-id>` sends one IPC `wait` request and resolves once per
+invocation boundary (quiescent edge), not full lifecycle join. Fleet scripts
+needing lifecycle success should loop `wait` until exit `0` or inspect stdout
+`runStatus` / `resumable`; non-zero exit does not imply non-resumable.
+
+When `loopOutcomeKind` is present it wins over `runStatus`:
+
+- `0`: `complete`
+- `1`: `blocked`, `contract_miss`, `paused`, `progress`, or any other present kind
+- `2`: `invocation_failure`
+- `5`: `budget-exhausted`
+
+When `loopOutcomeKind` is omitted:
+
+- `1`: other durable terminal `runStatus` (e.g. `completed`, `blocked`)
+- `3`: `failed`
+- `4`: `killed`
+- `5`: `budget-soft-stopped`
+
+Malformed success payloads exit `1` with `invalid daemon response` on stderr; other errors follow run-control rules above.
+
 ## Verification
 
 Drive the path through the test seam:
@@ -152,7 +176,8 @@ Drive the path through the test seam:
   outcome routing, contract checks, blocker appending, state persistence, and
   cancellation via `AbortSignal`.
 - `bun test v2/src/cli.test.ts` proves foreground `write`, daemon lifecycle
-  commands, run-control success/error paths, and log JSONL streaming.
+  commands, run-control success/error paths, log JSONL streaming, and `jarvis run wait`
+  (blocking resolve, exit mapping, error pass-through).
 
 A live `jarvis write ...` runs the full pipeline and reports
 `"kind": "invocation_failure"` until process bindings land.

@@ -5,10 +5,17 @@ import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
 import { createAgentBindings } from "../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
+import type { WaitRunCompletionResult } from "./daemon.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon-lifecycle.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import type { ErrorFrame, ResponseFrame } from "./ipc/types.ts";
-import { executeWriteLoop, type WriteLoopInput, type WriteLoopResult } from "./write-loop.ts";
+import type { RunStatus } from "./state-store-types.ts";
+import {
+  executeWriteLoop,
+  type WriteLoopInput,
+  type WriteLoopOutcomeKind,
+  type WriteLoopResult,
+} from "./write-loop.ts";
 
 export type Io = {
   stdout: (s: string) => void;
@@ -33,7 +40,7 @@ const DEFAULT_AGENTS = ["claude"] as const;
 const DEFAULT_SOCKET_PATH = join(homedir(), ".jarvis", "daemon.sock");
 const DEFAULT_PID_PATH = join(homedir(), ".jarvis", "daemon.pid");
 const DAEMON_USAGE = "usage: jarvis daemon <start|stop|status>\n";
-const RUN_USAGE = "usage: jarvis run <start|list|log|pause|resume|kill> [args]\n";
+const RUN_USAGE = "usage: jarvis run <start|list|log|pause|resume|kill|wait> [args]\n";
 const WRITE_USAGE =
   "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--agents <csv>] [--max-iterations <n>]\n";
 const LOG_FRAME_WAIT_MS = 86_400_000;
@@ -226,6 +233,27 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
     });
   }
 
+  if (subcommand === "wait" && argv.length === 2) {
+    return withRunClient(io, deps, async (client) => {
+      const response = await request(client, "wait", { runId: argv[1] });
+      if (response.kind === "error") {
+        io.stderr(formatRpcError(response));
+        return 1;
+      }
+      const result = parseWaitResult(response.result);
+      if (result === undefined) {
+        io.stderr("invalid daemon response\n");
+        return 1;
+      }
+      const payload: Record<string, unknown> = { runStatus: result.runStatus };
+      if (result.loopOutcomeKind !== undefined) payload.loopOutcomeKind = result.loopOutcomeKind;
+      if (result.iterationsConsumed !== undefined) payload.iterationsConsumed = result.iterationsConsumed;
+      if (result.resumable !== undefined) payload.resumable = result.resumable;
+      io.stdout(`${JSON.stringify(payload)}\n`);
+      return exitCodeForWaitResult(result);
+    });
+  }
+
   io.stderr(subcommand === "start" ? WRITE_USAGE : RUN_USAGE);
   return 1;
 }
@@ -411,6 +439,67 @@ function exitCodeForWriteResult(kind: Awaited<ReturnType<typeof executeWriteLoop
   if (kind === "invocation_failure") return 2;
   if (kind === "budget-exhausted") return 5;
   return 1;
+}
+
+const RUN_STATUSES = new Set<RunStatus>([
+  "in-progress",
+  "completed",
+  "blocked",
+  "budget-soft-stopped",
+  "paused",
+  "failed",
+  "killed",
+]);
+
+const LOOP_OUTCOME_KINDS = new Set<WriteLoopOutcomeKind>([
+  "complete",
+  "progress",
+  "blocked",
+  "contract_miss",
+  "invocation_failure",
+  "budget-exhausted",
+  "paused",
+]);
+
+function parseWaitResult(value: unknown): WaitRunCompletionResult | undefined {
+  const runStatus = stringProperty(value, "runStatus");
+  if (runStatus === undefined || !RUN_STATUSES.has(runStatus as RunStatus)) return undefined;
+
+  const result: WaitRunCompletionResult = { runStatus: runStatus as RunStatus };
+  const record = value as Record<string, unknown>;
+
+  const loopOutcomeKind = stringProperty(value, "loopOutcomeKind");
+  if (loopOutcomeKind !== undefined) {
+    if (!LOOP_OUTCOME_KINDS.has(loopOutcomeKind as WriteLoopOutcomeKind)) return undefined;
+    result.loopOutcomeKind = loopOutcomeKind as WriteLoopOutcomeKind;
+  }
+
+  const iterationsConsumed = record.iterationsConsumed;
+  if (typeof iterationsConsumed === "number" && Number.isFinite(iterationsConsumed)) {
+    result.iterationsConsumed = iterationsConsumed;
+  }
+
+  const resumable = booleanProperty(value, "resumable");
+  if (resumable !== undefined) result.resumable = resumable;
+
+  return result;
+}
+
+function exitCodeForWaitResult(result: WaitRunCompletionResult): number {
+  if (result.loopOutcomeKind !== undefined) {
+    return exitCodeForWriteResult(result.loopOutcomeKind);
+  }
+
+  switch (result.runStatus) {
+    case "failed":
+      return 3;
+    case "killed":
+      return 4;
+    case "budget-soft-stopped":
+      return 5;
+    default:
+      return 1;
+  }
 }
 
 function stringValue(value: string | boolean | string[] | undefined): string | undefined {

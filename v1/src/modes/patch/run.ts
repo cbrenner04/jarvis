@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import type { PatchTier } from "../../../../shared/spec-parser.ts";
 import type { Agent } from "../../agents/types.ts";
 import type { Io } from "../../cli.ts";
-import type { AgentName, Config, ConfigOptions, ProjectMatch } from "../../config.ts";
+import type { AgentEntry, AgentName, Config, ConfigOptions, ProjectMatch } from "../../config.ts";
 import type { LogClient } from "../../logging.ts";
 import type {
   CostSource,
@@ -31,6 +31,8 @@ export type PreflightOk = {
   project: ProjectMatch;
   projectMode: "registered" | "ad-hoc";
   cfg: Config;
+  /** Pre-override config for review/shrink sub-role resolution when `agentOrderOverride` is set. */
+  subRoleResolutionCfg: Config;
   gitEnabled: boolean;
   agentWorkingDir: string;
   worktreeLocked: boolean;
@@ -183,6 +185,8 @@ export type RunCommandOptions = {
   resumeReview?: boolean;
   /** One-run patch ladder override from `jarvis1 run --tier`. */
   tierOverride?: PatchTier;
+  /** One-run patch implementation ladder from repeatable `jarvis1 run --agent`. */
+  agentOrderOverride?: AgentEntry[];
   /**
    * Test seam for the completion `ready` gate. Replaces the real fix → commit-if-dirty →
    * `bun run ready` sequence in `runCompletionReadyGate`. Return
@@ -275,13 +279,28 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     return sharedPreflight.exitCode;
   }
 
+  const subRoleResolutionCfg = sharedPreflight.cfg;
+  let runCfg = sharedPreflight.cfg;
+  if (opts.agentOrderOverride !== undefined) {
+    runCfg = {
+      ...sharedPreflight.cfg,
+      modes: {
+        ...sharedPreflight.cfg.modes,
+        patch: {
+          ...sharedPreflight.cfg.modes.patch,
+          agentOrder: opts.agentOrderOverride,
+        },
+      },
+    };
+  }
+
   // Run mode-specific preflight (worktree, git, spec prep, etc.)
   const preflight = await resolveModeSpecificPreflight(
     opts,
     initialSpecPath,
     sharedPreflight.project,
     sharedPreflight.projectMode,
-    sharedPreflight.cfg,
+    runCfg,
   );
   if (preflight.kind === "error") {
     return preflight.exitCode;
@@ -289,6 +308,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
   if (preflight.kind === "exit") {
     return preflight.exitCode;
   }
+  preflight.subRoleResolutionCfg = subRoleResolutionCfg;
 
   const loggingSetup = setupLogging(opts, preflight, sharedPreflight.logClient);
   const logging = loggingSetup;

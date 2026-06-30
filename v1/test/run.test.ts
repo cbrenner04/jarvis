@@ -3288,6 +3288,255 @@ exit 0
     expect(claude.calls).toHaveLength(0);
   });
 
+  describe("patch --agent override", () => {
+    test("uses override ladder for implementation without mutating config", async () => {
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.git = false;
+      cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY, CURSOR_ENTRY];
+      writeConfig(cfg, { dir: cfgDir });
+      const configBefore = readFileSync(join(cfgDir, "config.json"), "utf8");
+
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        throw new Error("claude should be skipped by override");
+      });
+      const codex = new FakeAgent("codex", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude, codex },
+        handleSignals: false,
+        agentOrderOverride: [CODEX_ENTRY],
+      });
+
+      expect(code).toBe(0);
+      expect(claude.calls).toHaveLength(0);
+      expect(codex.calls).toHaveLength(1);
+      expect(cap.out()).toContain("agent: codex");
+      expect(readFileSync(join(cfgDir, "config.json"), "utf8")).toBe(configBefore);
+    });
+
+    test("--tier slices the overridden ladder", async () => {
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.git = false;
+      cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY, CURSOR_ENTRY];
+      writeConfig(cfg, { dir: cfgDir });
+
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        throw new Error("claude should be skipped");
+      });
+      const codex = new FakeAgent("codex", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+      const cursor = new FakeAgent("cursor", () => {
+        throw new Error("cursor should be skipped");
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude, codex, cursor },
+        handleSignals: false,
+        agentOrderOverride: [CLAUDE_ENTRY, CODEX_ENTRY],
+        tierOverride: "hard",
+      });
+
+      expect(code).toBe(0);
+      expect(claude.calls).toHaveLength(0);
+      expect(codex.calls).toHaveLength(1);
+      expect(cursor.calls).toHaveLength(0);
+      expect(cap.out()).toContain("agent: codex");
+    });
+
+    test("no-progress escalation operates on the overridden ladder", async () => {
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.git = false;
+      cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY, CURSOR_ENTRY];
+      writeConfig(cfg, { dir: cfgDir });
+
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        throw new Error("claude should be skipped by override");
+      });
+      const codex = new FakeAgent("codex", () => ({ kind: "ok", stdout: "", stderr: "" }));
+      const cursor = new FakeAgent("cursor", () => ({ kind: "ok", stdout: "", stderr: "" }));
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude, codex, cursor },
+        handleSignals: false,
+        agentOrderOverride: [CODEX_ENTRY, CURSOR_ENTRY],
+      });
+
+      expect(code).toBe(4);
+      expect(claude.calls).toHaveLength(0);
+      expect(codex.calls).toHaveLength(1);
+      expect(cursor.calls).toHaveLength(1);
+      expect(cap.err()).toContain("codex: no progress; escalating to next agent");
+    });
+
+    test("review panel and actuator ignore the implementation override", async () => {
+      const env = setupReviewEnv({
+        reviewPasses: 1,
+        patchAgentOrder: [CODEX_ENTRY, CLAUDE_ENTRY],
+        reviewAgentOrder: [CLAUDE_ENTRY],
+      });
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.modes.patch.subRoleAgentOrder = { reviewActuator: [CLAUDE_ENTRY] };
+      writeConfig(cfg, { dir: cfgDir });
+
+      const cap = captureIo();
+      let codexReviewCalls = 0;
+      const codex = new FakeAgent("codex", (callCount, prompt) => {
+        if (isPatchReviewPrompt(prompt) || isPatchReviewActuatorPrompt(prompt)) {
+          codexReviewCalls += 1;
+          throw new Error("review must not use override implementation agent");
+        }
+        if (prompt.includes("PR description")) {
+          return { kind: "ok", stdout: "Implements the feature.\n", stderr: "" };
+        }
+        writeFileSync(join(env.worktree, "impl.txt"), "impl\n");
+        writeFileSync(
+          join(env.worktree, "spec", "feature", "00-one.md"),
+          "# 00 - One\n\n## Acceptance criteria\n\n- [x] One accepted.\n",
+        );
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+      const claude = reviewFakeAgent(
+        "claude",
+        (_n, _cwd, prompt) => ({
+          kind: "ok",
+          stdout: prompt.includes("Review: Adjudicator") ? "Refine code output.\n" : "",
+          stderr: "",
+        }),
+        (_n, cwd) => {
+          writeFileSync(join(cwd, "code.txt"), "refined\n");
+          return { kind: "ok", stdout: "", stderr: "" };
+        },
+      );
+
+      const code = await runCommand({
+        specPath: env.spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude, codex },
+        agentOrderOverride: [CODEX_ENTRY],
+        logClient: { assertReachable: async () => {}, send: async () => {} },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(codex.calls).toHaveLength(2);
+      expect(codexReviewCalls).toBe(0);
+      expect(claude.calls.filter((c) => isPatchReviewPrompt(c.prompt))).toHaveLength(3);
+      expect(claude.calls.filter((c) => isPatchReviewActuatorPrompt(c.prompt))).toHaveLength(1);
+    });
+
+    test("shrink ignores the implementation override ladder", async () => {
+      const env = setupReviewEnv({
+        reviewPasses: 0,
+        patchAgentOrder: [CODEX_ENTRY, CLAUDE_ENTRY],
+      });
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.modes.patch.subRoleAgentOrder = { reviewActuator: [CLAUDE_ENTRY] };
+      writeConfig(cfg, { dir: cfgDir });
+
+      const cap = captureIo();
+      const codex = new FakeAgent("codex", (callCount, prompt, opts) => {
+        if (callCount > 2) {
+          throw new Error("codex must not run shrink when reviewActuator is claude");
+        }
+        if (callCount === 2) {
+          return { kind: "ok", stdout: "Implements the feature.\n", stderr: "" };
+        }
+        writeFileSync(join(opts.cwd, "impl.txt"), "impl\n");
+        writeFileSync(
+          join(opts.cwd, "spec", "feature", "00-one.md"),
+          "# 00 - One\n\n## Acceptance criteria\n\n- [x] One accepted.\n",
+        );
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+      const claude = new FakeAgent("claude", (callCount, prompt) => {
+        if (callCount !== 1) {
+          throw new Error("claude should only run shrink");
+        }
+        if (!prompt.includes("Simplification checklist")) {
+          throw new Error("expected shrink prompt");
+        }
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runCommand({
+        specPath: env.spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude, codex },
+        agentOrderOverride: [CODEX_ENTRY],
+        logClient: { assertReachable: async () => {}, send: async () => {} },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(codex.calls).toHaveLength(2);
+      expect(claude.calls).toHaveLength(1);
+    });
+
+    test("--resume-review with override invokes no implementation agents", async () => {
+      const env = setupReviewEnv({ reviewPasses: 1 });
+      writeFileSync(env.spec, `repo: ${projectRoot}\n\n# Feature\n\n- [x] [00 - One](./00-one.md)\n`);
+      execSync("git add -A && git commit -m complete && git push origin main", { cwd: projectRoot });
+      execSync("git checkout -b feature && git push -u origin feature", { cwd: projectRoot });
+      execSync("git checkout main", { cwd: projectRoot });
+      writeFileSync(join(dirname(env.prReadyLog), "pr-state"), "");
+
+      const cap = captureIo();
+      let implementationAgentCalled = false;
+      const codex = new FakeAgent("codex", () => {
+        implementationAgentCalled = true;
+        throw new Error("implementation agent must not run under resume-review");
+      });
+      const claude = reviewFakeAgent(
+        "claude",
+        (_n, _cwd, prompt) => ({
+          kind: "ok",
+          stdout: prompt.includes("Review: Adjudicator") ? "Good." : "",
+          stderr: "",
+        }),
+        (_n, cwd) => {
+          writeFileSync(join(cwd, "code.txt"), "x\n");
+          return { kind: "ok", stdout: "", stderr: "" };
+        },
+      );
+
+      const code = await runCommand({
+        specPath: env.spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude, codex },
+        agentOrderOverride: [CODEX_ENTRY],
+        resumeReview: true,
+        logClient: { assertReachable: async () => {}, send: async () => {} },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(implementationAgentCalled).toBe(false);
+    });
+  });
+
   test("no-progress escalation re-selects the same active subspec after advancing", async () => {
     const cfg = loadConfig({ dir: cfgDir });
     cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY];

@@ -554,7 +554,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
     const { fanout, writeTelemetry } = ctx.logging;
     try {
       await runPatchShrinkPhase({
-        config: preflight.cfg,
+        config: preflight.subRoleResolutionCfg,
         cwd: preflight.agentWorkingDir,
         specPath: preflight.specPath,
         allowlist: logging.implementationTouchedFiles,
@@ -585,7 +585,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
     let reviewExitCode: number;
     try {
       reviewExitCode = await runPatchReviewPhase({
-        config: preflight.cfg,
+        config: preflight.subRoleResolutionCfg,
         cwd: preflight.agentWorkingDir,
         specPath: preflight.specPath,
         ...(ctx.opts.reviewPasses !== undefined ? { reviewPassesOverride: ctx.opts.reviewPasses } : {}),
@@ -594,7 +594,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         ...(ctx.opts.agents !== undefined ? { agents: ctx.opts.agents } : {}),
         iterationTimeoutMs: preflight.cfg.iterationTimeoutMs,
         ...(ctx.opts.__testKillGraceMs !== undefined ? { __testKillGraceMs: ctx.opts.__testKillGraceMs } : {}),
-        actuatorAgents: ctx.activeAgents,
+        ...(ctx.opts.agentOrderOverride === undefined ? { actuatorAgents: ctx.activeAgents } : {}),
         ...(ctx.opts.resumeReview === true ? { resumeReview: true } : {}),
         patchWorktreeDir: preflight.agentWorkingDir,
         idleOutputTimeoutMs: preflight.cfg.idleOutputTimeoutMs,

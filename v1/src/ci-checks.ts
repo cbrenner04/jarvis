@@ -194,8 +194,7 @@ export function collectFailingCiContext(fetchResult: { ok: true; checkRuns: CiCh
 function buildCheckExcerpt(output: CiCheckRun["output"]): string {
   const summary = output?.summary?.trim();
   const text = output?.text?.trim();
-  const combined =
-    summary !== undefined && text !== undefined ? `${summary}\n${text}` : (summary ?? text);
+  const combined = summary !== undefined && text !== undefined ? `${summary}\n${text}` : (summary ?? text);
   if (combined === undefined) {
     return NO_EXCERPT;
   }

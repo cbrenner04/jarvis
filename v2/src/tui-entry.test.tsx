@@ -111,6 +111,9 @@ describe("runTuiEntry", () => {
     expect(code).toBe(0);
     expect(inkRendered).toBe(true);
     expect(methods).toEqual(["health", "status"]);
-    expect((renderedNode as ReactElement | undefined)?.props).toMatchObject({ health: { ok: true }, status: { state: "running" } });
+    expect((renderedNode as ReactElement | undefined)?.props).toMatchObject({
+      health: { ok: true },
+      status: { state: "running" },
+    });
   });
 });

@@ -196,6 +196,18 @@ function singleOpenPrStub() {
   return [{ number: 1, isDraft: false }];
 }
 
+const mergeReadyGhRunner = {
+  getPrState: () => ({ state: "OPEN" as const, isDraft: false }),
+  getChecks: () => [{ name: "test", status: "success" as const }],
+};
+
+function expectMergeRefusal(stderr: string, mergeClass: string, stem?: string) {
+  expect(stderr).toContain(`triage --merge (${mergeClass}):`);
+  if (stem !== undefined) {
+    expect(stderr).toContain(stem);
+  }
+}
+
 const singleOpenPrSeams: MergeTargetResolutionSeams = {
   findMatchingOpenPrs: singleOpenPrStub,
 };
@@ -2012,8 +2024,7 @@ describe("triage --mark-ready", () => {
         }),
       );
       expect(code).toBe(1);
-      expect(err()).toContain("triage --merge (unknown worktree):");
-      expect(err()).toContain("unresolvable target");
+      expectMergeRefusal(err(), "unknown worktree", "unresolvable target");
     });
 
     test("--merge with missing .active-spec-path and no matching spec returns error", () => {
@@ -2031,8 +2042,7 @@ describe("triage --mark-ready", () => {
       );
 
       expect(code).toBe(1);
-      expect(err()).toContain("triage --merge (implementation PR):");
-      expect(err()).toContain("no spec found for branch");
+      expectMergeRefusal(err(), "implementation PR", "no spec found for branch");
     });
 
     test("--merge when no PR exists returns error", () => {
@@ -2051,8 +2061,7 @@ describe("triage --mark-ready", () => {
       );
 
       expect(code).toBe(1);
-      expect(err()).toContain("triage --merge (implementation PR):");
-      expect(err()).toContain("no PR found");
+      expectMergeRefusal(err(), "implementation PR", "no PR found");
     });
 
     test("--merge when PR is merged returns error", () => {
@@ -2074,8 +2083,7 @@ describe("triage --mark-ready", () => {
       );
 
       expect(code).toBe(1);
-      expect(err()).toContain("triage --merge (implementation PR):");
-      expect(err()).toContain("already merged");
+      expectMergeRefusal(err(), "implementation PR", "already merged");
     });
 
     test("--merge when PR is closed returns error", () => {
@@ -2097,8 +2105,7 @@ describe("triage --mark-ready", () => {
       );
 
       expect(code).toBe(1);
-      expect(err()).toContain("triage --merge (implementation PR):");
-      expect(err()).toContain("already closed");
+      expectMergeRefusal(err(), "implementation PR", "already closed");
     });
 
     test("--merge with incomplete spec returns error", () => {
@@ -2135,13 +2142,12 @@ describe("triage --mark-ready", () => {
       );
 
       expect(code).toBe(1);
-      expect(err()).toContain("triage --merge (implementation PR):");
-      expect(err()).toContain("spec is not complete");
+      expectMergeRefusal(err(), "implementation PR", "spec is not complete");
     });
 
     test("--merge on plan worktree merges with incomplete subspec AC", () => {
       const planName = "plan-merge-eligibility";
-      const { branch } = setupPlanMergeWorktree(planName);
+      setupPlanMergeWorktree(planName);
 
       let mergeRan = false;
       const { io, out } = captureIo();
@@ -2150,10 +2156,7 @@ describe("triage --mark-ready", () => {
           projectRoot,
           io,
           worktreeName: `plan-${planName}`,
-          ghRunner: {
-            getPrState: () => ({ state: "OPEN", isDraft: false }),
-            getChecks: () => [{ name: "test", status: "success" }],
-          },
+          ghRunner: mergeReadyGhRunner,
           runGate: () => {},
           adminMerge: () => {
             mergeRan = true;
@@ -2164,7 +2167,6 @@ describe("triage --mark-ready", () => {
       expect(code).toBe(0);
       expect(mergeRan).toBe(true);
       expect(out()).toContain("merged successfully");
-      expect(branch).toMatch(/^plan\//);
     });
 
     test("--merge on plan PR ref merges with incomplete subspec AC", () => {
@@ -2182,10 +2184,7 @@ describe("triage --mark-ready", () => {
             lookupPrHeadRef: () => ({ ok: true, headRef: branch }),
             findMatchingOpenPrs: () => [{ number: 42, isDraft: false }],
           },
-          ghRunner: {
-            getPrState: () => ({ state: "OPEN", isDraft: false }),
-            getChecks: () => [{ name: "test", status: "success" }],
-          },
+          ghRunner: mergeReadyGhRunner,
           runGate: () => {},
           adminMerge: () => {
             mergeRan = true;
@@ -2218,8 +2217,7 @@ describe("triage --mark-ready", () => {
       );
 
       expect(code).toBe(1);
-      expect(err()).toContain("triage --merge (plan PR):");
-      expect(err()).toContain("ready gate failed");
+      expectMergeRefusal(err(), "plan PR", "ready gate failed");
       expect(err()).not.toContain("implementation PR");
     });
 
@@ -2297,8 +2295,7 @@ describe("triage --mark-ready", () => {
 
       expect(code).toBe(1);
       expect(mergeRan).toBe(false);
-      expect(err()).toContain("triage --merge (implementation PR):");
-      expect(err()).toContain("CI check failed");
+      expectMergeRefusal(err(), "implementation PR", "CI check failed");
       expect(err()).toContain("lint");
     });
 
@@ -2365,8 +2362,7 @@ describe("triage --mark-ready", () => {
 
       expect(code).toBe(1);
       expect(mergeRan).toBe(false);
-      expect(err()).toContain("triage --merge (implementation PR):");
-      expect(err()).toContain("ready gate failed");
+      expectMergeRefusal(err(), "implementation PR", "ready gate failed");
       expect(err()).toContain("typecheck failed");
     });
 
@@ -2852,8 +2848,7 @@ describe("triage --mark-ready", () => {
       );
 
       expect(code).toBe(1);
-      expect(err()).toContain("triage --merge (unknown worktree):");
-      expect(err()).toContain("no worktree found for spec path");
+      expectMergeRefusal(err(), "unknown worktree", "no worktree found for spec path");
       expect(mergeRan).toBe(false);
     });
 
@@ -2878,8 +2873,7 @@ describe("triage --mark-ready", () => {
       );
 
       expect(code).toBe(1);
-      expect(err()).toContain("triage --merge (unknown worktree):");
-      expect(err()).toContain("multiple worktrees match spec path");
+      expectMergeRefusal(err(), "unknown worktree", "multiple worktrees match spec path");
       expect(err()).toContain("branch-a");
       expect(err()).toContain("branch-b");
       expect(mergeRan).toBe(false);
@@ -2905,8 +2899,7 @@ describe("triage --mark-ready", () => {
       );
 
       expect(code).toBe(1);
-      expect(err()).toContain("triage --merge (unknown worktree):");
-      expect(err()).toContain("no local worktree for PR reference");
+      expectMergeRefusal(err(), "unknown worktree", "no local worktree for PR reference");
       expect(mergeRan).toBe(false);
     });
 
@@ -2933,8 +2926,7 @@ describe("triage --mark-ready", () => {
       );
 
       expect(code).toBe(1);
-      expect(err()).toContain("triage --merge (unknown worktree):");
-      expect(err()).toContain("multiple open PRs match branch dup-branch");
+      expectMergeRefusal(err(), "unknown worktree", "multiple open PRs match branch dup-branch");
       expect(mergeRan).toBe(false);
     });
 
@@ -2965,8 +2957,7 @@ describe("triage --mark-ready", () => {
       );
 
       expect(code).toBe(1);
-      expect(err()).toContain("triage --merge (implementation PR):");
-      expect(err()).toContain("multiple open PRs match branch");
+      expectMergeRefusal(err(), "implementation PR", "multiple open PRs match branch");
       expect(mergeRan).toBe(false);
     });
 
@@ -2989,8 +2980,7 @@ describe("triage --mark-ready", () => {
       );
 
       expect(code).toBe(1);
-      expect(err()).toContain("triage --merge (unknown worktree):");
-      expect(err()).toContain("failed to look up PR reference");
+      expectMergeRefusal(err(), "unknown worktree", "failed to look up PR reference");
       expect(err()).toContain("auth required");
       expect(mergeRan).toBe(false);
     });
@@ -3014,8 +3004,7 @@ describe("triage --mark-ready", () => {
       );
 
       expect(code).toBe(1);
-      expect(err()).toContain("triage --merge (unknown worktree):");
-      expect(err()).toContain("PR #5 is closed");
+      expectMergeRefusal(err(), "unknown worktree", "PR #5 is closed");
       expect(mergeRan).toBe(false);
     });
 
@@ -3050,8 +3039,7 @@ describe("triage --mark-ready", () => {
       const { io, err } = captureIo();
       const result = resolveMergeTarget(projectRoot, "not-a-target", projectRoot, io);
       expect(result.ok).toBe(false);
-      expect(err()).toContain("triage --merge (unknown worktree):");
-      expect(err()).toContain("unresolvable target");
+      expectMergeRefusal(err(), "unknown worktree", "unresolvable target");
     });
   });
 });

@@ -6,17 +6,11 @@ import { stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
 import { findMatchingOpenPrs, type MatchingOpenPr } from "../pr.ts";
 import type { TriageIo } from "./triage.ts";
 
-export type MergeRefusalClass = "unknown worktree" | "plan PR" | "implementation PR";
-
-export function isPlanBranch(branch: string): boolean {
-  return branch.startsWith("plan/");
-}
-
-export function mergeRefusalClassForBranch(branch: string): "plan PR" | "implementation PR" {
-  return isPlanBranch(branch) ? "plan PR" : "implementation PR";
-}
-
-export function emitMergeRefusal(io: TriageIo, className: MergeRefusalClass, message: string): void {
+export function emitMergeRefusal(
+  io: TriageIo,
+  className: "unknown worktree" | "plan PR" | "implementation PR",
+  message: string,
+): void {
   io.stderr(`triage --merge (${className}): ${message}\n`);
 }
 

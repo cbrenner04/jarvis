@@ -16,13 +16,7 @@ import { type EnsureDraftPrOpts, ensureDraftPr, findMatchingOpenPrs, renderAttri
 import { runReadyGateWithTier } from "../ready-gate.ts";
 import { hasUpstream, pushCurrent } from "../worktree.ts";
 import { getWorktreeLockPath, isProcessAlive, type WorktreeLock } from "../worktree-lock.ts";
-import {
-  emitMergeRefusal,
-  isPlanBranch,
-  type MergeTargetResolutionSeams,
-  mergeRefusalClassForBranch,
-  resolveMergeTarget,
-} from "./resolve-merge-target.ts";
+import { emitMergeRefusal, type MergeTargetResolutionSeams, resolveMergeTarget } from "./resolve-merge-target.ts";
 
 export type TriageIo = {
   stdout: (s: string) => void;
@@ -1202,34 +1196,25 @@ type TriageNamedWorktree =
   | { ok: true; worktreePath: string; branch: string; specPath: string }
   | { ok: false; code: number };
 
-function emitTriageNamedRefusal(
-  io: TriageIo,
-  label: string,
-  message: string,
-  mergeClass?: "unknown worktree" | "plan PR" | "implementation PR",
-): void {
-  if (label === "triage --merge" && mergeClass !== undefined) {
-    emitMergeRefusal(io, mergeClass, message);
-  } else {
-    io.stderr(`${label}: ${message}\n`);
-  }
-}
-
 function resolveTriageNamedWorktree(opts: TriageCommandOptions, label: string): TriageNamedWorktree {
+  const isMerge = label === "triage --merge";
+  const refuse = (message: string, mergeClass?: "unknown worktree" | "plan PR" | "implementation PR") => {
+    if (isMerge && mergeClass !== undefined) {
+      emitMergeRefusal(opts.io, mergeClass, message);
+    } else {
+      opts.io.stderr(`${label}: ${message}\n`);
+    }
+  };
+
   const worktreeName = opts.worktreeName;
   if (!worktreeName) {
-    emitTriageNamedRefusal(opts.io, label, "internal error - no worktree name");
+    refuse("internal error - no worktree name");
     return { ok: false, code: 1 };
   }
 
   const worktreePath = join(opts.projectRoot, ".worktree", worktreeName);
   if (!existsSync(worktreePath)) {
-    emitTriageNamedRefusal(
-      opts.io,
-      label,
-      `unknown worktree: ${worktreeName}`,
-      label === "triage --merge" ? "unknown worktree" : undefined,
-    );
+    refuse(`unknown worktree: ${worktreeName}`, isMerge ? "unknown worktree" : undefined);
     return { ok: false, code: 1 };
   }
 
@@ -1241,16 +1226,11 @@ function resolveTriageNamedWorktree(opts: TriageCommandOptions, label: string): 
       encoding: "utf8",
     }).trim();
   } catch {
-    emitTriageNamedRefusal(
-      opts.io,
-      label,
-      "unable to get branch name",
-      label === "triage --merge" ? "unknown worktree" : undefined,
-    );
+    refuse("unable to get branch name", isMerge ? "unknown worktree" : undefined);
     return { ok: false, code: 1 };
   }
 
-  const mergeClass = label === "triage --merge" ? mergeRefusalClassForBranch(branch) : undefined;
+  const mergeClass = isMerge ? (branch.startsWith("plan/") ? "plan PR" : "implementation PR") : undefined;
 
   let specPath: string;
 
@@ -1260,12 +1240,12 @@ function resolveTriageNamedWorktree(opts: TriageCommandOptions, label: string): 
     try {
       markerSpecPath = readFileSync(specMarkerPath, "utf8").trim();
     } catch {
-      emitTriageNamedRefusal(opts.io, label, "unable to read .active-spec-path marker", mergeClass);
+      refuse("unable to read .active-spec-path marker", mergeClass);
       return { ok: false, code: 1 };
     }
 
     if (!markerSpecPath) {
-      emitTriageNamedRefusal(opts.io, label, "spec file not found: (unknown)", mergeClass);
+      refuse("spec file not found: (unknown)", mergeClass);
       return { ok: false, code: 1 };
     }
 
@@ -1275,7 +1255,7 @@ function resolveTriageNamedWorktree(opts: TriageCommandOptions, label: string): 
       markerSpecPath,
     });
     if (!existsSync(resolvedPath)) {
-      emitTriageNamedRefusal(opts.io, label, `spec file not found: ${resolvedPath}`, mergeClass);
+      refuse(`spec file not found: ${resolvedPath}`, mergeClass);
       return { ok: false, code: 1 };
     }
     specPath = resolvedPath;
@@ -1284,16 +1264,11 @@ function resolveTriageNamedWorktree(opts: TriageCommandOptions, label: string): 
     const derived = deriveSpecPathFromBranch(branch, opts.projectRoot, targetDir);
     if (!derived.ok) {
       if (derived.reason === "no-match") {
-        emitTriageNamedRefusal(opts.io, label, `no spec found for branch ${branch}`, mergeClass);
+        refuse(`no spec found for branch ${branch}`, mergeClass);
       } else if (derived.reason === "zero-md") {
-        emitTriageNamedRefusal(opts.io, label, `spec directory has no markdown files: ${derived.dirPath}`, mergeClass);
+        refuse(`spec directory has no markdown files: ${derived.dirPath}`, mergeClass);
       } else {
-        emitTriageNamedRefusal(
-          opts.io,
-          label,
-          `spec directory is ambiguous (multiple .md files, no index.md): ${derived.dirPath}`,
-          mergeClass,
-        );
+        refuse(`spec directory is ambiguous (multiple .md files, no index.md): ${derived.dirPath}`, mergeClass);
       }
       return { ok: false, code: 1 };
     }
@@ -1310,12 +1285,7 @@ function resolveTriageNamedWorktree(opts: TriageCommandOptions, label: string): 
     try {
       const lock: WorktreeLock = JSON.parse(readFileSync(lockPath, "utf8"));
       if (isProcessAlive(lock.pid)) {
-        emitTriageNamedRefusal(
-          opts.io,
-          label,
-          `worktree is locked by live run (PID ${lock.pid}). Cannot proceed.`,
-          mergeClass,
-        );
+        refuse(`worktree is locked by live run (PID ${lock.pid}). Cannot proceed.`, mergeClass);
         return { ok: false, code: 1 };
       }
     } catch {
@@ -1481,8 +1451,8 @@ function waitForCiGreen(
   io: TriageIo,
   pollIntervalMs: number,
   timeoutMs: number,
-  mergeClass: "plan PR" | "implementation PR",
 ): number {
+  const mergeClass = branch.startsWith("plan/") ? "plan PR" : "implementation PR";
   const startTime = Date.now();
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -1511,7 +1481,7 @@ function triageMerge(opts: TriageCommandOptions): number {
     return ctx.code;
   }
   const { worktreePath, branch, specPath } = ctx;
-  const mergeClass = mergeRefusalClassForBranch(branch);
+  const mergeClass = branch.startsWith("plan/") ? "plan PR" : "implementation PR";
 
   const findOpenPrs = opts.mergeTargetSeams?.findMatchingOpenPrs ?? findMatchingOpenPrs;
   try {
@@ -1538,7 +1508,7 @@ function triageMerge(opts: TriageCommandOptions): number {
     return 1;
   }
 
-  if (!isPlanBranch(branch) && !isSpecComplete(specPath)) {
+  if (!branch.startsWith("plan/") && !isSpecComplete(specPath)) {
     emitMergeRefusal(opts.io, mergeClass, "spec is not complete — linked subspecs have unchecked items");
     return 1;
   }
@@ -1573,7 +1543,6 @@ function triageMerge(opts: TriageCommandOptions): number {
     opts.io,
     opts.pollIntervalMs ?? MERGE_CI_POLL_INTERVAL_MS,
     opts.pollTimeoutMs ?? MERGE_CI_POLL_TIMEOUT_MS,
-    mergeClass,
   );
   if (pollCode !== 0) {
     return pollCode;

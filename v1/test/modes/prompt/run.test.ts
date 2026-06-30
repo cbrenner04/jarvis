@@ -182,6 +182,7 @@ async function runPrompt(
   cap: ReturnType<typeof captureIo>,
   promptText = "do the thing",
   testHooks?: PromptTestHooks,
+  pinnedAgent?: { agent: AgentName; model: string },
 ): Promise<number> {
   return promptCommand({
     promptText,
@@ -190,6 +191,7 @@ async function runPrompt(
     config: { dir: cfgDir },
     skipGhCheck: true,
     agents,
+    ...(pinnedAgent !== undefined ? { pinnedAgent } : {}),
     ...(testHooks?.testReapFn !== undefined ? { __testReapFn: testHooks.testReapFn } : {}),
     ...(testHooks?.testAfterPollFn !== undefined ? { __testAfterPollFn: testHooks.testAfterPollFn } : {}),
     ...(testHooks?.testDescendantPollIntervalMs !== undefined
@@ -508,5 +510,78 @@ describe("promptCommand", () => {
     });
 
     expect(code).toBe(2);
+  });
+
+  test("pinned agent runs first when absent from config order", async () => {
+    setupPromptEnv();
+    const cap = captureIo();
+    const opencode = new FakeAgent("opencode", () => ({ kind: "ok", stdout: "opencode answer\n", stderr: "" }));
+    const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "claude answer\n", stderr: "" }));
+
+    const code = await runPrompt({ opencode, claude }, cap, "probe", undefined, {
+      agent: "opencode",
+      model: "opencode/glm-5.2",
+    });
+
+    expect(code).toBe(0);
+    expect(opencode.calls).toHaveLength(1);
+    expect(claude.calls).toHaveLength(0);
+    expect(cap.out()).toContain("opencode answer");
+  });
+
+  test("pinned agent dedupes matching config entry and keeps suffix order", async () => {
+    setupPromptEnv();
+    const cap = captureIo();
+    const codex = new FakeAgent("codex", () => ({ kind: "quota", stderr: "limit" }));
+    const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "claude answer\n", stderr: "" }));
+
+    const code = await runPrompt({ codex, claude }, cap, "probe", undefined, {
+      agent: "codex",
+      model: "gpt-5.4-mini",
+    });
+
+    expect(code).toBe(0);
+    expect(codex.calls).toHaveLength(1);
+    expect(claude.calls).toHaveLength(1);
+    expect(cap.err().indexOf("jarvis1: invoking codex")).toBeLessThan(cap.err().indexOf("jarvis1: invoking claude"));
+  });
+
+  test("pinned override model is recorded in telemetry configured_model", async () => {
+    setupPromptEnv();
+    const telemetryPath = join(cfgDir, "runs.jsonl");
+    writeConfig(
+      {
+        version: 2,
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          review: { passes: 2 },
+        },
+        quotaFallback: "strict",
+        weakQuotaExitCodes: [],
+        maxIterations: 10,
+        iterationTimeoutMs: 30 * 60_000,
+        telemetryPath,
+        git: true,
+        projects: { project: { root: projectRoot } },
+      },
+      { dir: cfgDir },
+    );
+    const cap = captureIo();
+    const opencode = new FakeAgent("opencode", () => ({ kind: "ok", stdout: "answer\n", stderr: "" }));
+
+    const code = await runPrompt({ opencode }, cap, "probe", undefined, {
+      agent: "opencode",
+      model: "opencode/glm-5.2",
+    });
+
+    expect(code).toBe(0);
+    const rows = readFileSync(telemetryPath, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { configured_model?: string; agent?: string });
+    expect(rows.at(-1)?.agent).toBe("opencode");
+    expect(rows.at(-1)?.configured_model).toBe("opencode/glm-5.2");
   });
 });

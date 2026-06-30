@@ -11,6 +11,7 @@ import { reviewFeedbackCommand } from "./commands/review-feedback.ts";
 import { RUNBOOK_USAGE, runbookCommand } from "./commands/runbook.ts";
 import { type TriageCommandOptions, triageCommand } from "./commands/triage.ts";
 import {
+  type AgentEntry,
   CONFIG_DIR,
   type ConfigOptions,
   findProjectMatchForPath,
@@ -24,7 +25,7 @@ import { type RunCommandOptions, runCommand } from "./modes/patch/run.ts";
 import { computeProjectSafeId } from "./modes/plan/spec-paths.ts";
 import { promptCommand } from "./modes/prompt/run.ts";
 import { runSharedProjectPreflight } from "./modes/shared-entry.ts";
-import { parseAgentFlagValues, prefixAgentFlagError } from "./parse-agent-flag.ts";
+import { parseAgentFlagValues, parsePromptAgentOverride, prefixAgentFlagError } from "./parse-agent-flag.ts";
 
 export type Subcommand =
   | "run"
@@ -73,6 +74,8 @@ export type ParsedArgs =
       kind: "prompt";
       text: string;
       repo?: string;
+      agentFlag?: string;
+      modelFlag?: string;
     }
   | { kind: "prices"; rest: string[] }
   | { kind: "unknown"; name: string }
@@ -104,7 +107,7 @@ Commands:
                     Draft specs via plan mode with intent refinement and self-review (--resume expects spec/<…>/index.md; --resume-draft expects spec/<…>/intent.md).
   intent [--repo <name|path|url>] [--cwd <dir>] <raw-seed-file|"inline text">
                     Split one seed into authored intents under ready-intents/ and open a PR.
-  prompt [--repo <name|path|url>] <text>
+  prompt [--repo <name|path|url>] [--agent <name>[:<model>]] [--model <model>] <text>
                     Run an agent against a prompt in a registered project.
   prices            View or edit pricing data for cost tracking.
   help              Show this message.
@@ -159,12 +162,14 @@ Flags:
 
   Address PR review feedback on an existing patch worktree.
 `,
-  prompt: `Usage: jarvis1 prompt [--repo <name|path|url>] <text>
+  prompt: `Usage: jarvis1 prompt [--repo <name|path|url>] [--agent <name>[:<model>]] [--model <model>] <text>
 
   Run an agent against a prompt in a registered project.
 
 Flags:
   --repo <name|path|url>      Override project resolution via name, path, or URL.
+  --agent <name>[:<model>]    Pin the primary agent for this invocation.
+  --model <model>             Model for the pinned agent when --agent omits :model.
 `,
   prices: `Usage: jarvis1 prices [show|edit]
 
@@ -175,10 +180,15 @@ Flags:
 // Populate from plan and intent modules to avoid duplication
 Object.assign(COMMAND_USAGE, { plan: PLAN_USAGE, intent: INTENT_USAGE, runbook: RUNBOOK_USAGE });
 
+const AGENT_FLAG_SUBCOMMANDS = new Set(["run", "plan", "prompt"]);
+
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const [first, ...rest] = argv;
   if (first === undefined || first === "help" || first === "-h" || first === "--help") {
     return { kind: "help" };
+  }
+  if (!AGENT_FLAG_SUBCOMMANDS.has(first) && rest.includes("--agent")) {
+    return { kind: "error", message: `${first}: --agent is not supported` };
   }
   switch (first) {
     case "run": {
@@ -409,6 +419,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         return { kind: "help", command: "prompt" };
       }
       let repo: string | undefined;
+      let agentFlag: string | undefined;
+      let modelFlag: string | undefined;
       const args = [...rest];
       for (let i = 0; i < args.length; i += 1) {
         if (args[i] === "--cwd") {
@@ -428,17 +440,51 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
           repo = value;
           args.splice(i, 2);
           i -= 1;
+          continue;
+        }
+        if (args[i] === "--agent") {
+          if (agentFlag !== undefined) {
+            return {
+              kind: "error",
+              message: "prompt: duplicate --agent flag",
+            };
+          }
+          const value = args[i + 1];
+          if (value === undefined) {
+            return {
+              kind: "error",
+              message: "prompt: missing value for --agent",
+            };
+          }
+          agentFlag = value;
+          args.splice(i, 2);
+          i -= 1;
+          continue;
+        }
+        if (args[i] === "--model") {
+          const value = args[i + 1];
+          if (value === undefined) {
+            return {
+              kind: "error",
+              message: "prompt: missing value for --model",
+            };
+          }
+          modelFlag = value;
+          args.splice(i, 2);
+          i -= 1;
         }
       }
       const text = args[0];
       if (text === undefined) {
         return { kind: "error", message: "prompt: missing <text>" };
       }
-      const parsed: ParsedArgs = { kind: "prompt", text };
-      if (repo !== undefined) {
-        parsed.repo = repo;
-      }
-      return parsed;
+      return {
+        kind: "prompt",
+        text,
+        ...(repo !== undefined ? { repo } : {}),
+        ...(agentFlag !== undefined ? { agentFlag } : {}),
+        ...(modelFlag !== undefined ? { modelFlag } : {}),
+      };
     }
     case "prices":
       if (rest.includes("--help") || rest.includes("-h")) {
@@ -791,11 +837,25 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
         }
       }
 
+      let pinnedAgent: AgentEntry | undefined;
+      if (parsed.agentFlag !== undefined) {
+        const parsedAgent = parsePromptAgentOverride(parsed.agentFlag, parsed.modelFlag, cfg.modes.prompt.agentOrder);
+        if (!parsedAgent.ok) {
+          io.stderr(`jarvis1: ${prefixAgentFlagError("prompt", parsedAgent.message)}\n`);
+          return 1;
+        }
+        pinnedAgent = parsedAgent.pinned;
+      } else if (parsed.modelFlag !== undefined) {
+        io.stderr("jarvis1: prompt: --model requires --agent\n");
+        return 1;
+      }
+
       return promptCommand({
         promptText: parsed.text,
         io,
         projectPath: opts.cwd ?? process.cwd(),
         config: opts.config,
+        ...(pinnedAgent !== undefined ? { pinnedAgent } : {}),
       });
     }
     case "prices":

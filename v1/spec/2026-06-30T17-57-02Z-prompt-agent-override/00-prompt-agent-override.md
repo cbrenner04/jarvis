@@ -30,30 +30,30 @@
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 prompt --agent opencode <text>` with `agentOrder` `[claude, cursor]` attempts `opencode` first (pinned agent absent from config order).
-- [ ] `jarvis1 prompt --agent <name> <text>` invokes `<name>` before any earlier `modes.prompt.agentOrder` entry when order differs.
-- [ ] With empty `modes.prompt.agentOrder`, `jarvis1 prompt --agent <valid-name> <text>` runs only the pinned agent (effective list length 1).
-- [ ] When `--agent` names an agent already in `agentOrder`, that agent runs once (pinned first); the config duplicate is skipped in the suffix.
-- [ ] With `--agent` set, a `quota` or `model_config` result on the pinned agent advances to the next entry in the effective list; generic `error` and iteration timeout still halt immediately with exit `3` or `8`.
-- [ ] With `--agent` set and every attempted agent returning `quota`, the command exits `2` only after the full effective list is exhausted.
-- [ ] `jarvis1 prompt --agent bogus <text>` exits non-zero before worktree creation (no worktree side effects); stderr lists agent names from `AGENT_NAMES`.
-- [ ] Missing `--agent` value, duplicate `--agent`, or empty agent name (e.g. `--agent :model`) → usage error, exit `1`, no agent invocation.
-- [ ] `jarvis1 prompt --repo <name> --agent <name> --model <model> "multi word text"` preserves repo, agent, model, and quoted prompt text (flags before positional).
-- [ ] `jarvis1 prompt --agent <name>:<model> <text>` passes `<model>` to the pinned agent without editing config.
-- [ ] `jarvis1 prompt --agent <name> --model <model> <text>` passes `<model>` to the pinned agent without editing config.
-- [ ] With no CLI model override, a pinned agent with a matching `agentOrder` row uses that row's model; a pinned agent absent from `agentOrder` uses the agent default.
-- [ ] When both `--agent <name>:<model>` and `--model <other>` are set, the pinned agent receives the colon model, not `--model`.
-- [ ] Effective-list `{ agent, model }` drives invocation and summary/telemetry `configuredModel` for pinned agents absent from config or using override models.
-- [ ] `jarvis1 intent --agent claude <seed>` exits non-zero with a clear usage error; no agent invocation (`run`/`plan` already accept `--agent`).
-- [ ] `v1/test/cli.sandbox-unrunnable.test.ts` covers `--agent` / `--model` parseArgs (valid, malformed, non-prompt rejection).
-- [ ] `promptCommand` integration tests cover effective list, quota fallback, and telemetry model attribution.
-- [ ] `v1/test/modes/prompt/run.test.ts` stays green when `--agent` is omitted (behavior unchanged).
-- [ ] `v1/docs/agents.md` documents `--agent` / optional model override and precedence over `modes.prompt.agentOrder`.
-- [ ] `v1/docs/specless-prompt.md` documents `--agent`, `--model`, and colon-vs-`--model` precedence on the prompt surface.
-- [ ] `v1/docs/operator-runbook.md` documents `jarvis1 prompt --agent` as prompt-mode agent verification and cross-links seed `per-run-agent-override-flag` for future `run`/`plan` override.
-- [ ] `v2/docs/v1-behaviors.md` records prompt-mode `--agent` override (prompt verification now; `per-run-agent-override-flag` remains tracker for `run`/`plan`) with source citations.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes.
+- [x] `jarvis1 prompt --agent opencode <text>` with `agentOrder` `[claude, cursor]` attempts `opencode` first (pinned agent absent from config order).
+- [x] `jarvis1 prompt --agent <name> <text>` invokes `<name>` before any earlier `modes.prompt.agentOrder` entry when order differs.
+- [x] With empty `modes.prompt.agentOrder`, `jarvis1 prompt --agent <valid-name> <text>` runs only the pinned agent (effective list length 1).
+- [x] When `--agent` names an agent already in `agentOrder`, that agent runs once (pinned first); the config duplicate is skipped in the suffix.
+- [x] With `--agent` set, a `quota` or `model_config` result on the pinned agent advances to the next entry in the effective list; generic `error` and iteration timeout still halt immediately with exit `3` or `8`.
+- [x] With `--agent` set and every attempted agent returning `quota`, the command exits `2` only after the full effective list is exhausted.
+- [x] `jarvis1 prompt --agent bogus <text>` exits non-zero before worktree creation (no worktree side effects); stderr lists agent names from `AGENT_NAMES`.
+- [x] Missing `--agent` value, duplicate `--agent`, or empty agent name (e.g. `--agent :model`) → usage error, exit `1`, no agent invocation.
+- [x] `jarvis1 prompt --repo <name> --agent <name> --model <model> "multi word text"` preserves repo, agent, model, and quoted prompt text (flags before positional).
+- [x] `jarvis1 prompt --agent <name>:<model> <text>` passes `<model>` to the pinned agent without editing config.
+- [x] `jarvis1 prompt --agent <name> --model <model> <text>` passes `<model>` to the pinned agent without editing config.
+- [x] With no CLI model override, a pinned agent with a matching `agentOrder` row uses that row's model; a pinned agent absent from `agentOrder` uses the agent default.
+- [x] When both `--agent <name>:<model>` and `--model <other>` are set, the pinned agent receives the colon model, not `--model`.
+- [x] Effective-list `{ agent, model }` drives invocation and summary/telemetry `configuredModel` for pinned agents absent from config or using override models.
+- [x] `jarvis1 intent --agent claude <seed>` exits non-zero with a clear usage error; no agent invocation (`run`/`plan` already accept `--agent`).
+- [x] `v1/test/cli.sandbox-unrunnable.test.ts` covers `--agent` / `--model` parseArgs (valid, malformed, non-prompt rejection).
+- [x] `promptCommand` integration tests cover effective list, quota fallback, and telemetry model attribution.
+- [x] `v1/test/modes/prompt/run.test.ts` stays green when `--agent` is omitted (behavior unchanged).
+- [x] `v1/docs/agents.md` documents `--agent` / optional model override and precedence over `modes.prompt.agentOrder`.
+- [x] `v1/docs/specless-prompt.md` documents `--agent`, `--model`, and colon-vs-`--model` precedence on the prompt surface.
+- [x] `v1/docs/operator-runbook.md` documents `jarvis1 prompt --agent` as prompt-mode agent verification and cross-links seed `per-run-agent-override-flag` for future `run`/`plan` override.
+- [x] `v2/docs/v1-behaviors.md` records prompt-mode `--agent` override (prompt verification now; `per-run-agent-override-flag` remains tracker for `run`/`plan`) with source citations.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes.
 
 ## Documentation updates
 

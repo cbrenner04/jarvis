@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { type Io, parseArgs, run } from "../src/cli.ts";
+import { buildEffectivePromptAgentEntries, parsePromptAgentOverride } from "../src/parse-agent-flag.ts";
 
 function captureIo(): { io: Io; out: () => string; err: () => string } {
   let out = "";
@@ -248,6 +249,87 @@ describe("parseArgs", () => {
       text: "explain this code",
       repo: "my-project",
     });
+  });
+
+  test("prompt with --agent and --model flags", () => {
+    expect(
+      parseArgs([
+        "prompt",
+        "--repo",
+        "my-project",
+        "--agent",
+        "opencode",
+        "--model",
+        "opencode/glm-5.2",
+        "multi word text",
+      ]),
+    ).toEqual({
+      kind: "prompt",
+      text: "multi word text",
+      repo: "my-project",
+      agentFlag: "opencode",
+      modelFlag: "opencode/glm-5.2",
+    });
+  });
+
+  test("prompt with --agent colon model", () => {
+    expect(parseArgs(["prompt", "--agent", "codex:gpt-5.4", "hello"])).toEqual({
+      kind: "prompt",
+      text: "hello",
+      agentFlag: "codex:gpt-5.4",
+    });
+  });
+
+  test("prompt flag parse errors", () => {
+    for (const argv of [
+      ["prompt", "--agent"],
+      ["prompt", "--agent", "claude", "--agent", "codex", "hello"],
+      ["prompt", "--model"],
+    ] as const) {
+      const parsed = parseArgs([...argv]);
+      expect(parsed.kind).toBe("error");
+    }
+  });
+
+  test("unsupported subcommands reject --agent", () => {
+    for (const argv of [
+      ["intent", "--agent", "claude", "seed.md"],
+      ["config", "--agent", "claude", "show"],
+    ] as const) {
+      const parsed = parseArgs([...argv]);
+      expect(parsed.kind).toBe("error");
+      if (parsed.kind === "error") {
+        expect(parsed.message).toContain("--agent is not supported");
+      }
+    }
+  });
+
+  test("parsePromptAgentOverride", () => {
+    const colonModel = parsePromptAgentOverride("codex:gpt-5.4", "haiku", []);
+    expect(colonModel.ok).toBe(true);
+    if (colonModel.ok) {
+      expect(colonModel.pinned).toEqual({ agent: "codex", model: "gpt-5.4" });
+    }
+
+    expect(parsePromptAgentOverride(":model", undefined, []).ok).toBe(false);
+
+    const emptyColonModel = parsePromptAgentOverride("claude:", undefined, []);
+    expect(emptyColonModel.ok).toBe(false);
+    if (!emptyColonModel.ok) {
+      expect(emptyColonModel.message).toContain("non-empty string");
+    }
+
+    const configModel = parsePromptAgentOverride("claude", undefined, [{ agent: "claude", model: "sonnet" }]);
+    expect(configModel.ok).toBe(true);
+    if (configModel.ok) {
+      expect(configModel.pinned.model).toBe("sonnet");
+    }
+  });
+
+  test("buildEffectivePromptAgentEntries with empty order yields pinned only", () => {
+    expect(buildEffectivePromptAgentEntries({ agent: "opencode", model: "opencode/glm-5.2" }, [])).toEqual([
+      { agent: "opencode", model: "opencode/glm-5.2" },
+    ]);
   });
 
   test("prompt without text → error", () => {
@@ -617,6 +699,78 @@ describe("run", () => {
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
+  });
+
+  test("prompt with bogus --agent exits before worktree creation", () => {
+    const cap = captureIo();
+    const root = mkdtempSync(join(tmpdir(), "jarvis-prompt-agent-"));
+    const workRoot = join(root, "Work");
+    const projectDir = join(workRoot, "app");
+    const { mkdirSync } = require("node:fs") as typeof import("node:fs");
+    mkdirSync(projectDir, { recursive: true });
+    try {
+      run(["init"], {
+        io: cap.io,
+        config: { dir: cfgDir },
+        cwd: projectDir,
+        init: { workRoot },
+      });
+      const code = run(["prompt", "--agent", "bogus", "hello"], {
+        io: cap.io,
+        config: { dir: cfgDir },
+        cwd: projectDir,
+      });
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("prompt:");
+      expect(cap.err()).toContain("bogus");
+      expect(cap.err()).toContain("claude");
+      expect(cap.err()).toContain("codex");
+      const worktreeDir = join(projectDir, ".worktree");
+      const { existsSync } = require("node:fs") as typeof import("node:fs");
+      expect(existsSync(worktreeDir)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("prompt with empty colon --agent model exits before worktree creation", () => {
+    const cap = captureIo();
+    const root = mkdtempSync(join(tmpdir(), "jarvis-prompt-agent-colon-"));
+    const workRoot = join(root, "Work");
+    const projectDir = join(workRoot, "app");
+    const { mkdirSync } = require("node:fs") as typeof import("node:fs");
+    mkdirSync(projectDir, { recursive: true });
+    try {
+      run(["init"], {
+        io: cap.io,
+        config: { dir: cfgDir },
+        cwd: projectDir,
+        init: { workRoot },
+      });
+      const code = run(["prompt", "--agent", "claude:", "hello"], {
+        io: cap.io,
+        config: { dir: cfgDir },
+        cwd: projectDir,
+      });
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("prompt:");
+      expect(cap.err()).toContain("non-empty string");
+      const worktreeDir = join(projectDir, ".worktree");
+      const { existsSync } = require("node:fs") as typeof import("node:fs");
+      expect(existsSync(worktreeDir)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("intent --agent exits 1 with usage error", async () => {
+    const cap = captureIo();
+    const code = await run(["intent", "--agent", "claude", "seed.md"], {
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("--agent is not supported");
   });
 
   test("run/init/config bootstrap the config dir", () => {

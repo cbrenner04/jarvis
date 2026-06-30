@@ -3,8 +3,8 @@ import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs"
 import { join, relative } from "node:path";
 import { stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
 import { closePr, findMatchingOpenPrs, type MatchingOpenPr } from "../pr.ts";
+import { checkAbandonPrEligibility, checkScopedAbandonPreflight, isMergedPr } from "../scoped-abandon-preflight.ts";
 import { deleteLocalBranch, deleteRemoteBranch } from "../worktree.ts";
-import { readLiveWorktreeLock } from "../worktree-lock.ts";
 import { isSpecComplete, specHasNonHumanOnlyAcceptanceCriteria } from "./triage.ts";
 
 export type CleanupIo = {
@@ -467,55 +467,6 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
   return hadFailures ? 1 : 0;
 }
 
-function isMergedPr(branch: string): boolean {
-  try {
-    const output = execFileSync("gh", ["pr", "view", branch, "--json", "state", "-q", ".state"], {
-      env: process.env,
-      encoding: "utf8",
-      stdio: "pipe",
-    });
-    return output.trim() === "MERGED";
-  } catch {
-    return false;
-  }
-}
-
-type AbandonPrEligibility =
-  | { kind: "eligible" }
-  | { kind: "merged" }
-  | { kind: "inspection_failed"; message: string }
-  | { kind: "multiple_open" }
-  | { kind: "ready_pr"; prNumber: number };
-
-function checkAbandonPrEligibility(args: {
-  branch: string;
-  isMergedPr: (branch: string) => boolean;
-  findMatchingOpenPrs: (branch: string, cwd?: string) => MatchingOpenPr[];
-  projectRoot: string;
-}): AbandonPrEligibility {
-  if (args.isMergedPr(args.branch)) {
-    return { kind: "merged" };
-  }
-
-  let matchingOpenPrs: MatchingOpenPr[];
-  try {
-    matchingOpenPrs = args.findMatchingOpenPrs(args.branch, args.projectRoot);
-  } catch (err) {
-    return { kind: "inspection_failed", message: (err as Error).message };
-  }
-
-  if (matchingOpenPrs.length > 1) {
-    return { kind: "multiple_open" };
-  }
-
-  const matchingPr = matchingOpenPrs[0];
-  if (matchingPr !== undefined && !matchingPr.isDraft) {
-    return { kind: "ready_pr", prNumber: matchingPr.number };
-  }
-
-  return { kind: "eligible" };
-}
-
 function scopedAbandonCleanup(args: {
   deps: CleanupDeps;
   dryRun: boolean;
@@ -524,51 +475,49 @@ function scopedAbandonCleanup(args: {
   worktreeName: string;
 }): number {
   const worktreePath = join(args.projectRoot, ".worktree", args.worktreeName);
-  if (!existsSync(worktreePath)) {
-    args.io.stderr(`unknown worktree: ${args.worktreeName}\n`);
-    return 1;
-  }
-
-  const liveLock = readLiveWorktreeLock(worktreePath);
-  if (liveLock !== null) {
-    args.io.stderr(`worktree is in use by process ${liveLock.pid} (started at ${liveLock.started_at})\n`);
-    return 9;
-  }
-
-  let branch: string;
-  try {
-    branch = branchForWorktree(worktreePath);
-  } catch {
-    args.io.stderr(`cannot abandon ${args.worktreeName}: could not determine branch\n`);
-    return 1;
-  }
-
-  const eligibility = checkAbandonPrEligibility({
-    branch,
-    isMergedPr: args.deps.isMergedPr,
-    findMatchingOpenPrs: args.deps.findMatchingOpenPrs,
+  const preflight = checkScopedAbandonPreflight({
     projectRoot: args.projectRoot,
+    worktreePath,
+    deps: args.deps,
   });
-  if (eligibility.kind !== "eligible") {
-    switch (eligibility.kind) {
-      case "merged":
-        args.io.stderr(`cannot abandon ${args.worktreeName}: branch ${branch} PR is merged\n`);
+  if (!preflight.eligible) {
+    switch (preflight.reason) {
+      case "missing":
+        args.io.stderr(`unknown worktree: ${args.worktreeName}\n`);
         break;
-      case "inspection_failed":
-        args.io.stderr(`failed to inspect PR state for branch ${branch}: ${eligibility.message}\n`);
-        break;
-      case "multiple_open":
-        args.io.stderr(`unsafe PR state for branch ${branch}: multiple open PRs match; refusing abandon\n`);
-        break;
-      case "ready_pr":
+      case "live_lock":
         args.io.stderr(
-          `unsafe PR state for branch ${branch}: matching open PR #${eligibility.prNumber} is not draft\n`,
+          `worktree is in use by process ${preflight.lock.pid} (started at ${preflight.lock.started_at})\n`,
         );
+        return 9;
+      case "branch_resolve_failed":
+        args.io.stderr(`cannot abandon ${args.worktreeName}: could not determine branch\n`);
         break;
+      case "pr_ineligible": {
+        const { branch, eligibility } = preflight;
+        switch (eligibility.kind) {
+          case "merged":
+            args.io.stderr(`cannot abandon ${args.worktreeName}: branch ${branch} PR is merged\n`);
+            break;
+          case "inspection_failed":
+            args.io.stderr(`failed to inspect PR state for branch ${branch}: ${eligibility.message}\n`);
+            break;
+          case "multiple_open":
+            args.io.stderr(`unsafe PR state for branch ${branch}: multiple open PRs match; refusing abandon\n`);
+            break;
+          case "ready_pr":
+            args.io.stderr(
+              `unsafe PR state for branch ${branch}: matching open PR #${eligibility.prNumber} is not draft\n`,
+            );
+            break;
+        }
+        break;
+      }
     }
     return 1;
   }
 
+  const { branch } = preflight;
   const item: CleanupItem = { path: worktreePath, branch, dir: args.worktreeName };
   const tag = isPlanBranch(branch) ? " (plan)" : "";
   args.io.stdout("\nWorktree to remove:\n");

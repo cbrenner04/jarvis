@@ -166,9 +166,7 @@ When `loopOutcomeKind` is omitted:
 - `4`: `killed`
 - `5`: `budget-soft-stopped`
 
-RPC failures print `<code>: <message>` to stderr and exit `1`. Connection
-failures print the connection error to stderr and exit `1`. Malformed success
-payloads print `invalid daemon response` to stderr and exit `1`.
+Malformed success payloads exit `1` with `invalid daemon response` on stderr; other errors follow run-control rules above.
 
 ## Verification
 

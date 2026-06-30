@@ -124,6 +124,29 @@ function withFixedUuid<T>(id: string, fn: () => Promise<T>): Promise<T> {
   });
 }
 
+const WAIT_REQUEST_ID = "00000000-0000-4000-8000-000000000010";
+
+function waitResponse(result: unknown): unknown {
+  return { kind: "response", id: WAIT_REQUEST_ID, result };
+}
+
+function waitError(code: string, message: string): unknown {
+  return { kind: "error", id: WAIT_REQUEST_ID, code, message };
+}
+
+async function runWait(
+  cap: ReturnType<typeof captureIo>,
+  runId: string,
+  frames: unknown[],
+  sent: unknown[] = [],
+): Promise<number> {
+  return withFixedUuid(WAIT_REQUEST_ID, () =>
+    main(["run", "wait", runId], cap.io, {
+      connectIpcClient: async () => makeClient(frames, sent),
+    }),
+  );
+}
+
 function logRecord(seq: number, eventKind: PersistedRecord["event"]["kind"]): PersistedRecord {
   return {
     runId: "run-123",
@@ -705,34 +728,26 @@ describe("v2 cli", () => {
   test("run wait sends one IPC wait request and prints minified JSON", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
-    const requestId = "00000000-0000-4000-8000-000000000010";
 
-    const code = await withFixedUuid(requestId, async () =>
-      main(["run", "wait", "run-123"], cap.io, {
-        connectIpcClient: async () =>
-          makeClient(
-            [
-              {
-                kind: "response",
-                id: requestId,
-                result: {
-                  runStatus: "completed",
-                  loopOutcomeKind: "complete",
-                  iterationsConsumed: 2,
-                  resumable: false,
-                },
-              },
-            ],
-            sent,
-          ),
-      }),
+    const code = await runWait(
+      cap,
+      "run-123",
+      [
+        waitResponse({
+          runStatus: "completed",
+          loopOutcomeKind: "complete",
+          iterationsConsumed: 2,
+          resumable: false,
+        }),
+      ],
+      sent,
     );
 
     expect(code).toBe(0);
     expect(sent).toEqual([
       {
         kind: "request",
-        id: requestId,
+        id: WAIT_REQUEST_ID,
         method: "wait",
         params: { runId: "run-123" },
       },
@@ -746,33 +761,27 @@ describe("v2 cli", () => {
   test("run wait blocks until the correlated wait response arrives", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
-    const requestId = "00000000-0000-4000-8000-000000000011";
     const { client, resolve } = makeBlockingClient(sent);
-    let settled = false;
 
-    const pending = withFixedUuid(requestId, async () =>
+    const pending = withFixedUuid(WAIT_REQUEST_ID, async () =>
       main(["run", "wait", "run-123"], cap.io, {
         connectIpcClient: async () => client,
       }),
     );
 
     await new Promise((r) => setTimeout(r, 10));
-    expect(settled).toBe(false);
     expect(cap.read().stdout).toBe("");
 
-    resolve({
-      kind: "response",
-      id: requestId,
-      result: {
+    resolve(
+      waitResponse({
         runStatus: "completed",
         loopOutcomeKind: "complete",
         iterationsConsumed: 1,
         resumable: false,
-      },
-    });
+      }) as IpcFrame,
+    );
 
     const code = await pending;
-    settled = true;
 
     expect(code).toBe(0);
     expect(cap.read().stdout).toBe(
@@ -782,25 +791,15 @@ describe("v2 cli", () => {
 
   test("run wait returns immediately for an already-quiescent run", async () => {
     const cap = captureIo();
-    const requestId = "00000000-0000-4000-8000-000000000012";
 
-    const code = await withFixedUuid(requestId, async () =>
-      main(["run", "wait", "run-paused"], cap.io, {
-        connectIpcClient: async () =>
-          makeClient([
-            {
-              kind: "response",
-              id: requestId,
-              result: {
-                runStatus: "paused",
-                loopOutcomeKind: "paused",
-                iterationsConsumed: 3,
-                resumable: true,
-              },
-            },
-          ]),
+    const code = await runWait(cap, "run-paused", [
+      waitResponse({
+        runStatus: "paused",
+        loopOutcomeKind: "paused",
+        iterationsConsumed: 3,
+        resumable: true,
       }),
-    );
+    ]);
 
     expect(code).toBe(1);
     expect(cap.read().stdout).toBe(
@@ -824,20 +823,8 @@ describe("v2 cli", () => {
     [{ runStatus: "blocked" }, 1],
   ] as const)("run wait maps %p to exit %i", async (result, expectedExit) => {
     const cap = captureIo();
-    const requestId = "00000000-0000-4000-8000-000000000013";
 
-    const code = await withFixedUuid(requestId, async () =>
-      main(["run", "wait", "run-123"], cap.io, {
-        connectIpcClient: async () =>
-          makeClient([
-            {
-              kind: "response",
-              id: requestId,
-              result,
-            },
-          ]),
-      }),
-    );
+    const code = await runWait(cap, "run-123", [waitResponse(result)]);
 
     expect(code).toBe(expectedExit);
   });
@@ -845,24 +832,8 @@ describe("v2 cli", () => {
   test("run wait with empty run ID forwards to daemon for invalid_params", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
-    const requestId = "00000000-0000-4000-8000-000000000014";
 
-    const code = await withFixedUuid(requestId, async () =>
-      main(["run", "wait", ""], cap.io, {
-        connectIpcClient: async () =>
-          makeClient(
-            [
-              {
-                kind: "error",
-                id: requestId,
-                code: "invalid_params",
-                message: "runId is required",
-              },
-            ],
-            sent,
-          ),
-      }),
-    );
+    const code = await runWait(cap, "", [waitError("invalid_params", "runId is required")], sent);
 
     expect(code).toBe(1);
     expect(sent[0]).toMatchObject({ method: "wait", params: { runId: "" } });
@@ -871,21 +842,8 @@ describe("v2 cli", () => {
 
   test("run wait passes through unknown_run errors", async () => {
     const cap = captureIo();
-    const requestId = "00000000-0000-4000-8000-000000000015";
 
-    const code = await withFixedUuid(requestId, async () =>
-      main(["run", "wait", "run-404"], cap.io, {
-        connectIpcClient: async () =>
-          makeClient([
-            {
-              kind: "error",
-              id: requestId,
-              code: "unknown_run",
-              message: "Run run-404 not found",
-            },
-          ]),
-      }),
-    );
+    const code = await runWait(cap, "run-404", [waitError("unknown_run", "Run run-404 not found")]);
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: "unknown_run: Run run-404 not found\n" });
@@ -893,20 +851,8 @@ describe("v2 cli", () => {
 
   test("run wait prints invalid daemon response for malformed success payload", async () => {
     const cap = captureIo();
-    const requestId = "00000000-0000-4000-8000-000000000016";
 
-    const code = await withFixedUuid(requestId, async () =>
-      main(["run", "wait", "run-123"], cap.io, {
-        connectIpcClient: async () =>
-          makeClient([
-            {
-              kind: "response",
-              id: requestId,
-              result: { loopOutcomeKind: "complete" },
-            },
-          ]),
-      }),
-    );
+    const code = await runWait(cap, "run-123", [waitResponse({ loopOutcomeKind: "complete" })]);
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });

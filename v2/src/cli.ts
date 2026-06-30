@@ -8,6 +8,7 @@ import type { InvocationBinding } from "../../shared/invocation/execute.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon-lifecycle.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import type { ErrorFrame, ResponseFrame } from "./ipc/types.ts";
+import type { WaitRunCompletionResult } from "./daemon.ts";
 import type { RunStatus } from "./state-store-types.ts";
 import {
   executeWriteLoop,
@@ -244,7 +245,11 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
         io.stderr("invalid daemon response\n");
         return 1;
       }
-      io.stdout(`${waitStdoutJson(result)}\n`);
+      const payload: Record<string, unknown> = { runStatus: result.runStatus };
+      if (result.loopOutcomeKind !== undefined) payload.loopOutcomeKind = result.loopOutcomeKind;
+      if (result.iterationsConsumed !== undefined) payload.iterationsConsumed = result.iterationsConsumed;
+      if (result.resumable !== undefined) payload.resumable = result.resumable;
+      io.stdout(`${JSON.stringify(payload)}\n`);
       return exitCodeForWaitResult(result);
     });
   }
@@ -436,13 +441,6 @@ function exitCodeForWriteResult(kind: Awaited<ReturnType<typeof executeWriteLoop
   return 1;
 }
 
-type WaitResult = {
-  runStatus: RunStatus;
-  loopOutcomeKind?: WriteLoopOutcomeKind;
-  iterationsConsumed?: number;
-  resumable?: boolean;
-};
-
 const RUN_STATUSES = new Set<RunStatus>([
   "in-progress",
   "completed",
@@ -463,11 +461,12 @@ const LOOP_OUTCOME_KINDS = new Set<WriteLoopOutcomeKind>([
   "paused",
 ]);
 
-function parseWaitResult(value: unknown): WaitResult | undefined {
+function parseWaitResult(value: unknown): WaitRunCompletionResult | undefined {
   const runStatus = stringProperty(value, "runStatus");
   if (runStatus === undefined || !RUN_STATUSES.has(runStatus as RunStatus)) return undefined;
 
-  const result: WaitResult = { runStatus: runStatus as RunStatus };
+  const result: WaitRunCompletionResult = { runStatus: runStatus as RunStatus };
+  const record = value as Record<string, unknown>;
 
   const loopOutcomeKind = stringProperty(value, "loopOutcomeKind");
   if (loopOutcomeKind !== undefined) {
@@ -475,8 +474,10 @@ function parseWaitResult(value: unknown): WaitResult | undefined {
     result.loopOutcomeKind = loopOutcomeKind as WriteLoopOutcomeKind;
   }
 
-  const iterationsConsumed = numberProperty(value, "iterationsConsumed");
-  if (iterationsConsumed !== undefined) result.iterationsConsumed = iterationsConsumed;
+  const iterationsConsumed = record.iterationsConsumed;
+  if (typeof iterationsConsumed === "number" && Number.isFinite(iterationsConsumed)) {
+    result.iterationsConsumed = iterationsConsumed;
+  }
 
   const resumable = booleanProperty(value, "resumable");
   if (resumable !== undefined) result.resumable = resumable;
@@ -484,32 +485,21 @@ function parseWaitResult(value: unknown): WaitResult | undefined {
   return result;
 }
 
-function waitStdoutJson(result: WaitResult): string {
-  const payload: Record<string, unknown> = { runStatus: result.runStatus };
-  if (result.loopOutcomeKind !== undefined) payload.loopOutcomeKind = result.loopOutcomeKind;
-  if (result.iterationsConsumed !== undefined) payload.iterationsConsumed = result.iterationsConsumed;
-  if (result.resumable !== undefined) payload.resumable = result.resumable;
-  return JSON.stringify(payload);
-}
-
-function exitCodeForWaitResult(result: WaitResult): number {
+function exitCodeForWaitResult(result: WaitRunCompletionResult): number {
   if (result.loopOutcomeKind !== undefined) {
-    if (result.loopOutcomeKind === "complete") return 0;
-    if (result.loopOutcomeKind === "invocation_failure") return 2;
-    if (result.loopOutcomeKind === "budget-exhausted") return 5;
-    return 1;
+    return exitCodeForWriteResult(result.loopOutcomeKind);
   }
 
-  if (result.runStatus === "failed") return 3;
-  if (result.runStatus === "killed") return 4;
-  if (result.runStatus === "budget-soft-stopped") return 5;
-  return 1;
-}
-
-function numberProperty(value: unknown, key: string): number | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const prop = (value as Record<string, unknown>)[key];
-  return typeof prop === "number" && Number.isFinite(prop) ? prop : undefined;
+  switch (result.runStatus) {
+    case "failed":
+      return 3;
+    case "killed":
+      return 4;
+    case "budget-soft-stopped":
+      return 5;
+    default:
+      return 1;
+  }
 }
 
 function stringValue(value: string | boolean | string[] | undefined): string | undefined {

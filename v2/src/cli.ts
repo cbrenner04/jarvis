@@ -10,6 +10,7 @@ import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon-lifecycle.ts"
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import type { ErrorFrame, ResponseFrame } from "./ipc/types.ts";
 import type { RunStatus } from "./state-store-types.ts";
+import { type RunTuiEntryDeps, runTuiEntry } from "./tui-entry.tsx";
 import {
   executeWriteLoop,
   type WriteLoopInput,
@@ -29,6 +30,7 @@ type CliDeps = {
   startDaemon: typeof startDaemon;
   stopDaemon: typeof stopDaemon;
   getDaemonStatus: typeof getDaemonStatus;
+  runTuiEntry: (deps?: RunTuiEntryDeps) => Promise<number>;
   socketPath: string;
   pidPath: string;
 };
@@ -41,6 +43,7 @@ const DEFAULT_SOCKET_PATH = join(homedir(), ".jarvis", "daemon.sock");
 const DEFAULT_PID_PATH = join(homedir(), ".jarvis", "daemon.pid");
 const DAEMON_USAGE = "usage: jarvis daemon <start|stop|status>\n";
 const RUN_USAGE = "usage: jarvis run <start|list|log|pause|resume|kill|wait> [args]\n";
+const TUI_USAGE = "usage: jarvis tui\n";
 const WRITE_USAGE =
   "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--agents <csv>] [--max-iterations <n>]\n";
 const LOG_FRAME_WAIT_MS = 86_400_000;
@@ -57,6 +60,7 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     startDaemon,
     stopDaemon,
     getDaemonStatus,
+    runTuiEntry,
     socketPath: DEFAULT_SOCKET_PATH,
     pidPath: DEFAULT_PID_PATH,
     ...deps,
@@ -89,6 +93,14 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
 
   if (command === "run") {
     return runRunCommand(argv.slice(1), out, runtimeDeps);
+  }
+
+  if (command === "tui") {
+    if (argv.length !== 1) {
+      out.stderr(TUI_USAGE);
+      return 1;
+    }
+    return runtimeDeps.runTuiEntry({ socketPath: runtimeDeps.socketPath });
   }
 
   out.stdout("v2 not ready\n");

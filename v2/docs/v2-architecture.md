@@ -211,6 +211,11 @@ a server/runner world (pause + route to a human loop vs. process exit).
   on memory than a web UI (matters with concurrent agents + the local model) and
   works over SSH to the work machine without port-forwarding. Richer clients
   (web) can be added later over the same API.
+- **Shipped TUI scaffold (`jarvis tui`).** Connects over the production IPC
+  socket (`~/.jarvis/daemon.sock`), proves liveness via IPC `health` and IPC
+  `status` (`{ state: "running" }`), renders feedback through ink, then exits.
+  Launch, monitor, and steer remain sibling work over the same daemon surface.
+  Operator contract: [`write-behavior.md`](./write-behavior.md#tui-cli).
 - **Observability log stream.** Structured event log (`iteration_started`,
   `boundary_committed`, `loop_finished`) keyed by run ID, queryable by sink +
   reader interfaces. Appended directly by the write loop; not part of the
@@ -490,8 +495,9 @@ surface is a sibling concern, wired via this interface).
 - **Lifecycle API:** Programmatic `startDaemon`, `stopDaemon`, `getDaemonStatus`
   in `v2/src/daemon-lifecycle.ts`. Detached child process with bounded readiness
   timeout, graceful shutdown (RPC + SIGTERM + SIGKILL), and double-start
-  protection. Tests inject socket/PID paths; production defaults are deferred to
-  first consumer.
+  protection. Production socket and PID defaults (`~/.jarvis/daemon.sock`,
+  `~/.jarvis/daemon.pid`) are pinned by the CLI and [`jarvis tui`](./write-behavior.md#tui-cli);
+  the lifecycle library still requires explicit paths from callers.
 - **In-memory worktree ownership:** Daemon holds a registry keyed by `{project,
   branch}` (the state-store resume key), recording `{runId, worktreePath}`.
   `claim` rejects double-claim; `release` is idempotent. No disk writes or

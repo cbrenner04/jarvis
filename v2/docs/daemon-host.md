@@ -13,9 +13,10 @@ Operator-facing `jarvis daemon ...` and `jarvis run ...` behavior lives in
 ## Socket path
 
 Callers supply `socketPath` explicitly. There is no production default,
-stale-socket recovery, or max concurrent client cap in the library. The CLI is
-the first production consumer and pins `~/.jarvis/daemon.sock` plus
-`~/.jarvis/daemon.pid`; other callers still pass explicit paths.
+stale-socket recovery, or max concurrent client cap in the library. The CLI and
+[`jarvis tui`](./write-behavior.md#tui-cli) pin `~/.jarvis/daemon.sock` plus
+`~/.jarvis/daemon.pid` at the consumer layer; other callers still pass explicit
+paths.
 
 ## Framing
 

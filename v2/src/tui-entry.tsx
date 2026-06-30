@@ -34,8 +34,6 @@ export type TuiViewHost = {
   show(state: TuiViewState): void | Promise<void>;
 };
 
-export type { InkRender };
-
 /** Dependencies for {@link runTuiEntry}. */
 export type RunTuiEntryDeps = {
   /** Unix socket path; production default is `~/.jarvis/daemon.sock`. */
@@ -52,29 +50,16 @@ export type RunTuiEntryDeps = {
   inkRender?: InkRender;
 };
 
-async function showWithInk(state: TuiViewState, inkRender?: InkRender): Promise<void> {
-  const { showTuiInkFeedback } = await import("./tui-ink-feedback.tsx");
-  await showTuiInkFeedback(state, inkRender);
-}
-
 async function present(state: TuiViewState, deps: RunTuiEntryDeps): Promise<void> {
   if (deps.viewHost !== undefined) {
     await deps.viewHost.show(state);
     return;
   }
-  await showWithInk(state, deps.inkRender);
+  const { showTuiInkFeedback } = await import("./tui-ink-feedback.tsx");
+  await showTuiInkFeedback(state, deps.inkRender);
 }
 
-function formatRpcError(error: TuiDaemonRpcError): TuiViewState {
-  return { kind: "rpc-error", code: error.code, message: error.message };
-}
-
-/**
- * Connect, prove liveness, collect launch fields, start a detached run, and exit.
- *
- * @param deps Optional socket path, daemon client, field collector, view host, and ink render seams.
- * @returns `0` on successful `start`; `1` on validation, guard, RPC, or unavailable-daemon failure.
- */
+/** Connect, prove liveness, collect launch fields, start a detached run, and exit. */
 export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
   const resolved = deps ?? {};
   const connectFn = resolved.connectTuiDaemon ?? connectTuiDaemon;
@@ -109,7 +94,7 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
       return 1;
     }
     if (error instanceof TuiDaemonRpcError) {
-      await present(formatRpcError(error), resolved);
+      await present({ kind: "rpc-error", code: error.code, message: error.message }, resolved);
       return 1;
     }
     throw error;

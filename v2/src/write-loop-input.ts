@@ -22,61 +22,48 @@ export type WriteLaunchFieldValues = {
   maxIterations?: string;
 };
 
-export type BuildWriteLoopInputResult = { ok: true; input: WriteLoopInput } | { ok: false; errors: string[] };
+type BuildWriteLoopInputResult = { ok: true; input: WriteLoopInput } | { ok: false; errors: string[] };
 
-/**
- * Map validated launch fields to the daemon `start` / foreground write payload.
- *
- * @param fields Partial launch fields from CLI or TUI collection.
- * @param createBindings Factory for invocation bindings from parsed agent ids.
- * @returns Built `WriteLoopInput` or operator-visible validation errors.
- */
+type RequiredLaunchFields = {
+  projectRoot: string;
+  projectName: string;
+  branchName: string;
+  baseRef: string;
+  specPath: string;
+  artifactPath: string;
+  agents: readonly string[];
+};
+
+/** Map validated launch fields to the daemon `start` / foreground write payload. */
 export function buildWriteLoopInput(
   fields: Partial<WriteLaunchFieldValues>,
   createBindings: (agentIds: readonly string[]) => readonly InvocationBinding[],
 ): BuildWriteLoopInputResult {
   const errors: string[] = [];
-
-  const projectRoot = requireString(fields.projectRoot, "project-root", errors);
-  const projectName = requireString(fields.projectName, "project", errors);
-  const branchName = requireString(fields.branchName, "branch", errors);
-  const baseRef = requireString(fields.baseRef, "base", errors);
-  const specPath = requireString(fields.specPath, "spec", errors);
-  const artifactPath = requireString(fields.artifactPath, "artifact", errors);
-
-  const agents = parseAgents(fields.agents, errors);
+  const required = requireLaunchFields(fields, errors);
   const maxIterations = parseMaxIterations(fields.maxIterations, errors);
 
-  if (errors.length > 0) {
+  if (errors.length > 0 || required === null || maxIterations === null) {
     return { ok: false, errors };
-  }
-
-  if (maxIterations === null) {
-    return { ok: false, errors: ["invalid max-iterations: must be a positive integer"] };
   }
 
   const input: WriteLoopInput = {
     worktree: {
-      projectRoot: projectRoot!,
-      projectName: projectName!,
-      branchName: branchName!,
-      baseRef: baseRef!,
+      projectRoot: required.projectRoot,
+      projectName: required.projectName,
+      branchName: required.branchName,
+      baseRef: required.baseRef,
     },
-    specPath: specPath!,
+    specPath: required.specPath,
     stepRules: DEFAULT_WRITE_STEP_RULES,
-    expectedArtifactPath: artifactPath!,
-    bindings: createBindings(agents!),
+    expectedArtifactPath: required.artifactPath,
+    bindings: createBindings(required.agents),
   };
 
   return maxIterations === undefined ? { ok: true, input } : { ok: true, input: { ...input, maxIterations } };
 }
 
-/**
- * Map `parseArgs` write/run-start flag values to {@link buildWriteLoopInput}.
- *
- * @param values Parsed CLI flag map from {@link parseWriteArgs}.
- * @param createBindings Factory for invocation bindings from parsed agent ids.
- */
+/** Map `parseArgs` write/run-start flag values to {@link buildWriteLoopInput}. */
 export function buildWriteLoopInputFromCliValues(
   values: Record<string, string | boolean | string[] | undefined>,
   createBindings: (agentIds: readonly string[]) => readonly InvocationBinding[],
@@ -116,6 +103,31 @@ export function parseWriteArgs(argv: readonly string[]): Record<string, string |
   }).values;
 }
 
+function requireLaunchFields(fields: Partial<WriteLaunchFieldValues>, errors: string[]): RequiredLaunchFields | null {
+  const projectRoot = requireString(fields.projectRoot, "project-root", errors);
+  const projectName = requireString(fields.projectName, "project", errors);
+  const branchName = requireString(fields.branchName, "branch", errors);
+  const baseRef = requireString(fields.baseRef, "base", errors);
+  const specPath = requireString(fields.specPath, "spec", errors);
+  const artifactPath = requireString(fields.artifactPath, "artifact", errors);
+  const agents = parseAgents(fields.agents, errors);
+
+  if (
+    projectRoot === undefined ||
+    projectName === undefined ||
+    branchName === undefined ||
+    baseRef === undefined ||
+    specPath === undefined ||
+    artifactPath === undefined ||
+    agents === undefined ||
+    agents === null
+  ) {
+    return null;
+  }
+
+  return { projectRoot, projectName, branchName, baseRef, specPath, artifactPath, agents };
+}
+
 function requireString(value: string | undefined, name: string, errors: string[]): string | undefined {
   if (value === undefined || value.length === 0) {
     errors.push(`missing required field: ${name}`);
@@ -151,23 +163,18 @@ function toLaunchFields(
   values: Record<string, string | boolean | string[] | undefined>,
 ): Partial<WriteLaunchFieldValues> {
   const fields: Partial<WriteLaunchFieldValues> = {};
-  const projectRoot = stringValue(values["project-root"]);
-  const projectName = stringValue(values.project);
-  const branchName = stringValue(values.branch);
-  const baseRef = stringValue(values.base);
-  const specPath = stringValue(values.spec);
-  const artifactPath = stringValue(values.artifact);
-  const agents = stringValue(values.agents);
-  const maxIterations = stringValue(values["max-iterations"]);
+  const assign = <K extends keyof WriteLaunchFieldValues>(key: K, value: string | undefined): void => {
+    if (value !== undefined) fields[key] = value;
+  };
 
-  if (projectRoot !== undefined) fields.projectRoot = projectRoot;
-  if (projectName !== undefined) fields.projectName = projectName;
-  if (branchName !== undefined) fields.branchName = branchName;
-  if (baseRef !== undefined) fields.baseRef = baseRef;
-  if (specPath !== undefined) fields.specPath = specPath;
-  if (artifactPath !== undefined) fields.artifactPath = artifactPath;
-  if (agents !== undefined) fields.agents = agents;
-  if (maxIterations !== undefined) fields.maxIterations = maxIterations;
+  assign("projectRoot", stringValue(values["project-root"]));
+  assign("projectName", stringValue(values.project));
+  assign("branchName", stringValue(values.branch));
+  assign("baseRef", stringValue(values.base));
+  assign("specPath", stringValue(values.spec));
+  assign("artifactPath", stringValue(values.artifact));
+  assign("agents", stringValue(values.agents));
+  assign("maxIterations", stringValue(values["max-iterations"]));
   return fields;
 }
 

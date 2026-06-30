@@ -11,22 +11,21 @@ const FIXTURE_CLI_VALUES = {
   artifact: "proof.txt",
 };
 
+const FIXTURE_FIELDS = {
+  projectRoot: FIXTURE_CLI_VALUES["project-root"],
+  projectName: FIXTURE_CLI_VALUES.project,
+  branchName: FIXTURE_CLI_VALUES.branch,
+  baseRef: FIXTURE_CLI_VALUES.base,
+  specPath: FIXTURE_CLI_VALUES.spec,
+  artifactPath: FIXTURE_CLI_VALUES.artifact,
+};
+
 const createTestBindings = (_agentIds: readonly string[]) => simulatedBindings(["done"]);
 
 describe("buildWriteLoopInput", () => {
   test("matches jarvis run start argv mapping for required fields with omitted optional flags", () => {
     const fromCli = buildWriteLoopInputFromCliValues(FIXTURE_CLI_VALUES, createTestBindings);
-    const fromFields = buildWriteLoopInput(
-      {
-        projectRoot: FIXTURE_CLI_VALUES["project-root"],
-        projectName: FIXTURE_CLI_VALUES.project,
-        branchName: FIXTURE_CLI_VALUES.branch,
-        baseRef: FIXTURE_CLI_VALUES.base,
-        specPath: FIXTURE_CLI_VALUES.spec,
-        artifactPath: FIXTURE_CLI_VALUES.artifact,
-      },
-      createTestBindings,
-    );
+    const fromFields = buildWriteLoopInput(FIXTURE_FIELDS, createTestBindings);
 
     expect(fromCli.ok).toBe(true);
     expect(fromFields.ok).toBe(true);

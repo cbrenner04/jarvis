@@ -10,17 +10,19 @@ export type LaunchFieldCollectionResult =
 /** Injectable seam for TUI launch field collection. */
 export type TuiLaunchFieldCollector = () => Promise<LaunchFieldCollectionResult>;
 
-type FieldPrompt = { key: keyof WriteLaunchFieldValues; label: string; required: boolean };
+const OPTIONAL_LAUNCH_FIELDS = new Set<keyof WriteLaunchFieldValues>(["agents", "maxIterations"]);
 
-const LAUNCH_FIELD_PROMPTS: readonly FieldPrompt[] = [
-  { key: "projectRoot", label: "project-root", required: true },
-  { key: "projectName", label: "project", required: true },
-  { key: "branchName", label: "branch", required: true },
-  { key: "baseRef", label: "base", required: true },
-  { key: "specPath", label: "spec", required: true },
-  { key: "artifactPath", label: "artifact", required: true },
-  { key: "agents", label: "agents (optional)", required: false },
-  { key: "maxIterations", label: "max-iterations (optional)", required: false },
+type LaunchFieldPrompt = { key: keyof WriteLaunchFieldValues; label: string };
+
+const LAUNCH_FIELD_PROMPTS: readonly LaunchFieldPrompt[] = [
+  { key: "projectRoot", label: "project-root" },
+  { key: "projectName", label: "project" },
+  { key: "branchName", label: "branch" },
+  { key: "baseRef", label: "base" },
+  { key: "specPath", label: "spec" },
+  { key: "artifactPath", label: "artifact" },
+  { key: "agents", label: "agents (optional)" },
+  { key: "maxIterations", label: "max-iterations (optional)" },
 ];
 
 type TextComponent = (props: { children?: string }) => ReactElement;
@@ -44,15 +46,11 @@ function LaunchFieldForm({
   const [value, setValue] = useState("");
   const [fields, setFields] = useState<Partial<WriteLaunchFieldValues>>({});
 
-  const prompt = LAUNCH_FIELD_PROMPTS[index]!;
-
-  const finish = (nextFields: Partial<WriteLaunchFieldValues>): void => {
-    onDone({ ok: true, fields: nextFields as WriteLaunchFieldValues });
-  };
+  const prompt = promptAt(index);
 
   const advance = (submitted: string): void => {
     const trimmed = submitted.trim();
-    if (prompt.required && trimmed.length === 0) {
+    if (!OPTIONAL_LAUNCH_FIELDS.has(prompt.key) && trimmed.length === 0) {
       onDone({ ok: false, errors: [`missing required field: ${prompt.label}`] });
       return;
     }
@@ -60,7 +58,7 @@ function LaunchFieldForm({
     const nextFields = trimmed.length > 0 ? { ...fields, [prompt.key]: trimmed } : { ...fields };
     const nextIndex = index + 1;
     if (nextIndex >= LAUNCH_FIELD_PROMPTS.length) {
-      finish(nextFields);
+      onDone({ ok: true, fields: nextFields as WriteLaunchFieldValues });
       return;
     }
     setFields(nextFields);
@@ -85,11 +83,15 @@ function LaunchFieldForm({
   return createElement(Text, null, `${prompt.label}: ${value}`);
 }
 
-/**
- * Collect launch fields through ink prompts backed by `useInput`.
- *
- * @param inkRender Injectable ink render; defaults to production ink `render`.
- */
+function promptAt(index: number): LaunchFieldPrompt {
+  const prompt = LAUNCH_FIELD_PROMPTS[index];
+  if (prompt === undefined) {
+    throw new Error(`invalid launch prompt index: ${index}`);
+  }
+  return prompt;
+}
+
+/** Collect launch fields through ink prompts backed by `useInput`. */
 export async function collectLaunchFieldsViaInk(inkRender?: InkRender): Promise<LaunchFieldCollectionResult> {
   let renderFn: InkRender;
   let Text: TextComponent;

@@ -105,7 +105,7 @@ only.
 - [x] `v2/docs/v2-architecture.md` Interface cross-links `jarvis tui` run monitor to daemon `list`/`wait` (one sentence; no duplicate wire contract).
 - [x] `v2/docs/v1-behaviors.md` has a `[v2 additive]` entry for interactive `jarvis tui` run monitor under TUI/observability.
 - [x] `v2/src/cli.test.ts` coverage for `jarvis write`, `jarvis daemon`, and `jarvis run` stays green.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 
@@ -118,12 +118,3 @@ only.
   cross-link from TUI to daemon `list`/`wait`.
 - [`v2/docs/v1-behaviors.md`](../../docs/v1-behaviors.md) — `[v2 additive]`
   interactive `jarvis tui` run monitor.
-
-## Blocker
-
-`bun run typecheck` passes, but `bun run test` does not reach green in this
-worktree. The required serial retry (`bun test`) also fails to produce a clean
-repo result after the same unrelated v1 failures surfaced under parallel run:
-`v1/test/idle-hang-fixtures.sandbox-unrunnable.test.ts` fails its helper-process
-cleanup assertions, and `v1/test/snapshot-update-retest-runner.test.ts` /
-`v1/test/base-ref-test-runner.test.ts` emit existing snapshot/base-ref failures.

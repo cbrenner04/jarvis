@@ -15,6 +15,7 @@ import { snapshotAcceptanceCriteria } from "../modes/patch/subspec.ts";
 import { stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
 import { type EnsureDraftPrOpts, ensureDraftPr, findMatchingOpenPrs, renderAttributionSummary } from "../pr.ts";
 import { ReadyCommandError, runReadyGateWithTier } from "../ready-gate.ts";
+import { isScopedAbandonEligible } from "../scoped-abandon-preflight.ts";
 import { hasUpstream, pushCurrent } from "../worktree.ts";
 import { getWorktreeLockPath, isProcessAlive, type WorktreeLock } from "../worktree-lock.ts";
 import { emitMergeRefusal, type MergeTargetResolutionSeams, resolveMergeTarget } from "./resolve-merge-target.ts";
@@ -72,6 +73,8 @@ export type SuggestedMovesInput = {
   prState: PrState;
   specComplete: boolean;
   worktreePath: string;
+  worktreeName: string;
+  scopedAbandonEligible: boolean;
   specPath?: string | undefined;
 };
 
@@ -105,7 +108,7 @@ export function triageCommand(opts: TriageCommandOptions): number | Promise<numb
       }
       return triageMerge({ ...opts, worktreeName: resolution.worktreeName });
     }
-    return triageDrillDown(worktreeDir, opts.worktreeName, opts.io);
+    return triageDrillDown(opts.projectRoot, worktreeDir, opts.worktreeName, opts.io);
   }
 
   // No-arg form: list all worktrees with summary
@@ -320,7 +323,12 @@ function emitVerdict(io: TriageIo, statuses: WorktreeStatus[]): void {
   }
 }
 
-function triageDrillDown(worktreeDir: string, worktreeName: string, io: TriageIo): number {
+function triageDrillDown(
+  projectRoot: string,
+  worktreeDir: string,
+  worktreeName: string,
+  io: TriageIo,
+): number {
   const worktreePath = join(worktreeDir, worktreeName);
 
   if (!existsSync(worktreePath)) {
@@ -368,7 +376,7 @@ function triageDrillDown(worktreeDir: string, worktreeName: string, io: TriageIo
 
   // Suggested next moves section
   io.stdout("Suggested next moves\n");
-  const suggestedContent = safeRun(() => renderSuggestedMoves(worktreePath));
+  const suggestedContent = safeRun(() => renderSuggestedMoves(projectRoot, worktreeName, worktreePath));
   io.stdout(suggestedContent);
 
   return exitCode;
@@ -686,9 +694,9 @@ function renderSessionLog(worktreePath: string): string {
   }
 }
 
-function renderSuggestedMoves(worktreePath: string): string {
+function renderSuggestedMoves(projectRoot: string, worktreeName: string, worktreePath: string): string {
   try {
-    const input = buildSuggestedMovesInput(worktreePath);
+    const input = buildSuggestedMovesInput(projectRoot, worktreeName, worktreePath);
     const lines = getSuggestedMoves(input);
     if (lines.length === 0) {
       return "  (no suggestions available)\n";
@@ -699,7 +707,11 @@ function renderSuggestedMoves(worktreePath: string): string {
   }
 }
 
-function buildSuggestedMovesInput(worktreePath: string): SuggestedMovesInput {
+function buildSuggestedMovesInput(
+  projectRoot: string,
+  worktreeName: string,
+  worktreePath: string,
+): SuggestedMovesInput {
   const specMarkerPath = join(worktreePath, ".active-spec-path");
   const specPath = existsSync(specMarkerPath) ? readFileSync(specMarkerPath, "utf8").trim() : undefined;
 
@@ -707,6 +719,15 @@ function buildSuggestedMovesInput(worktreePath: string): SuggestedMovesInput {
   const unpushed = computeUnpushed(worktreePath);
   const prState = computePrState(worktreePath);
   const specComplete = computeSpecComplete(specPath);
+  const scopedAbandonEligible = isScopedAbandonEligible({
+    projectRoot,
+    worktreeName,
+    worktreePath,
+    deps: {
+      isMergedPr: triageIsMergedPr,
+      findMatchingOpenPrs,
+    },
+  });
 
   return {
     dirtyKind,
@@ -714,8 +735,22 @@ function buildSuggestedMovesInput(worktreePath: string): SuggestedMovesInput {
     prState,
     specComplete,
     worktreePath,
+    worktreeName,
+    scopedAbandonEligible,
     specPath,
   };
+}
+
+function triageIsMergedPr(branch: string): boolean {
+  try {
+    const output = execSync(`gh pr view "${branch}" --json state -q .state`, {
+      stdio: "pipe",
+      encoding: "utf8",
+    }).trim();
+    return output === "MERGED";
+  } catch {
+    return false;
+  }
 }
 
 function computeDirtyKind(worktreePath: string): DirtyKind {
@@ -904,11 +939,26 @@ const suggestedMovesRules: Array<{
   // Rule 6: modified or mixed + specComplete = false
   {
     match: (input) => ["modified", "mixed"].includes(input.dirtyKind) && input.specComplete === false,
-    format: (input) => [
-      `1. Inspect: git -C ${input.worktreePath} diff`,
-      `2. Resume: jarvis1 run ${input.specPath || "(spec path unknown)"}`,
-      `3. Discard: git -C ${input.worktreePath} reset --hard && git -C ${input.worktreePath} clean -fd`,
-    ],
+    format: (input) => {
+      const discardLine = input.scopedAbandonEligible
+        ? `3. Discard: jarvis1 cleanup --abandon ${input.worktreeName}`
+        : `3. Discard: git -C ${input.worktreePath} reset --hard && git -C ${input.worktreePath} clean -fd`;
+      return [
+        `1. Inspect: git -C ${input.worktreePath} diff`,
+        `2. Resume: jarvis1 run ${input.specPath || "(spec path unknown)"}`,
+        discardLine,
+      ];
+    },
+  },
+
+  // Rule 7: clean + incomplete + closed/none PR + abandon-eligible
+  {
+    match: (input) =>
+      input.dirtyKind === "clean" &&
+      input.specComplete === false &&
+      ["CLOSED", "none"].includes(input.prState) &&
+      input.scopedAbandonEligible,
+    format: (input) => [`1. Retire this worktree: jarvis1 cleanup --abandon ${input.worktreeName}`],
   },
 ];
 

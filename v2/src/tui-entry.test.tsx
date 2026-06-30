@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { renderToString, Text } from "ink";
+import { createElement } from "react";
 import type { TuiDaemonClient } from "./tui-daemon-client.ts";
 import { TuiDaemonConnectionError } from "./tui-daemon-client.ts";
 import { runTuiEntry, TUI_DAEMON_SOCKET_DISPLAY, type TuiViewState } from "./tui-entry.tsx";
@@ -73,8 +73,9 @@ describe("runTuiEntry", () => {
     expect(methods).toEqual([]);
     expect(states).toEqual([{ kind: "unavailable" }]);
 
+    const { renderToString, Text } = await import("ink");
     const unavailableText = renderToString(
-      <Text>{`Daemon unavailable at ${TUI_DAEMON_SOCKET_DISPLAY}. Start with: jarvis daemon start`}</Text>,
+      createElement(Text, null, `Daemon unavailable at ${TUI_DAEMON_SOCKET_DISPLAY}. Start with: jarvis daemon start`),
     );
     expect(unavailableText).toContain(TUI_DAEMON_SOCKET_DISPLAY);
     expect(unavailableText).toContain("jarvis daemon start");
@@ -95,6 +96,7 @@ describe("runTuiEntry", () => {
   test("production path renders through injectable ink, not the view host", async () => {
     let inkRendered = false;
     const methods: string[] = [];
+    const { renderToString } = await import("ink");
 
     const code = await runTuiEntry({
       connectTuiDaemon: async () => fakeClient(methods),

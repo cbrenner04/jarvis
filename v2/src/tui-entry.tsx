@@ -1,16 +1,15 @@
-import { render, Text } from "ink";
-import type { ReactElement } from "react";
 import {
   type ConnectTuiDaemonOptions,
   connectTuiDaemon,
+  TUI_DAEMON_SOCKET_DISPLAY,
   type TuiDaemonClient,
   TuiDaemonConnectionError,
   type TuiDaemonHealthResult,
   type TuiDaemonStatusResult,
 } from "./tui-daemon-client.ts";
+import type { InkRender } from "./tui-ink-feedback.tsx";
 
-/** Operator-facing socket path in unavailable-daemon feedback. */
-export const TUI_DAEMON_SOCKET_DISPLAY = "~/.jarvis/daemon.sock";
+export { TUI_DAEMON_SOCKET_DISPLAY };
 
 /** Operator-visible TUI connect scaffold state. */
 export type TuiViewState =
@@ -26,8 +25,7 @@ export type TuiViewHost = {
   show(state: TuiViewState): void | Promise<void>;
 };
 
-/** Injectable ink `render` seam for tests. */
-export type InkRender = typeof render;
+export type { InkRender };
 
 /** Dependencies for {@link runTuiEntry}. */
 export type RunTuiEntryDeps = {
@@ -41,36 +39,9 @@ export type RunTuiEntryDeps = {
   inkRender?: InkRender;
 };
 
-function ConnectedFeedback({
-  health,
-  status,
-}: {
-  health: TuiDaemonHealthResult;
-  status: TuiDaemonStatusResult;
-}): ReactElement {
-  return (
-    <>
-      <Text>Connected to daemon</Text>
-      <Text>health: {JSON.stringify(health)}</Text>
-      <Text>status: {JSON.stringify(status)}</Text>
-    </>
-  );
-}
-
-function UnavailableFeedback(): ReactElement {
-  return <Text>{`Daemon unavailable at ${TUI_DAEMON_SOCKET_DISPLAY}. Start with: jarvis daemon start`}</Text>;
-}
-
-async function showWithInk(state: TuiViewState, inkRender: InkRender): Promise<void> {
-  const element: ReactElement =
-    state.kind === "connected" ? (
-      <ConnectedFeedback health={state.health} status={state.status} />
-    ) : (
-      <UnavailableFeedback />
-    );
-  const instance = inkRender(element);
-  await instance.waitUntilRenderFlush();
-  instance.unmount();
+async function showWithInk(state: TuiViewState, inkRender?: InkRender): Promise<void> {
+  const { showTuiInkFeedback } = await import("./tui-ink-feedback.tsx");
+  await showTuiInkFeedback(state, inkRender);
 }
 
 async function present(state: TuiViewState, deps: RunTuiEntryDeps): Promise<void> {
@@ -78,7 +49,7 @@ async function present(state: TuiViewState, deps: RunTuiEntryDeps): Promise<void
     await deps.viewHost.show(state);
     return;
   }
-  await showWithInk(state, deps.inkRender ?? render);
+  await showWithInk(state, deps.inkRender);
 }
 
 /**

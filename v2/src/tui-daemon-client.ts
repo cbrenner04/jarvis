@@ -3,6 +3,9 @@ import { join } from "node:path";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import type { ErrorFrame, IpcFrame, ResponseFrame } from "./ipc/types.ts";
 
+/** Operator-facing socket path in unavailable-daemon feedback. */
+export const TUI_DAEMON_SOCKET_DISPLAY = "~/.jarvis/daemon.sock";
+
 /** Successful `health` RPC payload from the daemon host. */
 export type TuiDaemonHealthResult = { ok: true };
 

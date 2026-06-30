@@ -6,7 +6,13 @@ import { stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
 import { findMatchingOpenPrs, type MatchingOpenPr } from "../pr.ts";
 import type { TriageIo } from "./triage.ts";
 
-const LABEL = "triage --merge";
+export function emitMergeRefusal(
+  io: TriageIo,
+  className: "unknown worktree" | "plan PR" | "implementation PR",
+  message: string,
+): void {
+  io.stderr(`triage --merge (${className}): ${message}\n`);
+}
 
 type PrHeadLookupResult = { ok: true; headRef: string } | { ok: false; message: string };
 
@@ -74,7 +80,7 @@ export function resolveMergeTarget(
 }
 
 function fail(io: TriageIo, message: string): MergeTargetResolution {
-  io.stderr(`${LABEL}: ${message}\n`);
+  emitMergeRefusal(io, "unknown worktree", message);
   return { ok: false };
 }
 
@@ -118,7 +124,7 @@ function resolveWorktreeFromPrRef(args: {
     return fail(args.io, `no local worktree for PR reference ${args.prRef} (branch ${lookup.headRef})`);
   }
   if (matches.length > 1) {
-    args.io.stderr(`${LABEL}: multiple worktrees match PR reference ${args.prRef}:\n`);
+    emitMergeRefusal(args.io, "unknown worktree", `multiple worktrees match PR reference ${args.prRef}:`);
     for (const name of matches) {
       args.io.stderr(`  ${name}\n`);
     }
@@ -169,7 +175,7 @@ function resolveWorktreeFromSpecPath(args: {
 
   const worktreePaths = [...candidates].sort();
   if (worktreePaths.length > 1) {
-    args.io.stderr(`${LABEL}: multiple worktrees match spec path ${normalizedSpecPath}:\n`);
+    emitMergeRefusal(args.io, "unknown worktree", `multiple worktrees match spec path ${normalizedSpecPath}:`);
     for (const worktreePath of worktreePaths) {
       args.io.stderr(`  ${basename(worktreePath)}\n`);
     }

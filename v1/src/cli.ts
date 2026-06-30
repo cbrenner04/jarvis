@@ -24,7 +24,12 @@ import { type RunCommandOptions, runCommand } from "./modes/patch/run.ts";
 import { computeProjectSafeId } from "./modes/plan/spec-paths.ts";
 import { promptCommand } from "./modes/prompt/run.ts";
 import { runSharedProjectPreflight } from "./modes/shared-entry.ts";
-import { buildEffectivePromptAgentEntries, parseAgentFlagValues, parsePromptAgentOverride, prefixAgentFlagError, type PromptAgentOverride } from "./parse-agent-flag.ts";
+import {
+  type PromptAgentOverride,
+  parseAgentFlagValues,
+  parsePromptAgentOverride,
+  prefixAgentFlagError,
+} from "./parse-agent-flag.ts";
 
 export type Subcommand =
   | "run"
@@ -898,11 +903,7 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
 
       let pinnedAgent: PromptAgentOverride | undefined;
       if (parsed.agentFlag !== undefined) {
-        const parsedAgent = parsePromptAgentOverride(
-          parsed.agentFlag,
-          parsed.modelFlag,
-          cfg.modes.prompt.agentOrder,
-        );
+        const parsedAgent = parsePromptAgentOverride(parsed.agentFlag, parsed.modelFlag, cfg.modes.prompt.agentOrder);
         if (!parsedAgent.ok) {
           io.stderr(`jarvis1: ${prefixAgentFlagError("prompt", parsedAgent.message)}\n`);
           return 1;

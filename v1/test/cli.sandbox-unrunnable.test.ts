@@ -253,7 +253,16 @@ describe("parseArgs", () => {
 
   test("prompt with --agent and --model flags", () => {
     expect(
-      parseArgs(["prompt", "--repo", "my-project", "--agent", "opencode", "--model", "opencode/glm-5.2", "multi word text"]),
+      parseArgs([
+        "prompt",
+        "--repo",
+        "my-project",
+        "--agent",
+        "opencode",
+        "--model",
+        "opencode/glm-5.2",
+        "multi word text",
+      ]),
     ).toEqual({
       kind: "prompt",
       text: "multi word text",

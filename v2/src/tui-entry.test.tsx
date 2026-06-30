@@ -64,6 +64,14 @@ function fakeClient(options: FakeClientOptions = {}): TuiDaemonClient {
       options.startInput = input;
       return options.startResult ?? { runId: "run-999" };
     },
+    async list() {
+      methods.push("list");
+      return { runs: [] };
+    },
+    async wait(_runId: string) {
+      methods.push("wait");
+      return { runStatus: "completed" };
+    },
     close(): void {
       methods.push("close");
     },

@@ -16,7 +16,13 @@ import { type EnsureDraftPrOpts, ensureDraftPr, findMatchingOpenPrs, renderAttri
 import { runReadyGateWithTier } from "../ready-gate.ts";
 import { hasUpstream, pushCurrent } from "../worktree.ts";
 import { getWorktreeLockPath, isProcessAlive, type WorktreeLock } from "../worktree-lock.ts";
-import { type MergeTargetResolutionSeams, emitMergeRefusal, isPlanBranch, mergeRefusalClassForBranch, resolveMergeTarget } from "./resolve-merge-target.ts";
+import {
+  emitMergeRefusal,
+  isPlanBranch,
+  type MergeTargetResolutionSeams,
+  mergeRefusalClassForBranch,
+  resolveMergeTarget,
+} from "./resolve-merge-target.ts";
 
 export type TriageIo = {
   stdout: (s: string) => void;

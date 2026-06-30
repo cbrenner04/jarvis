@@ -183,10 +183,7 @@ function setupPlanMergeWorktree(
   mkdirSync(specDir, { recursive: true });
   const indexPath = join(specDir, "index.md");
   writeFileSync(indexPath, "# Test\n\n- [ ] [subspec 1](./01-test.md)");
-  writeFileSync(
-    join(specDir, "01-test.md"),
-    "# Test\n\n## Acceptance criteria\n\n- [ ] automated criterion",
-  );
+  writeFileSync(join(specDir, "01-test.md"), "# Test\n\n## Acceptance criteria\n\n- [ ] automated criterion");
 
   if (!opts?.markerless) {
     writeFileSync(join(worktreePath, ".active-spec-path"), indexPath);

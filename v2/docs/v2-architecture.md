@@ -13,7 +13,7 @@ config. Naming them separately is what keeps the design from feeling tangled.
 
 | Layer | Lives in | What it is |
 | --- | --- | --- |
-| **Behaviors** | source | Loop primitives: write, review-and-update, human. See `v2-vision.md`. |
+| **Behaviors** | source | Loop primitives: write, review-debate, human. See `v2-vision.md`. |
 | **Prompts** | source | Per-behavior prompts, rendered by layering fragments + per-step overrides. |
 | **Workflows** | source | Named, linear-with-loops sequences of **steps** (behavior + prompt + output contract + role). No agent/model. |
 | **Project config** | data (`~/.jarvis`, per machine) | Per project: enabled workflows + the agent fallback order. Role→model bindings live separately, in a machine-independent store. |
@@ -134,9 +134,9 @@ Per-project config:
   This is what makes "build workflows as they come" safe: a new workflow tells
   each project what, if anything, it must configure.
 
-### Review as debate
+### Review-debate
 
-The **review-and-update** behavior is a debate, not N identical critique passes
+The **review-debate** behavior is a structured debate, not N identical critique passes
 (the shape designed in `v2/spec/2026-06-07T19-57-26Z-review-debate`):
 
 - **Read-only reviewers → a writing actuator.** One cycle is three read-only

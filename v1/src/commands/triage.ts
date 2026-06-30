@@ -13,7 +13,8 @@ import { findRelocatedSpecFile, prepareActiveSpecPath } from "../modes/patch/pre
 import { snapshotAcceptanceCriteria } from "../modes/patch/subspec.ts";
 import { stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
 import { type EnsureDraftPrOpts, ensureDraftPr, findMatchingOpenPrs, renderAttributionSummary } from "../pr.ts";
-import { runReadyGateWithTier } from "../ready-gate.ts";
+import { ReadyCommandError, runReadyGateWithTier } from "../ready-gate.ts";
+import { normalizeRepoUrl } from "../repo-url.ts";
 import { hasUpstream, pushCurrent } from "../worktree.ts";
 import { getWorktreeLockPath, isProcessAlive, type WorktreeLock } from "../worktree-lock.ts";
 import { emitMergeRefusal, type MergeTargetResolutionSeams, resolveMergeTarget } from "./resolve-merge-target.ts";
@@ -29,6 +30,7 @@ export type TriageGhRunner = {
   getPrState: (branch: string) => { state: string; isDraft: boolean } | null;
   getMergeGateState?: (branch: string) => { mergeStateStatus: string } | null;
   getChecks?: (branch: string) => CiCheckState[] | null;
+  getChecksForSha?: (sha: string) => CiCheckState[] | null;
 };
 
 export type CommitAndPushDirtyResult =
@@ -58,6 +60,7 @@ export type TriageCommandOptions = {
   adminMerge?: (branch: string, cwd: string) => void;
   pollIntervalMs?: number;
   pollTimeoutMs?: number;
+  runRecoveryProbe?: (cwd: string, args: string[]) => number;
 };
 
 export type DirtyKind = "clean" | "untracked-only" | "modified" | "mixed";
@@ -1445,6 +1448,204 @@ function classifyCiChecks(checks: CiCheckState[] | null): {
   return { classification: "green" };
 }
 
+const MERGE_FLAKE_RECOVERY_STDOUT = "triage --merge: local ready flake recovered (CI green at HEAD); proceeding";
+const READY_TEST_STEP_MARKERS = ["ready: parallel test failed", "ready: serial test failed"] as const;
+const PROBE_SIGNAL_TIMEOUT_EXIT_CODES = new Set([124, 130, 143]);
+const RECOVERY_PROBE_SIGNAL_EXIT_CODES: Partial<Record<NodeJS.Signals, number>> = {
+  SIGINT: 130,
+  SIGTERM: 143,
+};
+
+/** Map an `execFileSync` failure to a probe exit code (signal/timeout parity with `scripts/ready.ts`). */
+export function recoveryProbeExitFromExecError(err: unknown): number {
+  const procErr = err as NodeJS.ErrnoException & { status?: number | null; signal?: NodeJS.Signals | null };
+  if (procErr.status != null) {
+    return procErr.status;
+  }
+  if (procErr.signal != null) {
+    const mapped = RECOVERY_PROBE_SIGNAL_EXIT_CODES[procErr.signal];
+    if (mapped != null) {
+      return mapped;
+    }
+  }
+  return 1;
+}
+
+/** Default merge recovery probe runner (`bun test` via `execFileSync`). */
+export function runRecoveryProbeWithExec(
+  cwd: string,
+  args: string[],
+  execFn: typeof execFileSync = execFileSync,
+): number {
+  try {
+    execFn("bun", args, { cwd, stdio: "pipe" });
+    return 0;
+  } catch (err) {
+    return recoveryProbeExitFromExecError(err);
+  }
+}
+
+export function adaptCheckRunsToCiStates(
+  checkRuns: { name: string; status: string; conclusion: string | null }[],
+): CiCheckState[] {
+  return checkRuns.map((run) => {
+    const status = run.status.toLowerCase();
+    let mapped: string;
+    if (status === "completed") {
+      mapped = run.conclusion === null ? "pending" : run.conclusion.toLowerCase();
+    } else {
+      mapped = status;
+    }
+    return { name: run.name, status: mapped };
+  });
+}
+
+function resolveOwnerRepoFromWorktree(worktreePath: string): { owner: string; repo: string } | null {
+  try {
+    const origin = execFileSync("git", ["remote", "get-url", "origin"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim();
+    const [, owner, repo] = normalizeRepoUrl(origin)?.split("/") ?? [];
+    return owner !== undefined && repo !== undefined ? { owner, repo } : null;
+  } catch {
+    return null;
+  }
+}
+
+function fetchCommitChecksForSha(worktreePath: string, sha: string): CiCheckState[] | null {
+  const ownerRepo = resolveOwnerRepoFromWorktree(worktreePath);
+  if (ownerRepo === null) {
+    return null;
+  }
+  const { owner, repo } = ownerRepo;
+  try {
+    const checkRuns: { name: string; status: string; conclusion: string | null }[] = [];
+    let page = 1;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const output = execSync(`gh api "repos/${owner}/${repo}/commits/${sha}/check-runs?per_page=100&page=${page}"`, {
+        stdio: "pipe",
+        encoding: "utf8",
+      });
+      const data = JSON.parse(output) as { check_runs?: unknown };
+      if (!Array.isArray(data.check_runs) || data.check_runs.length === 0) {
+        break;
+      }
+      for (const entry of data.check_runs) {
+        if (typeof entry !== "object" || entry === null) {
+          continue;
+        }
+        const run = entry as { name?: unknown; status?: unknown; conclusion?: unknown };
+        if (typeof run.name !== "string" || typeof run.status !== "string") {
+          continue;
+        }
+        checkRuns.push({
+          name: run.name,
+          status: run.status,
+          conclusion: typeof run.conclusion === "string" ? run.conclusion : null,
+        });
+      }
+      if (data.check_runs.length < 100) {
+        break;
+      }
+      page += 1;
+    }
+    return adaptCheckRunsToCiStates(checkRuns);
+  } catch {
+    return null;
+  }
+}
+
+export function extractFailingTestFilePaths(gateStderr: string): string[] {
+  if (!gateStderr.includes("(fail)")) {
+    return [];
+  }
+  const paths: string[] = [];
+  const seen = new Set<string>();
+  const atPathRe = /at (?:\S+ )?\(?([^():\n]+?\.(?:test|spec)\.[tj]sx?):\d+/g;
+  for (const match of gateStderr.matchAll(atPathRe)) {
+    const path = match[1];
+    if (path === undefined || seen.has(path)) {
+      continue;
+    }
+    seen.add(path);
+    paths.push(path);
+    if (paths.length >= 8) {
+      break;
+    }
+  }
+  return paths;
+}
+
+function defaultRunRecoveryProbe(cwd: string, args: string[]): number {
+  return runRecoveryProbeWithExec(cwd, args);
+}
+
+function tryRecoverMergeFlake(
+  opts: TriageCommandOptions,
+  worktreePath: string,
+  gateError: Error,
+  getChecksForSha: (sha: string) => CiCheckState[] | null,
+): boolean {
+  if (!(gateError instanceof ReadyCommandError)) {
+    return false;
+  }
+  const gateStderr = gateError.message;
+  if (
+    gateStderr.includes("ready: deadline exceeded") ||
+    !READY_TEST_STEP_MARKERS.some((marker) => gateStderr.includes(marker))
+  ) {
+    return false;
+  }
+
+  let headSha: string;
+  try {
+    headSha = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim();
+  } catch {
+    return false;
+  }
+
+  let headChecks: CiCheckState[] | null;
+  try {
+    headChecks = getChecksForSha(headSha);
+  } catch {
+    return false;
+  }
+  if (classifyCiChecks(headChecks).classification !== "green") {
+    return false;
+  }
+
+  const runProbe = opts.runRecoveryProbe ?? defaultRunRecoveryProbe;
+  const probeGreen = (exitCode: number): boolean => {
+    if (exitCode !== 0) {
+      return false;
+    }
+    opts.io.stdout(`${MERGE_FLAKE_RECOVERY_STDOUT}\n`);
+    return true;
+  };
+
+  const probe1 = runProbe(worktreePath, ["test"]);
+  if (probeGreen(probe1)) {
+    return true;
+  }
+  if (PROBE_SIGNAL_TIMEOUT_EXIT_CODES.has(probe1)) {
+    return false;
+  }
+
+  const failingPaths = extractFailingTestFilePaths(gateStderr);
+  if (failingPaths.length === 0) {
+    return false;
+  }
+
+  return probeGreen(runProbe(worktreePath, ["test", ...failingPaths]));
+}
+
 function waitForCiGreen(
   branch: string,
   getChecks: (branch: string) => CiCheckState[] | null,
@@ -1521,8 +1722,11 @@ function triageMerge(opts: TriageCommandOptions): number {
     "triage-merge",
   );
   if (gateError) {
-    emitMergeRefusal(opts.io, mergeClass, `ready gate failed\n${gateError.message}`);
-    return 1;
+    const getChecksForSha = ghRunner.getChecksForSha ?? ((sha: string) => fetchCommitChecksForSha(worktreePath, sha));
+    if (!tryRecoverMergeFlake(opts, worktreePath, gateError, getChecksForSha)) {
+      emitMergeRefusal(opts.io, mergeClass, `ready gate failed\n${gateError.message}`);
+      return 1;
+    }
   }
 
   if (prState.isDraft) {

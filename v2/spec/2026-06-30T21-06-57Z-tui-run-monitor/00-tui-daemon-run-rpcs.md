@@ -68,14 +68,9 @@ rendering.
 - [x] Co-located tests include socket-backed `list` and `wait` success cases registered with `test.skipIf(!canUseUnixSockets(), ...)`.
 - [x] Co-located socket-backed tests include `list()` succeeding while `wait(runId)` is pending on the same connection (`test.skipIf(!canUseUnixSockets(), ...)`).
 - [x] Every new exported symbol in the client module has an inline doc-comment stating purpose, params, returns, and thrown errors.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 
 - None — internal client surface; inline doc-comments only per
   [`v2/docs/documentation-standard.md`](../../docs/documentation-standard.md).
-
-## Blocker
-
-- `bun run typecheck` passes.
-- `bun run test` did not pass in this worktree. The parallel run surfaced unrelated v1 sandbox/network failures including `v1/test/idle-hang-fixtures.sandbox-unrunnable.test.ts` (`no processes matching .../idle-hang.sh within 2000ms`) and `v1/test/ready-script.sandbox-unrunnable.test.ts` (`ready: serial test failed (code 2)`), then stalled. Per repo rule, a serial retry was started with `bun test`; it reproduced `ready: serial test failed (code 2)` and did not complete cleanly.

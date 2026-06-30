@@ -42,6 +42,7 @@ Long-lived v2 reference docs live in `v2/docs/`. Multi-file specs go in `<target
 - **Do not** edit `index.md` or run `git commit` — Jarvis owns the index checkbox and all commits (`git add -A` would absorb manual ones unexpectedly).
 - Blocked or ambiguous? Append a `## Blocker` to the subspec and stop, rather than guess.
 - Keep changes minimal and within the active subspec's scope — no speculative refactors, no unauthorized harness changes.
+- **Concise updates.** When reporting back, report only what's needed: the command run and the landed result, plus a concise session summary after each landed intent. No running commentary. See [v1/docs/operator-runbook.md#operator-feedback-cadence](v1/docs/operator-runbook.md#operator-feedback-cadence).
 - **No planning labels in code.** Phase/milestone/slice names are sequencing artifacts — never bake them into identifiers, filenames, or public API. A spec saying "Phase 1 state store" names *the state store*; call it that.
 
 ## PR attribution

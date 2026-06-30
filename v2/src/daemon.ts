@@ -350,6 +350,54 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   };
 }
 
+/**
+ * Injectable dependencies for {@link createTailStreamHandler}.
+ *
+ * - `stateStore`: durable run rows — `loadRun` gates unknown runs before replay.
+ * - `logReader`: persisted log events — `follow` replays and streams appends for known runs.
+ */
+export type TailStreamHandlerDeps = {
+  stateStore: StateStore;
+  logReader: LogReader;
+};
+
+/**
+ * Tail-log stream handler factory for IPC `stream-open` on run logs.
+ *
+ * @param deps - {@link TailStreamHandlerDeps}
+ * @returns A {@link StreamHandler} — replays persisted events and streams live appends for known runs.
+ * @throws Never — handler is non-throwing at the stream boundary.
+ * @invariant Validates `loadRun` before calling `follow`; unknown or malformed `runId` closes without data.
+ * @invariant Always invokes `onClose` in a `finally` block after `follow` completes or aborts.
+ */
+export function createTailStreamHandler(deps: TailStreamHandlerDeps): StreamHandler {
+  const { stateStore: store, logReader } = deps;
+
+  return async (_streamId, payload, onData, onClose, signal) => {
+    const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
+    if (!params?.runId || typeof params.runId !== "string") {
+      onClose();
+      return;
+    }
+
+    const runId = params.runId as string;
+    const run = store.loadRun(runId);
+    if (!run) {
+      onClose();
+      return;
+    }
+
+    try {
+      for await (const record of logReader.follow(runId, signal)) {
+        if (signal.aborted) break;
+        onData(record);
+      }
+    } finally {
+      onClose();
+    }
+  };
+}
+
 export async function startDaemon(socketPath: string, stateStore?: StateStore, logReader?: LogReader): Promise<void> {
   const store = stateStore ?? openStateStore();
   const logsPath = join(homedir(), ".jarvis", "state", "logs.jsonl");
@@ -371,29 +419,7 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
     }
   };
 
-  const tailStreamHandler: StreamHandler = async (_streamId, payload, onData, onClose, signal) => {
-    const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
-    if (!params?.runId || typeof params.runId !== "string") {
-      onClose();
-      return;
-    }
-
-    const runId = params.runId as string;
-    const run = store.loadRun(runId);
-    if (!run) {
-      onClose();
-      return;
-    }
-
-    try {
-      for await (const record of logReaderInstance.follow(runId, signal)) {
-        if (signal.aborted) break;
-        onData(record);
-      }
-    } finally {
-      onClose();
-    }
-  };
+  const tailStreamHandler = createTailStreamHandler({ stateStore: store, logReader: logReaderInstance });
 
   const healthHandler: RpcHandler = () => {
     return { kind: "response", result: { ok: true } };

@@ -16,9 +16,7 @@ function splitAgentFlagValue(value: string): { agent: string; model?: string } {
   };
 }
 
-type ParsedAgentFlagAgent =
-  | { ok: true; agent: AgentName; inlineModel?: string }
-  | { ok: false; message: string };
+type ParsedAgentFlagAgent = { ok: true; agent: AgentName; inlineModel?: string } | { ok: false; message: string };
 
 function parseAgentFlagAgent(rawValue: string): ParsedAgentFlagAgent {
   const { agent, model: inlineModel } = splitAgentFlagValue(rawValue);

@@ -11,8 +11,8 @@ import { reviewFeedbackCommand } from "./commands/review-feedback.ts";
 import { RUNBOOK_USAGE, runbookCommand } from "./commands/runbook.ts";
 import { type TriageCommandOptions, triageCommand } from "./commands/triage.ts";
 import {
-  CONFIG_DIR,
   type AgentEntry,
+  CONFIG_DIR,
   type ConfigOptions,
   findProjectMatchForPath,
   loadConfig,
@@ -25,11 +25,7 @@ import { type RunCommandOptions, runCommand } from "./modes/patch/run.ts";
 import { computeProjectSafeId } from "./modes/plan/spec-paths.ts";
 import { promptCommand } from "./modes/prompt/run.ts";
 import { runSharedProjectPreflight } from "./modes/shared-entry.ts";
-import {
-  parseAgentFlagValues,
-  parsePromptAgentOverride,
-  prefixAgentFlagError,
-} from "./parse-agent-flag.ts";
+import { parseAgentFlagValues, parsePromptAgentOverride, prefixAgentFlagError } from "./parse-agent-flag.ts";
 
 export type Subcommand =
   | "run"

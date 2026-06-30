@@ -2890,11 +2890,7 @@ describe("triage --mark-ready", () => {
       expect(code).toBe(0);
       expect(probeArgs).toEqual([
         ["test"],
-        [
-          "test",
-          "/repo/v1/test/run.sandbox-unrunnable.test.ts",
-          "/repo/v1/test/triage-command.test.ts",
-        ],
+        ["test", "/repo/v1/test/run.sandbox-unrunnable.test.ts", "/repo/v1/test/triage-command.test.ts"],
       ]);
       expect(mergeRan).toBe(true);
       expect(out()).toContain(RECOVERY_STDOUT);

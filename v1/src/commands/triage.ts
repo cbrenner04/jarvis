@@ -1511,10 +1511,10 @@ function fetchCommitChecksForSha(worktreePath: string, sha: string): CiCheckStat
     let page = 1;
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      const output = execSync(
-        `gh api "repos/${owner}/${repo}/commits/${sha}/check-runs?per_page=100&page=${page}"`,
-        { stdio: "pipe", encoding: "utf8" },
-      );
+      const output = execSync(`gh api "repos/${owner}/${repo}/commits/${sha}/check-runs?per_page=100&page=${page}"`, {
+        stdio: "pipe",
+        encoding: "utf8",
+      });
       const data = JSON.parse(output) as { check_runs?: unknown };
       if (!Array.isArray(data.check_runs) || data.check_runs.length === 0) {
         break;
@@ -1568,10 +1568,11 @@ export function extractFailingTestFilePaths(gateStderr: string): string[] {
   const paths: string[] = [];
   const seen = new Set<string>();
   const atPathRe = /at (?:\S+ )?\(?([^():\n]+?\.(?:test|spec)\.[tj]sx?):\d+/g;
-  let match: RegExpExecArray | null;
-  while ((match = atPathRe.exec(gateStderr)) !== null) {
+  let match = atPathRe.exec(gateStderr);
+  while (match !== null) {
     const path = match[1];
     if (path === undefined || seen.has(path)) {
+      match = atPathRe.exec(gateStderr);
       continue;
     }
     seen.add(path);
@@ -1579,6 +1580,7 @@ export function extractFailingTestFilePaths(gateStderr: string): string[] {
     if (paths.length >= 8) {
       break;
     }
+    match = atPathRe.exec(gateStderr);
   }
   return paths;
 }
@@ -1723,8 +1725,7 @@ function triageMerge(opts: TriageCommandOptions): number {
     "triage-merge",
   );
   if (gateError) {
-    const getChecksForSha =
-      ghRunner.getChecksForSha ?? ((sha: string) => fetchCommitChecksForSha(worktreePath, sha));
+    const getChecksForSha = ghRunner.getChecksForSha ?? ((sha: string) => fetchCommitChecksForSha(worktreePath, sha));
     if (!tryRecoverMergeFlake(opts, worktreePath, gateError, getChecksForSha)) {
       emitMergeRefusal(opts.io, mergeClass, `ready gate failed\n${gateError.message}`);
       return 1;

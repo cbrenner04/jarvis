@@ -764,9 +764,7 @@ test("pause sends one correlated IPC pause request and returns ok", async () => 
     });
 
     await expect(client.pause("run-123")).resolves.toEqual({ ok: true });
-    expect(sent).toEqual([
-      { kind: "request", id: PAUSE_REQUEST_ID, method: "pause", params: { runId: "run-123" } },
-    ]);
+    expect(sent).toEqual([{ kind: "request", id: PAUSE_REQUEST_ID, method: "pause", params: { runId: "run-123" } }]);
     client.close();
   });
 });
@@ -780,9 +778,7 @@ test("resume sends one correlated IPC resume request and returns ok", async () =
     });
 
     await expect(client.resume("run-123")).resolves.toEqual({ ok: true });
-    expect(sent).toEqual([
-      { kind: "request", id: RESUME_REQUEST_ID, method: "resume", params: { runId: "run-123" } },
-    ]);
+    expect(sent).toEqual([{ kind: "request", id: RESUME_REQUEST_ID, method: "resume", params: { runId: "run-123" } }]);
     client.close();
   });
 });
@@ -791,14 +787,11 @@ test("kill sends one correlated IPC kill request and returns ok", async () => {
   const sent: unknown[] = [];
   await withFixedUuids([KILL_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
-      connectIpcClient: async () =>
-        makeClient([{ kind: "response", id: KILL_REQUEST_ID, result: { ok: true } }], sent),
+      connectIpcClient: async () => makeClient([{ kind: "response", id: KILL_REQUEST_ID, result: { ok: true } }], sent),
     });
 
     await expect(client.kill("run-123")).resolves.toEqual({ ok: true });
-    expect(sent).toEqual([
-      { kind: "request", id: KILL_REQUEST_ID, method: "kill", params: { runId: "run-123" } },
-    ]);
+    expect(sent).toEqual([{ kind: "request", id: KILL_REQUEST_ID, method: "kill", params: { runId: "run-123" } }]);
     client.close();
   });
 });

@@ -739,7 +739,7 @@ describe("runTuiEntry", () => {
       { viewHost: view.host },
     );
 
-    const pending = runTuiEntry(deps);
+    const _pending = runTuiEntry(deps);
     await view.waitUntilOpen();
     await flush();
     view.pauseSelected();
@@ -834,7 +834,8 @@ describe("runTuiEntry", () => {
 
     for (const { action, error } of cases) {
       const view = createViewHost();
-      const errorKey = action === "pauseSelected" ? "pauseError" : action === "killSelected" ? "killError" : "resumeError";
+      const errorKey =
+        action === "pauseSelected" ? "pauseError" : action === "killSelected" ? "killError" : "resumeError";
       const { deps } = entryDeps(
         {
           listResponses: [{ runs: [RUN_ALPHA] }],

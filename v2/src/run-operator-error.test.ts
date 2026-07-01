@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test";
-import type { RunOperatorError, RunOperatorErrorReason, RunOperatorNextAction, TerminalLogRecord } from "./run-operator-error.ts";
+import type {
+  RunOperatorError,
+  RunOperatorErrorReason,
+  RunOperatorNextAction,
+  TerminalLogRecord,
+} from "./run-operator-error.ts";
 import { composeRunOperatorError } from "./run-operator-error.ts";
 import type { Attempt } from "./state-store.ts";
 import type { RunStatus } from "./state-store-types.ts";
@@ -39,11 +44,7 @@ function runExecutionFailed(): TerminalLogRecord {
   };
 }
 
-function err(
-  reason: RunOperatorErrorReason,
-  nextAction: RunOperatorNextAction,
-  retryable = false,
-): RunOperatorError {
+function err(reason: RunOperatorErrorReason, nextAction: RunOperatorNextAction, retryable = false): RunOperatorError {
   return { reason, retryable, nextAction };
 }
 
@@ -82,7 +83,9 @@ test("composeRunOperatorError returns agent_blocked and contract_miss from loop_
 });
 
 test("composeRunOperatorError returns agent_blocked and contract_miss from store-only blocked status and outcome_kind", () => {
-  expect(composeRunOperatorError(runWith("blocked", [attempt("blocked")]))).toEqual(err("agent_blocked", "inspect_spec"));
+  expect(composeRunOperatorError(runWith("blocked", [attempt("blocked")]))).toEqual(
+    err("agent_blocked", "inspect_spec"),
+  );
   expect(composeRunOperatorError(runWith("failed", [attempt("contract_miss")]))).toEqual(
     err("contract_miss", "inspect_spec"),
   );

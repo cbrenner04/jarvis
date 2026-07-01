@@ -3,12 +3,7 @@ import { join } from "node:path";
 import { createAgentBindings } from "../../shared/invocation/agents.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "./ipc/server";
-import {
-  type LogReader,
-  type LoopFinishedEvent,
-  openLogReader,
-  openLogSink,
-} from "./log-stream.ts";
+import { type LogReader, type LoopFinishedEvent, openLogReader, openLogSink } from "./log-stream.ts";
 import {
   composeRunOperatorError,
   findTerminalLogRecord,

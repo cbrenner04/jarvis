@@ -322,8 +322,13 @@ function commitShrinkPass(
 }
 
 /**
- * Run one post-completion shrink agent invocation. Unsuccessful shrink discards
- * worktree changes and returns without elevating the run exit code.
+ * Run post-completion shrink across the `reviewActuator` ladder. Quota walks
+ * remaining rungs; idle (`kind: "error"` with `aborted: idle-timeout` stderr)
+ * escalates non-terminal stalls without elevating exit code and retains partial
+ * edits from the stalled rung. Terminal idle reverts to pre-shrink HEAD and
+ * throws `ShrinkTerminalError` (exit `8`). Other non-terminal failures revert
+ * and return without elevating exit code. Successful shrink commits allowlisted
+ * simplifications after contract validation.
  */
 export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promise<void> {
   if (opts.allowlist.size === 0 || opts.config.modes.patch.shrink === "off") {
@@ -535,7 +540,8 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
       return;
     }
 
-    const isIdleTimeout = classified.stderr.includes("aborted: idle-timeout");
+    const isIdleTimeout =
+      classified.kind === "error" && classified.stderr.includes("aborted: idle-timeout");
 
     if (isIdleTimeout && rungIndex < reviewActuatorOrder.length - 1) {
       opts.fanout("harness", `shrink: ${headEntry.agent}: ${HARNESS_IDLE_TIMEOUT_FALLBACK}\n`, "stderr");

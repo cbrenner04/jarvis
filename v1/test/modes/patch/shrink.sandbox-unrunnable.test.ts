@@ -768,6 +768,79 @@ describe("runPatchShrinkPhase", () => {
     }
   });
 
+  test("non-final idle escalation retains partial shrink edits for next rung", async () => {
+    const fx = idleShrinkFixture();
+    const partialEdit = "partial-from-stalled-rung\n";
+    const claudeStalled = new FakeAgent("claude", (_callCount, prompt, opts) => {
+      writeFileSync(join(opts.cwd, "impl.txt"), partialEdit);
+      return new IdleHangAgent(fx.idleScript).run(prompt, opts);
+    });
+    let implAtCodexStart = "";
+    const codexAgent = new FakeAgent("codex", (_callCount, _prompt, opts) => {
+      implAtCodexStart = readFileSync(join(opts.cwd, "impl.txt"), "utf8");
+      writeFileSync(join(opts.cwd, "impl.txt"), "final\n");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+    try {
+      await runIdleShrink(fx, {
+        shrinkAgents: [claudeStalled, codexAgent],
+        idleOutputTimeoutMs: 1000,
+      });
+
+      expect(codexAgent.calls).toHaveLength(1);
+      expect(implAtCodexStart).toBe(partialEdit);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("terminal idle reverts shrink edits to preShrinkHead", async () => {
+    const fx = idleShrinkFixture();
+    const headBefore = execSync("git rev-parse HEAD", { cwd: fx.dir, encoding: "utf8" }).trim();
+    const claudeStalled = new FakeAgent("claude", (_callCount, prompt, opts) => {
+      writeFileSync(join(opts.cwd, "impl.txt"), "partial-from-stalled-rung\n");
+      return new IdleHangAgent(fx.idleScript).run(prompt, opts);
+    });
+    try {
+      await expect(
+        runIdleShrink(fx, {
+          shrinkAgents: [claudeStalled, new IdleHangAgent(fx.idleScript, "codex")],
+          idleOutputTimeoutMs: 1000,
+        }),
+      ).rejects.toMatchObject({ exitCode: 8 });
+
+      const headAfter = execSync("git rev-parse HEAD", { cwd: fx.dir, encoding: "utf8" }).trim();
+      expect(headAfter).toBe(headBefore);
+      expect(readFileSync(join(fx.dir, "impl.txt"), "utf8")).toBe("seed\n");
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("shrink does not idle-escalate on idle-timeout stderr without error kind", async () => {
+    const fx = idleShrinkFixture();
+    const codexAgent = new FakeAgent("codex", () => ({ kind: "ok", stdout: "", stderr: "" }));
+    try {
+      await runIdleShrink(fx, {
+        shrinkAgents: [
+          new FakeAgent("claude", () => ({
+            kind: "ok",
+            stdout: "",
+            stderr: "aborted: idle-timeout",
+          })),
+          codexAgent,
+        ],
+        idleOutputTimeoutMs: 1000,
+      });
+
+      expect(codexAgent.calls).toHaveLength(0);
+      expect(fx.harness.join("\n")).not.toContain(HARNESS_IDLE_TIMEOUT_FALLBACK);
+      expect(fx.telemetry.some((r) => r.exitReason === "watchdog-idle-timeout-fallback")).toBe(false);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
   test("idle watchdog on final reviewActuator rung exits 8 with terminal watchdog-idle-timeout", async () => {
     const fx = idleShrinkFixture();
     try {

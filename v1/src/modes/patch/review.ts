@@ -1167,6 +1167,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           throw new ReviewTerminalError(
             `actuator failed: ${result.kind}`,
             result.kind === "error" ? result.exitCode : 1,
+            { telemetryRecorded: true },
           );
         }
 

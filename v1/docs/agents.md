@@ -290,8 +290,10 @@ read-only review roles while keeping stronger models on actuators.
 - Review actuator and shrink actuator: resolve from
   `modes.patch.subRoleAgentOrder.reviewActuator` when set, else
   `modes.patch.agentOrder`. The shared `reviewActuator` key governs both code-
-  writing roles, but they consume it differently: the verdict actuator stays
-  head-only (`reviewActuator[0]`), while shrink keeps full-list quota fallback.
+  writing roles, but they consume it differently: verdict actuator quota and
+  initial binding stay head-only (`reviewActuator[0]`); idle-output watchdog
+  stall walks the full configured `reviewActuator` ladder (terminal stop on the
+  final rung). Shrink keeps full-list quota fallback.
 - `reviewActuator` tiers review actuator and shrink agents via
   `subRoleAgentOrder.reviewActuator`; unset uses full `modes.patch.agentOrder`.
 

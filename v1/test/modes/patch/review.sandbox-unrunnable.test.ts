@@ -1017,6 +1017,7 @@ describe("runPatchReviewPhase", () => {
       expect(fallbackRow).toBeDefined();
       expect(terminalRow).toBeDefined();
       expect(terminalRow?.agent).toBe("codex");
+      expect(fx.telemetry.filter((r) => r.exitReason === "watchdog-idle-timeout")).toHaveLength(1);
     } finally {
       fx.cleanup();
     }

@@ -211,33 +211,49 @@ async function startTailServer(
   return startIpcServer(SOCKET_PATH, undefined, createTailStreamHandler({ stateStore, logReader }));
 }
 
+async function withTailServer(
+  stateStore: StateStore,
+  logReader: ReturnType<typeof openLogReader>,
+  fn: () => Promise<void>,
+): Promise<void> {
+  const tailServer = await startTailServer(stateStore, logReader);
+  try {
+    await fn();
+  } finally {
+    try {
+      await tailServer.close();
+    } catch {
+      // server may have already stopped
+    }
+  }
+}
+
 socketTest("tail-log stream replays persisted events in seq order", async () => {
   await withTailTest(async (stateStore) => {
     const runId = createRunWithLogs(stateStore);
-    const tailServer = await startTailServer(stateStore, openLogReader(LOGS_PATH));
+    await withTailServer(stateStore, openLogReader(LOGS_PATH), async () => {
+      const client = await connectIpcClient(SOCKET_PATH);
+      client.send({ kind: "stream-open", streamId: "tail1", payload: { runId } });
 
-    const client = await connectIpcClient(SOCKET_PATH);
-    client.send({ kind: "stream-open", streamId: "tail1", payload: { runId } });
+      const frame1 = await client.nextFrame();
+      expect(frame1.kind).toBe("stream-data");
+      if (frame1.kind === "stream-data") {
+        const record = JSON.parse(frame1.payload || "{}");
+        expect(record.seq).toBe(1);
+        expect(record.event.kind).toBe("iteration_started");
+      }
 
-    const frame1 = await client.nextFrame();
-    expect(frame1.kind).toBe("stream-data");
-    if (frame1.kind === "stream-data") {
-      const record = JSON.parse(frame1.payload || "{}");
-      expect(record.seq).toBe(1);
-      expect(record.event.kind).toBe("iteration_started");
-    }
+      const frame2 = await client.nextFrame();
+      expect(frame2.kind).toBe("stream-data");
+      if (frame2.kind === "stream-data") {
+        const record = JSON.parse(frame2.payload || "{}");
+        expect(record.seq).toBe(2);
+        expect(record.event.kind).toBe("boundary_committed");
+      }
 
-    const frame2 = await client.nextFrame();
-    expect(frame2.kind).toBe("stream-data");
-    if (frame2.kind === "stream-data") {
-      const record = JSON.parse(frame2.payload || "{}");
-      expect(record.seq).toBe(2);
-      expect(record.event.kind).toBe("boundary_committed");
-    }
-
-    client.send({ kind: "stream-end", streamId: "tail1" });
-    client.close();
-    await tailServer.close();
+      client.send({ kind: "stream-end", streamId: "tail1" });
+      client.close();
+    });
   });
 });
 
@@ -249,20 +265,19 @@ socketTest("tail-log stream rejects unknown run ID", async () => {
     logSink.close();
 
     const followSpy = wrapLogReaderWithFollowSpy();
-    const tailServer = await startTailServer(stateStore, followSpy.logReader);
+    await withTailServer(stateStore, followSpy.logReader, async () => {
+      const client = await connectIpcClient(SOCKET_PATH);
+      client.send({ kind: "stream-open", streamId: "tail2", payload: { runId: orphanRunId } });
 
-    const client = await connectIpcClient(SOCKET_PATH);
-    client.send({ kind: "stream-open", streamId: "tail2", payload: { runId: orphanRunId } });
+      const frame = await client.nextFrame();
+      expect(frame.kind).toBe("stream-end");
+      if (frame.kind === "stream-end") {
+        expect(frame.streamId).toBe("tail2");
+      }
 
-    const frame = await client.nextFrame();
-    expect(frame.kind).toBe("stream-end");
-    if (frame.kind === "stream-end") {
-      expect(frame.streamId).toBe("tail2");
-    }
-
-    client.close();
-    await tailServer.close();
-    expect(followSpy.followCalled).toBe(false);
+      client.close();
+      expect(followSpy.followCalled).toBe(false);
+    });
   });
 });
 
@@ -277,20 +292,19 @@ socketTest("tail-log stream closes on client stream-end", async () => {
     const followSpy = wrapLogReaderWithFollowSpy((signal) => {
       followSignal = signal;
     });
-    const tailServer = await startTailServer(stateStore, followSpy.logReader);
+    await withTailServer(stateStore, followSpy.logReader, async () => {
+      const client = await connectIpcClient(SOCKET_PATH);
+      client.send({ kind: "stream-open", streamId: "tail3", payload: { runId } });
 
-    const client = await connectIpcClient(SOCKET_PATH);
-    client.send({ kind: "stream-open", streamId: "tail3", payload: { runId } });
+      const frame1 = await client.nextFrame();
+      expect(frame1.kind).toBe("stream-data");
 
-    const frame1 = await client.nextFrame();
-    expect(frame1.kind).toBe("stream-data");
+      client.send({ kind: "stream-end", streamId: "tail3" });
+      const endFrame = await client.nextFrame();
+      expect(endFrame.kind).toBe("stream-end");
 
-    client.send({ kind: "stream-end", streamId: "tail3" });
-    const endFrame = await client.nextFrame();
-    expect(endFrame.kind).toBe("stream-end");
-
-    client.close();
-    await tailServer.close();
-    expect(followSignal?.aborted).toBe(true);
+      client.close();
+      expect(followSignal?.aborted).toBe(true);
+    });
   });
 });

@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import type { PersistedRecord } from "./log-stream.ts";
 import type {
   RunOperatorError,
   RunOperatorErrorReason,
@@ -8,7 +9,6 @@ import type {
 import { composeRunOperatorError, findTerminalLogRecord } from "./run-operator-error.ts";
 import type { Attempt } from "./state-store.ts";
 import type { RunStatus } from "./state-store-types.ts";
-import type { PersistedRecord } from "./log-stream.ts";
 import type { WriteLoopOutcomeKind } from "./write-loop.ts";
 
 function runWith(status: RunStatus, attempts: Attempt[] = []): { status: RunStatus; attempts: Attempt[] } {
@@ -45,10 +45,7 @@ function runExecutionFailed(seq = 2): TerminalLogRecord {
   };
 }
 
-function persistedTerminal(
-  seq: number,
-  event: TerminalLogRecord["event"],
-): PersistedRecord {
+function persistedTerminal(seq: number, event: TerminalLogRecord["event"]): PersistedRecord {
   return { runId: "run-1", seq, ts: "2026-01-01T00:00:00.000Z", event };
 }
 

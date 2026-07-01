@@ -52,6 +52,30 @@ function isDaemonListRunRow(value: unknown): value is DaemonListRunRow {
   );
 }
 
+/** Parse a daemon `health` success payload; returns `undefined` when malformed. */
+export function parseHealthResult(value: unknown): { ok: true } | undefined {
+  if (typeof value === "object" && value !== null && (value as { ok?: unknown }).ok === true) {
+    return { ok: true };
+  }
+  return undefined;
+}
+
+/** Parse a daemon `status` success payload; returns `undefined` when malformed. */
+export function parseStatusResult(value: unknown): { state: "running" } | undefined {
+  if (typeof value === "object" && value !== null && (value as { state?: unknown }).state === "running") {
+    return { state: "running" };
+  }
+  return undefined;
+}
+
+/** Parse a daemon `start` success payload; returns `undefined` when malformed. */
+export function parseStartResult(value: unknown): { runId: string } | undefined {
+  if (typeof value === "object" && value !== null && typeof (value as { runId?: unknown }).runId === "string") {
+    return { runId: (value as { runId: string }).runId };
+  }
+  return undefined;
+}
+
 /** Parse a daemon `list` success payload; returns `undefined` when malformed. */
 export function parseListRuns(value: unknown): DaemonListResult | undefined {
   if (typeof value !== "object" || value === null) return undefined;

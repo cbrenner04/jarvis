@@ -11,7 +11,8 @@ import { type LogSink, openLogReader, openLogSink } from "./log-stream.ts";
 import { openStateStore, type StateStore } from "./state-store.ts";
 import { simulatedBindings } from "./testing/bindings.ts";
 import { canUseUnixSockets, socketProbeErrored } from "./testing/unix-socket.ts";
-import { connectTuiDaemon, TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-client.ts";
+import { connectTuiDaemon } from "./tui-daemon-client.ts";
+import { TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-errors.ts";
 import type { WriteLoopInput } from "./write-loop.ts";
 
 const START_INPUT: WriteLoopInput = {

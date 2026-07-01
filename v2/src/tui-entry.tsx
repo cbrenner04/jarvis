@@ -1,10 +1,6 @@
 import type { DaemonListResult, DaemonListRunRow } from "./daemon-wire.ts";
-import {
-  connectTuiDaemon,
-  type TuiDaemonClient,
-  TuiDaemonConnectionError,
-  TuiDaemonRpcError,
-} from "./tui-daemon-client.ts";
+import { connectTuiDaemon, type TuiDaemonClient } from "./tui-daemon-client.ts";
+import { TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-errors.ts";
 import { openInkMonitor } from "./tui-ink-monitor.tsx";
 import { showTuiInkFeedback } from "./tui-ink-feedback.tsx";
 import type {

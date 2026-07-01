@@ -26,8 +26,22 @@ export type TuiMonitorState = {
 export type TuiMonitorControls = {
   /** Change selection to the given run when present in the current list. */
   selectRun(runId: string): void;
+  /**
+   * Signal pause for the selected run via daemon `pause`.
+   * No selection → inline `no run selected`. Success keeps the existing wait loop;
+   * daemon and transport failures surface inline without closing the monitor.
+   */
   pauseSelected(): void;
+  /**
+   * Resume the selected run via daemon `resume` and re-issue `wait`, abandoning any prior ready snapshot.
+   * No selection → inline `no run selected`. Daemon and transport failures surface inline without closing the monitor.
+   */
   resumeSelected(): void;
+  /**
+   * Signal kill for the selected run via daemon `kill`.
+   * No selection → inline `no run selected`. Success keeps the existing wait loop;
+   * daemon and transport failures surface inline without closing the monitor.
+   */
   killSelected(): void;
   /** Exit the monitor. */
   quit(): void;

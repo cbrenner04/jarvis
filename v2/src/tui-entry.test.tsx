@@ -662,6 +662,7 @@ describe("runTuiEntry", () => {
       { action: "pauseSelected" as const, error: new TuiDaemonRpcError("run_not_active", "not active") },
       { action: "killSelected" as const, error: new TuiDaemonRpcError("run_not_active", "not active") },
       { action: "resumeSelected" as const, error: new TuiDaemonRpcError("terminal_run", "terminal") },
+      { action: "resumeSelected" as const, error: new TuiDaemonRpcError("unknown_run", "run not found") },
     ];
 
     for (const { action, error } of cases) {
@@ -788,6 +789,100 @@ describe("runTuiEntry", () => {
 
     view.quit();
     await pending;
+  });
+
+  test("successful pause and kill do not re-issue wait or mutate waitState", async () => {
+    const viewPause = createViewHost();
+    const pauseWait = deferred<WaitRunCompletionResult>();
+    const { deps: pauseDeps, clientOptions: pauseClient } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_ALPHA] }],
+        waitImpl: async () => pauseWait.promise,
+      },
+      { viewHost: viewPause.host },
+    );
+
+    const pausePending = runTuiEntry(pauseDeps);
+    await viewPause.waitUntilOpen();
+    await flush();
+    pauseWait.resolve({ runStatus: "completed" });
+    await flush();
+    expect(viewPause.monitorStates.at(-1)?.waitState?.kind).toBe("ready");
+    const readyWaitState = viewPause.monitorStates.at(-1)?.waitState;
+    const pauseWaitCount = pauseClient.methods?.filter((method) => method === "wait:run-alpha").length ?? 0;
+
+    viewPause.pauseSelected();
+    await flush();
+
+    expect(viewPause.monitorStates.at(-1)?.waitState).toEqual(readyWaitState);
+    expect(pauseClient.methods?.filter((method) => method === "wait:run-alpha").length).toBe(pauseWaitCount);
+    expect(pauseClient.methods).toContain("pause:run-alpha");
+    viewPause.quit();
+    await pausePending;
+
+    const viewKill = createViewHost();
+    const alphaWait = deferred<WaitRunCompletionResult>();
+    const { deps: killDeps, clientOptions: killClient } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_ALPHA] }],
+        waitImpl: async () => alphaWait.promise,
+      },
+      { viewHost: viewKill.host },
+    );
+
+    const killPending = runTuiEntry(killDeps);
+    await viewKill.waitUntilOpen();
+    await flush();
+    expect(viewKill.monitorStates.at(-1)?.waitState).toEqual({ kind: "pending", runId: "run-alpha" });
+    const pendingWaitState = viewKill.monitorStates.at(-1)?.waitState;
+    const killWaitCount = killClient.methods?.filter((method) => method === "wait:run-alpha").length ?? 0;
+
+    viewKill.killSelected();
+    await flush();
+
+    expect(viewKill.monitorStates.at(-1)?.waitState).toEqual(pendingWaitState);
+    expect(killClient.methods?.filter((method) => method === "wait:run-alpha").length).toBe(killWaitCount);
+    expect(killClient.methods).toContain("kill:run-alpha");
+    viewKill.quit();
+    await killPending;
+  });
+
+  test("steering on terminal or non-live rows passes through to daemon without client pre-gate", async () => {
+    const cases = [
+      { row: RUN_BETA, action: "pauseSelected" as const, errorKey: "pauseError" as const },
+      { row: RUN_GAMMA, action: "killSelected" as const, errorKey: "killError" as const },
+    ];
+
+    for (const { row, action, errorKey } of cases) {
+      const view = createViewHost();
+      const error = new TuiDaemonRpcError("run_not_active", "not active");
+      const { deps, clientOptions } = entryDeps(
+        {
+          methods: [],
+          listResponses: [{ runs: [RUN_ALPHA, row] }],
+          waitImpl: async () => ({ runStatus: "completed" }),
+          [errorKey]: error,
+        },
+        { viewHost: view.host },
+      );
+
+      const pending = runTuiEntry(deps);
+      await view.waitUntilOpen();
+      await flush();
+      view.selectRun(row.runId);
+      await flush();
+      view[action]();
+      await flush();
+
+      const rpcMethod = action === "pauseSelected" ? "pause" : "kill";
+      expect(clientOptions.methods).toContain(`${rpcMethod}:${row.runId}`);
+      expect(view.monitorStates.at(-1)?.steeringFeedback).toBe(`${error.code}: ${error.message}`);
+
+      view.quit();
+      expect(await pending).toBe(0);
+    }
   });
 
   test("successful resume re-issues wait and abandons a prior ready snapshot", async () => {

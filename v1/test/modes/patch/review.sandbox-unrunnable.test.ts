@@ -1006,10 +1006,7 @@ describe("runPatchReviewPhase", () => {
     try {
       const { code } = await runIdleActuatorReview(fx, {
         reviewActuatorOrder: [CLAUDE_ENTRY, CODEX_ENTRY],
-        actuatorAgents: [
-          new IdleHangAgent(fx.idleScript, "claude"),
-          new IdleHangAgent(fx.idleScript, "codex"),
-        ],
+        actuatorAgents: [new IdleHangAgent(fx.idleScript, "claude"), new IdleHangAgent(fx.idleScript, "codex")],
         idleOutputTimeoutMs: reviewIdleTimeoutMs,
       });
 

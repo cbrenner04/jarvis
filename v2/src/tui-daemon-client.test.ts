@@ -2,13 +2,17 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { createRunControlHandlers } from "./daemon.ts";
 import type { IpcClient } from "./ipc/client.ts";
 import { connectIpcClient } from "./ipc/client.ts";
 import { type IpcServer, startIpcServer } from "./ipc/server.ts";
 import type { IpcFrame } from "./ipc/types.ts";
+import { type LogSink, openLogReader, openLogSink } from "./log-stream.ts";
+import { openStateStore, type StateStore } from "./state-store.ts";
 import { simulatedBindings } from "./testing/bindings.ts";
 import { canUseUnixSockets, socketProbeErrored } from "./testing/unix-socket.ts";
-import { connectTuiDaemon, TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-client.ts";
+import { connectTuiDaemon } from "./tui-daemon-client.ts";
+import { TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-errors.ts";
 import type { WriteLoopInput } from "./write-loop.ts";
 
 const START_INPUT: WriteLoopInput = {
@@ -36,6 +40,13 @@ const socketTest = test.skipIf(!canUseUnixSockets());
 const HEALTH_REQUEST_ID = "00000000-0000-4000-8000-000000000001";
 const STATUS_REQUEST_ID = "00000000-0000-4000-8000-000000000002";
 const START_REQUEST_ID = "00000000-0000-4000-8000-000000000003";
+const LIST_REQUEST_ID = "00000000-0000-4000-8000-000000000004";
+const WAIT_REQUEST_ID = "00000000-0000-4000-8000-000000000005";
+
+type PendingExecutorRun = {
+  signal: AbortSignal;
+  release: () => void;
+};
 
 function withFixedUuids<T>(ids: string[], fn: () => Promise<T>): Promise<T> {
   const queue = [...ids];
@@ -51,24 +62,157 @@ function withFixedUuids<T>(ids: string[], fn: () => Promise<T>): Promise<T> {
 }
 
 function makeClient(frames: IpcFrame[], sent: unknown[] = []): IpcClient {
-  let index = 0;
+  const queue = [...frames];
+  let sentCount = 0;
+  let deliveredCount = 0;
+  let waiter:
+    | {
+        resolve: (frame: IpcFrame) => void;
+        reject: (error: Error) => void;
+      }
+    | undefined;
+  let closed = false;
   return {
+    send(frame: unknown): void {
+      sent.push(frame);
+      sentCount += 1;
+      if (waiter && deliveredCount < sentCount) {
+        const next = queue.shift();
+        if (next !== undefined) {
+          deliveredCount += 1;
+          const pending = waiter;
+          waiter = undefined;
+          pending.resolve(next);
+        }
+      }
+    },
+    async nextFrame(): Promise<IpcFrame> {
+      if (deliveredCount < sentCount) {
+        const frame = queue.shift();
+        if (frame === undefined) {
+          throw new Error("connection closed");
+        }
+        deliveredCount += 1;
+        return frame;
+      }
+      if (closed) {
+        throw new Error("connection closed");
+      }
+      return new Promise<IpcFrame>((resolve, reject) => {
+        waiter = { resolve, reject };
+      });
+    },
+    close(): void {
+      closed = true;
+      waiter?.reject(new Error("connection closed"));
+      waiter = undefined;
+    },
+  };
+}
+
+function createDeferredClient(sent: unknown[] = []) {
+  const queue: IpcFrame[] = [];
+  let waiter:
+    | {
+        resolve: (frame: IpcFrame) => void;
+        reject: (error: Error) => void;
+      }
+    | undefined;
+  let closed = false;
+
+  const push = (frame: IpcFrame): void => {
+    if (closed) return;
+    if (waiter) {
+      const pending = waiter;
+      waiter = undefined;
+      pending.resolve(frame);
+      return;
+    }
+    queue.push(frame);
+  };
+
+  const client: IpcClient = {
     send(frame: unknown): void {
       sent.push(frame);
     },
     async nextFrame(): Promise<IpcFrame> {
-      const frame = frames[index];
-      if (frame === undefined) {
-        throw new Error("connection closed");
-      }
-      index += 1;
-      return frame;
+      const frame = queue.shift();
+      if (frame) return frame;
+      if (closed) throw new Error("connection closed");
+      return new Promise<IpcFrame>((resolve, reject) => {
+        waiter = { resolve, reject };
+      });
     },
-    close(): void {},
+    close(): void {
+      closed = true;
+      waiter?.reject(new Error("connection closed"));
+      waiter = undefined;
+    },
+  };
+
+  return { client, push };
+}
+
+function createFakeWriteLoopExecutor() {
+  const pending: PendingExecutorRun[] = [];
+
+  return {
+    executor: async (_input: WriteLoopInput, signal: AbortSignal): Promise<void> => {
+      await new Promise<void>((resolve) => {
+        pending.push({ signal, release: resolve });
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+    },
+    settleAll(): void {
+      while (pending.length > 0) {
+        pending.shift()?.release();
+      }
+    },
   };
 }
 
+function input(): WriteLoopInput {
+  return {
+    worktree: {
+      projectRoot: "/tmp/test-project",
+      projectName: "test-project",
+      branchName: "test-branch",
+      baseRef: "main",
+    },
+    specPath: "/tmp/test-project/spec.md",
+    stepRules: "test rules",
+    expectedArtifactPath: "/tmp/test-project/artifact",
+    bindings: [],
+  };
+}
+
+async function flushBackgroundRuns(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
+function expectRunId(frame: IpcFrame): string {
+  expect(frame.kind).toBe("response");
+  if (frame.kind !== "response") throw new Error("expected response");
+  const runId = (frame.result as { runId?: unknown }).runId;
+  expect(typeof runId).toBe("string");
+  return runId as string;
+}
+
+function finishLoop(runId: string, stateStore: StateStore, logSink: LogSink, iterationsConsumed = 1): void {
+  stateStore.setRunStatus(runId, "completed");
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "complete",
+    iterationsConsumed,
+    resumable: false,
+  });
+}
+
 let server: IpcServer;
+let stateStore: StateStore;
+let logSink: LogSink;
+let fakeExecutor: ReturnType<typeof createFakeWriteLoopExecutor>;
+let logsPath: string;
 
 beforeEach(async () => {
   if (!canUseUnixSockets()) {
@@ -76,14 +220,31 @@ beforeEach(async () => {
   }
   rmSync(SOCKET_PATH, { force: true });
   rmSync(UNREACHABLE_SOCKET_PATH, { force: true });
-  server = await startIpcServer(SOCKET_PATH);
+  const unique = `${process.pid}-${Date.now()}-${crypto.randomUUID()}`;
+  stateStore = openStateStore(join(tmpdir(), `jarvis-tui-daemon-state-${unique}.db`));
+  logsPath = join(tmpdir(), `jarvis-tui-daemon-logs-${unique}.jsonl`);
+  logSink = openLogSink(logsPath);
+  fakeExecutor = createFakeWriteLoopExecutor();
+  server = await startIpcServer(
+    SOCKET_PATH,
+    createRunControlHandlers({
+      stateStore,
+      logReader: openLogReader(logsPath),
+      writeLoopExecutor: fakeExecutor.executor,
+      failureReporter: () => undefined,
+    }),
+  );
 });
 
 afterEach(async () => {
   if (!canUseUnixSockets() || !server) {
     return;
   }
+  fakeExecutor.settleAll();
+  await flushBackgroundRuns();
   await server.close();
+  logSink.close();
+  stateStore.close();
   rmSync(SOCKET_PATH, { force: true });
   rmSync(UNREACHABLE_SOCKET_PATH, { force: true });
 });
@@ -98,12 +259,20 @@ test("uses injected connectIpcClient instead of production transport", async () 
       [
         { kind: "response", id: HEALTH_REQUEST_ID, result: { ok: true } },
         { kind: "response", id: STATUS_REQUEST_ID, result: { state: "running" } },
+        {
+          kind: "response",
+          id: LIST_REQUEST_ID,
+          result: {
+            runs: [{ runId: "run-1", project: "demo", branch: "main", status: "completed", isLive: false }],
+          },
+        },
+        { kind: "response", id: WAIT_REQUEST_ID, result: { runStatus: "completed" } },
       ],
       sent,
     );
   };
 
-  await withFixedUuids([HEALTH_REQUEST_ID, STATUS_REQUEST_ID], async () => {
+  await withFixedUuids([HEALTH_REQUEST_ID, STATUS_REQUEST_ID, LIST_REQUEST_ID, WAIT_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       socketPath: "/tmp/injected.sock",
       connectIpcClient: fakeConnect,
@@ -111,6 +280,10 @@ test("uses injected connectIpcClient instead of production transport", async () 
 
     await expect(client.health()).resolves.toEqual({ ok: true });
     await expect(client.status()).resolves.toEqual({ state: "running" });
+    await expect(client.list()).resolves.toEqual({
+      runs: [{ runId: "run-1", project: "demo", branch: "main", status: "completed", isLive: false }],
+    });
+    await expect(client.wait("run-1")).resolves.toEqual({ runStatus: "completed" });
     client.close();
   });
 
@@ -118,6 +291,8 @@ test("uses injected connectIpcClient instead of production transport", async () 
   expect(sent).toEqual([
     { kind: "request", id: HEALTH_REQUEST_ID, method: "health" },
     { kind: "request", id: STATUS_REQUEST_ID, method: "status" },
+    { kind: "request", id: LIST_REQUEST_ID, method: "list" },
+    { kind: "request", id: WAIT_REQUEST_ID, method: "wait", params: { runId: "run-1" } },
   ]);
 });
 
@@ -138,19 +313,23 @@ test("defaults socket path to ~/.jarvis/daemon.sock when omitted", async () => {
 
 test("health then status reuse one connection without reconnecting", async () => {
   let connectCalls = 0;
-  await withFixedUuids([HEALTH_REQUEST_ID, STATUS_REQUEST_ID], async () => {
+  await withFixedUuids([HEALTH_REQUEST_ID, STATUS_REQUEST_ID, LIST_REQUEST_ID, WAIT_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () => {
         connectCalls += 1;
         return makeClient([
           { kind: "response", id: HEALTH_REQUEST_ID, result: { ok: true } },
           { kind: "response", id: STATUS_REQUEST_ID, result: { state: "running" } },
+          { kind: "response", id: LIST_REQUEST_ID, result: { runs: [] } },
+          { kind: "response", id: WAIT_REQUEST_ID, result: { runStatus: "completed" } },
         ]);
       },
     });
 
     await expect(client.health()).resolves.toEqual({ ok: true });
     await expect(client.status()).resolves.toEqual({ state: "running" });
+    await expect(client.list()).resolves.toEqual({ runs: [] });
+    await expect(client.wait("run-1")).resolves.toEqual({ runStatus: "completed" });
     client.close();
   });
 
@@ -181,6 +360,195 @@ test("rejects correlated status error frames as TuiDaemonRpcError", async () => 
     });
 
     await expect(client.status()).rejects.toBeInstanceOf(TuiDaemonRpcError);
+    client.close();
+  });
+});
+
+test("list sends one correlated IPC list request and returns parsed runs", async () => {
+  const sent: unknown[] = [];
+  await withFixedUuids([LIST_REQUEST_ID], async () => {
+    const client = await connectTuiDaemon({
+      connectIpcClient: async () =>
+        makeClient(
+          [
+            {
+              kind: "response",
+              id: LIST_REQUEST_ID,
+              result: {
+                runs: [{ runId: "run-123", project: "demo", branch: "feature", status: "completed", isLive: false }],
+              },
+            },
+          ],
+          sent,
+        ),
+    });
+
+    await expect(client.list()).resolves.toEqual({
+      runs: [{ runId: "run-123", project: "demo", branch: "feature", status: "completed", isLive: false }],
+    });
+    expect(sent).toEqual([{ kind: "request", id: LIST_REQUEST_ID, method: "list" }]);
+    client.close();
+  });
+});
+
+test("wait sends one correlated IPC wait request and returns only present optional fields", async () => {
+  const sent: unknown[] = [];
+  await withFixedUuids([WAIT_REQUEST_ID], async () => {
+    const client = await connectTuiDaemon({
+      connectIpcClient: async () =>
+        makeClient(
+          [
+            {
+              kind: "response",
+              id: WAIT_REQUEST_ID,
+              result: { runStatus: "completed", loopOutcomeKind: "complete", iterationsConsumed: 2 },
+            },
+          ],
+          sent,
+        ),
+    });
+
+    await expect(client.wait("run-123")).resolves.toEqual({
+      runStatus: "completed",
+      loopOutcomeKind: "complete",
+      iterationsConsumed: 2,
+    });
+    expect(sent).toEqual([{ kind: "request", id: WAIT_REQUEST_ID, method: "wait", params: { runId: "run-123" } }]);
+    client.close();
+  });
+});
+
+test("list succeeds while wait is unresolved on the same client", async () => {
+  const sent: unknown[] = [];
+  const deferred = createDeferredClient(sent);
+
+  await withFixedUuids([WAIT_REQUEST_ID, LIST_REQUEST_ID], async () => {
+    const client = await connectTuiDaemon({ connectIpcClient: async () => deferred.client });
+    const waitPromise = client.wait("run-123");
+    const listPromise = client.list();
+
+    deferred.push({
+      kind: "response",
+      id: LIST_REQUEST_ID,
+      result: {
+        runs: [{ runId: "run-123", project: "demo", branch: "feature", status: "in-progress", isLive: true }],
+      },
+    });
+
+    await expect(listPromise).resolves.toEqual({
+      runs: [{ runId: "run-123", project: "demo", branch: "feature", status: "in-progress", isLive: true }],
+    });
+
+    let settled = false;
+    void waitPromise.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    deferred.push({ kind: "response", id: WAIT_REQUEST_ID, result: { runStatus: "completed" } });
+    await expect(waitPromise).resolves.toEqual({ runStatus: "completed" });
+    expect(sent).toEqual([
+      { kind: "request", id: WAIT_REQUEST_ID, method: "wait", params: { runId: "run-123" } },
+      { kind: "request", id: LIST_REQUEST_ID, method: "list" },
+    ]);
+    client.close();
+  });
+});
+
+test("wait stays pending until its correlated reply arrives", async () => {
+  const deferred = createDeferredClient();
+
+  await withFixedUuids([WAIT_REQUEST_ID], async () => {
+    const client = await connectTuiDaemon({ connectIpcClient: async () => deferred.client });
+    const waitPromise = client.wait("run-123");
+
+    let settled = false;
+    void waitPromise.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    deferred.push({ kind: "response", id: WAIT_REQUEST_ID, result: { runStatus: "completed", resumable: false } });
+    await expect(waitPromise).resolves.toEqual({ runStatus: "completed", resumable: false });
+    client.close();
+  });
+});
+
+test("late correlated wait replies do not resolve an abandoned promise", async () => {
+  const deferred = createDeferredClient();
+
+  await withFixedUuids([WAIT_REQUEST_ID], async () => {
+    const client = await connectTuiDaemon({ connectIpcClient: async () => deferred.client });
+    let resolved = false;
+    const waitPromise = client.wait("run-123").then(
+      () => {
+        resolved = true;
+      },
+      () => undefined,
+    );
+
+    client.close();
+    deferred.push({ kind: "response", id: WAIT_REQUEST_ID, result: { runStatus: "completed" } });
+    await waitPromise;
+    expect(resolved).toBe(false);
+  });
+});
+
+test("replacing wait abandons the prior pending request without resolving it", async () => {
+  const WAIT_FIRST_ID = "00000000-0000-4000-8000-000000000006";
+  const WAIT_SECOND_ID = "00000000-0000-4000-8000-000000000007";
+  const deferred = createDeferredClient();
+
+  await withFixedUuids([WAIT_FIRST_ID, WAIT_SECOND_ID], async () => {
+    const client = await connectTuiDaemon({ connectIpcClient: async () => deferred.client });
+    const abandoned = client.wait("run-a");
+    const replacement = client.wait("run-b");
+
+    deferred.push({
+      kind: "response",
+      id: WAIT_FIRST_ID,
+      result: { runStatus: "completed", loopOutcomeKind: "complete", iterationsConsumed: 9 },
+    });
+    await expect(
+      Promise.race([abandoned.then(() => "resolved" as const), Promise.resolve("pending" as const)]),
+    ).resolves.toBe("pending");
+
+    deferred.push({ kind: "response", id: WAIT_SECOND_ID, result: { runStatus: "blocked" } });
+    await expect(replacement).resolves.toEqual({ runStatus: "blocked" });
+    client.close();
+  });
+});
+
+test("list and wait correlated error frames reject as TuiDaemonRpcError", async () => {
+  await withFixedUuids([LIST_REQUEST_ID, WAIT_REQUEST_ID], async () => {
+    const client = await connectTuiDaemon({
+      connectIpcClient: async () =>
+        makeClient([
+          { kind: "error", id: LIST_REQUEST_ID, code: "internal_error", message: "list failed" },
+          { kind: "error", id: WAIT_REQUEST_ID, code: "unknown_run", message: "missing run" },
+        ]),
+    });
+
+    await expect(client.list()).rejects.toBeInstanceOf(TuiDaemonRpcError);
+    await expect(client.wait("run-404")).rejects.toMatchObject({ code: "unknown_run" });
+    client.close();
+  });
+});
+
+test("list and wait malformed success payloads reject as TuiDaemonConnectionError", async () => {
+  await withFixedUuids([LIST_REQUEST_ID, WAIT_REQUEST_ID], async () => {
+    const client = await connectTuiDaemon({
+      connectIpcClient: async () =>
+        makeClient([
+          { kind: "response", id: LIST_REQUEST_ID, result: { runs: [{ runId: "run-1", project: "demo" }] } },
+          { kind: "response", id: WAIT_REQUEST_ID, result: { loopOutcomeKind: "complete" } },
+        ]),
+    });
+
+    await expect(client.list()).rejects.toBeInstanceOf(TuiDaemonConnectionError);
+    await expect(client.wait("run-1")).rejects.toBeInstanceOf(TuiDaemonConnectionError);
     client.close();
   });
 });
@@ -217,6 +585,68 @@ socketTest("status round-trips over a test IPC server", async () => {
   const client = await connectTuiDaemon({ socketPath: SOCKET_PATH, connectIpcClient });
   await expect(client.status()).resolves.toEqual({ state: "running" });
   client.close();
+});
+
+socketTest("list round-trips over a test IPC server", async () => {
+  const ipc = await connectIpcClient(SOCKET_PATH);
+  ipc.send({ kind: "request", id: "start", method: "start", params: { input: input() } });
+  const startFrame = await ipc.nextFrame();
+  const runId = expectRunId(startFrame);
+  const client = await connectTuiDaemon({ socketPath: SOCKET_PATH, connectIpcClient });
+
+  await expect(client.list()).resolves.toEqual({
+    runs: [{ runId, project: "test-project", branch: "test-branch", status: "in-progress", isLive: true }],
+  });
+  client.close();
+  ipc.close();
+});
+
+socketTest("wait round-trips over a test IPC server", async () => {
+  const ipc = await connectIpcClient(SOCKET_PATH);
+  ipc.send({ kind: "request", id: "start", method: "start", params: { input: input() } });
+  const runId = expectRunId(await ipc.nextFrame());
+
+  const client = await connectTuiDaemon({ socketPath: SOCKET_PATH, connectIpcClient });
+  const pending = client.wait(runId);
+  await Promise.resolve();
+  finishLoop(runId, stateStore, logSink, 3);
+  fakeExecutor.settleAll();
+  await flushBackgroundRuns();
+
+  await expect(pending).resolves.toEqual({
+    runStatus: "completed",
+    loopOutcomeKind: "complete",
+    iterationsConsumed: 3,
+    resumable: false,
+  });
+  client.close();
+  ipc.close();
+});
+
+socketTest("list succeeds while wait is pending on the same socket connection", async () => {
+  const ipc = await connectIpcClient(SOCKET_PATH);
+  ipc.send({ kind: "request", id: "start", method: "start", params: { input: input() } });
+  const runId = expectRunId(await ipc.nextFrame());
+
+  const client = await connectTuiDaemon({ socketPath: SOCKET_PATH, connectIpcClient });
+  const pendingWait = client.wait(runId);
+  await Promise.resolve();
+
+  await expect(client.list()).resolves.toEqual({
+    runs: [{ runId, project: "test-project", branch: "test-branch", status: "in-progress", isLive: true }],
+  });
+
+  finishLoop(runId, stateStore, logSink);
+  fakeExecutor.settleAll();
+  await flushBackgroundRuns();
+  await expect(pendingWait).resolves.toEqual({
+    runStatus: "completed",
+    loopOutcomeKind: "complete",
+    iterationsConsumed: 1,
+    resumable: false,
+  });
+  client.close();
+  ipc.close();
 });
 
 socketTest("rejects unreachable socket with TuiDaemonConnectionError and sends no RPCs", async () => {

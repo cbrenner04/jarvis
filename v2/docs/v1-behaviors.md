@@ -426,6 +426,14 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
 - Plan mode blocker behavior: blocker insertion in `intent.md` during the draft or a review pass stops the run with exit `1`, and blocker content is preserved across phases. Sources: `v1/src/modes/plan/draft.ts`, `v1/src/modes/plan/review.ts`
 - With `commit: false`, the draft, review, and verdict-actuator phases run with write access to the external spec directory, allowing agents to write `index.md`/subspecs and append `## Blocker` sections to `intent.md`. Only claude and codex receive this access as `--add-dir` flags and honor it (`--permission-mode acceptEdits` and `--sandbox workspace-write` respectively); cursor and opencode never receive the directory and cannot write external files. Non-default `modes.plan.agentOrder` on cursor or opencode cannot write the external tree. Sources: `v1/src/commands/plan.ts`, `v1/src/modes/plan/draft.ts`, `v1/src/modes/plan/review.ts`, `v1/src/modes/plan/verdict-actuator.ts`, `v1/src/modes/review/run.ts`, `v1/docs/plan-mode.md`
 
+## TUI / observability
+
+- [v2 additive] `jarvis tui` is an interactive read-only run monitor over daemon
+  IPC: prove `health` + `status`, poll `list` for run rows/liveness, drive the
+  outcome panel from invocation-boundary `wait`, preserve selection by `runId`,
+  and quit with `q` or Ctrl-C. Sources: `v2/src/tui-entry.tsx`,
+  `v2/docs/write-behavior.md`
+
 ## Behaviors with uncertain intent
 
 Items marked `[uncertain]` need additional evidence (code inspection, tests, or documentation review) to confirm or clarify their intent.

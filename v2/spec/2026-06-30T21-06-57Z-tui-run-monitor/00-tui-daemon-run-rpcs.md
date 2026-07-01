@@ -56,19 +56,19 @@ rendering.
 
 ## Acceptance criteria
 
-- [ ] With an injectable IPC fake, `list()` sends one `list` request and returns parsed runs including `runId`, `project`, `branch`, `status`, and `isLive` for each row.
-- [ ] With an injectable IPC fake, `wait(runId)` sends one `wait` request with `{ runId }` and returns the parsed result with `runStatus` and only present optional fields.
-- [ ] On an injectable IPC fake that defers the `wait` response, `wait(runId)` does not resolve until the simulated boundary reply arrives.
-- [ ] With an injectable IPC fake that defers `wait`, `list()` succeeds and returns parsed runs while `wait(runId)` is unresolved on the same client.
-- [ ] When a client-abandoned `wait` receives a late correlated reply, the abandoned promise does not resolve.
-- [ ] When `list` or `wait` returns a correlated `error` frame, the client rejects with `TuiDaemonRpcError` (not `TuiDaemonConnectionError`).
-- [ ] When `list` or `wait` returns a malformed success payload, the client rejects with `TuiDaemonConnectionError`.
-- [ ] `health`, `status`, `list`, and `wait` on one open client reuse the same transport without reconnecting.
-- [ ] Co-located tests inject a fake `connectIpcClient` and assert the client uses the injected transport.
-- [ ] Co-located tests include socket-backed `list` and `wait` success cases registered with `test.skipIf(!canUseUnixSockets(), ...)`.
-- [ ] Co-located socket-backed tests include `list()` succeeding while `wait(runId)` is pending on the same connection (`test.skipIf(!canUseUnixSockets(), ...)`).
-- [ ] Every new exported symbol in the client module has an inline doc-comment stating purpose, params, returns, and thrown errors.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] With an injectable IPC fake, `list()` sends one `list` request and returns parsed runs including `runId`, `project`, `branch`, `status`, and `isLive` for each row.
+- [x] With an injectable IPC fake, `wait(runId)` sends one `wait` request with `{ runId }` and returns the parsed result with `runStatus` and only present optional fields.
+- [x] On an injectable IPC fake that defers the `wait` response, `wait(runId)` does not resolve until the simulated boundary reply arrives.
+- [x] With an injectable IPC fake that defers `wait`, `list()` succeeds and returns parsed runs while `wait(runId)` is unresolved on the same client.
+- [x] When a client-abandoned `wait` receives a late correlated reply, the abandoned promise does not resolve.
+- [x] When `list` or `wait` returns a correlated `error` frame, the client rejects with `TuiDaemonRpcError` (not `TuiDaemonConnectionError`).
+- [x] When `list` or `wait` returns a malformed success payload, the client rejects with `TuiDaemonConnectionError`.
+- [x] `health`, `status`, `list`, and `wait` on one open client reuse the same transport without reconnecting.
+- [x] Co-located tests inject a fake `connectIpcClient` and assert the client uses the injected transport.
+- [x] Co-located tests include socket-backed `list` and `wait` success cases registered with `test.skipIf(!canUseUnixSockets(), ...)`.
+- [x] Co-located socket-backed tests include `list()` succeeding while `wait(runId)` is pending on the same connection (`test.skipIf(!canUseUnixSockets(), ...)`).
+- [x] Every new exported symbol in the client module has an inline doc-comment stating purpose, params, returns, and thrown errors.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

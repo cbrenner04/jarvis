@@ -6,16 +6,12 @@ import { createAgentBindings } from "../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
 import type { WaitRunCompletionResult } from "./daemon.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon-lifecycle.ts";
+import { parseListRuns, parseWaitCompletion } from "./daemon-wire.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import type { ErrorFrame, ResponseFrame } from "./ipc/types.ts";
-import type { RunStatus } from "./state-store-types.ts";
-import { type RunTuiEntryDeps, runTuiEntry } from "./tui-entry.tsx";
-import {
-  executeWriteLoop,
-  type WriteLoopInput,
-  type WriteLoopOutcomeKind,
-  type WriteLoopResult,
-} from "./write-loop.ts";
+import { runTuiEntry } from "./tui-entry.tsx";
+import type { RunTuiEntryDeps } from "./tui-monitor-types.ts";
+import { executeWriteLoop, type WriteLoopInput, type WriteLoopResult } from "./write-loop.ts";
 import { buildWriteLoopInputFromCliValues, parseWriteArgs } from "./write-loop-input.ts";
 
 export type Io = {
@@ -176,29 +172,14 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
         return 1;
       }
 
-      const runs = arrayProperty(response.result, "runs");
-      if (runs === undefined) {
+      const list = parseListRuns(response.result);
+      if (list === undefined) {
         io.stderr("invalid daemon response\n");
         return 1;
       }
 
-      for (const run of runs) {
-        const runId = stringProperty(run, "runId");
-        const project = stringProperty(run, "project");
-        const branch = stringProperty(run, "branch");
-        const status = stringProperty(run, "status");
-        const isLive = booleanProperty(run, "isLive");
-        if (
-          runId === undefined ||
-          project === undefined ||
-          branch === undefined ||
-          status === undefined ||
-          isLive === undefined
-        ) {
-          io.stderr("invalid daemon response\n");
-          return 1;
-        }
-        io.stdout(`${runId}\t${project}\t${branch}\t${status}\t${isLive ? "live" : "not-live"}\n`);
+      for (const run of list.runs) {
+        io.stdout(`${run.runId}\t${run.project}\t${run.branch}\t${run.status}\t${run.isLive ? "live" : "not-live"}\n`);
       }
       return 0;
     });
@@ -250,7 +231,7 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
         io.stderr(formatRpcError(response));
         return 1;
       }
-      const result = parseWaitResult(response.result);
+      const result = parseWaitCompletion(response.result);
       if (result === undefined) {
         io.stderr("invalid daemon response\n");
         return 1;
@@ -332,18 +313,6 @@ function stringProperty(value: unknown, key: string): string | undefined {
   return typeof prop === "string" ? prop : undefined;
 }
 
-function booleanProperty(value: unknown, key: string): boolean | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const prop = (value as Record<string, unknown>)[key];
-  return typeof prop === "boolean" ? prop : undefined;
-}
-
-function arrayProperty(value: unknown, key: string): unknown[] | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const prop = (value as Record<string, unknown>)[key];
-  return Array.isArray(prop) ? prop : undefined;
-}
-
 function parseWriteCliInput(argv: readonly string[], deps: CliDeps): WriteCliInput {
   let values: Record<string, string | boolean | string[] | undefined>;
   try {
@@ -378,50 +347,6 @@ function exitCodeForWriteResult(kind: Awaited<ReturnType<typeof executeWriteLoop
   if (kind === "invocation_failure") return 2;
   if (kind === "budget-exhausted") return 5;
   return 1;
-}
-
-const RUN_STATUSES = new Set<RunStatus>([
-  "in-progress",
-  "completed",
-  "blocked",
-  "budget-soft-stopped",
-  "paused",
-  "failed",
-  "killed",
-]);
-
-const LOOP_OUTCOME_KINDS = new Set<WriteLoopOutcomeKind>([
-  "complete",
-  "progress",
-  "blocked",
-  "contract_miss",
-  "invocation_failure",
-  "budget-exhausted",
-  "paused",
-]);
-
-function parseWaitResult(value: unknown): WaitRunCompletionResult | undefined {
-  const runStatus = stringProperty(value, "runStatus");
-  if (runStatus === undefined || !RUN_STATUSES.has(runStatus as RunStatus)) return undefined;
-
-  const result: WaitRunCompletionResult = { runStatus: runStatus as RunStatus };
-  const record = value as Record<string, unknown>;
-
-  const loopOutcomeKind = stringProperty(value, "loopOutcomeKind");
-  if (loopOutcomeKind !== undefined) {
-    if (!LOOP_OUTCOME_KINDS.has(loopOutcomeKind as WriteLoopOutcomeKind)) return undefined;
-    result.loopOutcomeKind = loopOutcomeKind as WriteLoopOutcomeKind;
-  }
-
-  const iterationsConsumed = record.iterationsConsumed;
-  if (typeof iterationsConsumed === "number" && Number.isFinite(iterationsConsumed)) {
-    result.iterationsConsumed = iterationsConsumed;
-  }
-
-  const resumable = booleanProperty(value, "resumable");
-  if (resumable !== undefined) result.resumable = resumable;
-
-  return result;
 }
 
 function exitCodeForWaitResult(result: WaitRunCompletionResult): number {

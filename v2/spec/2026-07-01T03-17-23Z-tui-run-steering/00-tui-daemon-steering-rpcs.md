@@ -37,7 +37,7 @@ connection. Reusable seam for run-monitor steering; no ink rendering.
   `kill(runId)` returning `{ ok: true }`.
 - Parse and validate success payloads; reject malformed replies as
   `TuiDaemonConnectionError`.
-- Co-locate tests with injectable IPC fakes covering success, representative
+- Co-locate tests with injectable IPC fakes covering success, pinned per-method
   daemon error codes, and malformed payloads.
 - Doc-comment every new exported symbol.
 
@@ -50,7 +50,9 @@ connection. Reusable seam for run-monitor steering; no ink rendering.
 - [ ] When any steering RPC returns a malformed success payload, the client rejects with `TuiDaemonConnectionError`.
 - [ ] With an injectable IPC fake that defers `wait`, `pause`/`resume`/`kill` succeed on the same open client while `wait(runId)` is unresolved.
 - [ ] Co-located tests inject a fake `connectIpcClient` and assert steering methods use the injected transport.
+- [ ] Co-located fakes cover at least `unknown_run` plus one guard code per method family: `run_not_active` for `pause`/`kill`; `terminal_run` or `run_in_progress`/`worktree_claimed` for `resume`.
 - [ ] Every new exported symbol in the client module has an inline doc-comment stating purpose, params, returns, and thrown errors.
+- [ ] `TuiDaemonClient` inline doc-comment includes `pause`, `resume`, and `kill` in the export contract.
 - [ ] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates

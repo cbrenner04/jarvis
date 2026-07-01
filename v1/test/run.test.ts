@@ -7707,6 +7707,70 @@ describe("review phase", () => {
     expect(cap.out()).toContain("review attempts: 4"); // 3 roles + actuator
   });
 
+  test("completion review actuator idle escalation uses reviewActuator ladder not activeAgents", async () => {
+    const idleTimeoutMs = 1000;
+    const hangScript = writeIdleHangScript(join(dir, "completion-actuator-idle.sh"));
+    const env = setupReviewEnv({ reviewPasses: 1, patchAgentOrder: [CODEX_ENTRY] });
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.idleOutputTimeoutMs = idleTimeoutMs;
+    cfg.modes.patch.subRoleAgentOrder = { reviewActuator: [CLAUDE_ENTRY, CODEX_ENTRY] };
+    writeConfig(cfg, { dir: cfgDir });
+
+    const cap = captureIo();
+    const claudeIdle = createIdleHangAgent("claude", hangScript);
+    let codexActuatorCalls = 0;
+    const codex = new FakeAgent("codex", (_callCount, prompt, opts) => {
+      if (isPatchReviewActuatorPrompt(prompt)) {
+        codexActuatorCalls += 1;
+        return { kind: "ok", stdout: "", stderr: "" };
+      }
+      if (isPatchReviewPrompt(prompt)) {
+        return {
+          kind: "ok",
+          stdout: prompt.includes("Review: Adjudicator") ? "Needs fix.\n" : "",
+          stderr: "",
+        };
+      }
+      if (prompt.includes("PR description")) {
+        return { kind: "ok", stdout: "Implements the feature.\n", stderr: "" };
+      }
+      writeFileSync(join(opts.cwd, "impl.txt"), "impl\n");
+      writeFileSync(
+        join(opts.cwd, "spec", "feature", "00-one.md"),
+        "# 00 - One\n\n## Acceptance criteria\n\n- [x] One accepted.\n",
+      );
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+    const claude = new FakeAgent("claude", (_callCount, prompt, opts) => {
+      if (isPatchReviewActuatorPrompt(prompt)) {
+        return claudeIdle.run(prompt, opts);
+      }
+      if (isPatchReviewPrompt(prompt)) {
+        return {
+          kind: "ok",
+          stdout: prompt.includes("Review: Adjudicator") ? "Needs fix.\n" : "",
+          stderr: "",
+        };
+      }
+      throw new Error("unexpected claude call");
+    });
+
+    const code = await runCommand({
+      specPath: env.spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude, codex },
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+      handleSignals: false,
+      __testKillGraceMs: 200,
+    });
+
+    expect(code).toBe(0);
+    expect(cap.err()).toContain(`review: claude: ${HARNESS_IDLE_TIMEOUT_FALLBACK}`);
+    expect(claudeIdle.calls.filter((c) => isPatchReviewActuatorPrompt(c.prompt))).toHaveLength(1);
+    expect(codexActuatorCalls).toBe(1);
+  });
+
   test("baseline gate leaves PR draft until review completes", async () => {
     const env = setupReviewEnv({ reviewPasses: 1 });
     const cap = captureIo();

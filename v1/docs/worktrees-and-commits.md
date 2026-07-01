@@ -309,14 +309,17 @@ Both modes are handled on the same conditions.
 
 Default behavior:
 
-- Lists all worktrees whose corresponding PR has `state: MERGED`.
-- Skips worktrees with uncommitted changes or unpushed commits.
-- Prompts for confirmation before removal (use `--dry-run` to preview with `(patch)` or `(plan)` tags).
+- Enqueues worktrees whose branch PR is merged (`isMergedPr` inspection).
+- Merged PR worktrees are force-removed regardless of porcelain or unpushed
+  commits (`git worktree remove --force`); there is no dirty or unpushed skip.
+- Not-merged worktrees silently skip at the merge gate (absent from preview, not
+  removed). `isMergedPr` inspection failure keeps the same silent skip.
+- Prompts for confirmation before removal (use `--dry-run` to preview with
+  `(patch)` or `(plan)` tags).
 - Removes the git worktrees and deletes the matching local branches. Branch
   deletion tries Git's safe `-d` path first, then force-deletes the local branch
   if Git rejects it as not fully merged. This handles squash-merged and
-  rebase-merged PRs after the merged-PR, clean-worktree, unpushed-commit, and
-  confirmation gates have already passed.
+  rebase-merged PRs after the merge gate and confirmation have passed.
 
 - Afterwards tries **`<targetDir>/<archive>/ → <targetDir>/completed/<archive>/`** using a filesystem `rename()` when **`<targetDir>/<archive>/`** exists. For patch layouts, **`<archive>`** is the branch/worktree name. For plan layouts, cleanup strips the **`plan/`** branch prefix (**`<archive> = plan-name`**) and uses the project's configured plan `targetDir` (default: `spec`).
 

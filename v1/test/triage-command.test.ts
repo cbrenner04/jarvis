@@ -607,7 +607,7 @@ describe("suggested moves rules", () => {
       }),
     );
     expect(lines.length).toBeGreaterThan(0);
-    expect(lines.some((l) => l.includes("jarvis1 cleanup"))).toBe(true);
+    expect(lines.some((l) => l.includes("Discard: jarvis1 cleanup"))).toBe(true);
     expect(lines.some((l) => l.includes("stash"))).toBe(false);
     if (dirtyKind !== "untracked-only") {
       expect(lines.some((l) => l.includes("orphaned"))).toBe(true);
@@ -844,18 +844,33 @@ describe("suggested moves rules", () => {
     }
   });
 
-  test("untracked-only with MERGED (no spec path) falls through to fallback", () => {
-    const input = suggestedMovesBase({
-      dirtyKind: "untracked-only",
-      unpushed: 0,
-      prState: "MERGED",
-      specComplete: false,
-      worktreePath: "/tmp/test",
-      specPath: undefined,
-    });
+  test("rule 4: untracked-only + MERGED with spec-dir untracked beats rule 3", () => {
+    const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-triage-rule4-"));
+    try {
+      initGitWorktree(worktreePath);
+      const specDir = join(worktreePath, "v1/spec/plan-spec");
+      mkdirSync(specDir, { recursive: true });
+      const specPath = join(specDir, "index.md");
+      writeFileSync(specPath, "# spec\n");
+      writeFileSync(join(specDir, "draft.md"), "draft\n");
 
-    const lines = getSuggestedMoves(input);
-    expect(lines.some((l) => l.includes("Inspect"))).toBe(true);
+      const lines = getSuggestedMoves(
+        suggestedMovesBase({
+          dirtyKind: "untracked-only",
+          unpushed: 0,
+          prState: "MERGED",
+          specComplete: false,
+          worktreePath,
+          specPath,
+        }),
+      );
+      expect(lines.some((l) => l.includes("Discard: jarvis1 cleanup"))).toBe(true);
+      expect(lines.some((l) => l.includes("stash"))).toBe(false);
+      expect(lines.some((l) => l.includes("seed spec"))).toBe(false);
+      expect(lines.some((l) => l.includes("add") && l.includes("push"))).toBe(false);
+    } finally {
+      rmSync(worktreePath, { recursive: true, force: true });
+    }
   });
 });
 

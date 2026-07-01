@@ -853,7 +853,7 @@ const suggestedMovesRules: Array<{
   // Rule 3: untracked-only (in spec dir) + suggested push
   {
     match: (input) => {
-      if (input.dirtyKind !== "untracked-only" || !input.specPath) {
+      if (input.dirtyKind !== "untracked-only" || !input.specPath || input.prState === "MERGED") {
         return false;
       }
 

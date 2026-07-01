@@ -13,7 +13,7 @@ export class TuiDaemonConnectionError extends Error {
   }
 }
 
-/** Correlated daemon `error` frame on any RPC (`health`, `status`, `list`, `wait`, `start`, …). */
+/** Correlated daemon `error` frame on any RPC (`health`, `status`, `list`, `start`, `pause`, `resume`, `kill`, `wait`, …). */
 export class TuiDaemonRpcError extends Error {
   /** Daemon error code from the correlated `error` frame. */
   readonly code: string;

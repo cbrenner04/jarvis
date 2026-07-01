@@ -11,6 +11,7 @@ import { tryAutoIntegrateBase } from "../../git/auto-integrate-base.ts";
 import { checkBaseCurrent } from "../../git/base-current.ts";
 import { checkPrExists } from "../../pr.ts";
 import {
+  HARNESS_IDLE_TIMEOUT_FALLBACK,
   HARNESS_QUOTA_FALLBACK_STRICT,
   harnessAuthRotateLine,
   harnessQuotaFallbackLenientLine,
@@ -861,112 +862,115 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       // Build actuator prompt from the verdict
       const prompt = buildVerdictActuatorPrompt(verdict, opts.specPath);
 
-      // The verdict actuator stays head-only even when its configured order has fallback rungs.
-      const headEntry = actuatorOrder[0];
-      const agent = actuatorAgents?.[0] ?? (headEntry ? opts.agents?.[headEntry.agent] : undefined);
-      if (agent === undefined) {
-        if (headEntry === undefined) {
-          opts.fanout("harness", "review: actuator no agents available\n", "stderr");
-          throw new ReviewTerminalError("actuator no agents available", 2);
-        }
-      }
-
-      const resolvedAgent = agent ?? (headEntry ? createAgent(headEntry.agent, headEntry.model) : undefined);
-      if (resolvedAgent === undefined) {
-        opts.fanout("harness", "review: actuator no agents available\n", "stderr");
-        throw new ReviewTerminalError("actuator no agents available", 2);
-      }
-
-      const configuredModel = headEntry?.model;
-      const telemetryMeta = configuredModel ? { configured_model: configuredModel } : {};
-
-      const actuatorController = new AbortController();
-      const actuatorTimeoutHandle = setTimeout(() => {
-        actuatorController.abort("actuator-timeout");
-      }, opts.iterationTimeoutMs);
-
-      const actuatorStartedMs = Date.now();
-      const actuatorTracker = new DescendantTracker();
-      let actuatorPollHandle: NodeJS.Timeout | null = null;
-      let actuatorPgid: number | null = null;
-      const actuatorLastOutputAtMs = { current: null as number | null };
-      let actuatorLastFileActivityAtMs: number | null = null;
-      let actuatorIdleTimeoutHandle: NodeJS.Timeout | null = null;
-
-      // Arm idle watchdog for actuator if configured
-      const actuatorArmedAt = Date.now();
+      const remainingOrder = [...actuatorOrder];
+      let rungIndex = 0;
       const actuatorIdleOutputTimeoutMs =
         opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? 600000);
       const actuatorWorktreeDir = opts.patchWorktreeDir ?? opts.cwd;
-      if (actuatorIdleOutputTimeoutMs > 0) {
-        const scheduleActuatorIdleCheck = () => {
-          actuatorIdleTimeoutHandle = setTimeout(() => {
-            const snapshotAt = Date.now();
-            const lastOutputAgeMs =
-              actuatorLastOutputAtMs.current === null ? null : snapshotAt - actuatorLastOutputAtMs.current;
 
-            const sampledFileActivityAt = sampleFileActivityIfNeeded({
-              lastOutputAgeMs,
-              idleOutputTimeoutMs: actuatorIdleOutputTimeoutMs,
-              now: snapshotAt,
-              armedAt: actuatorArmedAt,
-              workingDir: actuatorWorktreeDir,
-            });
+      while (remainingOrder.length > 0) {
+        const headEntry = remainingOrder[0];
+        if (headEntry === undefined) {
+          break;
+        }
 
-            if (sampledFileActivityAt !== null) {
-              actuatorLastFileActivityAtMs = sampledFileActivityAt;
-            }
+        const agent = actuatorAgents?.[rungIndex] ?? opts.agents?.[headEntry.agent];
+        const resolvedAgent = agent ?? createAgent(headEntry.agent, headEntry.model);
 
-            const { shouldFire } = evaluateIdleWatchdog({
-              now: snapshotAt,
-              lastOutputAt: actuatorLastOutputAtMs.current,
-              lastFileActivityAt: actuatorLastFileActivityAtMs,
-              armedAt: actuatorArmedAt,
-              idleOutputTimeoutMs: actuatorIdleOutputTimeoutMs,
-            });
+        const configuredModel = headEntry.model;
+        const telemetryMeta = configuredModel ? { configured_model: configuredModel } : {};
 
-            if (shouldFire) {
-              opts.fanout(
-                "harness",
-                `[watchdog] idle timeout fired after ${actuatorIdleOutputTimeoutMs}ms; killing agent\n`,
-                "stderr",
-              );
-              if (actuatorPgid !== null) {
-                try {
-                  process.kill(-actuatorPgid, "SIGTERM");
-                } catch {
-                  // best-effort
-                }
+        const actuatorController = new AbortController();
+        const actuatorTimeoutHandle = setTimeout(() => {
+          actuatorController.abort("actuator-timeout");
+        }, opts.iterationTimeoutMs);
+
+        const actuatorStartedMs = Date.now();
+        const actuatorTracker = new DescendantTracker();
+        let actuatorPollHandle: NodeJS.Timeout | null = null;
+        let actuatorPgid: number | null = null;
+        const actuatorLastOutputAtMs = { current: null as number | null };
+        let actuatorLastFileActivityAtMs: number | null = null;
+        let actuatorIdleTimeoutHandle: NodeJS.Timeout | null = null;
+
+        const actuatorArmedAt = Date.now();
+        if (actuatorIdleOutputTimeoutMs > 0) {
+          const scheduleActuatorIdleCheck = () => {
+            actuatorIdleTimeoutHandle = setTimeout(() => {
+              const snapshotAt = Date.now();
+              const lastOutputAgeMs =
+                actuatorLastOutputAtMs.current === null ? null : snapshotAt - actuatorLastOutputAtMs.current;
+
+              const sampledFileActivityAt = sampleFileActivityIfNeeded({
+                lastOutputAgeMs,
+                idleOutputTimeoutMs: actuatorIdleOutputTimeoutMs,
+                now: snapshotAt,
+                armedAt: actuatorArmedAt,
+                workingDir: actuatorWorktreeDir,
+              });
+
+              if (sampledFileActivityAt !== null) {
+                actuatorLastFileActivityAtMs = sampledFileActivityAt;
               }
-              actuatorController.abort("idle-timeout");
-            } else {
-              scheduleActuatorIdleCheck();
-            }
-          }, 100);
-          actuatorIdleTimeoutHandle?.unref?.();
-        };
-        scheduleActuatorIdleCheck();
-      }
 
-      try {
-        opts.fanout("outbound", prompt, null, {
-          actuator: true,
-          agent: resolvedAgent.name,
-        });
+              const { shouldFire } = evaluateIdleWatchdog({
+                now: snapshotAt,
+                lastOutputAt: actuatorLastOutputAtMs.current,
+                lastFileActivityAt: actuatorLastFileActivityAtMs,
+                armedAt: actuatorArmedAt,
+                idleOutputTimeoutMs: actuatorIdleOutputTimeoutMs,
+              });
 
-        const result = await resolvedAgent.run(prompt, {
-          cwd: opts.cwd,
-          signal: actuatorController.signal,
-          abortKillGraceMs: killGraceMs,
-          lastOutputAtMs: actuatorLastOutputAtMs,
-          onSpawned: ({ pid }) => {
-            actuatorPgid = pid;
-            actuatorPollHandle = startDescendantPolling(actuatorTracker, pid, {
-              ...(opts.__testAfterPollFn !== undefined ? { afterPoll: opts.__testAfterPollFn } : {}),
-              ...(descendantPollIntervalMs !== undefined ? { intervalMs: descendantPollIntervalMs } : {}),
-            });
-          },
-        });
+              if (shouldFire) {
+                opts.fanout(
+                  "harness",
+                  `[watchdog] idle timeout fired after ${actuatorIdleOutputTimeoutMs}ms; killing agent\n`,
+                  "stderr",
+                );
+                if (actuatorPgid !== null) {
+                  try {
+                    process.kill(-actuatorPgid, "SIGTERM");
+                  } catch {
+                    // best-effort
+                  }
+                }
+                actuatorController.abort("idle-timeout");
+              } else {
+                scheduleActuatorIdleCheck();
+              }
+            }, 100);
+            actuatorIdleTimeoutHandle?.unref?.();
+          };
+          scheduleActuatorIdleCheck();
+        }
+
+        let result: Awaited<ReturnType<Agent["run"]>>;
+        try {
+          opts.fanout("outbound", prompt, null, {
+            actuator: true,
+            agent: resolvedAgent.name,
+          });
+
+          result = await resolvedAgent.run(prompt, {
+            cwd: opts.cwd,
+            signal: actuatorController.signal,
+            abortKillGraceMs: killGraceMs,
+            lastOutputAtMs: actuatorLastOutputAtMs,
+            onSpawned: ({ pid }) => {
+              actuatorPgid = pid;
+              actuatorPollHandle = startDescendantPolling(actuatorTracker, pid, {
+                ...(opts.__testAfterPollFn !== undefined ? { afterPoll: opts.__testAfterPollFn } : {}),
+                ...(descendantPollIntervalMs !== undefined ? { intervalMs: descendantPollIntervalMs } : {}),
+              });
+            },
+          });
+        } finally {
+          clearTimeout(actuatorTimeoutHandle);
+          if (actuatorIdleTimeoutHandle !== null) {
+            clearTimeout(actuatorIdleTimeoutHandle);
+          }
+          stopDescendantPollingAndReap(actuatorTracker, actuatorPgid, actuatorPollHandle, opts.__testReapOverride);
+        }
 
         const durationMs = Math.max(0, Date.now() - actuatorStartedMs);
 
@@ -1132,36 +1136,64 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
               ...telemetryMeta,
             });
           }
-        } else {
-          opts.fanout("harness", `review: actuator error (${result.kind})\n`, "stderr");
-          if (result.kind !== "quota" && result.stderr.length > 0) {
-            opts.fanout("harness", result.stderr, "stderr");
-          }
-          const isIdleTimeout = result.kind === "error" && result.stderr.includes("aborted: idle-timeout");
-          if (isIdleTimeout) {
-            // The actuator writes via opts.writeTelemetry (not trackingWriteTelemetry),
-            // so set the idle flag directly; the catch maps it to exit 8.
-            idleTimeoutOccurred = true;
-          }
-          const exitCode = result.kind === "model_config" ? 3 : result.kind === "error" ? result.exitCode : 1;
+          return;
+        }
+
+        opts.fanout("harness", `review: actuator error (${result.kind})\n`, "stderr");
+        if (result.kind !== "quota" && result.stderr.length > 0) {
+          opts.fanout("harness", result.stderr, "stderr");
+        }
+        const isIdleTimeout = result.kind === "error" && result.stderr.includes("aborted: idle-timeout");
+        if (isIdleTimeout && actuatorIdleOutputTimeoutMs > 0 && remainingOrder.length > 1) {
+          opts.fanout(
+            "harness",
+            `review: ${resolvedAgent.name}: ${HARNESS_IDLE_TIMEOUT_FALLBACK}\n`,
+            "stderr",
+          );
           opts.writeTelemetry({
             agent: resolvedAgent.name,
             iteration: ctx.passNumber,
             durationMs,
-            kind: result.kind === "quota" ? "quota" : result.kind === "model_config" ? "error" : "error",
-            exitReason: isIdleTimeout ? "watchdog-idle-timeout" : result.kind,
+            kind: "timeout",
+            exitReason: "watchdog-idle-timeout-fallback",
             patch_phase: "review",
             ...telemetryMeta,
           });
-          throw new ReviewTerminalError(`actuator failed: ${result.kind}`, exitCode);
+          remainingOrder.shift();
+          rungIndex += 1;
+          continue;
         }
-      } finally {
-        clearTimeout(actuatorTimeoutHandle);
-        if (actuatorIdleTimeoutHandle !== null) {
-          clearTimeout(actuatorIdleTimeoutHandle);
+
+        if (isIdleTimeout) {
+          idleTimeoutOccurred = true;
+          const idleExitCode = result.kind === "error" ? result.exitCode : 1;
+          opts.writeTelemetry({
+            agent: resolvedAgent.name,
+            iteration: ctx.passNumber,
+            durationMs,
+            kind: "error",
+            exitReason: "watchdog-idle-timeout",
+            patch_phase: "review",
+            ...telemetryMeta,
+          });
+          throw new ReviewTerminalError(`actuator failed: ${result.kind}`, idleExitCode);
         }
-        stopDescendantPollingAndReap(actuatorTracker, actuatorPgid, actuatorPollHandle, opts.__testReapOverride);
+
+        const exitCode = result.kind === "model_config" ? 3 : result.kind === "error" ? result.exitCode : 1;
+        opts.writeTelemetry({
+          agent: resolvedAgent.name,
+          iteration: ctx.passNumber,
+          durationMs,
+          kind: result.kind === "quota" ? "quota" : result.kind === "model_config" ? "error" : "error",
+          exitReason: result.kind,
+          patch_phase: "review",
+          ...telemetryMeta,
+        });
+        throw new ReviewTerminalError(`actuator failed: ${result.kind}`, exitCode);
       }
+
+      opts.fanout("harness", "review: actuator no agents available\n", "stderr");
+      throw new ReviewTerminalError("actuator no agents available", 2);
     };
   };
 

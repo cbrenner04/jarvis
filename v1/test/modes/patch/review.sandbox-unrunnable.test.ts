@@ -17,7 +17,7 @@ import {
   revertSpecTreeEdits,
   runPatchReviewPhase,
 } from "../../../src/modes/patch/review.ts";
-import { HARNESS_QUOTA_FALLBACK_STRICT, harnessAuthRotateLine } from "../../../src/quota-harness-messages.ts";
+import { HARNESS_IDLE_TIMEOUT_FALLBACK, HARNESS_QUOTA_FALLBACK_STRICT, harnessAuthRotateLine } from "../../../src/quota-harness-messages.ts";
 import { FAKE_AGENT_SPAWN_PID, waitForPollCount } from "../../descendant-poll-test-helpers.ts";
 import {
   beginHangFixtureTracking,
@@ -148,11 +148,12 @@ function setupPatchReviewRepoWithBranchChange(): {
 }
 
 export class IdleHangAgent implements Agent {
-  readonly name = "claude" as const;
+  readonly name: AgentName;
   readonly #binary: string;
 
-  constructor(binary: string) {
+  constructor(binary: string, name: AgentName = "claude") {
     this.#binary = binary;
+    this.name = name;
   }
 
   async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
@@ -945,6 +946,248 @@ describe("runPatchReviewPhase", () => {
       expect(code, `Telemetry: ${JSON.stringify(telemetry)}`).toBe(11);
       expect(elapsedMs).toBeLessThan(5000);
       expect(hasIdleTimeout, `Telemetry: ${JSON.stringify(telemetry)}`).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("idle watchdog escalates through reviewActuator when fallback rung remains", async () => {
+    const reviewIdleTimeoutMs = 1000;
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    try {
+      const tmpDir = join(dir, "..", "idle-actuator-escalate");
+      mkdirSync(tmpDir, { recursive: true });
+      const idleScript = writeIdleHangScript(join(tmpDir, "idle-hang.sh"));
+
+      const reviewer = new FakeAgent("claude", () => ({
+        kind: "ok",
+        stdout: "test-verdict",
+        stderr: "",
+      }));
+      const codexActuator = new FakeAgent("codex", () => ({
+        kind: "ok",
+        stdout: "",
+        stderr: "",
+      }));
+
+      const cap = { out: "", err: "" };
+      const fanout = (_tag: string, text: string) => {
+        cap.err += text;
+      };
+      const telemetry: Record<string, unknown>[] = [];
+      const code = await runPatchReviewPhase({
+        config: {
+          ...makeReviewConfig({
+            reviewOrder: [CLAUDE_ENTRY],
+            reviewActuatorOrder: [CLAUDE_ENTRY, CODEX_ENTRY],
+          }),
+          idleOutputTimeoutMs: reviewIdleTimeoutMs,
+        },
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout,
+        writeTelemetry: (record) => {
+          telemetry.push(record);
+        },
+        agents: { claude: reviewer },
+        actuatorAgents: [new IdleHangAgent(idleScript), codexActuator],
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+        patchWorktreeDir: dir,
+        idleOutputTimeoutMs: reviewIdleTimeoutMs,
+        __testKillGraceMs: 200,
+      });
+
+      expect(code).toBe(0);
+      expect(cap.err).toContain(`review: claude: ${HARNESS_IDLE_TIMEOUT_FALLBACK}`);
+      expect(codexActuator.calls).toHaveLength(1);
+      const fallbackRow = telemetry.find((r) => r.exitReason === "watchdog-idle-timeout-fallback");
+      expect(fallbackRow).toBeDefined();
+      expect(fallbackRow?.kind).toBe("timeout");
+      expect(fallbackRow?.agent).toBe("claude");
+      expect(telemetry.some((r) => r.exitReason === "watchdog-idle-timeout")).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("idle watchdog on final reviewActuator rung exits 11 with terminal watchdog-idle-timeout", async () => {
+    const reviewIdleTimeoutMs = 1000;
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    try {
+      const tmpDir = join(dir, "..", "idle-actuator-final");
+      mkdirSync(tmpDir, { recursive: true });
+      const idleScript = writeIdleHangScript(join(tmpDir, "idle-hang.sh"));
+
+      const reviewer = new FakeAgent("claude", () => ({
+        kind: "ok",
+        stdout: "test-verdict",
+        stderr: "",
+      }));
+
+      const cap = { out: "", err: "" };
+      const fanout = (_tag: string, text: string) => {
+        cap.err += text;
+      };
+      const telemetry: Record<string, unknown>[] = [];
+      const code = await runPatchReviewPhase({
+        config: {
+          ...makeReviewConfig({
+            reviewOrder: [CLAUDE_ENTRY],
+            reviewActuatorOrder: [CLAUDE_ENTRY, CODEX_ENTRY],
+          }),
+          idleOutputTimeoutMs: reviewIdleTimeoutMs,
+        },
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout,
+        writeTelemetry: (record) => {
+          telemetry.push(record);
+        },
+        agents: { claude: reviewer },
+        actuatorAgents: [new IdleHangAgent(idleScript, "claude"), new IdleHangAgent(idleScript, "codex")],
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+        patchWorktreeDir: dir,
+        idleOutputTimeoutMs: reviewIdleTimeoutMs,
+        __testKillGraceMs: 200,
+      });
+
+      expect(code).toBe(11);
+      expect(cap.err).toContain(`review: claude: ${HARNESS_IDLE_TIMEOUT_FALLBACK}`);
+      const fallbackRow = telemetry.find((r) => r.exitReason === "watchdog-idle-timeout-fallback");
+      const terminalRow = telemetry.find((r) => r.exitReason === "watchdog-idle-timeout");
+      expect(fallbackRow).toBeDefined();
+      expect(terminalRow).toBeDefined();
+      expect(terminalRow?.agent).toBe("codex");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("review actuator with idleOutputTimeoutMs 0 does not idle-escalate", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    try {
+      const tmpDir = join(dir, "..", "idle-actuator-disabled");
+      mkdirSync(tmpDir, { recursive: true });
+      const idleScript = writeIdleHangScript(join(tmpDir, "idle-hang.sh"));
+
+      const reviewer = new FakeAgent("claude", () => ({
+        kind: "ok",
+        stdout: "test-verdict",
+        stderr: "",
+      }));
+      const codexActuator = new FakeAgent("codex", () => ({
+        kind: "ok",
+        stdout: "",
+        stderr: "",
+      }));
+
+      const cap = { out: "", err: "" };
+      const fanout = (_tag: string, text: string) => {
+        cap.err += text;
+      };
+      const telemetry: Record<string, unknown>[] = [];
+      const iterationTimeoutMs = 800;
+      const startTime = Date.now();
+      const code = await runPatchReviewPhase({
+        config: {
+          ...makeReviewConfig({
+            reviewOrder: [CLAUDE_ENTRY],
+            reviewActuatorOrder: [CLAUDE_ENTRY, CODEX_ENTRY],
+          }),
+          idleOutputTimeoutMs: 0,
+        },
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout,
+        writeTelemetry: (record) => {
+          telemetry.push(record);
+        },
+        agents: { claude: reviewer },
+        actuatorAgents: [new IdleHangAgent(idleScript), codexActuator],
+        iterationTimeoutMs,
+        baseBranch: "main",
+        patchWorktreeDir: dir,
+        idleOutputTimeoutMs: 0,
+        __testKillGraceMs: 200,
+      });
+      const elapsedMs = Date.now() - startTime;
+
+      expect(code).toBe(11);
+      expect(elapsedMs).toBeGreaterThanOrEqual(iterationTimeoutMs - 200);
+      expect(cap.err).not.toContain(HARNESS_IDLE_TIMEOUT_FALLBACK);
+      expect(codexActuator.calls).toHaveLength(0);
+      expect(telemetry.some((r) => r.exitReason === "watchdog-idle-timeout-fallback")).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("review actuator iteration wall abort is terminal with no ladder advance", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    try {
+      const tmpDir = join(dir, "..", "idle-actuator-iteration-wall");
+      mkdirSync(tmpDir, { recursive: true });
+      const idleScript = writeIdleHangScript(join(tmpDir, "idle-hang.sh"));
+
+      const reviewer = new FakeAgent("claude", () => ({
+        kind: "ok",
+        stdout: "test-verdict",
+        stderr: "",
+      }));
+      const codexActuator = new FakeAgent("codex", () => ({
+        kind: "ok",
+        stdout: "",
+        stderr: "",
+      }));
+
+      const cap = { out: "", err: "" };
+      const fanout = (_tag: string, text: string) => {
+        cap.err += text;
+      };
+      const telemetry: Record<string, unknown>[] = [];
+      const iterationTimeoutMs = 800;
+      const idleOutputTimeoutMs = 5000;
+      const startTime = Date.now();
+      const code = await runPatchReviewPhase({
+        config: {
+          ...makeReviewConfig({
+            reviewOrder: [CLAUDE_ENTRY],
+            reviewActuatorOrder: [CLAUDE_ENTRY, CODEX_ENTRY],
+          }),
+          idleOutputTimeoutMs,
+        },
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout,
+        writeTelemetry: (record) => {
+          telemetry.push(record);
+        },
+        agents: { claude: reviewer },
+        actuatorAgents: [new IdleHangAgent(idleScript), codexActuator],
+        iterationTimeoutMs,
+        baseBranch: "main",
+        patchWorktreeDir: dir,
+        idleOutputTimeoutMs,
+        __testKillGraceMs: 200,
+      });
+      const elapsedMs = Date.now() - startTime;
+
+      expect(code).toBe(11);
+      expect(elapsedMs).toBeLessThan(idleOutputTimeoutMs);
+      expect(cap.err).not.toContain(HARNESS_IDLE_TIMEOUT_FALLBACK);
+      expect(codexActuator.calls).toHaveLength(0);
+      expect(telemetry.some((r) => r.exitReason === "watchdog-idle-timeout-fallback")).toBe(false);
+      expect(telemetry.some((r) => r.exitReason === "watchdog-idle-timeout")).toBe(false);
     } finally {
       cleanup();
     }

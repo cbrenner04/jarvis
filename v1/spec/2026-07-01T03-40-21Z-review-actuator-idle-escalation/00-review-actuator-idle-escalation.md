@@ -79,49 +79,49 @@ wins on merge.
 
 ## Acceptance criteria
 
-- [ ] Review actuator idle stall with a later configured `reviewActuator` rung
+- [x] Review actuator idle stall with a later configured `reviewActuator` rung
   shifts to the next agent, emits `review: <agent>: idle timeout; escalating to
   next agent`, records `watchdog-idle-timeout-fallback` telemetry, retries verdict
   application on the next rung, and does not set `idleTimeoutOccurred` or throw
   `ReviewTerminalError` for the non-final stall.
-- [ ] After non-final idle escalation, a completing later rung finishes verdict
+- [x] After non-final idle escalation, a completing later rung finishes verdict
   application and the review phase exits `0` (or otherwise continues past the
   actuator).
-- [ ] Review actuator idle stall on the final configured rung records terminal
+- [x] Review actuator idle stall on the final configured rung records terminal
   `watchdog-idle-timeout` telemetry, sets `idleTimeoutOccurred`, and exits `11`.
-- [ ] Review actuator `iterationTimeoutMs` wall-clock abort stays terminal with
+- [x] Review actuator `iterationTimeoutMs` wall-clock abort stays terminal with
   no ladder advance (idle-fire escalation does not apply).
-- [ ] Review actuator idle escalation ladder uses pre-override
+- [x] Review actuator idle escalation ladder uses pre-override
   `resolveSubRoleAgentOrder` snapshot, not `--agent` implementation override.
-- [ ] Review actuator with `idleOutputTimeoutMs: 0` does not idle-escalate.
-- [ ] `review.sandbox-unrunnable.test.ts` `"idle watchdog timeout fires in review
+- [x] Review actuator with `idleOutputTimeoutMs: 0` does not idle-escalate.
+- [x] `review.sandbox-unrunnable.test.ts` `"idle watchdog timeout fires in review
   actuator phase"` stays green (single-rung terminal `11` unchanged).
-- [ ] `review.sandbox-unrunnable.test.ts` `"idle watchdog timeout fires in review
+- [x] `review.sandbox-unrunnable.test.ts` `"idle watchdog timeout fires in review
   debate phase"` stays green (debate idle abort remains terminal, no cascade).
-- [ ] `modes/patch/shrink.sandbox-unrunnable.test.ts` `"idle watchdog timeout fires
+- [x] `modes/patch/shrink.sandbox-unrunnable.test.ts` `"idle watchdog timeout fires
   in shrink phase"` stays green (shrink idle abort remains terminal, no cascade).
-- [ ] `run.sandbox-unrunnable.test.ts` `"idle watchdog escalates through agentOrder
+- [x] `run.sandbox-unrunnable.test.ts` `"idle watchdog escalates through agentOrder
   when fallback rung remains"` stays green.
-- [ ] `run.sandbox-unrunnable.test.ts` `"idle watchdog on final rung exits 8 with
+- [x] `run.sandbox-unrunnable.test.ts` `"idle watchdog on final rung exits 8 with
   terminal watchdog-idle-timeout"` stays green.
-- [ ] `run.sandbox-unrunnable.test.ts` `"idle abort is not classified as quota and
+- [x] `run.sandbox-unrunnable.test.ts` `"idle abort is not classified as quota and
   escalates via idle ladder"` stays green.
-- [ ] `run.test.ts` `"review and shrink use pre-override patch order without
+- [x] `run.test.ts` `"review and shrink use pre-override patch order without
   subRoleAgentOrder"` stays green.
-- [ ] `v1/docs/agents.md` documents review actuator idle escalation (ladder from
+- [x] `v1/docs/agents.md` documents review actuator idle escalation (ladder from
   `subRoleAgentOrder.reviewActuator` / `agentOrder`, `review:` stderr prefix,
   fallback vs terminal telemetry); patch-implementation section unchanged except
   cross-reference.
-- [ ] `v1/docs/quota-signals.md` documents review actuator
+- [x] `v1/docs/quota-signals.md` documents review actuator
   `watchdog-idle-timeout-fallback` rows and reconciles review terminal idle to
   process exit `11` (not `8`) with `exitReason: "watchdog-idle-timeout"`.
-- [ ] `v1/docs/run-loop.md` documents review actuator idle escalate-then-terminal
+- [x] `v1/docs/run-loop.md` documents review actuator idle escalate-then-terminal
   semantics, contrasts `iterationTimeoutMs` (terminal, no cascade), and
   reconciles review terminal idle to exit `11` (not `8`).
-- [ ] `v1/docs/operator-runbook.md` documents review actuator idle-fire auto-
+- [x] `v1/docs/operator-runbook.md` documents review actuator idle-fire auto-
   escalation through configured rungs; removes “wait out the 30-min wall”
   guidance for idle stalls (iteration wall remains terminal).
-- [ ] `v2/docs/v1-behaviors.md` records review-actuator idle escalation +
+- [x] `v2/docs/v1-behaviors.md` records review-actuator idle escalation +
   final-rung terminal stop (`11`); shrink / review-panel / plan unchanged;
   notes quota head-only vs idle full-ladder asymmetry for `reviewActuator`.
 

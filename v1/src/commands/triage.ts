@@ -900,8 +900,7 @@ const suggestedMovesRules: Array<{
 
   // Rule 4: dirty porcelain + prState = MERGED
   {
-    match: (input) =>
-      ["modified", "mixed", "untracked-only"].includes(input.dirtyKind) && input.prState === "MERGED",
+    match: (input) => ["modified", "mixed", "untracked-only"].includes(input.dirtyKind) && input.prState === "MERGED",
     format: (input) => [
       `1. PR is merged but this tree has uncommitted work — probably orphaned.`,
       `2. Inspect: git -C ${input.worktreePath} diff`,

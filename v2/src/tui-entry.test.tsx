@@ -487,6 +487,104 @@ describe("runTuiEntry", () => {
     ]);
   });
 
+  test("post-proof initial list failure shows rpc-error not unavailable feedback", async () => {
+    const view = createViewHost();
+
+    const code = await runTuiEntry({
+      viewHost: view.host,
+      connectTuiDaemon: async () =>
+        fakeClient({
+          listError: new TuiDaemonConnectionError("malformed RPC reply: invalid list result"),
+        }),
+    });
+
+    expect(code).toBe(1);
+    expect(view.feedbackStates).toEqual([
+      {
+        kind: "rpc-error",
+        code: "daemon_error",
+        message: "malformed RPC reply: invalid list result",
+      },
+    ]);
+  });
+
+  test("refresh preserves selection changed while list is in flight", async () => {
+    const view = createViewHost();
+    const refresh = createRefreshScheduler();
+    const refreshList = deferred<TuiDaemonListResult>();
+    let listCalls = 0;
+
+    const client: TuiDaemonClient = {
+      async health() {
+        return { ok: true };
+      },
+      async status() {
+        return { state: "running" };
+      },
+      async list() {
+        listCalls += 1;
+        if (listCalls === 1) {
+          return { runs: [RUN_ALPHA, RUN_BETA] };
+        }
+        return refreshList.promise;
+      },
+      async start() {
+        return { runId: "unused" };
+      },
+      async wait(runId) {
+        return runId === "run-alpha" ? { runStatus: "completed" } : { runStatus: "blocked", iterationsConsumed: 3 };
+      },
+      close() {},
+    };
+
+    const pending = runTuiEntry({
+      viewHost: view.host,
+      refreshScheduler: refresh.scheduler,
+      connectTuiDaemon: async () => client,
+    });
+    await view.waitUntilOpen();
+    await flush();
+
+    refresh.tick();
+    view.selectRun("run-beta");
+    await flush();
+    refreshList.resolve({ runs: [RUN_BETA] });
+    await flush();
+
+    expect(view.monitorStates.at(-1)).toMatchObject({
+      runs: [RUN_BETA],
+      selectedRunId: "run-beta",
+    });
+
+    view.quit();
+    await pending;
+  });
+
+  test("wait failure with unchanged selection shows error state not perpetual pending", async () => {
+    const view = createViewHost();
+    const alphaWait = deferred<WaitRunCompletionResult>();
+    const { deps } = entryDeps(
+      {
+        listResponses: [{ runs: [RUN_ALPHA] }],
+        waitImpl: async () => alphaWait.promise,
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "pending", runId: "run-alpha" });
+
+    alphaWait.reject(new TuiDaemonRpcError("unknown_run", "run not found"));
+    await flush();
+
+    expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "error", runId: "run-alpha" });
+
+    view.quit();
+    await pending;
+  });
+
   test("the monitor never sends steering RPCs", async () => {
     const view = createViewHost();
     const { deps, clientOptions } = entryDeps(

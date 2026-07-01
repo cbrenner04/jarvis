@@ -33,7 +33,7 @@ export type TuiDaemonListRunRow = TuiDaemonRunSummary;
 /** Successful IPC `list` RPC payload with daemon-managed runs. */
 export type TuiDaemonListResult = { runs: TuiDaemonRunSummary[] };
 
-/** Transport or wire-protocol failure while talking to the daemon socket. */
+/** Transport, wire-protocol, or malformed-payload failure while talking to the daemon socket. */
 export class TuiDaemonConnectionError extends Error {
   /**
    * @param message Operator- or caller-facing summary of the transport failure.
@@ -45,7 +45,7 @@ export class TuiDaemonConnectionError extends Error {
   }
 }
 
-/** Correlated daemon `error` frame on `health` or `status`. */
+/** Correlated daemon `error` frame on any RPC (`health`, `status`, `list`, `wait`, `start`, …). */
 export class TuiDaemonRpcError extends Error {
   /** Daemon error code from the correlated `error` frame. */
   readonly code: string;
@@ -61,7 +61,7 @@ export class TuiDaemonRpcError extends Error {
   }
 }
 
-/** Connected TUI daemon client: `health`, `status`, `start`, and `close` over one IPC transport. */
+/** Connected TUI daemon client over one IPC transport: liveness, run list, launch, wait, and close. */
 export type TuiDaemonClient = {
   /**
    * Round-trip `health`; reuses the open transport.

@@ -88,7 +88,7 @@ or log-stream frames.
 
 | Command | Output | Exit |
 | --- | --- | --- |
-| `jarvis tui` | Interactive ink run monitor; guard/RPC failure: ink `<code>: <message>`; unavailable: message naming `~/.jarvis/daemon.sock` and `jarvis daemon start` | `0` operator quit, `1` guard/RPC/unavailable |
+| `jarvis tui` | Interactive ink run monitor; entry-time guard/RPC failure: ink `<code>: <message>`; connect-time unavailable: message naming `~/.jarvis/daemon.sock` and `jarvis daemon start` | `0` operator quit; `1` connect-time unavailable or entry-time guard/RPC failure before the monitor opens |
 
 On entry with a non-empty daemon `list`, the monitor selects the first row
 (daemon order is newest-first), issues daemon `wait` for that `runId`, and shows
@@ -102,16 +102,25 @@ keeps no selection, and sends no `wait`.
 The run list refreshes every second from daemon `list`, preserving selection by
 `runId`. If the selected run disappears on a later poll, the monitor clears
 selection and abandons the prior `wait` client-side. Mid-session refresh and
-`wait` failures keep the last good monitor snapshot.
+`wait` failures keep the last good monitor snapshot; operator quit still exits
+`0`. Entry-time failures (connect unreachable, liveness proof, or initial `list`
+before the monitor opens) exit `1` with the feedback above—not the
+unavailable-daemon copy after liveness has been proved.
 
 The outcome panel is sourced from daemon `wait`, not from `list`. While `wait`
 is pending it shows an explicit pending state. Once the next invocation boundary
 arrives it shows `runStatus` plus only present optional fields:
 `loopOutcomeKind`, `iterationsConsumed`, and `resumable`. These fields are
 resolve-time values from `wait`; the monitor does not infer them from list
-polls. Selection changes abandon the prior `wait` client-side, start a fresh
-`wait` for the newly selected run, and ignore any late reply from the abandoned
-request.
+polls. When `wait` fails for the unchanged selected run, the panel reverts to the
+last ready snapshot when one exists, otherwise an explicit error state—not
+perpetual pending. Selection changes abandon the prior `wait` client-side, start
+a fresh `wait` for the newly selected run, and ignore any late reply from the
+abandoned request.
+
+Production ink selects the first list row on entry only; row navigation
+keybindings are not wired yet—selection changes in tests use the injectable
+view-host seam until navigation lands.
 
 Operator quit is `q` or Ctrl-C. Quit closes the connected daemon client and
 exits `0`.

@@ -6,10 +6,11 @@ import {
   TUI_DAEMON_SOCKET_DISPLAY,
   type TuiDaemonClient,
   TuiDaemonConnectionError,
+  type TuiDaemonListResult,
   TuiDaemonRpcError,
   type TuiDaemonRunSummary,
 } from "./tui-daemon-client.ts";
-import type { InkRender } from "./tui-ink-feedback.tsx";
+import { type InkRender, showTuiInkFeedback } from "./tui-ink-feedback.tsx";
 
 export { TUI_DAEMON_SOCKET_DISPLAY };
 
@@ -20,7 +21,8 @@ export type TuiViewState = { kind: "rpc-error"; code: string; message: string } 
 export type TuiWaitState =
   | { kind: "none" }
   | { kind: "pending"; runId: string }
-  | { kind: "ready"; runId: string; result: WaitRunCompletionResult };
+  | { kind: "ready"; runId: string; result: WaitRunCompletionResult }
+  | { kind: "error"; runId: string };
 
 /** Operator-visible monitor snapshot. */
 export type TuiMonitorState = {
@@ -127,31 +129,14 @@ function buildWaitStateForSelection(runId: string | null): TuiWaitState {
   return runId === null ? { kind: "none" } : { kind: "pending", runId };
 }
 
-async function showTuiInkFeedback(state: TuiViewState, inkRender?: InkRender): Promise<void> {
-  let renderFn: InkRender;
-  let Text: (props: { children?: ReactNode }) => ReactElement;
-
-  if (inkRender !== undefined) {
-    renderFn = inkRender;
-    Text = ({ children }) => createElement(Fragment, null, children);
-  } else {
-    const ink = await import("ink");
-    renderFn = ink.render;
-    Text = ({ children }) => createElement(ink.Text, null, children);
+function entryErrorFeedback(error: unknown): TuiViewState {
+  if (error instanceof TuiDaemonRpcError) {
+    return { kind: "rpc-error", code: error.code, message: error.message };
   }
-
-  const element =
-    state.kind === "rpc-error"
-      ? createElement(Text, null, `${state.code}: ${state.message}`)
-      : createElement(
-          Text,
-          null,
-          `Daemon unavailable at ${TUI_DAEMON_SOCKET_DISPLAY}. Start with: jarvis daemon start`,
-        );
-
-  const instance = renderFn(element);
-  await instance.waitUntilRenderFlush();
-  instance.unmount();
+  if (error instanceof TuiDaemonConnectionError) {
+    return { kind: "rpc-error", code: "daemon_error", message: error.message };
+  }
+  throw error;
 }
 
 async function openInkMonitor(
@@ -182,13 +167,9 @@ async function openInkMonitor(
     useInput = ink.useInput;
   }
 
-  const MonitorView = ({ state }: { state: TuiMonitorState }): ReactElement => {
-    useInput?.((input, key) => {
-      if (input === "q" || (key.ctrl && input === "c")) {
-        controls.quit();
-      }
-    });
+  const sessionState = { current: initialState };
 
+  const MonitorDisplay = ({ state }: { state: TuiMonitorState }): ReactElement => {
     const selected = state.selectedRunId;
     const waitState = state.waitState;
     const outcomeLines =
@@ -207,7 +188,9 @@ async function openInkMonitor(
                   : []),
                 ...(waitState.result.resumable !== undefined ? [`resumable: ${waitState.result.resumable}`] : []),
               ]
-            : ["No outcome yet."];
+            : waitState.kind === "error"
+              ? [`Wait failed for ${waitState.runId}.`]
+              : ["No outcome yet."];
 
     const lines: ReactElement[] = [];
     lines.push(createElement(Text, { key: "title" }, "jarvis tui"));
@@ -238,13 +221,21 @@ async function openInkMonitor(
     return createElement(Fragment, null, ...lines);
   };
 
-  let currentState = initialState;
-  const instance = renderFn(createElement(MonitorView, { state: currentState }));
+  const MonitorSessionRoot = (): ReactElement => {
+    useInput?.((input, key) => {
+      if (input === "q" || (key.ctrl && input === "c")) {
+        controls.quit();
+      }
+    });
+    return createElement(MonitorDisplay, { state: sessionState.current });
+  };
+
+  const instance = renderFn(createElement(MonitorSessionRoot));
 
   return {
     update(state) {
-      currentState = state;
-      instance.rerender(createElement(MonitorView, { state: currentState }));
+      sessionState.current = state;
+      instance.rerender(createElement(MonitorSessionRoot));
     },
     async waitUntilExit() {
       await new Promise<void>(() => {});
@@ -269,6 +260,7 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
   let activeWaitToken = 0;
   let refreshInFlight = false;
   let refreshQueued = false;
+  const lastReadyByRunId = new Map<string, Extract<TuiWaitState, { kind: "ready" }>>();
   let resolveQuit!: () => void;
   const quitPromise = new Promise<void>((resolve) => {
     resolveQuit = resolve;
@@ -297,12 +289,19 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
           const result = await client?.wait(runId);
           if (result === undefined) return;
           if (waitToken !== activeWaitToken || currentState.selectedRunId !== runId) return;
+          const readyState = { kind: "ready" as const, runId, result };
+          lastReadyByRunId.set(runId, readyState);
           setState({
             ...currentState,
-            waitState: { kind: "ready", runId, result },
+            waitState: readyState,
           });
         } catch {
-          if (waitToken !== activeWaitToken) return;
+          if (waitToken !== activeWaitToken || currentState.selectedRunId !== runId) return;
+          const lastReady = lastReadyByRunId.get(runId);
+          setState({
+            ...currentState,
+            waitState: lastReady ?? { kind: "error", runId },
+          });
         }
       })();
     }
@@ -318,7 +317,13 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
     try {
       do {
         refreshQueued = false;
-        const list = await client?.list();
+        let list: TuiDaemonListResult | undefined;
+        try {
+          list = await client?.list();
+        } catch (error) {
+          if (initial) throw error;
+          return;
+        }
         if (list === undefined) return;
 
         if (initial) {
@@ -350,6 +355,15 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
 
   try {
     client = await connectFn(connectOptions);
+  } catch (error) {
+    if (error instanceof TuiDaemonConnectionError) {
+      await presentFeedback({ kind: "unavailable" }, resolved);
+      return 1;
+    }
+    throw error;
+  }
+
+  try {
     await client.health();
     await client.status();
     await refreshRuns(true);
@@ -379,12 +393,8 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
     await Promise.race([quitPromise, session.waitUntilExit()]);
     return 0;
   } catch (error) {
-    if (error instanceof TuiDaemonConnectionError) {
-      await presentFeedback({ kind: "unavailable" }, resolved);
-      return 1;
-    }
-    if (error instanceof TuiDaemonRpcError) {
-      await presentFeedback({ kind: "rpc-error", code: error.code, message: error.message }, resolved);
+    if (error instanceof TuiDaemonRpcError || error instanceof TuiDaemonConnectionError) {
+      await presentFeedback(entryErrorFeedback(error), resolved);
       return 1;
     }
     throw error;

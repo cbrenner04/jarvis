@@ -3,8 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { getCurrentBranch } from "../../../../shared/git.ts";
 import { parseSpec } from "../../../../shared/spec-parser.ts";
-import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import { createAgent } from "../../agents/factory.ts";
+import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentName, AgentResult } from "../../agents/types.ts";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
 import { type Config, resolveSubRoleAgentOrder } from "../../config.ts";
@@ -395,8 +395,7 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
     const telemetryMeta = configuredModel ? { configured_model: configuredModel } : {};
 
     const agentOverride = opts.shrinkAgents?.[rungIndex];
-    const agent =
-      agentOverride ?? opts.agents?.[headEntry.agent] ?? createAgent(headEntry.agent, configuredModel);
+    const agent = agentOverride ?? opts.agents?.[headEntry.agent] ?? createAgent(headEntry.agent, configuredModel);
 
     const shrinkController = new AbortController();
     const shrinkTimeoutHandle = setTimeout(() => {

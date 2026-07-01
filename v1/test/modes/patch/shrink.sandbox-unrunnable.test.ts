@@ -768,10 +768,7 @@ describe("runPatchShrinkPhase", () => {
           writeTelemetry: (row) => {
             telemetry.push(row);
           },
-          shrinkAgents: [
-            new IdleHangAgent(idleScript, "claude"),
-            new IdleHangAgent(idleScript, "codex"),
-          ],
+          shrinkAgents: [new IdleHangAgent(idleScript, "claude"), new IdleHangAgent(idleScript, "codex")],
           iterationTimeoutMs: 30_000,
           baseBranch: "main",
           patchWorktreeDir: dir,

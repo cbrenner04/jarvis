@@ -9,8 +9,8 @@ import type { IpcFrame } from "./ipc/types.ts";
 import { openLogReader, openLogSink, type PersistedRecord } from "./log-stream.ts";
 import { openStateStore, type StateStore } from "./state-store.ts";
 import { canUseUnixSockets } from "./testing/unix-socket.ts";
-import { connectTuiLogTail } from "./tui-log-tail-client.ts";
 import { TuiDaemonConnectionError } from "./tui-daemon-errors.ts";
+import { connectTuiLogTail } from "./tui-log-tail-client.ts";
 
 const SOCKET_PATH = join(tmpdir(), `jarvis-tui-log-tail-${process.pid}.sock`);
 const UNREACHABLE_SOCKET_PATH = join(tmpdir(), `jarvis-tui-log-tail-missing-${process.pid}.sock`);
@@ -281,8 +281,7 @@ test("error-payload stream-end rejects with TuiDaemonConnectionError", async () 
 
 test("malformed stream-data payload rejects with TuiDaemonConnectionError", async () => {
   const tail = await connectTuiLogTail("run-123", {
-    connectIpcClient: async () =>
-      makeClient([{ kind: "stream-data", streamId: STREAM_ID, payload: "{not-json" }]),
+    connectIpcClient: async () => makeClient([{ kind: "stream-data", streamId: STREAM_ID, payload: "{not-json" }]),
   });
 
   await withFixedStreamId(async () => {

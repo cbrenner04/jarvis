@@ -1,5 +1,5 @@
-import type { ConnectTuiLogTailOptions, TuiLogTailClient } from "./tui-log-tail-client.ts";
 import type { InkRender } from "./tui-ink-feedback.tsx";
+import type { ConnectTuiLogTailOptions, TuiLogTailClient } from "./tui-log-tail-client.ts";
 import type { TuiViewState } from "./tui-monitor-types.ts";
 
 /** Injectable quit control for the log-follow view. */

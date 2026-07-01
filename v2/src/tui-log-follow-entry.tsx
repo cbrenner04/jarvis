@@ -1,9 +1,9 @@
-import { connectTuiLogTail } from "./tui-log-tail-client.ts";
 import { TuiDaemonConnectionError } from "./tui-daemon-errors.ts";
 import { showTuiInkFeedback } from "./tui-ink-feedback.tsx";
 import { openInkLogFollow } from "./tui-ink-log-follow.tsx";
 import { formatLogFollowLine } from "./tui-log-follow-lines.ts";
 import type { RunTuiLogFollowDeps, TuiLogFollowSession } from "./tui-log-follow-types.ts";
+import { connectTuiLogTail } from "./tui-log-tail-client.ts";
 import type { TuiViewState } from "./tui-monitor-types.ts";
 
 function connectionErrorFeedback(error: TuiDaemonConnectionError): TuiViewState {

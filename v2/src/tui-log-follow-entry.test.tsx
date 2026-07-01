@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { PersistedRecord } from "./log-stream.ts";
 import { TUI_DAEMON_SOCKET_DISPLAY, TuiDaemonConnectionError } from "./tui-daemon-errors.ts";
-import { formatLogFollowLine } from "./tui-log-follow-lines.ts";
 import { runTuiLogFollow } from "./tui-log-follow-entry.tsx";
+import { formatLogFollowLine } from "./tui-log-follow-lines.ts";
 import type { TuiLogFollowControls, TuiLogFollowViewHost } from "./tui-log-follow-types.ts";
 import type { TuiLogTailClient } from "./tui-log-tail-client.ts";
 import type { TuiViewState } from "./tui-monitor-types.ts";

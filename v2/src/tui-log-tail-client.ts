@@ -95,10 +95,7 @@ async function readTailFrame(client: IpcClient): Promise<IpcFrame> {
  * @returns A client exposing `records` and `close` on one connection.
  * @throws {TuiDaemonConnectionError} When the socket is unreachable before `stream-open`.
  */
-export async function connectTuiLogTail(
-  runId: string,
-  options?: ConnectTuiLogTailOptions,
-): Promise<TuiLogTailClient> {
+export async function connectTuiLogTail(runId: string, options?: ConnectTuiLogTailOptions): Promise<TuiLogTailClient> {
   const socketPath = options?.socketPath ?? DEFAULT_SOCKET_PATH;
   const connectFn = options?.connectIpcClient ?? connectIpcClient;
 

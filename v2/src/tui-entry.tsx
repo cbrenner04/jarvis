@@ -64,6 +64,16 @@ function entryErrorFeedback(error: unknown): TuiViewState {
   throw error;
 }
 
+function steeringFeedbackFromError(error: unknown): string {
+  if (error instanceof TuiDaemonRpcError) {
+    return `${error.code}: ${error.message}`;
+  }
+  if (error instanceof TuiDaemonConnectionError) {
+    return `daemon_error: ${error.message}`;
+  }
+  throw error;
+}
+
 /** Connect, prove liveness, and enter the interactive run monitor until quit. */
 export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
   const resolved = deps ?? {};
@@ -74,7 +84,12 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
   let client: TuiDaemonClient | undefined;
   let session: TuiMonitorSession | undefined;
   let refreshHandle: { close(): void } | undefined;
-  let currentState: TuiMonitorState = { runs: [], selectedRunId: null, waitState: { kind: "none" } };
+  let currentState: TuiMonitorState = {
+    runs: [],
+    selectedRunId: null,
+    waitState: { kind: "none" },
+    steeringFeedback: null,
+  };
   let activeWaitToken = 0;
   let refreshInFlight = false;
   let refreshQueued = false;
@@ -93,36 +108,77 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
     syncMonitor();
   };
 
+  const startWaitForRun = (runId: string): void => {
+    const waitToken = activeWaitToken;
+    void (async () => {
+      try {
+        const result = await client?.wait(runId);
+        if (result === undefined) return;
+        if (waitToken !== activeWaitToken || currentState.selectedRunId !== runId) return;
+        const readyState = { kind: "ready" as const, runId, result };
+        lastReadyByRunId.set(runId, readyState);
+        setState({
+          ...currentState,
+          waitState: readyState,
+        });
+      } catch {
+        if (waitToken !== activeWaitToken || currentState.selectedRunId !== runId) return;
+        const lastReady = lastReadyByRunId.get(runId);
+        setState({
+          ...currentState,
+          waitState: lastReady ?? { kind: "error", runId },
+        });
+      }
+    })();
+  };
+
   const setSelection = (runId: string | null): void => {
     activeWaitToken += 1;
     setState({
       ...currentState,
       selectedRunId: runId,
       waitState: buildWaitStateForSelection(runId),
+      steeringFeedback: null,
     });
     if (runId !== null) {
-      const waitToken = activeWaitToken;
-      void (async () => {
-        try {
-          const result = await client?.wait(runId);
-          if (result === undefined) return;
-          if (waitToken !== activeWaitToken || currentState.selectedRunId !== runId) return;
-          const readyState = { kind: "ready" as const, runId, result };
-          lastReadyByRunId.set(runId, readyState);
-          setState({
-            ...currentState,
-            waitState: readyState,
-          });
-        } catch {
-          if (waitToken !== activeWaitToken || currentState.selectedRunId !== runId) return;
-          const lastReady = lastReadyByRunId.get(runId);
-          setState({
-            ...currentState,
-            waitState: lastReady ?? { kind: "error", runId },
-          });
-        }
-      })();
+      startWaitForRun(runId);
     }
+  };
+
+  const runSteeringAction = (
+    invoke: (runId: string) => Promise<{ ok: true }>,
+    options?: { rewaitOnSuccess?: boolean },
+  ): void => {
+    const runId = currentState.selectedRunId;
+    if (runId === null) {
+      setState({ ...currentState, steeringFeedback: "no run selected" });
+      return;
+    }
+
+    void (async () => {
+      try {
+        await invoke(runId);
+        if (currentState.selectedRunId !== runId) return;
+        if (options?.rewaitOnSuccess) {
+          activeWaitToken += 1;
+          lastReadyByRunId.delete(runId);
+          setState({
+            ...currentState,
+            waitState: buildWaitStateForSelection(runId),
+            steeringFeedback: null,
+          });
+          startWaitForRun(runId);
+          return;
+        }
+        setState({ ...currentState, steeringFeedback: null });
+      } catch (error) {
+        if (currentState.selectedRunId !== runId) return;
+        setState({
+          ...currentState,
+          steeringFeedback: steeringFeedbackFromError(error),
+        });
+      }
+    })();
   };
 
   const refreshRuns = async (initial = false): Promise<void> => {
@@ -150,13 +206,14 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
             runs: list.runs,
             selectedRunId: runId,
             waitState: buildWaitStateForSelection(runId),
+            steeringFeedback: null,
           };
           return;
         }
 
         const selectedRunId = currentState.selectedRunId;
         if (selectedRunId !== null && !list.runs.some((run) => run.runId === selectedRunId)) {
-          setState({ runs: list.runs, selectedRunId: null, waitState: { kind: "none" } });
+          setState({ runs: list.runs, selectedRunId: null, waitState: { kind: "none" }, steeringFeedback: null });
           activeWaitToken += 1;
           continue;
         }
@@ -196,6 +253,15 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
         selectRun(runId) {
           if (!currentState.runs.some((run) => run.runId === runId) || currentState.selectedRunId === runId) return;
           setSelection(runId);
+        },
+        pauseSelected() {
+          runSteeringAction((id) => client!.pause(id));
+        },
+        resumeSelected() {
+          runSteeringAction((id) => client!.resume(id), { rewaitOnSuccess: true });
+        },
+        killSelected() {
+          runSteeringAction((id) => client!.kill(id));
         },
         quit() {
           resolveQuit();

@@ -114,6 +114,15 @@ function createViewHost() {
     selectRun(runId: string) {
       controls?.selectRun(runId);
     },
+    pauseSelected() {
+      controls?.pauseSelected();
+    },
+    resumeSelected() {
+      controls?.resumeSelected();
+    },
+    killSelected() {
+      controls?.killSelected();
+    },
     quit() {
       controls?.quit();
       exit.resolve();
@@ -131,6 +140,12 @@ type FakeClientOptions = {
   listResponses?: DaemonListResult[];
   listError?: Error;
   waitImpl?: (runId: string) => Promise<WaitRunCompletionResult>;
+  pauseError?: Error;
+  resumeError?: Error;
+  killError?: Error;
+  pauseImpl?: (runId: string) => Promise<{ ok: true }>;
+  resumeImpl?: (runId: string) => Promise<{ ok: true }>;
+  killImpl?: (runId: string) => Promise<{ ok: true }>;
 };
 
 function fakeClient(options: FakeClientOptions = {}): TuiDaemonClient {
@@ -161,15 +176,18 @@ function fakeClient(options: FakeClientOptions = {}): TuiDaemonClient {
     },
     async pause(runId: string) {
       methods.push(`pause:${runId}`);
-      return { ok: true };
+      if (options.pauseError !== undefined) throw options.pauseError;
+      return (options.pauseImpl ?? (async () => ({ ok: true as const })))(runId);
     },
     async resume(runId: string) {
       methods.push(`resume:${runId}`);
-      return { ok: true };
+      if (options.resumeError !== undefined) throw options.resumeError;
+      return (options.resumeImpl ?? (async () => ({ ok: true as const })))(runId);
     },
     async kill(runId: string) {
       methods.push(`kill:${runId}`);
-      return { ok: true };
+      if (options.killError !== undefined) throw options.killError;
+      return (options.killImpl ?? (async () => ({ ok: true as const })))(runId);
     },
     async wait(runId: string) {
       methods.push(`wait:${runId}`);
@@ -288,6 +306,7 @@ describe("runTuiEntry", () => {
       runs: [],
       selectedRunId: null,
       waitState: { kind: "none" },
+      steeringFeedback: null,
     });
   });
 
@@ -341,6 +360,7 @@ describe("runTuiEntry", () => {
       runs: [RUN_BETA],
       selectedRunId: null,
       waitState: { kind: "none" },
+      steeringFeedback: null,
     });
   });
 
@@ -606,7 +626,7 @@ describe("runTuiEntry", () => {
     await pending;
   });
 
-  test("the monitor never sends steering RPCs", async () => {
+  test("steering sends pause, resume, and kill for the selected run and keeps the monitor open", async () => {
     const view = createViewHost();
     const { deps, clientOptions } = entryDeps(
       {
@@ -622,11 +642,216 @@ describe("runTuiEntry", () => {
     await flush();
     view.selectRun("run-gamma");
     await flush();
+    view.pauseSelected();
+    await flush();
+    view.resumeSelected();
+    await flush();
+    view.killSelected();
+    await flush();
+    view.quit();
+    const code = await pending;
+
+    expect(code).toBe(0);
+    const methods = clientOptions.methods ?? [];
+    expect(methods).toContain("pause:run-gamma");
+    expect(methods).toContain("resume:run-gamma");
+    expect(methods).toContain("kill:run-gamma");
+  });
+
+  test("steering RPC errors render inline and keep the monitor open", async () => {
+    const view = createViewHost();
+    const { deps } = entryDeps(
+      {
+        listResponses: [{ runs: [RUN_ALPHA] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+        pauseError: new TuiDaemonRpcError("unknown_run", "run not found"),
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.pauseSelected();
+    await flush();
+
+    expect(view.monitorStates.at(-1)?.steeringFeedback).toBe("unknown_run: run not found");
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("steering connection errors render inline as daemon_error and keep the monitor open", async () => {
+    const view = createViewHost();
+    const { deps } = entryDeps(
+      {
+        listResponses: [{ runs: [RUN_ALPHA] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+        killError: new TuiDaemonConnectionError("socket closed"),
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.killSelected();
+    await flush();
+
+    expect(view.monitorStates.at(-1)?.steeringFeedback).toBe("daemon_error: socket closed");
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("steering with no selected run is a no-op and shows no run selected", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [] }],
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.pauseSelected();
+    await flush();
+
+    expect(clientOptions.methods).toEqual(["health", "status", "list"]);
+    expect(view.monitorStates.at(-1)?.steeringFeedback).toBe("no run selected");
+
     view.quit();
     await pending;
+  });
 
-    const methods = clientOptions.methods ?? [];
-    expect(methods).toEqual(["health", "status", "list", "wait:run-alpha", "wait:run-gamma", "close"]);
-    expect(methods.some((method) => ["start", "pause", "resume", "kill"].includes(method))).toBe(false);
+  test("steering feedback replaces on the next action and clears on selection change", async () => {
+    const view = createViewHost();
+    const { deps } = entryDeps(
+      {
+        listResponses: [{ runs: [RUN_ALPHA, RUN_BETA] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+        pauseError: new TuiDaemonRpcError("run_not_active", "not active"),
+        killError: new TuiDaemonRpcError("unknown_run", "missing"),
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.pauseSelected();
+    await flush();
+    expect(view.monitorStates.at(-1)?.steeringFeedback).toBe("run_not_active: not active");
+
+    view.killSelected();
+    await flush();
+    expect(view.monitorStates.at(-1)?.steeringFeedback).toBe("unknown_run: missing");
+
+    view.selectRun("run-beta");
+    await flush();
+    expect(view.monitorStates.at(-1)?.steeringFeedback).toBeNull();
+  });
+
+  test("waitState error display is unchanged by steering feedback", async () => {
+    const view = createViewHost();
+    const alphaWait = deferred<WaitRunCompletionResult>();
+    const { deps } = entryDeps(
+      {
+        listResponses: [{ runs: [RUN_ALPHA] }],
+        waitImpl: async () => alphaWait.promise,
+        pauseError: new TuiDaemonRpcError("run_not_active", "not active"),
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    alphaWait.reject(new TuiDaemonRpcError("unknown_run", "run not found"));
+    await flush();
+    expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "error", runId: "run-alpha" });
+
+    view.pauseSelected();
+    await flush();
+    expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "error", runId: "run-alpha" });
+    expect(view.monitorStates.at(-1)?.steeringFeedback).toBe("run_not_active: not active");
+
+    view.quit();
+    await pending;
+  });
+
+  test("successful resume re-issues wait and abandons a prior ready snapshot", async () => {
+    const view = createViewHost();
+    const waitQueue: Array<ReturnType<typeof deferred<WaitRunCompletionResult>>> = [];
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_ALPHA] }],
+        waitImpl: async () => {
+          const pending = deferred<WaitRunCompletionResult>();
+          waitQueue.push(pending);
+          return pending.promise;
+        },
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    waitQueue[0]?.resolve({ runStatus: "completed", loopOutcomeKind: "complete" });
+    await flush();
+    expect(view.monitorStates.at(-1)?.waitState).toMatchObject({ kind: "ready", runId: "run-alpha" });
+
+    view.resumeSelected();
+    await flush();
+    expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "pending", runId: "run-alpha" });
+    expect(clientOptions.methods).toContain("resume:run-alpha");
+    expect(clientOptions.methods?.filter((method) => method === "wait:run-alpha").length).toBe(2);
+
+    waitQueue[1]?.resolve({ runStatus: "in-progress" });
+    await flush();
+    await flush();
+    expect(view.monitorStates.at(-1)?.waitState).toMatchObject({
+      kind: "ready",
+      runId: "run-alpha",
+      result: { runStatus: "in-progress" },
+    });
+
+    view.quit();
+    await pending;
+  });
+
+  test("steering fakes cover daemon guard codes", async () => {
+    const cases = [
+      { action: "pauseSelected" as const, error: new TuiDaemonRpcError("run_not_active", "not active") },
+      { action: "killSelected" as const, error: new TuiDaemonRpcError("run_not_active", "not active") },
+      { action: "resumeSelected" as const, error: new TuiDaemonRpcError("terminal_run", "terminal") },
+    ];
+
+    for (const { action, error } of cases) {
+      const view = createViewHost();
+      const errorKey = action === "pauseSelected" ? "pauseError" : action === "killSelected" ? "killError" : "resumeError";
+      const { deps } = entryDeps(
+        {
+          listResponses: [{ runs: [RUN_ALPHA] }],
+          waitImpl: async () => ({ runStatus: "completed" }),
+          [errorKey]: error,
+        },
+        { viewHost: view.host },
+      );
+
+      const pending = runTuiEntry(deps);
+      await view.waitUntilOpen();
+      await flush();
+      view[action]();
+      await flush();
+      expect(view.monitorStates.at(-1)?.steeringFeedback).toBe(`${error.code}: ${error.message}`);
+      view.quit();
+      await pending;
+    }
   });
 });

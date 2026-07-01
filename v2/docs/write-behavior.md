@@ -82,9 +82,8 @@ which `jarvis tui` uses after `health` to prove the channel is live. See
 Socket default: `~/.jarvis/daemon.sock` (same as daemon lifecycle commands).
 
 Flow: connect → IPC `health` → IPC `status` → daemon `list` → interactive run
-monitor. `jarvis tui` is read-only in this slice: it does not call
-`executeWriteLoop` locally and does not send `start`, `pause`, `resume`, `kill`,
-or log-stream frames.
+monitor. `jarvis tui` does not call `executeWriteLoop` locally and does not send
+`start` or log-stream frames.
 
 | Command | Output | Exit |
 | --- | --- | --- |
@@ -122,6 +121,21 @@ abandoned request.
 Production ink selects the first list row on entry only; row navigation
 keybindings are not wired yet—selection changes in tests use the injectable
 view-host seam until navigation lands.
+
+The monitor exposes injectable `pauseSelected`, `resumeSelected`, and
+`killSelected` controls (production keybindings not pinned yet). Each maps 1:1
+to daemon `pause`, `resume`, and `kill` on the selected `runId`. With no
+selection, steering is a no-op and shows inline `no run selected`. The client
+does not pre-gate on list liveness or terminal rows—daemon guard failures surface
+inline as `<code>: <message>`; transport failures as `daemon_error: <message>`.
+Mid-session steering errors keep the monitor open (exit `0` on operator quit).
+Steering feedback is session-local inline state: replace on the next steering
+action, clear on selection change; `waitState` error display is unchanged.
+Successful steering does not exit the monitor. After successful `resume`, the
+monitor re-issues `wait` for the selected run (`waitState` → `pending`) and
+abandons any prior ready snapshot. After other successful steering actions,
+list refresh and `wait` continue on the existing monitor loop. Success-feedback
+layout is deferred until production keybindings land.
 
 Operator quit on the run monitor (`jarvis tui`) is `q` or Ctrl-C. Quit closes the
 connected daemon RPC client and exits `0`.
@@ -244,7 +258,8 @@ Drive the path through the test seam:
   `jarvis tui log <run-id>` dispatch.
 - `bun test v2/src/tui-entry.test.tsx` proves TUI run-monitor flow: liveness,
   initial list/empty states, refresh, selection changes, pending and late
-  abandoned waits, quit, and unavailable/RPC feedback with injectable daemon
+  abandoned waits, steering success and daemon/connection error pass-through,
+  resume re-wait, quit, and unavailable/RPC feedback with injectable daemon
   client, refresh scheduler, and view-host fakes.
 - `bun test v2/src/tui-log-follow-entry.test.tsx` proves TUI log-follow replay,
   blocking-after-replay quit, server close, live append, empty tail,

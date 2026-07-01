@@ -36,6 +36,10 @@ export function monitorTextLines(state: TuiMonitorState): string[] {
       );
     }
   }
-  lines.push("Outcome", ...outcomeLines(state), "Press q or Ctrl-C to quit.");
+  lines.push("Outcome", ...outcomeLines(state));
+  if (state.steeringFeedback !== null) {
+    lines.push(state.steeringFeedback);
+  }
+  lines.push("Press q or Ctrl-C to quit.");
   return lines;
 }

@@ -433,6 +433,11 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   outcome panel from invocation-boundary `wait`, preserve selection by `runId`,
   and quit with `q` or Ctrl-C. Sources: `v2/src/tui-entry.tsx`,
   `v2/docs/write-behavior.md`
+- [v2 additive] TUI run-monitor steering: injectable `pauseSelected` /
+  `resumeSelected` / `killSelected` on the selected run via daemon RPCs; inline
+  mid-session error feedback (`<code>: <message>`, `daemon_error: <message>`,
+  `no run selected`); successful `resume` re-issues `wait`; production
+  keybindings deferred. Sources: `v2/src/tui-entry.tsx`, `v2/docs/write-behavior.md`
 
 ## Behaviors with uncertain intent
 

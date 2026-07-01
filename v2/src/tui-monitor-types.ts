@@ -18,12 +18,20 @@ export type TuiMonitorState = {
   runs: readonly DaemonListRunRow[];
   selectedRunId: string | null;
   waitState: TuiWaitState;
+  /** Session-local steering feedback; cleared on selection change. */
+  steeringFeedback: string | null;
 };
 
-/** Injectable selection and quit controls exposed to the monitor host. */
+/** Injectable selection, steering, and quit controls exposed to the monitor host. */
 export type TuiMonitorControls = {
   /** Change selection to the given run when present in the current list. */
   selectRun(runId: string): void;
+  /** Pause the selected run via daemon `pause`. */
+  pauseSelected(): void;
+  /** Resume the selected run via daemon `resume`. */
+  resumeSelected(): void;
+  /** Kill the selected run via daemon `kill`. */
+  killSelected(): void;
   /** Exit the monitor. */
   quit(): void;
 };

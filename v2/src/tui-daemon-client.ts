@@ -1,10 +1,11 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { WaitRunCompletionResult } from "./daemon.ts";
+import { isRunStatus, parseWaitCompletion } from "./daemon-wire.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import type { ErrorFrame, IpcFrame, ResponseFrame } from "./ipc/types.ts";
 import type { RunStatus } from "./state-store-types.ts";
-import type { WriteLoopInput, WriteLoopOutcomeKind } from "./write-loop.ts";
+import type { WriteLoopInput } from "./write-loop.ts";
 
 /** Operator-facing socket path in unavailable-daemon feedback. */
 export const TUI_DAEMON_SOCKET_DISPLAY = "~/.jarvis/daemon.sock";
@@ -127,16 +128,6 @@ type RpcTransport = {
   request(method: string, params?: unknown, options?: { trackWait?: boolean }): Promise<unknown>;
   close(): void;
 };
-
-const LOOP_OUTCOME_KINDS = new Set<WriteLoopOutcomeKind>([
-  "complete",
-  "progress",
-  "blocked",
-  "contract_miss",
-  "invocation_failure",
-  "budget-exhausted",
-  "paused",
-]);
 
 function createRpcTransport(client: IpcClient): RpcTransport {
   const pending = new Map<string, PendingRpc>();
@@ -313,18 +304,6 @@ function parseStartResult(result: unknown): TuiDaemonStartResult {
   throw new TuiDaemonConnectionError("malformed RPC reply: invalid start result");
 }
 
-function isRunStatus(value: unknown): value is RunStatus {
-  return (
-    value === "in-progress" ||
-    value === "completed" ||
-    value === "blocked" ||
-    value === "budget-soft-stopped" ||
-    value === "paused" ||
-    value === "failed" ||
-    value === "killed"
-  );
-}
-
 function parseListResult(result: unknown): TuiDaemonListResult {
   if (typeof result !== "object" || result === null || !Array.isArray((result as { runs?: unknown }).runs)) {
     throw new TuiDaemonConnectionError("malformed RPC reply: invalid list result");
@@ -356,38 +335,10 @@ function parseListResult(result: unknown): TuiDaemonListResult {
 }
 
 function parseWaitResult(result: unknown): WaitRunCompletionResult {
-  if (typeof result !== "object" || result === null || !isRunStatus((result as { runStatus?: unknown }).runStatus)) {
+  const parsed = parseWaitCompletion(result);
+  if (!parsed) {
     throw new TuiDaemonConnectionError("malformed RPC reply: invalid wait result");
   }
-
-  const parsed: WaitRunCompletionResult = {
-    runStatus: (result as { runStatus: RunStatus }).runStatus,
-  };
-
-  const loopOutcomeKind = (result as { loopOutcomeKind?: unknown }).loopOutcomeKind;
-  if (loopOutcomeKind !== undefined) {
-    if (!LOOP_OUTCOME_KINDS.has(loopOutcomeKind as WriteLoopOutcomeKind)) {
-      throw new TuiDaemonConnectionError("malformed RPC reply: invalid wait result");
-    }
-    parsed.loopOutcomeKind = loopOutcomeKind as WriteLoopOutcomeKind;
-  }
-
-  const iterationsConsumed = (result as { iterationsConsumed?: unknown }).iterationsConsumed;
-  if (iterationsConsumed !== undefined) {
-    if (typeof iterationsConsumed !== "number" || !Number.isFinite(iterationsConsumed)) {
-      throw new TuiDaemonConnectionError("malformed RPC reply: invalid wait result");
-    }
-    parsed.iterationsConsumed = iterationsConsumed;
-  }
-
-  const resumable = (result as { resumable?: unknown }).resumable;
-  if (resumable !== undefined) {
-    if (typeof resumable !== "boolean") {
-      throw new TuiDaemonConnectionError("malformed RPC reply: invalid wait result");
-    }
-    parsed.resumable = resumable;
-  }
-
   return parsed;
 }
 

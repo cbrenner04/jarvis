@@ -5,15 +5,14 @@ import packageJson from "../../package.json";
 import { createAgentBindings } from "../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
 import type { WaitRunCompletionResult } from "./daemon.ts";
+import { parseWaitCompletion } from "./daemon-wire.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon-lifecycle.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import type { ErrorFrame, ResponseFrame } from "./ipc/types.ts";
-import type { RunStatus } from "./state-store-types.ts";
 import { type RunTuiEntryDeps, runTuiEntry } from "./tui-entry.tsx";
 import {
   executeWriteLoop,
   type WriteLoopInput,
-  type WriteLoopOutcomeKind,
   type WriteLoopResult,
 } from "./write-loop.ts";
 import { buildWriteLoopInputFromCliValues, parseWriteArgs } from "./write-loop-input.ts";
@@ -250,7 +249,7 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
         io.stderr(formatRpcError(response));
         return 1;
       }
-      const result = parseWaitResult(response.result);
+      const result = parseWaitCompletion(response.result);
       if (result === undefined) {
         io.stderr("invalid daemon response\n");
         return 1;
@@ -378,50 +377,6 @@ function exitCodeForWriteResult(kind: Awaited<ReturnType<typeof executeWriteLoop
   if (kind === "invocation_failure") return 2;
   if (kind === "budget-exhausted") return 5;
   return 1;
-}
-
-const RUN_STATUSES = new Set<RunStatus>([
-  "in-progress",
-  "completed",
-  "blocked",
-  "budget-soft-stopped",
-  "paused",
-  "failed",
-  "killed",
-]);
-
-const LOOP_OUTCOME_KINDS = new Set<WriteLoopOutcomeKind>([
-  "complete",
-  "progress",
-  "blocked",
-  "contract_miss",
-  "invocation_failure",
-  "budget-exhausted",
-  "paused",
-]);
-
-function parseWaitResult(value: unknown): WaitRunCompletionResult | undefined {
-  const runStatus = stringProperty(value, "runStatus");
-  if (runStatus === undefined || !RUN_STATUSES.has(runStatus as RunStatus)) return undefined;
-
-  const result: WaitRunCompletionResult = { runStatus: runStatus as RunStatus };
-  const record = value as Record<string, unknown>;
-
-  const loopOutcomeKind = stringProperty(value, "loopOutcomeKind");
-  if (loopOutcomeKind !== undefined) {
-    if (!LOOP_OUTCOME_KINDS.has(loopOutcomeKind as WriteLoopOutcomeKind)) return undefined;
-    result.loopOutcomeKind = loopOutcomeKind as WriteLoopOutcomeKind;
-  }
-
-  const iterationsConsumed = record.iterationsConsumed;
-  if (typeof iterationsConsumed === "number" && Number.isFinite(iterationsConsumed)) {
-    result.iterationsConsumed = iterationsConsumed;
-  }
-
-  const resumable = booleanProperty(value, "resumable");
-  if (resumable !== undefined) result.resumable = resumable;
-
-  return result;
 }
 
 function exitCodeForWaitResult(result: WaitRunCompletionResult): number {

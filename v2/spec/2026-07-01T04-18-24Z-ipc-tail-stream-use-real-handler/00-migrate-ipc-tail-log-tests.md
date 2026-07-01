@@ -41,14 +41,14 @@ from [`2026-06-29T21-46-33Z-daemon-tail-stream-handler-factory`](../completed/20
 
 ## Acceptance criteria
 
-- [ ] `ipc.test.ts` tail-log tests wire `startIpcServer` with `createTailStreamHandler` over injected `stateStore` and `logReader`.
-- [ ] `ipc.test.ts` has no inline `StreamHandler` implementations in the tail-log test section.
-- [ ] Tail stream for a known run with a durable row and persisted log events replays `stream-data` frames in ascending `seq` order (`ipc.test.ts`).
-- [ ] Tail stream for a `runId` with orphan persisted events but no `loadRun` row closes with `stream-end`, emits no `stream-data`, and does not invoke `logReader.follow` (`ipc.test.ts`).
-- [ ] After client `stream-end`, the `AbortSignal` passed to `logReader.follow` is aborted, observed via injected `follow` wrapper spy (`ipc.test.ts`).
-- [ ] `ipc.test.ts` stays green (implementation gate; wire semantics contract lives in behavioral ACs above).
-- [ ] `bun run typecheck` and `bun run test` pass.
-- [ ] `v2/docs/test-writing.md` documents that tail-stream IPC tests use `createTailStreamHandler` over injected fakes, consistent with the run-control factory-over-fakes pattern.
+- [x] `ipc.test.ts` tail-log tests wire `startIpcServer` with `createTailStreamHandler` over injected `stateStore` and `logReader`.
+- [x] `ipc.test.ts` has no inline `StreamHandler` implementations in the tail-log test section.
+- [x] Tail stream for a known run with a durable row and persisted log events replays `stream-data` frames in ascending `seq` order (`ipc.test.ts`).
+- [x] Tail stream for a `runId` with orphan persisted events but no `loadRun` row closes with `stream-end`, emits no `stream-data`, and does not invoke `logReader.follow` (`ipc.test.ts`).
+- [x] After client `stream-end`, the `AbortSignal` passed to `logReader.follow` is aborted, observed via injected `follow` wrapper spy (`ipc.test.ts`).
+- [x] `ipc.test.ts` stays green (implementation gate; wire semantics contract lives in behavioral ACs above).
+- [x] `bun run typecheck` and `bun run test` pass.
+- [x] `v2/docs/test-writing.md` documents that tail-stream IPC tests use `createTailStreamHandler` over injected fakes, consistent with the run-control factory-over-fakes pattern.
 
 ## Documentation updates
 

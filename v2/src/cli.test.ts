@@ -577,8 +577,7 @@ describe("v2 cli", () => {
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({
-      stdout:
-        "run-1\tdemo\tfeature\tin-progress\tlive\t-\t-\t-\nrun-2\tdemo\tdone\tcompleted\tnot-live\t-\t-\t-\n",
+      stdout: "run-1\tdemo\tfeature\tin-progress\tlive\t-\t-\t-\nrun-2\tdemo\tdone\tcompleted\tnot-live\t-\t-\t-\n",
       stderr: "",
     });
   });

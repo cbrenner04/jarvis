@@ -227,12 +227,12 @@ socketTest("wait resolve payload includes the same error object as list for the 
   client.send({ kind: "request", id: "list", method: "list" });
   const listFrame = await client.nextFrame();
   expect(listFrame.kind).toBe("response");
-  const listError = (
+  const listError =
     listFrame.kind === "response"
-      ? (listFrame.result as { runs?: Array<{ runId: string; error?: unknown }> }).runs?.find((row) => row.runId === runId)
-          ?.error
-      : undefined
-  );
+      ? (listFrame.result as { runs?: Array<{ runId: string; error?: unknown }> }).runs?.find(
+          (row) => row.runId === runId,
+        )?.error
+      : undefined;
 
   const waitResult = await expectResponse(await waitRequest(client, "wait", runId));
   expect(waitResult.error).toEqual(listError);

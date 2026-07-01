@@ -11,9 +11,9 @@ import {
   type PersistedRecord,
   type RunExecutionFailedEvent,
 } from "./log-stream.ts";
+import { composeRunOperatorError, findTerminalLogRecord, type RunOperatorError } from "./run-operator-error.ts";
 import { openStateStore, type StateStore } from "./state-store.ts";
 import type { RunStatus } from "./state-store-types.ts";
-import { composeRunOperatorError, findTerminalLogRecord, type RunOperatorError } from "./run-operator-error.ts";
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
 
 export type WorktreeOwnership = {
@@ -179,8 +179,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const waitFanouts = new Map<string, WaitFanout>();
   const { stateStore: store, logReader, writeLoopExecutor, failureReporter } = deps;
 
-  const terminalRecord = (records: PersistedRecord[]): TerminalRecord | undefined =>
-    findTerminalLogRecord(records);
+  const terminalRecord = (records: PersistedRecord[]): TerminalRecord | undefined => findTerminalLogRecord(records);
 
   const resultFrom = (runId: string, runStatus: RunStatus, record?: TerminalRecord): WaitRunCompletionResult => {
     const run = store.loadRun(runId);

@@ -155,7 +155,9 @@ test("composeRunOperatorError returns harness_failure for run_execution_failed a
 
 test("composeRunOperatorError returns invocation reason for failed with store invocation detail and no terminal log", () => {
   expect(
-    composeRunOperatorError(runWith("failed", [attempt("invocation_failure", { failureKind: "quota", bindingAttempts: [] })])),
+    composeRunOperatorError(
+      runWith("failed", [attempt("invocation_failure", { failureKind: "quota", bindingAttempts: [] })]),
+    ),
   ).toEqual({
     reason: "quota_exhausted",
     retryable: false,

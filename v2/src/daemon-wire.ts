@@ -1,9 +1,5 @@
 import type { WaitRunCompletionResult } from "./daemon.ts";
-import type {
-  RunOperatorError,
-  RunOperatorErrorReason,
-  RunOperatorNextAction,
-} from "./run-operator-error.ts";
+import type { RunOperatorError, RunOperatorErrorReason, RunOperatorNextAction } from "./run-operator-error.ts";
 import type { RunStatus } from "./state-store-types.ts";
 import type { WriteLoopOutcomeKind } from "./write-loop.ts";
 

@@ -853,7 +853,7 @@ const suggestedMovesRules: Array<{
   // Rule 3: untracked-only (in spec dir) + suggested push
   {
     match: (input) => {
-      if (input.dirtyKind !== "untracked-only" || !input.specPath) {
+      if (input.dirtyKind !== "untracked-only" || !input.specPath || input.prState === "MERGED") {
         return false;
       }
 
@@ -898,13 +898,13 @@ const suggestedMovesRules: Array<{
     },
   },
 
-  // Rule 4: modified or mixed + prState = MERGED
+  // Rule 4: dirty porcelain + prState = MERGED
   {
-    match: (input) => ["modified", "mixed"].includes(input.dirtyKind) && input.prState === "MERGED",
+    match: (input) => ["modified", "mixed", "untracked-only"].includes(input.dirtyKind) && input.prState === "MERGED",
     format: (input) => [
       `1. PR is merged but this tree has uncommitted work — probably orphaned.`,
       `2. Inspect: git -C ${input.worktreePath} diff`,
-      `3. Discard: git -C ${input.worktreePath} stash && jarvis1 cleanup`,
+      `3. Discard: jarvis1 cleanup`,
     ],
   },
 

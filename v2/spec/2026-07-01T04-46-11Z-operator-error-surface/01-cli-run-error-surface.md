@@ -40,15 +40,15 @@ transcripts in default output.
 
 ## Acceptance criteria
 
-- [ ] `jarvis run list` prints tab-separated rows with columns `runId`, `project`, `branch`, `status`, `liveness`, `reason`, `retryable`, `nextAction`; when daemon omits `error`, the last three columns are `-` (CLI test, injected IPC fake).
-- [ ] `jarvis run list` prints `reason`, `retryable`, and `nextAction` from daemon `error` when present (CLI test, e.g. `harness_failure` row).
-- [ ] `jarvis run wait <run-id>` stdout JSON includes an `error` object with `reason`, `retryable`, and `nextAction` when the daemon `wait` result carries `error` (CLI test).
-- [ ] `jarvis run wait <run-id>` omits the `error` key when the daemon result has no `error` (CLI test).
-- [ ] `jarvis run wait` exit-code matrix from `v2/src/cli.test.ts` stays green (behavior unchanged by error fields).
-- [ ] `jarvis run list` and `jarvis run wait` still pass through connection and RPC errors as `<code>: <message>` on stderr with exit `1` (CLI test).
-- [ ] `v2/docs/write-behavior.md` documents the eight-column list layout, `-` placeholder semantics, breaking change for positional five-column parsers, wait JSON `error` shape, exit-code decoupling from `error`, TUI unchanged stance, and that default output excludes stderr/transcripts; points wire contract to `daemon-host.md`.
-- [ ] `v2/docs/v1-behaviors.md` has a `[v2 additive]` entry for structured run error fields on `jarvis run list` / `jarvis run wait`, including list column-width migration note.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `jarvis run list` prints tab-separated rows with columns `runId`, `project`, `branch`, `status`, `liveness`, `reason`, `retryable`, `nextAction`; when daemon omits `error`, the last three columns are `-` (CLI test, injected IPC fake).
+- [x] `jarvis run list` prints `reason`, `retryable`, and `nextAction` from daemon `error` when present (CLI test, e.g. `harness_failure` row).
+- [x] `jarvis run wait <run-id>` stdout JSON includes an `error` object with `reason`, `retryable`, and `nextAction` when the daemon `wait` result carries `error` (CLI test).
+- [x] `jarvis run wait <run-id>` omits the `error` key when the daemon result has no `error` (CLI test).
+- [x] `jarvis run wait` exit-code matrix from `v2/src/cli.test.ts` stays green (behavior unchanged by error fields).
+- [x] `jarvis run list` and `jarvis run wait` still pass through connection and RPC errors as `<code>: <message>` on stderr with exit `1` (CLI test).
+- [x] `v2/docs/write-behavior.md` documents the eight-column list layout, `-` placeholder semantics, breaking change for positional five-column parsers, wait JSON `error` shape, exit-code decoupling from `error`, TUI unchanged stance, and that default output excludes stderr/transcripts; points wire contract to `daemon-host.md`.
+- [x] `v2/docs/v1-behaviors.md` has a `[v2 additive]` entry for structured run error fields on `jarvis run list` / `jarvis run wait`, including list column-width migration note.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

@@ -577,9 +577,98 @@ describe("v2 cli", () => {
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({
-      stdout: "run-1\tdemo\tfeature\tin-progress\tlive\nrun-2\tdemo\tdone\tcompleted\tnot-live\n",
+      stdout: "run-1\tdemo\tfeature\tin-progress\tlive\t-\t-\t-\nrun-2\tdemo\tdone\tcompleted\tnot-live\t-\t-\t-\n",
       stderr: "",
     });
+  });
+
+  test("run list prints error columns from daemon error when present", async () => {
+    const cap = captureIo();
+    const requestId = "00000000-0000-4000-8000-000000000003";
+    const originalRandomUuid = crypto.randomUUID;
+    crypto.randomUUID = () => requestId;
+
+    let code = NaN;
+    try {
+      code = await main(["run", "list"], cap.io, {
+        connectIpcClient: async () =>
+          makeClient([
+            {
+              kind: "response",
+              id: requestId,
+              result: {
+                runs: [
+                  {
+                    runId: "run-ok",
+                    project: "demo",
+                    branch: "feature",
+                    status: "completed",
+                    isLive: false,
+                  },
+                  {
+                    runId: "run-fail",
+                    project: "demo",
+                    branch: "broken",
+                    status: "failed",
+                    isLive: false,
+                    error: {
+                      reason: "harness_failure",
+                      retryable: false,
+                      nextAction: "stop",
+                    },
+                  },
+                ],
+              },
+            },
+          ]),
+      });
+    } finally {
+      crypto.randomUUID = originalRandomUuid;
+    }
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({
+      stdout:
+        "run-ok\tdemo\tfeature\tcompleted\tnot-live\t-\t-\t-\nrun-fail\tdemo\tbroken\tfailed\tnot-live\tharness_failure\tfalse\tstop\n",
+      stderr: "",
+    });
+  });
+
+  test("run list rejects malformed daemon error payloads", async () => {
+    const cap = captureIo();
+    const requestId = "00000000-0000-4000-8000-000000000003";
+    const originalRandomUuid = crypto.randomUUID;
+    crypto.randomUUID = () => requestId;
+
+    let code = NaN;
+    try {
+      code = await main(["run", "list"], cap.io, {
+        connectIpcClient: async () =>
+          makeClient([
+            {
+              kind: "response",
+              id: requestId,
+              result: {
+                runs: [
+                  {
+                    runId: "run-fail",
+                    project: "demo",
+                    branch: "broken",
+                    status: "failed",
+                    isLive: false,
+                    error: { reason: "not-a-reason", retryable: false, nextAction: "stop" },
+                  },
+                ],
+              },
+            },
+          ]),
+      });
+    } finally {
+      crypto.randomUUID = originalRandomUuid;
+    }
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
   });
 
   test("run log prints replay and follow records as compact JSONL in order", async () => {
@@ -754,6 +843,30 @@ describe("v2 cli", () => {
     ]);
     expect(cap.read()).toEqual({
       stdout: '{"runStatus":"completed","loopOutcomeKind":"complete","iterationsConsumed":2,"resumable":false}\n',
+      stderr: "",
+    });
+    expect(cap.read().stdout).not.toContain('"error"');
+  });
+
+  test("run wait includes error in stdout JSON when daemon result carries error", async () => {
+    const cap = captureIo();
+
+    const code = await runWait(cap, "run-fail", [
+      waitResponse({
+        runStatus: "failed",
+        loopOutcomeKind: "invocation_failure",
+        error: {
+          reason: "harness_failure",
+          retryable: false,
+          nextAction: "stop",
+        },
+      }),
+    ]);
+
+    expect(code).toBe(2);
+    expect(cap.read()).toEqual({
+      stdout:
+        '{"runStatus":"failed","loopOutcomeKind":"invocation_failure","error":{"reason":"harness_failure","retryable":false,"nextAction":"stop"}}\n',
       stderr: "",
     });
   });

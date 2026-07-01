@@ -54,11 +54,11 @@ Valid JSON with missing or invalid `kind` closes the connection.
 | `health` | — | `{ ok: true }` | Channel liveness |
 | `status` | — | `{ state: "running" }` | Daemon-host liveness only — not run orchestration status |
 | `start` | `{ input: WriteLoopInput }` | `{ runId: string }` | Spawn a write loop in the background; returns immediately with run ID. Rejected if any run is in-flight (single in-flight guard) or if a run is active for the same `(project, branch)` (per-key guard). |
-| `list` | — | `{ runs: Array<{runId, project, branch, status, isLive}> }` | List durable runs merged with in-memory liveness; `isLive=true` only while the loop's Promise is executing. After spawn-boundary executor failure: `status: "failed"`, `isLive: false` (see [Spawn-boundary failure capture](#spawn-boundary-failure-capture)). |
+| `list` | — | `{ runs: Array<{runId, project, branch, status, isLive, error?}> }` | List durable runs merged with in-memory liveness; `isLive=true` only while the loop's Promise is executing. After spawn-boundary executor failure: `status: "failed"`, `isLive: false` (see [Spawn-boundary failure capture](#spawn-boundary-failure-capture)). Optional `error` on non-success terminals (see [Operator error on list and wait](#operator-error-on-list-and-wait)). |
 | `pause` | `{ runId: string }` | `{ ok: true }` | Signal graceful pause for an active run. The run continues at the next iteration boundary (in-flight step is not aborted). Rejected if run is unknown or not active. |
 | `kill` | `{ runId: string }` | `{ ok: true }` | Abort the run's signal immediately and record durable status `killed`. Leaves the worktree dirty. Rejected if run is unknown or not active. |
 | `resume` | `{ runId: string }` | `{ ok: true }` | Resume a paused/killed run, re-invoking `executeWriteLoop` under the start guards. A paused run continues with a fresh attempt; a killed run re-runs the interrupted step. Rejected if run is unknown, in terminal status, or if another run is active (single in-flight guard or per-key guard violation). |
-| `wait` | `{ runId: string }` | `{ runStatus, loopOutcomeKind?, iterationsConsumed?, resumable? }` | Long-running one-shot wait for the next invocation boundary. In-progress runs resolve on the next `loop_finished` or `run_execution_failed` after the subscribe cursor. Quiescent runs return immediately from durable status plus the last terminal log signal. |
+| `wait` | `{ runId: string }` | `{ runStatus, loopOutcomeKind?, iterationsConsumed?, resumable?, error? }` | Long-running one-shot wait for the next invocation boundary. In-progress runs resolve on the next `loop_finished` or `run_execution_failed` after the subscribe cursor. Quiescent runs return immediately from durable status plus the last terminal log signal. Optional `error` matches `list` for the same run (see [Operator error on list and wait](#operator-error-on-list-and-wait)). |
 
 Unknown `method` returns `error` correlated to the request `id` (connection
 stays open).
@@ -81,6 +81,69 @@ Result fields:
   `iterationsConsumed`, and `resumable`.
 - Omitted when resolving from `run_execution_failed`, kill-before-log, or a
   durable terminal row without a persisted `loop_finished`.
+- Optional `error` — stable operator stop detail; omitted on in-progress runs and
+  successful `completed` terminals. Same object shape and composition rules as
+  `list` rows.
+
+### Operator error on list and wait
+
+When a run is not a clean in-progress or success terminal, `list` rows and `wait`
+results may include:
+
+```json
+{ "reason": "<closed-reason>", "retryable": false, "nextAction": "<closed-action>" }
+```
+
+No stderr, exit codes, or attempt transcripts appear in this contract.
+
+| Field | Meaning |
+| --- | --- |
+| `reason` | Closed stop category (not raw `failureKind` or `loopOutcomeKind`) |
+| `retryable` | Whether the operator may retry/resume without fixing underlying state |
+| `nextAction` | Closed remediation hint (`resume` \| `inspect_spec` \| `fix_config` \| `retry_later` \| `stop`) |
+
+| `reason` | Typical inputs | `retryable` | `nextAction` |
+| --- | --- | --- | --- |
+| `resumable_pause` | `runStatus: "paused"` or `loopOutcomeKind: "paused"` | `true` | `resume` |
+| `resumable_budget` | `runStatus: "budget-soft-stopped"` or `loopOutcomeKind: "budget-exhausted"` | `true` | `resume` |
+| `resumable_kill` | `runStatus: "killed"` (wins over conflicting `loop_finished`) | `true` | `resume` |
+| `agent_blocked` | `loopOutcomeKind: "blocked"` or store `blocked` + attempt `outcome_kind: "blocked"` | `false` | `inspect_spec` |
+| `contract_miss` | `loopOutcomeKind: "contract_miss"` or attempt `outcome_kind: "contract_miss"` | `false` | `inspect_spec` |
+| `invalid_token` | attempt `outcome_kind: "invalid_token"` | `false` | `stop` |
+| `quota_exhausted` | binding-chain `invocation_failure` + `failureKind: "quota"` | `false` | `retry_later` |
+| `model_config` | binding-chain `invocation_failure` + `failureKind: "model_config"` | `false` | `fix_config` |
+| `no_binding` | binding-chain `invocation_failure` + `failureKind: "no_binding"` | `false` | `fix_config` |
+| `invocation_error` | binding-chain `invocation_failure` + `failureKind: "error"` or legacy null detail | `false` | `stop` |
+| `harness_failure` | terminal `run_execution_failed`, or `failed` without mappable attempt detail | `false` | `stop` |
+
+**Omission:** `error` is absent on `in-progress` runs and on `completed` runs with
+no operator-actionable stop.
+
+**Composition:** `composeRunOperatorError` reads durable `loadRun` plus the chronologically
+last terminal log record (`loop_finished` or `run_execution_failed` — whichever ended
+the current quiescent state). `list` replays persisted logs per row via injected
+`logReader` (no `follow`). When `logReader` is absent (tests), `list` composes
+store-only and does not fail the RPC. `wait` and `list` share one composer and one
+terminal-selection rule.
+
+**Tie-break:** Durable `runStatus` wins for resumable terminals (`killed`, `paused`,
+`budget-soft-stopped`). For `failed` / `blocked`, last-attempt store detail wins over
+conflicting `loop_finished` (e.g. `runStatus: "failed"` + `loopOutcomeKind: "complete"`
+resolves from attempt detail). When `runStatus` is `failed` or `blocked` with no
+mappable attempt detail, resumable `loopOutcomeKind` values from stale logs
+(`paused`, `budget-exhausted`, etc.) do not win — operators see a non-resumable stop
+(typically `harness_failure`). Spawn-boundary failure on resume can demote
+`budget-soft-stopped` to `failed`; after demotion, `error` follows `failed` rules
+and does not regress to `resumable_budget` from an earlier budget `loop_finished`
+when a later `run_execution_failed` is the selected terminal.
+
+**`error.retryable` vs `wait.resumable`:** `error.retryable` is the
+operator-action signal on the error contract. `wait.resumable` remains loop-log
+legacy from `loop_finished` and may be absent on store-only quiescent resolves
+(e.g. `killed` without persisted loop fields).
+
+Malformed `error` fields reject the entire `list` / `wait` payload (strict
+`daemon-wire` parsing).
 
 ### Admission guards for `start`
 

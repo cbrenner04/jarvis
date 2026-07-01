@@ -150,12 +150,23 @@ before retrying `jarvis tui` or `jarvis tui log <run-id>`.
 | Command | Input mapping | Output | Exit |
 | --- | --- | --- | --- |
 | `jarvis run start ...` | Same required flags as `jarvis write`; `--project-root`, `--project`, `--branch`, `--base`, `--spec`, `--artifact`, optional `--agents`, `--max-iterations`; mapped to the same `WriteLoopInput` fields and sent over IPC as one `start` request | Run ID | `0` on success |
-| `jarvis run list` | None | One tab-separated row per run: `runId project branch status liveness` | `0` on success |
+| `jarvis run list` | None | One tab-separated row per run: `runId project branch status liveness reason retryable nextAction` — last three columns are `-` when daemon omits `error` | `0` on success |
 | `jarvis run log <run-id>` | Run ID | One compact JSON line per persisted record; replay first, then follow new records until stream end or client close | `0` on stream end/client close |
 | `jarvis run pause <run-id>` | Run ID | `paused <run-id>` | `0` on success |
 | `jarvis run resume <run-id>` | Run ID | `resumed <run-id>` | `0` on success |
 | `jarvis run kill <run-id>` | Run ID | `killed <run-id>` | `0` on success |
-| `jarvis run wait <run-id>` | Run ID | One minified JSON line: `{runStatus, loopOutcomeKind?, iterationsConsumed?, resumable?}` — only present optional fields included | See [wait exit codes](#wait-exit-codes) |
+| `jarvis run wait <run-id>` | Run ID | One minified JSON line: `{runStatus, loopOutcomeKind?, iterationsConsumed?, resumable?, error?}` — only present optional fields included | See [wait exit codes](#wait-exit-codes) |
+
+`jarvis run list` and `jarvis run wait` pass through daemon `error` fields
+verbatim when present (`reason`, `retryable`, `nextAction`); see
+[`daemon-host.md`](./daemon-host.md#operator-error-on-list-and-wait) for the wire
+contract. Default output is actionable summary only — no stderr dumps or log
+transcripts. List rows always emit eight columns; scripts that parsed the prior
+five-column layout must migrate. Wait stdout includes `error` only when the daemon
+result carries it (no `null` placeholder). Wait exit codes follow
+`loopOutcomeKind` / `runStatus` only; `error` is informational stdout (e.g.
+`retryable: true` with exit `4` on `killed`). TUI run views are unchanged in
+this slice.
 
 Run-control transport failures print the connection error to stderr and exit `1`.
 Daemon RPC failures print `<code>: <message>` to stderr and exit `1`. The CLI

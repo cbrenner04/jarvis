@@ -3,14 +3,13 @@ import { join } from "node:path";
 import { createAgentBindings } from "../../shared/invocation/agents.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "./ipc/server";
+import { type LogReader, type LoopFinishedEvent, openLogReader, openLogSink } from "./log-stream.ts";
 import {
-  type LogReader,
-  type LoopFinishedEvent,
-  openLogReader,
-  openLogSink,
-  type PersistedRecord,
-  type RunExecutionFailedEvent,
-} from "./log-stream.ts";
+  composeRunOperatorError,
+  findTerminalLogRecord,
+  type RunOperatorError,
+  type TerminalLogRecord,
+} from "./run-operator-error.ts";
 import { openStateStore, type StateStore } from "./state-store.ts";
 import type { RunStatus } from "./state-store-types.ts";
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
@@ -142,9 +141,8 @@ export type WaitRunCompletionResult = {
   loopOutcomeKind?: LoopFinishedEvent["loopOutcomeKind"];
   iterationsConsumed?: number;
   resumable?: boolean;
+  error?: RunOperatorError;
 };
-
-type TerminalRecord = PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent };
 
 type Waiter = {
   minSeq: number;
@@ -177,27 +175,19 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const waitFanouts = new Map<string, WaitFanout>();
   const { stateStore: store, logReader, writeLoopExecutor, failureReporter } = deps;
 
-  const terminalRecord = (records: PersistedRecord[]): TerminalRecord | undefined => {
-    for (let i = records.length - 1; i >= 0; i -= 1) {
-      const record = records[i];
-      if (!record) continue;
-      if (record.event.kind === "loop_finished" || record.event.kind === "run_execution_failed") {
-        return record as TerminalRecord;
-      }
-    }
-    return undefined;
-  };
-
-  const resultFrom = (runStatus: RunStatus, record?: TerminalRecord): WaitRunCompletionResult => {
-    if (record?.event.kind !== "loop_finished") {
-      return { runStatus };
-    }
-    return {
-      runStatus,
-      loopOutcomeKind: record.event.loopOutcomeKind,
-      iterationsConsumed: record.event.iterationsConsumed,
-      resumable: record.event.resumable,
-    };
+  const resultFrom = (runId: string, runStatus: RunStatus, record?: TerminalLogRecord): WaitRunCompletionResult => {
+    const run = store.loadRun(runId);
+    const error = run ? composeRunOperatorError(run, record) : undefined;
+    const base: WaitRunCompletionResult =
+      record?.event.kind === "loop_finished"
+        ? {
+            runStatus,
+            loopOutcomeKind: record.event.loopOutcomeKind,
+            iterationsConsumed: record.event.iterationsConsumed,
+            resumable: record.event.resumable,
+          }
+        : { runStatus };
+    return error === undefined ? base : { ...base, error };
   };
 
   const detachWaiter = (runId: string, waiter: Waiter): void => {
@@ -211,7 +201,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
   };
 
-  const resolveWaiters = (runId: string, record: TerminalRecord): void => {
+  const resolveWaiters = (runId: string, record: TerminalLogRecord): void => {
     const fanout = waitFanouts.get(runId);
     if (!fanout) return;
     const run = store.loadRun(runId);
@@ -219,7 +209,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     for (const waiter of Array.from(fanout.waiters)) {
       if (record.seq <= waiter.minSeq) continue;
       detachWaiter(runId, waiter);
-      waiter.resolve(resultFrom(runStatus, record));
+      waiter.resolve(resultFrom(runId, runStatus, record));
     }
   };
 
@@ -234,7 +224,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         if (!logReader) return;
         for await (const record of logReader.follow(runId, fanout.controller.signal)) {
           if (record.event.kind === "loop_finished" || record.event.kind === "run_execution_failed") {
-            resolveWaiters(runId, record as TerminalRecord);
+            resolveWaiters(runId, record as TerminalLogRecord);
           }
           if (fanout.waiters.size === 0) break;
         }
@@ -333,12 +323,16 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     const runList = durableRuns.map((run) => {
       const ks = ownershipKeyString({ project: run.project, branch: run.branch });
       const isLive = activeRuns.has(ks);
+      const fullRun = store.loadRun(run.id);
+      const records = logReader?.tail(run.id) ?? [];
+      const error = fullRun ? composeRunOperatorError(fullRun, findTerminalLogRecord(records)) : undefined;
       return {
         runId: run.id,
         project: run.project,
         branch: run.branch,
         status: run.status,
         isLive,
+        ...(error !== undefined ? { error } : {}),
       };
     });
 
@@ -464,7 +458,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     const records = logReader.tail(runId);
     const subscribeSeq = records.at(-1)?.seq ?? 0;
     if (run.status !== "in-progress") {
-      return { kind: "response", result: resultFrom(run.status, terminalRecord(records)) };
+      return { kind: "response", result: resultFrom(runId, run.status, findTerminalLogRecord(records)) };
     }
 
     return {

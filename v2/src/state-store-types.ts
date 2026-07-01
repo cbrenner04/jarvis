@@ -1,12 +1,21 @@
 /** Status values for a run. */
-export type RunStatus =
-  | "in-progress"
-  | "completed"
-  | "blocked"
-  | "budget-soft-stopped"
-  | "paused"
-  | "failed"
-  | "killed";
+export const RUN_STATUSES = [
+  "in-progress",
+  "completed",
+  "blocked",
+  "budget-soft-stopped",
+  "paused",
+  "failed",
+  "killed",
+] as const;
+
+export type RunStatus = (typeof RUN_STATUSES)[number];
+
+const runStatusSet = new Set<string>(RUN_STATUSES);
+
+export function isRunStatus(value: unknown): value is RunStatus {
+  return typeof value === "string" && runStatusSet.has(value);
+}
 
 /** Terminal status of an attempt. */
 export type AttemptStatus = "in-progress" | "completed" | "blocked" | "budget-soft-stopped";

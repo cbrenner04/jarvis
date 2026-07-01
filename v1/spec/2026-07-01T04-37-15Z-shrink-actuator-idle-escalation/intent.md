@@ -32,3 +32,7 @@ Out of scope: review-panel read-only roles; shortening `iterationTimeoutMs`.
 - Patch implementation idle-output watchdog escalates through remaining `agentOrder` rungs when a later rung remains
 - Shrink resolves agents from `modes.patch.subRoleAgentOrder.reviewActuator` with full-list quota fallback
 - Review actuator idle-output watchdog escalates through remaining `reviewActuator` rungs when a later rung remains
+
+## Blocker
+
+- **Review actuator idle-output watchdog escalates through remaining `reviewActuator` rungs when a later rung remains** — not observable in committed code, tests, or docs. `v1/src/modes/patch/review.ts` still sets `idleTimeoutOccurred` and exits `11` on actuator idle stall with no ladder advance; `watchdog-idle-timeout-fallback` appears only in patch implementation (`v1/src/modes/patch/iteration.ts`). Draft spec `v1/spec/2026-07-01T03-40-21Z-review-actuator-idle-escalation/` is unchecked. Merge and implement that spec (or land equivalent behavior) before drafting shrink idle escalation.

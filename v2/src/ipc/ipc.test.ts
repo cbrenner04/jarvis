@@ -155,9 +155,7 @@ function seedRun(stateStore: StateStore): string {
   });
 }
 
-function createRunWithLogs(stateStore: StateStore): string {
-  const runId = seedRun(stateStore);
-  const logSink = openLogSink(LOGS_PATH);
+function appendSampleEvents(logSink: ReturnType<typeof openLogSink>, runId: string): void {
   logSink.append(runId, { kind: "iteration_started", attemptId: "attempt-1" });
   logSink.append(runId, {
     kind: "boundary_committed",
@@ -165,13 +163,19 @@ function createRunWithLogs(stateStore: StateStore): string {
     outcomeKind: "progress",
     runStatus: "in-progress",
   });
+}
+
+function createRunWithLogs(stateStore: StateStore): string {
+  const runId = seedRun(stateStore);
+  const logSink = openLogSink(LOGS_PATH);
+  appendSampleEvents(logSink, runId);
   logSink.close();
   return runId;
 }
 
-function wrapLogReaderWithFollowSpy(baseReader: ReturnType<typeof openLogReader>) {
+function wrapLogReaderWithFollowSpy(onFollow?: (signal?: AbortSignal) => void) {
   let followCalled = false;
-  let onFollow: ((signal?: AbortSignal) => void) | undefined;
+  const baseReader = openLogReader(LOGS_PATH);
   const logReader = {
     ...baseReader,
     follow(runId: string, signal?: AbortSignal) {
@@ -180,33 +184,32 @@ function wrapLogReaderWithFollowSpy(baseReader: ReturnType<typeof openLogReader>
       return baseReader.follow(runId, signal);
     },
   };
-  return {
-    logReader,
-    get followCalled() {
-      return followCalled;
-    },
-    setOnFollow(fn: (signal?: AbortSignal) => void) {
-      onFollow = fn;
-    },
-  };
+  return { logReader, get followCalled() { return followCalled; } };
 }
 
-async function startTailIpcServer(
-  stateStore: StateStore,
-  logReader: ReturnType<typeof openLogReader>,
-): Promise<IpcServer> {
-  const tailHandler = createTailStreamHandler({ stateStore, logReader });
-  rmSync(SOCKET_PATH, { force: true });
-  return startIpcServer(SOCKET_PATH, undefined, tailHandler);
-}
-
-socketTest("tail-log stream replays persisted events in seq order", async () => {
+async function withTailTest(fn: (stateStore: StateStore) => Promise<void>): Promise<void> {
   rmSync(LOGS_PATH, { force: true });
   const stateStore = openStateStore(join(tmpdir(), `jarvis-ipc-tail-state-${process.pid}-${Date.now()}.db`));
   try {
+    await fn(stateStore);
+  } finally {
+    stateStore.close();
+    rmSync(LOGS_PATH, { force: true });
+  }
+}
+
+async function startTailServer(
+  stateStore: StateStore,
+  logReader: ReturnType<typeof openLogReader>,
+): Promise<IpcServer> {
+  rmSync(SOCKET_PATH, { force: true });
+  return startIpcServer(SOCKET_PATH, undefined, createTailStreamHandler({ stateStore, logReader }));
+}
+
+socketTest("tail-log stream replays persisted events in seq order", async () => {
+  await withTailTest(async (stateStore) => {
     const runId = createRunWithLogs(stateStore);
-    const { logReader } = wrapLogReaderWithFollowSpy(openLogReader(LOGS_PATH));
-    const tailServer = await startTailIpcServer(stateStore, logReader);
+    const tailServer = await startTailServer(stateStore, openLogReader(LOGS_PATH));
 
     const client = await connectIpcClient(SOCKET_PATH);
     client.send({ kind: "stream-open", streamId: "tail1", payload: { runId } });
@@ -230,29 +233,18 @@ socketTest("tail-log stream replays persisted events in seq order", async () => 
     client.send({ kind: "stream-end", streamId: "tail1" });
     client.close();
     await tailServer.close();
-  } finally {
-    stateStore.close();
-    rmSync(LOGS_PATH, { force: true });
-  }
+  });
 });
 
 socketTest("tail-log stream rejects unknown run ID", async () => {
-  rmSync(LOGS_PATH, { force: true });
-  const stateStore = openStateStore(join(tmpdir(), `jarvis-ipc-tail-state-${process.pid}-${Date.now()}.db`));
-  try {
+  await withTailTest(async (stateStore) => {
     const orphanRunId = "unknown-run";
     const logSink = openLogSink(LOGS_PATH);
-    logSink.append(orphanRunId, { kind: "iteration_started", attemptId: "attempt-1" });
-    logSink.append(orphanRunId, {
-      kind: "boundary_committed",
-      attemptId: "attempt-1",
-      outcomeKind: "progress",
-      runStatus: "in-progress",
-    });
+    appendSampleEvents(logSink, orphanRunId);
     logSink.close();
 
-    const followSpy = wrapLogReaderWithFollowSpy(openLogReader(LOGS_PATH));
-    const tailServer = await startTailIpcServer(stateStore, followSpy.logReader);
+    const followSpy = wrapLogReaderWithFollowSpy();
+    const tailServer = await startTailServer(stateStore, followSpy.logReader);
 
     const client = await connectIpcClient(SOCKET_PATH);
     client.send({ kind: "stream-open", streamId: "tail2", payload: { runId: orphanRunId } });
@@ -266,27 +258,21 @@ socketTest("tail-log stream rejects unknown run ID", async () => {
     client.close();
     await tailServer.close();
     expect(followSpy.followCalled).toBe(false);
-  } finally {
-    stateStore.close();
-    rmSync(LOGS_PATH, { force: true });
-  }
+  });
 });
 
 socketTest("tail-log stream closes on client stream-end", async () => {
-  rmSync(LOGS_PATH, { force: true });
-  const stateStore = openStateStore(join(tmpdir(), `jarvis-ipc-tail-state-${process.pid}-${Date.now()}.db`));
-  try {
+  await withTailTest(async (stateStore) => {
     const runId = seedRun(stateStore);
     const logSink = openLogSink(LOGS_PATH);
     logSink.append(runId, { kind: "iteration_started", attemptId: "attempt-1" });
     logSink.close();
 
     let followSignal: AbortSignal | undefined;
-    const followSpy = wrapLogReaderWithFollowSpy(openLogReader(LOGS_PATH));
-    followSpy.setOnFollow((signal) => {
+    const followSpy = wrapLogReaderWithFollowSpy((signal) => {
       followSignal = signal;
     });
-    const tailServer = await startTailIpcServer(stateStore, followSpy.logReader);
+    const tailServer = await startTailServer(stateStore, followSpy.logReader);
 
     const client = await connectIpcClient(SOCKET_PATH);
     client.send({ kind: "stream-open", streamId: "tail3", payload: { runId } });
@@ -301,8 +287,5 @@ socketTest("tail-log stream closes on client stream-end", async () => {
     client.close();
     await tailServer.close();
     expect(followSignal?.aborted).toBe(true);
-  } finally {
-    stateStore.close();
-    rmSync(LOGS_PATH, { force: true });
-  }
+  });
 });

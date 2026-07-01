@@ -10,6 +10,8 @@ import { parseListRuns, parseWaitCompletion } from "./daemon-wire.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import type { ErrorFrame, ResponseFrame } from "./ipc/types.ts";
 import { runTuiEntry } from "./tui-entry.tsx";
+import { runTuiLogFollow } from "./tui-log-follow-entry.tsx";
+import type { RunTuiLogFollowDeps } from "./tui-log-follow-types.ts";
 import type { RunTuiEntryDeps } from "./tui-monitor-types.ts";
 import { executeWriteLoop, type WriteLoopInput, type WriteLoopResult } from "./write-loop.ts";
 import { buildWriteLoopInputFromCliValues, parseWriteArgs } from "./write-loop-input.ts";
@@ -27,6 +29,7 @@ type CliDeps = {
   stopDaemon: typeof stopDaemon;
   getDaemonStatus: typeof getDaemonStatus;
   runTuiEntry: (deps?: RunTuiEntryDeps) => Promise<number>;
+  runTuiLogFollow: (runId: string, deps?: RunTuiLogFollowDeps) => Promise<number>;
   socketPath: string;
   pidPath: string;
 };
@@ -38,6 +41,7 @@ const DEFAULT_PID_PATH = join(homedir(), ".jarvis", "daemon.pid");
 const DAEMON_USAGE = "usage: jarvis daemon <start|stop|status>\n";
 const RUN_USAGE = "usage: jarvis run <start|list|log|pause|resume|kill|wait> [args]\n";
 const TUI_USAGE = "usage: jarvis tui\n";
+const TUI_LOG_USAGE = "usage: jarvis tui log <run-id>\n";
 const WRITE_USAGE =
   "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--agents <csv>] [--max-iterations <n>]\n";
 const LOG_FRAME_WAIT_MS = 86_400_000;
@@ -55,6 +59,7 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     stopDaemon,
     getDaemonStatus,
     runTuiEntry,
+    runTuiLogFollow,
     socketPath: DEFAULT_SOCKET_PATH,
     pidPath: DEFAULT_PID_PATH,
     ...deps,
@@ -90,11 +95,18 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
   }
 
   if (command === "tui") {
-    if (argv.length !== 1) {
-      out.stderr(TUI_USAGE);
-      return 1;
+    if (argv.length === 1) {
+      return runtimeDeps.runTuiEntry({ socketPath: runtimeDeps.socketPath });
     }
-    return runtimeDeps.runTuiEntry({ socketPath: runtimeDeps.socketPath });
+    if (argv[1] === "log") {
+      if (argv.length !== 3) {
+        out.stderr(TUI_LOG_USAGE);
+        return 1;
+      }
+      return runtimeDeps.runTuiLogFollow(argv[2]!, { socketPath: runtimeDeps.socketPath });
+    }
+    out.stderr(TUI_USAGE);
+    return 1;
   }
 
   out.stdout("v2 not ready\n");

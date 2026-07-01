@@ -52,23 +52,23 @@ dashboard.
 
 ## Acceptance criteria
 
-- [ ] `jarvis tui log <run-id>` launches an ink-based log follow session using `~/.jarvis/daemon.sock` unless tests inject a socket path.
-- [ ] Production `jarvis tui log` imports and renders through `ink` (not a stdout-only shim).
-- [ ] With an injectable tail client yielding fixture records in server arrival order, the view host records one line per record including `seq`, `event.kind`, and per-kind fields from Decisions, in arrival order.
-- [ ] With an injectable tail client that blocks after replay without benign `stream-end`, the session stays open until injectable quit; quit yields exit `0` and tail client `close()`.
-- [ ] With an injectable tail client, benign server `stream-end` after replay ends the session with exit `0`.
-- [ ] With an injectable tail client simulating a live append after replay, the view host records the new line before session end.
-- [ ] With an injectable tail client yielding no records (immediate benign `stream-end`), the view host records zero event lines and the session exits `0`.
-- [ ] With an injectable tail client rejecting mid-session with `TuiDaemonConnectionError`, log follow records operator-visible failure feedback and exits `1`.
-- [ ] When the daemon socket is unreachable, log follow records operator-visible feedback using `TUI_DAEMON_SOCKET_DISPLAY` and `jarvis daemon start` remediation (scaffold unavailable pattern), exits `1`, and does not open a tail stream.
-- [ ] `jarvis tui log` with missing or extra arguments prints usage and exits `1`.
-- [ ] `jarvis tui` with no arguments keeps existing connect-scaffold behavior (`v2/src/tui-entry.test.tsx` stays green).
-- [ ] `v2/src/cli.test.ts` coverage for `jarvis write`, `jarvis daemon`, and `jarvis run` stays green.
-- [ ] Co-located tests cover replay, blocking-after-replay quit, server-close, live append, empty tail, mid-session tail failure, and unavailable-daemon paths with injectable tail client, view-host, and quit fakes.
-- [ ] Co-located tests assert each rendered line includes at least `seq`, `event.kind`, and every present per-kind field from Decisions.
-- [ ] `v2/docs/write-behavior.md` adds a `jarvis tui log <run-id>` row in the TUI CLI table: production socket default; minimum line shape (`seq`, `event.kind`, present per-kind fields); exit codes (`0` on benign stream end/quit, `1` on unavailable daemon, mid-session tail failure, or usage error); daemon-start remediation.
-- [ ] `v2/docs/v2-architecture.md` Interface records shipped log follow (`jarvis tui log <run-id>`) as a separate TUI surface over the IPC tail stream; dashboard launch/monitor/steer remain sibling work.
-- [ ] `v2/docs/daemon-host.md` cross-links `jarvis tui log <run-id>` as a consumer-layer socket-default caller over IPC tail, same pattern as `jarvis tui`.
+- [x] `jarvis tui log <run-id>` launches an ink-based log follow session using `~/.jarvis/daemon.sock` unless tests inject a socket path.
+- [x] Production `jarvis tui log` imports and renders through `ink` (not a stdout-only shim).
+- [x] With an injectable tail client yielding fixture records in server arrival order, the view host records one line per record including `seq`, `event.kind`, and per-kind fields from Decisions, in arrival order.
+- [x] With an injectable tail client that blocks after replay without benign `stream-end`, the session stays open until injectable quit; quit yields exit `0` and tail client `close()`.
+- [x] With an injectable tail client, benign server `stream-end` after replay ends the session with exit `0`.
+- [x] With an injectable tail client simulating a live append after replay, the view host records the new line before session end.
+- [x] With an injectable tail client yielding no records (immediate benign `stream-end`), the view host records zero event lines and the session exits `0`.
+- [x] With an injectable tail client rejecting mid-session with `TuiDaemonConnectionError`, log follow records operator-visible failure feedback and exits `1`.
+- [x] When the daemon socket is unreachable, log follow records operator-visible feedback using `TUI_DAEMON_SOCKET_DISPLAY` and `jarvis daemon start` remediation (scaffold unavailable pattern), exits `1`, and does not open a tail stream.
+- [x] `jarvis tui log` with missing or extra arguments prints usage and exits `1`.
+- [x] `jarvis tui` with no arguments keeps existing connect-scaffold behavior (`v2/src/tui-entry.test.tsx` stays green).
+- [x] `v2/src/cli.test.ts` coverage for `jarvis write`, `jarvis daemon`, and `jarvis run` stays green.
+- [x] Co-located tests cover replay, blocking-after-replay quit, server-close, live append, empty tail, mid-session tail failure, and unavailable-daemon paths with injectable tail client, view-host, and quit fakes.
+- [x] Co-located tests assert each rendered line includes at least `seq`, `event.kind`, and every present per-kind field from Decisions.
+- [x] `v2/docs/write-behavior.md` adds a `jarvis tui log <run-id>` row in the TUI CLI table: production socket default; minimum line shape (`seq`, `event.kind`, present per-kind fields); exit codes (`0` on benign stream end/quit, `1` on unavailable daemon, mid-session tail failure, or usage error); daemon-start remediation.
+- [x] `v2/docs/v2-architecture.md` Interface records shipped log follow (`jarvis tui log <run-id>`) as a separate TUI surface over the IPC tail stream; dashboard launch/monitor/steer remain sibling work.
+- [x] `v2/docs/daemon-host.md` cross-links `jarvis tui log <run-id>` as a consumer-layer socket-default caller over IPC tail, same pattern as `jarvis tui`.
 
 ## Documentation updates
 

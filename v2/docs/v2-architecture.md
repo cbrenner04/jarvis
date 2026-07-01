@@ -216,6 +216,11 @@ a server/runner world (pause + route to a human loop vs. process exit).
   (`{ state: "running" }`), then enters a read-only run monitor backed by daemon
   `list` and `wait`; operator contract:
   [`write-behavior.md`](./write-behavior.md#tui-cli).
+- **Shipped TUI log follow (`jarvis tui log <run-id>`).** Separate ink session
+  over the same production socket: IPC tail replay plus live follow for one run;
+  operator contract:
+  [`write-behavior.md`](./write-behavior.md#tui-cli). Dashboard launch/monitor/steer
+  and aspirational multi-window log layout remain sibling work.
 - **Observability log stream.** Structured event log (`iteration_started`,
   `boundary_committed`, `loop_finished`) keyed by run ID, queryable by sink +
   reader interfaces. Appended directly by the write loop; not part of the

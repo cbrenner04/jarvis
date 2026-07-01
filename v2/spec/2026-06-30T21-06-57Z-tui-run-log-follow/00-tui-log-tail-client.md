@@ -40,17 +40,17 @@ appends. No ink rendering or CLI entry.
 
 ## Acceptance criteria
 
-- [ ] With an injectable IPC fake, opening tail for a run yields replayed then live `PersistedRecord`s in server `stream-data` arrival order until benign `stream-end`.
-- [ ] With an injectable IPC fake, when the server sends benign `stream-end` without prior `stream-data`, the tail client yields no records and completes without error.
-- [ ] With an injectable IPC fake, error-payload `stream-end` rejects with `TuiDaemonConnectionError`.
-- [ ] With an injectable IPC fake, a malformed `stream-data` payload rejects with `TuiDaemonConnectionError`.
-- [ ] With an injectable IPC fake, connection loss during `records()` iteration rejects with `TuiDaemonConnectionError`.
-- [ ] With an injectable IPC fake, `close()` sends `stream-end` for the opened stream id.
-- [ ] When the socket path is unreachable, the tail client rejects with `TuiDaemonConnectionError` before sending `stream-open`.
-- [ ] When the caller omits `socketPath`, the tail client targets `~/.jarvis/daemon.sock`.
-- [ ] Co-located tests inject a fake `connectIpcClient` and assert the client uses the injected transport (not production `connectIpcClient`).
-- [ ] Co-located socket-backed test replays fixture records through production IPC tail framing, registered with `test.skipIf(!canUseUnixSockets(), ...)`.
-- [ ] Every exported symbol in the tail client module has an inline doc-comment stating purpose, params, returns, and thrown errors.
+- [x] With an injectable IPC fake, opening tail for a run yields replayed then live `PersistedRecord`s in server `stream-data` arrival order until benign `stream-end`.
+- [x] With an injectable IPC fake, when the server sends benign `stream-end` without prior `stream-data`, the tail client yields no records and completes without error.
+- [x] With an injectable IPC fake, error-payload `stream-end` rejects with `TuiDaemonConnectionError`.
+- [x] With an injectable IPC fake, a malformed `stream-data` payload rejects with `TuiDaemonConnectionError`.
+- [x] With an injectable IPC fake, connection loss during `records()` iteration rejects with `TuiDaemonConnectionError`.
+- [x] With an injectable IPC fake, `close()` sends `stream-end` for the opened stream id.
+- [x] When the socket path is unreachable, the tail client rejects with `TuiDaemonConnectionError` before sending `stream-open`.
+- [x] When the caller omits `socketPath`, the tail client targets `~/.jarvis/daemon.sock`.
+- [x] Co-located tests inject a fake `connectIpcClient` and assert the client uses the injected transport (not production `connectIpcClient`).
+- [x] Co-located socket-backed test replays fixture records through production IPC tail framing, registered with `test.skipIf(!canUseUnixSockets(), ...)`.
+- [x] Every exported symbol in the tail client module has an inline doc-comment stating purpose, params, returns, and thrown errors.
 
 ## Documentation updates
 

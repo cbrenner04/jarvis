@@ -28,12 +28,10 @@ import { type AcceptanceCriterion, snapshotAcceptanceCriteria } from "./subspec.
 /** Shrink-phase terminal failure mapped to a harness exit code. */
 export class ShrinkTerminalError extends Error {
   readonly exitCode: number;
-  readonly telemetryRecorded?: boolean | undefined;
 
-  constructor(message: string, exitCode: number, opts?: { telemetryRecorded?: boolean }) {
+  constructor(message: string, exitCode: number) {
     super(message);
     this.exitCode = exitCode;
-    this.telemetryRecorded = opts?.telemetryRecorded;
   }
 }
 
@@ -493,6 +491,20 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
     }
 
     const durationMs = Math.max(0, Date.now() - rungStartedMs);
+    const writeRung = (kind: TelemetryKind, exitReason: string, usageResult?: AgentResult) => {
+      opts.writeTelemetry({
+        agent: headEntry.agent,
+        iteration: 1,
+        durationMs,
+        kind,
+        exitReason,
+        patch_phase: "shrink",
+        ...(usageResult?.kind === "ok"
+          ? extractUsageAndCost(usageResult, headEntry.agent, configuredModel)
+          : {}),
+        ...telemetryMeta,
+      });
+    };
 
     if (classified.kind === "ok") {
       if (classified.stdout.length > 0) {
@@ -501,118 +513,45 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
       if (classified.stderr.length > 0) {
         opts.fanout("inbound_stderr", classified.stderr, null, { patch_phase: "shrink" });
       }
-      opts.writeTelemetry({
-        agent: headEntry.agent,
-        iteration: 1,
-        durationMs,
-        kind: "ok",
-        exitReason: "ok",
-        patch_phase: "shrink",
-        ...extractUsageAndCost(classified, headEntry.agent, configuredModel),
-        ...telemetryMeta,
-      });
+      writeRung("ok", "ok", classified);
       result = classified;
       successfulAgent = agent;
       break;
     }
 
     if (classified.kind === "quota") {
-      opts.writeTelemetry({
-        agent: headEntry.agent,
-        iteration: 1,
-        durationMs,
-        kind: "quota",
-        exitReason: "quota-fallback",
-        patch_phase: "shrink",
-        ...telemetryMeta,
-      });
+      writeRung("quota", "quota-fallback");
       if (rungIndex < reviewActuatorOrder.length - 1) {
         continue;
       }
-      opts.writeTelemetry({
-        agent: headEntry.agent,
-        iteration: 1,
-        durationMs,
-        kind: "quota",
-        exitReason: "quota-exhausted",
-        patch_phase: "shrink",
-        ...telemetryMeta,
-      });
+      writeRung("quota", "quota-exhausted");
       revertAllSince(opts.cwd, preShrinkHead);
       opts.fanout("harness", "shrink: all agents quota-exhausted (discarded)\n", "stderr");
       return;
     }
 
     if (classified.kind === "model_config") {
-      opts.writeTelemetry({
-        agent: headEntry.agent,
-        iteration: 1,
-        durationMs,
-        kind: "error",
-        exitReason: "model_config",
-        patch_phase: "shrink",
-        ...telemetryMeta,
-      });
+      writeRung("error", "model_config");
       revertAllSince(opts.cwd, preShrinkHead);
       opts.fanout("harness", `shrink: agent error (${classified.kind}); discarded\n`, "stderr");
       return;
     }
 
     const isIdleTimeout = classified.stderr.includes("aborted: idle-timeout");
-    const isShrinkTimeout = classified.stderr.includes("aborted: shrink-timeout");
 
-    if (isIdleTimeout && shrinkIdleOutputTimeoutMs > 0 && rungIndex < reviewActuatorOrder.length - 1) {
+    if (isIdleTimeout && rungIndex < reviewActuatorOrder.length - 1) {
       opts.fanout("harness", `shrink: ${headEntry.agent}: ${HARNESS_IDLE_TIMEOUT_FALLBACK}\n`, "stderr");
-      opts.writeTelemetry({
-        agent: headEntry.agent,
-        iteration: 1,
-        durationMs,
-        kind: "timeout",
-        exitReason: "watchdog-idle-timeout-fallback",
-        patch_phase: "shrink",
-        ...telemetryMeta,
-      });
+      writeRung("timeout", "watchdog-idle-timeout-fallback");
       continue;
     }
 
     if (isIdleTimeout) {
       revertAllSince(opts.cwd, preShrinkHead);
-      opts.writeTelemetry({
-        agent: headEntry.agent,
-        iteration: 1,
-        durationMs,
-        kind: "error",
-        exitReason: "watchdog-idle-timeout",
-        patch_phase: "shrink",
-        ...telemetryMeta,
-      });
-      throw new ShrinkTerminalError(`shrink idle timeout on final rung`, 8, { telemetryRecorded: true });
+      writeRung("error", "watchdog-idle-timeout");
+      throw new ShrinkTerminalError("shrink idle timeout on final rung", 8);
     }
 
-    if (isShrinkTimeout) {
-      opts.writeTelemetry({
-        agent: headEntry.agent,
-        iteration: 1,
-        durationMs,
-        kind: "error",
-        exitReason: "timeout",
-        patch_phase: "shrink",
-        ...telemetryMeta,
-      });
-      revertAllSince(opts.cwd, preShrinkHead);
-      opts.fanout("harness", `shrink: invocation failed (${classified.kind}); discarded\n`, "stderr");
-      return;
-    }
-
-    opts.writeTelemetry({
-      agent: headEntry.agent,
-      iteration: 1,
-      durationMs,
-      kind: "error",
-      exitReason: "agent-error",
-      patch_phase: "shrink",
-      ...telemetryMeta,
-    });
+    writeRung("error", classified.stderr.includes("aborted: shrink-timeout") ? "timeout" : "agent-error");
     revertAllSince(opts.cwd, preShrinkHead);
     opts.fanout("harness", `shrink: invocation failed (${classified.kind}); discarded\n`, "stderr");
     return;

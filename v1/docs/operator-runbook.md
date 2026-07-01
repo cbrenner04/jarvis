@@ -216,7 +216,9 @@ When a PR branched before recent merges (`mergeStateStatus: BEHIND`/`DIRTY`) and
 
 When a patch run (`jarvis run`) ends with a non-success exit reason, the summary includes a `see runbook: OPERATOR_RUNBOOK.md › <section>` pointer that routes you to recovery guidance for that failure reason. The section names match the scaffolded headings in the runbook — follow the pointer to find the recovery steps.
 
-During patch implementation, an idle-output stall (no stdout/stderr and no file activity for `idleOutputTimeoutMs`) auto-escalates through `modes.patch.agentOrder` when fallback rungs remain — same ladder as quota and no-progress. You may see `<agent>: idle timeout; escalating to next agent` before a stronger agent retries the same subspec. Exit `8` on idle abort means the final rung stalled (or a fix-up iteration timed out).
+During patch implementation, an idle-output stall (no stdout/stderr and no file activity for `idleOutputTimeoutMs`) auto-escalates through `modes.patch.agentOrder` when fallback rungs remain — same ladder as quota and no-progress. You may see `<agent>: idle timeout; escalating to next agent` before a stronger agent retries the same subspec. Exit `8` on idle abort means the final implementation rung stalled (or a fix-up iteration timed out).
+
+During review actuator, idle-output stalls auto-escalate through `subRoleAgentOrder.reviewActuator` (falling back to `agentOrder`) when later rungs remain. Stderr shows `review: <agent>: idle timeout; escalating to next agent`. Review actuator terminal idle exits `11` (`review-incomplete`), not `8`. Iteration wall-clock timeout (`iterationTimeoutMs`) on review actuator stays terminal with no ladder advance — do not wait out the wall for idle stalls; idle-fire escalation handles those when configured.
 
 When automated gates fail or are unsafe to re-run, finalize by hand **in the worktree** (the operator is finalizing, not an agent editing mid-run):
 

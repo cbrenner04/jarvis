@@ -594,7 +594,6 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         ...(ctx.opts.agents !== undefined ? { agents: ctx.opts.agents } : {}),
         iterationTimeoutMs: preflight.cfg.iterationTimeoutMs,
         ...(ctx.opts.__testKillGraceMs !== undefined ? { __testKillGraceMs: ctx.opts.__testKillGraceMs } : {}),
-        ...(ctx.opts.agentOrderOverride === undefined ? { actuatorAgents: ctx.activeAgents } : {}),
         ...(ctx.opts.resumeReview === true ? { resumeReview: true } : {}),
         patchWorktreeDir: preflight.agentWorkingDir,
         idleOutputTimeoutMs: preflight.cfg.idleOutputTimeoutMs,

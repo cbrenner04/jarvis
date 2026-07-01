@@ -1145,11 +1145,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
         }
         const isIdleTimeout = result.kind === "error" && result.stderr.includes("aborted: idle-timeout");
         if (isIdleTimeout && actuatorIdleOutputTimeoutMs > 0 && remainingOrder.length > 1) {
-          opts.fanout(
-            "harness",
-            `review: ${resolvedAgent.name}: ${HARNESS_IDLE_TIMEOUT_FALLBACK}\n`,
-            "stderr",
-          );
+          opts.fanout("harness", `review: ${resolvedAgent.name}: ${HARNESS_IDLE_TIMEOUT_FALLBACK}\n`, "stderr");
           opts.writeTelemetry({
             agent: resolvedAgent.name,
             iteration: ctx.passNumber,

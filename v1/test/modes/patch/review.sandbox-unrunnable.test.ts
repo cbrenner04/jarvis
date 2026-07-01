@@ -17,7 +17,11 @@ import {
   revertSpecTreeEdits,
   runPatchReviewPhase,
 } from "../../../src/modes/patch/review.ts";
-import { HARNESS_IDLE_TIMEOUT_FALLBACK, HARNESS_QUOTA_FALLBACK_STRICT, harnessAuthRotateLine } from "../../../src/quota-harness-messages.ts";
+import {
+  HARNESS_IDLE_TIMEOUT_FALLBACK,
+  HARNESS_QUOTA_FALLBACK_STRICT,
+  harnessAuthRotateLine,
+} from "../../../src/quota-harness-messages.ts";
 import { FAKE_AGENT_SPAWN_PID, waitForPollCount } from "../../descendant-poll-test-helpers.ts";
 import {
   beginHangFixtureTracking,

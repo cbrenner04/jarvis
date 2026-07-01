@@ -763,8 +763,7 @@ test.each([
   const sent: unknown[] = [];
   await withFixedUuids([requestId], async () => {
     const client = await connectTuiDaemon({
-      connectIpcClient: async () =>
-        makeClient([{ kind: "response", id: requestId, result: { ok: true } }], sent),
+      connectIpcClient: async () => makeClient([{ kind: "response", id: requestId, result: { ok: true } }], sent),
     });
 
     await expect(client[method]("run-123")).resolves.toEqual({ ok: true });

@@ -15,7 +15,9 @@ Operator-facing `jarvis daemon ...` and `jarvis run ...` behavior lives in
 Callers supply `socketPath` explicitly. There is no production default,
 stale-socket recovery, or max concurrent client cap in the library. The CLI,
 [`jarvis tui`](./write-behavior.md#tui-cli) (IPC `start` consumer over the
-production socket), and daemon lifecycle commands pin `~/.jarvis/daemon.sock`
+production socket), [`jarvis tui log <run-id>`](./write-behavior.md#tui-cli)
+(IPC tail consumer over the same socket), and daemon lifecycle commands pin
+`~/.jarvis/daemon.sock`
 plus `~/.jarvis/daemon.pid` at the consumer layer; other callers still pass
 explicit paths.
 

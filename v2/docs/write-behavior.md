@@ -89,6 +89,7 @@ or log-stream frames.
 | Command | Output | Exit |
 | --- | --- | --- |
 | `jarvis tui` | Interactive ink run monitor; entry-time guard/RPC failure: ink `<code>: <message>`; connect-time unavailable: message naming `~/.jarvis/daemon.sock` and `jarvis daemon start` | `0` operator quit; `1` connect-time unavailable or entry-time guard/RPC failure before the monitor opens |
+| `jarvis tui log <run-id>` | Interactive ink structured log follow over IPC tail; one line per record with `seq`, `event.kind`, and present per-kind fields (`attemptId`; `attemptId`/`outcomeKind`/`runStatus`; `loopOutcomeKind`/`iterationsConsumed`/`resumable`; kind only for `run_execution_failed`); connect-time unavailable: message naming `~/.jarvis/daemon.sock` and `jarvis daemon start`; mid-session tail failure: ink `daemon_error: <message>` | `0` operator quit or benign stream end; `1` connect-time unavailable, mid-session tail failure, or usage error |
 
 On entry with a non-empty daemon `list`, the monitor selects the first row
 (daemon order is newest-first), issues daemon `wait` for that `runId`, and shows
@@ -126,7 +127,12 @@ Operator quit is `q` or Ctrl-C. Quit closes the connected daemon client and
 exits `0`.
 
 When the daemon is not reachable, start it with [`jarvis daemon start`](#daemon-cli)
-before retrying `jarvis tui`.
+before retrying `jarvis tui` or `jarvis tui log <run-id>`.
+
+`jarvis tui log <run-id>` opens an IPC tail stream on the production socket,
+replays persisted records, follows live appends, and stays open after replay
+until operator quit or benign server `stream-end`. It does not invoke run-control
+RPCs or the connect-scaffold `health`/`status` path.
 
 ## Run control CLI
 
@@ -233,11 +239,16 @@ Drive the path through the test seam:
   cancellation via `AbortSignal`.
 - `bun test v2/src/cli.test.ts` proves foreground `write`, daemon lifecycle
   commands, run-control success/error paths, log JSONL streaming, `jarvis run wait`
-  (blocking resolve, exit mapping, error pass-through), and `jarvis tui` dispatch.
+  (blocking resolve, exit mapping, error pass-through), `jarvis tui` dispatch, and
+  `jarvis tui log <run-id>` dispatch.
 - `bun test v2/src/tui-entry.test.tsx` proves TUI run-monitor flow: liveness,
   initial list/empty states, refresh, selection changes, pending and late
   abandoned waits, quit, and unavailable/RPC feedback with injectable daemon
   client, refresh scheduler, and view-host fakes.
+- `bun test v2/src/tui-log-follow-entry.test.tsx` proves TUI log-follow replay,
+  blocking-after-replay quit, server close, live append, empty tail,
+  mid-session tail failure, unavailable daemon, ink render seam, and per-kind line
+  projection with injectable tail client and view-host fakes.
 
 A live `jarvis write ...` runs the full pipeline and reports
 `"kind": "invocation_failure"` until process bindings land.

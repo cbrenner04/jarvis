@@ -37,6 +37,9 @@ function makeClient(frames: IpcFrame[], sent: unknown[] = []): IpcClient {
       if (index < frames.length) {
         const frame = frames[index];
         index += 1;
+        if (frame === undefined) {
+          throw new Error("connection closed");
+        }
         return frame;
       }
       throw new Error("connection closed");

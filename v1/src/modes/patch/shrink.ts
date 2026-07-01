@@ -499,9 +499,7 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
         kind,
         exitReason,
         patch_phase: "shrink",
-        ...(usageResult?.kind === "ok"
-          ? extractUsageAndCost(usageResult, headEntry.agent, configuredModel)
-          : {}),
+        ...(usageResult?.kind === "ok" ? extractUsageAndCost(usageResult, headEntry.agent, configuredModel) : {}),
         ...telemetryMeta,
       });
     };

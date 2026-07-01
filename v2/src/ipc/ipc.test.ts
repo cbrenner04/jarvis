@@ -184,7 +184,12 @@ function wrapLogReaderWithFollowSpy(onFollow?: (signal?: AbortSignal) => void) {
       return baseReader.follow(runId, signal);
     },
   };
-  return { logReader, get followCalled() { return followCalled; } };
+  return {
+    logReader,
+    get followCalled() {
+      return followCalled;
+    },
+  };
 }
 
 async function withTailTest(fn: (stateStore: StateStore) => Promise<void>): Promise<void> {

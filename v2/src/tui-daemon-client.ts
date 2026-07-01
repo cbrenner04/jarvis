@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { WaitRunCompletionResult } from "./daemon.ts";
-import { parseListRuns, parseWaitCompletion, type DaemonListResult, type DaemonListRunRow } from "./daemon-wire.ts";
+import { parseListRuns, parseWaitCompletion, type DaemonListResult } from "./daemon-wire.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import type { ErrorFrame, IpcFrame, ResponseFrame } from "./ipc/types.ts";
 import type { WriteLoopInput } from "./write-loop.ts";
@@ -17,12 +17,6 @@ export type TuiDaemonStatusResult = { state: "running" };
 
 /** Successful IPC `start` RPC payload with the spawned run id. */
 export type TuiDaemonStartResult = { runId: string };
-
-/** One durable run row returned by daemon `list`, including current liveness. */
-export type TuiDaemonRunSummary = DaemonListRunRow;
-
-/** Successful IPC `list` RPC payload with daemon-managed runs. */
-export type TuiDaemonListResult = DaemonListResult;
 
 /** Transport, wire-protocol, or malformed-payload failure while talking to the daemon socket. */
 export class TuiDaemonConnectionError extends Error {
@@ -74,7 +68,7 @@ export type TuiDaemonClient = {
    * @throws {TuiDaemonConnectionError} On wire or transport failure.
    * @throws {TuiDaemonRpcError} When the daemon returns a correlated `error` frame.
    */
-  list(): Promise<TuiDaemonListResult>;
+  list(): Promise<DaemonListResult>;
   /**
    * Round-trip IPC `start` with one `WriteLoopInput` payload.
    * @param input Daemon launch payload matching `jarvis run start`.
@@ -294,7 +288,7 @@ function parseStartResult(result: unknown): TuiDaemonStartResult {
   throw new TuiDaemonConnectionError("malformed RPC reply: invalid start result");
 }
 
-function parseListResult(result: unknown): TuiDaemonListResult {
+function parseListResult(result: unknown): DaemonListResult {
   const parsed = parseListRuns(result);
   if (!parsed) {
     throw new TuiDaemonConnectionError("malformed RPC reply: invalid list result");
@@ -337,7 +331,7 @@ export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promi
     async status(): Promise<TuiDaemonStatusResult> {
       return parseStatusResult(await transport.request("status"));
     },
-    async list(): Promise<TuiDaemonListResult> {
+    async list(): Promise<DaemonListResult> {
       return parseListResult(await transport.request("list"));
     },
     async start(input: WriteLoopInput): Promise<TuiDaemonStartResult> {

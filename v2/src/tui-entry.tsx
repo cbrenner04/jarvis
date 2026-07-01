@@ -1,9 +1,8 @@
-import type { DaemonListRunRow } from "./daemon-wire.ts";
+import type { DaemonListResult, DaemonListRunRow } from "./daemon-wire.ts";
 import {
   connectTuiDaemon,
   type TuiDaemonClient,
   TuiDaemonConnectionError,
-  type TuiDaemonListResult,
   TuiDaemonRpcError,
 } from "./tui-daemon-client.ts";
 import { openInkMonitor } from "./tui-ink-monitor.tsx";
@@ -141,7 +140,7 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
     try {
       do {
         refreshQueued = false;
-        let list: TuiDaemonListResult | undefined;
+        let list: DaemonListResult | undefined;
         try {
           list = await client?.list();
         } catch (error) {

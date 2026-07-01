@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { WaitRunCompletionResult } from "./daemon.ts";
-import type { TuiDaemonClient, TuiDaemonListResult, TuiDaemonRunSummary } from "./tui-daemon-client.ts";
+import type { DaemonListResult, DaemonListRunRow } from "./daemon-wire.ts";
+import type { TuiDaemonClient } from "./tui-daemon-client.ts";
 import { TUI_DAEMON_SOCKET_DISPLAY, TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-client.ts";
 import { runTuiEntry } from "./tui-entry.tsx";
 import type {
@@ -12,7 +13,7 @@ import type {
   TuiViewState,
 } from "./tui-monitor-types.ts";
 
-const RUN_ALPHA: TuiDaemonRunSummary = {
+const RUN_ALPHA: DaemonListRunRow = {
   runId: "run-alpha",
   project: "demo",
   branch: "alpha",
@@ -20,7 +21,7 @@ const RUN_ALPHA: TuiDaemonRunSummary = {
   isLive: true,
 };
 
-const RUN_BETA: TuiDaemonRunSummary = {
+const RUN_BETA: DaemonListRunRow = {
   runId: "run-beta",
   project: "demo",
   branch: "beta",
@@ -28,7 +29,7 @@ const RUN_BETA: TuiDaemonRunSummary = {
   isLive: false,
 };
 
-const RUN_GAMMA: TuiDaemonRunSummary = {
+const RUN_GAMMA: DaemonListRunRow = {
   runId: "run-gamma",
   project: "demo",
   branch: "gamma",
@@ -127,7 +128,7 @@ type FakeClientOptions = {
   methods?: string[];
   healthError?: TuiDaemonRpcError;
   statusError?: TuiDaemonRpcError;
-  listResponses?: TuiDaemonListResult[];
+  listResponses?: DaemonListResult[];
   listError?: Error;
   waitImpl?: (runId: string) => Promise<WaitRunCompletionResult>;
 };
@@ -510,7 +511,7 @@ describe("runTuiEntry", () => {
   test("refresh preserves selection changed while list is in flight", async () => {
     const view = createViewHost();
     const refresh = createRefreshScheduler();
-    const refreshList = deferred<TuiDaemonListResult>();
+    const refreshList = deferred<DaemonListResult>();
     let listCalls = 0;
 
     const client: TuiDaemonClient = {

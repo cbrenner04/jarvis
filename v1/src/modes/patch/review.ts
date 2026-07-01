@@ -862,17 +862,12 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       // Build actuator prompt from the verdict
       const prompt = buildVerdictActuatorPrompt(verdict, opts.specPath);
 
-      const remainingOrder = [...actuatorOrder];
-      let rungIndex = 0;
       const actuatorIdleOutputTimeoutMs =
         opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? 600000);
       const actuatorWorktreeDir = opts.patchWorktreeDir ?? opts.cwd;
 
-      while (remainingOrder.length > 0) {
-        const headEntry = remainingOrder[0];
-        if (headEntry === undefined) {
-          break;
-        }
+      for (let rungIndex = 0; rungIndex < actuatorOrder.length; rungIndex++) {
+        const headEntry = actuatorOrder[rungIndex]!;
 
         const agent = actuatorAgents?.[rungIndex] ?? opts.agents?.[headEntry.agent];
         const resolvedAgent = agent ?? createAgent(headEntry.agent, headEntry.model);
@@ -1144,7 +1139,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           opts.fanout("harness", result.stderr, "stderr");
         }
         const isIdleTimeout = result.kind === "error" && result.stderr.includes("aborted: idle-timeout");
-        if (isIdleTimeout && actuatorIdleOutputTimeoutMs > 0 && remainingOrder.length > 1) {
+        if (isIdleTimeout && rungIndex < actuatorOrder.length - 1) {
           opts.fanout("harness", `review: ${resolvedAgent.name}: ${HARNESS_IDLE_TIMEOUT_FALLBACK}\n`, "stderr");
           opts.writeTelemetry({
             agent: resolvedAgent.name,
@@ -1155,14 +1150,11 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
             patch_phase: "review",
             ...telemetryMeta,
           });
-          remainingOrder.shift();
-          rungIndex += 1;
           continue;
         }
 
         if (isIdleTimeout) {
           idleTimeoutOccurred = true;
-          const idleExitCode = result.kind === "error" ? result.exitCode : 1;
           opts.writeTelemetry({
             agent: resolvedAgent.name,
             iteration: ctx.passNumber,
@@ -1172,7 +1164,10 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
             patch_phase: "review",
             ...telemetryMeta,
           });
-          throw new ReviewTerminalError(`actuator failed: ${result.kind}`, idleExitCode);
+          throw new ReviewTerminalError(
+            `actuator failed: ${result.kind}`,
+            result.kind === "error" ? result.exitCode : 1,
+          );
         }
 
         const exitCode = result.kind === "model_config" ? 3 : result.kind === "error" ? result.exitCode : 1;

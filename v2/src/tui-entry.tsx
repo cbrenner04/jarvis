@@ -1,92 +1,36 @@
-import { createElement, Fragment, type ReactElement, type ReactNode } from "react";
-import type { WaitRunCompletionResult } from "./daemon.ts";
+import type { DaemonListRunRow } from "./daemon-wire.ts";
 import {
-  type ConnectTuiDaemonOptions,
   connectTuiDaemon,
   TUI_DAEMON_SOCKET_DISPLAY,
   type TuiDaemonClient,
   TuiDaemonConnectionError,
   type TuiDaemonListResult,
   TuiDaemonRpcError,
-  type TuiDaemonRunSummary,
 } from "./tui-daemon-client.ts";
-import { type InkRender, showTuiInkFeedback } from "./tui-ink-feedback.tsx";
+import { openInkMonitor } from "./tui-ink-monitor.tsx";
+import { showTuiInkFeedback } from "./tui-ink-feedback.tsx";
+import type {
+  RunTuiEntryDeps,
+  TuiMonitorControls,
+  TuiMonitorSession,
+  TuiMonitorState,
+  TuiRefreshScheduler,
+  TuiViewHost,
+  TuiViewState,
+  TuiWaitState,
+} from "./tui-monitor-types.ts";
 
 export { TUI_DAEMON_SOCKET_DISPLAY };
-
-/** Operator-visible non-monitor feedback states. */
-export type TuiViewState = { kind: "rpc-error"; code: string; message: string } | { kind: "unavailable" };
-
-/** Outcome-panel state for the selected run. */
-export type TuiWaitState =
-  | { kind: "none" }
-  | { kind: "pending"; runId: string }
-  | { kind: "ready"; runId: string; result: WaitRunCompletionResult }
-  | { kind: "error"; runId: string };
-
-/** Operator-visible monitor snapshot. */
-export type TuiMonitorState = {
-  runs: readonly TuiDaemonRunSummary[];
-  selectedRunId: string | null;
-  waitState: TuiWaitState;
-};
-
-/** Injectable selection and quit controls exposed to the monitor host. */
-export type TuiMonitorControls = {
-  /** Change selection to the given run when present in the current list. */
-  selectRun(runId: string): void;
-  /** Exit the monitor. */
-  quit(): void;
-};
-
-/** Open monitor session returned by a host. */
-export type TuiMonitorSession = {
-  /** Push a fresh monitor snapshot to the active view. */
-  update(state: TuiMonitorState): void | Promise<void>;
-  /** Resolve when the operator quits. */
-  waitUntilExit(): Promise<void>;
-  /** Tear down any view resources; idempotent. */
-  close(): void;
-};
-
-/** Injectable view host for tests and alternate renderers. */
-export type TuiViewHost = {
-  /**
-   * Record or render operator-visible non-monitor feedback.
-   * @param state RPC or unavailable-daemon state.
-   */
-  show(state: TuiViewState): void | Promise<void>;
-  /**
-   * Open the interactive monitor from the initial snapshot.
-   * @param state Initial run-list and outcome snapshot.
-   * @param controls Selection and quit controls owned by the monitor core.
-   */
-  openMonitor(state: TuiMonitorState, controls: TuiMonitorControls): Promise<TuiMonitorSession>;
-};
-
-/** Refresh scheduler seam for periodic daemon `list` polling. */
-export type TuiRefreshScheduler = {
-  /**
-   * Start periodic refresh callbacks.
-   * @param onRefresh Callback that performs one refresh tick.
-   * @returns Disposable handle for teardown.
-   */
-  start(onRefresh: () => void): { close(): void };
-};
-
-/** Dependencies for {@link runTuiEntry}. */
-export type RunTuiEntryDeps = {
-  /** Unix socket path; production default is `~/.jarvis/daemon.sock`. */
-  socketPath?: string;
-  /** Injectable daemon client seam; defaults to {@link connectTuiDaemon}. */
-  connectTuiDaemon?: (options?: ConnectTuiDaemonOptions) => Promise<TuiDaemonClient>;
-  /** Injectable monitor refresh scheduler; defaults to a 1s interval poller. */
-  refreshScheduler?: TuiRefreshScheduler;
-  /** When set, skips production ink rendering. */
-  viewHost?: TuiViewHost;
-  /** Injectable ink render; defaults to production `render`. */
-  inkRender?: InkRender;
-};
+export type {
+  RunTuiEntryDeps,
+  TuiMonitorControls,
+  TuiMonitorSession,
+  TuiMonitorState,
+  TuiRefreshScheduler,
+  TuiViewHost,
+  TuiViewState,
+  TuiWaitState,
+} from "./tui-monitor-types.ts";
 
 const TUI_REFRESH_INTERVAL_MS = 1_000;
 
@@ -121,7 +65,7 @@ function createRefreshScheduler(intervalMs = TUI_REFRESH_INTERVAL_MS): TuiRefres
   };
 }
 
-function firstRunId(runs: readonly TuiDaemonRunSummary[]): string | null {
+function firstRunId(runs: readonly DaemonListRunRow[]): string | null {
   return runs[0]?.runId ?? null;
 }
 
@@ -137,113 +81,6 @@ function entryErrorFeedback(error: unknown): TuiViewState {
     return { kind: "rpc-error", code: "daemon_error", message: error.message };
   }
   throw error;
-}
-
-async function openInkMonitor(
-  initialState: TuiMonitorState,
-  controls: TuiMonitorControls,
-  inkRender?: InkRender,
-): Promise<TuiMonitorSession> {
-  let renderFn: InkRender;
-  let Box: ((props: { children?: ReactNode; flexDirection?: "column" | "row" }) => ReactElement) | undefined;
-  let Text: (props: { children?: ReactNode }) => ReactElement;
-  let useInput:
-    | ((
-        inputHandler: (
-          input: string,
-          key: { ctrl?: boolean; upArrow?: boolean; downArrow?: boolean; return?: boolean },
-        ) => void,
-      ) => void)
-    | undefined;
-
-  if (inkRender !== undefined) {
-    renderFn = inkRender;
-    Text = ({ children }) => createElement(Fragment, null, children);
-  } else {
-    const ink = await import("ink");
-    renderFn = ink.render;
-    Box = ink.Box as typeof Box;
-    Text = ({ children }) => createElement(ink.Text, null, children);
-    useInput = ink.useInput;
-  }
-
-  const sessionState = { current: initialState };
-
-  const MonitorDisplay = ({ state }: { state: TuiMonitorState }): ReactElement => {
-    const selected = state.selectedRunId;
-    const waitState = state.waitState;
-    const outcomeLines =
-      selected === null
-        ? ["No run selected."]
-        : waitState.kind === "pending"
-          ? [`Waiting for ${waitState.runId}...`]
-          : waitState.kind === "ready"
-            ? [
-                `runStatus: ${waitState.result.runStatus}`,
-                ...(waitState.result.loopOutcomeKind !== undefined
-                  ? [`loopOutcomeKind: ${waitState.result.loopOutcomeKind}`]
-                  : []),
-                ...(waitState.result.iterationsConsumed !== undefined
-                  ? [`iterationsConsumed: ${waitState.result.iterationsConsumed}`]
-                  : []),
-                ...(waitState.result.resumable !== undefined ? [`resumable: ${waitState.result.resumable}`] : []),
-              ]
-            : waitState.kind === "error"
-              ? [`Wait failed for ${waitState.runId}.`]
-              : ["No outcome yet."];
-
-    const lines: ReactElement[] = [];
-    lines.push(createElement(Text, { key: "title" }, "jarvis tui"));
-    if (state.runs.length === 0) {
-      lines.push(createElement(Text, { key: "empty" }, "No runs."));
-    } else {
-      lines.push(createElement(Text, { key: "header" }, "runId project branch status liveness"));
-      for (const run of state.runs) {
-        const marker = run.runId === selected ? ">" : " ";
-        lines.push(
-          createElement(
-            Text,
-            { key: run.runId },
-            `${marker} ${run.runId} ${run.project} ${run.branch} ${run.status} ${run.isLive ? "live" : "not-live"}`,
-          ),
-        );
-      }
-    }
-    lines.push(createElement(Text, { key: "outcome-title" }, "Outcome"));
-    for (const [index, line] of outcomeLines.entries()) {
-      lines.push(createElement(Text, { key: `outcome-${index}` }, line));
-    }
-    lines.push(createElement(Text, { key: "quit" }, "Press q or Ctrl-C to quit."));
-
-    if (Box !== undefined) {
-      return createElement(Box, { flexDirection: "column" }, ...lines);
-    }
-    return createElement(Fragment, null, ...lines);
-  };
-
-  const MonitorSessionRoot = (): ReactElement => {
-    useInput?.((input, key) => {
-      if (input === "q" || (key.ctrl && input === "c")) {
-        controls.quit();
-      }
-    });
-    return createElement(MonitorDisplay, { state: sessionState.current });
-  };
-
-  const instance = renderFn(createElement(MonitorSessionRoot));
-
-  return {
-    update(state) {
-      sessionState.current = state;
-      instance.rerender(createElement(MonitorSessionRoot));
-    },
-    async waitUntilExit() {
-      await new Promise<void>(() => {});
-    },
-    close() {
-      instance.unmount();
-    },
-  };
 }
 
 /** Connect, prove liveness, and enter the interactive run monitor until quit. */

@@ -5,7 +5,7 @@ import packageJson from "../../package.json";
 import { createAgentBindings } from "../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
 import type { WaitRunCompletionResult } from "./daemon.ts";
-import { parseWaitCompletion } from "./daemon-wire.ts";
+import { parseListRuns, parseWaitCompletion } from "./daemon-wire.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon-lifecycle.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import type { ErrorFrame, ResponseFrame } from "./ipc/types.ts";
@@ -175,29 +175,14 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
         return 1;
       }
 
-      const runs = arrayProperty(response.result, "runs");
-      if (runs === undefined) {
+      const list = parseListRuns(response.result);
+      if (list === undefined) {
         io.stderr("invalid daemon response\n");
         return 1;
       }
 
-      for (const run of runs) {
-        const runId = stringProperty(run, "runId");
-        const project = stringProperty(run, "project");
-        const branch = stringProperty(run, "branch");
-        const status = stringProperty(run, "status");
-        const isLive = booleanProperty(run, "isLive");
-        if (
-          runId === undefined ||
-          project === undefined ||
-          branch === undefined ||
-          status === undefined ||
-          isLive === undefined
-        ) {
-          io.stderr("invalid daemon response\n");
-          return 1;
-        }
-        io.stdout(`${runId}\t${project}\t${branch}\t${status}\t${isLive ? "live" : "not-live"}\n`);
+      for (const run of list.runs) {
+        io.stdout(`${run.runId}\t${run.project}\t${run.branch}\t${run.status}\t${run.isLive ? "live" : "not-live"}\n`);
       }
       return 0;
     });
@@ -329,18 +314,6 @@ function stringProperty(value: unknown, key: string): string | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const prop = (value as Record<string, unknown>)[key];
   return typeof prop === "string" ? prop : undefined;
-}
-
-function booleanProperty(value: unknown, key: string): boolean | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const prop = (value as Record<string, unknown>)[key];
-  return typeof prop === "boolean" ? prop : undefined;
-}
-
-function arrayProperty(value: unknown, key: string): unknown[] | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const prop = (value as Record<string, unknown>)[key];
-  return Array.isArray(prop) ? prop : undefined;
 }
 
 function parseWriteCliInput(argv: readonly string[], deps: CliDeps): WriteCliInput {

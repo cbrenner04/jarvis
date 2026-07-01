@@ -1,10 +1,9 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { WaitRunCompletionResult } from "./daemon.ts";
-import { isRunStatus, parseWaitCompletion } from "./daemon-wire.ts";
+import { parseListRuns, parseWaitCompletion, type DaemonListResult, type DaemonListRunRow } from "./daemon-wire.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import type { ErrorFrame, IpcFrame, ResponseFrame } from "./ipc/types.ts";
-import type { RunStatus } from "./state-store-types.ts";
 import type { WriteLoopInput } from "./write-loop.ts";
 
 /** Operator-facing socket path in unavailable-daemon feedback. */
@@ -20,19 +19,10 @@ export type TuiDaemonStatusResult = { state: "running" };
 export type TuiDaemonStartResult = { runId: string };
 
 /** One durable run row returned by daemon `list`, including current liveness. */
-export type TuiDaemonRunSummary = {
-  runId: string;
-  project: string;
-  branch: string;
-  status: RunStatus;
-  isLive: boolean;
-};
-
-/** Wire-shaped alias for one `list` run row. */
-export type TuiDaemonListRunRow = TuiDaemonRunSummary;
+export type TuiDaemonRunSummary = DaemonListRunRow;
 
 /** Successful IPC `list` RPC payload with daemon-managed runs. */
-export type TuiDaemonListResult = { runs: TuiDaemonRunSummary[] };
+export type TuiDaemonListResult = DaemonListResult;
 
 /** Transport, wire-protocol, or malformed-payload failure while talking to the daemon socket. */
 export class TuiDaemonConnectionError extends Error {
@@ -305,33 +295,11 @@ function parseStartResult(result: unknown): TuiDaemonStartResult {
 }
 
 function parseListResult(result: unknown): TuiDaemonListResult {
-  if (typeof result !== "object" || result === null || !Array.isArray((result as { runs?: unknown }).runs)) {
+  const parsed = parseListRuns(result);
+  if (!parsed) {
     throw new TuiDaemonConnectionError("malformed RPC reply: invalid list result");
   }
-
-  const runs = (result as { runs: unknown[] }).runs.map((run): TuiDaemonRunSummary => {
-    if (
-      typeof run !== "object" ||
-      run === null ||
-      typeof (run as { runId?: unknown }).runId !== "string" ||
-      typeof (run as { project?: unknown }).project !== "string" ||
-      typeof (run as { branch?: unknown }).branch !== "string" ||
-      !isRunStatus((run as { status?: unknown }).status) ||
-      typeof (run as { isLive?: unknown }).isLive !== "boolean"
-    ) {
-      throw new TuiDaemonConnectionError("malformed RPC reply: invalid list result");
-    }
-
-    return {
-      runId: (run as { runId: string }).runId,
-      project: (run as { project: string }).project,
-      branch: (run as { branch: string }).branch,
-      status: (run as { status: RunStatus }).status,
-      isLive: (run as { isLive: boolean }).isLive,
-    };
-  });
-
-  return { runs };
+  return parsed;
 }
 
 function parseWaitResult(result: unknown): WaitRunCompletionResult {

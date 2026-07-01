@@ -2,6 +2,18 @@ import type { WaitRunCompletionResult } from "./daemon.ts";
 import type { RunStatus } from "./state-store-types.ts";
 import type { WriteLoopOutcomeKind } from "./write-loop.ts";
 
+/** One durable run row on daemon `list` wire payloads. */
+export type DaemonListRunRow = {
+  runId: string;
+  project: string;
+  branch: string;
+  status: RunStatus;
+  isLive: boolean;
+};
+
+/** Successful daemon `list` wire payload. */
+export type DaemonListResult = { runs: DaemonListRunRow[] };
+
 /** Known durable run statuses on daemon run-control wire payloads. */
 export const RUN_STATUSES = new Set<RunStatus>([
   "in-progress",
@@ -26,6 +38,26 @@ export const LOOP_OUTCOME_KINDS = new Set<WriteLoopOutcomeKind>([
 
 export function isRunStatus(value: unknown): value is RunStatus {
   return typeof value === "string" && RUN_STATUSES.has(value as RunStatus);
+}
+
+function isDaemonListRunRow(value: unknown): value is DaemonListRunRow {
+  if (typeof value !== "object" || value === null) return false;
+  const row = value as Record<string, unknown>;
+  return (
+    typeof row.runId === "string" &&
+    typeof row.project === "string" &&
+    typeof row.branch === "string" &&
+    isRunStatus(row.status) &&
+    typeof row.isLive === "boolean"
+  );
+}
+
+/** Parse a daemon `list` success payload; returns `undefined` when malformed. */
+export function parseListRuns(value: unknown): DaemonListResult | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const runs = (value as { runs?: unknown }).runs;
+  if (!Array.isArray(runs) || !runs.every(isDaemonListRunRow)) return undefined;
+  return { runs };
 }
 
 function isLoopOutcomeKind(value: unknown): value is WriteLoopOutcomeKind {

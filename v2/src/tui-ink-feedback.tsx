@@ -1,6 +1,6 @@
 import { type ComponentType, createElement, Fragment, type ReactElement, type ReactNode } from "react";
 import { TUI_DAEMON_SOCKET_DISPLAY } from "./tui-daemon-client.ts";
-import type { TuiViewState } from "./tui-entry.tsx";
+import type { TuiViewState } from "./tui-monitor-types.ts";
 
 /** Injectable ink `render` seam for tests. */
 export type InkRender = typeof import("ink").render;

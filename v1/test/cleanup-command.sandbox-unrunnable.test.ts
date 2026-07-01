@@ -1229,4 +1229,109 @@ describe("cleanupCommand", () => {
     expect(code).toBe(1);
     expect(err()).toContain(`failed to remove ${specName}: simulated branch delete failure`);
   });
+
+  test("merged-mode removes dirty worktree with uncommitted porcelain", () => {
+    const { io, out } = captureIo(["y"]);
+
+    const specName = "merged-dirty-porcelain";
+    const worktreePath = createTrackedWorktree(specName);
+    writeFileSync(join(worktreePath, "dirty.txt"), "dirty\n");
+
+    const code = runMergedCleanup(io);
+
+    expect(code).toBe(0);
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(out()).not.toContain("uncommitted or unpushed changes");
+    expect(() =>
+      execSync(`git rev-parse --verify ${specName}`, {
+        cwd: projectRoot,
+        stdio: "pipe",
+      }),
+    ).toThrow();
+  });
+
+  test("merged-mode removes dirty worktree with unpushed commits", () => {
+    const { io, out } = captureIo(["y"]);
+
+    const specName = "merged-unpushed";
+    const worktreePath = createTrackedWorktree(specName);
+    writeFileSync(join(worktreePath, "feature.txt"), "feature\n");
+    execSync("git add feature.txt", { cwd: worktreePath, stdio: "pipe" });
+    execSync("git commit -m 'local only'", { cwd: worktreePath, stdio: "pipe" });
+
+    const code = runMergedCleanup(io);
+
+    expect(code).toBe(0);
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(out()).not.toContain("uncommitted or unpushed changes");
+    expect(() =>
+      execSync(`git rev-parse --verify ${specName}`, {
+        cwd: projectRoot,
+        stdio: "pipe",
+      }),
+    ).toThrow();
+  });
+
+  test("merged-mode removes dirty plan worktree", () => {
+    const { io, out } = captureIo(["y"]);
+
+    const name = "merged-dirty-plan";
+    const branch = `plan/${name}`;
+    const worktreePath = createTrackedPlanWorktree(name);
+    writeFileSync(join(worktreePath, "review-edit.txt"), "stale review\n");
+
+    const code = runMergedPlanCleanup(io);
+
+    expect(code).toBe(0);
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(out()).not.toContain("uncommitted or unpushed changes");
+    expect(() =>
+      execSync(`git rev-parse --verify ${branch}`, {
+        cwd: projectRoot,
+        stdio: "pipe",
+      }),
+    ).toThrow();
+  });
+
+  test("merged-mode dry-run lists merged-but-dirty worktree without removing it", () => {
+    const { io, out } = captureIo();
+
+    const specName = "merged-dirty-dry-run";
+    const worktreePath = createTrackedWorktree(specName);
+    writeFileSync(join(worktreePath, "dirty.txt"), "dirty\n");
+
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      dryRun: true,
+      isMergedPr: () => true,
+      findMatchingOpenPrs: () => [],
+    });
+
+    expect(code).toBe(0);
+    expect(out()).toContain("Worktrees to remove:");
+    expect(out()).toContain(specName);
+    expect(existsSync(worktreePath)).toBe(true);
+  });
+
+  test("not-merged dirty worktree is silently non-removed", () => {
+    const { io, out } = captureIo(["y"]);
+
+    const specName = "not-merged-dirty";
+    const worktreePath = createTrackedWorktree(specName);
+    writeFileSync(join(worktreePath, "dirty.txt"), "dirty\n");
+
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      isMergedPr: () => false,
+      findMatchingOpenPrs: () => [],
+    });
+
+    expect(code).toBe(0);
+    expect(out()).toBe("no merged worktrees to remove\n");
+    expect(out()).not.toContain("Worktrees to remove:");
+    expect(out()).not.toContain("uncommitted or unpushed changes");
+    expect(existsSync(worktreePath)).toBe(true);
+  });
 });

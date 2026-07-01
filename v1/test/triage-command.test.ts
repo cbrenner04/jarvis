@@ -609,6 +609,8 @@ describe("suggested moves rules", () => {
     expect(lines.length).toBeGreaterThan(0);
     expect(lines.some((l) => l.includes("PR is merged"))).toBe(true);
     expect(lines.some((l) => l.includes("orphaned"))).toBe(true);
+    expect(lines.some((l) => l.includes("jarvis1 cleanup"))).toBe(true);
+    expect(lines.some((l) => l.includes("stash"))).toBe(false);
   });
 
   test("rule 4: mixed + prState MERGED", () => {
@@ -623,6 +625,23 @@ describe("suggested moves rules", () => {
     const lines = getSuggestedMoves(input);
     expect(lines.length).toBeGreaterThan(0);
     expect(lines.some((l) => l.includes("orphaned"))).toBe(true);
+    expect(lines.some((l) => l.includes("jarvis1 cleanup"))).toBe(true);
+    expect(lines.some((l) => l.includes("stash"))).toBe(false);
+  });
+
+  test("rule 4: untracked-only + prState MERGED without spec path", () => {
+    const input = suggestedMovesBase({
+      dirtyKind: "untracked-only",
+      unpushed: 0,
+      prState: "MERGED",
+      specComplete: false,
+      worktreePath: "/tmp/test",
+    });
+
+    const lines = getSuggestedMoves(input);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.some((l) => l.includes("jarvis1 cleanup"))).toBe(true);
+    expect(lines.some((l) => l.includes("stash"))).toBe(false);
   });
 
   test("rule 5: modified + specComplete true", () => {

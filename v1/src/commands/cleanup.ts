@@ -345,11 +345,6 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
       continue;
     }
 
-    if (hasDirtyStatus(worktreePath, opts.projectRoot)) {
-      opts.io.stdout(`skipping ${worktreeName}: has uncommitted or unpushed changes\n`);
-      continue;
-    }
-
     toRemove.push({ path: worktreePath, branch, dir: worktreeName });
   }
 
@@ -390,11 +385,7 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
       } else if (opts.removeItem) {
         opts.removeItem(item);
       } else {
-        execSync(`git worktree remove "${item.path}"`, {
-          cwd: opts.projectRoot,
-          stdio: "pipe",
-        });
-        deleteMergedBranch(opts.projectRoot, item.branch);
+        retireMergedWorktree(opts.projectRoot, item);
       }
       const tag = isPlanBranch(item.branch) ? " (plan)" : "";
       opts.io.stdout(`removed ${item.branch}${tag}\n`);
@@ -551,6 +542,14 @@ function scopedAbandonCleanup(args: {
   }
 }
 
+function retireMergedWorktree(projectRoot: string, item: CleanupItem): void {
+  execFileSync("git", ["worktree", "remove", "--force", item.path], {
+    cwd: projectRoot,
+    stdio: "pipe",
+  });
+  deleteMergedBranch(projectRoot, item.branch);
+}
+
 function retireAbandonedWorktree(args: {
   closePrFn: (prNumber: number, cwd?: string) => void;
   deleteLocalBranchFn: (projectRoot: string, branchName: string) => void;
@@ -575,30 +574,4 @@ function retireAbandonedWorktree(args: {
   });
   args.deleteLocalBranchFn(args.projectRoot, args.item.branch);
   args.deleteRemoteBranchFn(args.projectRoot, args.item.branch);
-}
-
-function hasDirtyStatus(worktreePath: string, _projectRoot: string): boolean {
-  try {
-    const porcelain = execSync("git status --porcelain", {
-      cwd: worktreePath,
-      stdio: "pipe",
-      encoding: "utf8",
-    });
-    if (porcelain.trim().length > 0) {
-      return true;
-    }
-  } catch {
-    return true;
-  }
-
-  try {
-    const unpushed = execSync("git log @{u}..", {
-      cwd: worktreePath,
-      stdio: "pipe",
-      encoding: "utf8",
-    });
-    return unpushed.trim().length > 0;
-  } catch {
-    return false;
-  }
 }

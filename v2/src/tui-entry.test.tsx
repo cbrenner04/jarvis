@@ -159,6 +159,18 @@ function fakeClient(options: FakeClientOptions = {}): TuiDaemonClient {
       methods.push("start");
       return { runId: "unused" };
     },
+    async pause(runId: string) {
+      methods.push(`pause:${runId}`);
+      return { ok: true };
+    },
+    async resume(runId: string) {
+      methods.push(`resume:${runId}`);
+      return { ok: true };
+    },
+    async kill(runId: string) {
+      methods.push(`kill:${runId}`);
+      return { ok: true };
+    },
     async wait(runId: string) {
       methods.push(`wait:${runId}`);
       return (options.waitImpl ?? (async () => ({ runStatus: "completed" })))(runId);
@@ -530,6 +542,15 @@ describe("runTuiEntry", () => {
       },
       async start() {
         return { runId: "unused" };
+      },
+      async pause() {
+        return { ok: true };
+      },
+      async resume() {
+        return { ok: true };
+      },
+      async kill() {
+        return { ok: true };
       },
       async wait(runId) {
         return runId === "run-alpha" ? { runStatus: "completed" } : { runStatus: "blocked", iterationsConsumed: 3 };

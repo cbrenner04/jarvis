@@ -23,8 +23,12 @@ export type TuiDaemonStatusResult = { state: "running" };
 /** Successful IPC `start` RPC payload with the spawned run id. */
 export type TuiDaemonStartResult = { runId: string };
 
+/** Successful IPC steering RPC payload (`pause`, `resume`, `kill`). */
+export type TuiDaemonOkResult = { ok: true };
+
 /**
- * Connected TUI daemon client over one IPC transport: liveness, run list, launch, wait, and close.
+ * Connected TUI daemon client over one IPC transport: liveness, run list, launch, steering,
+ * wait, and close.
  * RPC methods throw {@link TuiDaemonConnectionError} on transport or wire failure and
  * {@link TuiDaemonRpcError} on correlated daemon `error` frames.
  */
@@ -33,6 +37,30 @@ export type TuiDaemonClient = {
   status(): Promise<TuiDaemonStatusResult>;
   list(): Promise<DaemonListResult>;
   start(input: WriteLoopInput): Promise<TuiDaemonStartResult>;
+  /**
+   * Signal graceful pause for an active run at the next iteration boundary.
+   * @param runId Durable run id to pause.
+   * @returns `{ ok: true }` when the daemon accepts the pause.
+   * @throws {TuiDaemonRpcError} When the daemon rejects the request (`unknown_run`, `run_not_active`, …).
+   * @throws {TuiDaemonConnectionError} When the transport fails or the success payload is malformed.
+   */
+  pause(runId: string): Promise<TuiDaemonOkResult>;
+  /**
+   * Resume a paused or killed run under daemon start guards.
+   * @param runId Durable run id to resume.
+   * @returns `{ ok: true }` when the daemon accepts the resume.
+   * @throws {TuiDaemonRpcError} When the daemon rejects the request (`unknown_run`, `terminal_run`, `run_in_progress`, `worktree_claimed`, …).
+   * @throws {TuiDaemonConnectionError} When the transport fails or the success payload is malformed.
+   */
+  resume(runId: string): Promise<TuiDaemonOkResult>;
+  /**
+   * Abort an active run immediately and record durable status `killed`.
+   * @param runId Durable run id to kill.
+   * @returns `{ ok: true }` when the daemon accepts the kill.
+   * @throws {TuiDaemonRpcError} When the daemon rejects the request (`unknown_run`, `run_not_active`, …).
+   * @throws {TuiDaemonConnectionError} When the transport fails or the success payload is malformed.
+   */
+  kill(runId: string): Promise<TuiDaemonOkResult>;
   wait(runId: string): Promise<WaitRunCompletionResult>;
   close(): void;
 };
@@ -56,7 +84,7 @@ function parseOrThrow<T>(parsed: T | undefined, message: string): T {
  * Open a TUI daemon client on the production or injected socket.
  *
  * @param options Optional socket path and `connectIpcClient` seam.
- * @returns A client exposing `health`, `status`, `list`, `start`, `wait`, and `close` on one connection.
+ * @returns A client exposing `health`, `status`, `list`, `start`, `pause`, `resume`, `kill`, `wait`, and `close` on one connection.
  * @throws {TuiDaemonConnectionError} When the socket is unreachable or RPC wire protocol fails.
  */
 export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promise<TuiDaemonClient> {
@@ -92,6 +120,24 @@ export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promi
       return parseOrThrow(
         parseStartResult(await transport.request("start", { input })),
         "malformed RPC reply: invalid start result",
+      );
+    },
+    async pause(runId) {
+      return parseOrThrow(
+        parseHealthResult(await transport.request("pause", { runId })),
+        "malformed RPC reply: invalid pause result",
+      );
+    },
+    async resume(runId) {
+      return parseOrThrow(
+        parseHealthResult(await transport.request("resume", { runId })),
+        "malformed RPC reply: invalid resume result",
+      );
+    },
+    async kill(runId) {
+      return parseOrThrow(
+        parseHealthResult(await transport.request("kill", { runId })),
+        "malformed RPC reply: invalid kill result",
       );
     },
     async wait(runId) {

@@ -43,17 +43,17 @@ connection. Reusable seam for run-monitor steering; no ink rendering.
 
 ## Acceptance criteria
 
-- [ ] With an injectable IPC fake, `pause(runId)` sends one `pause` request with `{ runId }` and returns `{ ok: true }` on success.
-- [ ] With an injectable IPC fake, `resume(runId)` sends one `resume` request with `{ runId }` and returns `{ ok: true }` on success.
-- [ ] With an injectable IPC fake, `kill(runId)` sends one `kill` request with `{ runId }` and returns `{ ok: true }` on success.
-- [ ] When any steering RPC returns a correlated `error` frame, the client rejects with `TuiDaemonRpcError` carrying the daemon `code` and `message` (not `TuiDaemonConnectionError`).
-- [ ] When any steering RPC returns a malformed success payload, the client rejects with `TuiDaemonConnectionError`.
-- [ ] With an injectable IPC fake that defers `wait`, `pause`/`resume`/`kill` succeed on the same open client while `wait(runId)` is unresolved.
-- [ ] Co-located tests inject a fake `connectIpcClient` and assert steering methods use the injected transport.
-- [ ] Co-located fakes cover at least `unknown_run` plus one guard code per method family: `run_not_active` for `pause`/`kill`; `terminal_run` or `run_in_progress`/`worktree_claimed` for `resume`.
-- [ ] Every new exported symbol in the client module has an inline doc-comment stating purpose, params, returns, and thrown errors.
-- [ ] `TuiDaemonClient` inline doc-comment includes `pause`, `resume`, and `kill` in the export contract.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] With an injectable IPC fake, `pause(runId)` sends one `pause` request with `{ runId }` and returns `{ ok: true }` on success.
+- [x] With an injectable IPC fake, `resume(runId)` sends one `resume` request with `{ runId }` and returns `{ ok: true }` on success.
+- [x] With an injectable IPC fake, `kill(runId)` sends one `kill` request with `{ runId }` and returns `{ ok: true }` on success.
+- [x] When any steering RPC returns a correlated `error` frame, the client rejects with `TuiDaemonRpcError` carrying the daemon `code` and `message` (not `TuiDaemonConnectionError`).
+- [x] When any steering RPC returns a malformed success payload, the client rejects with `TuiDaemonConnectionError`.
+- [x] With an injectable IPC fake that defers `wait`, `pause`/`resume`/`kill` succeed on the same open client while `wait(runId)` is unresolved.
+- [x] Co-located tests inject a fake `connectIpcClient` and assert steering methods use the injected transport.
+- [x] Co-located fakes cover at least `unknown_run` plus one guard code per method family: `run_not_active` for `pause`/`kill`; `terminal_run` or `run_in_progress`/`worktree_claimed` for `resume`.
+- [x] Every new exported symbol in the client module has an inline doc-comment stating purpose, params, returns, and thrown errors.
+- [x] `TuiDaemonClient` inline doc-comment includes `pause`, `resume`, and `kill` in the export contract.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

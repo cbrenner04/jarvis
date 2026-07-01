@@ -540,8 +540,7 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
       return;
     }
 
-    const isIdleTimeout =
-      classified.kind === "error" && classified.stderr.includes("aborted: idle-timeout");
+    const isIdleTimeout = classified.kind === "error" && classified.stderr.includes("aborted: idle-timeout");
 
     if (isIdleTimeout && rungIndex < reviewActuatorOrder.length - 1) {
       opts.fanout("harness", `shrink: ${headEntry.agent}: ${HARNESS_IDLE_TIMEOUT_FALLBACK}\n`, "stderr");

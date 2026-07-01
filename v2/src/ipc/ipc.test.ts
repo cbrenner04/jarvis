@@ -3,11 +3,13 @@ import { rmSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createTailStreamHandler } from "../daemon.ts";
 import { openLogReader, openLogSink } from "../log-stream.ts";
+import { openStateStore, type StateStore } from "../state-store.ts";
 import { canUseUnixSockets, socketProbeErrored } from "../testing/unix-socket.ts";
 import { connectIpcClient } from "./client.ts";
 import { encodeFrame } from "./codec.ts";
-import { type IpcServer, type StreamHandler, startIpcServer } from "./server.ts";
+import { type IpcServer, startIpcServer } from "./server.ts";
 
 if (socketProbeErrored) {
   process.stderr.write("skip: IPC tests require socket support in /tmp\n");
@@ -143,12 +145,17 @@ socketTest("server stays up after a malformed client disconnects", async () => {
 // Tail-log stream tests
 const LOGS_PATH = join(tmpdir(), `jarvis-ipc-test-logs-${process.pid}.jsonl`);
 
-socketTest("tail-log stream replays persisted events in seq order", async () => {
-  rmSync(LOGS_PATH, { force: true });
-  const logSink = openLogSink(LOGS_PATH);
-  const logReader = openLogReader(LOGS_PATH);
-  const runId = "test-run-1";
+function seedRun(stateStore: StateStore): string {
+  return stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-worktree",
+    branch: "test-branch",
+    specPath: "/tmp/test-project/spec.md",
+  });
+}
 
+function appendSampleEvents(logSink: ReturnType<typeof openLogSink>, runId: string): void {
   logSink.append(runId, { kind: "iteration_started", attemptId: "attempt-1" });
   logSink.append(runId, {
     kind: "boundary_committed",
@@ -156,132 +163,148 @@ socketTest("tail-log stream replays persisted events in seq order", async () => 
     outcomeKind: "progress",
     runStatus: "in-progress",
   });
+}
+
+function createRunWithLogs(stateStore: StateStore): string {
+  const runId = seedRun(stateStore);
+  const logSink = openLogSink(LOGS_PATH);
+  appendSampleEvents(logSink, runId);
   logSink.close();
+  return runId;
+}
 
-  const tailHandler: StreamHandler = async (_streamId, payload, onData, onClose, signal) => {
-    const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
-    const runId = params?.runId;
-    if (!runId) {
-      onClose();
-      return;
-    }
-    try {
-      for await (const record of logReader.follow(runId, signal)) {
-        if (signal.aborted) break;
-        onData(record);
-      }
-    } finally {
-      onClose();
-    }
+function wrapLogReaderWithFollowSpy(onFollow?: (signal?: AbortSignal) => void) {
+  let followCalled = false;
+  const baseReader = openLogReader(LOGS_PATH);
+  const logReader = {
+    ...baseReader,
+    follow(runId: string, signal?: AbortSignal) {
+      followCalled = true;
+      onFollow?.(signal);
+      return baseReader.follow(runId, signal);
+    },
   };
+  return {
+    logReader,
+    get followCalled() {
+      return followCalled;
+    },
+  };
+}
 
-  rmSync(SOCKET_PATH, { force: true });
-  const tailServer = await startIpcServer(SOCKET_PATH, undefined, tailHandler);
-
-  const client = await connectIpcClient(SOCKET_PATH);
-  client.send({ kind: "stream-open", streamId: "tail1", payload: { runId } });
-
-  const frame1 = await client.nextFrame();
-  expect(frame1.kind).toBe("stream-data");
-  if (frame1.kind === "stream-data") {
-    const record = JSON.parse(frame1.payload || "{}");
-    expect(record.seq).toBe(1);
-    expect(record.event.kind).toBe("iteration_started");
-  }
-
-  const frame2 = await client.nextFrame();
-  expect(frame2.kind).toBe("stream-data");
-  if (frame2.kind === "stream-data") {
-    const record = JSON.parse(frame2.payload || "{}");
-    expect(record.seq).toBe(2);
-    expect(record.event.kind).toBe("boundary_committed");
-  }
-
-  client.send({ kind: "stream-end", streamId: "tail1" });
-  client.close();
-  await tailServer.close();
+async function withTailTest(fn: (stateStore: StateStore) => Promise<void>): Promise<void> {
   rmSync(LOGS_PATH, { force: true });
+  const stateStore = openStateStore(join(tmpdir(), `jarvis-ipc-tail-state-${process.pid}-${Date.now()}.db`));
+  try {
+    await fn(stateStore);
+  } finally {
+    stateStore.close();
+    rmSync(LOGS_PATH, { force: true });
+  }
+}
+
+async function startTailServer(
+  stateStore: StateStore,
+  logReader: ReturnType<typeof openLogReader>,
+): Promise<IpcServer> {
+  rmSync(SOCKET_PATH, { force: true });
+  return startIpcServer(SOCKET_PATH, undefined, createTailStreamHandler({ stateStore, logReader }));
+}
+
+async function withTailServer(
+  stateStore: StateStore,
+  logReader: ReturnType<typeof openLogReader>,
+  fn: () => Promise<void>,
+): Promise<void> {
+  const tailServer = await startTailServer(stateStore, logReader);
+  try {
+    await fn();
+  } finally {
+    try {
+      await tailServer.close();
+    } catch {
+      // server may have already stopped
+    }
+  }
+}
+
+socketTest("tail-log stream replays persisted events in seq order", async () => {
+  await withTailTest(async (stateStore) => {
+    const runId = createRunWithLogs(stateStore);
+    await withTailServer(stateStore, openLogReader(LOGS_PATH), async () => {
+      const client = await connectIpcClient(SOCKET_PATH);
+      client.send({ kind: "stream-open", streamId: "tail1", payload: { runId } });
+
+      const frame1 = await client.nextFrame();
+      expect(frame1.kind).toBe("stream-data");
+      if (frame1.kind === "stream-data") {
+        const record = JSON.parse(frame1.payload || "{}");
+        expect(record.seq).toBe(1);
+        expect(record.event.kind).toBe("iteration_started");
+      }
+
+      const frame2 = await client.nextFrame();
+      expect(frame2.kind).toBe("stream-data");
+      if (frame2.kind === "stream-data") {
+        const record = JSON.parse(frame2.payload || "{}");
+        expect(record.seq).toBe(2);
+        expect(record.event.kind).toBe("boundary_committed");
+      }
+
+      client.send({ kind: "stream-end", streamId: "tail1" });
+      client.close();
+    });
+  });
 });
 
 socketTest("tail-log stream rejects unknown run ID", async () => {
-  rmSync(LOGS_PATH, { force: true });
-  const logReader = openLogReader(LOGS_PATH);
+  await withTailTest(async (stateStore) => {
+    const orphanRunId = "unknown-run";
+    const logSink = openLogSink(LOGS_PATH);
+    appendSampleEvents(logSink, orphanRunId);
+    logSink.close();
 
-  // Wiring mock: snapshot via tail (no daemon store here). An unknown run has no
-  // persisted events, so nothing is sent and the stream closes — mirroring the
-  // daemon's real handler, which closes unknown runs (daemon.ts).
-  const tailHandler: StreamHandler = async (_streamId, payload, onData, onClose) => {
-    const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
-    const runId = params?.runId;
-    if (!runId) {
-      onClose();
-      return;
-    }
-    for (const record of logReader.tail(runId)) {
-      onData(record);
-    }
-    onClose();
-  };
+    const followSpy = wrapLogReaderWithFollowSpy();
+    await withTailServer(stateStore, followSpy.logReader, async () => {
+      const client = await connectIpcClient(SOCKET_PATH);
+      client.send({ kind: "stream-open", streamId: "tail2", payload: { runId: orphanRunId } });
 
-  rmSync(SOCKET_PATH, { force: true });
-  const tailServer = await startIpcServer(SOCKET_PATH, undefined, tailHandler);
+      const frame = await client.nextFrame();
+      expect(frame.kind).toBe("stream-end");
+      if (frame.kind === "stream-end") {
+        expect(frame.streamId).toBe("tail2");
+      }
 
-  const client = await connectIpcClient(SOCKET_PATH);
-  client.send({ kind: "stream-open", streamId: "tail2", payload: { runId: "unknown-run" } });
-
-  const frame = await client.nextFrame();
-  expect(frame.kind).toBe("stream-end");
-  if (frame.kind === "stream-end") {
-    expect(frame.streamId).toBe("tail2");
-  }
-
-  client.close();
-  await tailServer.close();
+      client.close();
+      expect(followSpy.followCalled).toBe(false);
+    });
+  });
 });
 
 socketTest("tail-log stream closes on client stream-end", async () => {
-  rmSync(LOGS_PATH, { force: true });
-  const logSink = openLogSink(LOGS_PATH);
-  const logReader = openLogReader(LOGS_PATH);
-  const runId = "test-run-2";
+  await withTailTest(async (stateStore) => {
+    const runId = seedRun(stateStore);
+    const logSink = openLogSink(LOGS_PATH);
+    logSink.append(runId, { kind: "iteration_started", attemptId: "attempt-1" });
+    logSink.close();
 
-  logSink.append(runId, { kind: "iteration_started", attemptId: "attempt-1" });
-  logSink.close();
+    let followSignal: AbortSignal | undefined;
+    const followSpy = wrapLogReaderWithFollowSpy((signal) => {
+      followSignal = signal;
+    });
+    await withTailServer(stateStore, followSpy.logReader, async () => {
+      const client = await connectIpcClient(SOCKET_PATH);
+      client.send({ kind: "stream-open", streamId: "tail3", payload: { runId } });
 
-  let followAborted = false;
-  const tailHandler: StreamHandler = async (_streamId, payload, onData, onClose, signal) => {
-    const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
-    const runId = params?.runId;
-    if (!runId) {
-      onClose();
-      return;
-    }
-    try {
-      for await (const record of logReader.follow(runId, signal)) {
-        if (signal.aborted) break;
-        onData(record);
-      }
-    } finally {
-      followAborted = signal.aborted;
-      onClose();
-    }
-  };
+      const frame1 = await client.nextFrame();
+      expect(frame1.kind).toBe("stream-data");
 
-  rmSync(SOCKET_PATH, { force: true });
-  const tailServer = await startIpcServer(SOCKET_PATH, undefined, tailHandler);
+      client.send({ kind: "stream-end", streamId: "tail3" });
+      const endFrame = await client.nextFrame();
+      expect(endFrame.kind).toBe("stream-end");
 
-  const client = await connectIpcClient(SOCKET_PATH);
-  client.send({ kind: "stream-open", streamId: "tail3", payload: { runId } });
-
-  const frame1 = await client.nextFrame();
-  expect(frame1.kind).toBe("stream-data");
-
-  client.send({ kind: "stream-end", streamId: "tail3" });
-  const endFrame = await client.nextFrame();
-  expect(endFrame.kind).toBe("stream-end");
-
-  client.close();
-  await tailServer.close();
-  expect(followAborted).toBe(true);
-  rmSync(LOGS_PATH, { force: true });
+      client.close();
+      expect(followSignal?.aborted).toBe(true);
+    });
+  });
 });

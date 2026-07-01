@@ -191,7 +191,13 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
       }
 
       for (const run of list.runs) {
-        io.stdout(`${run.runId}\t${run.project}\t${run.branch}\t${run.status}\t${run.isLive ? "live" : "not-live"}\n`);
+        const liveness = run.isLive ? "live" : "not-live";
+        const reason = run.error?.reason ?? "-";
+        const retryable = run.error !== undefined ? String(run.error.retryable) : "-";
+        const nextAction = run.error?.nextAction ?? "-";
+        io.stdout(
+          `${run.runId}\t${run.project}\t${run.branch}\t${run.status}\t${liveness}\t${reason}\t${retryable}\t${nextAction}\n`,
+        );
       }
       return 0;
     });
@@ -252,6 +258,7 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
       if (result.loopOutcomeKind !== undefined) payload.loopOutcomeKind = result.loopOutcomeKind;
       if (result.iterationsConsumed !== undefined) payload.iterationsConsumed = result.iterationsConsumed;
       if (result.resumable !== undefined) payload.resumable = result.resumable;
+      if (result.error !== undefined) payload.error = result.error;
       io.stdout(`${JSON.stringify(payload)}\n`);
       return exitCodeForWaitResult(result);
     });

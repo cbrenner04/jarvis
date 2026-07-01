@@ -212,7 +212,35 @@ socketTest("wait resolves failed run_execution_failed without loop fields", asyn
   failRun(runId);
   const result = await expectResponse(await pending);
 
-  expect(result).toEqual({ runStatus: "failed" });
+  expect(result).toEqual({
+    runStatus: "failed",
+    error: { reason: "harness_failure", retryable: false, nextAction: "stop" },
+  });
+  client.close();
+});
+
+socketTest("wait resolve payload includes the same error object as list for the same run", async () => {
+  const runId = createRun();
+  stateStore.setRunStatus(runId, "killed");
+  const client = await connectIpcClient(SOCKET_PATH);
+
+  client.send({ kind: "request", id: "list", method: "list" });
+  const listFrame = await client.nextFrame();
+  expect(listFrame.kind).toBe("response");
+  const listError = (
+    listFrame.kind === "response"
+      ? (listFrame.result as { runs?: Array<{ runId: string; error?: unknown }> }).runs?.find((row) => row.runId === runId)
+          ?.error
+      : undefined
+  );
+
+  const waitResult = await expectResponse(await waitRequest(client, "wait", runId));
+  expect(waitResult.error).toEqual(listError);
+  expect(waitResult.error).toEqual({
+    reason: "resumable_kill",
+    retryable: true,
+    nextAction: "resume",
+  });
   client.close();
 });
 
@@ -223,7 +251,10 @@ socketTest("wait returns durable terminal status only when no terminal log signa
 
   const result = await expectResponse(await waitRequest(client, "wait", runId));
 
-  expect(result).toEqual({ runStatus: "killed" });
+  expect(result).toEqual({
+    runStatus: "killed",
+    error: { reason: "resumable_kill", retryable: true, nextAction: "resume" },
+  });
   client.close();
 });
 

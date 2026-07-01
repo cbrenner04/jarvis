@@ -1,4 +1,9 @@
 import type { WaitRunCompletionResult } from "./daemon.ts";
+import type {
+  RunOperatorError,
+  RunOperatorErrorReason,
+  RunOperatorNextAction,
+} from "./run-operator-error.ts";
 import type { RunStatus } from "./state-store-types.ts";
 import type { WriteLoopOutcomeKind } from "./write-loop.ts";
 
@@ -9,6 +14,7 @@ export type DaemonListRunRow = {
   branch: string;
   status: RunStatus;
   isLive: boolean;
+  error?: RunOperatorError;
 };
 
 /** Successful daemon `list` wire payload. */
@@ -36,13 +42,50 @@ export const LOOP_OUTCOME_KINDS = new Set<WriteLoopOutcomeKind>([
   "paused",
 ]);
 
+/** Known operator error reasons on daemon `list` / `wait` wire payloads. */
+export const RUN_OPERATOR_ERROR_REASONS = new Set<RunOperatorErrorReason>([
+  "resumable_pause",
+  "resumable_budget",
+  "resumable_kill",
+  "agent_blocked",
+  "contract_miss",
+  "invalid_token",
+  "quota_exhausted",
+  "model_config",
+  "no_binding",
+  "invocation_error",
+  "harness_failure",
+]);
+
+/** Known operator next actions on daemon `list` / `wait` wire payloads. */
+export const RUN_OPERATOR_NEXT_ACTIONS = new Set<RunOperatorNextAction>([
+  "resume",
+  "inspect_spec",
+  "fix_config",
+  "retry_later",
+  "stop",
+]);
+
 export function isRunStatus(value: unknown): value is RunStatus {
   return typeof value === "string" && RUN_STATUSES.has(value as RunStatus);
+}
+
+export function isRunOperatorError(value: unknown): value is RunOperatorError {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.reason === "string" &&
+    RUN_OPERATOR_ERROR_REASONS.has(record.reason as RunOperatorErrorReason) &&
+    typeof record.retryable === "boolean" &&
+    typeof record.nextAction === "string" &&
+    RUN_OPERATOR_NEXT_ACTIONS.has(record.nextAction as RunOperatorNextAction)
+  );
 }
 
 function isDaemonListRunRow(value: unknown): value is DaemonListRunRow {
   if (typeof value !== "object" || value === null) return false;
   const row = value as Record<string, unknown>;
+  if (row.error !== undefined && !isRunOperatorError(row.error)) return false;
   return (
     typeof row.runId === "string" &&
     typeof row.project === "string" &&
@@ -112,6 +155,12 @@ export function parseWaitCompletion(value: unknown): WaitRunCompletionResult | u
   if (resumable !== undefined) {
     if (typeof resumable !== "boolean") return undefined;
     result.resumable = resumable;
+  }
+
+  const error = record.error;
+  if (error !== undefined) {
+    if (!isRunOperatorError(error)) return undefined;
+    result.error = error;
   }
 
   return result;

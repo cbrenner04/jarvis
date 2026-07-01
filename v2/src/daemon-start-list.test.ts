@@ -54,7 +54,14 @@ function createFakeWriteLoopExecutor() {
 }
 
 type FakeWriteLoopExecutor = ReturnType<typeof createFakeWriteLoopExecutor>;
-type RunSummary = { runId: string; project: string; branch: string; status: string; isLive: boolean };
+type RunSummary = {
+  runId: string;
+  project: string;
+  branch: string;
+  status: string;
+  isLive: boolean;
+  error?: { reason: string; retryable: boolean; nextAction: string };
+};
 type ListRunsResult = { runs?: RunSummary[] } | undefined;
 
 let stateStore: StateStore;
@@ -235,6 +242,132 @@ socketTest("pause rejects unknown run ID", async () => {
   if (pauseResponse.kind === "error") {
     expect(pauseResponse.code).toBe("unknown_run");
   }
+  client.close();
+});
+
+socketTest("list includes error on terminal rows and omits it on in-progress and completed", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+  const runId = await startRun(client);
+  if (!runId) {
+    client.close();
+    return;
+  }
+
+  let runs = await listRuns(client);
+  expect(runs?.[0]?.error).toBeUndefined();
+
+  client.send({ kind: "request", id: "k1", method: "kill", params: { runId } });
+  await client.nextFrame();
+
+  runs = await listRuns(client);
+  const killed = runs?.find((candidate) => candidate.runId === runId);
+  expect(killed?.error).toEqual({
+    reason: "resumable_kill",
+    retryable: true,
+    nextAction: "resume",
+  });
+
+  fakeExecutor.settleAll();
+  await flushBackgroundRuns();
+  stateStore.setRunStatus(runId, "completed");
+
+  runs = await listRuns(client);
+  const completed = runs?.find((candidate) => candidate.runId === runId);
+  expect(completed?.error).toBeUndefined();
+
+  const pausedRunId = stateStore.createRun({
+    project: "terminal-project",
+    specRef: "main",
+    worktreePath: "/tmp/paused",
+    branch: "paused-branch",
+    specPath: "/tmp/spec.md",
+  });
+  stateStore.setRunStatus(pausedRunId, "paused");
+
+  const budgetRunId = stateStore.createRun({
+    project: "terminal-project",
+    specRef: "main",
+    worktreePath: "/tmp/budget",
+    branch: "budget-branch",
+    specPath: "/tmp/spec.md",
+  });
+  stateStore.setRunStatus(budgetRunId, "budget-soft-stopped");
+
+  const blockedRunId = stateStore.createRun({
+    project: "terminal-project",
+    specRef: "main",
+    worktreePath: "/tmp/blocked",
+    branch: "blocked-branch",
+    specPath: "/tmp/spec.md",
+  });
+  stateStore.setRunStatus(blockedRunId, "blocked");
+  const blockedAttemptId = stateStore.recordAttemptStart(blockedRunId);
+  stateStore.commitCompletionBoundary({
+    attemptId: blockedAttemptId,
+    runStatus: "blocked",
+    outcomeKind: "blocked",
+  });
+
+  const failedRunId = stateStore.createRun({
+    project: "terminal-project",
+    specRef: "main",
+    worktreePath: "/tmp/failed",
+    branch: "failed-branch",
+    specPath: "/tmp/spec.md",
+  });
+  stateStore.setRunStatus(failedRunId, "failed");
+
+  runs = await listRuns(client);
+  expect(runs?.find((row) => row.runId === pausedRunId)?.error).toEqual({
+    reason: "resumable_pause",
+    retryable: true,
+    nextAction: "resume",
+  });
+  expect(runs?.find((row) => row.runId === budgetRunId)?.error).toEqual({
+    reason: "resumable_budget",
+    retryable: true,
+    nextAction: "resume",
+  });
+  expect(runs?.find((row) => row.runId === blockedRunId)?.error).toEqual({
+    reason: "agent_blocked",
+    retryable: false,
+    nextAction: "inspect_spec",
+  });
+  expect(runs?.find((row) => row.runId === failedRunId)?.error).toEqual({
+    reason: "harness_failure",
+    retryable: false,
+    nextAction: "stop",
+  });
+
+  client.close();
+});
+
+socketTest("list without logReader composes store-only error", async () => {
+  await server.close();
+  const handlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+  });
+  server = await startIpcServer(SOCKET_PATH, handlers);
+
+  const pausedRunId = stateStore.createRun({
+    project: "paused-project",
+    specRef: "main",
+    worktreePath: "/tmp/paused",
+    branch: "paused-branch",
+    specPath: "/tmp/spec.md",
+  });
+  stateStore.setRunStatus(pausedRunId, "paused");
+
+  const client = await connectIpcClient(SOCKET_PATH);
+  const runs = await listRuns(client);
+  const paused = runs?.find((candidate) => candidate.runId === pausedRunId);
+  expect(paused?.error).toEqual({
+    reason: "resumable_pause",
+    retryable: true,
+    nextAction: "resume",
+  });
   client.close();
 });
 

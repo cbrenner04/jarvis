@@ -117,27 +117,27 @@ attempt detail.
 
 ## Acceptance criteria
 
-- [ ] `composeRunOperatorError` returns `reason: "resumable_pause"`, `retryable: true`, `nextAction: "resume"` for `loop_finished` with `loopOutcomeKind: "paused"` (unit test).
-- [ ] `composeRunOperatorError` returns `reason: "resumable_pause"` for store-only `runStatus: "paused"` with no terminal log (unit test).
-- [ ] `composeRunOperatorError` returns `reason: "resumable_budget"`, `retryable: true`, `nextAction: "resume"` for log `budget-exhausted` and store-only `budget-soft-stopped` shapes (unit test).
-- [ ] `composeRunOperatorError` returns `reason: "resumable_kill"`, `retryable: true`, `nextAction: "resume"` for durable `killed` without `loop_finished` (unit test).
-- [ ] `composeRunOperatorError` returns `reason: "resumable_kill"` when `runStatus: "killed"` and last `loop_finished` has `loopOutcomeKind: "progress"` (unit test).
-- [ ] `composeRunOperatorError` returns `reason: "agent_blocked"` / `"contract_miss"` with `nextAction: "inspect_spec"` and `retryable: false` for matching log `loopOutcomeKind` values (unit test).
-- [ ] `composeRunOperatorError` returns `agent_blocked` / `contract_miss` from store-only `blocked` status and last-attempt `outcome_kind` when no terminal log (unit test).
-- [ ] `composeRunOperatorError` maps each binding-chain `failureKind` (`quota`, `model_config`, `no_binding`, `error`) from log and store-only `failed` + attempt detail paths (unit test).
-- [ ] `composeRunOperatorError` returns `reason: "invalid_token"`, `retryable: false`, `nextAction: "stop"` from log and store-only last-attempt `invalid_token` (unit test).
-- [ ] `composeRunOperatorError` returns `reason: "invocation_error"`, `nextAction: "stop"` for legacy detail-free binding-chain `invocation_failure` (unit test).
-- [ ] `composeRunOperatorError` returns `reason: "harness_failure"`, `retryable: false`, `nextAction: "stop"` for `run_execution_failed` and for `failed` without mappable attempt detail (unit test).
-- [ ] `composeRunOperatorError` returns an invocation `reason` (not `harness_failure`) for `failed` + store invocation detail with no terminal log (unit test).
-- [ ] `composeRunOperatorError` resolves `runStatus: "failed"` + `loopOutcomeKind: "complete"` to the store attempt detail per tie-break (unit test; shape pinned by `v2/src/cli.test.ts` wait exit-code matrix).
-- [ ] `composeRunOperatorError` returns `undefined` for in-progress runs and for successful `completed` terminals (unit test).
-- [ ] Daemon `list` includes `error` on failed/blocked/paused/killed/budget-soft-stopped rows and omits it on in-progress and successful `completed` rows (socket test).
-- [ ] Daemon `list` without `logReader` still composes store-only `error` and does not fail the RPC (socket test).
-- [ ] Daemon `wait` resolve payload includes the same `error` object as `list` for the same run at resolve time (socket test).
-- [ ] `daemon-wire` rejects entire `list` / `wait` payloads when `error` has invalid `reason`, `nextAction`, or `retryable` (parser test).
-- [ ] `v2/src/daemon-start-list.test.ts` and `v2/src/daemon-wait-run-completion.test.ts` stay green except where extended for `error` fields.
-- [ ] `v2/docs/daemon-host.md` documents optional `error` on `list` rows and `wait` results: field list, reason/action semantics table, omission rules, no stderr/transcripts, `error.retryable` vs `wait.resumable` split, and `list` store-only composition when `logReader` is absent in tests.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `composeRunOperatorError` returns `reason: "resumable_pause"`, `retryable: true`, `nextAction: "resume"` for `loop_finished` with `loopOutcomeKind: "paused"` (unit test).
+- [x] `composeRunOperatorError` returns `reason: "resumable_pause"` for store-only `runStatus: "paused"` with no terminal log (unit test).
+- [x] `composeRunOperatorError` returns `reason: "resumable_budget"`, `retryable: true`, `nextAction: "resume"` for log `budget-exhausted` and store-only `budget-soft-stopped` shapes (unit test).
+- [x] `composeRunOperatorError` returns `reason: "resumable_kill"`, `retryable: true`, `nextAction: "resume"` for durable `killed` without `loop_finished` (unit test).
+- [x] `composeRunOperatorError` returns `reason: "resumable_kill"` when `runStatus: "killed"` and last `loop_finished` has `loopOutcomeKind: "progress"` (unit test).
+- [x] `composeRunOperatorError` returns `reason: "agent_blocked"` / `"contract_miss"` with `nextAction: "inspect_spec"` and `retryable: false` for matching log `loopOutcomeKind` values (unit test).
+- [x] `composeRunOperatorError` returns `agent_blocked` / `contract_miss` from store-only `blocked` status and last-attempt `outcome_kind` when no terminal log (unit test).
+- [x] `composeRunOperatorError` maps each binding-chain `failureKind` (`quota`, `model_config`, `no_binding`, `error`) from log and store-only `failed` + attempt detail paths (unit test).
+- [x] `composeRunOperatorError` returns `reason: "invalid_token"`, `retryable: false`, `nextAction: "stop"` from log and store-only last-attempt `invalid_token` (unit test).
+- [x] `composeRunOperatorError` returns `reason: "invocation_error"`, `nextAction: "stop"` for legacy detail-free binding-chain `invocation_failure` (unit test).
+- [x] `composeRunOperatorError` returns `reason: "harness_failure"`, `retryable: false`, `nextAction: "stop"` for `run_execution_failed` and for `failed` without mappable attempt detail (unit test).
+- [x] `composeRunOperatorError` returns an invocation `reason` (not `harness_failure`) for `failed` + store invocation detail with no terminal log (unit test).
+- [x] `composeRunOperatorError` resolves `runStatus: "failed"` + `loopOutcomeKind: "complete"` to the store attempt detail per tie-break (unit test; shape pinned by `v2/src/cli.test.ts` wait exit-code matrix).
+- [x] `composeRunOperatorError` returns `undefined` for in-progress runs and for successful `completed` terminals (unit test).
+- [x] Daemon `list` includes `error` on failed/blocked/paused/killed/budget-soft-stopped rows and omits it on in-progress and successful `completed` rows (socket test).
+- [x] Daemon `list` without `logReader` still composes store-only `error` and does not fail the RPC (socket test).
+- [x] Daemon `wait` resolve payload includes the same `error` object as `list` for the same run at resolve time (socket test).
+- [x] `daemon-wire` rejects entire `list` / `wait` payloads when `error` has invalid `reason`, `nextAction`, or `retryable` (parser test).
+- [x] `v2/src/daemon-start-list.test.ts` and `v2/src/daemon-wait-run-completion.test.ts` stay green except where extended for `error` fields.
+- [x] `v2/docs/daemon-host.md` documents optional `error` on `list` rows and `wait` results: field list, reason/action semantics table, omission rules, no stderr/transcripts, `error.retryable` vs `wait.resumable` split, and `list` store-only composition when `logReader` is absent in tests.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

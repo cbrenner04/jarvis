@@ -9,7 +9,8 @@ import { parseListRuns, parseWaitCompletion } from "./daemon-wire.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon-lifecycle.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import type { ErrorFrame, ResponseFrame } from "./ipc/types.ts";
-import { type RunTuiEntryDeps, runTuiEntry } from "./tui-entry.tsx";
+import { runTuiEntry } from "./tui-entry.tsx";
+import type { RunTuiEntryDeps } from "./tui-monitor-types.ts";
 import {
   executeWriteLoop,
   type WriteLoopInput,

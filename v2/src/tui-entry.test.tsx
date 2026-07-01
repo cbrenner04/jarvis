@@ -1,17 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import type { WaitRunCompletionResult } from "./daemon.ts";
 import type { TuiDaemonClient, TuiDaemonListResult, TuiDaemonRunSummary } from "./tui-daemon-client.ts";
-import { TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-client.ts";
-import {
-  type RunTuiEntryDeps,
-  runTuiEntry,
-  TUI_DAEMON_SOCKET_DISPLAY,
-  type TuiMonitorControls,
-  type TuiMonitorSession,
-  type TuiMonitorState,
-  type TuiViewHost,
-  type TuiViewState,
-} from "./tui-entry.tsx";
+import { TUI_DAEMON_SOCKET_DISPLAY, TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-client.ts";
+import { runTuiEntry } from "./tui-entry.tsx";
+import type {
+  RunTuiEntryDeps,
+  TuiMonitorControls,
+  TuiMonitorSession,
+  TuiMonitorState,
+  TuiViewHost,
+  TuiViewState,
+} from "./tui-monitor-types.ts";
 
 const RUN_ALPHA: TuiDaemonRunSummary = {
   runId: "run-alpha",

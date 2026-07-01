@@ -1,7 +1,6 @@
 import type { DaemonListRunRow } from "./daemon-wire.ts";
 import {
   connectTuiDaemon,
-  TUI_DAEMON_SOCKET_DISPLAY,
   type TuiDaemonClient,
   TuiDaemonConnectionError,
   type TuiDaemonListResult,
@@ -10,18 +9,6 @@ import {
 import { openInkMonitor } from "./tui-ink-monitor.tsx";
 import { showTuiInkFeedback } from "./tui-ink-feedback.tsx";
 import type {
-  RunTuiEntryDeps,
-  TuiMonitorControls,
-  TuiMonitorSession,
-  TuiMonitorState,
-  TuiRefreshScheduler,
-  TuiViewHost,
-  TuiViewState,
-  TuiWaitState,
-} from "./tui-monitor-types.ts";
-
-export { TUI_DAEMON_SOCKET_DISPLAY };
-export type {
   RunTuiEntryDeps,
   TuiMonitorControls,
   TuiMonitorSession,

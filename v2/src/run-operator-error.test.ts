@@ -5,9 +5,10 @@ import type {
   RunOperatorNextAction,
   TerminalLogRecord,
 } from "./run-operator-error.ts";
-import { composeRunOperatorError } from "./run-operator-error.ts";
+import { composeRunOperatorError, findTerminalLogRecord } from "./run-operator-error.ts";
 import type { Attempt } from "./state-store.ts";
 import type { RunStatus } from "./state-store-types.ts";
+import type { PersistedRecord } from "./log-stream.ts";
 import type { WriteLoopOutcomeKind } from "./write-loop.ts";
 
 function runWith(status: RunStatus, attempts: Attempt[] = []): { status: RunStatus; attempts: Attempt[] } {
@@ -35,13 +36,20 @@ function loopFinished(loopOutcomeKind: WriteLoopOutcomeKind): TerminalLogRecord 
   };
 }
 
-function runExecutionFailed(): TerminalLogRecord {
+function runExecutionFailed(seq = 2): TerminalLogRecord {
   return {
     runId: "run-1",
-    seq: 1,
+    seq,
     ts: "2026-01-01T00:00:00.000Z",
     event: { kind: "run_execution_failed" },
   };
+}
+
+function persistedTerminal(
+  seq: number,
+  event: TerminalLogRecord["event"],
+): PersistedRecord {
+  return { runId: "run-1", seq, ts: "2026-01-01T00:00:00.000Z", event };
 }
 
 function err(reason: RunOperatorErrorReason, nextAction: RunOperatorNextAction, retryable = false): RunOperatorError {
@@ -145,4 +153,40 @@ test("composeRunOperatorError resolves failed plus loop_finished complete to sto
 test("composeRunOperatorError returns undefined for in-progress and successful completed terminals", () => {
   expect(composeRunOperatorError(runWith("in-progress"))).toBeUndefined();
   expect(composeRunOperatorError(runWith("completed"), loopFinished("complete"))).toBeUndefined();
+});
+
+test("findTerminalLogRecord selects chronologically last terminal event", () => {
+  const records = [
+    persistedTerminal(1, { kind: "loop_finished", loopOutcomeKind: "paused", iterationsConsumed: 1, resumable: true }),
+    persistedTerminal(2, { kind: "run_execution_failed" }),
+  ];
+  expect(findTerminalLogRecord(records)?.event.kind).toBe("run_execution_failed");
+});
+
+test("composeRunOperatorError prefers later run_execution_failed over earlier loop_finished on failed resume spawn", () => {
+  const records = [
+    persistedTerminal(1, {
+      kind: "loop_finished",
+      loopOutcomeKind: "budget-exhausted",
+      iterationsConsumed: 1,
+      resumable: true,
+    }),
+    persistedTerminal(2, { kind: "run_execution_failed" }),
+  ];
+  expect(composeRunOperatorError(runWith("failed"), findTerminalLogRecord(records))).toEqual(
+    err("harness_failure", "stop"),
+  );
+});
+
+test("composeRunOperatorError does not surface resumable log outcomes when durable status is failed without attempt detail", () => {
+  expect(composeRunOperatorError(runWith("failed"), loopFinished("paused"))).toEqual(err("harness_failure", "stop"));
+  expect(composeRunOperatorError(runWith("failed"), loopFinished("budget-exhausted"))).toEqual(
+    err("harness_failure", "stop"),
+  );
+});
+
+test("composeRunOperatorError returns harness_failure after budget-soft-stopped demotion with stale budget log", () => {
+  expect(composeRunOperatorError(runWith("failed"), loopFinished("budget-exhausted"))).toEqual(
+    err("harness_failure", "stop"),
+  );
 });

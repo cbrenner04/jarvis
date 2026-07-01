@@ -119,16 +119,23 @@ No stderr, exit codes, or attempt transcripts appear in this contract.
 **Omission:** `error` is absent on `in-progress` runs and on `completed` runs with
 no operator-actionable stop.
 
-**Composition:** `composeRunOperatorError` reads durable `loadRun` plus the last
-terminal log record (`loop_finished` preferred over `run_execution_failed`).
-`list` replays persisted logs per row via injected `logReader` (no `follow`).
-When `logReader` is absent (tests), `list` composes store-only and does not fail
-the RPC. `wait` and `list` share one composer.
+**Composition:** `composeRunOperatorError` reads durable `loadRun` plus the chronologically
+last terminal log record (`loop_finished` or `run_execution_failed` — whichever ended
+the current quiescent state). `list` replays persisted logs per row via injected
+`logReader` (no `follow`). When `logReader` is absent (tests), `list` composes
+store-only and does not fail the RPC. `wait` and `list` share one composer and one
+terminal-selection rule.
 
-**Tie-break:** Durable `runStatus` wins for resumable terminals (`killed`,
-`paused`, `budget-soft-stopped`). For `failed` / `blocked`, last-attempt store
-detail wins over conflicting `loop_finished` (e.g. `runStatus: "failed"` +
-`loopOutcomeKind: "complete"` resolves from attempt detail).
+**Tie-break:** Durable `runStatus` wins for resumable terminals (`killed`, `paused`,
+`budget-soft-stopped`). For `failed` / `blocked`, last-attempt store detail wins over
+conflicting `loop_finished` (e.g. `runStatus: "failed"` + `loopOutcomeKind: "complete"`
+resolves from attempt detail). When `runStatus` is `failed` or `blocked` with no
+mappable attempt detail, resumable `loopOutcomeKind` values from stale logs
+(`paused`, `budget-exhausted`, etc.) do not win — operators see a non-resumable stop
+(typically `harness_failure`). Spawn-boundary failure on resume can demote
+`budget-soft-stopped` to `failed`; after demotion, `error` follows `failed` rules
+and does not regress to `resumable_budget` from an earlier budget `loop_finished`
+when a later `run_execution_failed` is the selected terminal.
 
 **`error.retryable` vs `wait.resumable`:** `error.retryable` is the
 operator-action signal on the error contract. `wait.resumable` remains loop-log

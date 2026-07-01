@@ -164,7 +164,12 @@ socketTest("two concurrent waits resolve with the same terminal payload", async 
   const secondResult = await expectResponse(await second);
 
   expect(firstResult).toEqual(secondResult);
-  expect(firstResult).toMatchObject({ runStatus: "blocked", loopOutcomeKind: "blocked", iterationsConsumed: 4 });
+  expect(firstResult).toMatchObject({
+    runStatus: "blocked",
+    loopOutcomeKind: "blocked",
+    iterationsConsumed: 4,
+    error: { reason: "agent_blocked", retryable: false, nextAction: "inspect_spec" },
+  });
   firstClient.close();
   secondClient.close();
 });

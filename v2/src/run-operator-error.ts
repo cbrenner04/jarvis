@@ -26,6 +26,7 @@ export type RunOperatorError = {
   nextAction: RunOperatorNextAction;
 };
 
+/** Last terminal log row selected for operator-error composition (`loop_finished` or `run_execution_failed`). */
 export type TerminalLogRecord = PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent };
 
 type RunWithAttempts = {
@@ -53,15 +54,15 @@ const INVOCATION_BY_FAILURE_KIND: Record<string, RunOperatorError> = {
   error: op("invocation_error", "stop"),
 };
 
-/** Prefer last `loop_finished`, else last `run_execution_failed`. */
+/** Chronologically last terminal event; `list` and `wait` share this selection. */
 export function findTerminalLogRecord(records: PersistedRecord[]): TerminalLogRecord | undefined {
-  let loopFinished: TerminalLogRecord | undefined;
-  let runExecutionFailed: TerminalLogRecord | undefined;
+  let latest: TerminalLogRecord | undefined;
   for (const record of records) {
-    if (record.event.kind === "loop_finished") loopFinished = record as TerminalLogRecord;
-    else if (record.event.kind === "run_execution_failed") runExecutionFailed = record as TerminalLogRecord;
+    if (record.event.kind === "loop_finished" || record.event.kind === "run_execution_failed") {
+      latest = record as TerminalLogRecord;
+    }
   }
-  return loopFinished ?? runExecutionFailed;
+  return latest;
 }
 
 function lastCommittedAttempt(attempts: Attempt[]): Attempt | undefined {
@@ -90,9 +91,13 @@ function mapInvocationFromAttempt(attempt: Attempt): RunOperatorError | undefine
   }
 }
 
-function mapFromLoopFinished(event: LoopFinishedEvent, lastAttempt?: Attempt): RunOperatorError | undefined {
+function mapFromLoopFinished(
+  event: LoopFinishedEvent,
+  lastAttempt?: Attempt,
+  allowResumableLogOutcomes = true,
+): RunOperatorError | undefined {
   const resumable = RESUMABLE_TERMINALS[event.loopOutcomeKind];
-  if (resumable) return resumable;
+  if (resumable) return allowResumableLogOutcomes ? resumable : undefined;
 
   switch (event.loopOutcomeKind) {
     case "blocked":
@@ -109,7 +114,8 @@ function mapFromLoopFinished(event: LoopFinishedEvent, lastAttempt?: Attempt): R
 /**
  * Compose operator error from durable run state and optional terminal log.
  * Resumable durable statuses win over conflicting log; for `failed` / `blocked`,
- * last-attempt store detail wins over conflicting `loop_finished`.
+ * last-attempt store detail wins over conflicting `loop_finished`, and resumable
+ * `loopOutcomeKind` values from stale logs do not override `failed` / `blocked`.
  */
 export function composeRunOperatorError(
   run: RunWithAttempts,
@@ -121,6 +127,7 @@ export function composeRunOperatorError(
   if (resumable) return resumable;
 
   const lastAttempt = lastCommittedAttempt(run.attempts);
+  const allowResumableLogOutcomes = run.status !== "failed" && run.status !== "blocked";
 
   if (terminalRecord?.event.kind === "run_execution_failed") return op("harness_failure", "stop");
 
@@ -130,7 +137,7 @@ export function composeRunOperatorError(
   }
 
   if (terminalRecord?.event.kind === "loop_finished") {
-    const fromLog = mapFromLoopFinished(terminalRecord.event, lastAttempt);
+    const fromLog = mapFromLoopFinished(terminalRecord.event, lastAttempt, allowResumableLogOutcomes);
     if (fromLog) return fromLog;
   }
 

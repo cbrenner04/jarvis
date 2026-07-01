@@ -37,15 +37,15 @@ discarded. Not-merged worktrees exit the merged-mode scan at the merge gate
 
 ## Acceptance criteria
 
-- [ ] Merged-mode `jarvis1 cleanup` removes a worktree whose PR is merged when the worktree has uncommitted tracked or untracked changes (porcelain non-empty): worktree path gone, local branch deleted, stdout does not contain `skipping <name>: has uncommitted or unpushed changes`.
-- [ ] Merged-mode cleanup removes a merged worktree with unpushed commits (`git log @{u}..` non-empty, upstream present): worktree path gone, local branch deleted, no dirty skip line.
-- [ ] Merged-mode cleanup removes a dirty merged plan worktree (`.worktree/plan-<name>/`, branch `plan/<name>`, `isMergedPr` true): worktree path gone, local `plan/<name>` branch deleted.
-- [ ] `jarvis1 cleanup --dry-run` lists a merged-but-dirty worktree under `Worktrees to remove:` (preview includes the branch; no force-remove on disk).
-- [ ] Not-merged worktree with uncommitted changes: worktree stays on disk, is absent from removal preview, and is not force-removed after declined or completed cleanup.
-- [ ] `cleanup-command.sandbox-unrunnable.test.ts` scoped merged guard stays green.
-- [ ] `cleanup-command.sandbox-unrunnable.test.ts` global abandon tests stay green.
-- [ ] Named triage on dirty merged worktree (`modified`, `mixed`, or `untracked-only` + `MERGED`) suggests `jarvis1 cleanup` for discard (no `stash` prerequisite).
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] Merged-mode `jarvis1 cleanup` removes a worktree whose PR is merged when the worktree has uncommitted tracked or untracked changes (porcelain non-empty): worktree path gone, local branch deleted, stdout does not contain `skipping <name>: has uncommitted or unpushed changes`.
+- [x] Merged-mode cleanup removes a merged worktree with unpushed commits (`git log @{u}..` non-empty, upstream present): worktree path gone, local branch deleted, no dirty skip line.
+- [x] Merged-mode cleanup removes a dirty merged plan worktree (`.worktree/plan-<name>/`, branch `plan/<name>`, `isMergedPr` true): worktree path gone, local `plan/<name>` branch deleted.
+- [x] `jarvis1 cleanup --dry-run` lists a merged-but-dirty worktree under `Worktrees to remove:` (preview includes the branch; no force-remove on disk).
+- [x] Not-merged worktree with uncommitted changes: worktree stays on disk, is absent from removal preview, and is not force-removed after declined or completed cleanup.
+- [x] `cleanup-command.sandbox-unrunnable.test.ts` scoped merged guard stays green.
+- [x] `cleanup-command.sandbox-unrunnable.test.ts` global abandon tests stay green.
+- [x] Named triage on dirty merged worktree (`modified`, `mixed`, or `untracked-only` + `MERGED`) suggests `jarvis1 cleanup` for discard (no `stash` prerequisite).
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

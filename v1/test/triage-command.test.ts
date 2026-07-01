@@ -596,52 +596,22 @@ describe("suggested moves rules", () => {
     expect(lines[0]).toContain("jarvis1 cleanup");
   });
 
-  test("rule 4: modified + prState MERGED", () => {
-    const input = suggestedMovesBase({
-      dirtyKind: "modified",
-      unpushed: 0,
-      prState: "MERGED",
-      specComplete: false,
-      worktreePath: "/tmp/test",
-    });
-
-    const lines = getSuggestedMoves(input);
-    expect(lines.length).toBeGreaterThan(0);
-    expect(lines.some((l) => l.includes("PR is merged"))).toBe(true);
-    expect(lines.some((l) => l.includes("orphaned"))).toBe(true);
-    expect(lines.some((l) => l.includes("jarvis1 cleanup"))).toBe(true);
-    expect(lines.some((l) => l.includes("stash"))).toBe(false);
-  });
-
-  test("rule 4: mixed + prState MERGED", () => {
-    const input = suggestedMovesBase({
-      dirtyKind: "mixed",
-      unpushed: 0,
-      prState: "MERGED",
-      specComplete: false,
-      worktreePath: "/tmp/test",
-    });
-
-    const lines = getSuggestedMoves(input);
-    expect(lines.length).toBeGreaterThan(0);
-    expect(lines.some((l) => l.includes("orphaned"))).toBe(true);
-    expect(lines.some((l) => l.includes("jarvis1 cleanup"))).toBe(true);
-    expect(lines.some((l) => l.includes("stash"))).toBe(false);
-  });
-
-  test("rule 4: untracked-only + prState MERGED without spec path", () => {
-    const input = suggestedMovesBase({
-      dirtyKind: "untracked-only",
-      unpushed: 0,
-      prState: "MERGED",
-      specComplete: false,
-      worktreePath: "/tmp/test",
-    });
-
-    const lines = getSuggestedMoves(input);
+  test.each(["modified", "mixed", "untracked-only"] as const)("rule 4: %s + prState MERGED", (dirtyKind) => {
+    const lines = getSuggestedMoves(
+      suggestedMovesBase({
+        dirtyKind,
+        unpushed: 0,
+        prState: "MERGED",
+        specComplete: false,
+        worktreePath: "/tmp/test",
+      }),
+    );
     expect(lines.length).toBeGreaterThan(0);
     expect(lines.some((l) => l.includes("jarvis1 cleanup"))).toBe(true);
     expect(lines.some((l) => l.includes("stash"))).toBe(false);
+    if (dirtyKind !== "untracked-only") {
+      expect(lines.some((l) => l.includes("orphaned"))).toBe(true);
+    }
   });
 
   test("rule 5: modified + specComplete true", () => {

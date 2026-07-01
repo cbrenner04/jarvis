@@ -385,7 +385,11 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
       } else if (opts.removeItem) {
         opts.removeItem(item);
       } else {
-        retireMergedWorktree(opts.projectRoot, item);
+        execFileSync("git", ["worktree", "remove", "--force", item.path], {
+          cwd: opts.projectRoot,
+          stdio: "pipe",
+        });
+        deleteMergedBranch(opts.projectRoot, item.branch);
       }
       const tag = isPlanBranch(item.branch) ? " (plan)" : "";
       opts.io.stdout(`removed ${item.branch}${tag}\n`);
@@ -540,14 +544,6 @@ function scopedAbandonCleanup(args: {
     args.io.stderr(`failed to remove ${item.branch}: ${(err as Error).message}\n`);
     return 1;
   }
-}
-
-function retireMergedWorktree(projectRoot: string, item: CleanupItem): void {
-  execFileSync("git", ["worktree", "remove", "--force", item.path], {
-    cwd: projectRoot,
-    stdio: "pipe",
-  });
-  deleteMergedBranch(projectRoot, item.branch);
 }
 
 function retireAbandonedWorktree(args: {

@@ -87,49 +87,49 @@ wall-clock path is out of scope and stays terminal with no cascade.
 
 ## Acceptance criteria
 
-- [ ] Shrink idle stall with a later configured `reviewActuator` rung shifts to
+- [x] Shrink idle stall with a later configured `reviewActuator` rung shifts to
   the next agent, emits `shrink: <agent>: idle timeout; escalating to next
   agent`, records `watchdog-idle-timeout-fallback` telemetry (`kind: "timeout"`),
   retries shrink on the next rung, retains partial shrink edits from the stalled
   rung in the worktree, and does not elevate run exit code for the non-final
   stall.
-- [ ] After non-final shrink idle escalation, a completing later rung finishes
+- [x] After non-final shrink idle escalation, a completing later rung finishes
   shrink successfully and the completion pipeline continues (run exit `0` when no
   other failure).
-- [ ] Shrink idle stall on the final configured `reviewActuator` rung records
+- [x] Shrink idle stall on the final configured `reviewActuator` rung records
   terminal `watchdog-idle-timeout` telemetry (`kind: "error"`), reverts shrink
   edits, and the run exits `8`.
-- [ ] Terminal shrink idle returns run exit `8` from the completion pipeline and
+- [x] Terminal shrink idle returns run exit `8` from the completion pipeline and
   review does not run.
-- [ ] Shrink `iterationTimeoutMs` wall-clock abort (`aborted: shrink-timeout`)
+- [x] Shrink `iterationTimeoutMs` wall-clock abort (`aborted: shrink-timeout`)
   stays terminal with no ladder advance.
-- [ ] Shrink idle escalation ladder uses pre-override
+- [x] Shrink idle escalation ladder uses pre-override
   `resolveSubRoleAgentOrder` snapshot, not `--agent` implementation override.
-- [ ] Shrink with `idleOutputTimeoutMs: 0` does not idle-escalate.
-- [ ] `shrink.sandbox-unrunnable.test.ts` `"idle watchdog timeout fires in shrink
+- [x] Shrink with `idleOutputTimeoutMs: 0` does not idle-escalate.
+- [x] `shrink.sandbox-unrunnable.test.ts` `"idle watchdog timeout fires in shrink
   phase"` stays green (single-rung terminal `8` unchanged; no
   `watchdog-idle-timeout-fallback` row; no escalation stderr).
-- [ ] `shrink.sandbox-unrunnable.test.ts` `"uses full reviewActuator order for
+- [x] `shrink.sandbox-unrunnable.test.ts` `"uses full reviewActuator order for
   shrink quota fallback"` stays green (quota full-list unchanged).
-- [ ] `review.sandbox-unrunnable.test.ts` `"idle watchdog escalates through
+- [x] `review.sandbox-unrunnable.test.ts` `"idle watchdog escalates through
   reviewActuator when fallback rung remains"` stays green.
-- [ ] `review.sandbox-unrunnable.test.ts` `"idle watchdog on final
+- [x] `review.sandbox-unrunnable.test.ts` `"idle watchdog on final
   reviewActuator rung exits 11 with terminal watchdog-idle-timeout"` stays green.
-- [ ] `run.sandbox-unrunnable.test.ts` `"idle watchdog escalates through
+- [x] `run.sandbox-unrunnable.test.ts` `"idle watchdog escalates through
   agentOrder when fallback rung remains"` stays green.
-- [ ] `run.sandbox-unrunnable.test.ts` `"idle watchdog on final rung exits 8
+- [x] `run.sandbox-unrunnable.test.ts` `"idle watchdog on final rung exits 8
   with terminal watchdog-idle-timeout"` stays green.
-- [ ] `v1/docs/agents.md` documents shrink idle escalation (ladder from
+- [x] `v1/docs/agents.md` documents shrink idle escalation (ladder from
   `subRoleAgentOrder.reviewActuator` / `agentOrder`, `shrink:` stderr prefix,
   fallback vs terminal telemetry, terminal exit `8`).
-- [ ] `v1/docs/quota-signals.md` documents shrink
+- [x] `v1/docs/quota-signals.md` documents shrink
   `watchdog-idle-timeout-fallback` rows and reconciles shrink terminal idle to
   process exit `8` with `kind: "error"` and `exitReason: "watchdog-idle-timeout"`.
-- [ ] `v1/docs/run-loop.md` exit table row `8` (~line 1010) and idle-output
+- [x] `v1/docs/run-loop.md` exit table row `8` (~line 1010) and idle-output
   section (~line 1088) document shrink idle escalate-then-terminal semantics,
   contrast `iterationTimeoutMs` (terminal, no cascade), and record shrink
   terminal idle exit `8`.
-- [ ] `v2/docs/v1-behaviors.md` updates post-completion shrink consumption
+- [x] `v2/docs/v1-behaviors.md` updates post-completion shrink consumption
   bullet (~line 61), `idleOutputTimeoutMs` config row (~line 245), and
   idle-watchdog section + v2-divergence line (~lines 315–316): shrink idle
   escalation through full `reviewActuator` ladder; terminal stop on final rung

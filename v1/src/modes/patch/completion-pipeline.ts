@@ -23,7 +23,7 @@ import { countUnchecked, findBlockerInLinkedSubspecs } from "./completion.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
 import { runPatchReviewPhase } from "./review.ts";
 import type { CompletionReadyGateResult, IterationContext } from "./run.ts";
-import { runPatchShrinkPhase } from "./shrink.ts";
+import { runPatchShrinkPhase, ShrinkTerminalError } from "./shrink.ts";
 import type { AcceptanceCriterion } from "./subspec.ts";
 
 const DEFAULT_COMPLETION_READY_GATE_RETRY_BOUND = 2;
@@ -575,6 +575,9 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         },
       });
     } catch (err) {
+      if (err instanceof ShrinkTerminalError) {
+        return err.exitCode;
+      }
       const message = err instanceof Error ? err.message : String(err);
       fanout("harness", `shrink phase error: ${message}\n`, "stderr");
     }

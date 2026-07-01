@@ -7,17 +7,17 @@ export function formatLogFollowLine(record: PersistedRecord): string {
 
   switch (event.kind) {
     case "iteration_started":
-      parts.push(`attemptId=${event.attemptId}`);
+      if (event.attemptId !== undefined) parts.push(`attemptId=${event.attemptId}`);
       break;
     case "boundary_committed":
-      parts.push(`attemptId=${event.attemptId}`, `outcomeKind=${event.outcomeKind}`, `runStatus=${event.runStatus}`);
+      if (event.attemptId !== undefined) parts.push(`attemptId=${event.attemptId}`);
+      if (event.outcomeKind !== undefined) parts.push(`outcomeKind=${event.outcomeKind}`);
+      if (event.runStatus !== undefined) parts.push(`runStatus=${event.runStatus}`);
       break;
     case "loop_finished":
-      parts.push(
-        `loopOutcomeKind=${event.loopOutcomeKind}`,
-        `iterationsConsumed=${event.iterationsConsumed}`,
-        `resumable=${event.resumable}`,
-      );
+      if (event.loopOutcomeKind !== undefined) parts.push(`loopOutcomeKind=${event.loopOutcomeKind}`);
+      if (event.iterationsConsumed !== undefined) parts.push(`iterationsConsumed=${event.iterationsConsumed}`);
+      if (event.resumable !== undefined) parts.push(`resumable=${event.resumable}`);
       break;
     case "run_execution_failed":
       break;

@@ -41,6 +41,7 @@ export async function runTuiLogFollow(runId: string, deps?: RunTuiLogFollowDeps)
     resolveQuit = resolve;
   });
   const streamDone = deferred<void>();
+  const consumeSettlement: { error?: unknown } = {};
 
   const quit = (): void => {
     quitting = true;
@@ -69,7 +70,7 @@ export async function runTuiLogFollow(runId: string, deps?: RunTuiLogFollowDeps)
       } catch (error) {
         if (error instanceof TuiDaemonConnectionError) {
           if (!quitting) {
-            await presentFeedback(connectionErrorFeedback(error), resolved);
+            await Promise.resolve(session!.showFeedback(connectionErrorFeedback(error)));
             exitCode = 1;
           }
           return;
@@ -78,12 +79,16 @@ export async function runTuiLogFollow(runId: string, deps?: RunTuiLogFollowDeps)
       }
     })();
 
-    void consume.finally(() => {
-      streamDone.resolve();
-    });
+    void consume
+      .catch((error: unknown) => {
+        consumeSettlement.error = error;
+      })
+      .finally(() => {
+        streamDone.resolve();
+      });
 
     await Promise.race([quitPromise, streamDone.promise]);
-    await consume.catch(() => {});
+    if (consumeSettlement.error !== undefined) throw consumeSettlement.error;
     return exitCode;
   } finally {
     session?.close();

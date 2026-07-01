@@ -129,6 +129,9 @@ function createViewHost() {
         appendLine(line) {
           lines.push(line);
         },
+        showFeedback(state) {
+          feedbackStates.push(state);
+        },
         waitUntilExit() {
           return new Promise<void>(() => {});
         },
@@ -175,6 +178,46 @@ async function waitForLines(lines: string[], count: number): Promise<void> {
   expect(lines).toHaveLength(count);
 }
 
+function collectInkText(node: unknown): string {
+  if (node === null || node === undefined || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(collectInkText).join("");
+  if (typeof node === "object") {
+    const element = node as { type?: unknown; props?: Record<string, unknown> };
+    if (typeof element.type === "function") {
+      return collectInkText(element.type(element.props ?? {}));
+    }
+    if ("props" in element) {
+      return collectInkText(element.props?.children);
+    }
+  }
+  return "";
+}
+
+function createInkCapture() {
+  const renders: unknown[] = [];
+  const inkRender = ((element: unknown) => {
+    renders.push(element);
+    return {
+      rerender(next: unknown) {
+        renders.push(next);
+      },
+      unmount() {},
+      waitUntilExit: async () => {},
+      cleanup() {},
+      clear() {},
+      waitUntilRenderFlush: async () => {},
+    };
+  }) as import("./tui-ink-feedback.tsx").InkRender;
+
+  return {
+    inkRender,
+    lastRenderText() {
+      return collectInkText(renders.at(-1));
+    },
+  };
+}
+
 function assertLineShape(line: string, record: PersistedRecord): void {
   expect(line).toContain(`seq=${record.seq}`);
   expect(line).toContain(`kind=${record.event.kind}`);
@@ -205,6 +248,24 @@ describe("formatLogFollowLine", () => {
     for (const record of records) {
       assertLineShape(formatLogFollowLine(record), record);
     }
+  });
+
+  test("omits absent per-kind fields from partial payloads", () => {
+    const boundary = {
+      runId: "run-123",
+      seq: 2,
+      ts: "2026-06-28T03:27:02.000Z",
+      event: { kind: "boundary_committed", attemptId: "attempt-2" } as PersistedRecord["event"],
+    };
+    const loopFinished = {
+      runId: "run-123",
+      seq: 3,
+      ts: "2026-06-28T03:27:03.000Z",
+      event: { kind: "loop_finished", loopOutcomeKind: "complete" } as PersistedRecord["event"],
+    };
+
+    expect(formatLogFollowLine(boundary)).toBe("seq=2 kind=boundary_committed attemptId=attempt-2");
+    expect(formatLogFollowLine(loopFinished)).toBe("seq=3 kind=loop_finished loopOutcomeKind=complete");
   });
 });
 
@@ -349,28 +410,64 @@ describe("runTuiLogFollow", () => {
     ]);
   });
 
+  test("production path shows mid-session tail failure on the active ink session", async () => {
+    const ink = createInkCapture();
+    const tail: TuiLogTailClient = {
+      records() {
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield logRecord(1, "iteration_started");
+            throw new TuiDaemonConnectionError("tail stream failed: follow failed");
+          },
+        };
+      },
+      close() {},
+    };
+
+    const code = await runTuiLogFollow("run-123", {
+      connectTuiLogTail: async () => tail,
+      inkRender: ink.inkRender,
+    });
+
+    expect(code).toBe(1);
+    const text = ink.lastRenderText();
+    expect(text).toContain("seq=1 kind=iteration_started attemptId=attempt-1");
+    expect(text).toContain("daemon_error: tail stream failed: follow failed");
+  });
+
+  test("unexpected consume errors propagate instead of exiting 0", async () => {
+    const view = createViewHost();
+    const tail: TuiLogTailClient = {
+      records() {
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield logRecord(1, "iteration_started");
+            throw new Error("unexpected tail failure");
+          },
+        };
+      },
+      close() {},
+    };
+
+    await expect(
+      runTuiLogFollow("run-123", {
+        viewHost: view.host,
+        connectTuiLogTail: async () => tail,
+      }),
+    ).rejects.toThrow("unexpected tail failure");
+  });
+
   test("production path renders through ink when the view host is omitted", async () => {
-    let inkCalled = false;
+    const ink = createInkCapture();
     const tail = immediateTail([logRecord(1, "iteration_started")]);
 
     const code = await runTuiLogFollow("run-123", {
       connectTuiLogTail: async () => tail,
-      inkRender: ((element) => {
-        inkCalled = true;
-        void element;
-        return {
-          rerender() {},
-          unmount() {},
-          waitUntilExit: async () => {},
-          cleanup() {},
-          clear() {},
-          waitUntilRenderFlush: async () => {},
-        } as import("ink").Instance;
-      }) as import("./tui-ink-feedback.tsx").InkRender,
+      inkRender: ink.inkRender,
     });
 
     expect(code).toBe(0);
-    expect(inkCalled).toBe(true);
+    expect(ink.lastRenderText()).toContain("seq=1 kind=iteration_started attemptId=attempt-1");
   });
 
   test("defaults socket path to production unless tests inject one", async () => {

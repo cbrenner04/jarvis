@@ -12,6 +12,8 @@ export type TuiLogFollowControls = {
 export type TuiLogFollowSession = {
   /** Append one rendered line to the active view. */
   appendLine(line: string): void | Promise<void>;
+  /** Render operator-visible failure feedback on the active view. */
+  showFeedback(state: TuiViewState): void | Promise<void>;
   /** Resolve when the operator quits or the stream ends. */
   waitUntilExit(): Promise<void>;
   /** Tear down view resources; idempotent. */

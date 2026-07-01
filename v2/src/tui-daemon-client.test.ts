@@ -42,6 +42,9 @@ const STATUS_REQUEST_ID = "00000000-0000-4000-8000-000000000002";
 const START_REQUEST_ID = "00000000-0000-4000-8000-000000000003";
 const LIST_REQUEST_ID = "00000000-0000-4000-8000-000000000004";
 const WAIT_REQUEST_ID = "00000000-0000-4000-8000-000000000005";
+const PAUSE_REQUEST_ID = "00000000-0000-4000-8000-000000000008";
+const RESUME_REQUEST_ID = "00000000-0000-4000-8000-000000000009";
+const KILL_REQUEST_ID = "00000000-0000-4000-8000-00000000000a";
 
 type PendingExecutorRun = {
   signal: AbortSignal;
@@ -748,6 +751,143 @@ test("start rejects generic daemon error frames as TuiDaemonRpcError", async () 
     });
 
     await expect(client.start(START_INPUT)).rejects.toBeInstanceOf(TuiDaemonRpcError);
+    client.close();
+  });
+});
+
+test.each([
+  ["pause", PAUSE_REQUEST_ID] as const,
+  ["resume", RESUME_REQUEST_ID] as const,
+  ["kill", KILL_REQUEST_ID] as const,
+])("%s sends one correlated IPC request and returns ok", async (method, requestId) => {
+  const sent: unknown[] = [];
+  await withFixedUuids([requestId], async () => {
+    const client = await connectTuiDaemon({
+      connectIpcClient: async () => makeClient([{ kind: "response", id: requestId, result: { ok: true } }], sent),
+    });
+
+    await expect(client[method]("run-123")).resolves.toEqual({ ok: true });
+    expect(sent).toEqual([{ kind: "request", id: requestId, method, params: { runId: "run-123" } }]);
+    client.close();
+  });
+});
+
+test("steering RPCs succeed while wait is unresolved on the same client", async () => {
+  const sent: unknown[] = [];
+  const deferred = createDeferredClient(sent);
+
+  await withFixedUuids([WAIT_REQUEST_ID, PAUSE_REQUEST_ID, RESUME_REQUEST_ID, KILL_REQUEST_ID], async () => {
+    const client = await connectTuiDaemon({ connectIpcClient: async () => deferred.client });
+    const waitPromise = client.wait("run-123");
+
+    const pausePromise = client.pause("run-123");
+    deferred.push({ kind: "response", id: PAUSE_REQUEST_ID, result: { ok: true } });
+    await expect(pausePromise).resolves.toEqual({ ok: true });
+
+    const resumePromise = client.resume("run-123");
+    deferred.push({ kind: "response", id: RESUME_REQUEST_ID, result: { ok: true } });
+    await expect(resumePromise).resolves.toEqual({ ok: true });
+
+    const killPromise = client.kill("run-123");
+    deferred.push({ kind: "response", id: KILL_REQUEST_ID, result: { ok: true } });
+    await expect(killPromise).resolves.toEqual({ ok: true });
+
+    let settled = false;
+    void waitPromise.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    deferred.push({ kind: "response", id: WAIT_REQUEST_ID, result: { runStatus: "completed" } });
+    await expect(waitPromise).resolves.toEqual({ runStatus: "completed" });
+    expect(sent).toEqual([
+      { kind: "request", id: WAIT_REQUEST_ID, method: "wait", params: { runId: "run-123" } },
+      { kind: "request", id: PAUSE_REQUEST_ID, method: "pause", params: { runId: "run-123" } },
+      { kind: "request", id: RESUME_REQUEST_ID, method: "resume", params: { runId: "run-123" } },
+      { kind: "request", id: KILL_REQUEST_ID, method: "kill", params: { runId: "run-123" } },
+    ]);
+    client.close();
+  });
+});
+
+test("steering correlated error frames reject as TuiDaemonRpcError", async () => {
+  await withFixedUuids([PAUSE_REQUEST_ID, RESUME_REQUEST_ID, KILL_REQUEST_ID], async () => {
+    const client = await connectTuiDaemon({
+      connectIpcClient: async () =>
+        makeClient([
+          { kind: "error", id: PAUSE_REQUEST_ID, code: "unknown_run", message: "missing run" },
+          { kind: "error", id: RESUME_REQUEST_ID, code: "terminal_run", message: "Cannot resume a completed run" },
+          { kind: "error", id: KILL_REQUEST_ID, code: "unknown_run", message: "missing run" },
+        ]),
+    });
+
+    await expect(client.pause("run-404")).rejects.toMatchObject({ code: "unknown_run" });
+    await expect(client.resume("run-done")).rejects.toMatchObject({ code: "terminal_run" });
+    await expect(client.kill("run-404")).rejects.toMatchObject({ code: "unknown_run" });
+    client.close();
+  });
+});
+
+test("pause and kill reject run_not_active as TuiDaemonRpcError", async () => {
+  await withFixedUuids([PAUSE_REQUEST_ID, KILL_REQUEST_ID], async () => {
+    const client = await connectTuiDaemon({
+      connectIpcClient: async () =>
+        makeClient([
+          {
+            kind: "error",
+            id: PAUSE_REQUEST_ID,
+            code: "run_not_active",
+            message: "Run run-123 is not currently active",
+          },
+          {
+            kind: "error",
+            id: KILL_REQUEST_ID,
+            code: "run_not_active",
+            message: "Run run-123 is not currently active",
+          },
+        ]),
+    });
+
+    await expect(client.pause("run-123")).rejects.toMatchObject({ code: "run_not_active" });
+    await expect(client.kill("run-123")).rejects.toMatchObject({ code: "run_not_active" });
+    client.close();
+  });
+});
+
+test("resume rejects run_in_progress as TuiDaemonRpcError", async () => {
+  await withFixedUuids([RESUME_REQUEST_ID], async () => {
+    const client = await connectTuiDaemon({
+      connectIpcClient: async () =>
+        makeClient([
+          {
+            kind: "error",
+            id: RESUME_REQUEST_ID,
+            code: "run_in_progress",
+            message: "A run is already in progress; at most one in-flight run globally",
+          },
+        ]),
+    });
+
+    await expect(client.resume("run-paused")).rejects.toMatchObject({ code: "run_in_progress" });
+    client.close();
+  });
+});
+
+test("steering malformed success payloads reject as TuiDaemonConnectionError", async () => {
+  await withFixedUuids([PAUSE_REQUEST_ID, RESUME_REQUEST_ID, KILL_REQUEST_ID], async () => {
+    const client = await connectTuiDaemon({
+      connectIpcClient: async () =>
+        makeClient([
+          { kind: "response", id: PAUSE_REQUEST_ID, result: { ok: false } },
+          { kind: "response", id: RESUME_REQUEST_ID, result: {} },
+          { kind: "response", id: KILL_REQUEST_ID, result: { state: "running" } },
+        ]),
+    });
+
+    await expect(client.pause("run-1")).rejects.toBeInstanceOf(TuiDaemonConnectionError);
+    await expect(client.resume("run-1")).rejects.toBeInstanceOf(TuiDaemonConnectionError);
+    await expect(client.kill("run-1")).rejects.toBeInstanceOf(TuiDaemonConnectionError);
     client.close();
   });
 });

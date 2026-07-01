@@ -20,13 +20,7 @@ export const RUN_OPERATOR_ERROR_REASONS = [
 export type RunOperatorErrorReason = (typeof RUN_OPERATOR_ERROR_REASONS)[number];
 
 /** Closed remediation hint for operators; not free text. */
-export const RUN_OPERATOR_NEXT_ACTIONS = [
-  "resume",
-  "inspect_spec",
-  "fix_config",
-  "retry_later",
-  "stop",
-] as const;
+export const RUN_OPERATOR_NEXT_ACTIONS = ["resume", "inspect_spec", "fix_config", "retry_later", "stop"] as const;
 
 export type RunOperatorNextAction = (typeof RUN_OPERATOR_NEXT_ACTIONS)[number];
 

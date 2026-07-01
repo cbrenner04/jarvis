@@ -3,21 +3,32 @@ import type { Attempt } from "./state-store.ts";
 import type { RunStatus } from "./state-store-types.ts";
 
 /** Closed operator-facing stop reason; not raw loop or invocation taxonomy. */
-export type RunOperatorErrorReason =
-  | "resumable_pause"
-  | "resumable_budget"
-  | "resumable_kill"
-  | "agent_blocked"
-  | "contract_miss"
-  | "invalid_token"
-  | "quota_exhausted"
-  | "model_config"
-  | "no_binding"
-  | "invocation_error"
-  | "harness_failure";
+export const RUN_OPERATOR_ERROR_REASONS = [
+  "resumable_pause",
+  "resumable_budget",
+  "resumable_kill",
+  "agent_blocked",
+  "contract_miss",
+  "invalid_token",
+  "quota_exhausted",
+  "model_config",
+  "no_binding",
+  "invocation_error",
+  "harness_failure",
+] as const;
+
+export type RunOperatorErrorReason = (typeof RUN_OPERATOR_ERROR_REASONS)[number];
 
 /** Closed remediation hint for operators; not free text. */
-export type RunOperatorNextAction = "resume" | "inspect_spec" | "fix_config" | "retry_later" | "stop";
+export const RUN_OPERATOR_NEXT_ACTIONS = [
+  "resume",
+  "inspect_spec",
+  "fix_config",
+  "retry_later",
+  "stop",
+] as const;
+
+export type RunOperatorNextAction = (typeof RUN_OPERATOR_NEXT_ACTIONS)[number];
 
 /** Stable operator error record composed from durable run state and terminal log signals. */
 export type RunOperatorError = {
@@ -25,6 +36,21 @@ export type RunOperatorError = {
   retryable: boolean;
   nextAction: RunOperatorNextAction;
 };
+
+const runOperatorErrorReasonSet = new Set<string>(RUN_OPERATOR_ERROR_REASONS);
+const runOperatorNextActionSet = new Set<string>(RUN_OPERATOR_NEXT_ACTIONS);
+
+export function isRunOperatorError(value: unknown): value is RunOperatorError {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.reason === "string" &&
+    runOperatorErrorReasonSet.has(record.reason) &&
+    typeof record.retryable === "boolean" &&
+    typeof record.nextAction === "string" &&
+    runOperatorNextActionSet.has(record.nextAction)
+  );
+}
 
 /** Last terminal log row selected for operator-error composition (`loop_finished` or `run_execution_failed`). */
 export type TerminalLogRecord = PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent };

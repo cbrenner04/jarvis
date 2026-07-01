@@ -9,14 +9,23 @@ import type { StepRunResult } from "./step-runner.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";
 
 /** Classification of a loop outcome. */
-export type WriteLoopOutcomeKind =
-  | "complete"
-  | "progress"
-  | "blocked"
-  | "contract_miss"
-  | "invocation_failure"
-  | "budget-exhausted"
-  | "paused";
+export const WRITE_LOOP_OUTCOME_KINDS = [
+  "complete",
+  "progress",
+  "blocked",
+  "contract_miss",
+  "invocation_failure",
+  "budget-exhausted",
+  "paused",
+] as const;
+
+export type WriteLoopOutcomeKind = (typeof WRITE_LOOP_OUTCOME_KINDS)[number];
+
+const writeLoopOutcomeKindSet = new Set<string>(WRITE_LOOP_OUTCOME_KINDS);
+
+export function isWriteLoopOutcomeKind(value: unknown): value is WriteLoopOutcomeKind {
+  return typeof value === "string" && writeLoopOutcomeKindSet.has(value);
+}
 
 /** Result of a write loop invocation. */
 export type WriteLoopResult = {

@@ -1,7 +1,7 @@
 import type { WaitRunCompletionResult } from "./daemon.ts";
-import type { RunOperatorError, RunOperatorErrorReason, RunOperatorNextAction } from "./run-operator-error.ts";
-import type { RunStatus } from "./state-store-types.ts";
-import type { WriteLoopOutcomeKind } from "./write-loop.ts";
+import { isRunOperatorError, type RunOperatorError } from "./run-operator-error.ts";
+import { isRunStatus, type RunStatus } from "./state-store-types.ts";
+import { isWriteLoopOutcomeKind } from "./write-loop.ts";
 
 /** One durable run row on daemon `list` wire payloads. */
 export type DaemonListRunRow = {
@@ -15,68 +15,6 @@ export type DaemonListRunRow = {
 
 /** Successful daemon `list` wire payload. */
 export type DaemonListResult = { runs: DaemonListRunRow[] };
-
-/** Known durable run statuses on daemon run-control wire payloads. */
-export const RUN_STATUSES = new Set<RunStatus>([
-  "in-progress",
-  "completed",
-  "blocked",
-  "budget-soft-stopped",
-  "paused",
-  "failed",
-  "killed",
-]);
-
-/** Known loop outcome kinds on daemon `wait` wire payloads. */
-export const LOOP_OUTCOME_KINDS = new Set<WriteLoopOutcomeKind>([
-  "complete",
-  "progress",
-  "blocked",
-  "contract_miss",
-  "invocation_failure",
-  "budget-exhausted",
-  "paused",
-]);
-
-/** Known operator error reasons on daemon `list` / `wait` wire payloads. */
-const RUN_OPERATOR_ERROR_REASONS = new Set<RunOperatorErrorReason>([
-  "resumable_pause",
-  "resumable_budget",
-  "resumable_kill",
-  "agent_blocked",
-  "contract_miss",
-  "invalid_token",
-  "quota_exhausted",
-  "model_config",
-  "no_binding",
-  "invocation_error",
-  "harness_failure",
-]);
-
-/** Known operator next actions on daemon `list` / `wait` wire payloads. */
-const RUN_OPERATOR_NEXT_ACTIONS = new Set<RunOperatorNextAction>([
-  "resume",
-  "inspect_spec",
-  "fix_config",
-  "retry_later",
-  "stop",
-]);
-
-export function isRunStatus(value: unknown): value is RunStatus {
-  return typeof value === "string" && RUN_STATUSES.has(value as RunStatus);
-}
-
-function isRunOperatorError(value: unknown): value is RunOperatorError {
-  if (typeof value !== "object" || value === null) return false;
-  const record = value as Record<string, unknown>;
-  return (
-    typeof record.reason === "string" &&
-    RUN_OPERATOR_ERROR_REASONS.has(record.reason as RunOperatorErrorReason) &&
-    typeof record.retryable === "boolean" &&
-    typeof record.nextAction === "string" &&
-    RUN_OPERATOR_NEXT_ACTIONS.has(record.nextAction as RunOperatorNextAction)
-  );
-}
 
 function isDaemonListRunRow(value: unknown): value is DaemonListRunRow {
   if (typeof value !== "object" || value === null) return false;
@@ -123,10 +61,6 @@ export function parseListRuns(value: unknown): DaemonListResult | undefined {
   return { runs };
 }
 
-function isLoopOutcomeKind(value: unknown): value is WriteLoopOutcomeKind {
-  return typeof value === "string" && LOOP_OUTCOME_KINDS.has(value as WriteLoopOutcomeKind);
-}
-
 /** Parse a daemon `wait` success payload; returns `undefined` when malformed. */
 export function parseWaitCompletion(value: unknown): WaitRunCompletionResult | undefined {
   if (typeof value !== "object" || value === null) return undefined;
@@ -137,7 +71,7 @@ export function parseWaitCompletion(value: unknown): WaitRunCompletionResult | u
   const result: WaitRunCompletionResult = { runStatus: record.runStatus };
 
   if (record.loopOutcomeKind !== undefined) {
-    if (!isLoopOutcomeKind(record.loopOutcomeKind)) return undefined;
+    if (!isWriteLoopOutcomeKind(record.loopOutcomeKind)) return undefined;
     result.loopOutcomeKind = record.loopOutcomeKind;
   }
 

@@ -2,12 +2,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { WaitRunCompletionResult } from "./daemon.ts";
 import {
+  type DaemonListResult,
   parseHealthResult,
   parseListRuns,
   parseStartResult,
   parseStatusResult,
   parseWaitCompletion,
-  type DaemonListResult,
 } from "./daemon-wire.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import { TuiDaemonConnectionError } from "./tui-daemon-errors.ts";
@@ -74,16 +74,25 @@ export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promi
 
   return {
     async health() {
-      return parseOrThrow(parseHealthResult(await transport.request("health")), "malformed RPC reply: invalid health result");
+      return parseOrThrow(
+        parseHealthResult(await transport.request("health")),
+        "malformed RPC reply: invalid health result",
+      );
     },
     async status() {
-      return parseOrThrow(parseStatusResult(await transport.request("status")), "malformed RPC reply: invalid status result");
+      return parseOrThrow(
+        parseStatusResult(await transport.request("status")),
+        "malformed RPC reply: invalid status result",
+      );
     },
     async list() {
       return parseOrThrow(parseListRuns(await transport.request("list")), "malformed RPC reply: invalid list result");
     },
     async start(input) {
-      return parseOrThrow(parseStartResult(await transport.request("start", { input })), "malformed RPC reply: invalid start result");
+      return parseOrThrow(
+        parseStartResult(await transport.request("start", { input })),
+        "malformed RPC reply: invalid start result",
+      );
     },
     async wait(runId) {
       return parseOrThrow(

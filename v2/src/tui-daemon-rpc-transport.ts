@@ -16,6 +16,66 @@ function isCorrelatedRpcFrame(frame: IpcFrame): frame is ResponseFrame | ErrorFr
   return (frame.kind === "response" || frame.kind === "error") && typeof frame.id === "string";
 }
 
+async function nextRpcFrame(
+  client: IpcClient,
+  isClosed: () => boolean,
+  rejectAll: (error: Error) => void,
+): Promise<IpcFrame | undefined> {
+  try {
+    return await client.nextFrame();
+  } catch (cause) {
+    if (!isClosed()) rejectAll(new TuiDaemonConnectionError("IPC connection lost", { cause }));
+    return undefined;
+  }
+}
+
+function handleRpcFrame(
+  frame: IpcFrame,
+  pending: Map<string, PendingRpc>,
+  abandoned: Set<string>,
+): { kind: "continue" } | { kind: "protocol-error"; message: string } {
+  if (frame.kind !== "response" && frame.kind !== "error") {
+    return { kind: "protocol-error", message: `malformed RPC reply: unexpected frame kind ${frame.kind}` };
+  }
+  if (!isCorrelatedRpcFrame(frame)) {
+    return { kind: "protocol-error", message: "malformed RPC reply: missing correlation id" };
+  }
+
+  const entry = pending.get(frame.id);
+  if (!entry) {
+    if (abandoned.delete(frame.id)) return { kind: "continue" };
+    return { kind: "protocol-error", message: "non-correlated RPC reply" };
+  }
+
+  pending.delete(frame.id);
+  if (frame.kind === "error") {
+    entry.reject(new TuiDaemonRpcError(frame.code, frame.message));
+    return { kind: "continue" };
+  }
+
+  entry.resolve(frame.result);
+  return { kind: "continue" };
+}
+
+async function readRpcFrames(
+  client: IpcClient,
+  isClosed: () => boolean,
+  rejectAll: (error: Error) => void,
+  failProtocol: (message: string) => void,
+  pending: Map<string, PendingRpc>,
+  abandoned: Set<string>,
+): Promise<void> {
+  while (!isClosed()) {
+    const frame = await nextRpcFrame(client, isClosed, rejectAll);
+    if (frame === undefined) return;
+
+    const handling = handleRpcFrame(frame, pending, abandoned);
+    if (handling.kind === "continue") continue;
+    failProtocol(handling.message);
+    return;
+  }
+}
+
 /** Multiplex correlated IPC requests on one transport; abandons prior `wait` when a new one starts. */
 export function createTuiDaemonRpcTransport(client: IpcClient): TuiDaemonRpcTransport {
   const pending = new Map<string, PendingRpc>();
@@ -45,40 +105,7 @@ export function createTuiDaemonRpcTransport(client: IpcClient): TuiDaemonRpcTran
   const ensureReader = (): void => {
     if (readerStarted) return;
     readerStarted = true;
-    void (async () => {
-      while (!closed) {
-        let frame: IpcFrame;
-        try {
-          frame = await client.nextFrame();
-        } catch (cause) {
-          if (!closed) rejectAll(new TuiDaemonConnectionError("IPC connection lost", { cause }));
-          return;
-        }
-
-        if (frame.kind !== "response" && frame.kind !== "error") {
-          failProtocol(`malformed RPC reply: unexpected frame kind ${frame.kind}`);
-          return;
-        }
-        if (!isCorrelatedRpcFrame(frame)) {
-          failProtocol("malformed RPC reply: missing correlation id");
-          return;
-        }
-
-        const entry = pending.get(frame.id);
-        if (!entry) {
-          if (abandoned.delete(frame.id)) continue;
-          failProtocol("non-correlated RPC reply");
-          return;
-        }
-
-        pending.delete(frame.id);
-        if (frame.kind === "error") {
-          entry.reject(new TuiDaemonRpcError(frame.code, frame.message));
-          continue;
-        }
-        entry.resolve(frame.result);
-      }
-    })();
+    void readRpcFrames(client, () => closed, rejectAll, failProtocol, pending, abandoned);
   };
 
   return {

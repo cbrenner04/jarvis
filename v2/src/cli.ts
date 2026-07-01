@@ -191,12 +191,9 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
       }
 
       for (const run of list.runs) {
-        const liveness = run.isLive ? "live" : "not-live";
-        const reason = run.error?.reason ?? "-";
-        const retryable = run.error !== undefined ? String(run.error.retryable) : "-";
-        const nextAction = run.error?.nextAction ?? "-";
+        const e = run.error;
         io.stdout(
-          `${run.runId}\t${run.project}\t${run.branch}\t${run.status}\t${liveness}\t${reason}\t${retryable}\t${nextAction}\n`,
+          `${run.runId}\t${run.project}\t${run.branch}\t${run.status}\t${run.isLive ? "live" : "not-live"}\t${e?.reason ?? "-"}\t${e ? String(e.retryable) : "-"}\t${e?.nextAction ?? "-"}\n`,
         );
       }
       return 0;

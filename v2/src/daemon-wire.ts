@@ -39,7 +39,7 @@ export const LOOP_OUTCOME_KINDS = new Set<WriteLoopOutcomeKind>([
 ]);
 
 /** Known operator error reasons on daemon `list` / `wait` wire payloads. */
-export const RUN_OPERATOR_ERROR_REASONS = new Set<RunOperatorErrorReason>([
+const RUN_OPERATOR_ERROR_REASONS = new Set<RunOperatorErrorReason>([
   "resumable_pause",
   "resumable_budget",
   "resumable_kill",
@@ -54,7 +54,7 @@ export const RUN_OPERATOR_ERROR_REASONS = new Set<RunOperatorErrorReason>([
 ]);
 
 /** Known operator next actions on daemon `list` / `wait` wire payloads. */
-export const RUN_OPERATOR_NEXT_ACTIONS = new Set<RunOperatorNextAction>([
+const RUN_OPERATOR_NEXT_ACTIONS = new Set<RunOperatorNextAction>([
   "resume",
   "inspect_spec",
   "fix_config",
@@ -66,7 +66,7 @@ export function isRunStatus(value: unknown): value is RunStatus {
   return typeof value === "string" && RUN_STATUSES.has(value as RunStatus);
 }
 
-export function isRunOperatorError(value: unknown): value is RunOperatorError {
+function isRunOperatorError(value: unknown): value is RunOperatorError {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Record<string, unknown>;
   return (

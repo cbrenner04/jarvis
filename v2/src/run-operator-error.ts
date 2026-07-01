@@ -33,150 +33,108 @@ type RunWithAttempts = {
   attempts: Attempt[];
 };
 
-/**
- * Last persisted terminal log signal for a run: prefer `loop_finished`, else `run_execution_failed`.
- *
- * @param records - Persisted log tail in `seq` order (same precedence as daemon `wait`).
- * @returns The terminal record, or `undefined` when none.
- */
+const op = (
+  reason: RunOperatorErrorReason,
+  nextAction: RunOperatorNextAction,
+  retryable = false,
+): RunOperatorError => ({ reason, retryable, nextAction });
+
+const RESUMABLE_TERMINALS: Record<string, RunOperatorError> = {
+  paused: op("resumable_pause", "resume", true),
+  "budget-soft-stopped": op("resumable_budget", "resume", true),
+  "budget-exhausted": op("resumable_budget", "resume", true),
+  killed: op("resumable_kill", "resume", true),
+};
+
+const INVOCATION_BY_FAILURE_KIND: Record<string, RunOperatorError> = {
+  quota: op("quota_exhausted", "retry_later"),
+  model_config: op("model_config", "fix_config"),
+  no_binding: op("no_binding", "fix_config"),
+  error: op("invocation_error", "stop"),
+};
+
+/** Prefer last `loop_finished`, else last `run_execution_failed`. */
 export function findTerminalLogRecord(records: PersistedRecord[]): TerminalLogRecord | undefined {
   let loopFinished: TerminalLogRecord | undefined;
   let runExecutionFailed: TerminalLogRecord | undefined;
-
   for (const record of records) {
-    if (record.event.kind === "loop_finished") {
-      loopFinished = record as TerminalLogRecord;
-    } else if (record.event.kind === "run_execution_failed") {
-      runExecutionFailed = record as TerminalLogRecord;
-    }
+    if (record.event.kind === "loop_finished") loopFinished = record as TerminalLogRecord;
+    else if (record.event.kind === "run_execution_failed") runExecutionFailed = record as TerminalLogRecord;
   }
-
   return loopFinished ?? runExecutionFailed;
 }
 
 function lastCommittedAttempt(attempts: Attempt[]): Attempt | undefined {
   for (let i = attempts.length - 1; i >= 0; i -= 1) {
     const attempt = attempts[i];
-    if (attempt?.outcomeKind !== null && attempt?.outcomeKind !== undefined) {
-      return attempt;
-    }
+    if (attempt?.outcomeKind != null) return attempt;
   }
   return undefined;
 }
 
 function mapInvocationFromAttempt(attempt: Attempt): RunOperatorError | undefined {
-  if (attempt.outcomeKind === "invalid_token") {
-    return { reason: "invalid_token", retryable: false, nextAction: "stop" };
-  }
-  if (attempt.outcomeKind === "blocked") {
-    return { reason: "agent_blocked", retryable: false, nextAction: "inspect_spec" };
-  }
-  if (attempt.outcomeKind === "contract_miss") {
-    return { reason: "contract_miss", retryable: false, nextAction: "inspect_spec" };
-  }
-  if (attempt.outcomeKind !== "invocation_failure") {
-    return undefined;
-  }
-
-  const detail = attempt.invocationFailureDetail;
-  if (detail === null) {
-    return { reason: "invocation_error", retryable: false, nextAction: "stop" };
-  }
-
-  switch (detail.failureKind) {
-    case "quota":
-      return { reason: "quota_exhausted", retryable: false, nextAction: "retry_later" };
-    case "model_config":
-      return { reason: "model_config", retryable: false, nextAction: "fix_config" };
-    case "no_binding":
-      return { reason: "no_binding", retryable: false, nextAction: "fix_config" };
-    case "error":
-      return { reason: "invocation_error", retryable: false, nextAction: "stop" };
-    default:
-      return { reason: "invocation_error", retryable: false, nextAction: "stop" };
-  }
-}
-
-function mapFromLoopFinished(event: LoopFinishedEvent, lastAttempt?: Attempt): RunOperatorError | undefined {
-  switch (event.loopOutcomeKind) {
-    case "paused":
-      return { reason: "resumable_pause", retryable: true, nextAction: "resume" };
-    case "budget-exhausted":
-      return { reason: "resumable_budget", retryable: true, nextAction: "resume" };
+  switch (attempt.outcomeKind) {
+    case "invalid_token":
+      return op("invalid_token", "stop");
     case "blocked":
-      return { reason: "agent_blocked", retryable: false, nextAction: "inspect_spec" };
+      return op("agent_blocked", "inspect_spec");
     case "contract_miss":
-      return { reason: "contract_miss", retryable: false, nextAction: "inspect_spec" };
+      return op("contract_miss", "inspect_spec");
     case "invocation_failure": {
-      const fromAttempt = lastAttempt ? mapInvocationFromAttempt(lastAttempt) : undefined;
-      return fromAttempt ?? { reason: "invocation_error", retryable: false, nextAction: "stop" };
+      const detail = attempt.invocationFailureDetail;
+      if (detail === null) return op("invocation_error", "stop");
+      return INVOCATION_BY_FAILURE_KIND[detail.failureKind] ?? op("invocation_error", "stop");
     }
     default:
       return undefined;
   }
 }
 
+function mapFromLoopFinished(event: LoopFinishedEvent, lastAttempt?: Attempt): RunOperatorError | undefined {
+  const resumable = RESUMABLE_TERMINALS[event.loopOutcomeKind];
+  if (resumable) return resumable;
+
+  switch (event.loopOutcomeKind) {
+    case "blocked":
+      return op("agent_blocked", "inspect_spec");
+    case "contract_miss":
+      return op("contract_miss", "inspect_spec");
+    case "invocation_failure":
+      return (lastAttempt && mapInvocationFromAttempt(lastAttempt)) ?? op("invocation_error", "stop");
+    default:
+      return undefined;
+  }
+}
+
 /**
- * Compose a stable operator error from durable run state and an optional terminal log record.
- *
- * @param run - Durable run row with attempt history from `loadRun`.
- * @param terminalRecord - Last `loop_finished` or `run_execution_failed` when a log reader is available.
- * @returns Operator error for non-success terminals; `undefined` for in-progress and successful `completed`.
- * @invariant Resumable durable statuses (`paused`, `budget-soft-stopped`, `killed`) win over conflicting log.
- * @invariant For `failed` / `blocked`, last-attempt store detail wins over conflicting `loop_finished`.
+ * Compose operator error from durable run state and optional terminal log.
+ * Resumable durable statuses win over conflicting log; for `failed` / `blocked`,
+ * last-attempt store detail wins over conflicting `loop_finished`.
  */
 export function composeRunOperatorError(
   run: RunWithAttempts,
   terminalRecord?: TerminalLogRecord,
 ): RunOperatorError | undefined {
-  if (run.status === "in-progress" || run.status === "completed") {
-    return undefined;
-  }
+  if (run.status === "in-progress" || run.status === "completed") return undefined;
 
-  if (run.status === "paused") {
-    return { reason: "resumable_pause", retryable: true, nextAction: "resume" };
-  }
-  if (run.status === "budget-soft-stopped") {
-    return { reason: "resumable_budget", retryable: true, nextAction: "resume" };
-  }
-  if (run.status === "killed") {
-    return { reason: "resumable_kill", retryable: true, nextAction: "resume" };
-  }
+  const resumable = RESUMABLE_TERMINALS[run.status];
+  if (resumable) return resumable;
 
   const lastAttempt = lastCommittedAttempt(run.attempts);
 
-  if (terminalRecord?.event.kind === "run_execution_failed") {
-    return { reason: "harness_failure", retryable: false, nextAction: "stop" };
-  }
+  if (terminalRecord?.event.kind === "run_execution_failed") return op("harness_failure", "stop");
 
   if (run.status === "failed" || run.status === "blocked") {
-    const fromAttempt = lastAttempt ? mapInvocationFromAttempt(lastAttempt) : undefined;
-    if (fromAttempt) {
-      return fromAttempt;
-    }
+    const fromAttempt = lastAttempt && mapInvocationFromAttempt(lastAttempt);
+    if (fromAttempt) return fromAttempt;
   }
 
   if (terminalRecord?.event.kind === "loop_finished") {
     const fromLog = mapFromLoopFinished(terminalRecord.event, lastAttempt);
-    if (fromLog) {
-      return fromLog;
-    }
+    if (fromLog) return fromLog;
   }
 
-  if (lastAttempt) {
-    const fromAttempt = mapInvocationFromAttempt(lastAttempt);
-    if (fromAttempt) {
-      return fromAttempt;
-    }
-  }
-
-  if (run.status === "blocked") {
-    return { reason: "agent_blocked", retryable: false, nextAction: "inspect_spec" };
-  }
-
-  if (run.status === "failed") {
-    return { reason: "harness_failure", retryable: false, nextAction: "stop" };
-  }
-
+  if (run.status === "blocked") return op("agent_blocked", "inspect_spec");
+  if (run.status === "failed") return op("harness_failure", "stop");
   return undefined;
 }

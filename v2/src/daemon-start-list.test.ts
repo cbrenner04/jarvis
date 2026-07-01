@@ -3,6 +3,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRunControlHandlers } from "./daemon.ts";
+import type { DaemonListRunRow } from "./daemon-wire.ts";
 import { connectIpcClient } from "./ipc/client.ts";
 import { type IpcServer, startIpcServer } from "./ipc/server.ts";
 import { openStateStore, type StateStore } from "./state-store.ts";
@@ -54,15 +55,7 @@ function createFakeWriteLoopExecutor() {
 }
 
 type FakeWriteLoopExecutor = ReturnType<typeof createFakeWriteLoopExecutor>;
-type RunSummary = {
-  runId: string;
-  project: string;
-  branch: string;
-  status: string;
-  isLive: boolean;
-  error?: { reason: string; retryable: boolean; nextAction: string };
-};
-type ListRunsResult = { runs?: RunSummary[] } | undefined;
+type ListRunsResult = { runs?: DaemonListRunRow[] } | undefined;
 
 let stateStore: StateStore;
 let server: IpcServer;
@@ -134,7 +127,7 @@ async function startRun(
   return frame.kind === "response" ? (frame.result as { runId?: string } | undefined)?.runId : undefined;
 }
 
-async function listRuns(client: Awaited<ReturnType<typeof connectIpcClient>>): Promise<RunSummary[] | undefined> {
+async function listRuns(client: Awaited<ReturnType<typeof connectIpcClient>>): Promise<DaemonListRunRow[] | undefined> {
   client.send({ kind: "request", id: "l1", method: "list" });
   const frame = await client.nextFrame();
   expect(frame.kind).toBe("response");

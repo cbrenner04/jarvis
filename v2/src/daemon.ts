@@ -8,10 +8,13 @@ import {
   type LoopFinishedEvent,
   openLogReader,
   openLogSink,
-  type PersistedRecord,
-  type RunExecutionFailedEvent,
 } from "./log-stream.ts";
-import { composeRunOperatorError, findTerminalLogRecord, type RunOperatorError } from "./run-operator-error.ts";
+import {
+  composeRunOperatorError,
+  findTerminalLogRecord,
+  type RunOperatorError,
+  type TerminalLogRecord,
+} from "./run-operator-error.ts";
 import { openStateStore, type StateStore } from "./state-store.ts";
 import type { RunStatus } from "./state-store-types.ts";
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
@@ -146,8 +149,6 @@ export type WaitRunCompletionResult = {
   error?: RunOperatorError;
 };
 
-type TerminalRecord = PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent };
-
 type Waiter = {
   minSeq: number;
   resolve: (value: WaitRunCompletionResult) => void;
@@ -179,26 +180,19 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const waitFanouts = new Map<string, WaitFanout>();
   const { stateStore: store, logReader, writeLoopExecutor, failureReporter } = deps;
 
-  const terminalRecord = (records: PersistedRecord[]): TerminalRecord | undefined => findTerminalLogRecord(records);
-
-  const resultFrom = (runId: string, runStatus: RunStatus, record?: TerminalRecord): WaitRunCompletionResult => {
+  const resultFrom = (runId: string, runStatus: RunStatus, record?: TerminalLogRecord): WaitRunCompletionResult => {
     const run = store.loadRun(runId);
     const error = run ? composeRunOperatorError(run, record) : undefined;
-
-    if (record?.event.kind !== "loop_finished") {
-      return error === undefined ? { runStatus } : { runStatus, error };
-    }
-
-    const result: WaitRunCompletionResult = {
-      runStatus,
-      loopOutcomeKind: record.event.loopOutcomeKind,
-      iterationsConsumed: record.event.iterationsConsumed,
-      resumable: record.event.resumable,
-    };
-    if (error !== undefined) {
-      result.error = error;
-    }
-    return result;
+    const base: WaitRunCompletionResult =
+      record?.event.kind === "loop_finished"
+        ? {
+            runStatus,
+            loopOutcomeKind: record.event.loopOutcomeKind,
+            iterationsConsumed: record.event.iterationsConsumed,
+            resumable: record.event.resumable,
+          }
+        : { runStatus };
+    return error === undefined ? base : { ...base, error };
   };
 
   const detachWaiter = (runId: string, waiter: Waiter): void => {
@@ -212,7 +206,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
   };
 
-  const resolveWaiters = (runId: string, record: TerminalRecord): void => {
+  const resolveWaiters = (runId: string, record: TerminalLogRecord): void => {
     const fanout = waitFanouts.get(runId);
     if (!fanout) return;
     const run = store.loadRun(runId);
@@ -235,7 +229,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         if (!logReader) return;
         for await (const record of logReader.follow(runId, fanout.controller.signal)) {
           if (record.event.kind === "loop_finished" || record.event.kind === "run_execution_failed") {
-            resolveWaiters(runId, record as TerminalRecord);
+            resolveWaiters(runId, record as TerminalLogRecord);
           }
           if (fanout.waiters.size === 0) break;
         }
@@ -336,7 +330,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       const isLive = activeRuns.has(ks);
       const fullRun = store.loadRun(run.id);
       const records = logReader?.tail(run.id) ?? [];
-      const error = fullRun ? composeRunOperatorError(fullRun, terminalRecord(records)) : undefined;
+      const error = fullRun ? composeRunOperatorError(fullRun, findTerminalLogRecord(records)) : undefined;
       return {
         runId: run.id,
         project: run.project,
@@ -469,7 +463,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     const records = logReader.tail(runId);
     const subscribeSeq = records.at(-1)?.seq ?? 0;
     if (run.status !== "in-progress") {
-      return { kind: "response", result: resultFrom(runId, run.status, terminalRecord(records)) };
+      return { kind: "response", result: resultFrom(runId, run.status, findTerminalLogRecord(records)) };
     }
 
     return {

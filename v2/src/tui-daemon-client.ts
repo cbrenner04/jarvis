@@ -23,9 +23,6 @@ export type TuiDaemonStatusResult = { state: "running" };
 /** Successful IPC `start` RPC payload with the spawned run id. */
 export type TuiDaemonStartResult = { runId: string };
 
-/** Successful IPC steering RPC payload (`pause`, `resume`, `kill`). */
-export type TuiDaemonOkResult = { ok: true };
-
 /**
  * Connected TUI daemon client over one IPC transport: liveness, run list, launch, steering,
  * wait, and close.
@@ -44,7 +41,7 @@ export type TuiDaemonClient = {
    * @throws {TuiDaemonRpcError} When the daemon rejects the request (`unknown_run`, `run_not_active`, …).
    * @throws {TuiDaemonConnectionError} When the transport fails or the success payload is malformed.
    */
-  pause(runId: string): Promise<TuiDaemonOkResult>;
+  pause(runId: string): Promise<TuiDaemonHealthResult>;
   /**
    * Resume a paused or killed run under daemon start guards.
    * @param runId Durable run id to resume.
@@ -52,7 +49,7 @@ export type TuiDaemonClient = {
    * @throws {TuiDaemonRpcError} When the daemon rejects the request (`unknown_run`, `terminal_run`, `run_in_progress`, `worktree_claimed`, …).
    * @throws {TuiDaemonConnectionError} When the transport fails or the success payload is malformed.
    */
-  resume(runId: string): Promise<TuiDaemonOkResult>;
+  resume(runId: string): Promise<TuiDaemonHealthResult>;
   /**
    * Abort an active run immediately and record durable status `killed`.
    * @param runId Durable run id to kill.
@@ -60,7 +57,7 @@ export type TuiDaemonClient = {
    * @throws {TuiDaemonRpcError} When the daemon rejects the request (`unknown_run`, `run_not_active`, …).
    * @throws {TuiDaemonConnectionError} When the transport fails or the success payload is malformed.
    */
-  kill(runId: string): Promise<TuiDaemonOkResult>;
+  kill(runId: string): Promise<TuiDaemonHealthResult>;
   wait(runId: string): Promise<WaitRunCompletionResult>;
   close(): void;
 };
@@ -100,6 +97,12 @@ export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promi
 
   const transport = createTuiDaemonRpcTransport(client);
 
+  const okRunRpc = async (method: "pause" | "resume" | "kill", runId: string): Promise<TuiDaemonHealthResult> =>
+    parseOrThrow(
+      parseHealthResult(await transport.request(method, { runId })),
+      `malformed RPC reply: invalid ${method} result`,
+    );
+
   return {
     async health() {
       return parseOrThrow(
@@ -122,24 +125,9 @@ export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promi
         "malformed RPC reply: invalid start result",
       );
     },
-    async pause(runId) {
-      return parseOrThrow(
-        parseHealthResult(await transport.request("pause", { runId })),
-        "malformed RPC reply: invalid pause result",
-      );
-    },
-    async resume(runId) {
-      return parseOrThrow(
-        parseHealthResult(await transport.request("resume", { runId })),
-        "malformed RPC reply: invalid resume result",
-      );
-    },
-    async kill(runId) {
-      return parseOrThrow(
-        parseHealthResult(await transport.request("kill", { runId })),
-        "malformed RPC reply: invalid kill result",
-      );
-    },
+    pause: (runId) => okRunRpc("pause", runId),
+    resume: (runId) => okRunRpc("resume", runId),
+    kill: (runId) => okRunRpc("kill", runId),
     async wait(runId) {
       return parseOrThrow(
         parseWaitCompletion(await transport.request("wait", { runId }, { trackWait: true })),

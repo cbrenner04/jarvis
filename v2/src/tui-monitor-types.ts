@@ -26,11 +26,8 @@ export type TuiMonitorState = {
 export type TuiMonitorControls = {
   /** Change selection to the given run when present in the current list. */
   selectRun(runId: string): void;
-  /** Pause the selected run via daemon `pause`. */
   pauseSelected(): void;
-  /** Resume the selected run via daemon `resume`. */
   resumeSelected(): void;
-  /** Kill the selected run via daemon `kill`. */
   killSelected(): void;
   /** Exit the monitor. */
   quit(): void;

@@ -65,13 +65,9 @@ function entryErrorFeedback(error: unknown): TuiViewState {
 }
 
 function steeringFeedbackFromError(error: unknown): string {
-  if (error instanceof TuiDaemonRpcError) {
-    return `${error.code}: ${error.message}`;
-  }
-  if (error instanceof TuiDaemonConnectionError) {
-    return `daemon_error: ${error.message}`;
-  }
-  throw error;
+  const feedback = entryErrorFeedback(error);
+  if (feedback.kind !== "rpc-error") throw new Error("unreachable");
+  return `${feedback.code}: ${feedback.message}`;
 }
 
 /** Connect, prove liveness, and enter the interactive run monitor until quit. */
@@ -145,10 +141,7 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
     }
   };
 
-  const runSteeringAction = (
-    invoke: (runId: string) => Promise<{ ok: true }>,
-    options?: { rewaitOnSuccess?: boolean },
-  ): void => {
+  const runSteeringAction = (method: "pause" | "resume" | "kill", rewaitOnSuccess = false): void => {
     const runId = currentState.selectedRunId;
     if (runId === null) {
       setState({ ...currentState, steeringFeedback: "no run selected" });
@@ -157,9 +150,9 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
 
     void (async () => {
       try {
-        await invoke(runId);
+        await client![method](runId);
         if (currentState.selectedRunId !== runId) return;
-        if (options?.rewaitOnSuccess) {
+        if (rewaitOnSuccess) {
           activeWaitToken += 1;
           lastReadyByRunId.delete(runId);
           setState({
@@ -255,13 +248,13 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
           setSelection(runId);
         },
         pauseSelected() {
-          runSteeringAction((id) => client!.pause(id));
+          runSteeringAction("pause");
         },
         resumeSelected() {
-          runSteeringAction((id) => client!.resume(id), { rewaitOnSuccess: true });
+          runSteeringAction("resume", true);
         },
         killSelected() {
-          runSteeringAction((id) => client!.kill(id));
+          runSteeringAction("kill");
         },
         quit() {
           resolveQuit();

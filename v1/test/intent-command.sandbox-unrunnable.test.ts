@@ -2043,10 +2043,7 @@ Some content with a reference.
       });
       expect(code).toBe(0);
       const worktree = findIntentWorktree(env.projectRoot);
-      const content = readFileSync(
-        join(worktree, "spec", "ready-intents", "name-prefixed-prose.md"),
-        "utf8",
-      );
+      const content = readFileSync(join(worktree, "spec", "ready-intents", "name-prefixed-prose.md"), "utf8");
       const lines = content.split("\n");
       const headingIdx = lines.indexOf("# Name Prefixed Prose");
       const proseIdx = lines.indexOf("name: value pairs are validated before merging.");

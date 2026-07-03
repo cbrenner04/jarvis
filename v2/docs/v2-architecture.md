@@ -24,7 +24,7 @@ are in the domain map.
 | TUI host | `v2/src/tui/` | Relocated from flat root: `tui-daemon-client.ts`, `tui-daemon-client.test.ts`, `tui-daemon-errors.ts`, `tui-daemon-rpc-transport.ts`, `tui-entry.tsx`, `tui-entry.test.tsx`, `tui-field-collector.tsx`, `tui-ink-feedback.tsx`, `tui-ink-log-follow.tsx`, `tui-ink-monitor.tsx`, `tui-ink-runtime.ts`, `tui-log-follow-entry.tsx`, `tui-log-follow-entry.test.tsx`, `tui-log-follow-lines.ts`, `tui-log-follow-types.ts`, `tui-log-tail-client.ts`, `tui-log-tail-client.test.ts`, `tui-monitor-lines.ts`, `tui-monitor-types.ts` |
 | CLI host | `v2/src/` root | `cli.ts`, `cli.test.ts` |
 | IPC transport | `v2/src/ipc/` | (already subtree) |
-| Test support | `v2/src/testing/` | `preload.sandbox-unrunnable.test.ts` (root today; harness `test/test-slices.test.ts` hardcodes path — co-update on move) plus existing `testing/` modules |
+| Test support | `v2/src/testing/` | `preload.sandbox-unrunnable.test.ts` plus existing `testing/` modules |
 
 After relocation, root keeps only `cli.ts`, `cli.test.ts`, `daemon-entrypoint.ts`,
 `ipc/`, and `testing/` (no `cli/` subdirectory).

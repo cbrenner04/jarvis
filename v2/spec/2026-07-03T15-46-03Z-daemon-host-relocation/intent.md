@@ -23,3 +23,8 @@ Move `daemon*` (except entrypoint policy), `run-operator-error*`, and co-located
 - `v2/docs/daemon-host.md` — fix `v2/src/<file>` citations only.
 - `v2/docs/test-writing.md` — fix daemon-module `v2/src/<file>` citations only.
 - `v2/docs/v1-behaviors.md` — update `Sources:` paths for daemon-cited modules only.
+
+## Blocker
+
+- **Execution library under execution domain directory** — `v2-architecture.md` has no **Source layout** section; `write-loop*`, `write*`, `step-runner*`, `write-prompt*`, `external-worktree*`, and `invocation-failure` remain at `v2/src/` root. Land `v2-src-layout-contract` and `execution-library-relocation` first.
+- **Persistence library under persistence domain directory** — same missing **Source layout**; `state-store*` and `log-stream*` remain at `v2/src/` root. Land `v2-src-layout-contract` and `persistence-library-relocation` first.

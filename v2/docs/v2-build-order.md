@@ -37,7 +37,8 @@ rework.
 ### Phase 0 — v2 project scaffold
 
 Stand up `v2/` as its own tsconfig project with `v2/tsconfig.json`, a minimal
-CLI entry at `v2/src/cli.ts`, and a co-located test shape under `v2/src/*.test.ts`.
+CLI entry at `v2/src/cli.ts`, and flat-root `v2/src/*.test.ts` (shipped). Target:
+[`Source layout`](v2-architecture.md#source-layout).
 Wire the root `bin/jarvis` shim to the v2 CLI while keeping `jarvis1` on v1.
 At the repo boundary, root verification must include v2 via `bun run typecheck`
 covering both `v1/tsconfig.json` and `v2/tsconfig.json`, plus Biome import-boundary

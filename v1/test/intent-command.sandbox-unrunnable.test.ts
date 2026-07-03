@@ -140,7 +140,8 @@ class SplitAgent implements Agent {
     | "repair-autofix-heading-spacing"
     | "repair-duplicate-name-heading"
     | "repair-missing-heading"
-    | "repair-heading-already-present";
+    | "repair-heading-already-present"
+    | "repair-name-prefixed-prose";
 
   constructor(
     name: AgentName,
@@ -168,7 +169,8 @@ class SplitAgent implements Agent {
       | "repair-autofix-heading-spacing"
       | "repair-duplicate-name-heading"
       | "repair-missing-heading"
-      | "repair-heading-already-present",
+      | "repair-heading-already-present"
+      | "repair-name-prefixed-prose",
   ) {
     this.name = name;
     this.#mode = mode;
@@ -427,6 +429,21 @@ Some content.
       );
       return { kind: "ok", stdout: "", stderr: "" };
     }
+    if (this.#mode === "repair-name-prefixed-prose") {
+      writeFileSync(
+        join(stageDir, "name-prefixed-prose.md"),
+        `---
+name: name-prefixed-prose
+---
+
+name: value pairs are validated before merging.
+
+## Prerequisites
+`,
+        "utf8",
+      );
+      return { kind: "ok", stdout: "", stderr: "" };
+    }
     if (this.#mode === "invalid") {
       writeFileSync(join(stageDir, "bad-name.md"), "---\nname: wrong-name\n---\n\n## Intent\n\nBroken.\n", "utf8");
       return { kind: "ok", stdout: "", stderr: "" };
@@ -627,6 +644,7 @@ function createSplitAgentFactory(
       | "repair-duplicate-name-heading"
       | "repair-missing-heading"
       | "repair-heading-already-present"
+      | "repair-name-prefixed-prose"
     >
   >,
 ) {
@@ -2005,6 +2023,35 @@ Some content with a reference.
       expect(content).toContain("# Custom Title");
       expect(content).not.toContain("# Has Heading");
       expect(content).toContain("Some content.");
+      expect(content).toContain("## Prerequisites");
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("repair: name-prefixed prose that doesn't match the slug is preserved, heading prepended", async () => {
+    const env = setupEnv();
+    try {
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "repair-name-prefixed-prose" }),
+      });
+      expect(code).toBe(0);
+      const worktree = findIntentWorktree(env.projectRoot);
+      const content = readFileSync(
+        join(worktree, "spec", "ready-intents", "name-prefixed-prose.md"),
+        "utf8",
+      );
+      const lines = content.split("\n");
+      const headingIdx = lines.indexOf("# Name Prefixed Prose");
+      const proseIdx = lines.indexOf("name: value pairs are validated before merging.");
+      expect(headingIdx).toBeGreaterThanOrEqual(0);
+      expect(proseIdx).toBeGreaterThan(headingIdx);
       expect(content).toContain("## Prerequisites");
     } finally {
       env.cleanup();

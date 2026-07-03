@@ -13,11 +13,11 @@
 
 ## Acceptance criteria
 
-- [ ] `mockWriteLoopInput`, `startRun`, and `listRuns` are defined in `v2/src/testing/run-control.ts` and exported for reuse.
-- [ ] `daemon-start-list.test.ts` imports these three helpers from `v2/src/testing/run-control.ts` instead of defining them locally, and still constructs handlers via production `createRunControlHandlers`.
-- [ ] `bun run typecheck` passes.
-- [ ] `daemon-start-list.test.ts` stays green (behavior unchanged by the extraction).
-- [ ] `v2/docs/test-writing.md` documents `v2/src/testing/run-control.ts` as the home for generic daemon run-control request helpers (`mockWriteLoopInput`, `startRun`, `listRuns`), distinguishing them from file-local scenario assertions.
+- [x] `mockWriteLoopInput`, `startRun`, and `listRuns` are defined in `v2/src/testing/run-control.ts` and exported for reuse.
+- [x] `daemon-start-list.test.ts` imports these three helpers from `v2/src/testing/run-control.ts` instead of defining them locally, and still constructs handlers via production `createRunControlHandlers`.
+- [x] `bun run typecheck` passes.
+- [x] `daemon-start-list.test.ts` stays green (behavior unchanged by the extraction).
+- [x] `v2/docs/test-writing.md` documents `v2/src/testing/run-control.ts` as the home for generic daemon run-control request helpers (`mockWriteLoopInput`, `startRun`, `listRuns`), distinguishing them from file-local scenario assertions.
 
 ## Documentation updates
 

@@ -36,6 +36,8 @@ Socket-backed v2 tests import `canUseUnixSockets` from [`v2/src/testing/unix-soc
 
 Use for any v2 test binding or connecting to a Unix socket under `tmpdir()`, including agent-runnable (`ipc.test.ts`, `daemon-start-list.test.ts`) and sandbox-unrunnable daemon lifecycle tests.
 
+Generic daemon run-control request helpers live in [`v2/src/testing/run-control.ts`](../src/testing/run-control.ts): `mockWriteLoopInput` (builds a `WriteLoopInput` with test defaults), `startRun` (sends a start request and extracts the run ID), and `listRuns` (sends a list request and extracts the run rows). These are request-shaping utilities, not assertion-specific setup — they take an `IpcClient` and optional `WriteLoopInput` overrides as parameters, so they stay reusable across test files without coupling back to file-local executor or state-store wiring. Import and use them for any test exercising the daemon run-control protocol.
+
 The daemon smoke test (`v2/src/daemon/daemon.sandbox-unrunnable.test.ts`) demonstrates the minimal real-process fixture: spawn a detached daemon, serve health and status responses over a real socket, gracefully stop, and verify socket unbinds. This is the irreducible test for wire protocols requiring real OS seams.
 
 Pure in-memory logic (e.g., `WorktreeOwnershipRegistry`) belongs in agent-runnable tests (`daemon-registry.test.ts`) without `.sandbox-unrunnable` markers, even when moved from a real-process context. Use DI seams to inject the registry instance under test with mocked state, not real OS operations.

@@ -34,17 +34,17 @@ instead of a `# <Title>` heading, so the written file fails
 
 ## Acceptance criteria
 
-- [ ] A staged intent file whose body's first line after frontmatter is
+- [x] A staged intent file whose body's first line after frontmatter is
       `name: <slug>` is rewritten by `repairIntentFile` to start with a
       `# <Title>` heading derived from the slug.
-- [ ] A staged intent file whose body already starts with a `#` heading is
+- [x] A staged intent file whose body already starts with a `#` heading is
       left unchanged by `repairIntentFile`.
-- [ ] A staged intent file whose body has neither a `#` heading nor a
+- [x] A staged intent file whose body has neither a `#` heading nor a
       duplicate `name:` line (starts with other prose) has the derived
       `# <Title>` heading prepended by `repairIntentFile`.
-- [ ] `jarvis1 intent <seed-file>` output files in `ready-intents/` pass
+- [x] `jarvis1 intent <seed-file>` output files in `ready-intents/` pass
       `MD041/first-line-heading`.
-- [ ] `v1/test/intent-command.sandbox-unrunnable.test.ts` gains regression
+- [x] `v1/test/intent-command.sandbox-unrunnable.test.ts` gains regression
       tests asserting all three rewritten-heading behaviors above (heading
       untouched, duplicate `name:` line replaced, heading prepended when
       absent).

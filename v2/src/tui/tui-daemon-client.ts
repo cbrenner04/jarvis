@@ -34,29 +34,11 @@ export type TuiDaemonClient = {
   status(): Promise<TuiDaemonStatusResult>;
   list(): Promise<DaemonListResult>;
   start(input: WriteLoopInput): Promise<TuiDaemonStartResult>;
-  /**
-   * Signal graceful pause for an active run at the next iteration boundary.
-   * @param runId Durable run id to pause.
-   * @returns `{ ok: true }` when the daemon accepts the pause.
-   * @throws {TuiDaemonRpcError} When the daemon rejects the request (`unknown_run`, `run_not_active`, …).
-   * @throws {TuiDaemonConnectionError} When the transport fails or the success payload is malformed.
-   */
+  /** Signal graceful pause for an active run at the next iteration boundary. Rejects with `unknown_run`/`run_not_active`/… via {@link TuiDaemonRpcError}. */
   pause(runId: string): Promise<TuiDaemonHealthResult>;
-  /**
-   * Resume a paused or killed run under daemon start guards.
-   * @param runId Durable run id to resume.
-   * @returns `{ ok: true }` when the daemon accepts the resume.
-   * @throws {TuiDaemonRpcError} When the daemon rejects the request (`unknown_run`, `terminal_run`, `run_in_progress`, `worktree_claimed`, …).
-   * @throws {TuiDaemonConnectionError} When the transport fails or the success payload is malformed.
-   */
+  /** Resume a paused or killed run under daemon start guards. Rejects with `unknown_run`/`terminal_run`/`run_in_progress`/`worktree_claimed`/… via {@link TuiDaemonRpcError}. */
   resume(runId: string): Promise<TuiDaemonHealthResult>;
-  /**
-   * Abort an active run immediately and record durable status `killed`.
-   * @param runId Durable run id to kill.
-   * @returns `{ ok: true }` when the daemon accepts the kill.
-   * @throws {TuiDaemonRpcError} When the daemon rejects the request (`unknown_run`, `run_not_active`, …).
-   * @throws {TuiDaemonConnectionError} When the transport fails or the success payload is malformed.
-   */
+  /** Abort an active run immediately and record durable status `killed`. Rejects with `unknown_run`/`run_not_active`/… via {@link TuiDaemonRpcError}. */
   kill(runId: string): Promise<TuiDaemonHealthResult>;
   wait(runId: string): Promise<WaitRunCompletionResult>;
   close(): void;

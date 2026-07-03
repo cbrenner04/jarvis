@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ClaudeAgent } from "../../src/agents/claude.ts";
+import { ClaudeAgent, resolveClaudePriceKey } from "../../src/agents/claude.ts";
 import { createFakeSpawnWithOutput } from "./fake-spawn.ts";
 
 const fixturesDir = join(import.meta.dir, "..", "fixtures", "claude");
@@ -238,5 +238,21 @@ describe("ClaudeAgent", () => {
   test("attributionLabel returns default fallback when model is undefined", () => {
     const agent = new ClaudeAgent({ binary: "fake" });
     expect(agent.attributionLabel()).toBe("claude (default model)");
+  });
+
+  test("attributionLabel returns mapped label for claude-sonnet-5", () => {
+    const agent = new ClaudeAgent({
+      binary: "fake",
+      model: "claude-sonnet-5",
+    });
+    expect(agent.attributionLabel()).toBe("Claude Sonnet 5");
+  });
+
+  test("resolveClaudePriceKey resolves a price key for claude-sonnet-5", () => {
+    expect(resolveClaudePriceKey("claude-sonnet-5")).not.toBeNull();
+  });
+
+  test("resolveClaudePriceKey returns null for unmapped alias sonnet-5", () => {
+    expect(resolveClaudePriceKey("sonnet-5")).toBeNull();
   });
 });

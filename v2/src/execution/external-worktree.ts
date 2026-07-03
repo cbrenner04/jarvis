@@ -5,8 +5,6 @@ import { dirname, join, resolve } from "node:path";
 import { branchExistsLocal, branchExistsOnOrigin, getCurrentBranch } from "../../../shared/git.ts";
 import { acquireLock, releaseLock, type WorktreeLock } from "../../../shared/worktree-lock.ts";
 
-export type { WorktreeLock };
-
 /** Naming and git inputs for materialization. */
 export type ExternalWorktreeInput = {
   projectRoot: string;

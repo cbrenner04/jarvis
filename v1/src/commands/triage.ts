@@ -1178,7 +1178,12 @@ function resolveSpecDir(dirPath: string): DeriveSpecResult {
   return { ok: false, reason: "multiple-md", dirPath };
 }
 
-function deriveSpecPathFromBranch(branch: string, projectRoot: string, configuredTargetDir: string, worktreePath?: string): DeriveSpecResult {
+function deriveSpecPathFromBranch(
+  branch: string,
+  projectRoot: string,
+  configuredTargetDir: string,
+  worktreePath?: string,
+): DeriveSpecResult {
   const isPlan = branch.startsWith("plan/");
   const specName = isPlan ? branch.slice("plan/".length) : branch;
 

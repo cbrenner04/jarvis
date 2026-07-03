@@ -6,11 +6,6 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-/**
- * Set up a real git repository for sandbox-only tests.
- * Pushes the allocated temp root to the `roots` array for cleanup in afterEach.
- * Returns { repoRoot, jarvisRoot } for the test to use.
- */
 export function setupSandboxGitRepo(roots: string[]): { repoRoot: string; jarvisRoot: string } {
   const root = mkdtempSync(join(tmpdir(), "jarvis-v2-worktree-"));
   roots.push(root);

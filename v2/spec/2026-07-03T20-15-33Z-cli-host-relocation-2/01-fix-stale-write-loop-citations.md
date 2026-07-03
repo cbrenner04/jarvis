@@ -16,7 +16,7 @@ as its own atomic change.
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/v1-behaviors.md` cites `v2/src/execution/write.ts` and `v2/src/execution/write-loop.ts`, not the unqualified root paths.
+- [x] `v2/docs/v1-behaviors.md` cites `v2/src/execution/write.ts` and `v2/src/execution/write-loop.ts`, not the unqualified root paths.
 
 ## Documentation updates
 

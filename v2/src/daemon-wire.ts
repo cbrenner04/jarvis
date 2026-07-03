@@ -1,6 +1,6 @@
 import type { WaitRunCompletionResult } from "./daemon.ts";
+import { isRunStatus, type RunStatus } from "./persistence/state-store-types.ts";
 import { isRunOperatorError, type RunOperatorError } from "./run-operator-error.ts";
-import { isRunStatus, type RunStatus } from "./state-store-types.ts";
 import { isWriteLoopOutcomeKind } from "./write-loop.ts";
 
 /** One durable run row on daemon `list` wire payloads. */

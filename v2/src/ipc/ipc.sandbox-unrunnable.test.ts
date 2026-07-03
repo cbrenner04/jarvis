@@ -10,8 +10,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTailStreamHandler } from "../daemon.ts";
-import { openLogReader, openLogSink, type PersistedRecord } from "../log-stream.ts";
-import { openStateStore } from "../state-store.ts";
+import { openLogReader, openLogSink, type PersistedRecord } from "../persistence/log-stream.ts";
+import { openStateStore } from "../persistence/state-store.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import { type IpcServer, startIpcServer } from "./server.ts";
 
@@ -58,7 +58,7 @@ for (;;) {
 
       writeFileSync(
         writerScriptPath,
-        `import { openLogSink } from ${JSON.stringify(join(import.meta.dir, "..", "log-stream.ts"))};
+        `import { openLogSink } from ${JSON.stringify(join(import.meta.dir, "..", "persistence", "log-stream.ts"))};
 const sink = openLogSink(process.argv[2]!);
 const runId = process.argv[3]!;
 for (const attemptId of process.argv.slice(4)) {

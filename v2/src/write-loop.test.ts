@@ -5,8 +5,8 @@ import { join } from "node:path";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
-import type { LogEvent, LogSink } from "./log-stream.ts";
-import { openStateStore, type StateStore } from "./state-store.ts";
+import type { LogEvent, LogSink } from "./persistence/log-stream.ts";
+import { openStateStore, type StateStore } from "./persistence/state-store.ts";
 import { simulatedBindings } from "./testing/bindings.ts";
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
 

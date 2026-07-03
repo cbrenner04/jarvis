@@ -48,6 +48,9 @@ changes.
 - [ ] No new layering violation is introduced by the relocation: every moved
       module's imports resolve to execution, persistence, daemon, `ipc/`, or
       `shared/` paths only, per the Import direction matrix — never CLI host.
+- [ ] Imports among moved TUI files themselves (e.g. `tui-daemon-errors.ts`,
+      `tui-ink-feedback.tsx`, `tui-monitor-types.ts`) retain their `./` prefix,
+      unchanged by the move.
 
 ## Documentation updates
 

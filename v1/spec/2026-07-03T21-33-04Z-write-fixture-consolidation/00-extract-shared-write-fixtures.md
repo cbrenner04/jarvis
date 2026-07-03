@@ -50,15 +50,15 @@ what either file tests.
 
 ## Acceptance criteria
 
-- [ ] `write.test.ts` stays green using the shared fixtures (same test cases, same
+- [x] `write.test.ts` stays green using the shared fixtures (same test cases, same
       assertions).
-- [ ] `write-loop.test.ts` stays green using the shared fixtures (same test cases,
+- [x] `write-loop.test.ts` stays green using the shared fixtures (same test cases,
       same assertions, unchanged scenario matrix).
-- [ ] Neither test file defines its own `roots: string[]` cleanup loop,
+- [x] Neither test file defines its own `roots: string[]` cleanup loop,
       `setupRepo`/Jarvis-home helper, or `createFakeWithExternalWorktree` — both
       import `createJarvisHome`, `createFakeWithExternalWorktree`, and
       `trackedTempRoots` from `v2/src/testing/write-fixtures.ts`.
-- [ ] After each migrated test file's suite runs, no temp directories allocated
+- [x] After each migrated test file's suite runs, no temp directories allocated
       via `trackedTempRoots()` remain on disk (cleanup helper actually removes
       them, not just an absent local loop).
 

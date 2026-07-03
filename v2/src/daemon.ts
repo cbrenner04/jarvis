@@ -4,14 +4,14 @@ import { createAgentBindings } from "../../shared/invocation/agents.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "./ipc/server";
 import { type LogReader, type LoopFinishedEvent, openLogReader, openLogSink } from "./persistence/log-stream.ts";
+import { openStateStore, type StateStore } from "./persistence/state-store.ts";
+import type { RunStatus } from "./persistence/state-store-types.ts";
 import {
   composeRunOperatorError,
   findTerminalLogRecord,
   type RunOperatorError,
   type TerminalLogRecord,
 } from "./run-operator-error.ts";
-import { openStateStore, type StateStore } from "./persistence/state-store.ts";
-import type { RunStatus } from "./persistence/state-store-types.ts";
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
 
 export type WorktreeOwnership = {

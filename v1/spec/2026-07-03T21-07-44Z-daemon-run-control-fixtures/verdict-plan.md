@@ -1,0 +1,11 @@
+Verdict: refine the spec.
+
+1. **Pin the helper module's contract, not just its location.** Name the exact file path under `v2/src/testing/` for the extracted helpers (e.g. `v2/src/testing/run-control.ts`), since the docs acceptance criterion already requires `v2/docs/test-writing.md` to point at a concrete import path — leaving the path open contradicts that requirement. Additionally, state the parameter shape that makes the helpers generic (they accept a handler/request-sender rather than embedding a hardcoded fake executor), so an implementer can't accidentally couple them back to `daemon-start-list.test.ts`'s specific setup. This is a harness subspec, where per spec guidance structure is the contract, so naming this is appropriate, not invented precision.
+
+2. **Verify the socket-skip fixture identity before the subspec relies on it.** The intent's Prerequisites claim a "shared socket skip fixture" already exists. The subspec must confirm `canUseUnixSockets()` (or whatever is currently used in `daemon-start-list.test.ts`) is in fact that shared fixture, and note where it lives, rather than assuming it. This is exactly the check plan-mode's prerequisite-validation step is meant to perform before drafting proceeds.
+
+3. **Add an explicit typecheck acceptance criterion.** For a pure move/extraction, a type error is the most likely failure mode; add a one-line AC requiring `bun run typecheck` to pass, alongside the existing "stays green" test AC.
+
+4. **Trim the intent's oversold reuse justification.** The intent's framing ("other daemon run-control test files could reuse them") asserts a second consumer that the subspec correctly does not act on — it scopes migration to one file only. Reword the intent's rationale to justify the extraction on its own terms (separating generic IPC-shaping helpers from assertion-specific setup for clarity), not a speculative future caller. This aligns with the deferral principle: don't invent precision or justification for consumers that don't yet exist.
+
+No other adversary points require changes — the scope-boundary-as-AC, the "stays green" self-citation, and the negative-case wording are not real gaps given this is a same-file, structure-is-the-contract extraction with no new production behavior.

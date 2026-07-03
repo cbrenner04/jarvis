@@ -283,6 +283,13 @@ function normalizePrerequisitesSectionSpacing(text: string): string {
   return changed ? lines.join("\n") : text;
 }
 
+function slugToTitle(slug: string): string {
+  return slug
+    .split("-")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+}
+
 function repairIntentFile(path: string, slug: string): void {
   const content = readFileSync(path, "utf8");
   let text = content.replace(/\r\n/g, "\n");
@@ -306,6 +313,7 @@ function repairIntentFile(path: string, slug: string): void {
   if (blockEndIdx === -1 && !hasLeadingDash) {
     // Case 1: No frontmatter block, prepend one
     lines.unshift("---", `name: ${slug}`, "---");
+    blockEndIdx = 2; // After prepending, the closing --- is at index 2
     modified = true;
   } else if (blockEndIdx !== -1) {
     // Frontmatter exists with proper closing, check for name: key
@@ -331,10 +339,42 @@ function repairIntentFile(path: string, slug: string): void {
     } else if (!hasName) {
       // Case 2: Insert name: into existing block (before the closing ---)
       lines.splice(blockEndIdx, 0, `name: ${slug}`);
+      blockEndIdx += 1; // Adjust blockEndIdx since we inserted a line
       modified = true;
     }
   }
   // If blockEndIdx === -1 && hasLeadingDash, unterminated frontmatter: skip repair
+
+  // Repair body heading: enforce first non-blank line (after frontmatter) is a # heading
+  const bodyStartIdx = blockEndIdx !== -1 ? blockEndIdx + 1 : 0;
+  let firstNonBlankIdx = -1;
+  for (let i = bodyStartIdx; i < lines.length; i += 1) {
+    if ((lines[i] ?? "").trim().length > 0) {
+      firstNonBlankIdx = i;
+      break;
+    }
+  }
+
+  const derivedTitle = `# ${slugToTitle(slug)}`;
+  if (firstNonBlankIdx !== -1) {
+    const firstNonBlankLine = lines[firstNonBlankIdx] ?? "";
+    // Check if it's already a heading
+    if (firstNonBlankLine.trim().startsWith("#")) {
+      // Already a heading, leave untouched
+    } else if (new RegExp(`^name:\\s*${slug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`).test(firstNonBlankLine)) {
+      // Duplicate name: line, replace with heading
+      lines[firstNonBlankIdx] = derivedTitle;
+      modified = true;
+    } else {
+      // Other prose without heading, prepend heading
+      lines.splice(firstNonBlankIdx, 0, derivedTitle);
+      modified = true;
+    }
+  } else {
+    // No first non-blank line in body, append heading
+    lines.push(derivedTitle);
+    modified = true;
+  }
 
   text = lines.join("\n");
 

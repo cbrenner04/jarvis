@@ -137,7 +137,10 @@ class SplitAgent implements Agent {
     | "repair-near-miss-prerequisites"
     | "repair-empty-name"
     | "repair-md-violations"
-    | "repair-autofix-heading-spacing";
+    | "repair-autofix-heading-spacing"
+    | "repair-duplicate-name-heading"
+    | "repair-missing-heading"
+    | "repair-heading-already-present";
 
   constructor(
     name: AgentName,
@@ -162,7 +165,10 @@ class SplitAgent implements Agent {
       | "repair-near-miss-prerequisites"
       | "repair-empty-name"
       | "repair-md-violations"
-      | "repair-autofix-heading-spacing",
+      | "repair-autofix-heading-spacing"
+      | "repair-duplicate-name-heading"
+      | "repair-missing-heading"
+      | "repair-heading-already-present",
   ) {
     this.name = name;
     this.#mode = mode;
@@ -374,6 +380,53 @@ Body text.
       );
       return { kind: "ok", stdout: "", stderr: "" };
     }
+    if (this.#mode === "repair-duplicate-name-heading") {
+      writeFileSync(
+        join(stageDir, "test-intent.md"),
+        `---
+name: test-intent
+---
+
+name: test-intent
+
+## Prerequisites
+`,
+        "utf8",
+      );
+      return { kind: "ok", stdout: "", stderr: "" };
+    }
+    if (this.#mode === "repair-missing-heading") {
+      writeFileSync(
+        join(stageDir, "missing-heading.md"),
+        `---
+name: missing-heading
+---
+
+Some content without a heading.
+
+## Prerequisites
+`,
+        "utf8",
+      );
+      return { kind: "ok", stdout: "", stderr: "" };
+    }
+    if (this.#mode === "repair-heading-already-present") {
+      writeFileSync(
+        join(stageDir, "has-heading.md"),
+        `---
+name: has-heading
+---
+
+# Custom Title
+
+Some content.
+
+## Prerequisites
+`,
+        "utf8",
+      );
+      return { kind: "ok", stdout: "", stderr: "" };
+    }
     if (this.#mode === "invalid") {
       writeFileSync(join(stageDir, "bad-name.md"), "---\nname: wrong-name\n---\n\n## Intent\n\nBroken.\n", "utf8");
       return { kind: "ok", stdout: "", stderr: "" };
@@ -571,6 +624,9 @@ function createSplitAgentFactory(
       | "repair-empty-name"
       | "repair-md-violations"
       | "repair-autofix-heading-spacing"
+      | "repair-duplicate-name-heading"
+      | "repair-missing-heading"
+      | "repair-heading-already-present"
     >
   >,
 ) {
@@ -1876,6 +1932,80 @@ Some content with a reference.
       const content = readFileSync(path, "utf8");
       expect(content).toContain("## Intent\n\nBody text.");
       expect(runHarnessMarkdownlint(path)).toBe(0);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("repair: duplicate name: line in body is replaced with # heading", async () => {
+    const env = setupEnv();
+    try {
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "repair-duplicate-name-heading" }),
+      });
+      expect(code).toBe(0);
+      const worktree = findIntentWorktree(env.projectRoot);
+      const content = readFileSync(join(worktree, "spec", "ready-intents", "test-intent.md"), "utf8");
+      expect(content).toContain("# Test Intent");
+      expect(content).not.toContain("name: test-intent\n\nname: test-intent");
+      expect(content).toContain("## Prerequisites");
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("repair: missing heading in body is prepended", async () => {
+    const env = setupEnv();
+    try {
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "repair-missing-heading" }),
+      });
+      expect(code).toBe(0);
+      const worktree = findIntentWorktree(env.projectRoot);
+      const content = readFileSync(join(worktree, "spec", "ready-intents", "missing-heading.md"), "utf8");
+      expect(content).toContain("# Missing Heading");
+      const lines = content.split("\n");
+      const headingIdx = lines.findIndex((line) => line === "# Missing Heading");
+      const contentIdx = lines.findIndex((line) => line.includes("Some content without a heading"));
+      expect(headingIdx).toBeGreaterThanOrEqual(0);
+      expect(contentIdx).toBeGreaterThan(headingIdx);
+      expect(content).toContain("## Prerequisites");
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("repair: existing heading in body is left untouched", async () => {
+    const env = setupEnv();
+    try {
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "repair-heading-already-present" }),
+      });
+      expect(code).toBe(0);
+      const worktree = findIntentWorktree(env.projectRoot);
+      const content = readFileSync(join(worktree, "spec", "ready-intents", "has-heading.md"), "utf8");
+      expect(content).toContain("# Custom Title");
+      expect(content).not.toContain("# Has Heading");
+      expect(content).toContain("Some content.");
+      expect(content).toContain("## Prerequisites");
     } finally {
       env.cleanup();
     }

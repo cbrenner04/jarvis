@@ -1,0 +1,13 @@
+**Verdict: 5 required refinements.**
+
+1. **Reconcile the intent's move decisions explicitly.** The intent asserts `cli.ts`/`cli.test.ts` must move with `bin/jarvis` updated in lockstep. The spec discovered this premise is false but only states it implicitly in prose. Add an explicit decision line stating the intent's CLI-move decisions are moot because current state already satisfies the Entrypoints policy — a reader scanning only the Decisions list must not be able to miss this.
+
+2. **Ground the "already match policy" claim with a citable check.** This is the load-bearing premise for the whole subspec (it's why no CLI move happens) and currently has no verification anchor. Cite the specific Entrypoints policy clause in `v2-architecture.md` and state the concrete evidence (current `bin/jarvis` target path, current `cli.ts` location) that confirms conformance.
+
+3. **Resolve the `daemon-entrypoint.ts` conflict.** The intent's prerequisites assert daemon-host modules live under the daemon-host domain directory, but the acceptance criteria bake in `daemon-entrypoint.ts` staying at `v2/src/` root with no grounding in the intent. Either cite the policy basis for entrypoint files being exempt from domain relocation, or drop this file from the AC if it's an unjustified addition — do not leave the contradiction unaddressed.
+
+4. **Split out the write.ts/write-loop.ts citation fix.** The intent's Documentation updates section scopes doc fixes to CLI-module citations only. The `write.ts`/`write-loop.ts` fix is leftover cleanup from an unrelated (execution-domain) relocation and violates both the intent's stated scope and the atomicity rule in spec guidance (one independently reviewable change per subspec). Move it to its own subspec/intent, or drop it from this one.
+
+5. **Add a task for internal relative-import updates in the moved file.** Relocating `preload.sandbox-unrunnable.test.ts` one directory deeper changes its own relative import paths. The task checklist only covers external references (`test-slices.test.ts`) — add an explicit task (and matching verification) for fixing the moved file's internal imports, not just downstream references to it.
+
+Secondary, lower-priority cleanups also worth making during refinement (not blocking but should be fixed alongside the above): narrow the AC "no committed doc cites write.ts/write-loop.ts" to the specific file(s) it actually addresses rather than repo-wide phrasing, and reconsider the spec title/index name ("CLI host relocation") since the work performed is a preload-test relocation plus stale-citation cleanup, not a CLI-host move — either rename to reflect actual scope or add a one-line note documenting the pivot.

@@ -16,7 +16,7 @@ Operators can pin `model: claude-sonnet-5` in a project's claude agent config an
 
 ## Acceptance criteria
 
-- [ ] A claude agent run configured with `model: "claude-sonnet-5"` reports the label "Claude Sonnet 5" and resolves a non-null price key via `resolveClaudePriceKey`.
+- [ ] `attributionLabel("claude-sonnet-5")` returns `"Claude Sonnet 5"`, and `resolveClaudePriceKey("claude-sonnet-5")` resolves a non-null price key.
 - [ ] `resolveClaudePriceKey("sonnet")` still returns `"claude-sonnet-4-6"` (unchanged).
 - [ ] `resolveClaudePriceKey("sonnet-5")` returns `null` (no bare alias added).
 - [ ] `bun run typecheck` and `bun run test` pass.

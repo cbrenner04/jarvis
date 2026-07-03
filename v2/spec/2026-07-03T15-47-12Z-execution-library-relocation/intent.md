@@ -20,3 +20,8 @@ Move `write-loop*`, `write*`, `step-runner*`, `write-prompt*`, `external-worktre
 
 - `v2/docs/shared-step-runner.md` — fix `v2/src/<file>` citations only.
 - `v2/docs/write-behavior.md` — fix execution-module `v2/src/<file>` citations only.
+
+## Blocker
+
+- **Persistence library not relocated.** `state-store*` and `log-stream*` still live at `v2/src/` root; no `v2/src/persistence/` (or other persistence domain directory) exists in committed code.
+- **`v2-architecture.md` lacks Source layout.** No **Source layout** section documents the persistence domain directory or import rules; only uncommitted ready-intents (`v2-src-layout-contract`, `persistence-library-relocation`) describe the target shape.

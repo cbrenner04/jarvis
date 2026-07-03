@@ -1178,7 +1178,12 @@ function resolveSpecDir(dirPath: string): DeriveSpecResult {
   return { ok: false, reason: "multiple-md", dirPath };
 }
 
-function deriveSpecPathFromBranch(branch: string, projectRoot: string, configuredTargetDir: string): DeriveSpecResult {
+function deriveSpecPathFromBranch(
+  branch: string,
+  projectRoot: string,
+  configuredTargetDir: string,
+  worktreePath?: string,
+): DeriveSpecResult {
   const isPlan = branch.startsWith("plan/");
   const specName = isPlan ? branch.slice("plan/".length) : branch;
 
@@ -1206,6 +1211,35 @@ function deriveSpecPathFromBranch(branch: string, projectRoot: string, configure
         if (candidate.endsWith(".md")) return { ok: true, specPath: candidate };
       } catch {
         // skip unreadable entry
+      }
+    }
+  }
+
+  // For plan branches, fall back to scanning the worktree's target dirs
+  if (isPlan && worktreePath) {
+    for (const homeDir of [...new Set([configuredTargetDir, "v1/spec", "v2/spec"])]) {
+      const specRoot = join(worktreePath, homeDir);
+      if (!existsSync(specRoot)) continue;
+
+      const candidates = [join(specRoot, specName), join(specRoot, `${specName}.md`)];
+      try {
+        const timestamped = readdirSync(specRoot)
+          .filter((e) => e !== "completed")
+          .filter((e) => stripPlanSpecTimestampPrefix(e) === specName)
+          .sort()[0];
+        if (timestamped !== undefined) candidates.push(join(specRoot, timestamped));
+      } catch {
+        // skip unreadable home
+      }
+
+      for (const candidate of candidates) {
+        if (!existsSync(candidate)) continue;
+        try {
+          if (statSync(candidate).isDirectory()) return resolveSpecDir(candidate);
+          if (candidate.endsWith(".md")) return { ok: true, specPath: candidate };
+        } catch {
+          // skip unreadable entry
+        }
       }
     }
   }
@@ -1296,7 +1330,7 @@ function resolveTriageNamedWorktree(opts: TriageCommandOptions, label: string): 
     specPath = resolvedPath;
   } else {
     const targetDir = resolvePlanTargetDir(opts);
-    const derived = deriveSpecPathFromBranch(branch, opts.projectRoot, targetDir);
+    const derived = deriveSpecPathFromBranch(branch, opts.projectRoot, targetDir, worktreePath);
     if (!derived.ok) {
       if (derived.reason === "no-match") {
         refuse(`no spec found for branch ${branch}`, mergeClass);

@@ -43,17 +43,17 @@ After relocation, allowed `v2/src/` root entries: `cli.ts`, `cli.test.ts`,
 
 ## Task checklist
 
-- [ ] Diff `v2/src/*.{ts,tsx}` at repo root against the table above; reconcile any drift before doc work.
-- [ ] Add `## Source layout` to `v2/docs/v2-architecture.md`: domain→directory table, import-direction matrix (including production ↛ `testing/` and persistence type-only exception), entrypoint policy (`bin/jarvis`, `daemon-lifecycle` spawn), co-located-test convention, no-barrel rule, target-vs-enforced note, and the explicit per-file inventory above; reconcile or forward-reference stale flat-root path citations in the same file (e.g. `v2/src/daemon-lifecycle.ts` → `daemon/`).
-- [ ] Update `v2/docs/v2-vision.md` repo-layout note: co-located `*.test.ts` beside domain modules under `v2/src/<domain>/`, not flat `v2/src/*.test.ts`; keep `v2/test/fixtures/` grandfathering.
-- [ ] Update `v2/docs/v2-build-order.md` Phase 0: preserve shipped flat-root scaffold history; forward-reference **Source layout** as the target shape (domain directories + co-located tests).
+- [x] Diff `v2/src/*.{ts,tsx}` at repo root against the table above; reconcile any drift before doc work.
+- [x] Add `## Source layout` to `v2/docs/v2-architecture.md`: domain→directory table, import-direction matrix (including production ↛ `testing/` and persistence type-only exception), entrypoint policy (`bin/jarvis`, `daemon-lifecycle` spawn), co-located-test convention, no-barrel rule, target-vs-enforced note, and the explicit per-file inventory above; reconcile or forward-reference stale flat-root path citations in the same file (e.g. `v2/src/daemon-lifecycle.ts` → `daemon/`).
+- [x] Update `v2/docs/v2-vision.md` repo-layout note: co-located `*.test.ts` beside domain modules under `v2/src/<domain>/`, not flat `v2/src/*.test.ts`; keep `v2/test/fixtures/` grandfathering.
+- [x] Update `v2/docs/v2-build-order.md` Phase 0: preserve shipped flat-root scaffold history; forward-reference **Source layout** as the target shape (domain directories + co-located tests).
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/v2-architecture.md` contains `## Source layout` with all five host/library domains, `ipc/`, and `testing/`; import rules match the matrix above; entrypoints pinned at `v2/src/cli.ts` and `v2/src/daemon-entrypoint.ts` with `bin/jarvis` and `daemon-lifecycle.ts` spawn coupling named; co-located-by-domain test convention and no-barrel rule stated; no same-file flat-root path contradicts the domain map without a forward reference.
-- [ ] **Source layout** lists every current `v2/src/*.ts` and `v2/src/*.tsx` root file (excluding `ipc/` and `testing/` subtree contents) by explicit basename under exactly one domain row — no glob patterns.
-- [ ] `v2/docs/v2-vision.md` describes co-located-by-domain tests; the flat `v2/src/*.test.ts` wording is gone; `v2/test/fixtures/` grandfathering retained.
-- [ ] `v2/docs/v2-build-order.md` Phase 0 records the flat root that shipped and points at **Source layout** as the target shape — does not rewrite Phase 0 as if domain directories always existed.
+- [x] `v2/docs/v2-architecture.md` contains `## Source layout` with all five host/library domains, `ipc/`, and `testing/`; import rules match the matrix above; entrypoints pinned at `v2/src/cli.ts` and `v2/src/daemon-entrypoint.ts` with `bin/jarvis` and `daemon-lifecycle.ts` spawn coupling named; co-located-by-domain test convention and no-barrel rule stated; no same-file flat-root path contradicts the domain map without a forward reference.
+- [x] **Source layout** lists every current `v2/src/*.ts` and `v2/src/*.tsx` root file (excluding `ipc/` and `testing/` subtree contents) by explicit basename under exactly one domain row — no glob patterns.
+- [x] `v2/docs/v2-vision.md` describes co-located-by-domain tests; the flat `v2/src/*.test.ts` wording is gone; `v2/test/fixtures/` grandfathering retained.
+- [x] `v2/docs/v2-build-order.md` Phase 0 records the flat root that shipped and points at **Source layout** as the target shape — does not rewrite Phase 0 as if domain directories always existed.
 
 ## Documentation updates
 

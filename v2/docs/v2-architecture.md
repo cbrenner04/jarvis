@@ -6,6 +6,70 @@ constraints/guiding principles that govern the design; this doc owns the *how* �
 the layered model, prompts, workflows, config, the execution model, and the
 runtime. It reuses the behavior-loop vocabulary defined in the vision.
 
+## Source layout
+
+Canonical home for `v2/src/` domain boundaries, import direction, and entrypoint
+policy. Module responsibilities live here — not duplicated in per-domain docs.
+
+**Target shape:** role-based domain directories under `v2/src/` with tests
+co-located beside the modules they cover. **Today:** most modules still sit at
+the flat `v2/src/` root; relocation intents move them under the directories below
+without changing public behavior.
+
+### Domain map
+
+| Domain | Directory (target) | Root modules (today) |
+| --- | --- | --- |
+| Execution library | `v2/src/execution/` | `external-worktree.ts`, `external-worktree.sandbox-unrunnable.test.ts`, `invocation-failure.ts`, `step-runner.ts`, `step-runner.test.ts`, `write-loop-input.ts`, `write-loop-input.test.ts`, `write-loop.ts`, `write-loop.test.ts`, `write-prompt.ts`, `write-prompt.test.ts`, `write.ts`, `write.test.ts` |
+| Persistence library | `v2/src/persistence/` | `log-stream.ts`, `log-stream.test.ts`, `log-stream.sandbox-unrunnable.test.ts`, `state-store-types.ts`, `state-store.ts`, `state-store.test.ts` |
+| Daemon host | `v2/src/daemon/` | `daemon.ts`, `daemon.sandbox-unrunnable.test.ts`, `daemon-wire.ts`, `daemon-wire.test.ts`, `daemon-lifecycle.ts`, `daemon-lifecycle.test.ts`, `daemon-run-failure-capture.test.ts`, `daemon-start-list.test.ts`, `daemon-tail-stream.test.ts`, `daemon-wait-run-completion.test.ts`, `run-operator-error.ts`, `run-operator-error.test.ts`, `daemon-entrypoint.ts` (root entrypoint only) |
+| TUI host | `v2/src/tui/` | `tui-daemon-client.ts`, `tui-daemon-client.test.ts`, `tui-daemon-errors.ts`, `tui-daemon-rpc-transport.ts`, `tui-entry.tsx`, `tui-entry.test.tsx`, `tui-field-collector.tsx`, `tui-ink-feedback.tsx`, `tui-ink-log-follow.tsx`, `tui-ink-monitor.tsx`, `tui-ink-runtime.ts`, `tui-log-follow-entry.tsx`, `tui-log-follow-entry.test.tsx`, `tui-log-follow-lines.ts`, `tui-log-follow-types.ts`, `tui-log-tail-client.ts`, `tui-log-tail-client.test.ts`, `tui-monitor-lines.ts`, `tui-monitor-types.ts` |
+| CLI host | `v2/src/` root | `cli.ts`, `cli.test.ts` |
+| IPC transport | `v2/src/ipc/` | (already subtree) |
+| Test support | `v2/src/testing/` | `preload.sandbox-unrunnable.test.ts` (root today; harness `test/test-slices.test.ts` hardcodes path — co-update on move) plus existing `testing/` modules |
+
+After relocation, allowed `v2/src/` root entries: `cli.ts`, `cli.test.ts`,
+`daemon-entrypoint.ts`, and the `ipc/` and `testing/` subtrees. The CLI host has
+no `cli/` subdirectory while only `cli.ts` / `cli.test.ts` constitute the domain.
+
+### Import direction
+
+Target matrix (Biome enforcement may lag until relocation + a follow-on subspec):
+
+| From | May import |
+| --- | --- |
+| Hosts (`cli`, `daemon`, `tui`) | Libraries + `ipc/` + `shared/` + sibling hosts (composition) |
+| Execution library | Persistence + `shared/` |
+| Persistence library | `shared/` only |
+| `ipc/` | `shared/` only |
+| `testing/` | Anything |
+| Production code | Not `testing/` |
+
+Rules out library → host imports and production imports of test support.
+
+**Committed exception (today only):** `state-store.ts` type-imports
+`InvocationFailureDetail` from `invocation-failure.ts`. Break on persistence or
+execution relocation (hoist type to `shared/` or colocate); no silent value
+imports across libraries.
+
+### Entrypoints
+
+Pinned at `v2/src/` root until relocated with every caller updated in the same
+change set:
+
+- **`v2/src/cli.ts`** — `bin/jarvis` dispatches to `../v2/src/cli.ts`.
+- **`v2/src/daemon-entrypoint.ts`** — `daemon-lifecycle` default spawn:
+  `resolve(import.meta.dir, "daemon-entrypoint.ts")` (today beside flat-root
+  `daemon-lifecycle.ts`; target `daemon/daemon-lifecycle.ts`).
+
+### Conventions
+
+- **Co-located tests:** `*.test.ts` / `*.test.tsx` beside the domain module
+  they cover under `v2/src/<domain>/`, not a parallel `v2/test/` mirror of
+  `v2/src/`. Grandfathered `v2/test/fixtures/` (Biome demos) stays.
+- **No barrel `index.ts` re-export layers** — hosts import dependencies
+  directly; no facades that hide dependency graphs.
+
 ## The layered model
 
 The smallest pieces of Jarvis split across four layers — two in source, two in
@@ -227,7 +291,8 @@ a server/runner world (pause + route to a human loop vs. process exit).
   reader interfaces. Appended directly by the write loop; not part of the
   orchestration store. Consumers query via `tail` (snapshot of persisted events)
   or `follow` (replay from seq 1, then stream new events until aborted). See
-  `log-stream.ts` for inline contracts.
+  `persistence/log-stream.ts` (today `v2/src/log-stream.ts`) for inline
+  contracts.
 - **Entry is explicit workflow selection.** A run starts by naming a workflow +
   target over the API/CLI. A natural-language prompt router — `jarvis "<intent>"`
   that classifies free text and routes to a workflow (new run) or an existing run
@@ -250,7 +315,8 @@ Observability (log follow interface):
   appends from a separate writer process after replay. No offset/cursor API —
   consumers filter post-hoc via the `seq` field on `PersistedRecord`. Honour
   `AbortSignal` for clean shutdown. Daemon IPC tail inherits this via `follow`;
-  mechanism detail (OS primitive, test seam) pinned in `log-stream.ts`.
+  mechanism detail (OS primitive, test seam) pinned in
+  `persistence/log-stream.ts` (today `v2/src/log-stream.ts`).
 - **Tail is served over the IPC stream.** Clients open a multiplexed stream with
   `stream-open` carrying the run ID in the payload. The daemon backs the stream
   with the log reader's `follow(runId, signal)`, replaying persisted records,
@@ -504,7 +570,8 @@ surface is a sibling concern, wired via this interface).
   (`health`, `status`, custom handlers) and multiplexed streams (log, workflow
   output). See [`daemon-host.md`](daemon-host.md) for frame shapes and semantics.
 - **Lifecycle API:** Programmatic `startDaemon`, `stopDaemon`, `getDaemonStatus`
-  in `v2/src/daemon-lifecycle.ts`. Detached child process with bounded readiness
+  in `daemon/daemon-lifecycle.ts` (today `v2/src/daemon-lifecycle.ts`). Detached
+  child process with bounded readiness
   timeout, graceful shutdown (RPC + SIGTERM + SIGKILL), and double-start
   protection. Production socket and PID defaults (`~/.jarvis/daemon.sock`,
   `~/.jarvis/daemon.pid`) are pinned by the CLI and [`jarvis tui`](./write-behavior.md#tui-cli);

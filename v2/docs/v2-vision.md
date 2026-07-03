@@ -20,7 +20,8 @@ v1/                   # engine v1 (own tsconfig project)
   spec/
   docs/
 v2/                   # engine v2 (own tsconfig project)
-  src/                # source and co-located *.test.ts files
+  src/                # domain directories; co-located *.test.ts beside modules
+  test/fixtures/      # grandfathered Biome demo fixtures only
   spec/               # v2 specs + work-seed intents (seeds/)
   docs/               # long-lived v2 reference docs (vision, architecture, ...)
 ```
@@ -31,7 +32,7 @@ Prompts are a top-level peer, not owned by either engine (see "Core premise" and
 
 - **Behavior is the source of truth.** v1's *implementation* is mostly disposable; its *behaviors and user workflows* are what v2 must preserve.
 - **Documented in code.** Follow the operational standard in [`documentation-standard.md`](documentation-standard.md): doc-comment exported symbols and document each behavior in one durable home. Separate higher-level docs keep the big picture coherent.
-- **Tests beside v2 source.** v2 tests live next to the source they cover instead of in a parallel `v2/test/` tree. Keep test-only fixtures near their owning code unless a genuinely shared fixture earns a shared home.
+- **Tests beside v2 source.** v2 tests live next to the domain modules they cover under `v2/src/<domain>/`, not in a parallel `v2/test/` mirror of `v2/src/`. Grandfathered `v2/test/fixtures/` (Biome demos) stays; other test-only fixtures belong near their owning code unless a genuinely shared fixture earns a shared home. Target layout: [`v2-architecture.md` → Source layout](v2-architecture.md#source-layout).
 - **Composable over modal.** "mode" (plan / patch / review / yolo) is not a source-code primitive — modes are user-defined workflow presets composed from a small behavior vocabulary. Settled; the concrete model lives in [`v2-architecture.md`](v2-architecture.md).
 - **No tech-stack churn.** bun + biome + typescript stay.
 - **Be terse.** Verbosity costs money and review effort. Minimize it across planning, implementation, and review — in Jarvis source and target repos alike. If verbosity can drop with near-identical outcomes, drop it.

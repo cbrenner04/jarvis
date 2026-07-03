@@ -19,6 +19,6 @@ Tests must be deterministic and sandbox-runnable by default. See [`test-writing.
 
 ## Referenced documents
 
-- [`v2-architecture.md`](./v2-architecture.md) — v2 design boundaries and module responsibilities
+- [`v2-architecture.md` → Source layout](./v2-architecture.md#source-layout) — domain map and import direction
 - [`v1-behaviors.md`](./v1-behaviors.md) — v1 behaviors that v2 does not replicate in this build window
 - [`test-writing.md`](./test-writing.md) — test-writing conventions for agent-runnable tests and sandbox-unrunnable exceptions

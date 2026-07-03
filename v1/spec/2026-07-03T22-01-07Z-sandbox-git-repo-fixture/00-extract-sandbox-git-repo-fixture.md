@@ -19,9 +19,9 @@
 
 ## Acceptance criteria
 
-- [ ] `external-worktree.sandbox-unrunnable.test.ts` stays green (behavior unchanged by the extraction).
-- [ ] `v2/src/testing/sandbox-git-repo.ts` exists, is the sole real-`git`-spawning fixture under `v2/src/testing/`, and is imported only by `.sandbox-unrunnable.test.ts` files.
-- [ ] `bun run test:v2` (agent-runnable slice) does not import or transitively load the new fixture.
+- [x] `external-worktree.sandbox-unrunnable.test.ts` stays green (behavior unchanged by the extraction).
+- [x] `v2/src/testing/sandbox-git-repo.ts` exists, is the sole real-`git`-spawning fixture under `v2/src/testing/`, and is imported only by `.sandbox-unrunnable.test.ts` files.
+- [x] `bun run test:v2` (agent-runnable slice) does not import or transitively load the new fixture.
 
 ## Documentation updates
 

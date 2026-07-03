@@ -1,10 +1,11 @@
 // Marked as .sandbox-unrunnable: requires real `git worktree` behavior for branch materialization and lock semantics.
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { setupSandboxGitRepo } from "../testing/sandbox-git-repo.ts";
+import { trackedTempRoots } from "../testing/write-fixtures.ts";
 import {
   getExternalWorktreeLockPath,
   getExternalWorktreePath,
@@ -12,35 +13,7 @@ import {
   withExternalWorktree,
 } from "./external-worktree.ts";
 
-const roots: string[] = [];
-
-afterEach(() => {
-  for (const root of roots.splice(0, roots.length)) {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-function setupRepo(): { repoRoot: string; jarvisRoot: string } {
-  const root = mkdtempSync(join(tmpdir(), "jarvis-v2-worktree-"));
-  roots.push(root);
-  const repoRoot = join(root, "repo");
-  const jarvisRoot = join(root, "jarvis-home");
-
-  execFileSync("git", ["init", repoRoot], { stdio: "pipe" });
-  execFileSync("git", ["-C", repoRoot, "config", "user.email", "test@example.com"], {
-    stdio: "pipe",
-  });
-  execFileSync("git", ["-C", repoRoot, "config", "user.name", "Test User"], {
-    stdio: "pipe",
-  });
-  writeFileSync(join(repoRoot, "README.md"), "seed\n", "utf8");
-  execFileSync("git", ["-C", repoRoot, "add", "README.md"], { stdio: "pipe" });
-  execFileSync("git", ["-C", repoRoot, "commit", "-m", "seed"], {
-    stdio: "pipe",
-  });
-
-  return { repoRoot, jarvisRoot };
-}
+const { roots } = trackedTempRoots();
 
 function getLockRoot(jarvisRoot: string): string {
   return join(jarvisRoot, "worktree-locks", "demo", "write-run");
@@ -48,7 +21,7 @@ function getLockRoot(jarvisRoot: string): string {
 
 describe("external worktree helper", () => {
   test("creates a fresh external worktree and releases lock on success", async () => {
-    const { repoRoot, jarvisRoot } = setupRepo();
+    const { repoRoot, jarvisRoot } = setupSandboxGitRepo(roots);
     const result = await withExternalWorktree(
       {
         projectRoot: repoRoot,
@@ -72,7 +45,7 @@ describe("external worktree helper", () => {
   });
 
   test("recovers stale lock and reports recovered status", async () => {
-    const { repoRoot, jarvisRoot } = setupRepo();
+    const { repoRoot, jarvisRoot } = setupSandboxGitRepo(roots);
 
     await withExternalWorktree(
       {
@@ -112,8 +85,8 @@ describe("external worktree helper", () => {
   });
 
   test("refuses to reuse a worktree from a different repository", async () => {
-    const { repoRoot, jarvisRoot } = setupRepo();
-    const other = setupRepo();
+    const { repoRoot, jarvisRoot } = setupSandboxGitRepo(roots);
+    const other = setupSandboxGitRepo(roots);
 
     await withExternalWorktree(
       {
@@ -141,7 +114,7 @@ describe("external worktree helper", () => {
   });
 
   test("refuses to reuse a worktree on a different branch", async () => {
-    const { repoRoot, jarvisRoot } = setupRepo();
+    const { repoRoot, jarvisRoot } = setupSandboxGitRepo(roots);
 
     const result = await withExternalWorktree(
       {
@@ -173,7 +146,7 @@ describe("external worktree helper", () => {
   });
 
   test("refuses busy lock with v1-compatible payload", async () => {
-    const { repoRoot, jarvisRoot } = setupRepo();
+    const { repoRoot, jarvisRoot } = setupSandboxGitRepo(roots);
 
     await withExternalWorktree(
       {
@@ -212,7 +185,7 @@ describe("external worktree helper", () => {
   });
 
   test("refuses reusing a non-worktree directory", async () => {
-    const { repoRoot, jarvisRoot } = setupRepo();
+    const { repoRoot, jarvisRoot } = setupSandboxGitRepo(roots);
     const path = getExternalWorktreePath({
       projectRoot: repoRoot,
       projectName: "demo",
@@ -237,7 +210,7 @@ describe("external worktree helper", () => {
   });
 
   test("releases lock when callback fails", async () => {
-    const { repoRoot, jarvisRoot } = setupRepo();
+    const { repoRoot, jarvisRoot } = setupSandboxGitRepo(roots);
 
     await expect(
       withExternalWorktree(
@@ -258,7 +231,7 @@ describe("external worktree helper", () => {
   });
 
   test("recreates a missing but still-registered worktree", async () => {
-    const { repoRoot, jarvisRoot } = setupRepo();
+    const { repoRoot, jarvisRoot } = setupSandboxGitRepo(roots);
 
     const first = await withExternalWorktree(
       {

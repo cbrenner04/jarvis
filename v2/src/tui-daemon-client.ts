@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { WaitRunCompletionResult } from "./daemon.ts";
+import type { WaitRunCompletionResult } from "./daemon/daemon.ts";
 import {
   type DaemonListResult,
   parseHealthResult,
@@ -8,7 +8,7 @@ import {
   parseStartResult,
   parseStatusResult,
   parseWaitCompletion,
-} from "./daemon-wire.ts";
+} from "./daemon/daemon-wire.ts";
 import type { WriteLoopInput } from "./execution/write-loop.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import { TuiDaemonConnectionError } from "./tui-daemon-errors.ts";

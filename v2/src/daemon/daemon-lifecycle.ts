@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { connectIpcClient } from "./ipc/client";
+import { connectIpcClient } from "../ipc/client";
 
 export class DaemonAlreadyRunningError extends Error {
   constructor(socketPath: string) {
@@ -73,7 +73,7 @@ export async function startDaemon(
     throw new DaemonAlreadyRunningError(socketPath);
   }
 
-  const daemonScript = options?.daemonScript ?? resolve(import.meta.dir, "daemon-entrypoint.ts");
+  const daemonScript = options?.daemonScript ?? resolve(import.meta.dir, "../daemon-entrypoint.ts");
 
   const proc = spawn("bun", [daemonScript], {
     detached: true,

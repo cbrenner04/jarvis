@@ -9,7 +9,7 @@ import { writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createTailStreamHandler } from "../daemon.ts";
+import { createTailStreamHandler } from "../daemon/daemon.ts";
 import { openLogReader, openLogSink, type PersistedRecord } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";

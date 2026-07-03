@@ -49,16 +49,16 @@ changes.
 
 ## Acceptance criteria
 
-- [ ] `bun run typecheck` passes with no daemon-domain import errors.
-- [ ] `daemon-lifecycle.test.ts` and `daemon.sandbox-unrunnable.test.ts` stay
+- [x] `bun run typecheck` passes with no daemon-domain import errors.
+- [x] `daemon-lifecycle.test.ts` and `daemon.sandbox-unrunnable.test.ts` stay
       green (spawn/lifecycle behavior unchanged by the move).
-- [ ] `daemon-wire.test.ts`, `daemon-run-failure-capture.test.ts`,
+- [x] `daemon-wire.test.ts`, `daemon-run-failure-capture.test.ts`,
       `daemon-start-list.test.ts`, `daemon-tail-stream.test.ts`,
       `daemon-wait-run-completion.test.ts`, and `run-operator-error.test.ts`
       stay green.
-- [ ] `test/test-slices.test.ts` stays green (integration-file enumeration
+- [x] `test/test-slices.test.ts` stays green (integration-file enumeration
       matches the relocated path).
-- [ ] No new layering violation is introduced by the relocation: every moved
+- [x] No new layering violation is introduced by the relocation: every moved
       module's imports resolve to execution, persistence, `ipc/`, or
       `shared/` paths only (matching the precedent set by the
       execution/persistence library moves).

@@ -166,11 +166,11 @@ open.
 ## Daemon lifecycle API
 
 The daemon is a detached child process. Callers interact via three programmatic
-functions in `v2/src/daemon-lifecycle.ts`.
+functions in `v2/src/daemon/daemon-lifecycle.ts`.
 
 ### `startDaemon(socketPath, options?)`
 
-Spawns a detached child running `v2/src/daemon.ts`. Returns metadata `{pid,
+Spawns a detached child running `v2/src/daemon/daemon.ts`. Returns metadata `{pid,
 socketPath}` or throws on startup failure.
 
 **Injected paths:** Callers must supply an explicit `socketPath`; the daemon

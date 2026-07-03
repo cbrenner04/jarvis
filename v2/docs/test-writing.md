@@ -78,9 +78,9 @@ const handlers = createRunControlHandlers({
 server = await startIpcServer(SOCKET_PATH, handlers);
 ```
 
-The write-loop executor fake is outside the owned boundary; assertions exercise real handler behavior. See [`v2/src/daemon-start-list.test.ts`](../src/daemon-start-list.test.ts).
+The write-loop executor fake is outside the owned boundary; assertions exercise real handler behavior. See [`v2/src/daemon/daemon-start-list.test.ts`](../src/daemon/daemon-start-list.test.ts).
 
-Tail-stream IPC tests use the same factory-over-fakes pattern with `createTailStreamHandler`. See [`v2/src/ipc/ipc.test.ts`](../src/ipc/ipc.test.ts) and [`v2/src/daemon-tail-stream.test.ts`](../src/daemon-tail-stream.test.ts).
+Tail-stream IPC tests use the same factory-over-fakes pattern with `createTailStreamHandler`. See [`v2/src/ipc/ipc.test.ts`](../src/ipc/ipc.test.ts) and [`v2/src/daemon/daemon-tail-stream.test.ts`](../src/daemon/daemon-tail-stream.test.ts).
 
 This example documents the mistake class only; it does not require migrating unrelated tests.
 

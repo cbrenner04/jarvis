@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { createRunControlHandlers } from "./daemon.ts";
+import { createRunControlHandlers } from "./daemon/daemon.ts";
 import type { WriteLoopInput } from "./execution/write-loop.ts";
 import type { IpcClient } from "./ipc/client.ts";
 import { connectIpcClient } from "./ipc/client.ts";

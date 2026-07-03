@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { createTailStreamHandler } from "./daemon.ts";
+import { createTailStreamHandler } from "./daemon/daemon.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import { type IpcServer, startIpcServer } from "./ipc/server.ts";
 import type { IpcFrame } from "./ipc/types.ts";

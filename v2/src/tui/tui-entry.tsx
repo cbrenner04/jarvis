@@ -150,7 +150,12 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
 
     void (async () => {
       try {
-        await client![method](runId);
+        const activeClient = client;
+        if (!activeClient) {
+          setState({ ...currentState, steeringFeedback: "client not connected" });
+          return;
+        }
+        await activeClient[method](runId);
         if (currentState.selectedRunId !== runId) return;
         if (rewaitOnSuccess) {
           activeWaitToken += 1;

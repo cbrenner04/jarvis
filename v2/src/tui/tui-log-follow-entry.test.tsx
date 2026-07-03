@@ -306,7 +306,12 @@ describe("runTuiLogFollow", () => {
     expect(code).toBe(0);
     expect(view.lines).toHaveLength(3);
     for (let index = 0; index < records.length; index += 1) {
-      assertLineShape(view.lines[index]!, records[index]!);
+      const line = view.lines[index];
+      const record = records[index];
+      if (!line || !record) {
+        throw new Error(`Missing line or record at index ${index}`);
+      }
+      assertLineShape(line, record);
     }
     expect(tail.closed).toBe(true);
     expect(view.isClosed()).toBe(true);
@@ -367,7 +372,11 @@ describe("runTuiLogFollow", () => {
 
     expect(code).toBe(0);
     expect(view.lines).toHaveLength(2);
-    assertLineShape(view.lines[1]!, live);
+    const line = view.lines[1];
+    if (!line) {
+      throw new Error("Missing line at index 1");
+    }
+    assertLineShape(line, live);
   });
 
   test("immediate benign stream-end yields zero event lines and exits 0", async () => {

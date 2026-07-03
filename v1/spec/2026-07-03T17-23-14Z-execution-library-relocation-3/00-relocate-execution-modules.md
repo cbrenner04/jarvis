@@ -16,19 +16,25 @@ Behavior unchanged.
 
 ## Decisions
 
-- `git mv` twelve execution basenames with co-located tests into
-  `v2/src/execution/` — rules out copy-delete moves that drop history.
+- `git mv` thirteen execution basenames (twelve with co-located tests, plus
+  `invocation-failure.ts` which has none) into `v2/src/execution/` — rules out
+  copy-delete moves that drop history.
 - Relative import path fixes only; no logic refactors, type renames, or file
   splits — rules out bundling cleanup with the move.
 - Committed execution↔persistence type-only edges (`invocation-failure.ts` ←
   `state-store.ts`, `write-loop.ts` ← `log-stream.ts`) get path fixes only —
-  rules out breaking those edges in this slice.
+  confirmed present today (`state-store.ts:5`, `log-stream.ts:3`) and already
+  documented as sanctioned exceptions in `v2-architecture.md` **Source
+  layout** — rules out breaking those edges in this slice.
 - Execution imports persistence (`./persistence/…` becomes `../persistence/…`)
   plus `shared/` only — rules out new host imports introduced by path fixes.
 - Co-update `test/test-slices.test.ts` hardcoded
   `v2/src/external-worktree.sandbox-unrunnable.test.ts` path on move — same
   pattern as prior `preload.sandbox-unrunnable` and `log-stream.sandbox-unrunnable`
   relocations.
+- Reconcile `v2/docs/v2-architecture.md`'s **Root modules (today)** row in
+  this subspec (beyond the intent's doc list) — left stale it would
+  self-contradict the relocated tree it documents.
 
 ### Modules (today's flat root → target)
 

@@ -1977,7 +1977,7 @@ Some content with a reference.
       const content = readFileSync(join(worktree, "spec", "ready-intents", "missing-heading.md"), "utf8");
       expect(content).toContain("# Missing Heading");
       const lines = content.split("\n");
-      const headingIdx = lines.findIndex((line) => line === "# Missing Heading");
+      const headingIdx = lines.indexOf("# Missing Heading");
       const contentIdx = lines.findIndex((line) => line.includes("Some content without a heading"));
       expect(headingIdx).toBeGreaterThanOrEqual(0);
       expect(contentIdx).toBeGreaterThan(headingIdx);

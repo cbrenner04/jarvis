@@ -43,7 +43,8 @@ Behavior unchanged.
 | `state-store.ts` |
 | `state-store.test.ts` |
 
-### Importers to re-path (non-exhaustive; grep `log-stream`, `state-store`,
+### Importers to re-path (non-exhaustive; grep `log-stream`, `state-store`
+
 `state-store-types`, and `persistence/` path patterns)
 
 Hosts and libraries still at flat root today import via `./…`; after the move

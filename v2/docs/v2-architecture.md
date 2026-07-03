@@ -37,15 +37,23 @@ Target matrix (Biome may lag until relocation + follow-on subspec):
 | --- | --- |
 | Hosts (`cli`, `daemon`, `tui`) | Libraries + `ipc/` + `shared/` + sibling hosts (composition) |
 | Execution library | Persistence + `shared/` |
-| Persistence library | `shared/` only |
+| Persistence library | `shared/` only (type-only → execution: committed exceptions) |
 | `ipc/` | `shared/` only |
 | `testing/` | Anything |
 | Production code | Not `testing/` |
 
-**Committed exception (today only):** `state-store.ts` type-imports
-`InvocationFailureDetail` from `invocation-failure.ts`. Break on persistence or
-execution relocation (hoist type to `shared/` or colocate); no silent value
-imports across libraries.
+**Committed exceptions (today only):** persistence may type-import from execution
+on these edges only — no value imports:
+
+| Persistence | Execution | Type |
+| --- | --- | --- |
+| `state-store.ts` | `invocation-failure.ts` | `InvocationFailureDetail` |
+| `log-stream.ts` | `write-loop.ts` | `WriteLoopOutcomeKind` |
+
+`log-stream` ↔ `write-loop` is a mutual type-only dependency: execution imports
+`LogSink` from persistence; persistence imports `WriteLoopOutcomeKind` from
+execution. Break on persistence or execution relocation (hoist shared types to
+`shared/` or colocate); no silent value imports across libraries.
 
 ### Entrypoints
 

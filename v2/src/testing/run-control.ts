@@ -1,7 +1,7 @@
 import { expect } from "bun:test";
+import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import type { IpcClient } from "../ipc/client.ts";
-import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 
 type ListRunsResult = { runs?: DaemonListRunRow[] } | undefined;
 
@@ -21,10 +21,7 @@ export function mockWriteLoopInput(worktreeOverrides: Partial<WriteLoopInput["wo
   };
 }
 
-export async function startRun(
-  client: IpcClient,
-  input = mockWriteLoopInput(),
-): Promise<string | undefined> {
+export async function startRun(client: IpcClient, input = mockWriteLoopInput()): Promise<string | undefined> {
   client.send({ kind: "request", id: "s1", method: "start", params: { input } });
   const frame = await client.nextFrame();
   expect(frame.kind).toBe("response");

@@ -18,6 +18,7 @@ export type ClaudeAgentOptions = {
 const CLAUDE_MODEL_LABELS: Record<string, string> = {
   "claude-opus-4-8": "Claude Opus 4.8",
   "claude-sonnet-4-6": "Claude Sonnet 4.6",
+  "claude-sonnet-5": "Claude Sonnet 5",
   "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
 };
 
@@ -27,6 +28,7 @@ const CLAUDE_PRICE_KEYS: Record<string, string> = {
   opus: "claude-opus-4-8",
   "claude-haiku-4-5-20251001": "claude-haiku-4-5-20251001",
   "claude-sonnet-4-6": "claude-sonnet-4-6",
+  "claude-sonnet-5": "claude-sonnet-5",
   "claude-opus-4-8": "claude-opus-4-8",
 };
 

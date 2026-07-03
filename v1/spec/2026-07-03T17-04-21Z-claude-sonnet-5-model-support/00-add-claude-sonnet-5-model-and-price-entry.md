@@ -16,10 +16,10 @@ Operators can pin `model: claude-sonnet-5` in a project's claude agent config an
 
 ## Acceptance criteria
 
-- [ ] `attributionLabel("claude-sonnet-5")` returns `"Claude Sonnet 5"`, and `resolveClaudePriceKey("claude-sonnet-5")` resolves a non-null price key.
-- [ ] `resolveClaudePriceKey("sonnet")` still returns `"claude-sonnet-4-6"` (unchanged).
-- [ ] `resolveClaudePriceKey("sonnet-5")` returns `null` (no bare alias added).
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `attributionLabel("claude-sonnet-5")` returns `"Claude Sonnet 5"`, and `resolveClaudePriceKey("claude-sonnet-5")` resolves a non-null price key.
+- [x] `resolveClaudePriceKey("sonnet")` still returns `"claude-sonnet-4-6"` (unchanged).
+- [x] `resolveClaudePriceKey("sonnet-5")` returns `null` (no bare alias added).
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

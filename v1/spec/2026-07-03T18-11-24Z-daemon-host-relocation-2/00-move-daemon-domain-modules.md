@@ -58,17 +58,24 @@ changes.
       stay green.
 - [ ] `test/test-slices.test.ts` stays green (integration-file enumeration
       matches the relocated path).
-- [ ] No `v2/src/` module outside `v2/src/daemon/` and `v2/src/daemon-entrypoint.ts`
-      imports execution, persistence, `ipc/`, or `shared/` on the daemon
-      host's behalf (`git mv` moved every non-entrypoint daemon module).
+- [ ] No new layering violation is introduced by the relocation: every moved
+      module's imports resolve to execution, persistence, `ipc/`, or
+      `shared/` paths only (matching the precedent set by the
+      execution/persistence library moves).
 
 ## Documentation updates
 
 - `v2/docs/daemon-host.md`: fix `v2/src/daemon-lifecycle.ts` and
   `v2/src/daemon.ts` citations to `v2/src/daemon/daemon-lifecycle.ts` and
-  `v2/src/daemon/daemon.ts`.
+  `v2/src/daemon/daemon.ts`; fix the Entrypoints-section prose citing
+  `resolve(import.meta.dir, "daemon-entrypoint.ts")` to the new
+  `../daemon-entrypoint.ts` path.
 - `v2/docs/test-writing.md`: fix the two `../src/daemon-*.test.ts` links to
   `../src/daemon/daemon-*.test.ts`.
 - `v2/docs/v1-behaviors.md`: no `Sources:` line currently cites a daemon
   module path directly (existing citations are `v2/src/cli.ts`); confirm this
   and make no change unless one is found.
+- `v2-architecture.md`: update the Domain map's Daemon host row to the
+  `Relocated from flat root: <list>` convention already used for the
+  Execution/Persistence rows, dropping the separate `daemon-entrypoint.ts`
+  callout (it stays at root, covered by the Entrypoints policy).

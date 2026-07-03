@@ -1,0 +1,10 @@
+VERDICT — REQUIRED REFINEMENTS
+
+1. Add `v2-architecture.md` Domain map update to Documentation updates: the Daemon host row still lists a flat-root module list and calls out `daemon-entrypoint.ts` separately, but after this move it should follow the same convention already used for Execution/Persistence (relocated-domain rows read `Relocated from flat root: <list>`). Add this file/edit to `00-move-daemon-domain-modules.md`'s Documentation updates.
+
+2. Add the Entrypoints-section spawn-path prose fix to the same Documentation updates entry: the doc's line citing `resolve(import.meta.dir, "daemon-entrypoint.ts")` becomes stale once the code changes to the `../daemon-entrypoint.ts` path (per this subspec's own Decisions). Fix the doc text alongside the Domain map edit — same file.
+
+3. Reconcile the negative-space acceptance criterion with both the intent and the architecture doc. Two problems, not just wording:
+   - The AC as written checks that no module *outside* daemon imports execution/persistence/ipc/shared "on daemon's behalf" — a no-new-layering-violations check. But the intent's actual decision is that daemon must not import *from* CLI or TUI hosts — a different, unverified direction.
+   - The architecture doc's Import direction matrix explicitly permits hosts (cli, daemon, tui) to import sibling hosts for composition. An AC that forbids daemon-from-CLI/TUI imports would contradict documented, intended architecture, and this subspec is scoped as a mechanical move only (no logic/behavior changes), so it cannot introduce a new layering restriction.
+   - Resolve this by dropping the CLI/TUI-import restriction from the AC and narrowing it to what the move can actually guarantee: no new layering violations introduced by the relocation (matching the precedent set by the execution/persistence library moves). Do not leave an AC that asserts an unverified or doc-contradicting constraint.

@@ -17,13 +17,18 @@ branch is checked out there.
 ## Decisions
 
 - `deriveSpecPathFromBranch` takes an additional `worktreePath` parameter.
-- For `plan/*` branches only, scan `worktreePath`'s target dirs (same
-  `configuredTargetDir`/`v1/spec`/`v2/spec` set, same candidate/timestamp
-  logic) whenever the `projectRoot` scan misses — non-plan branches keep
-  scanning `projectRoot` only, since their spec is expected to already be
-  merged to `main`.
-- The single call site in `resolveTriageNamedWorktree` passes its existing
-  `worktreePath` through.
+- Plan-branch predicate: `branch.startsWith("plan/")` (existing `isPlan` local)
+  gates the worktree fallback — only `plan/*` branches ever scan
+  `worktreePath`; all other branches are unaffected.
+- Match priority: `projectRoot` is scanned first; `worktreePath` is only
+  consulted when that scan misses. A `projectRoot` match wins even if
+  `worktreePath` would also match.
+- For `plan/*` branches only, on a `projectRoot` miss, scan `worktreePath`'s
+  target dirs (same `configuredTargetDir`/`v1/spec`/`v2/spec` set, same
+  candidate/timestamp logic, no new matching algorithm).
+- Verified via grep: `deriveSpecPathFromBranch` has exactly one call site,
+  in `resolveTriageNamedWorktree` (`v1/src/commands/triage.ts`), which
+  already has `worktreePath` in scope — no other caller needs updating.
 
 ## Task Checklist
 
@@ -33,6 +38,9 @@ branch is checked out there.
 - [ ] Add a test: fresh plan worktree, no `.active-spec-path` marker, spec
       directory committed only in the worktree's `v1/spec` (not in
       `projectRoot`'s), `triage --merge` resolves the spec and merges.
+- [ ] Add a test: fresh plan worktree, no matching spec in either
+      `projectRoot` or `worktreePath` — `triage --merge` still surfaces the
+      original `no spec found for branch` error (no throw, no silent match).
 
 ## Acceptance criteria
 
@@ -40,11 +48,19 @@ branch is checked out there.
       directory exists only on the checked-out branch (not in the primary
       checkout) resolves the spec and proceeds to merge instead of refusing
       with `no spec found for branch`.
+- [ ] `triage --merge` on a markerless `plan/<name>` worktree with no
+      matching spec in either the primary checkout or the worktree still
+      returns the `no spec found for branch` error.
 - [ ] Existing markerless-derive tests in `v1/test/triage-command.test.ts`
       (e.g. "--merge markerless resolved worktree derives spec from branch
       and merges", "--merge with missing .active-spec-path and no matching
       spec returns error") stay green (behavior unchanged for non-plan
       branches and for plan branches whose spec is already merged to main).
+- [ ] The "Known gap" paragraph under Merging → Gated merge path is removed
+      from `v1/docs/operator-runbook.md`.
+- [ ] `v2/docs/v1-behaviors.md` records that `triage --merge` resolves a
+      markerless plan-branch spec from the worktree's own target dir when
+      the primary checkout doesn't yet have it.
 
 ## Documentation updates
 

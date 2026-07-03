@@ -25,3 +25,11 @@ Relocate `cli*` per entrypoint policy, update `bin/jarvis` when `cli.ts` moves, 
 
 - `v2/docs/write-behavior.md` — fix CLI-module `v2/src/<file>` citations only.
 - `v2/docs/v1-behaviors.md` — update remaining `Sources:` paths that cite `v2/src/cli.ts` or other moved CLI modules.
+
+## Blocker
+
+- `v2/docs/v2-architecture.md` has no **Source layout** section — domain directories and entrypoint policy are not pinned in durable docs (`v2-src-layout-contract` not merged).
+- Execution library modules (`write-loop*`, `write*`, `step-runner*`, `write-prompt*`, `external-worktree*`, `invocation-failure`) still live at flat `v2/src/` root — `execution-library-relocation` not landed.
+- Persistence library modules (`state-store*`, `log-stream*`) still live at flat `v2/src/` root — `persistence-library-relocation` not landed.
+- Daemon host modules (`daemon*`, `run-operator-error*`) still live at flat `v2/src/` root — `daemon-host-relocation` not landed.
+- TUI host modules (`tui-*`) still live at flat `v2/src/` root — `tui-host-relocation` not landed.

@@ -65,7 +65,8 @@ describe("daemon (real process)", () => {
     let socketUnbound = false;
     for (let i = 0; i < 10; i++) {
       try {
-        await connectIpcClient(SOCKET_PATH);
+        const client = await connectIpcClient(SOCKET_PATH);
+        client.close();
         await new Promise((r) => setTimeout(r, 50));
       } catch {
         socketUnbound = true;

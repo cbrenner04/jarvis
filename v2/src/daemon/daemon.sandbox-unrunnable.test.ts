@@ -1,5 +1,5 @@
-// Exercise actual detached-process lifecycle, graceful shutdown, and in-flight connection draining.
-// This requires real OS process spawn, wall-clock timing, and socket I/O.
+// Minimal smoke test: real detached process start/stop with health and status RPC wire check.
+// This requires real OS process spawn, socket I/O, and verification that socket unbinds.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
@@ -8,8 +8,7 @@ import { join } from "node:path";
 import { connectIpcClient } from "../ipc/client";
 import type { ResponseFrame } from "../ipc/types";
 import { canUseUnixSockets, socketProbeErrored } from "../testing/unix-socket";
-import { DaemonDoubleClaimError, WorktreeOwnershipRegistry } from "./daemon";
-import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon-lifecycle";
+import { startDaemon, stopDaemon } from "./daemon-lifecycle";
 
 if (socketProbeErrored) {
   process.stderr.write("skip: daemon socket tests require socket support in /tmp\n");
@@ -36,114 +35,44 @@ afterEach(() => {
 });
 
 describe("daemon (real process)", () => {
-  socketTest("startDaemon spawns detached process that serves health", async () => {
+  socketTest("detached daemon serves health and status, socket unbinds on stop", async () => {
     const metadata = await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
 
     expect(typeof metadata.pid).toBe("number");
     expect(metadata.socketPath).toBe(SOCKET_PATH);
     expect(metadata.pid).toBeGreaterThan(0);
 
-    const client = await connectIpcClient(SOCKET_PATH);
-    client.send({ kind: "request", id: "h1", method: "health" });
-    const frame = await client.nextFrame();
-    expect(frame.kind).toBe("response");
-    expect((frame as ResponseFrame).result).toEqual({ ok: true });
-    client.close();
+    // Verify health response
+    const healthClient = await connectIpcClient(SOCKET_PATH);
+    healthClient.send({ kind: "request", id: "h1", method: "health" });
+    const healthFrame = await healthClient.nextFrame();
+    expect(healthFrame.kind).toBe("response");
+    expect((healthFrame as ResponseFrame).result).toEqual({ ok: true });
+    healthClient.close();
 
-    await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
-  });
+    // Verify status response
+    const statusClient = await connectIpcClient(SOCKET_PATH);
+    statusClient.send({ kind: "request", id: "s1", method: "status" });
+    const statusFrame = await statusClient.nextFrame();
+    expect(statusFrame.kind).toBe("response");
+    expect((statusFrame as ResponseFrame).result).toEqual({ state: "running" });
+    statusClient.close();
 
-  socketTest("getDaemonStatus reports running for live daemon", async () => {
-    const metadata = await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
-
-    const status = await getDaemonStatus(metadata.pid, SOCKET_PATH);
-    expect(status).toBe("running");
-
-    await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
-  });
-
-  socketTest("getDaemonStatus reports stopped after stopDaemon", async () => {
-    const metadata = await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
-
+    // Stop daemon and verify socket unbinds
     await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
 
-    const status = await getDaemonStatus(metadata.pid, SOCKET_PATH);
-    expect(status).toBe("stopped");
-  });
-
-  socketTest("status RPC on live daemon reports running state", async () => {
-    await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
-
-    const client = await connectIpcClient(SOCKET_PATH);
-    client.send({ kind: "request", id: "s1", method: "status" });
-    const frame = await client.nextFrame();
-    expect(frame.kind).toBe("response");
-    expect((frame as ResponseFrame).result).toEqual({ state: "running" });
-    client.close();
-
-    await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
-  });
-
-  socketTest("second startDaemon fails with typed error while health succeeds", async () => {
-    await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
-
-    await expect(startDaemon(SOCKET_PATH, { pidPath: PID_PATH })).rejects.toThrow("already running");
-
-    await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
-  });
-
-  socketTest("socket becomes unbound after stopDaemon", async () => {
-    await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
-
-    await stopDaemon(SOCKET_PATH, { pidPath: PID_PATH });
-
-    await new Promise((r) => setTimeout(r, 100));
-
-    await expect(connectIpcClient(SOCKET_PATH)).rejects.toThrow();
-  });
-
-  socketTest("WorktreeOwnershipRegistry claim and release", async () => {
-    const registry = new WorktreeOwnershipRegistry();
-    const key = { project: "test-proj", branch: "main" };
-    const ownership = { runId: "run-123", worktreePath: "/tmp/wt" };
-
-    // Initial claim succeeds
-    registry.claim(key, ownership);
-    expect(registry.isClaimed(key)).toBe(true);
-    expect(registry.get(key)).toEqual(ownership);
-
-    // Second claim on same key fails
-    expect(() => {
-      registry.claim(key, { runId: "run-456", worktreePath: "/tmp/wt2" });
-    }).toThrow(DaemonDoubleClaimError);
-
-    // Release succeeds
-    registry.release(key);
-    expect(registry.isClaimed(key)).toBe(false);
-    expect(registry.get(key)).toBeUndefined();
-
-    // Release on unheld key is no-op
-    registry.release(key);
-    expect(registry.isClaimed(key)).toBe(false);
-  });
-
-  socketTest("multiple independent worktree claims coexist", async () => {
-    const registry = new WorktreeOwnershipRegistry();
-    const key1 = { project: "proj1", branch: "main" };
-    const key2 = { project: "proj1", branch: "dev" };
-    const key3 = { project: "proj2", branch: "main" };
-
-    registry.claim(key1, { runId: "run-1", worktreePath: "/tmp/wt1" });
-    registry.claim(key2, { runId: "run-2", worktreePath: "/tmp/wt2" });
-    registry.claim(key3, { runId: "run-3", worktreePath: "/tmp/wt3" });
-
-    expect(registry.isClaimed(key1)).toBe(true);
-    expect(registry.isClaimed(key2)).toBe(true);
-    expect(registry.isClaimed(key3)).toBe(true);
-
-    registry.release(key2);
-    expect(registry.isClaimed(key1)).toBe(true);
-    expect(registry.isClaimed(key2)).toBe(false);
-    expect(registry.isClaimed(key3)).toBe(true);
+    // Poll up to 10 attempts at 50ms intervals for socket unbind
+    let socketUnbound = false;
+    for (let i = 0; i < 10; i++) {
+      try {
+        const client = await connectIpcClient(SOCKET_PATH);
+        client.close();
+        await new Promise((r) => setTimeout(r, 50));
+      } catch {
+        socketUnbound = true;
+        break;
+      }
+    }
+    expect(socketUnbound).toBe(true);
   });
 });

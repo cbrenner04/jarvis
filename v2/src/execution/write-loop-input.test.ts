@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { simulatedBindings } from "./testing/bindings.ts";
+import { simulatedBindings } from "../testing/bindings.ts";
 import { buildWriteLoopInput, buildWriteLoopInputFromCliValues, parseWriteArgs } from "./write-loop-input.ts";
 
 const FIXTURE_CLI_VALUES = {

@@ -1,7 +1,8 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createAgentBindings } from "../../shared/invocation/agents.ts";
-import { getExternalWorktreePath } from "./external-worktree.ts";
+import { getExternalWorktreePath } from "./execution/external-worktree.ts";
+import { executeWriteLoop, type WriteLoopInput } from "./execution/write-loop.ts";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "./ipc/server";
 import { type LogReader, type LoopFinishedEvent, openLogReader, openLogSink } from "./persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "./persistence/state-store.ts";
@@ -12,7 +13,6 @@ import {
   type RunOperatorError,
   type TerminalLogRecord,
 } from "./run-operator-error.ts";
-import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
 
 export type WorktreeOwnership = {
   runId: string;

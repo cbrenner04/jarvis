@@ -1,6 +1,6 @@
 # Shared step-runner contract
 
-`v2/src/step-runner.ts` owns the behavior-agnostic step execution seam above
+`v2/src/execution/step-runner.ts` owns the behavior-agnostic step execution seam above
 `shared/invocation/execute.ts`.
 
 Contract:

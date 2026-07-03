@@ -7,14 +7,14 @@ import type { InvocationBinding } from "../../shared/invocation/execute.ts";
 import type { WaitRunCompletionResult } from "./daemon.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon-lifecycle.ts";
 import { parseListRuns, parseWaitCompletion } from "./daemon-wire.ts";
+import { executeWriteLoop, type WriteLoopInput, type WriteLoopResult } from "./execution/write-loop.ts";
+import { buildWriteLoopInputFromCliValues, parseWriteArgs } from "./execution/write-loop-input.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import type { ErrorFrame, ResponseFrame } from "./ipc/types.ts";
 import { runTuiEntry } from "./tui-entry.tsx";
 import { runTuiLogFollow } from "./tui-log-follow-entry.tsx";
 import type { RunTuiLogFollowDeps } from "./tui-log-follow-types.ts";
 import type { RunTuiEntryDeps } from "./tui-monitor-types.ts";
-import { executeWriteLoop, type WriteLoopInput, type WriteLoopResult } from "./write-loop.ts";
-import { buildWriteLoopInputFromCliValues, parseWriteArgs } from "./write-loop-input.ts";
 
 export type Io = {
   stdout: (s: string) => void;

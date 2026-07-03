@@ -26,7 +26,7 @@ resumes mid-step. Resume branches from durable state at the last committed bound
   without creating a duplicate attempt or outcome.
 
 Worktree reconstruction stays on the existing
-[`withExternalWorktree`](../src/external-worktree.ts) path: if the stored
+[`withExternalWorktree`](../src/execution/external-worktree.ts) path: if the stored
 worktree directory is gone, the next iteration materializes it again from the
 durable branch pointer before running.
 
@@ -256,7 +256,7 @@ Malformed success payloads exit `1` with `invalid daemon response` on stderr; ot
 
 Drive the path through the test seam:
 
-- `bun test v2/src/write-loop.test.ts` proves the loop: repeated iterations,
+- `bun test v2/src/execution/write-loop.test.ts` proves the loop: repeated iterations,
   outcome routing, contract checks, blocker appending, state persistence, and
   cancellation via `AbortSignal`.
 - `bun test v2/src/cli.test.ts` proves foreground `write`, daemon lifecycle

@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
-import type { InvocationBinding } from "../../shared/invocation/execute.ts";
+import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import {
   type ExternalWorktreeInput,
   type LockStatus,

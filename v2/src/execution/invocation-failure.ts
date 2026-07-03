@@ -1,4 +1,4 @@
-import type { InvocationResult } from "../../shared/invocation/execute.ts";
+import type { InvocationResult } from "../../../shared/invocation/execute.ts";
 
 /** Terminal binding-chain stop cause from `runStep` when `kind === "invocation_failure"`. */
 export type InvocationFailureKind = "quota" | "model_config" | "error" | "no_binding";

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { WaitRunCompletionResult } from "./daemon.ts";
-import type { DaemonListResult, DaemonListRunRow } from "./daemon-wire.ts";
+import type { WaitRunCompletionResult } from "./daemon/daemon.ts";
+import type { DaemonListResult, DaemonListRunRow } from "./daemon/daemon-wire.ts";
 import type { TuiDaemonClient } from "./tui-daemon-client.ts";
 import { TUI_DAEMON_SOCKET_DISPLAY, TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-errors.ts";
 import { runTuiEntry } from "./tui-entry.tsx";

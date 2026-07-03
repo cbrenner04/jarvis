@@ -1,5 +1,5 @@
-import type { WaitRunCompletionResult } from "./daemon.ts";
-import type { DaemonListRunRow } from "./daemon-wire.ts";
+import type { WaitRunCompletionResult } from "./daemon/daemon.ts";
+import type { DaemonListRunRow } from "./daemon/daemon-wire.ts";
 import type { ConnectTuiDaemonOptions, TuiDaemonClient } from "./tui-daemon-client.ts";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 

@@ -3,7 +3,7 @@ import { rmSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createTailStreamHandler } from "../daemon.ts";
+import { createTailStreamHandler } from "../daemon/daemon.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { canUseUnixSockets, socketProbeErrored } from "../testing/unix-socket.ts";

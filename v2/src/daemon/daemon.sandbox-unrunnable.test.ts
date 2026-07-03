@@ -5,11 +5,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { connectIpcClient } from "../ipc/client";
+import type { ResponseFrame } from "../ipc/types";
+import { canUseUnixSockets, socketProbeErrored } from "../testing/unix-socket";
 import { DaemonDoubleClaimError, WorktreeOwnershipRegistry } from "./daemon";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon-lifecycle";
-import { connectIpcClient } from "./ipc/client";
-import type { ResponseFrame } from "./ipc/types";
-import { canUseUnixSockets, socketProbeErrored } from "./testing/unix-socket";
 
 if (socketProbeErrored) {
   process.stderr.write("skip: daemon socket tests require socket support in /tmp\n");

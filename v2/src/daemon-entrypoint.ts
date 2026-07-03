@@ -1,4 +1,4 @@
-import { startDaemon } from "./daemon";
+import { startDaemon } from "./daemon/daemon";
 
 const socketPath = process.env.DAEMON_SOCKET_PATH;
 if (!socketPath) {

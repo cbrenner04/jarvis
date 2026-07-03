@@ -1,0 +1,1 @@
+No issues. All three required refinements from verdict-plan are reflected in the diff (architecture doc + daemon-host doc updated, AC narrowed to no-new-layering-violation), and the move stays mechanical with history preserved via `git mv`.

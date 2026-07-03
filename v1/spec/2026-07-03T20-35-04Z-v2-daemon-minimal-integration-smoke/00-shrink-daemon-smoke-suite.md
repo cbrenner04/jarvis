@@ -25,10 +25,10 @@ socket unbinds — needs a real process and a real socket.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon.sandbox-unrunnable.test.ts` contains exactly one `test`/`socketTest` case.
-- [ ] `v2/src/daemon/daemon-registry.test.ts` exists, has no `.sandbox-unrunnable` infix, and passes under `bun run test:v2`.
-- [ ] `bun run test:integration:v2` passes with the shrunk smoke file.
-- [ ] `bun run test:v2` passes, including the new registry test.
+- [x] `v2/src/daemon/daemon.sandbox-unrunnable.test.ts` contains exactly one `test`/`socketTest` case.
+- [x] `v2/src/daemon/daemon-registry.test.ts` exists, has no `.sandbox-unrunnable` infix, and passes under `bun run test:v2`.
+- [x] `bun run test:integration:v2` passes with the shrunk smoke file.
+- [x] `bun run test:v2` passes, including the new registry test.
 
 ## Documentation updates
 

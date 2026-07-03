@@ -3,6 +3,7 @@ import { rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRunControlHandlers } from "./daemon.ts";
+import type { WriteLoopInput } from "./execution/write-loop.ts";
 import type { IpcClient } from "./ipc/client.ts";
 import { connectIpcClient } from "./ipc/client.ts";
 import { type IpcServer, startIpcServer } from "./ipc/server.ts";
@@ -13,7 +14,6 @@ import { simulatedBindings } from "./testing/bindings.ts";
 import { canUseUnixSockets, socketProbeErrored } from "./testing/unix-socket.ts";
 import { connectTuiDaemon } from "./tui-daemon-client.ts";
 import { TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-errors.ts";
-import type { WriteLoopInput } from "./write-loop.ts";
 
 const START_INPUT: WriteLoopInput = {
   worktree: {

@@ -3,11 +3,11 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { main } from "./cli.ts";
+import type { WriteLoopInput, WriteLoopResult } from "./execution/write-loop.ts";
 import type { IpcClient } from "./ipc/client.ts";
 import type { IpcFrame } from "./ipc/types.ts";
 import type { PersistedRecord } from "./persistence/log-stream.ts";
 import { simulatedBindings } from "./testing/bindings.ts";
-import type { WriteLoopInput, WriteLoopResult } from "./write-loop.ts";
 
 function captureIo() {
   let stdout = "";

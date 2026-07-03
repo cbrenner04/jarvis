@@ -1,0 +1,5 @@
+Required outcome:
+
+- In `v2/docs/v2-architecture.md` **Source layout** table, make the Execution library row's basename list follow the same "Relocated from flat root: ..." prefix convention used by the Persistence library row directly above it, rather than a bare basename list. The row's directory column already correctly points at `v2/src/execution/`, but the inconsistent prefix format undercuts the acceptance criterion's intent that this row clearly document the post-move state (matching the established sibling-row pattern), not just avoid a literal contradiction.
+
+No other changes required — the spec-prose path-depth wording (`../../shared/…` vs the actual `../../../shared/…`) is a typo confined to the spec file's own prose, has no bearing on any acceptance criterion, and does not reflect a code defect (the shipped import depths are correct).

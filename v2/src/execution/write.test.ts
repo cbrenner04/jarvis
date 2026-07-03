@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { InvocationBinding } from "../../shared/invocation/execute.ts";
+import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import { executeWrite } from "./write.ts";
 

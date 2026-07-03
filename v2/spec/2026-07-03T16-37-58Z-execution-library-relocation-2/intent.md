@@ -20,3 +20,7 @@ Move `write-loop*`, `write*`, `step-runner*`, `write-prompt*`, `external-worktre
 
 - `v2/docs/shared-step-runner.md` — fix `v2/src/<file>` citations only.
 - `v2/docs/write-behavior.md` — fix execution-module `v2/src/<file>` citations only.
+
+## Blocker
+
+- **Persistence library not relocated:** `log-stream*`, `state-store*`, and `state-store-types.ts` remain at flat `v2/src/`; `v2/src/persistence/` does not exist. `v2-architecture.md` **Source layout** documents flat root as today and `v2/src/persistence/` as target only. Run `persistence-library-relocation` first (ready intent: `v2/spec/ready-intents/persistence-library-relocation.md`).

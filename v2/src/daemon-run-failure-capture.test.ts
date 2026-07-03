@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { createRunControlHandlers, createRunExecutionFailureReporter } from "./daemon.ts";
 import { connectIpcClient } from "./ipc/client.ts";
 import { type IpcServer, startIpcServer } from "./ipc/server.ts";
-import { openLogReader } from "./log-stream.ts";
-import { openStateStore, type StateStore } from "./state-store.ts";
+import { openLogReader } from "./persistence/log-stream.ts";
+import { openStateStore, type StateStore } from "./persistence/state-store.ts";
 import { canUseUnixSockets } from "./testing/unix-socket.ts";
 import type { WriteLoopInput } from "./write-loop.ts";
 

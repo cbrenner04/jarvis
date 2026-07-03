@@ -26,7 +26,7 @@ Rules:
   Recovery).
 - **Observability** events (`iteration_started`, `boundary_committed`,
   `loop_finished`, …) are for live visibility — not a substitute for per-invocation
-  usage/cost ([`log-stream.ts`](../src/log-stream.ts)).
+  usage/cost ([`log-stream.ts`](../src/persistence/log-stream.ts)).
 - **Telemetry** carries token/cost/usage and work facts — never orchestration
   checkpoint rows ([`state-store.md`](state-store.md)).
 
@@ -186,6 +186,6 @@ Pin when the first emitter subspec lands — do not block this reference doc:
 
 - [`v2-architecture.md`](v2-architecture.md) — persistence split
 - [`state-store.md`](state-store.md) — what stays out of SQLite
-- [`log-stream.ts`](../src/log-stream.ts) — observability events (contrast)
+- [`log-stream.ts`](../src/persistence/log-stream.ts) — observability events (contrast)
 - [`shared-invocation.md`](shared-invocation.md) — invocation seam
 - [`outcome-data-source-audit.md`](outcome-data-source-audit.md) — v1 column classifications

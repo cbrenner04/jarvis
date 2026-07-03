@@ -1,0 +1,1 @@
+No valid issues require action — verdict is empty.

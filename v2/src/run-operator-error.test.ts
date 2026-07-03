@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
-import type { PersistedRecord } from "./log-stream.ts";
+import type { PersistedRecord } from "./persistence/log-stream.ts";
+import type { Attempt } from "./persistence/state-store.ts";
+import type { RunStatus } from "./persistence/state-store-types.ts";
 import type {
   RunOperatorError,
   RunOperatorErrorReason,
@@ -7,8 +9,6 @@ import type {
   TerminalLogRecord,
 } from "./run-operator-error.ts";
 import { composeRunOperatorError, findTerminalLogRecord } from "./run-operator-error.ts";
-import type { Attempt } from "./state-store.ts";
-import type { RunStatus } from "./state-store-types.ts";
 import type { WriteLoopOutcomeKind } from "./write-loop.ts";
 
 function runWith(status: RunStatus, attempts: Attempt[] = []): { status: RunStatus; attempts: Attempt[] } {

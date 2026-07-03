@@ -72,19 +72,19 @@ relocation.
 
 ## Acceptance criteria
 
-- [ ] `log-stream.ts`, `log-stream.test.ts`, `log-stream.sandbox-unrunnable.test.ts`, `state-store-types.ts`, `state-store.ts`, and `state-store.test.ts` live under `v2/src/persistence/` and are absent from `v2/src/` root.
-- [ ] `bun run typecheck` passes.
-- [ ] `state-store.test.ts` stays green.
-- [ ] `log-stream.test.ts` stays green.
-- [ ] `log-stream.sandbox-unrunnable.test.ts` stays green.
-- [ ] `ipc.sandbox-unrunnable.test.ts` stays green (embedded spawn path to
+- [x] `log-stream.ts`, `log-stream.test.ts`, `log-stream.sandbox-unrunnable.test.ts`, `state-store-types.ts`, `state-store.ts`, and `state-store.test.ts` live under `v2/src/persistence/` and are absent from `v2/src/` root.
+- [x] `bun run typecheck` passes.
+- [x] `state-store.test.ts` stays green.
+- [x] `log-stream.test.ts` stays green.
+- [x] `log-stream.sandbox-unrunnable.test.ts` stays green.
+- [x] `ipc.sandbox-unrunnable.test.ts` stays green (embedded spawn path to
   `log-stream.ts`, not only static imports).
-- [ ] `write-loop.test.ts` stays green.
-- [ ] `test/test-slices.test.ts` stays green (hardcoded
+- [x] `write-loop.test.ts` stays green.
+- [x] `test/test-slices.test.ts` stays green (hardcoded
   `v2/src/persistence/log-stream.sandbox-unrunnable.test.ts` path).
-- [ ] `v2/docs/state-store.md` cites `../src/persistence/state-store.ts` (no stale flat-root `../src/state-store.ts` link).
-- [ ] `v2/docs/telemetry-capture.md` cites `../src/persistence/log-stream.ts` (no stale flat-root `../src/log-stream.ts` links).
-- [ ] `v2/docs/v2-architecture.md` **Source layout** persistence row matches the relocated tree (no flat-root module inventory contradicting `v2/src/persistence/`).
+- [x] `v2/docs/state-store.md` cites `../src/persistence/state-store.ts` (no stale flat-root `../src/state-store.ts` link).
+- [x] `v2/docs/telemetry-capture.md` cites `../src/persistence/log-stream.ts` (no stale flat-root `../src/log-stream.ts` links).
+- [x] `v2/docs/v2-architecture.md` **Source layout** persistence row matches the relocated tree (no flat-root module inventory contradicting `v2/src/persistence/`).
 
 ## Documentation updates
 

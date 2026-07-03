@@ -44,9 +44,9 @@ relocations and by this move.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/preload.sandbox-unrunnable.test.ts` no longer exists; `v2/src/testing/preload.sandbox-unrunnable.test.ts` exists, has no unresolved relative imports, and passes standalone (`bun test ./v2/src/testing/preload.sandbox-unrunnable.test.ts`).
-- [ ] `test/test-slices.test.ts` stays green (behavior unchanged by the move).
-- [ ] `v2/src/` root contains only `cli.ts`, `cli.test.ts`, `daemon-entrypoint.ts`, `ipc/`, and `testing/` (no other files or directories).
+- [x] `v2/src/preload.sandbox-unrunnable.test.ts` no longer exists; `v2/src/testing/preload.sandbox-unrunnable.test.ts` exists, has no unresolved relative imports, and passes standalone (`bun test ./v2/src/testing/preload.sandbox-unrunnable.test.ts`).
+- [x] `test/test-slices.test.ts` stays green (behavior unchanged by the move).
+- [x] `v2/src/` root contains only `cli.ts`, `cli.test.ts`, `daemon-entrypoint.ts`, `ipc/`, and `testing/` (no other files or directories).
 
 ## Documentation updates
 

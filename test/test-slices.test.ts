@@ -85,7 +85,7 @@ describe("Test slice boundaries", () => {
       "v2/src/execution/external-worktree.sandbox-unrunnable.test.ts",
       "v2/src/ipc/ipc.sandbox-unrunnable.test.ts",
       "v2/src/persistence/log-stream.sandbox-unrunnable.test.ts",
-      "v2/src/preload.sandbox-unrunnable.test.ts",
+      "v2/src/testing/preload.sandbox-unrunnable.test.ts",
     ]);
 
     const runnerScript = await Bun.file("scripts/run-v2-tests.ts").text();
@@ -112,7 +112,7 @@ describe("Test slice boundaries", () => {
         .join(":"),
     };
 
-    execSync("bun test ./v2/src/preload.sandbox-unrunnable.test.ts", { env, stdio: "pipe" });
+    execSync("bun test ./v2/src/testing/preload.sandbox-unrunnable.test.ts", { env, stdio: "pipe" });
     execSync("bun test ./shared/preload.sandbox-unrunnable.test.ts", { env, stdio: "pipe" });
   }, 20_000);
 

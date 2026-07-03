@@ -359,9 +359,10 @@ function repairIntentFile(path: string, slug: string): void {
   if (firstNonBlankIdx !== -1) {
     const firstNonBlankLine = lines[firstNonBlankIdx] ?? "";
     // Check if it's already a heading
+    const nameLineMatch = /^name:\s*(.*)$/.exec(firstNonBlankLine.trim());
     if (firstNonBlankLine.trim().startsWith("#")) {
       // Already a heading, leave untouched
-    } else if (new RegExp(`^name:\\s*${slug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`).test(firstNonBlankLine)) {
+    } else if (nameLineMatch && (nameLineMatch[1] ?? "").trim() === slug) {
       // Duplicate name: line, replace with heading
       lines[firstNonBlankIdx] = derivedTitle;
       modified = true;

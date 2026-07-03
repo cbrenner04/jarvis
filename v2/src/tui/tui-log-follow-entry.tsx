@@ -62,21 +62,15 @@ export async function runTuiLogFollow(runId: string, deps?: RunTuiLogFollowDeps)
   try {
     session = await openLogFollowSession(resolved, quit);
 
-    const currentTail = tail;
-    const currentSession = session;
-    if (!currentTail || !currentSession) {
-      throw new Error("unreachable: tail and session must be set");
-    }
-
     const consume = (async (): Promise<void> => {
       try {
-        for await (const record of currentTail.records()) {
-          await Promise.resolve(currentSession.appendLine(formatLogFollowLine(record)));
+        for await (const record of tail!.records()) {
+          await Promise.resolve(session!.appendLine(formatLogFollowLine(record)));
         }
       } catch (error) {
         if (error instanceof TuiDaemonConnectionError) {
           if (!quitting) {
-            await Promise.resolve(currentSession.showFeedback(connectionErrorFeedback(error)));
+            await Promise.resolve(session!.showFeedback(connectionErrorFeedback(error)));
             exitCode = 1;
           }
           return;

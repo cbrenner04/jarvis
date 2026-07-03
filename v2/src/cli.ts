@@ -99,11 +99,11 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
       return runtimeDeps.runTuiEntry({ socketPath: runtimeDeps.socketPath });
     }
     if (argv[1] === "log") {
-      if (argv.length !== 3 || !argv[2]) {
+      if (argv.length !== 3) {
         out.stderr(TUI_LOG_USAGE);
         return 1;
       }
-      return runtimeDeps.runTuiLogFollow(argv[2], { socketPath: runtimeDeps.socketPath });
+      return runtimeDeps.runTuiLogFollow(argv[2]!, { socketPath: runtimeDeps.socketPath });
     }
     out.stderr(TUI_USAGE);
     return 1;

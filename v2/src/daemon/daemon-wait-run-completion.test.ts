@@ -2,7 +2,6 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createRunControlHandlers } from "./daemon.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { type IpcServer, startIpcServer } from "../ipc/server.ts";
@@ -11,6 +10,7 @@ import { type LogSink, openLogReader, openLogSink } from "../persistence/log-str
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import type { RunStatus } from "../persistence/state-store-types.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
+import { createRunControlHandlers } from "./daemon.ts";
 
 const SOCKET_PATH = join(tmpdir(), `jarvis-daemon-wait-test-${process.pid}.sock`);
 const socketTest = test.skipIf(!canUseUnixSockets());

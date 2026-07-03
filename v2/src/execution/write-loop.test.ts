@@ -1,22 +1,15 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { describe, expect, test } from "bun:test";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
-import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
+import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
 
-const roots: string[] = [];
-
-afterEach(() => {
-  for (const root of roots.splice(0, roots.length)) {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
+const { roots } = trackedTempRoots();
 
 /** Test log sink that captures all events. */
 class TestLogSink implements LogSink {
@@ -39,36 +32,6 @@ class TestLogSink implements LogSink {
   }
 }
 
-function createFakeWithExternalWorktree(jarvisRoot: string) {
-  return async function fakeWithExternalWorktree<T>(
-    args: { projectName: string; branchName: string; jarvisRoot?: string },
-    run: (worktree: ExternalWorktree) => Promise<T> | T,
-  ): Promise<WithExternalWorktreeResult<T>> {
-    const effectiveJarvisRoot = args.jarvisRoot ?? jarvisRoot;
-    const worktreePath = join(effectiveJarvisRoot, "worktrees", args.projectName, args.branchName);
-    mkdirSync(worktreePath, { recursive: true });
-    if (!existsSync(join(worktreePath, "spec.md"))) {
-      writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
-    }
-    const value = await run({ path: worktreePath, reused: existsSync(join(worktreePath, ".reused")) });
-    mkdirSync(join(worktreePath, ".."), { recursive: true });
-    writeFileSync(join(worktreePath, ".reused"), "true\n", "utf8");
-    return {
-      worktree: { path: worktreePath, reused: existsSync(join(worktreePath, ".reused")) },
-      lock: { kind: "acquired" },
-      value,
-    };
-  };
-}
-
-function setupRepo(): { jarvisRoot: string; stateDbPath: string } {
-  const root = mkdtempSync(join(tmpdir(), "jarvis-v2-loop-"));
-  roots.push(root);
-  const jarvisRoot = join(root, "jarvis-home");
-  const stateDbPath = join(jarvisRoot, "state", "v2.sqlite");
-  return { jarvisRoot, stateDbPath };
-}
-
 async function runLoop(args: {
   jarvisRoot: string;
   stateDbPath: string;
@@ -82,6 +45,8 @@ async function runLoop(args: {
   store?: StateStore;
   logSink?: LogSink;
 }) {
+  // Track the parent directory for cleanup
+  roots.push(join(args.jarvisRoot, ".."));
   const store = args.store ?? openStateStore(args.stateDbPath);
   const loopInput: WriteLoopInput = {
     worktree: {
@@ -122,6 +87,8 @@ async function runLoopWithPause(args: {
   pauseAfterAttempts?: number;
   logSink?: LogSink;
 }) {
+  // Track the parent directory for cleanup
+  roots.push(join(args.jarvisRoot, ".."));
   const store = openStateStore(args.stateDbPath);
   const pauseController = new AbortController();
   let attempts = 0;
@@ -216,7 +183,7 @@ function progressThenDone(n: number): InvocationBinding[] {
 
 describe("write loop", () => {
   test("calls executeWrite repeatedly until terminal", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
 
     const result = await runLoop({ jarvisRoot, stateDbPath, bindings: progressThenDone(2) });
 
@@ -226,7 +193,7 @@ describe("write loop", () => {
   });
 
   test("progress loops again and artifact contract not checked mid-loop", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
 
     const result = await runLoop({
       jarvisRoot,
@@ -241,7 +208,7 @@ describe("write loop", () => {
   });
 
   test("done with passing artifact contract ends loop successfully", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
 
     const result = await runLoop({
       jarvisRoot,
@@ -254,7 +221,7 @@ describe("write loop", () => {
   });
 
   test("no-work with passing artifact contract ends loop successfully", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
 
     const result = await runLoop({
       jarvisRoot,
@@ -268,7 +235,7 @@ describe("write loop", () => {
   });
 
   test("done/no-work with failing contract appends blocker and stops", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
 
     const result = await runLoop({
       jarvisRoot,
@@ -285,7 +252,7 @@ describe("write loop", () => {
   });
 
   test("blocked stops immediately with distinct outcome", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
 
     const result = await runLoop({ jarvisRoot, stateDbPath, bindings: simulatedBindings(["blocked"]) });
 
@@ -295,7 +262,7 @@ describe("write loop", () => {
   });
 
   test("budget exhausted while progress yields soft-stop outcome", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
 
     const result = await runLoop({
       jarvisRoot,
@@ -349,7 +316,7 @@ describe("write loop", () => {
     ];
 
     for (const testCase of cases) {
-      const { jarvisRoot, stateDbPath } = setupRepo();
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
       const result = await runLoop({
         jarvisRoot,
         stateDbPath,
@@ -372,7 +339,7 @@ describe("write loop", () => {
   ];
 
   test("invalid_token omits failureKind and bindingAttempts", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
 
     const result = await runLoop({ jarvisRoot, stateDbPath, bindings: invalidTokenBindings });
 
@@ -383,7 +350,7 @@ describe("write loop", () => {
   });
 
   test("complete, blocked, contract_miss, and budget-exhausted omit failure detail", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
 
     const complete = await runLoop({
       jarvisRoot,
@@ -419,7 +386,7 @@ describe("write loop", () => {
   });
 
   test("re-invoking binding-chain invocation_failure returns persisted detail without a new attempt", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
 
     const first = await runLoop({
       jarvisRoot,
@@ -441,7 +408,7 @@ describe("write loop", () => {
   });
 
   test("pre-migration failed run resumes invocation_failure without failure detail", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
     const store = openStateStore(stateDbPath);
     const runId = store.createRun({
       project: "demo",
@@ -471,7 +438,7 @@ describe("write loop", () => {
   });
 
   test("invalid_token idempotent re-entry omits failure detail", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
 
     const first = await runLoop({
       jarvisRoot,
@@ -493,7 +460,7 @@ describe("write loop", () => {
   });
 
   test("max iterations per-invocation with default constant", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
 
     const result = await runLoop({ jarvisRoot, stateDbPath, bindings: simulatedBindings(["progress"]) });
 
@@ -502,7 +469,7 @@ describe("write loop", () => {
   });
 
   test("cancellation propagates via AbortSignal", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
     const controller = new AbortController();
     let calls = 0;
     const bindings: InvocationBinding[] = [
@@ -524,7 +491,7 @@ describe("write loop", () => {
   });
 
   test("each iteration persists through state store boundary", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
 
     const result = await runLoop({ jarvisRoot, stateDbPath, bindings: progressThenDone(2) });
 
@@ -534,7 +501,7 @@ describe("write loop", () => {
   });
 
   test("re-invoking an interrupted run re-runs that iteration over the dirty worktree", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
     const dirtiedMarker = "dirty.txt";
     let firstRunCalls = 0;
     const crashBindings: InvocationBinding[] = [
@@ -579,7 +546,7 @@ describe("write loop", () => {
   });
 
   test("a budget-soft-stopped run resumes with a fresh per-invocation budget", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
     const first = await runLoop({
       jarvisRoot,
       stateDbPath,
@@ -605,7 +572,7 @@ describe("write loop", () => {
   });
 
   test("a different baseRef, specPath, and worktree on the same project and branch still resumes the same run", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
     const first = await runLoop({
       jarvisRoot,
       stateDbPath,
@@ -633,7 +600,7 @@ describe("write loop", () => {
   });
 
   test("a different branch creates a fresh run", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
     const first = await runLoop({
       jarvisRoot,
       stateDbPath,
@@ -653,7 +620,7 @@ describe("write loop", () => {
   });
 
   test("re-running a boundary that fails mid-transaction retries the same attempt without duplicate history", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
     let firstInvocationCalls = 0;
     const completeBindings: InvocationBinding[] = [
       {
@@ -703,7 +670,7 @@ describe("write loop", () => {
   });
 
   test("resume rebuilds a missing worktree from the branch", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
     const first = await runLoop({
       jarvisRoot,
       stateDbPath,
@@ -729,7 +696,7 @@ describe("write loop", () => {
   });
 
   test("multi-iteration loop run produces iteration_started and boundary_committed pairs, ending with loop_finished", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();
 
     const result = await runLoop({
@@ -757,7 +724,7 @@ describe("write loop", () => {
   });
 
   test("terminal boundary_committed and loop_finished payloads match terminalMapping for blocked outcome", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();
 
     const result = await runLoop({
@@ -779,7 +746,7 @@ describe("write loop", () => {
   });
 
   test("terminal boundary_committed and loop_finished payloads match terminalMapping for contract_miss outcome", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();
 
     const result = await runLoop({
@@ -801,7 +768,7 @@ describe("write loop", () => {
   });
 
   test("terminal boundary_committed and loop_finished payloads match terminalMapping for invocation_failure outcome", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();
 
     const result = await runLoop({
@@ -823,7 +790,7 @@ describe("write loop", () => {
   });
 
   test("terminal boundary_committed and loop_finished payloads match terminalMapping for no-work outcome", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();
 
     const result = await runLoop({
@@ -844,7 +811,7 @@ describe("write loop", () => {
   });
 
   test("budget soft-stop emits no terminal boundary_committed; last boundary has progress outcome", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();
 
     const result = await runLoop({
@@ -872,7 +839,7 @@ describe("write loop", () => {
   });
 
   test("a second invocation on a budget-soft-stopped run appends new events to the existing stream", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();
 
     const first = await runLoop({
@@ -905,7 +872,7 @@ describe("write loop", () => {
   });
 
   test("kill/crash resume re-run emits a fresh iteration_started for the interrupted attempt", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();
     const dirtiedMarker = "dirty.txt";
     let _firstRunCalls = 0;
@@ -970,7 +937,7 @@ describe("write loop", () => {
   });
 
   test("mid-boundary rollback emits iteration_started, no boundary_committed on failed attempt, retry with same attemptId, then success", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();
     let _firstInvocationCalls = 0;
     const completeBindings: InvocationBinding[] = [
@@ -1031,7 +998,7 @@ describe("write loop", () => {
   });
 
   test("abort/cancellation emits paired iteration_started / boundary_committed for each completed iteration plus loop_finished", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();
     const controller = new AbortController();
     let calls = 0;
@@ -1069,7 +1036,7 @@ describe("write loop", () => {
   });
 
   test("re-invoking a run whose terminal boundary is already committed returns prior outcome without appending log events", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();
 
     const first = await runLoop({
@@ -1098,7 +1065,7 @@ describe("write loop", () => {
   });
 
   test("a throwing log sink causes executeWriteLoop to reject", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();
     sink.shouldThrow = true;
 
@@ -1113,7 +1080,7 @@ describe("write loop", () => {
   });
 
   test("omitting the log sink leaves loop behavior unchanged", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
 
     const result = await runLoop({
       jarvisRoot,
@@ -1127,7 +1094,7 @@ describe("write loop", () => {
   });
 
   test("pause at iteration boundary lets the in-flight step finish and commit its boundary", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
     const dirtiedMarker = "paused.txt";
     let attempts = 0;
     const bindings: InvocationBinding[] = [
@@ -1168,7 +1135,7 @@ describe("write loop", () => {
   });
 
   test("paused run outcome kind is distinct from budget-exhausted", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();
 
     const result = await runLoopWithPause({
@@ -1189,7 +1156,7 @@ describe("write loop", () => {
   });
 
   test("resuming a paused run starts a fresh attempt and continues", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
 
     // First run: pause after 1 attempt
     const pauseResult = await runLoopWithPause({
@@ -1231,7 +1198,7 @@ describe("write loop", () => {
   });
 
   test("abort signal path unchanged: aborts stop the loop without committing the in-flight boundary", async () => {
-    const { jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();
     const controller = new AbortController();
     let calls = 0;

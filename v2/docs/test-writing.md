@@ -38,6 +38,8 @@ Use for any v2 test binding or connecting to a Unix socket under `tmpdir()`, inc
 
 Generic daemon run-control request helpers (`mockWriteLoopInput`, `startRun`, `listRuns`) live in [`v2/src/testing/run-control.ts`](../src/testing/run-control.ts). They take an `IpcClient` and optional `WriteLoopInput` overrides — request-shaping, not assertion-specific setup. Use them for any test exercising the daemon run-control protocol.
 
+Shared write-execution fixtures (`createJarvisHome`, `createFakeWithExternalWorktree`, `trackedTempRoots`) live in [`v2/src/testing/write-fixtures.ts`](../src/testing/write-fixtures.ts). Use them for tests exercising write-loop and write behaviors to unify temporary directory management, Jarvis-home creation, and fake worktree state.
+
 The daemon smoke test (`v2/src/daemon/daemon.sandbox-unrunnable.test.ts`) demonstrates the minimal real-process fixture: spawn a detached daemon, serve health and status responses over a real socket, gracefully stop, and verify socket unbinds. This is the irreducible test for wire protocols requiring real OS seams.
 
 Pure in-memory logic (e.g., `WorktreeOwnershipRegistry`) belongs in agent-runnable tests (`daemon-registry.test.ts`) without `.sandbox-unrunnable` markers, even when moved from a real-process context. Use DI seams to inject the registry instance under test with mocked state, not real OS operations.

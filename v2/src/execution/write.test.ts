@@ -1,46 +1,15 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { describe, expect, test } from "bun:test";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
-import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
+import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { executeWrite } from "./write.ts";
 
-const roots: string[] = [];
-
-afterEach(() => {
-  for (const root of roots.splice(0, roots.length)) {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-function createFakeWithExternalWorktree() {
-  return async function fakeWithExternalWorktree<T>(
-    args: { branchName: string; projectName: string; jarvisRoot?: string },
-    run: (worktree: ExternalWorktree) => Promise<T> | T,
-  ): Promise<WithExternalWorktreeResult<T>> {
-    const jarvisRoot = args.jarvisRoot ?? join(tmpdir(), "jarvis-fake");
-    const worktreePath = join(jarvisRoot, "worktrees", args.projectName, args.branchName);
-    mkdirSync(worktreePath, { recursive: true });
-    roots.push(join(jarvisRoot, ".."));
-    writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
-    const value = await run({ path: worktreePath, reused: false });
-    return {
-      worktree: { path: worktreePath, reused: false },
-      lock: { kind: "acquired" },
-      value,
-    };
-  };
-}
-
-function setupRepo(): { jarvisRoot: string } {
-  const root = mkdtempSync(join(tmpdir(), "jarvis-v2-write-"));
-  roots.push(root);
-  const jarvisRoot = join(root, "jarvis-home");
-  return { jarvisRoot };
-}
+const { roots } = trackedTempRoots();
 
 function runWrite(args: { jarvisRoot: string; bindings: readonly InvocationBinding[]; artifactPath?: string }) {
+  // Track the parent directory of jarvisRoot for cleanup
+  roots.push(join(args.jarvisRoot, ".."));
   return executeWrite({
     worktree: {
       projectRoot: "/fake",
@@ -53,13 +22,13 @@ function runWrite(args: { jarvisRoot: string; bindings: readonly InvocationBindi
     stepRules: "Return exactly one terminal token.",
     expectedArtifactPath: args.artifactPath ?? "proof.txt",
     bindings: args.bindings,
-    withExternalWorktree: createFakeWithExternalWorktree(),
+    withExternalWorktree: createFakeWithExternalWorktree(args.jarvisRoot),
   });
 }
 
 describe("write behavior", () => {
   test("happy path: done plus artifact contract pass returns complete", async () => {
-    const { jarvisRoot } = setupRepo();
+    const { jarvisRoot } = createJarvisHome();
     const bindings: InvocationBinding[] = [
       {
         id: "agent",
@@ -75,7 +44,7 @@ describe("write behavior", () => {
   });
 
   test("quota fallback success: second binding completes", async () => {
-    const { jarvisRoot } = setupRepo();
+    const { jarvisRoot } = createJarvisHome();
     const calls: string[] = [];
     const bindings: InvocationBinding[] = [
       {
@@ -101,7 +70,7 @@ describe("write behavior", () => {
   });
 
   test("terminal contract miss returns non-success result", async () => {
-    const { jarvisRoot } = setupRepo();
+    const { jarvisRoot } = createJarvisHome();
     const result = await runWrite({
       jarvisRoot,
       bindings: [
@@ -116,7 +85,7 @@ describe("write behavior", () => {
   });
 
   test("blocked token returns blocked without contract pass", async () => {
-    const { jarvisRoot } = setupRepo();
+    const { jarvisRoot } = createJarvisHome();
     const result = await runWrite({
       jarvisRoot,
       bindings: [
@@ -131,7 +100,7 @@ describe("write behavior", () => {
   });
 
   test("progress token returns non-success without retry", async () => {
-    const { jarvisRoot } = setupRepo();
+    const { jarvisRoot } = createJarvisHome();
     let calls = 0;
     const result = await runWrite({
       jarvisRoot,

@@ -8,7 +8,7 @@ import { type IpcServer, startIpcServer } from "./ipc/server.ts";
 import { openLogReader } from "./persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "./persistence/state-store.ts";
 import { canUseUnixSockets } from "./testing/unix-socket.ts";
-import type { WriteLoopInput } from "./write-loop.ts";
+import type { WriteLoopInput } from "./execution/write-loop.ts";
 
 const SOCKET_PATH = join(tmpdir(), `jarvis-daemon-failure-test-${process.pid}.sock`);
 const socketTest = test.skipIf(!canUseUnixSockets());

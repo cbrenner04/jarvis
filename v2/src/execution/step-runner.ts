@@ -3,7 +3,7 @@ import {
   type InvocationBinding,
   type InvocationExecution,
   type InvocationResult,
-} from "../../shared/invocation/execute.ts";
+} from "../../../shared/invocation/execute.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
 
 const TERMINAL_TOKENS = ["done", "no-work", "blocked", "progress"] as const;

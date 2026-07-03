@@ -9,7 +9,7 @@ import type {
   TerminalLogRecord,
 } from "./run-operator-error.ts";
 import { composeRunOperatorError, findTerminalLogRecord } from "./run-operator-error.ts";
-import type { WriteLoopOutcomeKind } from "./write-loop.ts";
+import type { WriteLoopOutcomeKind } from "./execution/write-loop.ts";
 
 function runWith(status: RunStatus, attempts: Attempt[] = []): { status: RunStatus; attempts: Attempt[] } {
   return { status, attempts };

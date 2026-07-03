@@ -12,7 +12,7 @@ import {
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import { TuiDaemonConnectionError } from "./tui-daemon-errors.ts";
 import { createTuiDaemonRpcTransport } from "./tui-daemon-rpc-transport.ts";
-import type { WriteLoopInput } from "./write-loop.ts";
+import type { WriteLoopInput } from "./execution/write-loop.ts";
 
 /** Successful `health` RPC payload from the daemon host. */
 export type TuiDaemonHealthResult = { ok: true };

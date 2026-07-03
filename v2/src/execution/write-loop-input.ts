@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import type { InvocationBinding } from "../../shared/invocation/execute.ts";
+import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import type { WriteLoopInput } from "./write-loop.ts";
 
 /** Default step rules injected into every write-loop launch payload. */

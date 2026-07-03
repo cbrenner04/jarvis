@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { InvocationBinding } from "../../shared/invocation/execute.ts";
+import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { parseStepOutcomeToken, runStep, type StepContract } from "./step-runner.ts";
 
 function okBinding(stdout: string): InvocationBinding {

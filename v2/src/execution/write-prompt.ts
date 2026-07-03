@@ -1,5 +1,5 @@
-import { loadPromptRegistry } from "../../shared/prompts/registry.ts";
-import { renderArtifactTemplate } from "../../shared/prompts/render.ts";
+import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
+import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 
 export function renderWriteExecutePrompt(args: { specPath: string; stepRules: string }): string {
   const registry = loadPromptRegistry();

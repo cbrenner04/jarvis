@@ -10,7 +10,7 @@ import { type LogSink, openLogReader, openLogSink } from "./persistence/log-stre
 import { openStateStore, type StateStore } from "./persistence/state-store.ts";
 import type { RunStatus } from "./persistence/state-store-types.ts";
 import { canUseUnixSockets } from "./testing/unix-socket.ts";
-import type { WriteLoopInput } from "./write-loop.ts";
+import type { WriteLoopInput } from "./execution/write-loop.ts";
 
 const SOCKET_PATH = join(tmpdir(), `jarvis-daemon-wait-test-${process.pid}.sock`);
 const socketTest = test.skipIf(!canUseUnixSockets());

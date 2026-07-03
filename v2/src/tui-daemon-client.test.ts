@@ -13,7 +13,7 @@ import { simulatedBindings } from "./testing/bindings.ts";
 import { canUseUnixSockets, socketProbeErrored } from "./testing/unix-socket.ts";
 import { connectTuiDaemon } from "./tui-daemon-client.ts";
 import { TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-errors.ts";
-import type { WriteLoopInput } from "./write-loop.ts";
+import type { WriteLoopInput } from "./execution/write-loop.ts";
 
 const START_INPUT: WriteLoopInput = {
   worktree: {

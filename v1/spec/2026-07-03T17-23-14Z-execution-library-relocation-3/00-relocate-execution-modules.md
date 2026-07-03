@@ -81,22 +81,22 @@ within execution import sibling persistence via `../persistence/…` and
 
 ## Acceptance criteria
 
-- [ ] `external-worktree.ts`, `external-worktree.sandbox-unrunnable.test.ts`, `invocation-failure.ts`, `step-runner.ts`, `step-runner.test.ts`, `write-loop-input.ts`, `write-loop-input.test.ts`, `write-loop.ts`, `write-loop.test.ts`, `write-prompt.ts`, `write-prompt.test.ts`, `write.ts`, and `write.test.ts` live under `v2/src/execution/` and are absent from `v2/src/` root.
-- [ ] `bun run typecheck` passes.
-- [ ] `write-loop.test.ts` stays green.
-- [ ] `write.test.ts` stays green.
-- [ ] `step-runner.test.ts` stays green.
-- [ ] `write-loop-input.test.ts` stays green.
-- [ ] `write-prompt.test.ts` stays green.
-- [ ] `external-worktree.sandbox-unrunnable.test.ts` stays green.
-- [ ] `state-store.test.ts` stays green (persistence's committed type edge to `invocation-failure.ts` re-paths).
-- [ ] `log-stream.test.ts` stays green (persistence's committed type edge to `write-loop.ts` re-paths).
-- [ ] `cli.test.ts` stays green.
-- [ ] `daemon.sandbox-unrunnable.test.ts` stays green.
-- [ ] `test/test-slices.test.ts` stays green (hardcoded `v2/src/execution/external-worktree.sandbox-unrunnable.test.ts` path).
-- [ ] `v2/docs/shared-step-runner.md` cites `v2/src/execution/step-runner.ts` (no stale flat-root link).
-- [ ] `v2/docs/write-behavior.md` cites `../src/execution/external-worktree.ts` and `v2/src/execution/write-loop.test.ts` (no stale flat-root links).
-- [ ] `v2/docs/v2-architecture.md` **Source layout** execution row matches the relocated tree (no flat-root module inventory contradicting `v2/src/execution/`).
+- [x] `external-worktree.ts`, `external-worktree.sandbox-unrunnable.test.ts`, `invocation-failure.ts`, `step-runner.ts`, `step-runner.test.ts`, `write-loop-input.ts`, `write-loop-input.test.ts`, `write-loop.ts`, `write-loop.test.ts`, `write-prompt.ts`, `write-prompt.test.ts`, `write.ts`, and `write.test.ts` live under `v2/src/execution/` and are absent from `v2/src/` root.
+- [x] `bun run typecheck` passes.
+- [x] `write-loop.test.ts` stays green.
+- [x] `write.test.ts` stays green.
+- [x] `step-runner.test.ts` stays green.
+- [x] `write-loop-input.test.ts` stays green.
+- [x] `write-prompt.test.ts` stays green.
+- [x] `external-worktree.sandbox-unrunnable.test.ts` stays green.
+- [x] `state-store.test.ts` stays green (persistence's committed type edge to `invocation-failure.ts` re-paths).
+- [x] `log-stream.test.ts` stays green (persistence's committed type edge to `write-loop.ts` re-paths).
+- [x] `cli.test.ts` stays green.
+- [x] `daemon.sandbox-unrunnable.test.ts` stays green.
+- [x] `test/test-slices.test.ts` stays green (hardcoded `v2/src/execution/external-worktree.sandbox-unrunnable.test.ts` path).
+- [x] `v2/docs/shared-step-runner.md` cites `v2/src/execution/step-runner.ts` (no stale flat-root link).
+- [x] `v2/docs/write-behavior.md` cites `../src/execution/external-worktree.ts` and `v2/src/execution/write-loop.test.ts` (no stale flat-root links).
+- [x] `v2/docs/v2-architecture.md` **Source layout** execution row matches the relocated tree (no flat-root module inventory contradicting `v2/src/execution/`).
 
 ## Documentation updates
 

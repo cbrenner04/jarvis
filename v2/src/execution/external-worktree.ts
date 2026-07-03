@@ -2,8 +2,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { branchExistsLocal, branchExistsOnOrigin, getCurrentBranch } from "../../shared/git.ts";
-import { acquireLock, releaseLock, type WorktreeLock } from "../../shared/worktree-lock.ts";
+import { branchExistsLocal, branchExistsOnOrigin, getCurrentBranch } from "../../../shared/git.ts";
+import { acquireLock, releaseLock, type WorktreeLock } from "../../../shared/worktree-lock.ts";
 
 export type { WorktreeLock };
 

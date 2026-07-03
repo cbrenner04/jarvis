@@ -6,9 +6,9 @@ import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { connectIpcClient } from "../ipc/client.ts";
 import { type IpcServer, startIpcServer } from "../ipc/server.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { listRuns, mockWriteLoopInput, startRun } from "../testing/run-control.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import { createRunControlHandlers } from "./daemon.ts";
-import type { DaemonListRunRow } from "./daemon-wire.ts";
 
 const SOCKET_PATH = join(tmpdir(), `jarvis-daemon-test-${process.pid}.sock`);
 const socketTest = test.skipIf(!canUseUnixSockets());
@@ -55,7 +55,6 @@ function createFakeWriteLoopExecutor() {
 }
 
 type FakeWriteLoopExecutor = ReturnType<typeof createFakeWriteLoopExecutor>;
-type ListRunsResult = { runs?: DaemonListRunRow[] } | undefined;
 
 let stateStore: StateStore;
 let server: IpcServer;
@@ -100,39 +99,6 @@ afterEach(async () => {
     // store may be closed
   }
 });
-
-function mockWriteLoopInput(worktreeOverrides: Partial<WriteLoopInput["worktree"]> = {}): WriteLoopInput {
-  return {
-    worktree: {
-      projectRoot: "/tmp/test-project",
-      projectName: "test-project",
-      branchName: "test-branch",
-      baseRef: "main",
-      ...worktreeOverrides,
-    },
-    specPath: "/tmp/test-project/spec.md",
-    stepRules: "test rules",
-    expectedArtifactPath: "/tmp/test-project/artifact",
-    bindings: [],
-  };
-}
-
-async function startRun(
-  client: Awaited<ReturnType<typeof connectIpcClient>>,
-  input = mockWriteLoopInput(),
-): Promise<string | undefined> {
-  client.send({ kind: "request", id: "s1", method: "start", params: { input } });
-  const frame = await client.nextFrame();
-  expect(frame.kind).toBe("response");
-  return frame.kind === "response" ? (frame.result as { runId?: string } | undefined)?.runId : undefined;
-}
-
-async function listRuns(client: Awaited<ReturnType<typeof connectIpcClient>>): Promise<DaemonListRunRow[] | undefined> {
-  client.send({ kind: "request", id: "l1", method: "list" });
-  const frame = await client.nextFrame();
-  expect(frame.kind).toBe("response");
-  return frame.kind === "response" ? (frame.result as ListRunsResult)?.runs : undefined;
-}
 
 socketTest("start returns a run ID", async () => {
   const client = await connectIpcClient(SOCKET_PATH);

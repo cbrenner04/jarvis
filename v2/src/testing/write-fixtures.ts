@@ -4,10 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "../execution/external-worktree.ts";
 
-/**
- * Create a Jarvis home with state DB path.
- * Returns both jarvisRoot and stateDbPath (unopened path under jarvisRoot).
- */
+/** stateDbPath is an unopened path under jarvisRoot, safe to ignore if unused. */
 export function createJarvisHome(): { jarvisRoot: string; stateDbPath: string } {
   const root = mkdtempSync(join(tmpdir(), "jarvis-v2-"));
   const jarvisRoot = join(root, "jarvis-home");
@@ -15,10 +12,7 @@ export function createJarvisHome(): { jarvisRoot: string; stateDbPath: string } 
   return { jarvisRoot, stateDbPath };
 }
 
-/**
- * Create a fake withExternalWorktree implementation with `.reused` marker tracking.
- * Takes optional default jarvisRoot; individual invocations can override via args.
- */
+/** Fake withExternalWorktree; tracks `reused` via an on-disk `.reused` marker. */
 export function createFakeWithExternalWorktree(defaultJarvisRoot?: string) {
   return async function fakeWithExternalWorktree<T>(
     args: { branchName: string; projectName: string; jarvisRoot?: string },
@@ -32,7 +26,6 @@ export function createFakeWithExternalWorktree(defaultJarvisRoot?: string) {
     }
     const reused = existsSync(join(worktreePath, ".reused"));
     const value = await run({ path: worktreePath, reused });
-    mkdirSync(join(worktreePath, ".."), { recursive: true });
     writeFileSync(join(worktreePath, ".reused"), "true\n", "utf8");
     return {
       worktree: { path: worktreePath, reused: existsSync(join(worktreePath, ".reused")) },
@@ -42,11 +35,7 @@ export function createFakeWithExternalWorktree(defaultJarvisRoot?: string) {
   };
 }
 
-/**
- * Register cleanup for temp directories created during test execution.
- * Call this once at the top level of a test file; it automatically registers
- * afterEach handler. Return value can be used to manually push roots if needed.
- */
+/** Call once per test file; push allocated temp roots and they're rmSync'd in afterEach. */
 export function trackedTempRoots(): { roots: string[]; cleanup: () => void } {
   const roots: string[] = [];
 

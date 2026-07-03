@@ -1,4 +1,4 @@
-import type { DaemonListResult, DaemonListRunRow } from "./daemon/daemon-wire.ts";
+import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { connectTuiDaemon, type TuiDaemonClient } from "./tui-daemon-client.ts";
 import { TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-errors.ts";
 import { showTuiInkFeedback } from "./tui-ink-feedback.tsx";

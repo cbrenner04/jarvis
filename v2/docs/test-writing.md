@@ -36,6 +36,10 @@ Socket-backed v2 tests import `canUseUnixSockets` from [`v2/src/testing/unix-soc
 
 Use for any v2 test binding or connecting to a Unix socket under `tmpdir()`, including agent-runnable (`ipc.test.ts`, `daemon-start-list.test.ts`) and sandbox-unrunnable daemon lifecycle tests.
 
+The daemon smoke test (`v2/src/daemon/daemon.sandbox-unrunnable.test.ts`) demonstrates the minimal real-process fixture: spawn a detached daemon, serve health and status responses over a real socket, gracefully stop, and verify socket unbinds. This is the irreducible test for wire protocols requiring real OS seams.
+
+Pure in-memory logic (e.g., `WorktreeOwnershipRegistry`) belongs in agent-runnable tests (`daemon-registry.test.ts`) without `.sandbox-unrunnable` markers, even when moved from a real-process context. Use DI seams to inject the registry instance under test with mocked state, not real OS operations.
+
 ## Determinism smell checklist
 
 Treat these as triage smells for both new tests and existing ones:

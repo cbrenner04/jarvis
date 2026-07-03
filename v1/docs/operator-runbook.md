@@ -293,6 +293,8 @@ Specific case: `jarvis1 plan`/`run` aborting with `log server unreachable at htt
 1. Implementation PRs: spec complete before merge. Plan PRs (`plan/*` head): unchecked subspec AC is OK for `--merge` only (`--mark-ready` still requires completeness).
 2. `jarvis1 triage <spec-path|pr-ref|worktree-name> --merge` — runs local `bun run ready`, marks draft PR ready if needed, polls CI green, then admin-squash-merges. Supports implementation and plan worktrees (`plan/*` head). Refusal stderr uses `triage --merge (<class>):` with three classes: `unknown worktree` (resolution failures, including `unknown worktree: <name>` and `unable to get branch name`), `plan PR`, or `implementation PR` (post-resolution). Refuses on gate-red or CI-red with the failing name; PR stays unmerged. Markerless worktrees derive spec from branch name. Merge lands the spec PR only — no `jarvis1 run` or implementation worktree creation.
 
+   **Known gap — fails on freshly-drafted plan PRs.** Markerless spec-path derivation scans the *primary checkout's* `<targetDir>` for a directory whose stripped-timestamp name matches the branch — but a plan PR's spec dir exists only on the plan branch until merged, so before merge this reliably refuses `no spec found for branch plan/<name>` (seeded as `harness-triage-merge-plan-pr-spec-derivation` — fix pending). Workaround: hand-merge per the manual fallback below (`bun run ready` in the plan worktree, then `gh pr ready && gh pr merge --admin --squash`) — delete this paragraph once the seed ships.
+
 **Manual fallback (last-resort):**
 When `--merge` is unavailable or gates cannot be rerun (e.g., an earlier session ran it and the worktree is gone), finalize by hand:
 

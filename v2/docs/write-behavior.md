@@ -263,12 +263,12 @@ Drive the path through the test seam:
   commands, run-control success/error paths, log JSONL streaming, `jarvis run wait`
   (blocking resolve, exit mapping, error pass-through), `jarvis tui` dispatch, and
   `jarvis tui log <run-id>` dispatch.
-- `bun test v2/src/tui-entry.test.tsx` proves TUI run-monitor flow: liveness,
+- `bun test v2/src/tui/tui-entry.test.tsx` proves TUI run-monitor flow: liveness,
   initial list/empty states, refresh, selection changes, pending and late
   abandoned waits, steering success and daemon/connection error pass-through,
   resume re-wait, quit, and unavailable/RPC feedback with injectable daemon
   client, refresh scheduler, and view-host fakes.
-- `bun test v2/src/tui-log-follow-entry.test.tsx` proves TUI log-follow replay,
+- `bun test v2/src/tui/tui-log-follow-entry.test.tsx` proves TUI log-follow replay,
   blocking-after-replay quit, server close, live append, empty tail,
   mid-session tail failure, unavailable daemon, ink render seam, and per-kind line
   projection with injectable tail client and view-host fakes.

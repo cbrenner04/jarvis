@@ -1,5 +1,5 @@
-import type { IpcClient } from "./ipc/client.ts";
-import type { ErrorFrame, IpcFrame, ResponseFrame } from "./ipc/types.ts";
+import type { IpcClient } from "../ipc/client.ts";
+import type { ErrorFrame, IpcFrame, ResponseFrame } from "../ipc/types.ts";
 import { TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-errors.ts";
 
 type PendingRpc = {

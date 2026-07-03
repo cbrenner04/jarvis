@@ -1,5 +1,5 @@
 import { createElement, Fragment, type ReactElement, useState } from "react";
-import type { WriteLaunchFieldValues } from "./execution/write-loop-input.ts";
+import type { WriteLaunchFieldValues } from "../execution/write-loop-input.ts";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 
 /** Result of ink or injectable launch field collection. */

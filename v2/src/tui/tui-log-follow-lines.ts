@@ -1,4 +1,4 @@
-import type { PersistedRecord } from "./persistence/log-stream.ts";
+import type { PersistedRecord } from "../persistence/log-stream.ts";
 
 /** One operator-visible log-follow line from a persisted record. */
 export function formatLogFollowLine(record: PersistedRecord): string {

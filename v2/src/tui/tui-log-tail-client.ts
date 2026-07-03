@@ -1,8 +1,8 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
-import type { IpcFrame } from "./ipc/types.ts";
-import type { PersistedRecord } from "./persistence/log-stream.ts";
+import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
+import type { IpcFrame } from "../ipc/types.ts";
+import type { PersistedRecord } from "../persistence/log-stream.ts";
 import { TuiDaemonConnectionError } from "./tui-daemon-errors.ts";
 
 /**

@@ -1,7 +1,8 @@
 ---
 name: triage-merge-resolves-plan-pr-spec-pre-merge
 ---
-name: triage-merge-resolves-plan-pr-spec-pre-merge
+
+# triage --merge resolves a plan PR's spec before it merges
 
 ## Problem
 

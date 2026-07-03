@@ -87,7 +87,14 @@ async function readTailFrame(client: IpcClient): Promise<IpcFrame> {
   }
 }
 
-/** Open a TUI log tail client on the production or injected socket. Rejects with {@link TuiDaemonConnectionError} when the socket is unreachable before `stream-open`. */
+/**
+ * Open a TUI log tail client on the production or injected socket.
+ *
+ * @param runId Run whose persisted log stream to open.
+ * @param options Optional socket path and `connectIpcClient` seam.
+ * @returns A client exposing `records` and `close` on one connection.
+ * @throws {TuiDaemonConnectionError} When the socket is unreachable before `stream-open`.
+ */
 export async function connectTuiLogTail(runId: string, options?: ConnectTuiLogTailOptions): Promise<TuiLogTailClient> {
   const socketPath = options?.socketPath ?? DEFAULT_SOCKET_PATH;
   const connectFn = options?.connectIpcClient ?? connectIpcClient;

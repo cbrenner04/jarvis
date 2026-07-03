@@ -3263,6 +3263,74 @@ describe("triage --mark-ready", () => {
       expect(out()).not.toContain(RECOVERY_STDOUT);
       expect(out()).toContain("merged successfully");
     });
+
+    test("--merge markerless plan worktree resolves spec from worktree's own targetDir", () => {
+      const planName = "plan-merge-worktree-spec";
+      const worktreeName = `plan-${planName}`;
+      const branch = `plan/${planName}`;
+      const worktreePath = join(worktreeDir, worktreeName);
+      setupWorktree(worktreePath);
+      execSync(`git branch -M ${branch}`, { cwd: worktreePath, stdio: "pipe" });
+
+      // Spec directory exists ONLY in the worktree, not in projectRoot
+      const worktreeSpecDir = join(worktreePath, "v1", "spec", `2026-01-01T00-00-00Z-${planName}`);
+      mkdirSync(worktreeSpecDir, { recursive: true });
+      writeFileSync(join(worktreeSpecDir, "index.md"), "# Test\n\n- [ ] [subspec](./01-test.md)");
+      writeFileSync(
+        join(worktreeSpecDir, "01-test.md"),
+        "# Test\n\n## Acceptance criteria\n\n- [ ] automated criterion",
+      );
+
+      let mergeRan = false;
+      const { io, out } = captureIo();
+      const code = triageCommand(
+        triageMergeOpts({
+          projectRoot,
+          io,
+          worktreeName,
+          ghRunner: {
+            getPrState: () => ({ state: "OPEN", isDraft: false }),
+            getChecks: () => [{ name: "test", status: "success" }],
+          },
+          runGate: () => {},
+          adminMerge: () => {
+            mergeRan = true;
+          },
+        }),
+      );
+
+      expect(code).toBe(0);
+      expect(mergeRan).toBe(true);
+      expect(out()).toContain("merged successfully");
+    });
+
+    test("--merge markerless plan worktree with no spec in either location returns error", () => {
+      const planName = "plan-merge-no-spec";
+      const worktreeName = `plan-${planName}`;
+      const branch = `plan/${planName}`;
+      const worktreePath = join(worktreeDir, worktreeName);
+      setupWorktree(worktreePath);
+      execSync(`git branch -M ${branch}`, { cwd: worktreePath, stdio: "pipe" });
+
+      // No spec in projectRoot, no spec in worktreePath
+
+      let mergeRan = false;
+      const { io, err } = captureIo();
+      const code = triageCommand(
+        triageMergeOpts({
+          projectRoot,
+          io,
+          worktreeName,
+          adminMerge: () => {
+            mergeRan = true;
+          },
+        }),
+      );
+
+      expect(code).toBe(1);
+      expectMergeRefusal(err(), "plan PR", "no spec found for branch");
+      expect(mergeRan).toBe(false);
+    });
   });
 
   describe("merge target resolution", () => {

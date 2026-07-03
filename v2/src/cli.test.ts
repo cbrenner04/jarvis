@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { main } from "./cli.ts";
 import type { IpcClient } from "./ipc/client.ts";
 import type { IpcFrame } from "./ipc/types.ts";
-import type { PersistedRecord } from "./log-stream.ts";
+import type { PersistedRecord } from "./persistence/log-stream.ts";
 import { simulatedBindings } from "./testing/bindings.ts";
 import type { WriteLoopInput, WriteLoopResult } from "./write-loop.ts";
 

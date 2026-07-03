@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { createTailStreamHandler } from "./daemon.ts";
 import { connectIpcClient } from "./ipc/client.ts";
 import { type IpcServer, startIpcServer } from "./ipc/server.ts";
-import { openLogReader, openLogSink } from "./log-stream.ts";
-import { openStateStore, type StateStore } from "./state-store.ts";
+import { openLogReader, openLogSink } from "./persistence/log-stream.ts";
+import { openStateStore, type StateStore } from "./persistence/state-store.ts";
 import { canUseUnixSockets } from "./testing/unix-socket.ts";
 
 const SOCKET_PATH = join(tmpdir(), `jarvis-daemon-tail-test-${process.pid}.sock`);

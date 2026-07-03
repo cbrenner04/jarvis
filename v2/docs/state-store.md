@@ -13,7 +13,7 @@ Forward-only migration `004-invocation-failure-detail` adds `invocation_failure_
 
 ## API
 
-Repository-style named ops keyed by durable IDs — no public SQL surface. Signatures: the `StateStore` interface in [`state-store.ts`](../src/state-store.ts).
+Repository-style named ops keyed by durable IDs — no public SQL surface. Signatures: the `StateStore` interface in [`state-store.ts`](../src/persistence/state-store.ts).
 
 - `createRun` — insert a run (`in-progress`, zero attempts); returns its ID.
 - `loadRun` / `findRunByProjectBranch` — read a run plus attempt history; the latter resolves the `(project, branch)` resume key to the most recent run.

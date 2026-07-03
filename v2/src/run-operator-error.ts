@@ -1,6 +1,6 @@
-import type { LoopFinishedEvent, PersistedRecord, RunExecutionFailedEvent } from "./log-stream.ts";
-import type { Attempt } from "./state-store.ts";
-import type { RunStatus } from "./state-store-types.ts";
+import type { LoopFinishedEvent, PersistedRecord, RunExecutionFailedEvent } from "./persistence/log-stream.ts";
+import type { Attempt } from "./persistence/state-store.ts";
+import type { RunStatus } from "./persistence/state-store-types.ts";
 
 /** Closed operator-facing stop reason; not raw loop or invocation taxonomy. */
 export const RUN_OPERATOR_ERROR_REASONS = [

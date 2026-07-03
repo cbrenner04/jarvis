@@ -432,12 +432,12 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
 - [v2 additive] `jarvis tui` is an interactive read-only run monitor over daemon
   IPC: prove `health` + `status`, poll `list` for run rows/liveness, drive the
   outcome panel from invocation-boundary `wait`, preserve selection by `runId`,
-  and quit with `q` or Ctrl-C. Sources: `v2/src/tui-entry.tsx`,
+  and quit with `q` or Ctrl-C. Sources: `v2/src/tui/tui-entry.tsx`,
   `v2/docs/write-behavior.md`
 - [v2 additive] TUI run-monitor steering: `pauseSelected` / `resumeSelected` /
   `killSelected` on the selected run; inline errors (`<code>: <message>`,
   `daemon_error: <message>`, `no run selected`); successful `resume` re-issues
-  `wait`; production keybindings deferred. Sources: `v2/src/tui-entry.tsx`,
+  `wait`; production keybindings deferred. Sources: `v2/src/tui/tui-entry.tsx`,
   `v2/docs/write-behavior.md`
 
 ## Behaviors with uncertain intent

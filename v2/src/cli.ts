@@ -11,10 +11,10 @@ import { executeWriteLoop, type WriteLoopInput, type WriteLoopResult } from "./e
 import { buildWriteLoopInputFromCliValues, parseWriteArgs } from "./execution/write-loop-input.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import type { ErrorFrame, ResponseFrame } from "./ipc/types.ts";
-import { runTuiEntry } from "./tui-entry.tsx";
-import { runTuiLogFollow } from "./tui-log-follow-entry.tsx";
-import type { RunTuiLogFollowDeps } from "./tui-log-follow-types.ts";
-import type { RunTuiEntryDeps } from "./tui-monitor-types.ts";
+import { runTuiEntry } from "./tui/tui-entry.tsx";
+import { runTuiLogFollow } from "./tui/tui-log-follow-entry.tsx";
+import type { RunTuiLogFollowDeps } from "./tui/tui-log-follow-types.ts";
+import type { RunTuiEntryDeps } from "./tui/tui-monitor-types.ts";
 
 export type Io = {
   stdout: (s: string) => void;

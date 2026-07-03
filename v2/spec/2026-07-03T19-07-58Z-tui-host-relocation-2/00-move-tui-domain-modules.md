@@ -37,18 +37,18 @@ changes.
 
 ## Acceptance criteria
 
-- [ ] `bun run typecheck` passes with no TUI-domain import errors.
-- [ ] `tui-entry.test.tsx` stays green (TUI run-monitor flow unchanged by the
+- [x] `bun run typecheck` passes with no TUI-domain import errors.
+- [x] `tui-entry.test.tsx` stays green (TUI run-monitor flow unchanged by the
       move).
-- [ ] `tui-log-follow-entry.test.tsx` stays green (TUI log-follow flow
+- [x] `tui-log-follow-entry.test.tsx` stays green (TUI log-follow flow
       unchanged by the move).
-- [ ] `tui-daemon-client.test.ts` and `tui-log-tail-client.test.ts` stay green.
-- [ ] `bun test v2/src/cli.test.ts` stays green (`jarvis tui` and `jarvis tui
+- [x] `tui-daemon-client.test.ts` and `tui-log-tail-client.test.ts` stay green.
+- [x] `bun test v2/src/cli.test.ts` stays green (`jarvis tui` and `jarvis tui
       log <run-id>` dispatch unchanged).
-- [ ] No new layering violation is introduced by the relocation: every moved
+- [x] No new layering violation is introduced by the relocation: every moved
       module's imports resolve to execution, persistence, daemon, `ipc/`, or
       `shared/` paths only, per the Import direction matrix — never CLI host.
-- [ ] Imports among moved TUI files themselves (e.g. `tui-daemon-errors.ts`,
+- [x] Imports among moved TUI files themselves (e.g. `tui-daemon-errors.ts`,
       `tui-ink-feedback.tsx`, `tui-monitor-types.ts`) retain their `./` prefix,
       unchanged by the move.
 

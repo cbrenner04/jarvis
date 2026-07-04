@@ -30,14 +30,14 @@ const IMPLEMENT_CONFIG = {
 function createImplementBindings(
   invoke: (binding: { agentId: string; adapterModel: string }) => InvocationBinding["invoke"],
 ): readonly InvocationBinding[] {
-    return resolveInvocationBindings("implement", ["claude", "codex"], IMPLEMENT_CONFIG, (binding) => ({
-      id: `${binding.agentId}/${binding.adapterModel}`,
-      metadata: {
-        agent: binding.agentId,
-        model: binding.adapterModel,
-      },
-      invoke: invoke(binding),
-    }));
+  return resolveInvocationBindings("implement", ["claude", "codex"], IMPLEMENT_CONFIG, (binding) => ({
+    id: `${binding.agentId}/${binding.adapterModel}`,
+    metadata: {
+      agent: binding.agentId,
+      model: binding.adapterModel,
+    },
+    invoke: invoke(binding),
+  }));
 }
 
 describe("step runner token parsing", () => {

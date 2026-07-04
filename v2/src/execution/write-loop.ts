@@ -88,33 +88,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       args.logSink?.append(runId, { kind: "iteration_started", attemptId });
 
-      const writeArgs: Parameters<typeof executeWrite>[0] = {
-        worktree: args.worktree,
-        specPath: args.specPath,
-        stepRules: args.stepRules,
-        expectedArtifactPath: args.expectedArtifactPath,
-        bindings: args.bindings,
-        ...(args.telemetry !== undefined
-          ? {
-              invocationTelemetry: {
-                sink: createInvocationTelemetrySink(args.telemetry.sinkPath),
-                operatorSessionId: args.telemetry.operatorSessionId,
-                runId,
-                attemptId,
-                project: args.worktree.projectName,
-                workflow: args.telemetry.workflow,
-                stepId: args.stepId ?? null,
-                role: args.telemetry.role,
-                branch: args.worktree.branchName,
-                specRef: args.worktree.baseRef,
-                invocationIds: args.bindings.map(() => crypto.randomUUID()),
-              },
-            }
-          : {}),
-        ...(args.signal && { signal: args.signal }),
-        ...(args.withExternalWorktree && { withExternalWorktree: args.withExternalWorktree }),
-      };
-      const { result } = await executeWrite(writeArgs);
+      const { result } = await executeWrite(buildWriteExecuteInput(args, runId, attemptId));
       iterationsConsumed += 1;
 
       // If the abort signal was triggered while the step was running, skip boundary commit
@@ -237,6 +211,39 @@ function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {
 
   const committed = committedResult(existingRun);
   return committed === null ? { runId: existingRun.id, worktreePath, resumedAttemptId: null } : { result: committed };
+}
+
+function buildWriteExecuteInput(
+  args: WriteLoopInput,
+  runId: string,
+  attemptId: string,
+): Parameters<typeof executeWrite>[0] {
+  return {
+    worktree: args.worktree,
+    specPath: args.specPath,
+    stepRules: args.stepRules,
+    expectedArtifactPath: args.expectedArtifactPath,
+    bindings: args.bindings,
+    ...(args.telemetry !== undefined
+      ? {
+          invocationTelemetry: {
+            sink: createInvocationTelemetrySink(args.telemetry.sinkPath),
+            operatorSessionId: args.telemetry.operatorSessionId,
+            runId,
+            attemptId,
+            project: args.worktree.projectName,
+            workflow: args.telemetry.workflow,
+            stepId: args.stepId ?? null,
+            role: args.telemetry.role,
+            branch: args.worktree.branchName,
+            specRef: args.worktree.baseRef,
+            invocationIds: args.bindings.map(() => crypto.randomUUID()),
+          },
+        }
+      : {}),
+    ...(args.signal && { signal: args.signal }),
+    ...(args.withExternalWorktree && { withExternalWorktree: args.withExternalWorktree }),
+  };
 }
 
 function terminalMapping(result: Exclude<StepRunResult, { kind: "progress" }>): {

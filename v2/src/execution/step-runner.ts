@@ -2,8 +2,8 @@ import {
   executeWithQuotaFallback,
   type InvocationBinding,
   type InvocationExecution,
-  type InvocationTelemetryContext,
   type InvocationResult,
+  type InvocationTelemetryContext,
 } from "../../../shared/invocation/execute.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
 

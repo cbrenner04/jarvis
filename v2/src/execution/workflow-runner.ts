@@ -57,6 +57,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
 
   try {
     let totalIterationsConsumed = 0;
+    let lastResult: Awaited<ReturnType<typeof executeWriteLoop>> | undefined;
+    let lastStepId = "";
 
     for (let stepIndex = 0; stepIndex < args.steps.length; stepIndex++) {
       const step = args.steps[stepIndex];
@@ -74,6 +76,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
 
       const result = await executeWriteLoop(stepInput);
       totalIterationsConsumed += result.iterationsConsumed;
+      lastResult = result;
+      lastStepId = stepId;
 
       // If this step didn't complete, stop the workflow
       if (result.kind !== "complete") {
@@ -91,14 +95,13 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     }
 
     // All steps completed
-    const lastStep = args.steps[args.steps.length - 1];
-    if (!lastStep) throw new Error("Unreachable: lastStep undefined after checked bounds");
+    if (!lastResult) throw new Error("Unreachable: lastResult undefined after checked bounds");
 
     return {
       kind: "complete",
       stepIndex: args.steps.length - 1,
-      stepId: lastStep.stepId,
-      runId: "", // No single run ID for multi-step, but caller should track per-step
+      stepId: lastStepId,
+      runId: lastResult.runId,
       iterationsConsumed: totalIterationsConsumed,
       resumable: false,
     };

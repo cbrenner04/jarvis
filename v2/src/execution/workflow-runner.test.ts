@@ -66,6 +66,15 @@ describe("executeWorkflow", () => {
       expect(result.stepId).toBe("step-1");
       expect(result.iterationsConsumed).toBeGreaterThan(0);
       expect(result.resumable).toBe(false);
+
+      // One-step equivalence: runId matches the step's actual run, not empty
+      const run = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "workflow-run",
+        stepId: "step-1",
+      });
+      expect(result.runId).toBe(run?.id ?? "");
+      expect(result.runId).not.toBe("");
     } finally {
       store.close();
     }

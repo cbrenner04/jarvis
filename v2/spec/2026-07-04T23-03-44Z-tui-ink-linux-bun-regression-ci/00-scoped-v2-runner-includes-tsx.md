@@ -13,13 +13,16 @@ for the PRs that touch it."
 ## Decisions
 
 - Fix `walkV2TestFiles`'s glob to include `.test.tsx` alongside `.test.ts` — rules out adding a second parallel walker or a new CI job, since the existing scoped runner is the one blind spot.
-- No new test file — the regression assertion already exists (`tui-field-collector.test.tsx`'s `loadInkUi` smoke test); this subspec makes the existing scoped CI path actually run it.
+- No new test file — the regression assertion already exists (`tui-field-collector.test.tsx`'s `loadInkUi` smoke test, added in #973/`a2bef546` "TUI ink renderer isolation" alongside the Yoga-TDZ fix itself); this subspec makes the existing scoped CI path actually run it.
+- `test:integration:v2` (`scripts/run-v2-tests.ts`) filters the same `walkV2TestFiles()` output by sandbox-suffix, so the glob fix covers both `test:v2` and `test:integration:v2` for free — no separate line item needed.
+- CI already runs `test:v2`/`test:integration:v2` on `ubuntu-latest` via `oven-sh/setup-bun@v2` (`.github/workflows/ci.yml`), so the Linux/Bun requirement is satisfied by existing CI wiring, not new work.
 
 ## Acceptance criteria
 
 - [ ] `walkV2TestFiles()` includes `v2/src/tui/tui-field-collector.test.tsx`, `tui-log-follow-entry.test.tsx`, and `tui-entry.test.tsx` in its result.
 - [ ] `bun run test:v2` runs the `loadInkUi` smoke test in `tui-field-collector.test.tsx` (verify via `bun run test:v2 2>&1 | grep -c "smoke: loadInkUi"` showing 1, or equivalent).
-- [ ] A PR touching only `v2/**` files triggers `test:v2` in CI scoping (`scripts/ci-test-scope.ts` behavior unchanged) and that scoped run now includes the Yoga TDZ smoke test.
+- [ ] `tui-log-follow-entry.test.tsx` and `tui-entry.test.tsx` pass under `bun run test:v2` after the glob widening (no pre-existing failures surfaced).
+- [ ] `scripts/ci-test-scope.test.ts`'s `"v2-only change runs test:v2 + test:integration:v2"` case stays green, confirming a `v2/**`-only diff still selects both scripts unchanged.
 
 ## Documentation updates
 

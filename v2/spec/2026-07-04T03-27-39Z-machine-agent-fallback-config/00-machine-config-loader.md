@@ -23,11 +23,11 @@ new file, separate from v1's `~/.jarvis/config.json`.
 
 ## Acceptance criteria
 
-- [ ] Loading a nonexistent config path returns `undefined`.
-- [ ] Loading a config file with valid JSON but no `agents` key returns `undefined`.
-- [ ] Loading a config file with a valid `agents: string[]` returns that list in on-disk order.
-- [ ] Loading a config file with unparseable JSON, a non-array `agents`, a non-string entry, an empty-string entry, a duplicate name (exact-string match), or an empty `agents` array throws.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] Loading a nonexistent config path returns `undefined`.
+- [x] Loading a config file with valid JSON but no `agents` key returns `undefined`.
+- [x] Loading a config file with a valid `agents: string[]` returns that list in on-disk order.
+- [x] Loading a config file with unparseable JSON, a non-array `agents`, a non-string entry, an empty-string entry, a duplicate name (exact-string match), or an empty `agents` array throws.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

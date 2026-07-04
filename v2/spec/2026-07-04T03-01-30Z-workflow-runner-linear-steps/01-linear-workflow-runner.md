@@ -62,20 +62,20 @@ for per-step attempt history.
 
 ## Acceptance criteria
 
-- [ ] A two-step array (`write` behavior for both) runs step one to
+- [x] A two-step array (`write` behavior for both) runs step one to
       `complete`, then runs step two to `complete`, with no operator
       intervention between steps.
-- [ ] A step that ends `blocked`, `contract_miss`, or `invocation_failure`
+- [x] A step that ends `blocked`, `contract_miss`, or `invocation_failure`
       stops the workflow before any later step runs.
-- [ ] A step that ends in a soft-stop (`budget-exhausted`) stops the
+- [x] A step that ends in a soft-stop (`budget-exhausted`) stops the
       workflow before any later step runs, same as a hard-terminal outcome.
-- [ ] Killing mid-second-step and re-invoking the same workflow resumes at
+- [x] Killing mid-second-step and re-invoking the same workflow resumes at
       step two — step one is not re-run and its attempt history is
       unchanged.
-- [ ] After a workflow finishes (or is killed mid-run), each step's attempt
+- [x] After a workflow finishes (or is killed mid-run), each step's attempt
       history is independently queryable via the step-scoped run lookup
       from subspec 00.
-- [ ] A one-step `steps` array runs identically to today's single-step
+- [x] A one-step `steps` array runs identically to today's single-step
       `executeWriteLoop` invocation (same terminal outcomes, same resume
       behavior).
 

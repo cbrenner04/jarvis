@@ -27,6 +27,8 @@ A workflow **step** binds three inputs: **behavior** (loop primitive), **prompt*
 (task text), and **role** (model-resolution key). Behaviors are orchestration
 primitives (`write`, `review-debate`, `human`); they are not renamed to
 match roles.
+Workflow-step authoring and named preset resolution for this behavior vocabulary
+live in [`workflow-runner.md`](workflow-runner.md#authoring-helper-and-presets).
 
 At invocation the runner:
 

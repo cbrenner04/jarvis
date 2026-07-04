@@ -13,7 +13,7 @@ Two axes, two stores:
 
 | Axis | Store | Contents |
 | --- | --- | --- |
-| **Agent fallback order** | Per-machine `~/.jarvis` project config | Ordered `agents: Agent[]` — availability/quota chain only |
+| **Agent fallback order** | Per-machine `~/.jarvis/v2.json`, shape `{ "agents": string[] }` | Ordered `agents: Agent[]` — availability/quota chain only |
 | **Role→model bindings** | One harness-global, version-controlled data file beside `data/prices.json` | `AgentModelConfig` — `(agent, role) → ModelEscalation`; may catalog agents beyond any one project's `agents` list |
 
 Per-project variance is **only** the ordered `agents` list. Role→model assignments

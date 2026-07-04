@@ -25,7 +25,9 @@ Bindings:
   `shared/invocation/agents.ts` builds one binding from one resolved rung. It is
   the seam where real `claude`/`codex`/`cursor` process spawning and quota
   classification land; until then each binding returns a terminal `error`, and
-  tests inject their own bindings.
+  tests inject their own bindings. Production `binding.id` records the resolved
+  rung identity as `agentId/adapterModel/priceKey`, so attempts stay distinct
+  even when two rungs share the same adapter model string.
 - `createAgentBindings(agentIds)` remains the older bare-agent helper for paths
   that still inject prebuilt bindings directly.
 

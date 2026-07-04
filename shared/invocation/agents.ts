@@ -21,7 +21,7 @@ function createUnwiredBinding(id: string, stderr: string): InvocationBinding {
 export function createResolvedAgentBinding(args: ResolvedAgentBinding): InvocationBinding {
   const { agentId, adapterModel, priceKey } = args;
   return createUnwiredBinding(
-    `${agentId}/${adapterModel}`,
+    `${agentId}/${adapterModel}/${priceKey}`,
     `agent '${agentId}' model '${adapterModel}' price '${priceKey}' invocation is not wired yet`,
   );
 }

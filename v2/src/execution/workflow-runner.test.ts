@@ -300,6 +300,57 @@ describe("executeWorkflow", () => {
     }
   });
 
+  test("resume skips a completed step before resolving its current role or bindings", async () => {
+    const { stateDbPath } = createJarvisHome();
+    const step1First = createStep({ stepId: "step-1", role: "implement", branchName: "resume-completed-step" });
+    const step2First = createStep({
+      stepId: "step-2",
+      role: "implement",
+      branchName: "resume-completed-step",
+      createBinding: okTokenBindingFactory("progress"),
+      maxIterations: 1,
+    });
+
+    let store = openStateStore(stateDbPath);
+
+    try {
+      const firstResult = await executeWorkflow({
+        steps: [step1First, step2First],
+        stateStore: store,
+      });
+
+      expect(firstResult.kind).toBe("budget-exhausted");
+
+      store.close();
+      store = openStateStore(stateDbPath);
+
+      const step1Second = createStep({
+        stepId: "step-1",
+        role: "operator",
+        branchName: "resume-completed-step",
+        agentModelConfig: {},
+        createBinding: () => {
+          throw new Error("completed step should not rebuild bindings");
+        },
+      });
+      const step2Second = createStep({
+        stepId: "step-2",
+        role: "implement",
+        branchName: "resume-completed-step",
+      });
+
+      const resumedResult = await executeWorkflow({
+        steps: [step1Second, step2Second],
+        stateStore: store,
+      });
+
+      expect(resumedResult.kind).toBe("complete");
+      expect(resumedResult.stepIndex).toBe(1);
+    } finally {
+      store.close();
+    }
+  });
+
   test("tracks per-step attempt history independently", async () => {
     const store = openStateStore(":memory:");
 

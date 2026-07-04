@@ -1,0 +1,3 @@
+1. Completed-step resume must remain isolated from later binding resolution. A workflow re-entry that should skip an already completed step must not fail because that step’s current role/config/binding factory is now invalid. This is necessary to preserve existing write-loop resume semantics and the step-level resumability contract.
+
+2. Production binding identity must uniquely represent the resolved rung, not just `agentId/adapterModel`. If two bindings differ only by `priceKey`, the recorded binding attempts must still distinguish them. This is necessary because the subspec moved binding construction to resolved `(agent, adapterModel, priceKey)` rungs, and the shared invocation history must stay observable and unambiguous for debugging and accounting.

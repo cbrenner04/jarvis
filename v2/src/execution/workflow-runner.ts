@@ -47,6 +47,16 @@ export type WorkflowRunnerInput = {
   logSink?: LogSink;
 };
 
+type PreparedWorkflowStep =
+  | {
+      kind: "completed";
+      runId: string;
+    }
+  | {
+      kind: "pending";
+      input: WriteLoopInput;
+    };
+
 /**
  * Execute a multi-step workflow: run each step's write loop to completion
  * before advancing to the next step. A non-complete outcome stops the
@@ -77,35 +87,29 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       const step = args.steps[stepIndex];
       if (!step) throw new Error("Unreachable: step undefined in bounded loop");
 
-      // Extract workflow-specific fields and pass the rest to executeWriteLoop
-      const { stepId, role, agents, agentModelConfig, createBinding, ...loopInput } = step;
-      const executableRole = resolveExecutableRole(role);
-      const bindings = resolveInvocationBindings(
-        executableRole,
-        agents,
-        agentModelConfig,
-        createBinding ?? createResolvedAgentBinding,
-      );
+      const preparedStep = prepareWorkflowStep(step, store, args.logSink);
+      if (preparedStep.kind === "completed") {
+        lastStepId = step.stepId;
+        lastResult = {
+          kind: "complete",
+          runId: preparedStep.runId,
+          iterationsConsumed: 0,
+          resumable: false,
+        };
+        continue;
+      }
 
-      const stepInput: WriteLoopInput = {
-        ...loopInput,
-        stepId,
-        bindings,
-        stateStore: store,
-        ...(args.logSink !== undefined ? { logSink: args.logSink } : {}),
-      };
-
-      const result = await executeWriteLoop(stepInput);
+      const result = await executeWriteLoop(preparedStep.input);
       totalIterationsConsumed += result.iterationsConsumed;
       lastResult = result;
-      lastStepId = stepId;
+      lastStepId = step.stepId;
 
       // If this step didn't complete, stop the workflow
       if (result.kind !== "complete") {
         return {
           kind: result.kind,
           stepIndex,
-          stepId,
+          stepId: step.stepId,
           runId: result.runId,
           iterationsConsumed: totalIterationsConsumed,
           resumable: result.resumable,
@@ -131,4 +135,35 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       store.close();
     }
   }
+}
+
+function prepareWorkflowStep(step: WorkflowStep, store: StateStore, logSink?: LogSink): PreparedWorkflowStep {
+  const existingRun = store.findRunByProjectBranch({
+    project: step.worktree.projectName,
+    branch: step.worktree.branchName,
+    stepId: step.stepId,
+  });
+  if (existingRun?.status === "completed") {
+    return { kind: "completed", runId: existingRun.id };
+  }
+
+  const { stepId, role, agents, agentModelConfig, createBinding, ...loopInput } = step;
+  const executableRole = resolveExecutableRole(role);
+  const bindings = resolveInvocationBindings(
+    executableRole,
+    agents,
+    agentModelConfig,
+    createBinding ?? createResolvedAgentBinding,
+  );
+
+  return {
+    kind: "pending",
+    input: {
+      ...loopInput,
+      stepId,
+      bindings,
+      stateStore: store,
+      ...(logSink !== undefined ? { logSink } : {}),
+    },
+  };
 }

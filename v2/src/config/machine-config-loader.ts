@@ -2,19 +2,12 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export function loadMachineConfig(
-  configPath: string = join(homedir(), ".jarvis", "v2.json")
-): string[] | undefined {
+export function loadMachineConfig(configPath: string = join(homedir(), ".jarvis", "v2.json")): string[] | undefined {
   let content: string;
   try {
     content = readFileSync(configPath, "utf8");
   } catch (err: unknown) {
-    if (
-      typeof err === "object" &&
-      err !== null &&
-      "code" in err &&
-      err.code === "ENOENT"
-    ) {
+    if (typeof err === "object" && err !== null && "code" in err && err.code === "ENOENT") {
       return undefined;
     }
     throw err;
@@ -24,24 +17,14 @@ export function loadMachineConfig(
   try {
     parsed = JSON.parse(content);
   } catch {
-    throw new Error(
-      `Failed to parse machine config at ${configPath}: invalid JSON`
-    );
+    throw new Error(`Failed to parse machine config at ${configPath}: invalid JSON`);
   }
 
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    Array.isArray(parsed)
-  ) {
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new Error(
       `Machine config at ${configPath} must be a JSON object, got ${
-        Array.isArray(parsed)
-          ? "array"
-          : parsed === null
-            ? "null"
-            : typeof parsed
-      }`
+        Array.isArray(parsed) ? "array" : parsed === null ? "null" : typeof parsed
+      }`,
     );
   }
 
@@ -52,9 +35,7 @@ export function loadMachineConfig(
   const agents = (parsed as Record<string, unknown>).agents;
 
   if (!Array.isArray(agents)) {
-    throw new Error(
-      `Machine config 'agents' must be an array, got ${typeof agents}`
-    );
+    throw new Error(`Machine config 'agents' must be an array, got ${typeof agents}`);
   }
 
   if (agents.length === 0) {
@@ -65,19 +46,13 @@ export function loadMachineConfig(
   for (let i = 0; i < agents.length; i++) {
     const agent = agents[i];
     if (typeof agent !== "string") {
-      throw new Error(
-        `Machine config 'agents' entry at index ${i} must be a string, got ${typeof agent}`
-      );
+      throw new Error(`Machine config 'agents' entry at index ${i} must be a string, got ${typeof agent}`);
     }
     if (agent === "") {
-      throw new Error(
-        `Machine config 'agents' entry at index ${i} must not be an empty string`
-      );
+      throw new Error(`Machine config 'agents' entry at index ${i} must not be an empty string`);
     }
     if (seenAgents.has(agent)) {
-      throw new Error(
-        `Machine config 'agents' contains duplicate entry: "${agent}"`
-      );
+      throw new Error(`Machine config 'agents' contains duplicate entry: "${agent}"`);
     }
     seenAgents.add(agent);
   }

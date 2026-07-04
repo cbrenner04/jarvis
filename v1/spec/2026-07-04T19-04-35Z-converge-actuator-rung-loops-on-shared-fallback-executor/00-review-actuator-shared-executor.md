@@ -34,10 +34,25 @@ of falling through).
   stays a bare rung/fallback iterator; it must not gain review-specific
   knowledge (verdict files, git commits), which would defeat the point of
   sharing it with plan's verdict actuator.
-- Per-rung idle watchdog wiring (timer, `AbortController`, descendant tracking,
-  pgid kill) stays as today, attached per binding invocation — the intent marks
-  the idle-timeout watchdog mechanics themselves out of scope; only the
+- Per-rung idle watchdog wiring (timer, descendant tracking, pgid kill) stays
+  as today, attached per binding invocation — the intent marks the
+  idle-timeout watchdog mechanics themselves out of scope; only the
   loop/fallback shell around them converges.
+- `executeWithQuotaFallback` forwards one caller-supplied `signal` to every
+  rung's `invoke()` — it has no per-rung controller. Spanning the whole call
+  with a single top-level `AbortController` (the pattern plan's
+  `verdict-actuator.ts` uses) would hand rung 2 an already-permanently-aborted
+  signal once idle-timeout fires on rung 1, breaking "idle-timeout advances to
+  next agent." Plan's actuator never sets `shouldAdvance` for idle-timeout so
+  it never hits this; review must. Each binding's `invoke()` therefore owns
+  and disposes its own internal `AbortController`/watchdog timer per
+  invocation — rules out one controller shared across rungs.
+- `createReviewInvocationBinding`'s `invoke()` today forwards only
+  `cwd`/`signal`/`additionalReadDirs`; it has no `onSpawned` (pgid capture) or
+  liveness-timestamp (`lastOutputAtMs`) hook, both of which the current inline
+  actuator loop (`review.ts:954`) relies on for the idle watchdog. The binding
+  must gain this hook surface before the rung loop can move onto it — rules
+  out assuming the existing binding signature already suffices.
 - Exit-code mapping (`3` for `model_config`, agent's `exitCode` for `error`, `11`
   terminal-idle path via `ReviewTerminalError`) is computed once from
   `execution.final`, replacing the equivalent per-iteration `throw` statements at
@@ -49,6 +64,12 @@ of falling through).
       function with one `executeWithQuotaFallback` call over bindings built per
       `actuatorOrder` entry.
 - [ ] Wire `shouldAdvance` per binding per the Decisions above.
+- [ ] Give each binding invocation its own `AbortController`/watchdog timer
+      (not one controller shared across `executeWithQuotaFallback`'s whole
+      call), so a rung 1 idle-timeout abort cannot poison rung 2's signal.
+- [ ] Extend `createReviewInvocationBinding` with the `onSpawned` (pgid
+      capture) and liveness-timestamp (`lastOutputAtMs`) hook surface the
+      idle watchdog needs, and wire the actuator's watchdog through it.
 - [ ] Move the success path (verdict restore, spec-tree revert, commit/push/PR
       update, non-fast-forward convergence, `ok`/`no-changes` telemetry) into a
       post-execution handler that runs once against `execution.final` when
@@ -80,6 +101,11 @@ of falling through).
       reaping: verdict actuator polls and reaps via override`.
 - [ ] `createActuator`'s rung loop calls `executeWithQuotaFallback`
       (`shared/invocation/execute.ts`) instead of a hand-rolled `for` loop.
+- [ ] A test (existing or new) asserts the fallback rung's `invoke()` receives
+      a non-aborted signal after a prior rung's idle-timeout abort — covering
+      the per-rung controller-ownership mechanism, since `FakeAgent` in the
+      current idle-watchdog fallback test never inspects `opts.signal.aborted`
+      and would not catch a regression to one controller shared across rungs.
 
 ## Documentation updates
 

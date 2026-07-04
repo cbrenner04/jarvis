@@ -33,9 +33,21 @@ control flow as the review actuator and plan's verdict actuator.
   into per-attempt callbacks (`onQuotaFallbackEmit`/`recordAttempt` already
   supported by `createShrinkInvocationBinding`) and a post-execution handler
   keyed on `execution.final`, not into the shared executor.
-- Idle watchdog wiring (timer, `AbortController`, `lastOutputAtMs`) stays
-  per-rung as today — idle-timeout mechanics are out of scope; only the
-  loop/fallback shell converges.
+- Idle watchdog wiring (timer, `lastOutputAtMs`) stays per-rung as today —
+  idle-timeout mechanics are out of scope; only the loop/fallback shell
+  converges. Per the review-actuator subspec's abort-scoping resolution
+  ([[00-review-actuator-shared-executor.md]]): `executeWithQuotaFallback`
+  forwards one caller signal to every rung, so each binding's `invoke()` must
+  own and dispose its own internal `AbortController` per invocation rather
+  than sharing one controller across rungs — otherwise an idle-timeout abort
+  on rung 1 permanently poisons rung 2's signal. Reuse whatever concrete
+  mechanism 00 lands rather than re-deriving it; if 01 lands first, establish
+  it here and have 00 reuse it.
+- `createShrinkInvocationBinding`'s `invoke()` today forwards only
+  `cwd`/`signal`/`abortKillGraceMs`/`lastOutputAtMs` — `lastOutputAtMs` is
+  already threaded through, but there is no `onSpawned` (pgid capture) hook,
+  which the current inline shrink loop needs for the idle watchdog. The
+  binding must gain this hook before the rung loop can move onto it.
 - Successful rung result (`kind === "ok"`) and its originating `agent`/
   `configuredModel` must remain available after the executor call for the
   existing post-success pipeline (out-of-scope revert, spec-tree revert,

@@ -1,5 +1,6 @@
 import type { LogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import type { AgentModelConfig, ModelsByRole } from "../config/agent-model-config.ts";
 import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "./write-loop.ts";
 
 /** Classification of a workflow outcome — mirrors the write loop's outcome kinds. */
@@ -9,7 +10,7 @@ export type WorkflowOutcomeKind = WriteLoopOutcomeKind;
 export type WorkflowStep = WriteLoopInput & {
   /** Unique identifier for this step within the workflow. */
   stepId: string;
-  /** Opaque role identifier for durable identity only. */
+  /** Role-to-model resolution key for this step. */
   role: string;
 };
 
@@ -29,6 +30,10 @@ export type WorkflowResult = {
 
 /** Input for the workflow runner. */
 export type WorkflowRunnerInput = {
+  /** Machine-configured agent fallback order for this run. */
+  agents: readonly string[];
+  /** Already-loaded role-to-model bindings keyed by agent. */
+  agentModelConfig: AgentModelConfig;
   steps: WorkflowStep[];
   stateStore?: StateStore;
   logSink?: LogSink;
@@ -52,6 +57,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     }
     stepIds.add(step.stepId);
   }
+
+  validateWorkflowStepRoles(args.steps, args.agents, args.agentModelConfig);
 
   const store = args.stateStore ?? openStateStore();
 
@@ -110,4 +117,28 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       store.close();
     }
   }
+}
+
+function validateWorkflowStepRoles(
+  steps: readonly WorkflowStep[],
+  agents: readonly string[],
+  agentModelConfig: AgentModelConfig,
+): void {
+  const missingBindings: string[] = [];
+
+  for (const step of steps) {
+    for (const agent of agents) {
+      if (!hasRoleBinding(agentModelConfig[agent], step.role)) {
+        missingBindings.push(`(${step.stepId}, ${step.role}, ${agent})`);
+      }
+    }
+  }
+
+  if (missingBindings.length > 0) {
+    throw new Error(`Workflow step role validation failed: ${missingBindings.join(", ")}`);
+  }
+}
+
+function hasRoleBinding(modelsByRole: ModelsByRole | undefined, role: string): boolean {
+  return modelsByRole !== undefined && Object.hasOwn(modelsByRole, role) && modelsByRole[role as keyof ModelsByRole] !== undefined;
 }

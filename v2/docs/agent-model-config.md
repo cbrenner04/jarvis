@@ -19,9 +19,12 @@ Two axes, two stores:
 Per-project variance is **only** the ordered `agents` list. Role→model assignments
 are shared across machines and projects. Load validation applies **only** to
 agents listed in the project's `agents` order — extra agents in the global file
-are ignored at load (see [Load-time validation](#load-time-validation)). The
-on-disk filename for the global data file is deferred to the first consumer that
-implements load.
+are ignored at load (see [Load-time validation](#load-time-validation)).
+Workflow-source validation is separate: after config load succeeds, the loaded
+workflow `steps` array must still resolve each step role for every
+machine-configured agent before the workflow is allowed to run (see
+[`workflow-runner.md`](workflow-runner.md)). The on-disk filename for the
+global data file is deferred to the first consumer that implements load.
 
 v1's combined `{agent, model}` `agentOrder` entries are retired. v2 holds agent
 names in project config and model rungs in the global store.
@@ -223,6 +226,14 @@ Aligned with [`shared-invocation.md`](shared-invocation.md):
 `Model` / `priceKey` existence checks against the adapter catalog and
 `prices.json` are deferred to the first load consumer. Tier→initial rung index
 and capability-floor filtering are deferred until a workflow consumer needs them.
+
+Config load validates the config artifact itself. It does **not** prove that a
+loaded workflow source is runnable: the workflow may still name a role absent
+from the loaded config. Before any workflow runs, `executeWorkflow` validates
+the loaded `steps` array against the current machine `agents` order and loaded
+`AgentModelConfig`; every step role must resolve for every configured agent.
+There is no deferred first-invocation fallback if a later configured agent
+misses the role.
 
 ## CLI override
 

@@ -31,13 +31,13 @@ under the load-time rules in
 
 ## Acceptance criteria
 
-- [ ] `executeWorkflow` accepts a loaded step array only when every step role resolves for every machine-configured agent in the currently loaded `AgentModelConfig`.
-- [ ] `executeWorkflow` rejects a loaded step array before any durable workflow state change when any step yields a missing `(stepId, role, agent)` binding under the current config.
-- [ ] A step naming a role absent from the loaded config is reported through the same aggregated `(stepId, role, agent)` missing-binding surface, not a separate unknown-role error.
-- [ ] One invalid loaded step array reports all offending `(stepId, role, agent)` misses in one load failure, not one-at-a-time.
-- [ ] A role binding present for an earlier configured agent but missing for a later configured fallback agent still fails workflow load.
-- [ ] Resuming a workflow under changed machine-configured agents or changed `AgentModelConfig` revalidates the loaded step array against that resume-time config before any durable state change or step execution.
-- [ ] `v2/src/execution/workflow-runner.test.ts` linear-step tests stay green for already-valid step arrays.
+- [x] `executeWorkflow` accepts a loaded step array only when every step role resolves for every machine-configured agent in the currently loaded `AgentModelConfig`.
+- [x] `executeWorkflow` rejects a loaded step array before any durable workflow state change when any step yields a missing `(stepId, role, agent)` binding under the current config.
+- [x] A step naming a role absent from the loaded config is reported through the same aggregated `(stepId, role, agent)` missing-binding surface, not a separate unknown-role error.
+- [x] One invalid loaded step array reports all offending `(stepId, role, agent)` misses in one load failure, not one-at-a-time.
+- [x] A role binding present for an earlier configured agent but missing for a later configured fallback agent still fails workflow load.
+- [x] Resuming a workflow under changed machine-configured agents or changed `AgentModelConfig` revalidates the loaded step array against that resume-time config before any durable state change or step execution.
+- [x] `v2/src/execution/workflow-runner.test.ts` linear-step tests stay green for already-valid step arrays.
 
 ## Documentation updates
 

@@ -7,7 +7,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { maybeWarnAboutUnmergedPlanBranch } from "../../../src/modes/patch/preflight.ts";
 import type { RunIo } from "../../../src/modes/patch/run.ts";
-import { beginHangFixtureTracking, IDLE_HANG_BODY, reapActiveHangFixtures, trackHangFixtureScript } from "../../idle-hang-fixtures.ts";
+import {
+  beginHangFixtureTracking,
+  IDLE_HANG_BODY,
+  reapActiveHangFixtures,
+  trackHangFixtureScript,
+} from "../../idle-hang-fixtures.ts";
 
 const HANG_FIXTURE_TRACKING_ID = import.meta.path;
 

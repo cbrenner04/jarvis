@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -20,12 +22,49 @@ jobs:
 
       - name: Lint and format (Biome)
         run: bun run check
-      
+
       - name: Lint markdown
         run: bun run lint:md
 
       - name: Typecheck
         run: bun run typecheck
 
-      - name: Test
+      - name: Determine test scope
+        id: scope
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "scripts=full" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          RESOLVABLE=true
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            RESOLVABLE=false
+          elif ! git merge-base "$BASE_SHA" HEAD > /dev/null 2>&1; then
+            RESOLVABLE=false
+          fi
+
+          CHANGED=""
+          if [ "$RESOLVABLE" = "true" ]; then
+            CHANGED=$(git diff --name-only "$BASE_SHA"...HEAD)
+          fi
+
+          SCRIPTS=$(printf '%s\n' "$CHANGED" | bun run scripts/ci-test-scope.ts "$RESOLVABLE")
+          echo "scripts=$SCRIPTS" >> "$GITHUB_OUTPUT"
+
+      - name: Test (full)
+        if: steps.scope.outputs.scripts == 'full'
         run: bun run test
+
+      - name: Test (v1)
+        if: contains(steps.scope.outputs.scripts, 'test:v1')
+        run: bun run test:v1
+
+      - name: Test (v2)
+        if: contains(steps.scope.outputs.scripts, 'test:v2')
+        run: bun run test:v2
+
+      - name: Test (v2 integration)
+        if: contains(steps.scope.outputs.scripts, 'test:integration:v2')
+        run: bun run test:integration:v2

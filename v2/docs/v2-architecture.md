@@ -295,6 +295,15 @@ a server/runner world (pause + route to a human loop vs. process exit).
   (resume), conservatively asking for a sharper prompt when unsure — is a later
   thin client over this same surface (the final build-order phase), not part of
   the core entry contract.
+- **Ink and Yoga layout loading boundary.** All dynamic imports of the `ink`
+  package and its Yoga-layout dependency happen through a single lazy boundary,
+  `loadInkUi()` in `tui-ink-runtime.ts`. This boundary centralizes the TDZ (temporal
+  dead zone) workaround for Bun's initialization order and ensures Yoga layout is
+  initialized exactly once per session. No file in `v2/src/tui/` imports `ink`
+  directly (static import, `require()`, re-export, or competing dynamic call site);
+  all TUI components load ink-derived values through `loadInkUi`. Test seams inject
+  a mock render function via the `inkRender` parameter; production paths receive
+  real `ink` / Yoga state from the shared boundary.
 
 Steering (the API surface the TUI drives):
 

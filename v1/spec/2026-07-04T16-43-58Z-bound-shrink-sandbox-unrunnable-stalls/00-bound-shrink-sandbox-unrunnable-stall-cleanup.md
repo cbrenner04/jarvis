@@ -25,12 +25,12 @@ instead of failing as a test.
 
 ## Acceptance criteria
 
-- [ ] A stalled shrink case in `v1/test/modes/patch/shrink.sandbox-unrunnable.test.ts` fails red within 30s instead of hanging the CI `Test` job indefinitely.
-- [ ] Every real git subprocess on the shrink stall path runs under the same 30s failure window, so no owned git call on that path can block the file past that bound.
-- [ ] Every idle-hang fixture child started by the shrink stall path is reaped when the 30s failure fires, including failure paths that exit before normal test cleanup.
-- [ ] The hardened shrink file still exercises the real shrink-path stall behavior rather than replacing it with a workflow-level CI timeout or a fully mocked path.
-- [ ] `v2/docs/v1-behaviors.md` records that shrink sandbox-unrunnable stalls now fail red within 30s with cleanup instead of hanging the test job.
-- [ ] `v1/docs/operator-runbook.md` points operators at the shrink-specific behavior in `v2/docs/v1-behaviors.md` without restating the same contract.
+- [x] A stalled shrink case in `v1/test/modes/patch/shrink.sandbox-unrunnable.test.ts` fails red within 30s instead of hanging the CI `Test` job indefinitely.
+- [x] Every real git subprocess on the shrink stall path runs under the same 30s failure window, so no owned git call on that path can block the file past that bound.
+- [x] Every idle-hang fixture child started by the shrink stall path is reaped when the 30s failure fires, including failure paths that exit before normal test cleanup.
+- [x] The hardened shrink file still exercises the real shrink-path stall behavior rather than replacing it with a workflow-level CI timeout or a fully mocked path.
+- [x] `v2/docs/v1-behaviors.md` records that shrink sandbox-unrunnable stalls now fail red within 30s with cleanup instead of hanging the test job.
+- [x] `v1/docs/operator-runbook.md` points operators at the shrink-specific behavior in `v2/docs/v1-behaviors.md` without restating the same contract.
 
 ## Documentation updates
 

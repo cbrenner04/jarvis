@@ -25,6 +25,12 @@ import { buildShrinkPrompt } from "./prompt.ts";
 import { detectSpecTreeEdits, revertSpecTreeEdits } from "./review.ts";
 import { type AcceptanceCriterion, snapshotAcceptanceCriteria } from "./subspec.ts";
 
+/** Bound on every real `git` subprocess on the shrink path: a wedged git call must not hang the file past this. */
+const GIT_SUBPROCESS_TIMEOUT_MS = 10_000;
+
+/** Shared timeout+kill options for every `git` subprocess spawned on the shrink path. */
+const GIT_SUBPROCESS_OPTS = { timeout: GIT_SUBPROCESS_TIMEOUT_MS, killSignal: "SIGKILL" as const };
+
 /** Shrink-phase terminal failure mapped to a harness exit code. */
 export class ShrinkTerminalError extends Error {
   readonly exitCode: number;
@@ -180,6 +186,7 @@ export function detectDeletedTestInScope(cwd: string, allowlist: ReadonlySet<str
       cwd,
       encoding: "utf8",
       stdio: "pipe",
+      ...GIT_SUBPROCESS_OPTS,
     });
     for (const line of output.split("\n")) {
       const trimmed = line.trim();
@@ -205,6 +212,7 @@ export function detectDeletedTestInScope(cwd: string, allowlist: ReadonlySet<str
       cwd,
       encoding: "utf8",
       stdio: "pipe",
+      ...GIT_SUBPROCESS_OPTS,
     });
     for (const line of porcelain.split("\n")) {
       if (line.length < 4) {
@@ -234,11 +242,11 @@ export function revertOutOfScopeEdits(cwd: string, allowlist: ReadonlySet<string
   }
   for (const file of edited) {
     try {
-      execFileSync("git", ["checkout", "HEAD", "--", file], { cwd, stdio: "pipe" });
+      execFileSync("git", ["checkout", "HEAD", "--", file], { cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
     } catch {
       // untracked: clean below
     }
-    execFileSync("git", ["clean", "-fd", "--", file], { cwd, stdio: "pipe" });
+    execFileSync("git", ["clean", "-fd", "--", file], { cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
   }
   return edited;
 }
@@ -249,6 +257,7 @@ function listPorcelainNames(cwd: string): string[] {
       cwd,
       encoding: "utf8",
       stdio: "pipe",
+      ...GIT_SUBPROCESS_OPTS,
     });
     return output
       .split("\n")
@@ -265,6 +274,7 @@ function listDiffNames(cwd: string, fromRef: string, toRef: string): string[] {
       cwd,
       encoding: "utf8",
       stdio: "pipe",
+      ...GIT_SUBPROCESS_OPTS,
     });
     return output
       .split("\n")
@@ -276,8 +286,8 @@ function listDiffNames(cwd: string, fromRef: string, toRef: string): string[] {
 }
 
 function revertAllSince(cwd: string, ref: string): void {
-  execFileSync("git", ["reset", "--hard", ref], { cwd, stdio: "pipe" });
-  execFileSync("git", ["clean", "-fd"], { cwd, stdio: "pipe" });
+  execFileSync("git", ["reset", "--hard", ref], { cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
+  execFileSync("git", ["clean", "-fd"], { cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
 }
 
 function runTests(cwd: string): boolean {
@@ -298,18 +308,20 @@ function commitShrinkPass(
     cwd,
     encoding: "utf8",
     stdio: "pipe",
+    ...GIT_SUBPROCESS_OPTS,
   }).trim();
   if (porcelain === "") {
     return;
   }
 
-  execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe" });
+  execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
   const commitMessage = appendAgentTrailer("shrink: simplify implementation diff", agentLabel);
   execFileSync("git", ["commit", "-F", "-"], {
     cwd,
     env: process.env,
     stdio: ["pipe", "pipe", "pipe"],
     input: commitMessage,
+    ...GIT_SUBPROCESS_OPTS,
   });
   pushCurrent({ cwd, firstPush: false });
   void updatePrBody({
@@ -368,6 +380,7 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
     cwd: opts.cwd,
     encoding: "utf8",
     stdio: "pipe",
+    ...GIT_SUBPROCESS_OPTS,
   }).trim();
   const criteriaBefore = snapshotAllAcceptanceCriteria(opts.specPath);
   const base = opts.baseBranch ?? (await getBaseBranch(opts.cwd));
@@ -590,6 +603,7 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
     cwd: opts.cwd,
     encoding: "utf8",
     stdio: "pipe",
+    ...GIT_SUBPROCESS_OPTS,
   }).trim();
   if (porcelain === "") {
     opts.fanout("harness", "shrink: no changes\n", "stdout");

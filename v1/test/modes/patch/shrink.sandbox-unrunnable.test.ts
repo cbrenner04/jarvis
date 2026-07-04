@@ -622,6 +622,39 @@ describe("runPatchShrinkPhase", () => {
     }
   });
 
+  test("stalled real git subprocess on shrink path fails within 30s with fixture reaped", async () => {
+    const { dir, specPath, cleanup } = setupShrinkRepo();
+    const binDir = mkdtempSync(join(tmpdir(), "jarvis-shrink-git-stall-bin-"));
+    const originalPath = process.env.PATH;
+    try {
+      writeIdleHangScript(join(binDir, "git"));
+      process.env.PATH = `${binDir}:${originalPath ?? ""}`;
+
+      const agent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
+      const startTime = Date.now();
+      await expect(
+        runPatchShrinkPhase({
+          config: makeShrinkConfig(),
+          cwd: dir,
+          specPath,
+          allowlist: new Set(["impl.txt"]),
+          skipPreShrinkGate: true,
+          fanout: () => {},
+          writeTelemetry: () => {},
+          agents: { claude: agent },
+          iterationTimeoutMs: 30_000,
+          baseBranch: "main",
+        }),
+      ).rejects.toThrow();
+      expect(Date.now() - startTime).toBeLessThan(15_000);
+      expect(agent.calls).toHaveLength(0);
+    } finally {
+      process.env.PATH = originalPath;
+      rmSync(binDir, { recursive: true, force: true });
+      cleanup();
+    }
+  });
+
   test("invokes fixCommand at pre-shrink gate site", async () => {
     const { dir: repoDir, specPath, cleanup } = setupShrinkRepo();
     const sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-shrink-fix-cmd-"));

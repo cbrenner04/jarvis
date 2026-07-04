@@ -17,6 +17,18 @@ export function isRunStatus(value: unknown): value is RunStatus {
   return typeof value === "string" && runStatusSet.has(value);
 }
 
+/** Authored workflow-step identity retained on workflow-backed runs. */
+export type WorkflowSnapshotStep = {
+  stepId: string;
+  role: string;
+};
+
+/** Durable workflow invocation snapshot shared by every step run in that workflow. */
+export type WorkflowSnapshot = {
+  invocationId: string;
+  steps: WorkflowSnapshotStep[];
+};
+
 /** Terminal status of an attempt. */
 export type AttemptStatus = "in-progress" | "completed" | "blocked" | "budget-soft-stopped";
 
@@ -42,6 +54,7 @@ export type Run = {
   branch: string;
   specPath: string;
   stepId?: string | null;
+  workflowSnapshot?: WorkflowSnapshot | null;
 };
 
 /** A durable attempt record linked to a run. */
@@ -72,6 +85,7 @@ export interface StateStore {
    * @param branch Git branch name
    * @param specPath Path to the spec within the worktree
    * @param stepId Optional step identifier for multi-step workflows
+   * @param workflowSnapshot Optional authored workflow metadata for workflow-backed runs
    */
   createRun(args: {
     project: string;
@@ -80,6 +94,7 @@ export interface StateStore {
     branch: string;
     specPath: string;
     stepId?: string;
+    workflowSnapshot?: WorkflowSnapshot;
   }): string;
 
   /**

@@ -2,7 +2,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import type { LogSink } from "../persistence/log-stream.ts";
 import { type OutcomeKind, openStateStore, type StateStore } from "../persistence/state-store.ts";
-import type { RunStatus } from "../persistence/state-store-types.ts";
+import type { RunStatus, WorkflowSnapshot } from "../persistence/state-store-types.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import type { StepRunResult } from "./step-runner.ts";
@@ -42,6 +42,7 @@ export type WriteLoopInput = WriteExecuteInput & {
   logSink?: LogSink;
   pauseSignal?: AbortSignal;
   stepId?: string;
+  workflowSnapshot?: WorkflowSnapshot;
   telemetry?: {
     sinkPath: string;
     operatorSessionId: string;
@@ -198,6 +199,7 @@ function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {
       branch: args.worktree.branchName,
       specPath: args.specPath,
       ...(args.stepId !== undefined ? { stepId: args.stepId } : {}),
+      ...(args.workflowSnapshot !== undefined ? { workflowSnapshot: args.workflowSnapshot } : {}),
     });
     return { runId, worktreePath, resumedAttemptId: null };
   }

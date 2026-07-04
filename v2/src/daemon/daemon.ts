@@ -6,7 +6,7 @@ import { executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.t
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
 import { type LogReader, type LoopFinishedEvent, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import type { RunStatus } from "../persistence/state-store-types.ts";
+import type { RunStatus, WorkflowSnapshot } from "../persistence/state-store-types.ts";
 import {
   composeRunOperatorError,
   findTerminalLogRecord,
@@ -156,6 +156,88 @@ type WaitFanout = {
   controller: AbortController;
   waiters: Set<Waiter>;
 };
+
+type LoadedRun = NonNullable<ReturnType<StateStore["loadRun"]>>;
+
+type WorkflowStepListStatus = "pending" | "in_progress" | "completed" | "stopped";
+type WorkflowStepTerminalOutcome =
+  | "complete"
+  | "blocked"
+  | "contract_miss"
+  | "invocation_failure"
+  | "budget-exhausted"
+  | "paused"
+  | "killed";
+
+type WorkflowStepListSnapshot = {
+  stepId: string;
+  role: string;
+  status: WorkflowStepListStatus;
+  attemptCount: number;
+  terminalOutcome?: WorkflowStepTerminalOutcome;
+};
+
+function workflowRowSnapshot(
+  run: LoadedRun,
+  runsByWorkflowInvocation: ReadonlyMap<string, Map<string, LoadedRun>>,
+  liveRunIds: ReadonlySet<string>,
+): { steps: WorkflowStepListSnapshot[] } | undefined {
+  const snapshot = run.workflowSnapshot;
+  if (snapshot === null || snapshot === undefined) return undefined;
+
+  const workflowRuns = runsByWorkflowInvocation.get(snapshot.invocationId) ?? new Map<string, LoadedRun>();
+  return {
+    steps: snapshot.steps.map((step) => workflowStepSnapshot(step, workflowRuns.get(step.stepId), liveRunIds)),
+  };
+}
+
+function workflowStepSnapshot(
+  step: WorkflowSnapshot["steps"][number],
+  run: LoadedRun | undefined,
+  liveRunIds: ReadonlySet<string>,
+): WorkflowStepListSnapshot {
+  if (!run) {
+    return { stepId: step.stepId, role: step.role, status: "pending", attemptCount: 0 };
+  }
+
+  const attemptCount = run.attempts.length;
+  if (run.status === "completed") {
+    return {
+      stepId: step.stepId,
+      role: step.role,
+      status: "completed",
+      attemptCount,
+      terminalOutcome: "complete",
+    };
+  }
+
+  if (run.status === "in-progress" && liveRunIds.has(run.id)) {
+    return {
+      stepId: step.stepId,
+      role: step.role,
+      status: "in_progress",
+      attemptCount,
+    };
+  }
+
+  return {
+    stepId: step.stepId,
+    role: step.role,
+    status: "stopped",
+    attemptCount,
+    terminalOutcome: stoppedOutcomeForRun(run),
+  };
+}
+
+function stoppedOutcomeForRun(run: LoadedRun): Exclude<WorkflowStepTerminalOutcome, "complete"> {
+  if (run.status === "blocked") {
+    return run.attempts[run.attempts.length - 1]?.outcomeKind === "contract_miss" ? "contract_miss" : "blocked";
+  }
+  if (run.status === "budget-soft-stopped") return "budget-exhausted";
+  if (run.status === "paused") return "paused";
+  if (run.status === "killed") return "killed";
+  return "invocation_failure";
+}
 
 /**
  * Run-control handler factory for `start`/`list`/`pause`/`resume`/`kill`.
@@ -310,6 +392,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       worktreePath,
       branch: key.branch,
       specPath: input.specPath,
+      ...(input.stepId !== undefined ? { stepId: input.stepId } : {}),
+      ...(input.workflowSnapshot !== undefined ? { workflowSnapshot: input.workflowSnapshot } : {}),
     });
 
     spawnWriteLoop(key, runId, worktreePath, input);
@@ -319,11 +403,33 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
   const listHandler: RpcHandler = () => {
     const durableRuns = store.listRuns();
+    const fullRuns = new Map<string, LoadedRun>();
+    const workflowRuns = new Map<string, Map<string, LoadedRun>>();
+    const liveRunIds = new Set<string>();
+
+    for (const activeRun of activeRuns.values()) {
+      liveRunIds.add(activeRun.runId);
+    }
+
+    for (const durableRun of durableRuns) {
+      const fullRun = store.loadRun(durableRun.id);
+      if (!fullRun) continue;
+      fullRuns.set(durableRun.id, fullRun);
+      const snapshot = fullRun.workflowSnapshot;
+      const stepId = fullRun.stepId;
+      if (snapshot === null || snapshot === undefined || stepId === null || stepId === undefined) continue;
+      let steps = workflowRuns.get(snapshot.invocationId);
+      if (!steps) {
+        steps = new Map<string, LoadedRun>();
+        workflowRuns.set(snapshot.invocationId, steps);
+      }
+      steps.set(stepId, fullRun);
+    }
 
     const runList = durableRuns.map((run) => {
       const ks = ownershipKeyString({ project: run.project, branch: run.branch });
-      const isLive = activeRuns.has(ks);
-      const fullRun = store.loadRun(run.id);
+      const isLive = activeRuns.get(ks)?.runId === run.id;
+      const fullRun = fullRuns.get(run.id);
       const records = logReader?.tail(run.id) ?? [];
       const error = fullRun ? composeRunOperatorError(fullRun, findTerminalLogRecord(records)) : undefined;
       return {
@@ -333,6 +439,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         status: run.status,
         isLive,
         ...(error !== undefined ? { error } : {}),
+        ...(fullRun?.workflowSnapshot !== undefined && fullRun?.workflowSnapshot !== null
+          ? { workflow: workflowRowSnapshot(fullRun, workflowRuns, liveRunIds) }
+          : {}),
       };
     });
 

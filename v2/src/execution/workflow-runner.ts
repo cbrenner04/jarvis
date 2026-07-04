@@ -7,6 +7,7 @@ import {
 } from "../config/agent-model-config.ts";
 import type { LogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import type { WorkflowSnapshot } from "../persistence/state-store-types.ts";
 import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "./write-loop.ts";
 
 const WORKFLOW_PRESET_LENGTHS = {
@@ -106,12 +107,13 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     let totalIterationsConsumed = 0;
     let lastResult: Awaited<ReturnType<typeof executeWriteLoop>> | undefined;
     let lastStepId = "";
+    const workflowSnapshot = buildWorkflowSnapshot(args.steps, store);
 
     for (let stepIndex = 0; stepIndex < args.steps.length; stepIndex++) {
       const step = args.steps[stepIndex];
       if (!step) throw new Error("Unreachable: step undefined in bounded loop");
 
-      const preparedStep = prepareWorkflowStep(step, store, args.logSink);
+      const preparedStep = prepareWorkflowStep(step, workflowSnapshot, store, args.logSink);
       if (preparedStep.kind === "completed") {
         lastStepId = step.stepId;
         lastResult = {
@@ -175,7 +177,49 @@ function validateWorkflowStepRoles(steps: readonly WorkflowStep[]): void {
   }
 }
 
-function prepareWorkflowStep(step: WorkflowStep, store: StateStore, logSink?: LogSink): PreparedWorkflowStep {
+function buildWorkflowSnapshot(steps: readonly WorkflowStep[], store: StateStore): WorkflowSnapshot {
+  const authoredSteps = steps.map(({ stepId, role }) => ({ stepId, role }));
+
+  for (const step of steps) {
+    const existingRun = store.findRunByProjectBranch({
+      project: step.worktree.projectName,
+      branch: step.worktree.branchName,
+      stepId: step.stepId,
+    });
+    const candidate = existingRun?.workflowSnapshot;
+    if (candidate !== null && candidate !== undefined && snapshotMatchesAuthoredSteps(candidate, authoredSteps)) {
+      return candidate;
+    }
+  }
+
+  return {
+    invocationId: crypto.randomUUID(),
+    steps: authoredSteps,
+  };
+}
+
+/**
+ * Guards against grafting a foreign invocation's snapshot: a durable run found by
+ * `(project, branch, stepId)` may belong to an unrelated workflow spec that happens to
+ * reuse the same stepId label. Only adopt the snapshot if its full authored step list
+ * matches this invocation's.
+ */
+function snapshotMatchesAuthoredSteps(
+  snapshot: WorkflowSnapshot,
+  authoredSteps: readonly { stepId: string; role: string }[],
+): boolean {
+  if (snapshot.steps.length !== authoredSteps.length) return false;
+  return snapshot.steps.every(
+    (step, index) => step.stepId === authoredSteps[index]?.stepId && step.role === authoredSteps[index]?.role,
+  );
+}
+
+function prepareWorkflowStep(
+  step: WorkflowStep,
+  workflowSnapshot: WorkflowSnapshot,
+  store: StateStore,
+  logSink?: LogSink,
+): PreparedWorkflowStep {
   const existingRun = store.findRunByProjectBranch({
     project: step.worktree.projectName,
     branch: step.worktree.branchName,
@@ -199,6 +243,7 @@ function prepareWorkflowStep(step: WorkflowStep, store: StateStore, logSink?: Lo
     input: {
       ...loopInput,
       stepId,
+      workflowSnapshot,
       bindings,
       stateStore: store,
       ...(logSink !== undefined ? { logSink } : {}),

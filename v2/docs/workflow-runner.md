@@ -39,6 +39,12 @@ completed, not just step one.
 
 Return `WorkflowResult` indicates which step produced the stopping outcome, its run ID, total iterations consumed across all steps, and resumability.
 
+Each step run also persists the workflow invocation snapshot that launched it:
+one `invocationId` plus the authored `steps[]` metadata (`stepId`, `role`,
+order). Daemon/TUI consumers read that snapshot back from daemon `list` rows as
+per-step progress in authored order, without reconstructing future steps from
+durable attempt history alone. See [`daemon-host.md`](daemon-host.md#workflow-snapshots-on-list-rows).
+
 ## Authoring helper and presets
 
 `defineWorkflowStep(...)` is the authoring helper for one concrete workflow step.

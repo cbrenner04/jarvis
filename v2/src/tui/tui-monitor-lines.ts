@@ -36,6 +36,15 @@ export function monitorTextLines(state: TuiMonitorState): string[] {
       );
     }
   }
+  const selectedRun = selected !== null ? state.runs.find((run) => run.runId === selected) : undefined;
+  if (selectedRun?.workflow !== undefined) {
+    lines.push("Workflow");
+    for (const step of selectedRun.workflow.steps) {
+      const marker = step.status === "in_progress" ? ">" : " ";
+      const outcomeSuffix = step.terminalOutcome !== undefined ? ` ${step.terminalOutcome}` : "";
+      lines.push(`${marker} ${step.stepId} ${step.role} ${step.status}${outcomeSuffix} attempts=${step.attemptCount}`);
+    }
+  }
   lines.push("Outcome", ...outcomeLines(state));
   if (state.steeringFeedback !== null) {
     lines.push(state.steeringFeedback);

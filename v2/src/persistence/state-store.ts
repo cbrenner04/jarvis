@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { InvocationFailureDetail } from "../execution/invocation-failure.ts";
-import type { RunStatus } from "./state-store-types";
+import type { RunStatus, WorkflowSnapshot } from "./state-store-types";
 
 export type AttemptStatus = "in-progress" | "completed";
 
@@ -29,6 +29,7 @@ export type Run = {
   branch: string;
   specPath: string;
   stepId?: string | null;
+  workflowSnapshot?: WorkflowSnapshot | null;
 };
 
 /** A durable attempt record linked to a run. */
@@ -52,6 +53,7 @@ export interface StateStore {
     branch: string;
     specPath: string;
     stepId?: string;
+    workflowSnapshot?: WorkflowSnapshot;
   }): string;
 
   /** Load a run and its attempt history for resume; null when unknown. */
@@ -117,7 +119,8 @@ const SCHEMA = `
 `;
 
 const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, status,
-  attempt_count AS attemptCount, worktree_path AS worktreePath, branch, spec_path AS specPath, step_id AS stepId`;
+  attempt_count AS attemptCount, worktree_path AS worktreePath, branch, spec_path AS specPath, step_id AS stepId,
+  workflow_snapshot AS workflowSnapshotJson`;
 
 const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, started_at AS startedAt, status,
   outcome_kind AS outcomeKind, invocation_failure_detail AS invocationFailureDetailJson`;
@@ -130,6 +133,10 @@ const SCHEMA_MIGRATIONS = [
   {
     id: "005-run-step-id",
     up: "ALTER TABLE runs ADD COLUMN step_id TEXT",
+  },
+  {
+    id: "006-run-workflow-snapshot",
+    up: "ALTER TABLE runs ADD COLUMN workflow_snapshot TEXT",
   },
 ] as const;
 
@@ -159,6 +166,14 @@ function mapAttemptRow(row: Attempt & { invocationFailureDetailJson: string | nu
   };
 }
 
+function mapRunRow(row: Run & { workflowSnapshotJson: string | null }): Run {
+  const { workflowSnapshotJson, ...run } = row;
+  return {
+    ...run,
+    workflowSnapshot: workflowSnapshotJson === null ? null : (JSON.parse(workflowSnapshotJson) as WorkflowSnapshot),
+  };
+}
+
 class StateStoreImpl implements StateStore {
   private db: Database;
 
@@ -176,12 +191,16 @@ class StateStoreImpl implements StateStore {
     branch: string;
     specPath: string;
     stepId?: string;
+    workflowSnapshot?: WorkflowSnapshot;
   }): string {
     const id = crypto.randomUUID();
+    const workflowSnapshotJson = args.workflowSnapshot === undefined ? null : JSON.stringify(args.workflowSnapshot);
     this.db
       .prepare(`
-        INSERT INTO runs (id, project, spec_ref, created_at, status, attempt_count, worktree_path, branch, spec_path, step_id)
-        VALUES (?, ?, ?, ?, 'in-progress', 0, ?, ?, ?, ?)
+        INSERT INTO runs (
+          id, project, spec_ref, created_at, status, attempt_count, worktree_path, branch, spec_path, step_id, workflow_snapshot
+        )
+        VALUES (?, ?, ?, ?, 'in-progress', 0, ?, ?, ?, ?, ?)
       `)
       .run(
         id,
@@ -192,12 +211,16 @@ class StateStoreImpl implements StateStore {
         args.branch,
         args.specPath,
         args.stepId ?? null,
+        workflowSnapshotJson,
       );
     return id;
   }
 
   loadRun(runId: string): (Run & { attempts: Attempt[] }) | null {
-    const run = this.db.prepare(`SELECT ${RUN_COLUMNS} FROM runs WHERE id = ?`).get(runId) as Run | null;
+    const runRow = this.db.prepare(`SELECT ${RUN_COLUMNS} FROM runs WHERE id = ?`).get(runId) as
+      | (Run & { workflowSnapshotJson: string | null })
+      | null;
+    const run = runRow === null ? null : mapRunRow(runRow);
     if (!run) return null;
 
     const attempts = (
@@ -286,8 +309,11 @@ class StateStoreImpl implements StateStore {
   }
 
   listRuns(): Run[] {
-    const runs = this.db.prepare(`SELECT ${RUN_COLUMNS} FROM runs ORDER BY created_at DESC`).all() as Run[];
-    return runs;
+    return (
+      this.db.prepare(`SELECT ${RUN_COLUMNS} FROM runs ORDER BY created_at DESC`).all() as Array<
+        Run & { workflowSnapshotJson: string | null }
+      >
+    ).map(mapRunRow);
   }
 
   close(): void {

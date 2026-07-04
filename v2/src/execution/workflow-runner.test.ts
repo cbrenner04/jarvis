@@ -513,7 +513,13 @@ describe("executeWorkflow", () => {
         branch: "resume-test",
         stepId: "step-1",
       });
+      const run2 = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "resume-test",
+        stepId: "step-2",
+      });
       expect(run1?.attempts).toHaveLength(1); // Only one attempt from first invocation
+      expect(run1?.workflowSnapshot?.invocationId).toBe(run2?.workflowSnapshot?.invocationId);
     } finally {
       store.close();
     }
@@ -550,6 +556,11 @@ describe("executeWorkflow", () => {
       expect(run2?.stepId).toBe("step-2");
       expect(run1?.attempts).toHaveLength(1);
       expect(run2?.attempts).toHaveLength(1);
+      expect(run1?.workflowSnapshot).toEqual(run2?.workflowSnapshot);
+      expect(run1?.workflowSnapshot?.steps).toEqual([
+        { stepId: "step-1", role: "implement" },
+        { stepId: "step-2", role: "implement" },
+      ]);
     } finally {
       store.close();
     }

@@ -30,16 +30,16 @@ Render workflow-step progress in the monitor when the selected run is workflow-b
 
 ## Acceptance criteria
 
-- [ ] For a selected workflow-backed run, `jarvis tui` shows a workflow-step view that identifies the active step, prior steps' terminal outcomes, and per-step attempt counts from daemon `list`.
-- [ ] For a selected single-step run, `jarvis tui` keeps the existing monitor view unchanged and renders no empty workflow-step chrome.
-- [ ] When periodic `list` refresh advances the selected workflow run from one step to the next, the workflow-step view updates in place without reconnecting or changing selection.
-- [ ] When a workflow run stops early on a non-complete step, `jarvis tui` shows that step's terminal outcome and leaves later steps pending.
-- [ ] When a workflow run completes all authored steps, `jarvis tui` shows no active step, preserves each completed step's terminal state, and does not leave the final step pending.
-- [ ] `v2/src/tui/tui-entry.test.tsx` tests covering deferred `wait` state, selection-change wait abandonment, late abandoned replies, and steering feedback stay green.
-- [ ] `v2/docs/write-behavior.md` documents that workflow-backed runs show per-step status from daemon `list`, while single-step runs keep the prior monitor view.
-- [ ] `v2/docs/v2-architecture.md` cross-links the TUI workflow-step view to daemon run snapshots.
-- [ ] `v2/docs/v1-behaviors.md` has a `[v2 additive]` entry for workflow-step view in `jarvis tui`.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] For a selected workflow-backed run, `jarvis tui` shows a workflow-step view that identifies the active step, prior steps' terminal outcomes, and per-step attempt counts from daemon `list`.
+- [x] For a selected single-step run, `jarvis tui` keeps the existing monitor view unchanged and renders no empty workflow-step chrome.
+- [x] When periodic `list` refresh advances the selected workflow run from one step to the next, the workflow-step view updates in place without reconnecting or changing selection.
+- [x] When a workflow run stops early on a non-complete step, `jarvis tui` shows that step's terminal outcome and leaves later steps pending.
+- [x] When a workflow run completes all authored steps, `jarvis tui` shows no active step, preserves each completed step's terminal state, and does not leave the final step pending.
+- [x] `v2/src/tui/tui-entry.test.tsx` tests covering deferred `wait` state, selection-change wait abandonment, late abandoned replies, and steering feedback stay green.
+- [x] `v2/docs/write-behavior.md` documents that workflow-backed runs show per-step status from daemon `list`, while single-step runs keep the prior monitor view.
+- [x] `v2/docs/v2-architecture.md` cross-links the TUI workflow-step view to daemon run snapshots.
+- [x] `v2/docs/v1-behaviors.md` has a `[v2 additive]` entry for workflow-step view in `jarvis tui`.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

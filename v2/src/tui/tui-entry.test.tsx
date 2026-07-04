@@ -4,6 +4,7 @@ import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.t
 import type { TuiDaemonClient } from "./tui-daemon-client.ts";
 import { TUI_DAEMON_SOCKET_DISPLAY, TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-errors.ts";
 import { runTuiEntry } from "./tui-entry.tsx";
+import { monitorTextLines } from "./tui-monitor-lines.ts";
 import type {
   RunTuiEntryDeps,
   TuiMonitorControls,
@@ -883,6 +884,61 @@ describe("runTuiEntry", () => {
       view.quit();
       expect(await pending).toBe(0);
     }
+  });
+
+  test("workflow step view follows list refresh and selection", async () => {
+    const view = createViewHost();
+    const refresh = createRefreshScheduler();
+    const workflowRun: DaemonListRunRow = {
+      ...RUN_ALPHA,
+      workflow: {
+        steps: [
+          { stepId: "step-1", role: "implement", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
+          { stepId: "step-2", role: "review", status: "in_progress", attemptCount: 1 },
+          { stepId: "step-3", role: "verify", status: "pending", attemptCount: 0 },
+        ],
+      },
+    };
+    const advancedWorkflow: DaemonListRunRow = {
+      ...workflowRun,
+      workflow: {
+        steps: [
+          workflowRun.workflow!.steps[0]!,
+          { stepId: "step-2", role: "review", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
+          { stepId: "step-3", role: "verify", status: "in_progress", attemptCount: 1 },
+        ],
+      },
+    };
+    const { deps } = entryDeps(
+      {
+        listResponses: [{ runs: [workflowRun, RUN_BETA] }, { runs: [advancedWorkflow, RUN_BETA] }],
+        waitImpl: async () => ({ runStatus: "in-progress" }),
+      },
+      { viewHost: view.host, refreshScheduler: refresh.scheduler },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    let lines = monitorTextLines(view.monitorStates.at(-1)!);
+    expect(lines).toContain("Workflow");
+    expect(lines).toContain("> step-2 review in_progress attempts=1");
+
+    refresh.tick();
+    await flush();
+
+    const refreshed = view.monitorStates.at(-1);
+    expect(refreshed?.selectedRunId).toBe("run-alpha");
+    lines = monitorTextLines(refreshed!);
+    expect(lines).toContain("> step-3 verify in_progress attempts=1");
+
+    view.selectRun("run-beta");
+    await flush();
+    expect(monitorTextLines(view.monitorStates.at(-1)!)).not.toContain("Workflow");
+
+    view.quit();
+    await pending;
   });
 
   test("successful resume re-issues wait and abandons a prior ready snapshot", async () => {

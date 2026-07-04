@@ -80,6 +80,113 @@ test("parseListRuns accepts valid error on list rows", () => {
   });
 });
 
+test("parseListRuns accepts valid workflow step snapshots", () => {
+  expect(
+    parseListRuns({
+      runs: [
+        {
+          runId: "run-1",
+          project: "p",
+          branch: "b",
+          status: "in-progress",
+          isLive: true,
+          workflow: {
+            steps: [
+              {
+                stepId: "step-1",
+                role: "implement",
+                status: "completed",
+                attemptCount: 2,
+                terminalOutcome: "complete",
+              },
+              { stepId: "step-2", role: "review", status: "in_progress", attemptCount: 1 },
+              { stepId: "step-3", role: "verify", status: "pending", attemptCount: 0 },
+            ],
+          },
+        },
+      ],
+    }),
+  ).toEqual({
+    runs: [
+      {
+        runId: "run-1",
+        project: "p",
+        branch: "b",
+        status: "in-progress",
+        isLive: true,
+        workflow: {
+          steps: [
+            { stepId: "step-1", role: "implement", status: "completed", attemptCount: 2, terminalOutcome: "complete" },
+            { stepId: "step-2", role: "review", status: "in_progress", attemptCount: 1 },
+            { stepId: "step-3", role: "verify", status: "pending", attemptCount: 0 },
+          ],
+        },
+      },
+    ],
+  });
+});
+
+test("parseListRuns rejects malformed workflow step snapshots", () => {
+  expect(
+    parseListRuns({
+      runs: [
+        {
+          runId: "run-1",
+          project: "p",
+          branch: "b",
+          status: "in-progress",
+          isLive: true,
+          workflow: {
+            steps: [{ stepId: "step-1", role: "implement", status: "started", attemptCount: 1 }],
+          },
+        },
+      ],
+    }),
+  ).toBeUndefined();
+
+  expect(
+    parseListRuns({
+      runs: [
+        {
+          runId: "run-1",
+          project: "p",
+          branch: "b",
+          status: "in-progress",
+          isLive: true,
+          workflow: {
+            steps: [{ stepId: "step-1", role: "implement", status: "completed", attemptCount: 1 }],
+          },
+        },
+      ],
+    }),
+  ).toBeUndefined();
+
+  expect(
+    parseListRuns({
+      runs: [
+        {
+          runId: "run-1",
+          project: "p",
+          branch: "b",
+          status: "in-progress",
+          isLive: true,
+          workflow: {
+            steps: [
+              {
+                stepId: "step-1",
+                role: "implement",
+                status: "stopped",
+                attemptCount: 1,
+                terminalOutcome: "complete",
+              },
+            ],
+          },
+        },
+      ],
+    }),
+  ).toBeUndefined();
+});
+
 test("parseWaitCompletion rejects invalid error fields", () => {
   expect(
     parseWaitCompletion({

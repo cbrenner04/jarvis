@@ -1,7 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { getCurrentBranch } from "../../../../shared/git.ts";
 import { parseSpec } from "../../../../shared/spec-parser.ts";
 import { createAgent } from "../../agents/factory.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
@@ -251,6 +250,16 @@ export function revertOutOfScopeEdits(cwd: string, allowlist: ReadonlySet<string
   return edited;
 }
 
+/** Bounded shrink-path equivalent of `shared/git.ts#getCurrentBranch`; unbounded there since other callers rely on that behavior. */
+function getCurrentBranchBounded(cwd: string): string {
+  return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    ...GIT_SUBPROCESS_OPTS,
+  }).trim();
+}
+
 function listPorcelainNames(cwd: string): string[] {
   try {
     const output = execFileSync("git", ["status", "--porcelain"], {
@@ -323,7 +332,13 @@ function commitShrinkPass(
     input: commitMessage,
     ...GIT_SUBPROCESS_OPTS,
   });
-  pushCurrent({ cwd, firstPush: false });
+  pushCurrent({
+    cwd,
+    firstPush: false,
+    execSync: () => {
+      execFileSync("git", ["push"], { cwd, env: process.env, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
+    },
+  });
   void updatePrBody({
     indexPath: opts.specPath,
     branch: opts.branch,
@@ -384,7 +399,7 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
   }).trim();
   const criteriaBefore = snapshotAllAcceptanceCriteria(opts.specPath);
   const base = opts.baseBranch ?? (await getBaseBranch(opts.cwd));
-  const branch = getCurrentBranch(opts.cwd);
+  const branch = getCurrentBranchBounded(opts.cwd);
   const allowlist = [...opts.allowlist].sort();
   const killGraceMs = opts.__testKillGraceMs ?? 5000;
 

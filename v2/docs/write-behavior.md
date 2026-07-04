@@ -124,6 +124,13 @@ Production ink selects the first list row on entry only; row navigation
 keybindings are not wired yet—selection changes in tests use the injectable
 view-host seam until navigation lands.
 
+When the selected `list` row carries optional workflow metadata, the monitor
+renders a workflow-step view from that snapshot: active step (`in_progress`),
+prior steps with terminal outcomes and per-step attempt counts, and later steps
+as `pending`. Single-step rows (no workflow metadata) keep the prior monitor
+layout with no workflow chrome. Step status comes from `list` polls only; the
+outcome panel still comes from `wait`.
+
 The monitor exposes injectable `pauseSelected`, `resumeSelected`, and
 `killSelected` (production keybindings deferred). Each maps 1:1 to daemon
 `pause`, `resume`, and `kill` on the selected `runId`; no selection → no-op with
@@ -269,8 +276,11 @@ Drive the path through the test seam:
 - `bun test v2/src/tui/tui-entry.test.tsx` proves TUI run-monitor flow: liveness,
   initial list/empty states, refresh, selection changes, pending and late
   abandoned waits, steering success and daemon/connection error pass-through,
-  resume re-wait, quit, and unavailable/RPC feedback with injectable daemon
-  client, refresh scheduler, and view-host fakes.
+  resume re-wait, workflow-step refresh/selection, quit, and unavailable/RPC
+  feedback with injectable daemon client, refresh scheduler, and view-host fakes.
+- `bun test v2/src/tui/tui-monitor-lines.test.ts` proves workflow-step rendering:
+  active step, terminal outcomes, attempt counts, pending future steps, completed
+  and early-stop workflows, and single-step fallback without workflow chrome.
 - `bun test v2/src/tui/tui-log-follow-entry.test.tsx` proves TUI log-follow replay,
   blocking-after-replay quit, server close, live append, empty tail,
   mid-session tail failure, unavailable daemon, ink render seam, and per-kind line

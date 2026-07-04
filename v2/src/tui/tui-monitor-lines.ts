@@ -1,4 +1,17 @@
+import type { DaemonWorkflowSnapshot } from "../daemon/daemon-wire.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
+
+function workflowStepLines(workflow: DaemonWorkflowSnapshot): string[] {
+  const lines = ["Workflow"];
+  for (const step of workflow.steps) {
+    const marker = step.status === "in_progress" ? ">" : " ";
+    const outcomeSuffix = step.terminalOutcome !== undefined ? ` ${step.terminalOutcome}` : "";
+    lines.push(
+      `${marker} ${step.stepId} ${step.role} ${step.status}${outcomeSuffix} attempts=${step.attemptCount}`,
+    );
+  }
+  return lines;
+}
 
 function outcomeLines(state: TuiMonitorState): string[] {
   const selected = state.selectedRunId;
@@ -35,6 +48,11 @@ export function monitorTextLines(state: TuiMonitorState): string[] {
         `${marker} ${run.runId} ${run.project} ${run.branch} ${run.status} ${run.isLive ? "live" : "not-live"}`,
       );
     }
+  }
+  const selectedRun =
+    selected !== null ? state.runs.find((run) => run.runId === selected) : undefined;
+  if (selectedRun?.workflow !== undefined) {
+    lines.push(...workflowStepLines(selectedRun.workflow));
   }
   lines.push("Outcome", ...outcomeLines(state));
   if (state.steeringFeedback !== null) {

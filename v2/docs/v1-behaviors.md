@@ -439,6 +439,11 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   `daemon_error: <message>`, `no run selected`); successful `resume` re-issues
   `wait`; production keybindings deferred. Sources: `v2/src/tui/tui-entry.tsx`,
   `v2/docs/write-behavior.md`
+- [v2 additive] TUI workflow-step view: when the selected daemon `list` row
+  carries workflow metadata, `jarvis tui` renders per-step status from that
+  snapshot (active step, prior terminal outcomes, attempt counts, pending future
+  steps); single-step rows keep the prior monitor without workflow chrome.
+  Sources: `v2/src/tui/tui-monitor-lines.ts`, `v2/docs/write-behavior.md`
 
 ## Behaviors with uncertain intent
 

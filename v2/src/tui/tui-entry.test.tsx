@@ -4,6 +4,7 @@ import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.t
 import type { TuiDaemonClient } from "./tui-daemon-client.ts";
 import { TUI_DAEMON_SOCKET_DISPLAY, TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-errors.ts";
 import { runTuiEntry } from "./tui-entry.tsx";
+import { monitorTextLines } from "./tui-monitor-lines.ts";
 import type {
   RunTuiEntryDeps,
   TuiMonitorControls,
@@ -36,6 +37,26 @@ const RUN_GAMMA: DaemonListRunRow = {
   status: "blocked",
   isLive: false,
 };
+
+const WORKFLOW_RUN_ALPHA: DaemonListRunRow = {
+  runId: "run-alpha",
+  project: "demo",
+  branch: "alpha",
+  status: "in-progress",
+  isLive: true,
+  workflow: {
+    steps: [
+      { stepId: "step-1", role: "implement", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
+      { stepId: "step-2", role: "review", status: "in_progress", attemptCount: 1 },
+      { stepId: "step-3", role: "verify", status: "pending", attemptCount: 0 },
+    ],
+  },
+};
+
+function workflowLines(state: TuiMonitorState | undefined): string[] {
+  if (state === undefined) return [];
+  return monitorTextLines(state);
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -883,6 +904,71 @@ describe("runTuiEntry", () => {
       view.quit();
       expect(await pending).toBe(0);
     }
+  });
+
+  test("workflow-backed row shows workflow steps from list without empty chrome on single-step rows", async () => {
+    const view = createViewHost();
+    const { deps } = entryDeps(
+      {
+        listResponses: [{ runs: [WORKFLOW_RUN_ALPHA, RUN_BETA] }],
+        waitImpl: async () => ({ runStatus: "in-progress" }),
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    const workflowSnapshot = workflowLines(view.monitorStates.at(-1));
+    expect(workflowSnapshot).toContain("Workflow");
+    expect(workflowSnapshot).toContain("> step-2 review in_progress attempts=1");
+
+    view.selectRun("run-beta");
+    await flush();
+
+    const singleStepSnapshot = workflowLines(view.monitorStates.at(-1));
+    expect(singleStepSnapshot).not.toContain("Workflow");
+
+    view.quit();
+    await pending;
+  });
+
+  test("refresh updates workflow step view in place when active step advances", async () => {
+    const view = createViewHost();
+    const refresh = createRefreshScheduler();
+    const advancedWorkflow: DaemonListRunRow = {
+      ...WORKFLOW_RUN_ALPHA,
+      workflow: {
+        steps: [
+          { stepId: "step-1", role: "implement", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
+          { stepId: "step-2", role: "review", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
+          { stepId: "step-3", role: "verify", status: "in_progress", attemptCount: 1 },
+        ],
+      },
+    };
+    const { deps } = entryDeps(
+      {
+        listResponses: [{ runs: [WORKFLOW_RUN_ALPHA] }, { runs: [advancedWorkflow] }],
+        waitImpl: async () => ({ runStatus: "in-progress" }),
+      },
+      { viewHost: view.host, refreshScheduler: refresh.scheduler },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    expect(workflowLines(view.monitorStates.at(-1))).toContain("> step-2 review in_progress attempts=1");
+
+    refresh.tick();
+    await flush();
+
+    const finalState = view.monitorStates.at(-1);
+    expect(finalState?.selectedRunId).toBe("run-alpha");
+    expect(workflowLines(finalState)).toContain("> step-3 verify in_progress attempts=1");
+
+    view.quit();
+    await pending;
   });
 
   test("successful resume re-issues wait and abandons a prior ready snapshot", async () => {

@@ -26,6 +26,12 @@ The test's own assertion for these cases is only `pollCount >=
   that hides the same 5s+ real-time cost rather than removing it.
 - No change to `waitForCiGreen`, `classifyCiChecks`, or any other
   classification code — this is a test time-budget fix only.
+- `waitForCiGreen` classifies fresh on every loop iteration (single
+  `classifyCiChecks(getChecks(branch))` call, no state carried across polls)
+  and only checks elapsed time against `timeoutMs` after that classification.
+  Dropping from multiple polls to exactly one poll therefore cannot skip any
+  second-poll-only behavior — there is none. Rules out the risk that
+  `pollTimeoutMs: 0` silently drops coverage of a multi-poll code path.
 
 ## Task checklist
 
@@ -39,10 +45,9 @@ The test's own assertion for these cases is only `pollCount >=
 - [ ] `v1/test/triage-command.test.ts` — `--merge classifies all spec check
       statuses correctly` stays green (behavior unchanged; classification
       assertions for all 12 statuses still pass).
-- [ ] The test's wall-clock runtime no longer accumulates ~1000ms per
-      shouldWait case (verified by running the test file and observing total
-      suite duration drops materially below the prior ~5000ms baseline for
-      this test).
+- [ ] The test file's total runtime (`bun test v1/test/triage-command.test.ts`)
+      is under 2000ms, comfortably below bun:test's 5000ms default per-test
+      timeout.
 
 ## Documentation updates
 

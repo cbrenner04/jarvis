@@ -4,6 +4,7 @@ import { join } from "node:path";
 import packageJson from "../../package.json";
 import { createAgentBindings } from "../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
+import { loadMachineConfig } from "./config/machine-config-loader.ts";
 import type { WaitRunCompletionResult } from "./daemon/daemon.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon/daemon-lifecycle.ts";
 import { parseListRuns, parseWaitCompletion } from "./daemon/daemon-wire.ts";
@@ -337,7 +338,18 @@ function parseWriteCliInput(argv: readonly string[], deps: CliDeps): WriteCliInp
     return { ok: false };
   }
 
-  const built = buildWriteLoopInputFromCliValues(values, deps.createBindings);
+  let fallbackAgents: readonly string[] | undefined;
+  const agentsFromCli = typeof values.agents === "string" ? values.agents : undefined;
+  if (agentsFromCli === undefined) {
+    try {
+      fallbackAgents = loadMachineConfig();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, message: `${message}\n` };
+    }
+  }
+
+  const built = buildWriteLoopInputFromCliValues(values, deps.createBindings, fallbackAgents);
   if (!built.ok) {
     return "message" in built ? { ok: false, message: built.message } : { ok: false };
   }

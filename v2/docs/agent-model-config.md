@@ -236,6 +236,8 @@ models). See [`write-behavior.md`](write-behavior.md). This predates full
 `AgentModelConfig` resolution and does not implement inner rungs or role-aware
 binding.
 
+Precedence for the write/run-start commands: CLI `--agents` > machine config `agents` > `DEFAULT_WRITE_AGENTS` (`["claude"]`). When `--agents` is absent, the per-machine agent list from `~/.jarvis/v2.json` (if present) is used; otherwise the built-in default applies.
+
 No single-flag override. No per-step config override.
 
 ## Price derivation

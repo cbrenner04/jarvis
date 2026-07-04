@@ -1,0 +1,9 @@
+## Verdict
+
+Refine `00-cut-pending-poll-timeout-budget.md` on two points:
+
+1. **Coverage-regression check required.** Switching from `pollTimeoutMs: 1000` to `pollTimeoutMs: 0` forces exactly one poll per shouldWait case instead of allowing multiple. The spec must confirm (and state the confirmation as a Decision or Task checklist item) that none of the 5 status branches (`pending`, `queued`, `in_progress`, `action_required`, `stale`) depend on second-poll-only behavior in `waitForCiGreen`/`classifyCiChecks` — or, if such multi-poll behavior exists, that it's covered by a separate test. Without this, the fix risks silently dropping coverage rather than just fixing timing. This is necessary because the subspec's own acceptance criteria require "behavior unchanged" — an unverified drop from multi-poll to single-poll contradicts that guarantee unless explicitly checked.
+
+2. **Acceptance criterion needs a concrete numeric threshold.** The current AC ("runtime no longer accumulates ~1000ms per case," "drops materially below ~5000ms") is not independently verifiable — "materially" is subjective. Replace with a concrete ceiling (e.g., total test runtime under a stated ms threshold, comfortably below bun:test's 5000ms default) so the fix's success is objectively checkable. This follows from the spec-guidance principle that acceptance criteria must describe verifiable outcomes, not approximate ones.
+
+No other refinements are required — the Decisions section's justification for `pollTimeoutMs: 0` (citing the analogous existing test) and its implicit confirmation that no per-test `bun:test` timeout override precedent exists are adequately grounded already; making them slightly more explicit is optional polish, not a required refinement.

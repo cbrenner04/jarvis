@@ -11,13 +11,12 @@ surface-scoped scripts `package.json` already exposes (`test:v1`, `test:v2`,
 
 - Detect changed paths via `git diff --name-only <base>...HEAD` (three-dot,
   merge-base form), not branch-name conventions — `<base>` is
-  `github.event.pull_request.base.sha` for `pull_request` and
-  `github.event.before` for `push`.
+  `github.event.pull_request.base.sha`. Scoping applies only to
+  `pull_request` runs; no push diff is ever computed.
 - `push` to `main` (this repo's only trunk push trigger) always runs the full
-  `bun run test`, ignoring changed-path scoping — a safety net so two
-  independently-scoped PRs that are each individually safe can't combine into
-  a trunk break neither touched alone. Scoping applies only to
-  `pull_request` runs.
+  `bun run test`, unconditionally (no base-SHA lookup, no changed-path
+  detection) — a safety net so two independently-scoped PRs that are each
+  individually safe can't combine into a trunk break neither touched alone.
 - `actions/checkout` needs `fetch-depth: 0` — the default shallow clone has no
   history to compute a merge-base against.
 - `bun run test` (`bun test --parallel`, no path) already walks every
@@ -35,7 +34,9 @@ surface-scoped scripts `package.json` already exposes (`test:v1`, `test:v2`,
 - Changed paths matching root tooling (`package.json`, `tsconfig*.json`,
   `.github/workflows/**`, root `scripts/**`) → full `bun run test`.
 - `shared/**` changed → both `test:v1` and `test:v2` (+ `test:integration:v2`
-  per the rule above).
+  per the rule above), not the isolated `test:shared` slice — shared code
+  must satisfy both v1 and v2 callers, so it's validated via consumer
+  suites, not in isolation.
 - Any changed path matching none of `v1/**`, `v2/**`, `shared/**`, or a
   recognized root-tooling pattern (e.g. a root `README.md` edit) → full
   `bun run test` — fail-safe catch-all, not just the two narrower escape
@@ -45,9 +46,10 @@ surface-scoped scripts `package.json` already exposes (`test:v1`, `test:v2`,
   base-SHA resolvability as input and printing the scoped script name(s) (or
   `full`); `ci.yml` shells out to it. This makes classification testable via
   `bun run test` instead of only by observing live Actions runs.
-- Single `Test` job with a conditional step per scoped script (not separate
-  filtered jobs) — keeps one stable required-status-check name regardless of
-  which scripts actually run, so branch protection isn't left pointing at a
+- Single `checks` job with a conditional `Test (...)` step per scoped script
+  (not separate filtered jobs) — keeps one stable required-status-check name
+  regardless of which scripts actually run, so branch protection isn't left
+  pointing at a
   job that can be skipped.
 - `bun run typecheck`, `bun run check`, `bun run lint:md` stay unscoped.
 

@@ -50,3 +50,11 @@ Extend daemon run snapshots so the TUI can see workflow-step progress for a sele
 
 - `v2/docs/daemon-host.md` — document optional workflow-step metadata on daemon `list` rows.
 - `v2/docs/workflow-runner.md` — note that daemon/TUI consumers may read workflow progress as per-step snapshots keyed by authored order and `stepId`.
+
+## Blocker
+
+- `bun run typecheck` passed.
+- `bun run test` failed at `v1/test/review-feedback-command.test.ts:143` (`branch on origin with missing worktree creates it and runs review` expected removed worktree path to stay absent, received present).
+- Required serial retry `bun test` also reproduced real failures, including:
+  - `v1/test/triage-command.test.ts:312` in `triage --mark-ready > --merge flag > --merge classifies all spec check statuses correctly`
+  - `v2/src/testing/preload.sandbox-unrunnable.test.ts:11` in `agent-spawn preload is active for the v2 slice`

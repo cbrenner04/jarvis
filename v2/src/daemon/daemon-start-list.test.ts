@@ -314,6 +314,83 @@ socketTest("list returns workflow step snapshots for live, stopped, and complete
   client.close();
 });
 
+socketTest(
+  "list maps stopped workflow steps to budget-exhausted, paused, killed, and contract_miss outcomes",
+  async () => {
+    const client = await connectIpcClient(SOCKET_PATH);
+
+    const budgetRunId = stateStore.createRun({
+      project: "wf-outcomes",
+      specRef: "main",
+      worktreePath: "/tmp/wf-outcomes",
+      branch: "wf-budget",
+      specPath: "/tmp/spec.md",
+      stepId: "step-budget",
+      workflowSnapshot: workflowSnapshot({ stepId: "step-budget", role: "implement" }),
+    });
+    stateStore.recordAttemptStart(budgetRunId);
+    stateStore.setRunStatus(budgetRunId, "budget-soft-stopped");
+
+    const pausedRunId = stateStore.createRun({
+      project: "wf-outcomes",
+      specRef: "main",
+      worktreePath: "/tmp/wf-outcomes",
+      branch: "wf-paused",
+      specPath: "/tmp/spec.md",
+      stepId: "step-paused",
+      workflowSnapshot: workflowSnapshot({ stepId: "step-paused", role: "implement" }),
+    });
+    stateStore.recordAttemptStart(pausedRunId);
+    stateStore.setRunStatus(pausedRunId, "paused");
+
+    const killedRunId = stateStore.createRun({
+      project: "wf-outcomes",
+      specRef: "main",
+      worktreePath: "/tmp/wf-outcomes",
+      branch: "wf-killed",
+      specPath: "/tmp/spec.md",
+      stepId: "step-killed",
+      workflowSnapshot: workflowSnapshot({ stepId: "step-killed", role: "implement" }),
+    });
+    stateStore.recordAttemptStart(killedRunId);
+    stateStore.setRunStatus(killedRunId, "killed");
+
+    const contractMissRunId = stateStore.createRun({
+      project: "wf-outcomes",
+      specRef: "main",
+      worktreePath: "/tmp/wf-outcomes",
+      branch: "wf-contract",
+      specPath: "/tmp/spec.md",
+      stepId: "step-contract",
+      workflowSnapshot: workflowSnapshot({ stepId: "step-contract", role: "implement" }),
+    });
+    const contractMissAttemptId = stateStore.recordAttemptStart(contractMissRunId);
+    stateStore.commitCompletionBoundary({
+      attemptId: contractMissAttemptId,
+      runStatus: "blocked",
+      outcomeKind: "contract_miss",
+    });
+
+    const runs = await listRuns(client);
+    expect(runs?.find((row) => row.runId === budgetRunId)?.workflow).toEqual({
+      steps: [{ stepId: "step-budget", role: "implement", status: "stopped", attemptCount: 1, terminalOutcome: "budget-exhausted" }],
+    });
+    expect(runs?.find((row) => row.runId === pausedRunId)?.workflow).toEqual({
+      steps: [{ stepId: "step-paused", role: "implement", status: "stopped", attemptCount: 1, terminalOutcome: "paused" }],
+    });
+    expect(runs?.find((row) => row.runId === killedRunId)?.workflow).toEqual({
+      steps: [{ stepId: "step-killed", role: "implement", status: "stopped", attemptCount: 1, terminalOutcome: "killed" }],
+    });
+    expect(runs?.find((row) => row.runId === contractMissRunId)?.workflow).toEqual({
+      steps: [
+        { stepId: "step-contract", role: "implement", status: "stopped", attemptCount: 1, terminalOutcome: "contract_miss" },
+      ],
+    });
+
+    client.close();
+  },
+);
+
 socketTest("pause signals graceful stop for an active run", async () => {
   const client = await connectIpcClient(SOCKET_PATH);
   const runId = await startRun(client);

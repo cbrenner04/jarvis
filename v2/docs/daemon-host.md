@@ -180,6 +180,9 @@ Rules:
   active in-progress attempt.
 - Live snapshots expose at most one `in_progress` step; quiescent snapshots
   expose none.
+- `invocation_failure` is also the fallback outcome for a step run left
+  `in-progress` with no live daemon entry (e.g. a crash-orphaned run); the
+  closed vocabulary has no dedicated status for that case.
 
 ### Admission guards for `start`
 

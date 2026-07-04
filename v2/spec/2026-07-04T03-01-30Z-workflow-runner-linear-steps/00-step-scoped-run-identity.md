@@ -15,6 +15,10 @@ resume can tell which steps are already done and which is mid-loop.
   unaffected.
 - `step_id` is an opaque caller-supplied string (the workflow runner's step
   identifier); this slice does not interpret it.
+- `attempts` keys off `run_id`, not `(project, branch)` directly; adding
+  `step_id` to `runs` is sufficient to make per-step attempt history
+  queryable (via the step's `run_id`) — no `attempts` schema change needed,
+  and no new `steps` table.
 
 ## Task Checklist
 
@@ -33,6 +37,9 @@ resume can tell which steps are already done and which is mid-loop.
       `findRunByProjectBranch({ project, branch, stepId })` returns only the
       matching row and never the other step's run.
 - [ ] `loadRun` returns the run's `stepId` alongside its attempt history.
+- [ ] A run row created before migration `005-run-step-id` (NULL `step_id`)
+      still resolves correctly via `findRunByProjectBranch` with no
+      `stepId` argument after migration.
 
 ## Documentation updates
 

@@ -30,7 +30,24 @@ for per-step attempt history.
   takes over from there.
 - No new workflow-level budget, pause, or abort concept — each step
   inherits the existing per-step `maxIterations`/`signal`/`pauseSignal`
-  semantics unchanged.
+  semantics unchanged. `maxIterations` is per-step-configurable (each step
+  in the array may set its own value); there is no single shared cap.
+- Resume assumes the caller re-supplies the identical `steps` array the
+  killed run used (same length, order, and `stepId`s). A divergent array on
+  resume (different length, reordered, changed `stepId`s) is undefined
+  behavior for this spec — out of scope.
+- A step with no run row yet counts as not-`completed`, so it is a valid
+  resume/start point — this is the ordinary first-run case, not a special
+  case.
+- `stepId` values must be unique within one workflow's `steps` array
+  (duplicates would collide under the `(project, branch, step_id)` resume
+  key and silently merge attempt history); `executeWorkflow` validates this
+  and rejects a workflow with duplicate `stepId`s before running any step.
+- An empty `steps` array is rejected (validation error), not treated as a
+  no-op run.
+- `role` is carried for step identity only and is not persisted in durable
+  state — attempt history identifies steps by `stepId`, not by the
+  role/binding that ran them.
 
 ## Task Checklist
 
@@ -40,6 +57,8 @@ for per-step attempt history.
 - [ ] Non-`complete` step outcomes stop the workflow and surface which step
       it stopped on.
 - [ ] Resume re-enters at the first non-`completed` step in order.
+- [ ] `executeWorkflow` rejects (before running any step) a `steps` array
+      that is empty or contains duplicate `stepId`s.
 
 ## Acceptance criteria
 
@@ -48,12 +67,17 @@ for per-step attempt history.
       intervention between steps.
 - [ ] A step that ends `blocked`, `contract_miss`, or `invocation_failure`
       stops the workflow before any later step runs.
+- [ ] A step that ends in a soft-stop (`budget-exhausted`) stops the
+      workflow before any later step runs, same as a hard-terminal outcome.
 - [ ] Killing mid-second-step and re-invoking the same workflow resumes at
       step two — step one is not re-run and its attempt history is
       unchanged.
 - [ ] After a workflow finishes (or is killed mid-run), each step's attempt
       history is independently queryable via the step-scoped run lookup
       from subspec 00.
+- [ ] A one-step `steps` array runs identically to today's single-step
+      `executeWriteLoop` invocation (same terminal outcomes, same resume
+      behavior).
 
 ## Documentation updates
 

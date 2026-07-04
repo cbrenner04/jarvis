@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type { InkRender } from "./tui-ink-feedback.tsx";
 import { collectLaunchFieldsViaInk } from "./tui-field-collector.tsx";
+import type { InkRender } from "./tui-ink-feedback.tsx";
 import { loadInkUi } from "./tui-ink-runtime.ts";
 
 function createMockInkRender(): InkRender {
-  return ((element: unknown) => {
+  return ((_element: unknown) => {
     return {
       rerender() {},
       unmount() {},

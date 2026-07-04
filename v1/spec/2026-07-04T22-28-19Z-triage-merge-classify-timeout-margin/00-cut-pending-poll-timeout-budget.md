@@ -35,17 +35,17 @@ The test's own assertion for these cases is only `pollCount >=
 
 ## Task checklist
 
-- [ ] In the `--merge classifies all spec check statuses correctly` test,
+- [x] In the `--merge classifies all spec check statuses correctly` test,
       change `pollTimeoutMs: 1000` to `pollTimeoutMs: 0`.
-- [ ] Confirm the test still exercises at least one poll per shouldWait case
+- [x] Confirm the test still exercises at least one poll per shouldWait case
       and its existing assertions (`pollCount >= 1`) still pass.
 
 ## Acceptance criteria
 
-- [ ] `v1/test/triage-command.test.ts` — `--merge classifies all spec check
+- [x] `v1/test/triage-command.test.ts` — `--merge classifies all spec check
       statuses correctly` stays green (behavior unchanged; classification
       assertions for all 12 statuses still pass).
-- [ ] The test file's total runtime (`bun test v1/test/triage-command.test.ts`)
+- [x] The test file's total runtime (`bun test v1/test/triage-command.test.ts`)
       is under 2000ms, comfortably below bun:test's 5000ms default per-test
       timeout.
 

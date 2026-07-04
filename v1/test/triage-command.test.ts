@@ -3042,7 +3042,7 @@ describe("triage --mark-ready", () => {
             io: testCase.shouldWait ? io2 : io,
             worktreeName: "branch-1",
             pollIntervalMs: 0,
-            pollTimeoutMs: 1000,
+            pollTimeoutMs: 0,
             ghRunner: {
               getPrState: () => ({
                 state: "OPEN",

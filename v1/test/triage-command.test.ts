@@ -3050,8 +3050,7 @@ describe("triage --mark-ready", () => {
               }),
               getChecks: () => {
                 pollCount++;
-                const status = testCase.shouldWait ? "in_progress" : testCase.status;
-                return [{ name: "test", status }];
+                return [{ name: "test", status: testCase.status }];
               },
             },
             runGate: () => {},

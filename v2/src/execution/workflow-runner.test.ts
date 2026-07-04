@@ -19,6 +19,13 @@ const noStepRolesConfig: AgentModelConfig = {
   claude: {},
   codex: {},
 };
+const workflowConfig = {
+  agents,
+  agentModelConfig: validAgentModelConfig,
+} as const;
+const progressBindings = simulatedBindings(["progress"], { artifactPath: "proof.txt", emitArtifact: false });
+const blockedBindings = simulatedBindings(["blocked"], { artifactPath: "proof.txt", emitArtifact: false });
+const errorBindings = simulatedBindings(["error"], { artifactPath: "proof.txt", emitArtifact: false });
 
 function createStep(
   overrides: Partial<Omit<WorkflowStep, "worktree">> & { stepId: string; role: string; branchName?: string },
@@ -43,26 +50,32 @@ function createStep(
   };
 }
 
+async function expectWorkflowError(
+  input: Parameters<typeof executeWorkflow>[0],
+  ...expectedMessages: string[]
+): Promise<string> {
+  try {
+    await executeWorkflow(input);
+    expect.unreachable("Should have thrown");
+  } catch (e) {
+    const message = String(e);
+    for (const expectedMessage of expectedMessages) {
+      expect(message).toContain(expectedMessage);
+    }
+    return message;
+  }
+}
+
 describe("executeWorkflow", () => {
   test("rejects empty steps array", async () => {
-    try {
-      await executeWorkflow({ steps: [], agents, agentModelConfig: validAgentModelConfig });
-      expect.unreachable("Should have thrown");
-    } catch (e) {
-      expect(String(e)).toContain("at least one step");
-    }
+    await expectWorkflowError({ steps: [], ...workflowConfig }, "at least one step");
   });
 
   test("rejects duplicate stepIds", async () => {
     const step1 = createStep({ stepId: "step-1", role: "implement" });
-    const step2 = createStep({ stepId: "step-1", role: "implement" }); // duplicate
+    const step2 = createStep({ stepId: "step-1", role: "implement" });
 
-    try {
-      await executeWorkflow({ steps: [step1, step2], agents, agentModelConfig: validAgentModelConfig });
-      expect.unreachable("Should have thrown");
-    } catch (e) {
-      expect(String(e)).toContain("Duplicate stepId");
-    }
+    await expectWorkflowError({ steps: [step1, step2], ...workflowConfig }, "Duplicate stepId");
   });
 
   test("accepts valid loaded step arrays", async () => {
@@ -72,8 +85,7 @@ describe("executeWorkflow", () => {
     try {
       const result = await executeWorkflow({
         steps: [step],
-        agents,
-        agentModelConfig: validAgentModelConfig,
+        ...workflowConfig,
         stateStore: store,
       });
 
@@ -88,16 +100,16 @@ describe("executeWorkflow", () => {
     const store = openStateStore(":memory:");
 
     try {
-      await executeWorkflow({
-        steps: [step],
-        agents,
-        agentModelConfig: noStepRolesConfig,
-        stateStore: store,
-      });
-      expect.unreachable("Should have thrown");
-    } catch (e) {
-      expect(String(e)).toContain("(step-1, unknown-role, claude)");
-      expect(String(e)).toContain("(step-1, unknown-role, codex)");
+      await expectWorkflowError(
+        {
+          steps: [step],
+          agents,
+          agentModelConfig: noStepRolesConfig,
+          stateStore: store,
+        },
+        "(step-1, unknown-role, claude)",
+        "(step-1, unknown-role, codex)",
+      );
       const run = store.findRunByProjectBranch({
         project: "demo",
         branch: "workflow-run",
@@ -113,34 +125,30 @@ describe("executeWorkflow", () => {
     const step1 = createStep({ stepId: "step-1", role: "implement", branchName: "aggregate-misses" });
     const step2 = createStep({ stepId: "step-2", role: "unknown-role", branchName: "aggregate-misses" });
 
-    try {
-      await executeWorkflow({
+    await expectWorkflowError(
+      {
         steps: [step1, step2],
         agents,
         agentModelConfig: missingCodexImplementConfig,
-      });
-      expect.unreachable("Should have thrown");
-    } catch (e) {
-      expect(String(e)).toContain("(step-1, implement, codex)");
-      expect(String(e)).toContain("(step-2, unknown-role, claude)");
-      expect(String(e)).toContain("(step-2, unknown-role, codex)");
-    }
+      },
+      "(step-1, implement, codex)",
+      "(step-2, unknown-role, claude)",
+      "(step-2, unknown-role, codex)",
+    );
   });
 
   test("fails workflow load when an earlier agent has the role and a later fallback agent does not", async () => {
     const step = createStep({ stepId: "step-1", role: "implement" });
 
-    try {
-      await executeWorkflow({
+    const message = await expectWorkflowError(
+      {
         steps: [step],
         agents,
         agentModelConfig: missingCodexImplementConfig,
-      });
-      expect.unreachable("Should have thrown");
-    } catch (e) {
-      expect(String(e)).toContain("(step-1, implement, codex)");
-      expect(String(e)).not.toContain("(step-1, implement, claude)");
-    }
+      },
+      "(step-1, implement, codex)",
+    );
+    expect(message).not.toContain("(step-1, implement, claude)");
   });
 
   test("runs single step to completion", async () => {
@@ -150,8 +158,7 @@ describe("executeWorkflow", () => {
     try {
       const result = await executeWorkflow({
         steps: [step],
-        agents,
-        agentModelConfig: validAgentModelConfig,
+        ...workflowConfig,
         stateStore: store,
       });
 
@@ -182,8 +189,7 @@ describe("executeWorkflow", () => {
     try {
       const result = await executeWorkflow({
         steps: [step1, step2],
-        agents,
-        agentModelConfig: validAgentModelConfig,
+        ...workflowConfig,
         stateStore: store,
       });
 
@@ -220,14 +226,13 @@ describe("executeWorkflow", () => {
       stepId: "step-2",
       role: "implement",
       branchName: "blocked-run",
-      bindings: simulatedBindings(["blocked"], { artifactPath: "proof.txt", emitArtifact: false }),
+      bindings: blockedBindings,
     });
 
     try {
       const result = await executeWorkflow({
         steps: [step1, step2],
-        agents,
-        agentModelConfig: validAgentModelConfig,
+        ...workflowConfig,
         stateStore: store,
       });
 
@@ -262,14 +267,13 @@ describe("executeWorkflow", () => {
       stepId: "step-2",
       role: "implement",
       branchName: "failure-run",
-      bindings: simulatedBindings(["error"], { artifactPath: "proof.txt", emitArtifact: false }),
+      bindings: errorBindings,
     });
 
     try {
       const result = await executeWorkflow({
         steps: [step1, step2],
-        agents,
-        agentModelConfig: validAgentModelConfig,
+        ...workflowConfig,
         stateStore: store,
       });
 
@@ -288,15 +292,14 @@ describe("executeWorkflow", () => {
       stepId: "step-2",
       role: "implement",
       branchName: "budget-run",
-      bindings: simulatedBindings(["progress"], { artifactPath: "proof.txt", emitArtifact: false }),
+      bindings: progressBindings,
       maxIterations: 1,
     });
 
     try {
       const result = await executeWorkflow({
         steps: [step1, step2],
-        agents,
-        agentModelConfig: validAgentModelConfig,
+        ...workflowConfig,
         stateStore: store,
       });
 
@@ -317,7 +320,7 @@ describe("executeWorkflow", () => {
       stepId: "step-2",
       role: "implement",
       branchName: "resume-test",
-      bindings: simulatedBindings(["progress"], { artifactPath: "proof.txt", emitArtifact: false }),
+      bindings: progressBindings,
       maxIterations: 1,
     });
 
@@ -326,8 +329,7 @@ describe("executeWorkflow", () => {
     try {
       const result1 = await executeWorkflow({
         steps: [step1First, step2First],
-        agents,
-        agentModelConfig: validAgentModelConfig,
+        ...workflowConfig,
         stateStore: store,
       });
 
@@ -344,8 +346,7 @@ describe("executeWorkflow", () => {
 
       const result2 = await executeWorkflow({
         steps: [step1Second, step2Second],
-        agents,
-        agentModelConfig: validAgentModelConfig,
+        ...workflowConfig,
         stateStore: store,
       });
 
@@ -371,15 +372,14 @@ describe("executeWorkflow", () => {
       stepId: "step-2",
       role: "implement",
       branchName: "resume-revalidate",
-      bindings: simulatedBindings(["progress"], { artifactPath: "proof.txt", emitArtifact: false }),
+      bindings: progressBindings,
       maxIterations: 1,
     });
 
     try {
       const firstResult = await executeWorkflow({
         steps: [step1, step2],
-        agents,
-        agentModelConfig: validAgentModelConfig,
+        ...workflowConfig,
         stateStore: store,
       });
 
@@ -392,8 +392,8 @@ describe("executeWorkflow", () => {
       });
       expect(initialRun2?.attempts).toHaveLength(1);
 
-      try {
-        await executeWorkflow({
+      await expectWorkflowError(
+        {
           steps: [
             createStep({ stepId: "step-1", role: "implement", branchName: "resume-revalidate" }),
             createStep({ stepId: "step-2", role: "implement", branchName: "resume-revalidate" }),
@@ -401,12 +401,10 @@ describe("executeWorkflow", () => {
           agents,
           agentModelConfig: missingCodexImplementConfig,
           stateStore: store,
-        });
-        expect.unreachable("Should have thrown");
-      } catch (e) {
-        expect(String(e)).toContain("(step-1, implement, codex)");
-        expect(String(e)).toContain("(step-2, implement, codex)");
-      }
+        },
+        "(step-1, implement, codex)",
+        "(step-2, implement, codex)",
+      );
 
       const resumedRun2 = store.findRunByProjectBranch({
         project: "demo",
@@ -429,8 +427,7 @@ describe("executeWorkflow", () => {
     try {
       await executeWorkflow({
         steps: [step1, step2],
-        agents,
-        agentModelConfig: validAgentModelConfig,
+        ...workflowConfig,
         stateStore: store,
       });
 

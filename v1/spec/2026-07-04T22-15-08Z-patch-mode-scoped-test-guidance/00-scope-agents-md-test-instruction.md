@@ -46,16 +46,16 @@ one surface. CI already scopes its own test step by changed path
 
 ## Acceptance criteria
 
-- [ ] `AGENTS.md`'s "Working rules for agents" section instructs agents to run
+- [x] `AGENTS.md`'s "Working rules for agents" section instructs agents to run
       `bun run typecheck` (unscoped) plus the surface-scoped test script(s)
       matching the active subspec's touched files since the branch/merge-base,
       stating the same v1/v2/shared/root-tooling rule as
       `scripts/ci-test-scope.ts`.
-- [ ] The rewritten sentence still ties this instruction to "before ticking
+- [x] The rewritten sentence still ties this instruction to "before ticking
       the acceptance criteria they cover," keeping it legible as patch-mode-only
       guidance.
-- [ ] The adjacent "Do not run `bun run ready`" instruction is unchanged.
-- [ ] `bun run lint:md` passes on the edited `AGENTS.md`.
+- [x] The adjacent "Do not run `bun run ready`" instruction is unchanged.
+- [x] `bun run lint:md` passes on the edited `AGENTS.md`.
 
 ## Documentation updates
 

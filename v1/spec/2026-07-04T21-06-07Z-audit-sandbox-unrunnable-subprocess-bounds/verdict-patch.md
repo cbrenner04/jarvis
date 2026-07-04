@@ -1,0 +1,7 @@
+## Verdict: Required Refinement
+
+**Upheld issue:** `v2/docs/v1-behaviors.md` currently states the patch-mode git-subprocess audit is "complete," but `worktree.ts` — a shared library used by `completion-pipeline.ts` and `review.ts` (via `pushCurrent`, `hasUpstream`, `worktreeCompletionBlocker`) — still spawns unbounded `git` subprocesses, including a real `git push` in `pushCurrent`, called directly from `completion-pipeline.ts`'s dirty-worktree flow. That gap is real and reachable, but it was never named in scope by any subspec's Problem/Decisions sections, and `worktree.ts` has no corresponding `*.sandbox-unrunnable.test.ts` file, so it falls outside the intent's own "sibling sandbox-unrunnable test" framing. This is not a case of a named call site being silently skipped — no implementation changes are required here.
+
+**Required outcome:** The actuator must add a residual-gap note to the `v2/docs/v1-behaviors.md` entry, alongside the existing `gh`-calls residual note, stating that `worktree.ts` (`pushCurrent`, `hasUpstream`, `worktreeCompletionBlocker`, consumed by `completion-pipeline.ts` and `review.ts`) still spawns unbounded `git` subprocesses and is out of scope for this audit. This keeps the doc's "complete" claim accurate rather than overstated, consistent with the precedent subspec 01 already set for documenting known residual gaps rather than omitting them.
+
+**Not required:** No code changes to `worktree.ts`, `pr.ts`, `review.ts`, or `completion-pipeline.ts`. No new tests. This is a documentation-accuracy fix only.

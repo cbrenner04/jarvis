@@ -1,9 +1,9 @@
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import {
+  type AgentModelConfig,
   resolveExecutableRole,
   resolveInvocationBindings,
-  type AgentModelConfig,
 } from "../config/agent-model-config.ts";
 import type { LogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";

@@ -500,16 +500,26 @@ describe("resolveInvocationBindings", () => {
   };
 
   test("implement resolves the flat per-agent rung order shared invocation consumes", () => {
-    const bindings = resolveInvocationBindings("implement", ["claude", "codex"], config, ({ agentId, adapterModel }) => ({
-      id: `${agentId}/${adapterModel}`,
-    }));
+    const bindings = resolveInvocationBindings(
+      "implement",
+      ["claude", "codex"],
+      config,
+      ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+      }),
+    );
 
     expect(bindings).toEqual([{ id: "claude/M1" }, { id: "claude/M2" }, { id: "codex/M3" }]);
   });
 
   test("plan, adversary, advocate, and adjudicator all consume the full per-agent rung list", () => {
     expect(
-      resolveInvocationBindings("plan", ["claude", "codex"], config, ({ agentId, adapterModel }) => `${agentId}/${adapterModel}`),
+      resolveInvocationBindings(
+        "plan",
+        ["claude", "codex"],
+        config,
+        ({ agentId, adapterModel }) => `${agentId}/${adapterModel}`,
+      ),
     ).toEqual(["claude/P1", "claude/P2", "codex/P3"]);
     expect(
       resolveInvocationBindings(
@@ -538,19 +548,29 @@ describe("resolveInvocationBindings", () => {
   });
 
   test("actuator resolves head-only bindings", () => {
-    const bindings = resolveInvocationBindings("actuator", ["claude", "codex"], config, ({ agentId, adapterModel }) => ({
-      id: `${agentId}/${adapterModel}`,
-    }));
+    const bindings = resolveInvocationBindings(
+      "actuator",
+      ["claude", "codex"],
+      config,
+      ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+      }),
+    );
 
     expect(bindings).toEqual([{ id: "claude/X1" }, { id: "codex/X3" }]);
   });
 
   test("binding construction receives one resolved agent, model, and price key per rung", () => {
-    const bindings = resolveInvocationBindings("implement", ["claude", "codex"], config, ({ agentId, adapterModel, priceKey }) => ({
-      agentId,
-      adapterModel,
-      priceKey,
-    }));
+    const bindings = resolveInvocationBindings(
+      "implement",
+      ["claude", "codex"],
+      config,
+      ({ agentId, adapterModel, priceKey }) => ({
+        agentId,
+        adapterModel,
+        priceKey,
+      }),
+    );
 
     expect(bindings).toEqual([
       { agentId: "claude", adapterModel: "M1", priceKey: "P1" },

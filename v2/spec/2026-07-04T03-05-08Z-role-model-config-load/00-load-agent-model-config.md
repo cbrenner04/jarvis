@@ -32,16 +32,16 @@ only.
 
 ## Acceptance criteria
 
-- [ ] Loading a config file where a project-configured agent is missing a required role fails with an error naming the agent and role.
-- [ ] Loading a config file where a present `(agent, role)` has missing, empty, or non-array `rungs` fails with an error naming the agent and role.
-- [ ] Loading a config file where a rung is missing or has a non-string `adapterModel` or `priceKey` fails with an error naming the agent, role, and rung index.
-- [ ] Loading a config file that omits the `operator` role for every agent succeeds.
-- [ ] Loading a config file containing an agent not present in the project's `agents` list succeeds and ignores that agent's entries.
-- [ ] Loading a config file containing an unrecognized role key for an agent succeeds and ignores that role entry.
-- [ ] Duplicate names in the `agents` input fail load with an error.
-- [ ] Loading with an empty `agents` list succeeds.
-- [ ] Loading malformed JSON, a non-object top-level value, or a non-object per-agent value fails load with an error.
-- [ ] Loading a config file with multiple independent violations (e.g. two different agents each missing a required role) reports all violations in one load result, not just the first.
+- [x] Loading a config file where a project-configured agent is missing a required role fails with an error naming the agent and role.
+- [x] Loading a config file where a present `(agent, role)` has missing, empty, or non-array `rungs` fails with an error naming the agent and role.
+- [x] Loading a config file where a rung is missing or has a non-string `adapterModel` or `priceKey` fails with an error naming the agent, role, and rung index.
+- [x] Loading a config file that omits the `operator` role for every agent succeeds.
+- [x] Loading a config file containing an agent not present in the project's `agents` list succeeds and ignores that agent's entries.
+- [x] Loading a config file containing an unrecognized role key for an agent succeeds and ignores that role entry.
+- [x] Duplicate names in the `agents` input fail load with an error.
+- [x] Loading with an empty `agents` list succeeds.
+- [x] Loading malformed JSON, a non-object top-level value, or a non-object per-agent value fails load with an error.
+- [x] Loading a config file with multiple independent violations (e.g. two different agents each missing a required role) reports all violations in one load result, not just the first.
 
 ## Documentation updates
 

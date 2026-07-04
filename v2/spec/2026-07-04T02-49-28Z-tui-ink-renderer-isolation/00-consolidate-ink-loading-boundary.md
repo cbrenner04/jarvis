@@ -13,11 +13,11 @@
 
 ## Acceptance criteria
 
-- [ ] `collectLaunchFieldsViaInk` in `tui-field-collector.tsx` obtains its render function, `Text`, and `useInput` from `loadInkUi` instead of a direct `import("ink")`.
-- [ ] `tui-field-collector.test.tsx` exists, drives `collectLaunchFieldsViaInk` through an injected `inkRender` seam, and asserts field collection completes: since ink's real `render()` needs a TTY unavailable in the test harness, any accidental fallthrough to the real `import("ink")` path would hang or throw rather than pass silently.
-- [ ] No file under `v2/src/tui/` contains a static top-level `ink` import, a `require("ink")` call, or a re-export of ink bound at module scope; `tui-ink-runtime.ts` is the only file with a dynamic `import("ink")` call.
-- [ ] A smoke test calls `loadInkUi()` with no `inkRender` argument (real `import("ink")`, real yoga-layout init) and asserts it resolves without throwing, giving direct signal on the consolidated path wherever `bun test` runs.
-- [ ] `bun test v2/src/tui/` passes with no new failures.
+- [x] `collectLaunchFieldsViaInk` in `tui-field-collector.tsx` obtains its render function, `Text`, and `useInput` from `loadInkUi` instead of a direct `import("ink")`.
+- [x] `tui-field-collector.test.tsx` exists, drives `collectLaunchFieldsViaInk` through an injected `inkRender` seam, and asserts field collection completes: since ink's real `render()` needs a TTY unavailable in the test harness, any accidental fallthrough to the real `import("ink")` path would hang or throw rather than pass silently.
+- [x] No file under `v2/src/tui/` contains a static top-level `ink` import, a `require("ink")` call, or a re-export of ink bound at module scope; `tui-ink-runtime.ts` is the only file with a dynamic `import("ink")` call.
+- [x] A smoke test calls `loadInkUi()` with no `inkRender` argument (real `import("ink")`, real yoga-layout init) and asserts it resolves without throwing, giving direct signal on the consolidated path wherever `bun test` runs.
+- [x] `bun test v2/src/tui/` passes with no new failures.
 
 ## Documentation updates
 

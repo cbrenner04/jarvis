@@ -53,7 +53,7 @@ surface-scoped scripts `package.json` already exposes (`test:v1`, `test:v2`,
 
 ## Acceptance criteria
 
-- [ ] `scripts/ci-test-scope.ts` has a unit test file covering: `v1/**`-only,
+- [x] `scripts/ci-test-scope.ts` has a unit test file covering: `v1/**`-only,
       `v2/**`-only, `shared/**`-only, root-tooling, unmatched-path (e.g. root
       `README.md`), combined `v1/**`+`v2/**`, and unresolvable-base
       (missing/all-zeros/no-merge-base) inputs, each asserting the returned
@@ -77,10 +77,10 @@ surface-scoped scripts `package.json` already exposes (`test:v1`, `test:v2`,
       `bun run test` in CI, not a partial or skipped run.
 - [ ] A `push` to `main` always runs the full `bun run test` in CI,
       regardless of which paths changed.
-- [ ] The `Test` job keeps one stable job name whether it runs scoped or
+- [x] The `Test` job keeps one stable job name whether it runs scoped or
       full tests, so branch-protection required-status-checks aren't left
       pointing at a job that can be skipped.
-- [ ] `bun run typecheck`, `bun run check`, and `bun run lint:md` run in full
+- [x] `bun run typecheck`, `bun run check`, and `bun run lint:md` run in full
       in CI regardless of which surface changed.
 
 ## Documentation updates

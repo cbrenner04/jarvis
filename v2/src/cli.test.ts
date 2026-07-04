@@ -33,6 +33,17 @@ function tempPaths() {
   };
 }
 
+function writeRawMachineConfig(text: string): string {
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-cli-machine-config-"));
+  const configPath = join(dir, "v2.json");
+  writeFileSync(configPath, text);
+  return configPath;
+}
+
+function writeMachineConfig(value: unknown): string {
+  return writeRawMachineConfig(JSON.stringify(value));
+}
+
 const WRITE_ARGS = [
   "write",
   "--project-root",
@@ -343,6 +354,61 @@ describe("v2 cli", () => {
     });
 
     expect(capturedAgents).toEqual(["claude"]);
+  });
+
+  test("valid machine config supplies fallback agents when --agents is omitted", async () => {
+    const cap = captureIo();
+    const configPath = writeMachineConfig({ agents: ["codex", "cursor"] });
+    let capturedAgents: readonly string[] | undefined;
+
+    const code = await main(WRITE_ARGS, cap.io, {
+      machineConfigPath: configPath,
+      createBindings: (agentIds) => {
+        capturedAgents = agentIds;
+        return simulatedBindings(["done"]);
+      },
+      executeWriteLoop: async () => completeResult(),
+    });
+
+    expect(code).toBe(0);
+    expect(capturedAgents).toEqual(["codex", "cursor"]);
+  });
+
+  test("invalid machine config exits nonzero without invoking any agent when --agents is omitted", async () => {
+    const cap = captureIo();
+    const configPath = writeRawMachineConfig("{ invalid json");
+    let createBindingsCalled = false;
+
+    const code = await main(WRITE_ARGS, cap.io, {
+      machineConfigPath: configPath,
+      createBindings: () => {
+        createBindingsCalled = true;
+        return simulatedBindings(["done"]);
+      },
+      executeWriteLoop: async () => completeResult(),
+    });
+
+    expect(code).toBe(1);
+    expect(createBindingsCalled).toBe(false);
+    expect(cap.read().stderr).toContain("Failed to parse machine config");
+  });
+
+  test("--agents wins over a broken machine config file", async () => {
+    const cap = captureIo();
+    const configPath = writeRawMachineConfig("{ invalid json");
+    let capturedAgents: readonly string[] | undefined;
+
+    const code = await main([...WRITE_ARGS, "--agents", "claude,codex"], cap.io, {
+      machineConfigPath: configPath,
+      createBindings: (agentIds) => {
+        capturedAgents = agentIds;
+        return simulatedBindings(["done"]);
+      },
+      executeWriteLoop: async () => completeResult(),
+    });
+
+    expect(code).toBe(0);
+    expect(capturedAgents).toEqual(["claude", "codex"]);
   });
 
   test("default binding factory yields not-wired error bindings", async () => {

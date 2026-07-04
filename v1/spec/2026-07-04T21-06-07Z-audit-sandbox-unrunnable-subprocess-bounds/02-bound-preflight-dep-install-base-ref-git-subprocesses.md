@@ -21,16 +21,16 @@ coverage here, only real hang risk if any of these calls wedges.
 
 ## Task checklist
 
-- [ ] Apply the shared helper's timeout+kill options to every `execFileSync("git", ...)` call in `preflight.ts`, `dep-install.ts`, and `base-ref-test-runner.ts`.
-- [ ] Add a stalled-`git ls-remote` regression test (via a `git` shim on `PATH`, mirroring `shrink.sandbox-unrunnable.test.ts`) in the suite that can reach `readRemoteHeadBranch` (adding hang-fixture tracking there first if missing), or fall back per the decisions above if no suite reaches it.
-- [ ] Update the durable docs listed below.
+- [x] Apply the shared helper's timeout+kill options to every `execFileSync("git", ...)` call in `preflight.ts`, `dep-install.ts`, and `base-ref-test-runner.ts`.
+- [x] Add a stalled-`git ls-remote` regression test (via a `git` shim on `PATH`, mirroring `shrink.sandbox-unrunnable.test.ts`) in the suite that can reach `readRemoteHeadBranch` (adding hang-fixture tracking there first if missing), or fall back per the decisions above if no suite reaches it.
+- [x] Update the durable docs listed below.
 
 ## Acceptance criteria
 
-- [ ] Every real `git` subprocess `preflight.ts`, `dep-install.ts`, and `base-ref-test-runner.ts` spawn is bounded by the shared timeout+`SIGKILL` helper, so a wedged or unreachable-remote `git` call cannot hang any of these paths past that bound.
-- [ ] A stalled `git ls-remote` in `preflight.ts` fails the invocation under test within the bound instead of hanging, and any hang-fixture child it started is reaped — either via a new stall test in the suite that reaches the call site, or via the documented bound-only fallback if no suite reaches it.
-- [ ] Existing `run.sandbox-unrunnable.test.ts` cases stay green after the bound is applied (behavior unchanged for non-stalled calls).
-- [ ] `v2/docs/v1-behaviors.md` records that `preflight.ts`, `dep-install.ts`, and `base-ref-test-runner.ts` git subprocesses are bounded, closing out the sandbox-unrunnable subprocess audit across patch mode.
+- [x] Every real `git` subprocess `preflight.ts`, `dep-install.ts`, and `base-ref-test-runner.ts` spawn is bounded by the shared timeout+`SIGKILL` helper, so a wedged or unreachable-remote `git` call cannot hang any of these paths past that bound.
+- [x] A stalled `git ls-remote` in `preflight.ts` fails the invocation under test within the bound instead of hanging, and any hang-fixture child it started is reaped — either via a new stall test in the suite that reaches the call site, or via the documented bound-only fallback if no suite reaches it.
+- [x] Existing `run.sandbox-unrunnable.test.ts` cases stay green after the bound is applied (behavior unchanged for non-stalled calls).
+- [x] `v2/docs/v1-behaviors.md` records that `preflight.ts`, `dep-install.ts`, and `base-ref-test-runner.ts` git subprocesses are bounded, closing out the sandbox-unrunnable subprocess audit across patch mode.
 
 ## Documentation updates
 

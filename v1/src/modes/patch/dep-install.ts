@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdtempSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { GIT_SUBPROCESS_OPTS } from "./git-subprocess.ts";
 
 type DepInstallResult =
   | {
@@ -19,6 +20,7 @@ export function detectDepChange(cwd: string): boolean {
       cwd,
       encoding: "utf8",
       stdio: "pipe",
+      ...GIT_SUBPROCESS_OPTS,
     });
 
     const changedFiles = diffOutput.trim().split("\n");
@@ -100,6 +102,7 @@ export function commitLockfileChanges(cwd: string, agentLabel: string): void {
       cwd,
       encoding: "utf8",
       stdio: "pipe",
+      ...GIT_SUBPROCESS_OPTS,
     }).trim();
 
     if (statusOutput === "") {
@@ -124,6 +127,7 @@ export function commitLockfileChanges(cwd: string, agentLabel: string): void {
     execFileSync("git", ["add", ...filesToAdd], {
       cwd,
       stdio: "pipe",
+      ...GIT_SUBPROCESS_OPTS,
     });
 
     // Create and commit with agent trailer
@@ -131,6 +135,7 @@ export function commitLockfileChanges(cwd: string, agentLabel: string): void {
     execFileSync("git", ["commit", "-m", msg], {
       cwd,
       stdio: "pipe",
+      ...GIT_SUBPROCESS_OPTS,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

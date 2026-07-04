@@ -18,3 +18,7 @@ Decisions:
 - AgentModelConfig loads from the global data file with load-time validation
 - Per-machine agent fallback order loads from project config
 - A workflow runner executes a linear array of role-bound steps
+
+## Blocker
+
+- Unconfirmed prerequisite: committed v2 code/docs load the fallback agent order from machine config `~/.jarvis/v2.json` (`v2/src/config/machine-config-loader.ts`, `v2/docs/agent-model-config.md`, `v2/docs/write-behavior.md`), not from project config.

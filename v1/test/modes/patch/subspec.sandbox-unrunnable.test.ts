@@ -5,11 +5,15 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { commitSubspec, commitWipProgress, commitWipProgressWithBlocker } from "../../../src/modes/patch/subspec.ts";
+import { beginHangFixtureTracking, reapActiveHangFixtures, writeIdleHangScript } from "../../idle-hang-fixtures.ts";
+
+const HANG_FIXTURE_TRACKING_ID = import.meta.path;
 
 let tempDir: string;
 let gitDir: string;
 
 beforeEach(() => {
+  beginHangFixtureTracking(HANG_FIXTURE_TRACKING_ID);
   tempDir = mkdtempSync(join(tmpdir(), "subspec-test-"));
   gitDir = tempDir;
 
@@ -24,6 +28,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  reapActiveHangFixtures(HANG_FIXTURE_TRACKING_ID);
   rmSync(tempDir, { recursive: true, force: true });
 });
 
@@ -206,6 +211,27 @@ describe("commitSubspec", () => {
     configureFailingCommitSigning();
 
     expect(() => commitSubspec(specPath, { cwd: gitDir, agentLabel: "" })).toThrow(/git commit/);
+  });
+
+  test("stalled real git subprocess fails within 25s with fixture reaped", () => {
+    createIndexFile();
+    const specPath = createSpecFile("01-test-one.md", createAcceptanceSpec(true));
+    commitAll("initial");
+
+    const binDir = mkdtempSync(join(tmpdir(), "jarvis-subspec-git-stall-bin-"));
+    const originalPath = process.env.PATH;
+    try {
+      writeFileSync(specPath, createAcceptanceSpec(false));
+      writeIdleHangScript(join(binDir, "git"));
+      process.env.PATH = `${binDir}:${originalPath ?? ""}`;
+
+      const startTime = Date.now();
+      expect(() => commitSubspec(specPath, { cwd: gitDir, agentLabel: "" })).toThrow();
+      expect(Date.now() - startTime).toBeLessThan(25_000);
+    } finally {
+      process.env.PATH = originalPath;
+      rmSync(binDir, { recursive: true, force: true });
+    }
   });
 });
 

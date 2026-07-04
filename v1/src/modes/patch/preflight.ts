@@ -28,6 +28,7 @@ import {
 import { acquireWorktreeLock, readLiveWorktreeLock, releaseWorktreeLock } from "../../worktree-lock.ts";
 import { computeProjectSafeId } from "../plan/spec-paths.ts";
 import { countUnchecked, getActiveLinkedSubspecPath } from "./completion.ts";
+import { GIT_SUBPROCESS_OPTS } from "./git-subprocess.ts";
 import { applyReset, clearDelta, loadDelta } from "./no-commit-delta.ts";
 import type { PreflightOk, RunCommandOptions, RunIo } from "./run.ts";
 
@@ -425,6 +426,7 @@ function readRemoteHeadBranch(projectRoot: string): string | null {
       env: process.env,
       stdio: "pipe",
       encoding: "utf8",
+      ...GIT_SUBPROCESS_OPTS,
     });
     for (const line of output.split("\n")) {
       const match = /^ref:\s+refs\/heads\/([^\s]+)\s+HEAD$/.exec(line.trim());
@@ -445,6 +447,7 @@ function readRemoteHeadSha(projectRoot: string, ref: string): string | null {
       env: process.env,
       stdio: "pipe",
       encoding: "utf8",
+      ...GIT_SUBPROCESS_OPTS,
     });
     const firstLine = output
       .split("\n")
@@ -490,6 +493,7 @@ export function maybeWarnAboutUnmergedPlanBranch(args: {
     env: process.env,
     stdio: "pipe",
     encoding: "utf8",
+    ...GIT_SUBPROCESS_OPTS,
   });
   if (mergeCheck.status !== 1) {
     return;
@@ -598,6 +602,7 @@ function ensureWorktreeLocalExcludeEntry(worktreeDir: string, entry: string): vo
       cwd: worktreeDir,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
+      ...GIT_SUBPROCESS_OPTS,
     }).trim();
     if (!out) return;
     excludePath = out.startsWith("/") ? out : join(worktreeDir, out);

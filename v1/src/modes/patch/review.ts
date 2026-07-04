@@ -41,6 +41,7 @@ import {
   type ReviewTelemetryEvent,
   ReviewTerminalError,
 } from "../review/types.ts";
+import { GIT_SUBPROCESS_OPTS } from "./git-subprocess.ts";
 import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "./idle-watchdog.ts";
 import { type MaybeMarkReadyOpts, updatePrBody } from "./pr.ts";
 import { buildReviewPrompt, buildVerdictActuatorPrompt, type ReviewPromptOpts } from "./prompt.ts";
@@ -58,6 +59,7 @@ export function detectSpecTreeEdits(specDir: string, cwd: string): string[] {
       cwd,
       encoding: "utf8",
       stdio: "pipe",
+      ...GIT_SUBPROCESS_OPTS,
     });
 
     const specRelPath = relative(cwd, specDir);
@@ -89,6 +91,7 @@ export function revertSpecTreeEdits(specDir: string, cwd: string): void {
         execFileSync("git", ["checkout", "HEAD", "--", file], {
           cwd,
           stdio: "pipe",
+          ...GIT_SUBPROCESS_OPTS,
         });
       } catch {
         // Untracked file: nothing to restore from HEAD; clean handles it below.
@@ -96,6 +99,7 @@ export function revertSpecTreeEdits(specDir: string, cwd: string): void {
       execFileSync("git", ["clean", "-fd", "--", file], {
         cwd,
         stdio: "pipe",
+        ...GIT_SUBPROCESS_OPTS,
       });
     }
   } catch (err) {
@@ -110,6 +114,7 @@ function detectReviewerCodeEdits(specDir: string, cwd: string): string[] {
       cwd,
       encoding: "utf8",
       stdio: "pipe",
+      ...GIT_SUBPROCESS_OPTS,
     });
 
     const specRelPath = relative(cwd, specDir);
@@ -137,6 +142,7 @@ function revertReviewerCodeEdits(specDir: string, cwd: string): void {
         execFileSync("git", ["checkout", "HEAD", "--", file], {
           cwd,
           stdio: "pipe",
+          ...GIT_SUBPROCESS_OPTS,
         });
       } catch {
         // Untracked file: nothing to restore from HEAD; clean handles it below.
@@ -144,6 +150,7 @@ function revertReviewerCodeEdits(specDir: string, cwd: string): void {
       execFileSync("git", ["clean", "-fd", "--", file], {
         cwd,
         stdio: "pipe",
+        ...GIT_SUBPROCESS_OPTS,
       });
     }
   } catch (err) {
@@ -185,6 +192,7 @@ export function commitReviewPass(
     cwd,
     encoding: "utf8",
     stdio: "pipe",
+    ...GIT_SUBPROCESS_OPTS,
   }).trim();
 
   if (porcelain === "") {
@@ -193,7 +201,7 @@ export function commitReviewPass(
   }
 
   // Stage all changes
-  execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe" });
+  execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
 
   // Create commit message
   const commitMessage = appendAgentTrailer(`review: pass ${passNumber}`, agentLabel);
@@ -204,6 +212,7 @@ export function commitReviewPass(
     env: process.env,
     stdio: ["pipe", "pipe", "pipe"],
     input: commitMessage,
+    ...GIT_SUBPROCESS_OPTS,
   });
 
   // Push
@@ -687,13 +696,14 @@ function createPatchReviewAdapter(args: {
             : `review: pass ${ctx.passNumber}`;
 
         // Stage all changes
-        execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe" });
+        execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
 
         // Check for changes (excluding temp artifact files)
         const porcelain = execFileSync("git", ["status", "--porcelain"], {
           cwd: opts.cwd,
           encoding: "utf8",
           stdio: "pipe",
+          ...GIT_SUBPROCESS_OPTS,
         }).trim();
 
         const hasRealChanges = porcelain
@@ -709,6 +719,7 @@ function createPatchReviewAdapter(args: {
             execFileSync("git", ["reset", "HEAD", "--", artifactPath], {
               cwd: opts.cwd,
               stdio: "pipe",
+              ...GIT_SUBPROCESS_OPTS,
             });
             rmSync(artifactPath, { force: true });
           } catch {
@@ -730,6 +741,7 @@ function createPatchReviewAdapter(args: {
           env: process.env,
           stdio: ["pipe", "pipe", "pipe"],
           input: commitMessage,
+          ...GIT_SUBPROCESS_OPTS,
         });
 
         // Push
@@ -1020,17 +1032,19 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
             cwd: opts.cwd,
             encoding: "utf8",
             stdio: "pipe",
+            ...GIT_SUBPROCESS_OPTS,
           }).trim();
 
           if (porcelain !== "") {
             try {
-              execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe" });
+              execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
               const commitMessage = appendAgentTrailer("review: actuator", resolvedAgent.name);
               execFileSync("git", ["commit", "-F", "-"], {
                 cwd: opts.cwd,
                 env: process.env,
                 stdio: ["pipe", "pipe", "pipe"],
                 input: commitMessage,
+                ...GIT_SUBPROCESS_OPTS,
               });
 
               // Reconcile with remote before push

@@ -20,6 +20,7 @@ import {
 } from "../../ready-gate.ts";
 import { hasUpstream, pushCurrent, worktreeCompletionBlocker } from "../../worktree.ts";
 import { countUnchecked, findBlockerInLinkedSubspecs } from "./completion.ts";
+import { GIT_SUBPROCESS_OPTS } from "./git-subprocess.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
 import { runPatchReviewPhase } from "./review.ts";
 import type { CompletionReadyGateResult, IterationContext } from "./run.ts";
@@ -96,6 +97,7 @@ function getCurrentBranch(cwd: string): string {
     cwd,
     encoding: "utf8",
     stdio: "pipe",
+    ...GIT_SUBPROCESS_OPTS,
   }).trim();
 }
 
@@ -122,6 +124,7 @@ function readDiffStats(cwd: string, base: string): DiffStat[] {
       cwd,
       encoding: "utf8",
       stdio: "pipe",
+      ...GIT_SUBPROCESS_OPTS,
     });
     const diffs: DiffStat[] = [];
     for (const line of output.trim().split("\n")) {
@@ -204,6 +207,7 @@ function discardFixupCommits(cwd: string, baselineSha: string, fanout: FanoutFn,
     execFileSync("git", ["reset", "--hard", baselineSha], {
       cwd,
       stdio: "pipe",
+      ...GIT_SUBPROCESS_OPTS,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -217,6 +221,7 @@ function discardFixupCommits(cwd: string, baselineSha: string, fanout: FanoutFn,
         cwd,
         encoding: "utf8",
         stdio: "pipe",
+        ...GIT_SUBPROCESS_OPTS,
       }).trim();
       // Only push if HEAD differs from baseline (commits beyond baseline exist)
       if (headSha !== baselineSha) {
@@ -224,6 +229,7 @@ function discardFixupCommits(cwd: string, baselineSha: string, fanout: FanoutFn,
           cwd,
           env: process.env,
           stdio: "pipe",
+          ...GIT_SUBPROCESS_OPTS,
         });
       }
     } catch (err) {
@@ -239,19 +245,21 @@ function discardFixupCommits(cwd: string, baselineSha: string, fanout: FanoutFn,
  * Returns false if the worktree is still dirty after the commit (unexpected state).
  */
 function commitAndPushCompleteDirtyWorktree(cwd: string): boolean {
-  execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe" });
+  execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
   const commitMessage = appendAgentTrailer("chore: complete-but-dirty commit", "completion-ready");
   execFileSync("git", ["commit", "-F", "-"], {
     cwd,
     env: process.env,
     stdio: ["pipe", "pipe", "pipe"],
     input: commitMessage,
+    ...GIT_SUBPROCESS_OPTS,
   });
 
   const porcelain = execFileSync("git", ["status", "--porcelain"], {
     cwd,
     encoding: "utf8",
     stdio: "pipe",
+    ...GIT_SUBPROCESS_OPTS,
   }).trim();
 
   if (porcelain !== "") {
@@ -406,6 +414,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
             cwd: preflight.agentWorkingDir,
             encoding: "utf8",
             stdio: "pipe",
+            ...GIT_SUBPROCESS_OPTS,
           }).trim();
         } catch {
           // No HEAD sha available: skip capturing baseline; no discard on stuck-red
@@ -520,6 +529,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
           cwd: preflight.agentWorkingDir,
           encoding: "utf8",
           stdio: "pipe",
+          ...GIT_SUBPROCESS_OPTS,
         }).trim();
         ctx.state.completionTransitionReadyResult = { headSha };
       } catch {
@@ -689,6 +699,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
 export type { CompletionLoopbackSignal };
 export {
   diffAcceptanceCriteria,
+  discardFixupCommits,
   generatePrBody,
   getCurrentBranch,
   getIndexTitle,

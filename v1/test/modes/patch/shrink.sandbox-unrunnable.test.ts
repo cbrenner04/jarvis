@@ -667,7 +667,7 @@ describe("runPatchShrinkPhase", () => {
           baseBranch: "main",
         }),
       ).rejects.toThrow();
-      expect(Date.now() - startTime).toBeLessThan(15_000);
+      expect(Date.now() - startTime).toBeLessThan(25_000);
       expect(agent.calls).toHaveLength(0);
     } finally {
       process.env.PATH = originalPath;
@@ -676,7 +676,7 @@ describe("runPatchShrinkPhase", () => {
     }
   });
 
-  test("stalled getCurrentBranch git subprocess fails within 15s", async () => {
+  test("stalled getCurrentBranch git subprocess fails within 25s", async () => {
     const { dir, specPath, cleanup } = setupShrinkRepo();
     const binDir = mkdtempSync(join(tmpdir(), "jarvis-shrink-branch-stall-bin-"));
     const originalPath = process.env.PATH;
@@ -701,7 +701,7 @@ describe("runPatchShrinkPhase", () => {
           baseBranch: "main",
         }),
       ).rejects.toThrow();
-      expect(Date.now() - startTime).toBeLessThan(15_000);
+      expect(Date.now() - startTime).toBeLessThan(25_000);
       expect(agent.calls).toHaveLength(0);
     } finally {
       process.env.PATH = originalPath;
@@ -710,7 +710,7 @@ describe("runPatchShrinkPhase", () => {
     }
   });
 
-  test("stalled git push in commitShrinkPass fails within 15s and reverts", async () => {
+  test("stalled git push in commitShrinkPass fails within 25s and reverts", async () => {
     const { dir, specPath, cleanup } = setupShrinkRepo();
     const binDir = mkdtempSync(join(tmpdir(), "jarvis-shrink-push-stall-bin-"));
     const originalPath = process.env.PATH;
@@ -741,7 +741,7 @@ describe("runPatchShrinkPhase", () => {
         iterationTimeoutMs: 30_000,
         baseBranch: "main",
       });
-      expect(Date.now() - startTime).toBeLessThan(15_000);
+      expect(Date.now() - startTime).toBeLessThan(25_000);
       expect(harness.some((line) => line.includes("commit failed"))).toBe(true);
       const headAfter = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim();
       expect(headAfter).toBe(headBefore);

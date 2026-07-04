@@ -9,75 +9,32 @@ import type { LogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "./write-loop.ts";
 
-/** Classification of a workflow outcome — mirrors the write loop's outcome kinds. */
-export type WorkflowOutcomeKind = WriteLoopOutcomeKind;
-
-const WORKFLOW_PRESETS = {
-  "write-write": ["write", "write"],
+const WORKFLOW_PRESET_LENGTHS = {
+  "write-write": 2,
 } as const;
 
-type WorkflowBehavior = (typeof WORKFLOW_PRESETS)[keyof typeof WORKFLOW_PRESETS][number];
+export type WorkflowPresetName = keyof typeof WORKFLOW_PRESET_LENGTHS;
 
-/**
- * A single step in a workflow.
- *
- * Contract: carries the per-step write-loop inputs (minus the pre-resolved
- * `bindings`, which the runner derives from `role`/`agents`/`agentModelConfig`)
- * plus workflow-local identity.
- * Invariants: `stepId` must be unique within the workflow; `role` is validated
- * at execution against the executable role subset.
- */
+/** Per-step write-loop input plus workflow identity; bindings are derived at execution. */
 export type WorkflowStep = Omit<WriteLoopInput, "bindings"> & {
-  /** Unique identifier for this step within the workflow. */
   stepId: string;
-  /** Workflow-step role validated at execution against the executable role subset. */
   role: string;
-  /** Ordered outer agent fallback list for this step. */
   agents: readonly string[];
-  /** Loaded role-to-rung data for the agents in this step. */
   agentModelConfig: AgentModelConfig;
-  /** Test seam for binding construction from one resolved `(agent, model)` rung. */
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
 };
 
-/**
- * Authoring input for one workflow step before behavior-specific fields are normalized.
- *
- * Contract: same shape as `WorkflowStep`, plus a behavior discriminator used by
- * helper/preset authoring. Today only `"write"` is valid.
- * Invariants: workflow-scoped infrastructure remains excluded here because the
- * runner injects it once per workflow invocation.
- */
-export type WorkflowStepDefinition = WorkflowStep & {
-  /** Behavior primitive this step runs. */
-  behavior: WorkflowBehavior;
+/** Authoring input for `defineWorkflowStep`; `behavior` is metadata until the runner dispatches on it. */
+export type WorkflowStepInput = WorkflowStep & {
+  behavior: "write";
 };
-
-/**
- * Named workflow presets available to callers.
- *
- * Contract: each preset fixes only step count and behavior sequence.
- */
-export type WorkflowPresetName = keyof typeof WORKFLOW_PRESETS;
-
-/**
- * Per-position caller input for a preset-resolved step.
- *
- * Contract: callers supply the same per-step fields as `WorkflowStep` and omit
- * `behavior`; the preset provides behavior per position.
- */
-export type WorkflowPresetStepInput = WorkflowStep;
 
 /** Result of a workflow invocation. */
 export type WorkflowResult = {
-  kind: WorkflowOutcomeKind;
-  /** The index of the step that produced this outcome. */
+  kind: WriteLoopOutcomeKind;
   stepIndex: number;
-  /** The step ID of the step that produced this outcome. */
   stepId: string;
-  /** Run ID of the step that produced this outcome. */
   runId: string;
-  /** Total iterations consumed across all steps. */
   iterationsConsumed: number;
   resumable: boolean;
 };
@@ -89,43 +46,26 @@ export type WorkflowRunnerInput = {
   logSink?: LogSink;
 };
 
-/**
- * Normalize one authored workflow step into the runtime `WorkflowStep` shape.
- *
- * Params: `args` must include `stepId`, `role`, `behavior`, and the per-step
- * write-loop inputs.
- * Returns: a `WorkflowStep` with the same step-local write-loop fields.
- * Throws: never.
- * Invariants: `behavior` is authoring metadata only today and is not persisted
- * on the returned step because the runner executes only write behavior.
- */
-export function defineWorkflowStep(args: WorkflowStepDefinition): WorkflowStep {
-  const { behavior: _behavior, ...step } = args;
+/** Strip authoring-only `behavior` and return the runtime `WorkflowStep` shape. */
+export function defineWorkflowStep({ behavior: _behavior, ...step }: WorkflowStepInput): WorkflowStep {
   return step;
 }
 
-/**
- * Resolve a named preset into concrete workflow steps.
- *
- * Params: `name` selects the preset; `steps` supplies one authored step payload
- * per preset position, excluding `behavior`.
- * Returns: a `WorkflowStep[]` in preset order.
- * Throws: if `name` is unknown or `steps.length` does not match the preset's
- * fixed step count.
- * Invariants: preset resolution delegates step construction to
- * `defineWorkflowStep` once per position.
- */
-export function resolveWorkflowPreset(name: WorkflowPresetName, steps: WorkflowPresetStepInput[]): WorkflowStep[] {
-  const preset = WORKFLOW_PRESETS[name];
-  if (preset === undefined) {
+/** Validate preset step count and return the supplied steps unchanged. */
+export function resolveWorkflowPreset(
+  name: WorkflowPresetName,
+  steps: Omit<WorkflowStepInput, "behavior">[],
+): WorkflowStep[] {
+  const expected = WORKFLOW_PRESET_LENGTHS[name];
+  if (expected === undefined) {
     throw new Error(`Unknown workflow preset: "${name}"`);
   }
 
-  if (steps.length !== preset.length) {
-    throw new Error(`Workflow preset "${name}" requires ${preset.length} steps, received ${steps.length}`);
+  if (steps.length !== expected) {
+    throw new Error(`Workflow preset "${name}" requires ${expected} steps, received ${steps.length}`);
   }
 
-  return preset.map((behavior, index) => defineWorkflowStep({ ...steps[index]!, behavior }));
+  return steps.map((step) => defineWorkflowStep({ ...step, behavior: "write" }));
 }
 
 type PreparedWorkflowStep =
@@ -140,21 +80,16 @@ type PreparedWorkflowStep =
 
 /**
  * Execute a multi-step workflow: run each step's write loop to completion
- * before advancing to the next step. A non-complete outcome stops the
- * workflow at that step without running any later steps.
+ * before advancing. A non-complete outcome stops at that step.
  *
- * Every step's role is validated against every one of its configured agents
- * before any durable workflow state changes — including on resume, against
- * whatever config is loaded at that time — so a role that stopped resolving
- * for a configured agent fails the whole workflow load rather than surfacing
- * only when its step is reached.
+ * Role bindings are validated for every step before any durable state change,
+ * including on resume against the config loaded at that time.
  */
 export async function executeWorkflow(args: WorkflowRunnerInput): Promise<WorkflowResult> {
   if (args.steps.length === 0) {
     throw new Error("Workflow requires at least one step");
   }
 
-  // Validate unique stepIds
   const stepIds = new Set<string>();
   for (const step of args.steps) {
     if (stepIds.has(step.stepId)) {
@@ -193,7 +128,6 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       lastResult = result;
       lastStepId = step.stepId;
 
-      // If this step didn't complete, stop the workflow
       if (result.kind !== "complete") {
         return {
           kind: result.kind,
@@ -204,11 +138,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           resumable: result.resumable,
         };
       }
-
-      // Step completed successfully, continue to next step
     }
 
-    // All steps completed
     if (!lastResult) throw new Error("Unreachable: lastResult undefined after checked bounds");
 
     return {
@@ -226,17 +157,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
   }
 }
 
-/**
- * Validate every step's role against every one of that step's configured
- * agents before any durable workflow state change.
- *
- * Aggregates all `(stepId, role, agent)` misses across the whole array into
- * one error rather than failing on the first invalid step, since the source
- * and config are both hand-edited. Runs unconditionally, including for
- * already-completed steps on resume, so a role that stopped resolving under
- * the current config fails the load even though that step would otherwise be
- * skipped.
- */
+/** Fail before durable state changes if any step role is missing from its agent config. */
 function validateWorkflowStepRoles(steps: readonly WorkflowStep[]): void {
   const missingBindings: string[] = [];
 

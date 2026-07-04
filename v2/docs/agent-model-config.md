@@ -302,7 +302,7 @@ For an `actuator` step: `claude/haiku → codex/gpt-5.4` — only each agent's
 
 Load-bearing choices are in the sections above. Pins for first consumer:
 
-- **On-disk data filename** — when Phase 5 implements load.
+- **On-disk data filename** — `data/agent-model-config.json` (repo-root `data/`, beside `prices.json`). Loader at [`v2/src/config/agent-model-config.ts`](../../v2/src/config/agent-model-config.ts). Load validation is aggregate (not fail-fast): all hard-error violations are collected and reported together in one load result.
 - **`Model` / `priceKey` validation** — adapter catalog + `prices.json` key existence.
 - **Tier→initial rung index** — when a workflow consumer maps runnable `tier:` metadata.
 - **Capability-floor filtering** — when Phase 5 wires v1 `actuationCapabilityFloor` parity.

@@ -20,17 +20,17 @@ stall-regression coverage here, the same gap `shrink.ts` had before its fix.
 
 ## Task checklist
 
-- [ ] Apply the shared helper's timeout+kill options to every `execFileSync("git", ...)` call in `pr.ts`.
-- [ ] Apply the shared helper's timeout+kill options to every `execFileSync("git", ...)` call in `completion-pipeline.ts`.
-- [ ] Add a stalled-`git push --force-with-lease` regression test in the suite that can reach the call site (adding hang-fixture tracking there first if missing), or fall back per the decisions above if no suite reaches it.
-- [ ] Update the durable docs listed below, including the `gh`-calls-unbounded residual note and, if applicable, the bound-only fallback rationale.
+- [x] Apply the shared helper's timeout+kill options to every `execFileSync("git", ...)` call in `pr.ts`.
+- [x] Apply the shared helper's timeout+kill options to every `execFileSync("git", ...)` call in `completion-pipeline.ts`.
+- [x] Add a stalled-`git push --force-with-lease` regression test in the suite that can reach the call site (adding hang-fixture tracking there first if missing), or fall back per the decisions above if no suite reaches it.
+- [x] Update the durable docs listed below, including the `gh`-calls-unbounded residual note and, if applicable, the bound-only fallback rationale.
 
 ## Acceptance criteria
 
-- [ ] Every real `git` subprocess `pr.ts` and `completion-pipeline.ts` spawn is bounded by the shared timeout+`SIGKILL` helper, so a wedged `git` call cannot hang either path past that bound.
-- [ ] A stalled `git push --force-with-lease` fails the invocation under test within the bound instead of hanging, and any hang-fixture child it started is reaped — either via a new stall test in the suite that reaches the call site, or via the documented bound-only fallback if no suite reaches it.
-- [ ] `pr.test.ts`, `pr.sandbox-unrunnable.test.ts`, and existing `run.sandbox-unrunnable.test.ts` cases stay green after the bound is applied (behavior unchanged for non-stalled calls).
-- [ ] `v2/docs/v1-behaviors.md` records that `pr.ts` and `completion-pipeline.ts` git subprocesses are bounded, and that `gh` subprocess calls in these files remain unbounded (residual, out of this audit's scope).
+- [x] Every real `git` subprocess `pr.ts` and `completion-pipeline.ts` spawn is bounded by the shared timeout+`SIGKILL` helper, so a wedged `git` call cannot hang either path past that bound.
+- [x] A stalled `git push --force-with-lease` fails the invocation under test within the bound instead of hanging, and any hang-fixture child it started is reaped — either via a new stall test in the suite that reaches the call site, or via the documented bound-only fallback if no suite reaches it.
+- [x] `pr.test.ts`, `pr.sandbox-unrunnable.test.ts`, and existing `run.sandbox-unrunnable.test.ts` cases stay green after the bound is applied (behavior unchanged for non-stalled calls).
+- [x] `v2/docs/v1-behaviors.md` records that `pr.ts` and `completion-pipeline.ts` git subprocesses are bounded, and that `gh` subprocess calls in these files remain unbounded (residual, out of this audit's scope).
 
 ## Documentation updates
 

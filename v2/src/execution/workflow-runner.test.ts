@@ -9,7 +9,7 @@ import {
   executeWorkflow,
   resolveWorkflowPreset,
   type WorkflowStep,
-  type WorkflowStepDefinition,
+  type WorkflowStepInput,
 } from "./workflow-runner.ts";
 
 const { roots } = trackedTempRoots();
@@ -91,13 +91,13 @@ function createStep(
   };
 }
 
-function createStepDefinition(
-  overrides: Partial<Omit<WorkflowStepDefinition, "worktree" | "behavior">> & {
+function createStepInput(
+  overrides: Partial<Omit<WorkflowStepInput, "worktree" | "behavior">> & {
     stepId: string;
     role: string;
     branchName?: string;
   },
-): WorkflowStepDefinition {
+): WorkflowStepInput {
   return { ...createStep(overrides), behavior: "write" };
 }
 
@@ -107,7 +107,7 @@ describe("defineWorkflowStep", () => {
     const pauseSignal = new AbortController().signal;
 
     const step = defineWorkflowStep(
-      createStepDefinition({
+      createStepInput({
         stepId: "step-1",
         role: "implement",
         maxIterations: 3,

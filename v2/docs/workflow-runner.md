@@ -38,15 +38,14 @@ normalizes those once at workflow scope. The helper returns the
 `WorkflowStep` consumed by `executeWorkflow` and passes those loop-control fields
 through unchanged.
 
-`resolveWorkflowPreset(name, steps)` resolves a named preset to a concrete
-`WorkflowStep[]` by composing `defineWorkflowStep` once per step position. A
-preset fixes only step count and behavior sequence. Callers still supply `stepId`,
-`role`, and the rest of the per-step write-loop content for each position, but
-omit `behavior` because the preset supplies it.
+`resolveWorkflowPreset(name, steps)` validates a named preset's fixed step count
+and returns a `WorkflowStep[]`. Callers supply `stepId`, `role`, and the rest of
+the per-step write-loop content for each position, omitting `behavior` (the
+preset supplies `"write"` per position until the runner dispatches on behavior).
 
 Current preset surface:
 
-- `write-write`: two steps, `write` then `write`
+- `write-write`: two steps
 
 Validation stays synchronous:
 

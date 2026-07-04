@@ -1,0 +1,7 @@
+1. Move the spec to `v1/spec/...` rather than `v2/spec/...`. This is v1 shipping-surface work with required `v1/docs` updates; repo routing guidance says mixed v1/v2 behavior work lives under the v1 spec tree, with `v2/docs/v1-behaviors.md` updated only as the behavior ledger.
+
+2. Define the bounded-failure ceiling as an observable contract, not just “fail quickly” or “bounded.” The spec needs a concrete timeout/cleanup window, or an explicit anchor to an existing bound, so reviewers can distinguish compliant behavior from materially slower alternatives that still claim to be “bounded.” This is load-bearing because the intent is to stop CI from waiting indefinitely.
+
+3. Clarify cleanup scope across failure modes. The spec needs to require cleanup for the shrink-owned spawned process set on both timeout and non-timeout failure paths, and make clear whether the timed-out real-`git` child is included in that owned set. Without this, the decisions section and acceptance criteria permit different observable cleanup behaviors.
+
+4. Make the protected subprocess scope observable. The spec needs to identify which shrink-owned real-`git` operations are in scope for bounding, or at least define the covered helper/path boundary tightly enough that two implementers would not choose different subsets. The current “characterize the stall path” wording is directionally right, but the acceptance contract still leaves too much discretion for what remains unbounded.

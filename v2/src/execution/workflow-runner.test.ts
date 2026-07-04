@@ -6,14 +6,17 @@ import { executeWorkflow, type WorkflowStep } from "./workflow-runner.ts";
 
 const { roots } = trackedTempRoots();
 
-function createStep(overrides: Partial<WorkflowStep> & { stepId: string; role: string }): WorkflowStep {
+function createStep(
+  overrides: Partial<Omit<WorkflowStep, "worktree">> & { stepId: string; role: string; branchName?: string },
+): WorkflowStep {
   const home = createJarvisHome();
   roots.push(home.jarvisRoot);
+  const { branchName, ...rest } = overrides;
   return {
     worktree: {
       projectRoot: "/fake",
       projectName: "demo",
-      branchName: "workflow-run",
+      branchName: branchName ?? "workflow-run",
       baseRef: "HEAD",
       jarvisRoot: home.jarvisRoot,
     },
@@ -22,7 +25,7 @@ function createStep(overrides: Partial<WorkflowStep> & { stepId: string; role: s
     expectedArtifactPath: "proof.txt",
     bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
     withExternalWorktree: createFakeWithExternalWorktree(home.jarvisRoot),
-    ...overrides,
+    ...rest,
   };
 }
 
@@ -70,29 +73,8 @@ describe("executeWorkflow", () => {
 
   test("runs two-step workflow to completion", async () => {
     const store = openStateStore(":memory:");
-    const step1 = createStep({
-      stepId: "step-1",
-      role: "write",
-      worktree: {
-        projectRoot: "/fake",
-        projectName: "demo",
-        branchName: "two-step",
-        baseRef: "HEAD",
-        jarvisRoot: createJarvisHome().jarvisRoot,
-      },
-    });
-
-    const step2 = createStep({
-      stepId: "step-2",
-      role: "write",
-      worktree: {
-        projectRoot: "/fake",
-        projectName: "demo",
-        branchName: "two-step",
-        baseRef: "HEAD",
-        jarvisRoot: createJarvisHome().jarvisRoot,
-      },
-    });
+    const step1 = createStep({ stepId: "step-1", role: "write", branchName: "two-step" });
+    const step2 = createStep({ stepId: "step-2", role: "write", branchName: "two-step" });
 
     try {
       const result = await executeWorkflow({
@@ -128,28 +110,11 @@ describe("executeWorkflow", () => {
 
   test("stops workflow when step ends blocked", async () => {
     const store = openStateStore(":memory:");
-    const step1 = createStep({
-      stepId: "step-1",
-      role: "write",
-      worktree: {
-        projectRoot: "/fake",
-        projectName: "demo",
-        branchName: "blocked-run",
-        baseRef: "HEAD",
-        jarvisRoot: createJarvisHome().jarvisRoot,
-      },
-    });
-
+    const step1 = createStep({ stepId: "step-1", role: "write", branchName: "blocked-run" });
     const step2 = createStep({
       stepId: "step-2",
       role: "write",
-      worktree: {
-        projectRoot: "/fake",
-        projectName: "demo",
-        branchName: "blocked-run",
-        baseRef: "HEAD",
-        jarvisRoot: createJarvisHome().jarvisRoot,
-      },
+      branchName: "blocked-run",
       bindings: simulatedBindings(["blocked"], { artifactPath: "proof.txt", emitArtifact: false }),
     });
 
@@ -185,28 +150,11 @@ describe("executeWorkflow", () => {
 
   test("stops workflow on invocation_failure", async () => {
     const store = openStateStore(":memory:");
-    const step1 = createStep({
-      stepId: "step-1",
-      role: "write",
-      worktree: {
-        projectRoot: "/fake",
-        projectName: "demo",
-        branchName: "failure-run",
-        baseRef: "HEAD",
-        jarvisRoot: createJarvisHome().jarvisRoot,
-      },
-    });
-
+    const step1 = createStep({ stepId: "step-1", role: "write", branchName: "failure-run" });
     const step2 = createStep({
       stepId: "step-2",
       role: "write",
-      worktree: {
-        projectRoot: "/fake",
-        projectName: "demo",
-        branchName: "failure-run",
-        baseRef: "HEAD",
-        jarvisRoot: createJarvisHome().jarvisRoot,
-      },
+      branchName: "failure-run",
       bindings: simulatedBindings(["error"], { artifactPath: "proof.txt", emitArtifact: false }),
     });
 
@@ -226,29 +174,11 @@ describe("executeWorkflow", () => {
 
   test("stops workflow on soft-stop (budget-exhausted)", async () => {
     const store = openStateStore(":memory:");
-    const step1 = createStep({
-      stepId: "step-1",
-      role: "write",
-      worktree: {
-        projectRoot: "/fake",
-        projectName: "demo",
-        branchName: "budget-run",
-        baseRef: "HEAD",
-        jarvisRoot: createJarvisHome().jarvisRoot,
-      },
-      maxIterations: 1,
-    });
-
+    const step1 = createStep({ stepId: "step-1", role: "write", branchName: "budget-run", maxIterations: 1 });
     const step2 = createStep({
       stepId: "step-2",
       role: "write",
-      worktree: {
-        projectRoot: "/fake",
-        projectName: "demo",
-        branchName: "budget-run",
-        baseRef: "HEAD",
-        jarvisRoot: createJarvisHome().jarvisRoot,
-      },
+      branchName: "budget-run",
       bindings: simulatedBindings(["progress"], { artifactPath: "proof.txt", emitArtifact: false }),
       maxIterations: 1,
     });
@@ -271,28 +201,11 @@ describe("executeWorkflow", () => {
     const stateDbPath = ":memory:";
 
     // First invocation: complete step 1, progress on step 2
-    const step1First = createStep({
-      stepId: "step-1",
-      role: "write",
-      worktree: {
-        projectRoot: "/fake",
-        projectName: "demo",
-        branchName: "resume-test",
-        baseRef: "HEAD",
-        jarvisRoot: createJarvisHome().jarvisRoot,
-      },
-    });
-
+    const step1First = createStep({ stepId: "step-1", role: "write", branchName: "resume-test" });
     const step2First = createStep({
       stepId: "step-2",
       role: "write",
-      worktree: {
-        projectRoot: "/fake",
-        projectName: "demo",
-        branchName: "resume-test",
-        baseRef: "HEAD",
-        jarvisRoot: createJarvisHome().jarvisRoot,
-      },
+      branchName: "resume-test",
       bindings: simulatedBindings(["progress"], { artifactPath: "proof.txt", emitArtifact: false }),
       maxIterations: 1,
     });
@@ -313,29 +226,8 @@ describe("executeWorkflow", () => {
       // Second invocation: resume should skip step 1 and resume step 2
       store = openStateStore(stateDbPath);
 
-      const step1Second = createStep({
-        stepId: "step-1",
-        role: "write",
-        worktree: {
-          projectRoot: "/fake",
-          projectName: "demo",
-          branchName: "resume-test",
-          baseRef: "HEAD",
-          jarvisRoot: createJarvisHome().jarvisRoot,
-        },
-      });
-
-      const step2Second = createStep({
-        stepId: "step-2",
-        role: "write",
-        worktree: {
-          projectRoot: "/fake",
-          projectName: "demo",
-          branchName: "resume-test",
-          baseRef: "HEAD",
-          jarvisRoot: createJarvisHome().jarvisRoot,
-        },
-      });
+      const step1Second = createStep({ stepId: "step-1", role: "write", branchName: "resume-test" });
+      const step2Second = createStep({ stepId: "step-2", role: "write", branchName: "resume-test" });
 
       const result2 = await executeWorkflow({
         steps: [step1Second, step2Second],
@@ -360,29 +252,8 @@ describe("executeWorkflow", () => {
   test("tracks per-step attempt history independently", async () => {
     const store = openStateStore(":memory:");
 
-    const step1 = createStep({
-      stepId: "step-1",
-      role: "write",
-      worktree: {
-        projectRoot: "/fake",
-        projectName: "demo",
-        branchName: "history-test",
-        baseRef: "HEAD",
-        jarvisRoot: createJarvisHome().jarvisRoot,
-      },
-    });
-
-    const step2 = createStep({
-      stepId: "step-2",
-      role: "write",
-      worktree: {
-        projectRoot: "/fake",
-        projectName: "demo",
-        branchName: "history-test",
-        baseRef: "HEAD",
-        jarvisRoot: createJarvisHome().jarvisRoot,
-      },
-    });
+    const step1 = createStep({ stepId: "step-1", role: "write", branchName: "history-test" });
+    const step2 = createStep({ stepId: "step-2", role: "write", branchName: "history-test" });
 
     try {
       await executeWorkflow({

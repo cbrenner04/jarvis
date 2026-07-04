@@ -1,25 +1,9 @@
 import type { LogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
+import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "./write-loop.ts";
 
-/** Classification of a workflow outcome. */
-export const WORKFLOW_OUTCOME_KINDS = [
-  "complete",
-  "progress",
-  "blocked",
-  "contract_miss",
-  "invocation_failure",
-  "budget-exhausted",
-  "paused",
-] as const;
-
-export type WorkflowOutcomeKind = (typeof WORKFLOW_OUTCOME_KINDS)[number];
-
-const workflowOutcomeKindSet = new Set<string>(WORKFLOW_OUTCOME_KINDS);
-
-export function isWorkflowOutcomeKind(value: unknown): value is WorkflowOutcomeKind {
-  return typeof value === "string" && workflowOutcomeKindSet.has(value);
-}
+/** Classification of a workflow outcome — mirrors the write loop's outcome kinds. */
+export type WorkflowOutcomeKind = WriteLoopOutcomeKind;
 
 /** A single step in a workflow. */
 export type WorkflowStep = WriteLoopInput & {

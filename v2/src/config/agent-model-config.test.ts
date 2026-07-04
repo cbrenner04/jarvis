@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { loadAgentModelConfig, type LoadError } from "./agent-model-config.ts";
+import { join } from "node:path";
+import { type LoadError, loadAgentModelConfig } from "./agent-model-config.ts";
 
 function createTempFile(content: string): string {
   const dir = mkdtempSync(join(tmpdir(), "agent-config-test-"));
@@ -13,10 +13,7 @@ function createTempFile(content: string): string {
 
 function isError(result: unknown): result is LoadError {
   return (
-    typeof result === "object" &&
-    result !== null &&
-    "errors" in result &&
-    Array.isArray((result as LoadError).errors)
+    typeof result === "object" && result !== null && "errors" in result && Array.isArray((result as LoadError).errors)
   );
 }
 
@@ -113,7 +110,9 @@ describe("loadAgentModelConfig", () => {
     expect(isError(result)).toBe(true);
     if (isError(result)) {
       expect(
-        result.errors.some((e) => e.includes("claude") && e.includes("plan") && e.includes("0") && e.includes("adapterModel")),
+        result.errors.some(
+          (e) => e.includes("claude") && e.includes("plan") && e.includes("0") && e.includes("adapterModel"),
+        ),
       ).toBe(true);
     }
   });
@@ -131,7 +130,9 @@ describe("loadAgentModelConfig", () => {
     expect(isError(result)).toBe(true);
     if (isError(result)) {
       expect(
-        result.errors.some((e) => e.includes("claude") && e.includes("plan") && e.includes("0") && e.includes("priceKey")),
+        result.errors.some(
+          (e) => e.includes("claude") && e.includes("plan") && e.includes("0") && e.includes("priceKey"),
+        ),
       ).toBe(true);
     }
   });
@@ -190,7 +191,7 @@ describe("loadAgentModelConfig", () => {
 
     expect(isError(result)).toBe(false);
     if (!isError(result)) {
-      const claudeConfig = result["claude"];
+      const claudeConfig = result.claude;
       expect(claudeConfig).toBeDefined();
       if (claudeConfig !== undefined) {
         expect(claudeConfig.operator).toBeUndefined();
@@ -215,7 +216,7 @@ describe("loadAgentModelConfig", () => {
 
     expect(isError(result)).toBe(false);
     if (!isError(result)) {
-      expect(result["extraAgent"]).toBeUndefined();
+      expect(result.extraAgent).toBeUndefined();
     }
   });
 
@@ -323,7 +324,7 @@ describe("loadAgentModelConfig", () => {
 
     expect(isError(result)).toBe(false);
     if (!isError(result)) {
-      const claudeConfig = result["claude"];
+      const claudeConfig = result.claude;
       expect(claudeConfig?.operator).toBeDefined();
       expect(claudeConfig?.operator?.rungs.length).toBe(1);
     }
@@ -335,7 +336,7 @@ describe("loadAgentModelConfig", () => {
 
     expect(isError(result)).toBe(false);
     if (!isError(result)) {
-      const claudeConfig = result["claude"];
+      const claudeConfig = result.claude;
       expect(claudeConfig).toBeDefined();
       expect(claudeConfig?.plan).toBeDefined();
       expect(claudeConfig?.plan?.rungs.length).toBe(1);
@@ -359,8 +360,8 @@ describe("loadAgentModelConfig", () => {
 
     expect(isError(result)).toBe(false);
     if (!isError(result)) {
-      expect(result["claude"]).toBeDefined();
-      expect(result["codex"]).toBeDefined();
+      expect(result.claude).toBeDefined();
+      expect(result.codex).toBeDefined();
     }
   });
 
@@ -386,7 +387,7 @@ describe("loadAgentModelConfig", () => {
 
     expect(isError(result)).toBe(false);
     if (!isError(result)) {
-      expect(result["claude"]?.plan?.rungs.length).toBe(3);
+      expect(result.claude?.plan?.rungs.length).toBe(3);
     }
   });
 

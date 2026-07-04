@@ -1,0 +1,13 @@
+## Verdict: Required Refinements
+
+1. **Correct the base-type reference and pin loop-control-field handling.** The opening paragraph's characterization of the step input type is inaccurate and must be fixed. Resolve alongside it: does `defineWorkflowStep`'s input include per-step loop-control fields (e.g. `maxIterations`, `pauseSignal`, `signal`) that `workflow-runner.md` documents as configurable? If the helper silently drops them, that's a functional regression, not a naming detail. Add one decision line stating the input shape is a superset that passes these fields through untouched.
+
+2. **Pin the composition between the two functions.** The spec names both `defineWorkflowStep` and `resolveWorkflowPreset(name, steps)` in the Task Checklist but never states whether the resolver calls the helper internally or duplicates its logic, nor what shape the `steps` parameter takes — specifically whether callers supply a redundant `behavior` field per step or omit it (since it's implied by the preset). This is required for the acceptance criteria to be testable, not optional detail. Add a decision line pinning both: resolver composes via the helper, and `steps` param excludes `behavior`.
+
+3. **Add wrong-length input as a validation case.** The spec already treats unknown-preset-name as a synchronous-throw case; supplying a `steps` array whose length doesn't match the preset's fixed step count is the same validation family and equally likely in practice. Add a task item and acceptance criterion for it alongside the existing unknown-name case.
+
+4. **Make the "descriptive error" criterion test-observable.** Tighten the acceptance criterion to name a concrete, checkable assertion (e.g., the error message includes the invalid preset name) rather than leaving "descriptive" as an untestable adjective.
+
+5. **Add a cross-link from `write-behavior.md`.** Since the helper wraps the write-behavior input shape directly, add a one-line cross-link from `v2/docs/write-behavior.md` to the new authoring-helper section, consistent with the doc-standard's cross-link-don't-duplicate rule.
+
+**Out of scope — do not add:** runtime (non-TS-compile-time) validation of the `behavior` discriminant, validation of malformed/incomplete per-step content (worktree, specPath, stepRules, etc.), and any preset-registry extensibility mechanism (`Record`-based vs switch). These fall outside the intent's stated boundary that presets ship with the helper as its only caller, with generalization deferred until a second caller exists; adding them now is invented precision the repo's conventions warn against.

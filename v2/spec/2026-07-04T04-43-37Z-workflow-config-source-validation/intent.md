@@ -18,3 +18,8 @@ Decisions:
 - AgentModelConfig loads from the global data file with load-time validation
 - Per-machine agent fallback order loads from project config
 - A workflow runner executes a linear array of role-bound steps
+
+## Blocker
+
+- Unconfirmed prerequisite: `v2/src/config/agent-model-config.ts` validates a caller-supplied file path, but the repo does not yet show a shipped consumer that loads a concrete harness-global data file.
+- Unconfirmed prerequisite: current write/run-start agent selection still resolves from CLI `--agents` or `DEFAULT_WRITE_AGENTS` (`["claude"]`); no shipped per-machine config loader is present in code or durable docs.

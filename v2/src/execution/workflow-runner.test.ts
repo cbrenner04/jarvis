@@ -82,16 +82,14 @@ describe("resolveWorkflowPreset", () => {
 
   test("throws on unknown preset name", () => {
     expect(() =>
-      resolveWorkflowPreset("unknown-preset" as "write-write", [
-        createStep({ stepId: "step-1", role: "implement" }),
-      ]),
+      resolveWorkflowPreset("unknown-preset" as "write-write", [createStep({ stepId: "step-1", role: "implement" })]),
     ).toThrow('Unknown workflow preset: "unknown-preset"');
   });
 
   test("throws on wrong preset step count", () => {
-    expect(() =>
-      resolveWorkflowPreset("write-write", [createStep({ stepId: "step-1", role: "implement" })]),
-    ).toThrow('Workflow preset "write-write" requires 2 steps, received 1');
+    expect(() => resolveWorkflowPreset("write-write", [createStep({ stepId: "step-1", role: "implement" })])).toThrow(
+      'Workflow preset "write-write" requires 2 steps, received 1',
+    );
   });
 });
 

@@ -10,14 +10,15 @@ Render workflow-step progress in the monitor when the selected run is workflow-b
 ## Decisions
 
 - The workflow-step view appears only when the selected daemon row carries workflow metadata; rules out replacing the single-step monitor for every run.
-- Single-step runs keep the existing monitor behavior and chrome unchanged; rules out showing empty or placeholder workflow UI.
+- Single-step runs keep the existing monitor behavior and chrome unchanged: the selected-run outcome panel, pending/ready/error `wait` states, selection changes, and inline steering feedback stay as shipped; rules out showing empty workflow UI or regressing current monitor semantics.
 - The step view reads the selected row's latest daemon `list` snapshot; rules out blocking on `wait` for active-step state.
 - The active step is visually distinguished and prior steps show terminal outcome plus attempt count; rules out hiding workflow progress until the run ends.
 - Steps not yet started stay visible as pending for workflow-backed runs; rules out collapsing future steps.
+- A completed workflow-backed run shows no active step and leaves the final step rendered as completed rather than pending or active; rules out making success look like an early stop.
 - Refreshes update the selected run's step view in place; rules out reconnecting or forcing reselection when the active step advances.
 - Selection change swaps step views with the selected row; rules out persisting stale workflow state across selection changes.
 - Deferred to first consumer: exact glyphs, colors, and line wrapping for step statuses — pin when the ink component lands.
-- Existing selected-run `wait` outcome panel behavior stays intact beside the new step view; rules out redefining `wait` semantics in this slice.
+- Existing selected-run `wait` outcome panel and steering controls stay intact beside the new step view; rules out redefining `wait`, `pause`, `resume`, or `kill` semantics in this slice.
 
 ## Task checklist
 
@@ -33,7 +34,8 @@ Render workflow-step progress in the monitor when the selected run is workflow-b
 - [ ] For a selected single-step run, `jarvis tui` keeps the existing monitor view unchanged and renders no empty workflow-step chrome.
 - [ ] When periodic `list` refresh advances the selected workflow run from one step to the next, the workflow-step view updates in place without reconnecting or changing selection.
 - [ ] When a workflow run stops early on a non-complete step, `jarvis tui` shows that step's terminal outcome and leaves later steps pending.
-- [ ] `v2/spec/completed/2026-06-30T21-06-57Z-tui-run-monitor/01-tui-run-monitor-view.md` wait-state and selection-change behaviors stay green.
+- [ ] When a workflow run completes all authored steps, `jarvis tui` shows no active step, preserves each completed step's terminal state, and does not leave the final step pending.
+- [ ] `v2/src/tui/tui-entry.test.tsx` tests covering deferred `wait` state, selection-change wait abandonment, late abandoned replies, and steering feedback stay green.
 - [ ] `v2/docs/write-behavior.md` documents that workflow-backed runs show per-step status from daemon `list`, while single-step runs keep the prior monitor view.
 - [ ] `v2/docs/v2-architecture.md` cross-links the TUI workflow-step view to daemon run snapshots.
 - [ ] `v2/docs/v1-behaviors.md` has a `[v2 additive]` entry for workflow-step view in `jarvis tui`.

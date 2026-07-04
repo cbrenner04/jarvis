@@ -244,6 +244,23 @@ describe("loadAgentModelConfig", () => {
     }
   });
 
+  test("duplicate agent name aggregates with an independent violation", () => {
+    const config = {
+      claude: {
+        ...VALID_CONFIG.claude,
+        plan: { rungs: [] },
+      },
+    };
+    const filePath = createTempFile(JSON.stringify(config));
+    const result = loadAgentModelConfig(filePath, ["claude", "claude"]);
+
+    expect(isError(result)).toBe(true);
+    if (isError(result)) {
+      expect(result.errors.some((e) => e.includes("duplicate") && e.includes("claude"))).toBe(true);
+      expect(result.errors.some((e) => e.includes("claude") && e.includes("plan") && e.includes("empty"))).toBe(true);
+    }
+  });
+
   test("empty agents list succeeds", () => {
     const config = VALID_CONFIG;
     const filePath = createTempFile(JSON.stringify(config));

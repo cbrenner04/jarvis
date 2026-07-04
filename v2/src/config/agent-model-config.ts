@@ -140,7 +140,7 @@ export function loadAgentModelConfig(filePath: string, agents: readonly string[]
   }
 
   const jsonData = loadJsonFile(filePath, errors);
-  if (errors.length > 0) {
+  if (jsonData === undefined) {
     return { errors };
   }
 
@@ -157,7 +157,9 @@ export function loadAgentModelConfig(filePath: string, agents: readonly string[]
     const agentEntry = jsonData[agent];
 
     if (agentEntry === undefined) {
-      errors.push(`missing agent entry: ${agent}`);
+      for (const role of REQUIRED_ROLES) {
+        errors.push(`agent ${agent}: missing required role ${role}`);
+      }
       continue;
     }
 

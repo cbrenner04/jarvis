@@ -1,6 +1,6 @@
+import type { AgentModelConfig, ModelsByRole } from "../config/agent-model-config.ts";
 import type { LogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import type { AgentModelConfig, ModelsByRole } from "../config/agent-model-config.ts";
 import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "./write-loop.ts";
 
 /** Classification of a workflow outcome — mirrors the write loop's outcome kinds. */
@@ -140,5 +140,9 @@ function validateWorkflowStepRoles(
 }
 
 function hasRoleBinding(modelsByRole: ModelsByRole | undefined, role: string): boolean {
-  return modelsByRole !== undefined && Object.hasOwn(modelsByRole, role) && modelsByRole[role as keyof ModelsByRole] !== undefined;
+  return (
+    modelsByRole !== undefined &&
+    Object.hasOwn(modelsByRole, role) &&
+    modelsByRole[role as keyof ModelsByRole] !== undefined
+  );
 }

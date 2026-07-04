@@ -365,7 +365,7 @@ describe("executeWorkflow", () => {
   });
 
   test("revalidates the loaded step array on resume against resume-time config", async () => {
-    let store = openStateStore(":memory:");
+    const store = openStateStore(":memory:");
     const step1 = createStep({ stepId: "step-1", role: "implement", branchName: "resume-revalidate" });
     const step2 = createStep({
       stepId: "step-2",

@@ -28,6 +28,7 @@ export type Run = {
   worktreePath: string;
   branch: string;
   specPath: string;
+  stepId?: string | null;
 };
 
 /** A durable attempt record linked to a run. */
@@ -44,13 +45,24 @@ export type Attempt = {
 /** Repository-style durable state API, keyed by IDs; no generic SQL surface. */
 export interface StateStore {
   /** Insert a run (`in-progress`, zero attempts); returns its ID. */
-  createRun(args: { project: string; specRef: string; worktreePath: string; branch: string; specPath: string }): string;
+  createRun(args: {
+    project: string;
+    specRef: string;
+    worktreePath: string;
+    branch: string;
+    specPath: string;
+    stepId?: string;
+  }): string;
 
   /** Load a run and its attempt history for resume; null when unknown. */
   loadRun(runId: string): (Run & { attempts: Attempt[] }) | null;
 
-  /** Most recent run for the `(project, branch)` resume key; null when none. */
-  findRunByProjectBranch(args: { project: string; branch: string }): (Run & { attempts: Attempt[] }) | null;
+  /** Most recent run for the `(project, branch, stepId)` resume key; null when none. */
+  findRunByProjectBranch(args: {
+    project: string;
+    branch: string;
+    stepId?: string;
+  }): (Run & { attempts: Attempt[] }) | null;
 
   /** Insert an `in-progress` attempt row; returns its ID. */
   recordAttemptStart(runId: string): string;
@@ -105,7 +117,7 @@ const SCHEMA = `
 `;
 
 const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, status,
-  attempt_count AS attemptCount, worktree_path AS worktreePath, branch, spec_path AS specPath`;
+  attempt_count AS attemptCount, worktree_path AS worktreePath, branch, spec_path AS specPath, step_id AS stepId`;
 
 const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, started_at AS startedAt, status,
   outcome_kind AS outcomeKind, invocation_failure_detail AS invocationFailureDetailJson`;
@@ -114,6 +126,10 @@ const SCHEMA_MIGRATIONS = [
   {
     id: "004-invocation-failure-detail",
     up: "ALTER TABLE attempts ADD COLUMN invocation_failure_detail TEXT",
+  },
+  {
+    id: "005-run-step-id",
+    up: "ALTER TABLE runs ADD COLUMN step_id TEXT",
   },
 ] as const;
 
@@ -159,14 +175,24 @@ class StateStoreImpl implements StateStore {
     worktreePath: string;
     branch: string;
     specPath: string;
+    stepId?: string;
   }): string {
     const id = crypto.randomUUID();
     this.db
       .prepare(`
-        INSERT INTO runs (id, project, spec_ref, created_at, status, attempt_count, worktree_path, branch, spec_path)
-        VALUES (?, ?, ?, ?, 'in-progress', 0, ?, ?, ?)
+        INSERT INTO runs (id, project, spec_ref, created_at, status, attempt_count, worktree_path, branch, spec_path, step_id)
+        VALUES (?, ?, ?, ?, 'in-progress', 0, ?, ?, ?, ?)
       `)
-      .run(id, args.project, args.specRef, Date.now(), args.worktreePath, args.branch, args.specPath);
+      .run(
+        id,
+        args.project,
+        args.specRef,
+        Date.now(),
+        args.worktreePath,
+        args.branch,
+        args.specPath,
+        args.stepId ?? null,
+      );
     return id;
   }
 
@@ -183,10 +209,25 @@ class StateStoreImpl implements StateStore {
     return { ...run, attempts };
   }
 
-  findRunByProjectBranch(args: { project: string; branch: string }): (Run & { attempts: Attempt[] }) | null {
-    const row = this.db
-      .prepare("SELECT id FROM runs WHERE project = ? AND branch = ? ORDER BY created_at DESC, rowid DESC LIMIT 1")
-      .get(args.project, args.branch) as { id: string } | null;
+  findRunByProjectBranch(args: {
+    project: string;
+    branch: string;
+    stepId?: string;
+  }): (Run & { attempts: Attempt[] }) | null {
+    let query: string;
+    let params: (string | null)[];
+
+    if (args.stepId !== undefined) {
+      query =
+        "SELECT id FROM runs WHERE project = ? AND branch = ? AND step_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1";
+      params = [args.project, args.branch, args.stepId];
+    } else {
+      query =
+        "SELECT id FROM runs WHERE project = ? AND branch = ? AND step_id IS NULL ORDER BY created_at DESC, rowid DESC LIMIT 1";
+      params = [args.project, args.branch];
+    }
+
+    const row = this.db.prepare(query).get(...params) as { id: string } | null;
     return row === null ? null : this.loadRun(row.id);
   }
 

@@ -41,6 +41,7 @@ export type Run = {
   worktreePath: string;
   branch: string;
   specPath: string;
+  stepId?: string | null;
 };
 
 /** A durable attempt record linked to a run. */
@@ -70,8 +71,16 @@ export interface StateStore {
    * @param worktreePath Path to the worktree
    * @param branch Git branch name
    * @param specPath Path to the spec within the worktree
+   * @param stepId Optional step identifier for multi-step workflows
    */
-  createRun(args: { project: string; specRef: string; worktreePath: string; branch: string; specPath: string }): string;
+  createRun(args: {
+    project: string;
+    specRef: string;
+    worktreePath: string;
+    branch: string;
+    specPath: string;
+    stepId?: string;
+  }): string;
 
   /**
    * Load a run and its attempt history for resume.
@@ -80,10 +89,15 @@ export interface StateStore {
   loadRun(runId: string): (Run & { attempts: Attempt[] }) | null;
 
   /**
-   * Find a run by its identity (project, branch).
+   * Find a run by its identity (project, branch, stepId).
    * Returns the most recent matching run, or null if none found.
+   * Resume key: (project, branch, stepId). stepId omitted (null) for single-step workflows.
    */
-  findRunByProjectBranch(args: { project: string; branch: string }): (Run & { attempts: Attempt[] }) | null;
+  findRunByProjectBranch(args: {
+    project: string;
+    branch: string;
+    stepId?: string;
+  }): (Run & { attempts: Attempt[] }) | null;
 
   /**
    * Record the start of a new attempt for a run.

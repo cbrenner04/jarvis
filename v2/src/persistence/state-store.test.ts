@@ -193,4 +193,63 @@ describe("StateStore", () => {
     expect(run?.specRef).toBe("new-ref");
     expect(run?.worktreePath).toBe("/tmp/worktree-b");
   });
+
+  test("loadRun returns the run's stepId when set", () => {
+    const runId = seedRun(store, { stepId: "step-1" });
+
+    const run = loadRunOrThrow(store, runId);
+    expect(run.stepId).toBe("step-1");
+  });
+
+  test("loadRun returns undefined/null for stepId when not set", () => {
+    const runId = seedRun(store);
+
+    const run = loadRunOrThrow(store, runId);
+    expect(run.stepId === null || run.stepId === undefined).toBe(true);
+  });
+
+  test("two createRun calls with same (project, branch) but different stepId are independently resolvable", () => {
+    const run1Id = seedRun(store, { stepId: "step-1" });
+    const run2Id = seedRun(store, { stepId: "step-2" });
+
+    const run1 = store.findRunByProjectBranch({ project: "test-project", branch: "test-branch", stepId: "step-1" });
+    const run2 = store.findRunByProjectBranch({ project: "test-project", branch: "test-branch", stepId: "step-2" });
+
+    expect(run1?.id).toBe(run1Id);
+    expect(run2?.id).toBe(run2Id);
+    expect(run1?.id).not.toBe(run2?.id);
+  });
+
+  test("findRunByProjectBranch with stepId does not return a run with different stepId", () => {
+    seedRun(store, { stepId: "step-1" });
+    seedRun(store, { stepId: "step-2" });
+
+    const run = store.findRunByProjectBranch({ project: "test-project", branch: "test-branch", stepId: "step-1" });
+
+    expect(run?.stepId).toBe("step-1");
+  });
+
+  test("findRunByProjectBranch without stepId returns latest run with NULL step_id", () => {
+    const runWithStepId = seedRun(store, { stepId: "step-1" });
+    const runWithoutStepId1 = seedRun(store);
+    const runWithoutStepId2 = seedRun(store);
+
+    const run = store.findRunByProjectBranch({ project: "test-project", branch: "test-branch" });
+
+    expect(run?.id).toBe(runWithoutStepId2);
+    expect(run?.id).not.toBe(runWithStepId);
+    expect(run?.id).not.toBe(runWithoutStepId1);
+    expect(run?.stepId === null || run?.stepId === undefined).toBe(true);
+  });
+
+  test("a run created before migration (NULL step_id) still resolves correctly without stepId argument", () => {
+    const runId = seedRun(store);
+    store.close();
+
+    store = openStateStore(TEST_DB_PATH);
+    const run = store.findRunByProjectBranch({ project: "test-project", branch: "test-branch" });
+
+    expect(run?.id).toBe(runId);
+    expect(run?.stepId === null || run?.stepId === undefined).toBe(true);
+  });
 });

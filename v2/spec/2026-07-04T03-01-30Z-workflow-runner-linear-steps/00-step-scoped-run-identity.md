@@ -30,14 +30,14 @@ resume can tell which steps are already done and which is mid-loop.
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` stays green with no call site passing `stepId`
+- [x] `write-loop.test.ts` stays green with no call site passing `stepId`
       (single-step behavior unchanged by the schema addition).
-- [ ] Two `createRun` calls with the same `(project, branch)` but different
+- [x] Two `createRun` calls with the same `(project, branch)` but different
       `stepId` values produce independently resolvable runs: each
       `findRunByProjectBranch({ project, branch, stepId })` returns only the
       matching row and never the other step's run.
-- [ ] `loadRun` returns the run's `stepId` alongside its attempt history.
-- [ ] A run row created before migration `005-run-step-id` (NULL `step_id`)
+- [x] `loadRun` returns the run's `stepId` alongside its attempt history.
+- [x] A run row created before migration `005-run-step-id` (NULL `step_id`)
       still resolves correctly via `findRunByProjectBranch` with no
       `stepId` argument after migration.
 

@@ -41,6 +41,7 @@ export type WriteLoopInput = WriteExecuteInput & {
   stateStore?: StateStore;
   logSink?: LogSink;
   pauseSignal?: AbortSignal;
+  stepId?: string;
 };
 
 const DEFAULT_MAX_ITERATIONS = 10;
@@ -189,6 +190,7 @@ function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {
   const existingRun = store.findRunByProjectBranch({
     project: args.worktree.projectName,
     branch: args.worktree.branchName,
+    ...(args.stepId !== undefined ? { stepId: args.stepId } : {}),
   });
 
   if (existingRun === null) {
@@ -198,6 +200,7 @@ function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {
       worktreePath,
       branch: args.worktree.branchName,
       specPath: args.specPath,
+      ...(args.stepId !== undefined ? { stepId: args.stepId } : {}),
     });
     return { runId, worktreePath, resumedAttemptId: null };
   }

@@ -373,17 +373,35 @@ socketTest(
 
     const runs = await listRuns(client);
     expect(runs?.find((row) => row.runId === budgetRunId)?.workflow).toEqual({
-      steps: [{ stepId: "step-budget", role: "implement", status: "stopped", attemptCount: 1, terminalOutcome: "budget-exhausted" }],
+      steps: [
+        {
+          stepId: "step-budget",
+          role: "implement",
+          status: "stopped",
+          attemptCount: 1,
+          terminalOutcome: "budget-exhausted",
+        },
+      ],
     });
     expect(runs?.find((row) => row.runId === pausedRunId)?.workflow).toEqual({
-      steps: [{ stepId: "step-paused", role: "implement", status: "stopped", attemptCount: 1, terminalOutcome: "paused" }],
+      steps: [
+        { stepId: "step-paused", role: "implement", status: "stopped", attemptCount: 1, terminalOutcome: "paused" },
+      ],
     });
     expect(runs?.find((row) => row.runId === killedRunId)?.workflow).toEqual({
-      steps: [{ stepId: "step-killed", role: "implement", status: "stopped", attemptCount: 1, terminalOutcome: "killed" }],
+      steps: [
+        { stepId: "step-killed", role: "implement", status: "stopped", attemptCount: 1, terminalOutcome: "killed" },
+      ],
     });
     expect(runs?.find((row) => row.runId === contractMissRunId)?.workflow).toEqual({
       steps: [
-        { stepId: "step-contract", role: "implement", status: "stopped", attemptCount: 1, terminalOutcome: "contract_miss" },
+        {
+          stepId: "step-contract",
+          role: "implement",
+          status: "stopped",
+          attemptCount: 1,
+          terminalOutcome: "contract_miss",
+        },
       ],
     });
 

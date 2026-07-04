@@ -6,7 +6,6 @@ import {
   defineWorkflowStep,
   executeWorkflow,
   resolveWorkflowPreset,
-  type WorkflowPresetStepInput,
   type WorkflowStep,
   type WorkflowStepDefinition,
 } from "./workflow-runner.ts";
@@ -43,22 +42,7 @@ function createStepDefinition(
     branchName?: string;
   },
 ): WorkflowStepDefinition {
-  return {
-    ...createStep(overrides),
-    behavior: "write",
-  };
-}
-
-function createPresetStepInput(
-  overrides: Partial<Omit<WorkflowPresetStepInput, "worktree">> & { stepId: string; role: string; branchName?: string },
-): WorkflowPresetStepInput {
-  const { branchName, ...rest } = overrides;
-  return {
-    ...createStep({
-      ...rest,
-      ...(branchName !== undefined ? { branchName } : {}),
-    }),
-  };
+  return { ...createStep(overrides), behavior: "write" };
 }
 
 describe("defineWorkflowStep", () => {
@@ -87,8 +71,8 @@ describe("defineWorkflowStep", () => {
 describe("resolveWorkflowPreset", () => {
   test("resolves write-write to concrete workflow steps", () => {
     const steps = resolveWorkflowPreset("write-write", [
-      createPresetStepInput({ stepId: "step-1", role: "implement" }),
-      createPresetStepInput({ stepId: "step-2", role: "implement" }),
+      createStep({ stepId: "step-1", role: "implement" }),
+      createStep({ stepId: "step-2", role: "implement" }),
     ]);
 
     expect(steps).toHaveLength(2);
@@ -99,14 +83,14 @@ describe("resolveWorkflowPreset", () => {
   test("throws on unknown preset name", () => {
     expect(() =>
       resolveWorkflowPreset("unknown-preset" as "write-write", [
-        createPresetStepInput({ stepId: "step-1", role: "implement" }),
+        createStep({ stepId: "step-1", role: "implement" }),
       ]),
     ).toThrow('Unknown workflow preset: "unknown-preset"');
   });
 
   test("throws on wrong preset step count", () => {
     expect(() =>
-      resolveWorkflowPreset("write-write", [createPresetStepInput({ stepId: "step-1", role: "implement" })]),
+      resolveWorkflowPreset("write-write", [createStep({ stepId: "step-1", role: "implement" })]),
     ).toThrow('Workflow preset "write-write" requires 2 steps, received 1');
   });
 });
@@ -165,8 +149,8 @@ describe("executeWorkflow", () => {
   test("runs two-step workflow to completion", async () => {
     const store = openStateStore(":memory:");
     const steps = resolveWorkflowPreset("write-write", [
-      createPresetStepInput({ stepId: "step-1", role: "write", branchName: "two-step" }),
-      createPresetStepInput({ stepId: "step-2", role: "write", branchName: "two-step" }),
+      createStep({ stepId: "step-1", role: "write", branchName: "two-step" }),
+      createStep({ stepId: "step-2", role: "write", branchName: "two-step" }),
     ]);
 
     try {

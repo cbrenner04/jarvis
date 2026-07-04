@@ -5,18 +5,9 @@ import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from
 /** Classification of a workflow outcome — mirrors the write loop's outcome kinds. */
 export type WorkflowOutcomeKind = WriteLoopOutcomeKind;
 
-/** Supported workflow behavior primitives. */
-export type WorkflowBehavior = "write";
-
-/** Authoring input for one workflow step before behavior-specific fields are normalized. */
-export type WorkflowStepDefinition = WriteLoopInput & {
-  /** Fixed durable identity for this step within the workflow. */
-  stepId: string;
-  /** Model-resolution role bound to this step. */
-  role: string;
-  /** Behavior primitive this step runs. */
-  behavior: WorkflowBehavior;
-};
+const WORKFLOW_PRESETS = {
+  "write-write": ["write", "write"],
+} as const;
 
 /** A single step in a workflow. */
 export type WorkflowStep = WriteLoopInput & {
@@ -26,11 +17,17 @@ export type WorkflowStep = WriteLoopInput & {
   role: string;
 };
 
+/** Authoring input for one workflow step before behavior-specific fields are normalized. */
+export type WorkflowStepDefinition = WorkflowStep & {
+  /** Behavior primitive this step runs. */
+  behavior: (typeof WORKFLOW_PRESETS)[keyof typeof WORKFLOW_PRESETS][number];
+};
+
 /** Named workflow presets available to callers. */
-export type WorkflowPresetName = "write-write";
+export type WorkflowPresetName = keyof typeof WORKFLOW_PRESETS;
 
 /** Per-position caller input for a preset-resolved step. */
-export type WorkflowPresetStepInput = Omit<WorkflowStepDefinition, "behavior">;
+export type WorkflowPresetStepInput = WorkflowStep;
 
 /** Result of a workflow invocation. */
 export type WorkflowResult = {
@@ -53,27 +50,11 @@ export type WorkflowRunnerInput = {
   logSink?: LogSink;
 };
 
-const WORKFLOW_PRESETS = {
-  "write-write": ["write", "write"],
-} as const satisfies Record<WorkflowPresetName, readonly WorkflowBehavior[]>;
-
-/**
- * Build one workflow step from authoring input.
- *
- * `behavior` is validated at the type level today and omitted from the returned
- * step because the runner currently executes write behavior only.
- */
 export function defineWorkflowStep(args: WorkflowStepDefinition): WorkflowStep {
   const { behavior: _behavior, ...step } = args;
   return step;
 }
 
-/**
- * Resolve a named preset to concrete workflow steps.
- *
- * The preset fixes step count and behavior sequence. Callers provide per-step
- * content for each position, excluding `behavior`.
- */
 export function resolveWorkflowPreset(name: WorkflowPresetName, steps: WorkflowPresetStepInput[]): WorkflowStep[] {
   const preset = WORKFLOW_PRESETS[name];
   if (preset === undefined) {

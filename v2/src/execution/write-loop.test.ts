@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
+import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
 import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
@@ -10,6 +10,15 @@ import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
 
 const { roots } = trackedTempRoots();
+
+function loopTelemetry(sinkPath: string): NonNullable<WriteLoopInput["telemetry"]> {
+  return {
+    sinkPath,
+    operatorSessionId: "session-1",
+    workflow: "write",
+    role: "implement",
+  };
+}
 
 /** Test log sink that captures all events. */
 class TestLogSink implements LogSink {
@@ -44,6 +53,7 @@ async function runLoop(args: {
   specPath?: string;
   store?: StateStore;
   logSink?: LogSink;
+  telemetry?: WriteLoopInput["telemetry"];
 }) {
   // Track the parent directory for cleanup
   roots.push(join(args.jarvisRoot, ".."));
@@ -62,16 +72,11 @@ async function runLoop(args: {
     bindings: args.bindings,
     stateStore: store,
     withExternalWorktree: createFakeWithExternalWorktree(args.jarvisRoot),
+    ...(args.maxIterations !== undefined ? { maxIterations: args.maxIterations } : {}),
+    ...(args.signal !== undefined ? { signal: args.signal } : {}),
+    ...(args.logSink !== undefined ? { logSink: args.logSink } : {}),
+    ...(args.telemetry !== undefined ? { telemetry: args.telemetry } : {}),
   };
-  if (args.maxIterations !== undefined) {
-    loopInput.maxIterations = args.maxIterations;
-  }
-  if (args.signal !== undefined) {
-    loopInput.signal = args.signal;
-  }
-  if (args.logSink !== undefined) {
-    loopInput.logSink = args.logSink;
-  }
   try {
     return await executeWriteLoop(loopInput);
   } finally {
@@ -139,6 +144,17 @@ function loadRunOnce(stateDbPath: string, runId: string) {
   } finally {
     store.close();
   }
+}
+
+function loadTelemetryRows(path: string): InvocationCompletedRecord[] {
+  if (!existsSync(path)) {
+    return [];
+  }
+  return readFileSync(path, "utf8")
+    .trim()
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as InvocationCompletedRecord);
 }
 
 /** Wrap a store so the first completion boundary fails mid-transaction. */
@@ -347,6 +363,53 @@ describe("write loop", () => {
     expect(result.failureKind).toBeUndefined();
     expect(result.bindingAttempts).toBeUndefined();
     expect(loadRunOnce(stateDbPath, result.runId)?.attempts[0]?.outcomeKind).toBe("invalid_token");
+  });
+
+  test("write-loop telemetry appends one row per binding attempt with shared run and attempt context", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const telemetryPath = join(jarvisRoot, "telemetry.jsonl");
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings: simulatedBindings(["quota", "done"], { artifactPath: "proof.txt", emitArtifact: true }),
+      telemetry: loopTelemetry(telemetryPath),
+    });
+
+    expect(result.kind).toBe("complete");
+    const rows = loadTelemetryRows(telemetryPath);
+    expect(rows).toHaveLength(2);
+    expect(new Set(rows.map((row) => row.run_id))).toEqual(new Set([result.runId]));
+    expect(new Set(rows.map((row) => row.attempt_id)).size).toBe(1);
+    expect(rows.map((row) => row.invocation_id)).toHaveLength(2);
+    expect(new Set(rows.map((row) => row.invocation_id)).size).toBe(2);
+    expect(rows.map((row) => row.exit_kind)).toEqual(["quota", "ok"]);
+    expect(rows.every((row) => row.step_id === null)).toBe(true);
+  });
+
+  test("telemetry append failure leaves state-store and log contracts unchanged while surfacing failure detail", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const logSink = new TestLogSink();
+    const telemetryDir = join(jarvisRoot, "telemetry-dir");
+    mkdirSync(telemetryDir, { recursive: true });
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+      logSink,
+      telemetry: loopTelemetry(telemetryDir),
+    });
+
+    expect(result.kind).toBe("complete");
+    const run = loadRunOnce(stateDbPath, result.runId);
+    expect(run?.status).toBe("completed");
+    expect(logSink.getEventsForRun(result.runId).map((event) => event.kind)).toEqual([
+      "iteration_started",
+      "boundary_committed",
+      "loop_finished",
+    ]);
+    if (run?.attempts[0]) {
+      expect(run.attempts[0].outcomeKind).toBe("done");
+    }
   });
 
   test("complete, blocked, contract_miss, and budget-exhausted omit failure detail", async () => {

@@ -24,9 +24,14 @@ Boundary:
   dispatch.
 - Runner does not own workflow looping, CLI exit mapping/formatting, or
   git/worktree side effects.
-- Future per-invocation telemetry (`invocation_completed`) emits at the shared
-  invocation layer below this runner, with IDs passed in from the caller. Capture
-  contract: [`telemetry-capture.md`](telemetry-capture.md).
+- Per-invocation telemetry (`invocation_completed`) emits at the shared
+  invocation layer below this runner, with IDs and write-step context passed in
+  from the caller. Current live consumer: write-step execution only; callers
+  that omit write-step context plus sink stay telemetry no-op. Capture contract:
+  [`telemetry-capture.md`](telemetry-capture.md).
+- Emission happens after each binding subprocess settles and before this runner
+  parses tokens or classifies `contract_miss` / `invalid_token`, so downstream
+  non-success classification does not suppress a settled row.
 
 Operator flow for the first `write` consumer is documented in
 [`write-behavior.md`](./write-behavior.md).

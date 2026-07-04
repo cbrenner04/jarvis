@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
-import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
+import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
 import {
   type ExternalWorktreeInput,
   type LockStatus,
@@ -17,6 +17,7 @@ export type WriteExecuteInput = {
   expectedArtifactPath: string;
   bindings: readonly InvocationBinding[];
   signal?: AbortSignal;
+  invocationTelemetry?: Omit<InvocationTelemetryContext, "worktreePath">;
   withExternalWorktree?: typeof realWithExternalWorktree;
 };
 
@@ -50,6 +51,14 @@ export async function executeWrite(args: WriteExecuteInput): Promise<WriteExecut
         },
       ],
       ...(args.signal !== undefined ? { signal: args.signal } : {}),
+      ...(args.invocationTelemetry !== undefined
+        ? {
+            telemetry: {
+              ...args.invocationTelemetry,
+              worktreePath: worktree.path,
+            },
+          }
+        : {}),
     });
   });
 

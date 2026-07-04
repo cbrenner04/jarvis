@@ -18,6 +18,10 @@ export function simulatedBindings(
 ): readonly InvocationBinding[] {
   return outcomes.map((outcome, index) => ({
     id: `sim.${index + 1}`,
+    metadata: {
+      agent: `sim-agent-${index + 1}`,
+      model: `sim-model-${index + 1}`,
+    },
     invoke: async ({ cwd }) => {
       if (outcome === "quota") return { kind: "quota", stderr: "quota" };
       if (outcome === "model_config") {

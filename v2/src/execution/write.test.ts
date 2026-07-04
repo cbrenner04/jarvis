@@ -7,7 +7,12 @@ import { executeWrite } from "./write.ts";
 
 const { roots } = trackedTempRoots();
 
-function runWrite(args: { jarvisRoot: string; bindings: readonly InvocationBinding[]; artifactPath?: string }) {
+function runWrite(args: {
+  jarvisRoot: string;
+  bindings: readonly InvocationBinding[];
+  artifactPath?: string;
+  invocationTelemetry?: Parameters<typeof executeWrite>[0]["invocationTelemetry"];
+}) {
   // Track the parent directory of jarvisRoot for cleanup
   roots.push(join(args.jarvisRoot, ".."));
   return executeWrite({
@@ -22,6 +27,7 @@ function runWrite(args: { jarvisRoot: string; bindings: readonly InvocationBindi
     stepRules: "Return exactly one terminal token.",
     expectedArtifactPath: args.artifactPath ?? "proof.txt",
     bindings: args.bindings,
+    ...(args.invocationTelemetry !== undefined ? { invocationTelemetry: args.invocationTelemetry } : {}),
     withExternalWorktree: createFakeWithExternalWorktree(args.jarvisRoot),
   });
 }
@@ -117,5 +123,44 @@ describe("write behavior", () => {
 
     expect(result.result.kind).toBe("progress");
     expect(calls).toBe(1);
+  });
+
+  test("telemetry append failure is surfaced separately without changing the settled step result", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const result = await runWrite({
+      jarvisRoot,
+      bindings: [
+        {
+          id: "agent",
+          metadata: { agent: "claude", model: "m1" },
+          invoke: async ({ cwd }) => {
+            writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      invocationTelemetry: {
+        sink: {
+          append() {
+            throw new Error("disk full");
+          },
+        },
+        operatorSessionId: "session-1",
+        runId: "run-1",
+        attemptId: "attempt-1",
+        project: "demo",
+        workflow: "write",
+        stepId: null,
+        role: "implement",
+        branch: "write-run",
+        specRef: "HEAD",
+        invocationIds: ["inv-1"],
+      },
+    });
+
+    expect(result.result.kind).toBe("complete");
+    expect(result.result.invocation.telemetryFailures).toEqual([
+      { invocationId: "inv-1", bindingId: "agent", message: "disk full" },
+    ]);
   });
 });

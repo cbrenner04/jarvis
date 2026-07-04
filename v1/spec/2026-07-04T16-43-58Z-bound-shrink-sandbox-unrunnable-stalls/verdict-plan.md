@@ -1,0 +1,7 @@
+- Narrow the spec’s documented/operator-facing scope to the shrink suite only. The current draft says sibling `*.sandbox-unrunnable.test.ts` audits are out of scope, but its acceptance criteria and doc updates speak generically about `*.sandbox-unrunnable.test.ts`. The spec needs one observable contract: shrink stalls fail boundedly with cleanup; it must not imply a repo-wide guarantee this subspec does not deliver.
+
+- Align the subprocess requirement with the intended path scope. The draft currently mixes “this file owns” with “the shrink sandbox-unrunnable path,” which leaves review ambiguity about whether all real `git` calls in the file must be bounded or only the calls on the stall path being hardened. The spec needs a single scoped contract so the change stays atomic and independently reviewable.
+
+- Define an operationally meaningful bound, not just “bounded.” The intent is to stop CI from waiting indefinitely, and the acceptance criteria should pin a finite failure window that is compatible with the test/job timeout budget. Without that, an arbitrarily long timeout still satisfies the prose while failing the practical goal.
+
+- Remove documentation duplication by giving the post-fix behavior one durable home and making any second doc a pointer-only companion. The repo’s documentation standard assigns operator/workflow behavior to `v2/docs/` and says to cross-link rather than duplicate. The spec may still require runbook alignment, but it needs a non-overlapping split so the same behavior is not maintained in two places.

@@ -32,8 +32,8 @@ state records each step's attempts separately.
 
 ## Acceptance criteria
 
-- [ ] A named `write-write` workflow run proves each step resolves its own `implement` role against the loaded project agent/model config during workflow execution rather than reusing one shared binding chain.
-- [ ] In that run, step two does not begin until step one's write loop reaches `complete`, and the runner then advances and executes step two's write loop to `complete`.
-- [ ] The workflow path honors fallback from the loaded project agent/model config through per-step role resolution, so quota on an earlier binding can fall through to a later binding without preventing the two-step workflow from completing.
-- [ ] After a successful two-step workflow run, durable state shows separate per-step run and attempt history for both `(project, branch, stepId)` entries rather than one shared record.
-- [ ] `v2/src/execution/workflow-runner.test.ts` stays green with the added end-to-end proof.
+- [x] A named `write-write` workflow run proves each step resolves its own `implement` role against the loaded project agent/model config during workflow execution rather than reusing one shared binding chain.
+- [x] In that run, step two does not begin until step one's write loop reaches `complete`, and the runner then advances and executes step two's write loop to `complete`.
+- [x] The workflow path honors fallback from the loaded project agent/model config through per-step role resolution, so quota on an earlier binding can fall through to a later binding without preventing the two-step workflow from completing.
+- [x] After a successful two-step workflow run, durable state shows separate per-step run and attempt history for both `(project, branch, stepId)` entries rather than one shared record.
+- [x] `v2/src/execution/workflow-runner.test.ts` stays green with the added end-to-end proof.

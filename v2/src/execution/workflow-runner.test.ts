@@ -34,12 +34,15 @@ const NO_STEP_ROLES_CONFIG: AgentModelConfig = {
 
 function createBindingFactory(
   invoke: (binding: { agentId: string; adapterModel: string; cwd: string }) => Promise<InvocationResult>,
+  onResolve?: (binding: { agentId: string; adapterModel: string }) => void,
 ): NonNullable<WorkflowStep["createBinding"]> {
-  return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) =>
-    ({
+  return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) => {
+    onResolve?.({ agentId, adapterModel });
+    return {
       id: `${agentId}/${adapterModel}`,
       invoke: ({ cwd }: Parameters<InvocationBinding["invoke"]>[0]) => invoke({ agentId, adapterModel, cwd }),
-    }) satisfies InvocationBinding;
+    } satisfies InvocationBinding;
+  };
 }
 
 const doneBindingFactory = createBindingFactory(async ({ cwd }) => {
@@ -234,6 +237,142 @@ describe("executeWorkflow", () => {
       expect(run1?.id).not.toBe(run2?.id);
       expect(run1?.status).toBe("completed");
       expect(run2?.status).toBe("completed");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("runs the write-write preset end to end with per-step resolution, ordered advancement, fallback, and separate durable history", async () => {
+    const store = openStateStore(":memory:");
+    const home = createJarvisHome();
+    roots.push(home.jarvisRoot);
+    const events: string[] = [];
+    const branchName = "write-write-proof";
+    const sharedWorktree = {
+      projectRoot: "/fake",
+      projectName: "demo",
+      branchName,
+      baseRef: "HEAD",
+      jarvisRoot: home.jarvisRoot,
+    };
+    const withExternalWorktree = createFakeWithExternalWorktree(home.jarvisRoot);
+    const sharedAgentModelConfig: AgentModelConfig = {
+      claude: {
+        implement: {
+          rungs: [
+            { adapterModel: "M1", priceKey: "P1" },
+            { adapterModel: "M2", priceKey: "P2" },
+          ],
+        },
+      },
+      codex: {
+        implement: {
+          rungs: [{ adapterModel: "M3", priceKey: "P3" }],
+        },
+      },
+    };
+
+    function createProofBindingFactory(
+      stepId: string,
+      tokens: readonly string[],
+    ): NonNullable<WorkflowStep["createBinding"]> {
+      let tokenIndex = 0;
+
+      return createBindingFactory(
+        async ({ agentId, adapterModel, cwd }) => {
+          events.push(`invoke:${stepId}:${agentId}/${adapterModel}`);
+
+          if (adapterModel === "M1" || adapterModel === "M2") {
+            return { kind: "quota", stderr: "quota" } as const;
+          }
+
+          if (adapterModel === "M3") {
+            writeFileSync(`${cwd}/proof.txt`, `${stepId}\n`, "utf8");
+            return { kind: "ok", stdout: tokens[tokenIndex++] ?? "done", stderr: "" } as const;
+          }
+
+          throw new Error(`Unexpected fallback invocation for ${stepId}: ${agentId}/${adapterModel}`);
+        },
+        ({ agentId, adapterModel }) => {
+          events.push(`resolve:${stepId}:${agentId}/${adapterModel}`);
+        },
+      );
+    }
+
+    const steps = resolveWorkflowPreset("write-write", [
+      {
+        ...createStep({
+          stepId: "step-1",
+          role: "implement",
+          branchName,
+          agents: TWO_AGENTS,
+          agentModelConfig: sharedAgentModelConfig,
+          createBinding: createProofBindingFactory("step-1", ["progress", "done"]),
+        }),
+        worktree: sharedWorktree,
+        withExternalWorktree,
+      },
+      {
+        ...createStep({
+          stepId: "step-2",
+          role: "implement",
+          branchName,
+          agents: TWO_AGENTS,
+          agentModelConfig: sharedAgentModelConfig,
+          createBinding: createProofBindingFactory("step-2", ["done"]),
+        }),
+        worktree: sharedWorktree,
+        withExternalWorktree,
+      },
+    ]);
+
+    try {
+      const result = await executeWorkflow({
+        steps,
+        stateStore: store,
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(result.stepIndex).toBe(1);
+      expect(result.stepId).toBe("step-2");
+      expect(events).toEqual([
+        "resolve:step-1:claude/M1",
+        "resolve:step-1:claude/M2",
+        "resolve:step-1:codex/M3",
+        "invoke:step-1:claude/M1",
+        "invoke:step-1:claude/M2",
+        "invoke:step-1:codex/M3",
+        "invoke:step-1:claude/M1",
+        "invoke:step-1:claude/M2",
+        "invoke:step-1:codex/M3",
+        "resolve:step-2:claude/M1",
+        "resolve:step-2:claude/M2",
+        "resolve:step-2:codex/M3",
+        "invoke:step-2:claude/M1",
+        "invoke:step-2:claude/M2",
+        "invoke:step-2:codex/M3",
+      ]);
+
+      const run1 = store.findRunByProjectBranch({
+        project: "demo",
+        branch: branchName,
+        stepId: "step-1",
+      });
+      const run2 = store.findRunByProjectBranch({
+        project: "demo",
+        branch: branchName,
+        stepId: "step-2",
+      });
+
+      expect(run1?.id).not.toBe(run2?.id);
+      expect(run1?.status).toBe("completed");
+      expect(run2?.status).toBe("completed");
+      expect(run1?.attemptCount).toBe(2);
+      expect(run2?.attemptCount).toBe(1);
+      expect(run1?.attempts.map((attempt) => attempt.outcomeKind)).toEqual(["progress", "done"]);
+      expect(run2?.attempts.map((attempt) => attempt.outcomeKind)).toEqual(["done"]);
+      expect(run1?.attempts.map((attempt) => attempt.attemptNumber)).toEqual([1, 2]);
+      expect(run2?.attempts.map((attempt) => attempt.attemptNumber)).toEqual([1]);
     } finally {
       store.close();
     }

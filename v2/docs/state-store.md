@@ -28,7 +28,11 @@ Repository-style named ops keyed by durable IDs — no public SQL surface. Signa
 
 - Outcomes are deterministic classifications, not free-form payloads; the runner branches on them. No transcripts or cost streams — the store carries only what resume reads. Token/cost and per-invocation usage belong in the telemetry JSONL substrate, not here — see [`telemetry-capture.md`](telemetry-capture.md).
 - Recovery derives from durable state only: the `(project, branch, stepId)` lookup, run status, and attempt/outcome history. An attempt still `in-progress` is the interrupted-state read ("re-run that dirty iteration"); `interrupted` is never stored. `budget-soft-stopped` resumes with a fresh per-invocation budget; a terminal run status returns its stored result idempotently.
-- Multi-step workflows use `stepId` to isolate per-step attempt history: each workflow step maintains its own durable `(project, branch, stepId)` run, allowing independent resume tracking and attempt counts.
+- Multi-step workflows use `stepId` to isolate per-step attempt history: each
+  workflow step maintains its own durable `(project, branch, stepId)` run,
+  allowing independent resume tracking, run ids, and attempt counts. In one
+  successful `write-write` run, step one and step two keep separate attempt
+  histories even if they complete in different numbers of attempts.
 - Workflow-backed step runs also share one durable `workflow_snapshot`, so a daemon `list` row can render the authored step order, `stepId`, and `role` for not-yet-started and already-finished steps without scanning unrelated runs.
 
 See `v2-architecture.md` (**Runs, state & the human loop**, **Persistence**, **Recovery**) for the broader design.

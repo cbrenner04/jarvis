@@ -1,5 +1,5 @@
-import { appendFileSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname, isAbsolute, join } from "node:path";
 import type { LogSink } from "../persistence/log-stream.ts";
 import { type OutcomeKind, openStateStore, type StateStore } from "../persistence/state-store.ts";
 import type { RunStatus, WorkflowSnapshot } from "../persistence/state-store-types.ts";
@@ -43,6 +43,12 @@ export type WriteLoopInput = WriteExecuteInput & {
   pauseSignal?: AbortSignal;
   stepId?: string;
   workflowSnapshot?: WorkflowSnapshot;
+  telemetry?: {
+    sinkPath: string;
+    operatorSessionId: string;
+    workflow: string;
+    role: string;
+  };
 };
 
 const DEFAULT_MAX_ITERATIONS = 10;
@@ -82,16 +88,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       args.logSink?.append(runId, { kind: "iteration_started", attemptId });
 
-      const writeArgs: Parameters<typeof executeWrite>[0] = {
-        worktree: args.worktree,
-        specPath: args.specPath,
-        stepRules: args.stepRules,
-        expectedArtifactPath: args.expectedArtifactPath,
-        bindings: args.bindings,
-        ...(args.signal && { signal: args.signal }),
-        ...(args.withExternalWorktree && { withExternalWorktree: args.withExternalWorktree }),
-      };
-      const { result } = await executeWrite(writeArgs);
+      const { result } = await executeWrite(buildWriteExecuteInput(args, runId, attemptId));
       iterationsConsumed += 1;
 
       // If the abort signal was triggered while the step was running, skip boundary commit
@@ -215,6 +212,41 @@ function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {
 
   const committed = committedResult(existingRun);
   return committed === null ? { runId: existingRun.id, worktreePath, resumedAttemptId: null } : { result: committed };
+}
+
+function buildWriteExecuteInput(args: WriteLoopInput, runId: string, attemptId: string): WriteExecuteInput {
+  const telemetry = args.telemetry;
+  return {
+    worktree: args.worktree,
+    specPath: args.specPath,
+    stepRules: args.stepRules,
+    expectedArtifactPath: args.expectedArtifactPath,
+    bindings: args.bindings,
+    ...(telemetry !== undefined
+      ? {
+          invocationTelemetry: {
+            sink: {
+              append(record) {
+                mkdirSync(dirname(telemetry.sinkPath), { recursive: true });
+                appendFileSync(telemetry.sinkPath, `${JSON.stringify(record)}\n`, "utf8");
+              },
+            },
+            operatorSessionId: telemetry.operatorSessionId,
+            runId,
+            attemptId,
+            project: args.worktree.projectName,
+            workflow: telemetry.workflow,
+            stepId: args.stepId ?? null,
+            role: telemetry.role,
+            branch: args.worktree.branchName,
+            specRef: args.worktree.baseRef,
+            invocationIds: args.bindings.map(() => crypto.randomUUID()),
+          },
+        }
+      : {}),
+    ...(args.signal && { signal: args.signal }),
+    ...(args.withExternalWorktree && { withExternalWorktree: args.withExternalWorktree }),
+  };
 }
 
 function terminalMapping(result: Exclude<StepRunResult, { kind: "progress" }>): {

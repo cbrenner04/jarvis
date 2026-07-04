@@ -212,11 +212,7 @@ function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {
   return committed === null ? { runId: existingRun.id, worktreePath, resumedAttemptId: null } : { result: committed };
 }
 
-function buildWriteExecuteInput(
-  args: WriteLoopInput,
-  runId: string,
-  attemptId: string,
-): WriteExecuteInput {
+function buildWriteExecuteInput(args: WriteLoopInput, runId: string, attemptId: string): WriteExecuteInput {
   const telemetry = args.telemetry;
   return {
     worktree: args.worktree,

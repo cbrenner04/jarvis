@@ -98,7 +98,9 @@ describe("resolveWorkflowPreset", () => {
 
   test("throws on unknown preset name", () => {
     expect(() =>
-      resolveWorkflowPreset("unknown-preset" as "write-write", [createPresetStepInput({ stepId: "step-1", role: "implement" })]),
+      resolveWorkflowPreset("unknown-preset" as "write-write", [
+        createPresetStepInput({ stepId: "step-1", role: "implement" }),
+      ]),
     ).toThrow('Unknown workflow preset: "unknown-preset"');
   });
 

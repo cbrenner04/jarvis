@@ -15,10 +15,11 @@ const DEFAULT_AGENT_MODEL_CONFIG = {
 function createBindingFactory(
   invoke: (binding: { agentId: string; adapterModel: string; cwd: string }) => Promise<InvocationResult>,
 ): NonNullable<WorkflowStep["createBinding"]> {
-  return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) => ({
-    id: `${agentId}/${adapterModel}`,
-    invoke: ({ cwd }: Parameters<InvocationBinding["invoke"]>[0]) => invoke({ agentId, adapterModel, cwd }),
-  } satisfies InvocationBinding);
+  return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) =>
+    ({
+      id: `${agentId}/${adapterModel}`,
+      invoke: ({ cwd }: Parameters<InvocationBinding["invoke"]>[0]) => invoke({ agentId, adapterModel, cwd }),
+    }) satisfies InvocationBinding;
 }
 
 const doneBindingFactory = createBindingFactory(async ({ cwd }) => {
@@ -27,10 +28,12 @@ const doneBindingFactory = createBindingFactory(async ({ cwd }) => {
 });
 
 function okTokenBindingFactory(stdout: string) {
-  return createBindingFactory(async () => ({ kind: "ok", stdout, stderr: "" } as const));
+  return createBindingFactory(async () => ({ kind: "ok", stdout, stderr: "" }) as const);
 }
 
-const errorBindingFactory = createBindingFactory(async () => ({ kind: "error", exitCode: 1, stderr: "error" } as const));
+const errorBindingFactory = createBindingFactory(
+  async () => ({ kind: "error", exitCode: 1, stderr: "error" }) as const,
+);
 
 function quotaUntilDoneBindingFactory(invocations: string[]) {
   return createBindingFactory(async ({ agentId, adapterModel, cwd }) => {

@@ -7,7 +7,7 @@ const SANDBOX_SUFFIX = ".sandbox-unrunnable.test.ts";
 export function walkV2TestFiles(root = "v2"): string[] {
   const files: string[] = [];
   for (const entry of readdirSync(root, { recursive: true, withFileTypes: true })) {
-    if (entry.isFile() && entry.name.endsWith(".test.ts")) {
+    if (entry.isFile() && (entry.name.endsWith(".test.ts") || entry.name.endsWith(".test.tsx"))) {
       files.push(join(entry.parentPath, entry.name).replace(/\\/g, "/"));
     }
   }

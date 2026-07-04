@@ -43,11 +43,12 @@ control flow as the review actuator and plan's verdict actuator.
   on rung 1 permanently poisons rung 2's signal. Reuse whatever concrete
   mechanism 00 lands rather than re-deriving it; if 01 lands first, establish
   it here and have 00 reuse it.
-- `createShrinkInvocationBinding`'s `invoke()` today forwards only
-  `cwd`/`signal`/`abortKillGraceMs`/`lastOutputAtMs` — `lastOutputAtMs` is
-  already threaded through, but there is no `onSpawned` (pgid capture) hook,
-  which the current inline shrink loop needs for the idle watchdog. The
-  binding must gain this hook before the rung loop can move onto it.
+- Unlike review's actuator, shrink's inline loop has no `onSpawned`/pgid-kill
+  step — its watchdog kills solely via `shrinkController.abort()` plus
+  `abortKillGraceMs`, both of which `createShrinkInvocationBinding` already
+  threads through (`opts.abortKillGraceMs`, `opts.lastOutputAtMs`). No new
+  hook surface is needed on this binding; confirmed by inspection
+  (`shrink.ts:395-461`), unlike review's binding which is missing `onSpawned`.
 - Successful rung result (`kind === "ok"`) and its originating `agent`/
   `configuredModel` must remain available after the executor call for the
   existing post-success pipeline (out-of-scope revert, spec-tree revert,
@@ -59,6 +60,11 @@ control flow as the review actuator and plan's verdict actuator.
       `executeWithQuotaFallback` call over bindings built from
       `createShrinkInvocationBinding` per `reviewActuatorOrder` entry.
 - [ ] Wire `shouldAdvance` per binding per the Decisions above.
+- [ ] Give each binding invocation its own `AbortController`/watchdog timer
+      (not one controller shared across `executeWithQuotaFallback`'s whole
+      call), reusing the concrete mechanism [[00-review-actuator-shared-executor.md]]
+      establishes, so a rung 1 idle-timeout abort cannot poison rung 2's
+      signal.
 - [ ] Wire `onQuotaFallbackEmit` to reproduce the existing auth-rotate /
       strict-quota / lenient-quota stderr line selection unchanged.
 - [ ] Wire `recordAttempt` (or a post-execution pass over
@@ -91,6 +97,12 @@ control flow as the review actuator and plan's verdict actuator.
       (`shared/invocation/execute.ts`) via `createShrinkInvocationBinding`
       instead of a hand-rolled `for` loop calling
       `applyQuotaFallbackWhenAllowed` directly.
+- [ ] A test (existing or new) asserts the fallback rung's `invoke()` receives
+      a non-aborted signal after a prior rung's idle-timeout abort — covering
+      the per-rung controller-ownership mechanism, since the current
+      idle-watchdog fallback test's fake agent never inspects
+      `opts.signal.aborted` and would not catch a regression to one
+      controller shared across rungs.
 
 ## Documentation updates
 

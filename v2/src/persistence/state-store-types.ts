@@ -73,7 +73,14 @@ export interface StateStore {
    * @param specPath Path to the spec within the worktree
    * @param stepId Optional step identifier for multi-step workflows
    */
-  createRun(args: { project: string; specRef: string; worktreePath: string; branch: string; specPath: string; stepId?: string }): string;
+  createRun(args: {
+    project: string;
+    specRef: string;
+    worktreePath: string;
+    branch: string;
+    specPath: string;
+    stepId?: string;
+  }): string;
 
   /**
    * Load a run and its attempt history for resume.
@@ -86,7 +93,11 @@ export interface StateStore {
    * Returns the most recent matching run, or null if none found.
    * Resume key: (project, branch, stepId). stepId omitted (null) for single-step workflows.
    */
-  findRunByProjectBranch(args: { project: string; branch: string; stepId?: string }): (Run & { attempts: Attempt[] }) | null;
+  findRunByProjectBranch(args: {
+    project: string;
+    branch: string;
+    stepId?: string;
+  }): (Run & { attempts: Attempt[] }) | null;
 
   /**
    * Record the start of a new attempt for a run.

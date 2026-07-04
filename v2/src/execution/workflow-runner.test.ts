@@ -1,7 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { join } from "node:path";
-import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
-import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { openStateStore } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { executeWorkflow, type WorkflowStep } from "./workflow-runner.ts";

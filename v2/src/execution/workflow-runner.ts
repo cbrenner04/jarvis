@@ -1,7 +1,6 @@
 import type { LogSink } from "../persistence/log-stream.ts";
-import { type OutcomeKind, openStateStore, type StateStore } from "../persistence/state-store.ts";
-import type { RunStatus } from "../persistence/state-store-types.ts";
-import { type WriteLoopInput, executeWriteLoop, type WriteLoopResult } from "./write-loop.ts";
+import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
 
 /** Classification of a workflow outcome. */
 export const WORKFLOW_OUTCOME_KINDS = [

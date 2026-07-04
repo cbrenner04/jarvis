@@ -282,11 +282,11 @@ describe("executeWorkflow", () => {
         async ({ agentId, adapterModel, cwd }) => {
           events.push(`invoke:${stepId}:${agentId}/${adapterModel}`);
 
-          if (adapterModel === "M1") {
+          if (adapterModel === "M1" || adapterModel === "M2") {
             return { kind: "quota", stderr: "quota" } as const;
           }
 
-          if (adapterModel === "M2") {
+          if (adapterModel === "M3") {
             writeFileSync(`${cwd}/proof.txt`, `${stepId}\n`, "utf8");
             return { kind: "ok", stdout: tokens[tokenIndex++] ?? "done", stderr: "" } as const;
           }
@@ -341,13 +341,16 @@ describe("executeWorkflow", () => {
         "resolve:step-1:codex/M3",
         "invoke:step-1:claude/M1",
         "invoke:step-1:claude/M2",
+        "invoke:step-1:codex/M3",
         "invoke:step-1:claude/M1",
         "invoke:step-1:claude/M2",
+        "invoke:step-1:codex/M3",
         "resolve:step-2:claude/M1",
         "resolve:step-2:claude/M2",
         "resolve:step-2:codex/M3",
         "invoke:step-2:claude/M1",
         "invoke:step-2:claude/M2",
+        "invoke:step-2:codex/M3",
       ]);
 
       const run1 = store.findRunByProjectBranch({

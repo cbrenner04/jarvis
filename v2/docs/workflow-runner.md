@@ -23,6 +23,11 @@ runner reaches it. The runner does not precompute one shared binding chain or
 reuse step one's resolved bindings for step two, even when both positions use
 the same `implement` role and loaded project agent/model config.
 
+Within one step, the resolved binding chain is the loaded step `agents` order
+flattened with each agent's configured rungs for that `role`. Quota on an
+earlier binding can therefore fall through across both the current agent's rung
+list and a later configured agent binding before the step succeeds.
+
 For each step in order:
 1. Run its write loop (via `executeWriteLoop`) to a terminal outcome.
 2. If the outcome is `complete`, advance to the next step.

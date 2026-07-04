@@ -1,3 +1,10 @@
+import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
+import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
+import {
+  type AgentModelConfig,
+  resolveExecutableRole,
+  resolveInvocationBindings,
+} from "../config/agent-model-config.ts";
 import type { LogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "./write-loop.ts";
@@ -10,22 +17,27 @@ const WORKFLOW_PRESETS = {
 } as const;
 
 type WorkflowBehavior = (typeof WORKFLOW_PRESETS)[keyof typeof WORKFLOW_PRESETS][number];
-type WorkflowScopedWriteLoopInput = Omit<WriteLoopInput, "logSink" | "stateStore" | "stepId">;
 
 /**
- * A single workflow step.
+ * A single step in a workflow.
  *
- * Contract: carries only per-step write-loop inputs plus workflow-local identity.
- * `stateStore` and `logSink` are workflow-scoped and are injected by
- * `executeWorkflow`, not supplied on each step.
- * Invariants: `stepId` must be unique within the workflow; `role` is opaque and
- * is not persisted by the runner.
+ * Contract: carries the per-step write-loop inputs (minus the pre-resolved
+ * `bindings`, which the runner derives from `role`/`agents`/`agentModelConfig`)
+ * plus workflow-local identity.
+ * Invariants: `stepId` must be unique within the workflow; `role` is validated
+ * at execution against the executable role subset.
  */
-export type WorkflowStep = WorkflowScopedWriteLoopInput & {
+export type WorkflowStep = Omit<WriteLoopInput, "bindings"> & {
   /** Unique identifier for this step within the workflow. */
   stepId: string;
-  /** Opaque role identifier for durable identity only. */
+  /** Workflow-step role validated at execution against the executable role subset. */
   role: string;
+  /** Ordered outer agent fallback list for this step. */
+  agents: readonly string[];
+  /** Loaded role-to-rung data for the agents in this step. */
+  agentModelConfig: AgentModelConfig;
+  /** Test seam for binding construction from one resolved `(agent, model)` rung. */
+  createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
 };
 
 /**
@@ -56,15 +68,7 @@ export type WorkflowPresetName = keyof typeof WORKFLOW_PRESETS;
  */
 export type WorkflowPresetStepInput = WorkflowStep;
 
-/**
- * Result of a workflow invocation.
- *
- * Contract: reports the stopping outcome, the step that produced it, the
- * durable run ID for that step, and total iterations consumed across the
- * workflow.
- * Invariants: `stepIndex`/`stepId` always refer to the step that produced the
- * returned `kind`.
- */
+/** Result of a workflow invocation. */
 export type WorkflowResult = {
   kind: WorkflowOutcomeKind;
   /** The index of the step that produced this outcome. */
@@ -78,12 +82,7 @@ export type WorkflowResult = {
   resumable: boolean;
 };
 
-/**
- * Input for the workflow runner.
- *
- * Contract: `steps` is required and ordered. `stateStore` and `logSink`, when
- * supplied, are shared across every step in the workflow.
- */
+/** Input for the workflow runner. */
 export type WorkflowRunnerInput = {
   steps: WorkflowStep[];
   stateStore?: StateStore;
@@ -129,17 +128,20 @@ export function resolveWorkflowPreset(name: WorkflowPresetName, steps: WorkflowP
   return preset.map((behavior, index) => defineWorkflowStep({ ...steps[index]!, behavior }));
 }
 
+type PreparedWorkflowStep =
+  | {
+      kind: "completed";
+      runId: string;
+    }
+  | {
+      kind: "pending";
+      input: WriteLoopInput;
+    };
+
 /**
- * Execute a multi-step workflow.
- *
- * Params: `args.steps` must be non-empty and have unique `stepId`s. Optional
- * `stateStore`/`logSink` are shared across all steps.
- * Returns: the terminal or soft-stop outcome for the step that stopped the
- * workflow, or `complete` for the final step when every step completes.
- * Throws: if `steps` is empty or contains duplicate `stepId`s.
- * Invariants: steps are replayed in order on every invocation; previously
- * completed steps rely on `executeWriteLoop`'s idempotent resume behavior
- * rather than a runner-side skip phase.
+ * Execute a multi-step workflow: run each step's write loop to completion
+ * before advancing to the next step. A non-complete outcome stops the
+ * workflow at that step without running any later steps.
  */
 export async function executeWorkflow(args: WorkflowRunnerInput): Promise<WorkflowResult> {
   if (args.steps.length === 0) {
@@ -166,27 +168,29 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       const step = args.steps[stepIndex];
       if (!step) throw new Error("Unreachable: step undefined in bounded loop");
 
-      // Extract workflow-specific fields and pass the rest to executeWriteLoop
-      const { stepId, role, ...loopInput } = step;
+      const preparedStep = prepareWorkflowStep(step, store, args.logSink);
+      if (preparedStep.kind === "completed") {
+        lastStepId = step.stepId;
+        lastResult = {
+          kind: "complete",
+          runId: preparedStep.runId,
+          iterationsConsumed: 0,
+          resumable: false,
+        };
+        continue;
+      }
 
-      const stepInput: WriteLoopInput = {
-        ...loopInput,
-        stepId,
-        stateStore: store,
-        ...(args.logSink !== undefined ? { logSink: args.logSink } : {}),
-      };
-
-      const result = await executeWriteLoop(stepInput);
+      const result = await executeWriteLoop(preparedStep.input);
       totalIterationsConsumed += result.iterationsConsumed;
       lastResult = result;
-      lastStepId = stepId;
+      lastStepId = step.stepId;
 
       // If this step didn't complete, stop the workflow
       if (result.kind !== "complete") {
         return {
           kind: result.kind,
           stepIndex,
-          stepId,
+          stepId: step.stepId,
           runId: result.runId,
           iterationsConsumed: totalIterationsConsumed,
           resumable: result.resumable,
@@ -212,4 +216,35 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       store.close();
     }
   }
+}
+
+function prepareWorkflowStep(step: WorkflowStep, store: StateStore, logSink?: LogSink): PreparedWorkflowStep {
+  const existingRun = store.findRunByProjectBranch({
+    project: step.worktree.projectName,
+    branch: step.worktree.branchName,
+    stepId: step.stepId,
+  });
+  if (existingRun?.status === "completed") {
+    return { kind: "completed", runId: existingRun.id };
+  }
+
+  const { stepId, role, agents, agentModelConfig, createBinding, ...loopInput } = step;
+  const executableRole = resolveExecutableRole(role);
+  const bindings = resolveInvocationBindings(
+    executableRole,
+    agents,
+    agentModelConfig,
+    createBinding ?? createResolvedAgentBinding,
+  );
+
+  return {
+    kind: "pending",
+    input: {
+      ...loopInput,
+      stepId,
+      bindings,
+      stateStore: store,
+      ...(logSink !== undefined ? { logSink } : {}),
+    },
+  };
 }

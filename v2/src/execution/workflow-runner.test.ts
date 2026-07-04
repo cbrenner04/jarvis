@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { writeFileSync } from "node:fs";
+import type { InvocationBinding, InvocationResult } from "../../../shared/invocation/execute.ts";
 import { openStateStore } from "../persistence/state-store.ts";
-import { simulatedBindings } from "../testing/bindings.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import {
   defineWorkflowStep,
@@ -11,6 +12,45 @@ import {
 } from "./workflow-runner.ts";
 
 const { roots } = trackedTempRoots();
+const DEFAULT_AGENT_MODEL_CONFIG = {
+  claude: {
+    implement: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+  },
+};
+
+function createBindingFactory(
+  invoke: (binding: { agentId: string; adapterModel: string; cwd: string }) => Promise<InvocationResult>,
+): NonNullable<WorkflowStep["createBinding"]> {
+  return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) =>
+    ({
+      id: `${agentId}/${adapterModel}`,
+      invoke: ({ cwd }: Parameters<InvocationBinding["invoke"]>[0]) => invoke({ agentId, adapterModel, cwd }),
+    }) satisfies InvocationBinding;
+}
+
+const doneBindingFactory = createBindingFactory(async ({ cwd }) => {
+  writeFileSync(`${cwd}/proof.txt`, "ok\n", "utf8");
+  return { kind: "ok", stdout: "done", stderr: "" } as const;
+});
+
+function okTokenBindingFactory(stdout: string) {
+  return createBindingFactory(async () => ({ kind: "ok", stdout, stderr: "" }) as const);
+}
+
+const errorBindingFactory = createBindingFactory(
+  async () => ({ kind: "error", exitCode: 1, stderr: "error" }) as const,
+);
+
+function quotaUntilDoneBindingFactory(invocations: string[]) {
+  return createBindingFactory(async ({ agentId, adapterModel, cwd }) => {
+    invocations.push(`${agentId}/${adapterModel}`);
+    if (adapterModel === "M1" || adapterModel === "M2") {
+      return { kind: "quota", stderr: "quota" } as const;
+    }
+    writeFileSync(`${cwd}/proof.txt`, "ok\n", "utf8");
+    return { kind: "ok", stdout: "done", stderr: "" } as const;
+  });
+}
 
 function createStep(
   overrides: Partial<Omit<WorkflowStep, "worktree">> & { stepId: string; role: string; branchName?: string },
@@ -29,7 +69,9 @@ function createStep(
     specPath: "spec.md",
     stepRules: "Return exactly one terminal token.",
     expectedArtifactPath: "proof.txt",
-    bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+    agents: ["claude"],
+    agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+    createBinding: doneBindingFactory,
     withExternalWorktree: createFakeWithExternalWorktree(home.jarvisRoot),
     ...rest,
   };
@@ -104,8 +146,8 @@ describe("executeWorkflow", () => {
   });
 
   test("rejects duplicate stepIds", async () => {
-    const step1 = createStep({ stepId: "step-1", role: "write" });
-    const step2 = createStep({ stepId: "step-1", role: "write" }); // duplicate
+    const step1 = createStep({ stepId: "step-1", role: "implement" });
+    const step2 = createStep({ stepId: "step-1", role: "implement" }); // duplicate
 
     try {
       await executeWorkflow({ steps: [step1, step2] });
@@ -116,7 +158,7 @@ describe("executeWorkflow", () => {
   });
 
   test("runs single step to completion", async () => {
-    const step = createStep({ stepId: "step-1", role: "write" });
+    const step = createStep({ stepId: "step-1", role: "implement" });
     const store = openStateStore(":memory:");
 
     try {
@@ -147,8 +189,8 @@ describe("executeWorkflow", () => {
   test("runs two-step workflow to completion", async () => {
     const store = openStateStore(":memory:");
     const steps = resolveWorkflowPreset("write-write", [
-      createStep({ stepId: "step-1", role: "write", branchName: "two-step" }),
-      createStep({ stepId: "step-2", role: "write", branchName: "two-step" }),
+      createStep({ stepId: "step-1", role: "implement", branchName: "two-step" }),
+      createStep({ stepId: "step-2", role: "implement", branchName: "two-step" }),
     ]);
 
     try {
@@ -185,12 +227,12 @@ describe("executeWorkflow", () => {
 
   test("stops workflow when step ends blocked", async () => {
     const store = openStateStore(":memory:");
-    const step1 = createStep({ stepId: "step-1", role: "write", branchName: "blocked-run" });
+    const step1 = createStep({ stepId: "step-1", role: "implement", branchName: "blocked-run" });
     const step2 = createStep({
       stepId: "step-2",
-      role: "write",
+      role: "implement",
       branchName: "blocked-run",
-      bindings: simulatedBindings(["blocked"], { artifactPath: "proof.txt", emitArtifact: false }),
+      createBinding: okTokenBindingFactory("blocked"),
     });
 
     try {
@@ -225,12 +267,12 @@ describe("executeWorkflow", () => {
 
   test("stops workflow on invocation_failure", async () => {
     const store = openStateStore(":memory:");
-    const step1 = createStep({ stepId: "step-1", role: "write", branchName: "failure-run" });
+    const step1 = createStep({ stepId: "step-1", role: "implement", branchName: "failure-run" });
     const step2 = createStep({
       stepId: "step-2",
-      role: "write",
+      role: "implement",
       branchName: "failure-run",
-      bindings: simulatedBindings(["error"], { artifactPath: "proof.txt", emitArtifact: false }),
+      createBinding: errorBindingFactory,
     });
 
     try {
@@ -249,12 +291,12 @@ describe("executeWorkflow", () => {
 
   test("stops workflow on soft-stop (budget-exhausted)", async () => {
     const store = openStateStore(":memory:");
-    const step1 = createStep({ stepId: "step-1", role: "write", branchName: "budget-run", maxIterations: 1 });
+    const step1 = createStep({ stepId: "step-1", role: "implement", branchName: "budget-run", maxIterations: 1 });
     const step2 = createStep({
       stepId: "step-2",
-      role: "write",
+      role: "implement",
       branchName: "budget-run",
-      bindings: simulatedBindings(["progress"], { artifactPath: "proof.txt", emitArtifact: false }),
+      createBinding: okTokenBindingFactory("progress"),
       maxIterations: 1,
     });
 
@@ -276,12 +318,12 @@ describe("executeWorkflow", () => {
     const stateDbPath = ":memory:";
 
     // First invocation: complete step 1, progress on step 2
-    const step1First = createStep({ stepId: "step-1", role: "write", branchName: "resume-test" });
+    const step1First = createStep({ stepId: "step-1", role: "implement", branchName: "resume-test" });
     const step2First = createStep({
       stepId: "step-2",
-      role: "write",
+      role: "implement",
       branchName: "resume-test",
-      bindings: simulatedBindings(["progress"], { artifactPath: "proof.txt", emitArtifact: false }),
+      createBinding: okTokenBindingFactory("progress"),
       maxIterations: 1,
     });
 
@@ -301,8 +343,8 @@ describe("executeWorkflow", () => {
       // Second invocation: resume should skip step 1 and resume step 2
       store = openStateStore(stateDbPath);
 
-      const step1Second = createStep({ stepId: "step-1", role: "write", branchName: "resume-test" });
-      const step2Second = createStep({ stepId: "step-2", role: "write", branchName: "resume-test" });
+      const step1Second = createStep({ stepId: "step-1", role: "implement", branchName: "resume-test" });
+      const step2Second = createStep({ stepId: "step-2", role: "implement", branchName: "resume-test" });
 
       const result2 = await executeWorkflow({
         steps: [step1Second, step2Second],
@@ -324,11 +366,62 @@ describe("executeWorkflow", () => {
     }
   });
 
+  test("resume skips a completed step before resolving its current role or bindings", async () => {
+    const { stateDbPath } = createJarvisHome();
+    const step1First = createStep({ stepId: "step-1", role: "implement", branchName: "resume-completed-step" });
+    const step2First = createStep({
+      stepId: "step-2",
+      role: "implement",
+      branchName: "resume-completed-step",
+      createBinding: okTokenBindingFactory("progress"),
+      maxIterations: 1,
+    });
+
+    let store = openStateStore(stateDbPath);
+
+    try {
+      const firstResult = await executeWorkflow({
+        steps: [step1First, step2First],
+        stateStore: store,
+      });
+
+      expect(firstResult.kind).toBe("budget-exhausted");
+
+      store.close();
+      store = openStateStore(stateDbPath);
+
+      const step1Second = createStep({
+        stepId: "step-1",
+        role: "operator",
+        branchName: "resume-completed-step",
+        agentModelConfig: {},
+        createBinding: () => {
+          throw new Error("completed step should not rebuild bindings");
+        },
+      });
+      const step2Second = createStep({
+        stepId: "step-2",
+        role: "implement",
+        branchName: "resume-completed-step",
+      });
+
+      const resumedResult = await executeWorkflow({
+        steps: [step1Second, step2Second],
+        stateStore: store,
+      });
+
+      expect(resumedResult.kind).toBe("complete");
+      expect(resumedResult.stepIndex).toBe(1);
+    } finally {
+      store.close();
+    }
+  });
+
   test("tracks per-step attempt history independently", async () => {
     const store = openStateStore(":memory:");
 
-    const step1 = createStep({ stepId: "step-1", role: "write", branchName: "history-test" });
-    const step2 = createStep({ stepId: "step-2", role: "write", branchName: "history-test" });
+    const step1 = createStep({ stepId: "step-1", role: "implement", branchName: "history-test" });
+    const step2 = createStep({ stepId: "step-2", role: "implement", branchName: "history-test" });
 
     try {
       await executeWorkflow({
@@ -355,6 +448,76 @@ describe("executeWorkflow", () => {
       expect(run2?.stepId).toBe("step-2");
       expect(run1?.attempts).toHaveLength(1);
       expect(run2?.attempts).toHaveLength(1);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("workflow-step execution reaches shared invocation with resolver-produced implement bindings", async () => {
+    const store = openStateStore(":memory:");
+    const invocations: string[] = [];
+    const step = createStep({
+      stepId: "step-1",
+      role: "implement",
+      branchName: "binding-order",
+      agents: ["claude", "codex"],
+      agentModelConfig: {
+        claude: {
+          implement: {
+            rungs: [
+              { adapterModel: "M1", priceKey: "P1" },
+              { adapterModel: "M2", priceKey: "P2" },
+            ],
+          },
+        },
+        codex: {
+          implement: {
+            rungs: [{ adapterModel: "M3", priceKey: "P3" }],
+          },
+        },
+      },
+      createBinding: quotaUntilDoneBindingFactory(invocations),
+    });
+
+    try {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(invocations).toEqual(["claude/M1", "claude/M2", "codex/M3"]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("workflow-step execution with empty agents returns no_binding", async () => {
+    const store = openStateStore(":memory:");
+    const step = createStep({
+      stepId: "step-1",
+      role: "implement",
+      branchName: "no-binding",
+      agents: [],
+      agentModelConfig: {},
+      createBinding: () => {
+        throw new Error("should not build bindings");
+      },
+    });
+
+    try {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+      });
+
+      expect(result.kind).toBe("invocation_failure");
+      const run = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "no-binding",
+        stepId: "step-1",
+      });
+      expect(run?.attempts[0]?.invocationFailureDetail?.failureKind).toBe("no_binding");
     } finally {
       store.close();
     }

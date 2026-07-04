@@ -28,17 +28,17 @@ Given a workflow step role, ordered outer `agents`, and loaded
 
 ## Acceptance criteria
 
-- [ ] A resolver-focused test shows `implement` with `agents = [claude, codex]` and rungs `[M1, M2]` / `[M3]` yields shared-executor binding order `claude/M1 → claude/M2 → codex/M3`.
-- [ ] A resolver-focused test covers `plan`, `adversary`, `advocate`, and `adjudicator` and shows each uses the same full-list per-agent rung consumption as `implement`.
-- [ ] A resolver-focused test shows `actuator` with the same per-agent rung lists yields `claude/M1 → codex/M1` and never includes non-head actuator rungs.
-- [ ] A workflow-step execution test shows a step with role `implement` reaches `shared/invocation/execute.ts` with resolver-produced bindings in `claude/M1 → claude/M2 → codex/M3` order, proving the production call site consumes the flattened list.
-- [ ] An execution-path test shows `quota` advances to the next resolver-produced binding, while `model_config` and `error` stop on the current binding and do not attempt the next agent or rung.
-- [ ] A test shows quota after the last rung for one agent lands on the next agent's `rungs[0]`, proving there is no global rung cursor across agents.
-- [ ] A workflow-step execution test shows `agents = []` produces shared invocation's `no_binding` outcome rather than a synthesized fallback or resolver-specific failure.
-- [ ] The binding-construction seam exposes one resolved binding per `(agent, adapterModel, priceKey)` rung rather than one binding per bare agent id.
-- [ ] A boundary test shows this resolver path accepts only executable roles and rejects `operator` rather than assigning it full-list or head-only consumption here.
-- [ ] `v2/docs/agent-model-config.md` names the concrete resolver/binding-construction home for flat binding construction instead of describing it as an abstract algorithm only.
-- [ ] `v2/docs/shared-invocation.md` documents that shared execution consumes ordered bindings already flattened from executable role + agent + rung resolution, returns `no_binding` for an empty binding list, and keeps non-`quota` results terminal.
+- [x] A resolver-focused test shows `implement` with `agents = [claude, codex]` and rungs `[M1, M2]` / `[M3]` yields shared-executor binding order `claude/M1 → claude/M2 → codex/M3`.
+- [x] A resolver-focused test covers `plan`, `adversary`, `advocate`, and `adjudicator` and shows each uses the same full-list per-agent rung consumption as `implement`.
+- [x] A resolver-focused test shows `actuator` with the same per-agent rung lists yields `claude/M1 → codex/M1` and never includes non-head actuator rungs.
+- [x] A workflow-step execution test shows a step with role `implement` reaches `shared/invocation/execute.ts` with resolver-produced bindings in `claude/M1 → claude/M2 → codex/M3` order, proving the production call site consumes the flattened list.
+- [x] An execution-path test shows `quota` advances to the next resolver-produced binding, while `model_config` and `error` stop on the current binding and do not attempt the next agent or rung.
+- [x] A test shows quota after the last rung for one agent lands on the next agent's `rungs[0]`, proving there is no global rung cursor across agents.
+- [x] A workflow-step execution test shows `agents = []` produces shared invocation's `no_binding` outcome rather than a synthesized fallback or resolver-specific failure.
+- [x] The binding-construction seam exposes one resolved binding per `(agent, adapterModel, priceKey)` rung rather than one binding per bare agent id.
+- [x] A boundary test shows this resolver path accepts only executable roles and rejects `operator` rather than assigning it full-list or head-only consumption here.
+- [x] `v2/docs/agent-model-config.md` names the concrete resolver/binding-construction home for flat binding construction instead of describing it as an abstract algorithm only.
+- [x] `v2/docs/shared-invocation.md` documents that shared execution consumes ordered bindings already flattened from executable role + agent + rung resolution, returns `no_binding` for an empty binding list, and keeps non-`quota` results terminal.
 - [ ] No `thinking`, `reviewing`, or `executing` category appears in the resolver API or the edited durable docs for this path. (Manual)
 
 ## Documentation updates

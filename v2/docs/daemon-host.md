@@ -54,7 +54,7 @@ Valid JSON with missing or invalid `kind` closes the connection.
 | `health` | — | `{ ok: true }` | Channel liveness |
 | `status` | — | `{ state: "running" }` | Daemon-host liveness only — not run orchestration status |
 | `start` | `{ input: WriteLoopInput }` | `{ runId: string }` | Spawn a write loop in the background; returns immediately with run ID. Rejected if any run is in-flight (single in-flight guard) or if a run is active for the same `(project, branch)` (per-key guard). |
-| `list` | — | `{ runs: Array<{runId, project, branch, status, isLive, error?}> }` | List durable runs merged with in-memory liveness; `isLive=true` only while the loop's Promise is executing. After spawn-boundary executor failure: `status: "failed"`, `isLive: false` (see [Spawn-boundary failure capture](#spawn-boundary-failure-capture)). Optional `error` on non-success terminals (see [Operator error on list and wait](#operator-error-on-list-and-wait)). |
+| `list` | — | `{ runs: Array<{runId, project, branch, status, isLive, error?, workflow?}> }` | List durable runs merged with in-memory liveness; `isLive=true` only while the loop's Promise is executing. After spawn-boundary executor failure: `status: "failed"`, `isLive: false` (see [Spawn-boundary failure capture](#spawn-boundary-failure-capture)). Optional `error` on non-success terminals (see [Operator error on list and wait](#operator-error-on-list-and-wait)). Workflow-backed rows may also carry authored per-step progress (see [Workflow snapshots on list rows](#workflow-snapshots-on-list-rows)). |
 | `pause` | `{ runId: string }` | `{ ok: true }` | Signal graceful pause for an active run. The run continues at the next iteration boundary (in-flight step is not aborted). Rejected if run is unknown or not active. |
 | `kill` | `{ runId: string }` | `{ ok: true }` | Abort the run's signal immediately and record durable status `killed`. Leaves the worktree dirty. Rejected if run is unknown or not active. |
 | `resume` | `{ runId: string }` | `{ ok: true }` | Resume a paused/killed run, re-invoking `executeWriteLoop` under the start guards. A paused run continues with a fresh attempt; a killed run re-runs the interrupted step. Rejected if run is unknown, in terminal status, or if another run is active (single in-flight guard or per-key guard violation). |
@@ -144,6 +144,42 @@ legacy from `loop_finished` and may be absent on store-only quiescent resolves
 
 Malformed `error` fields reject the entire `list` / `wait` payload (strict
 `daemon-wire` parsing).
+
+### Workflow snapshots on list rows
+
+Workflow-backed `list` rows may include:
+
+```json
+{
+  "workflow": {
+    "steps": [
+      {
+        "stepId": "step-1",
+        "role": "implement",
+        "status": "completed",
+        "attemptCount": 2,
+        "terminalOutcome": "complete"
+      }
+    ]
+  }
+}
+```
+
+Rules:
+
+- Omitted on single-step runs.
+- `steps[]` stays in authored workflow order from the durable workflow snapshot
+  stored on that run.
+- Each step carries `stepId`, `role`, `status`, `attemptCount`, and optional
+  `terminalOutcome`.
+- `status` is closed: `pending | in_progress | completed | stopped`.
+- `terminalOutcome` is present only for terminal steps:
+  `completed -> "complete"` and
+  `stopped -> "blocked" | "contract_miss" | "invocation_failure" | "budget-exhausted" | "paused" | "killed"`.
+- `attemptCount` counts started durable attempts for that step, including an
+  active in-progress attempt.
+- Live snapshots expose at most one `in_progress` step; quiescent snapshots
+  expose none.
 
 ### Admission guards for `start`
 

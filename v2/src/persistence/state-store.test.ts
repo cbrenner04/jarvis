@@ -201,6 +201,20 @@ describe("StateStore", () => {
     expect(run.stepId).toBe("step-1");
   });
 
+  test("loadRun returns the run's workflow snapshot when set", () => {
+    const workflowSnapshot = {
+      invocationId: "workflow-1",
+      steps: [
+        { stepId: "step-1", role: "implement" },
+        { stepId: "step-2", role: "review" },
+      ],
+    };
+    const runId = seedRun(store, { stepId: "step-1", workflowSnapshot });
+
+    const run = loadRunOrThrow(store, runId);
+    expect(run.workflowSnapshot).toEqual(workflowSnapshot);
+  });
+
   test("loadRun returns undefined/null for stepId when not set", () => {
     const runId = seedRun(store);
 

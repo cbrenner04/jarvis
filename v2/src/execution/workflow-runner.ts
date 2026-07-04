@@ -7,6 +7,7 @@ import {
 } from "../config/agent-model-config.ts";
 import type { LogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import type { WorkflowSnapshot } from "../persistence/state-store-types.ts";
 import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "./write-loop.ts";
 
 const WORKFLOW_PRESET_LENGTHS = {
@@ -106,12 +107,13 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     let totalIterationsConsumed = 0;
     let lastResult: Awaited<ReturnType<typeof executeWriteLoop>> | undefined;
     let lastStepId = "";
+    const workflowSnapshot = buildWorkflowSnapshot(args.steps, store);
 
     for (let stepIndex = 0; stepIndex < args.steps.length; stepIndex++) {
       const step = args.steps[stepIndex];
       if (!step) throw new Error("Unreachable: step undefined in bounded loop");
 
-      const preparedStep = prepareWorkflowStep(step, store, args.logSink);
+      const preparedStep = prepareWorkflowStep(step, workflowSnapshot, store, args.logSink);
       if (preparedStep.kind === "completed") {
         lastStepId = step.stepId;
         lastResult = {
@@ -175,7 +177,30 @@ function validateWorkflowStepRoles(steps: readonly WorkflowStep[]): void {
   }
 }
 
-function prepareWorkflowStep(step: WorkflowStep, store: StateStore, logSink?: LogSink): PreparedWorkflowStep {
+function buildWorkflowSnapshot(steps: readonly WorkflowStep[], store: StateStore): WorkflowSnapshot {
+  for (const step of steps) {
+    const existingRun = store.findRunByProjectBranch({
+      project: step.worktree.projectName,
+      branch: step.worktree.branchName,
+      stepId: step.stepId,
+    });
+    if (existingRun?.workflowSnapshot !== null && existingRun?.workflowSnapshot !== undefined) {
+      return existingRun.workflowSnapshot;
+    }
+  }
+
+  return {
+    invocationId: crypto.randomUUID(),
+    steps: steps.map(({ stepId, role }) => ({ stepId, role })),
+  };
+}
+
+function prepareWorkflowStep(
+  step: WorkflowStep,
+  workflowSnapshot: WorkflowSnapshot,
+  store: StateStore,
+  logSink?: LogSink,
+): PreparedWorkflowStep {
   const existingRun = store.findRunByProjectBranch({
     project: step.worktree.projectName,
     branch: step.worktree.branchName,
@@ -199,6 +224,7 @@ function prepareWorkflowStep(step: WorkflowStep, store: StateStore, logSink?: Lo
     input: {
       ...loopInput,
       stepId,
+      workflowSnapshot,
       bindings,
       stateStore: store,
       ...(logSink !== undefined ? { logSink } : {}),

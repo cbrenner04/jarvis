@@ -19,11 +19,11 @@ type PendingExecutorRun = {
   release: (mode: "settle" | "abort") => void;
 };
 
-function createFakeWriteLoopExecutor() {
+function createFakeWriteLoopExecutor(onStart?: (input: WriteLoopInput) => void) {
   const pending: PendingExecutorRun[] = [];
 
   const executor = async (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal): Promise<void> => {
-    void input;
+    onStart?.(input);
     await new Promise<void>((resolve) => {
       let released = false;
       const release = (mode: "settle" | "abort"): void => {
@@ -56,9 +56,19 @@ function createFakeWriteLoopExecutor() {
 
 type FakeWriteLoopExecutor = ReturnType<typeof createFakeWriteLoopExecutor>;
 
+function workflowSnapshot(...steps: Array<{ stepId: string; role: string }>) {
+  return { invocationId: "workflow-1", steps };
+}
+
 let stateStore: StateStore;
 let server: IpcServer;
 let fakeExecutor: FakeWriteLoopExecutor;
+
+function loadRunOrThrow(store: StateStore, runId: string) {
+  const run = store.loadRun(runId);
+  if (!run) throw new Error(`missing run ${runId}`);
+  return run;
+}
 
 async function flushBackgroundRuns(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve));
@@ -171,6 +181,136 @@ socketTest("settled run is no longer live in list", async () => {
   expect(runs.length).toBeGreaterThan(0);
   const run = runs[0];
   expect(run?.isLive).toBe(false);
+  client.close();
+});
+
+socketTest("list returns workflow step snapshots for live, stopped, and completed workflow-backed runs", async () => {
+  await server.close();
+  fakeExecutor = createFakeWriteLoopExecutor((input) => {
+    const run = stateStore.findRunByProjectBranch({
+      project: input.worktree.projectName,
+      branch: input.worktree.branchName,
+      ...(input.stepId !== undefined ? { stepId: input.stepId } : {}),
+    });
+    if (run && run.attempts.length === 0) {
+      stateStore.recordAttemptStart(run.id);
+    }
+  });
+  server = await startIpcServer(
+    SOCKET_PATH,
+    createRunControlHandlers({
+      stateStore,
+      writeLoopExecutor: fakeExecutor.executor,
+      failureReporter: () => {},
+    }),
+  );
+
+  const snapshot = workflowSnapshot(
+    { stepId: "step-1", role: "implement" },
+    { stepId: "step-2", role: "review" },
+    { stepId: "step-3", role: "verify" },
+  );
+
+  const priorRunId = stateStore.createRun({
+    project: "wf-project",
+    specRef: "main",
+    worktreePath: "/tmp/wf-project",
+    branch: "wf-live",
+    specPath: "/tmp/spec.md",
+    stepId: "step-1",
+    workflowSnapshot: snapshot,
+  });
+  const priorAttemptId = stateStore.recordAttemptStart(priorRunId);
+  stateStore.commitCompletionBoundary({ attemptId: priorAttemptId, runStatus: "in-progress", outcomeKind: "progress" });
+  const priorAttempt2Id = stateStore.recordAttemptStart(priorRunId);
+  stateStore.commitCompletionBoundary({ attemptId: priorAttempt2Id, runStatus: "completed", outcomeKind: "done" });
+
+  const client = await connectIpcClient(SOCKET_PATH);
+  const liveRunId = await startRun(client, {
+    ...mockWriteLoopInput({ projectName: "wf-project", branchName: "wf-live", projectRoot: "/tmp/wf-project" }),
+    stepId: "step-2",
+    workflowSnapshot: snapshot,
+  });
+  expect(liveRunId).toBeDefined();
+
+  let runs = await listRuns(client);
+  const liveRow = runs?.find((row) => row.runId === liveRunId);
+  expect(liveRow?.workflow).toEqual({
+    steps: [
+      { stepId: "step-1", role: "implement", status: "completed", attemptCount: 2, terminalOutcome: "complete" },
+      { stepId: "step-2", role: "review", status: "in_progress", attemptCount: 1 },
+      { stepId: "step-3", role: "verify", status: "pending", attemptCount: 0 },
+    ],
+  });
+
+  fakeExecutor.settleAll();
+  await flushBackgroundRuns();
+  const liveAttemptId = loadRunOrThrow(stateStore, liveRunId as string).attempts[0]?.id;
+  expect(liveAttemptId).toBeDefined();
+  stateStore.commitCompletionBoundary({
+    attemptId: liveAttemptId as string,
+    runStatus: "completed",
+    outcomeKind: "done",
+  });
+
+  const finalRunId = stateStore.createRun({
+    project: "wf-project",
+    specRef: "main",
+    worktreePath: "/tmp/wf-project",
+    branch: "wf-live",
+    specPath: "/tmp/spec.md",
+    stepId: "step-3",
+    workflowSnapshot: snapshot,
+  });
+  const finalAttemptId = stateStore.recordAttemptStart(finalRunId);
+  stateStore.commitCompletionBoundary({ attemptId: finalAttemptId, runStatus: "blocked", outcomeKind: "blocked" });
+
+  runs = await listRuns(client);
+  const stoppedRow = runs?.find((row) => row.runId === finalRunId);
+  expect(stoppedRow?.workflow).toEqual({
+    steps: [
+      { stepId: "step-1", role: "implement", status: "completed", attemptCount: 2, terminalOutcome: "complete" },
+      { stepId: "step-2", role: "review", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
+      { stepId: "step-3", role: "verify", status: "stopped", attemptCount: 1, terminalOutcome: "blocked" },
+    ],
+  });
+
+  const completeSnapshot = workflowSnapshot(
+    { stepId: "step-a", role: "implement" },
+    { stepId: "step-b", role: "review" },
+  );
+  const completeRunA = stateStore.createRun({
+    project: "wf-project",
+    specRef: "main",
+    worktreePath: "/tmp/wf-project",
+    branch: "wf-done",
+    specPath: "/tmp/spec.md",
+    stepId: "step-a",
+    workflowSnapshot: completeSnapshot,
+  });
+  const completeAttemptA = stateStore.recordAttemptStart(completeRunA);
+  stateStore.commitCompletionBoundary({ attemptId: completeAttemptA, runStatus: "completed", outcomeKind: "done" });
+  const completeRunB = stateStore.createRun({
+    project: "wf-project",
+    specRef: "main",
+    worktreePath: "/tmp/wf-project",
+    branch: "wf-done",
+    specPath: "/tmp/spec.md",
+    stepId: "step-b",
+    workflowSnapshot: completeSnapshot,
+  });
+  const completeAttemptB = stateStore.recordAttemptStart(completeRunB);
+  stateStore.commitCompletionBoundary({ attemptId: completeAttemptB, runStatus: "completed", outcomeKind: "done" });
+
+  runs = await listRuns(client);
+  const completedRow = runs?.find((row) => row.runId === completeRunB);
+  expect(completedRow?.workflow).toEqual({
+    steps: [
+      { stepId: "step-a", role: "implement", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
+      { stepId: "step-b", role: "review", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
+    ],
+  });
+
   client.close();
 });
 

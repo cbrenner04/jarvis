@@ -36,14 +36,14 @@ Extend daemon run snapshots so the TUI can see workflow-step progress for a sele
 
 ## Acceptance criteria
 
-- [ ] Daemon `list` returns workflow-backed rows with step snapshots that identify the active step, prior steps' outcomes, future pending steps, and per-step attempt counts.
-- [ ] The workflow-backed `list` row uses its own stored authored steps to surface `stepId`, `role`, and future pending steps even after the workflow has gone quiescent.
-- [ ] For a live workflow run, refreshed daemon `list` snapshots move the active-step marker only after the prior step reaches its durable boundary.
-- [ ] For a resumed workflow run, daemon `list` reports attempt counts independently per `stepId` rather than as one workflow-global count.
-- [ ] When a workflow run stops before the last step, daemon `list` still returns the last executed step's terminal outcome and leaves later steps pending.
-- [ ] When a workflow run completes all authored steps, daemon `list` returns no active step, marks the final step `completed` with `terminalOutcome: "complete"`, and leaves no authored step pending.
-- [ ] Single-step runs still parse through daemon `list` without workflow metadata, and `jarvis run list` keeps its current eight-column text output.
-- [ ] `v2/src/daemon/daemon-wire.test.ts` or equivalent accepts only `pending | in_progress | completed | stopped` step statuses, enforces the allowed `terminalOutcome` combinations, and rejects malformed workflow-backed `list` payloads.
+- [x] Daemon `list` returns workflow-backed rows with step snapshots that identify the active step, prior steps' outcomes, future pending steps, and per-step attempt counts.
+- [x] The workflow-backed `list` row uses its own stored authored steps to surface `stepId`, `role`, and future pending steps even after the workflow has gone quiescent.
+- [x] For a live workflow run, refreshed daemon `list` snapshots move the active-step marker only after the prior step reaches its durable boundary.
+- [x] For a resumed workflow run, daemon `list` reports attempt counts independently per `stepId` rather than as one workflow-global count.
+- [x] When a workflow run stops before the last step, daemon `list` still returns the last executed step's terminal outcome and leaves later steps pending.
+- [x] When a workflow run completes all authored steps, daemon `list` returns no active step, marks the final step `completed` with `terminalOutcome: "complete"`, and leaves no authored step pending.
+- [x] Single-step runs still parse through daemon `list` without workflow metadata, and `jarvis run list` keeps its current eight-column text output.
+- [x] `v2/src/daemon/daemon-wire.test.ts` or equivalent accepts only `pending | in_progress | completed | stopped` step statuses, enforces the allowed `terminalOutcome` combinations, and rejects malformed workflow-backed `list` payloads.
 - [ ] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates

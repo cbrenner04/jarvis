@@ -624,6 +624,9 @@ describe("v2 cli", () => {
                     branch: "feature",
                     status: "in-progress",
                     isLive: true,
+                    workflow: {
+                      steps: [{ stepId: "step-1", role: "implement", status: "in_progress", attemptCount: 1 }],
+                    },
                   },
                   {
                     runId: "run-2",

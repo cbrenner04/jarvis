@@ -34,12 +34,15 @@ const NO_STEP_ROLES_CONFIG: AgentModelConfig = {
 
 function createBindingFactory(
   invoke: (binding: { agentId: string; adapterModel: string; cwd: string }) => Promise<InvocationResult>,
+  onResolve?: (binding: { agentId: string; adapterModel: string }) => void,
 ): NonNullable<WorkflowStep["createBinding"]> {
-  return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) =>
-    ({
+  return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) => {
+    onResolve?.({ agentId, adapterModel });
+    return {
       id: `${agentId}/${adapterModel}`,
       invoke: ({ cwd }: Parameters<InvocationBinding["invoke"]>[0]) => invoke({ agentId, adapterModel, cwd }),
-    }) satisfies InvocationBinding;
+    } satisfies InvocationBinding;
+  };
 }
 
 const doneBindingFactory = createBindingFactory(async ({ cwd }) => {
@@ -244,10 +247,11 @@ describe("executeWorkflow", () => {
     const home = createJarvisHome();
     roots.push(home.jarvisRoot);
     const events: string[] = [];
+    const branchName = "write-write-proof";
     const sharedWorktree = {
       projectRoot: "/fake",
       projectName: "demo",
-      branchName: "write-write-proof",
+      branchName,
       baseRef: "HEAD",
       jarvisRoot: home.jarvisRoot,
     };
@@ -268,35 +272,28 @@ describe("executeWorkflow", () => {
       },
     };
 
-    function createProofBindingFactory(
-      stepId: string,
-      tokens: readonly string[],
-    ): NonNullable<WorkflowStep["createBinding"]> {
+    function createProofBindingFactory(stepId: string, tokens: readonly string[]): NonNullable<WorkflowStep["createBinding"]> {
       let tokenIndex = 0;
 
-      return ({ agentId, adapterModel }) => {
-        events.push(`resolve:${stepId}:${agentId}/${adapterModel}`);
+      return createBindingFactory(
+        async ({ agentId, adapterModel, cwd }) => {
+          events.push(`invoke:${stepId}:${agentId}/${adapterModel}`);
 
-        return {
-          id: `${stepId}:${agentId}/${adapterModel}`,
-          invoke: async ({ cwd }) => {
-            events.push(`invoke:${stepId}:${agentId}/${adapterModel}`);
+          if (adapterModel === "M1") {
+            return { kind: "quota", stderr: "quota" } as const;
+          }
 
-            if (adapterModel === "M1") {
-              return { kind: "quota", stderr: "quota" } as const;
-            }
+          if (adapterModel === "M2") {
+            writeFileSync(`${cwd}/proof.txt`, `${stepId}\n`, "utf8");
+            return { kind: "ok", stdout: tokens[tokenIndex++] ?? "done", stderr: "" } as const;
+          }
 
-            if (adapterModel === "M2") {
-              writeFileSync(`${cwd}/proof.txt`, `${stepId}\n`, "utf8");
-              const stdout = tokens[tokenIndex] ?? "done";
-              tokenIndex += 1;
-              return { kind: "ok", stdout, stderr: "" } as const;
-            }
-
-            throw new Error(`Unexpected fallback invocation for ${stepId}: ${agentId}/${adapterModel}`);
-          },
-        } satisfies InvocationBinding;
-      };
+          throw new Error(`Unexpected fallback invocation for ${stepId}: ${agentId}/${adapterModel}`);
+        },
+        ({ agentId, adapterModel }) => {
+          events.push(`resolve:${stepId}:${agentId}/${adapterModel}`);
+        },
+      );
     }
 
     const steps = resolveWorkflowPreset("write-write", [
@@ -304,7 +301,7 @@ describe("executeWorkflow", () => {
         ...createStep({
           stepId: "step-1",
           role: "implement",
-          branchName: "write-write-proof",
+          branchName,
           agents: TWO_AGENTS,
           agentModelConfig: sharedAgentModelConfig,
           createBinding: createProofBindingFactory("step-1", ["progress", "done"]),
@@ -316,7 +313,7 @@ describe("executeWorkflow", () => {
         ...createStep({
           stepId: "step-2",
           role: "implement",
-          branchName: "write-write-proof",
+          branchName,
           agents: TWO_AGENTS,
           agentModelConfig: sharedAgentModelConfig,
           createBinding: createProofBindingFactory("step-2", ["done"]),
@@ -352,12 +349,12 @@ describe("executeWorkflow", () => {
 
       const run1 = store.findRunByProjectBranch({
         project: "demo",
-        branch: "write-write-proof",
+        branch: branchName,
         stepId: "step-1",
       });
       const run2 = store.findRunByProjectBranch({
         project: "demo",
-        branch: "write-write-proof",
+        branch: branchName,
         stepId: "step-2",
       });
 

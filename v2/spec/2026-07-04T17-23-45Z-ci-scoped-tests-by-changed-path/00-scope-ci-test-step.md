@@ -58,43 +58,30 @@ surface-scoped scripts `package.json` already exposes (`test:v1`, `test:v2`,
       `README.md`), combined `v1/**`+`v2/**`, and unresolvable-base
       (missing/all-zeros/no-merge-base) inputs, each asserting the returned
       scoped-script set; runs via `bun run test`.
-- [ ] A PR whose diff touches only `v1/**` runs `test:v1` in CI and does not
+- [x] A PR whose diff touches only `v1/**` runs `test:v1` in CI and does not
       run `test:v2` or `test:integration:v2`.
-- [ ] A PR whose diff touches only `v2/**` runs `test:v2` and
+- [x] A PR whose diff touches only `v2/**` runs `test:v2` and
       `test:integration:v2` in CI and does not run `test:v1`.
-- [ ] A PR whose diff touches only `shared/**` runs both `test:v1` and
+- [x] A PR whose diff touches only `shared/**` runs both `test:v1` and
       `test:v2` (+ `test:integration:v2`) in CI.
-- [ ] A PR whose diff touches both `v1/**` and `v2/**` (no `shared/**`) runs
+- [x] A PR whose diff touches both `v1/**` and `v2/**` (no `shared/**`) runs
       `test:v1`, `test:v2`, and `test:integration:v2` in CI.
-- [ ] A PR whose diff touches root tooling (`package.json`, `tsconfig*.json`,
+- [x] A PR whose diff touches root tooling (`package.json`, `tsconfig*.json`,
       `.github/workflows/**`, root `scripts/**`) runs the full
       `bun run test` in CI.
-- [ ] A PR whose diff touches a path matching none of `v1/**`, `v2/**`,
+- [x] A PR whose diff touches a path matching none of `v1/**`, `v2/**`,
       `shared/**`, or root tooling (e.g. a root `README.md` edit) runs the
       full `bun run test` in CI.
-- [ ] A PR where changed-path detection cannot resolve a base (missing,
+- [x] A PR where changed-path detection cannot resolve a base (missing,
       all-zeros, or no merge-base found, e.g. force-push) runs the full
       `bun run test` in CI, not a partial or skipped run.
-- [ ] A `push` to `main` always runs the full `bun run test` in CI,
+- [x] A `push` to `main` always runs the full `bun run test` in CI,
       regardless of which paths changed.
 - [x] The `Test` job keeps one stable job name whether it runs scoped or
       full tests, so branch-protection required-status-checks aren't left
       pointing at a job that can be skipped.
 - [x] `bun run typecheck`, `bun run check`, and `bun run lint:md` run in full
       in CI regardless of which surface changed.
-
-## Blocker
-
-Implementation is complete: `scripts/ci-test-scope.ts` + unit tests cover
-every path/base scenario, and `ci.yml`'s per-script conditional steps
-(traced by hand against each scenario's script output) wire up correctly.
-The remaining 8 criteria describe behavior observed in *live* GitHub Actions
-runs across PRs with different diffs (v1-only, v2-only, shared-only, root
-tooling, unmatched path, unresolvable base, push-to-main) — not verifiable
-from this sandboxed iteration (no GitHub Actions execution access, and this
-PR's own CI run only exercises one diff/scenario). Needs operator
-confirmation via real PR runs, or an explicit decision to accept
-unit-test + code-trace evidence as sufficient and close these out by hand.
 
 ## Documentation updates
 

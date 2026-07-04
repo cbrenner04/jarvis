@@ -1,0 +1,5 @@
+1. The public workflow-step contract must stop overstating per-step write-loop inputs. `executeWorkflow` only treats loop-control inputs as step-local; workflow infrastructure such as `stateStore` and `logSink` is normalized at workflow scope. The exported types/docs for `WorkflowStep`, `defineWorkflowStep`, and preset resolution must either reflect that narrower contract or the runner must honor the extra per-step fields. Leaving the current surface as-is advertises behavior the runner does not provide.
+
+2. Workflow resume semantics must match between durable docs and runtime. The current docs describe runner-side skip-ahead by locating the first non-completed step before execution, but the implementation replays the step list and relies on write-loop idempotence for already-completed steps. Align one side to the other so operator-facing resume behavior is accurate in its durable home.
+
+3. The new exported helper APIs must have inline doc-comments. `v2/docs/documentation-standard.md` requires every exported symbol to document contract, errors, and invariants, and the new exported functions in `v2/src/execution/workflow-runner.ts` do not meet that bar yet.

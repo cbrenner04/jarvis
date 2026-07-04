@@ -33,8 +33,8 @@ that resolve by name to a concrete `WorkflowStep[]`.
 
 ## Acceptance criteria
 
-- [ ] `defineWorkflowStep` builds a `WorkflowStep` consumable by `executeWorkflow` from `{ stepId, role, behavior, ... }` input, without the caller constructing the `WriteLoopInput & { stepId; role }` shape by hand, and without dropping `maxIterations`/`signal`/`pauseSignal` when supplied.
-- [ ] `resolveWorkflowPreset("write-write", ...)` returns a two-element `WorkflowStep[]` (behavior sequence write→write) that `executeWorkflow({ steps })` accepts and runs.
-- [ ] Resolving an unregistered preset name throws an error whose message includes the invalid preset name, instead of returning an empty or undefined result.
-- [ ] Calling `resolveWorkflowPreset("write-write", steps)` with a `steps` array whose length is not 2 throws synchronously instead of returning a mismatched-length result.
-- [ ] `workflow-runner.test.ts` and `step-runner.test.ts` stay green (no behavior change to the runner or step runner).
+- [x] `defineWorkflowStep` builds a `WorkflowStep` consumable by `executeWorkflow` from `{ stepId, role, behavior, ... }` input, without the caller constructing the `WriteLoopInput & { stepId; role }` shape by hand, and without dropping `maxIterations`/`signal`/`pauseSignal` when supplied.
+- [x] `resolveWorkflowPreset("write-write", ...)` returns a two-element `WorkflowStep[]` (behavior sequence write→write) that `executeWorkflow({ steps })` accepts and runs.
+- [x] Resolving an unregistered preset name throws an error whose message includes the invalid preset name, instead of returning an empty or undefined result.
+- [x] Calling `resolveWorkflowPreset("write-write", steps)` with a `steps` array whose length is not 2 throws synchronously instead of returning a mismatched-length result.
+- [x] `workflow-runner.test.ts` and `step-runner.test.ts` stay green (no behavior change to the runner or step runner).

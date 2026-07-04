@@ -3,6 +3,8 @@
 `jarvis write` runs a resumable write loop: repeatedly calls `executeWrite` until
 work is done, blocked, or the budget runs out. See [`state-store.md`](./state-store.md)
 for durable run state and resume mechanics.
+Workflow-step authoring that wraps this write-loop input shape lives in
+[`workflow-runner.md`](./workflow-runner.md#authoring-helper-and-presets).
 
 `jarvis daemon` and `jarvis run` expose the same write-loop surface through the
 daemon IPC host. Transport and lifecycle wire contracts stay in

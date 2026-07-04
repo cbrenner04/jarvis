@@ -3,7 +3,13 @@ import { writeFileSync } from "node:fs";
 import type { InvocationBinding, InvocationResult } from "../../../shared/invocation/execute.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
-import { executeWorkflow, type WorkflowStep } from "./workflow-runner.ts";
+import {
+  defineWorkflowStep,
+  executeWorkflow,
+  resolveWorkflowPreset,
+  type WorkflowStep,
+  type WorkflowStepDefinition,
+} from "./workflow-runner.ts";
 
 const { roots } = trackedTempRoots();
 const DEFAULT_AGENT_MODEL_CONFIG = {
@@ -71,6 +77,64 @@ function createStep(
   };
 }
 
+function createStepDefinition(
+  overrides: Partial<Omit<WorkflowStepDefinition, "worktree" | "behavior">> & {
+    stepId: string;
+    role: string;
+    branchName?: string;
+  },
+): WorkflowStepDefinition {
+  return { ...createStep(overrides), behavior: "write" };
+}
+
+describe("defineWorkflowStep", () => {
+  test("builds a workflow step and preserves loop-control fields", () => {
+    const signal = new AbortController().signal;
+    const pauseSignal = new AbortController().signal;
+
+    const step = defineWorkflowStep(
+      createStepDefinition({
+        stepId: "step-1",
+        role: "implement",
+        maxIterations: 3,
+        signal,
+        pauseSignal,
+      }),
+    );
+
+    expect(step.stepId).toBe("step-1");
+    expect(step.role).toBe("implement");
+    expect(step.maxIterations).toBe(3);
+    expect(step.signal).toBe(signal);
+    expect(step.pauseSignal).toBe(pauseSignal);
+  });
+});
+
+describe("resolveWorkflowPreset", () => {
+  test("resolves write-write to concrete workflow steps", () => {
+    const steps = resolveWorkflowPreset("write-write", [
+      createStep({ stepId: "step-1", role: "implement" }),
+      createStep({ stepId: "step-2", role: "implement" }),
+    ]);
+
+    expect(steps).toHaveLength(2);
+    expect(steps[0]?.stepId).toBe("step-1");
+    expect(steps[1]?.stepId).toBe("step-2");
+  });
+
+  test("throws on unknown preset name", () => {
+    expect(() =>
+      resolveWorkflowPreset("unknown-preset" as "write-write", [createStep({ stepId: "step-1", role: "implement" })]),
+    ).toThrow('Unknown workflow preset: "unknown-preset"');
+  });
+
+  test("throws on wrong preset step count", () => {
+    expect(() => resolveWorkflowPreset("write-write", [createStep({ stepId: "step-1", role: "implement" })])).toThrow(
+      'Workflow preset "write-write" requires 2 steps, received 1',
+    );
+  });
+});
+
 describe("executeWorkflow", () => {
   test("rejects empty steps array", async () => {
     try {
@@ -124,12 +188,14 @@ describe("executeWorkflow", () => {
 
   test("runs two-step workflow to completion", async () => {
     const store = openStateStore(":memory:");
-    const step1 = createStep({ stepId: "step-1", role: "implement", branchName: "two-step" });
-    const step2 = createStep({ stepId: "step-2", role: "implement", branchName: "two-step" });
+    const steps = resolveWorkflowPreset("write-write", [
+      createStep({ stepId: "step-1", role: "implement", branchName: "two-step" }),
+      createStep({ stepId: "step-2", role: "implement", branchName: "two-step" }),
+    ]);
 
     try {
       const result = await executeWorkflow({
-        steps: [step1, step2],
+        steps,
         stateStore: store,
       });
 

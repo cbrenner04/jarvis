@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
+import type { InvocationBinding, InvocationResult } from "../../../shared/invocation/execute.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { executeWorkflow, type WorkflowStep } from "./workflow-runner.ts";
@@ -11,13 +12,34 @@ const DEFAULT_AGENT_MODEL_CONFIG = {
   },
 };
 
-function doneBindingFactory() {
+function createBindingFactory(
+  invoke: (binding: { agentId: string; adapterModel: string; cwd: string }) => Promise<InvocationResult>,
+): NonNullable<WorkflowStep["createBinding"]> {
   return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) => ({
     id: `${agentId}/${adapterModel}`,
-    invoke: async ({ cwd }: { cwd: string }) => {
-      writeFileSync(`${cwd}/proof.txt`, "ok\n", "utf8");
-      return { kind: "ok", stdout: "done", stderr: "" } as const;
-    },
+    invoke: ({ cwd }: Parameters<InvocationBinding["invoke"]>[0]) => invoke({ agentId, adapterModel, cwd }),
+  } satisfies InvocationBinding);
+}
+
+const doneBindingFactory = createBindingFactory(async ({ cwd }) => {
+  writeFileSync(`${cwd}/proof.txt`, "ok\n", "utf8");
+  return { kind: "ok", stdout: "done", stderr: "" } as const;
+});
+
+function okTokenBindingFactory(stdout: string) {
+  return createBindingFactory(async () => ({ kind: "ok", stdout, stderr: "" } as const));
+}
+
+const errorBindingFactory = createBindingFactory(async () => ({ kind: "error", exitCode: 1, stderr: "error" } as const));
+
+function quotaUntilDoneBindingFactory(invocations: string[]) {
+  return createBindingFactory(async ({ agentId, adapterModel, cwd }) => {
+    invocations.push(`${agentId}/${adapterModel}`);
+    if (adapterModel === "M1" || adapterModel === "M2") {
+      return { kind: "quota", stderr: "quota" } as const;
+    }
+    writeFileSync(`${cwd}/proof.txt`, "ok\n", "utf8");
+    return { kind: "ok", stdout: "done", stderr: "" } as const;
   });
 }
 
@@ -40,7 +62,7 @@ function createStep(
     expectedArtifactPath: "proof.txt",
     agents: ["claude"],
     agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
-    createBinding: doneBindingFactory(),
+    createBinding: doneBindingFactory,
     withExternalWorktree: createFakeWithExternalWorktree(home.jarvisRoot),
     ...rest,
   };
@@ -141,10 +163,7 @@ describe("executeWorkflow", () => {
       stepId: "step-2",
       role: "implement",
       branchName: "blocked-run",
-      createBinding: () => ({
-        id: "claude/M1",
-        invoke: async () => ({ kind: "ok", stdout: "blocked", stderr: "" }),
-      }),
+      createBinding: okTokenBindingFactory("blocked"),
     });
 
     try {
@@ -184,10 +203,7 @@ describe("executeWorkflow", () => {
       stepId: "step-2",
       role: "implement",
       branchName: "failure-run",
-      createBinding: () => ({
-        id: "claude/M1",
-        invoke: async () => ({ kind: "error", exitCode: 1, stderr: "error" }),
-      }),
+      createBinding: errorBindingFactory,
     });
 
     try {
@@ -211,10 +227,7 @@ describe("executeWorkflow", () => {
       stepId: "step-2",
       role: "implement",
       branchName: "budget-run",
-      createBinding: () => ({
-        id: "claude/M1",
-        invoke: async () => ({ kind: "ok", stdout: "progress", stderr: "" }),
-      }),
+      createBinding: okTokenBindingFactory("progress"),
       maxIterations: 1,
     });
 
@@ -241,10 +254,7 @@ describe("executeWorkflow", () => {
       stepId: "step-2",
       role: "implement",
       branchName: "resume-test",
-      createBinding: () => ({
-        id: "claude/M1",
-        invoke: async () => ({ kind: "ok", stdout: "progress", stderr: "" }),
-      }),
+      createBinding: okTokenBindingFactory("progress"),
       maxIterations: 1,
     });
 
@@ -346,17 +356,7 @@ describe("executeWorkflow", () => {
           },
         },
       },
-      createBinding: ({ agentId, adapterModel }) => ({
-        id: `${agentId}/${adapterModel}`,
-        invoke: async ({ cwd }: { cwd: string }) => {
-          invocations.push(`${agentId}/${adapterModel}`);
-          if (adapterModel === "M1" || adapterModel === "M2") {
-            return { kind: "quota", stderr: "quota" } as const;
-          }
-          writeFileSync(`${cwd}/proof.txt`, "ok\n", "utf8");
-          return { kind: "ok", stdout: "done", stderr: "" } as const;
-        },
-      }),
+      createBinding: quotaUntilDoneBindingFactory(invocations),
     });
 
     try {

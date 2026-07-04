@@ -6,17 +6,24 @@ export type ResolvedAgentBinding = {
   priceKey: string;
 };
 
-/** Build one unresolved production binding from one resolved agent/model rung. */
-export function createResolvedAgentBinding(args: ResolvedAgentBinding): InvocationBinding {
-  const { agentId, adapterModel, priceKey } = args;
+function createUnwiredBinding(id: string, stderr: string): InvocationBinding {
   return {
-    id: `${agentId}/${adapterModel}`,
+    id,
     invoke: async () => ({
       kind: "error",
       exitCode: 127,
-      stderr: `agent '${agentId}' model '${adapterModel}' price '${priceKey}' invocation is not wired yet`,
+      stderr,
     }),
   };
+}
+
+/** Build one unresolved production binding from one resolved agent/model rung. */
+export function createResolvedAgentBinding(args: ResolvedAgentBinding): InvocationBinding {
+  const { agentId, adapterModel, priceKey } = args;
+  return createUnwiredBinding(
+    `${agentId}/${adapterModel}`,
+    `agent '${agentId}' model '${adapterModel}' price '${priceKey}' invocation is not wired yet`,
+  );
 }
 
 /**
@@ -28,12 +35,5 @@ export function createResolvedAgentBinding(args: ResolvedAgentBinding): Invocati
  * production code — tests inject their own bindings instead.
  */
 export function createAgentBindings(agentIds: readonly string[]): readonly InvocationBinding[] {
-  return agentIds.map((id) => ({
-    id,
-    invoke: async () => ({
-      kind: "error",
-      exitCode: 127,
-      stderr: `agent '${id}' invocation is not wired yet`,
-    }),
-  }));
+  return agentIds.map((id) => createUnwiredBinding(id, `agent '${id}' invocation is not wired yet`));
 }

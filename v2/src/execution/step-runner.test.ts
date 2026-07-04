@@ -10,6 +10,31 @@ function okBinding(stdout: string): InvocationBinding {
   };
 }
 
+const IMPLEMENT_CONFIG = {
+  claude: {
+    implement: {
+      rungs: [
+        { adapterModel: "M1", priceKey: "P1" },
+        { adapterModel: "M2", priceKey: "P2" },
+      ],
+    },
+  },
+  codex: {
+    implement: {
+      rungs: [{ adapterModel: "M3", priceKey: "P3" }],
+    },
+  },
+};
+
+function createImplementBindings(
+  invoke: (binding: { agentId: string; adapterModel: string }) => InvocationBinding["invoke"],
+): readonly InvocationBinding[] {
+  return resolveInvocationBindings("implement", ["claude", "codex"], IMPLEMENT_CONFIG, (binding) => ({
+    id: `${binding.agentId}/${binding.adapterModel}`,
+    invoke: invoke(binding),
+  }));
+}
+
 describe("step runner token parsing", () => {
   test("accepts all terminal tokens", () => {
     expect(parseStepOutcomeToken("done")).toBe("done");
@@ -128,35 +153,13 @@ describe("step runner classification", () => {
 
   test("quota advances across resolved bindings and lands on the next agent head rung", async () => {
     const invocations: string[] = [];
-    const bindings = resolveInvocationBindings(
-      "implement",
-      ["claude", "codex"],
-      {
-        claude: {
-          implement: {
-            rungs: [
-              { adapterModel: "M1", priceKey: "P1" },
-              { adapterModel: "M2", priceKey: "P2" },
-            ],
-          },
-        },
-        codex: {
-          implement: {
-            rungs: [{ adapterModel: "M3", priceKey: "P3" }],
-          },
-        },
-      },
-      ({ agentId, adapterModel }) => ({
-        id: `${agentId}/${adapterModel}`,
-        invoke: async () => {
-          invocations.push(`${agentId}/${adapterModel}`);
-          if (adapterModel !== "M3") {
-            return { kind: "quota", stderr: "quota" } as const;
-          }
-          return { kind: "ok", stdout: "done", stderr: "" } as const;
-        },
-      }),
-    );
+    const bindings = createImplementBindings(({ agentId, adapterModel }) => async () => {
+      invocations.push(`${agentId}/${adapterModel}`);
+      if (adapterModel !== "M3") {
+        return { kind: "quota", stderr: "quota" } as const;
+      }
+      return { kind: "ok", stdout: "done", stderr: "" } as const;
+    });
 
     const result = await runStep({
       prompt: "p",
@@ -171,38 +174,16 @@ describe("step runner classification", () => {
 
   test("model_config after quota stops on the current resolved binding", async () => {
     const invocations: string[] = [];
-    const bindings = resolveInvocationBindings(
-      "implement",
-      ["claude", "codex"],
-      {
-        claude: {
-          implement: {
-            rungs: [
-              { adapterModel: "M1", priceKey: "P1" },
-              { adapterModel: "M2", priceKey: "P2" },
-            ],
-          },
-        },
-        codex: {
-          implement: {
-            rungs: [{ adapterModel: "M3", priceKey: "P3" }],
-          },
-        },
-      },
-      ({ agentId, adapterModel }) => ({
-        id: `${agentId}/${adapterModel}`,
-        invoke: async () => {
-          invocations.push(`${agentId}/${adapterModel}`);
-          if (adapterModel === "M1") {
-            return { kind: "quota", stderr: "quota" } as const;
-          }
-          if (adapterModel === "M2") {
-            return { kind: "model_config", stderr: "bad model" } as const;
-          }
-          return { kind: "ok", stdout: "done", stderr: "" } as const;
-        },
-      }),
-    );
+    const bindings = createImplementBindings(({ agentId, adapterModel }) => async () => {
+      invocations.push(`${agentId}/${adapterModel}`);
+      if (adapterModel === "M1") {
+        return { kind: "quota", stderr: "quota" } as const;
+      }
+      if (adapterModel === "M2") {
+        return { kind: "model_config", stderr: "bad model" } as const;
+      }
+      return { kind: "ok", stdout: "done", stderr: "" } as const;
+    });
 
     const result = await runStep({
       prompt: "p",
@@ -220,38 +201,16 @@ describe("step runner classification", () => {
 
   test("error after quota stops on the current resolved binding", async () => {
     const invocations: string[] = [];
-    const bindings = resolveInvocationBindings(
-      "implement",
-      ["claude", "codex"],
-      {
-        claude: {
-          implement: {
-            rungs: [
-              { adapterModel: "M1", priceKey: "P1" },
-              { adapterModel: "M2", priceKey: "P2" },
-            ],
-          },
-        },
-        codex: {
-          implement: {
-            rungs: [{ adapterModel: "M3", priceKey: "P3" }],
-          },
-        },
-      },
-      ({ agentId, adapterModel }) => ({
-        id: `${agentId}/${adapterModel}`,
-        invoke: async () => {
-          invocations.push(`${agentId}/${adapterModel}`);
-          if (adapterModel === "M1") {
-            return { kind: "quota", stderr: "quota" } as const;
-          }
-          if (adapterModel === "M2") {
-            return { kind: "error", exitCode: 1, stderr: "boom" } as const;
-          }
-          return { kind: "ok", stdout: "done", stderr: "" } as const;
-        },
-      }),
-    );
+    const bindings = createImplementBindings(({ agentId, adapterModel }) => async () => {
+      invocations.push(`${agentId}/${adapterModel}`);
+      if (adapterModel === "M1") {
+        return { kind: "quota", stderr: "quota" } as const;
+      }
+      if (adapterModel === "M2") {
+        return { kind: "error", exitCode: 1, stderr: "boom" } as const;
+      }
+      return { kind: "ok", stdout: "done", stderr: "" } as const;
+    });
 
     const result = await runStep({
       prompt: "p",

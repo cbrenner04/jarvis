@@ -7,7 +7,6 @@ export const EXECUTABLE_ROLES = ["plan", "implement", "adversary", "advocate", "
 export type ExecutableRole = (typeof EXECUTABLE_ROLES)[number];
 
 type Role = ExecutableRole | "operator";
-const REQUIRED_ROLES: readonly ExecutableRole[] = EXECUTABLE_ROLES;
 const executableRoleSet = new Set<string>(EXECUTABLE_ROLES);
 
 export type Model = {
@@ -19,7 +18,7 @@ export type ModelEscalation = {
   readonly rungs: readonly Model[];
 };
 
-export type ModelsByRole = Partial<Record<Role | "operator", ModelEscalation>>;
+export type ModelsByRole = Partial<Record<Role, ModelEscalation>>;
 
 export type AgentModelConfig = Record<string, ModelsByRole | undefined>;
 
@@ -27,7 +26,7 @@ export type LoadError = {
   readonly errors: readonly string[];
 };
 
-const ALL_ROLES: readonly Role[] = [...REQUIRED_ROLES, "operator"];
+const ALL_ROLES: readonly Role[] = [...EXECUTABLE_ROLES, "operator"];
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -114,8 +113,12 @@ export function resolveInvocationBindings<T>(
       throw new Error(`missing model escalation for agent '${agentId}' and role '${role}'`);
     }
 
-    const rungs = role === "actuator" ? escalation.rungs.slice(0, 1) : escalation.rungs;
-    for (const rung of rungs) {
+    const rungCount = role === "actuator" ? 1 : escalation.rungs.length;
+    for (let i = 0; i < rungCount; i++) {
+      const rung = escalation.rungs[i];
+      if (rung === undefined) {
+        throw new Error(`missing rung ${i} for agent '${agentId}' and role '${role}'`);
+      }
       bindings.push(
         createBinding({
           agentId,
@@ -203,7 +206,7 @@ export function loadAgentModelConfig(filePath: string, agents: readonly string[]
     const agentEntry = jsonData[agent];
 
     if (agentEntry === undefined) {
-      for (const role of REQUIRED_ROLES) {
+      for (const role of EXECUTABLE_ROLES) {
         errors.push(`agent ${agent}: missing required role ${role}`);
       }
       continue;

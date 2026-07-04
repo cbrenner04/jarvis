@@ -1,10 +1,15 @@
 import { describe, expect, test } from "bun:test";
+import type { LaunchFieldCollectionResult } from "./tui-field-collector.tsx";
 import { collectLaunchFieldsViaInk } from "./tui-field-collector.tsx";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import { loadInkUi } from "./tui-ink-runtime.ts";
 
-function createMockInkRender(): InkRender {
-  return ((_element: unknown) => {
+type FormElement = { props: { onDone: (result: LaunchFieldCollectionResult) => void } };
+
+/** Drives `onDone` directly from the rendered element's props, bypassing ink's reconciler. */
+function createMockInkRender(result: LaunchFieldCollectionResult): InkRender {
+  return ((element: unknown) => {
+    queueMicrotask(() => (element as FormElement).props.onDone(result));
     return {
       rerender() {},
       unmount() {},
@@ -18,23 +23,27 @@ function createMockInkRender(): InkRender {
 
 describe("collectLaunchFieldsViaInk", () => {
   test("uses loadInkUi boundary and completes with injected render seam", async () => {
-    const injectedRender = createMockInkRender();
-    const collectionPromise = collectLaunchFieldsViaInk(injectedRender);
+    const expected: LaunchFieldCollectionResult = {
+      ok: true,
+      fields: {
+        projectRoot: "/root",
+        projectName: "proj",
+        branchName: "main",
+        baseRef: "main",
+        specPath: "spec.md",
+        artifactPath: "artifact.md",
+      },
+    };
+    const result = await collectLaunchFieldsViaInk(createMockInkRender(expected));
 
-    // Since we're using an injected seam, collectLaunchFieldsViaInk should complete
-    // without throwing. With a real ink render, the form would wait for input.
-    // With the mock, it completes immediately when unmount is called.
-    const result = await Promise.race([
-      collectionPromise,
-      new Promise<{ ok: false; errors: string[] }>((resolve) => {
-        setTimeout(() => {
-          resolve({ ok: false, errors: ["timeout"] });
-        }, 100);
-      }),
-    ]);
+    expect(result).toEqual(expected);
+  });
 
-    // The injected seam allows the function to complete without a TTY
-    expect(result).toBeDefined();
+  test("propagates a failure result from the injected render seam", async () => {
+    const expected: LaunchFieldCollectionResult = { ok: false, errors: ["missing required field: project"] };
+    const result = await collectLaunchFieldsViaInk(createMockInkRender(expected));
+
+    expect(result).toEqual(expected);
   });
 });
 

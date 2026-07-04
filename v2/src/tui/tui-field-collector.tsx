@@ -1,6 +1,7 @@
-import { createElement, Fragment, type ReactElement, useState } from "react";
+import { createElement, type ReactElement, type ReactNode, useState } from "react";
 import type { WriteLaunchFieldValues } from "../execution/write-loop-input.ts";
 import type { InkRender } from "./tui-ink-feedback.tsx";
+import { loadInkUi } from "./tui-ink-runtime.ts";
 
 /** Result of ink or injectable launch field collection. */
 export type LaunchFieldCollectionResult =
@@ -25,7 +26,7 @@ const LAUNCH_FIELD_PROMPTS: readonly LaunchFieldPrompt[] = [
   { key: "maxIterations", label: "max-iterations (optional)" },
 ];
 
-type TextComponent = (props: { children?: string }) => ReactElement;
+type TextComponent = (props: { children?: ReactNode }) => ReactElement;
 type UseInputHook = (
   inputHandler: (
     input: string,
@@ -93,20 +94,8 @@ function promptAt(index: number): LaunchFieldPrompt {
 
 /** Collect launch fields through ink prompts backed by `useInput`. */
 export async function collectLaunchFieldsViaInk(inkRender?: InkRender): Promise<LaunchFieldCollectionResult> {
-  let renderFn: InkRender;
-  let Text: TextComponent;
-  let useInput: UseInputHook;
-
-  if (inkRender !== undefined) {
-    renderFn = inkRender;
-    Text = ({ children }) => createElement(Fragment, null, children);
-    useInput = () => {};
-  } else {
-    const ink = await import("ink");
-    renderFn = ink.render;
-    Text = ink.Text as TextComponent;
-    useInput = ink.useInput as UseInputHook;
-  }
+  const { renderFn, Text, useInput: inkUseInput } = await loadInkUi(inkRender);
+  const useInput: UseInputHook = inkUseInput ?? (() => {});
 
   return new Promise<LaunchFieldCollectionResult>((resolve) => {
     const instance = renderFn(

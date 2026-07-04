@@ -81,14 +81,19 @@ function validateRungs(agent: string, role: string, rungs: unknown, errors: stri
   return validRungs;
 }
 
+const ALL_ROLES: readonly (Role | "operator")[] = [...REQUIRED_ROLES, "operator"];
+
 function validateRoles(agent: string, agentEntry: Record<string, unknown>, errors: string[]): ModelsByRole {
   const modelsByRole: ModelsByRole = {};
 
-  for (const role of REQUIRED_ROLES) {
+  for (const role of ALL_ROLES) {
+    const required = role !== "operator";
     const roleEntry = agentEntry[role];
 
     if (roleEntry === undefined) {
-      errors.push(`agent ${agent}: missing required role ${role}`);
+      if (required) {
+        errors.push(`agent ${agent}: missing required role ${role}`);
+      }
       continue;
     }
 
@@ -100,27 +105,6 @@ function validateRoles(agent: string, agentEntry: Record<string, unknown>, error
     const validRungs = validateRungs(agent, role, roleEntry.rungs, errors);
     if (validRungs.length > 0) {
       modelsByRole[role] = { rungs: validRungs };
-    }
-  }
-
-  // Handle optional operator role
-  const operatorEntry = agentEntry.operator;
-  if (operatorEntry !== undefined && isObject(operatorEntry)) {
-    const operatorRungs = operatorEntry.rungs;
-    if (isArray(operatorRungs) && operatorRungs.length > 0) {
-      const validRungs: Model[] = [];
-      for (let i = 0; i < operatorRungs.length; i++) {
-        const rung = operatorRungs[i];
-        if (isObject(rung) && isString(rung.adapterModel) && isString(rung.priceKey)) {
-          validRungs.push({
-            adapterModel: rung.adapterModel,
-            priceKey: rung.priceKey,
-          });
-        }
-      }
-      if (validRungs.length > 0) {
-        modelsByRole.operator = { rungs: validRungs };
-      }
     }
   }
 

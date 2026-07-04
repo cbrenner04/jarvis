@@ -38,26 +38,6 @@ const RUN_GAMMA: DaemonListRunRow = {
   isLive: false,
 };
 
-const WORKFLOW_RUN_ALPHA: DaemonListRunRow = {
-  runId: "run-alpha",
-  project: "demo",
-  branch: "alpha",
-  status: "in-progress",
-  isLive: true,
-  workflow: {
-    steps: [
-      { stepId: "step-1", role: "implement", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
-      { stepId: "step-2", role: "review", status: "in_progress", attemptCount: 1 },
-      { stepId: "step-3", role: "verify", status: "pending", attemptCount: 0 },
-    ],
-  },
-};
-
-function workflowLines(state: TuiMonitorState | undefined): string[] {
-  if (state === undefined) return [];
-  return monitorTextLines(state);
-}
-
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
@@ -906,42 +886,24 @@ describe("runTuiEntry", () => {
     }
   });
 
-  test("workflow-backed row shows workflow steps from list without empty chrome on single-step rows", async () => {
-    const view = createViewHost();
-    const { deps } = entryDeps(
-      {
-        listResponses: [{ runs: [WORKFLOW_RUN_ALPHA, RUN_BETA] }],
-        waitImpl: async () => ({ runStatus: "in-progress" }),
-      },
-      { viewHost: view.host },
-    );
-
-    const pending = runTuiEntry(deps);
-    await view.waitUntilOpen();
-    await flush();
-
-    const workflowSnapshot = workflowLines(view.monitorStates.at(-1));
-    expect(workflowSnapshot).toContain("Workflow");
-    expect(workflowSnapshot).toContain("> step-2 review in_progress attempts=1");
-
-    view.selectRun("run-beta");
-    await flush();
-
-    const singleStepSnapshot = workflowLines(view.monitorStates.at(-1));
-    expect(singleStepSnapshot).not.toContain("Workflow");
-
-    view.quit();
-    await pending;
-  });
-
-  test("refresh updates workflow step view in place when active step advances", async () => {
+  test("workflow step view follows list refresh and selection", async () => {
     const view = createViewHost();
     const refresh = createRefreshScheduler();
-    const advancedWorkflow: DaemonListRunRow = {
-      ...WORKFLOW_RUN_ALPHA,
+    const workflowRun: DaemonListRunRow = {
+      ...RUN_ALPHA,
       workflow: {
         steps: [
           { stepId: "step-1", role: "implement", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
+          { stepId: "step-2", role: "review", status: "in_progress", attemptCount: 1 },
+          { stepId: "step-3", role: "verify", status: "pending", attemptCount: 0 },
+        ],
+      },
+    };
+    const advancedWorkflow: DaemonListRunRow = {
+      ...workflowRun,
+      workflow: {
+        steps: [
+          workflowRun.workflow!.steps[0]!,
           { stepId: "step-2", role: "review", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
           { stepId: "step-3", role: "verify", status: "in_progress", attemptCount: 1 },
         ],
@@ -949,7 +911,7 @@ describe("runTuiEntry", () => {
     };
     const { deps } = entryDeps(
       {
-        listResponses: [{ runs: [WORKFLOW_RUN_ALPHA] }, { runs: [advancedWorkflow] }],
+        listResponses: [{ runs: [workflowRun, RUN_BETA] }, { runs: [advancedWorkflow, RUN_BETA] }],
         waitImpl: async () => ({ runStatus: "in-progress" }),
       },
       { viewHost: view.host, refreshScheduler: refresh.scheduler },
@@ -958,14 +920,22 @@ describe("runTuiEntry", () => {
     const pending = runTuiEntry(deps);
     await view.waitUntilOpen();
     await flush();
-    expect(workflowLines(view.monitorStates.at(-1))).toContain("> step-2 review in_progress attempts=1");
+
+    let lines = monitorTextLines(view.monitorStates.at(-1)!);
+    expect(lines).toContain("Workflow");
+    expect(lines).toContain("> step-2 review in_progress attempts=1");
 
     refresh.tick();
     await flush();
 
-    const finalState = view.monitorStates.at(-1);
-    expect(finalState?.selectedRunId).toBe("run-alpha");
-    expect(workflowLines(finalState)).toContain("> step-3 verify in_progress attempts=1");
+    const refreshed = view.monitorStates.at(-1);
+    expect(refreshed?.selectedRunId).toBe("run-alpha");
+    lines = monitorTextLines(refreshed!);
+    expect(lines).toContain("> step-3 verify in_progress attempts=1");
+
+    view.selectRun("run-beta");
+    await flush();
+    expect(monitorTextLines(view.monitorStates.at(-1)!)).not.toContain("Workflow");
 
     view.quit();
     await pending;

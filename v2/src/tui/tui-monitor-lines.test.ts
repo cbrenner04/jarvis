@@ -72,13 +72,7 @@ describe("monitorTextLines", () => {
             isLive: false,
             workflow: {
               steps: [
-                {
-                  stepId: "step-1",
-                  role: "implement",
-                  status: "completed",
-                  attemptCount: 2,
-                  terminalOutcome: "complete",
-                },
+                WORKFLOW_RUN.workflow!.steps[0]!,
                 { stepId: "step-2", role: "review", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
                 { stepId: "step-3", role: "verify", status: "stopped", attemptCount: 1, terminalOutcome: "blocked" },
               ],

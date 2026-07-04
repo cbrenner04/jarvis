@@ -272,6 +272,8 @@ The sandbox (e.g. in Claude Code) can hide real state.
 
 **Per-call bypass is mostly unavoidable here — don't over-invest in allowlists.** The big sandbox-off needs are intrinsic isolation boundaries, not config gaps: the `*.sandbox-unrunnable.test.ts` suite spawns real subprocesses (git, agent CLIs, `gh`), and `ps`/`pgrep` can't see processes spawned outside the sandbox. No allowlist changes either, so `bun run ready` and process inspection run sandbox-off, full stop — the test temp dirs already use `$TMPDIR` (permitted), so the filesystem was never the blocker. A `.claude/settings.local.json` allowlist only helps genuinely filesystem/network-only commands, a thin set here. Reserve `dangerouslyDisableSandbox` for that intrinsic residue. Making `ready` sandbox-aware so the gate stops needing a blanket bypass is a tracked harness improvement — see the `sandbox-aware-ready` seed.
 
+**Shrink-phase git subprocess bound:** see [v2/docs/v1-behaviors.md § Patch-mode post-completion shrink](../../v2/docs/v1-behaviors.md#patch-mode-post-completion-shrink) for the shrink-phase `git` subprocess timeout that keeps `shrink.sandbox-unrunnable.test.ts` from hanging CI on a stalled `git` call.
+
 ### `ps`/`pgrep` blindness and flag traps
 
 - Processes spawned outside the sandbox are invisible to in-sandbox `ps`/`pgrep`; process inspection **must run sandbox-off**.

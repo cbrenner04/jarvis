@@ -272,7 +272,10 @@ describe("executeWorkflow", () => {
       },
     };
 
-    function createProofBindingFactory(stepId: string, tokens: readonly string[]): NonNullable<WorkflowStep["createBinding"]> {
+    function createProofBindingFactory(
+      stepId: string,
+      tokens: readonly string[],
+    ): NonNullable<WorkflowStep["createBinding"]> {
       let tokenIndex = 0;
 
       return createBindingFactory(

@@ -142,6 +142,12 @@ type PreparedWorkflowStep =
  * Execute a multi-step workflow: run each step's write loop to completion
  * before advancing to the next step. A non-complete outcome stops the
  * workflow at that step without running any later steps.
+ *
+ * Every step's role is validated against every one of its configured agents
+ * before any durable workflow state changes — including on resume, against
+ * whatever config is loaded at that time — so a role that stopped resolving
+ * for a configured agent fails the whole workflow load rather than surfacing
+ * only when its step is reached.
  */
 export async function executeWorkflow(args: WorkflowRunnerInput): Promise<WorkflowResult> {
   if (args.steps.length === 0) {
@@ -156,6 +162,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     }
     stepIds.add(step.stepId);
   }
+
+  validateWorkflowStepRoles(args.steps);
 
   const store = args.stateStore ?? openStateStore();
 
@@ -215,6 +223,34 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     if (!args.stateStore) {
       store.close();
     }
+  }
+}
+
+/**
+ * Validate every step's role against every one of that step's configured
+ * agents before any durable workflow state change.
+ *
+ * Aggregates all `(stepId, role, agent)` misses across the whole array into
+ * one error rather than failing on the first invalid step, since the source
+ * and config are both hand-edited. Runs unconditionally, including for
+ * already-completed steps on resume, so a role that stopped resolving under
+ * the current config fails the load even though that step would otherwise be
+ * skipped.
+ */
+function validateWorkflowStepRoles(steps: readonly WorkflowStep[]): void {
+  const missingBindings: string[] = [];
+
+  for (const step of steps) {
+    for (const agent of step.agents) {
+      const agentEntry = step.agentModelConfig[agent];
+      if (!agentEntry || !Object.hasOwn(agentEntry, step.role)) {
+        missingBindings.push(`(${step.stepId}, ${step.role}, ${agent})`);
+      }
+    }
+  }
+
+  if (missingBindings.length > 0) {
+    throw new Error(`Workflow step role validation failed: ${missingBindings.join(", ")}`);
   }
 }
 

@@ -6,7 +6,17 @@ See [`v2-architecture.md`](v2-architecture.md) (orchestration; multi-step workfl
 
 ## Execution contract
 
-`executeWorkflow(args: WorkflowRunnerInput)` sequences an ordered `steps` array; each step has `stepId` (unique within the workflow), `role` (opaque identifier for durable step identity), and all parameters of a single [`write-behavior.md`](write-behavior.md) write loop.
+`executeWorkflow(args: WorkflowRunnerInput)` sequences an ordered `steps`
+array. Each step carries `stepId` (unique within the workflow), `role` (the
+workflow-source validation key, checked against the current config before
+execution), its own `agents` order and `agentModelConfig`, all parameters of a
+single [`write-behavior.md`](write-behavior.md) write loop (minus `bindings`),
+and an optional `createBinding` test seam.
+
+After validation succeeds, `executeWorkflow` derives each pending step's
+execution-time `bindings` from `role`/`agents`/`agentModelConfig` via the
+two-axis resolution in [`agent-model-config.md`](agent-model-config.md), then
+passes the resulting write-loop input to `executeWriteLoop`.
 
 For each step in order:
 1. Run its write loop (via `executeWriteLoop`) to a terminal outcome.
@@ -45,12 +55,15 @@ Validation stays synchronous:
 
 ## Resume contract
 
-Resume replays the supplied `steps` array from the beginning on each invocation.
-The runner does not do a separate pre-pass to locate a resume point. Instead,
-each step re-enters through its own `stepId`-scoped write-loop resume path:
-previously completed steps return their stored result idempotently with no new
-work, and the first non-completed step becomes the first step that performs
-fresh execution.
+Resume replays the supplied `steps` array from the beginning on each
+invocation, after the runner revalidates the whole array against the
+resume-time config (see [Validation](#validation) below). The runner does not
+do a separate pre-pass to locate a resume point. Instead, each step re-enters
+through its own `stepId`-scoped run lookup (via
+`findRunByProjectBranch({ project, branch, stepId })`): a step whose run is
+already `completed` returns its stored result idempotently with no new work
+and no binding resolution, and the first non-completed step becomes the first
+step that performs fresh execution.
 
 The step-level loop-boundary resume rules are unchanged from the single-step
 write loop: an `in-progress` attempt is re-run over a dirty worktree; a
@@ -65,7 +78,7 @@ Each step maintains its own durable `(project, branch, stepId)` run independentl
 - Distinct `run_id` per step.
 - Distinct attempt history queryable via `findRunByProjectBranch({ project, branch, stepId })`.
 - `stepId` must be unique within the workflow (enforced at invocation).
-- `role` is carried for step identity only and is not persisted in durable state — attempt history identifies steps by `stepId`, not role/binding.
+- `role` is the workflow-source validation key for the step but is not persisted in durable state — attempt history identifies steps by `stepId`, not role/binding.
 
 A one-step workflow runs identically to a single-step `executeWriteLoop` invocation (same terminal outcomes, same resume behavior).
 
@@ -74,8 +87,14 @@ A one-step workflow runs identically to a single-step `executeWriteLoop` invocat
 Before running any step, `executeWorkflow` validates:
 - `steps` array is not empty.
 - All `stepId` values are unique within the array.
+- For every step and every agent in that step's `agents` order, that step's
+  `agentModelConfig` contains an own binding entry for the step's `role`.
 
-Validation failures raise synchronously before any durable state changes.
+Workflow-source role misses are aggregated and reported as `(stepId, role,
+agent)` tuples in one synchronous failure. Inherited object properties do not
+count as bindings. Validation fails before any durable workflow state change,
+runs unconditionally (including on resume and for already-completed steps),
+and runs before role/agent bindings are derived for any pending step.
 
 ## Budget and abort
 

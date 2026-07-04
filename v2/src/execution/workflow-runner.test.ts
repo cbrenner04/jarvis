@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import type { InvocationBinding, InvocationResult } from "../../../shared/invocation/execute.ts";
+import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import {
@@ -16,6 +17,19 @@ const DEFAULT_AGENT_MODEL_CONFIG = {
   claude: {
     implement: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
   },
+};
+const TWO_AGENTS = ["claude", "codex"] as const;
+const VALID_TWO_AGENT_CONFIG: AgentModelConfig = {
+  claude: { implement: { rungs: [{ adapterModel: "claude-implement", priceKey: "claude-implement" }] } },
+  codex: { implement: { rungs: [{ adapterModel: "codex-implement", priceKey: "codex-implement" }] } },
+};
+const MISSING_CODEX_IMPLEMENT_CONFIG: AgentModelConfig = {
+  claude: { implement: { rungs: [{ adapterModel: "claude-implement", priceKey: "claude-implement" }] } },
+  codex: {},
+};
+const NO_STEP_ROLES_CONFIG: AgentModelConfig = {
+  claude: {},
+  codex: {},
 };
 
 function createBindingFactory(
@@ -366,57 +380,6 @@ describe("executeWorkflow", () => {
     }
   });
 
-  test("resume skips a completed step before resolving its current role or bindings", async () => {
-    const { stateDbPath } = createJarvisHome();
-    const step1First = createStep({ stepId: "step-1", role: "implement", branchName: "resume-completed-step" });
-    const step2First = createStep({
-      stepId: "step-2",
-      role: "implement",
-      branchName: "resume-completed-step",
-      createBinding: okTokenBindingFactory("progress"),
-      maxIterations: 1,
-    });
-
-    let store = openStateStore(stateDbPath);
-
-    try {
-      const firstResult = await executeWorkflow({
-        steps: [step1First, step2First],
-        stateStore: store,
-      });
-
-      expect(firstResult.kind).toBe("budget-exhausted");
-
-      store.close();
-      store = openStateStore(stateDbPath);
-
-      const step1Second = createStep({
-        stepId: "step-1",
-        role: "operator",
-        branchName: "resume-completed-step",
-        agentModelConfig: {},
-        createBinding: () => {
-          throw new Error("completed step should not rebuild bindings");
-        },
-      });
-      const step2Second = createStep({
-        stepId: "step-2",
-        role: "implement",
-        branchName: "resume-completed-step",
-      });
-
-      const resumedResult = await executeWorkflow({
-        steps: [step1Second, step2Second],
-        stateStore: store,
-      });
-
-      expect(resumedResult.kind).toBe("complete");
-      expect(resumedResult.stepIndex).toBe(1);
-    } finally {
-      store.close();
-    }
-  });
-
   test("tracks per-step attempt history independently", async () => {
     const store = openStateStore(":memory:");
 
@@ -518,6 +481,161 @@ describe("executeWorkflow", () => {
         stepId: "step-1",
       });
       expect(run?.attempts[0]?.invocationFailureDetail?.failureKind).toBe("no_binding");
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("executeWorkflow load-time role validation", () => {
+  test("rejects a role absent from loaded config as aggregated per-agent misses before durable state change", async () => {
+    const step = createStep({
+      stepId: "step-1",
+      role: "unknown-role",
+      agents: TWO_AGENTS,
+      agentModelConfig: NO_STEP_ROLES_CONFIG,
+    });
+    const store = openStateStore(":memory:");
+
+    try {
+      try {
+        await executeWorkflow({ steps: [step], stateStore: store });
+        expect.unreachable("Should have thrown");
+      } catch (e) {
+        const message = String(e);
+        expect(message).toContain("(step-1, unknown-role, claude)");
+        expect(message).toContain("(step-1, unknown-role, codex)");
+      }
+
+      const run = store.findRunByProjectBranch({ project: "demo", branch: "workflow-run", stepId: "step-1" });
+      expect(run).toBeNull();
+    } finally {
+      store.close();
+    }
+  });
+
+  test("treats inherited object properties as missing workflow role bindings", async () => {
+    const step = createStep({
+      stepId: "step-1",
+      role: "toString",
+      agents: TWO_AGENTS,
+      agentModelConfig: NO_STEP_ROLES_CONFIG,
+    });
+
+    try {
+      await executeWorkflow({ steps: [step] });
+      expect.unreachable("Should have thrown");
+    } catch (e) {
+      const message = String(e);
+      expect(message).toContain("(step-1, toString, claude)");
+      expect(message).toContain("(step-1, toString, codex)");
+    }
+  });
+
+  test("aggregates multiple missing step-role-agent bindings in one load failure", async () => {
+    const step1 = createStep({
+      stepId: "step-1",
+      role: "implement",
+      branchName: "aggregate-misses",
+      agents: TWO_AGENTS,
+      agentModelConfig: MISSING_CODEX_IMPLEMENT_CONFIG,
+    });
+    const step2 = createStep({
+      stepId: "step-2",
+      role: "unknown-role",
+      branchName: "aggregate-misses",
+      agents: TWO_AGENTS,
+      agentModelConfig: NO_STEP_ROLES_CONFIG,
+    });
+
+    try {
+      await executeWorkflow({ steps: [step1, step2] });
+      expect.unreachable("Should have thrown");
+    } catch (e) {
+      const message = String(e);
+      expect(message).toContain("(step-1, implement, codex)");
+      expect(message).toContain("(step-2, unknown-role, claude)");
+      expect(message).toContain("(step-2, unknown-role, codex)");
+    }
+  });
+
+  test("fails workflow load when an earlier agent has the role and a later fallback agent does not", async () => {
+    const step = createStep({
+      stepId: "step-1",
+      role: "implement",
+      agents: TWO_AGENTS,
+      agentModelConfig: MISSING_CODEX_IMPLEMENT_CONFIG,
+    });
+
+    try {
+      await executeWorkflow({ steps: [step] });
+      expect.unreachable("Should have thrown");
+    } catch (e) {
+      const message = String(e);
+      expect(message).toContain("(step-1, implement, codex)");
+      expect(message).not.toContain("(step-1, implement, claude)");
+    }
+  });
+
+  test("revalidates the loaded step array on resume against resume-time config, including already-completed steps", async () => {
+    const { stateDbPath } = createJarvisHome();
+    const step1First = createStep({
+      stepId: "step-1",
+      role: "implement",
+      branchName: "resume-revalidate",
+      agents: TWO_AGENTS,
+      agentModelConfig: VALID_TWO_AGENT_CONFIG,
+    });
+    const step2First = createStep({
+      stepId: "step-2",
+      role: "implement",
+      branchName: "resume-revalidate",
+      agents: TWO_AGENTS,
+      agentModelConfig: VALID_TWO_AGENT_CONFIG,
+      createBinding: okTokenBindingFactory("progress"),
+      maxIterations: 1,
+    });
+
+    let store = openStateStore(stateDbPath);
+
+    try {
+      const firstResult = await executeWorkflow({
+        steps: [step1First, step2First],
+        stateStore: store,
+      });
+      expect(firstResult.kind).toBe("budget-exhausted");
+
+      store.close();
+      store = openStateStore(stateDbPath);
+
+      const step1Second = createStep({
+        stepId: "step-1",
+        role: "implement",
+        branchName: "resume-revalidate",
+        agents: TWO_AGENTS,
+        agentModelConfig: MISSING_CODEX_IMPLEMENT_CONFIG,
+      });
+      const step2Second = createStep({
+        stepId: "step-2",
+        role: "implement",
+        branchName: "resume-revalidate",
+        agents: TWO_AGENTS,
+        agentModelConfig: MISSING_CODEX_IMPLEMENT_CONFIG,
+      });
+
+      try {
+        await executeWorkflow({ steps: [step1Second, step2Second], stateStore: store });
+        expect.unreachable("Should have thrown");
+      } catch (e) {
+        const message = String(e);
+        expect(message).toContain("(step-1, implement, codex)");
+        expect(message).toContain("(step-2, implement, codex)");
+      }
+
+      // Already-completed step-1's attempt history is untouched by the rejected resume
+      const run1 = store.findRunByProjectBranch({ project: "demo", branch: "resume-revalidate", stepId: "step-1" });
+      expect(run1?.status).toBe("completed");
+      expect(run1?.attempts).toHaveLength(1);
     } finally {
       store.close();
     }

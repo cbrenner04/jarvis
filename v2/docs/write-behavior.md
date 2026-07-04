@@ -217,9 +217,9 @@ When the step result is binding-chain `invocation_failure`, stdout JSON includes
 re-entry returns persisted detail only when the terminal attempt row has
 `invocation_failure_detail` stored; legacy rows without it resume detail-free.
 
-Resume identity is `(project, branch)` only. Re-invoking the same project and
+Resume identity is `(project, branch, stepId)`. For single-step workflows (default, stepId omitted), resume identity is `(project, branch)` only: re-invoking the same project and
 branch resumes the most recent durable run even if `--base`, `--spec`, or the
-materialized worktree path differ. A different project or branch creates a fresh
+materialized worktree path differ. For multi-step workflows, stepId isolates each step's attempt history: each `stepId` within the same `(project, branch)` maintains independent resume state. A different project or branch creates a fresh
 run.
 
 ## Exit codes

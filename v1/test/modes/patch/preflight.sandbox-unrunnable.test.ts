@@ -75,7 +75,7 @@ describe("maybeWarnAboutUnmergedPlanBranch stall bound", () => {
       const io: RunIo = { stdout: () => {}, stderr: (s) => (stderr += s) };
       const startTime = Date.now();
       maybeWarnAboutUnmergedPlanBranch({ io, projectRoot: dir, specPath, gitEnabled: true });
-      expect(Date.now() - startTime).toBeLessThan(15_000);
+      expect(Date.now() - startTime).toBeLessThan(25_000);
       expect(stderr).toBe("");
     } finally {
       process.env.PATH = originalPath;

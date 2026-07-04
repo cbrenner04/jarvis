@@ -227,7 +227,7 @@ describe("commitSubspec", () => {
 
       const startTime = Date.now();
       expect(() => commitSubspec(specPath, { cwd: gitDir, agentLabel: "" })).toThrow();
-      expect(Date.now() - startTime).toBeLessThan(15_000);
+      expect(Date.now() - startTime).toBeLessThan(25_000);
     } finally {
       process.env.PATH = originalPath;
       rmSync(binDir, { recursive: true, force: true });

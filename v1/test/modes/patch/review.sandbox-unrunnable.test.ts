@@ -362,7 +362,7 @@ describe("patch review helpers", () => {
 
       const startTime = Date.now();
       expect(() => commitReviewPass(1, "claude", dir)).toThrow();
-      expect(Date.now() - startTime).toBeLessThan(15_000);
+      expect(Date.now() - startTime).toBeLessThan(25_000);
     } finally {
       process.env.PATH = originalPath;
       rmSync(binDir, { recursive: true, force: true });

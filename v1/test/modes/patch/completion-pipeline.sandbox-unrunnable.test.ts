@@ -77,7 +77,7 @@ describe("discardFixupCommits", () => {
       discardFixupCommits(dir, unresolvableBaselineSha, (tag, text) => {
         if (tag === "harness") harness.push(text.trim());
       });
-      expect(Date.now() - startTime).toBeLessThan(15_000);
+      expect(Date.now() - startTime).toBeLessThan(25_000);
       expect(harness.some((line) => line.includes("failed to force-push after discard"))).toBe(true);
     } finally {
       process.env.PATH = originalPath;

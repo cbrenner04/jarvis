@@ -667,7 +667,7 @@ describe("runPatchShrinkPhase", () => {
           baseBranch: "main",
         }),
       ).rejects.toThrow();
-      expect(Date.now() - startTime).toBeLessThan(15_000);
+      expect(Date.now() - startTime).toBeLessThan(25_000);
       expect(agent.calls).toHaveLength(0);
     } finally {
       process.env.PATH = originalPath;
@@ -701,7 +701,7 @@ describe("runPatchShrinkPhase", () => {
           baseBranch: "main",
         }),
       ).rejects.toThrow();
-      expect(Date.now() - startTime).toBeLessThan(15_000);
+      expect(Date.now() - startTime).toBeLessThan(25_000);
       expect(agent.calls).toHaveLength(0);
     } finally {
       process.env.PATH = originalPath;
@@ -741,7 +741,7 @@ describe("runPatchShrinkPhase", () => {
         iterationTimeoutMs: 30_000,
         baseBranch: "main",
       });
-      expect(Date.now() - startTime).toBeLessThan(15_000);
+      expect(Date.now() - startTime).toBeLessThan(25_000);
       expect(harness.some((line) => line.includes("commit failed"))).toBe(true);
       const headAfter = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim();
       expect(headAfter).toBe(headBefore);

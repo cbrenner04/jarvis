@@ -351,7 +351,7 @@ describe("patch review helpers", () => {
     }
   });
 
-  test("stalled real git subprocess in commitReviewPass fails within 15s with fixture reaped", () => {
+  test("stalled real git subprocess in commitReviewPass fails within 25s with fixture reaped", () => {
     const { dir, cleanup } = setupPatchReviewRepo();
     const binDir = mkdtempSync(join(tmpdir(), "jarvis-review-git-stall-bin-"));
     const originalPath = process.env.PATH;

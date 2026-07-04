@@ -57,7 +57,7 @@ afterEach(() => {
 });
 
 describe("discardFixupCommits", () => {
-  test("stalled git push --force-with-lease fails within 15s and warns via fanout", () => {
+  test("stalled git push --force-with-lease fails within 25s and warns via fanout", () => {
     // An unresolvable "baseline" makes `git reset --hard` fail (caught, non-fatal), leaving HEAD at the
     // fixup commit so the headSha !== baselineSha check falls through to the force-push call site.
     const unresolvableBaselineSha = "1234567890123456789012345678901234567890";

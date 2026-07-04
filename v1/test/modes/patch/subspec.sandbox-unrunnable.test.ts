@@ -213,7 +213,7 @@ describe("commitSubspec", () => {
     expect(() => commitSubspec(specPath, { cwd: gitDir, agentLabel: "" })).toThrow(/git commit/);
   });
 
-  test("stalled real git subprocess fails within 15s with fixture reaped", () => {
+  test("stalled real git subprocess fails within 25s with fixture reaped", () => {
     createIndexFile();
     const specPath = createSpecFile("01-test-one.md", createAcceptanceSpec(true));
     commitAll("initial");

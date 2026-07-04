@@ -20,10 +20,15 @@ function createUnwiredBinding(id: string, stderr: string): InvocationBinding {
 /** Build one unresolved production binding from one resolved agent/model rung. */
 export function createResolvedAgentBinding(args: ResolvedAgentBinding): InvocationBinding {
   const { agentId, adapterModel, priceKey } = args;
-  return createUnwiredBinding(
+  const binding = createUnwiredBinding(
     `${agentId}/${adapterModel}/${priceKey}`,
     `agent '${agentId}' model '${adapterModel}' price '${priceKey}' invocation is not wired yet`,
   );
+  binding.metadata = {
+    agent: agentId,
+    model: adapterModel,
+  };
+  return binding;
 }
 
 /**
@@ -35,5 +40,12 @@ export function createResolvedAgentBinding(args: ResolvedAgentBinding): Invocati
  * production code — tests inject their own bindings instead.
  */
 export function createAgentBindings(agentIds: readonly string[]): readonly InvocationBinding[] {
-  return agentIds.map((id) => createUnwiredBinding(id, `agent '${id}' invocation is not wired yet`));
+  return agentIds.map((id) => {
+    const binding = createUnwiredBinding(id, `agent '${id}' invocation is not wired yet`);
+    binding.metadata = {
+      agent: id,
+      model: id,
+    };
+    return binding;
+  });
 }

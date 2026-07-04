@@ -22,20 +22,86 @@ export type InvocationError =
 
 export type InvocationResult = InvocationOk | InvocationQuota | InvocationError;
 
+export type InvocationBindingMetadata = {
+  agent: string;
+  model: string;
+};
+
 export type InvocationBinding<T extends InvocationResult = InvocationResult> = {
   id: string;
   invoke: (args: { prompt: string; cwd: string; signal?: AbortSignal }) => Promise<T>;
   shouldAdvance?: (result: T) => boolean;
+  metadata?: InvocationBindingMetadata;
 };
 
 export type InvocationAttempt<T extends InvocationResult = InvocationResult> = {
   binding: InvocationBinding<T>;
   result: T;
+  invocationId?: string;
 };
 
 export type InvocationExecution<T extends InvocationResult = InvocationResult> = {
   attempts: InvocationAttempt<T>[];
   final: InvocationAttempt<T> | null;
+  telemetryFailures: InvocationTelemetryFailure[];
+};
+
+export type InvocationCompletedRecord = {
+  schema_version: 1;
+  record_kind: "invocation_completed";
+  ts: string;
+  operator_session_id: string;
+  run_id: string;
+  attempt_id: string;
+  invocation_id: string;
+  project: string;
+  workflow: string;
+  step_id: string | null;
+  role: string;
+  agent: string;
+  model: string;
+  binding_id: string;
+  binding_index: number;
+  duration_ms: number;
+  worktree_path: string;
+  branch: string;
+  spec_ref: string;
+  usage: {
+    input_tokens: null;
+    output_tokens: null;
+    cache_read_input_tokens: null;
+    cache_creation_input_tokens: null;
+  };
+  usage_source: null | "unavailable";
+  cost_usd: null;
+  cost_source: null | "unavailable";
+  exit_kind: InvocationResult["kind"];
+  exit_reason: string | null;
+};
+
+export type InvocationTelemetrySink = {
+  append(record: InvocationCompletedRecord): Promise<void> | void;
+};
+
+export type InvocationTelemetryFailure = {
+  invocationId: string;
+  bindingId: string;
+  message: string;
+};
+
+export type InvocationTelemetryContext = {
+  sink: InvocationTelemetrySink;
+  operatorSessionId: string;
+  runId: string;
+  attemptId: string;
+  project: string;
+  workflow: string;
+  stepId: string | null;
+  role: string;
+  worktreePath: string;
+  branch: string;
+  specRef: string;
+  invocationIds: readonly string[];
 };
 
 /**
@@ -50,27 +116,103 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
   cwd: string;
   bindings: readonly InvocationBinding<T>[];
   signal?: AbortSignal;
+  telemetry?: InvocationTelemetryContext;
 }): Promise<InvocationExecution<T>> {
   const attempts: InvocationAttempt<T>[] = [];
+  const telemetryFailures: InvocationTelemetryFailure[] = [];
 
-  for (const binding of args.bindings) {
+  for (const [bindingIndex, binding] of args.bindings.entries()) {
+    const startedAt = Date.now();
     const result = await binding.invoke({
       prompt: args.prompt,
       cwd: args.cwd,
       ...(args.signal !== undefined ? { signal: args.signal } : {}),
     });
-    const attempt = { binding, result };
+    const invocationId = args.telemetry?.invocationIds[bindingIndex];
+    const attempt = invocationId === undefined ? { binding, result } : { binding, result, invocationId };
     attempts.push(attempt);
+    if (args.telemetry !== undefined && invocationId !== undefined && binding.metadata !== undefined) {
+      const record = createInvocationCompletedRecord({
+        telemetry: args.telemetry,
+        invocationId,
+        binding,
+        bindingIndex,
+        result,
+        durationMs: Date.now() - startedAt,
+      });
+      try {
+        await args.telemetry.sink.append(record);
+      } catch (error) {
+        telemetryFailures.push({
+          invocationId,
+          bindingId: binding.id,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     const shouldAdvance = binding.shouldAdvance ? binding.shouldAdvance(result) : result.kind === "quota";
     if (shouldAdvance) {
       continue;
     }
-    return { attempts, final: attempt };
+    return { attempts, final: attempt, telemetryFailures };
   }
 
   const final = attempts.length === 0 ? null : (attempts[attempts.length - 1] ?? null);
   return {
     attempts,
     final,
+    telemetryFailures,
   };
+}
+
+function createInvocationCompletedRecord<T extends InvocationResult>(args: {
+  telemetry: InvocationTelemetryContext;
+  invocationId: string;
+  binding: InvocationBinding<T>;
+  bindingIndex: number;
+  result: T;
+  durationMs: number;
+}): InvocationCompletedRecord {
+  return {
+    schema_version: 1,
+    record_kind: "invocation_completed",
+    ts: new Date().toISOString(),
+    operator_session_id: args.telemetry.operatorSessionId,
+    run_id: args.telemetry.runId,
+    attempt_id: args.telemetry.attemptId,
+    invocation_id: args.invocationId,
+    project: args.telemetry.project,
+    workflow: args.telemetry.workflow,
+    step_id: args.telemetry.stepId,
+    role: args.telemetry.role,
+    agent: args.binding.metadata?.agent ?? "unknown",
+    model: args.binding.metadata?.model ?? "unknown",
+    binding_id: args.binding.id,
+    binding_index: args.bindingIndex,
+    duration_ms: args.durationMs,
+    worktree_path: args.telemetry.worktreePath,
+    branch: args.telemetry.branch,
+    spec_ref: args.telemetry.specRef,
+    usage: {
+      input_tokens: null,
+      output_tokens: null,
+      cache_read_input_tokens: null,
+      cache_creation_input_tokens: null,
+    },
+    usage_source: "unavailable",
+    cost_usd: null,
+    cost_source: "unavailable",
+    exit_kind: args.result.kind,
+    exit_reason: invocationExitReason(args.result),
+  };
+}
+
+function invocationExitReason(result: InvocationResult): string | null {
+  if (result.kind === "ok") {
+    return null;
+  }
+  if (result.kind === "error") {
+    return `exit_code:${result.exitCode}`;
+  }
+  return result.stderr;
 }

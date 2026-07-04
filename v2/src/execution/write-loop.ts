@@ -1,5 +1,6 @@
-import { appendFileSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname, isAbsolute, join } from "node:path";
+import type { InvocationTelemetrySink } from "../../../shared/invocation/execute.ts";
 import type { LogSink } from "../persistence/log-stream.ts";
 import { type OutcomeKind, openStateStore, type StateStore } from "../persistence/state-store.ts";
 import type { RunStatus } from "../persistence/state-store-types.ts";
@@ -42,6 +43,12 @@ export type WriteLoopInput = WriteExecuteInput & {
   logSink?: LogSink;
   pauseSignal?: AbortSignal;
   stepId?: string;
+  telemetry?: {
+    sinkPath: string;
+    operatorSessionId: string;
+    workflow: string;
+    role: string;
+  };
 };
 
 const DEFAULT_MAX_ITERATIONS = 10;
@@ -87,6 +94,23 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         stepRules: args.stepRules,
         expectedArtifactPath: args.expectedArtifactPath,
         bindings: args.bindings,
+        ...(args.telemetry !== undefined
+          ? {
+              invocationTelemetry: {
+                sink: createInvocationTelemetrySink(args.telemetry.sinkPath),
+                operatorSessionId: args.telemetry.operatorSessionId,
+                runId,
+                attemptId,
+                project: args.worktree.projectName,
+                workflow: args.telemetry.workflow,
+                stepId: args.stepId ?? null,
+                role: args.telemetry.role,
+                branch: args.worktree.branchName,
+                specRef: args.worktree.baseRef,
+                invocationIds: args.bindings.map(() => crypto.randomUUID()),
+              },
+            }
+          : {}),
         ...(args.signal && { signal: args.signal }),
         ...(args.withExternalWorktree && { withExternalWorktree: args.withExternalWorktree }),
       };
@@ -262,4 +286,13 @@ function resolveSpecPath(worktreePath: string, specPath: string): string {
 
 function appendBlockerToSpec(specPath: string, failedContractId: string): void {
   appendFileSync(specPath, `\n## Blocker\n\nArtifact contract check failed: ${failedContractId}\n`, "utf8");
+}
+
+function createInvocationTelemetrySink(storagePath: string): InvocationTelemetrySink {
+  return {
+    append(record) {
+      mkdirSync(dirname(storagePath), { recursive: true });
+      appendFileSync(storagePath, `${JSON.stringify(record)}\n`, "utf8");
+    },
+  };
 }

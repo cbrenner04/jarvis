@@ -33,11 +33,11 @@ steps still produce no append-only analysis facts.
 
 ## Acceptance criteria
 
-- [ ] When a write step provides telemetry context and a sink path, each binding subprocess appends one `invocation_completed` JSONL row immediately after it settles, with caller-owned `run_id`, `attempt_id`, and step context shared across quota fallback rows and a distinct `invocation_id` on each subprocess row rather than later re-keyed identities.
-- [ ] Quota fallback across multiple bindings appends one `invocation_completed` row per binding subprocess in attempt order, including the terminal non-quota stop or final quota exhaustion, rather than one aggregate logical-invocation row.
-- [ ] Shared invocation callers that do not provide write-step telemetry context plus sink path produce the same invocation outcomes as before and append no telemetry rows.
-- [ ] `invocation_completed` rows emit explicit `null` values for unavailable usage and cost fields instead of omitting those keys.
-- [ ] A settled subprocess still appends its `invocation_completed` row even when the step runner later classifies the attempt as a downstream non-success such as `contract_miss` or `invalid_token`.
-- [ ] If the telemetry sink append fails after a subprocess settles, the write step still returns the underlying invocation outcome and surfaces the append failure separately instead of silently dropping it or changing binding fallback behavior.
-- [ ] The write-step runtime can inject the telemetry sink path without changing orchestration SQLite recovery state or observability log event contracts.
-- [ ] `v2/docs/telemetry-capture.md`, `v2/docs/shared-step-runner.md`, and `v2/docs/shared-invocation.md` describe the live write-step emitter and its boundary consistently.
+- [x] When a write step provides telemetry context and a sink path, each binding subprocess appends one `invocation_completed` JSONL row immediately after it settles, with caller-owned `run_id`, `attempt_id`, and step context shared across quota fallback rows and a distinct `invocation_id` on each subprocess row rather than later re-keyed identities.
+- [x] Quota fallback across multiple bindings appends one `invocation_completed` row per binding subprocess in attempt order, including the terminal non-quota stop or final quota exhaustion, rather than one aggregate logical-invocation row.
+- [x] Shared invocation callers that do not provide write-step telemetry context plus sink path produce the same invocation outcomes as before and append no telemetry rows.
+- [x] `invocation_completed` rows emit explicit `null` values for unavailable usage and cost fields instead of omitting those keys.
+- [x] A settled subprocess still appends its `invocation_completed` row even when the step runner later classifies the attempt as a downstream non-success such as `contract_miss` or `invalid_token`.
+- [x] If the telemetry sink append fails after a subprocess settles, the write step still returns the underlying invocation outcome and surfaces the append failure separately instead of silently dropping it or changing binding fallback behavior.
+- [x] The write-step runtime can inject the telemetry sink path without changing orchestration SQLite recovery state or observability log event contracts.
+- [x] `v2/docs/telemetry-capture.md`, `v2/docs/shared-step-runner.md`, and `v2/docs/shared-invocation.md` describe the live write-step emitter and its boundary consistently.

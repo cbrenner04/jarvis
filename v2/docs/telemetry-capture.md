@@ -2,8 +2,7 @@
 
 Durable contract for **analysis facts** in v2: where they live, how they are
 emitted, which IDs join them across stores, and what stays operator judgment.
-Implementation of sinks and emitters is deferred to first consumers; this doc is
-the reference planners and implementers use so harness-known data is never
+This doc is the reference planners and implementers use so harness-known data is never
 re-keyed through v1-style CSV `notes` bindings (`plan_ns`, `patch_ns`,
 `git_fallback`).
 
@@ -60,10 +59,19 @@ One JSON object per JSONL line. Top-level envelope on every record:
 
 ### `invocation_completed`
 
-Emitted after each agent subprocess settles (shared invocation seam). Required
-context: `operator_session_id`, `run_id`, `attempt_id`, `invocation_id`,
-`project`, `workflow`, `step_id`, `role`, `agent`, `model`, `binding_index`,
-`duration_ms`, `worktree_path`, `branch`, `spec_ref`.
+Emitted after each agent subprocess settles (shared invocation seam). Live
+runtime coverage today is **write-step invocations only**; other shared
+invocation callers stay no-op until they pass both write-step context and a
+telemetry sink. Required context: `operator_session_id`, `run_id`,
+`attempt_id`, `invocation_id`, `project`, `workflow`, `step_id`, `role`,
+`agent`, `model`, `binding_index`, `duration_ms`, `worktree_path`, `branch`,
+`spec_ref`.
+
+Quota fallback grain is pinned: emit **one row per binding subprocess in
+attempt order**, not one aggregate row for the logical invocation. `run_id`,
+`attempt_id`, `workflow`, `step_id`, `role`, `worktree_path`, `branch`, and
+`spec_ref` stay shared across the fallback chain; `invocation_id` is distinct
+per subprocess row and is passed in by the write-step caller.
 
 Usage and cost — **emit keys with explicit `null` when unavailable** (do not
 omit keys):
@@ -74,6 +82,12 @@ omit keys):
 - `cost_usd`: `number | null`
 - `cost_source`: `"computed" | "estimated" | "unavailable" | null`
 - `exit_kind`, `exit_reason`
+
+Append failure rule: if the JSONL sink append fails after a subprocess settles,
+the write step keeps the underlying invocation result and fallback behavior,
+and surfaces the append failure separately on the invocation result. Later
+runner classification (`contract_miss`, `invalid_token`, etc.) does not suppress
+the already-settled row.
 
 Same shape for write, review-debate, and plan steps — only `workflow`, `step_id`,
 `role`, and optional `phase` differ. No patch-only fork.
@@ -100,7 +114,7 @@ usage in roll-ups. Required: `run_id`, `loop_outcome_kind` or terminal
 
 | Record kind | Code seam | Notes |
 | --- | --- | --- |
-| `invocation_completed` | `shared/invocation/execute.ts` (or immediate wrapper) | Runner passes full ID context in; emitter does not re-parse logs |
+| `invocation_completed` | `shared/invocation/execute.ts` | Runner passes full ID context in; emitter does not re-parse logs |
 | `work_boundary_recorded` | Write loop / workflow runner at `commitCompletionBoundary` | Git facts from harness commit, not agent |
 | `run_terminal` | Loop finish / run failure path | One row per terminal run edge |
 
@@ -154,7 +168,7 @@ first implementation slice.
 | Milestone | Deliverable |
 | --- | --- |
 | **This doc** (plan spec) | Capture contract only |
-| **Phase 5** (workflow runner) | Minimal `invocation_completed` from shared step-runner |
+| **Phase 5** (workflow runner) | Live `invocation_completed` rows for write-step invocations |
 | **Phase 6** (review-debate + human) | Same schema for all behaviors |
 | **Phase 8** (PR lifecycle) | `work_boundary_recorded` with `commit_sha` / `files_changed` |
 | **Post-parity** | Export commands replacing manual CSV reconciliation |
@@ -164,7 +178,7 @@ post-parity (that recreates v1 binding pain). Pin emitter phase numbers to the
 first consumer that wires each seam — not ahead of it
 ([`v2-build-order.md`](v2-build-order.md)).
 
-## Testing contract (future emitter subspecs)
+## Testing contract
 
 - Telemetry sink path is injectable (temp file per test).
 - Contract tests assert required IDs and fields after a mocked invocation; no
@@ -176,11 +190,9 @@ No new tests ship with this doc-only deliverable.
 
 ## Deferred implementation questions
 
-Pin when the first emitter subspec lands — do not block this reference doc:
+Pinned for the first live emitter. Remaining questions:
 
-1. **Quota fallback grain** — one `invocation_completed` row per binding attempt
-   vs one aggregated row per logical invocation.
-2. **`files_changed` shape** — count-only vs path list on `work_boundary_recorded`.
+1. **`files_changed` shape** — count-only vs path list on `work_boundary_recorded`.
 
 ## Related docs
 

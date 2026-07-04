@@ -11,6 +11,10 @@ Contract:
 - Any non-`quota` result stops immediately (no later binding attempt).
 - Output returns ordered attempts plus the final attempt (or `null` when no
   bindings are configured).
+- When the caller also passes write-step telemetry context plus a sink, each
+  settled binding subprocess appends one `invocation_completed` JSONL row before
+  fallback classification continues. Callers that omit that pair stay telemetry
+  no-op.
 
 Fallback is quota-only by design: `model_config` and `error` are terminal,
 since a misconfigured or crashing agent is not recoverable by the next binding.
@@ -51,6 +55,12 @@ fields. See [`write-behavior.md`](./write-behavior.md).
 Boundary:
 
 - This module owns fallback iteration and ordering.
+- It owns write-step `invocation_completed` emission after subprocess settle,
+  including one row per binding subprocess across quota fallback, shared logical
+  attempt IDs from the caller, and distinct caller-owned `invocation_id` values
+  per subprocess row.
+- Telemetry sink append failure is surfaced separately on the invocation result
+  and does not change fallback behavior or the settled binding result.
 - It owns **invocation liveness policy evaluation** (stall vs slow work, profiles by
   behavior × role); workflow loops consume outcomes — [`invocation-liveness.md`](./invocation-liveness.md).
 - It does not own token parsing, output-contract checks, workflow loops, CLI

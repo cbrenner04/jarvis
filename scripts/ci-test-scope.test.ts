@@ -22,12 +22,14 @@ describe("resolveCiTestScope", () => {
     ]);
   });
 
-  test.each([["package.json"], ["tsconfig.json"], [".github/workflows/ci.yml"], ["scripts/ready.ts"]])(
-    "root-tooling change %s runs full suite",
-    (path) => {
-      expect(resolveCiTestScope([path], true)).toBe("full");
-    },
-  );
+  test.each([
+    ["package.json"],
+    ["tsconfig.json"],
+    [".github/workflows/ci.yml"],
+    ["scripts/ready.ts"],
+  ])("root-tooling change %s runs full suite", (path) => {
+    expect(resolveCiTestScope([path], true)).toBe("full");
+  });
 
   test("unmatched path runs full suite", () => {
     expect(resolveCiTestScope(["README.md"], true)).toBe("full");

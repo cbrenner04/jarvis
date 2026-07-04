@@ -2,7 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type LoadError, loadAgentModelConfig } from "./agent-model-config.ts";
+import {
+  type LoadError,
+  loadAgentModelConfig,
+  resolveExecutableRole,
+  resolveInvocationBindings,
+} from "./agent-model-config.ts";
 
 function createTempFile(content: string): string {
   const dir = mkdtempSync(join(tmpdir(), "agent-config-test-"));
@@ -429,5 +434,152 @@ describe("loadAgentModelConfig", () => {
     if (isError(result)) {
       expect(result.errors.some((e) => e.includes("file not found") || e.includes("failed to read"))).toBe(true);
     }
+  });
+});
+
+describe("resolveInvocationBindings", () => {
+  const config = {
+    claude: {
+      implement: {
+        rungs: [
+          { adapterModel: "M1", priceKey: "P1" },
+          { adapterModel: "M2", priceKey: "P2" },
+        ],
+      },
+      plan: {
+        rungs: [
+          { adapterModel: "P1", priceKey: "plan-1" },
+          { adapterModel: "P2", priceKey: "plan-2" },
+        ],
+      },
+      adversary: {
+        rungs: [
+          { adapterModel: "A1", priceKey: "adv-1" },
+          { adapterModel: "A2", priceKey: "adv-2" },
+        ],
+      },
+      advocate: {
+        rungs: [
+          { adapterModel: "V1", priceKey: "arg-1" },
+          { adapterModel: "V2", priceKey: "arg-2" },
+        ],
+      },
+      adjudicator: {
+        rungs: [
+          { adapterModel: "J1", priceKey: "judge-1" },
+          { adapterModel: "J2", priceKey: "judge-2" },
+        ],
+      },
+      actuator: {
+        rungs: [
+          { adapterModel: "X1", priceKey: "act-1" },
+          { adapterModel: "X2", priceKey: "act-2" },
+        ],
+      },
+    },
+    codex: {
+      implement: {
+        rungs: [{ adapterModel: "M3", priceKey: "P3" }],
+      },
+      plan: {
+        rungs: [{ adapterModel: "P3", priceKey: "plan-3" }],
+      },
+      adversary: {
+        rungs: [{ adapterModel: "A3", priceKey: "adv-3" }],
+      },
+      advocate: {
+        rungs: [{ adapterModel: "V3", priceKey: "arg-3" }],
+      },
+      adjudicator: {
+        rungs: [{ adapterModel: "J3", priceKey: "judge-3" }],
+      },
+      actuator: {
+        rungs: [{ adapterModel: "X3", priceKey: "act-3" }],
+      },
+    },
+  };
+
+  test("implement resolves the flat per-agent rung order shared invocation consumes", () => {
+    const bindings = resolveInvocationBindings(
+      "implement",
+      ["claude", "codex"],
+      config,
+      ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+      }),
+    );
+
+    expect(bindings).toEqual([{ id: "claude/M1" }, { id: "claude/M2" }, { id: "codex/M3" }]);
+  });
+
+  test("plan, adversary, advocate, and adjudicator all consume the full per-agent rung list", () => {
+    expect(
+      resolveInvocationBindings(
+        "plan",
+        ["claude", "codex"],
+        config,
+        ({ agentId, adapterModel }) => `${agentId}/${adapterModel}`,
+      ),
+    ).toEqual(["claude/P1", "claude/P2", "codex/P3"]);
+    expect(
+      resolveInvocationBindings(
+        "adversary",
+        ["claude", "codex"],
+        config,
+        ({ agentId, adapterModel }) => `${agentId}/${adapterModel}`,
+      ),
+    ).toEqual(["claude/A1", "claude/A2", "codex/A3"]);
+    expect(
+      resolveInvocationBindings(
+        "advocate",
+        ["claude", "codex"],
+        config,
+        ({ agentId, adapterModel }) => `${agentId}/${adapterModel}`,
+      ),
+    ).toEqual(["claude/V1", "claude/V2", "codex/V3"]);
+    expect(
+      resolveInvocationBindings(
+        "adjudicator",
+        ["claude", "codex"],
+        config,
+        ({ agentId, adapterModel }) => `${agentId}/${adapterModel}`,
+      ),
+    ).toEqual(["claude/J1", "claude/J2", "codex/J3"]);
+  });
+
+  test("actuator resolves head-only bindings", () => {
+    const bindings = resolveInvocationBindings(
+      "actuator",
+      ["claude", "codex"],
+      config,
+      ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+      }),
+    );
+
+    expect(bindings).toEqual([{ id: "claude/X1" }, { id: "codex/X3" }]);
+  });
+
+  test("binding construction receives one resolved agent, model, and price key per rung", () => {
+    const bindings = resolveInvocationBindings(
+      "implement",
+      ["claude", "codex"],
+      config,
+      ({ agentId, adapterModel, priceKey }) => ({
+        agentId,
+        adapterModel,
+        priceKey,
+      }),
+    );
+
+    expect(bindings).toEqual([
+      { agentId: "claude", adapterModel: "M1", priceKey: "P1" },
+      { agentId: "claude", adapterModel: "M2", priceKey: "P2" },
+      { agentId: "codex", adapterModel: "M3", priceKey: "P3" },
+    ]);
+  });
+
+  test("executable-role boundary rejects operator", () => {
+    expect(() => resolveExecutableRole("operator")).toThrow("not executable");
   });
 });

@@ -1,7 +1,13 @@
 import { readFileSync } from "node:fs";
+import type { ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 
-type Role = "plan" | "implement" | "adversary" | "advocate" | "adjudicator" | "actuator";
-const REQUIRED_ROLES: readonly Role[] = ["plan", "implement", "adversary", "advocate", "adjudicator", "actuator"];
+export const EXECUTABLE_ROLES = ["plan", "implement", "adversary", "advocate", "adjudicator", "actuator"] as const;
+
+/** Closed role subset that may reach shared invocation today. */
+export type ExecutableRole = (typeof EXECUTABLE_ROLES)[number];
+
+type Role = ExecutableRole | "operator";
+const executableRoleSet = new Set<string>(EXECUTABLE_ROLES);
 
 export type Model = {
   readonly adapterModel: string;
@@ -12,13 +18,15 @@ export type ModelEscalation = {
   readonly rungs: readonly Model[];
 };
 
-export type ModelsByRole = Partial<Record<Role | "operator", ModelEscalation>>;
+export type ModelsByRole = Partial<Record<Role, ModelEscalation>>;
 
 export type AgentModelConfig = Record<string, ModelsByRole | undefined>;
 
 export type LoadError = {
   readonly errors: readonly string[];
 };
+
+const ALL_ROLES: readonly Role[] = [...EXECUTABLE_ROLES, "operator"];
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -81,7 +89,48 @@ function validateRungs(agent: string, role: string, rungs: unknown, errors: stri
   return validRungs;
 }
 
-const ALL_ROLES: readonly (Role | "operator")[] = [...REQUIRED_ROLES, "operator"];
+/** Reject non-executable workflow-step roles before binding resolution. */
+export function resolveExecutableRole(role: string): ExecutableRole {
+  if (executableRoleSet.has(role)) {
+    return role as ExecutableRole;
+  }
+
+  throw new Error(`workflow-step role '${role}' is not executable`);
+}
+
+/** Resolve one flat shared-invocation binding list for one executable step role. */
+export function resolveInvocationBindings<T>(
+  role: ExecutableRole,
+  agents: readonly string[],
+  config: AgentModelConfig,
+  createBinding: (binding: ResolvedAgentBinding) => T,
+): readonly T[] {
+  const bindings: T[] = [];
+
+  for (const agentId of agents) {
+    const escalation = config[agentId]?.[role];
+    if (escalation === undefined) {
+      throw new Error(`missing model escalation for agent '${agentId}' and role '${role}'`);
+    }
+
+    const rungCount = role === "actuator" ? 1 : escalation.rungs.length;
+    for (let i = 0; i < rungCount; i++) {
+      const rung = escalation.rungs[i];
+      if (rung === undefined) {
+        throw new Error(`missing rung ${i} for agent '${agentId}' and role '${role}'`);
+      }
+      bindings.push(
+        createBinding({
+          agentId,
+          adapterModel: rung.adapterModel,
+          priceKey: rung.priceKey,
+        }),
+      );
+    }
+  }
+
+  return bindings;
+}
 
 function validateRoles(agent: string, agentEntry: Record<string, unknown>, errors: string[]): ModelsByRole {
   const modelsByRole: ModelsByRole = {};
@@ -157,7 +206,7 @@ export function loadAgentModelConfig(filePath: string, agents: readonly string[]
     const agentEntry = jsonData[agent];
 
     if (agentEntry === undefined) {
-      for (const role of REQUIRED_ROLES) {
+      for (const role of EXECUTABLE_ROLES) {
         errors.push(`agent ${agent}: missing required role ${role}`);
       }
       continue;

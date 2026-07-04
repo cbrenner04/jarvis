@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { GIT_SUBPROCESS_OPTS } from "./git-subprocess.ts";
 import { defaultRunCommand, type RunCommandFn } from "./run-command.ts";
 
 /**
@@ -24,6 +25,7 @@ export async function runBaseRefTests(
       cwd: projectRoot,
       encoding: "utf8",
       stdio: "pipe",
+      ...GIT_SUBPROCESS_OPTS,
     }).trim();
   } catch {
     // Cannot resolve base ref: fail-safe, treat as non-green
@@ -37,6 +39,7 @@ export async function runBaseRefTests(
       execFileSync("git", ["worktree", "add", "--detach", worktreeDir, baseCommit], {
         cwd: projectRoot,
         stdio: "pipe",
+        ...GIT_SUBPROCESS_OPTS,
       });
     } catch {
       // Cannot create worktree: fail-safe, treat as non-green
@@ -90,6 +93,7 @@ export async function runBaseRefTests(
         execFileSync("git", ["worktree", "remove", "--force", worktreeDir], {
           cwd: projectRoot,
           stdio: "pipe",
+          ...GIT_SUBPROCESS_OPTS,
         });
       }
     } catch {

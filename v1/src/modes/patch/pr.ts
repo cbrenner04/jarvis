@@ -16,6 +16,7 @@ import {
   runReadyAndCommit,
   runReadyGateWithTier,
 } from "../../ready-gate.ts";
+import { GIT_SUBPROCESS_OPTS } from "./git-subprocess.ts";
 import { buildPrDescriptionPrompt } from "./pr-description-prompt.ts";
 
 export { NARRATIVE_END_MARKER, NARRATIVE_START_MARKER };
@@ -150,6 +151,7 @@ function readDiffStats(cwd: string, base: string): DiffStat[] {
       cwd,
       encoding: "utf8",
       stdio: "pipe",
+      ...GIT_SUBPROCESS_OPTS,
     });
     const diffs: DiffStat[] = [];
     for (const line of output.trim().split("\n")) {

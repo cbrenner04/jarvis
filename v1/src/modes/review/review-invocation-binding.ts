@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import type { InvocationBinding, InvocationResult } from "../../../../shared/invocation/execute.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
-import type { Agent, AgentName, AgentResult } from "../../agents/types.ts";
+import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
 import type { ReviewAdapter, ReviewAttemptContext, ReviewPassContext } from "./types.ts";
 
@@ -27,6 +27,13 @@ export type ReviewInvocationBindingOptions<_T extends InvocationResult = Invocat
   onQuotaFallbackEmit?: ((agentName: AgentName, spawnResult: AgentResult, classified: AgentResult) => void) | undefined;
   recordAttemptTelemetry?: ((data: ReviewAttemptContext) => void | Promise<void>) | undefined;
   additionalReadDirs?: string[] | undefined;
+  onSpawned?: AgentRunOptions["onSpawned"] | undefined;
+  lastOutputAtMs?: AgentRunOptions["lastOutputAtMs"] | undefined;
+  lastOutputNowMs?: AgentRunOptions["lastOutputNowMs"] | undefined;
+  abortKillGraceMs?: number | undefined;
+  onControllerReady?:
+    | ((ctx: { controller: AbortController; signal: AbortSignal }) => void | (() => void))
+    | undefined;
   now?: (() => number) | undefined;
 };
 
@@ -58,12 +65,40 @@ export function createReviewInvocationBinding<T extends InvocationResult = Invoc
       const porcelainBefore = readPorcelainSnapshot(opts.cwd);
       const _now = opts.now ?? Date.now;
       const startedAt = _now();
-
-      const spawnResult = await loadedAgent.run(prompt, {
-        cwd: args.cwd,
-        ...(args.signal !== undefined ? { signal: args.signal } : {}),
-        ...(opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : {}),
+      const controller = new AbortController();
+      const parentSignal = args.signal;
+      const abortFromParent = () => {
+        controller.abort(parentSignal?.reason);
+      };
+      if (parentSignal !== undefined) {
+        if (parentSignal.aborted) {
+          abortFromParent();
+        } else {
+          parentSignal.addEventListener("abort", abortFromParent, { once: true });
+        }
+      }
+      const controllerCleanup = opts.onControllerReady?.({
+        controller,
+        signal: controller.signal,
       });
+
+      let spawnResult: AgentResult;
+      try {
+        spawnResult = await loadedAgent.run(prompt, {
+          cwd: args.cwd,
+          signal: controller.signal,
+          ...(opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : {}),
+          ...(opts.onSpawned !== undefined ? { onSpawned: opts.onSpawned } : {}),
+          ...(opts.lastOutputAtMs !== undefined ? { lastOutputAtMs: opts.lastOutputAtMs } : {}),
+          ...(opts.lastOutputNowMs !== undefined ? { lastOutputNowMs: opts.lastOutputNowMs } : {}),
+          ...(opts.abortKillGraceMs !== undefined ? { abortKillGraceMs: opts.abortKillGraceMs } : {}),
+        });
+      } finally {
+        if (parentSignal !== undefined && !parentSignal.aborted) {
+          parentSignal.removeEventListener("abort", abortFromParent);
+        }
+        controllerCleanup?.();
+      }
 
       const porcelainAfter = readPorcelainSnapshot(opts.cwd);
       const noDiskChangeDuringInvocation =

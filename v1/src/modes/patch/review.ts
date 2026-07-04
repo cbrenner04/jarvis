@@ -2,8 +2,9 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { getCurrentBranch } from "../../../../shared/git.ts";
+import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import { createAgent } from "../../agents/factory.ts";
-import type { Agent, AgentName, AgentRunOptions } from "../../agents/types.ts";
+import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../agents/types.ts";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
 import { type AgentEntry, type Config, resolveSubRoleAgentOrder } from "../../config.ts";
 import { getBaseBranch, postPrComment, withSyncTransientRetry } from "../../gh.ts";
@@ -33,6 +34,7 @@ import {
   tryConvergeNonFfActuatorPush,
 } from "../../worktree.ts";
 import { recoverImmutableCopyOverreach } from "../review/immutable-copy-overreach.ts";
+import { createReviewInvocationBinding } from "../review/review-invocation-binding.ts";
 import { type RunReviewOptions, runReview } from "../review/run.ts";
 import {
   type ReviewAdapter,
@@ -877,291 +879,177 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       const actuatorIdleOutputTimeoutMs =
         opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? 600000);
       const actuatorWorktreeDir = opts.patchWorktreeDir ?? opts.cwd;
+      if (actuatorOrder.length === 0) {
+        opts.fanout("harness", "review: actuator no agents available\n", "stderr");
+        throw new ReviewTerminalError("actuator no agents available", 2);
+      }
 
-      for (let rungIndex = 0; rungIndex < actuatorOrder.length; rungIndex++) {
-        const headEntry = actuatorOrder[rungIndex]!;
-
-        const agent = actuatorAgents?.[rungIndex] ?? opts.agents?.[headEntry.agent];
-        const resolvedAgent = agent ?? createAgent(headEntry.agent, headEntry.model);
-
-        const configuredModel = headEntry.model;
-        const telemetryMeta = configuredModel ? { configured_model: configuredModel } : {};
-
-        const actuatorController = new AbortController();
-        const actuatorTimeoutHandle = setTimeout(() => {
-          actuatorController.abort("actuator-timeout");
-        }, opts.iterationTimeoutMs);
-
-        const actuatorStartedMs = Date.now();
-        const actuatorTracker = new DescendantTracker();
-        let actuatorPollHandle: NodeJS.Timeout | null = null;
-        let actuatorPgid: number | null = null;
-        const actuatorLastOutputAtMs = { current: null as number | null };
-        let actuatorLastFileActivityAtMs: number | null = null;
-        let actuatorIdleTimeoutHandle: NodeJS.Timeout | null = null;
-
-        const actuatorArmedAt = Date.now();
-        if (actuatorIdleOutputTimeoutMs > 0) {
-          const scheduleActuatorIdleCheck = () => {
-            actuatorIdleTimeoutHandle = setTimeout(() => {
-              const snapshotAt = Date.now();
-              const lastOutputAgeMs =
-                actuatorLastOutputAtMs.current === null ? null : snapshotAt - actuatorLastOutputAtMs.current;
-
-              const sampledFileActivityAt = sampleFileActivityIfNeeded({
-                lastOutputAgeMs,
-                idleOutputTimeoutMs: actuatorIdleOutputTimeoutMs,
-                now: snapshotAt,
-                armedAt: actuatorArmedAt,
-                workingDir: actuatorWorktreeDir,
-              });
-
-              if (sampledFileActivityAt !== null) {
-                actuatorLastFileActivityAtMs = sampledFileActivityAt;
-              }
-
-              const { shouldFire } = evaluateIdleWatchdog({
-                now: snapshotAt,
-                lastOutputAt: actuatorLastOutputAtMs.current,
-                lastFileActivityAt: actuatorLastFileActivityAtMs,
-                armedAt: actuatorArmedAt,
-                idleOutputTimeoutMs: actuatorIdleOutputTimeoutMs,
-              });
-
-              if (shouldFire) {
-                opts.fanout(
-                  "harness",
-                  `[watchdog] idle timeout fired after ${actuatorIdleOutputTimeoutMs}ms; killing agent\n`,
-                  "stderr",
-                );
-                if (actuatorPgid !== null) {
-                  try {
-                    process.kill(-actuatorPgid, "SIGTERM");
-                  } catch {
-                    // best-effort
-                  }
-                }
-                actuatorController.abort("idle-timeout");
-              } else {
-                scheduleActuatorIdleCheck();
-              }
-            }, 100);
-            actuatorIdleTimeoutHandle?.unref?.();
-          };
-          scheduleActuatorIdleCheck();
-        }
-
-        let result: Awaited<ReturnType<Agent["run"]>>;
-        try {
-          opts.fanout("outbound", prompt, null, {
-            actuator: true,
-            agent: resolvedAgent.name,
-          });
-
-          result = await resolvedAgent.run(prompt, {
-            cwd: opts.cwd,
-            signal: actuatorController.signal,
-            abortKillGraceMs: killGraceMs,
-            lastOutputAtMs: actuatorLastOutputAtMs,
-            onSpawned: ({ pid }) => {
-              actuatorPgid = pid;
-              actuatorPollHandle = startDescendantPolling(actuatorTracker, pid, {
-                ...(opts.__testAfterPollFn !== undefined ? { afterPoll: opts.__testAfterPollFn } : {}),
-                ...(descendantPollIntervalMs !== undefined ? { intervalMs: descendantPollIntervalMs } : {}),
-              });
-            },
-          });
-        } finally {
-          clearTimeout(actuatorTimeoutHandle);
-          if (actuatorIdleTimeoutHandle !== null) {
-            clearTimeout(actuatorIdleTimeoutHandle);
-          }
-          stopDescendantPollingAndReap(actuatorTracker, actuatorPgid, actuatorPollHandle, opts.__testReapOverride);
-        }
-
-        const durationMs = Math.max(0, Date.now() - actuatorStartedMs);
-
-        if (result.kind === "ok") {
-          if (result.stdout.length > 0) {
-            opts.fanout("inbound_stdout", result.stdout, null, { actuator: true });
-          }
-          if (result.stderr.length > 0) {
-            opts.fanout("inbound_stderr", result.stderr, null, { actuator: true });
-          }
-
-          try {
-            writeFileSync(verdictPath, verdict, "utf8");
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            opts.fanout("harness", `review: failed to restore verdict: ${message}\n`, "stderr");
-            throw new ReviewTerminalError(message, 1);
-          }
-
-          recoverImmutableCopyOverreach({ copies: [], validation: { valid: true, error: null } });
-
-          // Revert spec edits (reviewers are read-only on spec)
-          const editedSpecFiles = detectSpecTreeEdits(specDir, opts.cwd);
-          if (editedSpecFiles.length > 0) {
-            opts.fanout(
-              "harness",
-              `review: actuator edited spec files (reverting): ${editedSpecFiles.join(", ")}\n`,
-              "stderr",
-            );
-            try {
-              revertSpecTreeEdits(specDir, opts.cwd);
-            } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              opts.fanout("harness", `review: revert failed: ${message}\n`, "stderr");
-              throw new ReviewTerminalError(message, 1);
-            }
-          }
-
-          // Commit actuator changes
-          const porcelain = execFileSync("git", ["status", "--porcelain"], {
-            cwd: opts.cwd,
-            encoding: "utf8",
-            stdio: "pipe",
-            ...GIT_SUBPROCESS_OPTS,
-          }).trim();
-
-          if (porcelain !== "") {
-            try {
-              execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
-              const commitMessage = appendAgentTrailer("review: actuator", resolvedAgent.name);
-              execFileSync("git", ["commit", "-F", "-"], {
-                cwd: opts.cwd,
-                env: process.env,
-                stdio: ["pipe", "pipe", "pipe"],
-                input: commitMessage,
-                ...GIT_SUBPROCESS_OPTS,
-              });
-
-              // Reconcile with remote before push
-              try {
-                reconcileActuatorCommit(opts.cwd);
-              } catch (reconcileErr) {
-                if (reconcileErr instanceof RebaseConflictError) {
-                  opts.fanout("harness", `review: actuator rebase conflict: ${reconcileErr.message}\n`, "stderr");
-                  const usageAndCost = extractUsageAndCost(result, resolvedAgent.name, configuredModel);
-                  opts.writeTelemetry({
-                    agent: resolvedAgent.name,
-                    iteration: ctx.passNumber,
-                    durationMs,
-                    kind: "error",
-                    exitReason: "actuator-rebase-conflict",
-                    patch_phase: "review",
-                    ...usageAndCost,
-                    ...telemetryMeta,
+      const attemptContexts: Array<{
+        agent: Agent;
+        agentEntry: AgentEntry;
+        durationMs: number;
+        result: AgentResult;
+      }> = [];
+      const bindingStates = actuatorOrder.map(() => ({
+        tracker: new DescendantTracker(),
+        pollHandle: null as NodeJS.Timeout | null,
+        pgid: null as number | null,
+        timeoutHandle: null as NodeJS.Timeout | null,
+        idleTimeoutHandle: null as NodeJS.Timeout | null,
+        lastOutputAtMs: { current: null as number | null },
+        lastFileActivityAtMs: null as number | null,
+      }));
+      const actuatorAdapter: ReviewAdapter = {
+        buildPrompt: async () => prompt,
+        enforceWriteBoundary: async () => {},
+        readBlocker: async () => null,
+        handleBlocker: async () => 1,
+        commitPass: async () => {},
+        recordTelemetry: async () => {},
+      };
+      const bindings = actuatorOrder.map((agentEntry, rungIndex) =>
+        createReviewInvocationBinding<AgentResult>({
+          agentEntry,
+          config: opts.config,
+          cwd: opts.cwd,
+          adapter: actuatorAdapter,
+          roleContext: ctx,
+          loadAgent: () =>
+            actuatorAgents?.[rungIndex] ?? opts.agents?.[agentEntry.agent] ?? createAgent(agentEntry.agent, agentEntry.model),
+          abortKillGraceMs: killGraceMs,
+          lastOutputAtMs: bindingStates[rungIndex]!.lastOutputAtMs,
+          onSpawned: ({ pid }) => {
+            const bindingState = bindingStates[rungIndex]!;
+            bindingState.pgid = pid;
+            bindingState.pollHandle = startDescendantPolling(bindingState.tracker, pid, {
+              ...(opts.__testAfterPollFn !== undefined ? { afterPoll: opts.__testAfterPollFn } : {}),
+              ...(descendantPollIntervalMs !== undefined ? { intervalMs: descendantPollIntervalMs } : {}),
+            });
+          },
+          onControllerReady: ({ controller }) => {
+            const bindingState = bindingStates[rungIndex]!;
+            bindingState.timeoutHandle = setTimeout(() => {
+              controller.abort("actuator-timeout");
+            }, opts.iterationTimeoutMs);
+            const armedAt = Date.now();
+            if (actuatorIdleOutputTimeoutMs > 0) {
+              const scheduleIdleCheck = () => {
+                bindingState.idleTimeoutHandle = setTimeout(() => {
+                  const snapshotAt = Date.now();
+                  const lastOutputAt = bindingState.lastOutputAtMs.current;
+                  const lastOutputAgeMs = lastOutputAt === null ? null : snapshotAt - lastOutputAt;
+                  const sampledFileActivityAt = sampleFileActivityIfNeeded({
+                    lastOutputAgeMs,
+                    idleOutputTimeoutMs: actuatorIdleOutputTimeoutMs,
+                    now: snapshotAt,
+                    armedAt,
+                    workingDir: actuatorWorktreeDir,
                   });
-                  throw new ReviewTerminalError(reconcileErr.message, 11, { telemetryRecorded: true });
-                }
-                // Other reconcile errors are non-fatal; fall through to push
-              }
-
-              pushCurrent({ cwd: opts.cwd, firstPush: false });
-
-              // Refresh PR footer
-              void updatePrBody({
-                indexPath: opts.specPath,
-                branch,
-                base,
-                cwd: opts.cwd,
-                prNarrative: opts.config.modes.patch.prNarrative ?? "template",
-              }).catch(() => {
-                // Ignore footer refresh errors
-              });
-            } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              const usageAndCost = extractUsageAndCost(result, resolvedAgent.name, configuredModel);
-
-              // Check if this is a non-fast-forward push rejection
-              if (isNonFastForwardPushError(message)) {
-                try {
-                  const convergenceResult = tryConvergeNonFfActuatorPush(opts.cwd, branch);
-                  if (convergenceResult.converged) {
-                    // Convergence succeeded; exit with 11 to trigger auto-ready
-                    opts.fanout("harness", `review: actuator push rejected non-ff; converged to PR head\n`, "stdout");
-                    opts.writeTelemetry({
-                      agent: resolvedAgent.name,
-                      iteration: ctx.passNumber,
-                      durationMs,
-                      kind: "error",
-                      exitReason: "actuator-push-converged",
-                      patch_phase: "review",
-                      ...usageAndCost,
-                      ...telemetryMeta,
-                    });
-                    throw new ReviewTerminalError("non-ff push converged", 11);
+                  if (sampledFileActivityAt !== null) {
+                    bindingState.lastFileActivityAtMs = sampledFileActivityAt;
                   }
-                  // Convergence failed; fall through to surface the original push error
-                } catch (convergenceErr) {
-                  // If the convergence itself threw an unexpected error, fall through
-                  if (!(convergenceErr instanceof ReviewTerminalError)) {
-                    // Unexpected error; fall through to surface the original push error
-                  } else {
-                    // Re-throw ReviewTerminalError (convergence succeeded and threw exit-11)
-                    throw convergenceErr;
+                  const { shouldFire } = evaluateIdleWatchdog({
+                    now: snapshotAt,
+                    lastOutputAt,
+                    lastFileActivityAt: bindingState.lastFileActivityAtMs,
+                    armedAt,
+                    idleOutputTimeoutMs: actuatorIdleOutputTimeoutMs,
+                  });
+                  if (shouldFire) {
+                    opts.fanout(
+                      "harness",
+                      `[watchdog] idle timeout fired after ${actuatorIdleOutputTimeoutMs}ms; killing agent\n`,
+                      "stderr",
+                    );
+                    if (bindingState.pgid !== null) {
+                      try {
+                        process.kill(-bindingState.pgid, "SIGTERM");
+                      } catch {
+                        // best-effort
+                      }
+                    }
+                    controller.abort("idle-timeout");
+                    return;
                   }
-                }
-              }
-
-              // Non-ff convergence not attempted or failed; surface the original push error
-              opts.fanout("harness", `review: actuator commit failed: ${message}\n`, "stderr");
-              opts.writeTelemetry({
-                agent: resolvedAgent.name,
-                iteration: ctx.passNumber,
-                durationMs,
-                kind: "error",
-                exitReason: "actuator-commit-failed",
-                patch_phase: "review",
-                ...usageAndCost,
-                ...telemetryMeta,
-              });
-              throw new ReviewTerminalError(message, 1);
+                  scheduleIdleCheck();
+                }, 100);
+                bindingState.idleTimeoutHandle?.unref?.();
+              };
+              scheduleIdleCheck();
             }
-
-            opts.fanout("harness", `review: actuator completed\n`, "stdout");
-            opts.writeTelemetry({
-              agent: resolvedAgent.name,
-              iteration: ctx.passNumber,
-              durationMs,
-              kind: "ok",
-              exitReason: "ok",
-              patch_phase: "review",
-              ...extractUsageAndCost(result, resolvedAgent.name, configuredModel),
-              ...telemetryMeta,
+            return () => {
+              if (bindingState.timeoutHandle !== null) {
+                clearTimeout(bindingState.timeoutHandle);
+              }
+              if (bindingState.idleTimeoutHandle !== null) {
+                clearTimeout(bindingState.idleTimeoutHandle);
+              }
+              stopDescendantPollingAndReap(
+                bindingState.tracker,
+                bindingState.pgid,
+                bindingState.pollHandle,
+                opts.__testReapOverride,
+              );
+              bindingState.pgid = null;
+              bindingState.pollHandle = null;
+            };
+          },
+          recordAttemptTelemetry: async (attempt) => {
+            attemptContexts.push({
+              agent: attempt.agent,
+              agentEntry: attempt.agentEntry,
+              durationMs: attempt.durationMs,
+              result: attempt.result,
             });
-          } else {
-            // No changes from actuator
-            opts.fanout("harness", `review: actuator made no changes\n`, "stdout");
-            opts.writeTelemetry({
-              agent: resolvedAgent.name,
-              iteration: ctx.passNumber,
-              durationMs,
-              kind: "ok",
-              exitReason: "ok",
-              patch_phase: "review",
-              ...extractUsageAndCost(result, resolvedAgent.name, configuredModel),
-              ...telemetryMeta,
+          },
+        }),
+      );
+      for (const [index, binding] of bindings.entries()) {
+        const state = bindingStates[index]!;
+        const outboundAgentName =
+          actuatorAgents?.[index]?.name ?? opts.agents?.[actuatorOrder[index]!.agent]?.name ?? actuatorOrder[index]!.agent;
+        binding.shouldAdvance = (result) =>
+          result.kind === "quota" || (result.kind === "error" && result.stderr.includes("aborted: idle-timeout"));
+        binding.invoke = ((originalInvoke) => {
+          return (args) => {
+            state.lastOutputAtMs.current = null;
+            state.lastFileActivityAtMs = null;
+            state.pgid = null;
+            state.pollHandle = null;
+            opts.fanout("outbound", prompt, null, {
+              actuator: true,
+              agent: outboundAgentName,
             });
-          }
-          return;
-        }
+            return originalInvoke(args);
+          };
+        })(binding.invoke);
+      }
 
-        opts.fanout("harness", `review: actuator error (${result.kind})\n`, "stderr");
-        if (result.kind !== "quota" && result.stderr.length > 0) {
-          opts.fanout("harness", result.stderr, "stderr");
-        }
-        const isIdleTimeout = result.kind === "error" && result.stderr.includes("aborted: idle-timeout");
-        const isQuota = result.kind === "quota";
-        const hasNextRung = rungIndex < actuatorOrder.length - 1;
+      const execution = await executeWithQuotaFallback({
+        prompt,
+        cwd: opts.cwd,
+        bindings,
+      });
 
+      for (const [attemptIndex, executionAttempt] of execution.attempts.entries()) {
+        const attempt = attemptContexts[attemptIndex];
+        if (attempt === undefined || executionAttempt.result.kind === "ok") {
+          continue;
+        }
+        const configuredModel = attempt.agentEntry.model;
+        const telemetryMeta = configuredModel ? { configured_model: configuredModel } : {};
+        opts.fanout("harness", `review: actuator error (${executionAttempt.result.kind})\n`, "stderr");
+        if (executionAttempt.result.kind !== "quota" && executionAttempt.result.stderr.length > 0) {
+          opts.fanout("harness", executionAttempt.result.stderr, "stderr");
+        }
+        const hasNextRung = attemptIndex < execution.attempts.length - 1;
+        const isIdleTimeout = executionAttempt.result.stderr.includes("aborted: idle-timeout");
         if (isIdleTimeout && hasNextRung) {
-          opts.fanout("harness", `review: ${resolvedAgent.name}: ${HARNESS_IDLE_TIMEOUT_FALLBACK}\n`, "stderr");
+          opts.fanout("harness", `review: ${attempt.agent.name}: ${HARNESS_IDLE_TIMEOUT_FALLBACK}\n`, "stderr");
           opts.writeTelemetry({
-            agent: resolvedAgent.name,
+            agent: attempt.agent.name,
             iteration: ctx.passNumber,
-            durationMs,
+            durationMs: attempt.durationMs,
             kind: "timeout",
             exitReason: "watchdog-idle-timeout-fallback",
             patch_phase: "review",
@@ -1169,58 +1057,200 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           });
           continue;
         }
-
-        if (isQuota && hasNextRung) {
+        if (executionAttempt.result.kind === "quota" && hasNextRung) {
           const line =
-            result.kind === "quota" && result.authFailure === true
-              ? harnessAuthRotateLine(resolvedAgent.name)
+            executionAttempt.result.authFailure === true
+              ? harnessAuthRotateLine(attempt.agent.name)
               : HARNESS_QUOTA_FALLBACK_STRICT;
-          opts.fanout("harness", `review: ${resolvedAgent.name}: ${line}\n`, "stderr");
+          opts.fanout("harness", `review: ${attempt.agent.name}: ${line}\n`, "stderr");
           opts.writeTelemetry({
-            agent: resolvedAgent.name,
+            agent: attempt.agent.name,
             iteration: ctx.passNumber,
-            durationMs,
+            durationMs: attempt.durationMs,
             kind: "quota",
             exitReason: "quota-fallback",
             patch_phase: "review",
             ...telemetryMeta,
           });
-          continue;
         }
-
-        if (isIdleTimeout) {
-          idleTimeoutOccurred = true;
-          opts.writeTelemetry({
-            agent: resolvedAgent.name,
-            iteration: ctx.passNumber,
-            durationMs,
-            kind: "error",
-            exitReason: "watchdog-idle-timeout",
-            patch_phase: "review",
-            ...telemetryMeta,
-          });
-          throw new ReviewTerminalError(
-            `actuator failed: ${result.kind}`,
-            result.kind === "error" ? result.exitCode : 1,
-            { telemetryRecorded: true },
-          );
-        }
-
-        const exitCode = result.kind === "model_config" ? 3 : result.kind === "error" ? result.exitCode : 1;
-        opts.writeTelemetry({
-          agent: resolvedAgent.name,
-          iteration: ctx.passNumber,
-          durationMs,
-          kind: result.kind === "quota" ? "quota" : result.kind === "model_config" ? "error" : "error",
-          exitReason: result.kind,
-          patch_phase: "review",
-          ...telemetryMeta,
-        });
-        throw new ReviewTerminalError(`actuator failed: ${result.kind}`, exitCode);
       }
 
-      opts.fanout("harness", "review: actuator no agents available\n", "stderr");
-      throw new ReviewTerminalError("actuator no agents available", 2);
+      const finalAttempt = execution.final === null ? null : attemptContexts[execution.attempts.length - 1] ?? null;
+      if (execution.final === null || finalAttempt === null) {
+        opts.fanout("harness", "review: actuator no agents available\n", "stderr");
+        throw new ReviewTerminalError("actuator no agents available", 2);
+      }
+      const finalResult = execution.final.result;
+      const finalConfiguredModel = finalAttempt.agentEntry.model;
+      const finalTelemetryMeta = finalConfiguredModel ? { configured_model: finalConfiguredModel } : {};
+
+      if (finalResult.kind === "ok") {
+        if (finalResult.stdout.length > 0) {
+          opts.fanout("inbound_stdout", finalResult.stdout, null, { actuator: true });
+        }
+        if (finalResult.stderr.length > 0) {
+          opts.fanout("inbound_stderr", finalResult.stderr, null, { actuator: true });
+        }
+
+        try {
+          writeFileSync(verdictPath, verdict, "utf8");
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          opts.fanout("harness", `review: failed to restore verdict: ${message}\n`, "stderr");
+          throw new ReviewTerminalError(message, 1);
+        }
+
+        recoverImmutableCopyOverreach({ copies: [], validation: { valid: true, error: null } });
+
+        const editedSpecFiles = detectSpecTreeEdits(specDir, opts.cwd);
+        if (editedSpecFiles.length > 0) {
+          opts.fanout(
+            "harness",
+            `review: actuator edited spec files (reverting): ${editedSpecFiles.join(", ")}\n`,
+            "stderr",
+          );
+          try {
+            revertSpecTreeEdits(specDir, opts.cwd);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            opts.fanout("harness", `review: revert failed: ${message}\n`, "stderr");
+            throw new ReviewTerminalError(message, 1);
+          }
+        }
+
+        const porcelain = execFileSync("git", ["status", "--porcelain"], {
+          cwd: opts.cwd,
+          encoding: "utf8",
+          stdio: "pipe",
+          ...GIT_SUBPROCESS_OPTS,
+        }).trim();
+
+        if (porcelain !== "") {
+          try {
+            execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
+            const commitMessage = appendAgentTrailer("review: actuator", finalAttempt.agent.name);
+            execFileSync("git", ["commit", "-F", "-"], {
+              cwd: opts.cwd,
+              env: process.env,
+              stdio: ["pipe", "pipe", "pipe"],
+              input: commitMessage,
+              ...GIT_SUBPROCESS_OPTS,
+            });
+
+            try {
+              reconcileActuatorCommit(opts.cwd);
+            } catch (reconcileErr) {
+              if (reconcileErr instanceof RebaseConflictError) {
+                opts.fanout("harness", `review: actuator rebase conflict: ${reconcileErr.message}\n`, "stderr");
+                const usageAndCost = extractUsageAndCost(finalResult, finalAttempt.agent.name, finalConfiguredModel);
+                opts.writeTelemetry({
+                  agent: finalAttempt.agent.name,
+                  iteration: ctx.passNumber,
+                  durationMs: finalAttempt.durationMs,
+                  kind: "error",
+                  exitReason: "actuator-rebase-conflict",
+                  patch_phase: "review",
+                  ...usageAndCost,
+                  ...finalTelemetryMeta,
+                });
+                throw new ReviewTerminalError(reconcileErr.message, 11, { telemetryRecorded: true });
+              }
+            }
+
+            pushCurrent({ cwd: opts.cwd, firstPush: false });
+
+            void updatePrBody({
+              indexPath: opts.specPath,
+              branch,
+              base,
+              cwd: opts.cwd,
+              prNarrative: opts.config.modes.patch.prNarrative ?? "template",
+            }).catch(() => {});
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            const usageAndCost = extractUsageAndCost(finalResult, finalAttempt.agent.name, finalConfiguredModel);
+            if (isNonFastForwardPushError(message)) {
+              try {
+                const convergenceResult = tryConvergeNonFfActuatorPush(opts.cwd, branch);
+                if (convergenceResult.converged) {
+                  opts.fanout("harness", `review: actuator push rejected non-ff; converged to PR head\n`, "stdout");
+                  opts.writeTelemetry({
+                    agent: finalAttempt.agent.name,
+                    iteration: ctx.passNumber,
+                    durationMs: finalAttempt.durationMs,
+                    kind: "error",
+                    exitReason: "actuator-push-converged",
+                    patch_phase: "review",
+                    ...usageAndCost,
+                    ...finalTelemetryMeta,
+                  });
+                  throw new ReviewTerminalError("non-ff push converged", 11);
+                }
+              } catch (convergenceErr) {
+                if (convergenceErr instanceof ReviewTerminalError) {
+                  throw convergenceErr;
+                }
+              }
+            }
+            opts.fanout("harness", `review: actuator commit failed: ${message}\n`, "stderr");
+            opts.writeTelemetry({
+              agent: finalAttempt.agent.name,
+              iteration: ctx.passNumber,
+              durationMs: finalAttempt.durationMs,
+              kind: "error",
+              exitReason: "actuator-commit-failed",
+              patch_phase: "review",
+              ...usageAndCost,
+              ...finalTelemetryMeta,
+            });
+            throw new ReviewTerminalError(message, 1);
+          }
+
+          opts.fanout("harness", `review: actuator completed\n`, "stdout");
+        } else {
+          opts.fanout("harness", `review: actuator made no changes\n`, "stdout");
+        }
+        opts.writeTelemetry({
+          agent: finalAttempt.agent.name,
+          iteration: ctx.passNumber,
+          durationMs: finalAttempt.durationMs,
+          kind: "ok",
+          exitReason: "ok",
+          patch_phase: "review",
+          ...extractUsageAndCost(finalResult, finalAttempt.agent.name, finalConfiguredModel),
+          ...finalTelemetryMeta,
+        });
+        return;
+      }
+
+      if (finalResult.kind === "error" && finalResult.stderr.includes("aborted: idle-timeout")) {
+        idleTimeoutOccurred = true;
+        opts.writeTelemetry({
+          agent: finalAttempt.agent.name,
+          iteration: ctx.passNumber,
+          durationMs: finalAttempt.durationMs,
+          kind: "error",
+          exitReason: "watchdog-idle-timeout",
+          patch_phase: "review",
+          ...finalTelemetryMeta,
+        });
+        throw new ReviewTerminalError(`actuator failed: ${finalResult.kind}`, finalResult.exitCode, {
+          telemetryRecorded: true,
+        });
+      }
+
+      const exitCode =
+        finalResult.kind === "model_config" ? 3 : finalResult.kind === "error" ? finalResult.exitCode : 1;
+      opts.writeTelemetry({
+        agent: finalAttempt.agent.name,
+        iteration: ctx.passNumber,
+        durationMs: finalAttempt.durationMs,
+        kind: finalResult.kind === "quota" ? "quota" : "error",
+        exitReason: finalResult.kind,
+        patch_phase: "review",
+        ...finalTelemetryMeta,
+      });
+      throw new ReviewTerminalError(`actuator failed: ${finalResult.kind}`, exitCode);
     };
   };
 

@@ -41,7 +41,6 @@ describe("shared invocation fallback", () => {
     const bindings: InvocationBinding[] = [
       {
         id: "first",
-        metadata: { agent: "claude", model: "m1" },
         invoke: async () => {
           calls.push("first");
           return { kind: "quota", stderr: "quota" };
@@ -49,7 +48,6 @@ describe("shared invocation fallback", () => {
       },
       {
         id: "second",
-        metadata: { agent: "codex", model: "m2" },
         invoke: async () => {
           calls.push("second");
           return { kind: "ok", stdout: "done", stderr: "" };
@@ -73,7 +71,6 @@ describe("shared invocation fallback", () => {
     const bindings: InvocationBinding[] = [
       {
         id: "first",
-        metadata: { agent: "claude", model: "m1" },
         invoke: async () => {
           calls.push("first");
           return { kind: "error", exitCode: 1, stderr: "hard" };
@@ -81,7 +78,6 @@ describe("shared invocation fallback", () => {
       },
       {
         id: "second",
-        metadata: { agent: "codex", model: "m2" },
         invoke: async () => {
           calls.push("second");
           return { kind: "ok", stdout: "should-not-run", stderr: "" };

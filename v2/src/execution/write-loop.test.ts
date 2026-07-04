@@ -11,6 +11,15 @@ import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
 
 const { roots } = trackedTempRoots();
 
+function loopTelemetry(sinkPath: string): NonNullable<WriteLoopInput["telemetry"]> {
+  return {
+    sinkPath,
+    operatorSessionId: "session-1",
+    workflow: "write",
+    role: "implement",
+  };
+}
+
 /** Test log sink that captures all events. */
 class TestLogSink implements LogSink {
   events: Array<{ runId: string; event: LogEvent }> = [];
@@ -63,19 +72,11 @@ async function runLoop(args: {
     bindings: args.bindings,
     stateStore: store,
     withExternalWorktree: createFakeWithExternalWorktree(args.jarvisRoot),
+    ...(args.maxIterations !== undefined ? { maxIterations: args.maxIterations } : {}),
+    ...(args.signal !== undefined ? { signal: args.signal } : {}),
+    ...(args.logSink !== undefined ? { logSink: args.logSink } : {}),
+    ...(args.telemetry !== undefined ? { telemetry: args.telemetry } : {}),
   };
-  if (args.maxIterations !== undefined) {
-    loopInput.maxIterations = args.maxIterations;
-  }
-  if (args.signal !== undefined) {
-    loopInput.signal = args.signal;
-  }
-  if (args.logSink !== undefined) {
-    loopInput.logSink = args.logSink;
-  }
-  if (args.telemetry !== undefined) {
-    loopInput.telemetry = args.telemetry;
-  }
   try {
     return await executeWriteLoop(loopInput);
   } finally {
@@ -371,12 +372,7 @@ describe("write loop", () => {
       jarvisRoot,
       stateDbPath,
       bindings: simulatedBindings(["quota", "done"], { artifactPath: "proof.txt", emitArtifact: true }),
-      telemetry: {
-        sinkPath: telemetryPath,
-        operatorSessionId: "session-1",
-        workflow: "write",
-        role: "implement",
-      },
+      telemetry: loopTelemetry(telemetryPath),
     });
 
     expect(result.kind).toBe("complete");
@@ -400,12 +396,7 @@ describe("write loop", () => {
       stateDbPath,
       bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
       logSink,
-      telemetry: {
-        sinkPath: telemetryDir,
-        operatorSessionId: "session-1",
-        workflow: "write",
-        role: "implement",
-      },
+      telemetry: loopTelemetry(telemetryDir),
     });
 
     expect(result.kind).toBe("complete");

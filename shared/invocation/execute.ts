@@ -22,16 +22,11 @@ export type InvocationError =
 
 export type InvocationResult = InvocationOk | InvocationQuota | InvocationError;
 
-export type InvocationBindingMetadata = {
-  agent: string;
-  model: string;
-};
-
 export type InvocationBinding<T extends InvocationResult = InvocationResult> = {
   id: string;
   invoke: (args: { prompt: string; cwd: string; signal?: AbortSignal }) => Promise<T>;
   shouldAdvance?: (result: T) => boolean;
-  metadata?: InvocationBindingMetadata;
+  metadata?: { agent: string; model: string };
 };
 
 export type InvocationAttempt<T extends InvocationResult = InvocationResult> = {
@@ -129,13 +124,15 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
       ...(args.signal !== undefined ? { signal: args.signal } : {}),
     });
     const invocationId = args.telemetry?.invocationIds[bindingIndex];
-    const attempt = invocationId === undefined ? { binding, result } : { binding, result, invocationId };
+    const attempt = { binding, result, ...(invocationId !== undefined ? { invocationId } : {}) };
     attempts.push(attempt);
-    if (args.telemetry !== undefined && invocationId !== undefined && binding.metadata !== undefined) {
+    const metadata = binding.metadata;
+    if (args.telemetry !== undefined && invocationId !== undefined && metadata !== undefined) {
       const record = createInvocationCompletedRecord({
         telemetry: args.telemetry,
         invocationId,
-        binding,
+        metadata,
+        bindingId: binding.id,
         bindingIndex,
         result,
         durationMs: Date.now() - startedAt,
@@ -168,7 +165,8 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
 function createInvocationCompletedRecord<T extends InvocationResult>(args: {
   telemetry: InvocationTelemetryContext;
   invocationId: string;
-  binding: InvocationBinding<T>;
+  metadata: { agent: string; model: string };
+  bindingId: string;
   bindingIndex: number;
   result: T;
   durationMs: number;
@@ -185,9 +183,9 @@ function createInvocationCompletedRecord<T extends InvocationResult>(args: {
     workflow: args.telemetry.workflow,
     step_id: args.telemetry.stepId,
     role: args.telemetry.role,
-    agent: args.binding.metadata?.agent ?? "unknown",
-    model: args.binding.metadata?.model ?? "unknown",
-    binding_id: args.binding.id,
+    agent: args.metadata.agent,
+    model: args.metadata.model,
+    binding_id: args.bindingId,
     binding_index: args.bindingIndex,
     duration_ms: args.durationMs,
     worktree_path: args.telemetry.worktreePath,
@@ -203,16 +201,11 @@ function createInvocationCompletedRecord<T extends InvocationResult>(args: {
     cost_usd: null,
     cost_source: "unavailable",
     exit_kind: args.result.kind,
-    exit_reason: invocationExitReason(args.result),
+    exit_reason:
+      args.result.kind === "ok"
+        ? null
+        : args.result.kind === "error"
+          ? `exit_code:${args.result.exitCode}`
+          : args.result.stderr,
   };
-}
-
-function invocationExitReason(result: InvocationResult): string | null {
-  if (result.kind === "ok") {
-    return null;
-  }
-  if (result.kind === "error") {
-    return `exit_code:${result.exitCode}`;
-  }
-  return result.stderr;
 }

@@ -451,6 +451,51 @@ describe("runPatchReviewPhase", () => {
     }
   });
 
+  test("actuator falls back through reviewActuator order on quota", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    try {
+      const reviewer = new FakeAgent("claude", (_callCount, prompt) => ({
+        kind: "ok",
+        stdout: prompt.includes("Review: Adjudicator") ? "apply fix\n" : "finding\n",
+        stderr: "",
+      }));
+      const claudeActuator = new FakeAgent("claude", () => ({ kind: "quota", stderr: "limit" }));
+      const codexActuator = new FakeAgent("codex", () => ({ kind: "ok", stdout: "done\n", stderr: "" }));
+      const harness: string[] = [];
+      const telemetry: Array<{ agent?: string; exitReason?: string; kind?: string }> = [];
+
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({
+          reviewOrder: [CLAUDE_ENTRY],
+          patchOrder: [CLAUDE_ENTRY],
+          reviewActuatorOrder: [CLAUDE_ENTRY, CODEX_ENTRY],
+        }),
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout: (tag, text) => {
+          if (tag === "harness") harness.push(text.trim());
+        },
+        writeTelemetry: (record) => telemetry.push(record),
+        agents: { claude: reviewer },
+        actuatorAgents: [claudeActuator, codexActuator],
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+      });
+
+      expect(code).toBe(0);
+      expect(claudeActuator.calls).toHaveLength(1);
+      expect(codexActuator.calls).toHaveLength(1);
+      expect(harness.some((line) => line.includes("review: claude:") && line.includes("quota"))).toBe(true);
+      const fallbackRow = telemetry.find((r) => r.exitReason === "quota-fallback");
+      expect(fallbackRow?.agent).toBe("claude");
+      expect(fallbackRow?.kind).toBe("quota");
+    } finally {
+      cleanup();
+    }
+  });
+
   test("uses reviewActuator head for verdict actuator only", async () => {
     const { dir, specPath, cleanup } = setupPatchReviewRepo();
     try {

@@ -10,6 +10,7 @@ import type { Config } from "../../../src/config.ts";
 import { writeReadyFlipBlocked } from "../../../src/git/base-current.ts";
 import { buildReviewPrompt, buildVerdictActuatorPrompt } from "../../../src/modes/patch/prompt.ts";
 import {
+  commitReviewPass,
   consumeReviewBlocker,
   detectSpecTreeEdits,
   PATCH_VERDICT_FILE,
@@ -346,6 +347,25 @@ describe("patch review helpers", () => {
       expect(consumeReviewBlocker(dir)).toBe("blocked");
       expect(consumeReviewBlocker(dir)).toBeNull();
     } finally {
+      cleanup();
+    }
+  });
+
+  test("stalled real git subprocess in commitReviewPass fails within 15s with fixture reaped", () => {
+    const { dir, cleanup } = setupPatchReviewRepo();
+    const binDir = mkdtempSync(join(tmpdir(), "jarvis-review-git-stall-bin-"));
+    const originalPath = process.env.PATH;
+    try {
+      writeFileSync(join(dir, "impl.txt"), "changed\n");
+      writeIdleHangScript(join(binDir, "git"));
+      process.env.PATH = `${binDir}:${originalPath ?? ""}`;
+
+      const startTime = Date.now();
+      expect(() => commitReviewPass(1, "claude", dir)).toThrow();
+      expect(Date.now() - startTime).toBeLessThan(15_000);
+    } finally {
+      process.env.PATH = originalPath;
+      rmSync(binDir, { recursive: true, force: true });
       cleanup();
     }
   });

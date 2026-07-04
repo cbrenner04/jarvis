@@ -27,11 +27,11 @@ either suite (and the CI `Test` job) indefinitely.
 
 ## Acceptance criteria
 
-- [ ] Every real `git` subprocess `review.ts` and `subspec.ts` spawn is bounded by the shared timeout+`SIGKILL` helper, so a wedged `git` call cannot hang either path past that bound.
-- [ ] A stalled real `git` subprocess on the `review.ts` path fails the invocation under test within the bound instead of hanging, and any hang-fixture child it started is reaped.
-- [ ] A stalled real `git` subprocess on the `subspec.ts` path fails the invocation under test within the bound instead of hanging, and any hang-fixture child it started is reaped.
-- [ ] `shrink.test.ts` and `shrink.sandbox-unrunnable.test.ts` stay green after `shrink.ts` switches to the shared helper (behavior unchanged by the extraction).
-- [ ] `v2/docs/v1-behaviors.md` records that `review.ts` and `subspec.ts` git subprocesses are now bounded the same way as `shrink.ts`.
+- [x] Every real `git` subprocess `review.ts` and `subspec.ts` spawn is bounded by the shared timeout+`SIGKILL` helper, so a wedged `git` call cannot hang either path past that bound.
+- [x] A stalled real `git` subprocess on the `review.ts` path fails the invocation under test within the bound instead of hanging, and any hang-fixture child it started is reaped.
+- [x] A stalled real `git` subprocess on the `subspec.ts` path fails the invocation under test within the bound instead of hanging, and any hang-fixture child it started is reaped.
+- [x] `shrink.test.ts` and `shrink.sandbox-unrunnable.test.ts` stay green after `shrink.ts` switches to the shared helper (behavior unchanged by the extraction).
+- [x] `v2/docs/v1-behaviors.md` records that `review.ts` and `subspec.ts` git subprocesses are now bounded the same way as `shrink.ts`.
 
 ## Documentation updates
 

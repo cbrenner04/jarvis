@@ -3,6 +3,7 @@ import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, relative } from "node:path";
 import { type AcceptanceCriterion, parseSpec } from "../../../../shared/spec-parser.ts";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
+import { GIT_SUBPROCESS_OPTS } from "./git-subprocess.ts";
 
 export type { AcceptanceCriterion };
 
@@ -29,7 +30,7 @@ export function commitSubspec(
   writeFileSync(indexPath, updatedIndexContent);
 
   const gitRoot = opts.cwd ?? getGitRoot(subspecPath);
-  execFileSync("git", ["add", "-A"], { cwd: gitRoot, stdio: "pipe" });
+  execFileSync("git", ["add", "-A"], { cwd: gitRoot, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
   if (!hasStagedChanges(gitRoot)) {
     return;
   }
@@ -61,6 +62,7 @@ export function snapshotCommittedAcceptanceCriteria(subspecPath: string, opts: {
       cwd: gitRoot,
       encoding: "utf8",
       stdio: "pipe",
+      ...GIT_SUBPROCESS_OPTS,
     });
     const parsed = parseSpec(committed);
     return parsed.acceptanceCriteria;
@@ -86,7 +88,7 @@ export function commitWipProgress(
     throw new Error(`Subspec ${subspecPath} is missing H1 heading (# )`);
   }
 
-  execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe" });
+  execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
   if (!hasStagedChanges(opts.cwd)) {
     return;
   }
@@ -124,11 +126,12 @@ export function commitWipProgressWithBlocker(
     throw new Error(`Subspec ${subspecPath} is missing H1 heading (# )`);
   }
 
-  execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe" });
+  execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
 
   const diffResult = spawnSync("git", ["diff", "--cached", "--quiet"], {
     cwd: opts.cwd,
     stdio: "pipe",
+    ...GIT_SUBPROCESS_OPTS,
   });
   if (diffResult.status === 0) {
     return;
@@ -169,6 +172,7 @@ export function commitWipProgressWithBlocker(
       env: process.env,
       stdio: ["pipe", "pipe", "pipe"],
       input: commitMessage,
+      ...GIT_SUBPROCESS_OPTS,
     });
   } catch (err) {
     let errorMessage = err instanceof Error ? err.message : String(err);
@@ -196,6 +200,7 @@ function getGitRoot(subspecPath: string): string {
       cwd: dirname(subspecPath),
       encoding: "utf8",
       stdio: "pipe",
+      ...GIT_SUBPROCESS_OPTS,
     }).trim();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -207,6 +212,7 @@ function hasStagedChanges(cwd: string): boolean {
   const diffResult = spawnSync("git", ["diff", "--cached", "--quiet"], {
     cwd,
     stdio: "pipe",
+    ...GIT_SUBPROCESS_OPTS,
   });
   if (diffResult.status === 0) {
     return false;
@@ -224,6 +230,7 @@ function commitStagedChanges(cwd: string, commitMessage: string): void {
       env: process.env,
       stdio: ["pipe", "pipe", "pipe"],
       input: commitMessage,
+      ...GIT_SUBPROCESS_OPTS,
     });
   } catch (err) {
     let errorMessage = err instanceof Error ? err.message : String(err);

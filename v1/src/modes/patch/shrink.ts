@@ -18,17 +18,12 @@ import { type ReadyTier, runReadyGateWithTier } from "../../ready-gate.ts";
 import type { CostSource, PatchTelemetryPhase, TelemetryKind, UsageSource } from "../../telemetry.ts";
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 import { pushCurrent } from "../../worktree.ts";
+import { GIT_SUBPROCESS_OPTS } from "./git-subprocess.ts";
 import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "./idle-watchdog.ts";
 import { updatePrBody } from "./pr.ts";
 import { buildShrinkPrompt } from "./prompt.ts";
 import { detectSpecTreeEdits, revertSpecTreeEdits } from "./review.ts";
 import { type AcceptanceCriterion, snapshotAcceptanceCriteria } from "./subspec.ts";
-
-/** Bound on every real `git` subprocess on the shrink path: a wedged git call must not hang the file past this. */
-const GIT_SUBPROCESS_TIMEOUT_MS = 10_000;
-
-/** Shared timeout+kill options for every `git` subprocess spawned on the shrink path. */
-const GIT_SUBPROCESS_OPTS = { timeout: GIT_SUBPROCESS_TIMEOUT_MS, killSignal: "SIGKILL" as const };
 
 /** Shrink-phase terminal failure mapped to a harness exit code. */
 export class ShrinkTerminalError extends Error {

@@ -112,9 +112,12 @@ Top-level harness-global artifact. Maps each agent name to its `ModelsByRole`.
 ```
 
 **Relationships:** project config supplies `agents: Agent[]` (outer order).
-`AgentModelConfig[agent][role]` supplies inner `rungs`. At step invocation the
-runner resolves `role` from the workflow step, walks `agents`, and for each
-landed agent reads `AgentModelConfig[agent][role].rungs`.
+`AgentModelConfig[agent][role]` supplies inner `rungs`. The current
+`executeWorkflow` contract uses workflow-step `role` to validate that each
+configured agent has its own binding entry before any run starts; it does not
+rewrite a step's caller-supplied execution `bindings` from `role`. When a
+consumer does flatten execution bindings from config, it walks `agents` and
+reads `AgentModelConfig[agent][role].rungs` for each landed agent.
 
 ## Two-axis resolution
 
@@ -231,9 +234,11 @@ Config load validates the config artifact itself. It does **not** prove that a
 loaded workflow source is runnable: the workflow may still name a role absent
 from the loaded config. Before any workflow runs, `executeWorkflow` validates
 the loaded `steps` array against the current machine `agents` order and loaded
-`AgentModelConfig`; every step role must resolve for every configured agent.
-There is no deferred first-invocation fallback if a later configured agent
-misses the role.
+`AgentModelConfig`; every step role must resolve for every configured agent via
+an own `(agent, role)` entry. Inherited object properties do not count. There
+is no deferred first-invocation fallback if a later configured agent misses the
+role. After that gate, the current runner still executes the step's supplied
+`bindings` unchanged.
 
 ## CLI override
 

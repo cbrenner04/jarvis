@@ -7,10 +7,15 @@ See [`v2-architecture.md`](v2-architecture.md) (orchestration; multi-step workfl
 ## Execution contract
 
 `executeWorkflow(args: WorkflowRunnerInput)` sequences an ordered `steps` array;
-the caller also supplies the loaded machine `agents` order and loaded
-`AgentModelConfig`. Each step has `stepId` (unique within the workflow), `role`
-(the role→model resolution key for that step), and all parameters of a single
-[`write-behavior.md`](write-behavior.md) write loop.
+the caller also supplies the loaded machine `agents` order, loaded
+`AgentModelConfig`, and each step's already-built write-loop `bindings`. Each
+step has `stepId` (unique within the workflow), `role` (the workflow-source
+validation key checked against the current config before execution), and all
+parameters of a single [`write-behavior.md`](write-behavior.md) write loop.
+
+`executeWorkflow` does **not** currently derive execution-time bindings from
+`role`. After validation succeeds, it passes each step's caller-supplied
+write-loop input through to `executeWriteLoop` unchanged.
 
 For each step in order:
 1. Run its write loop (via `executeWriteLoop`) to a terminal outcome.
@@ -38,7 +43,7 @@ Each step maintains its own durable `(project, branch, stepId)` run independentl
 - Distinct `run_id` per step.
 - Distinct attempt history queryable via `findRunByProjectBranch({ project, branch, stepId })`.
 - `stepId` must be unique within the workflow (enforced at invocation).
-- `role` is the workflow-source model-resolution key for the step but is not persisted in durable state — attempt history identifies steps by `stepId`, not role/binding.
+- `role` is the workflow-source validation key for the step but is not persisted in durable state — attempt history identifies steps by `stepId`, not role/binding.
 
 A one-step workflow runs identically to a single-step `executeWriteLoop` invocation (same terminal outcomes, same resume behavior).
 
@@ -48,11 +53,12 @@ Before running any step, `executeWorkflow` validates:
 - `steps` array is not empty.
 - All `stepId` values are unique within the array.
 - For every step and every machine-configured agent, the loaded
-  `AgentModelConfig` contains a binding for that step's `role`.
+  `AgentModelConfig` contains an own binding entry for that step's `role`.
 
 Workflow-source role misses are aggregated and reported as `(stepId, role,
-agent)` tuples in one synchronous failure. Validation fails before any durable
-workflow state change, including on resume.
+agent)` tuples in one synchronous failure. Inherited object properties do not
+count as bindings. Validation fails before any durable workflow state change,
+including on resume.
 
 ## Budget and abort
 

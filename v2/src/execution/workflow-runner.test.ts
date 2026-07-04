@@ -121,6 +121,32 @@ describe("executeWorkflow", () => {
     }
   });
 
+  test("treats inherited object properties as missing workflow role bindings", async () => {
+    const step = createStep({ stepId: "step-1", role: "toString" });
+    const store = openStateStore(":memory:");
+
+    try {
+      await expectWorkflowError(
+        {
+          steps: [step],
+          agents,
+          agentModelConfig: noStepRolesConfig,
+          stateStore: store,
+        },
+        "(step-1, toString, claude)",
+        "(step-1, toString, codex)",
+      );
+      const run = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "workflow-run",
+        stepId: "step-1",
+      });
+      expect(run).toBeNull();
+    } finally {
+      store.close();
+    }
+  });
+
   test("aggregates multiple missing step-role-agent bindings in one load failure", async () => {
     const step1 = createStep({ stepId: "step-1", role: "implement", branchName: "aggregate-misses" });
     const step2 = createStep({ stepId: "step-2", role: "unknown-role", branchName: "aggregate-misses" });
@@ -312,7 +338,8 @@ describe("executeWorkflow", () => {
   });
 
   test("resumes at first non-completed step", async () => {
-    const stateDbPath = ":memory:";
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    roots.push(jarvisRoot);
 
     // First invocation: complete step 1, progress on step 2
     const step1First = createStep({ stepId: "step-1", role: "implement", branchName: "resume-test" });
@@ -360,6 +387,15 @@ describe("executeWorkflow", () => {
         stepId: "step-1",
       });
       expect(run1?.attempts).toHaveLength(1); // Only one attempt from first invocation
+      expect(run1?.status).toBe("completed");
+
+      const run2 = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "resume-test",
+        stepId: "step-2",
+      });
+      expect(run2?.status).toBe("completed");
+      expect(run2?.attempts).toHaveLength(2);
     } finally {
       store.close();
     }

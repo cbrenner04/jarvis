@@ -103,7 +103,8 @@ function validateWorkflowStepRoles(
 
   for (const step of steps) {
     for (const agent of agents) {
-      if ((agentModelConfig[agent] as Record<string, unknown> | undefined)?.[step.role] === undefined) {
+      const agentEntry = agentModelConfig[agent];
+      if (!agentEntry || !Object.hasOwn(agentEntry, step.role)) {
         missingBindings.push(`(${step.stepId}, ${step.role}, ${agent})`);
       }
     }

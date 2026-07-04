@@ -18,10 +18,20 @@ execution-time `bindings` from `role`/`agents`/`agentModelConfig` via the
 two-axis resolution in [`agent-model-config.md`](agent-model-config.md), then
 passes the resulting write-loop input to `executeWriteLoop`.
 
+For the supported `write-write` preset, that resolution is per step at the
+moment the runner reaches the step. The runner does not precompute one shared
+binding chain for the whole workflow or reuse the first step's resolved
+bindings for the second step, even when both positions use the same
+`implement` role and the same loaded project agent/model config.
+
 For each step in order:
 1. Run its write loop (via `executeWriteLoop`) to a terminal outcome.
 2. If the outcome is `complete`, advance to the next step.
 3. Any other terminal outcome (`blocked`, `contract_miss`, `invocation_failure`) or soft-stop (`budget-exhausted`, `paused`) stops the workflow at that step — no later steps are run.
+
+In the supported `write-write` composition, step two begins only after step one
+reaches `complete`. Workflow success means both step-local write loops
+completed; success on step one alone never advances the workflow to `complete`.
 
 Return `WorkflowResult` indicates which step produced the stopping outcome, its run ID, total iterations consumed across all steps, and resumability.
 

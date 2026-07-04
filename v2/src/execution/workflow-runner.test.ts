@@ -239,6 +239,142 @@ describe("executeWorkflow", () => {
     }
   });
 
+  test("runs the write-write preset end to end with per-step resolution, ordered advancement, fallback, and separate durable history", async () => {
+    const store = openStateStore(":memory:");
+    const home = createJarvisHome();
+    roots.push(home.jarvisRoot);
+    const events: string[] = [];
+    const sharedWorktree = {
+      projectRoot: "/fake",
+      projectName: "demo",
+      branchName: "write-write-proof",
+      baseRef: "HEAD",
+      jarvisRoot: home.jarvisRoot,
+    };
+    const withExternalWorktree = createFakeWithExternalWorktree(home.jarvisRoot);
+    const sharedAgentModelConfig: AgentModelConfig = {
+      claude: {
+        implement: {
+          rungs: [
+            { adapterModel: "M1", priceKey: "P1" },
+            { adapterModel: "M2", priceKey: "P2" },
+          ],
+        },
+      },
+      codex: {
+        implement: {
+          rungs: [{ adapterModel: "M3", priceKey: "P3" }],
+        },
+      },
+    };
+
+    function createProofBindingFactory(
+      stepId: string,
+      tokens: readonly string[],
+    ): NonNullable<WorkflowStep["createBinding"]> {
+      let tokenIndex = 0;
+
+      return ({ agentId, adapterModel }) => {
+        events.push(`resolve:${stepId}:${agentId}/${adapterModel}`);
+
+        return {
+          id: `${stepId}:${agentId}/${adapterModel}`,
+          invoke: async ({ cwd }) => {
+            events.push(`invoke:${stepId}:${agentId}/${adapterModel}`);
+
+            if (adapterModel === "M1") {
+              return { kind: "quota", stderr: "quota" } as const;
+            }
+
+            if (adapterModel === "M2") {
+              writeFileSync(`${cwd}/proof.txt`, `${stepId}\n`, "utf8");
+              const stdout = tokens[tokenIndex] ?? "done";
+              tokenIndex += 1;
+              return { kind: "ok", stdout, stderr: "" } as const;
+            }
+
+            throw new Error(`Unexpected fallback invocation for ${stepId}: ${agentId}/${adapterModel}`);
+          },
+        } satisfies InvocationBinding;
+      };
+    }
+
+    const steps = resolveWorkflowPreset("write-write", [
+      {
+        ...createStep({
+          stepId: "step-1",
+          role: "implement",
+          branchName: "write-write-proof",
+          agents: TWO_AGENTS,
+          agentModelConfig: sharedAgentModelConfig,
+          createBinding: createProofBindingFactory("step-1", ["progress", "done"]),
+        }),
+        worktree: sharedWorktree,
+        withExternalWorktree,
+      },
+      {
+        ...createStep({
+          stepId: "step-2",
+          role: "implement",
+          branchName: "write-write-proof",
+          agents: TWO_AGENTS,
+          agentModelConfig: sharedAgentModelConfig,
+          createBinding: createProofBindingFactory("step-2", ["done"]),
+        }),
+        worktree: sharedWorktree,
+        withExternalWorktree,
+      },
+    ]);
+
+    try {
+      const result = await executeWorkflow({
+        steps,
+        stateStore: store,
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(result.stepIndex).toBe(1);
+      expect(result.stepId).toBe("step-2");
+      expect(events).toEqual([
+        "resolve:step-1:claude/M1",
+        "resolve:step-1:claude/M2",
+        "resolve:step-1:codex/M3",
+        "invoke:step-1:claude/M1",
+        "invoke:step-1:claude/M2",
+        "invoke:step-1:claude/M1",
+        "invoke:step-1:claude/M2",
+        "resolve:step-2:claude/M1",
+        "resolve:step-2:claude/M2",
+        "resolve:step-2:codex/M3",
+        "invoke:step-2:claude/M1",
+        "invoke:step-2:claude/M2",
+      ]);
+
+      const run1 = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "write-write-proof",
+        stepId: "step-1",
+      });
+      const run2 = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "write-write-proof",
+        stepId: "step-2",
+      });
+
+      expect(run1?.id).not.toBe(run2?.id);
+      expect(run1?.status).toBe("completed");
+      expect(run2?.status).toBe("completed");
+      expect(run1?.attemptCount).toBe(2);
+      expect(run2?.attemptCount).toBe(1);
+      expect(run1?.attempts.map((attempt) => attempt.outcomeKind)).toEqual(["progress", "done"]);
+      expect(run2?.attempts.map((attempt) => attempt.outcomeKind)).toEqual(["done"]);
+      expect(run1?.attempts.map((attempt) => attempt.attemptNumber)).toEqual([1, 2]);
+      expect(run2?.attempts.map((attempt) => attempt.attemptNumber)).toEqual([1]);
+    } finally {
+      store.close();
+    }
+  });
+
   test("stops workflow when step ends blocked", async () => {
     const store = openStateStore(":memory:");
     const step1 = createStep({ stepId: "step-1", role: "implement", branchName: "blocked-run" });

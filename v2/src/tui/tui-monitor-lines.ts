@@ -6,9 +6,7 @@ function workflowStepLines(workflow: DaemonWorkflowSnapshot): string[] {
   for (const step of workflow.steps) {
     const marker = step.status === "in_progress" ? ">" : " ";
     const outcomeSuffix = step.terminalOutcome !== undefined ? ` ${step.terminalOutcome}` : "";
-    lines.push(
-      `${marker} ${step.stepId} ${step.role} ${step.status}${outcomeSuffix} attempts=${step.attemptCount}`,
-    );
+    lines.push(`${marker} ${step.stepId} ${step.role} ${step.status}${outcomeSuffix} attempts=${step.attemptCount}`);
   }
   return lines;
 }
@@ -49,8 +47,7 @@ export function monitorTextLines(state: TuiMonitorState): string[] {
       );
     }
   }
-  const selectedRun =
-    selected !== null ? state.runs.find((run) => run.runId === selected) : undefined;
+  const selectedRun = selected !== null ? state.runs.find((run) => run.runId === selected) : undefined;
   if (selectedRun?.workflow !== undefined) {
     lines.push(...workflowStepLines(selectedRun.workflow));
   }

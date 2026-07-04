@@ -170,8 +170,7 @@ function mapRunRow(row: Run & { workflowSnapshotJson: string | null }): Run {
   const { workflowSnapshotJson, ...run } = row;
   return {
     ...run,
-    workflowSnapshot:
-      workflowSnapshotJson === null ? null : (JSON.parse(workflowSnapshotJson) as WorkflowSnapshot),
+    workflowSnapshot: workflowSnapshotJson === null ? null : (JSON.parse(workflowSnapshotJson) as WorkflowSnapshot),
   };
 }
 
@@ -195,8 +194,7 @@ class StateStoreImpl implements StateStore {
     workflowSnapshot?: WorkflowSnapshot;
   }): string {
     const id = crypto.randomUUID();
-    const workflowSnapshotJson =
-      args.workflowSnapshot === undefined ? null : JSON.stringify(args.workflowSnapshot);
+    const workflowSnapshotJson = args.workflowSnapshot === undefined ? null : JSON.stringify(args.workflowSnapshot);
     this.db
       .prepare(`
         INSERT INTO runs (

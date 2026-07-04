@@ -92,7 +92,13 @@ test("parseListRuns accepts valid workflow step snapshots", () => {
           isLive: true,
           workflow: {
             steps: [
-              { stepId: "step-1", role: "implement", status: "completed", attemptCount: 2, terminalOutcome: "complete" },
+              {
+                stepId: "step-1",
+                role: "implement",
+                status: "completed",
+                attemptCount: 2,
+                terminalOutcome: "complete",
+              },
               { stepId: "step-2", role: "review", status: "in_progress", attemptCount: 1 },
               { stepId: "step-3", role: "verify", status: "pending", attemptCount: 0 },
             ],

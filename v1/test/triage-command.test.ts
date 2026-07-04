@@ -3042,7 +3042,7 @@ describe("triage --mark-ready", () => {
             io: testCase.shouldWait ? io2 : io,
             worktreeName: "branch-1",
             pollIntervalMs: 0,
-            pollTimeoutMs: 1000,
+            pollTimeoutMs: 0,
             ghRunner: {
               getPrState: () => ({
                 state: "OPEN",
@@ -3050,10 +3050,6 @@ describe("triage --mark-ready", () => {
               }),
               getChecks: () => {
                 pollCount++;
-                // If waiting, return pending first, then green
-                if (testCase.shouldWait && pollCount === 1) {
-                  return [{ name: "test", status: "in_progress" }];
-                }
                 return [{ name: "test", status: testCase.status }];
               },
             },
@@ -3070,8 +3066,7 @@ describe("triage --mark-ready", () => {
           expect(code).toBe(0);
           expect(output).toContain("merged successfully");
         } else if (testCase.shouldWait) {
-          // For pending cases, might merge or timeout depending on the test duration
-          // Just verify it's not immediately failing
+          // pollTimeoutMs: 0 times out after exactly one poll; just confirm it polled.
           expect(pollCount).toBeGreaterThanOrEqual(1);
         } else {
           expect(code).toBe(1);

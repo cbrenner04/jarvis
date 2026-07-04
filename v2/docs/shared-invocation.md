@@ -17,10 +17,17 @@ since a misconfigured or crashing agent is not recoverable by the next binding.
 
 Bindings:
 
-- `createAgentBindings(agentIds)` in `shared/invocation/agents.ts` builds the
-  ordered bindings. It is the seam where real `claude`/`codex`/`cursor` process
-  spawning and quota classification land; until then each binding returns a
-  terminal `error`, and tests inject their own bindings.
+- Shared execution consumes an already-flattened ordered binding list. For
+  workflow steps, `v2/src/config/agent-model-config.ts`
+  `resolveInvocationBindings(...)` flattens executable role + agent + rung
+  resolution first, then `shared/invocation/execute.ts` iterates that list.
+- `createResolvedAgentBinding({ agentId, adapterModel, priceKey })` in
+  `shared/invocation/agents.ts` builds one binding from one resolved rung. It is
+  the seam where real `claude`/`codex`/`cursor` process spawning and quota
+  classification land; until then each binding returns a terminal `error`, and
+  tests inject their own bindings.
+- `createAgentBindings(agentIds)` remains the older bare-agent helper for paths
+  that still inject prebuilt bindings directly.
 
 ## Terminal `failureKind` (binding-chain stop)
 
@@ -32,7 +39,7 @@ chain stops, `failureKind` encodes why:
 | `quota` | Every configured binding returned `quota`; fallback exhausted |
 | `model_config` | First non-quota result was `model_config`; chain stops (no advance) |
 | `error` | First non-quota result was `error`; chain stops (no advance) |
-| `no_binding` | No bindings configured (`final === null`) |
+| `no_binding` | No bindings configured (`final === null`), including an empty resolved binding list |
 
 Detail (`failureKind` plus ordered `bindingAttempts`) attaches only for
 binding-chain `invocation_failure`. Post-invocation token parse failure

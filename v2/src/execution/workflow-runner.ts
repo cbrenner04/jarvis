@@ -1,3 +1,10 @@
+import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
+import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
+import {
+  resolveExecutableRole,
+  resolveInvocationBindings,
+  type AgentModelConfig,
+} from "../config/agent-model-config.ts";
 import type { LogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "./write-loop.ts";
@@ -6,11 +13,17 @@ import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from
 export type WorkflowOutcomeKind = WriteLoopOutcomeKind;
 
 /** A single step in a workflow. */
-export type WorkflowStep = WriteLoopInput & {
+export type WorkflowStep = Omit<WriteLoopInput, "bindings"> & {
   /** Unique identifier for this step within the workflow. */
   stepId: string;
-  /** Opaque role identifier for durable identity only. */
+  /** Workflow-step role validated at execution against the executable role subset. */
   role: string;
+  /** Ordered outer agent fallback list for this step. */
+  agents: readonly string[];
+  /** Loaded role-to-rung data for the agents in this step. */
+  agentModelConfig: AgentModelConfig;
+  /** Test seam for binding construction from one resolved `(agent, model)` rung. */
+  createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
 };
 
 /** Result of a workflow invocation. */
@@ -65,11 +78,19 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       if (!step) throw new Error("Unreachable: step undefined in bounded loop");
 
       // Extract workflow-specific fields and pass the rest to executeWriteLoop
-      const { stepId, role, ...loopInput } = step;
+      const { stepId, role, agents, agentModelConfig, createBinding, ...loopInput } = step;
+      const executableRole = resolveExecutableRole(role);
+      const bindings = resolveInvocationBindings(
+        executableRole,
+        agents,
+        agentModelConfig,
+        createBinding ?? createResolvedAgentBinding,
+      );
 
       const stepInput: WriteLoopInput = {
         ...loopInput,
         stepId,
+        bindings,
         stateStore: store,
         ...(args.logSink !== undefined ? { logSink: args.logSink } : {}),
       };

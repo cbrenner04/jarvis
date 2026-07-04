@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
+import { resolveInvocationBindings } from "../config/agent-model-config.ts";
 import { parseStepOutcomeToken, runStep, type StepContract } from "./step-runner.ts";
 
 function okBinding(stdout: string): InvocationBinding {
@@ -123,5 +124,146 @@ describe("step runner classification", () => {
 
     expect(result.kind).toBe("contract_miss");
     expect(invocations).toBe(1);
+  });
+
+  test("quota advances across resolved bindings and lands on the next agent head rung", async () => {
+    const invocations: string[] = [];
+    const bindings = resolveInvocationBindings(
+      "implement",
+      ["claude", "codex"],
+      {
+        claude: {
+          implement: {
+            rungs: [
+              { adapterModel: "M1", priceKey: "P1" },
+              { adapterModel: "M2", priceKey: "P2" },
+            ],
+          },
+        },
+        codex: {
+          implement: {
+            rungs: [{ adapterModel: "M3", priceKey: "P3" }],
+          },
+        },
+      },
+      ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        invoke: async () => {
+          invocations.push(`${agentId}/${adapterModel}`);
+          if (adapterModel !== "M3") {
+            return { kind: "quota", stderr: "quota" } as const;
+          }
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        },
+      }),
+    );
+
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings,
+      contracts: [],
+    });
+
+    expect(result.kind).toBe("complete");
+    expect(invocations).toEqual(["claude/M1", "claude/M2", "codex/M3"]);
+  });
+
+  test("model_config after quota stops on the current resolved binding", async () => {
+    const invocations: string[] = [];
+    const bindings = resolveInvocationBindings(
+      "implement",
+      ["claude", "codex"],
+      {
+        claude: {
+          implement: {
+            rungs: [
+              { adapterModel: "M1", priceKey: "P1" },
+              { adapterModel: "M2", priceKey: "P2" },
+            ],
+          },
+        },
+        codex: {
+          implement: {
+            rungs: [{ adapterModel: "M3", priceKey: "P3" }],
+          },
+        },
+      },
+      ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        invoke: async () => {
+          invocations.push(`${agentId}/${adapterModel}`);
+          if (adapterModel === "M1") {
+            return { kind: "quota", stderr: "quota" } as const;
+          }
+          if (adapterModel === "M2") {
+            return { kind: "model_config", stderr: "bad model" } as const;
+          }
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        },
+      }),
+    );
+
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings,
+      contracts: [],
+    });
+
+    expect(result.kind).toBe("invocation_failure");
+    if (result.kind === "invocation_failure") {
+      expect(result.failureKind).toBe("model_config");
+    }
+    expect(invocations).toEqual(["claude/M1", "claude/M2"]);
+  });
+
+  test("error after quota stops on the current resolved binding", async () => {
+    const invocations: string[] = [];
+    const bindings = resolveInvocationBindings(
+      "implement",
+      ["claude", "codex"],
+      {
+        claude: {
+          implement: {
+            rungs: [
+              { adapterModel: "M1", priceKey: "P1" },
+              { adapterModel: "M2", priceKey: "P2" },
+            ],
+          },
+        },
+        codex: {
+          implement: {
+            rungs: [{ adapterModel: "M3", priceKey: "P3" }],
+          },
+        },
+      },
+      ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        invoke: async () => {
+          invocations.push(`${agentId}/${adapterModel}`);
+          if (adapterModel === "M1") {
+            return { kind: "quota", stderr: "quota" } as const;
+          }
+          if (adapterModel === "M2") {
+            return { kind: "error", exitCode: 1, stderr: "boom" } as const;
+          }
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        },
+      }),
+    );
+
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings,
+      contracts: [],
+    });
+
+    expect(result.kind).toBe("invocation_failure");
+    if (result.kind === "invocation_failure") {
+      expect(result.failureKind).toBe("error");
+    }
+    expect(invocations).toEqual(["claude/M1", "claude/M2"]);
   });
 });

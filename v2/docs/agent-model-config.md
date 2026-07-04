@@ -142,9 +142,14 @@ rungs so a valid model is first — the harness does not auto-skip a bad head ru
 
 ## Flat binding construction
 
-Per step invocation, build a fresh ordered binding list for
-[`shared/invocation/execute.ts`](../../shared/invocation/execute.ts). No rung
-cursor carries across invocations or steps.
+Per step invocation, build a fresh ordered binding list in
+[`v2/src/config/agent-model-config.ts`](../src/config/agent-model-config.ts)
+via `resolveInvocationBindings(...)`, using one-rung-at-a-time binding
+construction from
+[`shared/invocation/agents.ts`](../../shared/invocation/agents.ts)
+`createResolvedAgentBinding(...)`. No rung cursor carries across invocations or
+steps. The workflow boundary first rejects non-executable roles with
+`resolveExecutableRole(...)`; `operator` does not enter this path.
 
 **Algorithm** (given `agents`, `role`, and loaded `AgentModelConfig`):
 
@@ -153,7 +158,9 @@ cursor carries across invocations or steps.
    - Load `rungs = AgentModelConfig[agent][role].rungs`.
    - **Full-list:** append one binding per rung, in order.
    - **Head-only (`actuator`):** append only `rungs[0]`.
-3. Pass the flat list to `execute`. Quota on binding *k* tries binding *k+1*.
+3. Build each appended binding from one resolved
+   `(agentId, adapterModel, priceKey)` rung.
+4. Pass the flat list to `execute`. Quota on binding *k* tries binding *k+1*.
 
 Each outer landing resets to `rungs[0]` — there is no global rung index across
 agents. Example with `agents = [claude, codex]`, `implement` full-list,
@@ -169,6 +176,10 @@ rungs (M2 is never tried on the same agent):
 ```
 claude/M1 → codex/M1
 ```
+
+Empty `agents` resolves to `[]`. Shared invocation then returns `no_binding`;
+the resolver does not synthesize a fallback binding or a custom empty-list
+error.
 
 ## Per-role rung consumption
 

@@ -1,5 +1,24 @@
 import type { InvocationBinding } from "./execute.ts";
 
+export type ResolvedAgentBinding = {
+  agentId: string;
+  adapterModel: string;
+  priceKey: string;
+};
+
+/** Build one unresolved production binding from one resolved agent/model rung. */
+export function createResolvedAgentBinding(args: ResolvedAgentBinding): InvocationBinding {
+  const { agentId, adapterModel, priceKey } = args;
+  return {
+    id: `${agentId}/${adapterModel}`,
+    invoke: async () => ({
+      kind: "error",
+      exitCode: 127,
+      stderr: `agent '${agentId}' model '${adapterModel}' price '${priceKey}' invocation is not wired yet`,
+    }),
+  };
+}
+
 /**
  * Build the ordered agent bindings the runner falls back through.
  *

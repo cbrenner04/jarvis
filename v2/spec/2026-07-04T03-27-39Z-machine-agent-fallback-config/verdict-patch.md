@@ -1,0 +1,11 @@
+## Verdict
+
+**Required outcome 1: Machine config path must be injectable in `cli.ts`, and this must be verified.**
+
+`cli.ts` calls the machine config loader without threading through a configurable path, even though the loader itself supports a `configPath` parameter for exactly this purpose. As written, this makes the CLI-level integration unverifiable by tests — any test exercising `parseWriteCliInput`'s machine-config behavior would hit the real `~/.jarvis/v2.json` on the machine running the suite, which is both nondeterministic and unsafe (tests should never touch real operator config). Add a way to inject the config path (or a config-loading function) into the CLI's dependency surface so tests can point at a fixture file instead of the real home directory.
+
+**Required outcome 2: Subspec 01's CLI-level acceptance criteria must have real test coverage.**
+
+Subspec 01 acceptance criteria state that (a) a valid machine config supplies the fallback agent list, and (b) an invalid machine config causes a nonzero exit without invoking any agent — both for `jarvis write` / `jarvis run start` specifically, not just the loader in isolation. Currently only the loader's own unit tests (`machine-config-loader.test.ts`) cover these shapes; `cli.test.ts` has no test that exercises a machine-config fixture through the CLI path. The existing "defaults to claude when omitted" test passes only incidentally (because no `v2.json` exists on the test runner), not because it deliberately verifies the no-config-file case. Add `cli.test.ts` cases that use an injected config path (per outcome 1) to cover: valid machine config → its `agents` list is used as fallback; invalid/malformed machine config with `--agents` absent → nonzero exit, error surfaced, no agent invoked; `--agents` present → CLI value wins regardless of a broken machine config file (already partially implied but should be asserted with a deliberately-broken fixture, not merely an absent file).
+
+**Not required:** the ordering between machine-config load errors and other CLI validation errors (e.g., missing `--project-root`) is not spec-mandated and doesn't need to change — no action needed there.

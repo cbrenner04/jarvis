@@ -4,6 +4,7 @@ import { join } from "node:path";
 import packageJson from "../../package.json";
 import { createAgentBindings } from "../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
+import { loadMachineConfig } from "./config/machine-config-loader.ts";
 import type { WaitRunCompletionResult } from "./daemon/daemon.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon/daemon-lifecycle.ts";
 import { parseListRuns, parseWaitCompletion } from "./daemon/daemon-wire.ts";
@@ -32,12 +33,14 @@ type CliDeps = {
   runTuiLogFollow: (runId: string, deps?: RunTuiLogFollowDeps) => Promise<number>;
   socketPath: string;
   pidPath: string;
+  machineConfigPath: string;
 };
 
 type WriteCliInput = { ok: true; input: WriteLoopInput } | { ok: false; message?: string };
 
 const DEFAULT_SOCKET_PATH = join(homedir(), ".jarvis", "daemon.sock");
 const DEFAULT_PID_PATH = join(homedir(), ".jarvis", "daemon.pid");
+const DEFAULT_MACHINE_CONFIG_PATH = join(homedir(), ".jarvis", "v2.json");
 const DAEMON_USAGE = "usage: jarvis daemon <start|stop|status>\n";
 const RUN_USAGE = "usage: jarvis run <start|list|log|pause|resume|kill|wait> [args]\n";
 const TUI_USAGE = "usage: jarvis tui\n";
@@ -62,6 +65,7 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     runTuiLogFollow,
     socketPath: DEFAULT_SOCKET_PATH,
     pidPath: DEFAULT_PID_PATH,
+    machineConfigPath: DEFAULT_MACHINE_CONFIG_PATH,
     ...deps,
   };
   const command = argv[0];
@@ -337,7 +341,18 @@ function parseWriteCliInput(argv: readonly string[], deps: CliDeps): WriteCliInp
     return { ok: false };
   }
 
-  const built = buildWriteLoopInputFromCliValues(values, deps.createBindings);
+  let fallbackAgents: readonly string[] | undefined;
+  const agentsFromCli = typeof values.agents === "string" ? values.agents : undefined;
+  if (agentsFromCli === undefined) {
+    try {
+      fallbackAgents = loadMachineConfig(deps.machineConfigPath);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, message: `${message}\n` };
+    }
+  }
+
+  const built = buildWriteLoopInputFromCliValues(values, deps.createBindings, fallbackAgents);
   if (!built.ok) {
     return "message" in built ? { ok: false, message: built.message } : { ok: false };
   }

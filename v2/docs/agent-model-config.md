@@ -13,7 +13,7 @@ Two axes, two stores:
 
 | Axis | Store | Contents |
 | --- | --- | --- |
-| **Agent fallback order** | Per-machine `~/.jarvis` project config | Ordered `agents: Agent[]` — availability/quota chain only |
+| **Agent fallback order** | Per-machine `~/.jarvis/v2.json`, shape `{ "agents": string[] }` | Ordered `agents: Agent[]` — availability/quota chain only |
 | **Role→model bindings** | One harness-global, version-controlled data file beside `data/prices.json` | `AgentModelConfig` — `(agent, role) → ModelEscalation`; may catalog agents beyond any one project's `agents` list |
 
 Per-project variance is **only** the ordered `agents` list. Role→model assignments
@@ -235,6 +235,8 @@ pair bypasses load validation and both loops for one invocation. No matching
 models). See [`write-behavior.md`](write-behavior.md). This predates full
 `AgentModelConfig` resolution and does not implement inner rungs or role-aware
 binding.
+
+Precedence for the write/run-start commands: CLI `--agents` > machine config `agents` > `DEFAULT_WRITE_AGENTS` (`["claude"]`). When `--agents` is absent, the per-machine agent list from `~/.jarvis/v2.json` (if present) is used; otherwise the built-in default applies.
 
 No single-flag override. No per-step config override.
 

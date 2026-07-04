@@ -38,9 +38,10 @@ type RequiredLaunchFields = {
 export function buildWriteLoopInput(
   fields: Partial<WriteLaunchFieldValues>,
   createBindings: (agentIds: readonly string[]) => readonly InvocationBinding[],
+  fallbackAgents?: readonly string[],
 ): BuildWriteLoopInputResult {
   const errors: string[] = [];
-  const required = requireLaunchFields(fields, errors);
+  const required = requireLaunchFields(fields, errors, fallbackAgents);
   const maxIterations = parseMaxIterations(fields.maxIterations, errors);
 
   if (errors.length > 0 || required === null || maxIterations === null) {
@@ -67,6 +68,7 @@ export function buildWriteLoopInput(
 export function buildWriteLoopInputFromCliValues(
   values: Record<string, string | boolean | string[] | undefined>,
   createBindings: (agentIds: readonly string[]) => readonly InvocationBinding[],
+  fallbackAgents?: readonly string[],
 ): BuildWriteLoopInputResult | { ok: false; message?: string } {
   const agents = stringValue(values.agents);
   const maxIterationsRaw = stringValue(values["max-iterations"]);
@@ -75,7 +77,7 @@ export function buildWriteLoopInputFromCliValues(
     return { ok: false, message: "Error: --max-iterations must be a positive integer\n" };
   }
 
-  const result = buildWriteLoopInput(toLaunchFields(values), createBindings);
+  const result = buildWriteLoopInput(toLaunchFields(values), createBindings, fallbackAgents);
 
   if (!result.ok && agents !== undefined && parseAgents(agents, []) === null) {
     return { ok: false };
@@ -103,14 +105,18 @@ export function parseWriteArgs(argv: readonly string[]): Record<string, string |
   }).values;
 }
 
-function requireLaunchFields(fields: Partial<WriteLaunchFieldValues>, errors: string[]): RequiredLaunchFields | null {
+function requireLaunchFields(
+  fields: Partial<WriteLaunchFieldValues>,
+  errors: string[],
+  fallbackAgents?: readonly string[],
+): RequiredLaunchFields | null {
   const projectRoot = requireString(fields.projectRoot, "project-root", errors);
   const projectName = requireString(fields.projectName, "project", errors);
   const branchName = requireString(fields.branchName, "branch", errors);
   const baseRef = requireString(fields.baseRef, "base", errors);
   const specPath = requireString(fields.specPath, "spec", errors);
   const artifactPath = requireString(fields.artifactPath, "artifact", errors);
-  const agents = parseAgents(fields.agents, errors);
+  const agents = parseAgents(fields.agents, errors, fallbackAgents);
 
   if (
     projectRoot === undefined ||
@@ -136,8 +142,12 @@ function requireString(value: string | undefined, name: string, errors: string[]
   return value;
 }
 
-function parseAgents(raw: string | undefined, errors: string[]): readonly string[] | null | undefined {
-  if (raw === undefined) return DEFAULT_WRITE_AGENTS;
+function parseAgents(
+  raw: string | undefined,
+  errors: string[],
+  fallbackAgents?: readonly string[],
+): readonly string[] | null | undefined {
+  if (raw === undefined) return fallbackAgents ?? DEFAULT_WRITE_AGENTS;
   const agents = raw
     .split(",")
     .map((part) => part.trim())

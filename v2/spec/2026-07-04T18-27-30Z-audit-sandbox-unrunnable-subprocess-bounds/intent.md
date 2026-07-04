@@ -32,3 +32,7 @@ job indefinitely on the same subprocess-or-fixture pattern.
 ## Prerequisites
 
 - Shrink sandbox-unrunnable stalls fail as bounded test failures instead of hanging the CI job
+
+## Blocker
+
+Prerequisite "Shrink sandbox-unrunnable stalls fail as bounded test failures instead of hanging the CI job" is not yet confirmed in the target repo. The referenced spec (`v1/spec/2026-07-04T16-43-58Z-bound-shrink-sandbox-unrunnable-stalls/00-bound-shrink-sandbox-unrunnable-stall-cleanup.md`) is merged to `main` but only as a plan — its Task checklist and Acceptance criteria are all unchecked, and `v1/test/modes/patch/shrink.sandbox-unrunnable.test.ts` has no implementation commit since #926 (predates the plan). The bounded-fail pattern this audit is meant to align siblings with does not exist in code yet. Resolve by landing that implementation first, then re-run this intent.

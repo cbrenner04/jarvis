@@ -8,11 +8,13 @@ override.
 ## Prerequisites
 
 00-project-agent-config-loader.md is complete.
+`--project` is already a required, existing CLI flag for both `jarvis write` and `jarvis run start` — this subspec has no fallback path if it weren't.
 
 ## Decisions
 
 - Outer agent list precedence: CLI `--agents` > project config `agents` > `DEFAULT_WRITE_AGENTS` (`["claude"]`) — CLI stays a per-run bypass per intent; the hardcoded default only applies when neither CLI nor project config supplies a list.
 - `write-loop-input.ts` stays pure (no fs I/O): it gains an optional fallback-agents parameter, resolved and passed in by `cli.ts`, which is the only caller that loads `~/.jarvis/projects.json` — rules out adding fs access inside the already-pure/tested `buildWriteLoopInput*` functions.
+- `jarvis run start` routes through the same `buildWriteLoopInputFromCliValues`/CLI-values path as `jarvis write` — one fallback-resolution call site in `cli.ts` serves both commands, so the `write` acceptance criteria below are sufficient proof for `run start` too; no separate ACs needed.
 
 ## Task checklist
 

@@ -283,3 +283,6 @@ Drive the path through the test seam:
 
 A live `jarvis write ...` runs the full pipeline and reports
 `"kind": "invocation_failure"` until process bindings land.
+
+`bun run test:v2` includes `tui-field-collector.test.tsx`'s `loadInkUi` smoke
+test, guarding the Linux/Bun Yoga-TDZ regression in the scoped CI job.

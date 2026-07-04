@@ -83,6 +83,19 @@ surface-scoped scripts `package.json` already exposes (`test:v1`, `test:v2`,
 - [x] `bun run typecheck`, `bun run check`, and `bun run lint:md` run in full
       in CI regardless of which surface changed.
 
+## Blocker
+
+Implementation is complete: `scripts/ci-test-scope.ts` + unit tests cover
+every path/base scenario, and `ci.yml`'s per-script conditional steps
+(traced by hand against each scenario's script output) wire up correctly.
+The remaining 8 criteria describe behavior observed in *live* GitHub Actions
+runs across PRs with different diffs (v1-only, v2-only, shared-only, root
+tooling, unmatched path, unresolvable base, push-to-main) — not verifiable
+from this sandboxed iteration (no GitHub Actions execution access, and this
+PR's own CI run only exercises one diff/scenario). Needs operator
+confirmation via real PR runs, or an explicit decision to accept
+unit-test + code-trace evidence as sufficient and close these out by hand.
+
 ## Documentation updates
 
 - Note the scoped-CI behavior in `v1/docs/operator-runbook.md` (why a PR's CI

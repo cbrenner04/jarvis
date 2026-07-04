@@ -1139,7 +1139,10 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           opts.fanout("harness", result.stderr, "stderr");
         }
         const isIdleTimeout = result.kind === "error" && result.stderr.includes("aborted: idle-timeout");
-        if (isIdleTimeout && rungIndex < actuatorOrder.length - 1) {
+        const isQuota = result.kind === "quota";
+        const hasNextRung = rungIndex < actuatorOrder.length - 1;
+
+        if (isIdleTimeout && hasNextRung) {
           opts.fanout("harness", `review: ${resolvedAgent.name}: ${HARNESS_IDLE_TIMEOUT_FALLBACK}\n`, "stderr");
           opts.writeTelemetry({
             agent: resolvedAgent.name,
@@ -1147,6 +1150,24 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
             durationMs,
             kind: "timeout",
             exitReason: "watchdog-idle-timeout-fallback",
+            patch_phase: "review",
+            ...telemetryMeta,
+          });
+          continue;
+        }
+
+        if (isQuota && hasNextRung) {
+          const line =
+            result.kind === "quota" && result.authFailure === true
+              ? harnessAuthRotateLine(resolvedAgent.name)
+              : HARNESS_QUOTA_FALLBACK_STRICT;
+          opts.fanout("harness", `review: ${resolvedAgent.name}: ${line}\n`, "stderr");
+          opts.writeTelemetry({
+            agent: resolvedAgent.name,
+            iteration: ctx.passNumber,
+            durationMs,
+            kind: "quota",
+            exitReason: "quota-fallback",
             patch_phase: "review",
             ...telemetryMeta,
           });

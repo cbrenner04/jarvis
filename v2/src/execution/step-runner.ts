@@ -3,6 +3,7 @@ import {
   type InvocationBinding,
   type InvocationExecution,
   type InvocationResult,
+  type InvocationTelemetryContext,
 } from "../../../shared/invocation/execute.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
 
@@ -22,6 +23,7 @@ export type StepRunInput = {
   bindings: readonly InvocationBinding[];
   contracts: readonly StepContract[];
   signal?: AbortSignal;
+  telemetry?: InvocationTelemetryContext;
 };
 
 /** Classified result for one shared step-runner invocation. */
@@ -74,6 +76,7 @@ export async function runStep(args: StepRunInput): Promise<StepRunResult> {
     cwd: args.cwd,
     bindings: args.bindings,
     ...(args.signal !== undefined ? { signal: args.signal } : {}),
+    ...(args.telemetry !== undefined ? { telemetry: args.telemetry } : {}),
   });
 
   const final = invocation.final;

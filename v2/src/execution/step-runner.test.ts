@@ -1,13 +1,35 @@
 import { describe, expect, test } from "bun:test";
-import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
+import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
 import { resolveInvocationBindings } from "../config/agent-model-config.ts";
 import { parseStepOutcomeToken, runStep, type StepContract } from "./step-runner.ts";
 
 function okBinding(stdout: string): InvocationBinding {
   return {
     id: "agent",
+    metadata: { agent: "claude", model: "m1" },
     invoke: async () => ({ kind: "ok", stdout, stderr: "" }),
   };
+}
+
+function writeStepTelemetry(rows: InvocationCompletedRecord[], invocationIds: readonly string[]) {
+  return {
+    sink: {
+      append(record: InvocationCompletedRecord) {
+        rows.push(record);
+      },
+    },
+    operatorSessionId: "session-1",
+    runId: "run-1",
+    attemptId: "attempt-1",
+    project: "demo",
+    workflow: "write",
+    stepId: "step-1",
+    role: "implement",
+    worktreePath: "/tmp/worktree",
+    branch: "demo-branch",
+    specRef: "HEAD",
+    invocationIds,
+  } as const;
 }
 
 const IMPLEMENT_CONFIG = {
@@ -31,6 +53,10 @@ function createImplementBindings(
 ): readonly InvocationBinding[] {
   return resolveInvocationBindings("implement", ["claude", "codex"], IMPLEMENT_CONFIG, (binding) => ({
     id: `${binding.agentId}/${binding.adapterModel}`,
+    metadata: {
+      agent: binding.agentId,
+      model: binding.adapterModel,
+    },
     invoke: invoke(binding),
   }));
 }
@@ -224,5 +250,30 @@ describe("step runner classification", () => {
       expect(result.failureKind).toBe("error");
     }
     expect(invocations).toEqual(["claude/M1", "claude/M2"]);
+  });
+
+  test("settled invocations still emit telemetry when runner later returns contract_miss or invalid_token", async () => {
+    const rows: InvocationCompletedRecord[] = [];
+    const telemetry = writeStepTelemetry(rows, ["inv-1"]);
+
+    const contractMiss = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [okBinding("done")],
+      contracts: [{ id: "artifact", check: () => false }],
+      telemetry,
+    });
+    const invalidToken = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [okBinding("not-a-token")],
+      contracts: [],
+      telemetry: writeStepTelemetry(rows, ["inv-2"]),
+    });
+
+    expect(contractMiss.kind).toBe("contract_miss");
+    expect(invalidToken.kind).toBe("invalid_token");
+    expect(rows.map((row) => row.invocation_id)).toEqual(["inv-1", "inv-2"]);
+    expect(rows.map((row) => row.exit_kind)).toEqual(["ok", "ok"]);
   });
 });

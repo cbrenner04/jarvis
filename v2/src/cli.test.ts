@@ -44,6 +44,11 @@ function writeMachineConfig(value: unknown): string {
   return writeRawMachineConfig(JSON.stringify(value));
 }
 
+function missingMachineConfigPath(): string {
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-cli-machine-config-missing-"));
+  return join(dir, "v2.json");
+}
+
 const WRITE_ARGS = [
   "write",
   "--project-root",
@@ -346,6 +351,7 @@ describe("v2 cli", () => {
     let capturedAgents: readonly string[] | undefined;
 
     await main(WRITE_ARGS, cap.io, {
+      machineConfigPath: missingMachineConfigPath(),
       createBindings: (agentIds) => {
         capturedAgents = agentIds;
         return simulatedBindings(["done"]);
@@ -416,6 +422,7 @@ describe("v2 cli", () => {
     let captured: WriteLoopInput | undefined;
 
     await main(WRITE_ARGS, cap.io, {
+      machineConfigPath: missingMachineConfigPath(),
       executeWriteLoop: async (input) => {
         captured = input;
         return completeResult();

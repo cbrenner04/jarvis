@@ -8,6 +8,14 @@ export type IpcClient = {
   close(): void;
 };
 
+/** Applied to `nextFrame()` calls that omit `timeoutMs`, so an unresponsive server fails fast instead of hanging. */
+export const DEFAULT_NEXT_FRAME_TIMEOUT_MS = 10_000;
+
+export type IpcClientOptions = {
+  /** Overrides {@link DEFAULT_NEXT_FRAME_TIMEOUT_MS} for calls to `nextFrame()` that omit `timeoutMs`. */
+  defaultTimeoutMs?: number;
+};
+
 function connectSocket(socketPath: string): Promise<Socket> {
   return new Promise((resolve, reject) => {
     const socket = new Socket();
@@ -17,7 +25,8 @@ function connectSocket(socketPath: string): Promise<Socket> {
   });
 }
 
-export async function connectIpcClient(socketPath: string): Promise<IpcClient> {
+export async function connectIpcClient(socketPath: string, options?: IpcClientOptions): Promise<IpcClient> {
+  const defaultTimeoutMs = options?.defaultTimeoutMs ?? DEFAULT_NEXT_FRAME_TIMEOUT_MS;
   const socket = await connectSocket(socketPath);
   const decoder = new FrameDecoder();
   const pending: IpcFrame[] = [];
@@ -53,18 +62,13 @@ export async function connectIpcClient(socketPath: string): Promise<IpcClient> {
     send(frame: unknown): void {
       socket.write(encodeFrame(frame));
     },
-    nextFrame(timeoutMs?: number): Promise<IpcFrame> {
+    nextFrame(timeoutMs: number = defaultTimeoutMs): Promise<IpcFrame> {
       const next = pending.shift();
       if (next) {
         return Promise.resolve(next);
       }
       if (closed) {
         return Promise.reject(new Error("connection closed"));
-      }
-      if (timeoutMs === undefined) {
-        return new Promise((resolve) => {
-          waiter = resolve;
-        });
       }
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {

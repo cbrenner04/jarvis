@@ -31,7 +31,7 @@ decisions).
 
 ## Task checklist
 
-- [ ] **If jarvis-side:** bound the identified unbounded operation with a
+- [x] **If jarvis-side:** bound the identified unbounded operation with a
       timeout so the affected test/run fails fast instead of hanging. If
       the operation is a subprocess call, the existing shrink-phase git
       subprocess bound pattern (`v2/docs/v1-behaviors.md`) is a reference
@@ -43,7 +43,7 @@ decisions).
 
 ## Acceptance criteria
 
-- [ ] If jarvis-side: the previously-hanging operation now fails fast under
+- [x] If jarvis-side: the previously-hanging operation now fails fast under
       a bounded timeout instead of hanging (demonstrated by a test covering
       the timeout path).
 - [ ] If GitHub-runner-side or inconclusive: a stuck `Test (...)` step is
@@ -52,7 +52,7 @@ decisions).
 - [ ] If GitHub-runner-side or inconclusive: a run whose steps are slow but
       still progressing is not cancelled (demonstrated by a test covering
       the non-stuck path).
-- [ ] `v1/docs/operator-runbook.md`'s CI section reflects the landed fix or
+- [x] `v1/docs/operator-runbook.md`'s CI section reflects the landed fix or
       automation, replacing the manual cancel/rerun guidance.
 
 ## Documentation updates

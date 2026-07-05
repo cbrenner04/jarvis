@@ -8,13 +8,13 @@ import {
 import type { LogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import type { OnReviseConfig, RunStatus, WorkflowSnapshot } from "../persistence/state-store-types.ts";
-import { parseRevisionNumber } from "./revision-step-id.ts";
 import {
   executeReviewDebate,
   type ReviewDebateInput,
   type ReviewDebateRole,
   type ReviewDebateRoleBindings,
 } from "./review-debate.ts";
+import { parseRevisionNumber } from "./revision-step-id.ts";
 import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "./write-loop.ts";
 
 const WORKFLOW_PRESET_LENGTHS = {
@@ -123,6 +123,43 @@ type PreparedWorkflowStep =
       input: WriteLoopInput;
     };
 
+/** Uniform per-step outcome shape, regardless of which behavior produced it. */
+type WorkflowStepOutcome = {
+  kind: WriteLoopOutcomeKind | "awaiting-human" | "revising";
+  runId: string;
+  iterationsConsumed: number;
+  resumable: boolean;
+};
+
+/** Dispatch one step to its behavior-specific executor and normalize the result. */
+async function runWorkflowStep(
+  step: AnyWorkflowStep,
+  workflowSnapshot: WorkflowSnapshot,
+  store: StateStore,
+  logSink: LogSink | undefined,
+): Promise<WorkflowStepOutcome> {
+  if (step.behavior === "human") {
+    const humanStep = prepareHumanWorkflowStep(step, workflowSnapshot, store);
+    return {
+      kind: humanStep.kind === "completed" ? "complete" : humanStep.kind,
+      runId: humanStep.runId,
+      iterationsConsumed: 0,
+      resumable: false,
+    };
+  }
+
+  if (step.behavior === "review-debate") {
+    return runReviewDebateStep(step);
+  }
+
+  const preparedStep = prepareWorkflowStep(step, workflowSnapshot, store, logSink);
+  if (preparedStep.kind === "completed") {
+    return { kind: "complete", runId: preparedStep.runId, iterationsConsumed: 0, resumable: false };
+  }
+
+  return executeWriteLoop(preparedStep.input);
+}
+
 /**
  * Execute a multi-step workflow: run each step's behavior to completion before
  * advancing. A non-complete outcome stops at that step.
@@ -150,7 +187,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
 
   try {
     let totalIterationsConsumed = 0;
-    let lastResult: Awaited<ReturnType<typeof executeWriteLoop>> | undefined;
+    let lastResult: WorkflowStepOutcome | undefined;
     let lastStepId = "";
     const workflowSnapshot = buildWorkflowSnapshot(args.steps, store);
 
@@ -158,73 +195,19 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       const step = args.steps[stepIndex];
       if (!step) throw new Error("Unreachable: step undefined in bounded loop");
 
-      if (step.behavior === "human") {
-        const humanStep = prepareHumanWorkflowStep(step, workflowSnapshot, store);
-        if (humanStep.kind === "completed") {
-          lastStepId = step.stepId;
-          lastResult = {
-            kind: "complete",
-            runId: humanStep.runId,
-            iterationsConsumed: 0,
-            resumable: false,
-          };
-          continue;
-        }
-
-        return {
-          kind: humanStep.kind,
-          stepIndex,
-          stepId: step.stepId,
-          runId: humanStep.runId,
-          iterationsConsumed: totalIterationsConsumed,
-          resumable: false,
-        };
-      }
-
-      if (step.behavior === "review-debate") {
-        const debateResult = await runReviewDebateStep(step);
-        totalIterationsConsumed += debateResult.iterationsConsumed;
-        lastResult = debateResult;
-        lastStepId = step.stepId;
-
-        if (debateResult.kind !== "complete") {
-          return {
-            kind: debateResult.kind,
-            stepIndex,
-            stepId: step.stepId,
-            runId: debateResult.runId,
-            iterationsConsumed: totalIterationsConsumed,
-            resumable: false,
-          };
-        }
-        continue;
-      }
-
-      const preparedStep = prepareWorkflowStep(step, workflowSnapshot, store, args.logSink);
-      if (preparedStep.kind === "completed") {
-        lastStepId = step.stepId;
-        lastResult = {
-          kind: "complete",
-          runId: preparedStep.runId,
-          iterationsConsumed: 0,
-          resumable: false,
-        };
-        continue;
-      }
-
-      const result = await executeWriteLoop(preparedStep.input);
-      totalIterationsConsumed += result.iterationsConsumed;
-      lastResult = result;
+      const stepResult = await runWorkflowStep(step, workflowSnapshot, store, args.logSink);
+      totalIterationsConsumed += stepResult.iterationsConsumed;
+      lastResult = stepResult;
       lastStepId = step.stepId;
 
-      if (result.kind !== "complete") {
+      if (stepResult.kind !== "complete") {
         return {
-          kind: result.kind,
+          kind: stepResult.kind,
           stepIndex,
           stepId: step.stepId,
-          runId: result.runId,
+          runId: stepResult.runId,
           iterationsConsumed: totalIterationsConsumed,
-          resumable: result.resumable,
+          resumable: stepResult.resumable,
         };
       }
     }

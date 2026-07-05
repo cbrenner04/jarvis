@@ -2,7 +2,10 @@ import { describe, expect, it } from "bun:test";
 import { execSync } from "node:child_process";
 import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { basename, join } from "node:path";
+import { sharedTests } from "../scripts/run-shared-tests.ts";
+import { v1Tests } from "../scripts/run-v1-tests.ts";
 import { v2Tests, walkV2TestFiles } from "../scripts/run-v2-tests.ts";
+import { isSandboxUnrunnable } from "../scripts/test-slice.ts";
 
 describe("Test slice boundaries", () => {
   it("test files are scoped to owner directories", () => {
@@ -57,16 +60,24 @@ describe("Test slice boundaries", () => {
     }
   });
 
-  it("test:* scripts use exact root paths with trailing slashes", async () => {
+  it("test:* scripts route sandbox-unrunnable files to integration slices", async () => {
     const pkgJsonText = await Bun.file("package.json").text();
     const pkgJson = JSON.parse(pkgJsonText);
-    expect(pkgJson.scripts["test:v1"]).toBe("bun test ./v1/");
-    expect(pkgJson.scripts["test:shared"]).toBe("bun test ./shared/ ./test/");
-    // Aggregate run is parallel for wall-clock; coverage stays sequential
-    // because --parallel implies --isolate and coverage does not merge across
-    // worker processes.
-    expect(pkgJson.scripts.test).toBe("bun test --parallel");
+    expect(pkgJson.scripts.test).toBe("bun run scripts/run-tests.ts");
+    expect(pkgJson.scripts["test:v1"]).toBe("bun run scripts/run-v1-tests.ts agent");
+    expect(pkgJson.scripts["test:integration:v1"]).toBe("bun run scripts/run-v1-tests.ts integration");
+    expect(pkgJson.scripts["test:shared"]).toBe("bun run scripts/run-shared-tests.ts agent");
+    expect(pkgJson.scripts["test:integration:shared"]).toBe("bun run scripts/run-shared-tests.ts integration");
     expect(pkgJson.scripts.coverage).toBe("bun test --coverage");
+  });
+
+  it("v1 agent and integration slices partition the v1 test tree", () => {
+    const agent = v1Tests("agent");
+    const integration = v1Tests("integration");
+    expect(agent.every((file) => !isSandboxUnrunnable(file))).toBeTrue();
+    expect(integration.every((file) => isSandboxUnrunnable(file))).toBeTrue();
+    expect(integration.length).toBeGreaterThan(0);
+    expect([...agent, ...integration].sort()).toEqual([...v1Tests("agent"), ...v1Tests("integration")].sort());
   });
 
   it("test:v2 and test:integration:v2 enumerate disjoint v2 test file sets", async () => {
@@ -89,7 +100,13 @@ describe("Test slice boundaries", () => {
     ]);
 
     const runnerScript = await Bun.file("scripts/run-v2-tests.ts").text();
-    expect(runnerScript).not.toContain("--parallel");
+    expect(runnerScript).toContain('spawnSync("bun", ["test", file]');
+    expect(runnerScript).toContain('["test", "--parallel", ...files]');
+  });
+
+  it("shared integration slice includes preload real-process test", () => {
+    expect(sharedTests("integration")).toEqual(["shared/preload.sandbox-unrunnable.test.ts"]);
+    expect(sharedTests("agent").some((file) => file.endsWith("git.test.ts"))).toBeTrue();
   });
 
   it("bunfig.toml preload points to relocated setup file", async () => {
@@ -100,10 +117,6 @@ describe("Test slice boundaries", () => {
   });
 
   it("scoped slice runs load the agent-spawn preload", () => {
-    // Strip any inherited fake-agent bin dir so the scoped run must wire the
-    // preload itself. Run only the per-slice preload assertion files (not the
-    // whole suites) so this stays a fast, deterministic check that the root
-    // bunfig preload applies to a scoped `bun test` invocation.
     const env = {
       ...process.env,
       PATH: (process.env.PATH ?? "")
@@ -118,10 +131,8 @@ describe("Test slice boundaries", () => {
 
   it("ready script uses aggregate test command", async () => {
     const readyScript = await Bun.file("scripts/ready.ts").text();
-    // Check for the array elements that make up the test command
     expect(readyScript).toContain('"run"');
     expect(readyScript).toContain('"test"');
-    // Verify it's the aggregate test, not a scoped one
     expect(readyScript).not.toContain("test:v1");
     expect(readyScript).not.toContain("test:v2");
     expect(readyScript).not.toContain("test:shared");

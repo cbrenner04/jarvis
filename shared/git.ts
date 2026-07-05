@@ -1,12 +1,13 @@
-import { execFileSync } from "node:child_process";
+import { realSubprocessRunner, type SubprocessRunner } from "./subprocess.ts";
 
 /** True when `branchName` resolves to a local ref in `projectRoot`. */
-export function branchExistsLocal(projectRoot: string, branchName: string): boolean {
+export function branchExistsLocal(
+  projectRoot: string,
+  branchName: string,
+  runner: SubprocessRunner = realSubprocessRunner,
+): boolean {
   try {
-    execFileSync("git", ["rev-parse", "--verify", branchName], {
-      cwd: projectRoot,
-      stdio: "pipe",
-    });
+    runner.run("git", ["rev-parse", "--verify", branchName], projectRoot);
     return true;
   } catch {
     return false;
@@ -17,12 +18,13 @@ export function branchExistsLocal(projectRoot: string, branchName: string): bool
  * True when `origin/<branchName>` resolves in `projectRoot`. Reads the local
  * remote-tracking ref only; callers that need freshness fetch first.
  */
-export function branchExistsOnOrigin(projectRoot: string, branchName: string): boolean {
+export function branchExistsOnOrigin(
+  projectRoot: string,
+  branchName: string,
+  runner: SubprocessRunner = realSubprocessRunner,
+): boolean {
   try {
-    execFileSync("git", ["rev-parse", "--verify", `origin/${branchName}`], {
-      cwd: projectRoot,
-      stdio: "pipe",
-    });
+    runner.run("git", ["rev-parse", "--verify", `origin/${branchName}`], projectRoot);
     return true;
   } catch {
     return false;
@@ -30,10 +32,6 @@ export function branchExistsOnOrigin(projectRoot: string, branchName: string): b
 }
 
 /** The checked-out branch name (`rev-parse --abbrev-ref HEAD`) at `cwd`. */
-export function getCurrentBranch(cwd: string): string {
-  return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-    cwd,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  }).trim();
+export function getCurrentBranch(cwd: string, runner: SubprocessRunner = realSubprocessRunner): string {
+  return runner.run("git", ["rev-parse", "--abbrev-ref", "HEAD"], cwd).trim();
 }

@@ -1,20 +1,20 @@
 import { spawnSync } from "node:child_process";
 import { sliceTestFiles, type TestSliceMode, walkTestFiles } from "./test-slice.ts";
 
-export function walkV2TestFiles(root = "v2"): string[] {
+export function walkV1TestFiles(root = "v1"): string[] {
   return walkTestFiles(root);
 }
 
-export function v2Tests(mode: TestSliceMode): string[] {
-  return sliceTestFiles(walkV2TestFiles(), mode);
+export function v1Tests(mode: TestSliceMode): string[] {
+  return sliceTestFiles(walkV1TestFiles(), mode);
 }
 
 if (import.meta.main) {
   const mode = process.argv[2];
-  const files = mode === "integration" || mode === "agent" ? v2Tests(mode) : [];
+  const files = mode === "integration" || mode === "agent" ? v1Tests(mode) : [];
 
   if (files.length === 0) {
-    process.stderr.write(`error: unknown or empty v2 test mode "${mode ?? ""}"\n`);
+    process.stderr.write(`error: unknown or empty v1 test mode "${mode ?? ""}"\n`);
     process.exit(1);
   }
 

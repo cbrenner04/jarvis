@@ -8,6 +8,7 @@ const ROOT_TOOLING_PATTERNS = [/^package\.json$/, /^tsconfig.*\.json$/, /^\.gith
 export function classifyChangedPaths(paths: string[]): ScopedTests {
   let needsV1 = false;
   let needsV2 = false;
+  let needsShared = false;
 
   for (const path of paths) {
     if (ROOT_TOOLING_PATTERNS.some((pattern) => pattern.test(path))) {
@@ -20,14 +21,18 @@ export function classifyChangedPaths(paths: string[]): ScopedTests {
     } else if (path.startsWith("shared/")) {
       needsV1 = true;
       needsV2 = true;
+      needsShared = true;
+    } else if (path.startsWith("test/")) {
+      needsShared = true;
     } else {
       return "full";
     }
   }
 
   const scripts: string[] = [];
-  if (needsV1) scripts.push("test:v1");
+  if (needsV1) scripts.push("test:v1", "test:integration:v1");
   if (needsV2) scripts.push("test:v2", "test:integration:v2");
+  if (needsShared) scripts.push("test:shared", "test:integration:shared");
   return scripts.length > 0 ? scripts : "full";
 }
 

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { connectIpcClient } from "../ipc/client.ts";
 import { type IpcServer, startIpcServer } from "../ipc/server.ts";
@@ -178,13 +179,26 @@ socketTest(
     await startHandlers(0);
     const client = await connectIpcClient(SOCKET_PATH, 2_000);
 
-    const liveKey = mockWriteLoopInput({ projectName: "project-live" });
-    const liveRunId = await startRun(client, liveKey);
+    const liveInput = mockWriteLoopInput({ projectName: "project-live" });
+    const liveRunId = await startRun(client, liveInput);
+
+    // Persist a queued row directly for the SAME (project, branch) key as the live run.
+    // The `start` RPC itself can never reach this state -- it rejects `worktree_claimed`
+    // before ever queuing behind an existing live claim -- so this simulates, below the
+    // RPC layer, the defensive skip `promoteQueuedRun` guards against.
+    const blockedQueuedId = stateStore.createRun({
+      project: liveInput.worktree.projectName,
+      specRef: liveInput.worktree.baseRef,
+      worktreePath: getExternalWorktreePath(liveInput.worktree),
+      branch: liveInput.worktree.branchName,
+      specPath: liveInput.specPath,
+      status: "queued",
+      queuedInput: liveInput,
+    });
 
     memoryHeadroom = false;
-    const blockedQueuedId = await startRun(client, liveKey);
     const eligibleQueuedId = await startRun(client, mockWriteLoopInput({ projectName: "project-eligible" }));
-    expect(stateStore.loadRun(blockedQueuedId!)?.status).toBe("queued");
+    expect(stateStore.loadRun(blockedQueuedId)?.status).toBe("queued");
     expect(stateStore.loadRun(eligibleQueuedId!)?.status).toBe("queued");
 
     memoryHeadroom = true;
@@ -192,7 +206,7 @@ socketTest(
     await flushBackgroundRuns();
 
     expect(stateStore.loadRun(eligibleQueuedId!)?.status).toBe("in-progress");
-    expect(stateStore.loadRun(blockedQueuedId!)?.status).toBe("queued");
+    expect(stateStore.loadRun(blockedQueuedId)?.status).toBe("queued");
     expect(stateStore.loadRun(liveRunId!)?.status).toBe("in-progress");
 
     client.close();

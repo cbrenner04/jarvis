@@ -1136,7 +1136,11 @@ describe("runPatchReviewPhase", () => {
     const reviewIdleTimeoutMs = 1000;
     const fx = idleActuatorReviewFixture("idle-actuator-escalate");
     try {
-      const codexActuator = new FakeAgent("codex", () => ({ kind: "ok", stdout: "", stderr: "" }));
+      let fallbackSignalAborted: boolean | null | undefined;
+      const codexActuator = new FakeAgent("codex", (_callCount, _prompt, runOpts) => {
+        fallbackSignalAborted = runOpts.signal?.aborted ?? null;
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
       const { code } = await runIdleActuatorReview(fx, {
         reviewActuatorOrder: [CLAUDE_ENTRY, CODEX_ENTRY],
         actuatorAgents: [new IdleHangAgent(fx.idleScript), codexActuator],
@@ -1150,6 +1154,7 @@ describe("runPatchReviewPhase", () => {
       expect(fallbackRow).toBeDefined();
       expect(fallbackRow?.kind).toBe("timeout");
       expect(fallbackRow?.agent).toBe("claude");
+      expect(fallbackSignalAborted).toBe(false);
       expect(fx.telemetry.some((r) => r.exitReason === "watchdog-idle-timeout")).toBe(false);
     } finally {
       fx.cleanup();

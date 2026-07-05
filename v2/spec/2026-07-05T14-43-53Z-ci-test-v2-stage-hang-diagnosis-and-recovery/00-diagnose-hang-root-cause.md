@@ -42,11 +42,11 @@ before subspec 01 fixes it.
 
 ## Acceptance criteria
 
-- [ ] Root cause classified as jarvis-side, GitHub-runner-side, or
+- [x] Root cause classified as jarvis-side, GitHub-runner-side, or
       inconclusive after the bounded review, with supporting evidence (step
       names, run IDs, timing, and/or incident correlation) recorded in
       `v1/docs/operator-runbook.md`'s CI section.
-- [ ] If the hang is found to also occur on `test:v1`/`test:shared`-scoped
+- [x] If the hang is found to also occur on `test:v1`/`test:shared`-scoped
       steps (not isolated to v2), that scope is recorded explicitly
       alongside the classification.
 

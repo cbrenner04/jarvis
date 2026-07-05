@@ -387,6 +387,18 @@ describe("write loop", () => {
     expect(rows.every((row) => row.step_id === null)).toBe(true);
   });
 
+  test("operator-session-only telemetry (no sinkPath/workflow/role) completes a real run without emitting telemetry", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+      telemetry: { operatorSessionId: "session-only" },
+    });
+
+    expect(result.kind).toBe("complete");
+  });
+
   test("telemetry append failure leaves state-store and log contracts unchanged while surfacing failure detail", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const logSink = new TestLogSink();

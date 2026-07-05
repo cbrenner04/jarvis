@@ -939,14 +939,12 @@ export function createTailStreamHandler(deps: TailStreamHandlerDeps): StreamHand
 }
 
 /**
- * Merges a daemon-minted operator session id into a write-loop input's telemetry.
- * No-op when the input carries no telemetry; otherwise the daemon's id always
- * wins over any caller-supplied `operatorSessionId`.
+ * Attaches the daemon-minted operator session id to every run's telemetry, whether or
+ * not the input already carries a `telemetry` block. Merges into (rather than
+ * overwriting) any existing telemetry fields; the daemon's id always wins over any
+ * caller-supplied `operatorSessionId`.
  */
 export function applyOperatorSessionId(input: WriteLoopInput, operatorSessionId: string): WriteLoopInput {
-  if (input.telemetry === undefined) {
-    return input;
-  }
   return { ...input, telemetry: { ...input.telemetry, operatorSessionId } };
 }
 

@@ -3,9 +3,13 @@ import { mockWriteLoopInput } from "../testing/run-control.ts";
 import { applyOperatorSessionId } from "./daemon.ts";
 
 describe("applyOperatorSessionId", () => {
-  test("no-op when input carries no telemetry", () => {
+  test("attaches a valid telemetry object when input carries no telemetry", () => {
     const input = mockWriteLoopInput();
-    expect(applyOperatorSessionId(input, "daemon-id")).toBe(input);
+    const result = applyOperatorSessionId(input, "daemon-id");
+    expect(result.telemetry?.operatorSessionId).toBe("daemon-id");
+    expect(result.telemetry?.sinkPath).toBeUndefined();
+    expect(result.telemetry?.workflow).toBeUndefined();
+    expect(result.telemetry?.role).toBeUndefined();
   });
 
   test("same daemon id applied across multiple inputs", () => {

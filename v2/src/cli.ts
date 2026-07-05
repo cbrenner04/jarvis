@@ -391,7 +391,7 @@ function stringProperty(value: unknown, key: string): string | undefined {
 /** Tag `input` with the process's operator session id unless the caller already set `telemetry`. */
 export function withOperatorSessionId(input: WriteLoopInput, operatorSessionId: string): WriteLoopInput {
   if (input.telemetry !== undefined) return input;
-  return { ...input, telemetry: { operatorSessionId } as NonNullable<WriteLoopInput["telemetry"]> };
+  return { ...input, telemetry: { operatorSessionId } };
 }
 
 function parseWriteCliInput(argv: readonly string[], deps: CliDeps): WriteCliInput {

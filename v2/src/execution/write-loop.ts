@@ -44,10 +44,10 @@ export type WriteLoopInput = WriteExecuteInput & {
   stepId?: string;
   workflowSnapshot?: WorkflowSnapshot;
   telemetry?: {
-    sinkPath: string;
+    sinkPath?: string;
     operatorSessionId: string;
-    workflow: string;
-    role: string;
+    workflow?: string;
+    role?: string;
   };
 };
 
@@ -216,28 +216,35 @@ function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {
 
 function buildWriteExecuteInput(args: WriteLoopInput, runId: string, attemptId: string): WriteExecuteInput {
   const telemetry = args.telemetry;
+  // An operator-session-only telemetry attachment (no sinkPath/workflow/role) is a
+  // legitimate value that carries no invocation-emission context; only build the
+  // full invocationTelemetry record once all three are actually present.
+  const fullTelemetry =
+    telemetry !== undefined && telemetry.sinkPath !== undefined && telemetry.workflow !== undefined && telemetry.role !== undefined
+      ? { sinkPath: telemetry.sinkPath, operatorSessionId: telemetry.operatorSessionId, workflow: telemetry.workflow, role: telemetry.role }
+      : undefined;
   return {
     worktree: args.worktree,
     specPath: args.specPath,
     stepRules: args.stepRules,
     expectedArtifactPath: args.expectedArtifactPath,
     bindings: args.bindings,
-    ...(telemetry !== undefined
+    ...(fullTelemetry !== undefined
       ? {
           invocationTelemetry: {
             sink: {
               append(record) {
-                mkdirSync(dirname(telemetry.sinkPath), { recursive: true });
-                appendFileSync(telemetry.sinkPath, `${JSON.stringify(record)}\n`, "utf8");
+                mkdirSync(dirname(fullTelemetry.sinkPath), { recursive: true });
+                appendFileSync(fullTelemetry.sinkPath, `${JSON.stringify(record)}\n`, "utf8");
               },
             },
-            operatorSessionId: telemetry.operatorSessionId,
+            operatorSessionId: fullTelemetry.operatorSessionId,
             runId,
             attemptId,
             project: args.worktree.projectName,
-            workflow: telemetry.workflow,
+            workflow: fullTelemetry.workflow,
             stepId: args.stepId ?? null,
-            role: telemetry.role,
+            role: fullTelemetry.role,
             branch: args.worktree.branchName,
             specRef: args.worktree.baseRef,
             invocationIds: args.bindings.map(() => crypto.randomUUID()),

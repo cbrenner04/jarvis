@@ -48,15 +48,16 @@ durable attempt history alone. See [`daemon-host.md`](daemon-host.md#workflow-sn
 ## Authoring helper and presets
 
 `defineWorkflowStep(...)` is the authoring helper for one concrete workflow step.
-It takes `{ stepId, role, behavior, ... }`, where `behavior` is the closed
-vocabulary from [`role-resolution.md`](role-resolution.md#role--behavior-reference).
-Today only `behavior: "write"` is valid, so the rest of the input is the full
-[`write-behavior.md`](write-behavior.md) loop shape plus per-step loop controls
-(`maxIterations`, `signal`, `pauseSignal`). Workflow infrastructure such as
-`stateStore` and `logSink` is not part of the public step contract; the runner
-normalizes those once at workflow scope. The helper returns the
-`WorkflowStep` consumed by `executeWorkflow` and passes those loop-control fields
-through unchanged.
+It takes `{ stepId, behavior, ... }`, where `behavior` is the closed
+vocabulary from [`role-resolution.md`](role-resolution.md#role--behavior-reference):
+`"write"` (a [`write-behavior.md`](write-behavior.md) loop shape plus per-step
+loop controls — `maxIterations`, `signal`, `pauseSignal` — keyed by a single
+`role`/`agents` order) or `"review-debate"` (see
+[Review-debate dispatch](#review-debate-dispatch) below). Workflow
+infrastructure such as `stateStore` and `logSink` is not part of the public
+step contract; the runner normalizes those once at workflow scope.
+`behavior` is kept on the returned runtime step (not stripped) — the runner
+dispatches on it. The helper passes loop-control fields through unchanged.
 
 `resolveWorkflowPreset(name, steps)` validates a named preset's fixed step count
 and returns a `WorkflowStep[]`. Callers supply `stepId`, `role`, and the rest of
@@ -106,14 +107,19 @@ A one-step workflow runs identically to a single-step `executeWriteLoop` invocat
 Before running any step, `executeWorkflow` validates:
 - `steps` array is not empty.
 - All `stepId` values are unique within the array.
-- For every step and every agent in that step's `agents` order, that step's
-  `agentModelConfig` contains an own binding entry for the step's `role`.
+- For a `write` step, for every agent in that step's `agents` order, that
+  step's `agentModelConfig` contains an own binding entry for the step's
+  `role`.
+- For a `review-debate` step, the same check runs independently for each of
+  the four debate roles' `agents` orders against the step's
+  `agentModelConfig`.
 
 Workflow-source role misses are aggregated and reported as `(stepId, role,
-agent)` tuples in one synchronous failure. Inherited object properties do not
-count as bindings. Validation fails before any durable workflow state change,
-runs unconditionally (including on resume and for already-completed steps),
-and runs before role/agent bindings are derived for any pending step.
+agent)` tuples (role is the debate role name for a `review-debate` step) in
+one synchronous failure. Inherited object properties do not count as
+bindings. Validation fails before any durable workflow state change, runs
+unconditionally (including on resume and for already-completed steps), and
+runs before role/agent bindings are derived for any pending step.
 
 ## Loading workflow steps
 
@@ -135,6 +141,35 @@ of its own. This check runs once at load; `executeWorkflow`'s
 `validateWorkflowStepRoles` still runs unconditionally on every invocation
 (see [Validation](#validation)) regardless of whether steps came from this
 loader.
+
+## Review-debate dispatch
+
+A step declaring `behavior: "review-debate"` dispatches to
+[`executeReviewDebate`](write-behavior.md#review-debate-cycle) instead of
+`executeWriteLoop`. Unlike a `write` step's single `role` + single `agents`
+order, a `review-debate` step declares per-role prompts (`adversary`,
+`advocate`, `adjudicator`) and an independent `agents` fallback order per
+debate role (`adversary`, `advocate`, `adjudicator`, `actuator`) — four
+separate orders, not one order applied to all four roles. Before dispatch,
+`executeWorkflow` resolves each role's `agents` order to that role's bindings
+via the same two-axis resolution `write` steps use, then passes the four
+per-role binding sets to `executeReviewDebate`.
+
+Outcome mapping for a `review-debate` step reuses `WorkflowResult`
+(`kind: WriteLoopOutcomeKind`, no new kind added): all configured cycles
+completing without a role failure is `kind: "complete"`; a cycle aborting on
+a role invocation failure is `kind: "invocation_failure"`. `resumable` is
+always `false` — there is no durable run/resume for a `review-debate` step in
+this slice (deferred to the first caller that needs mid-cycle resume); its
+`runId` is synthesized for reporting only, not looked up via
+`findRunByProjectBranch`. Multi-step composition (mixing `write` and
+`review-debate` steps in one workflow) has no defined semantics yet — deferred
+to the first consumer.
+
+This slice supports only programmatic/runtime construction of a
+`review-debate` step via `defineWorkflowStep`; `workflow-loader.ts` (and
+therefore YAML/config-file authoring) does not yet support it — it still
+assumes one `role` per step.
 
 ## Budget and abort
 

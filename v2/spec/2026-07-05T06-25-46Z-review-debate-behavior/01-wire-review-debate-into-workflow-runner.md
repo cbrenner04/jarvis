@@ -62,17 +62,17 @@ case. Extend role-preflight validation to cover the four fixed debate roles.
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner.test.ts` covers a workflow containing a
+- [x] `workflow-runner.test.ts` covers a workflow containing a
       `behavior: "review-debate"` step dispatching to `executeReviewDebate`
       with each role's `agents` order resolved to that role's bindings.
-- [ ] `workflow-runner.test.ts` covers a `review-debate` step missing an
+- [x] `workflow-runner.test.ts` covers a `review-debate` step missing an
       `(agent, role)` entry for one of the four debate roles' `agents`
       orders failing `validateWorkflowStepRoles` before any run is created.
-- [ ] `workflow-runner.test.ts` covers a single-step `review-debate` workflow
+- [x] `workflow-runner.test.ts` covers a single-step `review-debate` workflow
       reporting `kind: "complete"` / `resumable: false` on a clean run and
       `kind: "invocation_failure"` / `resumable: false` when a role
       invocation aborts a cycle.
-- [ ] Existing `write`-step dispatch and validation behavior is unchanged
+- [x] Existing `write`-step dispatch and validation behavior is unchanged
       (`workflow-runner.test.ts` write-step cases stay green).
 
 ## Documentation updates

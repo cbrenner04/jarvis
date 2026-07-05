@@ -888,7 +888,6 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
         agent: Agent;
         agentEntry: AgentEntry;
         durationMs: number;
-        result: AgentResult;
       }> = [];
       const bindingStates = actuatorOrder.map(() => ({
         tracker: new DescendantTracker(),
@@ -1001,7 +1000,6 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
               agent: attempt.agent,
               agentEntry: attempt.agentEntry,
               durationMs: attempt.durationMs,
-              result: attempt.result,
             });
           },
         }),

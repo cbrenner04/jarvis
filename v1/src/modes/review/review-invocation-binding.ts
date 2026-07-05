@@ -16,7 +16,7 @@ function readPorcelainSnapshot(cwd: string): string | null {
   }
 }
 
-export type ReviewInvocationBindingOptions<_T extends InvocationResult = InvocationResult> = {
+export type ReviewInvocationBindingOptions = {
   agentEntry: { agent: AgentName; model: string };
   config: Config;
   cwd: string;
@@ -31,14 +31,12 @@ export type ReviewInvocationBindingOptions<_T extends InvocationResult = Invocat
   lastOutputAtMs?: AgentRunOptions["lastOutputAtMs"] | undefined;
   lastOutputNowMs?: AgentRunOptions["lastOutputNowMs"] | undefined;
   abortKillGraceMs?: number | undefined;
-  onControllerReady?:
-    | ((ctx: { controller: AbortController; signal: AbortSignal }) => undefined | (() => void))
-    | undefined;
+  onControllerReady?: ((ctx: { controller: AbortController }) => undefined | (() => void)) | undefined;
   now?: (() => number) | undefined;
 };
 
 export function createReviewInvocationBinding<T extends InvocationResult = InvocationResult>(
-  opts: ReviewInvocationBindingOptions<T>,
+  opts: ReviewInvocationBindingOptions,
 ): InvocationBinding<T> {
   // Load agent to get real attribution label
   const agent = opts.loadAgent({
@@ -62,7 +60,7 @@ export function createReviewInvocationBinding<T extends InvocationResult = Invoc
       const loadedAgent = agent;
 
       // Snapshot git porcelain and run the agent
-      const porcelainBefore = readPorcelainSnapshot(opts.cwd);
+      const porcelainBefore = readPorcelainSnapshot(args.cwd);
       const _now = opts.now ?? Date.now;
       const startedAt = _now();
       const controller = new AbortController();
@@ -79,7 +77,6 @@ export function createReviewInvocationBinding<T extends InvocationResult = Invoc
       }
       const controllerCleanup = opts.onControllerReady?.({
         controller,
-        signal: controller.signal,
       });
 
       let spawnResult: AgentResult;
@@ -100,7 +97,7 @@ export function createReviewInvocationBinding<T extends InvocationResult = Invoc
         controllerCleanup?.();
       }
 
-      const porcelainAfter = readPorcelainSnapshot(opts.cwd);
+      const porcelainAfter = readPorcelainSnapshot(args.cwd);
       const noDiskChangeDuringInvocation =
         porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;
 

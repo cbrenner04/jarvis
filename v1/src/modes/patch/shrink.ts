@@ -432,7 +432,6 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
         opts.agents?.[headEntry.agent] ??
         createAgent(headEntry.agent, configuredModel),
       config: opts.config,
-      cwd: opts.cwd,
       abortKillGraceMs: killGraceMs,
       lastOutputAtMs: bindingStates[rungIndex]!.lastOutputAtMs,
       onControllerReady: ({ controller }) => {

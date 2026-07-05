@@ -3,6 +3,7 @@ import {
   executeWithQuotaFallback,
   type InvocationBinding,
   type InvocationExecution,
+  type InvocationOk,
   type InvocationTelemetryContext,
 } from "../../../shared/invocation/execute.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
@@ -75,12 +76,12 @@ export async function executeReviewDebate(args: ReviewDebateInput): Promise<Revi
     const adjudicator = await invokeRole(args, "adjudicator", args.prompts.adjudicator, args.bindings.adjudicator);
     roleResults.adjudicator = adjudicator;
     const adjudicatorFailure = failureKind(adjudicator);
-    if (adjudicatorFailure !== null || adjudicator.final === null || adjudicator.final.result.kind !== "ok") {
-      cycles.push(roleFailedOutcome("adjudicator", adjudicatorFailure ?? "no_binding", null, roleResults));
+    if (adjudicatorFailure !== null) {
+      cycles.push(roleFailedOutcome("adjudicator", adjudicatorFailure, null, roleResults));
       break;
     }
 
-    const verdict = adjudicator.final.result.stdout;
+    const verdict = (adjudicator.final!.result as InvocationOk).stdout;
     writeFileSync(args.verdictPath, verdict, "utf8");
 
     if (verdict.trim().length === 0) {

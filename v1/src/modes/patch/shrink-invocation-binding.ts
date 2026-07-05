@@ -1,9 +1,10 @@
 import type { InvocationBinding, InvocationResult } from "../../../../shared/invocation/execute.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
-import type { Agent, AgentName, AgentResult } from "../../agents/types.ts";
+import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
 
 export type ShrinkAgentAttemptData = {
+  agent: Agent;
   agentName: AgentName;
   configuredModel: string | undefined;
   durationMs: number;
@@ -21,6 +22,9 @@ export type ShrinkInvocationBindingOptions<_T extends InvocationResult = Invocat
   recordAttempt?: (data: ShrinkAgentAttemptData) => void;
   abortKillGraceMs?: number;
   lastOutputAtMs?: { current: number | null } | undefined;
+  onControllerReady?:
+    | ((ctx: { controller: AbortController; signal: AbortSignal }) => void | (() => void))
+    | undefined;
 };
 
 export function createShrinkInvocationBinding<T extends InvocationResult = InvocationResult>(
@@ -33,12 +37,33 @@ export function createShrinkInvocationBinding<T extends InvocationResult = Invoc
     id: opts.agentName,
     invoke: async (args) => {
       const invocationStartedAt = Date.now();
+      const controller = new AbortController();
+      const parentSignal = args.signal;
+      const abortFromParent = () => {
+        controller.abort(parentSignal?.reason);
+      };
+      if (parentSignal !== undefined) {
+        if (parentSignal.aborted) {
+          abortFromParent();
+        } else {
+          parentSignal.addEventListener("abort", abortFromParent, { once: true });
+        }
+      }
+      const controllerCleanup = opts.onControllerReady?.({
+        controller,
+        signal: controller.signal,
+      });
 
       const spawnResult = await agent.run(args.prompt, {
         cwd: args.cwd,
-        ...(args.signal !== undefined ? { signal: args.signal } : {}),
+        signal: controller.signal,
         ...(opts.abortKillGraceMs !== undefined ? { abortKillGraceMs: opts.abortKillGraceMs } : {}),
         ...(opts.lastOutputAtMs !== undefined ? { lastOutputAtMs: opts.lastOutputAtMs } : {}),
+      } satisfies AgentRunOptions).finally(() => {
+        if (parentSignal !== undefined && !parentSignal.aborted) {
+          parentSignal.removeEventListener("abort", abortFromParent);
+        }
+        controllerCleanup?.();
       });
 
       const classified = applyQuotaFallbackWhenAllowed(
@@ -53,6 +78,7 @@ export function createShrinkInvocationBinding<T extends InvocationResult = Invoc
 
       opts.onQuotaFallbackEmit?.(opts.agentName, spawnResult, classified);
       opts.recordAttempt?.({
+        agent,
         agentName: opts.agentName,
         configuredModel: opts.configuredModel,
         durationMs: Date.now() - invocationStartedAt,

@@ -879,7 +879,11 @@ describe("runPatchShrinkPhase", () => {
 
   test("idle watchdog escalates through reviewActuator when fallback rung remains", async () => {
     const fx = idleShrinkFixture();
-    const codexAgent = new FakeAgent("codex", () => ({ kind: "ok", stdout: "", stderr: "" }));
+    let fallbackSignalAborted: boolean | null | undefined;
+    const codexAgent = new FakeAgent("codex", (_callCount, _prompt, runOpts) => {
+      fallbackSignalAborted = runOpts.signal?.aborted ?? null;
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
     try {
       await runIdleShrink(fx, {
         shrinkAgents: [new IdleHangAgent(fx.idleScript), codexAgent],
@@ -892,6 +896,7 @@ describe("runPatchShrinkPhase", () => {
       expect(fallbackRow).toBeDefined();
       expect(fallbackRow?.kind).toBe("timeout");
       expect(fallbackRow?.agent).toBe("claude");
+      expect(fallbackSignalAborted).toBe(false);
       expect(fx.telemetry.some((r) => r.exitReason === "watchdog-idle-timeout")).toBe(false);
     } finally {
       fx.cleanup();

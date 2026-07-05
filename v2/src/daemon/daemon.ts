@@ -938,17 +938,30 @@ export function createTailStreamHandler(deps: TailStreamHandlerDeps): StreamHand
   };
 }
 
+/**
+ * Merges a daemon-minted operator session id into a write-loop input's telemetry.
+ * No-op when the input carries no telemetry; otherwise the daemon's id always
+ * wins over any caller-supplied `operatorSessionId`.
+ */
+export function applyOperatorSessionId(input: WriteLoopInput, operatorSessionId: string): WriteLoopInput {
+  if (input.telemetry === undefined) {
+    return input;
+  }
+  return { ...input, telemetry: { ...input.telemetry, operatorSessionId } };
+}
+
 export async function startDaemon(socketPath: string, stateStore?: StateStore, logReader?: LogReader): Promise<void> {
   const store = stateStore ?? openStateStore();
   const logsPath = join(homedir(), ".jarvis", "state", "logs.jsonl");
   const logReaderInstance = logReader ?? openLogReader(logsPath);
   let shutdownRequested = false;
+  const operatorSessionId = crypto.randomUUID();
 
   const writeLoopExecutor = async (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => {
     const logSink = openLogSink(logsPath);
     try {
       await executeWriteLoop({
-        ...input,
+        ...applyOperatorSessionId(input, operatorSessionId),
         stateStore: store,
         logSink,
         signal,

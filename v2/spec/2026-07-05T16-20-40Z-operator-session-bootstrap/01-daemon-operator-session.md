@@ -15,10 +15,10 @@ no operator session tag.
 
 ## Acceptance criteria
 
-- [ ] Two runs dispatched through one `startDaemon` call's `writeLoopExecutor` carry the same `operatorSessionId` in the `executeWriteLoop` input they receive.
-- [ ] A second, independent `startDaemon` call produces a different `operatorSessionId` than the first.
-- [ ] An `executeWriteLoop` input whose `telemetry.operatorSessionId` was already set by the caller is overridden with the daemon's id when routed through `writeLoopExecutor`.
-- [ ] Existing daemon lifecycle/wire tests (`daemon-lifecycle.test.ts`, `daemon-wire.test.ts`, `daemon-start-list.test.ts`) stay green.
+- [x] Two runs dispatched through one `startDaemon` call's `writeLoopExecutor` carry the same `operatorSessionId` in the `executeWriteLoop` input they receive.
+- [x] A second, independent `startDaemon` call produces a different `operatorSessionId` than the first.
+- [x] An `executeWriteLoop` input whose `telemetry.operatorSessionId` was already set by the caller is overridden with the daemon's id when routed through `writeLoopExecutor`.
+- [x] Existing daemon lifecycle/wire tests (`daemon-lifecycle.test.ts`, `daemon-wire.test.ts`, `daemon-start-list.test.ts`) stay green.
 
 ## Documentation updates
 

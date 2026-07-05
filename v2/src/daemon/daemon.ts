@@ -386,10 +386,9 @@ function stoppedOutcomeForRun(run: LoadedRun): Exclude<WorkflowStepTerminalOutco
  *   active-run entries. Spawn-boundary executor rejections best-effort persist `failed`,
  *   await `failureReporter`, then release — they do not propagate to RPC callers.
  */
-/** Mutable settle-delay state shared across {@link promoteQueuedRunImpl} calls. */
+/** Mutated by {@link promoteQueuedRunImpl} on each promotion; shared across calls. */
 export type PromotionSettleState = { suppressedUntil: number };
 
-/** Dependencies for {@link promoteQueuedRunImpl}, extracted out of {@link createRunControlHandlers}'s closure. */
 export type PromoteQueuedRunDeps = {
   store: StateStore;
   registry: WorktreeOwnershipRegistry;

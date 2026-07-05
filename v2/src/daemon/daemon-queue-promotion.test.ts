@@ -12,7 +12,7 @@ import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import {
   createRunControlHandlers,
   type OwnershipKey,
-  type PromotionSettleState,
+  type PromoteQueuedRunDeps,
   promoteQueuedRunImpl,
   WorktreeOwnershipRegistry,
 } from "./daemon.ts";
@@ -139,24 +139,37 @@ function queueRun(store: StateStore, input: WriteLoopInput): string {
   });
 }
 
-test("promoteQueuedRunImpl promotes the oldest queued run before a younger one", () => {
+function createPromotionHarness(
+  overrides: Partial<Pick<PromoteQueuedRunDeps, "checkMemoryHeadroom" | "settleDelayMs">> = {},
+) {
   const store = createUnitStore();
-  try {
-    const registry = new WorktreeOwnershipRegistry();
-    const { spawnWriteLoop, calls } = createFakeSpawnWriteLoop(registry);
-    const settleState: PromotionSettleState = { suppressedUntil: 0 };
+  const registry = new WorktreeOwnershipRegistry();
+  const { spawnWriteLoop, calls } = createFakeSpawnWriteLoop(registry);
+  const deps: PromoteQueuedRunDeps = {
+    store,
+    registry,
+    checkMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+    settleState: { suppressedUntil: 0 },
+    spawnWriteLoop,
+    ...overrides,
+  };
+  return {
+    store,
+    registry,
+    calls,
+    deps,
+    promote: (bypassSettleDelay?: boolean) => promoteQueuedRunImpl(deps, bypassSettleDelay),
+  };
+}
 
+test("promoteQueuedRunImpl promotes the oldest queued run before a younger one", () => {
+  const { store, calls, promote } = createPromotionHarness();
+  try {
     const runIdA = queueRun(store, mockWriteLoopInput({ projectName: "project-a" }));
     const runIdB = queueRun(store, mockWriteLoopInput({ projectName: "project-b" }));
 
-    promoteQueuedRunImpl({
-      store,
-      registry,
-      checkMemoryHeadroom: () => true,
-      settleDelayMs: 0,
-      settleState,
-      spawnWriteLoop,
-    });
+    promote();
 
     expect(store.loadRun(runIdA)?.status).toBe("in-progress");
     expect(store.loadRun(runIdB)?.status).toBe("queued");
@@ -168,22 +181,11 @@ test("promoteQueuedRunImpl promotes the oldest queued run before a younger one",
 });
 
 test("promoteQueuedRunImpl leaves a queued run queued while memory stays below the watermark", () => {
-  const store = createUnitStore();
+  const { store, calls, promote } = createPromotionHarness({ checkMemoryHeadroom: () => false });
   try {
-    const registry = new WorktreeOwnershipRegistry();
-    const { spawnWriteLoop, calls } = createFakeSpawnWriteLoop(registry);
-    const settleState: PromotionSettleState = { suppressedUntil: 0 };
-
     const runId = queueRun(store, mockWriteLoopInput({ projectName: "project-a" }));
 
-    promoteQueuedRunImpl({
-      store,
-      registry,
-      checkMemoryHeadroom: () => false,
-      settleDelayMs: 0,
-      settleState,
-      spawnWriteLoop,
-    });
+    promote();
 
     expect(store.loadRun(runId)?.status).toBe("queued");
     expect(calls).toHaveLength(0);
@@ -193,12 +195,8 @@ test("promoteQueuedRunImpl leaves a queued run queued while memory stays below t
 });
 
 test("promoteQueuedRunImpl skips a queued run whose key is claimed in favor of the next-oldest eligible run", () => {
-  const store = createUnitStore();
+  const { store, registry, calls, promote } = createPromotionHarness();
   try {
-    const registry = new WorktreeOwnershipRegistry();
-    const { spawnWriteLoop, calls } = createFakeSpawnWriteLoop(registry);
-    const settleState: PromotionSettleState = { suppressedUntil: 0 };
-
     const liveInput = mockWriteLoopInput({ projectName: "project-live" });
     const liveKey: OwnershipKey = { project: liveInput.worktree.projectName, branch: liveInput.worktree.branchName };
     registry.claim(liveKey, { runId: "live-run", worktreePath: getExternalWorktreePath(liveInput.worktree) });
@@ -206,14 +204,7 @@ test("promoteQueuedRunImpl skips a queued run whose key is claimed in favor of t
     const blockedQueuedId = queueRun(store, liveInput);
     const eligibleQueuedId = queueRun(store, mockWriteLoopInput({ projectName: "project-eligible" }));
 
-    promoteQueuedRunImpl({
-      store,
-      registry,
-      checkMemoryHeadroom: () => true,
-      settleDelayMs: 0,
-      settleState,
-      spawnWriteLoop,
-    });
+    promote();
 
     expect(store.loadRun(eligibleQueuedId)?.status).toBe("in-progress");
     expect(store.loadRun(blockedQueuedId)?.status).toBe("queued");
@@ -225,29 +216,16 @@ test("promoteQueuedRunImpl skips a queued run whose key is claimed in favor of t
 });
 
 test("promoteQueuedRunImpl withholds promotion while the settle delay is active", () => {
-  const store = createUnitStore();
+  const { store, calls, deps, promote } = createPromotionHarness({ settleDelayMs: 100_000 });
   try {
-    const registry = new WorktreeOwnershipRegistry();
-    const { spawnWriteLoop, calls } = createFakeSpawnWriteLoop(registry);
-    const settleState: PromotionSettleState = { suppressedUntil: 0 };
-
     const runIdA = queueRun(store, mockWriteLoopInput({ projectName: "project-settle-a" }));
     const runIdB = queueRun(store, mockWriteLoopInput({ projectName: "project-settle-b" }));
 
-    const deps = {
-      store,
-      registry,
-      checkMemoryHeadroom: () => true,
-      settleDelayMs: 100_000,
-      settleState,
-      spawnWriteLoop,
-    };
-
-    promoteQueuedRunImpl(deps);
+    promote();
     expect(store.loadRun(runIdA)?.status).toBe("in-progress");
-    expect(settleState.suppressedUntil).toBeGreaterThan(Date.now());
+    expect(deps.settleState.suppressedUntil).toBeGreaterThan(Date.now());
 
-    promoteQueuedRunImpl(deps);
+    promote();
     expect(store.loadRun(runIdB)?.status).toBe("queued");
     expect(calls).toHaveLength(1);
   } finally {

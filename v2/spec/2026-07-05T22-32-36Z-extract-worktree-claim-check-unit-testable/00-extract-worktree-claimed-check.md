@@ -9,20 +9,26 @@ It has no unit coverage independent of a real IPC round trip.
 
 Extract the check into a standalone exported function taking the
 `WorktreeOwnershipRegistry` and `OwnershipKey` as explicit parameters,
-returning the same error-shaped result (or `undefined`/`null` when not
-claimed). Call it from `start`, `resume`, and `revise` in place of the
-inline `isClaimed` branch. No behavior change — same rejection, same
-message, same `code`.
+returning the same error-shaped result, or `undefined` when not claimed.
+Call it from `start`, `resume`, and `revise` in place of the inline
+`isClaimed` branch. No behavior change — same rejection, same message,
+same `code`.
 
 ## Acceptance criteria
 
-- [ ] `daemon-registry.test.ts`, `daemon-revise.test.ts`, and the `start`/
-      `resume` RPC-level `worktree_claimed` coverage in
-      `daemon-start-list.test.ts` stay green (behavior unchanged by the
-      extraction).
+- [ ] `daemon-registry.test.ts` and the `start` RPC-level `worktree_claimed`
+      coverage in `daemon-start-list.test.ts` stay green (behavior
+      unchanged by the extraction).
+- [ ] `resume` rejects with `worktree_claimed` at the RPC level when the
+      target worktree is already claimed — new regression coverage, since
+      no existing test asserts this today.
+- [ ] `revise` rejects with `worktree_claimed` at the RPC level when the
+      target worktree is already claimed — new regression coverage, since
+      no existing test asserts this today.
 - [ ] New unit tests exercise the extracted function directly against a
       `WorktreeOwnershipRegistry` and `OwnershipKey` (claimed and
-      unclaimed cases), with no IPC server or write-loop involved.
+      unclaimed cases), with no IPC server or write-loop involved, and
+      assert `undefined` is returned in the unclaimed case.
 - [ ] `start`, `resume`, and `revise` each call the extracted function
       rather than inlining `_registry.isClaimed(key)` themselves.
 

@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { InvocationFailureDetail } from "../execution/invocation-failure.ts";
+import type { WriteLoopInput } from "../execution/write-loop.ts";
 import type { RunStatus, WorkflowSnapshot } from "./state-store-types";
 
 export type AttemptStatus = "in-progress" | "completed";
@@ -30,6 +31,7 @@ export type Run = {
   specPath: string;
   stepId?: string | null;
   workflowSnapshot?: WorkflowSnapshot | null;
+  queuedInput?: WriteLoopInput | null;
 };
 
 /** A durable attempt record linked to a run. */
@@ -45,7 +47,7 @@ export type Attempt = {
 
 /** Repository-style durable state API, keyed by IDs; no generic SQL surface. */
 export interface StateStore {
-  /** Insert a run (`in-progress`, zero attempts); returns its ID. */
+  /** Insert a run (zero attempts, status defaults to `in-progress`); returns its ID. */
   createRun(args: {
     project: string;
     specRef: string;
@@ -54,7 +56,15 @@ export interface StateStore {
     specPath: string;
     stepId?: string;
     workflowSnapshot?: WorkflowSnapshot;
+    status?: RunStatus;
+    queuedInput?: WriteLoopInput;
   }): string;
+
+  /** Whether a non-terminal `queued` run exists for `(project, branch)`. */
+  hasQueuedRun(args: { project: string; branch: string }): boolean;
+
+  /** All `queued` runs, oldest first (`created_at ASC`), for FIFO promotion. */
+  listQueuedRuns(): Run[];
 
   /** Load a run and its attempt history for resume; null when unknown. */
   loadRun(runId: string): (Run & { attempts: Attempt[] }) | null;
@@ -123,7 +133,7 @@ const SCHEMA = `
 
 const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, status,
   attempt_count AS attemptCount, worktree_path AS worktreePath, branch, spec_path AS specPath, step_id AS stepId,
-  workflow_snapshot AS workflowSnapshotJson`;
+  workflow_snapshot AS workflowSnapshotJson, queued_input AS queuedInputJson`;
 
 const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, started_at AS startedAt, status,
   outcome_kind AS outcomeKind, invocation_failure_detail AS invocationFailureDetailJson`;
@@ -140,6 +150,10 @@ const SCHEMA_MIGRATIONS = [
   {
     id: "006-run-workflow-snapshot",
     up: "ALTER TABLE runs ADD COLUMN workflow_snapshot TEXT",
+  },
+  {
+    id: "007-run-queued-input",
+    up: "ALTER TABLE runs ADD COLUMN queued_input TEXT",
   },
 ] as const;
 
@@ -169,11 +183,14 @@ function mapAttemptRow(row: Attempt & { invocationFailureDetailJson: string | nu
   };
 }
 
-function mapRunRow(row: Run & { workflowSnapshotJson: string | null }): Run {
-  const { workflowSnapshotJson, ...run } = row;
+type RunRow = Run & { workflowSnapshotJson: string | null; queuedInputJson: string | null };
+
+function mapRunRow(row: RunRow): Run {
+  const { workflowSnapshotJson, queuedInputJson, ...run } = row;
   return {
     ...run,
     workflowSnapshot: workflowSnapshotJson === null ? null : (JSON.parse(workflowSnapshotJson) as WorkflowSnapshot),
+    queuedInput: queuedInputJson === null ? null : (JSON.parse(queuedInputJson) as WriteLoopInput),
   };
 }
 
@@ -195,34 +212,37 @@ class StateStoreImpl implements StateStore {
     specPath: string;
     stepId?: string;
     workflowSnapshot?: WorkflowSnapshot;
+    status?: RunStatus;
+    queuedInput?: WriteLoopInput;
   }): string {
     const id = crypto.randomUUID();
     const workflowSnapshotJson = args.workflowSnapshot === undefined ? null : JSON.stringify(args.workflowSnapshot);
+    const queuedInputJson = args.queuedInput === undefined ? null : JSON.stringify(args.queuedInput);
     this.db
       .prepare(`
         INSERT INTO runs (
-          id, project, spec_ref, created_at, status, attempt_count, worktree_path, branch, spec_path, step_id, workflow_snapshot
+          id, project, spec_ref, created_at, status, attempt_count, worktree_path, branch, spec_path, step_id, workflow_snapshot, queued_input
         )
-        VALUES (?, ?, ?, ?, 'in-progress', 0, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         id,
         args.project,
         args.specRef,
         Date.now(),
+        args.status ?? "in-progress",
         args.worktreePath,
         args.branch,
         args.specPath,
         args.stepId ?? null,
         workflowSnapshotJson,
+        queuedInputJson,
       );
     return id;
   }
 
   loadRun(runId: string): (Run & { attempts: Attempt[] }) | null {
-    const runRow = this.db.prepare(`SELECT ${RUN_COLUMNS} FROM runs WHERE id = ?`).get(runId) as
-      | (Run & { workflowSnapshotJson: string | null })
-      | null;
+    const runRow = this.db.prepare(`SELECT ${RUN_COLUMNS} FROM runs WHERE id = ?`).get(runId) as RunRow | null;
     const run = runRow === null ? null : mapRunRow(runRow);
     if (!run) return null;
 
@@ -261,9 +281,7 @@ class StateStoreImpl implements StateStore {
     return (
       this.db
         .prepare(`SELECT ${RUN_COLUMNS} FROM runs WHERE project = ? AND branch = ? AND step_id LIKE ? ESCAPE '\\'`)
-        .all(args.project, args.branch, `${args.repeatStepId.replace(/[\\%_]/g, "\\$&")}~r%`) as Array<
-        Run & { workflowSnapshotJson: string | null }
-      >
+        .all(args.project, args.branch, `${args.repeatStepId.replace(/[\\%_]/g, "\\$&")}~r%`) as RunRow[]
     ).map(mapRunRow);
   }
 
@@ -322,10 +340,23 @@ class StateStoreImpl implements StateStore {
   }
 
   listRuns(): Run[] {
+    return (this.db.prepare(`SELECT ${RUN_COLUMNS} FROM runs ORDER BY created_at DESC`).all() as RunRow[]).map(
+      mapRunRow,
+    );
+  }
+
+  hasQueuedRun(args: { project: string; branch: string }): boolean {
+    const row = this.db
+      .prepare("SELECT 1 FROM runs WHERE project = ? AND branch = ? AND status = 'queued' LIMIT 1")
+      .get(args.project, args.branch);
+    return row !== null;
+  }
+
+  listQueuedRuns(): Run[] {
     return (
-      this.db.prepare(`SELECT ${RUN_COLUMNS} FROM runs ORDER BY created_at DESC`).all() as Array<
-        Run & { workflowSnapshotJson: string | null }
-      >
+      this.db
+        .prepare(`SELECT ${RUN_COLUMNS} FROM runs WHERE status = 'queued' ORDER BY created_at ASC`)
+        .all() as RunRow[]
     ).map(mapRunRow);
   }
 

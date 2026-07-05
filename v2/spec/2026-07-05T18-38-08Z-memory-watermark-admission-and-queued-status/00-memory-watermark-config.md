@@ -37,12 +37,12 @@ floor. This slice adds the reader and config only; no admission wiring yet.
 
 ## Acceptance criteria
 
-- [ ] `hasMemoryHeadroom` returns `true` when `memory.minFreeGb` is unset,
+- [x] `hasMemoryHeadroom` returns `true` when `memory.minFreeGb` is unset,
       regardless of the injected reader's value.
-- [ ] `hasMemoryHeadroom` returns `false` when the injected free-memory reader
+- [x] `hasMemoryHeadroom` returns `false` when the injected free-memory reader
       reports less than the configured `minFreeGb` (converted to bytes), and
       `true` when it reports at or above it.
-- [ ] Loading a machine config with `memory.minFreeGb` set to `0`, a negative
+- [x] Loading a machine config with `memory.minFreeGb` set to `0`, a negative
       number, or a non-numeric value throws, matching the existing
       `validateMachineConfigAgents` error style.
 

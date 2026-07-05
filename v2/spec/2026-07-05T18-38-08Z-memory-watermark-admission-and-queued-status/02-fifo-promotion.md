@@ -52,39 +52,39 @@ is already running.
 
 ## Task checklist
 
-- [ ] Add a promotion routine invoked from both trigger points: the `start`
+- [x] Add a promotion routine invoked from both trigger points: the `start`
       handler (after queuing, and after admitting) and `spawnWriteLoop`'s
       `finally` block — find the oldest `queued` run whose `(project,
       branch)` is unclaimed (per [01](./01-queued-admission-on-start.md)'s
       extended claim check), check `hasMemoryHeadroom`, and if clear, promote
       it.
-- [ ] Enforce the settle delay: after a promotion, suppress further
+- [x] Enforce the settle delay: after a promotion, suppress further
       promotions for `memory.settleDelayMs` before checking again, except for
       the one-time immediate recheck a `start` performs on the row it just
       queued.
-- [ ] Add `memory.settleDelayMs` to the machine config validation from
+- [x] Add `memory.settleDelayMs` to the machine config validation from
       [00](./00-memory-watermark-config.md) (positive integer, default
       `2000` when absent).
-- [ ] Skip-and-continue past a queued run whose key is currently claimed,
+- [x] Skip-and-continue past a queued run whose key is currently claimed,
       trying the next-oldest queued run instead of stopping.
 
 ## Acceptance criteria
 
-- [ ] Given two queued runs for distinct `(project, branch)` keys queued in
+- [x] Given two queued runs for distinct `(project, branch)` keys queued in
       order A then B, once memory clears the watermark and the settle delay
       has elapsed, A is promoted to `in-progress` (spawned) before B.
-- [ ] A queued run is never promoted while memory stays below the configured
+- [x] A queued run is never promoted while memory stays below the configured
       watermark; it remains `status: "queued"`.
-- [ ] Promoting one queued run does not change the status of any other
+- [x] Promoting one queued run does not change the status of any other
       already-running run, even when a subsequent headroom check (before the
       settle delay elapses) would report insufficient memory.
-- [ ] A queued run whose `(project, branch)` key is claimed by a live run is
+- [x] A queued run whose `(project, branch)` key is claimed by a live run is
       skipped in favor of the next-oldest eligible queued run.
-- [ ] A `start` that queues a run because memory is briefly below the
+- [x] A `start` that queues a run because memory is briefly below the
       watermark, where memory has already recovered by the time the row is
       persisted, results in that run being promoted without waiting for a
       later run to exit.
-- [ ] A run reaching a paused state (not just a terminal outcome) frees its
+- [x] A run reaching a paused state (not just a terminal outcome) frees its
       `(project, branch)` key for promotion of an eligible queued run.
 
 ## Documentation updates

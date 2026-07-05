@@ -75,20 +75,20 @@ of erroring.
 
 ## Acceptance criteria
 
-- [ ] A `start` call when the injected free-memory reader reports headroom
+- [x] A `start` call when the injected free-memory reader reports headroom
       below the configured `minFreeGb` returns `{ runId }` (not an error), and
       the run's durable status is `queued`.
-- [ ] A `start` call for a second `(project, branch)` while another run is
+- [x] A `start` call for a second `(project, branch)` while another run is
       live and memory clears the watermark spawns and admits normally (no
       more `run_in_progress` rejection based on live-run count alone).
-- [ ] A `resume` or `revise` call for a second `(project, branch)` while
+- [x] A `resume` or `revise` call for a second `(project, branch)` while
       another run is live succeeds (spawns) instead of rejecting
       `run_in_progress`, provided its own `worktree_claimed` check passes.
-- [ ] A `start` call for a `(project, branch)` key already claimed — whether
+- [x] A `start` call for a `(project, branch)` key already claimed — whether
       by a live run or an existing queued run for that key — is rejected
       `worktree_claimed`.
-- [ ] `list` reports a queued run with `status: "queued"`, `isLive: false`.
-- [ ] `v2/docs/daemon-host.md` no longer documents a count-based single
+- [x] `list` reports a queued run with `status: "queued"`, `isLive: false`.
+- [x] `v2/docs/daemon-host.md` no longer documents a count-based single
       in-flight admission guard on any of `start`, `resume`, or `revise`.
 
 ## Documentation updates

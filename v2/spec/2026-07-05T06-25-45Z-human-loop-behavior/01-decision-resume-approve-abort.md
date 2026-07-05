@@ -24,6 +24,11 @@ here and lands in subspec 02.
   `revise_unsupported`-class error, pending subspec 02.
 - A `decision` param supplied on a non-`awaiting-human` `resume` call is rejected
   — decision only applies to human gates.
+- `approve` on the workflow's last step marks that step's run `completed` and
+  returns; convergence of the overall workflow to `completed` happens on the
+  next `executeWorkflow` call, same as advancing past any other step — `resume`
+  does not itself invoke `executeWorkflow`, ruling out a special inline-complete
+  path for the last step.
 
 ## Acceptance criteria
 

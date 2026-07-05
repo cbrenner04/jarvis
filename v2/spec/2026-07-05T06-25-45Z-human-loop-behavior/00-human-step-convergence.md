@@ -12,9 +12,11 @@ the convergence point and guards `resume` against it.
   steps need decision-gated resume, unlike blocked's no-resume-path.
 - `WorkflowStepInput` becomes a discriminated union on `behavior`: the existing
   write-step shape (`behavior: "write"`) plus a new human-step shape
-  (`behavior: "human"`, `stepId`, `worktree`) — a human step carries none of the
+  (`behavior: "human"`, `stepId`) — a human step carries none of the
   write-loop-only fields (`role`, `agents`, `stepRules`, `agentModelConfig`,
-  `expectedArtifactPath`) it never uses.
+  `expectedArtifactPath`) it never uses, and no `worktree` of its own: the
+  worktree that matters for a human gate is whichever step `onRevise` names
+  (subspec 02), not the gate itself.
 - `executeWorkflow` dispatches a human step to a path that creates/loads its run
   row and sets status `awaiting-human` directly via the state store, without
   calling `executeWriteLoop`/`executeWrite` — human steps carry no attempt/outcome

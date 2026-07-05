@@ -1,11 +1,12 @@
-import { appendFileSync, mkdirSync } from "node:fs";
-import { dirname, isAbsolute, join } from "node:path";
+import { appendFileSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 import type { LogSink } from "../persistence/log-stream.ts";
 import { type OutcomeKind, openStateStore, type StateStore } from "../persistence/state-store.ts";
 import type { RunStatus, WorkflowSnapshot } from "../persistence/state-store-types.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import type { StepRunResult } from "./step-runner.ts";
+import { buildJsonlSink } from "./telemetry-sink.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";
 
 /** Classification of a loop outcome. */
@@ -240,12 +241,7 @@ function buildWriteExecuteInput(args: WriteLoopInput, runId: string, attemptId: 
     ...(fullTelemetry !== undefined
       ? {
           invocationTelemetry: {
-            sink: {
-              append(record) {
-                mkdirSync(dirname(fullTelemetry.sinkPath), { recursive: true });
-                appendFileSync(fullTelemetry.sinkPath, `${JSON.stringify(record)}\n`, "utf8");
-              },
-            },
+            sink: buildJsonlSink(fullTelemetry.sinkPath),
             operatorSessionId: fullTelemetry.operatorSessionId,
             runId,
             attemptId,

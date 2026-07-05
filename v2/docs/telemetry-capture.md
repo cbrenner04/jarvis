@@ -182,8 +182,7 @@ first implementation slice.
 | Milestone | Deliverable |
 | --- | --- |
 | **This doc** (plan spec) | Capture contract only |
-| **Phase 5** (workflow runner) | Live `invocation_completed` rows for write-step invocations |
-| **Phase 6** (review-debate + human) | Same schema for all behaviors |
+| **Phase 5 + 6** (workflow runner, write + review-debate) | `executeWorkflow` constructs one shared per-step telemetry context (`operatorSessionId`, `workflow`, `sinkPath`) and passes it identically to `write` and `review-debate` steps — same schema for both. No production caller yet: `cli.ts`/`daemon.ts` still call `executeWriteLoop` directly. |
 | **Phase 8** (PR lifecycle) | `work_boundary_recorded` with `commit_sha` / `files_changed` |
 | **Post-parity** | Export commands replacing manual CSV reconciliation |
 

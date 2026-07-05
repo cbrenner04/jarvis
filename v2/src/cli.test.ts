@@ -397,7 +397,7 @@ describe("v2 cli", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",
-      stderr: 'Machine config \'agents\' contains duplicate entry: "claude"\n',
+      stderr: "Machine config 'agents' contains duplicate entry: \"claude\"\n",
     });
     expect(readFileSync(configPath, "utf8")).toBe(before);
   });

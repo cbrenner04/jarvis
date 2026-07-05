@@ -90,8 +90,8 @@ export type WorkflowRunnerInput = {
   steps: AnyWorkflowStep[];
   stateStore?: StateStore;
   logSink?: LogSink;
-  /** Reports a `review-debate` step's live/terminal role progress, keyed by `stepId`. */
-  onReviewDebateProgress?: (stepId: string, progress: ReviewDebateProgress) => void;
+  /** Reports a `review-debate` step's live/terminal role progress, keyed by `invocationId`+`stepId`. */
+  onReviewDebateProgress?: (invocationId: string, stepId: string, progress: ReviewDebateProgress) => void;
 };
 
 /** Build the runtime step shape from authoring input; `behavior` selects the dispatch path. */
@@ -144,7 +144,7 @@ async function runWorkflowStep(
   workflowSnapshot: WorkflowSnapshot,
   store: StateStore,
   logSink: LogSink | undefined,
-  onReviewDebateProgress: ((stepId: string, progress: ReviewDebateProgress) => void) | undefined,
+  onReviewDebateProgress: ((invocationId: string, stepId: string, progress: ReviewDebateProgress) => void) | undefined,
 ): Promise<WorkflowStepOutcome> {
   if (step.behavior === "human") {
     const humanStep = prepareHumanWorkflowStep(step, workflowSnapshot, store);
@@ -157,7 +157,7 @@ async function runWorkflowStep(
   }
 
   if (step.behavior === "review-debate") {
-    return runReviewDebateStep(step, onReviewDebateProgress);
+    return runReviewDebateStep(step, workflowSnapshot.invocationId, onReviewDebateProgress);
   }
 
   const preparedStep = prepareWorkflowStep(step, workflowSnapshot, store, logSink);
@@ -486,7 +486,8 @@ type ReviewDebateStepOutcome = {
  */
 async function runReviewDebateStep(
   step: ReviewDebateWorkflowStep,
-  onProgress: ((stepId: string, progress: ReviewDebateProgress) => void) | undefined,
+  invocationId: string,
+  onProgress: ((invocationId: string, stepId: string, progress: ReviewDebateProgress) => void) | undefined,
 ): Promise<ReviewDebateStepOutcome> {
   const { stepId, agents, agentModelConfig, createBinding, ...debateInput } = step;
   const resolveBindings = createBinding ?? createResolvedAgentBinding;
@@ -502,7 +503,7 @@ async function runReviewDebateStep(
     ...debateInput,
     bindings,
     ...(onProgress !== undefined
-      ? { onRoleStart: (role: ReviewDebateRole) => onProgress(stepId, { status: "in_progress", role }) }
+      ? { onRoleStart: (role: ReviewDebateRole) => onProgress(invocationId, stepId, { status: "in_progress", role }) }
       : {}),
   });
 
@@ -511,7 +512,7 @@ async function runReviewDebateStep(
   const terminalRole: ReviewDebateRole =
     lastCycle?.kind === "role_failed" ? lastCycle.failedRole : lastCycle?.actuatorRan ? "actuator" : "adjudicator";
 
-  onProgress?.(stepId, {
+  onProgress?.(invocationId, stepId, {
     status: kind === "complete" ? "completed" : "stopped",
     role: terminalRole,
     terminalOutcome: kind,

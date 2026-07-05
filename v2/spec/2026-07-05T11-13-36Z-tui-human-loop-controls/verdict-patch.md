@@ -1,0 +1,13 @@
+## Verdict
+
+**Required outcome 1 — Wire review-debate progress into a live production path.**
+
+Subspec 01's acceptance criteria state plainly: "`jarvis tui` run rows show a step line for an in-progress `review-debate` step whose `role` updates." Confirmed against the code: `reportReviewDebateProgress` (`daemon.ts:260`) and the `onReviewDebateProgress` callback threaded through `executeWorkflow`/`runReviewDebateStep` are only ever invoked from test code — `daemon.ts` has no call site that drives a `review-debate` step through `executeWorkflow` with this callback wired in. The snapshot-reading branch at `daemon.ts:283` is real, but the map it reads (`reviewDebateProgressByStepId`) is never populated by any live daemon run. As shipped, the acceptance criterion is only exercised in unit tests and cannot actually be observed in a running `jarvis tui` — the feature this subspec is supposed to deliver doesn't work end-to-end.
+
+The actuator must make the live-role pointer actually populate during a real daemon-driven `review-debate` step execution, so the AC is genuinely satisfied by the running system, not just by isolated unit tests. If wiring daemon-driven multi-step workflow execution turns out to be a large pre-existing gap that legitimately exceeds this subspec (e.g., `daemon.ts` doesn't dispatch any multi-step workflow today, write-only), the actuator must still close the loop enough to make review-debate progress observable end-to-end for this subspec's scope, or explicitly flag that the AC needs correction rather than silently leaving it unmet.
+
+**Required outcome 2 — Scope progress tracking per invocation, not just per `stepId`.**
+
+`reviewDebateProgressByStepId` is a bare module-level map keyed only by `stepId`, with no `invocationId` scoping — unlike the write-step path, which scopes rows by invocation (`daemon.ts:510-527`). Once outcome 1 makes this map live, two concurrent workflow invocations sharing a `stepId` would have their progress rows collide/bleed into each other. Fix the keying so review-debate progress is scoped per invocation, consistent with how write-step rows already avoid this problem.
+
+**No action required** on the `k`/kill behavior for `revising` runs or the unconditional binding of `a`/`v`/`k` regardless of row status — both match the spec's explicit Decisions text (out-of-scope kill behavior for non-`awaiting-human` rows, and reliance on inline `steeringFeedback` for rejected decisions). These are legitimate follow-up ideas, not defects against this spec.

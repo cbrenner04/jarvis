@@ -250,15 +250,22 @@ type WorkflowStepListSnapshot = {
 };
 
 /**
- * Live/terminal role progress for `review-debate` steps, keyed by `stepId`. Tracked
- * in-memory only — a `review-debate` step has no durable run row, so this map is the
- * sole source for its `list` row, populated via {@link reportReviewDebateProgress}.
+ * Live/terminal role progress for `review-debate` steps, keyed by `invocationId` then
+ * `stepId` — mirroring `runsByWorkflowInvocation`'s scoping so two concurrent invocations
+ * sharing a `stepId` don't collide. Tracked in-memory only — a `review-debate` step has
+ * no durable run row, so this map is the sole source for its `list` row, populated via
+ * {@link reportReviewDebateProgress}.
  */
-export const reviewDebateProgressByStepId = new Map<string, ReviewDebateProgress>();
+export const reviewDebateProgressByInvocation = new Map<string, Map<string, ReviewDebateProgress>>();
 
 /** Records a `review-debate` step's currently-executing or terminal role/outcome. */
-export function reportReviewDebateProgress(stepId: string, progress: ReviewDebateProgress): void {
-  reviewDebateProgressByStepId.set(stepId, progress);
+export function reportReviewDebateProgress(invocationId: string, stepId: string, progress: ReviewDebateProgress): void {
+  let steps = reviewDebateProgressByInvocation.get(invocationId);
+  if (!steps) {
+    steps = new Map<string, ReviewDebateProgress>();
+    reviewDebateProgressByInvocation.set(invocationId, steps);
+  }
+  steps.set(stepId, progress);
 }
 
 function workflowRowSnapshot(
@@ -271,7 +278,9 @@ function workflowRowSnapshot(
 
   const workflowRuns = runsByWorkflowInvocation.get(snapshot.invocationId) ?? new Map<string, LoadedRun>();
   return {
-    steps: snapshot.steps.map((step) => workflowStepSnapshot(step, workflowRuns.get(step.stepId), liveRunIds)),
+    steps: snapshot.steps.map((step) =>
+      workflowStepSnapshot(step, workflowRuns.get(step.stepId), liveRunIds, snapshot.invocationId),
+    ),
   };
 }
 
@@ -279,9 +288,10 @@ function workflowStepSnapshot(
   step: WorkflowSnapshot["steps"][number],
   run: LoadedRun | undefined,
   liveRunIds: ReadonlySet<string>,
+  invocationId: string,
 ): WorkflowStepListSnapshot {
   if (step.behavior === "review-debate") {
-    const progress = reviewDebateProgressByStepId.get(step.stepId);
+    const progress = reviewDebateProgressByInvocation.get(invocationId)?.get(step.stepId);
     if (!progress) {
       return { stepId: step.stepId, role: step.role, status: "pending", attemptCount: 0 };
     }

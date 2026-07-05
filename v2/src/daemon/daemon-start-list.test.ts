@@ -8,7 +8,7 @@ import { type IpcServer, startIpcServer } from "../ipc/server.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { listRuns, mockWriteLoopInput, startRun } from "../testing/run-control.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
-import { createRunControlHandlers, reportReviewDebateProgress, reviewDebateProgressByStepId } from "./daemon.ts";
+import { createRunControlHandlers, reportReviewDebateProgress, reviewDebateProgressByInvocation } from "./daemon.ts";
 
 const SOCKET_PATH = join(tmpdir(), `jarvis-daemon-test-${process.pid}.sock`);
 const socketTest = test.skipIf(!canUseUnixSockets());
@@ -56,8 +56,11 @@ function createFakeWriteLoopExecutor(onStart?: (input: WriteLoopInput) => void) 
 
 type FakeWriteLoopExecutor = ReturnType<typeof createFakeWriteLoopExecutor>;
 
-function workflowSnapshot(...steps: Array<{ stepId: string; role: string; behavior?: "review-debate" }>) {
-  return { invocationId: "workflow-1", steps };
+function workflowSnapshot(
+  invocationId: string,
+  ...steps: Array<{ stepId: string; role: string; behavior?: "review-debate" }>
+) {
+  return { invocationId, steps };
 }
 
 let stateStore: StateStore;
@@ -92,7 +95,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  reviewDebateProgressByStepId.clear();
+  reviewDebateProgressByInvocation.clear();
   if (!canUseUnixSockets()) {
     return;
   }
@@ -207,6 +210,7 @@ socketTest("list returns workflow step snapshots for live, stopped, and complete
   );
 
   const snapshot = workflowSnapshot(
+    "workflow-1",
     { stepId: "step-1", role: "implement" },
     { stepId: "step-2", role: "review" },
     { stepId: "step-3", role: "verify" },
@@ -277,6 +281,7 @@ socketTest("list returns workflow step snapshots for live, stopped, and complete
   });
 
   const completeSnapshot = workflowSnapshot(
+    "workflow-1",
     { stepId: "step-a", role: "implement" },
     { stepId: "step-b", role: "review" },
   );
@@ -327,7 +332,7 @@ socketTest(
       branch: "wf-budget",
       specPath: "/tmp/spec.md",
       stepId: "step-budget",
-      workflowSnapshot: workflowSnapshot({ stepId: "step-budget", role: "implement" }),
+      workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-budget", role: "implement" }),
     });
     stateStore.recordAttemptStart(budgetRunId);
     stateStore.setRunStatus(budgetRunId, "budget-soft-stopped");
@@ -339,7 +344,7 @@ socketTest(
       branch: "wf-paused",
       specPath: "/tmp/spec.md",
       stepId: "step-paused",
-      workflowSnapshot: workflowSnapshot({ stepId: "step-paused", role: "implement" }),
+      workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-paused", role: "implement" }),
     });
     stateStore.recordAttemptStart(pausedRunId);
     stateStore.setRunStatus(pausedRunId, "paused");
@@ -351,7 +356,7 @@ socketTest(
       branch: "wf-killed",
       specPath: "/tmp/spec.md",
       stepId: "step-killed",
-      workflowSnapshot: workflowSnapshot({ stepId: "step-killed", role: "implement" }),
+      workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-killed", role: "implement" }),
     });
     stateStore.recordAttemptStart(killedRunId);
     stateStore.setRunStatus(killedRunId, "killed");
@@ -363,7 +368,7 @@ socketTest(
       branch: "wf-contract",
       specPath: "/tmp/spec.md",
       stepId: "step-contract",
-      workflowSnapshot: workflowSnapshot({ stepId: "step-contract", role: "implement" }),
+      workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-contract", role: "implement" }),
     });
     const contractMissAttemptId = stateStore.recordAttemptStart(contractMissRunId);
     stateStore.commitCompletionBoundary({
@@ -379,7 +384,7 @@ socketTest(
       branch: "wf-human",
       specPath: "/tmp/spec.md",
       stepId: "step-human",
-      workflowSnapshot: workflowSnapshot({ stepId: "step-human", role: "implement" }),
+      workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-human", role: "implement" }),
     });
     stateStore.setRunStatus(awaitingHumanRunId, "awaiting-human");
 
@@ -436,6 +441,7 @@ socketTest("list builds a review-debate row from the live role pointer while in 
   const client = await connectIpcClient(SOCKET_PATH);
 
   const snapshot = workflowSnapshot(
+    "workflow-debate",
     { stepId: "step-1", role: "implement" },
     { stepId: "step-debate", role: "", behavior: "review-debate" },
   );
@@ -459,7 +465,7 @@ socketTest("list builds a review-debate row from the live role pointer while in 
     attemptCount: 0,
   });
 
-  reportReviewDebateProgress("step-debate", { status: "in_progress", role: "advocate" });
+  reportReviewDebateProgress("workflow-debate", "step-debate", { status: "in_progress", role: "advocate" });
 
   runs = await listRuns(client);
   row = runs?.find((candidate) => candidate.runId === runId);
@@ -477,6 +483,7 @@ socketTest("list builds a review-debate row from the terminal role/outcome once 
   const client = await connectIpcClient(SOCKET_PATH);
 
   const snapshot = workflowSnapshot(
+    "workflow-debate-done",
     { stepId: "step-1", role: "implement" },
     { stepId: "step-debate", role: "", behavior: "review-debate" },
   );
@@ -491,8 +498,8 @@ socketTest("list builds a review-debate row from the terminal role/outcome once 
   });
   stateStore.setRunStatus(runId, "completed");
 
-  reportReviewDebateProgress("step-debate", { status: "in_progress", role: "adjudicator" });
-  reportReviewDebateProgress("step-debate", {
+  reportReviewDebateProgress("workflow-debate-done", "step-debate", { status: "in_progress", role: "adjudicator" });
+  reportReviewDebateProgress("workflow-debate-done", "step-debate", {
     status: "completed",
     role: "actuator",
     terminalOutcome: "complete",
@@ -506,6 +513,62 @@ socketTest("list builds a review-debate row from the terminal role/outcome once 
     status: "completed",
     attemptCount: 0,
     terminalOutcome: "complete",
+  });
+
+  client.close();
+});
+
+socketTest("review-debate progress does not bleed across invocations sharing a stepId", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+
+  const snapshotA = workflowSnapshot(
+    "workflow-debate-a",
+    { stepId: "step-1", role: "implement" },
+    { stepId: "step-debate", role: "", behavior: "review-debate" },
+  );
+  const runA = stateStore.createRun({
+    project: "wf-debate-a",
+    specRef: "main",
+    worktreePath: "/tmp/wf-debate-a",
+    branch: "wf-debate-a",
+    specPath: "/tmp/spec.md",
+    stepId: "step-1",
+    workflowSnapshot: snapshotA,
+  });
+  stateStore.setRunStatus(runA, "completed");
+
+  const snapshotB = workflowSnapshot(
+    "workflow-debate-b",
+    { stepId: "step-1", role: "implement" },
+    { stepId: "step-debate", role: "", behavior: "review-debate" },
+  );
+  const runB = stateStore.createRun({
+    project: "wf-debate-b",
+    specRef: "main",
+    worktreePath: "/tmp/wf-debate-b",
+    branch: "wf-debate-b",
+    specPath: "/tmp/spec.md",
+    stepId: "step-1",
+    workflowSnapshot: snapshotB,
+  });
+  stateStore.setRunStatus(runB, "completed");
+
+  reportReviewDebateProgress("workflow-debate-a", "step-debate", { status: "in_progress", role: "advocate" });
+
+  const runs = await listRuns(client);
+  const rowA = runs?.find((candidate) => candidate.runId === runA);
+  const rowB = runs?.find((candidate) => candidate.runId === runB);
+  expect(rowA?.workflow?.steps.find((step) => step.stepId === "step-debate")).toEqual({
+    stepId: "step-debate",
+    role: "advocate",
+    status: "in_progress",
+    attemptCount: 0,
+  });
+  expect(rowB?.workflow?.steps.find((step) => step.stepId === "step-debate")).toEqual({
+    stepId: "step-debate",
+    role: "",
+    status: "pending",
+    attemptCount: 0,
   });
 
   client.close();

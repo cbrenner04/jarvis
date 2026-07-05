@@ -10,22 +10,16 @@ function isLoadError(value: unknown): value is LoadError {
   return typeof value === "object" && value !== null && "errors" in value && Array.isArray((value as LoadError).errors);
 }
 
-/** Authored workflow-source step: a `WorkflowStep` minus config-derived `agents`/`agentModelConfig`. */
+/** Authored step: `WorkflowStep` minus config-derived `agents`/`agentModelConfig`. */
 export type WorkflowSourceStep = Omit<WorkflowStep, "agents" | "agentModelConfig">;
 
-/** Path overrides for {@link loadWorkflowSteps}; test-only seam, absent in normal use. */
+/** Test-only path overrides. */
 export type LoadWorkflowStepsDeps = {
   machineConfigPath?: string;
   agentModelConfigPath?: string;
 };
 
-/**
- * Assemble runnable `WorkflowStep`s from authored steps: attach the machine's
- * configured agent order (falling back to {@link DEFAULT_WRITE_AGENTS}) and the
- * global `AgentModelConfig` to every step, then validate every step role
- * resolves for every loaded agent before returning. Throws one aggregated
- * error naming every offending step/role if any step is unrunnable.
- */
+/** Throws one aggregated error naming every step with an unrunnable role. */
 export function loadWorkflowSteps(
   steps: readonly WorkflowSourceStep[],
   deps: LoadWorkflowStepsDeps = {},

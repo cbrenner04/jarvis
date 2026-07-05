@@ -46,6 +46,19 @@ write-loop output, not a human-review signal. A human step whose run is
 already `completed` (via decision-gated resume) is treated like a completed
 write step: the workflow advances past it with no new work.
 
+A human step may configure `onRevise: { repeatStepId, maxRevisions }`, naming
+an earlier step (lower index) in the same authored `steps[]` array and a
+revision budget. The daemon's `revise` decision (see
+[`daemon-host.md`](daemon-host.md#revise-decision)) spawns `repeatStepId`'s
+write loop again under a synthesized stepId `${repeatStepId}~r<n>` and moves
+the human step's run to status `revising`. While `revising`, `executeWorkflow`
+checks the highest-numbered `~r<n>` run for `repeatStepId`: once it reaches a
+terminal outcome (`completed`, `failed`, or `blocked`), the human step's run
+re-converges to `awaiting-human` (same run row) and `executeWorkflow` returns
+`WorkflowResult.kind === "awaiting-human"`; otherwise it returns
+`WorkflowResult.kind === "revising"` and the workflow stops at that step, same
+as `awaiting-human`.
+
 In the supported `write-write` composition, step two begins only after step one
 reaches `complete`. Workflow success means both step-local write loops
 completed, not just step one.
@@ -131,6 +144,11 @@ Before running any step, `executeWorkflow` validates:
 - All `stepId` values are unique within the array.
 - For every step and every agent in that step's `agents` order, that step's
   `agentModelConfig` contains an own binding entry for the step's `role`.
+- Every human step's `onRevise.repeatStepId`, if configured, names an earlier
+  step (lower index) in the same `steps` array — a missing, self-referencing,
+  or forward-referencing `repeatStepId` is rejected as a `defineWorkflow`-level
+  error, reported as `(stepId, repeatStepId)` pairs, before any durable state
+  change.
 
 Workflow-source role misses are aggregated and reported as `(stepId, role,
 agent)` tuples in one synchronous failure. Inherited object properties do not

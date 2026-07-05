@@ -1,7 +1,9 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { isWorktreeDirty } from "../../../shared/git.ts";
 import { createAgentBindings } from "../../../shared/invocation/agents.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
+import { nextRevisionNumber, revisionStepId } from "../execution/revision-step-id.ts";
 import { executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
 import { type LogReader, type LoopFinishedEvent, openLogReader, openLogSink } from "../persistence/log-stream.ts";
@@ -134,6 +136,8 @@ export type RunControlHandlerDeps = {
   logReader?: LogReader;
   writeLoopExecutor: (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => Promise<void>;
   failureReporter: (runId: string, reason: unknown) => void | Promise<void>;
+  /** `revise`'s dirty-worktree gate; defaults to a real `git status --porcelain` check. */
+  isWorktreeDirty?: (worktreePath: string) => boolean;
 };
 
 export type WaitRunCompletionResult = {
@@ -258,6 +262,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const activeRuns = new Map<string, ActiveRun>();
   const waitFanouts = new Map<string, WaitFanout>();
   const { stateStore: store, logReader, writeLoopExecutor, failureReporter } = deps;
+  const checkWorktreeDirty = deps.isWorktreeDirty ?? isWorktreeDirty;
 
   const resultFrom = (runId: string, runStatus: RunStatus, record?: TerminalLogRecord): WaitRunCompletionResult => {
     const run = store.loadRun(runId);
@@ -495,9 +500,104 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return { kind: "error", code: "run_not_active", message: `Run ${runId} is not currently active` };
   };
 
+  function reviseAwaitingHuman(
+    run: LoadedRun,
+    prompt: string | undefined,
+  ): { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string } {
+    const onRevise = run.workflowSnapshot?.steps.find((step) => step.stepId === run.stepId)?.onRevise;
+    if (!onRevise) {
+      return { kind: "error", code: "revise_unsupported", message: "No onRevise configured for this human step" };
+    }
+
+    const repeatedRun = store.findRunByProjectBranch({
+      project: run.project,
+      branch: run.branch,
+      stepId: onRevise.repeatStepId,
+    });
+    if (!repeatedRun) {
+      return {
+        kind: "error",
+        code: "revise_unsupported",
+        message: `No run found for repeated step "${onRevise.repeatStepId}"`,
+      };
+    }
+
+    const revisionRuns = store.findRevisionRuns({
+      project: run.project,
+      branch: run.branch,
+      repeatStepId: onRevise.repeatStepId,
+    });
+    const n = nextRevisionNumber(
+      revisionRuns.map((revisionRun) => revisionRun.stepId),
+      onRevise.repeatStepId,
+    );
+    if (n > onRevise.maxRevisions) {
+      return {
+        kind: "error",
+        code: "revise_exhausted",
+        message: `Revision budget (${onRevise.maxRevisions}) exhausted for step "${onRevise.repeatStepId}"`,
+      };
+    }
+
+    if (!checkWorktreeDirty(repeatedRun.worktreePath) && !prompt) {
+      return {
+        kind: "error",
+        code: "revise_requires_input",
+        message: "revise requires either a dirty worktree or a prompt",
+      };
+    }
+
+    const key: OwnershipKey = { project: repeatedRun.project, branch: repeatedRun.branch };
+    if (_registry.isClaimed(key)) {
+      return {
+        kind: "error",
+        code: "worktree_claimed",
+        message: `Worktree already claimed for project=${key.project}, branch=${key.branch}`,
+      };
+    }
+    if (activeRuns.size > 0) {
+      return {
+        kind: "error",
+        code: "run_in_progress",
+        message: "A run is already in progress; at most one in-flight run globally",
+      };
+    }
+
+    const stepId = revisionStepId(onRevise.repeatStepId, n);
+    const revisionRunId = store.createRun({
+      project: repeatedRun.project,
+      specRef: repeatedRun.specRef,
+      worktreePath: repeatedRun.worktreePath,
+      branch: repeatedRun.branch,
+      specPath: repeatedRun.specPath,
+      stepId,
+      ...(repeatedRun.workflowSnapshot ? { workflowSnapshot: repeatedRun.workflowSnapshot } : {}),
+    });
+
+    const input: WriteLoopInput = {
+      worktree: {
+        projectRoot: repeatedRun.worktreePath,
+        projectName: repeatedRun.project,
+        branchName: repeatedRun.branch,
+        baseRef: repeatedRun.specRef,
+      },
+      specPath: repeatedRun.specPath,
+      stepRules: prompt ?? "",
+      expectedArtifactPath: "",
+      bindings: [],
+      stepId,
+    };
+
+    store.setRunStatus(run.id, "revising");
+    spawnWriteLoop(key, revisionRunId, repeatedRun.worktreePath, input);
+
+    return { kind: "response", result: { ok: true, stepId } };
+  }
+
   function resumeAwaitingHuman(
     run: LoadedRun,
     decision: string | undefined,
+    prompt: string | undefined,
   ): { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string } {
     if (decision === undefined) {
       return { kind: "error", code: "invalid_params", message: "Missing decision for awaiting-human run" };
@@ -519,14 +619,14 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
 
     if (decision === "revise") {
-      return { kind: "error", code: "revise_unsupported", message: "revise is not yet supported for human steps" };
+      return reviseAwaitingHuman(run, prompt);
     }
 
     return { kind: "error", code: "invalid_params", message: `Unknown decision: ${decision}` };
   }
 
   const resumeHandler: RpcHandler = (frame) => {
-    const params = frame.params as { runId?: string; decision?: string } | undefined;
+    const params = frame.params as { runId?: string; decision?: string; prompt?: string } | undefined;
     if (!params?.runId) {
       return { kind: "error", code: "invalid_params", message: "Missing runId" };
     }
@@ -538,7 +638,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
 
     if (run.status === "awaiting-human") {
-      return resumeAwaitingHuman(run, params.decision);
+      return resumeAwaitingHuman(run, params.decision, params.prompt);
     }
 
     if (params.decision !== undefined) {
@@ -548,6 +648,14 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     // Reject terminal statuses
     if (run.status === "completed" || run.status === "failed" || run.status === "blocked") {
       return { kind: "error", code: "terminal_run", message: `Cannot resume a ${run.status} run` };
+    }
+
+    if (run.status === "revising") {
+      return {
+        kind: "error",
+        code: "revise_in_progress",
+        message: `Run ${runId} is revising; wait for it to re-converge to awaiting-human`,
+      };
     }
 
     const key: OwnershipKey = { project: run.project, branch: run.branch };

@@ -889,3 +889,99 @@ describe("executeWorkflow load-time role validation", () => {
     }
   });
 });
+
+describe("executeWorkflow onRevise validation", () => {
+  test("rejects a missing repeatStepId", async () => {
+    const writeStep = createStep({ stepId: "step-1", role: "implement", branchName: "on-revise-missing" });
+    const humanStep = createHumanStep({
+      stepId: "step-2",
+      branch: "on-revise-missing",
+      onRevise: { repeatStepId: "no-such-step", maxRevisions: 1 },
+    });
+
+    await expect(executeWorkflow({ steps: [writeStep, humanStep] })).rejects.toThrow(
+      "(step-2, no-such-step)",
+    );
+  });
+
+  test("rejects a self-referencing repeatStepId", async () => {
+    const humanStep = createHumanStep({
+      stepId: "step-1",
+      branch: "on-revise-self",
+      onRevise: { repeatStepId: "step-1", maxRevisions: 1 },
+    });
+
+    await expect(executeWorkflow({ steps: [humanStep] })).rejects.toThrow("(step-1, step-1)");
+  });
+
+  test("rejects a forward-referencing repeatStepId", async () => {
+    const humanStep = createHumanStep({
+      stepId: "step-1",
+      branch: "on-revise-forward",
+      onRevise: { repeatStepId: "step-2", maxRevisions: 1 },
+    });
+    const writeStep = createStep({ stepId: "step-2", role: "implement", branchName: "on-revise-forward" });
+
+    await expect(executeWorkflow({ steps: [humanStep, writeStep] })).rejects.toThrow("(step-1, step-2)");
+  });
+
+  test("accepts a valid earlier repeatStepId", async () => {
+    const store = openStateStore(":memory:");
+    const writeStep = createStep({ stepId: "step-1", role: "implement", branchName: "on-revise-valid" });
+    const humanStep = createHumanStep({
+      stepId: "step-2",
+      branch: "on-revise-valid",
+      onRevise: { repeatStepId: "step-1", maxRevisions: 1 },
+    });
+
+    try {
+      const result = await executeWorkflow({ steps: [writeStep, humanStep], stateStore: store });
+      expect(result.kind).toBe("awaiting-human");
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("executeWorkflow revising re-convergence", () => {
+  test("stays revising until the revision run reaches a terminal outcome, then re-converges to awaiting-human", async () => {
+    const store = openStateStore(":memory:");
+    const writeStep = createStep({ stepId: "step-1", role: "implement", branchName: "revising-workflow" });
+    const humanStep = createHumanStep({
+      stepId: "step-2",
+      branch: "revising-workflow",
+      onRevise: { repeatStepId: "step-1", maxRevisions: 2 },
+    });
+
+    try {
+      const firstResult = await executeWorkflow({ steps: [writeStep, humanStep], stateStore: store });
+      expect(firstResult.kind).toBe("awaiting-human");
+
+      // Simulate a daemon-spawned revision write loop in flight.
+      store.setRunStatus(firstResult.runId, "revising");
+      const revisionRunId = store.createRun({
+        project: "demo",
+        specRef: "HEAD",
+        worktreePath: "/fake",
+        branch: "revising-workflow",
+        specPath: "spec.md",
+        stepId: "step-1~r1",
+      });
+
+      const stillRevising = await executeWorkflow({ steps: [writeStep, humanStep], stateStore: store });
+      expect(stillRevising.kind).toBe("revising");
+      expect(stillRevising.runId).toBe(firstResult.runId);
+
+      store.setRunStatus(revisionRunId, "completed");
+
+      const reconverged = await executeWorkflow({ steps: [writeStep, humanStep], stateStore: store });
+      expect(reconverged.kind).toBe("awaiting-human");
+      expect(reconverged.runId).toBe(firstResult.runId);
+
+      const humanRun = store.loadRun(firstResult.runId);
+      expect(humanRun?.status).toBe("awaiting-human");
+    } finally {
+      store.close();
+    }
+  });
+});

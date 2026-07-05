@@ -8,6 +8,7 @@ export const RUN_STATUSES = [
   "failed",
   "killed",
   "awaiting-human",
+  "revising",
 ] as const;
 
 export type RunStatus = (typeof RUN_STATUSES)[number];
@@ -18,10 +19,17 @@ export function isRunStatus(value: unknown): value is RunStatus {
   return typeof value === "string" && runStatusSet.has(value);
 }
 
+/** A human step's configured repeat-and-revise target. */
+export type OnReviseConfig = {
+  repeatStepId: string;
+  maxRevisions: number;
+};
+
 /** Authored workflow-step identity retained on workflow-backed runs. */
 export type WorkflowSnapshotStep = {
   stepId: string;
   role: string;
+  onRevise?: OnReviseConfig;
 };
 
 /** Durable workflow invocation snapshot shared by every step run in that workflow. */

@@ -66,6 +66,9 @@ export interface StateStore {
     stepId?: string;
   }): (Run & { attempts: Attempt[] }) | null;
 
+  /** Runs for `(project, branch)` whose `stepId` is a `${repeatStepId}~r<n>` revision of `repeatStepId`. */
+  findRevisionRuns(args: { project: string; branch: string; repeatStepId: string }): Run[];
+
   /** Insert an `in-progress` attempt row; returns its ID. */
   recordAttemptStart(runId: string): string;
 
@@ -252,6 +255,18 @@ class StateStoreImpl implements StateStore {
 
     const row = this.db.prepare(query).get(...params) as { id: string } | null;
     return row === null ? null : this.loadRun(row.id);
+  }
+
+  findRevisionRuns(args: { project: string; branch: string; repeatStepId: string }): Run[] {
+    return (
+      this.db
+        .prepare(`SELECT ${RUN_COLUMNS} FROM runs WHERE project = ? AND branch = ? AND step_id LIKE ? ESCAPE '\\'`)
+        .all(
+          args.project,
+          args.branch,
+          `${args.repeatStepId.replace(/[\\%_]/g, "\\$&")}~r%`,
+        ) as Array<Run & { workflowSnapshotJson: string | null }>
+    ).map(mapRunRow);
   }
 
   recordAttemptStart(runId: string): string {

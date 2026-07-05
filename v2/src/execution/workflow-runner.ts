@@ -7,7 +7,8 @@ import {
 } from "../config/agent-model-config.ts";
 import type { LogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import type { WorkflowSnapshot } from "../persistence/state-store-types.ts";
+import type { RunStatus, WorkflowSnapshot } from "../persistence/state-store-types.ts";
+import { parseRevisionNumber } from "./revision-step-id.ts";
 import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "./write-loop.ts";
 
 const WORKFLOW_PRESET_LENGTHS = {
@@ -27,6 +28,16 @@ export type WriteWorkflowStep = Omit<WriteLoopInput, "bindings"> & {
 };
 
 /**
+ * A human step's configured repeat-and-revise target: `repeatStepId` must
+ * name an earlier step (lower index) in the same authored `steps[]` array,
+ * and `maxRevisions` bounds how many `revise` decisions it accepts.
+ */
+export type OnReviseConfig = {
+  repeatStepId: string;
+  maxRevisions: number;
+};
+
+/**
  * A human decision gate. Carries none of the write-loop-only fields (`role`,
  * `agents`, `stepRules`, `agentModelConfig`, `expectedArtifactPath`) and no
  * `worktree` of its own — only the `(project, branch)` identity its run row
@@ -37,6 +48,7 @@ export type HumanWorkflowStep = {
   stepId: string;
   project: string;
   branch: string;
+  onRevise?: OnReviseConfig;
 };
 
 /** One authored workflow step, dispatched on `behavior` at execution. */
@@ -47,7 +59,7 @@ export type WorkflowStepInput = WorkflowStep;
 
 /** Result of a workflow invocation. */
 export type WorkflowResult = {
-  kind: WriteLoopOutcomeKind | "awaiting-human";
+  kind: WriteLoopOutcomeKind | "awaiting-human" | "revising";
   stepIndex: number;
   stepId: string;
   runId: string;
@@ -115,6 +127,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
   }
 
   validateWorkflowStepRoles(args.steps);
+  validateOnReviseTargets(args.steps);
 
   const store = args.stateStore ?? openStateStore();
 
@@ -142,7 +155,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         }
 
         return {
-          kind: "awaiting-human",
+          kind: humanStep.kind,
           stepIndex,
           stepId: step.stepId,
           runId: humanStep.runId,
@@ -216,6 +229,23 @@ export function validateWorkflowStepRoles(steps: readonly WorkflowStep[]): void 
   }
 }
 
+/** Fail before durable state changes if a human step's `onRevise.repeatStepId` isn't an earlier step's `stepId`. */
+export function validateOnReviseTargets(steps: readonly WorkflowStep[]): void {
+  const invalidTargets: string[] = [];
+
+  steps.forEach((step, stepIndex) => {
+    if (step.behavior !== "human" || step.onRevise === undefined) return;
+    const targetIndex = steps.findIndex((candidate) => candidate.stepId === step.onRevise?.repeatStepId);
+    if (targetIndex === -1 || targetIndex >= stepIndex) {
+      invalidTargets.push(`(${step.stepId}, ${step.onRevise.repeatStepId})`);
+    }
+  });
+
+  if (invalidTargets.length > 0) {
+    throw new Error(`Workflow onRevise validation failed: ${invalidTargets.join(", ")}`);
+  }
+}
+
 /** `(project, branch)` run identity for a step, regardless of behavior. */
 function stepIdentity(step: WorkflowStep): { project: string; branch: string } {
   return step.behavior === "human"
@@ -227,6 +257,7 @@ function buildWorkflowSnapshot(steps: readonly WorkflowStep[], store: StateStore
   const authoredSteps = steps.map((step) => ({
     stepId: step.stepId,
     role: step.behavior === "write" ? step.role : "",
+    ...(step.behavior === "human" && step.onRevise !== undefined ? { onRevise: step.onRevise } : {}),
   }));
 
   for (const step of steps) {
@@ -260,11 +291,30 @@ function snapshotMatchesAuthoredSteps(
   );
 }
 
-type PreparedHumanStep = { kind: "completed"; runId: string } | { kind: "awaiting-human"; runId: string };
+type PreparedHumanStep =
+  | { kind: "completed"; runId: string }
+  | { kind: "awaiting-human"; runId: string }
+  | { kind: "revising"; runId: string };
+
+const REVISION_TERMINAL_STATUSES: readonly RunStatus[] = ["completed", "failed", "blocked"];
+
+/** The highest-numbered `${repeatStepId}~r<n>` run among `runs`, if any. */
+function latestRevisionRun(
+  runs: readonly { stepId?: string | null; status: RunStatus }[],
+  repeatStepId: string,
+): { status: RunStatus } | undefined {
+  return runs.reduce<{ n: number; status: RunStatus } | undefined>((best, run) => {
+    const n = run.stepId ? parseRevisionNumber(run.stepId, repeatStepId) : null;
+    if (n === null) return best;
+    return !best || n > best.n ? { n, status: run.status } : best;
+  }, undefined);
+}
 
 /**
  * Reaching a human step converges its run to `awaiting-human` directly via the
  * state store — no write loop, no attempt/outcome history, no `## Blocker` spec edit.
+ * A `revising` run re-converges to `awaiting-human` once its in-flight revision
+ * write loop reaches a terminal outcome; otherwise it stays `revising`.
  */
 function prepareHumanWorkflowStep(
   step: HumanWorkflowStep,
@@ -278,6 +328,20 @@ function prepareHumanWorkflowStep(
   });
   if (existingRun?.status === "completed") {
     return { kind: "completed", runId: existingRun.id };
+  }
+
+  if (existingRun?.status === "revising" && step.onRevise !== undefined) {
+    const revisionRuns = store.findRevisionRuns({
+      project: step.project,
+      branch: step.branch,
+      repeatStepId: step.onRevise.repeatStepId,
+    });
+    const latest = latestRevisionRun(revisionRuns, step.onRevise.repeatStepId);
+    if (latest && REVISION_TERMINAL_STATUSES.includes(latest.status)) {
+      store.setRunStatus(existingRun.id, "awaiting-human");
+      return { kind: "awaiting-human", runId: existingRun.id };
+    }
+    return { kind: "revising", runId: existingRun.id };
   }
 
   const runId =

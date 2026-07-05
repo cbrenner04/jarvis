@@ -35,3 +35,8 @@ export function branchExistsOnOrigin(
 export function getCurrentBranch(cwd: string, runner: SubprocessRunner = realSubprocessRunner): string {
   return runner.run("git", ["rev-parse", "--abbrev-ref", "HEAD"], cwd).trim();
 }
+
+/** True when `git status --porcelain` at `cwd` reports any uncommitted changes. */
+export function isWorktreeDirty(cwd: string, runner: SubprocessRunner = realSubprocessRunner): boolean {
+  return runner.run("git", ["status", "--porcelain"], cwd).trim().length > 0;
+}

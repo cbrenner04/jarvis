@@ -81,7 +81,7 @@ control flow as the review actuator and plan's verdict actuator.
 
 ## Acceptance criteria
 
-- [ ] `v1/test/modes/patch/shrink.sandbox-unrunnable.test.ts` stays green
+- [x] `v1/test/modes/patch/shrink.sandbox-unrunnable.test.ts` stays green
       (behavior unchanged by the refactor), specifically: `uses full
       reviewActuator order for shrink quota fallback`, `idle watchdog timeout
       fires in shrink phase`, `emits auth note on auth failure in shrink quota
@@ -93,11 +93,11 @@ control flow as the review actuator and plan's verdict actuator.
       kind`, `idle watchdog on final reviewActuator rung exits 8 with terminal
       watchdog-idle-timeout`, `shrink with idleOutputTimeoutMs 0 does not
       idle-escalate`.
-- [ ] `runPatchShrinkPhase`'s rung loop calls `executeWithQuotaFallback`
+- [x] `runPatchShrinkPhase`'s rung loop calls `executeWithQuotaFallback`
       (`shared/invocation/execute.ts`) via `createShrinkInvocationBinding`
       instead of a hand-rolled `for` loop calling
       `applyQuotaFallbackWhenAllowed` directly.
-- [ ] A test (existing or new) asserts the fallback rung's `invoke()` receives
+- [x] A test (existing or new) asserts the fallback rung's `invoke()` receives
       a non-aborted signal after a prior rung's idle-timeout abort — covering
       the per-rung controller-ownership mechanism, since the current
       idle-watchdog fallback test's fake agent never inspects

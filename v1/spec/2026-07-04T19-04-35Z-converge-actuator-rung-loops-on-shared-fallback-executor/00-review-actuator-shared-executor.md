@@ -86,7 +86,7 @@ of falling through).
 
 ## Acceptance criteria
 
-- [ ] `v1/test/modes/patch/review.sandbox-unrunnable.test.ts` stays green
+- [x] `v1/test/modes/patch/review.sandbox-unrunnable.test.ts` stays green
       (behavior unchanged by the refactor), specifically: `actuator falls back
       through reviewActuator order on quota`, `model_config exits 11 and
       all-agent quota exits 11`, `actuator preserves verdict and reverts
@@ -99,9 +99,9 @@ of falling through).
       plain quota in review rotation`, `actuator invokes reconcile before push
       (via commitPass)`, `empty verdict skips actuator invocation`, `orphan
       reaping: verdict actuator polls and reaps via override`.
-- [ ] `createActuator`'s rung loop calls `executeWithQuotaFallback`
+- [x] `createActuator`'s rung loop calls `executeWithQuotaFallback`
       (`shared/invocation/execute.ts`) instead of a hand-rolled `for` loop.
-- [ ] A test (existing or new) asserts the fallback rung's `invoke()` receives
+- [x] A test (existing or new) asserts the fallback rung's `invoke()` receives
       a non-aborted signal after a prior rung's idle-timeout abort — covering
       the per-rung controller-ownership mechanism, since `FakeAgent` in the
       current idle-watchdog fallback test never inspects `opts.signal.aborted`

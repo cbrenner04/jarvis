@@ -185,8 +185,9 @@ Per-project config:
 - **Focused show/edit.** The config will be large. `jarvis config <project>`
   shows enabled workflows + the agent fallback order; `jarvis config <project>
   <workflow>` drills into one workflow's steps, each step's role and its
-  resolved role/agent pair (`(agent, role) → model`). Mirrors v1's `prices
-  show/edit`.
+  resolved role/agent pair (`(agent, role) → model`). The machine-agent
+  show/edit surface includes `jarvis config set-agents <agent,agent,...>` for
+  the persisted fallback order. Mirrors v1's `prices show/edit`.
 - **Config-vs-source validation.** Because workflows are source and bindings are
   data, ship a check (companion to the workflow helper) that validates a
   project's config against the workflows it opts into — flags unknown workflow

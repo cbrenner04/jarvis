@@ -2,23 +2,15 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export function loadMachineConfig(configPath: string = join(homedir(), ".jarvis", "v2.json")): string[] | undefined {
-  let content: string;
-  try {
-    content = readFileSync(configPath, "utf8");
-  } catch (err: unknown) {
-    if (typeof err === "object" && err !== null && "code" in err && err.code === "ENOENT") {
-      return undefined;
-    }
-    throw err;
-  }
+/** Parsed top-level machine config object from `~/.jarvis/v2.json`. */
+export type MachineConfigDocument = Record<string, unknown>;
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    throw new Error(`Failed to parse machine config at ${configPath}: invalid JSON`);
-  }
+/** Read and validate the machine-config document when it exists. */
+export function readMachineConfigDocument(
+  configPath: string = join(homedir(), ".jarvis", "v2.json"),
+): MachineConfigDocument | undefined {
+  const parsed = readMachineConfigFile(configPath);
+  if (parsed === undefined) return undefined;
 
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new Error(
@@ -28,12 +20,15 @@ export function loadMachineConfig(configPath: string = join(homedir(), ".jarvis"
     );
   }
 
-  if (!("agents" in parsed)) {
-    return undefined;
+  if ("agents" in parsed) {
+    validateMachineConfigAgents((parsed as MachineConfigDocument).agents);
   }
 
-  const agents = (parsed as Record<string, unknown>).agents;
+  return parsed as MachineConfigDocument;
+}
 
+/** Validate the machine-config `agents` array contract and return it unchanged. */
+export function validateMachineConfigAgents(agents: unknown): string[] {
   if (!Array.isArray(agents)) {
     throw new Error(`Machine config 'agents' must be an array, got ${typeof agents}`);
   }
@@ -58,4 +53,32 @@ export function loadMachineConfig(configPath: string = join(homedir(), ".jarvis"
   }
 
   return agents;
+}
+
+/** Load the persisted machine fallback order from `~/.jarvis/v2.json`. */
+export function loadMachineConfig(configPath: string = join(homedir(), ".jarvis", "v2.json")): string[] | undefined {
+  const parsed = readMachineConfigDocument(configPath);
+  if (parsed === undefined || !("agents" in parsed)) {
+    return undefined;
+  }
+
+  return validateMachineConfigAgents(parsed.agents);
+}
+
+function readMachineConfigFile(configPath: string): unknown {
+  let content: string;
+  try {
+    content = readFileSync(configPath, "utf8");
+  } catch (err: unknown) {
+    if (typeof err === "object" && err !== null && "code" in err && err.code === "ENOENT") {
+      return undefined;
+    }
+    throw err;
+  }
+
+  try {
+    return JSON.parse(content);
+  } catch {
+    throw new Error(`Failed to parse machine config at ${configPath}: invalid JSON`);
+  }
 }

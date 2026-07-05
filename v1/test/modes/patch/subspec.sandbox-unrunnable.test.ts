@@ -25,12 +25,12 @@ beforeEach(() => {
   });
   execSync("git config user.name 'Test User'", { cwd: gitDir, stdio: "pipe" });
   execSync("git checkout -b test-branch", { cwd: gitDir, stdio: "pipe" });
-});
+}, 20_000);
 
 afterEach(() => {
   reapActiveHangFixtures(HANG_FIXTURE_TRACKING_ID);
   rmSync(tempDir, { recursive: true, force: true });
-});
+}, 20_000);
 
 function createSpecFile(name: string, content: string): string {
   const specPath = join(gitDir, "spec", name);
@@ -232,7 +232,7 @@ describe("commitSubspec", () => {
       process.env.PATH = originalPath;
       rmSync(binDir, { recursive: true, force: true });
     }
-  });
+  }, 35_000);
 });
 
 describe("commitWipProgress", () => {

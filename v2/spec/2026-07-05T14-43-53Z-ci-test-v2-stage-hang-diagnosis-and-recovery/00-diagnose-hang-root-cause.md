@@ -18,27 +18,37 @@ before subspec 01 fixes it.
   (`scripts/test-slice.ts`), so the known unbounded-subprocess-prone tests
   are not in the hanging step's file set — don't assume those files are the
   cause without checking.
+- If the investigation is inconclusive after the bounded review below (no
+  jarvis-side unbounded operation found, no GitHub-status correlation),
+  subspec 01 defaults to the automation (stuck-detection + auto
+  cancel/rerun) branch rather than blocking on a forced classification.
 
 ## Task checklist
 
 - [ ] Pull job/step timing (`gh run view --json jobs` / `gh api
-      repos/{owner}/{repo}/actions/runs/{id}/jobs`) for prior occurrences
-      (recent PRs with a `Test (v2)` or other scoped `Test (...)` step that
-      ran 15+ min) and record exact step name(s), duration, and run IDs.
+      repos/{owner}/{repo}/actions/runs/{id}/jobs`) for the 20 most recent
+      qualifying runs (a `Test (v2)` or other scoped `Test (...)` step that
+      ran 15+ min), or all available if fewer, and record exact step
+      name(s), duration, and run IDs.
 - [ ] Determine whether the hang is isolated to `Test (v2)`/`Test (v2
       integration)` or also occurs on `test:v1`/`test:shared`-scoped steps,
-      using the same job/step data across a wider run sample.
+      using the same bounded job/step sample above.
 - [ ] Check GitHub Actions status-page/incident history for correlation with
-      the observed hang timestamps; note if inconclusive.
+      the observed hang timestamps, limited to that same sample; note if
+      inconclusive.
 - [ ] If no GitHub-side correlation and the hang is isolated to a specific
       v2 agent-mode test file, identify the unbounded operation (subprocess,
       socket, timer) causing it.
 
 ## Acceptance criteria
 
-- [ ] Root cause classified as jarvis-side or GitHub-runner-side, with
-      supporting evidence (step names, run IDs, timing, and/or incident
-      correlation) recorded in `v1/docs/operator-runbook.md`'s CI section.
+- [ ] Root cause classified as jarvis-side, GitHub-runner-side, or
+      inconclusive after the bounded review, with supporting evidence (step
+      names, run IDs, timing, and/or incident correlation) recorded in
+      `v1/docs/operator-runbook.md`'s CI section.
+- [ ] If the hang is found to also occur on `test:v1`/`test:shared`-scoped
+      steps (not isolated to v2), that scope is recorded explicitly
+      alongside the classification.
 
 ## Documentation updates
 

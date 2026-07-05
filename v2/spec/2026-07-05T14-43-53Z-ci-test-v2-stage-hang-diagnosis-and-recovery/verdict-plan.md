@@ -1,0 +1,17 @@
+## Verdict
+
+**Required refinements:**
+
+1. **Inconclusive diagnosis must have a defined next step.** Subspec 00's investigation can plausibly end without a clean root-cause classification (not reproducible locally, public status pages are coarse-grained). Subspec 00's decisions/AC must state that if the investigation is inconclusive after a bounded effort, subspec 01 defaults to the automation (stuck-detection + auto cancel/rerun) branch. Rationale: subspec 01's task checklist currently only branches on "jarvis-side" vs. "GitHub-runner-side" — an inconclusive finding leaves the actuator with no instructed path, violating the "atomic, independently testable" and blocker-over-guess conventions in spec guidance.
+
+2. **The historical-run review needs an explicit bound.** "Pull job/step timing for prior occurrences" and the status-page check must state a stopping condition (e.g., a capped number of most-recent qualifying runs, or "all available if fewer") so the investigation is guaranteed to terminate and reach the inconclusive/fallback path from refinement #1 rather than being open-ended.
+
+3. **Soften the fix-shape reference in subspec 01.** The decision citing the shrink-phase git-subprocess timeout pattern should be scoped as a reference example applicable only if the identified unbounded operation is a subprocess call, not a mandated shape for whichever operation type (subprocess/socket/timer) subspec 00 actually identifies — consistent with subspec 00's own task checklist leaving the operation type open.
+
+4. **Add a false-positive-safety acceptance criterion for the automation branch.** The intent's AC "no behavior change to specs/PRs unaffected by this stall pattern" is not currently reflected in subspec 01's ACs. Add a testable AC (conditional on the automation branch) that a run with slow-but-progressing steps is not cancelled. This doesn't require pinning the exact threshold — that stays deferred to subspec 00's finding — but the safety property itself must be stated and verifiable, since an automated cancel/rerun mechanism is a real regression risk without it.
+
+5. **Flag the call-site choice as an explicit deferred decision, not an implicit hedge.** "`waitForCiGreen` in `v1/src/commands/triage.ts` or an equivalent call site" should be moved into the Decisions section as an explicit deferral (e.g., "Deferred to implementation: exact call site for stuck-detection — pin when the automation branch is taken"), per this repo's convention of marking deferred-to-first-consumer decisions explicitly rather than leaving unflagged wiggle room in a task checklist.
+
+6. **Add a trigger for scope-broadening findings.** If subspec 00 finds the hang also occurs on `test:v1`/`test:shared`-scoped steps (not isolated to v2), that changes the intent's `Test (v2)`-scoped framing. Subspec 00's AC should require this be recorded explicitly, and subspec 01 should not assume v2-only scope for its fix if that's the finding — the fix's scope is decided at that point, not presumed.
+
+**Not requiring separate action:** the status-page-correlation concern is fully addressed by refinement #1 (inconclusive is a defined, expected outcome, not a rare miss). None of the above requires re-splitting the two subspecs or altering the diagnose-then-fix contingent structure — these are additive clarifications to existing decisions/ACs.

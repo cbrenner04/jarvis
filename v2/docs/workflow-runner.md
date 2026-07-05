@@ -115,6 +115,27 @@ count as bindings. Validation fails before any durable workflow state change,
 runs unconditionally (including on resume and for already-completed steps),
 and runs before role/agent bindings are derived for any pending step.
 
+## Loading workflow steps
+
+`loadWorkflowSteps(steps: WorkflowSourceStep[]): WorkflowStep[]`
+(`v2/src/execution/workflow-loader.ts`) assembles the `agents`/`agentModelConfig`
+that `executeWorkflow` requires from real config, ahead of the runner in the
+pipeline. `WorkflowSourceStep` is `WorkflowStep` minus `agents` and
+`agentModelConfig` — an authored step names only its `role`.
+
+The loader loads the machine's configured agent order (falling back to
+`DEFAULT_WRITE_AGENTS` when machine config has no `agents` key) and the global
+`AgentModelConfig` once, attaches the same order/config to every step (no
+per-step override), rejects any step naming `role: "operator"` or a role
+outside the closed `Role` union, and reuses `executeWorkflow`'s own
+`validateWorkflowStepRoles` (exported for this purpose) to check every
+remaining step's role resolves for every loaded agent — all before returning.
+Config load failure surfaces as-is; the loader adds no config-shape validation
+of its own. This check runs once at load; `executeWorkflow`'s
+`validateWorkflowStepRoles` still runs unconditionally on every invocation
+(see [Validation](#validation)) regardless of whether steps came from this
+loader.
+
 ## Budget and abort
 
 No new workflow-level budget, pause, or abort concept — each step inherits its own `maxIterations`, `signal` (abort), and `pauseSignal` (pause). Values are per-step-configurable; there is no single shared workflow-level cap.

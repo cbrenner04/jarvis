@@ -11,6 +11,7 @@ const DAEMON_WORKFLOW_STEP_STOP_OUTCOMES = [
   "budget-exhausted",
   "paused",
   "killed",
+  "awaiting-human",
 ] as const;
 
 export type DaemonWorkflowStepStatus = (typeof DAEMON_WORKFLOW_STEP_STATUSES)[number];

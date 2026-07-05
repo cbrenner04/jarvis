@@ -4,16 +4,30 @@ export type ScopedTests = "full" | string[];
 
 const ROOT_TOOLING_PATTERNS = [/^package\.json$/, /^tsconfig.*\.json$/, /^\.github\//, /^scripts\//];
 
+const NO_TEST_IMPACT_PATTERNS = [/^reports\//, /^v1\/docs\//, /^v1\/spec\//, /^v2\/docs\//, /^v2\/spec\//];
+
 /** Classify already-resolved changed paths into the scripts CI needs to run. */
 export function classifyChangedPaths(paths: string[]): ScopedTests {
-  let needsV1 = false;
-  let needsV2 = false;
-  let needsShared = false;
+  if (paths.length === 0) {
+    return "full";
+  }
 
   for (const path of paths) {
     if (ROOT_TOOLING_PATTERNS.some((pattern) => pattern.test(path))) {
       return "full";
     }
+  }
+
+  const filtered = paths.filter((path) => !NO_TEST_IMPACT_PATTERNS.some((pattern) => pattern.test(path)));
+  if (filtered.length === 0) {
+    return [];
+  }
+
+  let needsV1 = false;
+  let needsV2 = false;
+  let needsShared = false;
+
+  for (const path of filtered) {
     if (path.startsWith("v1/")) {
       needsV1 = true;
     } else if (path.startsWith("v2/")) {

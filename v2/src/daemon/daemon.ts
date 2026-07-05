@@ -1,12 +1,16 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { createAgentBindings } from "../../../shared/invocation/agents.ts";
+import { isWorktreeDirty } from "../../../shared/git.ts";
+import { createAgentBindings, createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
+import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
+import { nextRevisionNumber, revisionStepId } from "../execution/revision-step-id.ts";
+import { latestRevisionRun, type ReviewDebateProgress } from "../execution/workflow-runner.ts";
 import { executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
 import { type LogReader, type LoopFinishedEvent, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import type { RunStatus, WorkflowSnapshot } from "../persistence/state-store-types.ts";
+import type { RunStatus, WorkflowSnapshot, WorkflowSnapshotStep } from "../persistence/state-store-types.ts";
 import {
   composeRunOperatorError,
   findTerminalLogRecord,
@@ -80,6 +84,71 @@ function isTerminalRunStatus(status: RunStatus): boolean {
 }
 
 /**
+ * Statuses that mean a `~rN` revision run is no longer in flight, whether it
+ * reached a normal write-loop terminal outcome or was killed by an operator.
+ * A killed revision must not permanently strand its human step in `"revising"`.
+ */
+const REVISION_INACTIVE_STATUSES: readonly RunStatus[] = ["completed", "failed", "blocked", "killed"];
+
+type RevisionWriteLoopInputResult =
+  | { kind: "ok"; input: WriteLoopInput }
+  | { kind: "error"; code: string; message: string };
+
+/**
+ * Rebuild the repeated step's `WriteLoopInput` for a revision attempt: reuses its
+ * durably-snapshotted `stepRules`/`expectedArtifactPath`/`agents`/`agentModelConfig`
+ * (appending a supplied `prompt` to `stepRules` rather than replacing it) instead of
+ * fabricating an empty write-loop config.
+ */
+function buildRevisionWriteLoopInput(
+  repeatedStepConfig: WorkflowSnapshotStep,
+  repeatedRun: LoadedRun,
+  stepId: string,
+  prompt: string | undefined,
+): RevisionWriteLoopInputResult {
+  const agents = repeatedStepConfig.agents ?? [];
+  let bindings: WriteLoopInput["bindings"] = [];
+  try {
+    if (agents.length > 0) {
+      bindings = resolveInvocationBindings(
+        resolveExecutableRole(repeatedStepConfig.role),
+        agents,
+        repeatedStepConfig.agentModelConfig ?? {},
+        createResolvedAgentBinding,
+      );
+    }
+  } catch (err) {
+    return {
+      kind: "error",
+      code: "revise_unsupported",
+      message: `Unable to resolve bindings for repeated step "${repeatedStepConfig.stepId}": ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    };
+  }
+
+  const baseStepRules = repeatedStepConfig.stepRules ?? "";
+  const stepRules = prompt ? (baseStepRules ? `${baseStepRules}\n\n${prompt}` : prompt) : baseStepRules;
+
+  return {
+    kind: "ok",
+    input: {
+      worktree: {
+        projectRoot: repeatedRun.worktreePath,
+        projectName: repeatedRun.project,
+        branchName: repeatedRun.branch,
+        baseRef: repeatedRun.specRef,
+      },
+      specPath: repeatedRun.specPath,
+      stepRules,
+      expectedArtifactPath: repeatedStepConfig.expectedArtifactPath ?? "",
+      bindings,
+      stepId,
+    },
+  };
+}
+
+/**
  * Production failure reporter: opens the log sink and appends one
  * `run_execution_failed` event. Used by {@link startDaemon}; exported for tests.
  */
@@ -134,6 +203,8 @@ export type RunControlHandlerDeps = {
   logReader?: LogReader;
   writeLoopExecutor: (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => Promise<void>;
   failureReporter: (runId: string, reason: unknown) => void | Promise<void>;
+  /** `revise`'s dirty-worktree gate; defaults to a real `git status --porcelain` check. */
+  isWorktreeDirty?: (worktreePath: string) => boolean;
 };
 
 export type WaitRunCompletionResult = {
@@ -167,7 +238,8 @@ type WorkflowStepTerminalOutcome =
   | "invocation_failure"
   | "budget-exhausted"
   | "paused"
-  | "killed";
+  | "killed"
+  | "awaiting-human";
 
 type WorkflowStepListSnapshot = {
   stepId: string;
@@ -176,6 +248,25 @@ type WorkflowStepListSnapshot = {
   attemptCount: number;
   terminalOutcome?: WorkflowStepTerminalOutcome;
 };
+
+/**
+ * Live/terminal role progress for `review-debate` steps, keyed by `invocationId` then
+ * `stepId` — mirroring `runsByWorkflowInvocation`'s scoping so two concurrent invocations
+ * sharing a `stepId` don't collide. Tracked in-memory only — a `review-debate` step has
+ * no durable run row, so this map is the sole source for its `list` row, populated via
+ * {@link reportReviewDebateProgress}.
+ */
+export const reviewDebateProgressByInvocation = new Map<string, Map<string, ReviewDebateProgress>>();
+
+/** Records a `review-debate` step's currently-executing or terminal role/outcome. */
+export function reportReviewDebateProgress(invocationId: string, stepId: string, progress: ReviewDebateProgress): void {
+  let steps = reviewDebateProgressByInvocation.get(invocationId);
+  if (!steps) {
+    steps = new Map<string, ReviewDebateProgress>();
+    reviewDebateProgressByInvocation.set(invocationId, steps);
+  }
+  steps.set(stepId, progress);
+}
 
 function workflowRowSnapshot(
   run: LoadedRun,
@@ -187,7 +278,9 @@ function workflowRowSnapshot(
 
   const workflowRuns = runsByWorkflowInvocation.get(snapshot.invocationId) ?? new Map<string, LoadedRun>();
   return {
-    steps: snapshot.steps.map((step) => workflowStepSnapshot(step, workflowRuns.get(step.stepId), liveRunIds)),
+    steps: snapshot.steps.map((step) =>
+      workflowStepSnapshot(step, workflowRuns.get(step.stepId), liveRunIds, snapshot.invocationId),
+    ),
   };
 }
 
@@ -195,7 +288,25 @@ function workflowStepSnapshot(
   step: WorkflowSnapshot["steps"][number],
   run: LoadedRun | undefined,
   liveRunIds: ReadonlySet<string>,
+  invocationId: string,
 ): WorkflowStepListSnapshot {
+  if (step.behavior === "review-debate") {
+    const progress = reviewDebateProgressByInvocation.get(invocationId)?.get(step.stepId);
+    if (!progress) {
+      return { stepId: step.stepId, role: step.role, status: "pending", attemptCount: 0 };
+    }
+    if (progress.status === "in_progress") {
+      return { stepId: step.stepId, role: progress.role, status: "in_progress", attemptCount: 0 };
+    }
+    return {
+      stepId: step.stepId,
+      role: progress.role,
+      status: progress.status,
+      attemptCount: 0,
+      terminalOutcome: progress.terminalOutcome,
+    };
+  }
+
   if (!run) {
     return { stepId: step.stepId, role: step.role, status: "pending", attemptCount: 0 };
   }
@@ -236,6 +347,7 @@ function stoppedOutcomeForRun(run: LoadedRun): Exclude<WorkflowStepTerminalOutco
   if (run.status === "budget-soft-stopped") return "budget-exhausted";
   if (run.status === "paused") return "paused";
   if (run.status === "killed") return "killed";
+  if (run.status === "awaiting-human") return "awaiting-human";
   return "invocation_failure";
 }
 
@@ -256,6 +368,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const activeRuns = new Map<string, ActiveRun>();
   const waitFanouts = new Map<string, WaitFanout>();
   const { stateStore: store, logReader, writeLoopExecutor, failureReporter } = deps;
+  const checkWorktreeDirty = deps.isWorktreeDirty ?? isWorktreeDirty;
 
   const resultFrom = (runId: string, runStatus: RunStatus, record?: TerminalLogRecord): WaitRunCompletionResult => {
     const run = store.loadRun(runId);
@@ -493,8 +606,156 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return { kind: "error", code: "run_not_active", message: `Run ${runId} is not currently active` };
   };
 
+  function reviseAwaitingHuman(
+    run: LoadedRun,
+    prompt: string | undefined,
+  ): { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string } {
+    const onRevise = run.workflowSnapshot?.steps.find((step) => step.stepId === run.stepId)?.onRevise;
+    if (!onRevise) {
+      return { kind: "error", code: "revise_unsupported", message: "No onRevise configured for this human step" };
+    }
+
+    const repeatedStepConfig = run.workflowSnapshot?.steps.find((step) => step.stepId === onRevise.repeatStepId);
+    if (!repeatedStepConfig) {
+      return {
+        kind: "error",
+        code: "revise_unsupported",
+        message: `No workflow snapshot config found for repeated step "${onRevise.repeatStepId}"`,
+      };
+    }
+
+    const repeatedRun = store.findRunByProjectBranch({
+      project: run.project,
+      branch: run.branch,
+      stepId: onRevise.repeatStepId,
+    });
+    if (!repeatedRun) {
+      return {
+        kind: "error",
+        code: "revise_unsupported",
+        message: `No run found for repeated step "${onRevise.repeatStepId}"`,
+      };
+    }
+
+    const revisionRuns = store.findRevisionRuns({
+      project: run.project,
+      branch: run.branch,
+      repeatStepId: onRevise.repeatStepId,
+    });
+    const n = nextRevisionNumber(
+      revisionRuns.map((revisionRun) => revisionRun.stepId),
+      onRevise.repeatStepId,
+    );
+    if (n > onRevise.maxRevisions) {
+      return {
+        kind: "error",
+        code: "revise_exhausted",
+        message: `Revision budget (${onRevise.maxRevisions}) exhausted for step "${onRevise.repeatStepId}"`,
+      };
+    }
+
+    if (!checkWorktreeDirty(repeatedRun.worktreePath) && !prompt) {
+      return {
+        kind: "error",
+        code: "revise_requires_input",
+        message: "revise requires either a dirty worktree or a prompt",
+      };
+    }
+
+    const key: OwnershipKey = { project: repeatedRun.project, branch: repeatedRun.branch };
+    if (_registry.isClaimed(key)) {
+      return {
+        kind: "error",
+        code: "worktree_claimed",
+        message: `Worktree already claimed for project=${key.project}, branch=${key.branch}`,
+      };
+    }
+    if (activeRuns.size > 0) {
+      return {
+        kind: "error",
+        code: "run_in_progress",
+        message: "A run is already in progress; at most one in-flight run globally",
+      };
+    }
+
+    const stepId = revisionStepId(onRevise.repeatStepId, n);
+    const built = buildRevisionWriteLoopInput(repeatedStepConfig, repeatedRun, stepId, prompt);
+    if (built.kind === "error") {
+      return built;
+    }
+
+    const revisionRunId = store.createRun({
+      project: repeatedRun.project,
+      specRef: repeatedRun.specRef,
+      worktreePath: repeatedRun.worktreePath,
+      branch: repeatedRun.branch,
+      specPath: repeatedRun.specPath,
+      stepId,
+      ...(repeatedRun.workflowSnapshot ? { workflowSnapshot: repeatedRun.workflowSnapshot } : {}),
+    });
+
+    store.setRunStatus(run.id, "revising");
+    spawnWriteLoop(key, revisionRunId, repeatedRun.worktreePath, built.input);
+
+    return { kind: "response", result: { ok: true, stepId } };
+  }
+
+  /**
+   * A `"revising"` run re-converges to `awaiting-human` once its `~rN` revision
+   * run is no longer active (terminal outcome, or killed). Returns the reloaded
+   * run on reconvergence, or `undefined` if the revision is still in flight.
+   */
+  function reconvergeRevisingRun(run: LoadedRun): LoadedRun | undefined {
+    const onRevise = run.workflowSnapshot?.steps.find((step) => step.stepId === run.stepId)?.onRevise;
+    if (!onRevise) return undefined;
+
+    const revisionRuns = store.findRevisionRuns({
+      project: run.project,
+      branch: run.branch,
+      repeatStepId: onRevise.repeatStepId,
+    });
+    const latest = latestRevisionRun(revisionRuns, onRevise.repeatStepId);
+    if (!latest || !REVISION_INACTIVE_STATUSES.includes(latest.status)) {
+      return undefined;
+    }
+
+    store.setRunStatus(run.id, "awaiting-human");
+    return store.loadRun(run.id) ?? undefined;
+  }
+
+  function resumeAwaitingHuman(
+    run: LoadedRun,
+    decision: string | undefined,
+    prompt: string | undefined,
+  ): { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string } {
+    if (decision === undefined) {
+      return { kind: "error", code: "invalid_params", message: "Missing decision for awaiting-human run" };
+    }
+
+    if (decision === "approve") {
+      store.setRunStatus(run.id, "completed");
+      return { kind: "response", result: { ok: true } };
+    }
+
+    if (decision === "abort") {
+      const ks = ownershipKeyString({ project: run.project, branch: run.branch });
+      const activeRun = activeRuns.get(ks);
+      if (activeRun && activeRun.runId === run.id) {
+        activeRun.abortController.abort();
+      }
+      store.setRunStatus(run.id, "killed");
+      return { kind: "response", result: { ok: true } };
+    }
+
+    if (decision === "revise") {
+      return reviseAwaitingHuman(run, prompt);
+    }
+
+    return { kind: "error", code: "invalid_params", message: `Unknown decision: ${decision}` };
+  }
+
   const resumeHandler: RpcHandler = (frame) => {
-    const params = frame.params as { runId?: string } | undefined;
+    const params = frame.params as { runId?: string; decision?: string; prompt?: string } | undefined;
     if (!params?.runId) {
       return { kind: "error", code: "invalid_params", message: "Missing runId" };
     }
@@ -503,6 +764,26 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     const run = store.loadRun(runId);
     if (!run) {
       return { kind: "error", code: "unknown_run", message: `Run ${runId} not found` };
+    }
+
+    if (run.status === "awaiting-human") {
+      return resumeAwaitingHuman(run, params.decision, params.prompt);
+    }
+
+    if (run.status === "revising") {
+      const reconverged = reconvergeRevisingRun(run);
+      if (!reconverged) {
+        return {
+          kind: "error",
+          code: "revise_in_progress",
+          message: `Run ${runId} is revising; wait for it to re-converge to awaiting-human`,
+        };
+      }
+      return resumeAwaitingHuman(reconverged, params.decision, params.prompt);
+    }
+
+    if (params.decision !== undefined) {
+      return { kind: "error", code: "invalid_params", message: "decision is only valid for awaiting-human runs" };
     }
 
     // Reject terminal statuses

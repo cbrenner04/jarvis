@@ -57,11 +57,45 @@ Valid JSON with missing or invalid `kind` closes the connection.
 | `list` | — | `{ runs: Array<{runId, project, branch, status, isLive, error?, workflow?}> }` | List durable runs merged with in-memory liveness; `isLive=true` only while the loop's Promise is executing. After spawn-boundary executor failure: `status: "failed"`, `isLive: false` (see [Spawn-boundary failure capture](#spawn-boundary-failure-capture)). Optional `error` on non-success terminals (see [Operator error on list and wait](#operator-error-on-list-and-wait)). Workflow-backed rows may also carry authored per-step progress (see [Workflow snapshots on list rows](#workflow-snapshots-on-list-rows)). |
 | `pause` | `{ runId: string }` | `{ ok: true }` | Signal graceful pause for an active run. The run continues at the next iteration boundary (in-flight step is not aborted). Rejected if run is unknown or not active. |
 | `kill` | `{ runId: string }` | `{ ok: true }` | Abort the run's signal immediately and record durable status `killed`. Leaves the worktree dirty. Rejected if run is unknown or not active. |
-| `resume` | `{ runId: string }` | `{ ok: true }` | Resume a paused/killed run, re-invoking `executeWriteLoop` under the start guards. A paused run continues with a fresh attempt; a killed run re-runs the interrupted step. Rejected if run is unknown, in terminal status, or if another run is active (single in-flight guard or per-key guard violation). |
+| `resume` | `{ runId: string, decision?: "approve" \| "revise" \| "abort", prompt?: string }` | `{ ok: true }` (approve/abort) or `{ ok: true, stepId: string }` (revise) | Resume a paused/killed run, re-invoking `executeWriteLoop` under the start guards. A paused run continues with a fresh attempt; a killed run re-runs the interrupted step. Rejected `terminal_run` if status is `completed`, `failed`, or `blocked`; rejected `revise_in_progress` if status is `revising`; rejected if run is unknown, or if another run is active (single in-flight guard or per-key guard violation). For an `awaiting-human` run, `decision` is required (`invalid_params` if missing) and gates the human step: `approve` marks the step's run `completed` (no write loop spawned; the workflow advances past it on the next `executeWorkflow` call), `abort` sets status `killed` (same primitives as `kill`), `revise` spawns the configured `onRevise.repeatStepId` step's write loop again (see [`revise` decision](#revise-decision)). `decision` on a non-`awaiting-human` run is rejected `invalid_params`. |
 | `wait` | `{ runId: string }` | `{ runStatus, loopOutcomeKind?, iterationsConsumed?, resumable?, error? }` | Long-running one-shot wait for the next invocation boundary. In-progress runs resolve on the next `loop_finished` or `run_execution_failed` after the subscribe cursor. Quiescent runs return immediately from durable status plus the last terminal log signal. Optional `error` matches `list` for the same run (see [Operator error on list and wait](#operator-error-on-list-and-wait)). |
 
 Unknown `method` returns `error` correlated to the request `id` (connection
 stays open).
+
+### `revise` decision
+
+`revise` repeats an earlier step's write loop under a synthesized stepId
+`${repeatStepId}~r<n>` (n starting at 1, one past the highest existing `~r<n>`
+for that `(project, branch, repeatStepId)`), consuming one attempt of the
+human step's configured `onRevise: { repeatStepId, maxRevisions }` budget.
+`onRevise` is authored on the human step and validated at workflow-definition
+time (see [`workflow-runner.md`](./workflow-runner.md#validation)); a human
+step with no `onRevise` configured rejects `revise` with `revise_unsupported`.
+
+Gating and error codes:
+
+- `revise_unsupported` — no `onRevise` configured, or no run found for
+  `onRevise.repeatStepId`.
+- `revise_exhausted` — all `~r1..~rN` revision stepIds for `repeatStepId` are
+  already used (`maxRevisions` reached).
+- `revise_requires_input` — the repeated step's worktree is git-clean (`git
+  status --porcelain`) and no `prompt` param was supplied. A supplied `prompt`
+  is appended to that revision attempt's `stepRules` only, never discarded
+  silently.
+
+On success, `revise` sets the human step's run status to `revising` (distinct
+from `awaiting-human`: a `revising` run is not currently accepting a
+`resume` decision — a bare `resume` or another `revise`/`approve`/`abort`
+against it is rejected `revise_in_progress` until it re-converges) and spawns
+the revision write loop via the same executor and admission guards as `start`.
+When that write loop reaches a terminal outcome (`completed`, `failed`, or
+`blocked`), the next `executeWorkflow` call for the same workflow re-dispatches
+the human step by `stepId`, moving its run back to `awaiting-human` — a
+subsequent `resume` decision (`approve`/`revise`/`abort`) is then accepted
+again. Concurrent `resume` calls against the same run are serialized by the
+daemon's existing per-request RPC handling; no additional locking is added for
+`revise`.
 
 ### Wait result contract
 
@@ -175,7 +209,11 @@ Rules:
 - `status` is closed: `pending | in_progress | completed | stopped`.
 - `terminalOutcome` is present only for terminal steps:
   `completed -> "complete"` and
-  `stopped -> "blocked" | "contract_miss" | "invocation_failure" | "budget-exhausted" | "paused" | "killed"`.
+  `stopped -> "blocked" | "contract_miss" | "invocation_failure" | "budget-exhausted" | "paused" | "killed" | "awaiting-human"`.
+  A `human` step converges to run status `awaiting-human`, reported as
+  `status: "stopped"`, `terminalOutcome: "awaiting-human"` — distinct from
+  `blocked`, since a human gate awaits a decision rather than an unresolvable
+  contract miss.
 - `attemptCount` counts started durable attempts for that step, including an
   active in-progress attempt.
 - Live snapshots expose at most one `in_progress` step; quiescent snapshots

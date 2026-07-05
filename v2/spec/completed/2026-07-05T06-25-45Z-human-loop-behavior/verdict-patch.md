@@ -1,0 +1,14 @@
+All three findings check out in the code. Verdict issued below.
+
+## Verdict: Required Refinements
+
+**1. `revise` must actually reuse the repeated step's write-loop configuration (load-bearing).**
+The spawned revision write loop currently hard-codes `expectedArtifactPath: ""`, `bindings: []`, and drops the repeated step's `stepRules` entirely, replacing it with only the injected prompt (or empty string). This contradicts the spec's explicit decision that a supplied prompt is *appended to* the repeated step's `stepRules`, and that the revision reuses the repeated step's config. As implemented, `revise` cannot function correctly against real (non-stubbed) agent invocations — it silently discards `stepRules`, `agents`, `agentModelConfig`, and `expectedArtifactPath`. The actuator must ensure the daemon has access to the repeated step's full authored write-step configuration at revise time (durably carrying it, or resolving it via the workflow definition) and that the synthesized `WriteLoopInput` is built from that config with the prompt appended to `stepRules`, not substituted for it.
+
+**2. A killed or paused revision must not permanently strand the human step in `"revising"`.**
+Only `completed`/`failed`/`blocked` are treated as terminal for re-convergence purposes, and `resume` unconditionally rejects any `"revising"` run regardless of whether the underlying `~rN` run is still active. If an operator kills (or the run is otherwise paused) mid-revision, the human step's row stays `"revising"` forever with no path back to `awaiting-human`, directly contradicting the spec's stated intent that "revise is a loop iteration, not a dead end." The actuator must ensure that killing (and, if applicable, pausing) an in-flight revision re-converges the human step back to `awaiting-human` (or otherwise restores a reachable decision point), not just organic terminal outcomes of the revision write loop.
+
+**3. Snapshot reuse must detect changes to `onRevise` config, not just `stepId`/`role`.**
+`onRevise` is stored on the workflow snapshot but excluded from the comparison used to decide whether an existing snapshot can be reused for an in-flight run. Editing `onRevise.repeatStepId`/`maxRevisions` between invocations without touching `stepId`/`role` silently continues using the stale config. The actuator must include `onRevise` in the snapshot-match comparison so a changed `onRevise` config is treated as a mismatch, consistent with how `stepId`/`role` changes are already handled.
+
+**Rationale:** Findings 1 and 2 break core, explicitly-stated spec guarantees (config reuse on revise; revise as a non-dead-end loop) and were confirmed directly against `daemon.ts` and `workflow-runner.ts` — these are functional gaps, not stylistic nitpicks. Finding 3 is a real but narrower correctness gap in snapshot-reuse validation that should still be closed for consistency with the existing `stepId`/`role` mismatch detection.

@@ -43,13 +43,18 @@ export type TuiDaemonClient = {
    */
   pause(runId: string): Promise<TuiDaemonHealthResult>;
   /**
-   * Resume a paused or killed run under daemon start guards.
+   * Resume a paused or killed run under daemon start guards, or resolve an
+   * `awaiting-human` run via `decision`/`prompt`.
    * @param runId Durable run id to resume.
+   * @param options Optional human-loop decision (`approve`/`abort`/`revise`) and revise prompt.
    * @returns `{ ok: true }` when the daemon accepts the resume.
    * @throws {TuiDaemonRpcError} When the daemon rejects the request (`unknown_run`, `terminal_run`, `run_in_progress`, `worktree_claimed`, …).
    * @throws {TuiDaemonConnectionError} When the transport fails or the success payload is malformed.
    */
-  resume(runId: string): Promise<TuiDaemonHealthResult>;
+  resume(
+    runId: string,
+    options?: { decision?: "approve" | "abort" | "revise"; prompt?: string },
+  ): Promise<TuiDaemonHealthResult>;
   /**
    * Abort an active run immediately and record durable status `killed`.
    * @param runId Durable run id to kill.
@@ -97,7 +102,7 @@ export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promi
 
   const transport = createTuiDaemonRpcTransport(client);
 
-  const okRunRpc = async (method: "pause" | "resume" | "kill", runId: string): Promise<TuiDaemonHealthResult> =>
+  const okRunRpc = async (method: "pause" | "kill", runId: string): Promise<TuiDaemonHealthResult> =>
     parseOrThrow(
       parseHealthResult(await transport.request(method, { runId })),
       `malformed RPC reply: invalid ${method} result`,
@@ -126,7 +131,12 @@ export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promi
       );
     },
     pause: (runId) => okRunRpc("pause", runId),
-    resume: (runId) => okRunRpc("resume", runId),
+    async resume(runId, options) {
+      return parseOrThrow(
+        parseHealthResult(await transport.request("resume", { runId, ...options })),
+        "malformed RPC reply: invalid resume result",
+      );
+    },
     kill: (runId) => okRunRpc("kill", runId),
     async wait(runId) {
       return parseOrThrow(

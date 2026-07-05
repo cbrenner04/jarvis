@@ -61,7 +61,7 @@ function untilClose(socket: ReturnType<typeof connect>): Promise<void> {
 }
 
 socketTest("health RPC round-trips", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   client.send(request("h1", "health"));
   const frame = await client.nextFrame();
   expect(frame).toEqual({ kind: "response", id: "h1", result: { ok: true } });
@@ -69,7 +69,7 @@ socketTest("health RPC round-trips", async () => {
 });
 
 socketTest("status RPC reports daemon-host liveness", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   client.send(request("s1", "status"));
   const frame = await client.nextFrame();
   expect(frame).toEqual({ kind: "response", id: "s1", result: { state: "running" } });
@@ -77,7 +77,7 @@ socketTest("status RPC reports daemon-host liveness", async () => {
 });
 
 socketTest("unknown method returns correlated error", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   client.send(request("e1", "nope"));
   const frame = await client.nextFrame();
   expect(frame.kind).toBe("error");
@@ -89,7 +89,7 @@ socketTest("unknown method returns correlated error", async () => {
 });
 
 socketTest("serves multiple simultaneous client connections", async () => {
-  const [a, b] = await Promise.all([connectIpcClient(SOCKET_PATH), connectIpcClient(SOCKET_PATH)]);
+  const [a, b] = await Promise.all([connectIpcClient(SOCKET_PATH, 2_000), connectIpcClient(SOCKET_PATH, 2_000)]);
   a.send(request("a1", "health"));
   b.send(request("b1", "status"));
   const [aFrame, bFrame] = await Promise.all([a.nextFrame(), b.nextFrame()]);
@@ -138,12 +138,18 @@ socketTest("invalid kind closes the connection", async () => {
   await untilClose(socket);
 });
 
+socketTest("nextFrame() with no timeoutMs falls back to the client's default timeout", async () => {
+  const client = await connectIpcClient(SOCKET_PATH, 50);
+  await expect(client.nextFrame()).rejects.toThrow("timed out waiting for frame");
+  client.close();
+});
+
 socketTest("server stays up after a malformed client disconnects", async () => {
   const bad = await connectRaw();
   bad.write(encodeFrame({ kind: "nope" }));
   await untilClose(bad);
 
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   client.send(request("ok", "health"));
   expect(await client.nextFrame()).toEqual({ kind: "response", id: "ok", result: { ok: true } });
   client.close();
@@ -239,7 +245,7 @@ socketTest("tail-log stream replays persisted events in seq order", async () => 
   await withTailTest(async (stateStore) => {
     const runId = createRunWithLogs(stateStore);
     await withTailServer(stateStore, openLogReader(LOGS_PATH), async () => {
-      const client = await connectIpcClient(SOCKET_PATH);
+      const client = await connectIpcClient(SOCKET_PATH, 2_000);
       client.send({ kind: "stream-open", streamId: "tail1", payload: { runId } });
 
       const frame1 = await client.nextFrame();
@@ -273,7 +279,7 @@ socketTest("tail-log stream rejects unknown run ID", async () => {
 
     const followSpy = wrapLogReaderWithFollowSpy();
     await withTailServer(stateStore, followSpy.logReader, async () => {
-      const client = await connectIpcClient(SOCKET_PATH);
+      const client = await connectIpcClient(SOCKET_PATH, 2_000);
       client.send({ kind: "stream-open", streamId: "tail2", payload: { runId: orphanRunId } });
 
       const frame = await client.nextFrame();
@@ -300,7 +306,7 @@ socketTest("tail-log stream closes on client stream-end", async () => {
       followSignal = signal;
     });
     await withTailServer(stateStore, followSpy.logReader, async () => {
-      const client = await connectIpcClient(SOCKET_PATH);
+      const client = await connectIpcClient(SOCKET_PATH, 2_000);
       client.send({ kind: "stream-open", streamId: "tail3", payload: { runId } });
 
       const frame1 = await client.nextFrame();

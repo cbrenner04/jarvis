@@ -43,7 +43,7 @@ function createRunWithLogs(): string {
 }
 
 async function expectTailClosesWithoutData(streamId: string, payload: Record<string, unknown>): Promise<void> {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   client.send({ kind: "stream-open", streamId, payload });
 
   const frame = await client.nextFrame();
@@ -99,7 +99,7 @@ afterEach(async () => {
 
 socketTest("tail stream replays persisted events in seq order for known run", async () => {
   const runId = createRunWithLogs();
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
 
   client.send({ kind: "stream-open", streamId: "tail1", payload: { runId } });
 
@@ -157,7 +157,7 @@ socketTest("tail stream aborts follow signal on client stream-end", async () => 
   logSink.append(runId, { kind: "iteration_started", attemptId: "attempt-1" });
   logSink.close();
 
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   client.send({ kind: "stream-open", streamId: "tail-abort", payload: { runId } });
 
   expect((await client.nextFrame()).kind).toBe("stream-data");

@@ -591,7 +591,7 @@ socketTest("status round-trips over a test IPC server", async () => {
 });
 
 socketTest("list round-trips over a test IPC server", async () => {
-  const ipc = await connectIpcClient(SOCKET_PATH);
+  const ipc = await connectIpcClient(SOCKET_PATH, 2_000);
   ipc.send({ kind: "request", id: "start", method: "start", params: { input: input() } });
   const startFrame = await ipc.nextFrame();
   const runId = expectRunId(startFrame);
@@ -605,7 +605,7 @@ socketTest("list round-trips over a test IPC server", async () => {
 });
 
 socketTest("wait round-trips over a test IPC server", async () => {
-  const ipc = await connectIpcClient(SOCKET_PATH);
+  const ipc = await connectIpcClient(SOCKET_PATH, 2_000);
   ipc.send({ kind: "request", id: "start", method: "start", params: { input: input() } });
   const runId = expectRunId(await ipc.nextFrame());
 
@@ -627,7 +627,7 @@ socketTest("wait round-trips over a test IPC server", async () => {
 });
 
 socketTest("list succeeds while wait is pending on the same socket connection", async () => {
-  const ipc = await connectIpcClient(SOCKET_PATH);
+  const ipc = await connectIpcClient(SOCKET_PATH, 2_000);
   ipc.send({ kind: "request", id: "start", method: "start", params: { input: input() } });
   const runId = expectRunId(await ipc.nextFrame());
 
@@ -768,6 +768,29 @@ test.each([
 
     await expect(client[method]("run-123")).resolves.toEqual({ ok: true });
     expect(sent).toEqual([{ kind: "request", id: requestId, method, params: { runId: "run-123" } }]);
+    client.close();
+  });
+});
+
+test("resume forwards decision and prompt for awaiting-human runs", async () => {
+  const sent: unknown[] = [];
+  await withFixedUuids([RESUME_REQUEST_ID], async () => {
+    const client = await connectTuiDaemon({
+      connectIpcClient: async () =>
+        makeClient([{ kind: "response", id: RESUME_REQUEST_ID, result: { ok: true } }], sent),
+    });
+
+    await expect(client.resume("run-123", { decision: "revise", prompt: "try again" })).resolves.toEqual({
+      ok: true,
+    });
+    expect(sent).toEqual([
+      {
+        kind: "request",
+        id: RESUME_REQUEST_ID,
+        method: "resume",
+        params: { runId: "run-123", decision: "revise", prompt: "try again" },
+      },
+    ]);
     client.close();
   });
 });

@@ -141,7 +141,7 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
     }
   };
 
-  const runSteeringAction = (method: "pause" | "resume" | "kill", rewaitOnSuccess = false): void => {
+  const runAction = (perform: (runId: string) => Promise<unknown>, rewaitOnSuccess: boolean): void => {
     const runId = currentState.selectedRunId;
     if (runId === null) {
       setState({ ...currentState, steeringFeedback: "no run selected" });
@@ -150,7 +150,7 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
 
     void (async () => {
       try {
-        await client![method](runId);
+        await perform(runId);
         if (currentState.selectedRunId !== runId) return;
         if (rewaitOnSuccess) {
           activeWaitToken += 1;
@@ -172,6 +172,18 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
         });
       }
     })();
+  };
+
+  const runSteeringAction = (method: "pause" | "resume" | "kill", rewaitOnSuccess = false): void =>
+    runAction((runId) => client![method](runId), rewaitOnSuccess);
+
+  const runResumeDecisionAction = (decision: "approve" | "abort" | "revise", prompt?: string): void =>
+    runAction((runId) => client!.resume(runId, prompt !== undefined ? { decision, prompt } : { decision }), true);
+
+  const isSelectedAwaitingHuman = (): boolean => {
+    const runId = currentState.selectedRunId;
+    if (runId === null) return false;
+    return currentState.runs.find((run) => run.runId === runId)?.status === "awaiting-human";
   };
 
   const refreshRuns = async (initial = false): Promise<void> => {
@@ -254,7 +266,17 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
           runSteeringAction("resume", true);
         },
         killSelected() {
+          if (isSelectedAwaitingHuman()) {
+            runResumeDecisionAction("abort");
+            return;
+          }
           runSteeringAction("kill");
+        },
+        approveSelected() {
+          runResumeDecisionAction("approve");
+        },
+        reviseSelected(prompt) {
+          runResumeDecisionAction("revise", prompt);
         },
         quit() {
           resolveQuit();

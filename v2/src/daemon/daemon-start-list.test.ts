@@ -8,7 +8,7 @@ import { type IpcServer, startIpcServer } from "../ipc/server.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { listRuns, mockWriteLoopInput, startRun } from "../testing/run-control.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
-import { createRunControlHandlers } from "./daemon.ts";
+import { createRunControlHandlers, reportReviewDebateProgress, reviewDebateProgressByInvocation } from "./daemon.ts";
 
 const SOCKET_PATH = join(tmpdir(), `jarvis-daemon-test-${process.pid}.sock`);
 const socketTest = test.skipIf(!canUseUnixSockets());
@@ -56,8 +56,11 @@ function createFakeWriteLoopExecutor(onStart?: (input: WriteLoopInput) => void) 
 
 type FakeWriteLoopExecutor = ReturnType<typeof createFakeWriteLoopExecutor>;
 
-function workflowSnapshot(...steps: Array<{ stepId: string; role: string }>) {
-  return { invocationId: "workflow-1", steps };
+function workflowSnapshot(
+  invocationId: string,
+  ...steps: Array<{ stepId: string; role: string; behavior?: "review-debate" }>
+) {
+  return { invocationId, steps };
 }
 
 let stateStore: StateStore;
@@ -92,6 +95,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  reviewDebateProgressByInvocation.clear();
   if (!canUseUnixSockets()) {
     return;
   }
@@ -111,14 +115,14 @@ afterEach(async () => {
 });
 
 socketTest("start returns a run ID", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const runId = await startRun(client);
   expect(typeof runId).toBe("string");
   client.close();
 });
 
 socketTest("start rejects when any run is active (single in-flight guard)", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   await startRun(client);
 
   const input2 = mockWriteLoopInput({ projectName: "other-project" });
@@ -132,7 +136,7 @@ socketTest("start rejects when any run is active (single in-flight guard)", asyn
 });
 
 socketTest("start rejects second start for same (project, branch) while first is active", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const input = mockWriteLoopInput();
   await startRun(client, input);
 
@@ -146,7 +150,7 @@ socketTest("start rejects second start for same (project, branch) while first is
 });
 
 socketTest("list returns durable runs with liveness info", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   await startRun(client);
   const runs = await listRuns(client);
   if (!runs) {
@@ -166,7 +170,7 @@ socketTest("list returns durable runs with liveness info", async () => {
 });
 
 socketTest("settled run is no longer live in list", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   await startRun(client);
 
   fakeExecutor.settleAll();
@@ -206,6 +210,7 @@ socketTest("list returns workflow step snapshots for live, stopped, and complete
   );
 
   const snapshot = workflowSnapshot(
+    "workflow-1",
     { stepId: "step-1", role: "implement" },
     { stepId: "step-2", role: "review" },
     { stepId: "step-3", role: "verify" },
@@ -225,7 +230,7 @@ socketTest("list returns workflow step snapshots for live, stopped, and complete
   const priorAttempt2Id = stateStore.recordAttemptStart(priorRunId);
   stateStore.commitCompletionBoundary({ attemptId: priorAttempt2Id, runStatus: "completed", outcomeKind: "done" });
 
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const liveRunId = await startRun(client, {
     ...mockWriteLoopInput({ projectName: "wf-project", branchName: "wf-live", projectRoot: "/tmp/wf-project" }),
     stepId: "step-2",
@@ -276,6 +281,7 @@ socketTest("list returns workflow step snapshots for live, stopped, and complete
   });
 
   const completeSnapshot = workflowSnapshot(
+    "workflow-1",
     { stepId: "step-a", role: "implement" },
     { stepId: "step-b", role: "review" },
   );
@@ -317,7 +323,7 @@ socketTest("list returns workflow step snapshots for live, stopped, and complete
 socketTest(
   "list maps stopped workflow steps to budget-exhausted, paused, killed, and contract_miss outcomes",
   async () => {
-    const client = await connectIpcClient(SOCKET_PATH);
+    const client = await connectIpcClient(SOCKET_PATH, 2_000);
 
     const budgetRunId = stateStore.createRun({
       project: "wf-outcomes",
@@ -326,7 +332,7 @@ socketTest(
       branch: "wf-budget",
       specPath: "/tmp/spec.md",
       stepId: "step-budget",
-      workflowSnapshot: workflowSnapshot({ stepId: "step-budget", role: "implement" }),
+      workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-budget", role: "implement" }),
     });
     stateStore.recordAttemptStart(budgetRunId);
     stateStore.setRunStatus(budgetRunId, "budget-soft-stopped");
@@ -338,7 +344,7 @@ socketTest(
       branch: "wf-paused",
       specPath: "/tmp/spec.md",
       stepId: "step-paused",
-      workflowSnapshot: workflowSnapshot({ stepId: "step-paused", role: "implement" }),
+      workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-paused", role: "implement" }),
     });
     stateStore.recordAttemptStart(pausedRunId);
     stateStore.setRunStatus(pausedRunId, "paused");
@@ -350,7 +356,7 @@ socketTest(
       branch: "wf-killed",
       specPath: "/tmp/spec.md",
       stepId: "step-killed",
-      workflowSnapshot: workflowSnapshot({ stepId: "step-killed", role: "implement" }),
+      workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-killed", role: "implement" }),
     });
     stateStore.recordAttemptStart(killedRunId);
     stateStore.setRunStatus(killedRunId, "killed");
@@ -362,7 +368,7 @@ socketTest(
       branch: "wf-contract",
       specPath: "/tmp/spec.md",
       stepId: "step-contract",
-      workflowSnapshot: workflowSnapshot({ stepId: "step-contract", role: "implement" }),
+      workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-contract", role: "implement" }),
     });
     const contractMissAttemptId = stateStore.recordAttemptStart(contractMissRunId);
     stateStore.commitCompletionBoundary({
@@ -370,6 +376,17 @@ socketTest(
       runStatus: "blocked",
       outcomeKind: "contract_miss",
     });
+
+    const awaitingHumanRunId = stateStore.createRun({
+      project: "wf-outcomes",
+      specRef: "main",
+      worktreePath: "/tmp/wf-outcomes",
+      branch: "wf-human",
+      specPath: "/tmp/spec.md",
+      stepId: "step-human",
+      workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-human", role: "implement" }),
+    });
+    stateStore.setRunStatus(awaitingHumanRunId, "awaiting-human");
 
     const runs = await listRuns(client);
     expect(runs?.find((row) => row.runId === budgetRunId)?.workflow).toEqual({
@@ -404,13 +421,161 @@ socketTest(
         },
       ],
     });
+    expect(runs?.find((row) => row.runId === awaitingHumanRunId)?.workflow).toEqual({
+      steps: [
+        {
+          stepId: "step-human",
+          role: "implement",
+          status: "stopped",
+          attemptCount: 0,
+          terminalOutcome: "awaiting-human",
+        },
+      ],
+    });
 
     client.close();
   },
 );
 
+socketTest("list builds a review-debate row from the live role pointer while in progress", async () => {
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+
+  const snapshot = workflowSnapshot(
+    "workflow-debate",
+    { stepId: "step-1", role: "implement" },
+    { stepId: "step-debate", role: "", behavior: "review-debate" },
+  );
+  const runId = stateStore.createRun({
+    project: "wf-debate",
+    specRef: "main",
+    worktreePath: "/tmp/wf-debate",
+    branch: "wf-debate",
+    specPath: "/tmp/spec.md",
+    stepId: "step-1",
+    workflowSnapshot: snapshot,
+  });
+  stateStore.setRunStatus(runId, "completed");
+
+  let runs = await listRuns(client);
+  let row = runs?.find((candidate) => candidate.runId === runId);
+  expect(row?.workflow?.steps.find((step) => step.stepId === "step-debate")).toEqual({
+    stepId: "step-debate",
+    role: "",
+    status: "pending",
+    attemptCount: 0,
+  });
+
+  reportReviewDebateProgress("workflow-debate", "step-debate", { status: "in_progress", role: "advocate" });
+
+  runs = await listRuns(client);
+  row = runs?.find((candidate) => candidate.runId === runId);
+  expect(row?.workflow?.steps.find((step) => step.stepId === "step-debate")).toEqual({
+    stepId: "step-debate",
+    role: "advocate",
+    status: "in_progress",
+    attemptCount: 0,
+  });
+
+  client.close();
+});
+
+socketTest("list builds a review-debate row from the terminal role/outcome once the cycle ends", async () => {
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+
+  const snapshot = workflowSnapshot(
+    "workflow-debate-done",
+    { stepId: "step-1", role: "implement" },
+    { stepId: "step-debate", role: "", behavior: "review-debate" },
+  );
+  const runId = stateStore.createRun({
+    project: "wf-debate-done",
+    specRef: "main",
+    worktreePath: "/tmp/wf-debate-done",
+    branch: "wf-debate-done",
+    specPath: "/tmp/spec.md",
+    stepId: "step-1",
+    workflowSnapshot: snapshot,
+  });
+  stateStore.setRunStatus(runId, "completed");
+
+  reportReviewDebateProgress("workflow-debate-done", "step-debate", { status: "in_progress", role: "adjudicator" });
+  reportReviewDebateProgress("workflow-debate-done", "step-debate", {
+    status: "completed",
+    role: "actuator",
+    terminalOutcome: "complete",
+  });
+
+  const runs = await listRuns(client);
+  const row = runs?.find((candidate) => candidate.runId === runId);
+  expect(row?.workflow?.steps.find((step) => step.stepId === "step-debate")).toEqual({
+    stepId: "step-debate",
+    role: "actuator",
+    status: "completed",
+    attemptCount: 0,
+    terminalOutcome: "complete",
+  });
+
+  client.close();
+});
+
+socketTest("review-debate progress does not bleed across invocations sharing a stepId", async () => {
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+
+  const snapshotA = workflowSnapshot(
+    "workflow-debate-a",
+    { stepId: "step-1", role: "implement" },
+    { stepId: "step-debate", role: "", behavior: "review-debate" },
+  );
+  const runA = stateStore.createRun({
+    project: "wf-debate-a",
+    specRef: "main",
+    worktreePath: "/tmp/wf-debate-a",
+    branch: "wf-debate-a",
+    specPath: "/tmp/spec.md",
+    stepId: "step-1",
+    workflowSnapshot: snapshotA,
+  });
+  stateStore.setRunStatus(runA, "completed");
+
+  const snapshotB = workflowSnapshot(
+    "workflow-debate-b",
+    { stepId: "step-1", role: "implement" },
+    { stepId: "step-debate", role: "", behavior: "review-debate" },
+  );
+  const runB = stateStore.createRun({
+    project: "wf-debate-b",
+    specRef: "main",
+    worktreePath: "/tmp/wf-debate-b",
+    branch: "wf-debate-b",
+    specPath: "/tmp/spec.md",
+    stepId: "step-1",
+    workflowSnapshot: snapshotB,
+  });
+  stateStore.setRunStatus(runB, "completed");
+
+  reportReviewDebateProgress("workflow-debate-a", "step-debate", { status: "in_progress", role: "advocate" });
+
+  const runs = await listRuns(client);
+  const rowA = runs?.find((candidate) => candidate.runId === runA);
+  const rowB = runs?.find((candidate) => candidate.runId === runB);
+  expect(rowA?.workflow?.steps.find((step) => step.stepId === "step-debate")).toEqual({
+    stepId: "step-debate",
+    role: "advocate",
+    status: "in_progress",
+    attemptCount: 0,
+  });
+  expect(rowB?.workflow?.steps.find((step) => step.stepId === "step-debate")).toEqual({
+    stepId: "step-debate",
+    role: "",
+    status: "pending",
+    attemptCount: 0,
+  });
+
+  client.close();
+});
+
 socketTest("pause signals graceful stop for an active run", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const runId = await startRun(client);
   if (!runId) {
     client.close();
@@ -428,7 +593,7 @@ socketTest("pause signals graceful stop for an active run", async () => {
 });
 
 socketTest("pause rejects unknown run ID", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
 
   client.send({ kind: "request", id: "p1", method: "pause", params: { runId: "unknown-id" } });
   const pauseResponse = await client.nextFrame();
@@ -440,7 +605,7 @@ socketTest("pause rejects unknown run ID", async () => {
 });
 
 socketTest("list includes error on terminal rows and omits it on in-progress and completed", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const runId = await startRun(client);
   if (!runId) {
     client.close();
@@ -554,7 +719,7 @@ socketTest("list without logReader composes store-only error", async () => {
   });
   stateStore.setRunStatus(pausedRunId, "paused");
 
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const runs = await listRuns(client);
   const paused = runs?.find((candidate) => candidate.runId === pausedRunId);
   expect(paused?.error).toEqual({
@@ -566,7 +731,7 @@ socketTest("list without logReader composes store-only error", async () => {
 });
 
 socketTest("kill aborts an active run and records killed status", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const runId = await startRun(client);
   if (!runId) {
     client.close();
@@ -591,7 +756,7 @@ socketTest("kill aborts an active run and records killed status", async () => {
 });
 
 socketTest("kill rejects unknown run ID", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
 
   client.send({ kind: "request", id: "k1", method: "kill", params: { runId: "unknown-id" } });
   const killResponse = await client.nextFrame();
@@ -603,7 +768,7 @@ socketTest("kill rejects unknown run ID", async () => {
 });
 
 socketTest("resume rejects unknown run ID", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
 
   client.send({ kind: "request", id: "r1", method: "resume", params: { runId: "unknown-id" } });
   const resumeResponse = await client.nextFrame();
@@ -615,7 +780,7 @@ socketTest("resume rejects unknown run ID", async () => {
 });
 
 socketTest("resume rejects terminal run status", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const runId = await startRun(client);
   if (!runId) {
     client.close();
@@ -636,8 +801,129 @@ socketTest("resume rejects terminal run status", async () => {
   client.close();
 });
 
+socketTest("resume without decision on an awaiting-human run is rejected invalid_params", async () => {
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+
+  const runId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "human-branch",
+    specPath: "/tmp/test-project/spec.md",
+  });
+  stateStore.setRunStatus(runId, "awaiting-human");
+
+  client.send({ kind: "request", id: "r1", method: "resume", params: { runId } });
+  const resumeResponse = await client.nextFrame();
+  expect(resumeResponse.kind).toBe("error");
+  if (resumeResponse.kind === "error") {
+    expect(resumeResponse.code).toBe("invalid_params");
+  }
+  client.close();
+});
+
+socketTest("resume with decision approve completes the human step run", async () => {
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+
+  const runId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "human-branch",
+    specPath: "/tmp/test-project/spec.md",
+  });
+  stateStore.setRunStatus(runId, "awaiting-human");
+
+  client.send({ kind: "request", id: "r1", method: "resume", params: { runId, decision: "approve" } });
+  const resumeResponse = await client.nextFrame();
+  expect(resumeResponse.kind).toBe("response");
+
+  const runs = await listRuns(client);
+  if (runs) {
+    const run = runs.find((candidate) => candidate.runId === runId);
+    expect(run).toBeDefined();
+    expect(run?.status).toBe("completed");
+  }
+  client.close();
+});
+
+socketTest("resume with decision abort kills the human step run", async () => {
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+
+  const runId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "human-branch",
+    specPath: "/tmp/test-project/spec.md",
+  });
+  stateStore.setRunStatus(runId, "awaiting-human");
+
+  client.send({ kind: "request", id: "r1", method: "resume", params: { runId, decision: "abort" } });
+  const resumeResponse = await client.nextFrame();
+  expect(resumeResponse.kind).toBe("response");
+
+  const runs = await listRuns(client);
+  if (runs) {
+    const run = runs.find((candidate) => candidate.runId === runId);
+    expect(run).toBeDefined();
+    expect(run?.status).toBe("killed");
+  }
+  client.close();
+});
+
+socketTest("resume with decision revise on an awaiting-human run is rejected", async () => {
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+
+  const runId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "human-branch",
+    specPath: "/tmp/test-project/spec.md",
+  });
+  stateStore.setRunStatus(runId, "awaiting-human");
+
+  client.send({ kind: "request", id: "r1", method: "resume", params: { runId, decision: "revise" } });
+  const resumeResponse = await client.nextFrame();
+  expect(resumeResponse.kind).toBe("error");
+  if (resumeResponse.kind === "error") {
+    expect(resumeResponse.code).toBe("revise_unsupported");
+  }
+  client.close();
+});
+
+socketTest("resume with a decision param on a non-awaiting-human run is rejected", async () => {
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+  const runId = await startRun(client);
+  if (!runId) {
+    client.close();
+    return;
+  }
+
+  fakeExecutor.settleAll();
+  await flushBackgroundRuns();
+
+  const pausedRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "paused-branch",
+    specPath: "/tmp/test-project/spec.md",
+  });
+  stateStore.setRunStatus(pausedRunId, "paused");
+
+  client.send({ kind: "request", id: "r1", method: "resume", params: { runId: pausedRunId, decision: "approve" } });
+  const resumeResponse = await client.nextFrame();
+  expect(resumeResponse.kind).toBe("error");
+  if (resumeResponse.kind === "error") {
+    expect(resumeResponse.code).toBe("invalid_params");
+  }
+  client.close();
+});
+
 socketTest("resume rejects if another run is in-flight (single in-flight guard)", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   await startRun(client);
 
   const pausedRunId = stateStore.createRun({
@@ -660,7 +946,7 @@ socketTest("resume rejects if another run is in-flight (single in-flight guard)"
 });
 
 socketTest("kill aborts the abort signal that bindings can observe", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const runId = await startRun(client);
   if (!runId) {
     client.close();

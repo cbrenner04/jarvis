@@ -229,6 +229,27 @@ branch resumes the most recent durable run even if `--base`, `--spec`, or the
 materialized worktree path differ. For multi-step workflows, stepId isolates each step's attempt history: each `stepId` within the same `(project, branch)` maintains independent resume state. A different project or branch creates a fresh
 run.
 
+## Review-debate cycle
+
+`v2/src/execution/review-debate.ts` (`executeReviewDebate`) runs the fixed
+per-cycle order `adversary` -> `advocate` -> `adjudicator` -> `actuator`; only
+`actuator` writes. Each role goes through `executeWithQuotaFallback` against
+caller-supplied bindings, same seam as write-step invocations.
+
+- Default `maxCycles` is 1 (caller-supplied, no hidden convergence loop);
+  `maxCycles <= 0` runs zero cycles (no invocations, no verdict write).
+- The adjudicator's settled stdout is written verbatim to `verdictPath` each
+  cycle, overwriting prior content.
+- Empty (or whitespace-only) verdict skips the actuator for that cycle; the
+  loop stops there rather than continuing to `maxCycles`.
+- A `final: null` result from any role's `executeWithQuotaFallback` call
+  aborts that cycle immediately (no later roles run) and is reported as a
+  `role_failed` outcome; the loop stops.
+- Telemetry follows the same `invocation_completed` shape and quota-fallback
+  cardinality as write-step invocations (one row per binding subprocess in
+  attempt order), with `role` set to the debate role name — see
+  [`telemetry-capture.md`](./telemetry-capture.md).
+
 ## Exit codes
 
 - `0`: `complete` (success)

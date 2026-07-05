@@ -102,7 +102,7 @@ afterEach(async () => {
 });
 
 socketTest("wait rejects missing and unknown runId before following logs", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
 
   client.send({ kind: "request", id: "missing", method: "wait", params: {} });
   const missing = await client.nextFrame();
@@ -119,7 +119,7 @@ socketTest("wait rejects missing and unknown runId before following logs", async
 socketTest("wait returns immediately for quiescent run with last loop_finished payload", async () => {
   const runId = createRun();
   finishLoop(runId, "completed", 3);
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
 
   const result = await expectResponse(await waitRequest(client, "wait", runId));
 
@@ -140,7 +140,7 @@ socketTest("wait on resumed in-progress run ignores historical loop_finished and
     iterationsConsumed: 1,
     resumable: true,
   });
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const pending = waitRequest(client, "wait", runId);
 
   await new Promise<void>((resolve) => setTimeout(resolve, 25));
@@ -153,8 +153,8 @@ socketTest("wait on resumed in-progress run ignores historical loop_finished and
 
 socketTest("two concurrent waits resolve with the same terminal payload", async () => {
   const runId = createRun();
-  const firstClient = await connectIpcClient(SOCKET_PATH);
-  const secondClient = await connectIpcClient(SOCKET_PATH);
+  const firstClient = await connectIpcClient(SOCKET_PATH, 2_000);
+  const secondClient = await connectIpcClient(SOCKET_PATH, 2_000);
   const first = waitRequest(firstClient, "w1", runId);
   const second = waitRequest(secondClient, "w2", runId);
 
@@ -176,7 +176,7 @@ socketTest("two concurrent waits resolve with the same terminal payload", async 
 
 socketTest("pending wait does not block other RPCs on the same connection", async () => {
   const runId = createRun();
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   client.send({ kind: "request", id: "wait", method: "wait", params: { runId } });
   client.send({ kind: "request", id: "list", method: "list" });
 
@@ -192,8 +192,8 @@ socketTest("pending wait does not block other RPCs on the same connection", asyn
 
 socketTest("disconnecting one wait client leaves other waiters and durable status alone", async () => {
   const runId = createRun();
-  const first = await connectIpcClient(SOCKET_PATH);
-  const second = await connectIpcClient(SOCKET_PATH);
+  const first = await connectIpcClient(SOCKET_PATH, 2_000);
+  const second = await connectIpcClient(SOCKET_PATH, 2_000);
   first.send({ kind: "request", id: "first", method: "wait", params: { runId } });
   const secondWait = waitRequest(second, "second", runId);
 
@@ -210,7 +210,7 @@ socketTest("disconnecting one wait client leaves other waiters and durable statu
 
 socketTest("wait resolves failed run_execution_failed without loop fields", async () => {
   const runId = createRun();
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const pending = waitRequest(client, "wait", runId);
 
   await new Promise<void>((resolve) => setTimeout(resolve, 25));
@@ -227,7 +227,7 @@ socketTest("wait resolves failed run_execution_failed without loop fields", asyn
 socketTest("wait resolve payload includes the same error object as list for the same run", async () => {
   const runId = createRun();
   stateStore.setRunStatus(runId, "killed");
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
 
   client.send({ kind: "request", id: "list", method: "list" });
   const listFrame = await client.nextFrame();
@@ -252,7 +252,7 @@ socketTest("wait resolve payload includes the same error object as list for the 
 socketTest("wait returns durable terminal status only when no terminal log signal exists", async () => {
   const runId = createRun();
   stateStore.setRunStatus(runId, "killed");
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
 
   const result = await expectResponse(await waitRequest(client, "wait", runId));
 
@@ -264,7 +264,7 @@ socketTest("wait returns durable terminal status only when no terminal log signa
 });
 
 socketTest("existing start/list behavior stays unchanged", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   client.send({ kind: "request", id: "start", method: "start", params: { input: input() } });
   const start = await client.nextFrame();
   expect(start.kind).toBe("response");

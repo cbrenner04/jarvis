@@ -17,8 +17,8 @@ for hang fixtures — audit which cases need real subprocess vs mock.
 
 ## Acceptance criteria
 
-- [ ] Mockable coverage uses subprocess boundary; no real spawn for those cases.
-- [ ] Remaining real-process tests have inline justification.
+- [x] Mockable coverage uses subprocess boundary; no real spawn for those cases.
+- [x] Remaining real-process tests have inline justification.
 
 ## Documentation updates
 

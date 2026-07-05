@@ -1,7 +1,7 @@
-import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { realSubprocessRunner, type SubprocessRunner } from "../../../shared/subprocess.ts";
 import type { Agent, AgentName } from "../agents/types.ts";
 import { CONFIG_DIR, loadConfig, resolvePlanFlags, validateTargetDir } from "../config.ts";
 import type { LogClient } from "../logging.ts";
@@ -11,9 +11,13 @@ import { listStageMarkdownFiles, runIntentSplitTurn } from "../modes/plan/intent
 import { getOpenPrState, maybeMarkPlanPrReady } from "../modes/plan/pr.ts";
 import { computeProjectSafeId } from "../modes/plan/spec-paths.ts";
 import { parseAgentFlagValues, prefixAgentFlagError } from "../parse-agent-flag.ts";
-import { ensureDraftPr, renderAttribution } from "../pr.ts";
+import { ensureDraftPr, renderAttribution as realRenderAttribution } from "../pr.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../quota-harness-messages.ts";
-import { createIntentWorktree, createWorktreeSymlinks } from "../worktree.ts";
+import {
+  type CreateIntentWorktreeOptions,
+  createWorktreeSymlinks,
+  createIntentWorktree as realCreateIntentWorktree,
+} from "../worktree.ts";
 
 export type IntentIo = {
   stdout: (s: string) => void;
@@ -28,6 +32,9 @@ export type IntentCommandOptions = {
   logClient?: LogClient;
   createAgent?: (agentName: AgentName, model: string | undefined) => Agent;
   markdownlintHarnessRoot?: string | null;
+  runner?: SubprocessRunner;
+  createIntentWorktree?: (opts: CreateIntentWorktreeOptions) => Promise<string>;
+  renderAttribution?: (opts: { cwd: string; base: string }) => string;
 };
 
 type IntentInvocationCommon = {
@@ -191,13 +198,8 @@ function isPathInside(parent: string, child: string): boolean {
   return rel === "" || (!rel.startsWith("..") && !rel.startsWith("../"));
 }
 
-function listModifiedPaths(cwd: string): string[] {
-  const output = execFileSync("git", ["status", "--porcelain"], {
-    cwd,
-    env: process.env,
-    stdio: "pipe",
-    encoding: "utf8",
-  });
+function listModifiedPaths(cwd: string, runner: SubprocessRunner): string[] {
+  const output = runner.run("git", ["status", "--porcelain"], cwd);
   return output
     .split("\n")
     .map((line) => line.trimEnd())
@@ -563,12 +565,9 @@ function commitIntentSplit(opts: {
   seedLabel: string;
   emittedNames: string[];
   agentLabel: string;
+  runner: SubprocessRunner;
 }): void {
-  execFileSync("git", ["add", "-A"], {
-    cwd: opts.worktreePath,
-    env: process.env,
-    stdio: "pipe",
-  });
+  opts.runner.run("git", ["add", "-A"], opts.worktreePath);
   const message = [
     `intent: split ${opts.emittedNames.length} intent${opts.emittedNames.length === 1 ? "" : "s"}`,
     "",
@@ -579,34 +578,18 @@ function commitIntentSplit(opts: {
     "",
     `Jarvis-Agent: ${opts.agentLabel}`,
   ].join("\n");
-  execFileSync("git", ["commit", "-m", message], {
-    cwd: opts.worktreePath,
-    env: process.env,
-    stdio: "pipe",
-  });
-  execFileSync("git", ["push", "-u", "origin", opts.branch], {
-    cwd: opts.worktreePath,
-    env: process.env,
-    stdio: "pipe",
-  });
+  opts.runner.run("git", ["commit", "-m", message], opts.worktreePath);
+  opts.runner.run("git", ["push", "-u", "origin", opts.branch], opts.worktreePath);
 }
 
-function cleanupIntentState(projectRoot: string, worktreePath: string, branch: string): void {
+function cleanupIntentState(projectRoot: string, worktreePath: string, branch: string, runner: SubprocessRunner): void {
   try {
-    execFileSync("git", ["worktree", "remove", "--force", worktreePath], {
-      cwd: projectRoot,
-      env: process.env,
-      stdio: "pipe",
-    });
+    runner.run("git", ["worktree", "remove", "--force", worktreePath], projectRoot);
   } catch {
     // best-effort
   }
   try {
-    execFileSync("git", ["branch", "-D", branch], {
-      cwd: projectRoot,
-      env: process.env,
-      stdio: "pipe",
-    });
+    runner.run("git", ["branch", "-D", branch], projectRoot);
   } catch {
     // best-effort
   }
@@ -680,6 +663,9 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
   }
 
   const inv = parsed.invocation;
+  const runner = opts.runner ?? realSubprocessRunner;
+  const intentWorktreeCreator = opts.createIntentWorktree ?? realCreateIntentWorktree;
+  const attrsRender = opts.renderAttribution ?? realRenderAttribution;
   const rawCfg = loadConfig(opts.config);
   let cfg = rawCfg;
   if (inv.agentFlags !== undefined && inv.agentFlags.length > 0) {
@@ -858,18 +844,13 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
   const branch = `intent/${runName}`;
   let worktreePath: string;
   try {
-    worktreePath = await createIntentWorktree({ projectRoot: project.root, name: runName });
+    worktreePath = await intentWorktreeCreator({ projectRoot: project.root, name: runName });
     createWorktreeSymlinks(project.root, worktreePath, cfg.worktreeSymlinks);
   } catch (err) {
     opts.io.stderr(`failed to create intent worktree: ${(err as Error).message}\n`);
     return 1;
   }
-  const baseBranch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-    cwd: project.root,
-    env: process.env,
-    stdio: "pipe",
-    encoding: "utf8",
-  }).trim();
+  const baseBranch = runner.run("git", ["rev-parse", "--abbrev-ref", "HEAD"], project.root).trim();
   const stageDir = join(worktreePath, STAGE_DIR_NAME);
   mkdirSync(stageDir, { recursive: true });
   let completed = false;
@@ -900,7 +881,7 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
 
     const validation = validateIntentStage(
       stageDir,
-      listModifiedPaths(worktreePath),
+      listModifiedPaths(worktreePath, runner),
       opts.io.stderr,
       opts.markdownlintHarnessRoot,
     );
@@ -932,6 +913,7 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
       seedLabel,
       emittedNames,
       agentLabel: splitResult.agentLabel ?? "unknown",
+      runner,
     });
     opts.io.stderr(`intent: split commit pushed\n`);
 
@@ -946,18 +928,10 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
           `- Seed: \`${seedLabel}\``,
           ...emittedNames.map((name) => `- Intent: \`${targetDir}/ready-intents/${name}.md\``),
         ].join("\n"),
-      footer: renderAttribution({
-        cwd: worktreePath,
-        base: baseBranch,
-      }),
+      footer: attrsRender({ cwd: worktreePath, base: baseBranch }),
       cwd: worktreePath,
     });
-    const prUrl = execFileSync("gh", ["pr", "view", branch, "--json", "url", "-q", ".url"], {
-      cwd: worktreePath,
-      env: process.env,
-      stdio: "pipe",
-      encoding: "utf8",
-    }).trim();
+    const prUrl = runner.run("gh", ["pr", "view", branch, "--json", "url", "-q", ".url"], worktreePath).trim();
     opts.io.stdout(
       renderIntentNextSteps({
         prUrl,
@@ -986,7 +960,7 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
       rmSync(stageDir, { recursive: true, force: true });
     }
     if (!completed) {
-      cleanupIntentState(project.root, worktreePath, branch);
+      cleanupIntentState(project.root, worktreePath, branch, runner);
     }
   }
 }

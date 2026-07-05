@@ -1,4 +1,6 @@
-// This test requires real subprocess deadline/exit semantics for `runCommand` and cannot run in sandbox mode.
+// Some tests use real subprocesses: the `runCommand` tests (spawn boundary — deadline, exit codes, signals)
+// inherently require real subprocess semantics and cannot be mocked. The worktree digest test uses real git
+// solely for test environment setup. All other subprocess interactions go through the `runCommandFn` seam.
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -98,6 +100,8 @@ describe("ready script deadline enforcement", () => {
     });
   });
 
+  // These test the spawn boundary (runCommand) itself — deadline enforcement, exit code propagation, and
+  // error handling require real subprocess semantics and are not mockable through the runCommandFn seam.
   test("runCommand exits with 124 when the deadline is exceeded", async () => {
     const code = await runCommand("sleep", ["2"], 50, 0);
     expect(code).toBe(TIMEOUT_EXIT_CODE);
@@ -377,6 +381,8 @@ describe("ready install digest", () => {
   // Regression: the harness runs `bun run ready` inside a git worktree, where
   // `.git` is a *file*, not a directory. The digest must round-trip there
   // instead of crashing on `mkdir '.git'`.
+  // Uses real git for test environment setup (init, commit, add worktree); the code under test
+  // (writeRecordedInstallDigest/readRecordedInstallDigest) does not use subprocesses.
   test("digest round-trips in a worktree where .git is a file", () => {
     repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-wt-"));
     const git = (...args: string[]) => execFileSync("git", args, { cwd: repoRoot, stdio: "pipe" });

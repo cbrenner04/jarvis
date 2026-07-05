@@ -12,8 +12,8 @@ for `scripts/ready.ts` behavior.
 
 ## Acceptance criteria
 
-- [ ] Mockable cases use boundary; no real git/gh/subprocess where mockable.
-- [ ] Remaining real-subprocess tests justified inline.
+- [x] Mockable cases use boundary; no real git/gh/subprocess where mockable.
+- [x] Remaining real-subprocess tests justified inline.
 
 ## Documentation updates
 

@@ -32,7 +32,7 @@ import {
   harnessAuthRotateLine,
 } from "../../../src/quota-harness-messages.ts";
 import { beginHangFixtureTracking, reapActiveHangFixtures, writeIdleHangScript } from "../../idle-hang-fixtures.ts";
-import { IdleHangAgent, stripDelimitedBlocks } from "./review.sandbox-unrunnable.test.ts";
+import { IdleHangAgent, stripDelimitedBlocks } from "./review.test.ts";
 
 const HANG_FIXTURE_TRACKING_ID = import.meta.path;
 

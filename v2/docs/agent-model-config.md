@@ -16,7 +16,9 @@ Two axes, two stores:
 | **Agent fallback order** | Per-machine `~/.jarvis/v2.json`, shape `{ "agents": string[] }` | Ordered `agents: Agent[]` — availability/quota chain only |
 | **Role→model bindings** | One harness-global, version-controlled data file beside `data/prices.json` | `AgentModelConfig` — `(agent, role) → ModelEscalation`; may catalog agents beyond any one project's `agents` list |
 
-The machine agent-order file is edited with `jarvis config set-agents <agent,agent,...>`.
+The machine agent-order file is edited with `jarvis config set-agents <agent,agent,...>`
+and inspected with `jarvis config show` / `jarvis config path` (see
+[Read-only inspection](#read-only-inspection)).
 That command replaces the full `agents` array, preserves unrelated top-level
 keys in `~/.jarvis/v2.json`, creates missing `~/.jarvis/` state on success, and
 refuses to overwrite an existing file that is not a valid machine-config object.
@@ -282,6 +284,24 @@ Success stdout for `set-agents` is JSON with the landed order:
 rejected input or invalid file state, exit non-zero, preserve prior file
 content, and do not create `~/.jarvis/` or `v2.json` when input is rejected
 before the write path starts.
+
+### Read-only inspection
+
+`jarvis config show` inspects only the machine `agents` order — not
+role→model bindings or project workflow config.
+
+Outcomes:
+
+1. Valid `agents` present: stdout is one agent name per line in configured order
+   (exit 0).
+2. File absent or present without `agents`: stdout is exactly
+   `No machine agent override configured.` (exit 0).
+3. Malformed JSON or machine-config validation failure: stderr carries the
+   config-read error, exit non-zero; no agent list and no no-override line.
+
+`jarvis config path` prints the expanded absolute path to the machine config
+file for the current machine (not the literal `~/.jarvis/v2.json` token). Exit
+0.
 
 No single-flag override. No per-step config override.
 

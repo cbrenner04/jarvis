@@ -25,18 +25,18 @@ without opening JSON by hand.
 
 ## Acceptance criteria
 
-- [ ] With `~/.jarvis/v2.json` containing `{"agents":["claude","codex","cursor"]}`, `jarvis config show` exits successfully and prints exactly:
+- [x] With `~/.jarvis/v2.json` containing `{"agents":["claude","codex","cursor"]}`, `jarvis config show` exits successfully and prints exactly:
   `claude`
   `codex`
   `cursor`
-- [ ] When `~/.jarvis/v2.json` is absent, `jarvis config show` exits successfully and prints exactly `No machine agent override configured.`.
-- [ ] When `~/.jarvis/v2.json` exists without an `agents` key, `jarvis config show` exits successfully and prints exactly `No machine agent override configured.`.
-- [ ] When `~/.jarvis/v2.json` is malformed or fails v2 machine-config validation, `jarvis config show` exits non-zero with a config-read error instead of printing agent output or the no-override line.
-- [ ] `jarvis config path` exits successfully and prints the expanded absolute path to the machine config file for the current machine.
-- [ ] `jarvis write` / `jarvis run start` agent resolution still follows CLI `--agents` > machine config `agents` > `DEFAULT_WRITE_AGENTS` after the read-only config subcommands land.
+- [x] When `~/.jarvis/v2.json` is absent, `jarvis config show` exits successfully and prints exactly `No machine agent override configured.`.
+- [x] When `~/.jarvis/v2.json` exists without an `agents` key, `jarvis config show` exits successfully and prints exactly `No machine agent override configured.`.
+- [x] When `~/.jarvis/v2.json` is malformed or fails v2 machine-config validation, `jarvis config show` exits non-zero with a config-read error instead of printing agent output or the no-override line.
+- [x] `jarvis config path` exits successfully and prints the expanded absolute path to the machine config file for the current machine.
+- [x] `jarvis write` / `jarvis run start` agent resolution still follows CLI `--agents` > machine config `agents` > `DEFAULT_WRITE_AGENTS` after the read-only config subcommands land.
 
 ## Documentation updates
 
-- [ ] Update [`v2/docs/agent-model-config.md`](../../docs/agent-model-config.md) with the durable operator-facing semantics for `jarvis config show` and `jarvis config path` on the v2 machine agent fallback file.
-- [ ] Update [`v2/docs/v1-behaviors.md`](../../docs/v1-behaviors.md) with the new v2-only `jarvis config show` / `jarvis config path` operator behavior and its relation to the v1 baseline.
-- [ ] Update [`v2/docs/v2-architecture.md`](../../docs/v2-architecture.md) to narrow config-surface language to the focused show/edit surface or explicitly defer broader config workflow drill-down elsewhere.
+- [x] Update [`v2/docs/agent-model-config.md`](../../docs/agent-model-config.md) with the durable operator-facing semantics for `jarvis config show` and `jarvis config path` on the v2 machine agent fallback file.
+- [x] Update [`v2/docs/v1-behaviors.md`](../../docs/v1-behaviors.md) with the new v2-only `jarvis config show` / `jarvis config path` operator behavior and its relation to the v1 baseline.
+- [x] Update [`v2/docs/v2-architecture.md`](../../docs/v2-architecture.md) to narrow config-surface language to the focused show/edit surface or explicitly defer broader config workflow drill-down elsewhere.

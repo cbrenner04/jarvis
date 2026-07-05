@@ -53,6 +53,14 @@ async function setAgents(configPath: string, csv: string, io = captureIo().io): 
   return main(["config", "set-agents", csv], io, { machineConfigPath: configPath });
 }
 
+async function showMachineConfig(configPath: string, io = captureIo().io): Promise<number> {
+  return main(["config", "show"], io, { machineConfigPath: configPath });
+}
+
+async function printMachineConfigPath(configPath: string, io = captureIo().io): Promise<number> {
+  return main(["config", "path"], io, { machineConfigPath: configPath });
+}
+
 const WRITE_ARGS = [
   "write",
   "--project-root",
@@ -455,6 +463,72 @@ describe("v2 cli", () => {
       stderr: "Machine config 'agents' array must not be empty\n",
     });
     expect(readFileSync(configPath, "utf8")).toBe(before);
+  });
+
+  test("config show prints configured agents one per line", async () => {
+    const cap = captureIo();
+    const configPath = writeMachineConfig({ agents: ["claude", "codex", "cursor"] });
+
+    const code = await showMachineConfig(configPath, cap.io);
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "claude\ncodex\ncursor\n", stderr: "" });
+  });
+
+  test("config show prints no-override line when machine config is absent", async () => {
+    const cap = captureIo();
+    const configPath = absentMachineConfigPath();
+
+    const code = await showMachineConfig(configPath, cap.io);
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "No machine agent override configured.\n", stderr: "" });
+  });
+
+  test("config show prints no-override line when machine config lacks agents", async () => {
+    const cap = captureIo();
+    const configPath = writeMachineConfig({ other: "value" });
+
+    const code = await showMachineConfig(configPath, cap.io);
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "No machine agent override configured.\n", stderr: "" });
+  });
+
+  test("config show exits non-zero on malformed machine config", async () => {
+    const cap = captureIo();
+    const configPath = writeRawMachineConfig("{ invalid json");
+
+    const code = await showMachineConfig(configPath, cap.io);
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: `Failed to parse machine config at ${configPath}: invalid JSON\n`,
+    });
+  });
+
+  test("config show exits non-zero when agents fail validation", async () => {
+    const cap = captureIo();
+    const configPath = writeMachineConfig({ agents: [] });
+
+    const code = await showMachineConfig(configPath, cap.io);
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "Machine config 'agents' array must not be empty\n",
+    });
+  });
+
+  test("config path prints the expanded machine config path", async () => {
+    const cap = captureIo();
+    const configPath = join(mkdtempSync(join(tmpdir(), "jarvis-cli-machine-config-")), "v2.json");
+
+    const code = await printMachineConfigPath(configPath, cap.io);
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: `${configPath}\n`, stderr: "" });
   });
 
   test("write --agents still overrides the persisted machine order after config set-agents", async () => {

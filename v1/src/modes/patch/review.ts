@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { getCurrentBranch } from "../../../../shared/git.ts";
+import type { InvocationBinding } from "../../../../shared/invocation/execute.ts";
 import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import { createAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../agents/types.ts";
@@ -374,6 +375,14 @@ function reapTrackedDescendants(tracker: DescendantTracker, reapOverride?: ReapO
     // best-effort: reap failures are non-fatal
   }
 }
+
+type ActuatorAttemptRecord = {
+  agent: Agent;
+  configuredModel: string;
+  spawnResult: AgentResult;
+  classified: AgentResult;
+  durationMs: number;
+};
 
 /** Wrap an agent with per-pass iteration timeout and process-group abort. */
 function withReviewPassTimeout(
@@ -884,11 +893,16 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
         throw new ReviewTerminalError("actuator no agents available", 2);
       }
 
-      const attemptContexts: Array<{
-        agent: Agent;
-        agentEntry: AgentEntry;
-        durationMs: number;
-      }> = [];
+      const actuatorAdapter: ReviewAdapter = {
+        buildPrompt: async () => prompt,
+        enforceWriteBoundary: async () => {},
+        readBlocker: async () => null,
+        handleBlocker: async () => 1,
+        commitPass: async () => {},
+        recordTelemetry: async () => {},
+      };
+
+      const attemptByBinding = new Map<InvocationBinding<AgentResult>, ActuatorAttemptRecord>();
       const bindingStates = actuatorOrder.map(() => ({
         tracker: new DescendantTracker(),
         pollHandle: null as NodeJS.Timeout | null,
@@ -898,16 +912,13 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
         lastOutputAtMs: { current: null as number | null },
         lastFileActivityAtMs: null as number | null,
       }));
-      const actuatorAdapter: ReviewAdapter = {
-        buildPrompt: async () => prompt,
-        enforceWriteBoundary: async () => {},
-        readBlocker: async () => null,
-        handleBlocker: async () => 1,
-        commitPass: async () => {},
-        recordTelemetry: async () => {},
-      };
-      const bindings = actuatorOrder.map((agentEntry, rungIndex) =>
-        createReviewInvocationBinding<AgentResult>({
+
+      const bindings = actuatorOrder.map((agentEntry, rungIndex) => {
+        const bindingState = bindingStates[rungIndex]!;
+        let spawnResultForBinding: AgentResult | undefined;
+        let binding: InvocationBinding<AgentResult>;
+
+        binding = createReviewInvocationBinding<AgentResult>({
           agentEntry,
           config: opts.config,
           cwd: opts.cwd,
@@ -918,9 +929,8 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
             opts.agents?.[agentEntry.agent] ??
             createAgent(agentEntry.agent, agentEntry.model),
           abortKillGraceMs: killGraceMs,
-          lastOutputAtMs: bindingStates[rungIndex]!.lastOutputAtMs,
+          lastOutputAtMs: bindingState.lastOutputAtMs,
           onSpawned: ({ pid }) => {
-            const bindingState = bindingStates[rungIndex]!;
             bindingState.pgid = pid;
             bindingState.pollHandle = startDescendantPolling(bindingState.tracker, pid, {
               ...(opts.__testAfterPollFn !== undefined ? { afterPoll: opts.__testAfterPollFn } : {}),
@@ -928,7 +938,6 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
             });
           },
           onControllerReady: ({ controller }) => {
-            const bindingState = bindingStates[rungIndex]!;
             bindingState.timeoutHandle = setTimeout(() => {
               controller.abort("actuator-timeout");
             }, opts.iterationTimeoutMs);
@@ -995,37 +1004,44 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
               bindingState.pollHandle = null;
             };
           },
-          recordAttemptTelemetry: async (attempt) => {
-            attemptContexts.push({
+          onQuotaFallbackEmit: (_agentName, spawnResult) => {
+            spawnResultForBinding = spawnResult;
+          },
+          recordAttemptTelemetry: (attempt) => {
+            if (spawnResultForBinding === undefined) {
+              return;
+            }
+            attemptByBinding.set(binding, {
               agent: attempt.agent,
-              agentEntry: attempt.agentEntry,
+              configuredModel: agentEntry.model,
+              spawnResult: spawnResultForBinding,
+              classified: attempt.result,
               durationMs: attempt.durationMs,
             });
           },
-        }),
-      );
-      for (const [index, binding] of bindings.entries()) {
-        const state = bindingStates[index]!;
-        const outboundAgentName =
-          actuatorAgents?.[index]?.name ??
-          opts.agents?.[actuatorOrder[index]!.agent]?.name ??
-          actuatorOrder[index]!.agent;
+        });
+
         binding.shouldAdvance = (result) =>
           result.kind === "quota" || (result.kind === "error" && result.stderr.includes("aborted: idle-timeout"));
+
+        const outboundAgentName =
+          actuatorAgents?.[rungIndex]?.name ?? opts.agents?.[agentEntry.agent]?.name ?? agentEntry.agent;
         binding.invoke = ((originalInvoke) => {
-          return (args) => {
-            state.lastOutputAtMs.current = null;
-            state.lastFileActivityAtMs = null;
-            state.pgid = null;
-            state.pollHandle = null;
+          return (invokeArgs) => {
+            bindingState.lastOutputAtMs.current = null;
+            bindingState.lastFileActivityAtMs = null;
+            bindingState.pgid = null;
+            bindingState.pollHandle = null;
             opts.fanout("outbound", prompt, null, {
               actuator: true,
               agent: outboundAgentName,
             });
-            return originalInvoke(args);
+            return originalInvoke(invokeArgs);
           };
         })(binding.invoke);
-      }
+
+        return binding;
+      });
 
       const execution = await executeWithQuotaFallback({
         prompt,
@@ -1033,65 +1049,84 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
         bindings,
       });
 
-      for (const [attemptIndex, executionAttempt] of execution.attempts.entries()) {
-        const attempt = attemptContexts[attemptIndex];
-        if (attempt === undefined || executionAttempt.result.kind === "ok") {
+      const emitActuatorQuotaFallback = (record: ActuatorAttemptRecord) => {
+        const { agent, spawnResult, classified } = record;
+        if (spawnResult.kind === "quota") {
+          if (spawnResult.authFailure === true) {
+            opts.fanout("harness", `review: ${agent.name}: ${harnessAuthRotateLine(agent.name)}\n`, "stderr");
+          } else {
+            opts.fanout("harness", `review: ${agent.name}: ${HARNESS_QUOTA_FALLBACK_STRICT}\n`, "stderr");
+          }
+        } else if (spawnResult.kind === "error" && classified.kind === "quota") {
+          opts.fanout(
+            "harness",
+            `review: ${agent.name}: ${harnessQuotaFallbackLenientLine(spawnResult.exitCode)}\n`,
+            "stderr",
+          );
+        }
+        const telemetryMeta = record.configuredModel ? { configured_model: record.configuredModel } : {};
+        opts.writeTelemetry({
+          agent: agent.name,
+          iteration: ctx.passNumber,
+          durationMs: record.durationMs,
+          kind: "quota",
+          exitReason: "quota-fallback",
+          patch_phase: "review",
+          ...telemetryMeta,
+        });
+      };
+
+      const emitActuatorIdleFallback = (record: ActuatorAttemptRecord) => {
+        const telemetryMeta = record.configuredModel ? { configured_model: record.configuredModel } : {};
+        opts.fanout("harness", `review: ${record.agent.name}: ${HARNESS_IDLE_TIMEOUT_FALLBACK}\n`, "stderr");
+        opts.writeTelemetry({
+          agent: record.agent.name,
+          iteration: ctx.passNumber,
+          durationMs: record.durationMs,
+          kind: "timeout",
+          exitReason: "watchdog-idle-timeout-fallback",
+          patch_phase: "review",
+          ...telemetryMeta,
+        });
+      };
+
+      for (const attempt of execution.attempts.slice(0, -1)) {
+        const record = attemptByBinding.get(attempt.binding);
+        if (record === undefined) {
           continue;
         }
-        const configuredModel = attempt.agentEntry.model;
-        const telemetryMeta = configuredModel ? { configured_model: configuredModel } : {};
-        opts.fanout("harness", `review: actuator error (${executionAttempt.result.kind})\n`, "stderr");
-        if (executionAttempt.result.kind !== "quota" && executionAttempt.result.stderr.length > 0) {
-          opts.fanout("harness", executionAttempt.result.stderr, "stderr");
+        const { classified } = record;
+        opts.fanout("harness", `review: actuator error (${classified.kind})\n`, "stderr");
+        if (classified.kind !== "quota" && classified.stderr.length > 0) {
+          opts.fanout("harness", classified.stderr, "stderr");
         }
-        const hasNextRung = attemptIndex < execution.attempts.length - 1;
-        const isIdleTimeout = executionAttempt.result.stderr.includes("aborted: idle-timeout");
-        if (isIdleTimeout && hasNextRung) {
-          opts.fanout("harness", `review: ${attempt.agent.name}: ${HARNESS_IDLE_TIMEOUT_FALLBACK}\n`, "stderr");
-          opts.writeTelemetry({
-            agent: attempt.agent.name,
-            iteration: ctx.passNumber,
-            durationMs: attempt.durationMs,
-            kind: "timeout",
-            exitReason: "watchdog-idle-timeout-fallback",
-            patch_phase: "review",
-            ...telemetryMeta,
-          });
-          continue;
-        }
-        if (executionAttempt.result.kind === "quota" && hasNextRung) {
-          const line =
-            executionAttempt.result.authFailure === true
-              ? harnessAuthRotateLine(attempt.agent.name)
-              : HARNESS_QUOTA_FALLBACK_STRICT;
-          opts.fanout("harness", `review: ${attempt.agent.name}: ${line}\n`, "stderr");
-          opts.writeTelemetry({
-            agent: attempt.agent.name,
-            iteration: ctx.passNumber,
-            durationMs: attempt.durationMs,
-            kind: "quota",
-            exitReason: "quota-fallback",
-            patch_phase: "review",
-            ...telemetryMeta,
-          });
+        if (attempt.result.kind === "quota") {
+          emitActuatorQuotaFallback(record);
+        } else if (attempt.result.kind === "error" && attempt.result.stderr.includes("aborted: idle-timeout")) {
+          emitActuatorIdleFallback(record);
         }
       }
 
-      const finalAttempt = execution.final === null ? null : (attemptContexts[execution.attempts.length - 1] ?? null);
-      if (execution.final === null || finalAttempt === null) {
+      const finalAttempt = execution.final;
+      if (finalAttempt === null) {
         opts.fanout("harness", "review: actuator no agents available\n", "stderr");
         throw new ReviewTerminalError("actuator no agents available", 2);
       }
-      const finalResult = execution.final.result;
-      const finalConfiguredModel = finalAttempt.agentEntry.model;
-      const finalTelemetryMeta = finalConfiguredModel ? { configured_model: finalConfiguredModel } : {};
 
-      if (finalResult.kind === "ok") {
-        if (finalResult.stdout.length > 0) {
-          opts.fanout("inbound_stdout", finalResult.stdout, null, { actuator: true });
+      const finalRecord = attemptByBinding.get(finalAttempt.binding);
+      if (finalRecord === undefined) {
+        throw new Error("Internal error: actuator attempt record not found");
+      }
+
+      const { agent: resolvedAgent, configuredModel, classified, durationMs } = finalRecord;
+      const telemetryMeta = configuredModel ? { configured_model: configuredModel } : {};
+
+      if (classified.kind === "ok") {
+        if (classified.stdout.length > 0) {
+          opts.fanout("inbound_stdout", classified.stdout, null, { actuator: true });
         }
-        if (finalResult.stderr.length > 0) {
-          opts.fanout("inbound_stderr", finalResult.stderr, null, { actuator: true });
+        if (classified.stderr.length > 0) {
+          opts.fanout("inbound_stderr", classified.stderr, null, { actuator: true });
         }
 
         try {
@@ -1130,7 +1165,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
         if (porcelain !== "") {
           try {
             execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
-            const commitMessage = appendAgentTrailer("review: actuator", finalAttempt.agent.name);
+            const commitMessage = appendAgentTrailer("review: actuator", resolvedAgent.name);
             execFileSync("git", ["commit", "-F", "-"], {
               cwd: opts.cwd,
               env: process.env,
@@ -1144,16 +1179,16 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
             } catch (reconcileErr) {
               if (reconcileErr instanceof RebaseConflictError) {
                 opts.fanout("harness", `review: actuator rebase conflict: ${reconcileErr.message}\n`, "stderr");
-                const usageAndCost = extractUsageAndCost(finalResult, finalAttempt.agent.name, finalConfiguredModel);
+                const usageAndCost = extractUsageAndCost(classified, resolvedAgent.name, configuredModel);
                 opts.writeTelemetry({
-                  agent: finalAttempt.agent.name,
+                  agent: resolvedAgent.name,
                   iteration: ctx.passNumber,
-                  durationMs: finalAttempt.durationMs,
+                  durationMs,
                   kind: "error",
                   exitReason: "actuator-rebase-conflict",
                   patch_phase: "review",
                   ...usageAndCost,
-                  ...finalTelemetryMeta,
+                  ...telemetryMeta,
                 });
                 throw new ReviewTerminalError(reconcileErr.message, 11, { telemetryRecorded: true });
               }
@@ -1170,21 +1205,22 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
             }).catch(() => {});
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            const usageAndCost = extractUsageAndCost(finalResult, finalAttempt.agent.name, finalConfiguredModel);
+            const usageAndCost = extractUsageAndCost(classified, resolvedAgent.name, configuredModel);
+
             if (isNonFastForwardPushError(message)) {
               try {
                 const convergenceResult = tryConvergeNonFfActuatorPush(opts.cwd, branch);
                 if (convergenceResult.converged) {
                   opts.fanout("harness", `review: actuator push rejected non-ff; converged to PR head\n`, "stdout");
                   opts.writeTelemetry({
-                    agent: finalAttempt.agent.name,
+                    agent: resolvedAgent.name,
                     iteration: ctx.passNumber,
-                    durationMs: finalAttempt.durationMs,
+                    durationMs,
                     kind: "error",
                     exitReason: "actuator-push-converged",
                     patch_phase: "review",
                     ...usageAndCost,
-                    ...finalTelemetryMeta,
+                    ...telemetryMeta,
                   });
                   throw new ReviewTerminalError("non-ff push converged", 11);
                 }
@@ -1194,16 +1230,17 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
                 }
               }
             }
+
             opts.fanout("harness", `review: actuator commit failed: ${message}\n`, "stderr");
             opts.writeTelemetry({
-              agent: finalAttempt.agent.name,
+              agent: resolvedAgent.name,
               iteration: ctx.passNumber,
-              durationMs: finalAttempt.durationMs,
+              durationMs,
               kind: "error",
               exitReason: "actuator-commit-failed",
               patch_phase: "review",
               ...usageAndCost,
-              ...finalTelemetryMeta,
+              ...telemetryMeta,
             });
             throw new ReviewTerminalError(message, 1);
           }
@@ -1213,46 +1250,53 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           opts.fanout("harness", `review: actuator made no changes\n`, "stdout");
         }
         opts.writeTelemetry({
-          agent: finalAttempt.agent.name,
+          agent: resolvedAgent.name,
           iteration: ctx.passNumber,
-          durationMs: finalAttempt.durationMs,
+          durationMs,
           kind: "ok",
           exitReason: "ok",
           patch_phase: "review",
-          ...extractUsageAndCost(finalResult, finalAttempt.agent.name, finalConfiguredModel),
-          ...finalTelemetryMeta,
+          ...extractUsageAndCost(classified, resolvedAgent.name, configuredModel),
+          ...telemetryMeta,
         });
         return;
       }
 
-      if (finalResult.kind === "error" && finalResult.stderr.includes("aborted: idle-timeout")) {
+      opts.fanout("harness", `review: actuator error (${classified.kind})\n`, "stderr");
+      if (classified.kind !== "quota" && classified.stderr.length > 0) {
+        opts.fanout("harness", classified.stderr, "stderr");
+      }
+
+      const isIdleTimeout = classified.kind === "error" && classified.stderr.includes("aborted: idle-timeout");
+      if (isIdleTimeout) {
         idleTimeoutOccurred = true;
         opts.writeTelemetry({
-          agent: finalAttempt.agent.name,
+          agent: resolvedAgent.name,
           iteration: ctx.passNumber,
-          durationMs: finalAttempt.durationMs,
+          durationMs,
           kind: "error",
           exitReason: "watchdog-idle-timeout",
           patch_phase: "review",
-          ...finalTelemetryMeta,
+          ...telemetryMeta,
         });
-        throw new ReviewTerminalError(`actuator failed: ${finalResult.kind}`, finalResult.exitCode, {
-          telemetryRecorded: true,
-        });
+        throw new ReviewTerminalError(
+          `actuator failed: ${classified.kind}`,
+          classified.kind === "error" ? classified.exitCode : 1,
+          { telemetryRecorded: true },
+        );
       }
 
-      const exitCode =
-        finalResult.kind === "model_config" ? 3 : finalResult.kind === "error" ? finalResult.exitCode : 1;
+      const exitCode = classified.kind === "model_config" ? 3 : classified.kind === "error" ? classified.exitCode : 1;
       opts.writeTelemetry({
-        agent: finalAttempt.agent.name,
+        agent: resolvedAgent.name,
         iteration: ctx.passNumber,
-        durationMs: finalAttempt.durationMs,
-        kind: finalResult.kind === "quota" ? "quota" : "error",
-        exitReason: finalResult.kind,
+        durationMs,
+        kind: classified.kind === "quota" ? "quota" : classified.kind === "model_config" ? "error" : "error",
+        exitReason: classified.kind,
         patch_phase: "review",
-        ...finalTelemetryMeta,
+        ...telemetryMeta,
       });
-      throw new ReviewTerminalError(`actuator failed: ${finalResult.kind}`, exitCode);
+      throw new ReviewTerminalError(`actuator failed: ${classified.kind}`, exitCode);
     };
   };
 

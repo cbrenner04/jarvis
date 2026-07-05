@@ -549,7 +549,11 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
     });
   };
 
+  const finalAttemptIndex = execution.attempts.length - 1;
   for (const [attemptIndex, executionAttempt] of execution.attempts.entries()) {
+    if (attemptIndex === finalAttemptIndex) {
+      continue;
+    }
     const attempt = attemptContexts[attemptIndex];
     if (attempt === undefined || executionAttempt.result.kind === "ok") {
       continue;
@@ -595,17 +599,25 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
       result = finalResult;
       successfulAgent = finalAttempt.agent;
     } else if (finalResult.kind === "quota") {
+      writeRung(finalAttempt, "quota", "quota-exhausted");
       revertAllSince(opts.cwd, preShrinkHead);
       opts.fanout("harness", "shrink: all agents quota-exhausted (discarded)\n", "stderr");
       return;
     } else if (finalResult.kind === "model_config") {
+      writeRung(finalAttempt, "error", "model_config");
       revertAllSince(opts.cwd, preShrinkHead);
       opts.fanout("harness", `shrink: agent error (${finalResult.kind}); discarded\n`, "stderr");
       return;
     } else if (finalResult.stderr.includes("aborted: idle-timeout")) {
+      writeRung(finalAttempt, "error", "watchdog-idle-timeout");
       revertAllSince(opts.cwd, preShrinkHead);
       throw new ShrinkTerminalError("shrink idle timeout on final rung", 8);
     } else {
+      writeRung(
+        finalAttempt,
+        "error",
+        finalResult.stderr.includes("aborted: shrink-timeout") ? "timeout" : "agent-error",
+      );
       revertAllSince(opts.cwd, preShrinkHead);
       opts.fanout("harness", `shrink: invocation failed (${finalResult.kind}); discarded\n`, "stderr");
       return;

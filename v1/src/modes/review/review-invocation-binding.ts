@@ -1,20 +1,7 @@
-import { execFileSync } from "node:child_process";
 import type { InvocationBinding, InvocationResult } from "../../../../shared/invocation/execute.ts";
-import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
 import type { ReviewAdapter, ReviewAttemptContext, ReviewPassContext } from "./types.ts";
-
-function readPorcelainSnapshot(cwd: string): string | null {
-  try {
-    return execFileSync("git", ["status", "--porcelain"], {
-      cwd,
-      encoding: "utf8",
-    });
-  } catch {
-    return null;
-  }
-}
 
 export type ReviewInvocationBindingOptions = {
   agentEntry: { agent: AgentName; model: string };
@@ -59,8 +46,6 @@ export function createReviewInvocationBinding<T extends InvocationResult = Invoc
       // Reuse loaded agent
       const loadedAgent = agent;
 
-      // Snapshot git porcelain and run the agent
-      const porcelainBefore = readPorcelainSnapshot(args.cwd);
       const _now = opts.now ?? Date.now;
       const startedAt = _now();
       const controller = new AbortController();
@@ -97,19 +82,7 @@ export function createReviewInvocationBinding<T extends InvocationResult = Invoc
         controllerCleanup?.();
       }
 
-      const porcelainAfter = readPorcelainSnapshot(args.cwd);
-      const noDiskChangeDuringInvocation =
-        porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;
-
-      const classified = applyQuotaFallbackWhenAllowed(
-        opts.agentEntry.agent,
-        spawnResult,
-        {
-          quotaFallback: opts.config.quotaFallback,
-          weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
-        },
-        noDiskChangeDuringInvocation,
-      );
+      const classified = spawnResult;
 
       opts.onQuotaFallbackEmit?.(opts.agentEntry.agent, spawnResult, classified);
 

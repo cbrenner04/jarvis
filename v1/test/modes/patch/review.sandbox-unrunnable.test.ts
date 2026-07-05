@@ -592,6 +592,47 @@ describe("runPatchReviewPhase", () => {
     }
   });
 
+  test("ordinary weak-quota errors stay terminal in review actuator", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    try {
+      const claudeActuator = new FakeAgent("claude", () => ({
+        kind: "error",
+        exitCode: 429,
+        stderr: "rate_limit_exceeded",
+        stdout: "",
+      }));
+      const codexActuator = new FakeAgent("codex", () => ({ kind: "ok", stdout: "done\n", stderr: "" }));
+
+      const code = await runPatchReviewPhase({
+        config: {
+          ...makeReviewConfig({
+            reviewOrder: [CLAUDE_ENTRY],
+            patchOrder: [CLAUDE_ENTRY],
+            reviewActuatorOrder: [CLAUDE_ENTRY, CODEX_ENTRY],
+          }),
+          quotaFallback: "lenient",
+          weakQuotaExitCodes: [429],
+        },
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout: () => {},
+        writeTelemetry: () => {},
+        agents: { claude: new FakeAgent("claude", () => ({ kind: "ok", stdout: "finding\n", stderr: "" })) },
+        actuatorAgents: [claudeActuator, codexActuator],
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+      });
+
+      expect(code).toBe(11);
+      expect(claudeActuator.calls).toHaveLength(1);
+      expect(codexActuator.calls).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
   test("blocker sentinel exits 7 and baseline gate failure skips review passes", async () => {
     const { dir, specPath, cleanup } = setupPatchReviewRepo();
     let reviewCalls = 0;

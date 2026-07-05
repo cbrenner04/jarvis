@@ -15,14 +15,14 @@ plumbing mockable at the subprocess boundary.
 
 ## Task checklist
 
-- [ ] Convert bulk of the three files to mocked subprocess tests.
-- [ ] Drop `.sandbox-unrunnable` suffix from files with no real spawns.
+- [x] Convert bulk of the three files to mocked subprocess tests.
+- [x] Drop `.sandbox-unrunnable` suffix from files with no real spawns.
 
 ## Acceptance criteria
 
-- [ ] Converted files spawn no real git/gh for mockable cases.
-- [ ] Any remaining real-subprocess tests carry inline justification.
-- [ ] Converted files run under `test:v1` agent slice (no `.sandbox-unrunnable`
+- [x] Converted files spawn no real git/gh for mockable cases.
+- [x] Any remaining real-subprocess tests carry inline justification.
+- [x] Converted files run under `test:v1` agent slice (no `.sandbox-unrunnable`
       suffix) or stay in integration slice with justification if still real-process.
 
 ## Documentation updates

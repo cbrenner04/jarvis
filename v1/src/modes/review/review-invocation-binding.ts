@@ -1,4 +1,5 @@
 import type { InvocationBinding, InvocationResult } from "../../../../shared/invocation/execute.ts";
+import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
 import type { ReviewAdapter, ReviewAttemptContext, ReviewPassContext } from "./types.ts";
@@ -12,6 +13,8 @@ export type ReviewInvocationBindingOptions = {
   loadAgent: (args: { name: string; model: string }) => Agent;
 
   onQuotaFallbackEmit?: ((agentName: AgentName, spawnResult: AgentResult, classified: AgentResult) => void) | undefined;
+  /** Debate roles allow lenient weak-quota upgrades; the actuator keeps weak-quota errors terminal. Default true. */
+  allowLenientWeakQuotaFallback?: boolean | undefined;
   recordAttemptTelemetry?: ((data: ReviewAttemptContext) => void | Promise<void>) | undefined;
   additionalReadDirs?: string[] | undefined;
   onSpawned?: AgentRunOptions["onSpawned"] | undefined;
@@ -82,7 +85,15 @@ export function createReviewInvocationBinding<T extends InvocationResult = Invoc
         controllerCleanup?.();
       }
 
-      const classified = spawnResult;
+      const classified = applyQuotaFallbackWhenAllowed(
+        opts.agentEntry.agent,
+        spawnResult,
+        {
+          quotaFallback: opts.config.quotaFallback,
+          weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
+        },
+        opts.allowLenientWeakQuotaFallback ?? true,
+      );
 
       opts.onQuotaFallbackEmit?.(opts.agentEntry.agent, spawnResult, classified);
 

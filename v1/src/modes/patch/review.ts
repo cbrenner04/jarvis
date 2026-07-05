@@ -913,6 +913,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           cwd: opts.cwd,
           adapter: actuatorAdapter,
           roleContext: ctx,
+          allowLenientWeakQuotaFallback: false,
           loadAgent: () =>
             actuatorAgents?.[rungIndex] ??
             opts.agents?.[agentEntry.agent] ??

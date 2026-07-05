@@ -7,9 +7,78 @@ import { GIT_SUBPROCESS_OPTS } from "./git-subprocess.ts";
 
 export type { AcceptanceCriterion };
 
+/** Injectable seam for the git operations subspec.ts needs (add/stage-check/commit/show/root). */
+export interface SubspecGitOps {
+  add(cwd: string): void;
+  hasStagedChanges(cwd: string): boolean;
+  commit(cwd: string, message: string): void;
+  showCommitted(cwd: string, relativePath: string): string;
+  gitRoot(cwd: string): string;
+}
+
+export const realSubspecGitOps: SubspecGitOps = {
+  add(cwd) {
+    execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
+  },
+  hasStagedChanges(cwd) {
+    const diffResult = spawnSync("git", ["diff", "--cached", "--quiet"], {
+      cwd,
+      stdio: "pipe",
+      ...GIT_SUBPROCESS_OPTS,
+    });
+    if (diffResult.status === 0) {
+      return false;
+    }
+    if (diffResult.status !== 1) {
+      throw new Error(`git diff --cached --quiet failed${getErrorDetail(diffResult.stderr, diffResult.stdout)}`);
+    }
+    return true;
+  },
+  commit(cwd, message) {
+    try {
+      execFileSync("git", ["commit", "-F", "-"], {
+        cwd,
+        env: process.env,
+        stdio: ["pipe", "pipe", "pipe"],
+        input: message,
+        ...GIT_SUBPROCESS_OPTS,
+      });
+    } catch (err) {
+      let errorMessage = err instanceof Error ? err.message : String(err);
+      const stderr =
+        err instanceof Error && "stderr" in err && Buffer.isBuffer((err as { stderr: unknown }).stderr)
+          ? (err as { stderr: Buffer }).stderr
+          : undefined;
+      const stdout =
+        err instanceof Error && "stdout" in err && Buffer.isBuffer((err as { stdout: unknown }).stdout)
+          ? (err as { stdout: Buffer }).stdout
+          : undefined;
+      errorMessage += getErrorDetail(stderr, stdout);
+      throw new Error(errorMessage);
+    }
+  },
+  showCommitted(cwd, relativePath) {
+    return execFileSync("git", ["show", `HEAD:${relativePath}`], {
+      cwd,
+      encoding: "utf8",
+      stdio: "pipe",
+      ...GIT_SUBPROCESS_OPTS,
+    });
+  },
+  gitRoot(cwd) {
+    return execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      cwd,
+      encoding: "utf8",
+      stdio: "pipe",
+      ...GIT_SUBPROCESS_OPTS,
+    }).trim();
+  },
+};
+
 export function commitSubspec(
   subspecPath: string,
   opts: { cwd?: string; agentLabel: string; humanOnlyCount?: number; total?: number },
+  ops: SubspecGitOps = realSubspecGitOps,
 ): void {
   const subspecContent = readFileSync(subspecPath, "utf8");
   const indexPath = getIndexPath(subspecPath);
@@ -29,9 +98,9 @@ export function commitSubspec(
   const updatedIndexContent = updateIndexCheckbox(indexContent, subspecName);
   writeFileSync(indexPath, updatedIndexContent);
 
-  const gitRoot = opts.cwd ?? getGitRoot(subspecPath);
-  execFileSync("git", ["add", "-A"], { cwd: gitRoot, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
-  if (!hasStagedChanges(gitRoot)) {
+  const gitRoot = opts.cwd ?? getGitRoot(subspecPath, ops);
+  ops.add(gitRoot);
+  if (!ops.hasStagedChanges(gitRoot)) {
     return;
   }
 
@@ -46,7 +115,7 @@ export function commitSubspec(
 
   const baseMessage = `${summary}\n\n${commitBody}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
-  commitStagedChanges(gitRoot, commitMessage);
+  ops.commit(gitRoot, commitMessage);
 }
 
 export function snapshotAcceptanceCriteria(subspecPath: string): AcceptanceCriterion[] {
@@ -54,16 +123,15 @@ export function snapshotAcceptanceCriteria(subspecPath: string): AcceptanceCrite
   return parsed.acceptanceCriteria;
 }
 
-export function snapshotCommittedAcceptanceCriteria(subspecPath: string, opts: { cwd: string }): AcceptanceCriterion[] {
+export function snapshotCommittedAcceptanceCriteria(
+  subspecPath: string,
+  opts: { cwd: string },
+  ops: SubspecGitOps = realSubspecGitOps,
+): AcceptanceCriterion[] {
   try {
     const gitRoot = opts.cwd;
     const relativeSpecPath = relative(realpathSync(gitRoot), realpathSync(subspecPath));
-    const committed = execFileSync("git", ["show", `HEAD:${relativeSpecPath}`], {
-      cwd: gitRoot,
-      encoding: "utf8",
-      stdio: "pipe",
-      ...GIT_SUBPROCESS_OPTS,
-    });
+    const committed = ops.showCommitted(gitRoot, relativeSpecPath);
     const parsed = parseSpec(committed);
     return parsed.acceptanceCriteria;
   } catch {
@@ -81,6 +149,7 @@ export function commitWipProgress(
     humanOnlyCount?: number;
     agentLabel: string;
   },
+  ops: SubspecGitOps = realSubspecGitOps,
 ): void {
   const subspecContent = readFileSync(subspecPath, "utf8");
   const parsed = parseSpec(subspecContent);
@@ -88,8 +157,8 @@ export function commitWipProgress(
     throw new Error(`Subspec ${subspecPath} is missing H1 heading (# )`);
   }
 
-  execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
-  if (!hasStagedChanges(opts.cwd)) {
+  ops.add(opts.cwd);
+  if (!ops.hasStagedChanges(opts.cwd)) {
     return;
   }
 
@@ -106,7 +175,7 @@ export function commitWipProgress(
       : `Spec: ${relativeSpecPath}\n\nNewly checked:\n${opts.newlyChecked.map((c) => `- ${c.text}`).join("\n")}`;
   const baseMessage = `${summary}\n\n${body}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
-  commitStagedChanges(opts.cwd, commitMessage);
+  ops.commit(opts.cwd, commitMessage);
 }
 
 export function commitWipProgressWithBlocker(
@@ -119,6 +188,7 @@ export function commitWipProgressWithBlocker(
     blockerBody: string;
     agentLabel: string;
   },
+  ops: SubspecGitOps = realSubspecGitOps,
 ): void {
   const subspecContent = readFileSync(subspecPath, "utf8");
   const parsed = parseSpec(subspecContent);
@@ -126,27 +196,9 @@ export function commitWipProgressWithBlocker(
     throw new Error(`Subspec ${subspecPath} is missing H1 heading (# )`);
   }
 
-  execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
-
-  const diffResult = spawnSync("git", ["diff", "--cached", "--quiet"], {
-    cwd: opts.cwd,
-    stdio: "pipe",
-    ...GIT_SUBPROCESS_OPTS,
-  });
-  if (diffResult.status === 0) {
+  ops.add(opts.cwd);
+  if (!ops.hasStagedChanges(opts.cwd)) {
     return;
-  }
-  if (diffResult.status !== 1) {
-    const stderr = diffResult.stderr ? diffResult.stderr.toString() : "";
-    const stdout = diffResult.stdout ? diffResult.stdout.toString() : "";
-    let errorDetail = "";
-    if (stderr) {
-      errorDetail += `\nstderr: ${stderr}`;
-    }
-    if (stdout) {
-      errorDetail += `\nstdout: ${stdout}`;
-    }
-    throw new Error(`git diff --cached --quiet failed${errorDetail}`);
   }
 
   const relativeSpecPath = relative(realpathSync(opts.cwd), realpathSync(subspecPath));
@@ -165,85 +217,15 @@ export function commitWipProgressWithBlocker(
 
   const baseMessage = `${summary}\n\n${body}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
-
-  try {
-    execFileSync("git", ["commit", "-F", "-"], {
-      cwd: opts.cwd,
-      env: process.env,
-      stdio: ["pipe", "pipe", "pipe"],
-      input: commitMessage,
-      ...GIT_SUBPROCESS_OPTS,
-    });
-  } catch (err) {
-    let errorMessage = err instanceof Error ? err.message : String(err);
-    const stderr =
-      err instanceof Error && "stderr" in err && Buffer.isBuffer((err as { stderr: unknown }).stderr)
-        ? (err as { stderr: Buffer }).stderr.toString()
-        : "";
-    const stdout =
-      err instanceof Error && "stdout" in err && Buffer.isBuffer((err as { stdout: unknown }).stdout)
-        ? (err as { stdout: Buffer }).stdout.toString()
-        : "";
-    if (stderr) {
-      errorMessage += `\nstderr: ${stderr}`;
-    }
-    if (stdout) {
-      errorMessage += `\nstdout: ${stdout}`;
-    }
-    throw new Error(errorMessage);
-  }
+  ops.commit(opts.cwd, commitMessage);
 }
 
-function getGitRoot(subspecPath: string): string {
+function getGitRoot(subspecPath: string, ops: SubspecGitOps): string {
   try {
-    return execFileSync("git", ["rev-parse", "--show-toplevel"], {
-      cwd: dirname(subspecPath),
-      encoding: "utf8",
-      stdio: "pipe",
-      ...GIT_SUBPROCESS_OPTS,
-    }).trim();
+    return ops.gitRoot(dirname(subspecPath));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`could not find git root for ${subspecPath}: ${message}`);
-  }
-}
-
-function hasStagedChanges(cwd: string): boolean {
-  const diffResult = spawnSync("git", ["diff", "--cached", "--quiet"], {
-    cwd,
-    stdio: "pipe",
-    ...GIT_SUBPROCESS_OPTS,
-  });
-  if (diffResult.status === 0) {
-    return false;
-  }
-  if (diffResult.status !== 1) {
-    throw new Error(`git diff --cached --quiet failed${getErrorDetail(diffResult.stderr, diffResult.stdout)}`);
-  }
-  return true;
-}
-
-function commitStagedChanges(cwd: string, commitMessage: string): void {
-  try {
-    execFileSync("git", ["commit", "-F", "-"], {
-      cwd,
-      env: process.env,
-      stdio: ["pipe", "pipe", "pipe"],
-      input: commitMessage,
-      ...GIT_SUBPROCESS_OPTS,
-    });
-  } catch (err) {
-    let errorMessage = err instanceof Error ? err.message : String(err);
-    const stderr =
-      err instanceof Error && "stderr" in err && Buffer.isBuffer((err as { stderr: unknown }).stderr)
-        ? (err as { stderr: Buffer }).stderr
-        : undefined;
-    const stdout =
-      err instanceof Error && "stdout" in err && Buffer.isBuffer((err as { stdout: unknown }).stdout)
-        ? (err as { stdout: Buffer }).stdout
-        : undefined;
-    errorMessage += getErrorDetail(stderr, stdout);
-    throw new Error(errorMessage);
   }
 }
 

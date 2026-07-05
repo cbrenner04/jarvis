@@ -15,13 +15,13 @@ Five v2 files spawn real subprocesses/sockets:
 
 ## Task checklist
 
-- [ ] Convert bulk to mocked subprocess tests per file.
-- [ ] Drop `.sandbox-unrunnable` suffix from converted files.
+- [x] Convert bulk to mocked subprocess tests per file.
+- [x] Drop `.sandbox-unrunnable` suffix from converted files.
 
 ## Acceptance criteria
 
-- [ ] Mockable cases use boundary; no real git/gh where mockable.
-- [ ] Remaining real-subprocess/socket tests justified inline.
+- [x] Mockable cases use boundary; no real git/gh where mockable.
+- [x] Remaining real-subprocess/socket tests justified inline.
 
 ## Documentation updates
 

@@ -22,9 +22,71 @@ import { GIT_SUBPROCESS_OPTS } from "./git-subprocess.ts";
 import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "./idle-watchdog.ts";
 import { updatePrBody } from "./pr.ts";
 import { buildShrinkPrompt } from "./prompt.ts";
-import { detectSpecTreeEdits, revertSpecTreeEdits } from "./review.ts";
+import { detectSpecTreeEdits, type ReviewGitOps, realReviewGitOps, revertSpecTreeEdits } from "./review.ts";
 import { createShrinkInvocationBinding, type ShrinkAgentAttemptData } from "./shrink-invocation-binding.ts";
 import { type AcceptanceCriterion, snapshotAcceptanceCriteria } from "./subspec.ts";
+
+/** Injectable seam for the git operations shrink.ts needs (diff/status/checkout/clean/branch/reset/add/commit/push/rev-parse). */
+export interface ShrinkGitOps {
+  diffNameStatus(cwd: string, fromRef: string, toRef: string): string;
+  diffNameOnly(cwd: string, fromRef: string, toRef: string): string;
+  porcelainStatus(cwd: string): string;
+  checkoutPath(cwd: string, file: string): void;
+  cleanPath(cwd: string, file: string): void;
+  currentBranch(cwd: string): string;
+  resetHard(cwd: string, ref: string): void;
+  cleanAll(cwd: string): void;
+  add(cwd: string): void;
+  commit(cwd: string, message: string): void;
+  push(cwd: string): void;
+  revParseHead(cwd: string): string;
+}
+
+// porcelainStatus/checkoutPath/cleanPath/add/commit are identical to ReviewGitOps; reuse rather than redefine.
+export const realShrinkGitOps: ShrinkGitOps = {
+  ...realReviewGitOps,
+  diffNameStatus(cwd, fromRef, toRef) {
+    return execFileSync("git", ["diff", "--name-status", fromRef, toRef], {
+      cwd,
+      encoding: "utf8",
+      stdio: "pipe",
+      ...GIT_SUBPROCESS_OPTS,
+    });
+  },
+  diffNameOnly(cwd, fromRef, toRef) {
+    return execFileSync("git", ["diff", "--name-only", fromRef, toRef], {
+      cwd,
+      encoding: "utf8",
+      stdio: "pipe",
+      ...GIT_SUBPROCESS_OPTS,
+    });
+  },
+  currentBranch(cwd) {
+    return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      ...GIT_SUBPROCESS_OPTS,
+    }).trim();
+  },
+  resetHard(cwd, ref) {
+    execFileSync("git", ["reset", "--hard", ref], { cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
+  },
+  cleanAll(cwd) {
+    execFileSync("git", ["clean", "-fd"], { cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
+  },
+  push(cwd) {
+    execFileSync("git", ["push"], { cwd, env: process.env, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
+  },
+  revParseHead(cwd) {
+    return execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd,
+      encoding: "utf8",
+      stdio: "pipe",
+      ...GIT_SUBPROCESS_OPTS,
+    }).trim();
+  },
+};
 
 /** Shrink-phase terminal failure mapped to a harness exit code. */
 export class ShrinkTerminalError extends Error {
@@ -111,6 +173,8 @@ export type PatchShrinkPhaseOptions = {
   patchWorktreeDir?: string;
   /** Idle output timeout in milliseconds (0 to disable). */
   idleOutputTimeoutMs?: number | undefined;
+  /** Test seam: injectable git operations (defaults to real `execFileSync` git). */
+  ops?: ShrinkGitOps;
 };
 
 /** True when `file` is under `specDir`. */
@@ -126,9 +190,10 @@ export function accumulateImplementationTouchedFiles(
   specDir: string,
   preIterationHead: string,
   target: Set<string>,
+  ops: ShrinkGitOps = realShrinkGitOps,
 ): void {
-  const committed = listDiffNames(cwd, preIterationHead, "HEAD");
-  const dirty = listPorcelainNames(cwd);
+  const committed = listDiffNames(cwd, preIterationHead, "HEAD", ops);
+  const dirty = listPorcelainNames(cwd, ops);
   for (const file of [...committed, ...dirty]) {
     if (!isPathUnderSpecDir(file, specDir, cwd)) {
       target.add(file);
@@ -175,14 +240,14 @@ export function hasAcceptanceCriteriaRegression(
 }
 
 /** True when a scoped `*.test.ts` path was deleted since `preShrinkHead`. */
-export function detectDeletedTestInScope(cwd: string, allowlist: ReadonlySet<string>, preShrinkHead: string): boolean {
+export function detectDeletedTestInScope(
+  cwd: string,
+  allowlist: ReadonlySet<string>,
+  preShrinkHead: string,
+  ops: ShrinkGitOps = realShrinkGitOps,
+): boolean {
   try {
-    const output = execFileSync("git", ["diff", "--name-status", preShrinkHead, "HEAD"], {
-      cwd,
-      encoding: "utf8",
-      stdio: "pipe",
-      ...GIT_SUBPROCESS_OPTS,
-    });
+    const output = ops.diffNameStatus(cwd, preShrinkHead, "HEAD");
     for (const line of output.split("\n")) {
       const trimmed = line.trim();
       if (trimmed.length === 0) {
@@ -203,12 +268,7 @@ export function detectDeletedTestInScope(cwd: string, allowlist: ReadonlySet<str
         return true;
       }
     }
-    const porcelain = execFileSync("git", ["status", "--porcelain"], {
-      cwd,
-      encoding: "utf8",
-      stdio: "pipe",
-      ...GIT_SUBPROCESS_OPTS,
-    });
+    const porcelain = ops.porcelainStatus(cwd);
     for (const line of porcelain.split("\n")) {
       if (line.length < 4) {
         continue;
@@ -228,8 +288,13 @@ export function detectDeletedTestInScope(cwd: string, allowlist: ReadonlySet<str
 }
 
 /** Revert tracked/untracked edits outside `allowlist`. */
-export function revertOutOfScopeEdits(cwd: string, allowlist: ReadonlySet<string>, specDir: string): string[] {
-  const edited = listPorcelainNames(cwd).filter(
+export function revertOutOfScopeEdits(
+  cwd: string,
+  allowlist: ReadonlySet<string>,
+  specDir: string,
+  ops: ShrinkGitOps = realShrinkGitOps,
+): string[] {
+  const edited = listPorcelainNames(cwd, ops).filter(
     (file) => !allowlist.has(file) && !isPathUnderSpecDir(file, specDir, cwd),
   );
   if (edited.length === 0) {
@@ -237,33 +302,23 @@ export function revertOutOfScopeEdits(cwd: string, allowlist: ReadonlySet<string
   }
   for (const file of edited) {
     try {
-      execFileSync("git", ["checkout", "HEAD", "--", file], { cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
+      ops.checkoutPath(cwd, file);
     } catch {
       // untracked: clean below
     }
-    execFileSync("git", ["clean", "-fd", "--", file], { cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
+    ops.cleanPath(cwd, file);
   }
   return edited;
 }
 
 /** Bounded shrink-path equivalent of `shared/git.ts#getCurrentBranch`; unbounded there since other callers rely on that behavior. */
-function getCurrentBranchBounded(cwd: string): string {
-  return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-    cwd,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    ...GIT_SUBPROCESS_OPTS,
-  }).trim();
+function getCurrentBranchBounded(cwd: string, ops: ShrinkGitOps = realShrinkGitOps): string {
+  return ops.currentBranch(cwd);
 }
 
-function listPorcelainNames(cwd: string): string[] {
+function listPorcelainNames(cwd: string, ops: ShrinkGitOps = realShrinkGitOps): string[] {
   try {
-    const output = execFileSync("git", ["status", "--porcelain"], {
-      cwd,
-      encoding: "utf8",
-      stdio: "pipe",
-      ...GIT_SUBPROCESS_OPTS,
-    });
+    const output = ops.porcelainStatus(cwd);
     return output
       .split("\n")
       .filter((line) => line.length > 3)
@@ -273,14 +328,9 @@ function listPorcelainNames(cwd: string): string[] {
   }
 }
 
-function listDiffNames(cwd: string, fromRef: string, toRef: string): string[] {
+function listDiffNames(cwd: string, fromRef: string, toRef: string, ops: ShrinkGitOps = realShrinkGitOps): string[] {
   try {
-    const output = execFileSync("git", ["diff", "--name-only", fromRef, toRef], {
-      cwd,
-      encoding: "utf8",
-      stdio: "pipe",
-      ...GIT_SUBPROCESS_OPTS,
-    });
+    const output = ops.diffNameOnly(cwd, fromRef, toRef);
     return output
       .split("\n")
       .map((line) => line.trim())
@@ -290,9 +340,23 @@ function listDiffNames(cwd: string, fromRef: string, toRef: string): string[] {
   }
 }
 
-function revertAllSince(cwd: string, ref: string): void {
-  execFileSync("git", ["reset", "--hard", ref], { cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
-  execFileSync("git", ["clean", "-fd"], { cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
+function revertAllSince(cwd: string, ref: string, ops: ShrinkGitOps = realShrinkGitOps): void {
+  ops.resetHard(cwd, ref);
+  ops.cleanAll(cwd);
+}
+
+/** Adapt a `ShrinkGitOps` to `ReviewGitOps` for `detectSpecTreeEdits`/`revertSpecTreeEdits`, neither of which calls `resetPath`. */
+function asReviewGitOps(ops: ShrinkGitOps): ReviewGitOps {
+  return {
+    porcelainStatus: ops.porcelainStatus,
+    checkoutPath: ops.checkoutPath,
+    cleanPath: ops.cleanPath,
+    add: ops.add,
+    commit: ops.commit,
+    resetPath: () => {
+      throw new Error("resetPath is not supported via ShrinkGitOps");
+    },
+  };
 }
 
 function runTests(cwd: string): boolean {
@@ -308,31 +372,21 @@ function commitShrinkPass(
   agentLabel: string,
   cwd: string,
   opts: { branch: string; base: string; specPath: string; prNarrative: "template" | "agent" },
+  ops: ShrinkGitOps = realShrinkGitOps,
 ): void {
-  const porcelain = execFileSync("git", ["status", "--porcelain"], {
-    cwd,
-    encoding: "utf8",
-    stdio: "pipe",
-    ...GIT_SUBPROCESS_OPTS,
-  }).trim();
+  const porcelain = ops.porcelainStatus(cwd).trim();
   if (porcelain === "") {
     return;
   }
 
-  execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
+  ops.add(cwd);
   const commitMessage = appendAgentTrailer("shrink: simplify implementation diff", agentLabel);
-  execFileSync("git", ["commit", "-F", "-"], {
-    cwd,
-    env: process.env,
-    stdio: ["pipe", "pipe", "pipe"],
-    input: commitMessage,
-    ...GIT_SUBPROCESS_OPTS,
-  });
+  ops.commit(cwd, commitMessage);
   pushCurrent({
     cwd,
     firstPush: false,
     execSync: () => {
-      execFileSync("git", ["push"], { cwd, env: process.env, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
+      ops.push(cwd);
     },
   });
   void updatePrBody({
@@ -386,16 +440,12 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
     }
   }
 
+  const ops = opts.ops ?? realShrinkGitOps;
   const specDir = dirname(opts.specPath);
-  const preShrinkHead = execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: opts.cwd,
-    encoding: "utf8",
-    stdio: "pipe",
-    ...GIT_SUBPROCESS_OPTS,
-  }).trim();
+  const preShrinkHead = ops.revParseHead(opts.cwd);
   const criteriaBefore = snapshotAllAcceptanceCriteria(opts.specPath);
   const base = opts.baseBranch ?? (await getBaseBranch(opts.cwd));
-  const branch = getCurrentBranchBounded(opts.cwd);
+  const branch = getCurrentBranchBounded(opts.cwd, ops);
   const allowlist = [...opts.allowlist].sort();
   const killGraceMs = opts.__testKillGraceMs ?? 5000;
 
@@ -423,6 +473,10 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
     idleTimeoutHandle: null as NodeJS.Timeout | null,
   }));
   const bindings = reviewActuatorOrder.map((headEntry, rungIndex) => {
+    const bindingState = bindingStates[rungIndex];
+    if (bindingState === undefined) {
+      throw new Error(`missing binding state at rung ${rungIndex}`);
+    }
     const configuredModel = headEntry.model;
     const binding = createShrinkInvocationBinding<AgentResult>({
       agentName: headEntry.agent,
@@ -433,9 +487,8 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
         createAgent(headEntry.agent, configuredModel),
       config: opts.config,
       abortKillGraceMs: killGraceMs,
-      lastOutputAtMs: bindingStates[rungIndex]!.lastOutputAtMs,
+      lastOutputAtMs: bindingState.lastOutputAtMs,
       onControllerReady: ({ controller }) => {
-        const bindingState = bindingStates[rungIndex]!;
         bindingState.timeoutHandle = setTimeout(() => {
           controller.abort("shrink-timeout");
         }, opts.iterationTimeoutMs);
@@ -512,7 +565,6 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
       (attemptResult.kind === "error" && attemptResult.stderr.includes("aborted: idle-timeout"));
     binding.invoke = ((originalInvoke) => {
       return (args) => {
-        const bindingState = bindingStates[rungIndex]!;
         bindingState.lastOutputAtMs.current = null;
         bindingState.lastFileActivityAtMs = null;
         bindingState.timeoutHandle = null;
@@ -600,17 +652,17 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
       successfulAgent = finalAttempt.agent;
     } else if (finalResult.kind === "quota") {
       writeRung(finalAttempt, "quota", "quota-exhausted");
-      revertAllSince(opts.cwd, preShrinkHead);
+      revertAllSince(opts.cwd, preShrinkHead, ops);
       opts.fanout("harness", "shrink: all agents quota-exhausted (discarded)\n", "stderr");
       return;
     } else if (finalResult.kind === "model_config") {
       writeRung(finalAttempt, "error", "model_config");
-      revertAllSince(opts.cwd, preShrinkHead);
+      revertAllSince(opts.cwd, preShrinkHead, ops);
       opts.fanout("harness", `shrink: agent error (${finalResult.kind}); discarded\n`, "stderr");
       return;
     } else if (finalResult.stderr.includes("aborted: idle-timeout")) {
       writeRung(finalAttempt, "error", "watchdog-idle-timeout");
-      revertAllSince(opts.cwd, preShrinkHead);
+      revertAllSince(opts.cwd, preShrinkHead, ops);
       throw new ShrinkTerminalError("shrink idle timeout on final rung", 8);
     } else {
       writeRung(
@@ -618,7 +670,7 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
         "error",
         finalResult.stderr.includes("aborted: shrink-timeout") ? "timeout" : "agent-error",
       );
-      revertAllSince(opts.cwd, preShrinkHead);
+      revertAllSince(opts.cwd, preShrinkHead, ops);
       opts.fanout("harness", `shrink: invocation failed (${finalResult.kind}); discarded\n`, "stderr");
       return;
     }
@@ -630,39 +682,34 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
 
   const agent = successfulAgent;
 
-  const outOfScope = revertOutOfScopeEdits(opts.cwd, opts.allowlist, specDir);
+  const outOfScope = revertOutOfScopeEdits(opts.cwd, opts.allowlist, specDir, ops);
   if (outOfScope.length > 0) {
     opts.fanout("harness", `shrink: out-of-scope edits reverted: ${outOfScope.join(", ")}\n`, "stderr");
   }
 
   const criteriaAfter = snapshotAllAcceptanceCriteria(opts.specPath);
 
-  const editedSpecFiles = detectSpecTreeEdits(specDir, opts.cwd);
+  const editedSpecFiles = detectSpecTreeEdits(specDir, opts.cwd, asReviewGitOps(ops));
   if (editedSpecFiles.length > 0) {
     opts.fanout("harness", `shrink: spec-tree edits reverted: ${editedSpecFiles.join(", ")}\n`, "stderr");
     try {
-      revertSpecTreeEdits(specDir, opts.cwd);
+      revertSpecTreeEdits(specDir, opts.cwd, asReviewGitOps(ops));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       opts.fanout("harness", `shrink: spec revert failed (discarding): ${message}\n`, "stderr");
-      revertAllSince(opts.cwd, preShrinkHead);
+      revertAllSince(opts.cwd, preShrinkHead, ops);
       return;
     }
   }
 
-  const porcelain = execFileSync("git", ["status", "--porcelain"], {
-    cwd: opts.cwd,
-    encoding: "utf8",
-    stdio: "pipe",
-    ...GIT_SUBPROCESS_OPTS,
-  }).trim();
+  const porcelain = ops.porcelainStatus(opts.cwd).trim();
   if (porcelain === "") {
     opts.fanout("harness", "shrink: no changes\n", "stdout");
     return;
   }
 
   const acRegression = hasAcceptanceCriteriaRegression(criteriaBefore, criteriaAfter);
-  const deletedTest = detectDeletedTestInScope(opts.cwd, opts.allowlist, preShrinkHead);
+  const deletedTest = detectDeletedTestInScope(opts.cwd, opts.allowlist, preShrinkHead, ops);
   const testsPass = (opts.runContractTests ?? runTests)(opts.cwd);
 
   if (acRegression || deletedTest || !testsPass) {
@@ -672,21 +719,26 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
       ...(!testsPass ? ["tests failing"] : []),
     ];
     opts.fanout("harness", `shrink: contract miss (${reasons.join(", ")}); reverting\n`, "stderr");
-    revertAllSince(opts.cwd, preShrinkHead);
+    revertAllSince(opts.cwd, preShrinkHead, ops);
     return;
   }
 
   try {
-    commitShrinkPass(agent.attributionLabel(), opts.cwd, {
-      branch,
-      base,
-      specPath: opts.specPath,
-      prNarrative: opts.config.modes.patch.prNarrative ?? "template",
-    });
+    commitShrinkPass(
+      agent.attributionLabel(),
+      opts.cwd,
+      {
+        branch,
+        base,
+        specPath: opts.specPath,
+        prNarrative: opts.config.modes.patch.prNarrative ?? "template",
+      },
+      ops,
+    );
     opts.fanout("harness", "shrink: committed simplifications\n", "stdout");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     opts.fanout("harness", `shrink: commit failed (discarding): ${message}\n`, "stderr");
-    revertAllSince(opts.cwd, preShrinkHead);
+    revertAllSince(opts.cwd, preShrinkHead, ops);
   }
 }

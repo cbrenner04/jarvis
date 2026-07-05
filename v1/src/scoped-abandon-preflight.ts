@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { getCurrentBranch } from "../../shared/git.ts";
+import type { SubprocessRunner } from "../../shared/subprocess.ts";
 import type { MatchingOpenPr } from "./pr.ts";
 import { readLiveWorktreeLock, type WorktreeLock } from "./worktree-lock.ts";
 
@@ -14,6 +15,7 @@ export type AbandonPrEligibility =
 export type ScopedAbandonPreflightDeps = {
   isMergedPr: (branch: string) => boolean;
   findMatchingOpenPrs: (branch: string, cwd?: string) => MatchingOpenPr[];
+  runner?: SubprocessRunner;
 };
 
 export type ScopedAbandonPreflightResult =
@@ -51,7 +53,7 @@ export function checkScopedAbandonPreflight(args: {
 
   let branch: string;
   try {
-    branch = getCurrentBranch(args.worktreePath);
+    branch = getCurrentBranch(args.worktreePath, args.deps.runner);
   } catch {
     return { eligible: false, reason: "branch_resolve_failed" };
   }

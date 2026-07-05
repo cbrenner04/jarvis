@@ -1,5 +1,8 @@
-// Real subprocess tests for idle hang fixture self-clean and per-test teardown.
-// Requires sandbox-off process visibility (ps/pgrep per operator runbook).
+// Requires real OS process spawning to verify parent-death self-clean and
+// SIGTERM/SIGKILL reap behavior against genuine process trees (pgrep/kill -0).
+// These assertions are about actual subprocess lifecycle and cannot be
+// reproduced with an injected spawn mock. Also requires sandbox-off process
+// visibility per the operator runbook.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ChildProcess } from "node:child_process";

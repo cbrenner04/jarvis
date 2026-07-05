@@ -3,6 +3,51 @@ import { relative, resolve } from "node:path";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
 import { hasUpstream, pushCurrent } from "../../worktree.ts";
 
+/** Injectable seam for the git operations commits.ts needs (add/commit/push/upstream/status/rev-parse). */
+export interface PlanCommitGitOps {
+  add(cwd: string): void;
+  commit(cwd: string, message: string, opts?: { allowEmpty?: boolean }): void;
+  push(cwd: string, opts: { firstPush: boolean }): void;
+  hasUpstream(cwd: string): boolean;
+  porcelainStatus(cwd: string): string;
+  projectRoot(cwd: string): string;
+}
+
+export const realPlanCommitGitOps: PlanCommitGitOps = {
+  add(cwd) {
+    execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe" });
+  },
+  commit(cwd, message, opts) {
+    const commitArgs = ["commit", "-F", "-"];
+    if (opts?.allowEmpty) {
+      commitArgs.push("--allow-empty");
+    }
+    execFileSync("git", commitArgs, {
+      cwd,
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+      input: message,
+    });
+  },
+  push(cwd, opts) {
+    pushCurrent({ cwd, firstPush: opts.firstPush });
+  },
+  hasUpstream(cwd) {
+    return hasUpstream(cwd);
+  },
+  porcelainStatus(cwd) {
+    return execFileSync("git", ["status", "--porcelain"], { cwd, encoding: "utf8", stdio: "pipe" }).trim();
+  },
+  projectRoot(cwd) {
+    try {
+      return execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd, encoding: "utf8", stdio: "pipe" }).trim();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(`could not find git root: ${message}`);
+    }
+  },
+};
+
 export type CommitPlanIntentOptions = {
   worktreePath: string;
   specDirBasename?: string;
@@ -15,31 +60,23 @@ export type CommitPlanIntentOptions = {
   targetDir?: string;
 };
 
-export function commitPlanIntent(opts: CommitPlanIntentOptions): void {
+export function commitPlanIntent(opts: CommitPlanIntentOptions, ops: PlanCommitGitOps = realPlanCommitGitOps): void {
   const specDirBasename = opts.specDirBasename ?? opts.name;
   if (specDirBasename === undefined) {
     throw new Error("specDirBasename is required");
   }
-  execFileSync("git", ["add", "-A"], {
-    cwd: opts.worktreePath,
-    stdio: "pipe",
-  });
+  ops.add(opts.worktreePath);
 
-  const bodyLine = seedSourceLine(opts.mode, opts.worktreePath, opts.intentPathOrLabel);
+  const bodyLine = seedSourceLine(opts.mode, opts.worktreePath, opts.intentPathOrLabel, ops);
   const subject = `plan: intent${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
   const body = buildPlanBody(specDirBasename, [bodyLine], opts.targetDir);
   const baseMessage = `${subject}\n\n${body}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
 
-  execFileSync("git", ["commit", "-F", "-"], {
-    cwd: opts.worktreePath,
-    env: process.env,
-    stdio: ["pipe", "pipe", "pipe"],
-    input: commitMessage,
-  });
+  ops.commit(opts.worktreePath, commitMessage);
 
   try {
-    pushCurrent({ cwd: opts.worktreePath, firstPush: true });
+    ops.push(opts.worktreePath, { firstPush: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(message);
@@ -72,15 +109,12 @@ function buildPlanBody(specDirBasename: string, lines: string[], targetDir: stri
   return [specLine, "", ...lines].join("\n");
 }
 
-export function commitPlanRefine(opts: CommitPlanRefineOptions): void {
+export function commitPlanRefine(opts: CommitPlanRefineOptions, ops: PlanCommitGitOps = realPlanCommitGitOps): void {
   const specDirBasename = opts.specDirBasename ?? opts.name;
   if (specDirBasename === undefined) {
     throw new Error("specDirBasename is required");
   }
-  execFileSync("git", ["add", "-A"], {
-    cwd: opts.worktreePath,
-    stdio: "pipe",
-  });
+  ops.add(opts.worktreePath);
 
   const turns = opts.completedTurns ?? 0;
   const bodyLines =
@@ -97,15 +131,10 @@ export function commitPlanRefine(opts: CommitPlanRefineOptions): void {
   const baseMessage = `${subject}\n\n${body}`;
   const commitMessage = appendAgentTrailer(baseMessage, "");
 
-  execFileSync("git", ["commit", "-F", "-"], {
-    cwd: opts.worktreePath,
-    env: process.env,
-    stdio: ["pipe", "pipe", "pipe"],
-    input: commitMessage,
-  });
+  ops.commit(opts.worktreePath, commitMessage);
 
   try {
-    pushCurrent({ cwd: opts.worktreePath, firstPush: !hasUpstream(opts.worktreePath) });
+    ops.push(opts.worktreePath, { firstPush: !ops.hasUpstream(opts.worktreePath) });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(message);
@@ -123,15 +152,12 @@ export type CommitPlanDraftOptions = {
   targetDir?: string;
 };
 
-export function commitPlanDraft(opts: CommitPlanDraftOptions): void {
+export function commitPlanDraft(opts: CommitPlanDraftOptions, ops: PlanCommitGitOps = realPlanCommitGitOps): void {
   const specDirBasename = opts.specDirBasename ?? opts.name;
   if (specDirBasename === undefined) {
     throw new Error("specDirBasename is required");
   }
-  execFileSync("git", ["add", "-A"], {
-    cwd: opts.worktreePath,
-    stdio: "pipe",
-  });
+  ops.add(opts.worktreePath);
 
   const subject = `plan: draft${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
   const body = buildPlanBody(
@@ -142,15 +168,10 @@ export function commitPlanDraft(opts: CommitPlanDraftOptions): void {
   const baseMessage = `${subject}\n\n${body}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
 
-  execFileSync("git", ["commit", "-F", "-"], {
-    cwd: opts.worktreePath,
-    env: process.env,
-    stdio: ["pipe", "pipe", "pipe"],
-    input: commitMessage,
-  });
+  ops.commit(opts.worktreePath, commitMessage);
 
   try {
-    pushCurrent({ cwd: opts.worktreePath, firstPush: !hasUpstream(opts.worktreePath) });
+    ops.push(opts.worktreePath, { firstPush: !ops.hasUpstream(opts.worktreePath) });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(message);
@@ -170,15 +191,12 @@ export type CommitPlanReviewOptions = {
   reviewLabel?: string;
 };
 
-export function commitPlanReview(opts: CommitPlanReviewOptions): void {
+export function commitPlanReview(opts: CommitPlanReviewOptions, ops: PlanCommitGitOps = realPlanCommitGitOps): void {
   const specDirBasename = opts.specDirBasename ?? opts.name;
   if (specDirBasename === undefined) {
     throw new Error("specDirBasename is required");
   }
-  execFileSync("git", ["add", "-A"], {
-    cwd: opts.worktreePath,
-    stdio: "pipe",
-  });
+  ops.add(opts.worktreePath);
 
   const subject = opts.reviewLabel
     ? `plan: ${opts.reviewLabel}${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`
@@ -187,15 +205,10 @@ export function commitPlanReview(opts: CommitPlanReviewOptions): void {
   const baseMessage = `${subject}\n\n${body}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
 
-  execFileSync("git", ["commit", "-F", "-"], {
-    cwd: opts.worktreePath,
-    env: process.env,
-    stdio: ["pipe", "pipe", "pipe"],
-    input: commitMessage,
-  });
+  ops.commit(opts.worktreePath, commitMessage);
 
   try {
-    pushCurrent({ cwd: opts.worktreePath, firstPush: false });
+    ops.push(opts.worktreePath, { firstPush: false });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(message);
@@ -216,25 +229,14 @@ export type CommitPlanBlockerOptions = {
   targetDir?: string;
 };
 
-export function commitPlanBlocker(opts: CommitPlanBlockerOptions): void {
+export function commitPlanBlocker(opts: CommitPlanBlockerOptions, ops: PlanCommitGitOps = realPlanCommitGitOps): void {
   const specDirBasename = opts.specDirBasename ?? opts.name;
   if (specDirBasename === undefined) {
     throw new Error("specDirBasename is required");
   }
-  execFileSync("git", ["add", "-A"], {
-    cwd: opts.worktreePath,
-    stdio: "pipe",
-  });
+  ops.add(opts.worktreePath);
 
-  const porcelain = execFileSync("git", ["status", "--porcelain"], {
-    cwd: opts.worktreePath,
-    encoding: "utf8",
-    stdio: "pipe",
-  }).trim();
-  const commitArgs = ["commit", "-F", "-"];
-  if (porcelain === "") {
-    commitArgs.push("--allow-empty");
-  }
+  const porcelain = ops.porcelainStatus(opts.worktreePath);
 
   const subject = `plan: blocker${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
   const body = buildPlanBody(
@@ -245,15 +247,10 @@ export function commitPlanBlocker(opts: CommitPlanBlockerOptions): void {
   const baseMessage = `${subject}\n\n${body}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
 
-  execFileSync("git", commitArgs, {
-    cwd: opts.worktreePath,
-    env: process.env,
-    stdio: ["pipe", "pipe", "pipe"],
-    input: commitMessage,
-  });
+  ops.commit(opts.worktreePath, commitMessage, { allowEmpty: porcelain === "" });
 
   try {
-    pushCurrent({ cwd: opts.worktreePath, firstPush: false });
+    ops.push(opts.worktreePath, { firstPush: false });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(message);
@@ -264,9 +261,10 @@ function seedSourceLine(
   mode: CommitPlanIntentOptions["mode"],
   worktreePath: string,
   intentPathOrLabel: string,
+  ops: PlanCommitGitOps,
 ): string {
   if (mode === "file") {
-    const projectRoot = getProjectRoot(worktreePath);
+    const projectRoot = ops.projectRoot(worktreePath);
     const resolvedIntentPath = resolve(intentPathOrLabel);
     const resolvedProjectRoot = resolve(projectRoot);
     const relativePath = relative(resolvedProjectRoot, resolvedIntentPath);
@@ -280,17 +278,4 @@ function seedSourceLine(
     return "Seeded from inline";
   }
   return "Seeded from interactive";
-}
-
-function getProjectRoot(cwd: string): string {
-  try {
-    return execFileSync("git", ["rev-parse", "--show-toplevel"], {
-      cwd,
-      encoding: "utf8",
-      stdio: "pipe",
-    }).trim();
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`could not find git root: ${message}`);
-  }
 }

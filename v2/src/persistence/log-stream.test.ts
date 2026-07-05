@@ -54,6 +54,14 @@ class ControllableWake implements AppendWake {
   }
 }
 
+// Judgment call (2026-07-05): the deleted `log-stream.sandbox-unrunnable.test.ts` spawned a
+// detached child process to prove `fs.watch`-backed `FsAppendWake` notifications cross a real
+// process boundary (separate writer, separate reader). It was itself the source of the
+// `v2-test-runner-unbounded-spawn` flake gotcha. All replay/wake/abort logic below is covered
+// in-process via the injectable `AppendWake` seam, which is deemed sufficient: `follow()`'s
+// contract is defined against the `AppendWake` interface, not `fs.watch` specifically, and
+// `daemon.sandbox-unrunnable.test.ts` already carries the one irreducible real-process/socket
+// smoke test for this subsystem's wire boundary. Not restoring a second real-subprocess test here.
 describe("log-stream", () => {
   let tempDir: string;
   let storagePath: string;

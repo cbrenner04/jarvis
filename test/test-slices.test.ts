@@ -93,9 +93,6 @@ describe("Test slice boundaries", () => {
     expect([...agent, ...integration].sort()).toEqual(onDisk);
     expect(integration).toEqual([
       "v2/src/daemon/daemon.sandbox-unrunnable.test.ts",
-      "v2/src/execution/external-worktree.sandbox-unrunnable.test.ts",
-      "v2/src/ipc/ipc.sandbox-unrunnable.test.ts",
-      "v2/src/persistence/log-stream.sandbox-unrunnable.test.ts",
       "v2/src/testing/preload.sandbox-unrunnable.test.ts",
     ]);
 

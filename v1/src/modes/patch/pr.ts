@@ -188,6 +188,8 @@ export type UpdatePrBodyOpts = {
   getDiffStats?: (cwd: string, base: string) => DiffStat[];
   /** Test seam: get subspec bodies for why lines. Defaults to reading from index-linked subspecs. */
   getSubspecBodies?: () => string[];
+  /** Test seam: get commit subjects. Defaults to git branch commits. */
+  getCommitSubjects?: () => string[];
 };
 
 /**
@@ -238,6 +240,7 @@ export async function updatePrBody(opts: UpdatePrBodyOpts): Promise<void> {
       }),
     getDiffStats: () => getDiffStatsFn(opts.cwd, opts.base),
     getSubspecBodies: getSubspecBodiesFn,
+    getCommitSubjects: opts.getCommitSubjects,
   };
 
   if (opts.prNarrative !== undefined) {
@@ -274,6 +277,8 @@ export { runReadyAndCommit };
 export type MaybeMarkReadyOpts = {
   indexPath: string;
   cwd: string;
+  /** Test seam: bypass getCurrentBranch when set. Used by pr.test.ts to avoid real git. */
+  branchName?: string;
   /** Test seam: agent label for the pre-ready fix commit trailer. Threaded to the `commitPreReadyFix` seam. */
   agentLabel?: string;
   /** Test seam: check if PR exists. Defaults to `checkPrExists`. */
@@ -316,7 +321,7 @@ export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
     return;
   }
 
-  const branch = getCurrentBranch(opts.cwd);
+  const branch = opts.branchName ?? getCurrentBranch(opts.cwd);
   const checkPr = opts.checkPrExists ?? checkPrExists;
   const prExists = checkPr(branch, opts.cwd);
   if (!prExists) {

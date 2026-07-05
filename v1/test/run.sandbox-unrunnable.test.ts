@@ -1,8 +1,9 @@
-// Real OS process and timing integration tests for watchdog/timeout behavior.
+// Watchdog/timeout integration tests using real OS processes for agent spawning.
 // These require real subprocess spawning, process group manipulation, and wall-clock timing.
-// They run in sandbox-off environment only and are excluded from the sandboxed test suite.
+// No real git/gh: all configs set `git: false` — the run loop does not invoke git or gh.
 // Scope: descendant-capture (real process termination verification), elapsed-bound (real sleep timing),
 // and real process group behavior that cannot be made deterministic without actual OS interaction.
+// .sandbox-unrunnable suffix retained: agent subprocesses via ScriptAgent/runAgent are real.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -238,6 +239,9 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+// Real OS processes required: watchdog descendant-capture must verify actual
+// process-group behavior (SIGTERM-ignoring grandchildren, process table queries)
+// that cannot be deterministically faked.
 describe("timeout behavior (sandbox-unrunnable: real process + timing)", () => {
   describe("descendant-capture: real process termination", () => {
     test("watchdog timeout kills SIGTERM-ignoring grandchildren and records pgid telemetry", async () => {
@@ -298,7 +302,7 @@ wait
           weakQuotaExitCodes: [],
           maxIterations: 1,
           iterationTimeoutMs: 4000,
-          git: true,
+          git: false,
           projects: { project: { root: projectRoot } },
         },
         { dir: cfgDir },
@@ -370,7 +374,7 @@ wait
           weakQuotaExitCodes: [],
           maxIterations: 1,
           iterationTimeoutMs: 1500,
-          git: true,
+          git: false,
           projects: { project: { root: projectRoot } },
         },
         { dir: cfgDir },
@@ -405,6 +409,9 @@ wait
     });
   });
 
+  // Real subprocess stdout/stderr pipes required: watchdog output-age tracking
+  // observes actual pipe readability timestamps and file-modification mtimes that
+  // only real subprocess activity produces.
   describe("elapsed-bound: real sleep timing for output tracking", () => {
     test("watchdog timeout records last_output_age_ms from early output then stall", async () => {
       const iterationTimeoutMs = 2000;
@@ -473,7 +480,7 @@ done
           weakQuotaExitCodes: [],
           maxIterations: 1,
           iterationTimeoutMs,
-          git: true,
+          git: false,
           projects: { project: { root: projectRoot } },
         },
         { dir: cfgDir },
@@ -531,7 +538,7 @@ done
           maxIterations: 1,
           iterationTimeoutMs,
           idleOutputTimeoutMs: idleTimeoutMs,
-          git: true,
+          git: false,
           projects: { project: { root: projectRoot } },
         },
         { dir: cfgDir },
@@ -618,7 +625,7 @@ echo "done"
           maxIterations: 1,
           iterationTimeoutMs: 30 * 60_000,
           idleOutputTimeoutMs: idleTimeoutMs,
-          git: true,
+          git: false,
           projects: { project: { root: projectRoot } },
         },
         { dir: cfgDir },
@@ -674,7 +681,7 @@ ${IDLE_HANG_WAIT}
           maxIterations: 1,
           iterationTimeoutMs: 3000,
           idleOutputTimeoutMs: 0,
-          git: true,
+          git: false,
           projects: { project: { root: projectRoot } },
         },
         { dir: cfgDir },
@@ -721,7 +728,7 @@ ${IDLE_HANG_WAIT}
           maxIterations: 1,
           iterationTimeoutMs: 30000,
           idleOutputTimeoutMs: idleTimeoutMs,
-          git: true,
+          git: false,
           projects: { project: { root: projectRoot } },
         },
         { dir: cfgDir },
@@ -769,7 +776,7 @@ ${IDLE_HANG_WAIT}
           maxIterations: 3,
           iterationTimeoutMs: 30 * 60_000,
           idleOutputTimeoutMs: idleTimeoutMs,
-          git: true,
+          git: false,
           projects: { project: { root: projectRoot } },
         },
         { dir: cfgDir },
@@ -818,7 +825,7 @@ ${IDLE_HANG_WAIT}
           maxIterations: 5,
           iterationTimeoutMs: 30 * 60_000,
           idleOutputTimeoutMs: idleTimeoutMs,
-          git: true,
+          git: false,
           projects: { project: { root: projectRoot } },
         },
         { dir: cfgDir },
@@ -872,7 +879,7 @@ ${IDLE_HANG_WAIT}
           maxIterations: 3,
           iterationTimeoutMs: 30 * 60_000,
           idleOutputTimeoutMs: idleTimeoutMs,
-          git: true,
+          git: false,
           projects: { project: { root: projectRoot } },
         },
         { dir: cfgDir },
@@ -952,7 +959,7 @@ echo "done"
           maxIterations: 1,
           iterationTimeoutMs: 30 * 60_000,
           idleOutputTimeoutMs: idleTimeoutMs,
-          git: true,
+          git: false,
           projects: { project: { root: projectRoot } },
         },
         { dir: cfgDir },
@@ -998,7 +1005,7 @@ echo "done"
           maxIterations: 1,
           iterationTimeoutMs: 30 * 60_000,
           idleOutputTimeoutMs: idleTimeoutMs,
-          git: true,
+          git: false,
           projects: { project: { root: projectRoot } },
         },
         { dir: cfgDir },
@@ -1050,7 +1057,7 @@ echo "done"
           maxIterations: 1,
           iterationTimeoutMs: 30 * 60_000,
           idleOutputTimeoutMs: idleTimeoutMs,
-          git: true,
+          git: false,
           projects: { project: { root: projectRoot } },
         },
         { dir: cfgDir },

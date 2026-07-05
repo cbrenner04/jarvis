@@ -10,8 +10,8 @@ import {
   defineWorkflowStep,
   executeWorkflow,
   type HumanWorkflowStep,
-  resolveWorkflowPreset,
   type ReviewDebateWorkflowStep,
+  resolveWorkflowPreset,
   type WorkflowStepInput,
   type WriteWorkflowStep,
 } from "./workflow-runner.ts";

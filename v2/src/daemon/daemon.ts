@@ -79,8 +79,8 @@ export class WorktreeOwnershipRegistry {
 }
 
 /**
- * Rejects with `worktree_claimed` when a live run already holds `key`, or
- * returns `undefined` when the worktree is free to claim.
+ * Returns a `worktree_claimed` error result when a live run already holds
+ * `key`, or `undefined` when the worktree is free to claim.
  */
 export function checkWorktreeClaimed(
   registry: WorktreeOwnershipRegistry,

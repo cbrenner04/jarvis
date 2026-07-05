@@ -104,7 +104,7 @@ afterEach(async () => {
 socketTest(
   "revise on a dirty worktree spawns the repeated step's write loop under ~r1 and marks revising",
   async () => {
-    const client = await connectIpcClient(SOCKET_PATH);
+    const client = await connectIpcClient(SOCKET_PATH, 2_000);
     const { humanRunId } = seedRepeatedAndHumanRuns(2);
     dirty = true;
 
@@ -129,7 +129,7 @@ socketTest(
 );
 
 socketTest("revise on a clean worktree with no prompt is rejected revise_requires_input", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const { humanRunId } = seedRepeatedAndHumanRuns(2);
   dirty = false;
 
@@ -144,7 +144,7 @@ socketTest("revise on a clean worktree with no prompt is rejected revise_require
 });
 
 socketTest("revise on a clean worktree with a prompt succeeds and appends the prompt to stepRules", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const { humanRunId } = seedRepeatedAndHumanRuns(2);
   dirty = false;
 
@@ -162,7 +162,7 @@ socketTest("revise on a clean worktree with a prompt succeeds and appends the pr
 });
 
 socketTest("revise with no onRevise configured is rejected regardless of worktree or prompt", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const humanRunId = stateStore.createRun({
     project: "test-project",
     specRef: "main",
@@ -188,7 +188,7 @@ socketTest("revise with no onRevise configured is rejected regardless of worktre
 });
 
 socketTest("a second revise after re-convergence spawns stepId implement~r2", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const { humanRunId } = seedRepeatedAndHumanRuns(2);
   dirty = true;
 
@@ -216,7 +216,7 @@ socketTest("a second revise after re-convergence spawns stepId implement~r2", as
 });
 
 socketTest("revise is rejected revise_exhausted once maxRevisions is used up", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const { humanRunId } = seedRepeatedAndHumanRuns(1);
   dirty = true;
 
@@ -244,7 +244,7 @@ socketTest("revise is rejected revise_exhausted once maxRevisions is used up", a
 socketTest(
   "resume is accepted (not rejected as terminal) once a revising run re-converges to awaiting-human",
   async () => {
-    const client = await connectIpcClient(SOCKET_PATH);
+    const client = await connectIpcClient(SOCKET_PATH, 2_000);
     const { humanRunId } = seedRepeatedAndHumanRuns(2);
     dirty = true;
 

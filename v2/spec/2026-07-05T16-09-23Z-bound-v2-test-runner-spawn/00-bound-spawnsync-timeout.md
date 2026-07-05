@@ -26,9 +26,9 @@ never reproduced locally.
 
 ## Acceptance criteria
 
-- [ ] Both `spawnSync` calls in `scripts/run-v2-tests.ts` (per-file loop and `agent` mode) carry a timeout with `SIGKILL` on expiry, using separate per-file vs. agent-mode timeout values.
-- [ ] A timed-out `bun test` invocation exits the script non-zero with a message naming the mode and, when in the per-file loop, the file that was running, instead of hanging.
-- [ ] A test exercises the timeout-detection branch and the mode/file-naming in the error message via a synthetic `spawnSync`-result-shaped input, with no real long-running subprocess.
+- [x] Both `spawnSync` calls in `scripts/run-v2-tests.ts` (per-file loop and `agent` mode) carry a timeout with `SIGKILL` on expiry, using separate per-file vs. agent-mode timeout values.
+- [x] A timed-out `bun test` invocation exits the script non-zero with a message naming the mode and, when in the per-file loop, the file that was running, instead of hanging.
+- [x] A test exercises the timeout-detection branch and the mode/file-naming in the error message via a synthetic `spawnSync`-result-shaped input, with no real long-running subprocess.
 
 ## Documentation updates
 

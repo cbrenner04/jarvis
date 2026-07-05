@@ -16,9 +16,11 @@ exit-code, so the test no longer needs a real subprocess or the
   "just in case," which is exactly the redundant real-subprocess coverage
   this intent removes.
 - Rename the file to drop the `.sandbox-unrunnable` infix
-  (`shared/git.test.ts`) once it no longer spawns a real process, so it
-  routes through `test:v2`-style agent-runnable discovery conventions
-  (`v2/docs/test-writing.md`) rather than the real-process exception path.
+  (`shared/git.test.ts`) once it no longer spawns a real process. The infix
+  is a human/reviewer signal, not a test-discovery mechanism (`test:shared`
+  runs every file under `shared/` regardless of filename) — dropping it
+  reflects that the file is no longer a real-process exception, it doesn't
+  change what test command picks it up.
 
 ## Task checklist
 

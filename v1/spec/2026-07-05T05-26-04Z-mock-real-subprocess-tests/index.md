@@ -15,7 +15,7 @@
 - [x] [12 - v1 intent-command tests](./12-v1-intent-command-tests.md)
 - [x] [13 - v1 agent-spawn tests](./13-v1-agent-spawn-tests.md)
 - [x] [14 - v1 plan-mode small tests](./14-v1-plan-mode-small-tests.md)
-- [ ] [15 - v1 plan commits tests](./15-v1-plan-commits-tests.md)
+- [x] [15 - v1 plan commits tests](./15-v1-plan-commits-tests.md)
 - [ ] [16 - v1 plan review tests](./16-v1-plan-review-tests.md)
 - [ ] [17 - v1 plan PR tests](./17-v1-plan-pr-tests.md)
 - [ ] [18 - v1 plan-command tests](./18-v1-plan-command-tests.md)

@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { InvocationBinding, InvocationResult } from "../../../shared/invocation/execute.ts";
+import type {
+  InvocationBinding,
+  InvocationCompletedRecord,
+  InvocationResult,
+} from "../../../shared/invocation/execute.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
@@ -45,6 +49,7 @@ function createBindingFactory(
     return {
       id: `${agentId}/${adapterModel}`,
       invoke: ({ cwd }: Parameters<InvocationBinding["invoke"]>[0]) => invoke({ agentId, adapterModel, cwd }),
+      metadata: { agent: agentId, model: adapterModel },
     } satisfies InvocationBinding;
   };
 }
@@ -681,6 +686,7 @@ function createDebateBindingFactory(
     return {
       id: `${agentId}/${adapterModel}`,
       invoke: () => invoke({ agentId, adapterModel }),
+      metadata: { agent: agentId, model: adapterModel },
     } satisfies InvocationBinding;
   };
 }
@@ -695,12 +701,22 @@ function createDebateStep(
   return {
     behavior: "review-debate",
     cwd: "/fake",
+    project: "demo",
+    branch: "review-debate-workflow",
     prompts: { adversary: "find issues", advocate: "argue merits", adjudicator: "settle it" },
     maxCycles: 1,
     agents: { adversary: ["claude"], advocate: ["claude"], adjudicator: ["claude"], actuator: ["claude"] },
     agentModelConfig: DEBATE_AGENT_MODEL_CONFIG,
     ...overrides,
   };
+}
+
+function loadTelemetryRows(path: string): InvocationCompletedRecord[] {
+  return readFileSync(path, "utf8")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as InvocationCompletedRecord);
 }
 
 describe("executeWorkflow human steps", () => {
@@ -1173,6 +1189,145 @@ describe("executeWorkflow revising re-convergence", () => {
 
       const humanRun = store.loadRun(firstResult.runId);
       expect(humanRun?.status).toBe("awaiting-human");
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("executeWorkflow telemetry", () => {
+  test("write and review-debate steps in the same call share operator_session_id/workflow and one shared sink", async () => {
+    const store = openStateStore(":memory:");
+    const telemetryPath = join(mkdtempSync(join(tmpdir(), "workflow-telemetry-")), "telemetry.jsonl");
+
+    const writeStep = createStep({
+      stepId: "step-1",
+      role: "implement",
+      branchName: "telemetry-workflow",
+      createBinding: createBindingFactory(async ({ cwd }) => {
+        writeFileSync(`${cwd}/proof.txt`, "ok\n", "utf8");
+        return { kind: "ok", stdout: "done", stderr: "" } as const;
+      }),
+    });
+
+    const debateStep = createDebateStep({
+      stepId: "step-2",
+      verdictPath: debateVerdictPath(),
+      branch: "telemetry-workflow",
+      createBinding: createDebateBindingFactory(async ({ adapterModel }) => {
+        return { kind: "ok", stdout: adapterModel === "ADJ" ? "" : "ok", stderr: "" } as const;
+      }),
+    });
+
+    try {
+      const result = await executeWorkflow({
+        steps: [writeStep, debateStep],
+        stateStore: store,
+        telemetry: { operatorSessionId: "session-1", workflow: "demo-workflow", sinkPath: telemetryPath },
+      });
+
+      expect(result.kind).toBe("complete");
+      const rows = loadTelemetryRows(telemetryPath);
+
+      const writeRows = rows.filter((row) => row.step_id === "step-1");
+      const debateRows = rows.filter((row) => row.step_id === "step-2");
+      expect(writeRows).toHaveLength(1);
+      expect(debateRows).toHaveLength(3);
+
+      for (const row of rows) {
+        expect(row.operator_session_id).toBe("session-1");
+        expect(row.workflow).toBe("demo-workflow");
+        expect(row.schema_version).toBe(1);
+        expect(row.record_kind).toBe("invocation_completed");
+      }
+
+      expect(writeRows[0]?.role).toBe("implement");
+      expect(new Set(debateRows.map((row) => row.role))).toEqual(new Set(["adversary", "advocate", "adjudicator"]));
+      expect(new Set(debateRows.map((row) => row.run_id)).size).toBe(1);
+      expect(new Set(debateRows.map((row) => row.attempt_id)).size).toBe(1);
+
+      // Full per-row field-set parity: both behaviors populate the same required context fields.
+      const writeRow = writeRows[0];
+      const debateRow = debateRows[0];
+      expect(Object.keys(writeRow ?? {}).sort()).toEqual(Object.keys(debateRow ?? {}).sort());
+      expect(writeRow?.project).toBe("demo");
+      expect(writeRow?.branch).toBe("telemetry-workflow");
+      expect(writeRow?.spec_ref).toBe("HEAD");
+      expect(typeof writeRow?.worktree_path).toBe("string");
+      expect(writeRow?.worktree_path).toContain("telemetry-workflow");
+      expect(debateRow?.project).toBe("demo");
+      expect(debateRow?.branch).toBe("telemetry-workflow");
+      expect(debateRow?.spec_ref).toBe("");
+      expect(debateRow?.worktree_path).toBe("/fake");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("review-debate rows share one run_id and attempt_id across multiple cycles and roles", async () => {
+    const store = openStateStore(":memory:");
+    const telemetryPath = join(mkdtempSync(join(tmpdir(), "workflow-telemetry-cycles-")), "telemetry.jsonl");
+
+    let adjudicatorCalls = 0;
+    const createBinding = createDebateBindingFactory(async ({ adapterModel }) => {
+      if (adapterModel === "ADJ") {
+        adjudicatorCalls += 1;
+        // First cycle: non-empty verdict runs the actuator and continues to cycle 2.
+        // Second cycle: empty verdict stops the loop after the adjudicator.
+        return { kind: "ok", stdout: adjudicatorCalls === 1 ? "apply this fix" : "", stderr: "" } as const;
+      }
+      return { kind: "ok", stdout: "ok", stderr: "" } as const;
+    });
+
+    const step = createDebateStep({
+      stepId: "debate-1",
+      verdictPath: debateVerdictPath(),
+      maxCycles: 2,
+      createBinding,
+    });
+
+    try {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        telemetry: { operatorSessionId: "session-1", workflow: "demo-workflow", sinkPath: telemetryPath },
+      });
+
+      expect(result.kind).toBe("complete");
+      const rows = loadTelemetryRows(telemetryPath);
+
+      // Cycle 1: adversary, advocate, adjudicator, actuator. Cycle 2: adversary, advocate, adjudicator (empty verdict stops before actuator).
+      expect(rows).toHaveLength(7);
+      expect(new Set(rows.map((row) => row.run_id)).size).toBe(1);
+      expect(new Set(rows.map((row) => row.attempt_id)).size).toBe(1);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("omitting telemetry from executeWorkflow emits no rows for either step behavior", async () => {
+    const store = openStateStore(":memory:");
+    const telemetryPath = join(mkdtempSync(join(tmpdir(), "workflow-telemetry-")), "telemetry.jsonl");
+
+    const writeStep = createStep({
+      stepId: "step-1",
+      role: "implement",
+      branchName: "telemetry-omitted",
+    });
+    const debateStep = createDebateStep({
+      stepId: "step-2",
+      verdictPath: debateVerdictPath(),
+      branch: "telemetry-omitted",
+      createBinding: createDebateBindingFactory(async ({ adapterModel }) => {
+        return { kind: "ok", stdout: adapterModel === "ADJ" ? "" : "ok", stderr: "" } as const;
+      }),
+    });
+
+    try {
+      const result = await executeWorkflow({ steps: [writeStep, debateStep], stateStore: store });
+
+      expect(result.kind).toBe("complete");
+      expect(() => readFileSync(telemetryPath, "utf8")).toThrow();
     } finally {
       store.close();
     }

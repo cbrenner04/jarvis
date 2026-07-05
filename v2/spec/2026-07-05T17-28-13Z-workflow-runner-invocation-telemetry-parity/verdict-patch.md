@@ -1,0 +1,11 @@
+## Verdict: Required Refinements
+
+**1. Prove multi-cycle `run_id`/`attempt_id` constancy for review-debate steps.**
+The acceptance criterion requires that a review-debate step's rows share one `run_id` and one `attempt_id` across *every cycle and role* in that step invocation. The current test coverage only exercises a single debate cycle (three roles, no revision loop), so the criterion is unverified for the multi-cycle case even though the implementation synthesizes the IDs once per call and should satisfy it by construction. Add a test fixture that drives a review-debate step through more than one cycle and assert the emitted rows all carry the same `run_id` and `attempt_id`. Without this, the acceptance criterion is only inferred from code reading, not demonstrated.
+
+**2. Assert full per-row field-set parity between write and review-debate telemetry rows.**
+The third acceptance criterion requires that rows from both step behaviors share identical field names/types for every required context field in `v2/docs/telemetry-capture.md`'s `invocation_completed` section — not just `operator_session_id`, `workflow`, `schema_version`, `record_kind`, and role. Existing tests don't assert on `project`, `worktree_path`, `branch`, or `spec_ref` per row. Extend the test assertions to check these fields explicitly on both a write-step row and a review-debate-step row from the same `executeWorkflow` call, confirming no per-behavior fork in shape. This is a test-coverage gap, not a code defect, but the acceptance criterion as written demands it be shown, not assumed.
+
+**No action required:**
+- The silently-dropped `telemetryFailures` gap in `shared/invocation/execute.ts` is real but pre-existing shared infra this subspec consumes rather than introduces, and fixing it would require expanding `WriteLoopInput`/`ReviewDebateInput`'s output contracts — out of this subspec's declared scope. Track it as a follow-up subspec/issue instead of blocking here.
+- The stale "F2" phase citation lives in `intent.md`, an immutable planning artifact not treated as a living doc in this repo's conventions. The actual target of the prior verdict's doc-fix requirement — `v2/docs/telemetry-capture.md`'s build-order table — was correctly updated to merge Phase 5/6 into one reconciled entry. No further doc change needed.

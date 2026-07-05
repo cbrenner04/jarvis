@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import {
@@ -15,7 +17,17 @@ import {
   type ReviewDebateRoleBindings,
 } from "./review-debate.ts";
 import { parseRevisionNumber } from "./revision-step-id.ts";
+import { buildJsonlSink } from "./telemetry-sink.ts";
 import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "./write-loop.ts";
+
+const DEFAULT_TELEMETRY_SINK_PATH = join(homedir(), ".jarvis", "telemetry.jsonl");
+
+/** Workflow-runner-level telemetry context, shared identically across write and review-debate steps. */
+export type WorkflowTelemetryContext = {
+  operatorSessionId: string;
+  workflow: string;
+  sinkPath?: string;
+};
 
 const WORKFLOW_PRESET_LENGTHS = {
   "write-write": 2,
@@ -56,6 +68,8 @@ export type ReviewDebateStepAgents = Record<ReviewDebateRole, readonly string[]>
 export type ReviewDebateWorkflowStep = Omit<ReviewDebateInput, "bindings" | "onRoleStart"> & {
   stepId: string;
   behavior: "review-debate";
+  project: string;
+  branch: string;
   agents: ReviewDebateStepAgents;
   agentModelConfig: AgentModelConfig;
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
@@ -92,6 +106,8 @@ export type WorkflowRunnerInput = {
   logSink?: LogSink;
   /** Reports a `review-debate` step's live/terminal role progress, keyed by `invocationId`+`stepId`. */
   onReviewDebateProgress?: (invocationId: string, stepId: string, progress: ReviewDebateProgress) => void;
+  /** Shared telemetry context for every step's invocations; omitted emits no `invocation_completed` rows. */
+  telemetry?: WorkflowTelemetryContext;
 };
 
 /** Build the runtime step shape from authoring input; `behavior` selects the dispatch path. */
@@ -145,6 +161,7 @@ async function runWorkflowStep(
   store: StateStore,
   logSink: LogSink | undefined,
   onReviewDebateProgress: ((invocationId: string, stepId: string, progress: ReviewDebateProgress) => void) | undefined,
+  telemetry: WorkflowTelemetryContext | undefined,
 ): Promise<WorkflowStepOutcome> {
   if (step.behavior === "human") {
     const humanStep = prepareHumanWorkflowStep(step, workflowSnapshot, store);
@@ -157,10 +174,10 @@ async function runWorkflowStep(
   }
 
   if (step.behavior === "review-debate") {
-    return runReviewDebateStep(step, workflowSnapshot.invocationId, onReviewDebateProgress);
+    return runReviewDebateStep(step, workflowSnapshot.invocationId, onReviewDebateProgress, telemetry);
   }
 
-  const preparedStep = prepareWorkflowStep(step, workflowSnapshot, store, logSink);
+  const preparedStep = prepareWorkflowStep(step, workflowSnapshot, store, logSink, telemetry);
   if (preparedStep.kind === "completed") {
     return { kind: "complete", runId: preparedStep.runId, iterationsConsumed: 0, resumable: false };
   }
@@ -209,6 +226,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         store,
         args.logSink,
         args.onReviewDebateProgress,
+        args.telemetry,
       );
       totalIterationsConsumed += stepResult.iterationsConsumed;
       lastResult = stepResult;
@@ -438,7 +456,8 @@ function prepareWorkflowStep(
   step: WriteWorkflowStep,
   workflowSnapshot: WorkflowSnapshot,
   store: StateStore,
-  logSink?: LogSink,
+  logSink: LogSink | undefined,
+  telemetry: WorkflowTelemetryContext | undefined,
 ): PreparedWorkflowStep {
   const existingRun = store.findRunByProjectBranch({
     project: step.worktree.projectName,
@@ -467,6 +486,16 @@ function prepareWorkflowStep(
       bindings,
       stateStore: store,
       ...(logSink !== undefined ? { logSink } : {}),
+      ...(telemetry !== undefined
+        ? {
+            telemetry: {
+              sinkPath: telemetry.sinkPath ?? DEFAULT_TELEMETRY_SINK_PATH,
+              operatorSessionId: telemetry.operatorSessionId,
+              workflow: telemetry.workflow,
+              role,
+            },
+          }
+        : {}),
     },
   };
 }
@@ -488,9 +517,12 @@ async function runReviewDebateStep(
   step: ReviewDebateWorkflowStep,
   invocationId: string,
   onProgress: ((invocationId: string, stepId: string, progress: ReviewDebateProgress) => void) | undefined,
+  telemetry: WorkflowTelemetryContext | undefined,
 ): Promise<ReviewDebateStepOutcome> {
-  const { stepId, agents, agentModelConfig, createBinding, ...debateInput } = step;
+  const { stepId, project, branch, agents, agentModelConfig, createBinding, ...debateInput } = step;
   const resolveBindings = createBinding ?? createResolvedAgentBinding;
+  const runId = crypto.randomUUID();
+  const attemptId = crypto.randomUUID();
 
   const bindings = Object.fromEntries(
     REVIEW_DEBATE_ROLES.map((role) => [
@@ -502,6 +534,22 @@ async function runReviewDebateStep(
   const result = await executeReviewDebate({
     ...debateInput,
     bindings,
+    ...(telemetry !== undefined
+      ? {
+          telemetry: {
+            sink: buildJsonlSink(telemetry.sinkPath ?? DEFAULT_TELEMETRY_SINK_PATH),
+            operatorSessionId: telemetry.operatorSessionId,
+            runId,
+            attemptId,
+            project,
+            workflow: telemetry.workflow,
+            stepId,
+            worktreePath: step.cwd,
+            branch,
+            specRef: "",
+          },
+        }
+      : {}),
     ...(onProgress !== undefined
       ? { onRoleStart: (role: ReviewDebateRole) => onProgress(invocationId, stepId, { status: "in_progress", role }) }
       : {}),
@@ -518,5 +566,5 @@ async function runReviewDebateStep(
     terminalOutcome: kind,
   });
 
-  return { kind, runId: crypto.randomUUID(), iterationsConsumed: result.cycles.length, resumable: false };
+  return { kind, runId, iterationsConsumed: result.cycles.length, resumable: false };
 }

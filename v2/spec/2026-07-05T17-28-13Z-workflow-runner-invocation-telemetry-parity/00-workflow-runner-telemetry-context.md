@@ -28,11 +28,11 @@ the workflow runner emits telemetry, for either behavior.
 
 ## Acceptance criteria
 
-- [ ] `executeWorkflow({ steps, telemetry: { operatorSessionId, workflow, sinkPath } })` emits one `invocation_completed` row per binding attempt for a `write` step, appended to the resolved sink, with `operator_session_id`, `workflow`, `step_id`, `role` set from the workflow-runner-constructed context.
-- [ ] The same `executeWorkflow` call emits `invocation_completed` rows for a `review-debate` step's role invocations, appended to the same sink, with `operator_session_id` and `workflow` matching the write step's values and a `role` per debate role.
-- [ ] `invocation_completed` rows emitted for a `write` step and a `review-debate` step in the same `executeWorkflow` call share identical field names and types — `schema_version`, `record_kind`, and every required context field in `v2/docs/telemetry-capture.md`'s `invocation_completed` section — no per-behavior fork in shape.
-- [ ] A `review-debate` step's rows share one `run_id` and one `attempt_id` across every cycle and role in that step invocation.
-- [ ] Omitting `telemetry` from `executeWorkflow`'s input emits no `invocation_completed` rows for either step behavior.
+- [x] `executeWorkflow({ steps, telemetry: { operatorSessionId, workflow, sinkPath } })` emits one `invocation_completed` row per binding attempt for a `write` step, appended to the resolved sink, with `operator_session_id`, `workflow`, `step_id`, `role` set from the workflow-runner-constructed context.
+- [x] The same `executeWorkflow` call emits `invocation_completed` rows for a `review-debate` step's role invocations, appended to the same sink, with `operator_session_id` and `workflow` matching the write step's values and a `role` per debate role.
+- [x] `invocation_completed` rows emitted for a `write` step and a `review-debate` step in the same `executeWorkflow` call share identical field names and types — `schema_version`, `record_kind`, and every required context field in `v2/docs/telemetry-capture.md`'s `invocation_completed` section — no per-behavior fork in shape.
+- [x] A `review-debate` step's rows share one `run_id` and one `attempt_id` across every cycle and role in that step invocation.
+- [x] Omitting `telemetry` from `executeWorkflow`'s input emits no `invocation_completed` rows for either step behavior.
 
 ## Documentation updates
 

@@ -1,0 +1,11 @@
+Verdict: Refinement required.
+
+1. **Coverage gap for `resume` and `revise`.** The existing test suites cited as "stays green" pins (`daemon-registry.test.ts`, `daemon-revise.test.ts`, and the `start`/`resume` RPC-level `worktree_claimed` coverage in `daemon-start-list.test.ts`) do not actually assert `worktree_claimed` rejection for `resume` or `revise` — only `start` has RPC-level coverage today. As written, the subspec's safety net (existing tests pin call-site wiring, new unit tests pin extracted logic) only holds for `start`; extraction of the `resume`/`revise` call sites would be unpinned at the RPC level.
+
+   **Required outcome:** The subspec must add RPC-level `worktree_claimed` regression coverage for `resume` and `revise` (in addition to the new direct unit tests against the extracted function), so all three call sites the extraction touches have wiring-level pinning, not just `start`. Update the acceptance criteria to name this new coverage explicitly rather than relying on the (partially incorrect) "stays green" framing for `resume`/`revise`.
+
+2. **Return-value hedge for the not-claimed case.** The decision text hedges between `undefined`/`null` for the extracted function's return value when the worktree is not claimed. This ambiguity should be resolved before implementation.
+
+   **Required outcome:** The Decision section should commit to a single return value (`undefined`) for the not-claimed case, consistent with TypeScript strict-mode convention, so the implementer and the new unit tests have an unambiguous contract to check against.
+
+**Rationale:** Per spec guidance's refactor-AC rule, "stays green" citations are only trustworthy if the cited tests actually exercise the behavior being preserved — asserting it for tests that don't cover `resume`/`revise` risks the same paraphrase failure mode the guidance warns against (asserting behavior no test actually proves). The intent's own acceptance criteria call for unit tests "independent of a real IPC round trip" alongside preserved RPC coverage; without `resume`/`revise` RPC assertions, the extraction is unpinned at two of its three call sites, undermining the "no behavior change" guarantee the intent requires.

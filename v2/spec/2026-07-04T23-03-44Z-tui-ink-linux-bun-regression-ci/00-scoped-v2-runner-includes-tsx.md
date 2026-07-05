@@ -19,10 +19,10 @@ for the PRs that touch it."
 
 ## Acceptance criteria
 
-- [ ] `walkV2TestFiles()` includes `v2/src/tui/tui-field-collector.test.tsx`, `tui-log-follow-entry.test.tsx`, and `tui-entry.test.tsx` in its result.
-- [ ] `bun run test:v2` runs the `loadInkUi` smoke test in `tui-field-collector.test.tsx` (verify via `bun run test:v2 2>&1 | grep -c "smoke: loadInkUi"` showing 1, or equivalent).
-- [ ] `tui-log-follow-entry.test.tsx` and `tui-entry.test.tsx` pass under `bun run test:v2` after the glob widening (no pre-existing failures surfaced).
-- [ ] `scripts/ci-test-scope.test.ts`'s `"v2-only change runs test:v2 + test:integration:v2"` case stays green, confirming a `v2/**`-only diff still selects both scripts unchanged.
+- [x] `walkV2TestFiles()` includes `v2/src/tui/tui-field-collector.test.tsx`, `tui-log-follow-entry.test.tsx`, and `tui-entry.test.tsx` in its result.
+- [x] `bun run test:v2` runs the `loadInkUi` smoke test in `tui-field-collector.test.tsx` (verify via `bun run test:v2 2>&1 | grep -c "smoke: loadInkUi"` showing 1, or equivalent).
+- [x] `tui-log-follow-entry.test.tsx` and `tui-entry.test.tsx` pass under `bun run test:v2` after the glob widening (no pre-existing failures surfaced).
+- [x] `scripts/ci-test-scope.test.ts`'s `"v2-only change runs test:v2 + test:integration:v2"` case stays green, confirming a `v2/**`-only diff still selects both scripts unchanged.
 
 ## Documentation updates
 

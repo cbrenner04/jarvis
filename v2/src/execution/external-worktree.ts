@@ -154,9 +154,7 @@ function assertReusableWorktreeMatches(
 }
 
 function gitCommonDir(cwd: string, runner: SubprocessRunner): string {
-  return resolve(
-    runner.run("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], cwd).trim(),
-  );
+  return resolve(runner.run("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], cwd).trim());
 }
 
 function pruneMissingWorktrees(projectRoot: string, runner: SubprocessRunner): void {

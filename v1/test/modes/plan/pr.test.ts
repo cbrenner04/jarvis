@@ -9,7 +9,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent, AgentResult } from "../../../src/agents/types.ts";
 import { buildPlanPrHeader, generatePrDescription, updatePlanPrBody } from "../../../src/modes/plan/pr.ts";
-import { extractNarrative, markGeneratedNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER } from "../../../src/pr.ts";
+import {
+  extractNarrative,
+  markGeneratedNarrative,
+  NARRATIVE_END_MARKER,
+  NARRATIVE_START_MARKER,
+} from "../../../src/pr.ts";
 
 describe("buildPlanPrHeader", () => {
   test("builds header with correct name interpolation", () => {

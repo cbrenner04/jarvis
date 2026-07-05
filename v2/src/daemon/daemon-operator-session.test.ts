@@ -9,8 +9,14 @@ describe("applyOperatorSessionId", () => {
   });
 
   test("same daemon id applied across multiple inputs", () => {
-    const a = { ...mockWriteLoopInput(), telemetry: { sinkPath: "/tmp/a", operatorSessionId: "caller-a", workflow: "wf", role: "actuator" } };
-    const b = { ...mockWriteLoopInput(), telemetry: { sinkPath: "/tmp/b", operatorSessionId: "caller-b", workflow: "wf", role: "actuator" } };
+    const a = {
+      ...mockWriteLoopInput(),
+      telemetry: { sinkPath: "/tmp/a", operatorSessionId: "caller-a", workflow: "wf", role: "actuator" },
+    };
+    const b = {
+      ...mockWriteLoopInput(),
+      telemetry: { sinkPath: "/tmp/b", operatorSessionId: "caller-b", workflow: "wf", role: "actuator" },
+    };
 
     const resultA = applyOperatorSessionId(a, "daemon-id");
     const resultB = applyOperatorSessionId(b, "daemon-id");

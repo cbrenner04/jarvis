@@ -524,8 +524,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       branch: input.worktree.branchName,
     };
 
-    // Claimed by a live run, or already queued for this (project, branch)?
-    if (_registry.isClaimed(key) || store.hasQueuedRun(key)) {
+    // Already queued for this (project, branch)? Never queue a second entry behind it.
+    if (store.hasQueuedRun(key)) {
       return {
         kind: "error",
         code: "worktree_claimed",
@@ -536,6 +536,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     const worktreePath = getExternalWorktreePath(input.worktree);
 
     if (!checkMemoryHeadroom()) {
+      // Queues even if the key is claimed by a live run — promotion's skip-and-continue
+      // logic resolves the conflict once memory clears.
       const runId = store.createRun({
         project: key.project,
         specRef: input.worktree.baseRef,
@@ -551,6 +553,15 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       // persisted; recheck once immediately rather than waiting for a later exit.
       promoteQueuedRun(true);
       return { kind: "response", result: { runId } };
+    }
+
+    // Claimed by a live run? Reject rather than admit a second live run for the same key.
+    if (_registry.isClaimed(key)) {
+      return {
+        kind: "error",
+        code: "worktree_claimed",
+        message: `Worktree already claimed for project=${key.project}, branch=${key.branch}`,
+      };
     }
 
     const runId = store.createRun({

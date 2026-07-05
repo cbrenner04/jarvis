@@ -53,7 +53,7 @@ Valid JSON with missing or invalid `kind` closes the connection.
 | --- | --- | --- | --- |
 | `health` | — | `{ ok: true }` | Channel liveness |
 | `status` | — | `{ state: "running" }` | Daemon-host liveness only — not run orchestration status |
-| `start` | `{ input: WriteLoopInput }` | `{ runId: string }` | Spawn a write loop in the background, or persist it `queued` if memory headroom is unavailable; returns immediately with run ID either way (see [Admission guards](#admission-guards-for-start-resume-revise)). Rejected `worktree_claimed` if the `(project, branch)` key is claimed by a live or queued run. |
+| `start` | `{ input: WriteLoopInput }` | `{ runId: string }` | Spawn a write loop in the background, or persist it `queued` if memory headroom is unavailable; returns immediately with run ID either way (see [Admission guards](#admission-guards-for-start-resume-revise)). Rejected `worktree_claimed` if an existing queued run holds the `(project, branch)` key, or if memory headroom is clear and the key is claimed by a live run. |
 | `list` | — | `{ runs: Array<{runId, project, branch, status, isLive, error?, workflow?}> }` | List durable runs merged with in-memory liveness; `isLive=true` only while the loop's Promise is executing. After spawn-boundary executor failure: `status: "failed"`, `isLive: false` (see [Spawn-boundary failure capture](#spawn-boundary-failure-capture)). Optional `error` on non-success terminals (see [Operator error on list and wait](#operator-error-on-list-and-wait)). Workflow-backed rows may also carry authored per-step progress (see [Workflow snapshots on list rows](#workflow-snapshots-on-list-rows)). |
 | `pause` | `{ runId: string }` | `{ ok: true }` | Signal graceful pause for an active run. The run continues at the next iteration boundary (in-flight step is not aborted). Rejected if run is unknown or not active. |
 | `kill` | `{ runId: string }` | `{ ok: true }` | Abort the run's signal immediately and record durable status `killed`. Leaves the worktree dirty. Rejected if run is unknown or not active. |
@@ -228,19 +228,25 @@ Rules:
 There is no global single in-flight guard — multiple runs may be active
 concurrently across different `(project, branch)` keys.
 
-1. **Per-`(project, branch)` key:** No overlapping runs for the same project
-   and branch. Rejected with `code: "worktree_claimed"` when the key is held
-   by a live run (`start`, `resume`, `revise`) or, for `start` only, by an
-   existing durable `queued` run for that key.
+1. **Existing queued run for the key (`start` only):** Rejected with
+   `code: "worktree_claimed"` when an existing durable `queued` run already
+   holds the `(project, branch)` key — never queue a second entry behind it.
 
-2. **Memory watermark (`start` only):** After the key check passes, `start`
-   checks `hasMemoryHeadroom()` (see [Memory watermark](#memory-watermark)).
-   Clearing the floor spawns and admits normally, returning `{ runId }`. Not
-   clearing it persists the run durably with status `queued` (its
+2. **Memory watermark (`start` only):** `start` then checks
+   `hasMemoryHeadroom()` (see [Memory watermark](#memory-watermark)). Not
+   clearing the floor persists the run durably with status `queued` (its
    `WriteLoopInput` saved for later promotion) and returns `{ runId }`
-   without spawning — `start` never blocks waiting for memory to free.
-   `resume` and `revise` have no memory check; once their key check passes
-   they spawn immediately.
+   without spawning, even if the key is currently held by a live run —
+   promotion's skip-and-continue logic (see
+   [Promotion of queued runs](#promotion-of-queued-runs)) resolves that
+   conflict once memory clears. `start` never blocks waiting for memory to
+   free.
+
+3. **Per-`(project, branch)` key (live claim):** Once memory clears the
+   floor, `start` is rejected with `code: "worktree_claimed"` when the key is
+   held by a live run — the same guard applies to `resume` and `revise`,
+   which have no memory check and spawn immediately once their key check
+   passes.
 
 ## Streaming
 

@@ -22,4 +22,4 @@ no operator session tag.
 
 ## Documentation updates
 
-- `v2/docs/telemetry-capture.md`: under "Operator session", note the daemon bootstrap point is implemented (`v2/src/daemon/daemon.ts` `startDaemon`), scoped to the daemon process lifetime, not just planned.
+- `v2/docs/telemetry-capture.md`: under "Operator session", note the daemon bootstrap point is implemented (`v2/src/daemon/daemon.ts` `startDaemon`), scoped to the daemon process lifetime, and that the daemon's minted id always overrides any caller-supplied `operatorSessionId` (override-wins precedence) — not just that the bootstrap point is implemented.

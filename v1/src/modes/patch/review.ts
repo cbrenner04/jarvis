@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
+import { getCurrentBranch } from "../../../../shared/git.ts";
 import type { InvocationBinding } from "../../../../shared/invocation/execute.ts";
 import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
-import { getCurrentBranch } from "../../../../shared/git.ts";
 import { createAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../agents/types.ts";
 import { appendAgentTrailer } from "../../commit-trailer.ts";

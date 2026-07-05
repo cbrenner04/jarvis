@@ -132,7 +132,7 @@ socketTest("invalid kind closes the connection", async () => {
 });
 
 socketTest("nextFrame() with no timeoutMs falls back to the client's default timeout", async () => {
-  const client = await connectIpcClient(SOCKET_PATH, { defaultTimeoutMs: 50 });
+  const client = await connectIpcClient(SOCKET_PATH, 50);
   await expect(client.nextFrame()).rejects.toThrow("timed out waiting for frame");
   client.close();
 });

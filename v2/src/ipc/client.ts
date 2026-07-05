@@ -11,11 +11,6 @@ export type IpcClient = {
 /** Applied to `nextFrame()` calls that omit `timeoutMs`, so an unresponsive server fails fast instead of hanging. */
 export const DEFAULT_NEXT_FRAME_TIMEOUT_MS = 10_000;
 
-export type IpcClientOptions = {
-  /** Overrides {@link DEFAULT_NEXT_FRAME_TIMEOUT_MS} for calls to `nextFrame()` that omit `timeoutMs`. */
-  defaultTimeoutMs?: number;
-};
-
 function connectSocket(socketPath: string): Promise<Socket> {
   return new Promise((resolve, reject) => {
     const socket = new Socket();
@@ -25,8 +20,10 @@ function connectSocket(socketPath: string): Promise<Socket> {
   });
 }
 
-export async function connectIpcClient(socketPath: string, options?: IpcClientOptions): Promise<IpcClient> {
-  const defaultTimeoutMs = options?.defaultTimeoutMs ?? DEFAULT_NEXT_FRAME_TIMEOUT_MS;
+export async function connectIpcClient(
+  socketPath: string,
+  defaultTimeoutMs = DEFAULT_NEXT_FRAME_TIMEOUT_MS,
+): Promise<IpcClient> {
   const socket = await connectSocket(socketPath);
   const decoder = new FrameDecoder();
   const pending: IpcFrame[] = [];

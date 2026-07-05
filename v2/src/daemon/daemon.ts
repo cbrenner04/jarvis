@@ -495,8 +495,38 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return { kind: "error", code: "run_not_active", message: `Run ${runId} is not currently active` };
   };
 
+  function resumeAwaitingHuman(
+    run: LoadedRun,
+    decision: string | undefined,
+  ): { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string } {
+    if (decision === undefined) {
+      return { kind: "error", code: "invalid_params", message: "Missing decision for awaiting-human run" };
+    }
+
+    if (decision === "approve") {
+      store.setRunStatus(run.id, "completed");
+      return { kind: "response", result: { ok: true } };
+    }
+
+    if (decision === "abort") {
+      const ks = ownershipKeyString({ project: run.project, branch: run.branch });
+      const activeRun = activeRuns.get(ks);
+      if (activeRun && activeRun.runId === run.id) {
+        activeRun.abortController.abort();
+      }
+      store.setRunStatus(run.id, "killed");
+      return { kind: "response", result: { ok: true } };
+    }
+
+    if (decision === "revise") {
+      return { kind: "error", code: "revise_unsupported", message: "revise is not yet supported for human steps" };
+    }
+
+    return { kind: "error", code: "invalid_params", message: `Unknown decision: ${decision}` };
+  }
+
   const resumeHandler: RpcHandler = (frame) => {
-    const params = frame.params as { runId?: string } | undefined;
+    const params = frame.params as { runId?: string; decision?: string } | undefined;
     if (!params?.runId) {
       return { kind: "error", code: "invalid_params", message: "Missing runId" };
     }
@@ -507,13 +537,16 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       return { kind: "error", code: "unknown_run", message: `Run ${runId} not found` };
     }
 
+    if (run.status === "awaiting-human") {
+      return resumeAwaitingHuman(run, params.decision);
+    }
+
+    if (params.decision !== undefined) {
+      return { kind: "error", code: "invalid_params", message: "decision is only valid for awaiting-human runs" };
+    }
+
     // Reject terminal statuses
-    if (
-      run.status === "completed" ||
-      run.status === "failed" ||
-      run.status === "blocked" ||
-      run.status === "awaiting-human"
-    ) {
+    if (run.status === "completed" || run.status === "failed" || run.status === "blocked") {
       return { kind: "error", code: "terminal_run", message: `Cannot resume a ${run.status} run` };
     }
 

@@ -500,13 +500,12 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         return;
       }
 
-      const queuedInput = store.getQueuedInput(run.id);
-      if (!queuedInput) {
+      if (!run.queuedInput) {
         continue;
       }
 
       store.setRunStatus(run.id, "in-progress");
-      spawnWriteLoop(key, run.id, run.worktreePath, queuedInput);
+      spawnWriteLoop(key, run.id, run.worktreePath, run.queuedInput);
       promotionsSuppressedUntil = Date.now() + settleDelayMs;
       return;
     }

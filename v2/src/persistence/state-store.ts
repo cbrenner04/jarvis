@@ -60,9 +60,6 @@ export interface StateStore {
     queuedInput?: WriteLoopInput;
   }): string;
 
-  /** Read back a queued run's persisted `WriteLoopInput`; null if absent. */
-  getQueuedInput(runId: string): WriteLoopInput | null;
-
   /** Whether a non-terminal `queued` run exists for `(project, branch)`. */
   hasQueuedRun(args: { project: string; branch: string }): boolean;
 
@@ -186,7 +183,9 @@ function mapAttemptRow(row: Attempt & { invocationFailureDetailJson: string | nu
   };
 }
 
-function mapRunRow(row: Run & { workflowSnapshotJson: string | null; queuedInputJson: string | null }): Run {
+type RunRow = Run & { workflowSnapshotJson: string | null; queuedInputJson: string | null };
+
+function mapRunRow(row: RunRow): Run {
   const { workflowSnapshotJson, queuedInputJson, ...run } = row;
   return {
     ...run,
@@ -243,9 +242,7 @@ class StateStoreImpl implements StateStore {
   }
 
   loadRun(runId: string): (Run & { attempts: Attempt[] }) | null {
-    const runRow = this.db.prepare(`SELECT ${RUN_COLUMNS} FROM runs WHERE id = ?`).get(runId) as
-      | (Run & { workflowSnapshotJson: string | null; queuedInputJson: string | null })
-      | null;
+    const runRow = this.db.prepare(`SELECT ${RUN_COLUMNS} FROM runs WHERE id = ?`).get(runId) as RunRow | null;
     const run = runRow === null ? null : mapRunRow(runRow);
     if (!run) return null;
 
@@ -284,9 +281,7 @@ class StateStoreImpl implements StateStore {
     return (
       this.db
         .prepare(`SELECT ${RUN_COLUMNS} FROM runs WHERE project = ? AND branch = ? AND step_id LIKE ? ESCAPE '\\'`)
-        .all(args.project, args.branch, `${args.repeatStepId.replace(/[\\%_]/g, "\\$&")}~r%`) as Array<
-        Run & { workflowSnapshotJson: string | null; queuedInputJson: string | null }
-      >
+        .all(args.project, args.branch, `${args.repeatStepId.replace(/[\\%_]/g, "\\$&")}~r%`) as RunRow[]
     ).map(mapRunRow);
   }
 
@@ -346,17 +341,8 @@ class StateStoreImpl implements StateStore {
 
   listRuns(): Run[] {
     return (
-      this.db.prepare(`SELECT ${RUN_COLUMNS} FROM runs ORDER BY created_at DESC`).all() as Array<
-        Run & { workflowSnapshotJson: string | null; queuedInputJson: string | null }
-      >
+      this.db.prepare(`SELECT ${RUN_COLUMNS} FROM runs ORDER BY created_at DESC`).all() as RunRow[]
     ).map(mapRunRow);
-  }
-
-  getQueuedInput(runId: string): WriteLoopInput | null {
-    const row = this.db.prepare("SELECT queued_input AS queuedInputJson FROM runs WHERE id = ?").get(runId) as {
-      queuedInputJson: string | null;
-    } | null;
-    return row?.queuedInputJson ? (JSON.parse(row.queuedInputJson) as WriteLoopInput) : null;
   }
 
   hasQueuedRun(args: { project: string; branch: string }): boolean {
@@ -368,9 +354,8 @@ class StateStoreImpl implements StateStore {
 
   listQueuedRuns(): Run[] {
     return (
-      this.db.prepare(`SELECT ${RUN_COLUMNS} FROM runs WHERE status = 'queued' ORDER BY created_at ASC`).all() as Array<
-        Run & { workflowSnapshotJson: string | null; queuedInputJson: string | null }
-      >
+      this.db.prepare(`SELECT ${RUN_COLUMNS} FROM runs WHERE status = 'queued' ORDER BY created_at ASC`)
+        .all() as RunRow[]
     ).map(mapRunRow);
   }
 

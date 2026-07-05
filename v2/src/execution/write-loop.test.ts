@@ -168,7 +168,6 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     recordAttemptStart: (runId) => inner.recordAttemptStart(runId),
     setRunStatus: (runId, status) => inner.setRunStatus(runId, status),
     listRuns: () => inner.listRuns(),
-    getQueuedInput: (runId) => inner.getQueuedInput(runId),
     hasQueuedRun: (args) => inner.hasQueuedRun(args),
     listQueuedRuns: () => inner.listQueuedRuns(),
     close: () => inner.close(),

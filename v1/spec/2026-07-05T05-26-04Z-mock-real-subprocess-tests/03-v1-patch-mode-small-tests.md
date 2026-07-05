@@ -10,6 +10,8 @@ plumbing mockable at the subprocess boundary.
 
 - Extend boundary to production call sites under test as needed.
 - Keep only tests needing genuine subprocess behavior, with inline justification.
+- Parallel-hang unblock for these files is already met by `test:integration:v1`
+  (per-file subprocess isolation) — this subspec targets mock conversion only.
 
 ## Task checklist
 
@@ -20,9 +22,8 @@ plumbing mockable at the subprocess boundary.
 
 - [ ] Converted files spawn no real git/gh for mockable cases.
 - [ ] Any remaining real-subprocess tests carry inline justification.
-- [ ] `bun test v1/test/modes/patch/subspec.sandbox-unrunnable.test.ts` (or its
-      renamed successor) no longer hangs under `bun test --parallel` with the
-      full v1 suite.
+- [ ] Converted files run under `test:v1` agent slice (no `.sandbox-unrunnable`
+      suffix) or stay in integration slice with justification if still real-process.
 
 ## Documentation updates
 

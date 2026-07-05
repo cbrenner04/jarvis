@@ -14,12 +14,12 @@ the git/gh boundary.
 
 ## Task checklist
 
-- [ ] Audit whether real spawn is load-bearing.
-- [ ] Keep justified real test or convert to mock.
+- [x] Audit whether real spawn is load-bearing.
+- [x] Keep justified real test or convert to mock.
 
 ## Acceptance criteria
 
-- [ ] File either (a) remains real-process with inline justification why
+- [x] File either (a) remains real-process with inline justification why
       `SubprocessRunner` cannot substitute, or (b) is converted to a
       marker-free mock test and real-process assertion was verified redundant.
 

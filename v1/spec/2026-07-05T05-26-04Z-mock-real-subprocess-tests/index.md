@@ -1,8 +1,8 @@
 # Mock real git/gh subprocesses in tests
 
-- [ ] [00 - Subprocess boundary module and shared/git.ts](./00-subprocess-boundary.md)
-- [ ] [01 - Mock shared/git tests](./01-mock-shared-git-tests.md)
-- [ ] [02 - Audit shared/preload test](./02-audit-shared-preload.md)
+- [x] [00 - Subprocess boundary module and shared/git.ts](./00-subprocess-boundary.md)
+- [x] [01 - Mock shared/git tests](./01-mock-shared-git-tests.md)
+- [x] [02 - Audit shared/preload test](./02-audit-shared-preload.md)
 - [ ] [03 - v1 patch-mode small tests](./03-v1-patch-mode-small-tests.md)
 - [ ] [04 - v1 idle-hang fixture tests](./04-v1-idle-hang-tests.md)
 - [ ] [05 - v1 CLI tests](./05-v1-cli-tests.md)

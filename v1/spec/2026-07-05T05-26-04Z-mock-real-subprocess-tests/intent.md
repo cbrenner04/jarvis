@@ -23,6 +23,19 @@ bulk of sandbox-unrunnable coverage to mocked subprocess tests, keep a small
 justified real-subprocess set, and drop stale operator-runbook gotchas once
 the failure modes are gone.
 
+## Progress (landed outside subspec 00–02)
+
+Parallel-hang / review-gate unblock is **already satisfied** on this branch via
+test-slice infrastructure (not mock conversion):
+
+- `scripts/test-slice.ts`, `run-v1-tests.ts`, `run-tests.ts` — v1
+  `*.sandbox-unrunnable.test.ts` files excluded from parallel agent slices and
+  run one file per subprocess in `test:integration:v1`.
+- `bun run test:v1` and `bun run test:integration:v1` both green locally.
+
+Remaining work (subspecs 03–20) is mock conversion for determinism, wall-clock,
+and dropping stale runbook gotchas — not hang-unblock.
+
 ## Decisions
 
 - Mocking is the default; a test keeps real subprocesses only with an inline

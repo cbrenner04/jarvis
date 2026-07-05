@@ -15,14 +15,14 @@ for every case — redundant once subspec 00 lands.
 
 ## Task checklist
 
-- [ ] Rewrite as `shared/git.test.ts` with injected fake runner.
-- [ ] Remove `shared/git.sandbox-unrunnable.test.ts`.
+- [x] Rewrite as `shared/git.test.ts` with injected fake runner.
+- [x] Remove `shared/git.sandbox-unrunnable.test.ts`.
 
 ## Acceptance criteria
 
-- [ ] `shared/git.test.ts` covers local branch exists/doesn't, origin ref
+- [x] `shared/git.test.ts` covers local branch exists/doesn't, origin ref
       after fetch, and current branch — no real subprocess.
-- [ ] No `shared/git.sandbox-unrunnable.test.ts` remains.
+- [x] No `shared/git.sandbox-unrunnable.test.ts` remains.
 
 ## Documentation updates
 

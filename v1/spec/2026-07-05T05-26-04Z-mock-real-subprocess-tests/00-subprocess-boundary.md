@@ -21,15 +21,15 @@ stdout/exit-code in tests.
 
 ## Task checklist
 
-- [ ] Add `shared/subprocess.ts`.
-- [ ] Route `shared/git.ts` exports through injectable runner.
+- [x] Add `shared/subprocess.ts`.
+- [x] Route `shared/git.ts` exports through injectable runner.
 
 ## Acceptance criteria
 
-- [ ] `branchExistsLocal`, `branchExistsOnOrigin`, `getCurrentBranch` each
+- [x] `branchExistsLocal`, `branchExistsOnOrigin`, `getCurrentBranch` each
       accept optional `SubprocessRunner` from `shared/subprocess.ts`.
-- [ ] `shared/git.ts` no longer imports `execFileSync` or `node:child_process`.
-- [ ] Existing `v1/src/` and `v2/src/` call sites typecheck and run unmodified
+- [x] `shared/git.ts` no longer imports `execFileSync` or `node:child_process`.
+- [x] Existing `v1/src/` and `v2/src/` call sites typecheck and run unmodified
       against default runner — no required call-site edits.
 
 ## Documentation updates

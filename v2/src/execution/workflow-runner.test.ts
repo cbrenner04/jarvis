@@ -1245,6 +1245,56 @@ describe("executeWorkflow telemetry", () => {
       expect(new Set(debateRows.map((row) => row.role))).toEqual(new Set(["adversary", "advocate", "adjudicator"]));
       expect(new Set(debateRows.map((row) => row.run_id)).size).toBe(1);
       expect(new Set(debateRows.map((row) => row.attempt_id)).size).toBe(1);
+
+      // Full per-row field-set parity: both behaviors populate the same required context fields.
+      const writeRow = writeRows[0];
+      const debateRow = debateRows[0];
+      expect(Object.keys(writeRow ?? {}).sort()).toEqual(Object.keys(debateRow ?? {}).sort());
+      expect(writeRow?.project).toBe("demo");
+      expect(writeRow?.branch).toBe("telemetry-workflow");
+      expect(writeRow?.spec_ref).toBe("HEAD");
+      expect(typeof writeRow?.worktree_path).toBe("string");
+      expect(writeRow?.worktree_path).toContain("telemetry-workflow");
+      expect(debateRow?.project).toBe("demo");
+      expect(debateRow?.branch).toBe("telemetry-workflow");
+      expect(debateRow?.spec_ref).toBe("");
+      expect(debateRow?.worktree_path).toBe("/fake");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("review-debate rows share one run_id and attempt_id across multiple cycles and roles", async () => {
+    const store = openStateStore(":memory:");
+    const telemetryPath = join(mkdtempSync(join(tmpdir(), "workflow-telemetry-cycles-")), "telemetry.jsonl");
+
+    let adjudicatorCalls = 0;
+    const createBinding = createDebateBindingFactory(async ({ adapterModel }) => {
+      if (adapterModel === "ADJ") {
+        adjudicatorCalls += 1;
+        // First cycle: non-empty verdict runs the actuator and continues to cycle 2.
+        // Second cycle: empty verdict stops the loop after the adjudicator.
+        return { kind: "ok", stdout: adjudicatorCalls === 1 ? "apply this fix" : "", stderr: "" } as const;
+      }
+      return { kind: "ok", stdout: "ok", stderr: "" } as const;
+    });
+
+    const step = createDebateStep({ stepId: "debate-1", verdictPath: debateVerdictPath(), maxCycles: 2, createBinding });
+
+    try {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        telemetry: { operatorSessionId: "session-1", workflow: "demo-workflow", sinkPath: telemetryPath },
+      });
+
+      expect(result.kind).toBe("complete");
+      const rows = loadTelemetryRows(telemetryPath);
+
+      // Cycle 1: adversary, advocate, adjudicator, actuator. Cycle 2: adversary, advocate, adjudicator (empty verdict stops before actuator).
+      expect(rows).toHaveLength(7);
+      expect(new Set(rows.map((row) => row.run_id)).size).toBe(1);
+      expect(new Set(rows.map((row) => row.attempt_id)).size).toBe(1);
     } finally {
       store.close();
     }

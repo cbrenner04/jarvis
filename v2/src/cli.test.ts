@@ -645,6 +645,7 @@ describe("v2 cli", () => {
     let capturedAgents: readonly string[] | undefined;
 
     await main(WRITE_ARGS, cap.io, {
+      machineConfigPath: absentMachineConfigPath(),
       createBindings: (agentIds) => {
         capturedAgents = agentIds;
         return simulatedBindings(["done"]);
@@ -715,6 +716,7 @@ describe("v2 cli", () => {
     let captured: WriteLoopInput | undefined;
 
     await main(WRITE_ARGS, cap.io, {
+      machineConfigPath: absentMachineConfigPath(),
       executeWriteLoop: async (input) => {
         captured = input;
         return completeResult();

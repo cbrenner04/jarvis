@@ -33,12 +33,10 @@ function tempPaths() {
   };
 }
 
-function writeRawMachineConfig(text?: string): string {
+function writeRawMachineConfig(text: string): string {
   const dir = mkdtempSync(join(tmpdir(), "jarvis-cli-machine-config-"));
   const configPath = join(dir, "v2.json");
-  if (text !== undefined) {
-    writeFileSync(configPath, text);
-  }
+  writeFileSync(configPath, text);
   return configPath;
 }
 
@@ -348,7 +346,6 @@ describe("v2 cli", () => {
     let capturedAgents: readonly string[] | undefined;
 
     await main(WRITE_ARGS, cap.io, {
-      machineConfigPath: writeRawMachineConfig(),
       createBindings: (agentIds) => {
         capturedAgents = agentIds;
         return simulatedBindings(["done"]);
@@ -419,7 +416,6 @@ describe("v2 cli", () => {
     let captured: WriteLoopInput | undefined;
 
     await main(WRITE_ARGS, cap.io, {
-      machineConfigPath: writeRawMachineConfig(),
       executeWriteLoop: async (input) => {
         captured = input;
         return completeResult();

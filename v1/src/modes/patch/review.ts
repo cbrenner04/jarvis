@@ -1116,6 +1116,11 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
         if (record === undefined) {
           continue;
         }
+        const { classified } = record;
+        opts.fanout("harness", `review: actuator error (${classified.kind})\n`, "stderr");
+        if (classified.kind !== "quota" && classified.stderr.length > 0) {
+          opts.fanout("harness", classified.stderr, "stderr");
+        }
         if (attempt.result.kind === "quota") {
           emitActuatorQuotaFallback(record);
         } else if (attempt.result.kind === "error" && attempt.result.stderr.includes("aborted: idle-timeout")) {
@@ -1123,11 +1128,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
         }
       }
 
-      const finalAttempt = execution.final;
-      if (finalAttempt === null) {
-        opts.fanout("harness", "review: actuator no agents available\n", "stderr");
-        throw new ReviewTerminalError("actuator no agents available", 2);
-      }
+      const finalAttempt = execution.final!;
 
       const finalRecord = attemptByBinding.get(finalAttempt.binding);
       if (finalRecord === undefined) {

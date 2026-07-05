@@ -1,8 +1,8 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { branchExistsLocal, branchExistsOnOrigin, getCurrentBranch } from "../../../shared/git.ts";
+import { realSubprocessRunner, type SubprocessRunner } from "../../../shared/subprocess.ts";
 import { acquireLock, releaseLock, type WorktreeLock } from "../../../shared/worktree-lock.ts";
 
 /** Naming and git inputs for materialization. */
@@ -60,11 +60,12 @@ export function getExternalWorktreeLockPath(lockDir: string): string {
 export async function withExternalWorktree<T>(
   args: ExternalWorktreeInput,
   run: (worktree: ExternalWorktree) => Promise<T> | T,
+  runner: SubprocessRunner = realSubprocessRunner,
 ): Promise<WithExternalWorktreeResult<T>> {
   const lockRoot = ensureExternalWorktreeLockRoot(args);
   const lock = acquireExternalWorktreeLock(lockRoot);
   try {
-    const worktree = ensureExternalWorktree(args);
+    const worktree = ensureExternalWorktree(args, runner);
     const value = await run(worktree);
     return { worktree, lock, value };
   } finally {
@@ -73,10 +74,13 @@ export async function withExternalWorktree<T>(
 }
 
 /** Ensure a named external worktree exists and return its path. */
-export function ensureExternalWorktree(args: ExternalWorktreeInput): ExternalWorktree {
+export function ensureExternalWorktree(
+  args: ExternalWorktreeInput,
+  runner: SubprocessRunner = realSubprocessRunner,
+): ExternalWorktree {
   const worktreePath = getExternalWorktreePath(args);
-  if (isValidGitWorktree(worktreePath)) {
-    assertReusableWorktreeMatches(args, worktreePath);
+  if (isValidGitWorktree(worktreePath, runner)) {
+    assertReusableWorktreeMatches(args, worktreePath, runner);
     return { path: worktreePath, reused: true };
   }
   if (existsSync(worktreePath)) {
@@ -84,33 +88,21 @@ export function ensureExternalWorktree(args: ExternalWorktreeInput): ExternalWor
   }
 
   mkdirSync(dirname(worktreePath), { recursive: true });
-  pruneMissingWorktrees(args.projectRoot);
+  pruneMissingWorktrees(args.projectRoot, runner);
 
-  const branchExists = branchExistsLocal(args.projectRoot, args.branchName);
-  const branchExistsRemote = branchExistsOnOrigin(args.projectRoot, args.branchName);
+  const branchExists = branchExistsLocal(args.projectRoot, args.branchName, runner);
+  const branchExistsRemote = branchExistsOnOrigin(args.projectRoot, args.branchName, runner);
 
   if (branchExists || branchExistsRemote) {
     if (!branchExists && branchExistsRemote) {
-      execFileSync("git", ["branch", args.branchName, `origin/${args.branchName}`], {
-        cwd: args.projectRoot,
-        stdio: "pipe",
-      });
+      runner.run("git", ["branch", args.branchName, `origin/${args.branchName}`], args.projectRoot);
     }
-    execFileSync("git", ["worktree", "add", "--checkout", worktreePath, args.branchName], {
-      cwd: args.projectRoot,
-      stdio: "pipe",
-    });
+    runner.run("git", ["worktree", "add", "--checkout", worktreePath, args.branchName], args.projectRoot);
     return { path: worktreePath, reused: false };
   }
 
-  execFileSync("git", ["branch", args.branchName, args.baseRef], {
-    cwd: args.projectRoot,
-    stdio: "pipe",
-  });
-  execFileSync("git", ["worktree", "add", worktreePath, args.branchName], {
-    cwd: args.projectRoot,
-    stdio: "pipe",
-  });
+  runner.run("git", ["branch", args.branchName, args.baseRef], args.projectRoot);
+  runner.run("git", ["worktree", "add", worktreePath, args.branchName], args.projectRoot);
   return { path: worktreePath, reused: false };
 }
 
@@ -135,46 +127,36 @@ function ensureExternalWorktreeLockRoot(args: ExternalWorktreeInput): string {
   return lockRoot;
 }
 
-function isValidGitWorktree(worktreePath: string): boolean {
+function isValidGitWorktree(worktreePath: string, runner: SubprocessRunner): boolean {
   if (!existsSync(worktreePath)) return false;
   try {
-    const output = execFileSync("git", ["rev-parse", "--is-inside-work-tree"], {
-      cwd: worktreePath,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
-    return output === "true";
+    return runner.run("git", ["rev-parse", "--is-inside-work-tree"], worktreePath).trim() === "true";
   } catch {
     return false;
   }
 }
 
-function assertReusableWorktreeMatches(args: ExternalWorktreeInput, worktreePath: string): void {
-  const expectedRepo = gitCommonDir(args.projectRoot);
-  const actualRepo = gitCommonDir(worktreePath);
+function assertReusableWorktreeMatches(
+  args: ExternalWorktreeInput,
+  worktreePath: string,
+  runner: SubprocessRunner,
+): void {
+  const expectedRepo = gitCommonDir(args.projectRoot, runner);
+  const actualRepo = gitCommonDir(worktreePath, runner);
   if (expectedRepo !== actualRepo) {
     throw new Error(`existing worktree ${worktreePath} belongs to a different repository`);
   }
 
-  const currentBranch = getCurrentBranch(worktreePath);
+  const currentBranch = getCurrentBranch(worktreePath, runner);
   if (currentBranch !== args.branchName) {
     throw new Error(`existing worktree ${worktreePath} is on branch ${currentBranch}, expected ${args.branchName}`);
   }
 }
 
-function gitCommonDir(cwd: string): string {
-  return resolve(
-    execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
-      cwd,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim(),
-  );
+function gitCommonDir(cwd: string, runner: SubprocessRunner): string {
+  return resolve(runner.run("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], cwd).trim());
 }
 
-function pruneMissingWorktrees(projectRoot: string): void {
-  execFileSync("git", ["worktree", "prune"], {
-    cwd: projectRoot,
-    stdio: "pipe",
-  });
+function pruneMissingWorktrees(projectRoot: string, runner: SubprocessRunner): void {
+  runner.run("git", ["worktree", "prune"], projectRoot);
 }

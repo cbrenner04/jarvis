@@ -106,6 +106,28 @@ export function createFakeSpawnRecorder(): FakeSpawnRecorder {
   };
 }
 
+/**
+ * Recorder that returns a different canned result per spawn call, in order.
+ * Once the sequence is exhausted, the last entry repeats. Used for retry-loop
+ * tests where each attempt needs its own exit code/output.
+ */
+export function createFakeSpawnSequence(
+  results: ReadonlyArray<{ stdout?: string; stderr?: string; exit?: number }>,
+): FakeSpawnRecorder {
+  const records: FakeSpawnRecord[] = [];
+
+  return {
+    records,
+    only: () => onlyRecord(records),
+    spawn: (binary: string, argv: readonly string[], opts: SpawnOptions): ChildProcess => {
+      records.push({ binary, argv, opts });
+
+      const result = results[Math.min(records.length - 1, results.length - 1)];
+      return new FakeChildProcess(result?.stdout ?? "", result?.stderr ?? "", result?.exit ?? 0);
+    },
+  };
+}
+
 export function createFakeSpawnWithOutput(
   outputMap: Record<string, { stdout: string; stderr: string; exit: number }>,
 ): FakeSpawnRecorder {

@@ -554,7 +554,7 @@ export type RunOptions = {
   io?: Io;
   config?: ConfigOptions;
   cwd?: string;
-  init?: { workRoot?: string };
+  init?: { workRoot?: string; readOriginUrl?: (cwd: string) => string | undefined };
   run?: Partial<Pick<RunCommandOptions, "agents" | "handleSignals">>;
 };
 
@@ -661,6 +661,7 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
         io,
         config: opts.config,
         workRoot: opts.init?.workRoot,
+        ...(opts.init?.readOriginUrl !== undefined ? { readOriginUrl: opts.init.readOriginUrl } : {}),
       });
     case "config":
       return configCommand({ args: parsed.rest, io, config: opts.config });

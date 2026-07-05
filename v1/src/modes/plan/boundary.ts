@@ -1,6 +1,6 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { realSubprocessRunner, type SubprocessRunner } from "../../../../shared/subprocess.ts";
 
 export type BoundaryCheckResult = { ok: true } | { ok: false; offendingPaths: string[] };
 
@@ -17,15 +17,12 @@ export function assertPlanWriteBoundary(
   worktreePath: string,
   specDirBasename: string,
   targetDir: string = "spec",
+  runner: SubprocessRunner = realSubprocessRunner,
 ): BoundaryCheckResult {
   // Use git status --porcelain=v1 -z to get null-terminated output
   let output: string;
   try {
-    output = execFileSync("git", ["status", "--porcelain=v1", "-z"], {
-      cwd: worktreePath,
-      encoding: "utf8",
-      stdio: "pipe",
-    });
+    output = runner.run("git", ["status", "--porcelain=v1", "-z"], worktreePath);
   } catch (_err) {
     // If git status fails, treat it as a blocker rather than crashing
     return { ok: false, offendingPaths: ["(git status failed)"] };
@@ -66,7 +63,10 @@ export function assertPlanWriteBoundary(
  * When the project root is not a git repository, returns { ok: true }
  * without invoking git, since the boundary is enforced by the agent's cwd.
  */
-export function assertTargetRepoPlanBoundary(projectRoot: string): BoundaryCheckResult {
+export function assertTargetRepoPlanBoundary(
+  projectRoot: string,
+  runner: SubprocessRunner = realSubprocessRunner,
+): BoundaryCheckResult {
   // If projectRoot is not a git repository, no git-based boundary check is needed
   if (!existsSync(join(projectRoot, ".git"))) {
     return { ok: true };
@@ -74,11 +74,7 @@ export function assertTargetRepoPlanBoundary(projectRoot: string): BoundaryCheck
 
   let output: string;
   try {
-    output = execFileSync("git", ["status", "--porcelain=v1", "-z"], {
-      cwd: projectRoot,
-      encoding: "utf8",
-      stdio: "pipe",
-    });
+    output = runner.run("git", ["status", "--porcelain=v1", "-z"], projectRoot);
   } catch (_err) {
     return { ok: false, offendingPaths: ["(git status failed)"] };
   }
@@ -108,17 +104,18 @@ export function assertTargetRepoPlanBoundary(projectRoot: string): BoundaryCheck
  * Revert modified files by path using `git checkout --` and remove untracked
  * additions with `git clean -fd`.
  */
-export function revertPaths(worktreePath: string, paths: string[]): void {
+export function revertPaths(
+  worktreePath: string,
+  paths: string[],
+  runner: SubprocessRunner = realSubprocessRunner,
+): void {
   if (paths.length === 0) {
     return;
   }
 
   for (const path of paths) {
     try {
-      execFileSync("git", ["checkout", "--", path], {
-        cwd: worktreePath,
-        stdio: "pipe",
-      });
+      runner.run("git", ["checkout", "--", path], worktreePath);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (!message.includes(GIT_UNKNOWN_PATH_MESSAGE)) {
@@ -126,10 +123,7 @@ export function revertPaths(worktreePath: string, paths: string[]): void {
       }
     }
     try {
-      execFileSync("git", ["clean", "-fd", "--", path], {
-        cwd: worktreePath,
-        stdio: "pipe",
-      });
+      runner.run("git", ["clean", "-fd", "--", path], worktreePath);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`warning: failed to clean ${path}: ${message}`);

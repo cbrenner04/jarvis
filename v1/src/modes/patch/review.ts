@@ -53,16 +53,53 @@ import { DESCENDANT_POLL_INTERVAL_MS, DescendantTracker } from "./reap.ts";
 export const REVIEW_BLOCKER_FILE = ".jarvis-review-blocker";
 export const PATCH_VERDICT_FILE = "verdict-patch.md";
 
-export function detectSpecTreeEdits(specDir: string, cwd: string): string[] {
-  // Return spec files modified or newly created since the last commit. Uses
-  // porcelain status (not `git diff`) so untracked additions are caught too.
-  try {
-    const output = execFileSync("git", ["status", "--porcelain"], {
+/** Injectable seam for the git operations review.ts needs (status/checkout/clean/add/commit/reset). */
+export interface ReviewGitOps {
+  porcelainStatus(cwd: string): string;
+  checkoutPath(cwd: string, file: string): void;
+  cleanPath(cwd: string, file: string): void;
+  add(cwd: string): void;
+  commit(cwd: string, message: string): void;
+  resetPath(cwd: string, file: string): void;
+}
+
+export const realReviewGitOps: ReviewGitOps = {
+  porcelainStatus(cwd) {
+    return execFileSync("git", ["status", "--porcelain"], {
       cwd,
       encoding: "utf8",
       stdio: "pipe",
       ...GIT_SUBPROCESS_OPTS,
     });
+  },
+  checkoutPath(cwd, file) {
+    execFileSync("git", ["checkout", "HEAD", "--", file], { cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
+  },
+  cleanPath(cwd, file) {
+    execFileSync("git", ["clean", "-fd", "--", file], { cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
+  },
+  add(cwd) {
+    execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
+  },
+  commit(cwd, message) {
+    execFileSync("git", ["commit", "-F", "-"], {
+      cwd,
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+      input: message,
+      ...GIT_SUBPROCESS_OPTS,
+    });
+  },
+  resetPath(cwd, file) {
+    execFileSync("git", ["reset", "HEAD", "--", file], { cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
+  },
+};
+
+export function detectSpecTreeEdits(specDir: string, cwd: string, ops: ReviewGitOps = realReviewGitOps): string[] {
+  // Return spec files modified or newly created since the last commit. Uses
+  // porcelain status (not `git diff`) so untracked additions are caught too.
+  try {
+    const output = ops.porcelainStatus(cwd);
 
     const specRelPath = relative(cwd, specDir);
     const verdictRelPath = relative(cwd, join(specDir, PATCH_VERDICT_FILE));
@@ -80,44 +117,34 @@ export function detectSpecTreeEdits(specDir: string, cwd: string): string[] {
   }
 }
 
-export function revertSpecTreeEdits(specDir: string, cwd: string): void {
-  const editedFiles = detectSpecTreeEdits(specDir, cwd);
-  if (editedFiles.length === 0) {
-    return;
-  }
-
-  // Restore tracked files; `git clean` drops any untracked additions.
+/** Restore tracked `files`; `git clean` drops any untracked additions. Shared by both revert* helpers below. */
+function revertFiles(cwd: string, files: string[], ops: ReviewGitOps, context: string): void {
   try {
-    for (const file of editedFiles) {
+    for (const file of files) {
       try {
-        execFileSync("git", ["checkout", "HEAD", "--", file], {
-          cwd,
-          stdio: "pipe",
-          ...GIT_SUBPROCESS_OPTS,
-        });
+        ops.checkoutPath(cwd, file);
       } catch {
         // Untracked file: nothing to restore from HEAD; clean handles it below.
       }
-      execFileSync("git", ["clean", "-fd", "--", file], {
-        cwd,
-        stdio: "pipe",
-        ...GIT_SUBPROCESS_OPTS,
-      });
+      ops.cleanPath(cwd, file);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Failed to revert spec-tree edits: ${message}`);
+    throw new Error(`Failed to revert ${context}: ${message}`);
   }
 }
 
-function detectReviewerCodeEdits(specDir: string, cwd: string): string[] {
+export function revertSpecTreeEdits(specDir: string, cwd: string, ops: ReviewGitOps = realReviewGitOps): void {
+  const editedFiles = detectSpecTreeEdits(specDir, cwd, ops);
+  if (editedFiles.length === 0) {
+    return;
+  }
+  revertFiles(cwd, editedFiles, ops, "spec-tree edits");
+}
+
+function detectReviewerCodeEdits(specDir: string, cwd: string, ops: ReviewGitOps = realReviewGitOps): string[] {
   try {
-    const output = execFileSync("git", ["status", "--porcelain"], {
-      cwd,
-      encoding: "utf8",
-      stdio: "pipe",
-      ...GIT_SUBPROCESS_OPTS,
-    });
+    const output = ops.porcelainStatus(cwd);
 
     const specRelPath = relative(cwd, specDir);
     return output
@@ -132,33 +159,12 @@ function detectReviewerCodeEdits(specDir: string, cwd: string): string[] {
   }
 }
 
-function revertReviewerCodeEdits(specDir: string, cwd: string): void {
-  const editedFiles = detectReviewerCodeEdits(specDir, cwd);
+function revertReviewerCodeEdits(specDir: string, cwd: string, ops: ReviewGitOps = realReviewGitOps): void {
+  const editedFiles = detectReviewerCodeEdits(specDir, cwd, ops);
   if (editedFiles.length === 0) {
     return;
   }
-
-  try {
-    for (const file of editedFiles) {
-      try {
-        execFileSync("git", ["checkout", "HEAD", "--", file], {
-          cwd,
-          stdio: "pipe",
-          ...GIT_SUBPROCESS_OPTS,
-        });
-      } catch {
-        // Untracked file: nothing to restore from HEAD; clean handles it below.
-      }
-      execFileSync("git", ["clean", "-fd", "--", file], {
-        cwd,
-        stdio: "pipe",
-        ...GIT_SUBPROCESS_OPTS,
-      });
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Failed to revert reviewer code edits: ${message}`);
-  }
+  revertFiles(cwd, editedFiles, ops, "reviewer code edits");
 }
 
 // Read and remove the review-blocker sentinel file if the agent wrote one.
@@ -188,14 +194,10 @@ export function commitReviewPass(
   agentLabel: string,
   cwd: string,
   opts?: { branch?: string; base?: string; specPath?: string; prNarrative?: "template" | "agent" },
+  ops: ReviewGitOps = realReviewGitOps,
 ): void {
   // Check if there are any changes to commit
-  const porcelain = execFileSync("git", ["status", "--porcelain"], {
-    cwd,
-    encoding: "utf8",
-    stdio: "pipe",
-    ...GIT_SUBPROCESS_OPTS,
-  }).trim();
+  const porcelain = ops.porcelainStatus(cwd).trim();
 
   if (porcelain === "") {
     // No changes, skip commit
@@ -203,19 +205,13 @@ export function commitReviewPass(
   }
 
   // Stage all changes
-  execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
+  ops.add(cwd);
 
   // Create commit message
   const commitMessage = appendAgentTrailer(`review: pass ${passNumber}`, agentLabel);
 
   // Commit
-  execFileSync("git", ["commit", "-F", "-"], {
-    cwd,
-    env: process.env,
-    stdio: ["pipe", "pipe", "pipe"],
-    input: commitMessage,
-    ...GIT_SUBPROCESS_OPTS,
-  });
+  ops.commit(cwd, commitMessage);
 
   // Push
   pushCurrent({ cwd, firstPush: false });
@@ -329,6 +325,8 @@ export type PatchReviewPhaseOptions = {
   patchWorktreeDir?: string;
   /** Idle output timeout in milliseconds (0 to disable). */
   idleOutputTimeoutMs?: number | undefined;
+  /** Test seam: injectable git operations (defaults to real `execFileSync` git). */
+  ops?: ReviewGitOps;
 };
 
 type ReapOverride = PatchReviewPhaseOptions["__testReapOverride"];
@@ -516,6 +514,7 @@ function createPatchReviewAdapter(args: {
   base: string;
 }): ReviewAdapter {
   const { opts, specDir, branch, base } = args;
+  const ops = opts.ops ?? realReviewGitOps;
   const commitOpts = {
     specPath: opts.specPath,
     branch,
@@ -619,7 +618,7 @@ function createPatchReviewAdapter(args: {
       return prompt;
     },
     enforceWriteBoundary: async (ctx) => {
-      const editedSpecFiles = detectSpecTreeEdits(specDir, opts.cwd);
+      const editedSpecFiles = detectSpecTreeEdits(specDir, opts.cwd, ops);
       if (editedSpecFiles.length > 0) {
         opts.fanout(
           "harness",
@@ -627,7 +626,7 @@ function createPatchReviewAdapter(args: {
           "stderr",
         );
         try {
-          revertSpecTreeEdits(specDir, opts.cwd);
+          revertSpecTreeEdits(specDir, opts.cwd, ops);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           opts.fanout("harness", `review: revert failed: ${message}\n`, "stderr");
@@ -637,7 +636,7 @@ function createPatchReviewAdapter(args: {
 
       // Reviewer roles (adversary, advocate, adjudicator) are read-only on code; revert any code edits.
       if (ctx.role && ["adversary", "advocate", "adjudicator"].includes(ctx.role)) {
-        const editedCodeFiles = detectReviewerCodeEdits(specDir, opts.cwd);
+        const editedCodeFiles = detectReviewerCodeEdits(specDir, opts.cwd, ops);
         if (editedCodeFiles.length === 0) {
           return;
         }
@@ -647,7 +646,7 @@ function createPatchReviewAdapter(args: {
           "stderr",
         );
         try {
-          revertReviewerCodeEdits(specDir, opts.cwd);
+          revertReviewerCodeEdits(specDir, opts.cwd, ops);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           opts.fanout("harness", `review: failed to revert code edits: ${message}\n`, "stderr");
@@ -660,7 +659,7 @@ function createPatchReviewAdapter(args: {
       opts.fanout("harness", `review: pass ${ctx.passNumber} encountered blocker\n`, "stderr");
       let blockerCommitFailed = false;
       try {
-        commitReviewPass(ctx.passNumber, ctx.agent.name, opts.cwd, commitOpts);
+        commitReviewPass(ctx.passNumber, ctx.agent.name, opts.cwd, commitOpts, ops);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         opts.fanout("harness", `review: blocker commit failed: ${message}\n`, "stderr");
@@ -706,15 +705,10 @@ function createPatchReviewAdapter(args: {
             : `review: pass ${ctx.passNumber}`;
 
         // Stage all changes
-        execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
+        ops.add(opts.cwd);
 
         // Check for changes (excluding temp artifact files)
-        const porcelain = execFileSync("git", ["status", "--porcelain"], {
-          cwd: opts.cwd,
-          encoding: "utf8",
-          stdio: "pipe",
-          ...GIT_SUBPROCESS_OPTS,
-        }).trim();
+        const porcelain = ops.porcelainStatus(opts.cwd).trim();
 
         const hasRealChanges = porcelain
           .split("\n")
@@ -726,11 +720,7 @@ function createPatchReviewAdapter(args: {
         if (ctx.role) {
           const artifactPath = getRoleArtifactPath(opts.cwd, ctx.role, ctx.passNumber);
           try {
-            execFileSync("git", ["reset", "HEAD", "--", artifactPath], {
-              cwd: opts.cwd,
-              stdio: "pipe",
-              ...GIT_SUBPROCESS_OPTS,
-            });
+            ops.resetPath(opts.cwd, artifactPath);
             rmSync(artifactPath, { force: true });
           } catch {
             // best-effort
@@ -746,13 +736,7 @@ function createPatchReviewAdapter(args: {
         const commitMessage = appendAgentTrailer(roleLabel, ctx.agent.name);
 
         // Commit
-        execFileSync("git", ["commit", "-F", "-"], {
-          cwd: opts.cwd,
-          env: process.env,
-          stdio: ["pipe", "pipe", "pipe"],
-          input: commitMessage,
-          ...GIT_SUBPROCESS_OPTS,
-        });
+        ops.commit(opts.cwd, commitMessage);
 
         // Push
         pushCurrent({ cwd: opts.cwd, firstPush: false });
@@ -862,6 +846,8 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
     ...(descendantPollIntervalMs !== undefined ? { descendantPollIntervalMs } : {}),
   };
 
+  const ops = opts.ops ?? realReviewGitOps;
+
   // Create actuator that runs the patch agent with the verdict
   const createActuator = (actuatorOrder: AgentEntry[], actuatorAgents?: Agent[]) => {
     return async (verdict: string, ctx: ReviewPassContext): Promise<void> => {
@@ -914,7 +900,10 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       }));
 
       const bindings = actuatorOrder.map((agentEntry, rungIndex) => {
-        const bindingState = bindingStates[rungIndex]!;
+        const bindingState = bindingStates[rungIndex];
+        if (bindingState === undefined) {
+          throw new Error(`missing binding state at rung ${rungIndex}`);
+        }
         let spawnResultForBinding: AgentResult | undefined;
         let binding: InvocationBinding<AgentResult>;
 
@@ -1139,7 +1128,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
 
         recoverImmutableCopyOverreach({ copies: [], validation: { valid: true, error: null } });
 
-        const editedSpecFiles = detectSpecTreeEdits(specDir, opts.cwd);
+        const editedSpecFiles = detectSpecTreeEdits(specDir, opts.cwd, ops);
         if (editedSpecFiles.length > 0) {
           opts.fanout(
             "harness",
@@ -1147,7 +1136,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
             "stderr",
           );
           try {
-            revertSpecTreeEdits(specDir, opts.cwd);
+            revertSpecTreeEdits(specDir, opts.cwd, ops);
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             opts.fanout("harness", `review: revert failed: ${message}\n`, "stderr");
@@ -1155,24 +1144,13 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           }
         }
 
-        const porcelain = execFileSync("git", ["status", "--porcelain"], {
-          cwd: opts.cwd,
-          encoding: "utf8",
-          stdio: "pipe",
-          ...GIT_SUBPROCESS_OPTS,
-        }).trim();
+        const porcelain = ops.porcelainStatus(opts.cwd).trim();
 
         if (porcelain !== "") {
           try {
-            execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
+            ops.add(opts.cwd);
             const commitMessage = appendAgentTrailer("review: actuator", resolvedAgent.name);
-            execFileSync("git", ["commit", "-F", "-"], {
-              cwd: opts.cwd,
-              env: process.env,
-              stdio: ["pipe", "pipe", "pipe"],
-              input: commitMessage,
-              ...GIT_SUBPROCESS_OPTS,
-            });
+            ops.commit(opts.cwd, commitMessage);
 
             try {
               reconcileActuatorCommit(opts.cwd);

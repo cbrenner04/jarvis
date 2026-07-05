@@ -1,6 +1,6 @@
-import { execFileSync, execSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join, relative } from "node:path";
+import { realSubprocessRunner, type SubprocessRunner } from "../../../shared/subprocess.ts";
 import { stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
 import { closePr, findMatchingOpenPrs, type MatchingOpenPr } from "../pr.ts";
 import { checkAbandonPrEligibility, checkScopedAbandonPreflight, isMergedPr } from "../scoped-abandon-preflight.ts";
@@ -29,6 +29,7 @@ export type CleanupCommandOptions = {
   deleteLocalBranch?: (projectRoot: string, branchName: string) => void;
   deleteRemoteBranch?: (projectRoot: string, branchName: string) => void;
   candidateHomes?: string[];
+  runner?: SubprocessRunner;
 };
 
 type CleanupItem = { path: string; branch: string; dir: string };
@@ -39,12 +40,8 @@ type CleanupDeps = Required<
   >
 >;
 
-function branchForWorktree(worktreePath: string): string {
-  return execSync("git rev-parse --abbrev-ref HEAD", {
-    cwd: worktreePath,
-    stdio: "pipe",
-    encoding: "utf8",
-  }).trim();
+function branchForWorktree(worktreePath: string, runner: SubprocessRunner): string {
+  return runner.run("git", ["rev-parse", "--abbrev-ref", "HEAD"], worktreePath).trim();
 }
 
 function isPlanBranch(branch: string): boolean {
@@ -228,58 +225,33 @@ function checkArchivePreconditions(args: {
   return true;
 }
 
-function deleteMergedBranch(projectRoot: string, branch: string): void {
+function deleteMergedBranch(projectRoot: string, branch: string, runner: SubprocessRunner): void {
   try {
-    execSync(`git branch -d "${branch}"`, {
-      cwd: projectRoot,
-      stdio: "pipe",
-    });
+    runner.run("git", ["branch", "-d", branch], projectRoot);
   } catch {
-    execSync(`git branch -D "${branch}"`, {
-      cwd: projectRoot,
-      stdio: "pipe",
-    });
+    runner.run("git", ["branch", "-D", branch], projectRoot);
   }
 }
 
-function quotePathForGit(path: string): string {
-  return path.replaceAll('"', '\\"');
-}
-
-function commitArchivedSpecMove(projectRoot: string, source: string, destination: string, specName: string): void {
+function commitArchivedSpecMove(
+  projectRoot: string,
+  source: string,
+  destination: string,
+  specName: string,
+  runner: SubprocessRunner,
+): void {
   const sourceRelativePath = relative(projectRoot, source);
   const destinationRelativePath = relative(projectRoot, destination);
-  const quotedSource = quotePathForGit(sourceRelativePath);
-  const quotedDestination = quotePathForGit(destinationRelativePath);
 
-  execSync(`git add -A -- "${quotedDestination}"`, {
-    cwd: projectRoot,
-    stdio: "pipe",
-  });
-  const trackedSourcePaths = execSync(`git ls-files -- "${quotedSource}"`, {
-    cwd: projectRoot,
-    stdio: "pipe",
-    encoding: "utf8",
-  })
-    .trim()
-    .split("\n")
-    .filter((line) => line.length > 0);
+  runner.run("git", ["add", "-A", "--", destinationRelativePath], projectRoot);
+  const trackedStdout = runner.run("git", ["ls-files", "--", sourceRelativePath], projectRoot);
+  const trackedSourcePaths = trackedStdout.trim().split("\n").filter((line) => line.length > 0);
 
   for (const trackedSourcePath of trackedSourcePaths) {
-    const quotedTrackedSourcePath = quotePathForGit(trackedSourcePath);
-    execSync(`git rm --cached --ignore-unmatch -- "${quotedTrackedSourcePath}"`, {
-      cwd: projectRoot,
-      stdio: "pipe",
-    });
+    runner.run("git", ["rm", "--cached", "--ignore-unmatch", "--", trackedSourcePath], projectRoot);
   }
-  execSync(`git commit -m "cleanup: archive spec ${specName}"`, {
-    cwd: projectRoot,
-    stdio: "pipe",
-  });
-  execSync("git push", {
-    cwd: projectRoot,
-    stdio: "pipe",
-  });
+  runner.run("git", ["commit", "-m", `cleanup: archive spec ${specName}`], projectRoot);
+  runner.run("git", ["push"], projectRoot);
 }
 
 export function cleanupCommand(opts: CleanupCommandOptions): number {
@@ -296,6 +268,8 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
     deleteRemoteBranch: opts.deleteRemoteBranch ?? deleteRemoteBranch,
   };
 
+  const runner = opts.runner ?? realSubprocessRunner;
+
   if (abandon && opts.worktreeName !== undefined) {
     return scopedAbandonCleanup({
       deps,
@@ -303,6 +277,7 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
       io: opts.io,
       projectRoot: opts.projectRoot,
       worktreeName: opts.worktreeName,
+      runner,
     });
   }
 
@@ -314,7 +289,7 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
     const worktreePath = join(worktreeDir, worktreeName);
     let branch: string;
     try {
-      branch = branchForWorktree(worktreePath);
+      branch = branchForWorktree(worktreePath, runner);
     } catch {
       opts.io.stdout(`skipping ${worktreeName}: could not determine branch\n`);
       continue;
@@ -381,15 +356,13 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
           item,
           projectRoot: opts.projectRoot,
           io: opts.io,
+          runner,
         });
       } else if (opts.removeItem) {
         opts.removeItem(item);
       } else {
-        execFileSync("git", ["worktree", "remove", "--force", item.path], {
-          cwd: opts.projectRoot,
-          stdio: "pipe",
-        });
-        deleteMergedBranch(opts.projectRoot, item.branch);
+        runner.run("git", ["worktree", "remove", "--force", item.path], opts.projectRoot);
+        deleteMergedBranch(opts.projectRoot, item.branch, runner);
       }
       const tag = isPlanBranch(item.branch) ? " (plan)" : "";
       opts.io.stdout(`removed ${item.branch}${tag}\n`);
@@ -416,7 +389,7 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
         missingSource = r.missingSource;
         archiveRoot = join(opts.projectRoot, r.sourceHome);
         onArchive = (destination, resolvedSpecName) => {
-          commitArchivedSpecMove(opts.projectRoot, r.source, destination, resolvedSpecName);
+          commitArchivedSpecMove(opts.projectRoot, r.source, destination, resolvedSpecName, runner);
         };
       } else {
         const externalSpecsRoot = opts.externalSpecsRoot as string;
@@ -468,12 +441,13 @@ function scopedAbandonCleanup(args: {
   io: CleanupIo;
   projectRoot: string;
   worktreeName: string;
+  runner: SubprocessRunner;
 }): number {
   const worktreePath = join(args.projectRoot, ".worktree", args.worktreeName);
   const preflight = checkScopedAbandonPreflight({
     projectRoot: args.projectRoot,
     worktreePath,
-    deps: args.deps,
+    deps: { ...args.deps, runner: args.runner },
   });
   if (!preflight.eligible) {
     switch (preflight.reason) {
@@ -537,6 +511,7 @@ function scopedAbandonCleanup(args: {
       item,
       projectRoot: args.projectRoot,
       io: args.io,
+      runner: args.runner,
     });
     args.io.stdout(`removed ${branch}${tag}\n`);
     return 0;
@@ -554,6 +529,7 @@ function retireAbandonedWorktree(args: {
   item: CleanupItem;
   projectRoot: string;
   io: CleanupIo;
+  runner: SubprocessRunner;
 }): void {
   const matchingPr = args.findMatchingOpenPrsFn(args.item.branch, args.projectRoot)[0];
   if (matchingPr !== undefined) {
@@ -564,10 +540,7 @@ function retireAbandonedWorktree(args: {
     }
   }
 
-  execFileSync("git", ["worktree", "remove", "--force", args.item.path], {
-    cwd: args.projectRoot,
-    stdio: "pipe",
-  });
+  args.runner.run("git", ["worktree", "remove", "--force", args.item.path], args.projectRoot);
   args.deleteLocalBranchFn(args.projectRoot, args.item.branch);
   args.deleteRemoteBranchFn(args.projectRoot, args.item.branch);
 }

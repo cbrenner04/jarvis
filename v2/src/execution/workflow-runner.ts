@@ -328,32 +328,12 @@ async function runReviewDebateStep(step: ReviewDebateWorkflowStep): Promise<Revi
   const { stepId: _stepId, agents, agentModelConfig, createBinding, ...debateInput } = step;
   const resolveBindings = createBinding ?? createResolvedAgentBinding;
 
-  const bindings: ReviewDebateRoleBindings = {
-    adversary: resolveInvocationBindings(
-      resolveExecutableRole("adversary"),
-      agents.adversary,
-      agentModelConfig,
-      resolveBindings,
-    ),
-    advocate: resolveInvocationBindings(
-      resolveExecutableRole("advocate"),
-      agents.advocate,
-      agentModelConfig,
-      resolveBindings,
-    ),
-    adjudicator: resolveInvocationBindings(
-      resolveExecutableRole("adjudicator"),
-      agents.adjudicator,
-      agentModelConfig,
-      resolveBindings,
-    ),
-    actuator: resolveInvocationBindings(
-      resolveExecutableRole("actuator"),
-      agents.actuator,
-      agentModelConfig,
-      resolveBindings,
-    ),
-  };
+  const bindings = Object.fromEntries(
+    REVIEW_DEBATE_ROLES.map((role) => [
+      role,
+      resolveInvocationBindings(resolveExecutableRole(role), agents[role], agentModelConfig, resolveBindings),
+    ]),
+  ) as ReviewDebateRoleBindings;
 
   const result = await executeReviewDebate({ ...debateInput, bindings });
 

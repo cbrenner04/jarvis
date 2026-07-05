@@ -11,16 +11,14 @@ import type { InvocationFailureKind } from "./invocation-failure.ts";
 export type ReviewDebateRole = "adversary" | "advocate" | "adjudicator" | "actuator";
 
 /**
- * Read-only-by-construction: callers must supply bindings whose `invoke` has
- * no write capability. A binding-contract convention, not a runtime sandbox
- * this type alone enforces.
+ * Read-only-by-construction: callers must supply `adversary`/`advocate`/`adjudicator`
+ * bindings whose `invoke` has no write capability. A binding-contract convention,
+ * not a runtime sandbox this type alone enforces.
  */
-export type ReadOnlyInvocationBinding = InvocationBinding;
-
 export type ReviewDebateRoleBindings = {
-  adversary: readonly ReadOnlyInvocationBinding[];
-  advocate: readonly ReadOnlyInvocationBinding[];
-  adjudicator: readonly ReadOnlyInvocationBinding[];
+  adversary: readonly InvocationBinding[];
+  advocate: readonly InvocationBinding[];
+  adjudicator: readonly InvocationBinding[];
   actuator: readonly InvocationBinding[];
 };
 
@@ -62,13 +60,7 @@ export async function executeReviewDebate(args: ReviewDebateInput): Promise<Revi
     roleResults.adversary = adversary;
     const adversaryFailure = failureKind(adversary);
     if (adversaryFailure !== null) {
-      cycles.push({
-        kind: "role_failed",
-        failedRole: "adversary",
-        failureKind: adversaryFailure,
-        verdict: null,
-        roleResults,
-      });
+      cycles.push(roleFailedOutcome("adversary", adversaryFailure, null, roleResults));
       break;
     }
 
@@ -76,36 +68,15 @@ export async function executeReviewDebate(args: ReviewDebateInput): Promise<Revi
     roleResults.advocate = advocate;
     const advocateFailure = failureKind(advocate);
     if (advocateFailure !== null) {
-      cycles.push({
-        kind: "role_failed",
-        failedRole: "advocate",
-        failureKind: advocateFailure,
-        verdict: null,
-        roleResults,
-      });
+      cycles.push(roleFailedOutcome("advocate", advocateFailure, null, roleResults));
       break;
     }
 
     const adjudicator = await invokeRole(args, "adjudicator", args.prompts.adjudicator, args.bindings.adjudicator);
     roleResults.adjudicator = adjudicator;
-    if (adjudicator.final === null) {
-      cycles.push({
-        kind: "role_failed",
-        failedRole: "adjudicator",
-        failureKind: "no_binding",
-        verdict: null,
-        roleResults,
-      });
-      break;
-    }
-    if (adjudicator.final.result.kind !== "ok") {
-      cycles.push({
-        kind: "role_failed",
-        failedRole: "adjudicator",
-        failureKind: adjudicator.final.result.kind,
-        verdict: null,
-        roleResults,
-      });
+    const adjudicatorFailure = failureKind(adjudicator);
+    if (adjudicatorFailure !== null || adjudicator.final === null || adjudicator.final.result.kind !== "ok") {
+      cycles.push(roleFailedOutcome("adjudicator", adjudicatorFailure ?? "no_binding", null, roleResults));
       break;
     }
 
@@ -121,7 +92,7 @@ export async function executeReviewDebate(args: ReviewDebateInput): Promise<Revi
     roleResults.actuator = actuator;
     const actuatorFailure = failureKind(actuator);
     if (actuatorFailure !== null) {
-      cycles.push({ kind: "role_failed", failedRole: "actuator", failureKind: actuatorFailure, verdict, roleResults });
+      cycles.push(roleFailedOutcome("actuator", actuatorFailure, verdict, roleResults));
       break;
     }
 
@@ -129,6 +100,15 @@ export async function executeReviewDebate(args: ReviewDebateInput): Promise<Revi
   }
 
   return { cycles };
+}
+
+function roleFailedOutcome(
+  failedRole: ReviewDebateRole,
+  failureKindValue: InvocationFailureKind,
+  verdict: string | null,
+  roleResults: Partial<Record<ReviewDebateRole, InvocationExecution>>,
+): ReviewDebateCycleOutcome {
+  return { kind: "role_failed", failedRole, failureKind: failureKindValue, verdict, roleResults };
 }
 
 function failureKind(execution: InvocationExecution): InvocationFailureKind | null {

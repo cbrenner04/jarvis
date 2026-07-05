@@ -11,13 +11,13 @@ real git/gh for the intent seed/draft/split pipeline.
 
 ## Task checklist
 
-- [ ] Convert bulk to mocked subprocess tests.
-- [ ] Split if needed; drop `.sandbox-unrunnable` from converted files.
+- [x] Convert bulk to mocked subprocess tests.
+- [x] Split if needed; drop `.sandbox-unrunnable` from converted files.
 
 ## Acceptance criteria
 
-- [ ] Mockable cases use boundary; no real git/gh.
-- [ ] Remaining real-subprocess tests justified inline.
+- [x] Mockable cases use boundary; no real git/gh.
+- [x] Remaining real-subprocess tests justified inline.
 
 ## Documentation updates
 

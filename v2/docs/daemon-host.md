@@ -53,11 +53,11 @@ Valid JSON with missing or invalid `kind` closes the connection.
 | --- | --- | --- | --- |
 | `health` | — | `{ ok: true }` | Channel liveness |
 | `status` | — | `{ state: "running" }` | Daemon-host liveness only — not run orchestration status |
-| `start` | `{ input: WriteLoopInput }` | `{ runId: string }` | Spawn a write loop in the background; returns immediately with run ID. Rejected if any run is in-flight (single in-flight guard) or if a run is active for the same `(project, branch)` (per-key guard). |
+| `start` | `{ input: WriteLoopInput }` | `{ runId: string }` | Spawn a write loop in the background, or persist it `queued` if memory headroom is unavailable; returns immediately with run ID either way (see [Admission guards](#admission-guards-for-start-resume-revise)). Rejected `worktree_claimed` if the `(project, branch)` key is claimed by a live or queued run. |
 | `list` | — | `{ runs: Array<{runId, project, branch, status, isLive, error?, workflow?}> }` | List durable runs merged with in-memory liveness; `isLive=true` only while the loop's Promise is executing. After spawn-boundary executor failure: `status: "failed"`, `isLive: false` (see [Spawn-boundary failure capture](#spawn-boundary-failure-capture)). Optional `error` on non-success terminals (see [Operator error on list and wait](#operator-error-on-list-and-wait)). Workflow-backed rows may also carry authored per-step progress (see [Workflow snapshots on list rows](#workflow-snapshots-on-list-rows)). |
 | `pause` | `{ runId: string }` | `{ ok: true }` | Signal graceful pause for an active run. The run continues at the next iteration boundary (in-flight step is not aborted). Rejected if run is unknown or not active. |
 | `kill` | `{ runId: string }` | `{ ok: true }` | Abort the run's signal immediately and record durable status `killed`. Leaves the worktree dirty. Rejected if run is unknown or not active. |
-| `resume` | `{ runId: string, decision?: "approve" \| "revise" \| "abort", prompt?: string }` | `{ ok: true }` (approve/abort) or `{ ok: true, stepId: string }` (revise) | Resume a paused/killed run, re-invoking `executeWriteLoop` under the start guards. A paused run continues with a fresh attempt; a killed run re-runs the interrupted step. Rejected `terminal_run` if status is `completed`, `failed`, or `blocked`; rejected `revise_in_progress` if status is `revising`; rejected if run is unknown, or if another run is active (single in-flight guard or per-key guard violation). For an `awaiting-human` run, `decision` is required (`invalid_params` if missing) and gates the human step: `approve` marks the step's run `completed` (no write loop spawned; the workflow advances past it on the next `executeWorkflow` call), `abort` sets status `killed` (same primitives as `kill`), `revise` spawns the configured `onRevise.repeatStepId` step's write loop again (see [`revise` decision](#revise-decision)). `decision` on a non-`awaiting-human` run is rejected `invalid_params`. |
+| `resume` | `{ runId: string, decision?: "approve" \| "revise" \| "abort", prompt?: string }` | `{ ok: true }` (approve/abort) or `{ ok: true, stepId: string }` (revise) | Resume a paused/killed run, re-invoking `executeWriteLoop` under the same per-key guard as `start`. A paused run continues with a fresh attempt; a killed run re-runs the interrupted step. Rejected `terminal_run` if status is `completed`, `failed`, or `blocked`; rejected `revise_in_progress` if status is `revising`; rejected if run is unknown, or if the `(project, branch)` key is claimed by another live run (`worktree_claimed`). For an `awaiting-human` run, `decision` is required (`invalid_params` if missing) and gates the human step: `approve` marks the step's run `completed` (no write loop spawned; the workflow advances past it on the next `executeWorkflow` call), `abort` sets status `killed` (same primitives as `kill`), `revise` spawns the configured `onRevise.repeatStepId` step's write loop again (see [`revise` decision](#revise-decision)). `decision` on a non-`awaiting-human` run is rejected `invalid_params`. |
 | `wait` | `{ runId: string }` | `{ runStatus, loopOutcomeKind?, iterationsConsumed?, resumable?, error? }` | Long-running one-shot wait for the next invocation boundary. In-progress runs resolve on the next `loop_finished` or `run_execution_failed` after the subscribe cursor. Quiescent runs return immediately from durable status plus the last terminal log signal. Optional `error` matches `list` for the same run (see [Operator error on list and wait](#operator-error-on-list-and-wait)). |
 
 Unknown `method` returns `error` correlated to the request `id` (connection
@@ -88,8 +88,9 @@ On success, `revise` sets the human step's run status to `revising` (distinct
 from `awaiting-human`: a `revising` run is not currently accepting a
 `resume` decision — a bare `resume` or another `revise`/`approve`/`abort`
 against it is rejected `revise_in_progress` until it re-converges) and spawns
-the revision write loop via the same executor and admission guards as `start`.
-When that write loop reaches a terminal outcome (`completed`, `failed`, or
+the revision write loop via the same executor and per-key guard as `start`
+(no memory-watermark check). When that write loop reaches a terminal outcome
+(`completed`, `failed`, or
 `blocked`), the next `executeWorkflow` call for the same workflow re-dispatches
 the human step by `stepId`, moving its run back to `awaiting-human` — a
 subsequent `resume` decision (`approve`/`revise`/`abort`) is then accepted
@@ -222,11 +223,24 @@ Rules:
   `in-progress` with no live daemon entry (e.g. a crash-orphaned run); the
   closed vocabulary has no dedicated status for that case.
 
-### Admission guards for `start`
+### Admission guards for `start`, `resume`, `revise`
 
-1. **Single in-flight run:** At most one run loop can be active globally. A `start` request when any loop is executing is rejected with `code: "run_in_progress"`.
+There is no global single in-flight guard — multiple runs may be active
+concurrently across different `(project, branch)` keys.
 
-2. **Per-`(project, branch)` key:** No overlapping runs for the same project and branch. A `start` for an already-claimed key is rejected with `code: "worktree_claimed"`.
+1. **Per-`(project, branch)` key:** No overlapping runs for the same project
+   and branch. Rejected with `code: "worktree_claimed"` when the key is held
+   by a live run (`start`, `resume`, `revise`) or, for `start` only, by an
+   existing durable `queued` run for that key.
+
+2. **Memory watermark (`start` only):** After the key check passes, `start`
+   checks `hasMemoryHeadroom()` (see [Memory watermark](#memory-watermark)).
+   Clearing the floor spawns and admits normally, returning `{ runId }`. Not
+   clearing it persists the run durably with status `queued` (its
+   `WriteLoopInput` saved for later promotion) and returns `{ runId }`
+   without spawning — `start` never blocks waiting for memory to free.
+   `resume` and `revise` have no memory check; once their key check passes
+   they spawn immediately.
 
 ## Streaming
 
@@ -335,8 +349,9 @@ number — `0`, negative, or non-numeric values throw at config load, matching
 `v2/src/daemon/memory-watermark.ts` reports whether current free memory
 clears the configured floor: `true` when unconfigured, else compares an
 injectable free-memory reader (default `os.freemem`) against the floor
-converted to bytes. Not yet wired into `start` admission — lands in sibling
-work.
+converted to bytes. Wired into `start` admission (see
+[Admission guards](#admission-guards-for-start-resume-revise)) — a `queued`
+run's promotion once memory clears is sibling work.
 
 ## Library surface
 

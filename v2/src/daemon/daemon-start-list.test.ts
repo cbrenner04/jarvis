@@ -66,6 +66,7 @@ function workflowSnapshot(
 let stateStore: StateStore;
 let server: IpcServer;
 let fakeExecutor: FakeWriteLoopExecutor;
+let memoryHeadroom: boolean;
 
 function loadRunOrThrow(store: StateStore, runId: string) {
   const run = store.loadRun(runId);
@@ -84,11 +85,13 @@ beforeEach(async () => {
   rmSync(SOCKET_PATH, { force: true });
   stateStore = openStateStore(join(tmpdir(), `jarvis-state-${process.pid}-${Date.now()}.db`));
   fakeExecutor = createFakeWriteLoopExecutor();
+  memoryHeadroom = true;
 
   const handlers = createRunControlHandlers({
     stateStore,
     writeLoopExecutor: fakeExecutor.executor,
     failureReporter: () => {},
+    hasMemoryHeadroom: () => memoryHeadroom,
   });
 
   server = await startIpcServer(SOCKET_PATH, handlers);
@@ -121,16 +124,48 @@ socketTest("start returns a run ID", async () => {
   client.close();
 });
 
-socketTest("start rejects when any run is active (single in-flight guard)", async () => {
+socketTest("start admits a second (project, branch) while another run is active", async () => {
   const client = await connectIpcClient(SOCKET_PATH, 2_000);
   await startRun(client);
 
   const input2 = mockWriteLoopInput({ projectName: "other-project" });
   client.send({ kind: "request", id: "s2", method: "start", params: { input: input2 } });
   const response2 = await client.nextFrame();
+  expect(response2.kind).toBe("response");
+  client.close();
+});
+
+socketTest("start persists a queued run when memory headroom is unavailable", async () => {
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+  memoryHeadroom = false;
+
+  const runId = await startRun(client);
+  expect(typeof runId).toBe("string");
+  if (runId) {
+    const run = loadRunOrThrow(stateStore, runId);
+    expect(run.status).toBe("queued");
+    expect(fakeExecutor.isAbortSignalTriggered()).toBe(false);
+  }
+
+  const runs = await listRuns(client);
+  const row = runs?.find((candidate) => candidate.runId === runId);
+  expect(row?.status).toBe("queued");
+  expect(row?.isLive).toBe(false);
+
+  client.close();
+});
+
+socketTest("start rejects a second start for a (project, branch) with an existing queued run", async () => {
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+  memoryHeadroom = false;
+  const input = mockWriteLoopInput();
+  await startRun(client, input);
+
+  client.send({ kind: "request", id: "s2", method: "start", params: { input } });
+  const response2 = await client.nextFrame();
   expect(response2.kind).toBe("error");
   if (response2.kind === "error") {
-    expect(response2.code).toBe("run_in_progress");
+    expect(response2.code).toBe("worktree_claimed");
   }
   client.close();
 });
@@ -922,7 +957,7 @@ socketTest("resume with a decision param on a non-awaiting-human run is rejected
   client.close();
 });
 
-socketTest("resume rejects if another run is in-flight (single in-flight guard)", async () => {
+socketTest("resume admits a paused run while another run is in-flight", async () => {
   const client = await connectIpcClient(SOCKET_PATH, 2_000);
   await startRun(client);
 
@@ -937,11 +972,7 @@ socketTest("resume rejects if another run is in-flight (single in-flight guard)"
 
   client.send({ kind: "request", id: "r1", method: "resume", params: { runId: pausedRunId } });
   const resumeResponse = await client.nextFrame();
-  expect(resumeResponse.kind).toBe("error");
-  if (resumeResponse.kind === "error") {
-    expect(resumeResponse.code).toBe("run_in_progress");
-    expect(resumeResponse.message).toBe("A run is already in progress; at most one in-flight run globally");
-  }
+  expect(resumeResponse.kind).toBe("response");
   client.close();
 });
 

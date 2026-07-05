@@ -11,6 +11,7 @@ import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } f
 import { type LogReader, type LoopFinishedEvent, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import type { RunStatus, WorkflowSnapshot, WorkflowSnapshotStep } from "../persistence/state-store-types.ts";
+import { hasMemoryHeadroom } from "./memory-watermark.ts";
 import {
   composeRunOperatorError,
   findTerminalLogRecord,
@@ -205,6 +206,8 @@ export type RunControlHandlerDeps = {
   failureReporter: (runId: string, reason: unknown) => void | Promise<void>;
   /** `revise`'s dirty-worktree gate; defaults to a real `git status --porcelain` check. */
   isWorktreeDirty?: (worktreePath: string) => boolean;
+  /** `start`'s memory-watermark admission check; defaults to the real free-memory reader. */
+  hasMemoryHeadroom?: () => boolean;
 };
 
 export type WaitRunCompletionResult = {
@@ -369,6 +372,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const waitFanouts = new Map<string, WaitFanout>();
   const { stateStore: store, logReader, writeLoopExecutor, failureReporter } = deps;
   const checkWorktreeDirty = deps.isWorktreeDirty ?? isWorktreeDirty;
+  const checkMemoryHeadroom = deps.hasMemoryHeadroom ?? (() => hasMemoryHeadroom());
 
   const resultFrom = (runId: string, runStatus: RunStatus, record?: TerminalLogRecord): WaitRunCompletionResult => {
     const run = store.loadRun(runId);
@@ -480,8 +484,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       branch: input.worktree.branchName,
     };
 
-    // Check per-(project, branch) guard first (more specific than the global guard).
-    if (_registry.isClaimed(key)) {
+    // Claimed by a live run, or already queued for this (project, branch)?
+    if (_registry.isClaimed(key) || store.hasQueuedRun(key)) {
       return {
         kind: "error",
         code: "worktree_claimed",
@@ -489,16 +493,23 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       };
     }
 
-    // Check single in-flight run guard (global; a different (project, branch) still rejects).
-    if (activeRuns.size > 0) {
-      return {
-        kind: "error",
-        code: "run_in_progress",
-        message: "A run is already in progress; at most one in-flight run globally",
-      };
+    const worktreePath = getExternalWorktreePath(input.worktree);
+
+    if (!checkMemoryHeadroom()) {
+      const runId = store.createRun({
+        project: key.project,
+        specRef: input.worktree.baseRef,
+        worktreePath,
+        branch: key.branch,
+        specPath: input.specPath,
+        status: "queued",
+        queuedInput: input,
+        ...(input.stepId !== undefined ? { stepId: input.stepId } : {}),
+        ...(input.workflowSnapshot !== undefined ? { workflowSnapshot: input.workflowSnapshot } : {}),
+      });
+      return { kind: "response", result: { runId } };
     }
 
-    const worktreePath = getExternalWorktreePath(input.worktree);
     const runId = store.createRun({
       project: key.project,
       specRef: input.worktree.baseRef,
@@ -670,13 +681,6 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         message: `Worktree already claimed for project=${key.project}, branch=${key.branch}`,
       };
     }
-    if (activeRuns.size > 0) {
-      return {
-        kind: "error",
-        code: "run_in_progress",
-        message: "A run is already in progress; at most one in-flight run globally",
-      };
-    }
 
     const stepId = revisionStepId(onRevise.repeatStepId, n);
     const built = buildRevisionWriteLoopInput(repeatedStepConfig, repeatedRun, stepId, prompt);
@@ -793,21 +797,11 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
     const key: OwnershipKey = { project: run.project, branch: run.branch };
 
-    // Check per-(project, branch) guard first (more specific than the global guard).
     if (_registry.isClaimed(key)) {
       return {
         kind: "error",
         code: "worktree_claimed",
         message: `Worktree already claimed for project=${key.project}, branch=${key.branch}`,
-      };
-    }
-
-    // Check single in-flight run guard (global; a different (project, branch) still rejects).
-    if (activeRuns.size > 0) {
-      return {
-        kind: "error",
-        code: "run_in_progress",
-        message: "A run is already in progress; at most one in-flight run globally",
       };
     }
 

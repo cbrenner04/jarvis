@@ -11,6 +11,7 @@ export const RUN_STATUSES = [
   "killed",
   "awaiting-human",
   "revising",
+  "queued",
 ] as const;
 
 export type RunStatus = (typeof RUN_STATUSES)[number];

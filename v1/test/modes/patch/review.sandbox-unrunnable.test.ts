@@ -565,6 +565,85 @@ describe("runPatchReviewPhase", () => {
     }
   });
 
+  test("actuator rung after idle-timeout advance receives fresh non-aborted signal", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    try {
+      const reviewer = new FakeAgent("claude", (_callCount, prompt) => ({
+        kind: "ok",
+        stdout: prompt.includes("Review: Adjudicator") ? "apply fix\n" : "finding\n",
+        stderr: "",
+      }));
+      const signalAbortedAtCall: boolean[] = [];
+      const claudeActuator = new FakeAgent("claude", (_callCount, _prompt, runOpts) => {
+        signalAbortedAtCall.push(runOpts.signal?.aborted ?? true);
+        return { kind: "error", exitCode: 1, stderr: "aborted: idle-timeout" };
+      });
+      const codexActuator = new FakeAgent("codex", (_callCount, _prompt, runOpts) => {
+        signalAbortedAtCall.push(runOpts.signal?.aborted ?? true);
+        return { kind: "ok", stdout: "done\n", stderr: "" };
+      });
+
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({
+          reviewOrder: [CLAUDE_ENTRY],
+          patchOrder: [CLAUDE_ENTRY],
+          reviewActuatorOrder: [CLAUDE_ENTRY, CODEX_ENTRY],
+        }),
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout: () => {},
+        writeTelemetry: () => {},
+        agents: { claude: reviewer },
+        actuatorAgents: [claudeActuator, codexActuator],
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+      });
+
+      expect(code).toBe(0);
+      expect(signalAbortedAtCall).toEqual([false, false]);
+      expect(codexActuator.calls).toHaveLength(1);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("empty reviewActuatorOrder exits before shared execution", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    try {
+      const reviewer = new FakeAgent("claude", (_callCount, prompt) => ({
+        kind: "ok",
+        stdout: prompt.includes("Review: Adjudicator") ? "apply fix\n" : "finding\n",
+        stderr: "",
+      }));
+      const harness: string[] = [];
+
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({
+          reviewOrder: [CLAUDE_ENTRY],
+          reviewActuatorOrder: [],
+        }),
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout: (tag, text) => {
+          if (tag === "harness") harness.push(text.trim());
+        },
+        writeTelemetry: () => {},
+        agents: { claude: reviewer },
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+      });
+
+      expect(code).toBe(11);
+      expect(harness.some((line) => line === "review: actuator no agents available")).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
   test("actuator lenient weak-quota fallback on final rung terminates like native quota", async () => {
     const { dir, specPath, cleanup } = setupPatchReviewRepo();
     try {

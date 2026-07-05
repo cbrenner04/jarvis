@@ -28,6 +28,15 @@ export type ReviewInvocationBindingOptions<_T extends InvocationResult = Invocat
   recordAttemptTelemetry?: ((data: ReviewAttemptContext) => void | Promise<void>) | undefined;
   additionalReadDirs?: string[] | undefined;
   now?: (() => number) | undefined;
+  /** Caller-built prompt reused across actuator rungs instead of adapter.buildPrompt. */
+  authoritativePrompt?: string | undefined;
+  /** Actuator path: always allow quota fallback classification. */
+  alwaysAllowQuotaFallback?: boolean | undefined;
+  shouldAdvance?: ((result: InvocationResult) => boolean) | undefined;
+  /** Actuator path: per-invocation spawn wrapper (watchdog, abort controller, polling). */
+  invokeAgent?: ((args: { agent: Agent; prompt: string; cwd: string }) => Promise<AgentResult>) | undefined;
+  /** Actuator path: retain raw spawn result for post-execution fallback stderr. */
+  recordSpawnResult?: ((spawnResult: AgentResult) => void) | undefined;
 };
 
 export function createReviewInvocationBinding<T extends InvocationResult = InvocationResult>(
@@ -44,26 +53,30 @@ export function createReviewInvocationBinding<T extends InvocationResult = Invoc
 
   const binding: InvocationBinding<T> = {
     id: agentLabel,
+    metadata: { agent: opts.agentEntry.agent, model: opts.agentEntry.model },
     invoke: async (args) => {
-      // Build the prompt via adapter
-      const prompt = await opts.adapter.buildPrompt({
-        ...opts.roleContext,
-        agentEntry: opts.agentEntry,
-      });
+      const prompt =
+        opts.authoritativePrompt ??
+        (await opts.adapter.buildPrompt({
+          ...opts.roleContext,
+          agentEntry: opts.agentEntry,
+        }));
 
-      // Reuse loaded agent
       const loadedAgent = agent;
 
-      // Snapshot git porcelain and run the agent
       const porcelainBefore = readPorcelainSnapshot(opts.cwd);
       const _now = opts.now ?? Date.now;
       const startedAt = _now();
 
-      const spawnResult = await loadedAgent.run(prompt, {
-        cwd: args.cwd,
-        ...(args.signal !== undefined ? { signal: args.signal } : {}),
-        ...(opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : {}),
-      });
+      const spawnResult = opts.invokeAgent
+        ? await opts.invokeAgent({ agent: loadedAgent, prompt, cwd: args.cwd })
+        : await loadedAgent.run(prompt, {
+            cwd: args.cwd,
+            ...(args.signal !== undefined ? { signal: args.signal } : {}),
+            ...(opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : {}),
+          });
+
+      opts.recordSpawnResult?.(spawnResult);
 
       const porcelainAfter = readPorcelainSnapshot(opts.cwd);
       const noDiskChangeDuringInvocation =
@@ -76,7 +89,7 @@ export function createReviewInvocationBinding<T extends InvocationResult = Invoc
           quotaFallback: opts.config.quotaFallback,
           weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
         },
-        noDiskChangeDuringInvocation,
+        opts.alwaysAllowQuotaFallback === true ? true : noDiskChangeDuringInvocation,
       );
 
       opts.onQuotaFallbackEmit?.(opts.agentEntry.agent, spawnResult, classified);
@@ -96,6 +109,10 @@ export function createReviewInvocationBinding<T extends InvocationResult = Invoc
       return classified as T;
     },
   };
+
+  if (opts.shouldAdvance !== undefined) {
+    binding.shouldAdvance = opts.shouldAdvance as (result: T) => boolean;
+  }
 
   return binding;
 }

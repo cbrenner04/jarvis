@@ -7,8 +7,12 @@ Contract:
 
 - Input: `(prompt, cwd, ordered bindings, AbortSignal?)`.
 - Each binding invocation returns typed `ok | quota | model_config | error`.
-- Fallback advances only on `quota`.
-- Any non-`quota` result stops immediately (no later binding attempt).
+- Fallback advances when the binding's `shouldAdvance` predicate returns true.
+  Default policy is `result.kind === "quota"` only; callers may override per
+  binding. Review actuator opts into a broader actuator-only policy (quota,
+  lenient weak-quota upgrades, and `aborted: idle-timeout` errors) while
+  standalone review debate bindings keep quota-only advance.
+- Any non-advancing result stops immediately (no later binding attempt).
 - Output returns ordered attempts plus the final attempt (or `null` when no
   bindings are configured).
 - When the caller also passes write-step telemetry context plus a sink, each
@@ -16,8 +20,9 @@ Contract:
   fallback classification continues. Callers that omit that pair stay telemetry
   no-op.
 
-Fallback is quota-only by design: `model_config` and `error` are terminal,
-since a misconfigured or crashing agent is not recoverable by the next binding.
+Fallback default is quota-only: `model_config` and other `error` kinds are
+terminal unless a binding's `shouldAdvance` opts in (review actuator adds
+idle-timeout advance on non-final rungs).
 
 Bindings:
 

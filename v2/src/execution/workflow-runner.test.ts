@@ -566,9 +566,15 @@ describe("executeWorkflow", () => {
       expect(run1?.attempts).toHaveLength(1);
       expect(run2?.attempts).toHaveLength(1);
       expect(run1?.workflowSnapshot).toEqual(run2?.workflowSnapshot);
+      const stepConfig = {
+        stepRules: "Return exactly one terminal token.",
+        expectedArtifactPath: "proof.txt",
+        agents: ["claude"],
+        agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+      };
       expect(run1?.workflowSnapshot?.steps).toEqual([
-        { stepId: "step-1", role: "implement" },
-        { stepId: "step-2", role: "implement" },
+        { stepId: "step-1", role: "implement", ...stepConfig },
+        { stepId: "step-2", role: "implement", ...stepConfig },
       ]);
     } finally {
       store.close();
@@ -935,6 +941,61 @@ describe("executeWorkflow onRevise validation", () => {
     try {
       const result = await executeWorkflow({ steps: [writeStep, humanStep], stateStore: store });
       expect(result.kind).toBe("awaiting-human");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("a changed onRevise config is not reused from a stale snapshot borrowed from an earlier step", async () => {
+    const store = openStateStore(":memory:");
+    const branchName = "on-revise-stale-snapshot";
+
+    const step1First = createStep({ stepId: "step-1", role: "implement", branchName });
+    const step2First = createStep({
+      stepId: "step-2",
+      role: "implement",
+      branchName,
+      createBinding: okTokenBindingFactory("progress"),
+      maxIterations: 1,
+    });
+    const humanStepFirst = createHumanStep({
+      stepId: "step-3",
+      branch: branchName,
+      onRevise: { repeatStepId: "step-1", maxRevisions: 1 },
+    });
+
+    try {
+      // step-2 soft-stops on budget, so step-3 (human) is never reached and never gets its own run row.
+      const firstResult = await executeWorkflow({
+        steps: [step1First, step2First, humanStepFirst],
+        stateStore: store,
+      });
+      expect(firstResult.kind).toBe("budget-exhausted");
+      expect(firstResult.stepIndex).toBe(1);
+      const step1Run = store.findRunByProjectBranch({ project: "demo", branch: branchName, stepId: "step-1" });
+      const originalInvocationId = step1Run?.workflowSnapshot?.invocationId;
+
+      // Second invocation: step-2 now completes, step-3 is reached for the first time with a changed onRevise.
+      const step1Second = createStep({ stepId: "step-1", role: "implement", branchName });
+      const step2Second = createStep({ stepId: "step-2", role: "implement", branchName });
+      const humanStepSecond = createHumanStep({
+        stepId: "step-3",
+        branch: branchName,
+        onRevise: { repeatStepId: "step-1", maxRevisions: 7 },
+      });
+
+      const secondResult = await executeWorkflow({
+        steps: [step1Second, step2Second, humanStepSecond],
+        stateStore: store,
+      });
+      expect(secondResult.kind).toBe("awaiting-human");
+      expect(secondResult.stepId).toBe("step-3");
+
+      const step3Run = store.loadRun(secondResult.runId);
+      expect(step3Run?.workflowSnapshot?.steps.find((step) => step.stepId === "step-3")?.onRevise?.maxRevisions).toBe(
+        7,
+      );
+      expect(step3Run?.workflowSnapshot?.invocationId).not.toBe(originalInvocationId);
     } finally {
       store.close();
     }

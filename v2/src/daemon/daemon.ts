@@ -1,14 +1,16 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { isWorktreeDirty } from "../../../shared/git.ts";
-import { createAgentBindings } from "../../../shared/invocation/agents.ts";
+import { createAgentBindings, createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
+import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import { nextRevisionNumber, revisionStepId } from "../execution/revision-step-id.ts";
+import { latestRevisionRun } from "../execution/workflow-runner.ts";
 import { executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
 import { type LogReader, type LoopFinishedEvent, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import type { RunStatus, WorkflowSnapshot } from "../persistence/state-store-types.ts";
+import type { RunStatus, WorkflowSnapshot, WorkflowSnapshotStep } from "../persistence/state-store-types.ts";
 import {
   composeRunOperatorError,
   findTerminalLogRecord,
@@ -79,6 +81,71 @@ function isTerminalRunStatus(status: RunStatus): boolean {
   return (
     status === "completed" || status === "blocked" || status === "killed" || status === "paused" || status === "failed"
   );
+}
+
+/**
+ * Statuses that mean a `~rN` revision run is no longer in flight, whether it
+ * reached a normal write-loop terminal outcome or was killed by an operator.
+ * A killed revision must not permanently strand its human step in `"revising"`.
+ */
+const REVISION_INACTIVE_STATUSES: readonly RunStatus[] = ["completed", "failed", "blocked", "killed"];
+
+type RevisionWriteLoopInputResult =
+  | { kind: "ok"; input: WriteLoopInput }
+  | { kind: "error"; code: string; message: string };
+
+/**
+ * Rebuild the repeated step's `WriteLoopInput` for a revision attempt: reuses its
+ * durably-snapshotted `stepRules`/`expectedArtifactPath`/`agents`/`agentModelConfig`
+ * (appending a supplied `prompt` to `stepRules` rather than replacing it) instead of
+ * fabricating an empty write-loop config.
+ */
+function buildRevisionWriteLoopInput(
+  repeatedStepConfig: WorkflowSnapshotStep,
+  repeatedRun: LoadedRun,
+  stepId: string,
+  prompt: string | undefined,
+): RevisionWriteLoopInputResult {
+  const agents = repeatedStepConfig.agents ?? [];
+  let bindings: WriteLoopInput["bindings"] = [];
+  try {
+    if (agents.length > 0) {
+      bindings = resolveInvocationBindings(
+        resolveExecutableRole(repeatedStepConfig.role),
+        agents,
+        repeatedStepConfig.agentModelConfig ?? {},
+        createResolvedAgentBinding,
+      );
+    }
+  } catch (err) {
+    return {
+      kind: "error",
+      code: "revise_unsupported",
+      message: `Unable to resolve bindings for repeated step "${repeatedStepConfig.stepId}": ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    };
+  }
+
+  const baseStepRules = repeatedStepConfig.stepRules ?? "";
+  const stepRules = prompt ? (baseStepRules ? `${baseStepRules}\n\n${prompt}` : prompt) : baseStepRules;
+
+  return {
+    kind: "ok",
+    input: {
+      worktree: {
+        projectRoot: repeatedRun.worktreePath,
+        projectName: repeatedRun.project,
+        branchName: repeatedRun.branch,
+        baseRef: repeatedRun.specRef,
+      },
+      specPath: repeatedRun.specPath,
+      stepRules,
+      expectedArtifactPath: repeatedStepConfig.expectedArtifactPath ?? "",
+      bindings,
+      stepId,
+    },
+  };
 }
 
 /**
@@ -509,6 +576,15 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       return { kind: "error", code: "revise_unsupported", message: "No onRevise configured for this human step" };
     }
 
+    const repeatedStepConfig = run.workflowSnapshot?.steps.find((step) => step.stepId === onRevise.repeatStepId);
+    if (!repeatedStepConfig) {
+      return {
+        kind: "error",
+        code: "revise_unsupported",
+        message: `No workflow snapshot config found for repeated step "${onRevise.repeatStepId}"`,
+      };
+    }
+
     const repeatedRun = store.findRunByProjectBranch({
       project: run.project,
       branch: run.branch,
@@ -564,6 +640,11 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
 
     const stepId = revisionStepId(onRevise.repeatStepId, n);
+    const built = buildRevisionWriteLoopInput(repeatedStepConfig, repeatedRun, stepId, prompt);
+    if (built.kind === "error") {
+      return built;
+    }
+
     const revisionRunId = store.createRun({
       project: repeatedRun.project,
       specRef: repeatedRun.specRef,
@@ -574,24 +655,33 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       ...(repeatedRun.workflowSnapshot ? { workflowSnapshot: repeatedRun.workflowSnapshot } : {}),
     });
 
-    const input: WriteLoopInput = {
-      worktree: {
-        projectRoot: repeatedRun.worktreePath,
-        projectName: repeatedRun.project,
-        branchName: repeatedRun.branch,
-        baseRef: repeatedRun.specRef,
-      },
-      specPath: repeatedRun.specPath,
-      stepRules: prompt ?? "",
-      expectedArtifactPath: "",
-      bindings: [],
-      stepId,
-    };
-
     store.setRunStatus(run.id, "revising");
-    spawnWriteLoop(key, revisionRunId, repeatedRun.worktreePath, input);
+    spawnWriteLoop(key, revisionRunId, repeatedRun.worktreePath, built.input);
 
     return { kind: "response", result: { ok: true, stepId } };
+  }
+
+  /**
+   * A `"revising"` run re-converges to `awaiting-human` once its `~rN` revision
+   * run is no longer active (terminal outcome, or killed). Returns the reloaded
+   * run on reconvergence, or `undefined` if the revision is still in flight.
+   */
+  function reconvergeRevisingRun(run: LoadedRun): LoadedRun | undefined {
+    const onRevise = run.workflowSnapshot?.steps.find((step) => step.stepId === run.stepId)?.onRevise;
+    if (!onRevise) return undefined;
+
+    const revisionRuns = store.findRevisionRuns({
+      project: run.project,
+      branch: run.branch,
+      repeatStepId: onRevise.repeatStepId,
+    });
+    const latest = latestRevisionRun(revisionRuns, onRevise.repeatStepId);
+    if (!latest || !REVISION_INACTIVE_STATUSES.includes(latest.status)) {
+      return undefined;
+    }
+
+    store.setRunStatus(run.id, "awaiting-human");
+    return store.loadRun(run.id) ?? undefined;
   }
 
   function resumeAwaitingHuman(
@@ -641,6 +731,18 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       return resumeAwaitingHuman(run, params.decision, params.prompt);
     }
 
+    if (run.status === "revising") {
+      const reconverged = reconvergeRevisingRun(run);
+      if (!reconverged) {
+        return {
+          kind: "error",
+          code: "revise_in_progress",
+          message: `Run ${runId} is revising; wait for it to re-converge to awaiting-human`,
+        };
+      }
+      return resumeAwaitingHuman(reconverged, params.decision, params.prompt);
+    }
+
     if (params.decision !== undefined) {
       return { kind: "error", code: "invalid_params", message: "decision is only valid for awaiting-human runs" };
     }
@@ -648,14 +750,6 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     // Reject terminal statuses
     if (run.status === "completed" || run.status === "failed" || run.status === "blocked") {
       return { kind: "error", code: "terminal_run", message: `Cannot resume a ${run.status} run` };
-    }
-
-    if (run.status === "revising") {
-      return {
-        kind: "error",
-        code: "revise_in_progress",
-        message: `Run ${runId} is revising; wait for it to re-converge to awaiting-human`,
-      };
     }
 
     const key: OwnershipKey = { project: run.project, branch: run.branch };

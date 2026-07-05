@@ -248,6 +248,14 @@ function buildWorkflowSnapshot(steps: readonly WorkflowStep[], store: StateStore
     stepId: step.stepId,
     role: step.behavior === "write" ? step.role : "",
     ...(step.behavior === "human" && step.onRevise !== undefined ? { onRevise: step.onRevise } : {}),
+    ...(step.behavior === "write"
+      ? {
+          stepRules: step.stepRules,
+          expectedArtifactPath: step.expectedArtifactPath,
+          agents: step.agents,
+          agentModelConfig: step.agentModelConfig,
+        }
+      : {}),
   }));
 
   for (const step of steps) {
@@ -273,12 +281,23 @@ function buildWorkflowSnapshot(steps: readonly WorkflowStep[], store: StateStore
  */
 function snapshotMatchesAuthoredSteps(
   snapshot: WorkflowSnapshot,
-  authoredSteps: readonly { stepId: string; role: string }[],
+  authoredSteps: readonly { stepId: string; role: string; onRevise?: OnReviseConfig }[],
 ): boolean {
   if (snapshot.steps.length !== authoredSteps.length) return false;
-  return snapshot.steps.every(
-    (step, index) => step.stepId === authoredSteps[index]?.stepId && step.role === authoredSteps[index]?.role,
-  );
+  return snapshot.steps.every((step, index) => {
+    const authored = authoredSteps[index];
+    return (
+      step.stepId === authored?.stepId &&
+      step.role === authored?.role &&
+      onReviseEqual(step.onRevise, authored.onRevise)
+    );
+  });
+}
+
+/** Compares `onRevise` config by value so an edited budget/target is treated as a mismatch. */
+function onReviseEqual(a: OnReviseConfig | undefined, b: OnReviseConfig | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return a.repeatStepId === b.repeatStepId && a.maxRevisions === b.maxRevisions;
 }
 
 type PreparedHumanStep =
@@ -289,7 +308,7 @@ type PreparedHumanStep =
 const REVISION_TERMINAL_STATUSES: readonly RunStatus[] = ["completed", "failed", "blocked"];
 
 /** The highest-numbered `${repeatStepId}~r<n>` run among `runs`, if any. */
-function latestRevisionRun(
+export function latestRevisionRun(
   runs: readonly { stepId?: string | null; status: RunStatus }[],
   repeatStepId: string,
 ): { status: RunStatus } | undefined {

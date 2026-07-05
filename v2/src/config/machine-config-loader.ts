@@ -20,7 +20,30 @@ export function readMachineConfigDocument(
     validateMachineConfigAgents((parsed as Record<string, unknown>).agents);
   }
 
+  if ("memory" in parsed) {
+    validateMachineConfigMemory((parsed as Record<string, unknown>).memory);
+  }
+
   return parsed as Record<string, unknown>;
+}
+
+export function validateMachineConfigMemory(memory: unknown): { minFreeGb: number } | undefined {
+  if (typeof memory !== "object" || memory === null || Array.isArray(memory)) {
+    throw new Error(
+      `Machine config 'memory' must be an object, got ${Array.isArray(memory) ? "array" : memory === null ? "null" : typeof memory}`,
+    );
+  }
+
+  if (!("minFreeGb" in memory)) {
+    return undefined;
+  }
+
+  const minFreeGb = (memory as Record<string, unknown>).minFreeGb;
+  if (typeof minFreeGb !== "number" || !Number.isFinite(minFreeGb) || minFreeGb <= 0) {
+    throw new Error(`Machine config 'memory.minFreeGb' must be a positive finite number, got ${minFreeGb}`);
+  }
+
+  return { minFreeGb };
 }
 
 export function validateMachineConfigAgents(agents: unknown): string[] {
@@ -57,6 +80,17 @@ export function loadMachineConfig(configPath: string = join(homedir(), ".jarvis"
   }
 
   return parsed.agents as string[];
+}
+
+export function loadMachineConfigMemory(
+  configPath: string = join(homedir(), ".jarvis", "v2.json"),
+): { minFreeGb: number } | undefined {
+  const parsed = readMachineConfigDocument(configPath);
+  if (parsed === undefined || !("memory" in parsed)) {
+    return undefined;
+  }
+
+  return validateMachineConfigMemory(parsed.memory);
 }
 
 function readMachineConfigFile(configPath: string): unknown {

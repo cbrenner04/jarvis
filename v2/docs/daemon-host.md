@@ -323,6 +323,21 @@ unreachable on failure, no orphan repair is attempted.
 false`; a new `start` for the same `(project, branch)` is accepted once capture
 settles.
 
+## Memory watermark
+
+`memory.minFreeGb` in the per-machine config (`~/.jarvis/v2.json`, same file
+as the `agents` key) sets a free-memory floor in GB. Unset (or `memory` key
+absent) means no gating. When present, `minFreeGb` must be a positive finite
+number — `0`, negative, or non-numeric values throw at config load, matching
+`agents` validation.
+
+`hasMemoryHeadroom(configPath?, freeMemReader?)` in
+`v2/src/daemon/memory-watermark.ts` reports whether current free memory
+clears the configured floor: `true` when unconfigured, else compares an
+injectable free-memory reader (default `os.freemem`) against the floor
+converted to bytes. Not yet wired into `start` admission — lands in sibling
+work.
+
 ## Library surface
 
 `startIpcServer(socketPath, handlers?)` binds a Unix listener in-process (tests

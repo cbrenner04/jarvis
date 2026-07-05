@@ -16,20 +16,20 @@ same `code`.
 
 ## Acceptance criteria
 
-- [ ] `daemon-registry.test.ts` and the `start` RPC-level `worktree_claimed`
+- [x] `daemon-registry.test.ts` and the `start` RPC-level `worktree_claimed`
       coverage in `daemon-start-list.test.ts` stay green (behavior
       unchanged by the extraction).
-- [ ] `resume` rejects with `worktree_claimed` at the RPC level when the
+- [x] `resume` rejects with `worktree_claimed` at the RPC level when the
       target worktree is already claimed — new regression coverage, since
       no existing test asserts this today.
-- [ ] `revise` rejects with `worktree_claimed` at the RPC level when the
+- [x] `revise` rejects with `worktree_claimed` at the RPC level when the
       target worktree is already claimed — new regression coverage, since
       no existing test asserts this today.
-- [ ] New unit tests exercise the extracted function directly against a
+- [x] New unit tests exercise the extracted function directly against a
       `WorktreeOwnershipRegistry` and `OwnershipKey` (claimed and
       unclaimed cases), with no IPC server or write-loop involved, and
       assert `undefined` is returned in the unclaimed case.
-- [ ] `start`, `resume`, and `revise` each call the extracted function
+- [x] `start`, `resume`, and `revise` each call the extracted function
       rather than inlining `_registry.isClaimed(key)` themselves.
 
 ## Documentation updates

@@ -246,7 +246,9 @@ concurrently across different `(project, branch)` keys.
    floor, `start` is rejected with `code: "worktree_claimed"` when the key is
    held by a live run — the same guard applies to `resume` and `revise`,
    which have no memory check and spawn immediately once their key check
-   passes.
+   passes. All three call a single exported `checkWorktreeClaimed` function
+   against the `WorktreeOwnershipRegistry`, so the check and its error shape
+   can't drift between them.
 
 ## Streaming
 

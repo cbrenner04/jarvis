@@ -22,7 +22,7 @@ import { GIT_SUBPROCESS_OPTS } from "./git-subprocess.ts";
 import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "./idle-watchdog.ts";
 import { updatePrBody } from "./pr.ts";
 import { buildShrinkPrompt } from "./prompt.ts";
-import { detectSpecTreeEdits, revertSpecTreeEdits } from "./review.ts";
+import { detectSpecTreeEdits, realReviewGitOps, revertSpecTreeEdits } from "./review.ts";
 import { createShrinkInvocationBinding, type ShrinkAgentAttemptData } from "./shrink-invocation-binding.ts";
 import { type AcceptanceCriterion, snapshotAcceptanceCriteria } from "./subspec.ts";
 
@@ -42,7 +42,9 @@ export interface ShrinkGitOps {
   revParseHead(cwd: string): string;
 }
 
+// porcelainStatus/checkoutPath/cleanPath/add/commit are identical to ReviewGitOps; reuse rather than redefine.
 export const realShrinkGitOps: ShrinkGitOps = {
+  ...realReviewGitOps,
   diffNameStatus(cwd, fromRef, toRef) {
     return execFileSync("git", ["diff", "--name-status", fromRef, toRef], {
       cwd,
@@ -59,20 +61,6 @@ export const realShrinkGitOps: ShrinkGitOps = {
       ...GIT_SUBPROCESS_OPTS,
     });
   },
-  porcelainStatus(cwd) {
-    return execFileSync("git", ["status", "--porcelain"], {
-      cwd,
-      encoding: "utf8",
-      stdio: "pipe",
-      ...GIT_SUBPROCESS_OPTS,
-    });
-  },
-  checkoutPath(cwd, file) {
-    execFileSync("git", ["checkout", "HEAD", "--", file], { cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
-  },
-  cleanPath(cwd, file) {
-    execFileSync("git", ["clean", "-fd", "--", file], { cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
-  },
   currentBranch(cwd) {
     return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
       cwd,
@@ -86,18 +74,6 @@ export const realShrinkGitOps: ShrinkGitOps = {
   },
   cleanAll(cwd) {
     execFileSync("git", ["clean", "-fd"], { cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
-  },
-  add(cwd) {
-    execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });
-  },
-  commit(cwd, message) {
-    execFileSync("git", ["commit", "-F", "-"], {
-      cwd,
-      env: process.env,
-      stdio: ["pipe", "pipe", "pipe"],
-      input: message,
-      ...GIT_SUBPROCESS_OPTS,
-    });
   },
   push(cwd) {
     execFileSync("git", ["push"], { cwd, env: process.env, stdio: "pipe", ...GIT_SUBPROCESS_OPTS });

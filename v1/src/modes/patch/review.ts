@@ -117,15 +117,10 @@ export function detectSpecTreeEdits(specDir: string, cwd: string, ops: ReviewGit
   }
 }
 
-export function revertSpecTreeEdits(specDir: string, cwd: string, ops: ReviewGitOps = realReviewGitOps): void {
-  const editedFiles = detectSpecTreeEdits(specDir, cwd, ops);
-  if (editedFiles.length === 0) {
-    return;
-  }
-
-  // Restore tracked files; `git clean` drops any untracked additions.
+/** Restore tracked `files`; `git clean` drops any untracked additions. Shared by both revert* helpers below. */
+function revertFiles(cwd: string, files: string[], ops: ReviewGitOps, context: string): void {
   try {
-    for (const file of editedFiles) {
+    for (const file of files) {
       try {
         ops.checkoutPath(cwd, file);
       } catch {
@@ -135,8 +130,16 @@ export function revertSpecTreeEdits(specDir: string, cwd: string, ops: ReviewGit
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Failed to revert spec-tree edits: ${message}`);
+    throw new Error(`Failed to revert ${context}: ${message}`);
   }
+}
+
+export function revertSpecTreeEdits(specDir: string, cwd: string, ops: ReviewGitOps = realReviewGitOps): void {
+  const editedFiles = detectSpecTreeEdits(specDir, cwd, ops);
+  if (editedFiles.length === 0) {
+    return;
+  }
+  revertFiles(cwd, editedFiles, ops, "spec-tree edits");
 }
 
 function detectReviewerCodeEdits(specDir: string, cwd: string, ops: ReviewGitOps = realReviewGitOps): string[] {
@@ -161,20 +164,7 @@ function revertReviewerCodeEdits(specDir: string, cwd: string, ops: ReviewGitOps
   if (editedFiles.length === 0) {
     return;
   }
-
-  try {
-    for (const file of editedFiles) {
-      try {
-        ops.checkoutPath(cwd, file);
-      } catch {
-        // Untracked file: nothing to restore from HEAD; clean handles it below.
-      }
-      ops.cleanPath(cwd, file);
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Failed to revert reviewer code edits: ${message}`);
-  }
+  revertFiles(cwd, editedFiles, ops, "reviewer code edits");
 }
 
 // Read and remove the review-blocker sentinel file if the agent wrote one.

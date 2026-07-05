@@ -49,6 +49,10 @@ function absentMachineConfigPath(): string {
   return join(dir, ".jarvis", "v2.json");
 }
 
+async function setAgents(configPath: string, csv: string, io = captureIo().io): Promise<number> {
+  return main(["config", "set-agents", csv], io, { machineConfigPath: configPath });
+}
+
 const WRITE_ARGS = [
   "write",
   "--project-root",
@@ -329,9 +333,7 @@ describe("v2 cli", () => {
     const cap = captureIo();
     const configPath = writeMachineConfig({ other: "value", agents: ["cursor"] });
 
-    const configCode = await main(["config", "set-agents", "claude,codex"], cap.io, {
-      machineConfigPath: configPath,
-    });
+    const configCode = await setAgents(configPath, "claude,codex", cap.io);
 
     expect(configCode).toBe(0);
     expect(cap.read()).toEqual({ stdout: '{"agents":["claude","codex"]}\n', stderr: "" });
@@ -359,9 +361,7 @@ describe("v2 cli", () => {
     const cap = captureIo();
     const configPath = absentMachineConfigPath();
 
-    const code = await main(["config", "set-agents", "claude,codex"], cap.io, {
-      machineConfigPath: configPath,
-    });
+    const code = await setAgents(configPath, "claude,codex", cap.io);
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: '{"agents":["claude","codex"]}\n', stderr: "" });
@@ -372,9 +372,7 @@ describe("v2 cli", () => {
     const cap = captureIo();
     const configPath = absentMachineConfigPath();
 
-    const code = await main(["config", "set-agents", "claude,,codex"], cap.io, {
-      machineConfigPath: configPath,
-    });
+    const code = await setAgents(configPath, "claude,,codex", cap.io);
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
@@ -390,9 +388,7 @@ describe("v2 cli", () => {
     const configPath = writeMachineConfig({ agents: ["cursor"], keep: true });
     const before = readFileSync(configPath, "utf8");
 
-    const code = await main(["config", "set-agents", "claude,claude"], cap.io, {
-      machineConfigPath: configPath,
-    });
+    const code = await setAgents(configPath, "claude,claude", cap.io);
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
@@ -406,9 +402,7 @@ describe("v2 cli", () => {
     const cap = captureIo();
     const configPath = absentMachineConfigPath();
 
-    const code = await main(["config", "set-agents", "claude,codex:gpt-5"], cap.io, {
-      machineConfigPath: configPath,
-    });
+    const code = await setAgents(configPath, "claude,codex:gpt-5", cap.io);
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
@@ -423,9 +417,7 @@ describe("v2 cli", () => {
     const configPath = writeRawMachineConfig("{ invalid json");
     const before = readFileSync(configPath, "utf8");
 
-    const code = await main(["config", "set-agents", "claude,codex"], cap.io, {
-      machineConfigPath: configPath,
-    });
+    const code = await setAgents(configPath, "claude,codex", cap.io);
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
@@ -436,9 +428,8 @@ describe("v2 cli", () => {
   });
 
   test("write --agents still overrides the persisted machine order after config set-agents", async () => {
-    const cap = captureIo();
     const configPath = absentMachineConfigPath();
-    await main(["config", "set-agents", "claude,codex"], cap.io, { machineConfigPath: configPath });
+    await setAgents(configPath, "claude,codex");
 
     let capturedAgents: readonly string[] | undefined;
     const writeCap = captureIo();
@@ -457,7 +448,7 @@ describe("v2 cli", () => {
 
   test("run start --agents still overrides the persisted machine order after config set-agents", async () => {
     const configPath = absentMachineConfigPath();
-    await main(["config", "set-agents", "claude,codex"], captureIo().io, { machineConfigPath: configPath });
+    await setAgents(configPath, "claude,codex");
 
     const cap = captureIo();
     const sent: unknown[] = [];

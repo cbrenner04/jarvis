@@ -50,14 +50,14 @@ separating these two cases reproduces the bug.
 
 ## Acceptance criteria
 
-- [ ] `resolveCiTestScope` returns `[]` for a non-empty diff of only
+- [x] `resolveCiTestScope` returns `[]` for a non-empty diff of only
       `v1/docs/**`, `v1/spec/**`, `v2/docs/**`, `v2/spec/**`, and
       `reports/**` paths.
-- [ ] `resolveCiTestScope` returns the code-scoped result (unchanged) for a
+- [x] `resolveCiTestScope` returns the code-scoped result (unchanged) for a
       diff mixing no-test-impact paths with `v1/`, `v2/`, or `shared/` paths.
-- [ ] `resolveCiTestScope` returns `full` for a diff mixing a root-tooling
+- [x] `resolveCiTestScope` returns `full` for a diff mixing a root-tooling
       path with no-test-impact paths.
-- [ ] Existing `ci-test-scope.test.ts` cases (root-tooling, unmatched, empty
+- [x] Existing `ci-test-scope.test.ts` cases (root-tooling, unmatched, empty
       `paths`, unresolvable base) stay green.
 
 ## Documentation updates

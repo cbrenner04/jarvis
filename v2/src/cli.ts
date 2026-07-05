@@ -74,6 +74,7 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     ...deps,
   };
   const command = argv[0];
+  const operatorSessionId = crypto.randomUUID();
 
   if (argv.length === 1 && command === "--version") {
     out.stdout(`${packageJson.version}\n`);
@@ -88,7 +89,7 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
       return 1;
     }
 
-    const loopResult = await runtimeDeps.executeWriteLoop(parsed.input);
+    const loopResult = await runtimeDeps.executeWriteLoop(withOperatorSessionId(parsed.input, operatorSessionId));
 
     out.stdout(`${writeStdoutJson(loopResult)}\n`);
 
@@ -385,6 +386,12 @@ function stringProperty(value: unknown, key: string): string | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const prop = (value as Record<string, unknown>)[key];
   return typeof prop === "string" ? prop : undefined;
+}
+
+/** Tag `input` with the process's operator session id unless the caller already set `telemetry`. */
+export function withOperatorSessionId(input: WriteLoopInput, operatorSessionId: string): WriteLoopInput {
+  if (input.telemetry !== undefined) return input;
+  return { ...input, telemetry: { operatorSessionId } };
 }
 
 function parseWriteCliInput(argv: readonly string[], deps: CliDeps): WriteCliInput {

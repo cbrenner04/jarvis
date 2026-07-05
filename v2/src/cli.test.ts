@@ -2,12 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { main } from "./cli.ts";
+import { main, withOperatorSessionId } from "./cli.ts";
 import type { WriteLoopInput, WriteLoopResult } from "./execution/write-loop.ts";
 import type { IpcClient } from "./ipc/client.ts";
 import type { IpcFrame } from "./ipc/types.ts";
 import type { PersistedRecord } from "./persistence/log-stream.ts";
 import { simulatedBindings } from "./testing/bindings.ts";
+import { mockWriteLoopInput } from "./testing/run-control.ts";
 
 function captureIo() {
   let stdout = "";
@@ -638,6 +639,47 @@ describe("v2 cli", () => {
     expect(code).toBe(0);
     expect(capturedAgents).toEqual(["claude", "codex"]);
     expect(capturedInput?.bindings).toHaveLength(1);
+  });
+
+  test("mints an operatorSessionId when no caller-supplied telemetry is present", async () => {
+    const cap = captureIo();
+    let capturedInput: WriteLoopInput | undefined;
+
+    await main(WRITE_ARGS, cap.io, {
+      executeWriteLoop: async (input) => {
+        capturedInput = input;
+        return completeResult();
+      },
+    });
+
+    expect(typeof capturedInput?.telemetry?.operatorSessionId).toBe("string");
+    expect(capturedInput?.telemetry?.operatorSessionId.length).toBeGreaterThan(0);
+  });
+
+  test("mints a different operatorSessionId for each main() invocation", async () => {
+    const capturedIds: string[] = [];
+
+    for (let i = 0; i < 2; i++) {
+      const cap = captureIo();
+      await main(WRITE_ARGS, cap.io, {
+        executeWriteLoop: async (input) => {
+          capturedIds.push(input.telemetry?.operatorSessionId ?? "");
+          return completeResult();
+        },
+      });
+    }
+
+    expect(capturedIds).toHaveLength(2);
+    expect(capturedIds[0]).not.toEqual(capturedIds[1]);
+  });
+
+  test("withOperatorSessionId does not overwrite caller-supplied telemetry", () => {
+    const callerTelemetry = { sinkPath: "/tmp/t.jsonl", operatorSessionId: "caller-id", workflow: "w", role: "r" };
+    const input: WriteLoopInput = { ...mockWriteLoopInput(), telemetry: callerTelemetry };
+
+    const result = withOperatorSessionId(input, "minted-id");
+
+    expect(result.telemetry).toEqual(callerTelemetry);
   });
 
   test("defaults to the claude agent when --agents is omitted", async () => {

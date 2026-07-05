@@ -1,4 +1,4 @@
 # Operator Session Bootstrap
 
-- [ ] [00 - CLI operator session bootstrap](./00-cli-operator-session.md)
-- [ ] [01 - Daemon operator session bootstrap](./01-daemon-operator-session.md)
+- [x] [00 - CLI operator session bootstrap](./00-cli-operator-session.md)
+- [x] [01 - Daemon operator session bootstrap](./01-daemon-operator-session.md)

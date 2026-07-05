@@ -4,7 +4,7 @@
 - [x] [01 - Mock shared/git tests](./01-mock-shared-git-tests.md)
 - [x] [02 - Audit shared/preload test](./02-audit-shared-preload.md)
 - [x] [03 - v1 patch-mode small tests](./03-v1-patch-mode-small-tests.md)
-- [ ] [04 - v1 idle-hang fixture tests](./04-v1-idle-hang-tests.md)
+- [x] [04 - v1 idle-hang fixture tests](./04-v1-idle-hang-tests.md)
 - [ ] [05 - v1 CLI tests](./05-v1-cli-tests.md)
 - [ ] [06 - v1 patch shrink tests](./06-v1-patch-shrink-tests.md)
 - [ ] [07 - v1 patch review tests](./07-v1-patch-review-tests.md)

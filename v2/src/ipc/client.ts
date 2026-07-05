@@ -17,7 +17,13 @@ function connectSocket(socketPath: string): Promise<Socket> {
   });
 }
 
-export async function connectIpcClient(socketPath: string): Promise<IpcClient> {
+/**
+ * `defaultTimeoutMs`, when set, bounds `nextFrame()` calls that omit their own `timeoutMs` so an
+ * unresponsive server fails fast instead of hanging. Left unset (the default), those calls wait
+ * unbounded, matching this client's original behavior — production callers rely on that for
+ * long-running waits (e.g. `wait` for a run to finish, RPC/log-tail read loops).
+ */
+export async function connectIpcClient(socketPath: string, defaultTimeoutMs?: number): Promise<IpcClient> {
   const socket = await connectSocket(socketPath);
   const decoder = new FrameDecoder();
   const pending: IpcFrame[] = [];
@@ -53,7 +59,7 @@ export async function connectIpcClient(socketPath: string): Promise<IpcClient> {
     send(frame: unknown): void {
       socket.write(encodeFrame(frame));
     },
-    nextFrame(timeoutMs?: number): Promise<IpcFrame> {
+    nextFrame(timeoutMs: number | undefined = defaultTimeoutMs): Promise<IpcFrame> {
       const next = pending.shift();
       if (next) {
         return Promise.resolve(next);

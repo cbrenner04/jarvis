@@ -1,0 +1,14 @@
+All findings confirmed by direct code inspection. Issuing verdict.
+
+**Required outcomes:**
+
+1. **Eliminate the unintended behavior change to unrelated production call sites.** The diagnosis (subspec 00) pinned the hang to 60 specific `nextFrame()` call sites in *agent-mode test files* (`v2/src/ipc/ipc.test.ts` and others), none of which are production code. The landed fix instead changed `connectIpcClient`'s global default, which silently applies a 10s timeout to every caller that omits `timeoutMs` — including production paths that were never part of the hang and have no bearing on it:
+   - `v2/src/cli.ts:344` (`nextFrame()` inside the `wait` subcommand, fed by `request()` at line 302) — waits on real run completion, which routinely takes minutes; will now fail spuriously.
+   - `v2/src/tui/tui-daemon-rpc-transport.ts:25` — a persistent multiplexed RPC read loop where a timeout rejection tears down all pending RPCs and ends the loop; a 10s idle gap now kills the whole TUI session.
+   - `v2/src/tui/tui-log-tail-client.ts:81` — same pattern for log tailing.
+   
+   This violates the intent's own acceptance criterion: "No behavior change to specs/PRs unaffected by this stall pattern." The fix must be re-scoped so unrelated production callers retain their prior (unbounded, or intentionally long, e.g. `cli.ts:268`'s explicit `LOG_FRAME_WAIT_MS`) wait behavior — either by bounding the actual offending test call sites directly, or by ensuring every production caller that needs a long/unbounded wait explicitly passes its own `timeoutMs` rather than silently inheriting a short global default.
+
+2. **Correct the runbook's documented API.** `v1/docs/operator-runbook.md:320` currently describes `connectIpcClient(path, { defaultTimeoutMs })` (an options object), but the actual landed signature is `connectIpcClient(socketPath, defaultTimeoutMs: number)` (a positional parameter). The documentation must match the shipped code exactly, since this doc is the durable record of the fix per subspec 01's Documentation updates requirement.
+
+**Rationale:** Subspec 01's acceptance criteria are scoped to fixing the *identified* hanging operation, and the intent explicitly requires no behavior change to unaffected paths. Applying a global default timeout to a shared client used by production wait/RPC/log-tail flows — none of which were implicated by subspec 00's diagnosis — introduces new, real regressions (spurious `wait` failures, TUI session teardown on idle) while nominally "fixing" a test-only hang. The runbook inaccuracy is a straightforward documentation-standard violation given this subspec's explicit doc-update requirement.

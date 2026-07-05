@@ -116,7 +116,7 @@ afterEach(async () => {
 });
 
 socketTest("executor rejection sets durable status to failed", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const runId = await startRun(client);
   await flushBackgroundRuns();
 
@@ -131,7 +131,7 @@ socketTest("executor rejection appends exactly one run_execution_failed via fail
   await server.close();
   server = await startIpcServer(SOCKET_PATH, createHandlers());
 
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const runId = await startRun(client);
   await flushBackgroundRuns();
 
@@ -142,7 +142,7 @@ socketTest("executor rejection appends exactly one run_execution_failed via fail
 });
 
 socketTest("failed run keeps in-progress attempt row", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const runId = await startRun(client);
   stateStore.recordAttemptStart(runId);
   await flushBackgroundRuns();
@@ -155,7 +155,7 @@ socketTest("failed run keeps in-progress attempt row", async () => {
 });
 
 socketTest("after executor rejection list reports isLive false and accepts second start", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const input = mockWriteLoopInput();
   const runId = await startRun(client, input);
   await flushBackgroundRuns();
@@ -180,7 +180,7 @@ socketTest("failure reporter throw keeps failed status and releases ownership", 
   await server.close();
   server = await startIpcServer(SOCKET_PATH, createHandlers());
 
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const input = mockWriteLoopInput();
   const runId = await startRun(client, input);
   await flushBackgroundRuns();
@@ -222,7 +222,7 @@ socketTest("spawn boundary forwards original rejection to failure reporter", asy
     }),
   );
 
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   await startRun(client);
   await flushBackgroundRuns();
 
@@ -257,7 +257,7 @@ socketTest("terminal durable status is not overwritten on executor rejection", a
     }),
   );
 
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const runId = await startRun(client);
   await flushBackgroundRuns();
 
@@ -277,7 +277,7 @@ socketTest("settled executor does not invoke failure reporter", async () => {
   await server.close();
   server = await startIpcServer(SOCKET_PATH, createHandlers());
 
-  const client = await connectIpcClient(SOCKET_PATH);
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   await startRun(client);
   await flushBackgroundRuns();
 

@@ -8,11 +8,30 @@ export type IpcClient = {
   close(): void;
 };
 
-function connectSocket(socketPath: string): Promise<Socket> {
+const CONNECT_TIMEOUT_MS = 5_000;
+
+/**
+ * Bounds the connection-establishment step itself (distinct from `nextFrame()`,
+ * which stays legitimately unbounded by default for long-running production
+ * waits). A local Unix-socket connect should always resolve or error almost
+ * immediately; an unreachable/stale socket path has no legitimate reason to
+ * hang here.
+ */
+function connectSocket(socketPath: string, timeoutMs = CONNECT_TIMEOUT_MS): Promise<Socket> {
   return new Promise((resolve, reject) => {
     const socket = new Socket();
-    socket.once("connect", () => resolve(socket));
-    socket.once("error", reject);
+    const timer = setTimeout(() => {
+      socket.destroy();
+      reject(new Error(`timed out connecting to socket "${socketPath}" after ${timeoutMs}ms`));
+    }, timeoutMs);
+    socket.once("connect", () => {
+      clearTimeout(timer);
+      resolve(socket);
+    });
+    socket.once("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
     socket.connect(socketPath);
   });
 }

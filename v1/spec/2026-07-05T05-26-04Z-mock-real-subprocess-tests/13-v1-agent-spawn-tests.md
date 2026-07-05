@@ -17,8 +17,8 @@ for argv/output/exit-code handling mockable at the subprocess boundary.
 
 ## Acceptance criteria
 
-- [ ] Mockable cases assert argv/env and canned I/O without real agent CLI.
-- [ ] Remaining real-process tests justified inline (e.g. process-group/kill).
+- [x] Mockable cases assert argv/env and canned I/O without real agent CLI.
+- [x] Remaining real-process tests justified inline (e.g. process-group/kill).
 
 ## Documentation updates
 

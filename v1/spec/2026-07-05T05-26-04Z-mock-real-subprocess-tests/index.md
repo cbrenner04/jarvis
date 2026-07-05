@@ -13,7 +13,7 @@
 - [x] [10 - v1 ready-script tests](./10-v1-ready-script-tests.md)
 - [x] [11 - v1 cleanup-command tests](./11-v1-cleanup-command-tests.md)
 - [x] [12 - v1 intent-command tests](./12-v1-intent-command-tests.md)
-- [ ] [13 - v1 agent-spawn tests](./13-v1-agent-spawn-tests.md)
+- [x] [13 - v1 agent-spawn tests](./13-v1-agent-spawn-tests.md)
 - [ ] [14 - v1 plan-mode small tests](./14-v1-plan-mode-small-tests.md)
 - [ ] [15 - v1 plan commits tests](./15-v1-plan-commits-tests.md)
 - [ ] [16 - v1 plan review tests](./16-v1-plan-review-tests.md)

@@ -141,7 +141,7 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
     }
   };
 
-  const runSteeringAction = (method: "pause" | "resume" | "kill", rewaitOnSuccess = false): void => {
+  const runAction = (perform: (runId: string) => Promise<unknown>, rewaitOnSuccess: boolean): void => {
     const runId = currentState.selectedRunId;
     if (runId === null) {
       setState({ ...currentState, steeringFeedback: "no run selected" });
@@ -150,7 +150,7 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
 
     void (async () => {
       try {
-        await client![method](runId);
+        await perform(runId);
         if (currentState.selectedRunId !== runId) return;
         if (rewaitOnSuccess) {
           activeWaitToken += 1;
@@ -174,34 +174,11 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
     })();
   };
 
-  const runResumeDecisionAction = (decision: "approve" | "abort" | "revise", prompt?: string): void => {
-    const runId = currentState.selectedRunId;
-    if (runId === null) {
-      setState({ ...currentState, steeringFeedback: "no run selected" });
-      return;
-    }
+  const runSteeringAction = (method: "pause" | "resume" | "kill", rewaitOnSuccess = false): void =>
+    runAction((runId) => client![method](runId), rewaitOnSuccess);
 
-    void (async () => {
-      try {
-        await client!.resume(runId, prompt !== undefined ? { decision, prompt } : { decision });
-        if (currentState.selectedRunId !== runId) return;
-        activeWaitToken += 1;
-        lastReadyByRunId.delete(runId);
-        setState({
-          ...currentState,
-          waitState: buildWaitStateForSelection(runId),
-          steeringFeedback: null,
-        });
-        startWaitForRun(runId);
-      } catch (error) {
-        if (currentState.selectedRunId !== runId) return;
-        setState({
-          ...currentState,
-          steeringFeedback: steeringFeedbackFromError(error),
-        });
-      }
-    })();
-  };
+  const runResumeDecisionAction = (decision: "approve" | "abort" | "revise", prompt?: string): void =>
+    runAction((runId) => client!.resume(runId, prompt !== undefined ? { decision, prompt } : { decision }), true);
 
   const isSelectedAwaitingHuman = (): boolean => {
     const runId = currentState.selectedRunId;

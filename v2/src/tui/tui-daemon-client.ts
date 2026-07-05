@@ -102,7 +102,7 @@ export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promi
 
   const transport = createTuiDaemonRpcTransport(client);
 
-  const okRunRpc = async (method: "pause" | "resume" | "kill", runId: string): Promise<TuiDaemonHealthResult> =>
+  const okRunRpc = async (method: "pause" | "kill", runId: string): Promise<TuiDaemonHealthResult> =>
     parseOrThrow(
       parseHealthResult(await transport.request(method, { runId })),
       `malformed RPC reply: invalid ${method} result`,

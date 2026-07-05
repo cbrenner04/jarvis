@@ -12,8 +12,8 @@ import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import {
   createRunControlHandlers,
   type OwnershipKey,
-  promoteQueuedRunImpl,
   type PromotionSettleState,
+  promoteQueuedRunImpl,
   WorktreeOwnershipRegistry,
 } from "./daemon.ts";
 
@@ -149,7 +149,14 @@ test("promoteQueuedRunImpl promotes the oldest queued run before a younger one",
     const runIdA = queueRun(store, mockWriteLoopInput({ projectName: "project-a" }));
     const runIdB = queueRun(store, mockWriteLoopInput({ projectName: "project-b" }));
 
-    promoteQueuedRunImpl({ store, registry, checkMemoryHeadroom: () => true, settleDelayMs: 0, settleState, spawnWriteLoop });
+    promoteQueuedRunImpl({
+      store,
+      registry,
+      checkMemoryHeadroom: () => true,
+      settleDelayMs: 0,
+      settleState,
+      spawnWriteLoop,
+    });
 
     expect(store.loadRun(runIdA)?.status).toBe("in-progress");
     expect(store.loadRun(runIdB)?.status).toBe("queued");
@@ -169,7 +176,14 @@ test("promoteQueuedRunImpl leaves a queued run queued while memory stays below t
 
     const runId = queueRun(store, mockWriteLoopInput({ projectName: "project-a" }));
 
-    promoteQueuedRunImpl({ store, registry, checkMemoryHeadroom: () => false, settleDelayMs: 0, settleState, spawnWriteLoop });
+    promoteQueuedRunImpl({
+      store,
+      registry,
+      checkMemoryHeadroom: () => false,
+      settleDelayMs: 0,
+      settleState,
+      spawnWriteLoop,
+    });
 
     expect(store.loadRun(runId)?.status).toBe("queued");
     expect(calls).toHaveLength(0);
@@ -192,7 +206,14 @@ test("promoteQueuedRunImpl skips a queued run whose key is claimed in favor of t
     const blockedQueuedId = queueRun(store, liveInput);
     const eligibleQueuedId = queueRun(store, mockWriteLoopInput({ projectName: "project-eligible" }));
 
-    promoteQueuedRunImpl({ store, registry, checkMemoryHeadroom: () => true, settleDelayMs: 0, settleState, spawnWriteLoop });
+    promoteQueuedRunImpl({
+      store,
+      registry,
+      checkMemoryHeadroom: () => true,
+      settleDelayMs: 0,
+      settleState,
+      spawnWriteLoop,
+    });
 
     expect(store.loadRun(eligibleQueuedId)?.status).toBe("in-progress");
     expect(store.loadRun(blockedQueuedId)?.status).toBe("queued");

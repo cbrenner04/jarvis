@@ -9,7 +9,7 @@
 - [x] [06 - v1 patch shrink tests](./06-v1-patch-shrink-tests.md)
 - [x] [07 - v1 patch review tests](./07-v1-patch-review-tests.md)
 - [x] [08 - v1 patch PR tests](./08-v1-patch-pr-tests.md)
-- [ ] [09 - v1 run tests](./09-v1-run-tests.md)
+- [x] [09 - v1 run tests](./09-v1-run-tests.md)
 - [ ] [10 - v1 ready-script tests](./10-v1-ready-script-tests.md)
 - [ ] [11 - v1 cleanup-command tests](./11-v1-cleanup-command-tests.md)
 - [ ] [12 - v1 intent-command tests](./12-v1-intent-command-tests.md)

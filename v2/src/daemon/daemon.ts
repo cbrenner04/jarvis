@@ -374,18 +374,6 @@ function stoppedOutcomeForRun(run: LoadedRun): Exclude<WorkflowStepTerminalOutco
   return "invocation_failure";
 }
 
-/**
- * Run-control handler factory for `start`/`list`/`pause`/`resume`/`kill`.
- *
- * @param deps - {@link RunControlHandlerDeps}
- * @returns `{ start, list, pause, resume, kill }` — each an {@link RpcHandler}.
- *   Handlers signal rejections via `{ kind: "error", code, message }`; they do not throw.
- * @throws Never — factory and handlers are non-throwing at the RPC boundary.
- * @invariant Each invocation gets a fresh `WorktreeOwnershipRegistry` and `activeRuns` map.
- * @invariant Write loops spawn fire-and-forget; settlement always releases registry and
- *   active-run entries. Spawn-boundary executor rejections best-effort persist `failed`,
- *   await `failureReporter`, then release — they do not propagate to RPC callers.
- */
 /** Mutated by {@link promoteQueuedRunImpl} on each promotion; shared across calls. */
 export type PromotionSettleState = { suppressedUntil: number };
 
@@ -433,6 +421,18 @@ export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDel
   }
 }
 
+/**
+ * Run-control handler factory for `start`/`list`/`pause`/`resume`/`kill`.
+ *
+ * @param deps - {@link RunControlHandlerDeps}
+ * @returns `{ start, list, pause, resume, kill }` — each an {@link RpcHandler}.
+ *   Handlers signal rejections via `{ kind: "error", code, message }`; they do not throw.
+ * @throws Never — factory and handlers are non-throwing at the RPC boundary.
+ * @invariant Each invocation gets a fresh `WorktreeOwnershipRegistry` and `activeRuns` map.
+ * @invariant Write loops spawn fire-and-forget; settlement always releases registry and
+ *   active-run entries. Spawn-boundary executor rejections best-effort persist `failed`,
+ *   await `failureReporter`, then release — they do not propagate to RPC callers.
+ */
 export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const _registry = new WorktreeOwnershipRegistry();
   const activeRuns = new Map<string, ActiveRun>();

@@ -112,10 +112,9 @@ afterEach(async () => {
   }
 });
 
-function createUnitStore(): StateStore {
-  return openStateStore(
-    join(tmpdir(), `jarvis-state-queue-promotion-unit-${process.pid}-${Date.now()}-${Math.random()}.db`),
-  );
+function createUnitStore(): { store: StateStore; dbPath: string } {
+  const dbPath = join(tmpdir(), `jarvis-state-queue-promotion-unit-${process.pid}-${Date.now()}-${Math.random()}.db`);
+  return { store: openStateStore(dbPath), dbPath };
 }
 
 function createFakeSpawnWriteLoop(registry: WorktreeOwnershipRegistry) {
@@ -142,7 +141,7 @@ function queueRun(store: StateStore, input: WriteLoopInput): string {
 function createPromotionHarness(
   overrides: Partial<Pick<PromoteQueuedRunDeps, "checkMemoryHeadroom" | "settleDelayMs">> = {},
 ) {
-  const store = createUnitStore();
+  const { store, dbPath } = createUnitStore();
   const registry = new WorktreeOwnershipRegistry();
   const { spawnWriteLoop, calls } = createFakeSpawnWriteLoop(registry);
   const deps: PromoteQueuedRunDeps = {
@@ -160,11 +159,15 @@ function createPromotionHarness(
     calls,
     deps,
     promote: (bypassSettleDelay?: boolean) => promoteQueuedRunImpl(deps, bypassSettleDelay),
+    cleanup: (): void => {
+      store.close();
+      rmSync(dbPath, { force: true });
+    },
   };
 }
 
 test("promoteQueuedRunImpl promotes the oldest queued run before a younger one", () => {
-  const { store, calls, promote } = createPromotionHarness();
+  const { store, calls, promote, cleanup } = createPromotionHarness();
   try {
     const runIdA = queueRun(store, mockWriteLoopInput({ projectName: "project-a" }));
     const runIdB = queueRun(store, mockWriteLoopInput({ projectName: "project-b" }));
@@ -176,12 +179,12 @@ test("promoteQueuedRunImpl promotes the oldest queued run before a younger one",
     expect(calls).toHaveLength(1);
     expect(calls[0]?.runId).toBe(runIdA);
   } finally {
-    store.close();
+    cleanup();
   }
 });
 
 test("promoteQueuedRunImpl leaves a queued run queued while memory stays below the watermark", () => {
-  const { store, calls, promote } = createPromotionHarness({ checkMemoryHeadroom: () => false });
+  const { store, calls, promote, cleanup } = createPromotionHarness({ checkMemoryHeadroom: () => false });
   try {
     const runId = queueRun(store, mockWriteLoopInput({ projectName: "project-a" }));
 
@@ -190,12 +193,12 @@ test("promoteQueuedRunImpl leaves a queued run queued while memory stays below t
     expect(store.loadRun(runId)?.status).toBe("queued");
     expect(calls).toHaveLength(0);
   } finally {
-    store.close();
+    cleanup();
   }
 });
 
 test("promoteQueuedRunImpl skips a queued run whose key is claimed in favor of the next-oldest eligible run", () => {
-  const { store, registry, calls, promote } = createPromotionHarness();
+  const { store, registry, calls, promote, cleanup } = createPromotionHarness();
   try {
     const liveInput = mockWriteLoopInput({ projectName: "project-live" });
     const liveKey: OwnershipKey = { project: liveInput.worktree.projectName, branch: liveInput.worktree.branchName };
@@ -211,12 +214,12 @@ test("promoteQueuedRunImpl skips a queued run whose key is claimed in favor of t
     expect(calls).toHaveLength(1);
     expect(calls[0]?.runId).toBe(eligibleQueuedId);
   } finally {
-    store.close();
+    cleanup();
   }
 });
 
 test("promoteQueuedRunImpl withholds promotion while the settle delay is active", () => {
-  const { store, calls, deps, promote } = createPromotionHarness({ settleDelayMs: 100_000 });
+  const { store, calls, deps, promote, cleanup } = createPromotionHarness({ settleDelayMs: 100_000 });
   try {
     const runIdA = queueRun(store, mockWriteLoopInput({ projectName: "project-settle-a" }));
     const runIdB = queueRun(store, mockWriteLoopInput({ projectName: "project-settle-b" }));
@@ -229,7 +232,7 @@ test("promoteQueuedRunImpl withholds promotion while the settle delay is active"
     expect(store.loadRun(runIdB)?.status).toBe("queued");
     expect(calls).toHaveLength(1);
   } finally {
-    store.close();
+    cleanup();
   }
 });
 

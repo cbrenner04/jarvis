@@ -5,7 +5,7 @@ import { createAgentBindings, createResolvedAgentBinding } from "../../../shared
 import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import { nextRevisionNumber, revisionStepId } from "../execution/revision-step-id.ts";
-import { latestRevisionRun } from "../execution/workflow-runner.ts";
+import { latestRevisionRun, type ReviewDebateProgress } from "../execution/workflow-runner.ts";
 import { executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
 import { type LogReader, type LoopFinishedEvent, openLogReader, openLogSink } from "../persistence/log-stream.ts";
@@ -249,6 +249,18 @@ type WorkflowStepListSnapshot = {
   terminalOutcome?: WorkflowStepTerminalOutcome;
 };
 
+/**
+ * Live/terminal role progress for `review-debate` steps, keyed by `stepId`. Tracked
+ * in-memory only — a `review-debate` step has no durable run row, so this map is the
+ * sole source for its `list` row, populated via {@link reportReviewDebateProgress}.
+ */
+export const reviewDebateProgressByStepId = new Map<string, ReviewDebateProgress>();
+
+/** Records a `review-debate` step's currently-executing or terminal role/outcome. */
+export function reportReviewDebateProgress(stepId: string, progress: ReviewDebateProgress): void {
+  reviewDebateProgressByStepId.set(stepId, progress);
+}
+
 function workflowRowSnapshot(
   run: LoadedRun,
   runsByWorkflowInvocation: ReadonlyMap<string, Map<string, LoadedRun>>,
@@ -268,6 +280,23 @@ function workflowStepSnapshot(
   run: LoadedRun | undefined,
   liveRunIds: ReadonlySet<string>,
 ): WorkflowStepListSnapshot {
+  if (step.behavior === "review-debate") {
+    const progress = reviewDebateProgressByStepId.get(step.stepId);
+    if (!progress) {
+      return { stepId: step.stepId, role: step.role, status: "pending", attemptCount: 0 };
+    }
+    if (progress.status === "in_progress") {
+      return { stepId: step.stepId, role: progress.role, status: "in_progress", attemptCount: 0 };
+    }
+    return {
+      stepId: step.stepId,
+      role: progress.role,
+      status: progress.status,
+      attemptCount: 0,
+      terminalOutcome: progress.terminalOutcome,
+    };
+  }
+
   if (!run) {
     return { stepId: step.stepId, role: step.role, status: "pending", attemptCount: 0 };
   }

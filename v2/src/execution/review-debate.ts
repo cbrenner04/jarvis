@@ -44,6 +44,8 @@ export type ReviewDebateInput = {
   maxCycles: number;
   signal?: AbortSignal;
   telemetry?: Omit<InvocationTelemetryContext, "role" | "invocationIds">;
+  /** Called just before each role's invocation starts, in debate order, once per cycle. */
+  onRoleStart?: (role: ReviewDebateRole) => void;
 };
 
 /**
@@ -123,6 +125,7 @@ async function invokeRole(
   prompt: string,
   bindings: readonly InvocationBinding[],
 ): Promise<InvocationExecution> {
+  args.onRoleStart?.(role);
   return executeWithQuotaFallback({
     prompt,
     cwd: args.cwd,

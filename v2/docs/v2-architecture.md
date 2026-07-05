@@ -216,6 +216,11 @@ The **review-debate** behavior is a structured debate, not N identical critique 
   each cycle (full trail in git). Empty verdict → no actuator run. Default is one
   cycle; the harness adjudicates no materiality — nothing to find means an empty
   verdict, not a convergence gate.
+- **Live progress surfaces through the daemon `list`/TUI snapshot.** A review-debate
+  step gets one row (keyed by `stepId`, not one per role); while a cycle runs, the
+  row's role tracks the currently-executing adversary/advocate/adjudicator/actuator,
+  then holds the terminal role and outcome once it completes or stops. Tracked
+  in-memory only — no durable per-role run rows.
 
 ### Output contract (step outcomes)
 

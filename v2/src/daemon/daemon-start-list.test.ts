@@ -8,7 +8,7 @@ import { type IpcServer, startIpcServer } from "../ipc/server.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { listRuns, mockWriteLoopInput, startRun } from "../testing/run-control.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
-import { createRunControlHandlers } from "./daemon.ts";
+import { createRunControlHandlers, reportReviewDebateProgress, reviewDebateProgressByStepId } from "./daemon.ts";
 
 const SOCKET_PATH = join(tmpdir(), `jarvis-daemon-test-${process.pid}.sock`);
 const socketTest = test.skipIf(!canUseUnixSockets());
@@ -56,7 +56,7 @@ function createFakeWriteLoopExecutor(onStart?: (input: WriteLoopInput) => void) 
 
 type FakeWriteLoopExecutor = ReturnType<typeof createFakeWriteLoopExecutor>;
 
-function workflowSnapshot(...steps: Array<{ stepId: string; role: string }>) {
+function workflowSnapshot(...steps: Array<{ stepId: string; role: string; behavior?: "review-debate" }>) {
   return { invocationId: "workflow-1", steps };
 }
 
@@ -92,6 +92,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  reviewDebateProgressByStepId.clear();
   if (!canUseUnixSockets()) {
     return;
   }
@@ -430,6 +431,85 @@ socketTest(
     client.close();
   },
 );
+
+socketTest("list builds a review-debate row from the live role pointer while in progress", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+
+  const snapshot = workflowSnapshot(
+    { stepId: "step-1", role: "implement" },
+    { stepId: "step-debate", role: "", behavior: "review-debate" },
+  );
+  const runId = stateStore.createRun({
+    project: "wf-debate",
+    specRef: "main",
+    worktreePath: "/tmp/wf-debate",
+    branch: "wf-debate",
+    specPath: "/tmp/spec.md",
+    stepId: "step-1",
+    workflowSnapshot: snapshot,
+  });
+  stateStore.setRunStatus(runId, "completed");
+
+  let runs = await listRuns(client);
+  let row = runs?.find((candidate) => candidate.runId === runId);
+  expect(row?.workflow?.steps.find((step) => step.stepId === "step-debate")).toEqual({
+    stepId: "step-debate",
+    role: "",
+    status: "pending",
+    attemptCount: 0,
+  });
+
+  reportReviewDebateProgress("step-debate", { status: "in_progress", role: "advocate" });
+
+  runs = await listRuns(client);
+  row = runs?.find((candidate) => candidate.runId === runId);
+  expect(row?.workflow?.steps.find((step) => step.stepId === "step-debate")).toEqual({
+    stepId: "step-debate",
+    role: "advocate",
+    status: "in_progress",
+    attemptCount: 0,
+  });
+
+  client.close();
+});
+
+socketTest("list builds a review-debate row from the terminal role/outcome once the cycle ends", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+
+  const snapshot = workflowSnapshot(
+    { stepId: "step-1", role: "implement" },
+    { stepId: "step-debate", role: "", behavior: "review-debate" },
+  );
+  const runId = stateStore.createRun({
+    project: "wf-debate-done",
+    specRef: "main",
+    worktreePath: "/tmp/wf-debate-done",
+    branch: "wf-debate-done",
+    specPath: "/tmp/spec.md",
+    stepId: "step-1",
+    workflowSnapshot: snapshot,
+  });
+  stateStore.setRunStatus(runId, "completed");
+
+  reportReviewDebateProgress("step-debate", { status: "in_progress", role: "adjudicator" });
+  reportReviewDebateProgress("step-debate", {
+    status: "completed",
+    role: "actuator",
+    terminalOutcome: "complete",
+  });
+
+  const runs = await listRuns(client);
+  const row = runs?.find((candidate) => candidate.runId === runId);
+  expect(row?.workflow?.steps.find((step) => step.stepId === "step-debate")).toEqual({
+    stepId: "step-debate",
+    role: "actuator",
+    status: "completed",
+    attemptCount: 0,
+    terminalOutcome: "complete",
+  });
+
+  client.close();
+});
 
 socketTest("pause signals graceful stop for an active run", async () => {
   const client = await connectIpcClient(SOCKET_PATH);

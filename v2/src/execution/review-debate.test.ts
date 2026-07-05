@@ -200,6 +200,30 @@ describe("executeReviewDebate", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  test("onRoleStart fires with each role in order, across a second cycle", async () => {
+    const calls: string[] = [];
+    const dir = mkdtempSync(join(tmpdir(), "review-debate-"));
+    const verdictPath = join(dir, "verdict.md");
+    const input = baseInput({ calls, verdictPath, adjudicatorVerdict: "fix it", maxCycles: 2 });
+    const roleStarts: string[] = [];
+    input.onRoleStart = (role) => roleStarts.push(role);
+
+    const result = await executeReviewDebate(input);
+
+    expect(result.cycles).toHaveLength(2);
+    expect(roleStarts).toEqual([
+      "adversary",
+      "advocate",
+      "adjudicator",
+      "actuator",
+      "adversary",
+      "advocate",
+      "adjudicator",
+      "actuator",
+    ]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   test("emits one invocation_completed row per binding subprocess with role set to the debate role", async () => {
     const calls: string[] = [];
     const dir = mkdtempSync(join(tmpdir(), "review-debate-"));

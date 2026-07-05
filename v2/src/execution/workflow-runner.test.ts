@@ -49,6 +49,7 @@ function createBindingFactory(
     return {
       id: `${agentId}/${adapterModel}`,
       invoke: ({ cwd }: Parameters<InvocationBinding["invoke"]>[0]) => invoke({ agentId, adapterModel, cwd }),
+      metadata: { agent: agentId, model: adapterModel },
     } satisfies InvocationBinding;
   };
 }
@@ -685,6 +686,7 @@ function createDebateBindingFactory(
     return {
       id: `${agentId}/${adapterModel}`,
       invoke: () => invoke({ agentId, adapterModel }),
+      metadata: { agent: agentId, model: adapterModel },
     } satisfies InvocationBinding;
   };
 }
@@ -715,26 +717,6 @@ function loadTelemetryRows(path: string): InvocationCompletedRecord[] {
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line) as InvocationCompletedRecord);
-}
-
-function metadataWriteBindingFactory(
-  invoke: (binding: { agentId: string; adapterModel: string; cwd: string }) => Promise<InvocationResult>,
-): NonNullable<WriteWorkflowStep["createBinding"]> {
-  return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) => ({
-    id: `${agentId}/${adapterModel}`,
-    invoke: ({ cwd }: Parameters<InvocationBinding["invoke"]>[0]) => invoke({ agentId, adapterModel, cwd }),
-    metadata: { agent: agentId, model: adapterModel },
-  });
-}
-
-function metadataDebateBindingFactory(
-  invoke: (binding: { agentId: string; adapterModel: string }) => Promise<InvocationResult>,
-): NonNullable<ReviewDebateWorkflowStep["createBinding"]> {
-  return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) => ({
-    id: `${agentId}/${adapterModel}`,
-    invoke: () => invoke({ agentId, adapterModel }),
-    metadata: { agent: agentId, model: adapterModel },
-  });
 }
 
 describe("executeWorkflow human steps", () => {
@@ -1222,7 +1204,7 @@ describe("executeWorkflow telemetry", () => {
       stepId: "step-1",
       role: "implement",
       branchName: "telemetry-workflow",
-      createBinding: metadataWriteBindingFactory(async ({ cwd }) => {
+      createBinding: createBindingFactory(async ({ cwd }) => {
         writeFileSync(`${cwd}/proof.txt`, "ok\n", "utf8");
         return { kind: "ok", stdout: "done", stderr: "" } as const;
       }),
@@ -1232,7 +1214,7 @@ describe("executeWorkflow telemetry", () => {
       stepId: "step-2",
       verdictPath: debateVerdictPath(),
       branch: "telemetry-workflow",
-      createBinding: metadataDebateBindingFactory(async ({ adapterModel }) => {
+      createBinding: createDebateBindingFactory(async ({ adapterModel }) => {
         return { kind: "ok", stdout: adapterModel === "ADJ" ? "" : "ok", stderr: "" } as const;
       }),
     });
@@ -1281,7 +1263,7 @@ describe("executeWorkflow telemetry", () => {
       stepId: "step-2",
       verdictPath: debateVerdictPath(),
       branch: "telemetry-omitted",
-      createBinding: metadataDebateBindingFactory(async ({ adapterModel }) => {
+      createBinding: createDebateBindingFactory(async ({ adapterModel }) => {
         return { kind: "ok", stdout: adapterModel === "ADJ" ? "" : "ok", stderr: "" } as const;
       }),
     });

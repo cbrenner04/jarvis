@@ -12,8 +12,8 @@ patch-mode shrink, including the `ci-shrink-test-hang` flake.
 
 ## Acceptance criteria
 
-- [ ] Mockable cases use boundary; no real git/gh.
-- [ ] Remaining real-subprocess tests justified inline (e.g. genuine stall path).
+- [x] Mockable cases use boundary; no real git/gh.
+- [x] Remaining real-subprocess tests justified inline (e.g. genuine stall path).
 
 ## Documentation updates
 

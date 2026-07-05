@@ -6,7 +6,7 @@
 - [x] [03 - v1 patch-mode small tests](./03-v1-patch-mode-small-tests.md)
 - [x] [04 - v1 idle-hang fixture tests](./04-v1-idle-hang-tests.md)
 - [x] [05 - v1 CLI tests](./05-v1-cli-tests.md)
-- [ ] [06 - v1 patch shrink tests](./06-v1-patch-shrink-tests.md)
+- [x] [06 - v1 patch shrink tests](./06-v1-patch-shrink-tests.md)
 - [ ] [07 - v1 patch review tests](./07-v1-patch-review-tests.md)
 - [ ] [08 - v1 patch PR tests](./08-v1-patch-pr-tests.md)
 - [ ] [09 - v1 run tests](./09-v1-run-tests.md)

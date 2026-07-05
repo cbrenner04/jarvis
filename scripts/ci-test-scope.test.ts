@@ -46,4 +46,27 @@ describe("resolveCiTestScope", () => {
   test("unresolvable base runs full suite regardless of paths", () => {
     expect(resolveCiTestScope(["v1/src/index.ts"], false)).toBe("full");
   });
+
+  test.each([
+    ["doc-only", ["v1/docs/run-loop.md"]],
+    ["spec-only", ["v1/spec/some-spec/index.md"]],
+    ["report-only", ["reports/2026-07-05-session.md"]],
+    [
+      "mixed v1/v2 docs+specs",
+      ["v1/docs/run-loop.md", "v1/spec/some-spec/index.md", "v2/docs/architecture.md", "v2/spec/some-spec/index.md"],
+    ],
+  ])("no-test-impact diff (%s) skips tests", (_label, paths) => {
+    expect(resolveCiTestScope(paths, true)).toEqual([]);
+  });
+
+  test("no-test-impact + code-path diff scopes on code paths only", () => {
+    expect(resolveCiTestScope(["v1/docs/run-loop.md", "v2/src/foo.ts"], true)).toEqual([
+      "test:v2",
+      "test:integration:v2",
+    ]);
+  });
+
+  test("root-tooling + no-test-impact diff still runs full suite", () => {
+    expect(resolveCiTestScope(["package.json", "v1/docs/run-loop.md"], true)).toBe("full");
+  });
 });

@@ -36,11 +36,11 @@ loop without changing review actuator outcomes.
 
 ## Acceptance criteria
 
-- [ ] `v1/test/modes/patch/review.sandbox-unrunnable.test.ts` stays green for the existing review-actuator preservation coverage, including quota fallback, lenient weak-quota fallback, verdict/spec restore, idle escalation, final-rung idle, idle disabled, iteration-wall terminality, auth-note emission, quota-line emission, reconcile-before-push, empty verdict skip, and orphan reaping.
-- [ ] `v1/test/modes/review/run.test.ts` stays green for standalone review-mode binding/executor preservation coverage, including `upgrades lenient weak-quota errors when porcelain is unchanged`, so the shared binding extraction does not regress non-actuator review callers.
-- [ ] `v1/src/modes/patch/review.ts` routes review actuator rung selection through `shared/invocation/execute.ts` `executeWithQuotaFallback(...)` with one binding per `reviewActuatorOrder` rung instead of a hand-rolled rung loop.
-- [ ] Review actuator still advances past a non-final rung on native quota, lenient weak-quota, and `aborted: idle-timeout`, while `model_config`, iteration-wall timeout, and other non-idle errors stay terminal for that pass.
-- [ ] The actuator path reuses one caller-built verdict prompt across every rung attempt, so the persisted `verdict-patch.md` text cannot drift by rebuilding prompt text per rung.
-- [ ] A review-actuator test proves a rung reached after an earlier rung's idle-timeout advance receives a fresh non-aborted signal, guarding against an executor-wide controller shared across rungs.
-- [ ] A review-actuator test proves `reviewActuatorOrder.length === 0` still exits on the review side with `review: actuator no agents available` before shared execution would return its empty-binding result.
-- [ ] `v2/docs/shared-invocation.md` and `v2/docs/v1-behaviors.md` describe the live shared-executor boundary and review-actuator contract consistently.
+- [x] `v1/test/modes/patch/review.sandbox-unrunnable.test.ts` stays green for the existing review-actuator preservation coverage, including quota fallback, lenient weak-quota fallback, verdict/spec restore, idle escalation, final-rung idle, idle disabled, iteration-wall terminality, auth-note emission, quota-line emission, reconcile-before-push, empty verdict skip, and orphan reaping.
+- [x] `v1/test/modes/review/run.test.ts` stays green for standalone review-mode binding/executor preservation coverage, including `upgrades lenient weak-quota errors when porcelain is unchanged`, so the shared binding extraction does not regress non-actuator review callers.
+- [x] `v1/src/modes/patch/review.ts` routes review actuator rung selection through `shared/invocation/execute.ts` `executeWithQuotaFallback(...)` with one binding per `reviewActuatorOrder` rung instead of a hand-rolled rung loop.
+- [x] Review actuator still advances past a non-final rung on native quota, lenient weak-quota, and `aborted: idle-timeout`, while `model_config`, iteration-wall timeout, and other non-idle errors stay terminal for that pass.
+- [x] The actuator path reuses one caller-built verdict prompt across every rung attempt, so the persisted `verdict-patch.md` text cannot drift by rebuilding prompt text per rung.
+- [x] A review-actuator test proves a rung reached after an earlier rung's idle-timeout advance receives a fresh non-aborted signal, guarding against an executor-wide controller shared across rungs.
+- [x] A review-actuator test proves `reviewActuatorOrder.length === 0` still exits on the review side with `review: actuator no agents available` before shared execution would return its empty-binding result.
+- [x] `v2/docs/shared-invocation.md` and `v2/docs/v1-behaviors.md` describe the live shared-executor boundary and review-actuator contract consistently.

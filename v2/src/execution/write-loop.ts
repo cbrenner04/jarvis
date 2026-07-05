@@ -220,8 +220,16 @@ function buildWriteExecuteInput(args: WriteLoopInput, runId: string, attemptId: 
   // legitimate value that carries no invocation-emission context; only build the
   // full invocationTelemetry record once all three are actually present.
   const fullTelemetry =
-    telemetry !== undefined && telemetry.sinkPath !== undefined && telemetry.workflow !== undefined && telemetry.role !== undefined
-      ? { sinkPath: telemetry.sinkPath, operatorSessionId: telemetry.operatorSessionId, workflow: telemetry.workflow, role: telemetry.role }
+    telemetry !== undefined &&
+    telemetry.sinkPath !== undefined &&
+    telemetry.workflow !== undefined &&
+    telemetry.role !== undefined
+      ? {
+          sinkPath: telemetry.sinkPath,
+          operatorSessionId: telemetry.operatorSessionId,
+          workflow: telemetry.workflow,
+          role: telemetry.role,
+        }
       : undefined;
   return {
     worktree: args.worktree,

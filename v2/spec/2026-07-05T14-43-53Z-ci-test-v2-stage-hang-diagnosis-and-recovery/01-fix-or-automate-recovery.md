@@ -28,6 +28,8 @@ decisions).
   steps, the jarvis-side fix (if that branch applies) covers those steps
   too, not just `Test (v2)` — scope follows subspec 00's finding, not the
   intent's original v2-only framing.
+- Subspec 00 classified **jarvis-side**; the automation branch (stuck-run
+  detection in `waitForCiGreen`) is skipped — do not implement it.
 
 ## Task checklist
 
@@ -36,22 +38,12 @@ decisions).
       the operation is a subprocess call, the existing shrink-phase git
       subprocess bound pattern (`v2/docs/v1-behaviors.md`) is a reference
       example; sockets/timers need their own bound, not that pattern.
-- [ ] **If GitHub-runner-side or inconclusive:** add stuck-run detection to
-      the CI-poll flow that detects a `Test (...)` step with no log/status
-      progress past a threshold and automatically cancels and reruns the
-      run.
 
 ## Acceptance criteria
 
 - [x] If jarvis-side: the previously-hanging operation now fails fast under
       a bounded timeout instead of hanging (demonstrated by a test covering
       the timeout path).
-- [ ] If GitHub-runner-side or inconclusive: a stuck `Test (...)` step is
-      detected and cancel+rerun happens automatically, without operator
-      intervention.
-- [ ] If GitHub-runner-side or inconclusive: a run whose steps are slow but
-      still progressing is not cancelled (demonstrated by a test covering
-      the non-stuck path).
 - [x] `v1/docs/operator-runbook.md`'s CI section reflects the landed fix or
       automation, replacing the manual cancel/rerun guidance.
 

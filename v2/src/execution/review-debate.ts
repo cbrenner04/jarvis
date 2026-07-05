@@ -62,7 +62,13 @@ export async function executeReviewDebate(args: ReviewDebateInput): Promise<Revi
     roleResults.adversary = adversary;
     const adversaryFailure = failureKind(adversary);
     if (adversaryFailure !== null) {
-      cycles.push({ kind: "role_failed", failedRole: "adversary", failureKind: adversaryFailure, verdict: null, roleResults });
+      cycles.push({
+        kind: "role_failed",
+        failedRole: "adversary",
+        failureKind: adversaryFailure,
+        verdict: null,
+        roleResults,
+      });
       break;
     }
 
@@ -70,7 +76,13 @@ export async function executeReviewDebate(args: ReviewDebateInput): Promise<Revi
     roleResults.advocate = advocate;
     const advocateFailure = failureKind(advocate);
     if (advocateFailure !== null) {
-      cycles.push({ kind: "role_failed", failedRole: "advocate", failureKind: advocateFailure, verdict: null, roleResults });
+      cycles.push({
+        kind: "role_failed",
+        failedRole: "advocate",
+        failureKind: advocateFailure,
+        verdict: null,
+        roleResults,
+      });
       break;
     }
 

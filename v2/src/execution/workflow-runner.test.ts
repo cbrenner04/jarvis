@@ -9,8 +9,8 @@ import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } fr
 import {
   defineWorkflowStep,
   executeWorkflow,
-  resolveWorkflowPreset,
   type ReviewDebateWorkflowStep,
+  resolveWorkflowPreset,
   type WorkflowStep,
 } from "./workflow-runner.ts";
 

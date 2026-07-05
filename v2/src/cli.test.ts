@@ -49,11 +49,7 @@ function absentMachineConfigPath(): string {
   return join(dir, ".jarvis", "v2.json");
 }
 
-async function runConfig(
-  configPath: string,
-  args: readonly string[],
-  io = captureIo().io,
-): Promise<number> {
+async function runConfig(configPath: string, args: readonly string[], io = captureIo().io): Promise<number> {
   return main(["config", ...args], io, { machineConfigPath: configPath });
 }
 

@@ -12,8 +12,8 @@ CLI routing mockable at the subprocess boundary.
 
 ## Acceptance criteria
 
-- [ ] Mockable cases use boundary injection; no real git/gh.
-- [ ] Remaining real-subprocess tests justified inline.
+- [x] Mockable cases use boundary injection; no real git/gh.
+- [x] Remaining real-subprocess tests justified inline.
 
 ## Documentation updates
 

@@ -53,13 +53,18 @@ export type HumanWorkflowStep = {
 export type ReviewDebateStepAgents = Record<ReviewDebateRole, readonly string[]>;
 
 /** Per-step review-debate input plus workflow identity; role bindings are derived at execution. */
-export type ReviewDebateWorkflowStep = Omit<ReviewDebateInput, "bindings"> & {
+export type ReviewDebateWorkflowStep = Omit<ReviewDebateInput, "bindings" | "onRoleStart"> & {
   stepId: string;
   behavior: "review-debate";
   agents: ReviewDebateStepAgents;
   agentModelConfig: AgentModelConfig;
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
 };
+
+/** Live/terminal progress for a `review-debate` step's daemon-visible row, tracked in-memory only. */
+export type ReviewDebateProgress =
+  | { status: "in_progress"; role: ReviewDebateRole }
+  | { status: "completed" | "stopped"; role: ReviewDebateRole; terminalOutcome: "complete" | "invocation_failure" };
 
 /** One authored workflow step with durable run identity, dispatched on `behavior` at execution. */
 export type WorkflowStep = WriteWorkflowStep | HumanWorkflowStep;
@@ -85,6 +90,8 @@ export type WorkflowRunnerInput = {
   steps: AnyWorkflowStep[];
   stateStore?: StateStore;
   logSink?: LogSink;
+  /** Reports a `review-debate` step's live/terminal role progress, keyed by `invocationId`+`stepId`. */
+  onReviewDebateProgress?: (invocationId: string, stepId: string, progress: ReviewDebateProgress) => void;
 };
 
 /** Build the runtime step shape from authoring input; `behavior` selects the dispatch path. */
@@ -137,6 +144,7 @@ async function runWorkflowStep(
   workflowSnapshot: WorkflowSnapshot,
   store: StateStore,
   logSink: LogSink | undefined,
+  onReviewDebateProgress: ((invocationId: string, stepId: string, progress: ReviewDebateProgress) => void) | undefined,
 ): Promise<WorkflowStepOutcome> {
   if (step.behavior === "human") {
     const humanStep = prepareHumanWorkflowStep(step, workflowSnapshot, store);
@@ -149,7 +157,7 @@ async function runWorkflowStep(
   }
 
   if (step.behavior === "review-debate") {
-    return runReviewDebateStep(step);
+    return runReviewDebateStep(step, workflowSnapshot.invocationId, onReviewDebateProgress);
   }
 
   const preparedStep = prepareWorkflowStep(step, workflowSnapshot, store, logSink);
@@ -195,7 +203,13 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       const step = args.steps[stepIndex];
       if (!step) throw new Error("Unreachable: step undefined in bounded loop");
 
-      const stepResult = await runWorkflowStep(step, workflowSnapshot, store, args.logSink);
+      const stepResult = await runWorkflowStep(
+        step,
+        workflowSnapshot,
+        store,
+        args.logSink,
+        args.onReviewDebateProgress,
+      );
       totalIterationsConsumed += stepResult.iterationsConsumed;
       lastResult = stepResult;
       lastStepId = step.stepId;
@@ -286,15 +300,17 @@ function stepIdentity(step: WorkflowStep): { project: string; branch: string } {
 }
 
 /**
- * Only `write` and `human` steps carry durable run identity and participate in the
- * snapshot; a `review-debate` step has no durable run/resume in this slice (deferred
- * to first consumer) and is excluded here.
+ * Every step, including `review-debate`, contributes an entry to the shared snapshot
+ * so the daemon's `list` handler can render a row for it. Only `write` and `human`
+ * steps carry durable run identity, though: a `review-debate` step has no durable
+ * run/resume in this slice (deferred to first consumer), so it is excluded from the
+ * existing-run lookup that resumes a prior invocation's snapshot.
  */
 function buildWorkflowSnapshot(steps: readonly AnyWorkflowStep[], store: StateStore): WorkflowSnapshot {
-  const snapshotSteps = steps.filter((step): step is WorkflowStep => step.behavior !== "review-debate");
-  const authoredSteps = snapshotSteps.map((step) => ({
+  const authoredSteps = steps.map((step) => ({
     stepId: step.stepId,
     role: step.behavior === "write" ? step.role : "",
+    ...(step.behavior === "review-debate" ? { behavior: "review-debate" as const } : {}),
     ...(step.behavior === "human" && step.onRevise !== undefined ? { onRevise: step.onRevise } : {}),
     ...(step.behavior === "write"
       ? {
@@ -306,7 +322,8 @@ function buildWorkflowSnapshot(steps: readonly AnyWorkflowStep[], store: StateSt
       : {}),
   }));
 
-  for (const step of snapshotSteps) {
+  const identifiableSteps = steps.filter((step): step is WorkflowStep => step.behavior !== "review-debate");
+  for (const step of identifiableSteps) {
     const { project, branch } = stepIdentity(step);
     const existingRun = store.findRunByProjectBranch({ project, branch, stepId: step.stepId });
     const candidate = existingRun?.workflowSnapshot;
@@ -329,7 +346,7 @@ function buildWorkflowSnapshot(steps: readonly AnyWorkflowStep[], store: StateSt
  */
 function snapshotMatchesAuthoredSteps(
   snapshot: WorkflowSnapshot,
-  authoredSteps: readonly { stepId: string; role: string; onRevise?: OnReviseConfig }[],
+  authoredSteps: readonly { stepId: string; role: string; behavior?: "review-debate"; onRevise?: OnReviseConfig }[],
 ): boolean {
   if (snapshot.steps.length !== authoredSteps.length) return false;
   return snapshot.steps.every((step, index) => {
@@ -337,6 +354,7 @@ function snapshotMatchesAuthoredSteps(
     return (
       step.stepId === authored?.stepId &&
       step.role === authored?.role &&
+      step.behavior === authored?.behavior &&
       onReviseEqual(step.onRevise, authored.onRevise)
     );
   });
@@ -463,10 +481,15 @@ type ReviewDebateStepOutcome = {
 /**
  * Resolve each of the step's four per-role `agents` orders to that role's bindings and run
  * the debate. No durable run/resume for a review-debate step in this slice (deferred to
- * first consumer); `runId` is synthesized for reporting only.
+ * first consumer); `runId` is synthesized for reporting only. `onProgress`, if supplied,
+ * is fed the currently-executing role as the cycle advances, then the terminal role/outcome.
  */
-async function runReviewDebateStep(step: ReviewDebateWorkflowStep): Promise<ReviewDebateStepOutcome> {
-  const { stepId: _stepId, agents, agentModelConfig, createBinding, ...debateInput } = step;
+async function runReviewDebateStep(
+  step: ReviewDebateWorkflowStep,
+  invocationId: string,
+  onProgress: ((invocationId: string, stepId: string, progress: ReviewDebateProgress) => void) | undefined,
+): Promise<ReviewDebateStepOutcome> {
+  const { stepId, agents, agentModelConfig, createBinding, ...debateInput } = step;
   const resolveBindings = createBinding ?? createResolvedAgentBinding;
 
   const bindings = Object.fromEntries(
@@ -476,10 +499,24 @@ async function runReviewDebateStep(step: ReviewDebateWorkflowStep): Promise<Revi
     ]),
   ) as ReviewDebateRoleBindings;
 
-  const result = await executeReviewDebate({ ...debateInput, bindings });
+  const result = await executeReviewDebate({
+    ...debateInput,
+    bindings,
+    ...(onProgress !== undefined
+      ? { onRoleStart: (role: ReviewDebateRole) => onProgress(invocationId, stepId, { status: "in_progress", role }) }
+      : {}),
+  });
 
   const lastCycle = result.cycles[result.cycles.length - 1];
   const kind = lastCycle?.kind === "role_failed" ? "invocation_failure" : "complete";
+  const terminalRole: ReviewDebateRole =
+    lastCycle?.kind === "role_failed" ? lastCycle.failedRole : lastCycle?.actuatorRan ? "actuator" : "adjudicator";
+
+  onProgress?.(invocationId, stepId, {
+    status: kind === "complete" ? "completed" : "stopped",
+    role: terminalRole,
+    terminalOutcome: kind,
+  });
 
   return { kind, runId: crypto.randomUUID(), iterationsConsumed: result.cycles.length, resumable: false };
 }

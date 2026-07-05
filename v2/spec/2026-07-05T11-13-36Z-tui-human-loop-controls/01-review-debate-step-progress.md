@@ -51,16 +51,16 @@ comment at `workflow-runner.ts:465`).
 
 ## Acceptance criteria
 
-- [ ] `jarvis tui` run rows show a step line for an in-progress `review-debate` step
+- [x] `jarvis tui` run rows show a step line for an in-progress `review-debate` step
       whose `role` updates as the cycle advances through `adversary`/`advocate`/`adjudicator`/`actuator`.
-- [ ] Once the cycle completes or stops, the row's `status`/`terminalOutcome` matches
+- [x] Once the cycle completes or stops, the row's `status`/`terminalOutcome` matches
       the same vocabulary (`completed`/`complete`, or a stop outcome) already used
       for `write` steps.
-- [ ] New `review-debate.test.ts` coverage exercises the live-role pointer advancing
+- [x] New `review-debate.test.ts` coverage exercises the live-role pointer advancing
       through a full cycle (and into a second cycle), and new daemon-side test coverage
       exercises building a `review-debate` row from both the live pointer and terminal
       `roleResults`.
-- [ ] `review-debate.test.ts` and `workflow-runner.test.ts` existing suites stay green
+- [x] `review-debate.test.ts` and `workflow-runner.test.ts` existing suites stay green
       (no behavior change to the debate cycle itself, only observability).
 
 ## Documentation updates

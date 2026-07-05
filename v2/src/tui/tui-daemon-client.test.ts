@@ -772,6 +772,29 @@ test.each([
   });
 });
 
+test("resume forwards decision and prompt for awaiting-human runs", async () => {
+  const sent: unknown[] = [];
+  await withFixedUuids([RESUME_REQUEST_ID], async () => {
+    const client = await connectTuiDaemon({
+      connectIpcClient: async () =>
+        makeClient([{ kind: "response", id: RESUME_REQUEST_ID, result: { ok: true } }], sent),
+    });
+
+    await expect(client.resume("run-123", { decision: "revise", prompt: "try again" })).resolves.toEqual({
+      ok: true,
+    });
+    expect(sent).toEqual([
+      {
+        kind: "request",
+        id: RESUME_REQUEST_ID,
+        method: "resume",
+        params: { runId: "run-123", decision: "revise", prompt: "try again" },
+      },
+    ]);
+    client.close();
+  });
+});
+
 test("steering RPCs succeed while wait is unresolved on the same client", async () => {
   const sent: unknown[] = [];
   const deferred = createDeferredClient(sent);

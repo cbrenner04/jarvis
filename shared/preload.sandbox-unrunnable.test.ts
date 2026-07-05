@@ -1,4 +1,9 @@
 // Marked as .sandbox-unrunnable: requires real process launch to verify Bun preload mutates PATH for the shared slice.
+//
+// The mocked SubprocessRunner boundary (shared/subprocess.ts) cannot substitute here: this test
+// asserts that Bun's real preload mechanism mutates PATH for an actual OS-spawned child process,
+// not that application code passes the right args to an injected runner. A mocked runner returns
+// canned output regardless of PATH, so it would pass even if preload broke.
 
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";

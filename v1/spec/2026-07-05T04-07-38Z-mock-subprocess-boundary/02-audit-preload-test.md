@@ -34,7 +34,7 @@ boundary.
 
 ## Acceptance criteria
 
-- [ ] `shared/preload.sandbox-unrunnable.test.ts` either (a) still exists,
+- [x] `shared/preload.sandbox-unrunnable.test.ts` either (a) still exists,
       still spawns a real process, and carries an inline comment explaining
       specifically why the mocked `SubprocessRunner` boundary cannot
       substitute for this assertion, or (b) no longer exists because it was

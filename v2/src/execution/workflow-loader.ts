@@ -1,8 +1,8 @@
 import { join } from "node:path";
 import { type LoadError, loadAgentModelConfig, resolveExecutableRole } from "../config/agent-model-config.ts";
 import { loadMachineConfig } from "../config/machine-config-loader.ts";
-import { DEFAULT_WRITE_AGENTS } from "./write-loop-input.ts";
 import { validateWorkflowStepRoles, type WorkflowStep } from "./workflow-runner.ts";
+import { DEFAULT_WRITE_AGENTS } from "./write-loop-input.ts";
 
 const AGENT_MODEL_CONFIG_PATH = join(import.meta.dir, "..", "..", "..", "data", "agent-model-config.json");
 

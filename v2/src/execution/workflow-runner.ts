@@ -7,7 +7,7 @@ import {
 } from "../config/agent-model-config.ts";
 import type { LogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import type { RunStatus, WorkflowSnapshot } from "../persistence/state-store-types.ts";
+import type { OnReviseConfig, RunStatus, WorkflowSnapshot } from "../persistence/state-store-types.ts";
 import { parseRevisionNumber } from "./revision-step-id.ts";
 import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "./write-loop.ts";
 
@@ -25,16 +25,6 @@ export type WriteWorkflowStep = Omit<WriteLoopInput, "bindings"> & {
   agents: readonly string[];
   agentModelConfig: AgentModelConfig;
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
-};
-
-/**
- * A human step's configured repeat-and-revise target: `repeatStepId` must
- * name an earlier step (lower index) in the same authored `steps[]` array,
- * and `maxRevisions` bounds how many `revise` decisions it accepts.
- */
-export type OnReviseConfig = {
-  repeatStepId: string;
-  maxRevisions: number;
 };
 
 /**

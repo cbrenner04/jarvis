@@ -1,21 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { partitionTestFiles, walkTestFiles } from "./test-slice.ts";
 import { v1Tests } from "./run-v1-tests.ts";
 import { v2Tests } from "./run-v2-tests.ts";
+import { partitionTestFiles, walkTestFiles } from "./test-slice.ts";
 
 /** Aggregate suite: agent tests parallel, sandbox-unrunnable integration tests serial. */
 export function aggregateTestFiles(): { agent: string[]; integration: string[] } {
-  const sharedAndHarness = partitionTestFiles([
-    ...walkTestFiles("shared"),
-    ...walkTestFiles("test"),
-  ]);
+  const sharedAndHarness = partitionTestFiles([...walkTestFiles("shared"), ...walkTestFiles("test")]);
   return {
     agent: [...v1Tests("agent"), ...v2Tests("agent"), ...sharedAndHarness.agent],
-    integration: [
-      ...v1Tests("integration"),
-      ...v2Tests("integration"),
-      ...sharedAndHarness.integration,
-    ],
+    integration: [...v1Tests("integration"), ...v2Tests("integration"), ...sharedAndHarness.integration],
   };
 }
 

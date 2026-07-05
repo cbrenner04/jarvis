@@ -2,9 +2,9 @@ import { describe, expect, it } from "bun:test";
 import { execSync } from "node:child_process";
 import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { basename, join } from "node:path";
+import { sharedTests } from "../scripts/run-shared-tests.ts";
 import { v1Tests } from "../scripts/run-v1-tests.ts";
 import { v2Tests, walkV2TestFiles } from "../scripts/run-v2-tests.ts";
-import { sharedTests } from "../scripts/run-shared-tests.ts";
 import { isSandboxUnrunnable } from "../scripts/test-slice.ts";
 
 describe("Test slice boundaries", () => {
@@ -77,9 +77,7 @@ describe("Test slice boundaries", () => {
     expect(agent.every((file) => !isSandboxUnrunnable(file))).toBeTrue();
     expect(integration.every((file) => isSandboxUnrunnable(file))).toBeTrue();
     expect(integration.length).toBeGreaterThan(0);
-    expect([...agent, ...integration].sort()).toEqual(
-      [...v1Tests("agent"), ...v1Tests("integration")].sort(),
-    );
+    expect([...agent, ...integration].sort()).toEqual([...v1Tests("agent"), ...v1Tests("integration")].sort());
   });
 
   it("test:v2 and test:integration:v2 enumerate disjoint v2 test file sets", async () => {

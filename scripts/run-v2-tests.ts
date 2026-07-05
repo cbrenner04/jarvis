@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { type TestSliceMode, sliceTestFiles, walkTestFiles } from "./test-slice.ts";
+import { sliceTestFiles, type TestSliceMode, walkTestFiles } from "./test-slice.ts";
 
 export function walkV2TestFiles(root = "v2"): string[] {
   return walkTestFiles(root);

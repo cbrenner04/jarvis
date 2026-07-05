@@ -1,10 +1,13 @@
-// This test requires real git worktree / review-flow repository state.
+// review.ts's git operations route through injectable SubprocessRunner / PlanCommitGitOps
+// seams (see createFakeGitEnv below), so these cases need no real git/gh subprocess.
+// Agent-side behavior is mocked with FakeAgent (no real agent CLI spawns either).
 import { describe, expect, test } from "bun:test";
-import { execFileSync, execSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { PlanCommitGitOps } from "../../../src/modes/plan/commits.ts";
+import type { SubprocessRunner } from "../../../../shared/subprocess.ts";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
 import type { Config } from "../../../src/config.ts";
 import {
@@ -13,7 +16,6 @@ import {
   snapshotSpecFiles,
   validateReviewOutput,
 } from "../../../src/modes/plan/review.ts";
-import { setupPlanRemote } from "../../helpers/plan-fixtures.ts";
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 const CODEX_ENTRY = { agent: "codex" as const, model: "gpt-5.3-codex" };
@@ -67,37 +69,178 @@ function makeReviewConfig(opts?: {
   };
 }
 
-function setupReviewRepo(name = "p-review"): { dir: string; specDir: string; cleanup: () => void } {
+/** Seeds a plain directory (no real git) with a spec dir under `targetDir`. */
+function setupReviewFixture(opts?: {
+  name?: string;
+  targetDir?: string;
+}): { dir: string; specDir: string; cleanup: () => void } {
+  const name = opts?.name ?? "p-review";
+  const targetDir = opts?.targetDir ?? "spec";
   const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-review-"));
-  execSync("git init -b main", { cwd: dir });
-  execSync("git config user.email 'test@example.com'", { cwd: dir });
-  execSync("git config user.name 'Test User'", { cwd: dir });
-  const specDir = join(dir, "spec", name);
+  const specDir = join(dir, targetDir, name);
   mkdirSync(specDir, { recursive: true });
-  writeFileSync(join(specDir, "intent.md"), "---\nname: p-review\n---\n\n# Intent\n\nseed\n");
+  writeFileSync(join(specDir, "intent.md"), `---\nname: ${name}\n---\n\n# Intent\n\nseed\n`);
   writeFileSync(join(specDir, "index.md"), "# Draft\n\n- [ ] [00](./00-one.md)\n");
   writeFileSync(join(specDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] x\n");
-  execSync("git add -A", { cwd: dir });
-  execSync("git commit -m 'seed'", { cwd: dir });
   return { dir, specDir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
-function setupReviewWorktree(name = "p-review"): { worktreePath: string; specDir: string; cleanup: () => void } {
-  const { worktreeRoot, cleanup } = setupPlanRemote();
-  execSync(`git branch plan/${name}`, { cwd: worktreeRoot });
-  const worktreePath = join(worktreeRoot, "worktree");
-  mkdirSync(worktreePath);
-  execSync(`git worktree add --no-checkout worktree plan/${name}`, { cwd: worktreeRoot });
-  execSync(`git checkout plan/${name}`, { cwd: worktreePath });
-  const specDir = join(worktreePath, "spec", name);
-  mkdirSync(specDir, { recursive: true });
-  writeFileSync(join(specDir, "intent.md"), "---\nname: p-review\n---\n\n# Intent\n\nseed\n");
-  writeFileSync(join(specDir, "index.md"), "# Draft\n\n- [ ] [00](./00-one.md)\n");
-  writeFileSync(join(specDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] x\n");
-  execSync("git add -A", { cwd: worktreePath });
-  execSync("git commit -m 'seed'", { cwd: worktreePath });
-  execSync("git push -u origin HEAD", { cwd: worktreePath });
-  return { worktreePath, specDir, cleanup };
+/**
+ * Fakes the git surface review.ts needs for commit:true runs: a SubprocessRunner
+ * (status/checkout/clean/reset/add) that diffs the real files on disk against an
+ * in-memory "HEAD" snapshot, plus a PlanCommitGitOps that records commits/pushes
+ * instead of shelling out. Advances its snapshot on `commit()`, mirroring git.
+ */
+function createFakeGitEnv(rootDir: string): {
+  runner: SubprocessRunner;
+  gitOps: PlanCommitGitOps & { commits: string[]; pushed: Array<{ firstPush: boolean }> };
+} {
+  function walk(dir: string, base: string, into: Map<string, string>): void {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      const rel = base ? `${base}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        walk(full, rel, into);
+      } else {
+        into.set(rel, readFileSync(full, "utf8"));
+      }
+    }
+  }
+
+  function currentState(): Map<string, string> {
+    const into = new Map<string, string>();
+    walk(rootDir, "", into);
+    return into;
+  }
+
+  // Mirrors real `git status`: an untracked directory with no tracked descendants is
+  // reported as a single `?? dir/` entry, not one entry per file inside it.
+  function hasSnapshotUnder(prefix: string): boolean {
+    for (const key of snapshot.keys()) {
+      if (key === prefix || key.startsWith(`${prefix}/`)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function records(): string[] {
+    const current = currentState();
+    const out: string[] = [];
+    const untrackedDirsEmitted = new Set<string>();
+
+    for (const [path, content] of current) {
+      const before = snapshot.get(path);
+      if (before === undefined) {
+        const segments = path.split("/");
+        let collapsedDir: string | undefined;
+        let prefix = "";
+        for (let i = 0; i < segments.length - 1; i += 1) {
+          prefix = prefix ? `${prefix}/${segments[i]}` : (segments[i] ?? "");
+          if (!hasSnapshotUnder(prefix)) {
+            collapsedDir = prefix;
+            break;
+          }
+        }
+        if (collapsedDir !== undefined) {
+          if (!untrackedDirsEmitted.has(collapsedDir)) {
+            untrackedDirsEmitted.add(collapsedDir);
+            out.push(`?? ${collapsedDir}/`);
+          }
+        } else {
+          out.push(`?? ${path}`);
+        }
+      } else if (before !== content) {
+        out.push(` M ${path}`);
+      }
+    }
+    for (const path of snapshot.keys()) {
+      if (!current.has(path)) {
+        out.push(` D ${path}`);
+      }
+    }
+    return out;
+  }
+
+  function removeUntracked(target: string, relBase: string): void {
+    if (!existsSync(target)) {
+      return;
+    }
+    if (statSync(target).isDirectory()) {
+      if (!hasSnapshotUnder(relBase)) {
+        // Entirely untracked directory: remove it wholesale, like `git clean -fd`.
+        rmSync(target, { recursive: true, force: true });
+        return;
+      }
+      for (const entry of readdirSync(target)) {
+        removeUntracked(join(target, entry), relBase ? `${relBase}/${entry}` : entry);
+      }
+      return;
+    }
+    if (!snapshot.has(relBase)) {
+      rmSync(target, { force: true });
+    }
+  }
+
+  let snapshot = currentState();
+
+  const runner: SubprocessRunner = {
+    run(cmd, args) {
+      if (cmd !== "git") {
+        throw new Error(`unexpected command: ${cmd}`);
+      }
+      const sub = args[0];
+      if (sub === "status") {
+        const sep = args.includes("-z") ? "\0" : "\n";
+        const list = records();
+        return list.length > 0 ? list.join(sep) + sep : "";
+      }
+      if (sub === "checkout") {
+        const file = args[args.length - 1] ?? "";
+        const before = snapshot.get(file);
+        if (before === undefined) {
+          throw new Error("did not match any file(s) known to git");
+        }
+        writeFileSync(join(rootDir, file), before, "utf8");
+        return "";
+      }
+      if (sub === "clean") {
+        const relPath = (args[args.length - 1] ?? "").replace(/\/+$/, "");
+        removeUntracked(join(rootDir, relPath), relPath);
+        return "";
+      }
+      if (sub === "add" || sub === "reset") {
+        return "";
+      }
+      return "";
+    },
+  };
+
+  const gitOps: PlanCommitGitOps & { commits: string[]; pushed: Array<{ firstPush: boolean }> } = {
+    commits: [],
+    pushed: [],
+    add() {
+      // No staging concept in the fake: commit() snapshots the working tree directly.
+    },
+    commit(_cwd, message) {
+      gitOps.commits.push(message);
+      snapshot = currentState();
+    },
+    push(_cwd, pushOpts) {
+      gitOps.pushed.push(pushOpts);
+    },
+    hasUpstream() {
+      return true;
+    },
+    porcelainStatus() {
+      return records().join("\n");
+    },
+    projectRoot() {
+      return rootDir;
+    },
+  };
+
+  return { runner, gitOps };
 }
 
 function makeIntentDriftActuatorAgent(
@@ -126,12 +269,10 @@ function makeIntentDriftActuatorAgent(
 
 describe("snapshotSpecFiles", () => {
   test("returns files in deterministic sorted order regardless of disk order", () => {
-    // Create a temporary directory with files in reverse alphabetical order on disk
     const tmpPath = join(tmpdir(), `spec-test-${randomBytes(4).toString("hex")}`);
     const specDir = join(tmpPath, "spec", "test-spec");
     mkdirSync(specDir, { recursive: true });
 
-    // Write files in reverse alphabetical order: z, y, x, ...
     const fileOrder = ["z-last.md", "m-middle.md", "a-first.md"];
     for (const file of fileOrder) {
       writeFileSync(join(specDir, file), `# ${file}\n`);
@@ -139,89 +280,30 @@ describe("snapshotSpecFiles", () => {
 
     const snapshot = snapshotSpecFiles(tmpPath, "test-spec");
 
-    // Extract the file order from the snapshot
     const fileMatches = snapshot.match(/<<<FILE name="([^"]+)" BEGIN>>>/g) || [];
     const extractedFiles = fileMatches.map((match) => match.match(/name="([^"]+)"/)?.[1]);
 
-    // Files should be sorted alphabetically regardless of disk order
     expect(extractedFiles).toEqual(["a-first.md", "m-middle.md", "z-last.md"]);
   });
 });
 
 describe("hasWorkingTreeChanges", () => {
-  test("returns false when worktree has no changes", () => {
-    const tmpPath = join(tmpdir(), `review-test-${randomBytes(4).toString("hex")}`);
-    mkdirSync(tmpPath, { recursive: true });
+  function fakeRunner(porcelain: string): SubprocessRunner {
+    return { run: () => porcelain };
+  }
 
-    // Initialize a git repo
-    execFileSync("git", ["init", "-b", "main"], {
-      cwd: tmpPath,
-      stdio: "pipe",
-    });
-
-    // Configure git for commits
-    execFileSync("git", ["config", "user.email", "test@test.com"], {
-      cwd: tmpPath,
-      stdio: "pipe",
-    });
-    execFileSync("git", ["config", "user.name", "Test"], {
-      cwd: tmpPath,
-      stdio: "pipe",
-    });
-
-    // Create a file and commit it
-    const testFile = join(tmpPath, "test.txt");
-    writeFileSync(testFile, "content", "utf8");
-    execFileSync("git", ["add", "."], { cwd: tmpPath, stdio: "pipe" });
-    execFileSync("git", ["commit", "-m", "Initial commit"], {
-      cwd: tmpPath,
-      stdio: "pipe",
-    });
-
-    // At this point, there should be no working tree changes
-    expect(hasWorkingTreeChanges(tmpPath)).toBe(false);
+  test("returns false when the fake runner reports a clean tree", () => {
+    expect(hasWorkingTreeChanges("/repo", fakeRunner(""))).toBe(false);
   });
 
-  test("returns true when worktree has uncommitted changes", () => {
-    const tmpPath = join(tmpdir(), `review-test-${randomBytes(4).toString("hex")}`);
-    mkdirSync(tmpPath, { recursive: true });
-
-    // Initialize a git repo
-    execFileSync("git", ["init", "-b", "main"], {
-      cwd: tmpPath,
-      stdio: "pipe",
-    });
-
-    // Configure git for commits
-    execFileSync("git", ["config", "user.email", "test@test.com"], {
-      cwd: tmpPath,
-      stdio: "pipe",
-    });
-    execFileSync("git", ["config", "user.name", "Test"], {
-      cwd: tmpPath,
-      stdio: "pipe",
-    });
-
-    // Create a file and commit it
-    const testFile = join(tmpPath, "test.txt");
-    writeFileSync(testFile, "content", "utf8");
-    execFileSync("git", ["add", "."], { cwd: tmpPath, stdio: "pipe" });
-    execFileSync("git", ["commit", "-m", "Initial commit"], {
-      cwd: tmpPath,
-      stdio: "pipe",
-    });
-
-    // Modify the file
-    writeFileSync(testFile, "modified content", "utf8");
-
-    // Now there should be working tree changes
-    expect(hasWorkingTreeChanges(tmpPath)).toBe(true);
+  test("returns true when the fake runner reports uncommitted changes", () => {
+    expect(hasWorkingTreeChanges("/repo", fakeRunner(" M test.txt\n"))).toBe(true);
   });
 });
 
 describe("runPlanReviewPhase", () => {
   test("uses modes.review.agentOrder when set and falls back to modes.plan.agentOrder", async () => {
-    const { dir, specDir, cleanup } = setupReviewRepo();
+    const { dir, specDir, cleanup } = setupReviewFixture();
     try {
       const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
       const codex = new FakeAgent("codex", (_c, _p, opts) => {
@@ -276,7 +358,7 @@ describe("runPlanReviewPhase", () => {
   });
 
   test("honors --review-passes override, modes.review.passes, and default 2", async () => {
-    const { dir, specDir, cleanup } = setupReviewRepo();
+    const { dir, specDir, cleanup } = setupReviewFixture();
     try {
       const passStarts: number[] = [];
       const noop = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
@@ -318,25 +400,29 @@ describe("runPlanReviewPhase", () => {
   });
 
   test("skips commit on no-change passes and appends blockers", async () => {
-    const { worktreePath, cleanup } = setupReviewWorktree();
+    const { dir: worktreePath, cleanup } = setupReviewFixture();
     try {
       let err = "";
       const noop = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
-      const noChange = await runPlanReviewPhase({
-        worktreePath,
-        name: "p-review",
-        specDirBasename: "p-review",
-        config: makeReviewConfig({ reviewPasses: 1 }),
-        commit: true,
-        logNoChangeSkip: true,
-        stderr: (s) => {
-          err += s;
+      const noChangeEnv = createFakeGitEnv(worktreePath);
+      const noChange = await runPlanReviewPhase(
+        {
+          worktreePath,
+          name: "p-review",
+          specDirBasename: "p-review",
+          config: makeReviewConfig({ reviewPasses: 1 }),
+          commit: true,
+          logNoChangeSkip: true,
+          stderr: (s) => {
+            err += s;
+          },
+          createAgent: () => noop,
         },
-        createAgent: () => noop,
-      });
+        noChangeEnv,
+      );
       expect(noChange.exitCode).toBe(0);
       expect(err).toContain("made no changes; skipping commit");
-      expect(execSync("git log --oneline", { cwd: worktreePath, encoding: "utf8" })).not.toContain("plan: review");
+      expect(noChangeEnv.gitOps.commits.some((m) => m.startsWith("plan: review"))).toBe(false);
 
       const blockerAgent = new FakeAgent("claude", (_c, _p, opts) => {
         const intentPath = join(opts.cwd, "spec", "p-review", "intent.md");
@@ -344,25 +430,28 @@ describe("runPlanReviewPhase", () => {
         writeFileSync(intentPath, `${intent}\n\n## Blocker\n\nNeed input.\n`);
         return { kind: "ok", stdout: "", stderr: "" };
       });
-      const blocked = await runPlanReviewPhase({
-        worktreePath,
-        name: "p-review",
-        specDirBasename: "p-review",
-        config: makeReviewConfig({ reviewPasses: 1 }),
-        commit: true,
-        createAgent: () => blockerAgent,
-      });
+      const blockerEnv = createFakeGitEnv(worktreePath);
+      const blocked = await runPlanReviewPhase(
+        {
+          worktreePath,
+          name: "p-review",
+          specDirBasename: "p-review",
+          config: makeReviewConfig({ reviewPasses: 1 }),
+          commit: true,
+          createAgent: () => blockerAgent,
+        },
+        blockerEnv,
+      );
       expect(blocked.exitCode).toBe(1);
       expect(blocked.blocker).toContain("Need input.");
-      const log = execSync("git log -1 --format=%s", { cwd: worktreePath, encoding: "utf8" }).trim();
-      expect(log).toBe("plan: blocker");
+      expect(blockerEnv.gitOps.commits[0]?.split("\n")[0]).toBe("plan: blocker");
     } finally {
       cleanup();
     }
   });
 
   test("uses resume pass numbering, rK suffix, and refreshes PR body on commit", async () => {
-    const { worktreePath, cleanup } = setupReviewWorktree();
+    const { dir: worktreePath, cleanup } = setupReviewFixture();
     try {
       const agent = new FakeAgent("claude", (_c, prompt, opts) => {
         if (prompt.includes("Review Verdict")) {
@@ -378,31 +467,34 @@ describe("runPlanReviewPhase", () => {
         return { kind: "ok", stdout: "", stderr: "" };
       });
       let prRefreshCount = 0;
-      const result = await runPlanReviewPhase({
-        worktreePath,
-        name: "p-review",
-        specDirBasename: "p-review",
-        config: makeReviewConfig({ reviewPasses: 1 }),
-        reviewPassesOverride: 1,
-        startPassNumber: 3,
-        subjectSuffix: "r2",
-        commit: true,
-        createAgent: () => agent,
-        updatePrBody: async () => {
-          prRefreshCount += 1;
+      const env = createFakeGitEnv(worktreePath);
+      const result = await runPlanReviewPhase(
+        {
+          worktreePath,
+          name: "p-review",
+          specDirBasename: "p-review",
+          config: makeReviewConfig({ reviewPasses: 1 }),
+          reviewPassesOverride: 1,
+          startPassNumber: 3,
+          subjectSuffix: "r2",
+          commit: true,
+          createAgent: () => agent,
+          updatePrBody: async () => {
+            prRefreshCount += 1;
+          },
         },
-      });
+        env,
+      );
       expect(result.exitCode).toBe(0);
       expect(prRefreshCount).toBe(1);
-      const subject = execSync("git log -1 --format=%s", { cwd: worktreePath, encoding: "utf8" }).trim();
-      expect(subject).toBe("plan: review: actuator r2");
+      expect(env.gitOps.commits[env.gitOps.commits.length - 1]?.split("\n")[0]).toBe("plan: review: actuator r2");
     } finally {
       cleanup();
     }
   });
 
   test("actuator applies verdict to spec files without refining intent", async () => {
-    const { dir, specDir, cleanup } = setupReviewRepo();
+    const { dir, specDir, cleanup } = setupReviewFixture();
     try {
       const intentPath = join(specDir, "intent.md");
       const specPath = join(specDir, "00-one.md");
@@ -444,7 +536,7 @@ describe("runPlanReviewPhase", () => {
   });
 
   test("recovers immutable-only intent.md drift on commit:false and emits notice", async () => {
-    const { dir, specDir, cleanup } = setupReviewRepo();
+    const { dir, specDir, cleanup } = setupReviewFixture();
     try {
       const intentPath = join(specDir, "intent.md");
       const specPath = join(specDir, "00-one.md");
@@ -475,41 +567,44 @@ describe("runPlanReviewPhase", () => {
   });
 
   test("recovers immutable-only intent.md drift on commit:true and commits actuator pass", async () => {
-    const { worktreePath, specDir, cleanup } = setupReviewWorktree();
+    const { dir: worktreePath, specDir, cleanup } = setupReviewFixture();
     try {
       const intentPath = join(specDir, "intent.md");
       const specPath = join(specDir, "00-one.md");
       const originalIntent = readFileSync(intentPath, "utf8");
       let stderr = "";
-      const result = await runPlanReviewPhase({
-        worktreePath,
-        name: "p-review",
-        specDirBasename: "p-review",
-        config: makeReviewConfig({ planOrder: [CLAUDE_ENTRY], reviewPasses: 1 }),
-        reviewPassesOverride: 1,
-        commit: true,
-        createAgent: () =>
-          makeIntentDriftActuatorAgent("committed-recovery", {
-            adjudicatorVerdict: "Add a concrete acceptance criterion.\n",
-          }),
-        stderr: (line) => {
-          stderr += line;
+      const env = createFakeGitEnv(worktreePath);
+      const result = await runPlanReviewPhase(
+        {
+          worktreePath,
+          name: "p-review",
+          specDirBasename: "p-review",
+          config: makeReviewConfig({ planOrder: [CLAUDE_ENTRY], reviewPasses: 1 }),
+          reviewPassesOverride: 1,
+          commit: true,
+          createAgent: () =>
+            makeIntentDriftActuatorAgent("committed-recovery", {
+              adjudicatorVerdict: "Add a concrete acceptance criterion.\n",
+            }),
+          stderr: (line) => {
+            stderr += line;
+          },
         },
-      });
+        env,
+      );
 
       expect(result.exitCode, stderr).toBe(0);
       expect(readFileSync(intentPath, "utf8")).toBe(originalIntent);
       expect(readFileSync(specPath, "utf8")).toContain("committed-recovery");
       expect(stderr).toContain("plan: actuator reverted immutable-copy overreach:");
-      const subject = execSync("git log -1 --format=%s", { cwd: worktreePath, encoding: "utf8" }).trim();
-      expect(subject).toBe("plan: review: actuator");
+      expect(env.gitOps.commits[env.gitOps.commits.length - 1]?.split("\n")[0]).toBe("plan: review: actuator");
     } finally {
       cleanup();
     }
   });
 
   test("does not recover when intent drift coexists with missing index.md", async () => {
-    const { dir, specDir, cleanup } = setupReviewRepo();
+    const { dir, specDir, cleanup } = setupReviewFixture();
     try {
       const intentPath = join(specDir, "intent.md");
       const specPath = join(specDir, "00-one.md");
@@ -546,7 +641,7 @@ describe("runPlanReviewPhase", () => {
   });
 
   test("does not recover invalid blocker composite on intent.md", async () => {
-    const { dir, specDir, cleanup } = setupReviewRepo();
+    const { dir, specDir, cleanup } = setupReviewFixture();
     try {
       const agent = new FakeAgent("claude", (_c, prompt, opts) => {
         if (prompt.includes("Review Actuator")) {
@@ -592,26 +687,11 @@ describe("runPlanReviewPhase", () => {
   });
 
   test("reverts out-of-bounds actuator writes before commit when specDirPath is unset", async () => {
-    const { worktreeRoot, cleanup } = setupPlanRemote();
-    const name = "2026-06-25T23-59-59Z-review-target";
     const targetDir = "v1/spec";
+    const name = "2026-06-25T23-59-59Z-review-target";
+    const { dir: worktreePath, cleanup } = setupReviewFixture({ name, targetDir });
     try {
-      execSync(`git branch plan/${name}`, { cwd: worktreeRoot });
-      const worktreePath = join(worktreeRoot, "worktree");
-      mkdirSync(worktreePath);
-      execSync(`git worktree add --no-checkout worktree plan/${name}`, { cwd: worktreeRoot });
-      execSync(`git checkout plan/${name}`, { cwd: worktreePath });
-
-      const specDir = join(worktreePath, targetDir, name);
-      mkdirSync(specDir, { recursive: true });
-      writeFileSync(join(specDir, "intent.md"), `---\nname: ${name}\n---\n\n# Intent\n\nseed\n`);
-      writeFileSync(join(specDir, "index.md"), "# Draft\n\n- [ ] [00](./00-one.md)\n");
-      writeFileSync(join(specDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] x\n");
-      execSync("git add -A", { cwd: worktreePath });
-      execSync("git commit -m 'seed'", { cwd: worktreePath });
-      execSync("git push -u origin HEAD", { cwd: worktreePath });
-
-      const headBefore = execSync("git rev-parse HEAD", { cwd: worktreePath, encoding: "utf8" }).trim();
+      const env = createFakeGitEnv(worktreePath);
       const strayDir = join(worktreePath, name);
       const strayFile = join(strayDir, "00-stray.md");
       let stderr = "";
@@ -627,59 +707,49 @@ describe("runPlanReviewPhase", () => {
         return { kind: "ok", stdout: "", stderr: "" };
       });
 
-      const result = await runPlanReviewPhase({
-        worktreePath,
-        name,
-        specDirBasename: name,
-        config: makeReviewConfig({ planOrder: [CLAUDE_ENTRY], reviewPasses: 1 }),
-        reviewPassesOverride: 1,
-        commit: true,
-        checkBoundary: true,
-        targetDir,
-        createAgent: () => agent,
-        stderr: (line) => {
-          stderr += line;
+      const result = await runPlanReviewPhase(
+        {
+          worktreePath,
+          name,
+          specDirBasename: name,
+          config: makeReviewConfig({ planOrder: [CLAUDE_ENTRY], reviewPasses: 1 }),
+          reviewPassesOverride: 1,
+          commit: true,
+          checkBoundary: true,
+          targetDir,
+          createAgent: () => agent,
+          stderr: (line) => {
+            stderr += line;
+          },
         },
-      });
+        env,
+      );
 
       expect(result.exitCode).toBe(1);
       expect(stderr).toContain("plan: actuator boundary violation detected before commit");
       expect(stderr).toContain(`${name}/`);
-      expect(() => readFileSync(strayFile, "utf8")).toThrow();
-      expect(() => execSync(`test -d '${strayDir}'`, { cwd: worktreePath })).toThrow();
-      const headAfter = execSync("git rev-parse HEAD", { cwd: worktreePath, encoding: "utf8" }).trim();
-      expect(headAfter).toBe(headBefore);
-      expect(execSync("git status --porcelain", { cwd: worktreePath, encoding: "utf8" }).trim()).toBe(
-        `?? ${targetDir}/${name}/verdict-plan.md`,
-      );
+      expect(existsSync(strayFile)).toBe(false);
+      expect(existsSync(strayDir)).toBe(false);
+      expect(env.gitOps.commits).toHaveLength(0);
     } finally {
       cleanup();
     }
   });
 
   test("git-disabled review skips target-repo git-status boundary on worktree roots", async () => {
-    const { dir, cfgDir, project } = (() => {
-      const tmp = mkdtempSync(join(tmpdir(), "jarvis-plan-review-worktree-"));
-      const cfgDir = join(tmp, "cfg");
-      const base = join(tmp, "base");
-      const project = join(tmp, "project");
-      mkdirSync(base);
-      execSync("git init -b main", { cwd: base });
-      execSync("git config user.email 'test@example.com'", { cwd: base });
-      execSync("git config user.name 'Test User'", { cwd: base });
-      writeFileSync(join(base, "README.md"), "seed\n");
-      execSync("git add README.md", { cwd: base });
-      execSync("git commit -m 'seed'", { cwd: base });
-      execSync(`git worktree add -b linked ${project} HEAD`, { cwd: base });
-      return { dir: tmp, cfgDir, project };
-    })();
+    const tmp = mkdtempSync(join(tmpdir(), "jarvis-plan-review-worktree-"));
+    const cfgDir = join(tmp, "cfg");
+    const project = join(tmp, "project");
     try {
+      mkdirSync(project, { recursive: true });
       const specDir = join(cfgDir, "specs", "project", "review-git-false");
       mkdirSync(specDir, { recursive: true });
       writeFileSync(join(specDir, "intent.md"), "---\nname: review-git-false\n---\n\n# Intent\n\nseed\n");
       writeFileSync(join(specDir, "index.md"), "# Draft\n\nrepo: project\n\n- [ ] [00](./00-one.md)\n");
       writeFileSync(join(specDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] x\n");
 
+      // Dirty file in the target-repo checkout: the git-status boundary check must
+      // be skipped entirely (gitEnabled: false), so this is never inspected.
       mkdirSync(join(project, "spec", "unrelated"), { recursive: true });
       writeFileSync(join(project, "spec", "unrelated", "note.md"), "dirty\n");
 
@@ -717,7 +787,7 @@ describe("runPlanReviewPhase", () => {
       expect(stderr).not.toContain("boundary violation");
       expect(readFileSync(join(specDir, "00-one.md"), "utf8")).toContain("- [ ] y");
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(tmp, { recursive: true, force: true });
     }
   });
 });
@@ -741,7 +811,7 @@ describe("validateReviewOutput", () => {
 
 describe("read-only reviewer enforcement", () => {
   test("reverts spec edits from adversary role and continues review", async () => {
-    const { dir, specDir, cleanup } = setupReviewRepo();
+    const { dir, specDir, cleanup } = setupReviewFixture();
     try {
       let adversaryEdited = false;
       const adversaryAgent = new FakeAgent("claude", (_c, _p, opts) => {
@@ -784,7 +854,6 @@ describe("read-only reviewer enforcement", () => {
       expect(result.exitCode).toBe(0);
       expect(adversaryEdited).toBe(true);
       expect(advocateAgent.calls).toHaveLength(1);
-      // Verify the spec file was restored to original
       const finalSpec = readFileSync(join(dir, "spec", "p-review", "00-one.md"), "utf8");
       expect(finalSpec).toContain("# One");
       expect(finalSpec).not.toContain("EDITED");
@@ -794,18 +863,16 @@ describe("read-only reviewer enforcement", () => {
   });
 
   test("reverts spec edits from advocate role", async () => {
-    const { dir, specDir, cleanup } = setupReviewRepo();
+    const { dir, specDir, cleanup } = setupReviewFixture();
     try {
       const adversaryAgent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "adversary findings", stderr: "" }));
 
       const advocateAgent = new FakeAgent("claude", (_c, _p, opts) => {
-        // Advocate tries to edit the spec
         writeFileSync(join(opts.cwd, "spec", "p-review", "00-one.md"), "# ADVOCATE HACKED\n");
         return { kind: "ok", stdout: "advocate rebuttal", stderr: "" };
       });
 
       const adjudicatorAgent = new FakeAgent("claude", (_c, _p, opts) => {
-        // Adjudicator should see original spec
         const spec = readFileSync(join(opts.cwd, "spec", "p-review", "00-one.md"), "utf8");
         expect(spec).not.toContain("HACKED");
         return { kind: "ok", stdout: "", stderr: "" };
@@ -836,15 +903,13 @@ describe("read-only reviewer enforcement", () => {
   });
 
   test("reverts spec edits from adjudicator role", async () => {
-    const { dir, specDir, cleanup } = setupReviewRepo();
+    const { dir, specDir, cleanup } = setupReviewFixture();
     try {
       const adversaryAgent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "adversary", stderr: "" }));
       const advocateAgent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "advocacy", stderr: "" }));
 
       const adjudicatorAgent = new FakeAgent("claude", (_c, _p, opts) => {
-        // Adjudicator tries to edit the spec (not allowed)
         writeFileSync(join(opts.cwd, "spec", "p-review", "00-one.md"), "# ADJUDICATOR MODIFIED\n");
-        // Return empty verdict to avoid actuator invocation
         return { kind: "ok", stdout: "", stderr: "" };
       });
 
@@ -870,11 +935,9 @@ describe("read-only reviewer enforcement", () => {
       });
 
       expect(result.exitCode).toBe(0);
-      // Verify edit was reverted
       const finalSpec = readFileSync(join(dir, "spec", "p-review", "00-one.md"), "utf8");
       expect(finalSpec).toContain("# One");
       expect(finalSpec).not.toContain("ADJUDICATOR MODIFIED");
-      // Should log the revert
       expect(stderr).toContain("edited spec files (reverting)");
     } finally {
       cleanup();
@@ -884,7 +947,7 @@ describe("read-only reviewer enforcement", () => {
 
 describe("verdict → refine seam", () => {
   test("passes prior role artifacts to next reviewer", async () => {
-    const { dir, specDir, cleanup } = setupReviewRepo();
+    const { dir, specDir, cleanup } = setupReviewFixture();
     try {
       const adversaryFindings = "## Adversary Findings\n- Issue 1\n- Issue 2\n";
       const advocateRebuttal = "## Advocacy Rebuttal\n- Addressed Issue 1\n- Issue 2 is unavoidable\n";
@@ -896,13 +959,11 @@ describe("verdict → refine seam", () => {
       }));
 
       const advocateAgent = new FakeAgent("claude", (_c, prompt) => {
-        // Verify adversary findings are in the prompt
         expect(prompt).toContain(adversaryFindings);
         return { kind: "ok", stdout: advocateRebuttal, stderr: "" };
       });
 
       const adjudicatorAgent = new FakeAgent("claude", (_c, prompt) => {
-        // Verify advocacy rebuttal is in the prompt
         expect(prompt).toContain(advocateRebuttal);
         return { kind: "ok", stdout: "", stderr: "" };
       });
@@ -933,7 +994,7 @@ describe("verdict → refine seam", () => {
   });
 
   test("persists verdict to verdict-plan.md in spec directory when actuator would run", async () => {
-    const { dir, specDir, cleanup } = setupReviewRepo();
+    const { dir, specDir, cleanup } = setupReviewFixture();
     try {
       const verdict =
         "## Spec Verdict\n\nThe spec needs refinement based on:\n- Missing acceptance criteria\n- Unclear intent\n";
@@ -948,7 +1009,7 @@ describe("verdict → refine seam", () => {
       }));
 
       let agentCallCount = 0;
-      const _result = await runPlanReviewPhase({
+      await runPlanReviewPhase({
         worktreePath: dir,
         name: "p-review",
         specDirBasename: "p-review",
@@ -965,7 +1026,7 @@ describe("verdict → refine seam", () => {
       });
 
       // Actuator will fail due to missing agent factory, but verdict should still be written
-      // The verdict file is written before the actuator is called
+      // (written before the actuator is invoked).
       const verdictPath = join(specDir, "verdict-plan.md");
       const savedVerdict = readFileSync(verdictPath, "utf8");
       expect(savedVerdict).toContain("Spec Verdict");
@@ -976,7 +1037,7 @@ describe("verdict → refine seam", () => {
   });
 
   test("skips verdict persistence and actuator when adjudicator returns empty verdict", async () => {
-    const { dir, specDir, cleanup } = setupReviewRepo();
+    const { dir, specDir, cleanup } = setupReviewFixture();
     try {
       const adversaryAgent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
       const advocateAgent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
@@ -988,8 +1049,6 @@ describe("verdict → refine seam", () => {
       }));
 
       let agentCallCount = 0;
-      const _actuatorCalled = false;
-
       const result = await runPlanReviewPhase({
         worktreePath: dir,
         name: "p-review",
@@ -1007,10 +1066,8 @@ describe("verdict → refine seam", () => {
       });
 
       expect(result.exitCode).toBe(0);
-
-      // Verify verdict file was NOT created (since verdict was empty)
-      const _verdictPath = join(specDir, "verdict-plan.md");
-      // If file doesn't exist, that's what we expect, so checking that is OK
+      // Verdict file was NOT created (verdict was empty, so actuator was skipped).
+      expect(existsSync(join(specDir, "verdict-plan.md"))).toBe(false);
     } finally {
       cleanup();
     }

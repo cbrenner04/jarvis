@@ -1,6 +1,6 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { realSubprocessRunner, type SubprocessRunner } from "../../../../shared/subprocess.ts";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
@@ -24,7 +24,7 @@ import {
   type BoundaryCheckResult,
   revertPaths,
 } from "./boundary.ts";
-import { commitPlanBlocker, commitPlanReview } from "./commits.ts";
+import { commitPlanBlocker, commitPlanReview, type PlanCommitGitOps, realPlanCommitGitOps } from "./commits.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import {
@@ -198,13 +198,9 @@ export function snapshotSpecFiles(
 /**
  * Check if the worktree has uncommitted changes using git status --porcelain.
  */
-export function hasWorkingTreeChanges(worktreePath: string): boolean {
+export function hasWorkingTreeChanges(worktreePath: string, runner: SubprocessRunner = realSubprocessRunner): boolean {
   try {
-    const porcelain = execFileSync("git", ["status", "--porcelain"], {
-      cwd: worktreePath,
-      stdio: "pipe",
-      encoding: "utf8",
-    });
+    const porcelain = runner.run("git", ["status", "--porcelain"], worktreePath);
     return porcelain.trim().length > 0;
   } catch (err) {
     throw new Error(`could not check git status: ${(err as Error).message}`);
@@ -379,9 +375,10 @@ function passHasChanges(
   opts: PlanReviewPhaseOptions,
   finalSpecPath: string,
   specSnapshotBefore: SpecDirSnapshot | null,
+  runner: SubprocessRunner,
 ): boolean {
   if (opts.commit) {
-    return hasWorkingTreeChanges(opts.worktreePath);
+    return hasWorkingTreeChanges(opts.worktreePath, runner);
   }
   return specSnapshotBefore !== null && hasSpecDirChanges(finalSpecPath, specSnapshotBefore);
 }
@@ -390,12 +387,8 @@ function getRoleArtifactPath(storageRoot: string, role: string, passNumber: numb
   return join(storageRoot, `.jarvis-review-plan-${role}-${passNumber}`);
 }
 
-function hasCommittablePlanReviewChanges(worktreePath: string): boolean {
-  const porcelain = execFileSync("git", ["status", "--porcelain"], {
-    cwd: worktreePath,
-    encoding: "utf8",
-    stdio: "pipe",
-  });
+function hasCommittablePlanReviewChanges(worktreePath: string, runner: SubprocessRunner): boolean {
+  const porcelain = runner.run("git", ["status", "--porcelain"], worktreePath);
   return porcelain
     .split("\n")
     .filter((line) => line.length > 3)
@@ -403,13 +396,9 @@ function hasCommittablePlanReviewChanges(worktreePath: string): boolean {
     .some((file) => !file.startsWith(".jarvis-review-plan-"));
 }
 
-function detectSpecTreeEdits(specDir: string, cwd: string): string[] {
+function detectSpecTreeEdits(specDir: string, cwd: string, runner: SubprocessRunner): string[] {
   try {
-    const output = execFileSync("git", ["status", "--porcelain"], {
-      cwd,
-      encoding: "utf8",
-      stdio: "pipe",
-    });
+    const output = runner.run("git", ["status", "--porcelain"], cwd);
 
     const specRelPath = relative(cwd, specDir);
     return output
@@ -422,8 +411,8 @@ function detectSpecTreeEdits(specDir: string, cwd: string): string[] {
   }
 }
 
-function revertSpecTreeEdits(specDir: string, cwd: string): void {
-  const editedFiles = detectSpecTreeEdits(specDir, cwd);
+function revertSpecTreeEdits(specDir: string, cwd: string, runner: SubprocessRunner): void {
+  const editedFiles = detectSpecTreeEdits(specDir, cwd, runner);
   if (editedFiles.length === 0) {
     return;
   }
@@ -431,19 +420,13 @@ function revertSpecTreeEdits(specDir: string, cwd: string): void {
   try {
     for (const file of editedFiles) {
       try {
-        execFileSync("git", ["checkout", "HEAD", "--", file], {
-          cwd,
-          stdio: "pipe",
-        });
+        runner.run("git", ["checkout", "HEAD", "--", file], cwd);
       } catch {
         // Untracked file: nothing to restore from HEAD; clean handles it below.
       }
     }
     const relPath = relative(cwd, specDir);
-    execFileSync("git", ["clean", "-fd", "--", relPath], {
-      cwd,
-      stdio: "pipe",
-    });
+    runner.run("git", ["clean", "-fd", "--", relPath], cwd);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Failed to revert spec-tree edits: ${message}`);
@@ -457,6 +440,8 @@ function createPlanReviewAdapter(args: {
   intentBefore: string;
   finalSpecPath: string;
   specSnapshotBefore: SpecDirSnapshot | null;
+  runner: SubprocessRunner;
+  gitOps: PlanCommitGitOps;
   onBlocker: (blocker: string) => void;
   onAgentFailure: (passNumber: number, stderr: string) => void;
 }): ReviewAdapter {
@@ -467,6 +452,8 @@ function createPlanReviewAdapter(args: {
     intentBefore,
     finalSpecPath,
     specSnapshotBefore,
+    runner,
+    gitOps,
     onBlocker,
     onAgentFailure,
   } = args;
@@ -475,10 +462,10 @@ function createPlanReviewAdapter(args: {
 
   const checkBoundaries = (): BoundaryCheckResult => {
     const boundaryCheck: BoundaryCheckResult = opts.commit
-      ? assertPlanWriteBoundary(opts.worktreePath, opts.specDirBasename, targetDir)
+      ? assertPlanWriteBoundary(opts.worktreePath, opts.specDirBasename, targetDir, runner)
       : opts.gitEnabled === false
         ? { ok: true }
-        : assertTargetRepoPlanBoundary(opts.projectRoot ?? opts.worktreePath);
+        : assertTargetRepoPlanBoundary(opts.projectRoot ?? opts.worktreePath, runner);
     if (boundaryCheck.ok) {
       return { ok: true };
     }
@@ -492,22 +479,25 @@ function createPlanReviewAdapter(args: {
     }
     opts.stderr?.(`plan: boundary violation detected before review ${context} commit\n`);
     if (opts.commit) {
-      revertPaths(opts.worktreePath, boundary.offendingPaths);
+      revertPaths(opts.worktreePath, boundary.offendingPaths, runner);
     }
     appendBoundaryBlocker(finalSpecPath, opts.specDirBasename, boundary.offendingPaths, targetDir);
     for (const path of boundary.offendingPaths) {
       opts.stderr?.(`  - ${path}\n`);
     }
     if (opts.commit) {
-      commitPlanBlocker({
-        worktreePath: opts.worktreePath,
-        specDirBasename: opts.specDirBasename,
-        agentLabel: ctx.agentLabel,
-        reason: "write boundary violation",
-        specFilesCount: countSpecFiles(finalSpecPath),
-        ...(opts.subjectSuffix !== undefined ? { subjectSuffix: opts.subjectSuffix } : {}),
-        targetDir,
-      });
+      commitPlanBlocker(
+        {
+          worktreePath: opts.worktreePath,
+          specDirBasename: opts.specDirBasename,
+          agentLabel: ctx.agentLabel,
+          reason: "write boundary violation",
+          specFilesCount: countSpecFiles(finalSpecPath),
+          ...(opts.subjectSuffix !== undefined ? { subjectSuffix: opts.subjectSuffix } : {}),
+          targetDir,
+        },
+        gitOps,
+      );
       opts.stderr?.(`plan: blocker commit pushed\n`);
       await opts.updatePrBody?.();
     }
@@ -550,7 +540,7 @@ function createPlanReviewAdapter(args: {
       // Reviewer roles (adversary, advocate, adjudicator) are read-only on spec; revert any spec edits.
       if (ctx.role && ["adversary", "advocate", "adjudicator"].includes(ctx.role)) {
         const editedSpecFiles = opts.commit
-          ? detectSpecTreeEdits(finalSpecPath, opts.worktreePath)
+          ? detectSpecTreeEdits(finalSpecPath, opts.worktreePath, runner)
           : specSnapshotBefore === null
             ? []
             : listSpecDirChanges(finalSpecPath, specSnapshotBefore);
@@ -570,7 +560,7 @@ function createPlanReviewAdapter(args: {
           );
           try {
             if (opts.commit) {
-              revertSpecTreeEdits(finalSpecPath, opts.worktreePath);
+              revertSpecTreeEdits(finalSpecPath, opts.worktreePath, runner);
             } else if (specSnapshotBefore !== null) {
               restoreSpecDirSnapshot(finalSpecPath, specSnapshotBefore);
             }
@@ -583,7 +573,7 @@ function createPlanReviewAdapter(args: {
       }
     },
     readBlocker: async (ctx) => {
-      if (!passHasChanges(opts, finalSpecPath, specSnapshotBefore)) {
+      if (!passHasChanges(opts, finalSpecPath, specSnapshotBefore, runner)) {
         return null;
       }
       const validation = validateReviewOutput(
@@ -610,15 +600,18 @@ function createPlanReviewAdapter(args: {
     },
     handleBlocker: async (ctx) => {
       if (opts.commit) {
-        commitPlanBlocker({
-          worktreePath: opts.worktreePath,
-          specDirBasename: opts.specDirBasename,
-          agentLabel: ctx.agentLabel,
-          reason: firstNonEmptyLine(ctx.blocker),
-          specFilesCount: countSpecFiles(finalSpecPath),
-          ...(opts.subjectSuffix !== undefined ? { subjectSuffix: opts.subjectSuffix } : {}),
-          targetDir,
-        });
+        commitPlanBlocker(
+          {
+            worktreePath: opts.worktreePath,
+            specDirBasename: opts.specDirBasename,
+            agentLabel: ctx.agentLabel,
+            reason: firstNonEmptyLine(ctx.blocker),
+            specFilesCount: countSpecFiles(finalSpecPath),
+            ...(opts.subjectSuffix !== undefined ? { subjectSuffix: opts.subjectSuffix } : {}),
+            targetDir,
+          },
+          gitOps,
+        );
         opts.stderr?.(`plan: blocker commit pushed\n`);
         await opts.updatePrBody?.();
       }
@@ -643,8 +636,8 @@ function createPlanReviewAdapter(args: {
       }
 
       const hasChanges = opts.commit
-        ? hasCommittablePlanReviewChanges(opts.worktreePath)
-        : passHasChanges(opts, finalSpecPath, specSnapshotBefore);
+        ? hasCommittablePlanReviewChanges(opts.worktreePath, runner)
+        : passHasChanges(opts, finalSpecPath, specSnapshotBefore, runner);
       if (!hasChanges) {
         if (opts.logNoChangeSkip) {
           opts.stderr?.(
@@ -671,15 +664,18 @@ function createPlanReviewAdapter(args: {
             ? `review: ${ctx.role}`
             : `review: pass ${displayPassNumber}`;
 
-        commitPlanReview({
-          worktreePath: opts.worktreePath,
-          specDirBasename: opts.specDirBasename,
-          passNumber: displayPassNumber,
-          agentLabel: ctx.agentLabel,
-          ...(opts.subjectSuffix !== undefined ? { subjectSuffix: opts.subjectSuffix } : {}),
-          targetDir,
-          ...(ctx.role ? { reviewLabel: roleLabel } : {}),
-        });
+        commitPlanReview(
+          {
+            worktreePath: opts.worktreePath,
+            specDirBasename: opts.specDirBasename,
+            passNumber: displayPassNumber,
+            agentLabel: ctx.agentLabel,
+            ...(opts.subjectSuffix !== undefined ? { subjectSuffix: opts.subjectSuffix } : {}),
+            targetDir,
+            ...(ctx.role ? { reviewLabel: roleLabel } : {}),
+          },
+          gitOps,
+        );
         opts.stderr?.(
           `plan: review pass ${displayPassNumber}${ctx.role ? ` (${ctx.role})` : ""} committed and pushed\n`,
         );
@@ -695,10 +691,7 @@ function createPlanReviewAdapter(args: {
         );
         try {
           if (opts.commit) {
-            execFileSync("git", ["reset", "HEAD", "--", artifactPath], {
-              cwd: opts.worktreePath,
-              stdio: "pipe",
-            });
+            runner.run("git", ["reset", "HEAD", "--", artifactPath], opts.worktreePath);
           }
           rmSync(artifactPath, { force: true });
         } catch {
@@ -798,7 +791,12 @@ function withPlanReviewIdleWatchdog(
 }
 
 /** Run plan review passes through the shared review runner. */
-export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<PlanReviewPhaseResult> {
+export async function runPlanReviewPhase(
+  opts: PlanReviewPhaseOptions,
+  gitDeps: { runner?: SubprocessRunner; gitOps?: PlanCommitGitOps } = {},
+): Promise<PlanReviewPhaseResult> {
+  const runner = gitDeps.runner ?? realSubprocessRunner;
+  const gitOps = gitDeps.gitOps ?? realPlanCommitGitOps;
   const resolveAgent = (agentName: AgentName, model: string | undefined): Agent => {
     if (opts.createAgent) {
       return opts.createAgent(agentName, model);
@@ -891,10 +889,10 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
       }
 
       if (opts.checkBoundary) {
-        const boundary = assertPlanWriteBoundary(opts.worktreePath, opts.specDirBasename, targetDir);
+        const boundary = assertPlanWriteBoundary(opts.worktreePath, opts.specDirBasename, targetDir, runner);
         if (!boundary.ok) {
           opts.stderr?.(`plan: actuator boundary violation detected before commit\n`);
-          revertPaths(opts.worktreePath, boundary.offendingPaths);
+          revertPaths(opts.worktreePath, boundary.offendingPaths, runner);
           for (const path of boundary.offendingPaths) {
             opts.stderr?.(`  - ${path}\n`);
           }
@@ -904,23 +902,22 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
 
       // Commit actuator changes
       try {
-        execFileSync("git", ["add", "-A"], { cwd: opts.worktreePath, stdio: "pipe" });
-        const porcelain = execFileSync("git", ["status", "--porcelain"], {
-          cwd: opts.worktreePath,
-          encoding: "utf8",
-          stdio: "pipe",
-        }).trim();
+        runner.run("git", ["add", "-A"], opts.worktreePath);
+        const porcelain = runner.run("git", ["status", "--porcelain"], opts.worktreePath).trim();
 
         if (porcelain !== "") {
-          commitPlanReview({
-            worktreePath: opts.worktreePath,
-            specDirBasename: opts.specDirBasename,
-            passNumber: ctx.passNumber,
-            agentLabel: "plan-review-actuator",
-            ...(opts.subjectSuffix !== undefined ? { subjectSuffix: opts.subjectSuffix } : {}),
-            targetDir,
-            reviewLabel: "review: actuator",
-          });
+          commitPlanReview(
+            {
+              worktreePath: opts.worktreePath,
+              specDirBasename: opts.specDirBasename,
+              passNumber: ctx.passNumber,
+              agentLabel: "plan-review-actuator",
+              ...(opts.subjectSuffix !== undefined ? { subjectSuffix: opts.subjectSuffix } : {}),
+              targetDir,
+              reviewLabel: "review: actuator",
+            },
+            gitOps,
+          );
           opts.stderr?.(`plan: actuator committed and pushed\n`);
           await opts.updatePrBody?.();
         } else {
@@ -954,6 +951,8 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
           intentBefore,
           finalSpecPath,
           specSnapshotBefore,
+          runner,
+          gitOps,
           onBlocker: (blocker) => {
             detectedBlocker = blocker;
           },

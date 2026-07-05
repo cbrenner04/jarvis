@@ -580,6 +580,45 @@ describe("v2 cli", () => {
     });
   });
 
+  test("run start forwards machine-config agents into IPC start payload when --agents is omitted", async () => {
+    const cap = captureIo();
+    const configPath = writeMachineConfig({ agents: ["codex", "cursor"] });
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000022";
+    const originalRandomUuid = crypto.randomUUID;
+    crypto.randomUUID = () => requestId;
+
+    let code = NaN;
+    try {
+      code = await main(RUN_START_ARGS, cap.io, {
+        machineConfigPath: configPath,
+        connectIpcClient: async () =>
+          makeClient(
+            [
+              {
+                kind: "response",
+                id: requestId,
+                result: { runId: "run-machine-config" },
+              },
+            ],
+            sent,
+          ),
+      });
+    } finally {
+      crypto.randomUUID = originalRandomUuid;
+    }
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "run-machine-config\n", stderr: "" });
+    expect(sent[0]).toMatchObject({
+      params: {
+        input: {
+          bindings: [{ id: "codex" }, { id: "cursor" }],
+        },
+      },
+    });
+  });
+
   test("forwards parsed agents to the injected binding factory", async () => {
     const cap = captureIo();
     let capturedAgents: readonly string[] | undefined;

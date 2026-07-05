@@ -17,7 +17,7 @@ Two axes, two stores:
 | **Role→model bindings** | One harness-global, version-controlled data file beside `data/prices.json` | `AgentModelConfig` — `(agent, role) → ModelEscalation`; may catalog agents beyond any one project's `agents` list |
 
 The machine agent-order file is edited with `jarvis config set-agents <agent,agent,...>` and inspected with `jarvis config show` / `jarvis config path` ([Read-only inspection](#read-only-inspection)).
-That command replaces the full `agents` array, preserves unrelated top-level
+`set-agents` replaces the full `agents` array, preserves unrelated top-level
 keys in `~/.jarvis/v2.json`, creates missing `~/.jarvis/` state on success, and
 refuses to overwrite an existing file that is not a valid machine-config object.
 

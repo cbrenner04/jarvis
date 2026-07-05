@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { InvocationBinding, InvocationCompletedRecord, InvocationResult } from "../../../shared/invocation/execute.ts";
+import type {
+  InvocationBinding,
+  InvocationCompletedRecord,
+  InvocationResult,
+} from "../../../shared/invocation/execute.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";

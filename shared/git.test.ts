@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import type { SubprocessRunner } from "./subprocess.ts";
 import { branchExistsLocal, branchExistsOnOrigin, getCurrentBranch } from "./git.ts";
+import type { SubprocessRunner } from "./subprocess.ts";
 
 /** Fake runner: resolves canned results by exact `cmd args` match, records argv+cwd. */
-function fakeRunner(results: Record<string, string | Error>): SubprocessRunner & { calls: Array<{ args: string[]; cwd: string }> } {
+function fakeRunner(
+  results: Record<string, string | Error>,
+): SubprocessRunner & { calls: Array<{ args: string[]; cwd: string }> } {
   const calls: Array<{ args: string[]; cwd: string }> = [];
   return {
     calls,

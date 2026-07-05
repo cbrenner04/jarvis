@@ -266,4 +266,24 @@ describe("StateStore", () => {
     expect(run?.id).toBe(runId);
     expect(run?.stepId === null || run?.stepId === undefined).toBe(true);
   });
+
+  test("findRevisionRuns returns only runs whose stepId is a revision of repeatStepId", () => {
+    const r1 = seedRun(store, { stepId: "implement~r1" });
+    const r2 = seedRun(store, { stepId: "implement~r2" });
+    seedRun(store, { stepId: "implement" });
+    seedRun(store, { stepId: "other" });
+    seedRun(store, { branch: "other-branch", stepId: "implement~r1" });
+
+    const runs = store.findRevisionRuns({ project: "test-project", branch: "test-branch", repeatStepId: "implement" });
+
+    expect(runs.map((run) => run.id).sort()).toEqual([r1, r2].sort());
+  });
+
+  test("findRevisionRuns returns none when no revision runs exist", () => {
+    seedRun(store, { stepId: "implement" });
+
+    const runs = store.findRevisionRuns({ project: "test-project", branch: "test-branch", repeatStepId: "implement" });
+
+    expect(runs).toEqual([]);
+  });
 });

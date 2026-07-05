@@ -28,16 +28,44 @@ flattened with each agent's configured rungs for that `role`. Quota on an
 earlier binding can therefore fall through across both the current agent's rung
 list and a later configured agent binding before the step succeeds.
 
-For each step in order:
+For each `write` step in order:
 1. Run its write loop (via `executeWriteLoop`) to a terminal outcome.
 2. If the outcome is `complete`, advance to the next step.
 3. Any other terminal outcome (`blocked`, `contract_miss`, `invocation_failure`) or soft-stop (`budget-exhausted`, `paused`) stops the workflow at that step — no later steps are run.
+
+A `human` step (see [`role-resolution.md`](role-resolution.md#role--behavior-reference))
+dispatches to a separate path that never calls `executeWriteLoop`: the runner
+creates or loads that step's `(project, branch, stepId)` run row and sets its
+status to `awaiting-human` directly via the state store, then stops the
+workflow — `executeWorkflow` returns `WorkflowResult.kind === "awaiting-human"`.
+A human step has no attempt/outcome history and no worktree of its own — its
+run identity is `(project, branch)` carried on the step itself, not derived
+from a `write-behavior.md` worktree. Reaching a human step appends no
+`## Blocker` section to any spec file; that helper is contract-miss-specific
+write-loop output, not a human-review signal. A human step whose run is
+already `completed` (via decision-gated resume) is treated like a completed
+write step: the workflow advances past it with no new work.
+
+A human step may configure `onRevise: { repeatStepId, maxRevisions }`, naming
+an earlier step (lower index) in the same authored `steps[]` array and a
+revision budget. The daemon's `revise` decision (see
+[`daemon-host.md`](daemon-host.md#revise-decision)) spawns `repeatStepId`'s
+write loop again under a synthesized stepId `${repeatStepId}~r<n>` and moves
+the human step's run to status `revising`. While `revising`, `executeWorkflow`
+checks the highest-numbered `~r<n>` run for `repeatStepId`: once it reaches a
+terminal outcome (`completed`, `failed`, or `blocked`), the human step's run
+re-converges to `awaiting-human` (same run row) and `executeWorkflow` returns
+`WorkflowResult.kind === "awaiting-human"`; otherwise it returns
+`WorkflowResult.kind === "revising"` and the workflow stops at that step, same
+as `awaiting-human`.
 
 In the supported `write-write` composition, step two begins only after step one
 reaches `complete`. Workflow success means both step-local write loops
 completed, not just step one.
 
-Return `WorkflowResult` indicates which step produced the stopping outcome, its run ID, total iterations consumed across all steps, and resumability.
+Return `WorkflowResult` indicates which step produced the stopping outcome
+(`awaiting-human` included), its run ID, total iterations consumed across all
+steps, and resumability.
 
 Each step run also persists the workflow invocation snapshot that launched it:
 one `invocationId` plus the authored `steps[]` metadata (`stepId`, `role`,
@@ -48,14 +76,23 @@ durable attempt history alone. See [`daemon-host.md`](daemon-host.md#workflow-sn
 ## Authoring helper and presets
 
 `defineWorkflowStep(...)` is the authoring helper for one concrete workflow step.
-It takes `{ stepId, behavior, ... }`, where `behavior` is the closed
-vocabulary from [`role-resolution.md`](role-resolution.md#role--behavior-reference):
-`"write"` (a [`write-behavior.md`](write-behavior.md) loop shape plus per-step
-loop controls — `maxIterations`, `signal`, `pauseSignal` — keyed by a single
-`role`/`agents` order) or `"review-debate"` (see
-[Review-debate dispatch](#review-debate-dispatch) below). Workflow
-infrastructure such as `stateStore` and `logSink` is not part of the public
-step contract; the runner normalizes those once at workflow scope.
+`WorkflowStepInput` (identical in shape to the runtime `AnyWorkflowStep`) is a
+discriminated union on `behavior`, the closed vocabulary from
+[`role-resolution.md`](role-resolution.md#role--behavior-reference):
+
+- `behavior: "write"` — `{ stepId, role, ... }`, the full
+  [`write-behavior.md`](write-behavior.md) loop shape plus per-step loop
+  controls (`maxIterations`, `signal`, `pauseSignal`), keyed by a single
+  `role`/`agents` order. Workflow infrastructure such as `stateStore` and
+  `logSink` is not part of the public step contract; the runner normalizes
+  those once at workflow scope.
+- `behavior: "human"` — `{ stepId, project, branch }` only. It carries none of
+  the write-loop-only fields (`role`, `agents`, `stepRules`,
+  `agentModelConfig`, `expectedArtifactPath`) and no `worktree` — see
+  [Execution contract](#execution-contract) above.
+- `behavior: "review-debate"` — see
+  [Review-debate dispatch](#review-debate-dispatch) below.
+
 `behavior` is kept on the returned runtime step (not stripped) — the runner
 dispatches on it. The helper passes loop-control fields through unchanged.
 
@@ -83,7 +120,9 @@ through its own `stepId`-scoped run lookup (via
 `findRunByProjectBranch({ project, branch, stepId })`): a step whose run is
 already `completed` returns its stored result idempotently with no new work
 and no binding resolution, and the first non-completed step becomes the first
-step that performs fresh execution.
+step that performs fresh execution. A `human` step re-entered before its
+decision lands re-converges to `awaiting-human` idempotently (same status,
+same run row) rather than performing fresh execution.
 
 The step-level loop-boundary resume rules are unchanged from the single-step
 write loop: an `in-progress` attempt is re-run over a dirty worktree; a
@@ -113,6 +152,12 @@ Before running any step, `executeWorkflow` validates:
 - For a `review-debate` step, the same check runs independently for each of
   the four debate roles' `agents` orders against the step's
   `agentModelConfig`.
+- A `human` step has no role binding to validate.
+- Every human step's `onRevise.repeatStepId`, if configured, names an earlier
+  step (lower index) in the same `steps` array — a missing, self-referencing,
+  or forward-referencing `repeatStepId` is rejected as a `defineWorkflow`-level
+  error, reported as `(stepId, repeatStepId)` pairs, before any durable state
+  change.
 
 Workflow-source role misses are aggregated and reported as `(stepId, role,
 agent)` tuples (role is the debate role name for a `review-debate` step) in
@@ -123,11 +168,12 @@ runs before role/agent bindings are derived for any pending step.
 
 ## Loading workflow steps
 
-`loadWorkflowSteps(steps: WorkflowSourceStep[]): WorkflowStep[]`
+`loadWorkflowSteps(steps: WorkflowSourceStep[]): WriteWorkflowStep[]`
 (`v2/src/execution/workflow-loader.ts`) assembles the `agents`/`agentModelConfig`
 that `executeWorkflow` requires from real config, ahead of the runner in the
-pipeline. `WorkflowSourceStep` is `WorkflowStep` minus `agents` and
-`agentModelConfig` — an authored step names only its `role`.
+pipeline. `WorkflowSourceStep` is `WriteWorkflowStep` minus `agents` and
+`agentModelConfig` — an authored step names only its `role`. Loading `human`
+or `review-debate` steps is out of scope for this helper.
 
 The loader loads the machine's configured agent order (falling back to
 `DEFAULT_WRITE_AGENTS` when machine config has no `agents` key) and the global
@@ -162,9 +208,12 @@ a role invocation failure is `kind: "invocation_failure"`. `resumable` is
 always `false` — there is no durable run/resume for a `review-debate` step in
 this slice (deferred to the first caller that needs mid-cycle resume); its
 `runId` is synthesized for reporting only, not looked up via
-`findRunByProjectBranch`. Multi-step composition (mixing `write` and
-`review-debate` steps in one workflow) has no defined semantics yet — deferred
-to the first consumer.
+`findRunByProjectBranch`. A `review-debate` step is excluded from the workflow
+snapshot built for `write`/`human` steps (see
+[Per-step attempt history](#per-step-attempt-history)) since it has no durable
+run identity in this slice; mixing a `review-debate` step with `write`/`human`
+steps in one workflow otherwise composes normally (ordered advancement, same
+stop-on-non-complete rule).
 
 This slice supports only programmatic/runtime construction of a
 `review-debate` step via `defineWorkflowStep`; `workflow-loader.ts` (and

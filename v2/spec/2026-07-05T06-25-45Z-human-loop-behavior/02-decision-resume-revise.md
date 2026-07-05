@@ -63,22 +63,22 @@ injected free-text prompt.
 
 ## Acceptance criteria
 
-- [ ] `revise` on a human step with `onRevise` configured, called against a dirty
+- [x] `revise` on a human step with `onRevise` configured, called against a dirty
       worktree, spawns a write loop under stepId `${repeatStepId}~r1` reusing the
       repeated step's config, and moves the human step's run to `"revising"`.
-- [ ] `revise` on a clean worktree with no `prompt` param is rejected
+- [x] `revise` on a clean worktree with no `prompt` param is rejected
       `revise_requires_input`.
-- [ ] `revise` on a clean worktree with a `prompt` param succeeds, and the
+- [x] `revise` on a clean worktree with a `prompt` param succeeds, and the
       spawned revision step's `stepRules` includes the supplied prompt text.
-- [ ] When the `~r1` revision write loop reaches a terminal outcome, the human
+- [x] When the `~r1` revision write loop reaches a terminal outcome, the human
       step's run returns to `awaiting-human`, and a following `resume` call
       against it is accepted (not rejected as a terminal run).
-- [ ] A second `revise` issued after that re-convergence spawns stepId
+- [x] A second `revise` issued after that re-convergence spawns stepId
       `${repeatStepId}~r2`; a step configured with `maxRevisions: 1` rejects a
       second `revise` with `revise_exhausted`.
-- [ ] `revise` on a human step with no `onRevise` configured is rejected
+- [x] `revise` on a human step with no `onRevise` configured is rejected
       regardless of worktree state or prompt.
-- [ ] Defining a workflow whose `onRevise.repeatStepId` is missing,
+- [x] Defining a workflow whose `onRevise.repeatStepId` is missing,
       self-referencing, or forward-referencing is rejected at definition time.
 
 ## Documentation updates

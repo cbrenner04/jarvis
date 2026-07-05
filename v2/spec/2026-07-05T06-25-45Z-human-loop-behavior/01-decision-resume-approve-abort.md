@@ -32,15 +32,15 @@ here and lands in subspec 02.
 
 ## Acceptance criteria
 
-- [ ] `resume` on an `awaiting-human` run without a `decision` param is rejected
+- [x] `resume` on an `awaiting-human` run without a `decision` param is rejected
       `invalid_params`.
-- [ ] `resume` with `decision: "approve"` marks the human step's run `completed`;
+- [x] `resume` with `decision: "approve"` marks the human step's run `completed`;
       a following `executeWorkflow` call for the same workflow advances past that
       step.
-- [ ] `resume` with `decision: "abort"` on an `awaiting-human` run sets its status
+- [x] `resume` with `decision: "abort"` on an `awaiting-human` run sets its status
       to `killed`, matching the existing `kill` RPC's observable result.
-- [ ] `resume` with `decision: "revise"` on an `awaiting-human` run is rejected.
-- [ ] `resume` with a `decision` param on a non-`awaiting-human` run is rejected.
+- [x] `resume` with `decision: "revise"` on an `awaiting-human` run is rejected.
+- [x] `resume` with a `decision` param on a non-`awaiting-human` run is rejected.
 
 ## Documentation updates
 

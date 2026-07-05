@@ -27,6 +27,7 @@ const VALID_AGENT_MODEL_CONFIG = {
 
 function sourceStep(overrides: Partial<WorkflowSourceStep> = {}): WorkflowSourceStep {
   return {
+    behavior: "write",
     stepId: "step-1",
     role: "implement",
     worktree: { projectRoot: "/tmp/proj", projectName: "proj", branchName: "branch", baseRef: "main" },

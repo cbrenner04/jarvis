@@ -32,17 +32,17 @@ the convergence point and guards `resume` against it.
 
 ## Acceptance criteria
 
-- [ ] A workflow whose active step has `behavior: "human"` converges via
+- [x] A workflow whose active step has `behavior: "human"` converges via
       `executeWorkflow` to a run with status `awaiting-human`, returning
       `WorkflowResult.kind === "awaiting-human"`, without invoking
       `executeWriteLoop`.
-- [ ] Reaching a human step appends no `## Blocker` section to the step's spec file.
-- [ ] Daemon `resume` RPC rejects a run whose status is `awaiting-human` with a
+- [x] Reaching a human step appends no `## Blocker` section to the step's spec file.
+- [x] Daemon `resume` RPC rejects a run whose status is `awaiting-human` with a
       `terminal_run`-class error, matching its existing `completed`/`failed`/`blocked`
       rejections.
-- [ ] Daemon `list` reports a stopped human step's `terminalOutcome` as
+- [x] Daemon `list` reports a stopped human step's `terminalOutcome` as
       `"awaiting-human"`.
-- [ ] `defineWorkflowStep` accepts an input with `behavior: "human"` and returns
+- [x] `defineWorkflowStep` accepts an input with `behavior: "human"` and returns
       the corresponding `WorkflowStep` shape.
 
 ## Documentation updates

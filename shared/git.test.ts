@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { branchExistsLocal, branchExistsOnOrigin, getCurrentBranch } from "./git.ts";
+import { branchExistsLocal, branchExistsOnOrigin, getCurrentBranch, isWorktreeDirty } from "./git.ts";
 import type { SubprocessRunner } from "./subprocess.ts";
 
 /** Fake runner: resolves canned results by exact `cmd args` match, records argv+cwd. */
@@ -62,5 +62,15 @@ describe("getCurrentBranch", () => {
       "git rev-parse --abbrev-ref HEAD": "feature\n",
     });
     expect(getCurrentBranch("/repo", afterCheckout)).toBe("feature");
+  });
+});
+
+describe("isWorktreeDirty", () => {
+  test("true when git status --porcelain reports changes, false when clean", () => {
+    const dirty = fakeRunner({ "git status --porcelain": " M src/file.ts\n" });
+    expect(isWorktreeDirty("/repo", dirty)).toBe(true);
+
+    const clean = fakeRunner({ "git status --porcelain": "" });
+    expect(isWorktreeDirty("/repo", clean)).toBe(false);
   });
 });

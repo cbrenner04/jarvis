@@ -371,6 +371,17 @@ socketTest(
       outcomeKind: "contract_miss",
     });
 
+    const awaitingHumanRunId = stateStore.createRun({
+      project: "wf-outcomes",
+      specRef: "main",
+      worktreePath: "/tmp/wf-outcomes",
+      branch: "wf-human",
+      specPath: "/tmp/spec.md",
+      stepId: "step-human",
+      workflowSnapshot: workflowSnapshot({ stepId: "step-human", role: "implement" }),
+    });
+    stateStore.setRunStatus(awaitingHumanRunId, "awaiting-human");
+
     const runs = await listRuns(client);
     expect(runs?.find((row) => row.runId === budgetRunId)?.workflow).toEqual({
       steps: [
@@ -401,6 +412,17 @@ socketTest(
           status: "stopped",
           attemptCount: 1,
           terminalOutcome: "contract_miss",
+        },
+      ],
+    });
+    expect(runs?.find((row) => row.runId === awaitingHumanRunId)?.workflow).toEqual({
+      steps: [
+        {
+          stepId: "step-human",
+          role: "implement",
+          status: "stopped",
+          attemptCount: 0,
+          terminalOutcome: "awaiting-human",
         },
       ],
     });
@@ -632,6 +654,127 @@ socketTest("resume rejects terminal run status", async () => {
   if (resumeResponse.kind === "error") {
     expect(resumeResponse.code).toBe("terminal_run");
     expect(resumeResponse.message).toBe("Cannot resume a completed run");
+  }
+  client.close();
+});
+
+socketTest("resume without decision on an awaiting-human run is rejected invalid_params", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+
+  const runId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "human-branch",
+    specPath: "/tmp/test-project/spec.md",
+  });
+  stateStore.setRunStatus(runId, "awaiting-human");
+
+  client.send({ kind: "request", id: "r1", method: "resume", params: { runId } });
+  const resumeResponse = await client.nextFrame();
+  expect(resumeResponse.kind).toBe("error");
+  if (resumeResponse.kind === "error") {
+    expect(resumeResponse.code).toBe("invalid_params");
+  }
+  client.close();
+});
+
+socketTest("resume with decision approve completes the human step run", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+
+  const runId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "human-branch",
+    specPath: "/tmp/test-project/spec.md",
+  });
+  stateStore.setRunStatus(runId, "awaiting-human");
+
+  client.send({ kind: "request", id: "r1", method: "resume", params: { runId, decision: "approve" } });
+  const resumeResponse = await client.nextFrame();
+  expect(resumeResponse.kind).toBe("response");
+
+  const runs = await listRuns(client);
+  if (runs) {
+    const run = runs.find((candidate) => candidate.runId === runId);
+    expect(run).toBeDefined();
+    expect(run?.status).toBe("completed");
+  }
+  client.close();
+});
+
+socketTest("resume with decision abort kills the human step run", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+
+  const runId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "human-branch",
+    specPath: "/tmp/test-project/spec.md",
+  });
+  stateStore.setRunStatus(runId, "awaiting-human");
+
+  client.send({ kind: "request", id: "r1", method: "resume", params: { runId, decision: "abort" } });
+  const resumeResponse = await client.nextFrame();
+  expect(resumeResponse.kind).toBe("response");
+
+  const runs = await listRuns(client);
+  if (runs) {
+    const run = runs.find((candidate) => candidate.runId === runId);
+    expect(run).toBeDefined();
+    expect(run?.status).toBe("killed");
+  }
+  client.close();
+});
+
+socketTest("resume with decision revise on an awaiting-human run is rejected", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+
+  const runId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "human-branch",
+    specPath: "/tmp/test-project/spec.md",
+  });
+  stateStore.setRunStatus(runId, "awaiting-human");
+
+  client.send({ kind: "request", id: "r1", method: "resume", params: { runId, decision: "revise" } });
+  const resumeResponse = await client.nextFrame();
+  expect(resumeResponse.kind).toBe("error");
+  if (resumeResponse.kind === "error") {
+    expect(resumeResponse.code).toBe("revise_unsupported");
+  }
+  client.close();
+});
+
+socketTest("resume with a decision param on a non-awaiting-human run is rejected", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+  const runId = await startRun(client);
+  if (!runId) {
+    client.close();
+    return;
+  }
+
+  fakeExecutor.settleAll();
+  await flushBackgroundRuns();
+
+  const pausedRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "paused-branch",
+    specPath: "/tmp/test-project/spec.md",
+  });
+  stateStore.setRunStatus(pausedRunId, "paused");
+
+  client.send({ kind: "request", id: "r1", method: "resume", params: { runId: pausedRunId, decision: "approve" } });
+  const resumeResponse = await client.nextFrame();
+  expect(resumeResponse.kind).toBe("error");
+  if (resumeResponse.kind === "error") {
+    expect(resumeResponse.code).toBe("invalid_params");
   }
   client.close();
 });

@@ -237,11 +237,7 @@ describe("commitWipProgress", () => {
       );
       const ops = fakeGitOps();
 
-      commitWipProgress(
-        specPath,
-        { cwd: gitDir, newlyChecked: [], checkedTotal: 0, total: 2, agentLabel: "" },
-        ops,
-      );
+      commitWipProgress(specPath, { cwd: gitDir, newlyChecked: [], checkedTotal: 0, total: 2, agentLabel: "" }, ops);
 
       const message = ops.commits[0]?.message ?? "";
       expect(message).toContain("WIP: Test Spec");
@@ -266,11 +262,7 @@ describe("commitWipProgress", () => {
       );
       const ops = fakeGitOps();
 
-      commitWipProgress(
-        specPath,
-        { cwd: gitDir, newlyChecked: [], checkedTotal: 1, total: 2, agentLabel: "" },
-        ops,
-      );
+      commitWipProgress(specPath, { cwd: gitDir, newlyChecked: [], checkedTotal: 1, total: 2, agentLabel: "" }, ops);
 
       const message = ops.commits[0]?.message ?? "";
       expect(message).toContain("WIP: Test Spec");

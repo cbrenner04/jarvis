@@ -1,15 +1,24 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
+import type { SubprocessRunner } from "../../shared/subprocess.ts";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import { INTENT_USAGE, intentCommand, parseIntentArgs } from "../src/commands/intent.ts";
 import { loadConfig, registerProject, writeConfig } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
 import { buildIntentSplitPrompt } from "../src/modes/plan/intent-split.ts";
 import { HARNESS_MODEL_CONFIG_FALLBACK } from "../src/quota-harness-messages.ts";
-import { type SubprocessRunner } from "../../shared/subprocess.ts";
 
 const okLogClient: LogClient = {
   assertReachable: async () => {},
@@ -1097,9 +1106,7 @@ describe("intentCommand", () => {
   });
 
   describe("commit path", () => {
-    function fakeRunner(
-      usages: Array<{ args: string[]; cwd: string }>,
-    ): SubprocessRunner {
+    function fakeRunner(usages: Array<{ args: string[]; cwd: string }>): SubprocessRunner {
       const handlers: Array<(cmd: string, args: string[], cwd: string) => string | undefined> = [];
       handlers.push((cmd, args) => {
         if (cmd === "git" && args[0] === "rev-parse" && args[1] === "--abbrev-ref" && args[2] === "HEAD") {
@@ -1128,8 +1135,10 @@ describe("intentCommand", () => {
       handlers.push((cmd, args) => {
         if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
           // Actually remove the worktree for assertion accuracy
-          const pathArg = args[3] !== undefined ? args[3] : args[2] ?? "";
-          try { rmSync(pathArg, { recursive: true, force: true }); } catch {}
+          const pathArg = args[3] !== undefined ? args[3] : (args[2] ?? "");
+          try {
+            rmSync(pathArg, { recursive: true, force: true });
+          } catch {}
           return "";
         }
         return undefined;
@@ -1168,7 +1177,7 @@ if [[ "$1 $2" == "pr view" ]]; then
     fi
     exit 0
   fi
-  if [[ "$*" == *"select(.state==\"OPEN\") | {number: .number, isDraft: .isDraft}"* ]]; then
+  if [[ "$*" == *"select(.state=="OPEN") | {number: .number, isDraft: .isDraft}"* ]]; then
     if [[ ! -f "$PR_CREATED" ]]; then exit 1; fi
     if [[ -f "$PR_READY" ]]; then
       printf '{"number":1,"state":"OPEN","isDraft":false}\\n'
@@ -1177,7 +1186,7 @@ if [[ "$1 $2" == "pr view" ]]; then
     fi
     exit 0
   fi
-  if [[ "$*" == *"select(.state==\"OPEN\") | .number"* ]]; then
+  if [[ "$*" == *"select(.state=="OPEN") | .number"* ]]; then
     if [[ ! -f "$PR_CREATED" ]]; then exit 1; fi
     printf '1\\n'
     exit 0
@@ -1800,10 +1809,7 @@ exit 0
         // that tells the gh script to fail on pr ready
         const ghPath = join(env.dir, "bin", "gh");
         const readScript = readFileSync(ghPath, "utf8");
-        const failScript = readScript.replace(
-          'touch "$PR_READY"',
-          'exit 1',
-        );
+        const failScript = readScript.replace('touch "$PR_READY"', "exit 1");
         writeFileSync(ghPath, failScript, "utf8");
         chmodSync(ghPath, 0o755);
 

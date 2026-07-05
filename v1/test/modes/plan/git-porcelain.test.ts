@@ -1,6 +1,6 @@
 // Uses the SubprocessRunner seam (runner option) with a fake runner; no real git.
 import { describe, expect, test } from "bun:test";
-import { type SubprocessRunner } from "../../../../shared/subprocess.ts";
+import type { SubprocessRunner } from "../../../../shared/subprocess.ts";
 import { readGitPorcelainSnapshot } from "../../../src/modes/plan/git-porcelain.ts";
 
 function fakeRunner(result: string | Error): SubprocessRunner {

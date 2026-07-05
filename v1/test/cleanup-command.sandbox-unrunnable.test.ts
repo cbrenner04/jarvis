@@ -7,10 +7,12 @@ import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type SubprocessRunner } from "../../shared/subprocess.ts";
+import type { SubprocessRunner } from "../../shared/subprocess.ts";
 import { type CleanupIo, cleanupCommand } from "../src/commands/cleanup.ts";
 
-function fakeRunner(branches: Record<string, string>): SubprocessRunner & { calls: Array<{ args: string[]; cwd: string }> } {
+function fakeRunner(
+  branches: Record<string, string>,
+): SubprocessRunner & { calls: Array<{ args: string[]; cwd: string }> } {
   const calls: Array<{ args: string[]; cwd: string }> = [];
   return {
     calls,
@@ -20,10 +22,10 @@ function fakeRunner(branches: Record<string, string>): SubprocessRunner & { call
         const worktreeName = cwd.split("/").at(-1) ?? "";
         const branch = branches[worktreeName];
         if (branch === undefined) throw new Error(`fakeRunner: unknown worktree "${worktreeName}"`);
-        return branch + "\n";
+        return `${branch}\n`;
       }
       if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
-        const path = args[3] !== undefined ? args[3] : args[2] ?? "";
+        const path = args[3] !== undefined ? args[3] : (args[2] ?? "");
         try {
           rmSync(path, { recursive: true, force: true });
         } catch {
@@ -81,7 +83,7 @@ function createTrackedPlanWorktree(name: string): string {
   return worktreePath;
 }
 
-function branchForWorktreeName(name: string): string {
+function _branchForWorktreeName(name: string): string {
   if (name.startsWith("plan-")) {
     return `plan/${name.slice("plan-".length)}`;
   }
@@ -1078,7 +1080,10 @@ describe("cleanupCommand", () => {
       const { io, out } = captureIo(["yes"]);
       const skippedName = "queue-skip";
       const archivedName = "queue-archive";
-      const { slug: skippedSlug, source: skippedSource } = writeV1TimestampedSpec(skippedName, completeSpec(skippedName));
+      const { slug: skippedSlug, source: skippedSource } = writeV1TimestampedSpec(
+        skippedName,
+        completeSpec(skippedName),
+      );
       const { slug: archivedSlug, source: archivedSource } = writeV1TimestampedSpec(
         archivedName,
         completeSpec(archivedName),

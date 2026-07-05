@@ -30,9 +30,9 @@ import {
   detectSpecTreeEdits,
   PATCH_VERDICT_FILE,
   REVIEW_BLOCKER_FILE,
+  type ReviewGitOps,
   revertSpecTreeEdits,
   runPatchReviewPhase,
-  type ReviewGitOps,
 } from "../../../src/modes/patch/review.ts";
 import {
   HARNESS_IDLE_TIMEOUT_FALLBACK,

@@ -245,7 +245,10 @@ function commitArchivedSpecMove(
 
   runner.run("git", ["add", "-A", "--", destinationRelativePath], projectRoot);
   const trackedStdout = runner.run("git", ["ls-files", "--", sourceRelativePath], projectRoot);
-  const trackedSourcePaths = trackedStdout.trim().split("\n").filter((line) => line.length > 0);
+  const trackedSourcePaths = trackedStdout
+    .trim()
+    .split("\n")
+    .filter((line) => line.length > 0);
 
   for (const trackedSourcePath of trackedSourcePaths) {
     runner.run("git", ["rm", "--cached", "--ignore-unmatch", "--", trackedSourcePath], projectRoot);

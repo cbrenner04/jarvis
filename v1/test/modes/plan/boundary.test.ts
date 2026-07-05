@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type SubprocessRunner } from "../../../../shared/subprocess.ts";
+import type { SubprocessRunner } from "../../../../shared/subprocess.ts";
 import {
   appendBoundaryBlocker,
   assertPlanWriteBoundary,
@@ -25,7 +25,7 @@ function fakeRunner(porcelainOutput: string): SubprocessRunner & { calls: Array<
 }
 
 function porcelain(records: string[]): string {
-  return records.length === 0 ? "" : records.join("\0") + "\0";
+  return records.length === 0 ? "" : `${records.join("\0")}\0`;
 }
 
 describe("assertPlanWriteBoundary", () => {
@@ -52,9 +52,7 @@ describe("assertPlanWriteBoundary", () => {
   });
 
   test("mixed in-bounds and out-of-bounds returns only offending paths", () => {
-    const runner = fakeRunner(
-      porcelain([" M src/main.ts", " M README.md", "?? spec/test-spec/01-test.md"]),
-    );
+    const runner = fakeRunner(porcelain([" M src/main.ts", " M README.md", "?? spec/test-spec/01-test.md"]));
     const result = assertPlanWriteBoundary("/repo", specName, "spec", runner);
     expect(result.ok).toBe(false);
     if (!result.ok) {

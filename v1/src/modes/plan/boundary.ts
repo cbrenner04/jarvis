@@ -104,7 +104,11 @@ export function assertTargetRepoPlanBoundary(
  * Revert modified files by path using `git checkout --` and remove untracked
  * additions with `git clean -fd`.
  */
-export function revertPaths(worktreePath: string, paths: string[], runner: SubprocessRunner = realSubprocessRunner): void {
+export function revertPaths(
+  worktreePath: string,
+  paths: string[],
+  runner: SubprocessRunner = realSubprocessRunner,
+): void {
   if (paths.length === 0) {
     return;
   }

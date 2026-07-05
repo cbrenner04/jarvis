@@ -21,9 +21,9 @@ import {
   hasAcceptanceCriteriaRegression,
   revertOutOfScopeEdits,
   runPatchShrinkPhase,
+  type ShrinkGitOps,
   ShrinkTerminalError,
   snapshotAllAcceptanceCriteria,
-  type ShrinkGitOps,
 } from "../../../src/modes/patch/shrink.ts";
 import type { AcceptanceCriterion } from "../../../src/modes/patch/subspec.ts";
 import {

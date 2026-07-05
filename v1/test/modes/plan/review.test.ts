@@ -3,13 +3,22 @@
 // Agent-side behavior is mocked with FakeAgent (no real agent CLI spawns either).
 import { describe, expect, test } from "bun:test";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { PlanCommitGitOps } from "../../../src/modes/plan/commits.ts";
 import type { SubprocessRunner } from "../../../../shared/subprocess.ts";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
 import type { Config } from "../../../src/config.ts";
+import type { PlanCommitGitOps } from "../../../src/modes/plan/commits.ts";
 import {
   hasWorkingTreeChanges,
   runPlanReviewPhase,
@@ -70,10 +79,11 @@ function makeReviewConfig(opts?: {
 }
 
 /** Seeds a plain directory (no real git) with a spec dir under `targetDir`. */
-function setupReviewFixture(opts?: {
-  name?: string;
-  targetDir?: string;
-}): { dir: string; specDir: string; cleanup: () => void } {
+function setupReviewFixture(opts?: { name?: string; targetDir?: string }): {
+  dir: string;
+  specDir: string;
+  cleanup: () => void;
+} {
   const name = opts?.name ?? "p-review";
   const targetDir = opts?.targetDir ?? "spec";
   const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-review-"));

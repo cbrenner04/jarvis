@@ -87,10 +87,12 @@ export async function updatePrBody(opts: UpdatePrBodyOpts): Promise<void> {
     if (shouldRegenerateNarrative(narrative)) {
       const narrativeOpts: Parameters<typeof generateTemplateNarrative>[0] = {
         getSubspecTitles: opts.getSubspecTitles,
-        getCommitSubjects: opts.getCommitSubjects ?? (() => {
-          const commits = readBranchCommits({ cwd: opts.cwd, base: opts.base });
-          return commits.map((commit: CommitInfo) => commit.subject);
-        }),
+        getCommitSubjects:
+          opts.getCommitSubjects ??
+          (() => {
+            const commits = readBranchCommits({ cwd: opts.cwd, base: opts.base });
+            return commits.map((commit: CommitInfo) => commit.subject);
+          }),
       };
       if (opts.getDiffStats !== undefined) {
         narrativeOpts.getDiffStats = opts.getDiffStats;

@@ -13,7 +13,11 @@ import { computeProjectSafeId } from "../modes/plan/spec-paths.ts";
 import { parseAgentFlagValues, prefixAgentFlagError } from "../parse-agent-flag.ts";
 import { ensureDraftPr, renderAttribution as realRenderAttribution } from "../pr.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../quota-harness-messages.ts";
-import { type CreateIntentWorktreeOptions, createIntentWorktree as realCreateIntentWorktree, createWorktreeSymlinks } from "../worktree.ts";
+import {
+  type CreateIntentWorktreeOptions,
+  createWorktreeSymlinks,
+  createIntentWorktree as realCreateIntentWorktree,
+} from "../worktree.ts";
 
 export type IntentIo = {
   stdout: (s: string) => void;

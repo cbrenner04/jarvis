@@ -8,14 +8,16 @@ import {
   commitPlanBlocker,
   commitPlanDraft,
   commitPlanIntent,
-  type PlanCommitGitOps,
   commitPlanRefine,
   commitPlanReview,
+  type PlanCommitGitOps,
 } from "../../../src/modes/plan/commits.ts";
 
 type FakePlanCommitGitOps = PlanCommitGitOps & { commits: string[]; pushed: Array<{ firstPush: boolean }> };
 
-function fakePlanCommitGitOps(opts: { hasUpstream?: boolean; porcelain?: string; projectRoot?: string } = {}): FakePlanCommitGitOps {
+function fakePlanCommitGitOps(
+  opts: { hasUpstream?: boolean; porcelain?: string; projectRoot?: string } = {},
+): FakePlanCommitGitOps {
   const ops: FakePlanCommitGitOps = {
     commits: [],
     pushed: [],

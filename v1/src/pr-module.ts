@@ -33,6 +33,8 @@ export type UpdatePrBodyOpts = {
   getDiffStats?: (() => DiffStat[]) | undefined;
   /** Optional: get subspec bodies for why lines (patch-mode only). */
   getSubspecBodies?: (() => string[]) | undefined;
+  /** Test seam: get commit subjects. Defaults to git branch commits. */
+  getCommitSubjects?: (() => string[]) | undefined;
 };
 
 const defaultFetchPrBody = (branch: string, cwd: string): string => {
@@ -85,10 +87,10 @@ export async function updatePrBody(opts: UpdatePrBodyOpts): Promise<void> {
     if (shouldRegenerateNarrative(narrative)) {
       const narrativeOpts: Parameters<typeof generateTemplateNarrative>[0] = {
         getSubspecTitles: opts.getSubspecTitles,
-        getCommitSubjects: () => {
+        getCommitSubjects: opts.getCommitSubjects ?? (() => {
           const commits = readBranchCommits({ cwd: opts.cwd, base: opts.base });
           return commits.map((commit: CommitInfo) => commit.subject);
-        },
+        }),
       };
       if (opts.getDiffStats !== undefined) {
         narrativeOpts.getDiffStats = opts.getDiffStats;

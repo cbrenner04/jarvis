@@ -16,8 +16,8 @@ PR plumbing.
 
 ## Acceptance criteria
 
-- [ ] Mockable cases use boundary; no real git/gh.
-- [ ] Remaining real-subprocess tests justified inline.
+- [x] Mockable cases use boundary; no real git/gh.
+- [x] Remaining real-subprocess tests justified inline.
 
 ## Documentation updates
 

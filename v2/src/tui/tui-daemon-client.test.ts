@@ -776,7 +776,8 @@ test("resume forwards decision and prompt for awaiting-human runs", async () => 
   const sent: unknown[] = [];
   await withFixedUuids([RESUME_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
-      connectIpcClient: async () => makeClient([{ kind: "response", id: RESUME_REQUEST_ID, result: { ok: true } }], sent),
+      connectIpcClient: async () =>
+        makeClient([{ kind: "response", id: RESUME_REQUEST_ID, result: { ok: true } }], sent),
     });
 
     await expect(client.resume("run-123", { decision: "revise", prompt: "try again" })).resolves.toEqual({

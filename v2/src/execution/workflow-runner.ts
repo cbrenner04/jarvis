@@ -203,7 +203,13 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       const step = args.steps[stepIndex];
       if (!step) throw new Error("Unreachable: step undefined in bounded loop");
 
-      const stepResult = await runWorkflowStep(step, workflowSnapshot, store, args.logSink, args.onReviewDebateProgress);
+      const stepResult = await runWorkflowStep(
+        step,
+        workflowSnapshot,
+        store,
+        args.logSink,
+        args.onReviewDebateProgress,
+      );
       totalIterationsConsumed += stepResult.iterationsConsumed;
       lastResult = stepResult;
       lastStepId = step.stepId;

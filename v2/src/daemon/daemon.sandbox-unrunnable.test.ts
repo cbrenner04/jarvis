@@ -1,5 +1,7 @@
 // Minimal smoke test: real detached process start/stop with health and status RPC wire check.
-// This requires real OS process spawn, socket I/O, and verification that socket unbinds.
+// Requires real OS process spawn, socket I/O, and verification that socket unbinds on stop.
+// Mocked SocketProber/ProcessProber seams in daemon-lifecycle.test.ts cannot substitute:
+// this test validates end-to-end detached daemon spawn, IPC health/status, and socket teardown.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";

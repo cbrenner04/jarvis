@@ -39,18 +39,18 @@ export function loadWorkflowSteps(
   const agentModelConfig = loadResult;
 
   const invalidRoles: string[] = [];
-  for (const step of steps) {
+  const resolvedSteps = steps.map((step) => {
     try {
       resolveExecutableRole(step.role);
     } catch {
       invalidRoles.push(`(${step.stepId}, ${step.role})`);
     }
-  }
+    return { ...step, agents, agentModelConfig };
+  });
   if (invalidRoles.length > 0) {
     throw new Error(`Workflow step role validation failed: non-executable role ${invalidRoles.join(", ")}`);
   }
 
-  const resolvedSteps = steps.map((step) => ({ ...step, agents, agentModelConfig }));
   validateWorkflowStepRoles(resolvedSteps);
   return resolvedSteps;
 }

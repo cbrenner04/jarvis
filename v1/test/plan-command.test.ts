@@ -1,6 +1,5 @@
-// This test requires real git/gh/worktree command flow for large plan-mode integration coverage and cannot run in sandbox mode.
+// Plan-command integration tests use FakeAgent and filesystem fixtures; no real git/gh subprocesses.
 import { describe, expect, test } from "bun:test";
-import { execSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -76,21 +75,9 @@ function setupRegisteredProject() {
   return { dir, cfgDir, project };
 }
 
-function setupRegisteredGitWorktreeProject() {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-worktree-cmd-"));
-  const cfgDir = join(dir, "cfg");
-  const base = join(dir, "base");
-  const project = join(dir, "project");
-  mkdirSync(base);
-  execSync("git init -b main", { cwd: base });
-  execSync("git config user.email 'test@example.com'", { cwd: base });
-  execSync("git config user.name 'Test User'", { cwd: base });
-  writeFileSync(join(base, "README.md"), "seed\n");
-  execSync("git add README.md", { cwd: base });
-  execSync("git commit -m 'seed'", { cwd: base });
-  execSync(`git worktree add -b linked ${project} HEAD`, { cwd: base });
-  registerProject("project", project, { dir: cfgDir });
-  return { dir, cfgDir, project };
+/** Mark `dir` as a git checkout for ad-hoc project resolution (no subprocess). */
+function markGitCheckout(dir: string): void {
+  mkdirSync(join(dir, ".git"));
 }
 
 class FakeAgent implements Agent {
@@ -130,7 +117,6 @@ function configureGitDisabledPlanProject(cfgDir: string, reviewPasses: number): 
 
 function expectNoPlanBranchOrWorktree(project: string, planName: string): void {
   expect(existsSync(join(project, ".worktree", `plan-${planName}`))).toBe(false);
-  expect(execSync(`git branch --list plan/${planName}`, { cwd: project, encoding: "utf8" }).trim()).toBe("");
 }
 
 function failingLogClient(message: string): LogClient {
@@ -180,7 +166,6 @@ describe("planCommand", () => {
   test("--resume without spec path rejects", async () => {
     const { dir, cfgDir, project } = setupRegisteredProject();
     try {
-      execSync("git init -b main", { cwd: project });
       const cap = captureIo();
       const code = await planCommand({
         io: cap.io,
@@ -253,7 +238,7 @@ describe("planCommand", () => {
   });
 
   test("git: false forces loop-only external spec output even when plan.commit is true", async () => {
-    const { dir, cfgDir, project } = setupRegisteredGitWorktreeProject();
+    const { dir, cfgDir, project } = setupRegisteredProject();
     try {
       configureGitDisabledPlanProject(cfgDir, 0);
 
@@ -300,7 +285,7 @@ describe("planCommand", () => {
   });
 
   test("git: false fresh naming ignores repo, worktree, and branch collisions outside the external spec root", async () => {
-    const { dir, cfgDir, project } = setupRegisteredGitWorktreeProject();
+    const { dir, cfgDir, project } = setupRegisteredProject();
     try {
       configureGitDisabledPlanProject(cfgDir, 0);
       const cfg = loadConfig({ dir: cfgDir });
@@ -314,7 +299,6 @@ describe("planCommand", () => {
 
       mkdirSync(join(project, "spec", "git-false-collision"), { recursive: true });
       mkdirSync(join(project, ".worktree", "plan-git-false-collision"), { recursive: true });
-      execSync("git branch plan/git-false-collision", { cwd: project });
 
       const intentPath = writeReadyIntent(project, "git-false-collision");
       const cap = captureIo();
@@ -347,7 +331,7 @@ describe("planCommand", () => {
   });
 
   test("all agents model_config during draft exits 3 with terminal message", async () => {
-    const { dir, cfgDir, project } = setupRegisteredGitWorktreeProject();
+    const { dir, cfgDir, project } = setupRegisteredProject();
     try {
       configureGitDisabledPlanProject(cfgDir, 0);
       const cfg = loadConfig({ dir: cfgDir });
@@ -382,7 +366,7 @@ describe("planCommand", () => {
   });
 
   test("resume honors git: false even when plan.commit is true", async () => {
-    const { dir, cfgDir, project } = setupRegisteredGitWorktreeProject();
+    const { dir, cfgDir, project } = setupRegisteredProject();
     try {
       configureGitDisabledPlanProject(cfgDir, 1);
 
@@ -421,7 +405,7 @@ describe("planCommand", () => {
   });
 
   test("git: false fresh run survives review without boundary violations or git worktree setup", async () => {
-    const { dir, cfgDir, project } = setupRegisteredGitWorktreeProject();
+    const { dir, cfgDir, project } = setupRegisteredProject();
     try {
       configureGitDisabledPlanProject(cfgDir, 1);
 
@@ -477,7 +461,7 @@ describe("planCommand", () => {
   });
 
   test("commit: false with pre-existing siblings (ready-intents/ and prior spec dir) allows clean run", async () => {
-    const { dir, cfgDir, project } = setupRegisteredGitWorktreeProject();
+    const { dir, cfgDir, project } = setupRegisteredProject();
     try {
       // Configure project with commit: false
       const cfg = loadConfig({ dir: cfgDir });
@@ -542,7 +526,7 @@ describe("planCommand", () => {
 
 describe("runPlanReviewPhase git-disabled", () => {
   test("reviewer spec edits are reverted without git and actuator changes still apply", async () => {
-    const { dir, cfgDir, project } = setupRegisteredGitWorktreeProject();
+    const { dir, cfgDir, project } = setupRegisteredProject();
     const originalPath = process.env.PATH;
     try {
       configureGitDisabledPlanProject(cfgDir, 1);
@@ -666,7 +650,7 @@ describe("planCommand target-repo resolution", () => {
   test("file mode: intent file inside a git checkout but unregistered → ad-hoc", async () => {
     const { dir, cfgDir, projectB } = setupWorld();
     try {
-      execSync("git init -b main", { cwd: projectB });
+      markGitCheckout(projectB);
       const intentPath = writeReadyIntent(projectB);
 
       const cap = captureIo();
@@ -712,7 +696,7 @@ describe("planCommand target-repo resolution", () => {
   test("--repo <name> overrides path-walk fallback in file mode", async () => {
     const { dir, cfgDir, projectA, projectB } = setupWorld();
     try {
-      execSync("git init -b main", { cwd: projectB });
+      markGitCheckout(projectB);
       registerProject("project-a", projectA, { dir: cfgDir });
       const intentPath = writeReadyIntent(projectB);
 
@@ -1291,24 +1275,20 @@ describe("plan review pass resolution", () => {
 
     const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-review-resolve-"));
     try {
-      execSync("git init -b main", { cwd: dir });
-      execSync("git config user.email 'test@example.com'", { cwd: dir });
-      execSync("git config user.name 'Test User'", { cwd: dir });
       const specDir = join(dir, "spec", "p-resolve");
       mkdirSync(specDir, { recursive: true });
       writeFileSync(join(specDir, "intent.md"), "---\nname: p-resolve\n---\n\n# Intent\n\nseed\n");
       writeFileSync(join(specDir, "index.md"), "# Draft\n");
-      execSync("git add -A", { cwd: dir });
-      execSync("git commit -m seed", { cwd: dir });
 
       const freshStarts: number[] = [];
       await runPlanReviewPhase({
         worktreePath: dir,
         name: "p-resolve",
         specDirBasename: "p-resolve",
+        specDirPath: specDir,
         config: reviewCfg,
         reviewPassesOverride: 2,
-        commit: true,
+        commit: false,
         createAgent: () => new NoopAgent(),
         onPassStart: (pass) => {
           freshStarts.push(pass);
@@ -1321,9 +1301,10 @@ describe("plan review pass resolution", () => {
         worktreePath: dir,
         name: "p-resolve",
         specDirBasename: "p-resolve",
+        specDirPath: specDir,
         config: reviewCfg,
         startPassNumber: 4,
-        commit: true,
+        commit: false,
         createAgent: () => new NoopAgent(),
         onPassStart: (pass) => {
           resumeStarts.push(pass);

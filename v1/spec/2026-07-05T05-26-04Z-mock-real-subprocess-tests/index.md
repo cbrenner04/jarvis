@@ -18,6 +18,6 @@
 - [x] [15 - v1 plan commits tests](./15-v1-plan-commits-tests.md)
 - [x] [16 - v1 plan review tests](./16-v1-plan-review-tests.md)
 - [x] [17 - v1 plan PR tests](./17-v1-plan-pr-tests.md)
-- [ ] [18 - v1 plan-command tests](./18-v1-plan-command-tests.md)
+- [x] [18 - v1 plan-command tests](./18-v1-plan-command-tests.md)
 - [ ] [19 - v2 subprocess tests](./19-v2-subprocess-tests.md)
 - [ ] [20 - Narrow operator-runbook flaky gotchas](./20-operator-runbook-gotchas.md)

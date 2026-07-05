@@ -24,19 +24,19 @@ exit-code, so the test no longer needs a real subprocess or the
 
 ## Task checklist
 
-- [ ] Rewrite `shared/git.sandbox-unrunnable.test.ts` as `shared/git.test.ts`,
+- [x] Rewrite `shared/git.sandbox-unrunnable.test.ts` as `shared/git.test.ts`,
       injecting a fake `SubprocessRunner` in place of a real git repo.
-- [ ] Cover the same cases as today: local branch exists/doesn't,
+- [x] Cover the same cases as today: local branch exists/doesn't,
       origin-tracking branch exists only after fetch, current branch reflects
       checkout.
 
 ## Acceptance criteria
 
-- [ ] `shared/git.test.ts` exists, asserts the same `branchExistsLocal`,
+- [x] `shared/git.test.ts` exists, asserts the same `branchExistsLocal`,
       `branchExistsOnOrigin`, and `getCurrentBranch` behavior as the prior
       `shared/git.sandbox-unrunnable.test.ts`, and spawns no real subprocess
       (mocked `SubprocessRunner` injected throughout).
-- [ ] No file named `shared/git.sandbox-unrunnable.test.ts` remains.
+- [x] No file named `shared/git.sandbox-unrunnable.test.ts` remains.
 
 ## Documentation updates
 

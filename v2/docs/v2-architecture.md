@@ -182,12 +182,7 @@ Per-project config:
   the end of the agent fallback order, configured only on machines that have it.
   Lifecycle and reach are settled under [Concurrency & memory budget → Local model](#local-model):
   Ollama server resident, qwen on-demand, reached via opencode.
-- **Focused show/edit.** The config will be large. `jarvis config <project>`
-  shows enabled workflows + the agent fallback order; `jarvis config <project>
-  <workflow>` drills into one workflow's steps, each step's role and its
-  resolved role/agent pair (`(agent, role) → model`). The machine-agent
-  show/edit surface includes `jarvis config set-agents <agent,agent,...>` for
-  the persisted fallback order. Mirrors v1's `prices show/edit`.
+- **Focused show/edit.** Shipped machine-agent CLI: `jarvis config show`, `jarvis config path`, `jarvis config set-agents <agent,agent,...>` on `~/.jarvis/v2.json`. Per-project workflow drill-down deferred to [`agent-model-config.md`](agent-model-config.md).
 - **Config-vs-source validation.** Because workflows are source and bindings are
   data, ship a check (companion to the workflow helper) that validates a
   project's config against the workflows it opts into — flags unknown workflow

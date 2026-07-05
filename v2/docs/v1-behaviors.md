@@ -227,6 +227,11 @@ Sources: `v1/src/commands/plan.ts`, `v1/src/modes/plan/draft.ts`, `v1/src/modes/
 - `jarvis1 init` only registers repos under `~/Work` by deriving the project key from the path relative to that root, and it records `origin` only when `git remote get-url origin` yields a non-empty value. Re-registering the same name+root is idempotent; the same name pointing at a different root errors. Sources: `v1/src/commands/init.ts`, `v1/src/config.ts`
 - `jarvis1 init` additionally scaffolds an `OPERATOR_RUNBOOK.md` file at the project root when absent, seeding it with project facts (repo path, origin URL, inferred stack, resolved `readyCommand`, config modes) and stubbed sections for operator fill-in (manual finalize, recovery by exit reason, resume guidance, gate blind spots, cross-repo coordination). The runbook is not overwritten on re-run; byte-for-byte idempotence is preserved. The runbook includes a static known-gotchas section with jarvis-issue URLs and fixed section headings so references remain stable. Sources: `v1/src/commands/init.ts`, `v1/src/runbook-generator.ts`
 
+### v2 machine config CLI (`jarvis config`)
+
+- [v2 additive] v2 `jarvis config` targets the per-machine agent-order file (`~/.jarvis/v2.json`), distinct from v1's `jarvis1 config show` / `jarvis1 config path` on `~/.jarvis/config.json`. Sources: `v2/src/cli.ts`, `v1/src/commands/config.ts`, `v2/docs/agent-model-config.md`
+- [v2 additive] `jarvis config show` prints one agent per line or `No machine agent override configured.` when absent/no-`agents`; invalid config exits non-zero. `jarvis config path` prints the expanded absolute path. Sources: `v2/src/cli.ts`, `v2/docs/agent-model-config.md`
+
 ### Configuration field reference
 
 Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from `DEFAULT_CONFIG`). Sources: `v1/src/config.ts`, `v1/docs/config.md`.

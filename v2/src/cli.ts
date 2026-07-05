@@ -46,7 +46,7 @@ const DEFAULT_SOCKET_PATH = join(homedir(), ".jarvis", "daemon.sock");
 const DEFAULT_PID_PATH = join(homedir(), ".jarvis", "daemon.pid");
 const DEFAULT_MACHINE_CONFIG_PATH = join(homedir(), ".jarvis", "v2.json");
 const DAEMON_USAGE = "usage: jarvis daemon <start|stop|status>\n";
-const CONFIG_USAGE = "usage: jarvis config set-agents <agent,agent,...>\n";
+const CONFIG_USAGE = "usage: jarvis config <show|path|set-agents> [args]\n";
 const RUN_USAGE = "usage: jarvis run <start|list|log|pause|resume|kill|wait> [args]\n";
 const TUI_USAGE = "usage: jarvis tui\n";
 const TUI_LOG_USAGE = "usage: jarvis tui log <run-id>\n";
@@ -163,6 +163,28 @@ async function runDaemonCommand(argv: readonly string[], io: Io, deps: CliDeps):
 }
 
 async function runConfigCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
+  if (argv[0] === "show" && argv.length === 1) {
+    try {
+      const agents = loadMachineConfig(deps.machineConfigPath);
+      if (agents === undefined) {
+        io.stdout("No machine agent override configured.\n");
+        return 0;
+      }
+      for (const agent of agents) {
+        io.stdout(`${agent}\n`);
+      }
+      return 0;
+    } catch (error) {
+      io.stderr(formatConnectionError(error));
+      return 1;
+    }
+  }
+
+  if (argv[0] === "path" && argv.length === 1) {
+    io.stdout(`${deps.machineConfigPath}\n`);
+    return 0;
+  }
+
   if (argv[0] !== "set-agents" || argv.length !== 2) {
     io.stderr(CONFIG_USAGE);
     return 1;

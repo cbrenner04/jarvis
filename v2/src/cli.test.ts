@@ -49,8 +49,12 @@ function absentMachineConfigPath(): string {
   return join(dir, ".jarvis", "v2.json");
 }
 
+async function runConfig(configPath: string, args: readonly string[], io = captureIo().io): Promise<number> {
+  return main(["config", ...args], io, { machineConfigPath: configPath });
+}
+
 async function setAgents(configPath: string, csv: string, io = captureIo().io): Promise<number> {
-  return main(["config", "set-agents", csv], io, { machineConfigPath: configPath });
+  return runConfig(configPath, ["set-agents", csv], io);
 }
 
 const WRITE_ARGS = [
@@ -457,6 +461,65 @@ describe("v2 cli", () => {
     expect(readFileSync(configPath, "utf8")).toBe(before);
   });
 
+  test("config show prints configured agents one per line", async () => {
+    const cap = captureIo();
+    const configPath = writeMachineConfig({ agents: ["claude", "codex", "cursor"] });
+
+    const code = await runConfig(configPath, ["show"], cap.io);
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "claude\ncodex\ncursor\n", stderr: "" });
+  });
+
+  test.each([
+    ["absent", absentMachineConfigPath],
+    ["without agents", () => writeMachineConfig({ other: "value" })],
+  ])("config show prints no-override line when machine config is %s", async (_label, configPathFn) => {
+    const cap = captureIo();
+    const configPath = configPathFn();
+
+    const code = await runConfig(configPath, ["show"], cap.io);
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "No machine agent override configured.\n", stderr: "" });
+  });
+
+  test("config show exits non-zero on malformed machine config", async () => {
+    const cap = captureIo();
+    const configPath = writeRawMachineConfig("{ invalid json");
+
+    const code = await runConfig(configPath, ["show"], cap.io);
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: `Failed to parse machine config at ${configPath}: invalid JSON\n`,
+    });
+  });
+
+  test("config show exits non-zero when agents fail validation", async () => {
+    const cap = captureIo();
+    const configPath = writeMachineConfig({ agents: [] });
+
+    const code = await runConfig(configPath, ["show"], cap.io);
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "Machine config 'agents' array must not be empty\n",
+    });
+  });
+
+  test("config path prints the expanded machine config path", async () => {
+    const cap = captureIo();
+    const configPath = absentMachineConfigPath();
+
+    const code = await runConfig(configPath, ["path"], cap.io);
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: `${configPath}\n`, stderr: "" });
+  });
+
   test("write --agents still overrides the persisted machine order after config set-agents", async () => {
     const configPath = absentMachineConfigPath();
     await setAgents(configPath, "claude,codex");
@@ -512,6 +575,45 @@ describe("v2 cli", () => {
       params: {
         input: {
           bindings: [{ id: "cursor" }],
+        },
+      },
+    });
+  });
+
+  test("run start forwards machine-config agents into IPC start payload when --agents is omitted", async () => {
+    const cap = captureIo();
+    const configPath = writeMachineConfig({ agents: ["codex", "cursor"] });
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000022";
+    const originalRandomUuid = crypto.randomUUID;
+    crypto.randomUUID = () => requestId;
+
+    let code = NaN;
+    try {
+      code = await main(RUN_START_ARGS, cap.io, {
+        machineConfigPath: configPath,
+        connectIpcClient: async () =>
+          makeClient(
+            [
+              {
+                kind: "response",
+                id: requestId,
+                result: { runId: "run-machine-config" },
+              },
+            ],
+            sent,
+          ),
+      });
+    } finally {
+      crypto.randomUUID = originalRandomUuid;
+    }
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "run-machine-config\n", stderr: "" });
+    expect(sent[0]).toMatchObject({
+      params: {
+        input: {
+          bindings: [{ id: "codex" }, { id: "cursor" }],
         },
       },
     });

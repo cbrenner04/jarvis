@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding, InvocationResult } from "../../../shared/invocation/execute.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
@@ -10,6 +11,7 @@ import {
   executeWorkflow,
   type HumanWorkflowStep,
   resolveWorkflowPreset,
+  type ReviewDebateWorkflowStep,
   type WorkflowStepInput,
   type WriteWorkflowStep,
 } from "./workflow-runner.ts";
@@ -661,6 +663,46 @@ function createHumanStep(overrides: Partial<HumanWorkflowStep> & { stepId: strin
   };
 }
 
+const DEBATE_AGENT_MODEL_CONFIG: AgentModelConfig = {
+  claude: {
+    adversary: { rungs: [{ adapterModel: "ADV", priceKey: "p-adv" }] },
+    advocate: { rungs: [{ adapterModel: "ADVOC", priceKey: "p-advoc" }] },
+    adjudicator: { rungs: [{ adapterModel: "ADJ", priceKey: "p-adj" }] },
+    actuator: { rungs: [{ adapterModel: "ACT", priceKey: "p-act" }] },
+  },
+};
+
+function createDebateBindingFactory(
+  invoke: (binding: { agentId: string; adapterModel: string }) => Promise<InvocationResult>,
+  onResolve?: (binding: { agentId: string; adapterModel: string }) => void,
+): NonNullable<ReviewDebateWorkflowStep["createBinding"]> {
+  return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) => {
+    onResolve?.({ agentId, adapterModel });
+    return {
+      id: `${agentId}/${adapterModel}`,
+      invoke: () => invoke({ agentId, adapterModel }),
+    } satisfies InvocationBinding;
+  };
+}
+
+function debateVerdictPath(): string {
+  return join(mkdtempSync(join(tmpdir(), "workflow-review-debate-")), "verdict.md");
+}
+
+function createDebateStep(
+  overrides: Partial<Omit<ReviewDebateWorkflowStep, "behavior">> & { stepId: string; verdictPath: string },
+): ReviewDebateWorkflowStep {
+  return {
+    behavior: "review-debate",
+    cwd: "/fake",
+    prompts: { adversary: "find issues", advocate: "argue merits", adjudicator: "settle it" },
+    maxCycles: 1,
+    agents: { adversary: ["claude"], advocate: ["claude"], adjudicator: ["claude"], actuator: ["claude"] },
+    agentModelConfig: DEBATE_AGENT_MODEL_CONFIG,
+    ...overrides,
+  };
+}
+
 describe("executeWorkflow human steps", () => {
   test("converges to awaiting-human without running a write loop", async () => {
     const store = openStateStore(":memory:");
@@ -726,6 +768,98 @@ describe("executeWorkflow human steps", () => {
       expect(secondResult.kind).toBe("complete");
       expect(secondResult.stepIndex).toBe(2);
       expect(secondResult.stepId).toBe("step-3");
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("executeWorkflow review-debate dispatch", () => {
+  test("dispatches a review-debate step, resolving each role's agents order to that role's bindings", async () => {
+    const events: string[] = [];
+    const createBinding = createDebateBindingFactory(
+      async ({ agentId, adapterModel }) => {
+        events.push(`invoke:${agentId}/${adapterModel}`);
+        return { kind: "ok", stdout: adapterModel === "ADJ" ? "apply this fix" : "ok", stderr: "" } as const;
+      },
+      ({ agentId, adapterModel }) => {
+        events.push(`resolve:${agentId}/${adapterModel}`);
+      },
+    );
+
+    const step = createDebateStep({ stepId: "debate-1", verdictPath: debateVerdictPath(), createBinding });
+    const store = openStateStore(":memory:");
+
+    try {
+      const result = await executeWorkflow({ steps: [step], stateStore: store });
+
+      expect(result.kind).toBe("complete");
+      expect(result.resumable).toBe(false);
+      expect(events).toEqual([
+        "resolve:claude/ADV",
+        "resolve:claude/ADVOC",
+        "resolve:claude/ADJ",
+        "resolve:claude/ACT",
+        "invoke:claude/ADV",
+        "invoke:claude/ADVOC",
+        "invoke:claude/ADJ",
+        "invoke:claude/ACT",
+      ]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("fails role validation for a review-debate step missing an (agent, role) entry, before any run", async () => {
+    const step = createDebateStep({
+      stepId: "debate-1",
+      verdictPath: debateVerdictPath(),
+      agents: { adversary: ["claude"], advocate: ["codex"], adjudicator: ["claude"], actuator: ["claude"] },
+    });
+    const store = openStateStore(":memory:");
+
+    try {
+      try {
+        await executeWorkflow({ steps: [step], stateStore: store });
+        expect.unreachable("Should have thrown");
+      } catch (e) {
+        expect(String(e)).toContain("(debate-1, advocate, codex)");
+      }
+    } finally {
+      store.close();
+    }
+  });
+
+  test("reports kind: complete, resumable: false for a single-step review-debate workflow that completes all cycles", async () => {
+    const createBinding = createDebateBindingFactory(
+      async ({ adapterModel }) =>
+        ({ kind: "ok", stdout: adapterModel === "ADJ" ? "apply this fix" : "ok", stderr: "" }) as const,
+    );
+    const step = createDebateStep({ stepId: "debate-1", verdictPath: debateVerdictPath(), createBinding });
+    const store = openStateStore(":memory:");
+
+    try {
+      const result = await executeWorkflow({ steps: [step], stateStore: store });
+
+      expect(result).toMatchObject({ kind: "complete", stepIndex: 0, stepId: "debate-1", resumable: false });
+    } finally {
+      store.close();
+    }
+  });
+
+  test("reports kind: invocation_failure, resumable: false when a role invocation aborts a cycle", async () => {
+    const createBinding = createDebateBindingFactory(async ({ adapterModel }) =>
+      adapterModel === "ADV"
+        ? ({ kind: "error", exitCode: 1, stderr: "boom" } as const)
+        : ({ kind: "ok", stdout: "ok", stderr: "" } as const),
+    );
+    const step = createDebateStep({ stepId: "debate-1", verdictPath: debateVerdictPath(), createBinding });
+    const store = openStateStore(":memory:");
+
+    try {
+      const result = await executeWorkflow({ steps: [step], stateStore: store });
+
+      expect(result).toMatchObject({ kind: "invocation_failure", stepIndex: 0, stepId: "debate-1", resumable: false });
     } finally {
       store.close();
     }

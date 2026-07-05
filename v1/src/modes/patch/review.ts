@@ -3,6 +3,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { getCurrentBranch } from "../../../../shared/git.ts";
 import { createAgent } from "../../agents/factory.ts";
+import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentName, AgentRunOptions } from "../../agents/types.ts";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
 import { type AgentEntry, type Config, resolveSubRoleAgentOrder } from "../../config.ts";
@@ -981,12 +982,22 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
 
         const durationMs = Math.max(0, Date.now() - actuatorStartedMs);
 
-        if (result.kind === "ok") {
-          if (result.stdout.length > 0) {
-            opts.fanout("inbound_stdout", result.stdout, null, { actuator: true });
+        const classified = applyQuotaFallbackWhenAllowed(
+          resolvedAgent.name,
+          result,
+          {
+            quotaFallback: opts.config.quotaFallback,
+            weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
+          },
+          true,
+        );
+
+        if (classified.kind === "ok") {
+          if (classified.stdout.length > 0) {
+            opts.fanout("inbound_stdout", classified.stdout, null, { actuator: true });
           }
-          if (result.stderr.length > 0) {
-            opts.fanout("inbound_stderr", result.stderr, null, { actuator: true });
+          if (classified.stderr.length > 0) {
+            opts.fanout("inbound_stderr", classified.stderr, null, { actuator: true });
           }
 
           try {
@@ -1042,7 +1053,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
               } catch (reconcileErr) {
                 if (reconcileErr instanceof RebaseConflictError) {
                   opts.fanout("harness", `review: actuator rebase conflict: ${reconcileErr.message}\n`, "stderr");
-                  const usageAndCost = extractUsageAndCost(result, resolvedAgent.name, configuredModel);
+                  const usageAndCost = extractUsageAndCost(classified, resolvedAgent.name, configuredModel);
                   opts.writeTelemetry({
                     agent: resolvedAgent.name,
                     iteration: ctx.passNumber,
@@ -1072,7 +1083,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
               });
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
-              const usageAndCost = extractUsageAndCost(result, resolvedAgent.name, configuredModel);
+              const usageAndCost = extractUsageAndCost(classified, resolvedAgent.name, configuredModel);
 
               // Check if this is a non-fast-forward push rejection
               if (isNonFastForwardPushError(message)) {
@@ -1128,7 +1139,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
               kind: "ok",
               exitReason: "ok",
               patch_phase: "review",
-              ...extractUsageAndCost(result, resolvedAgent.name, configuredModel),
+              ...extractUsageAndCost(classified, resolvedAgent.name, configuredModel),
               ...telemetryMeta,
             });
           } else {
@@ -1141,20 +1152,50 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
               kind: "ok",
               exitReason: "ok",
               patch_phase: "review",
-              ...extractUsageAndCost(result, resolvedAgent.name, configuredModel),
+              ...extractUsageAndCost(classified, resolvedAgent.name, configuredModel),
               ...telemetryMeta,
             });
           }
           return;
         }
 
-        opts.fanout("harness", `review: actuator error (${result.kind})\n`, "stderr");
-        if (result.kind !== "quota" && result.stderr.length > 0) {
-          opts.fanout("harness", result.stderr, "stderr");
+        opts.fanout("harness", `review: actuator error (${classified.kind})\n`, "stderr");
+        if (classified.kind !== "quota" && classified.stderr.length > 0) {
+          opts.fanout("harness", classified.stderr, "stderr");
         }
-        const isIdleTimeout = result.kind === "error" && result.stderr.includes("aborted: idle-timeout");
-        const isQuota = result.kind === "quota";
+        const isIdleTimeout = classified.kind === "error" && classified.stderr.includes("aborted: idle-timeout");
+        const isQuota = classified.kind === "quota";
         const hasNextRung = rungIndex < actuatorOrder.length - 1;
+
+        if (isQuota && hasNextRung) {
+          if (result.kind === "quota") {
+            if (result.authFailure === true) {
+              opts.fanout(
+                "harness",
+                `review: ${resolvedAgent.name}: ${harnessAuthRotateLine(resolvedAgent.name)}\n`,
+                "stderr",
+              );
+            } else {
+              opts.fanout("harness", `review: ${resolvedAgent.name}: ${HARNESS_QUOTA_FALLBACK_STRICT}\n`, "stderr");
+            }
+          } else if (result.kind === "error" && classified.kind === "quota") {
+            opts.fanout(
+              "harness",
+              `review: ${resolvedAgent.name}: ${harnessQuotaFallbackLenientLine(result.exitCode)}\n`,
+              "stderr",
+            );
+          }
+          opts.writeTelemetry({
+            agent: resolvedAgent.name,
+            iteration: ctx.passNumber,
+            durationMs,
+            kind: "quota",
+            exitReason: "quota-fallback",
+            patch_phase: "review",
+            ...telemetryMeta,
+          });
+          continue;
+        }
 
         if (isIdleTimeout && hasNextRung) {
           opts.fanout("harness", `review: ${resolvedAgent.name}: ${HARNESS_IDLE_TIMEOUT_FALLBACK}\n`, "stderr");
@@ -1164,24 +1205,6 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
             durationMs,
             kind: "timeout",
             exitReason: "watchdog-idle-timeout-fallback",
-            patch_phase: "review",
-            ...telemetryMeta,
-          });
-          continue;
-        }
-
-        if (isQuota && hasNextRung) {
-          const line =
-            result.kind === "quota" && result.authFailure === true
-              ? harnessAuthRotateLine(resolvedAgent.name)
-              : HARNESS_QUOTA_FALLBACK_STRICT;
-          opts.fanout("harness", `review: ${resolvedAgent.name}: ${line}\n`, "stderr");
-          opts.writeTelemetry({
-            agent: resolvedAgent.name,
-            iteration: ctx.passNumber,
-            durationMs,
-            kind: "quota",
-            exitReason: "quota-fallback",
             patch_phase: "review",
             ...telemetryMeta,
           });
@@ -1200,23 +1223,23 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
             ...telemetryMeta,
           });
           throw new ReviewTerminalError(
-            `actuator failed: ${result.kind}`,
-            result.kind === "error" ? result.exitCode : 1,
+            `actuator failed: ${classified.kind}`,
+            classified.kind === "error" ? classified.exitCode : 1,
             { telemetryRecorded: true },
           );
         }
 
-        const exitCode = result.kind === "model_config" ? 3 : result.kind === "error" ? result.exitCode : 1;
+        const exitCode = classified.kind === "model_config" ? 3 : classified.kind === "error" ? classified.exitCode : 1;
         opts.writeTelemetry({
           agent: resolvedAgent.name,
           iteration: ctx.passNumber,
           durationMs,
-          kind: result.kind === "quota" ? "quota" : result.kind === "model_config" ? "error" : "error",
-          exitReason: result.kind,
+          kind: classified.kind === "quota" ? "quota" : classified.kind === "model_config" ? "error" : "error",
+          exitReason: classified.kind,
           patch_phase: "review",
           ...telemetryMeta,
         });
-        throw new ReviewTerminalError(`actuator failed: ${result.kind}`, exitCode);
+        throw new ReviewTerminalError(`actuator failed: ${classified.kind}`, exitCode);
       }
 
       opts.fanout("harness", "review: actuator no agents available\n", "stderr");

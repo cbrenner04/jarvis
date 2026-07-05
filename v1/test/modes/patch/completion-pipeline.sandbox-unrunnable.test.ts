@@ -48,13 +48,13 @@ beforeEach(() => {
   execSync(`git init -q --bare ${bareDir}`, { stdio: "pipe" });
   execSync(`git remote add origin ${bareDir}`, { cwd: dir, stdio: "pipe" });
   execSync("git push -u -q origin main", { cwd: dir, stdio: "pipe" });
-});
+}, 20_000);
 
 afterEach(() => {
   reapActiveHangFixtures(HANG_FIXTURE_TRACKING_ID);
   rmSync(dir, { recursive: true, force: true });
   rmSync(bareDir, { recursive: true, force: true });
-});
+}, 20_000);
 
 describe("discardFixupCommits", () => {
   test("stalled git push --force-with-lease fails within 25s and warns via fanout", () => {
@@ -83,5 +83,5 @@ describe("discardFixupCommits", () => {
       process.env.PATH = originalPath;
       rmSync(binDir, { recursive: true, force: true });
     }
-  });
+  }, 35_000);
 });

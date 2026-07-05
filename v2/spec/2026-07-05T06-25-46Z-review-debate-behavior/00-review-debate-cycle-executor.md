@@ -87,19 +87,19 @@ writer) applies it. Runs up to a configured bound of cycles. Lives in
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/review-debate.test.ts` covers: full debate order per
+- [x] `v2/src/execution/review-debate.test.ts` covers: full debate order per
       cycle, verdict file overwritten each cycle, empty verdict skips the
       actuator, non-empty verdict invokes the actuator, cycle loop stops at
       `maxCycles`, and `maxCycles <= 0` runs zero cycles.
-- [ ] `review-debate.test.ts` covers the combined case: `maxCycles > 1` where
+- [x] `review-debate.test.ts` covers the combined case: `maxCycles > 1` where
       an early cycle's verdict is empty — the loop stops at that cycle
       (actuator skipped, later cycles never run) rather than continuing to
       `maxCycles`.
-- [ ] `review-debate.test.ts` covers a role invocation whose
+- [x] `review-debate.test.ts` covers a role invocation whose
       `executeWithQuotaFallback` call resolves `final: null`: the current
       cycle aborts without running later roles, and the aborted cycle is
       reported as a failure outcome.
-- [ ] `executeReviewDebate` emits `invocation_completed`-shaped telemetry: one
+- [x] `executeReviewDebate` emits `invocation_completed`-shaped telemetry: one
       row per binding subprocess in attempt order (matching the quota-fallback
       rung cardinality `telemetry-capture.md` already pins for write-step
       invocations — not one aggregate row per role) when a telemetry context

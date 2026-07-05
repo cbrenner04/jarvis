@@ -36,6 +36,12 @@ test-slice infrastructure (not mock conversion):
 Remaining work (subspecs 03–20) is mock conversion for determinism, wall-clock,
 and dropping stale runbook gotchas — not hang-unblock.
 
+## Sequencing
+
+- Subspec 07 (`review.sandbox-unrunnable.test.ts`) rebases onto merged PR #1031
+  before mock conversion — that PR adds shared-invocation executor actuator
+  pins this subspec must preserve.
+
 ## Decisions
 
 - Mocking is the default; a test keeps real subprocesses only with an inline

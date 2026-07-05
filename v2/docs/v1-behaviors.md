@@ -229,9 +229,8 @@ Sources: `v1/src/commands/plan.ts`, `v1/src/modes/plan/draft.ts`, `v1/src/modes/
 
 ### v2 machine config CLI (`jarvis config`)
 
-- [v2 additive] v2 `jarvis` reuses the `config` subcommand name for the per-machine agent-order file (`~/.jarvis/v2.json`), distinct from v1's `jarvis1 config show` / `jarvis1 config path` on `~/.jarvis/config.json` (full project-registry JSON dump). Sources: `v2/src/cli.ts`, `v1/src/commands/config.ts`, `v2/docs/agent-model-config.md`
-- [v2 additive] `jarvis config show` prints one agent name per line when `agents` is configured, or exactly `No machine agent override configured.` when the file is absent or lacks `agents`; malformed or invalid machine config exits non-zero with a config-read error instead of agent output or the no-override line. Sources: `v2/src/cli.ts`, `v2/docs/agent-model-config.md`
-- [v2 additive] `jarvis config path` prints the expanded absolute machine-config path. Sources: `v2/src/cli.ts`, `v2/docs/agent-model-config.md`
+- [v2 additive] v2 `jarvis config` targets the per-machine agent-order file (`~/.jarvis/v2.json`), distinct from v1's `jarvis1 config show` / `jarvis1 config path` on `~/.jarvis/config.json`. Sources: `v2/src/cli.ts`, `v1/src/commands/config.ts`, `v2/docs/agent-model-config.md`
+- [v2 additive] `jarvis config show` prints one agent per line or `No machine agent override configured.` when absent/no-`agents`; invalid config exits non-zero. `jarvis config path` prints the expanded absolute path. Sources: `v2/src/cli.ts`, `v2/docs/agent-model-config.md`
 
 ### Configuration field reference
 

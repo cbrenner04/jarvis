@@ -49,16 +49,16 @@ function absentMachineConfigPath(): string {
   return join(dir, ".jarvis", "v2.json");
 }
 
+async function runConfig(
+  configPath: string,
+  args: readonly string[],
+  io = captureIo().io,
+): Promise<number> {
+  return main(["config", ...args], io, { machineConfigPath: configPath });
+}
+
 async function setAgents(configPath: string, csv: string, io = captureIo().io): Promise<number> {
-  return main(["config", "set-agents", csv], io, { machineConfigPath: configPath });
-}
-
-async function showMachineConfig(configPath: string, io = captureIo().io): Promise<number> {
-  return main(["config", "show"], io, { machineConfigPath: configPath });
-}
-
-async function printMachineConfigPath(configPath: string, io = captureIo().io): Promise<number> {
-  return main(["config", "path"], io, { machineConfigPath: configPath });
+  return runConfig(configPath, ["set-agents", csv], io);
 }
 
 const WRITE_ARGS = [
@@ -469,27 +469,20 @@ describe("v2 cli", () => {
     const cap = captureIo();
     const configPath = writeMachineConfig({ agents: ["claude", "codex", "cursor"] });
 
-    const code = await showMachineConfig(configPath, cap.io);
+    const code = await runConfig(configPath, ["show"], cap.io);
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: "claude\ncodex\ncursor\n", stderr: "" });
   });
 
-  test("config show prints no-override line when machine config is absent", async () => {
+  test.each([
+    ["absent", absentMachineConfigPath],
+    ["without agents", () => writeMachineConfig({ other: "value" })],
+  ])("config show prints no-override line when machine config is %s", async (_label, configPathFn) => {
     const cap = captureIo();
-    const configPath = absentMachineConfigPath();
+    const configPath = configPathFn();
 
-    const code = await showMachineConfig(configPath, cap.io);
-
-    expect(code).toBe(0);
-    expect(cap.read()).toEqual({ stdout: "No machine agent override configured.\n", stderr: "" });
-  });
-
-  test("config show prints no-override line when machine config lacks agents", async () => {
-    const cap = captureIo();
-    const configPath = writeMachineConfig({ other: "value" });
-
-    const code = await showMachineConfig(configPath, cap.io);
+    const code = await runConfig(configPath, ["show"], cap.io);
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: "No machine agent override configured.\n", stderr: "" });
@@ -499,7 +492,7 @@ describe("v2 cli", () => {
     const cap = captureIo();
     const configPath = writeRawMachineConfig("{ invalid json");
 
-    const code = await showMachineConfig(configPath, cap.io);
+    const code = await runConfig(configPath, ["show"], cap.io);
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
@@ -512,7 +505,7 @@ describe("v2 cli", () => {
     const cap = captureIo();
     const configPath = writeMachineConfig({ agents: [] });
 
-    const code = await showMachineConfig(configPath, cap.io);
+    const code = await runConfig(configPath, ["show"], cap.io);
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
@@ -523,9 +516,9 @@ describe("v2 cli", () => {
 
   test("config path prints the expanded machine config path", async () => {
     const cap = captureIo();
-    const configPath = join(mkdtempSync(join(tmpdir(), "jarvis-cli-machine-config-")), "v2.json");
+    const configPath = absentMachineConfigPath();
 
-    const code = await printMachineConfigPath(configPath, cap.io);
+    const code = await runConfig(configPath, ["path"], cap.io);
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: `${configPath}\n`, stderr: "" });

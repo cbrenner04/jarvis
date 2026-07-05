@@ -1,4 +1,4 @@
-import { spawnSync, type SpawnSyncReturns } from "node:child_process";
+import { type SpawnSyncReturns, spawnSync } from "node:child_process";
 import { sliceTestFiles, type TestSliceMode, walkTestFiles } from "./test-slice.ts";
 
 const PER_FILE_TIMEOUT_MS = 60_000;

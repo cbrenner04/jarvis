@@ -350,8 +350,30 @@ number — `0`, negative, or non-numeric values throw at config load, matching
 clears the configured floor: `true` when unconfigured, else compares an
 injectable free-memory reader (default `os.freemem`) against the floor
 converted to bytes. Wired into `start` admission (see
-[Admission guards](#admission-guards-for-start-resume-revise)) — a `queued`
-run's promotion once memory clears is sibling work.
+[Admission guards](#admission-guards-for-start-resume-revise)).
+
+### Promotion of queued runs
+
+Promotion (FIFO, with skip) runs from two trigger points, not a poll timer:
+after `start` admits or queues a run, and inside `spawnWriteLoop`'s `finally`
+block — the single place that releases a run's `activeRuns` entry and
+registry claim on every exit path, including a run reaching `paused`.
+
+Each trigger considers `queued` runs oldest (`created_at`) first, skipping
+any whose `(project, branch)` key is currently claimed in favor of the
+next-oldest eligible one, and promotes at most one run per call: sets its
+status to `in-progress`, then spawns it from its persisted `WriteLoopInput`.
+No preemption — promotion only fills free headroom; it never pauses, kills,
+or otherwise touches an already-running run.
+
+**Settle delay:** after a promotion, further promotions are suppressed for
+`memory.settleDelayMs` (config, default `2000`) before headroom is
+re-measured, to avoid racing ahead of the just-admitted run's memory
+footprint ramping up. One exception: `start` performs a one-time immediate
+recheck (bypassing the settle delay) on the row it just queued, covering the
+case where memory has already recovered by the time the row is persisted —
+without it, a queued run with no other run active has no further promotion
+trigger until the next `start`/exit event.
 
 ## Library surface
 

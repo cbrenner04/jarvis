@@ -11,3 +11,8 @@ export function hasMemoryHeadroom(configPath?: string, freeMemReader: () => numb
 
   return freeMemReader() >= memory.minFreeGb * BYTES_PER_GB;
 }
+
+/** Delay (ms) after promoting a queued run before the next promotion re-measures headroom. */
+export function loadSettleDelayMs(configPath?: string): number {
+  return loadMachineConfigMemory(configPath)?.settleDelayMs ?? 2000;
+}

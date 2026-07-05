@@ -11,7 +11,7 @@ import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } f
 import { type LogReader, type LoopFinishedEvent, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import type { RunStatus, WorkflowSnapshot, WorkflowSnapshotStep } from "../persistence/state-store-types.ts";
-import { hasMemoryHeadroom } from "./memory-watermark.ts";
+import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
 import {
   composeRunOperatorError,
   findTerminalLogRecord,
@@ -208,6 +208,8 @@ export type RunControlHandlerDeps = {
   isWorktreeDirty?: (worktreePath: string) => boolean;
   /** `start`'s memory-watermark admission check; defaults to the real free-memory reader. */
   hasMemoryHeadroom?: () => boolean;
+  /** Delay (ms) after promoting a queued run before the next promotion re-checks headroom; defaults to configured `memory.settleDelayMs`. */
+  settleDelayMs?: number;
 };
 
 export type WaitRunCompletionResult = {
@@ -373,6 +375,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const { stateStore: store, logReader, writeLoopExecutor, failureReporter } = deps;
   const checkWorktreeDirty = deps.isWorktreeDirty ?? isWorktreeDirty;
   const checkMemoryHeadroom = deps.hasMemoryHeadroom ?? (() => hasMemoryHeadroom());
+  const settleDelayMs = deps.settleDelayMs ?? loadSettleDelayMs();
+  let promotionsSuppressedUntil = 0;
 
   const resultFrom = (runId: string, runStatus: RunStatus, record?: TerminalLogRecord): WaitRunCompletionResult => {
     const run = store.loadRun(runId);
@@ -468,8 +472,44 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       } finally {
         activeRuns.delete(ks);
         _registry.release(key);
+        promoteQueuedRun();
       }
     })();
+  };
+
+  /**
+   * FIFO-with-skip promotion: the oldest `queued` run whose `(project, branch)`
+   * is unclaimed is promoted into free headroom. Skips (rather than stops on)
+   * a queued run whose key is currently claimed, trying the next-oldest
+   * instead. Promotes at most one run per call; a settle delay after each
+   * promotion suppresses further promotions until it elapses, except when
+   * `bypassSettleDelay` is set (the one-time immediate recheck `start`
+   * performs on the row it just queued).
+   */
+  const promoteQueuedRun = (bypassSettleDelay = false): void => {
+    if (!bypassSettleDelay && Date.now() < promotionsSuppressedUntil) {
+      return;
+    }
+
+    for (const run of store.listQueuedRuns()) {
+      const key: OwnershipKey = { project: run.project, branch: run.branch };
+      if (_registry.isClaimed(key)) {
+        continue;
+      }
+      if (!checkMemoryHeadroom()) {
+        return;
+      }
+
+      const queuedInput = store.getQueuedInput(run.id);
+      if (!queuedInput) {
+        continue;
+      }
+
+      store.setRunStatus(run.id, "in-progress");
+      spawnWriteLoop(key, run.id, run.worktreePath, queuedInput);
+      promotionsSuppressedUntil = Date.now() + settleDelayMs;
+      return;
+    }
   };
 
   const startHandler: RpcHandler = (frame) => {
@@ -507,6 +547,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         ...(input.stepId !== undefined ? { stepId: input.stepId } : {}),
         ...(input.workflowSnapshot !== undefined ? { workflowSnapshot: input.workflowSnapshot } : {}),
       });
+      // Memory may have recovered between the check above and this row being
+      // persisted; recheck once immediately rather than waiting for a later exit.
+      promoteQueuedRun(true);
       return { kind: "response", result: { runId } };
     }
 
@@ -521,6 +564,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     });
 
     spawnWriteLoop(key, runId, worktreePath, input);
+    promoteQueuedRun();
 
     return { kind: "response", result: { runId } };
   };

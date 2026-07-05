@@ -168,7 +168,22 @@ describe("loadMachineConfigMemory", () => {
 
   test("valid 'memory.minFreeGb' is returned", () => {
     const result = loadMachineConfigMemory(writeConfig({ memory: { minFreeGb: 8 } }));
-    expect(result).toEqual({ minFreeGb: 8 });
+    expect(result).toEqual({ minFreeGb: 8, settleDelayMs: 2000 });
+  });
+
+  test("'memory.settleDelayMs' is returned when set alongside 'minFreeGb'", () => {
+    const result = loadMachineConfigMemory(writeConfig({ memory: { minFreeGb: 8, settleDelayMs: 5000 } }));
+    expect(result).toEqual({ minFreeGb: 8, settleDelayMs: 5000 });
+  });
+
+  test("'memory.settleDelayMs' of zero throws", () => {
+    const configPath = writeConfig({ memory: { minFreeGb: 8, settleDelayMs: 0 } });
+    expect(() => loadMachineConfigMemory(configPath)).toThrow(/must be a positive integer/);
+  });
+
+  test("'memory.settleDelayMs' non-integer throws", () => {
+    const configPath = writeConfig({ memory: { minFreeGb: 8, settleDelayMs: 1.5 } });
+    expect(() => loadMachineConfigMemory(configPath)).toThrow(/must be a positive integer/);
   });
 
   test("'memory' as non-object throws", () => {

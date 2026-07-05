@@ -66,6 +66,9 @@ export interface StateStore {
   /** Whether a non-terminal `queued` run exists for `(project, branch)`. */
   hasQueuedRun(args: { project: string; branch: string }): boolean;
 
+  /** All `queued` runs, oldest first (`created_at ASC`), for FIFO promotion. */
+  listQueuedRuns(): Run[];
+
   /** Load a run and its attempt history for resume; null when unknown. */
   loadRun(runId: string): (Run & { attempts: Attempt[] }) | null;
 
@@ -361,6 +364,14 @@ class StateStoreImpl implements StateStore {
       .prepare("SELECT 1 FROM runs WHERE project = ? AND branch = ? AND status = 'queued' LIMIT 1")
       .get(args.project, args.branch);
     return row !== null;
+  }
+
+  listQueuedRuns(): Run[] {
+    return (
+      this.db
+        .prepare(`SELECT ${RUN_COLUMNS} FROM runs WHERE status = 'queued' ORDER BY created_at ASC`)
+        .all() as Array<Run & { workflowSnapshotJson: string | null; queuedInputJson: string | null }>
+    ).map(mapRunRow);
   }
 
   close(): void {

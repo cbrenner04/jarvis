@@ -22,7 +22,7 @@ import { GIT_SUBPROCESS_OPTS } from "./git-subprocess.ts";
 import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "./idle-watchdog.ts";
 import { updatePrBody } from "./pr.ts";
 import { buildShrinkPrompt } from "./prompt.ts";
-import { detectSpecTreeEdits, realReviewGitOps, revertSpecTreeEdits } from "./review.ts";
+import { detectSpecTreeEdits, type ReviewGitOps, realReviewGitOps, revertSpecTreeEdits } from "./review.ts";
 import { createShrinkInvocationBinding, type ShrinkAgentAttemptData } from "./shrink-invocation-binding.ts";
 import { type AcceptanceCriterion, snapshotAcceptanceCriteria } from "./subspec.ts";
 
@@ -343,6 +343,20 @@ function listDiffNames(cwd: string, fromRef: string, toRef: string, ops: ShrinkG
 function revertAllSince(cwd: string, ref: string, ops: ShrinkGitOps = realShrinkGitOps): void {
   ops.resetHard(cwd, ref);
   ops.cleanAll(cwd);
+}
+
+/** Adapt a `ShrinkGitOps` to `ReviewGitOps` for `detectSpecTreeEdits`/`revertSpecTreeEdits`, neither of which calls `resetPath`. */
+function asReviewGitOps(ops: ShrinkGitOps): ReviewGitOps {
+  return {
+    porcelainStatus: ops.porcelainStatus,
+    checkoutPath: ops.checkoutPath,
+    cleanPath: ops.cleanPath,
+    add: ops.add,
+    commit: ops.commit,
+    resetPath: () => {
+      throw new Error("resetPath is not supported via ShrinkGitOps");
+    },
+  };
 }
 
 function runTests(cwd: string): boolean {
@@ -675,11 +689,11 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
 
   const criteriaAfter = snapshotAllAcceptanceCriteria(opts.specPath);
 
-  const editedSpecFiles = detectSpecTreeEdits(specDir, opts.cwd);
+  const editedSpecFiles = detectSpecTreeEdits(specDir, opts.cwd, asReviewGitOps(ops));
   if (editedSpecFiles.length > 0) {
     opts.fanout("harness", `shrink: spec-tree edits reverted: ${editedSpecFiles.join(", ")}\n`, "stderr");
     try {
-      revertSpecTreeEdits(specDir, opts.cwd);
+      revertSpecTreeEdits(specDir, opts.cwd, asReviewGitOps(ops));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       opts.fanout("harness", `shrink: spec revert failed (discarding): ${message}\n`, "stderr");

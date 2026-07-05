@@ -518,14 +518,11 @@ describe("runPatchShrinkPhase", () => {
     }
   });
 
-  // review.ts's detectSpecTreeEdits/revertSpecTreeEdits (out of scope here) shell real git
-  // directly with no injectable seam; a fake ShrinkGitOps can't stand in for the revert this test
-  // exercises, so it keeps the real (fast, non-stalling) git fixture.
   test("spec-only shrink edits collapse to no-op without contract tests", async () => {
-    const { dir, specPath, specDir, cleanup } = setupShrinkRepo();
+    const { dir, specPath, specDir, ops, cleanup } = setupShrinkFixture();
     let contractTestsRan = false;
     try {
-      const headBefore = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim();
+      const headBefore = ops.revParseHead(dir);
       const agent = new FakeAgent("claude", () => {
         writeFileSync(join(specDir, "00-one.md"), "# 00\n\n## Acceptance criteria\n\n- [ ] done\n");
         return { kind: "ok", stdout: "", stderr: "" };
@@ -545,8 +542,9 @@ describe("runPatchShrinkPhase", () => {
         agents: { claude: agent },
         iterationTimeoutMs: 30_000,
         baseBranch: "main",
+        ops,
       });
-      const headAfter = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim();
+      const headAfter = ops.revParseHead(dir);
       expect(headAfter).toBe(headBefore);
       expect(contractTestsRan).toBe(false);
       expect(readFileSync(join(specDir, "00-one.md"), "utf8")).toContain("- [x] done");

@@ -384,110 +384,6 @@ type ActuatorAttemptRecord = {
   durationMs: number;
 };
 
-function invokeActuatorAgentWithWatchdog(args: {
-  agent: Agent;
-  prompt: string;
-  cwd: string;
-  iterationTimeoutMs: number;
-  killGraceMs: number;
-  idleOutputTimeoutMs: number;
-  worktreeDir: string;
-  fanout: PatchReviewFanout;
-  reapOverride?: ReapOverride;
-  afterPoll?: () => void;
-  descendantPollIntervalMs?: number;
-}): Promise<AgentResult> {
-  const actuatorController = new AbortController();
-  const actuatorTimeoutHandle = setTimeout(() => {
-    actuatorController.abort("actuator-timeout");
-  }, args.iterationTimeoutMs);
-
-  const actuatorTracker = new DescendantTracker();
-  let actuatorPollHandle: NodeJS.Timeout | null = null;
-  let actuatorPgid: number | null = null;
-  const actuatorLastOutputAtMs = { current: null as number | null };
-  let actuatorLastFileActivityAtMs: number | null = null;
-  let actuatorIdleTimeoutHandle: NodeJS.Timeout | null = null;
-
-  const actuatorArmedAt = Date.now();
-  if (args.idleOutputTimeoutMs > 0) {
-    const scheduleActuatorIdleCheck = () => {
-      actuatorIdleTimeoutHandle = setTimeout(() => {
-        const snapshotAt = Date.now();
-        const lastOutputAgeMs =
-          actuatorLastOutputAtMs.current === null ? null : snapshotAt - actuatorLastOutputAtMs.current;
-
-        const sampledFileActivityAt = sampleFileActivityIfNeeded({
-          lastOutputAgeMs,
-          idleOutputTimeoutMs: args.idleOutputTimeoutMs,
-          now: snapshotAt,
-          armedAt: actuatorArmedAt,
-          workingDir: args.worktreeDir,
-        });
-
-        if (sampledFileActivityAt !== null) {
-          actuatorLastFileActivityAtMs = sampledFileActivityAt;
-        }
-
-        const { shouldFire } = evaluateIdleWatchdog({
-          now: snapshotAt,
-          lastOutputAt: actuatorLastOutputAtMs.current,
-          lastFileActivityAt: actuatorLastFileActivityAtMs,
-          armedAt: actuatorArmedAt,
-          idleOutputTimeoutMs: args.idleOutputTimeoutMs,
-        });
-
-        if (shouldFire) {
-          args.fanout(
-            "harness",
-            `[watchdog] idle timeout fired after ${args.idleOutputTimeoutMs}ms; killing agent\n`,
-            "stderr",
-          );
-          if (actuatorPgid !== null) {
-            try {
-              process.kill(-actuatorPgid, "SIGTERM");
-            } catch {
-              // best-effort
-            }
-          }
-          actuatorController.abort("idle-timeout");
-        } else {
-          scheduleActuatorIdleCheck();
-        }
-      }, 100);
-      actuatorIdleTimeoutHandle?.unref?.();
-    };
-    scheduleActuatorIdleCheck();
-  }
-
-  args.fanout("outbound", args.prompt, null, {
-    actuator: true,
-    agent: args.agent.name,
-  });
-
-  return args.agent
-    .run(args.prompt, {
-      cwd: args.cwd,
-      signal: actuatorController.signal,
-      abortKillGraceMs: args.killGraceMs,
-      lastOutputAtMs: actuatorLastOutputAtMs,
-      onSpawned: ({ pid }) => {
-        actuatorPgid = pid;
-        actuatorPollHandle = startDescendantPolling(actuatorTracker, pid, {
-          ...(args.afterPoll !== undefined ? { afterPoll: args.afterPoll } : {}),
-          ...(args.descendantPollIntervalMs !== undefined ? { intervalMs: args.descendantPollIntervalMs } : {}),
-        });
-      },
-    })
-    .finally(() => {
-      clearTimeout(actuatorTimeoutHandle);
-      if (actuatorIdleTimeoutHandle !== null) {
-        clearTimeout(actuatorIdleTimeoutHandle);
-      }
-      stopDescendantPollingAndReap(actuatorTracker, actuatorPgid, actuatorPollHandle, args.reapOverride);
-    });
-}
-
 /** Wrap an agent with per-pass iteration timeout and process-group abort. */
 function withReviewPassTimeout(
   agent: Agent,
@@ -992,7 +888,6 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       const actuatorIdleOutputTimeoutMs =
         opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? 600000);
       const actuatorWorktreeDir = opts.patchWorktreeDir ?? opts.cwd;
-
       if (actuatorOrder.length === 0) {
         opts.fanout("harness", "review: actuator no agents available\n", "stderr");
         throw new ReviewTerminalError("actuator no agents available", 2);
@@ -1002,36 +897,114 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
         buildPrompt: async () => prompt,
         enforceWriteBoundary: async () => {},
         readBlocker: async () => null,
-        handleBlocker: async () => 7,
+        handleBlocker: async () => 1,
         commitPass: async () => {},
         recordTelemetry: async () => {},
       };
 
       const attemptByBinding = new Map<InvocationBinding<AgentResult>, ActuatorAttemptRecord>();
+      const bindingStates = actuatorOrder.map(() => ({
+        tracker: new DescendantTracker(),
+        pollHandle: null as NodeJS.Timeout | null,
+        pgid: null as number | null,
+        timeoutHandle: null as NodeJS.Timeout | null,
+        idleTimeoutHandle: null as NodeJS.Timeout | null,
+        lastOutputAtMs: { current: null as number | null },
+        lastFileActivityAtMs: null as number | null,
+      }));
 
-      const bindings = actuatorOrder.map((headEntry, rungIndex) => {
-        const hasNextRung = rungIndex < actuatorOrder.length - 1;
+      const bindings = actuatorOrder.map((agentEntry, rungIndex) => {
+        const bindingState = bindingStates[rungIndex]!;
         let spawnResultForBinding: AgentResult | undefined;
         let binding: InvocationBinding<AgentResult>;
 
-        binding = createReviewInvocationBinding({
-          agentEntry: headEntry,
+        binding = createReviewInvocationBinding<AgentResult>({
+          agentEntry,
           config: opts.config,
           cwd: opts.cwd,
           adapter: actuatorAdapter,
           roleContext: ctx,
-          authoritativePrompt: prompt,
-          alwaysAllowQuotaFallback: true,
-          loadAgent: ({ name, model }) => {
-            const override = actuatorAgents?.[rungIndex] ?? opts.agents?.[name as AgentName];
-            return override ?? createAgent(name as AgentName, model);
+          loadAgent: () =>
+            actuatorAgents?.[rungIndex] ??
+            opts.agents?.[agentEntry.agent] ??
+            createAgent(agentEntry.agent, agentEntry.model),
+          abortKillGraceMs: killGraceMs,
+          lastOutputAtMs: bindingState.lastOutputAtMs,
+          onSpawned: ({ pid }) => {
+            bindingState.pgid = pid;
+            bindingState.pollHandle = startDescendantPolling(bindingState.tracker, pid, {
+              ...(opts.__testAfterPollFn !== undefined ? { afterPoll: opts.__testAfterPollFn } : {}),
+              ...(descendantPollIntervalMs !== undefined ? { intervalMs: descendantPollIntervalMs } : {}),
+            });
           },
-          shouldAdvance: (result) => {
-            const isQuota = result.kind === "quota";
-            const isIdleTimeout = result.kind === "error" && result.stderr.includes("aborted: idle-timeout");
-            return hasNextRung && (isQuota || isIdleTimeout);
+          onControllerReady: ({ controller }) => {
+            bindingState.timeoutHandle = setTimeout(() => {
+              controller.abort("actuator-timeout");
+            }, opts.iterationTimeoutMs);
+            const armedAt = Date.now();
+            if (actuatorIdleOutputTimeoutMs > 0) {
+              const scheduleIdleCheck = () => {
+                bindingState.idleTimeoutHandle = setTimeout(() => {
+                  const snapshotAt = Date.now();
+                  const lastOutputAt = bindingState.lastOutputAtMs.current;
+                  const lastOutputAgeMs = lastOutputAt === null ? null : snapshotAt - lastOutputAt;
+                  const sampledFileActivityAt = sampleFileActivityIfNeeded({
+                    lastOutputAgeMs,
+                    idleOutputTimeoutMs: actuatorIdleOutputTimeoutMs,
+                    now: snapshotAt,
+                    armedAt,
+                    workingDir: actuatorWorktreeDir,
+                  });
+                  if (sampledFileActivityAt !== null) {
+                    bindingState.lastFileActivityAtMs = sampledFileActivityAt;
+                  }
+                  const { shouldFire } = evaluateIdleWatchdog({
+                    now: snapshotAt,
+                    lastOutputAt,
+                    lastFileActivityAt: bindingState.lastFileActivityAtMs,
+                    armedAt,
+                    idleOutputTimeoutMs: actuatorIdleOutputTimeoutMs,
+                  });
+                  if (shouldFire) {
+                    opts.fanout(
+                      "harness",
+                      `[watchdog] idle timeout fired after ${actuatorIdleOutputTimeoutMs}ms; killing agent\n`,
+                      "stderr",
+                    );
+                    if (bindingState.pgid !== null) {
+                      try {
+                        process.kill(-bindingState.pgid, "SIGTERM");
+                      } catch {
+                        // best-effort
+                      }
+                    }
+                    controller.abort("idle-timeout");
+                    return;
+                  }
+                  scheduleIdleCheck();
+                }, 100);
+                bindingState.idleTimeoutHandle?.unref?.();
+              };
+              scheduleIdleCheck();
+            }
+            return () => {
+              if (bindingState.timeoutHandle !== null) {
+                clearTimeout(bindingState.timeoutHandle);
+              }
+              if (bindingState.idleTimeoutHandle !== null) {
+                clearTimeout(bindingState.idleTimeoutHandle);
+              }
+              stopDescendantPollingAndReap(
+                bindingState.tracker,
+                bindingState.pgid,
+                bindingState.pollHandle,
+                opts.__testReapOverride,
+              );
+              bindingState.pgid = null;
+              bindingState.pollHandle = null;
+            };
           },
-          recordSpawnResult: (spawnResult) => {
+          onQuotaFallbackEmit: (_agentName, spawnResult) => {
             spawnResultForBinding = spawnResult;
           },
           recordAttemptTelemetry: (attempt) => {
@@ -1040,27 +1013,33 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
             }
             attemptByBinding.set(binding, {
               agent: attempt.agent,
-              configuredModel: headEntry.model,
+              configuredModel: agentEntry.model,
               spawnResult: spawnResultForBinding,
               classified: attempt.result,
               durationMs: attempt.durationMs,
             });
           },
-          invokeAgent: ({ agent, prompt: actuatorPrompt, cwd }) =>
-            invokeActuatorAgentWithWatchdog({
-              agent,
-              prompt: actuatorPrompt,
-              cwd,
-              iterationTimeoutMs: opts.iterationTimeoutMs,
-              killGraceMs,
-              idleOutputTimeoutMs: actuatorIdleOutputTimeoutMs,
-              worktreeDir: actuatorWorktreeDir,
-              fanout: opts.fanout,
-              ...(opts.__testReapOverride !== undefined ? { reapOverride: opts.__testReapOverride } : {}),
-              ...(opts.__testAfterPollFn !== undefined ? { afterPoll: opts.__testAfterPollFn } : {}),
-              ...(descendantPollIntervalMs !== undefined ? { descendantPollIntervalMs } : {}),
-            }),
         });
+
+        binding.shouldAdvance = (result) =>
+          result.kind === "quota" || (result.kind === "error" && result.stderr.includes("aborted: idle-timeout"));
+
+        const outboundAgentName =
+          actuatorAgents?.[rungIndex]?.name ?? opts.agents?.[agentEntry.agent]?.name ?? agentEntry.agent;
+        binding.invoke = ((originalInvoke) => {
+          return (invokeArgs) => {
+            bindingState.lastOutputAtMs.current = null;
+            bindingState.lastFileActivityAtMs = null;
+            bindingState.pgid = null;
+            bindingState.pollHandle = null;
+            opts.fanout("outbound", prompt, null, {
+              actuator: true,
+              agent: outboundAgentName,
+            });
+            return originalInvoke(invokeArgs);
+          };
+        })(binding.invoke);
+
         return binding;
       });
 
@@ -1128,7 +1107,11 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
         }
       }
 
-      const finalAttempt = execution.final!;
+      const finalAttempt = execution.final;
+      if (finalAttempt === null) {
+        opts.fanout("harness", "review: actuator no agents available\n", "stderr");
+        throw new ReviewTerminalError("actuator no agents available", 2);
+      }
 
       const finalRecord = attemptByBinding.get(finalAttempt.binding);
       if (finalRecord === undefined) {
@@ -1263,29 +1246,19 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           }
 
           opts.fanout("harness", `review: actuator completed\n`, "stdout");
-          opts.writeTelemetry({
-            agent: resolvedAgent.name,
-            iteration: ctx.passNumber,
-            durationMs,
-            kind: "ok",
-            exitReason: "ok",
-            patch_phase: "review",
-            ...extractUsageAndCost(classified, resolvedAgent.name, configuredModel),
-            ...telemetryMeta,
-          });
         } else {
           opts.fanout("harness", `review: actuator made no changes\n`, "stdout");
-          opts.writeTelemetry({
-            agent: resolvedAgent.name,
-            iteration: ctx.passNumber,
-            durationMs,
-            kind: "ok",
-            exitReason: "ok",
-            patch_phase: "review",
-            ...extractUsageAndCost(classified, resolvedAgent.name, configuredModel),
-            ...telemetryMeta,
-          });
         }
+        opts.writeTelemetry({
+          agent: resolvedAgent.name,
+          iteration: ctx.passNumber,
+          durationMs,
+          kind: "ok",
+          exitReason: "ok",
+          patch_phase: "review",
+          ...extractUsageAndCost(classified, resolvedAgent.name, configuredModel),
+          ...telemetryMeta,
+        });
         return;
       }
 

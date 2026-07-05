@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadMachineConfig } from "./machine-config-loader.ts";
+import { loadMachineConfig, readMachineConfigDocument, validateMachineConfigAgents } from "./machine-config-loader.ts";
 
 function writeRawConfig(text: string): string {
   const dir = mkdtempSync(join(tmpdir(), "jarvis-config-test-"));
@@ -29,6 +29,11 @@ describe("loadMachineConfig", () => {
   test("config file with empty 'agents' key returns undefined", () => {
     const result = loadMachineConfig(writeConfig({}));
     expect(result).toBeUndefined();
+  });
+
+  test("document reader preserves unrelated top-level keys", () => {
+    const result = readMachineConfigDocument(writeConfig({ agents: ["claude"], extra: "field" }));
+    expect(result).toEqual({ agents: ["claude"], extra: "field" });
   });
 
   test("valid agents array is returned in order", () => {
@@ -110,6 +115,10 @@ describe("loadMachineConfig", () => {
   test("duplicate agent name throws", () => {
     const configPath = writeConfig({ agents: ["claude", "codex", "claude"] });
     expect(() => loadMachineConfig(configPath)).toThrow(/duplicate entry/);
+  });
+
+  test("agent-array validator reuses duplicate checks for direct callers", () => {
+    expect(() => validateMachineConfigAgents(["claude", "claude"])).toThrow(/duplicate entry/);
   });
 
   test("duplicate at consecutive indices throws", () => {

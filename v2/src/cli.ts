@@ -1,10 +1,14 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import packageJson from "../../package.json";
 import { createAgentBindings } from "../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
-import { loadMachineConfig } from "./config/machine-config-loader.ts";
+import {
+  loadMachineConfig,
+  readMachineConfigDocument,
+  validateMachineConfigAgents,
+} from "./config/machine-config-loader.ts";
 import type { WaitRunCompletionResult } from "./daemon/daemon.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon/daemon-lifecycle.ts";
 import { parseListRuns, parseWaitCompletion } from "./daemon/daemon-wire.ts";
@@ -42,6 +46,7 @@ const DEFAULT_SOCKET_PATH = join(homedir(), ".jarvis", "daemon.sock");
 const DEFAULT_PID_PATH = join(homedir(), ".jarvis", "daemon.pid");
 const DEFAULT_MACHINE_CONFIG_PATH = join(homedir(), ".jarvis", "v2.json");
 const DAEMON_USAGE = "usage: jarvis daemon <start|stop|status>\n";
+const CONFIG_USAGE = "usage: jarvis config <show|path|set-agents> [args]\n";
 const RUN_USAGE = "usage: jarvis run <start|list|log|pause|resume|kill|wait> [args]\n";
 const TUI_USAGE = "usage: jarvis tui\n";
 const TUI_LOG_USAGE = "usage: jarvis tui log <run-id>\n";
@@ -92,6 +97,10 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
 
   if (command === "daemon") {
     return runDaemonCommand(argv.slice(1), out, runtimeDeps);
+  }
+
+  if (command === "config") {
+    return runConfigCommand(argv.slice(1), out, runtimeDeps);
   }
 
   if (command === "run") {
@@ -151,6 +160,51 @@ async function runDaemonCommand(argv: readonly string[], io: Io, deps: CliDeps):
 
   io.stderr(DAEMON_USAGE);
   return 1;
+}
+
+async function runConfigCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
+  if (argv[0] === "show" && argv.length === 1) {
+    try {
+      const agents = loadMachineConfig(deps.machineConfigPath);
+      if (agents === undefined) {
+        io.stdout("No machine agent override configured.\n");
+        return 0;
+      }
+      for (const agent of agents) {
+        io.stdout(`${agent}\n`);
+      }
+      return 0;
+    } catch (error) {
+      io.stderr(formatConnectionError(error));
+      return 1;
+    }
+  }
+
+  if (argv[0] === "path" && argv.length === 1) {
+    io.stdout(`${deps.machineConfigPath}\n`);
+    return 0;
+  }
+
+  if (argv[0] !== "set-agents" || argv.length !== 2) {
+    io.stderr(CONFIG_USAGE);
+    return 1;
+  }
+
+  const parsed = parseSetAgentsCsv(argv[1]!);
+  if (!parsed.ok) {
+    io.stderr(parsed.message);
+    return 1;
+  }
+
+  try {
+    writeMachineConfigAgents(deps.machineConfigPath, parsed.agents);
+  } catch (error) {
+    io.stderr(formatConnectionError(error));
+    return 1;
+  }
+
+  io.stdout(`${JSON.stringify({ agents: parsed.agents })}\n`);
+  return 0;
 }
 
 async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
@@ -357,6 +411,33 @@ function parseWriteCliInput(argv: readonly string[], deps: CliDeps): WriteCliInp
     return "message" in built ? { ok: false, message: built.message } : { ok: false };
   }
   return { ok: true, input: built.input };
+}
+
+function parseSetAgentsCsv(raw: string): { ok: true; agents: string[] } | { ok: false; message: string } {
+  const agents = raw.split(",").map((part) => part.trim());
+  for (let i = 0; i < agents.length; i++) {
+    const agent = agents[i]!;
+    if (agent.length === 0) {
+      return { ok: false, message: `Error: invalid agents CSV "${raw}": empty segment at position ${i + 1}\n` };
+    }
+    if (agent.includes(":")) {
+      return { ok: false, message: `Error: invalid agent "${agent}": expected bare agent name\n` };
+    }
+  }
+
+  try {
+    return { ok: true, agents: validateMachineConfigAgents(agents) };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, message: `${message}\n` };
+  }
+}
+
+function writeMachineConfigAgents(configPath: string, agents: readonly string[]): void {
+  const existing = readMachineConfigDocument(configPath) ?? {};
+  const next = { ...existing, agents: [...agents] };
+  mkdirSync(dirname(configPath), { recursive: true });
+  writeFileSync(configPath, `${JSON.stringify(next, null, 2)}\n`);
 }
 
 function writeStdoutJson(result: WriteLoopResult): string {

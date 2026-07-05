@@ -16,6 +16,11 @@ Two axes, two stores:
 | **Agent fallback order** | Per-machine `~/.jarvis/v2.json`, shape `{ "agents": string[] }` | Ordered `agents: Agent[]` — availability/quota chain only |
 | **Role→model bindings** | One harness-global, version-controlled data file beside `data/prices.json` | `AgentModelConfig` — `(agent, role) → ModelEscalation`; may catalog agents beyond any one project's `agents` list |
 
+The machine agent-order file is edited with `jarvis config set-agents <agent,agent,...>` and inspected with `jarvis config show` / `jarvis config path` ([Read-only inspection](#read-only-inspection)).
+`set-agents` replaces the full `agents` array, preserves unrelated top-level
+keys in `~/.jarvis/v2.json`, creates missing `~/.jarvis/` state on success, and
+refuses to overwrite an existing file that is not a valid machine-config object.
+
 Per-project variance is **only** the ordered `agents` list. Role→model assignments
 are shared across machines and projects. Load validation applies **only** to
 agents listed in the project's `agents` order — extra agents in the global file
@@ -261,9 +266,31 @@ pair bypasses load validation and both loops for one invocation. No matching
 `--agents <csv>` as the ordered outer fallback list only (agent IDs, no per-role
 models). See [`write-behavior.md`](write-behavior.md). This predates full
 `AgentModelConfig` resolution and does not implement inner rungs or role-aware
-binding.
+binding. `jarvis config set-agents <agent,agent,...>` persists the same outer
+list to `~/.jarvis/v2.json`.
+
+`set-agents` parses at the command boundary before any filesystem mutation:
+empty CSV segments are rejected, and `agent:model` tokens are rejected because
+the machine file stores agent order only. After that parse step, the landed
+array reuses the machine-config loader contract: `agents` must be a non-empty,
+string-only, duplicate-free array.
 
 Precedence for the write/run-start commands: CLI `--agents` > machine config `agents` > `DEFAULT_WRITE_AGENTS` (`["claude"]`). When `--agents` is absent, the per-machine agent list from `~/.jarvis/v2.json` (if present) is used; otherwise the built-in default applies.
+
+Success stdout for `set-agents` is JSON with the landed order:
+`{"agents":["claude","codex"]}`. Failures print one stderr line naming the
+rejected input or invalid file state, exit non-zero, preserve prior file
+content, and do not create `~/.jarvis/` or `v2.json` when input is rejected
+before the write path starts.
+
+### Read-only inspection
+
+`jarvis config show` — machine `agents` order only (not role→model or workflow config):
+- configured `agents`: one name per line (exit 0)
+- file absent or no `agents` key: `No machine agent override configured.` (exit 0)
+- malformed JSON or validation failure: config-read error on stderr, exit non-zero
+
+`jarvis config path` — expanded absolute machine-config path (exit 0).
 
 No single-flag override. No per-step config override.
 

@@ -534,6 +534,40 @@ describe("runPatchShrinkPhase", () => {
     }
   });
 
+  test("final shrink quota exhaustion keeps fallback and exhausted telemetry rows", async () => {
+    const { dir, specPath, cleanup } = setupShrinkRepo();
+    const telemetry: Array<{ agent?: string; exitReason?: string; kind?: string }> = [];
+    try {
+      const codex = new FakeAgent("codex", () => ({ kind: "quota", stderr: "limit" }));
+      const cursor = new FakeAgent("cursor", () => ({ kind: "quota", stderr: "limit" }));
+
+      await runPatchShrinkPhase({
+        config: makeShrinkConfigWithReviewActuator([
+          { agent: "codex", model: "gpt-5.4" },
+          { agent: "cursor", model: "Composer 2.5" },
+        ]),
+        cwd: dir,
+        specPath,
+        allowlist: new Set(["impl.txt"]),
+        skipPreShrinkGate: true,
+        fanout: () => {},
+        writeTelemetry: (row) => telemetry.push(row),
+        agents: { codex, cursor },
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+      });
+
+      expect(telemetry.filter((row) => row.exitReason === "quota-fallback")).toEqual([
+        expect.objectContaining({ agent: "codex", kind: "quota" }),
+      ]);
+      expect(telemetry.filter((row) => row.exitReason === "quota-exhausted")).toEqual([
+        expect.objectContaining({ agent: "cursor", kind: "quota" }),
+      ]);
+    } finally {
+      cleanup();
+    }
+  });
+
   test("unsuccessful invocation discards without throwing", async () => {
     const { dir, specPath, cleanup } = setupShrinkRepo();
     const harness: string[] = [];
@@ -879,7 +913,11 @@ describe("runPatchShrinkPhase", () => {
 
   test("idle watchdog escalates through reviewActuator when fallback rung remains", async () => {
     const fx = idleShrinkFixture();
-    const codexAgent = new FakeAgent("codex", () => ({ kind: "ok", stdout: "", stderr: "" }));
+    let fallbackSignalAborted: boolean | null | undefined;
+    const codexAgent = new FakeAgent("codex", (_callCount, _prompt, runOpts) => {
+      fallbackSignalAborted = runOpts.signal?.aborted ?? null;
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
     try {
       await runIdleShrink(fx, {
         shrinkAgents: [new IdleHangAgent(fx.idleScript), codexAgent],
@@ -892,6 +930,7 @@ describe("runPatchShrinkPhase", () => {
       expect(fallbackRow).toBeDefined();
       expect(fallbackRow?.kind).toBe("timeout");
       expect(fallbackRow?.agent).toBe("claude");
+      expect(fallbackSignalAborted).toBe(false);
       expect(fx.telemetry.some((r) => r.exitReason === "watchdog-idle-timeout")).toBe(false);
     } finally {
       fx.cleanup();

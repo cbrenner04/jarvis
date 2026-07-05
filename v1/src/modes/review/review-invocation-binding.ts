@@ -1,22 +1,10 @@
-import { execFileSync } from "node:child_process";
 import type { InvocationBinding, InvocationResult } from "../../../../shared/invocation/execute.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
-import type { Agent, AgentName, AgentResult } from "../../agents/types.ts";
+import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
 import type { ReviewAdapter, ReviewAttemptContext, ReviewPassContext } from "./types.ts";
 
-function readPorcelainSnapshot(cwd: string): string | null {
-  try {
-    return execFileSync("git", ["status", "--porcelain"], {
-      cwd,
-      encoding: "utf8",
-    });
-  } catch {
-    return null;
-  }
-}
-
-export type ReviewInvocationBindingOptions<_T extends InvocationResult = InvocationResult> = {
+export type ReviewInvocationBindingOptions = {
   agentEntry: { agent: AgentName; model: string };
   config: Config;
   cwd: string;
@@ -27,20 +15,16 @@ export type ReviewInvocationBindingOptions<_T extends InvocationResult = Invocat
   onQuotaFallbackEmit?: ((agentName: AgentName, spawnResult: AgentResult, classified: AgentResult) => void) | undefined;
   recordAttemptTelemetry?: ((data: ReviewAttemptContext) => void | Promise<void>) | undefined;
   additionalReadDirs?: string[] | undefined;
+  onSpawned?: AgentRunOptions["onSpawned"] | undefined;
+  lastOutputAtMs?: AgentRunOptions["lastOutputAtMs"] | undefined;
+  lastOutputNowMs?: AgentRunOptions["lastOutputNowMs"] | undefined;
+  abortKillGraceMs?: number | undefined;
+  onControllerReady?: ((ctx: { controller: AbortController }) => undefined | (() => void)) | undefined;
   now?: (() => number) | undefined;
-  /** Caller-built prompt reused across actuator rungs instead of adapter.buildPrompt. */
-  authoritativePrompt?: string | undefined;
-  /** Actuator path: always allow quota fallback classification. */
-  alwaysAllowQuotaFallback?: boolean | undefined;
-  shouldAdvance?: ((result: InvocationResult) => boolean) | undefined;
-  /** Actuator path: per-invocation spawn wrapper (watchdog, abort controller, polling). */
-  invokeAgent?: ((args: { agent: Agent; prompt: string; cwd: string }) => Promise<AgentResult>) | undefined;
-  /** Actuator path: retain raw spawn result for post-execution fallback stderr. */
-  recordSpawnResult?: ((spawnResult: AgentResult) => void) | undefined;
 };
 
 export function createReviewInvocationBinding<T extends InvocationResult = InvocationResult>(
-  opts: ReviewInvocationBindingOptions<T>,
+  opts: ReviewInvocationBindingOptions,
 ): InvocationBinding<T> {
   // Load agent to get real attribution label
   const agent = opts.loadAgent({
@@ -53,34 +37,51 @@ export function createReviewInvocationBinding<T extends InvocationResult = Invoc
 
   const binding: InvocationBinding<T> = {
     id: agentLabel,
-    metadata: { agent: opts.agentEntry.agent, model: opts.agentEntry.model },
     invoke: async (args) => {
-      const prompt =
-        opts.authoritativePrompt ??
-        (await opts.adapter.buildPrompt({
-          ...opts.roleContext,
-          agentEntry: opts.agentEntry,
-        }));
+      // Build the prompt via adapter
+      const prompt = await opts.adapter.buildPrompt({
+        ...opts.roleContext,
+        agentEntry: opts.agentEntry,
+      });
 
+      // Reuse loaded agent
       const loadedAgent = agent;
 
-      const porcelainBefore = readPorcelainSnapshot(opts.cwd);
       const _now = opts.now ?? Date.now;
       const startedAt = _now();
+      const controller = new AbortController();
+      const parentSignal = args.signal;
+      const abortFromParent = () => {
+        controller.abort(parentSignal?.reason);
+      };
+      if (parentSignal !== undefined) {
+        if (parentSignal.aborted) {
+          abortFromParent();
+        } else {
+          parentSignal.addEventListener("abort", abortFromParent, { once: true });
+        }
+      }
+      const controllerCleanup = opts.onControllerReady?.({
+        controller,
+      });
 
-      const spawnResult = opts.invokeAgent
-        ? await opts.invokeAgent({ agent: loadedAgent, prompt, cwd: args.cwd })
-        : await loadedAgent.run(prompt, {
-            cwd: args.cwd,
-            ...(args.signal !== undefined ? { signal: args.signal } : {}),
-            ...(opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : {}),
-          });
-
-      opts.recordSpawnResult?.(spawnResult);
-
-      const porcelainAfter = readPorcelainSnapshot(opts.cwd);
-      const noDiskChangeDuringInvocation =
-        porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;
+      let spawnResult: AgentResult;
+      try {
+        spawnResult = await loadedAgent.run(prompt, {
+          cwd: args.cwd,
+          signal: controller.signal,
+          ...(opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : {}),
+          ...(opts.onSpawned !== undefined ? { onSpawned: opts.onSpawned } : {}),
+          ...(opts.lastOutputAtMs !== undefined ? { lastOutputAtMs: opts.lastOutputAtMs } : {}),
+          ...(opts.lastOutputNowMs !== undefined ? { lastOutputNowMs: opts.lastOutputNowMs } : {}),
+          ...(opts.abortKillGraceMs !== undefined ? { abortKillGraceMs: opts.abortKillGraceMs } : {}),
+        });
+      } finally {
+        if (parentSignal !== undefined && !parentSignal.aborted) {
+          parentSignal.removeEventListener("abort", abortFromParent);
+        }
+        controllerCleanup?.();
+      }
 
       const classified = applyQuotaFallbackWhenAllowed(
         opts.agentEntry.agent,
@@ -89,7 +90,7 @@ export function createReviewInvocationBinding<T extends InvocationResult = Invoc
           quotaFallback: opts.config.quotaFallback,
           weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
         },
-        opts.alwaysAllowQuotaFallback === true ? true : noDiskChangeDuringInvocation,
+        true,
       );
 
       opts.onQuotaFallbackEmit?.(opts.agentEntry.agent, spawnResult, classified);
@@ -109,10 +110,6 @@ export function createReviewInvocationBinding<T extends InvocationResult = Invoc
       return classified as T;
     },
   };
-
-  if (opts.shouldAdvance !== undefined) {
-    binding.shouldAdvance = opts.shouldAdvance as (result: T) => boolean;
-  }
 
   return binding;
 }

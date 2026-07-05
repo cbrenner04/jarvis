@@ -307,6 +307,13 @@ Steering (the API surface the TUI drives):
 - **Scope is pause / resume / kill.** That's the steering vocabulary to build
   now. Anything richer — edit a spec mid-run, inject a message, reorder steps —
   is guessing the future; defer until a real need shows up.
+- **`awaiting-human` rows bind `a` / `v` / `k`, not `r`.** Approve (`a`) and
+  abort (`k`) send `resume(runId, { decision: "approve" | "abort" })`; revise
+  (`v`) enters a local composing mode (buffer keystrokes, `Enter` submits
+  `resume(runId, { decision: "revise", prompt })`, `Escape` cancels with no
+  RPC call). Plain `resume` has no effect on `awaiting-human` runs, so `r` is
+  not bound for this state. `k` on any other status still calls the plain
+  `kill` RPC unchanged.
 
 Observability (log follow interface):
 

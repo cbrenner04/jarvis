@@ -52,14 +52,14 @@ is `resume(runId, { decision: "abort" })` (`resumeAwaitingHuman`, `daemon.ts:701
 
 ## Acceptance criteria
 
-- [ ] Pressing `a` on a selected `awaiting-human` run sends decision `approve` and the
+- [x] Pressing `a` on a selected `awaiting-human` run sends decision `approve` and the
       run's status reflects the daemon's `approve` outcome (`completed`).
-- [ ] Pressing `v` on a selected `awaiting-human` run enters composing mode; typed text
+- [x] Pressing `v` on a selected `awaiting-human` run enters composing mode; typed text
       is sent as `prompt` on `Enter`, and `Escape` cancels without any RPC call.
-- [ ] Pressing `k` on a selected `awaiting-human` run sends decision `abort` and the run's
+- [x] Pressing `k` on a selected `awaiting-human` run sends decision `abort` and the run's
       status reflects the daemon's abort outcome (`killed`); pressing `k` on a selected
       actively-running/paused run calls the existing `kill` RPC unchanged.
-- [ ] A rejected decision (e.g. revise-exhausted) surfaces inline via `steeringFeedback`
+- [x] A rejected decision (e.g. revise-exhausted) surfaces inline via `steeringFeedback`
       without closing the monitor.
 
 ## Documentation updates

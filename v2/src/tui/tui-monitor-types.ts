@@ -38,11 +38,25 @@ export type TuiMonitorControls = {
    */
   resumeSelected(): void;
   /**
-   * Signal kill for the selected run via daemon `kill`.
+   * Signal kill for the selected run via daemon `kill`, or `resume` with `decision: "abort"`
+   * when the selected run is `awaiting-human`.
    * No selection → inline `no run selected`. Success keeps the existing wait loop;
    * daemon and transport failures surface inline without closing the monitor.
    */
   killSelected(): void;
+  /**
+   * Approve the selected `awaiting-human` run via `resume` with `decision: "approve"`.
+   * No selection → inline `no run selected`. Daemon and transport failures surface inline
+   * without closing the monitor.
+   */
+  approveSelected(): void;
+  /**
+   * Revise the selected `awaiting-human` run via `resume` with `decision: "revise"` and the
+   * given prompt.
+   * No selection → inline `no run selected`. Daemon and transport failures surface inline
+   * without closing the monitor.
+   */
+  reviseSelected(prompt?: string): void;
   /** Exit the monitor. */
   quit(): void;
 };

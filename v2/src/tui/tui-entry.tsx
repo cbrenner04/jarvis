@@ -174,6 +174,41 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
     })();
   };
 
+  const runResumeDecisionAction = (decision: "approve" | "abort" | "revise", prompt?: string): void => {
+    const runId = currentState.selectedRunId;
+    if (runId === null) {
+      setState({ ...currentState, steeringFeedback: "no run selected" });
+      return;
+    }
+
+    void (async () => {
+      try {
+        await client!.resume(runId, prompt !== undefined ? { decision, prompt } : { decision });
+        if (currentState.selectedRunId !== runId) return;
+        activeWaitToken += 1;
+        lastReadyByRunId.delete(runId);
+        setState({
+          ...currentState,
+          waitState: buildWaitStateForSelection(runId),
+          steeringFeedback: null,
+        });
+        startWaitForRun(runId);
+      } catch (error) {
+        if (currentState.selectedRunId !== runId) return;
+        setState({
+          ...currentState,
+          steeringFeedback: steeringFeedbackFromError(error),
+        });
+      }
+    })();
+  };
+
+  const isSelectedAwaitingHuman = (): boolean => {
+    const runId = currentState.selectedRunId;
+    if (runId === null) return false;
+    return currentState.runs.find((run) => run.runId === runId)?.status === "awaiting-human";
+  };
+
   const refreshRuns = async (initial = false): Promise<void> => {
     if (refreshInFlight) {
       refreshQueued = true;
@@ -254,7 +289,17 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
           runSteeringAction("resume", true);
         },
         killSelected() {
+          if (isSelectedAwaitingHuman()) {
+            runResumeDecisionAction("abort");
+            return;
+          }
           runSteeringAction("kill");
+        },
+        approveSelected() {
+          runResumeDecisionAction("approve");
+        },
+        reviseSelected(prompt) {
+          runResumeDecisionAction("revise", prompt);
         },
         quit() {
           resolveQuit();

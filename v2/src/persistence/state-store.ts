@@ -261,11 +261,9 @@ class StateStoreImpl implements StateStore {
     return (
       this.db
         .prepare(`SELECT ${RUN_COLUMNS} FROM runs WHERE project = ? AND branch = ? AND step_id LIKE ? ESCAPE '\\'`)
-        .all(
-          args.project,
-          args.branch,
-          `${args.repeatStepId.replace(/[\\%_]/g, "\\$&")}~r%`,
-        ) as Array<Run & { workflowSnapshotJson: string | null }>
+        .all(args.project, args.branch, `${args.repeatStepId.replace(/[\\%_]/g, "\\$&")}~r%`) as Array<
+        Run & { workflowSnapshotJson: string | null }
+      >
     ).map(mapRunRow);
   }
 

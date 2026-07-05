@@ -101,29 +101,32 @@ afterEach(async () => {
   }
 });
 
-socketTest("revise on a dirty worktree spawns the repeated step's write loop under ~r1 and marks revising", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
-  const { humanRunId } = seedRepeatedAndHumanRuns(2);
-  dirty = true;
+socketTest(
+  "revise on a dirty worktree spawns the repeated step's write loop under ~r1 and marks revising",
+  async () => {
+    const client = await connectIpcClient(SOCKET_PATH);
+    const { humanRunId } = seedRepeatedAndHumanRuns(2);
+    dirty = true;
 
-  client.send({ kind: "request", id: "r1", method: "resume", params: { runId: humanRunId, decision: "revise" } });
-  const response = await client.nextFrame();
-  expect(response.kind).toBe("response");
-  if (response.kind === "response") {
-    expect((response.result as { stepId?: string })?.stepId).toBe("implement~r1");
-  }
+    client.send({ kind: "request", id: "r1", method: "resume", params: { runId: humanRunId, decision: "revise" } });
+    const response = await client.nextFrame();
+    expect(response.kind).toBe("response");
+    if (response.kind === "response") {
+      expect((response.result as { stepId?: string })?.stepId).toBe("implement~r1");
+    }
 
-  expect(stateStore.loadRun(humanRunId)?.status).toBe("revising");
-  const revisionRun = stateStore.findRunByProjectBranch({
-    project: "test-project",
-    branch: "test-branch",
-    stepId: "implement~r1",
-  });
-  expect(revisionRun).not.toBeNull();
-  expect(starts).toHaveLength(1);
-  expect(starts[0]?.stepId).toBe("implement~r1");
-  client.close();
-});
+    expect(stateStore.loadRun(humanRunId)?.status).toBe("revising");
+    const revisionRun = stateStore.findRunByProjectBranch({
+      project: "test-project",
+      branch: "test-branch",
+      stepId: "implement~r1",
+    });
+    expect(revisionRun).not.toBeNull();
+    expect(starts).toHaveLength(1);
+    expect(starts[0]?.stepId).toBe("implement~r1");
+    client.close();
+  },
+);
 
 socketTest("revise on a clean worktree with no prompt is rejected revise_requires_input", async () => {
   const client = await connectIpcClient(SOCKET_PATH);
@@ -238,25 +241,28 @@ socketTest("revise is rejected revise_exhausted once maxRevisions is used up", a
   client.close();
 });
 
-socketTest("resume is accepted (not rejected as terminal) once a revising run re-converges to awaiting-human", async () => {
-  const client = await connectIpcClient(SOCKET_PATH);
-  const { humanRunId } = seedRepeatedAndHumanRuns(2);
-  dirty = true;
+socketTest(
+  "resume is accepted (not rejected as terminal) once a revising run re-converges to awaiting-human",
+  async () => {
+    const client = await connectIpcClient(SOCKET_PATH);
+    const { humanRunId } = seedRepeatedAndHumanRuns(2);
+    dirty = true;
 
-  client.send({ kind: "request", id: "r1", method: "resume", params: { runId: humanRunId, decision: "revise" } });
-  expect((await client.nextFrame()).kind).toBe("response");
-  expect(stateStore.loadRun(humanRunId)?.status).toBe("revising");
+    client.send({ kind: "request", id: "r1", method: "resume", params: { runId: humanRunId, decision: "revise" } });
+    expect((await client.nextFrame()).kind).toBe("response");
+    expect(stateStore.loadRun(humanRunId)?.status).toBe("revising");
 
-  // While revising, resume is rejected rather than silently reinterpreted.
-  client.send({ kind: "request", id: "r2", method: "resume", params: { runId: humanRunId } });
-  const whileRevising = await client.nextFrame();
-  expect(whileRevising.kind).toBe("error");
+    // While revising, resume is rejected rather than silently reinterpreted.
+    client.send({ kind: "request", id: "r2", method: "resume", params: { runId: humanRunId } });
+    const whileRevising = await client.nextFrame();
+    expect(whileRevising.kind).toBe("error");
 
-  // Once re-converged (simulating executeWorkflow's next call), approve is accepted normally.
-  stateStore.setRunStatus(humanRunId, "awaiting-human");
-  client.send({ kind: "request", id: "r3", method: "resume", params: { runId: humanRunId, decision: "approve" } });
-  const afterReconverge = await client.nextFrame();
-  expect(afterReconverge.kind).toBe("response");
-  expect(stateStore.loadRun(humanRunId)?.status).toBe("completed");
-  client.close();
-});
+    // Once re-converged (simulating executeWorkflow's next call), approve is accepted normally.
+    stateStore.setRunStatus(humanRunId, "awaiting-human");
+    client.send({ kind: "request", id: "r3", method: "resume", params: { runId: humanRunId, decision: "approve" } });
+    const afterReconverge = await client.nextFrame();
+    expect(afterReconverge.kind).toBe("response");
+    expect(stateStore.loadRun(humanRunId)?.status).toBe("completed");
+    client.close();
+  },
+);

@@ -8,8 +8,8 @@ import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } fr
 import {
   defineWorkflowStep,
   executeWorkflow,
-  resolveWorkflowPreset,
   type HumanWorkflowStep,
+  resolveWorkflowPreset,
   type WorkflowStepInput,
   type WriteWorkflowStep,
 } from "./workflow-runner.ts";
@@ -899,9 +899,7 @@ describe("executeWorkflow onRevise validation", () => {
       onRevise: { repeatStepId: "no-such-step", maxRevisions: 1 },
     });
 
-    await expect(executeWorkflow({ steps: [writeStep, humanStep] })).rejects.toThrow(
-      "(step-2, no-such-step)",
-    );
+    await expect(executeWorkflow({ steps: [writeStep, humanStep] })).rejects.toThrow("(step-2, no-such-step)");
   });
 
   test("rejects a self-referencing repeatStepId", async () => {

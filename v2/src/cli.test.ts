@@ -8,6 +8,7 @@ import type { IpcClient } from "./ipc/client.ts";
 import type { IpcFrame } from "./ipc/types.ts";
 import type { PersistedRecord } from "./persistence/log-stream.ts";
 import { simulatedBindings } from "./testing/bindings.ts";
+import { mockWriteLoopInput } from "./testing/run-control.ts";
 
 function captureIo() {
   let stdout = "";
@@ -674,14 +675,7 @@ describe("v2 cli", () => {
 
   test("withOperatorSessionId does not overwrite caller-supplied telemetry", () => {
     const callerTelemetry = { sinkPath: "/tmp/t.jsonl", operatorSessionId: "caller-id", workflow: "w", role: "r" };
-    const input: WriteLoopInput = {
-      worktree: { projectRoot: "/tmp/repo", projectName: "demo", branchName: "b", baseRef: "HEAD" },
-      specPath: "spec.md",
-      stepRules: "rules",
-      expectedArtifactPath: "proof.txt",
-      bindings: [],
-      telemetry: callerTelemetry,
-    };
+    const input: WriteLoopInput = { ...mockWriteLoopInput(), telemetry: callerTelemetry };
 
     const result = withOperatorSessionId(input, "minted-id");
 

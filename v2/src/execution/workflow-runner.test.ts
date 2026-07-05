@@ -1279,7 +1279,12 @@ describe("executeWorkflow telemetry", () => {
       return { kind: "ok", stdout: "ok", stderr: "" } as const;
     });
 
-    const step = createDebateStep({ stepId: "debate-1", verdictPath: debateVerdictPath(), maxCycles: 2, createBinding });
+    const step = createDebateStep({
+      stepId: "debate-1",
+      verdictPath: debateVerdictPath(),
+      maxCycles: 2,
+      createBinding,
+    });
 
     try {
       const result = await executeWorkflow({

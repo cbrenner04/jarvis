@@ -28,12 +28,12 @@ replace the persisted fallback order without hand-editing `~/.jarvis/v2.json`.
 
 ## Acceptance criteria
 
-- [ ] `jarvis config set-agents claude,codex` writes `~/.jarvis/v2.json` with `agents: ["claude", "codex"]` in that order and preserves unrelated existing top-level keys.
-- [ ] `jarvis config set-agents claude,codex` succeeds when `~/.jarvis` or `~/.jarvis/v2.json` does not yet exist, creating what it needs.
-- [ ] `jarvis config set-agents claude,codex` prints the landed order on stdout in command order, and a later run without `--agents` uses `["claude", "codex"]` as the machine fallback order.
-- [ ] `jarvis config set-agents` with an empty segment, a duplicate name, or an `agent:model` entry exits non-zero, prints a stderr error that identifies the rejected input, leaves prior file content unchanged, and does not create `~/.jarvis/` or `v2.json` when they were absent.
-- [ ] `jarvis config set-agents claude,codex` against an existing `~/.jarvis/v2.json` that is not a valid machine-config object exits non-zero, prints a stderr error that makes the file-state problem clear, and preserves the broken file unchanged.
-- [ ] `jarvis write` / `jarvis run start` `--agents` precedence over the persisted machine config remains unchanged after using `set-agents`.
+- [x] `jarvis config set-agents claude,codex` writes `~/.jarvis/v2.json` with `agents: ["claude", "codex"]` in that order and preserves unrelated existing top-level keys.
+- [x] `jarvis config set-agents claude,codex` succeeds when `~/.jarvis` or `~/.jarvis/v2.json` does not yet exist, creating what it needs.
+- [x] `jarvis config set-agents claude,codex` prints the landed order on stdout in command order, and a later run without `--agents` uses `["claude", "codex"]` as the machine fallback order.
+- [x] `jarvis config set-agents` with an empty segment, a duplicate name, or an `agent:model` entry exits non-zero, prints a stderr error that identifies the rejected input, leaves prior file content unchanged, and does not create `~/.jarvis/` or `v2.json` when they were absent.
+- [x] `jarvis config set-agents claude,codex` against an existing `~/.jarvis/v2.json` that is not a valid machine-config object exits non-zero, prints a stderr error that makes the file-state problem clear, and preserves the broken file unchanged.
+- [x] `jarvis write` / `jarvis run start` `--agents` precedence over the persisted machine config remains unchanged after using `set-agents`.
 
 ## Documentation updates
 

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { main } from "./cli.ts";
 import type { WriteLoopInput, WriteLoopResult } from "./execution/write-loop.ts";
 import type { IpcClient } from "./ipc/client.ts";
@@ -42,6 +42,15 @@ function writeRawMachineConfig(text: string): string {
 
 function writeMachineConfig(value: unknown): string {
   return writeRawMachineConfig(JSON.stringify(value));
+}
+
+function absentMachineConfigPath(): string {
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-cli-machine-config-"));
+  return join(dir, ".jarvis", "v2.json");
+}
+
+async function setAgents(configPath: string, csv: string, io = captureIo().io): Promise<number> {
+  return main(["config", "set-agents", csv], io, { machineConfigPath: configPath });
 }
 
 const WRITE_ARGS = [
@@ -318,6 +327,194 @@ describe("v2 cli", () => {
 
     expect(code).toBe(5);
     expect(cap.read().stdout).toContain('"kind": "budget-exhausted"');
+  });
+
+  test("config set-agents writes agents, preserves unrelated keys, and later write uses the persisted order", async () => {
+    const cap = captureIo();
+    const configPath = writeMachineConfig({ other: "value", agents: ["cursor"] });
+
+    const configCode = await setAgents(configPath, "claude,codex", cap.io);
+
+    expect(configCode).toBe(0);
+    expect(cap.read()).toEqual({ stdout: '{"agents":["claude","codex"]}\n', stderr: "" });
+    expect(JSON.parse(readFileSync(configPath, "utf8"))).toEqual({
+      other: "value",
+      agents: ["claude", "codex"],
+    });
+
+    let capturedAgents: readonly string[] | undefined;
+    const writeCap = captureIo();
+    const writeCode = await main(WRITE_ARGS, writeCap.io, {
+      machineConfigPath: configPath,
+      createBindings: (agentIds) => {
+        capturedAgents = agentIds;
+        return simulatedBindings(["done"]);
+      },
+      executeWriteLoop: async () => completeResult(),
+    });
+
+    expect(writeCode).toBe(0);
+    expect(capturedAgents).toEqual(["claude", "codex"]);
+  });
+
+  test("config set-agents creates missing parent state", async () => {
+    const cap = captureIo();
+    const configPath = absentMachineConfigPath();
+
+    const code = await setAgents(configPath, "claude,codex", cap.io);
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: '{"agents":["claude","codex"]}\n', stderr: "" });
+    expect(JSON.parse(readFileSync(configPath, "utf8"))).toEqual({ agents: ["claude", "codex"] });
+  });
+
+  test("config set-agents rejects an empty CSV segment without creating bootstrap state", async () => {
+    const cap = captureIo();
+    const configPath = absentMachineConfigPath();
+
+    const code = await setAgents(configPath, "claude,,codex", cap.io);
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: 'Error: invalid agents CSV "claude,,codex": empty segment at position 2\n',
+    });
+    expect(existsSync(configPath)).toBe(false);
+    expect(existsSync(dirname(configPath))).toBe(false);
+  });
+
+  test("config set-agents rejects duplicate names without mutating the prior file", async () => {
+    const cap = captureIo();
+    const configPath = writeMachineConfig({ agents: ["cursor"], keep: true });
+    const before = readFileSync(configPath, "utf8");
+
+    const code = await setAgents(configPath, "claude,claude", cap.io);
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "Machine config 'agents' contains duplicate entry: \"claude\"\n",
+    });
+    expect(readFileSync(configPath, "utf8")).toBe(before);
+  });
+
+  test("config set-agents rejects agent:model entries without creating bootstrap state", async () => {
+    const cap = captureIo();
+    const configPath = absentMachineConfigPath();
+
+    const code = await setAgents(configPath, "claude,codex:gpt-5", cap.io);
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: 'Error: invalid agent "codex:gpt-5": expected bare agent name\n',
+    });
+    expect(existsSync(configPath)).toBe(false);
+  });
+
+  test("config set-agents refuses to overwrite an invalid machine-config file", async () => {
+    const cap = captureIo();
+    const configPath = writeRawMachineConfig("{ invalid json");
+    const before = readFileSync(configPath, "utf8");
+
+    const code = await setAgents(configPath, "claude,codex", cap.io);
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: `Failed to parse machine config at ${configPath}: invalid JSON\n`,
+    });
+    expect(readFileSync(configPath, "utf8")).toBe(before);
+  });
+
+  test("config set-agents refuses to overwrite a non-object machine-config file", async () => {
+    const cap = captureIo();
+    const configPath = writeRawMachineConfig('["claude"]\n');
+    const before = readFileSync(configPath, "utf8");
+
+    const code = await setAgents(configPath, "claude,codex", cap.io);
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: `Machine config at ${configPath} must be a JSON object, got array\n`,
+    });
+    expect(readFileSync(configPath, "utf8")).toBe(before);
+  });
+
+  test("config set-agents refuses to overwrite a machine-config file with invalid agents", async () => {
+    const cap = captureIo();
+    const configPath = writeMachineConfig({ agents: [] });
+    const before = readFileSync(configPath, "utf8");
+
+    const code = await setAgents(configPath, "claude,codex", cap.io);
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "Machine config 'agents' array must not be empty\n",
+    });
+    expect(readFileSync(configPath, "utf8")).toBe(before);
+  });
+
+  test("write --agents still overrides the persisted machine order after config set-agents", async () => {
+    const configPath = absentMachineConfigPath();
+    await setAgents(configPath, "claude,codex");
+
+    let capturedAgents: readonly string[] | undefined;
+    const writeCap = captureIo();
+    const code = await main([...WRITE_ARGS, "--agents", "cursor"], writeCap.io, {
+      machineConfigPath: configPath,
+      createBindings: (agentIds) => {
+        capturedAgents = agentIds;
+        return simulatedBindings(["done"]);
+      },
+      executeWriteLoop: async () => completeResult(),
+    });
+
+    expect(code).toBe(0);
+    expect(capturedAgents).toEqual(["cursor"]);
+  });
+
+  test("run start --agents still overrides the persisted machine order after config set-agents", async () => {
+    const configPath = absentMachineConfigPath();
+    await setAgents(configPath, "claude,codex");
+
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000021";
+    const originalRandomUuid = crypto.randomUUID;
+    crypto.randomUUID = () => requestId;
+
+    let code = NaN;
+    try {
+      code = await main([...RUN_START_ARGS, "--agents", "cursor"], cap.io, {
+        machineConfigPath: configPath,
+        connectIpcClient: async () =>
+          makeClient(
+            [
+              {
+                kind: "response",
+                id: requestId,
+                result: { runId: "run-override" },
+              },
+            ],
+            sent,
+          ),
+      });
+    } finally {
+      crypto.randomUUID = originalRandomUuid;
+    }
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "run-override\n", stderr: "" });
+    expect(sent[0]).toMatchObject({
+      params: {
+        input: {
+          bindings: [{ id: "cursor" }],
+        },
+      },
+    });
   });
 
   test("forwards parsed agents to the injected binding factory", async () => {

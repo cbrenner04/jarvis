@@ -353,9 +353,9 @@ class StateStoreImpl implements StateStore {
   }
 
   getQueuedInput(runId: string): WriteLoopInput | null {
-    const row = this.db.prepare("SELECT queued_input AS queuedInputJson FROM runs WHERE id = ?").get(runId) as
-      | { queuedInputJson: string | null }
-      | null;
+    const row = this.db.prepare("SELECT queued_input AS queuedInputJson FROM runs WHERE id = ?").get(runId) as {
+      queuedInputJson: string | null;
+    } | null;
     return row?.queuedInputJson ? (JSON.parse(row.queuedInputJson) as WriteLoopInput) : null;
   }
 
@@ -368,9 +368,9 @@ class StateStoreImpl implements StateStore {
 
   listQueuedRuns(): Run[] {
     return (
-      this.db
-        .prepare(`SELECT ${RUN_COLUMNS} FROM runs WHERE status = 'queued' ORDER BY created_at ASC`)
-        .all() as Array<Run & { workflowSnapshotJson: string | null; queuedInputJson: string | null }>
+      this.db.prepare(`SELECT ${RUN_COLUMNS} FROM runs WHERE status = 'queued' ORDER BY created_at ASC`).all() as Array<
+        Run & { workflowSnapshotJson: string | null; queuedInputJson: string | null }
+      >
     ).map(mapRunRow);
   }
 

@@ -46,7 +46,8 @@ function createFakeWriteLoopExecutor() {
       }
     },
     pendingCount: (): number => pending.length,
-    pendingKeys: (): string[] => pending.map((run) => `${run.input.worktree.projectName}:${run.input.worktree.branchName}`),
+    pendingKeys: (): string[] =>
+      pending.map((run) => `${run.input.worktree.projectName}:${run.input.worktree.branchName}`),
   };
 }
 
@@ -104,26 +105,29 @@ afterEach(async () => {
   }
 });
 
-socketTest("promotes the oldest queued run before a younger one once memory clears and the settle delay has elapsed", async () => {
-  await startHandlers(0);
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+socketTest(
+  "promotes the oldest queued run before a younger one once memory clears and the settle delay has elapsed",
+  async () => {
+    await startHandlers(0);
+    const client = await connectIpcClient(SOCKET_PATH, 2_000);
 
-  memoryHeadroom = false;
-  const runIdA = await startRun(client, mockWriteLoopInput({ projectName: "project-a" }));
-  const runIdB = await startRun(client, mockWriteLoopInput({ projectName: "project-b" }));
-  expect(stateStore.loadRun(runIdA!)?.status).toBe("queued");
-  expect(stateStore.loadRun(runIdB!)?.status).toBe("queued");
+    memoryHeadroom = false;
+    const runIdA = await startRun(client, mockWriteLoopInput({ projectName: "project-a" }));
+    const runIdB = await startRun(client, mockWriteLoopInput({ projectName: "project-b" }));
+    expect(stateStore.loadRun(runIdA!)?.status).toBe("queued");
+    expect(stateStore.loadRun(runIdB!)?.status).toBe("queued");
 
-  memoryHeadroom = true;
-  // A start on a distinct, unrelated key triggers the post-admit promotion check.
-  await startRun(client, mockWriteLoopInput({ projectName: "project-trigger" }));
-  await flushBackgroundRuns();
+    memoryHeadroom = true;
+    // A start on a distinct, unrelated key triggers the post-admit promotion check.
+    await startRun(client, mockWriteLoopInput({ projectName: "project-trigger" }));
+    await flushBackgroundRuns();
 
-  expect(stateStore.loadRun(runIdA!)?.status).toBe("in-progress");
-  expect(stateStore.loadRun(runIdB!)?.status).toBe("queued");
+    expect(stateStore.loadRun(runIdA!)?.status).toBe("in-progress");
+    expect(stateStore.loadRun(runIdB!)?.status).toBe("queued");
 
-  client.close();
-});
+    client.close();
+  },
+);
 
 socketTest("a queued run stays queued while memory stays below the watermark", async () => {
   await startHandlers(0);
@@ -137,84 +141,93 @@ socketTest("a queued run stays queued while memory stays below the watermark", a
   client.close();
 });
 
-socketTest("promoting one queued run does not touch an already-running run when headroom later reports insufficient", async () => {
-  await startHandlers(100_000);
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+socketTest(
+  "promoting one queued run does not touch an already-running run when headroom later reports insufficient",
+  async () => {
+    await startHandlers(100_000);
+    const client = await connectIpcClient(SOCKET_PATH, 2_000);
 
-  const runningId = await startRun(client, mockWriteLoopInput({ projectName: "project-running" }));
+    const runningId = await startRun(client, mockWriteLoopInput({ projectName: "project-running" }));
 
-  memoryHeadroom = false;
-  const queuedId = await startRun(client, mockWriteLoopInput({ projectName: "project-queued" }));
-  expect(stateStore.loadRun(queuedId!)?.status).toBe("queued");
+    memoryHeadroom = false;
+    const queuedId = await startRun(client, mockWriteLoopInput({ projectName: "project-queued" }));
+    expect(stateStore.loadRun(queuedId!)?.status).toBe("queued");
 
-  memoryHeadroom = true;
-  // A start on a distinct, unrelated key admits directly and triggers the post-admit
-  // promotion check; project-running is never touched by it.
-  await startRun(client, mockWriteLoopInput({ projectName: "project-trigger" }));
-  await flushBackgroundRuns();
+    memoryHeadroom = true;
+    // A start on a distinct, unrelated key admits directly and triggers the post-admit
+    // promotion check; project-running is never touched by it.
+    await startRun(client, mockWriteLoopInput({ projectName: "project-trigger" }));
+    await flushBackgroundRuns();
 
-  expect(stateStore.loadRun(queuedId!)?.status).toBe("in-progress");
-  expect(stateStore.loadRun(runningId!)?.status).toBe("in-progress");
+    expect(stateStore.loadRun(queuedId!)?.status).toBe("in-progress");
+    expect(stateStore.loadRun(runningId!)?.status).toBe("in-progress");
 
-  // Memory now drops below the watermark again; project-running's status must never
-  // change as a side effect of headroom checks — there is no preemption.
-  memoryHeadroom = false;
-  await flushBackgroundRuns();
-  expect(stateStore.loadRun(runningId!)?.status).toBe("in-progress");
+    // Memory now drops below the watermark again; project-running's status must never
+    // change as a side effect of headroom checks — there is no preemption.
+    memoryHeadroom = false;
+    await flushBackgroundRuns();
+    expect(stateStore.loadRun(runningId!)?.status).toBe("in-progress");
 
-  client.close();
-});
+    client.close();
+  },
+);
 
-socketTest("a queued run whose key is claimed by a live run is skipped in favor of the next-oldest eligible queued run", async () => {
-  await startHandlers(0);
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+socketTest(
+  "a queued run whose key is claimed by a live run is skipped in favor of the next-oldest eligible queued run",
+  async () => {
+    await startHandlers(0);
+    const client = await connectIpcClient(SOCKET_PATH, 2_000);
 
-  const liveKey = mockWriteLoopInput({ projectName: "project-live" });
-  const liveRunId = await startRun(client, liveKey);
+    const liveKey = mockWriteLoopInput({ projectName: "project-live" });
+    const liveRunId = await startRun(client, liveKey);
 
-  memoryHeadroom = false;
-  const blockedQueuedId = await startRun(client, liveKey);
-  const eligibleQueuedId = await startRun(client, mockWriteLoopInput({ projectName: "project-eligible" }));
-  expect(stateStore.loadRun(blockedQueuedId!)?.status).toBe("queued");
-  expect(stateStore.loadRun(eligibleQueuedId!)?.status).toBe("queued");
+    memoryHeadroom = false;
+    const blockedQueuedId = await startRun(client, liveKey);
+    const eligibleQueuedId = await startRun(client, mockWriteLoopInput({ projectName: "project-eligible" }));
+    expect(stateStore.loadRun(blockedQueuedId!)?.status).toBe("queued");
+    expect(stateStore.loadRun(eligibleQueuedId!)?.status).toBe("queued");
 
-  memoryHeadroom = true;
-  await startRun(client, mockWriteLoopInput({ projectName: "project-trigger" }));
-  await flushBackgroundRuns();
+    memoryHeadroom = true;
+    await startRun(client, mockWriteLoopInput({ projectName: "project-trigger" }));
+    await flushBackgroundRuns();
 
-  expect(stateStore.loadRun(eligibleQueuedId!)?.status).toBe("in-progress");
-  expect(stateStore.loadRun(blockedQueuedId!)?.status).toBe("queued");
-  expect(stateStore.loadRun(liveRunId!)?.status).toBe("in-progress");
+    expect(stateStore.loadRun(eligibleQueuedId!)?.status).toBe("in-progress");
+    expect(stateStore.loadRun(blockedQueuedId!)?.status).toBe("queued");
+    expect(stateStore.loadRun(liveRunId!)?.status).toBe("in-progress");
 
-  client.close();
-});
+    client.close();
+  },
+);
 
-socketTest("a start that queues because memory is briefly tight is promoted immediately once memory has already recovered", async () => {
-  let calls = 0;
-  server = await startIpcServer(
-    SOCKET_PATH,
-    createRunControlHandlers({
-      stateStore,
-      writeLoopExecutor: fakeExecutor.executor,
-      failureReporter: () => {},
-      // Reports no headroom for the initial admission check, then recovered for the
-      // immediate recheck performed right after the row is persisted.
-      hasMemoryHeadroom: () => {
-        calls += 1;
-        return calls > 1;
-      },
-      settleDelayMs: 0,
-    }),
-  );
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+socketTest(
+  "a start that queues because memory is briefly tight is promoted immediately once memory has already recovered",
+  async () => {
+    let calls = 0;
+    server = await startIpcServer(
+      SOCKET_PATH,
+      createRunControlHandlers({
+        stateStore,
+        writeLoopExecutor: fakeExecutor.executor,
+        failureReporter: () => {},
+        // Reports no headroom for the initial admission check, then recovered for the
+        // immediate recheck performed right after the row is persisted.
+        hasMemoryHeadroom: () => {
+          calls += 1;
+          return calls > 1;
+        },
+        settleDelayMs: 0,
+      }),
+    );
+    const client = await connectIpcClient(SOCKET_PATH, 2_000);
 
-  const runId = await startRun(client, mockWriteLoopInput({ projectName: "project-recovering" }));
-  await flushBackgroundRuns();
+    const runId = await startRun(client, mockWriteLoopInput({ projectName: "project-recovering" }));
+    await flushBackgroundRuns();
 
-  expect(stateStore.loadRun(runId!)?.status).toBe("in-progress");
+    expect(stateStore.loadRun(runId!)?.status).toBe("in-progress");
 
-  client.close();
-});
+    client.close();
+  },
+);
 
 socketTest("a run reaching a paused status frees its key for promotion of an eligible queued run", async () => {
   await startHandlers(0);

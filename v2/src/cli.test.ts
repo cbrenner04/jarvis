@@ -427,6 +427,36 @@ describe("v2 cli", () => {
     expect(readFileSync(configPath, "utf8")).toBe(before);
   });
 
+  test("config set-agents refuses to overwrite a non-object machine-config file", async () => {
+    const cap = captureIo();
+    const configPath = writeRawMachineConfig('["claude"]\n');
+    const before = readFileSync(configPath, "utf8");
+
+    const code = await setAgents(configPath, "claude,codex", cap.io);
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: `Machine config at ${configPath} must be a JSON object, got array\n`,
+    });
+    expect(readFileSync(configPath, "utf8")).toBe(before);
+  });
+
+  test("config set-agents refuses to overwrite a machine-config file with invalid agents", async () => {
+    const cap = captureIo();
+    const configPath = writeMachineConfig({ agents: [] });
+    const before = readFileSync(configPath, "utf8");
+
+    const code = await setAgents(configPath, "claude,codex", cap.io);
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "Machine config 'agents' array must not be empty\n",
+    });
+    expect(readFileSync(configPath, "utf8")).toBe(before);
+  });
+
   test("write --agents still overrides the persisted machine order after config set-agents", async () => {
     const configPath = absentMachineConfigPath();
     await setAgents(configPath, "claude,codex");

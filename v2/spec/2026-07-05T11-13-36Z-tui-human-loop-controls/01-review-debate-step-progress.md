@@ -27,6 +27,10 @@ comment at `workflow-runner.ts:465`).
   the current-role pointer, not the state store.
 - Deferred to first consumer: exact resume/replay semantics for a `review-debate`
   step interrupted mid-cycle — pin when a caller needs it.
+- The live-role pointer is cycle-agnostic: `executeReviewDebate` may loop through
+  the four roles across multiple cycles, and the row always reflects the
+  current/latest cycle's role — a role reappearing after `actuator` (next cycle
+  restarting at `adversary`) is expected, not a stuck or reset row.
 
 ## Task Checklist
 
@@ -38,6 +42,12 @@ comment at `workflow-runner.ts:465`).
 - [ ] Extend `workflowStepSnapshot`/`workflowRowSnapshot` (`v2/src/daemon/daemon.ts`)
       to build a step row for a `review-debate` step from that live pointer plus
       terminal `roleResults` once the cycle ends.
+- [ ] Add a `review-debate.test.ts` case asserting the live-role pointer/callback fires
+      with each role in order (`adversary`→`advocate`→`adjudicator`→`actuator`) as
+      `executeReviewDebate` progresses, including across a second cycle.
+- [ ] Add a `daemon.test.ts` (or equivalent) case asserting `workflowStepSnapshot`/
+      `workflowRowSnapshot` builds a `review-debate` row from the live pointer while
+      in progress, and from terminal `roleResults` once the cycle ends.
 
 ## Acceptance criteria
 
@@ -46,6 +56,10 @@ comment at `workflow-runner.ts:465`).
 - [ ] Once the cycle completes or stops, the row's `status`/`terminalOutcome` matches
       the same vocabulary (`completed`/`complete`, or a stop outcome) already used
       for `write` steps.
+- [ ] New `review-debate.test.ts` coverage exercises the live-role pointer advancing
+      through a full cycle (and into a second cycle), and new daemon-side test coverage
+      exercises building a `review-debate` row from both the live pointer and terminal
+      `roleResults`.
 - [ ] `review-debate.test.ts` and `workflow-runner.test.ts` existing suites stay green
       (no behavior change to the debate cycle itself, only observability).
 

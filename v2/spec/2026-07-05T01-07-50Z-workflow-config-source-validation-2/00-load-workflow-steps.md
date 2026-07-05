@@ -73,15 +73,15 @@ only names a role per step has no path to real config.
 
 ## Acceptance criteria
 
-- [ ] Loading a workflow source whose step names a role with no `(agent,
+- [x] Loading a workflow source whose step names a role with no `(agent,
       role)` entry for one of the machine's configured agents fails before
       any step executes, and the error names the offending step and role.
-- [ ] Loading a workflow source whose steps all resolve for every configured
+- [x] Loading a workflow source whose steps all resolve for every configured
       agent succeeds and produces steps that run via the existing workflow
       runner unchanged.
-- [ ] A workflow source with multiple missing step/role/agent bindings fails
+- [x] A workflow source with multiple missing step/role/agent bindings fails
       with all of them named in one load error, not just the first.
-- [ ] Loading a workflow source when machine config has no `agents` key
+- [x] Loading a workflow source when machine config has no `agents` key
       succeeds using `DEFAULT_WRITE_AGENTS` as the agent order.
-- [ ] Loading a workflow source with a step naming `role: "operator"` fails
+- [x] Loading a workflow source with a step naming `role: "operator"` fails
       at load, naming the offending step.

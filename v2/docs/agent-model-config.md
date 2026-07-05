@@ -248,13 +248,19 @@ and capability-floor filtering are deferred until a workflow consumer needs them
 
 Config load validates the config artifact itself. It does **not** prove that a
 loaded workflow source is runnable: the workflow may still name a role absent
-from the loaded config. Before any workflow runs, `executeWorkflow` validates
-the loaded `steps` array against the current machine `agents` order and loaded
-`AgentModelConfig`; every step role must resolve for every configured agent via
-an own `(agent, role)` entry. Inherited object properties do not count. There
-is no deferred first-invocation fallback if a later configured agent misses the
-role. After that gate, the current runner still executes the step's supplied
-`bindings` unchanged.
+from the loaded config. `loadWorkflowSteps` (see
+[`workflow-runner.md`](workflow-runner.md#loading-workflow-steps)) assembles
+`agents`/`agentModelConfig` for a `WorkflowSourceStep[]` from the machine's
+configured agent order and this data file, rejects any step naming
+`role: "operator"` or a role outside the closed `Role` union, and runs the same
+per-step role-resolution check once at load. `executeWorkflow` still separately
+validates the loaded `steps` array against the current machine `agents` order
+and loaded `AgentModelConfig` on every invocation (including resume), whether
+or not steps came from `loadWorkflowSteps`; every step role must resolve for
+every configured agent via an own `(agent, role)` entry. Inherited object
+properties do not count. There is no deferred first-invocation fallback if a
+later configured agent misses the role. After that gate, the current runner
+still executes the step's supplied `bindings` unchanged.
 
 ## CLI override
 

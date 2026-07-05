@@ -14,10 +14,10 @@ runs with `telemetry` undefined.
 
 ## Acceptance criteria
 
-- [ ] A `write` command invocation with no caller-supplied `telemetry` calls `executeWriteLoop` with `input.telemetry.operatorSessionId` set to a non-empty string minted by that `main()` call.
-- [ ] Two separate `main()` invocations of the `write` command produce two different `operatorSessionId` values.
-- [ ] A `write` command invocation whose parsed input already sets `telemetry.operatorSessionId` is left unchanged (CLI does not overwrite caller-supplied telemetry).
-- [ ] `cli.test.ts` existing tests stay green (behavior otherwise unchanged).
+- [x] A `write` command invocation with no caller-supplied `telemetry` calls `executeWriteLoop` with `input.telemetry.operatorSessionId` set to a non-empty string minted by that `main()` call.
+- [x] Two separate `main()` invocations of the `write` command produce two different `operatorSessionId` values.
+- [x] A `write` command invocation whose parsed input already sets `telemetry.operatorSessionId` is left unchanged (CLI does not overwrite caller-supplied telemetry).
+- [x] `cli.test.ts` existing tests stay green (behavior otherwise unchanged).
 
 ## Documentation updates
 

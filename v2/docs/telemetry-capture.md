@@ -132,6 +132,10 @@ roll-ups (`operator-costs`, `operator-outcomes` grain) are
 `GROUP BY operator_session_id` over telemetry — not a separate manual CSV row
 the harness does not know about.
 
+The CLI bootstrap point is implemented: `v2/src/cli.ts` `main()` mints one id
+per process invocation and tags the direct (non-daemon) `write` path unless
+the caller already supplied `telemetry`.
+
 External operator CLI cost (Claude `/cost`, opencode SQLite) joins at **export
 time** by time overlap or explicit session tag until a concrete integration
 exists. That join is not a capture-path requirement for v2 telemetry v1.

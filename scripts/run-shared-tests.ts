@@ -1,20 +1,20 @@
 import { spawnSync } from "node:child_process";
 import { type TestSliceMode, sliceTestFiles, walkTestFiles } from "./test-slice.ts";
 
-export function walkV2TestFiles(root = "v2"): string[] {
-  return walkTestFiles(root);
+export function walkSharedTestFiles(): string[] {
+  return [...walkTestFiles("shared"), ...walkTestFiles("test")];
 }
 
-export function v2Tests(mode: TestSliceMode): string[] {
-  return sliceTestFiles(walkV2TestFiles(), mode);
+export function sharedTests(mode: TestSliceMode): string[] {
+  return sliceTestFiles(walkSharedTestFiles(), mode);
 }
 
 if (import.meta.main) {
   const mode = process.argv[2];
-  const files = mode === "integration" || mode === "agent" ? v2Tests(mode) : [];
+  const files = mode === "integration" || mode === "agent" ? sharedTests(mode) : [];
 
   if (files.length === 0) {
-    process.stderr.write(`error: unknown or empty v2 test mode "${mode ?? ""}"\n`);
+    process.stderr.write(`error: unknown or empty shared test mode "${mode ?? ""}"\n`);
     process.exit(1);
   }
 

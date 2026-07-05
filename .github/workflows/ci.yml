@@ -61,6 +61,10 @@ jobs:
         if: contains(steps.scope.outputs.scripts, 'test:v1')
         run: bun run test:v1
 
+      - name: Test (v1 integration)
+        if: contains(steps.scope.outputs.scripts, 'test:integration:v1')
+        run: bun run test:integration:v1
+
       - name: Test (v2)
         if: contains(steps.scope.outputs.scripts, 'test:v2')
         run: bun run test:v2
@@ -68,3 +72,11 @@ jobs:
       - name: Test (v2 integration)
         if: contains(steps.scope.outputs.scripts, 'test:integration:v2')
         run: bun run test:integration:v2
+
+      - name: Test (shared)
+        if: contains(steps.scope.outputs.scripts, 'test:shared')
+        run: bun run test:shared
+
+      - name: Test (shared integration)
+        if: contains(steps.scope.outputs.scripts, 'test:integration:shared')
+        run: bun run test:integration:shared

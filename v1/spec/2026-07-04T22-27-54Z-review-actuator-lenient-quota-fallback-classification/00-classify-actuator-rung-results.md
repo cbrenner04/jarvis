@@ -34,10 +34,10 @@ every other per-agent fallback loop in the codebase.
 
 ## Acceptance criteria
 
-- [ ] With `quotaFallback: "lenient"` and an exit code in `weakQuotaExitCodes`, a non-final actuator rung's `error` result falls through to the next configured `reviewActuatorOrder` agent instead of terminating the review pass.
-- [ ] The same lenient match on the final configured rung terminates the review pass with the existing quota-exhausted terminal error (exit code 1, `actuator failed: quota`), matching today's native-quota final-rung behavior.
-- [ ] Existing strict-quota (including auth-rotate) and idle-timeout actuator fallback behavior is unchanged.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] With `quotaFallback: "lenient"` and an exit code in `weakQuotaExitCodes`, a non-final actuator rung's `error` result falls through to the next configured `reviewActuatorOrder` agent instead of terminating the review pass.
+- [x] The same lenient match on the final configured rung terminates the review pass with the existing quota-exhausted terminal error (exit code 1, `actuator failed: quota`), matching today's native-quota final-rung behavior.
+- [x] Existing strict-quota (including auth-rotate) and idle-timeout actuator fallback behavior is unchanged.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

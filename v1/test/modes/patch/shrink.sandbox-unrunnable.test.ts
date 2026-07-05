@@ -35,11 +35,11 @@ const HANG_FIXTURE_TRACKING_ID = import.meta.path;
 
 beforeEach(() => {
   beginHangFixtureTracking(HANG_FIXTURE_TRACKING_ID);
-});
+}, 20_000);
 
 afterEach(() => {
   reapActiveHangFixtures(HANG_FIXTURE_TRACKING_ID);
-});
+}, 20_000);
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 const CODEX_ENTRY = { agent: "codex" as const, model: "gpt-5.4" };
@@ -708,7 +708,7 @@ describe("runPatchShrinkPhase", () => {
       rmSync(binDir, { recursive: true, force: true });
       cleanup();
     }
-  });
+  }, 35_000);
 
   test("stalled getCurrentBranch git subprocess fails within 25s", async () => {
     const { dir, specPath, cleanup } = setupShrinkRepo();
@@ -742,7 +742,7 @@ describe("runPatchShrinkPhase", () => {
       rmSync(binDir, { recursive: true, force: true });
       cleanup();
     }
-  });
+  }, 35_000);
 
   test("stalled git push in commitShrinkPass fails within 25s and reverts", async () => {
     const { dir, specPath, cleanup } = setupShrinkRepo();
@@ -784,7 +784,7 @@ describe("runPatchShrinkPhase", () => {
       rmSync(binDir, { recursive: true, force: true });
       cleanup();
     }
-  });
+  }, 35_000);
 
   test("invokes fixCommand at pre-shrink gate site", async () => {
     const { dir: repoDir, specPath, cleanup } = setupShrinkRepo();

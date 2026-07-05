@@ -42,11 +42,11 @@ const behindBase = (baseRefName: string) => () => ({ status: "behind" as const, 
 
 beforeEach(() => {
   beginHangFixtureTracking(HANG_FIXTURE_TRACKING_ID);
-});
+}, 20_000);
 
 afterEach(() => {
   reapActiveHangFixtures(HANG_FIXTURE_TRACKING_ID);
-});
+}, 20_000);
 
 class FakeAgent implements Agent {
   readonly name: AgentName;
@@ -368,7 +368,7 @@ describe("patch review helpers", () => {
       rmSync(binDir, { recursive: true, force: true });
       cleanup();
     }
-  });
+  }, 35_000);
 });
 
 describe("runPatchReviewPhase", () => {
@@ -516,6 +516,97 @@ describe("runPatchReviewPhase", () => {
     }
   });
 
+  test("actuator lenient weak-quota fallback advances to next rung on non-final agent", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    try {
+      const reviewer = new FakeAgent("claude", (_callCount, prompt) => ({
+        kind: "ok",
+        stdout: prompt.includes("Review: Adjudicator") ? "apply fix\n" : "finding\n",
+        stderr: "",
+      }));
+      const claudeActuator = new FakeAgent("claude", () => ({ kind: "error", exitCode: 17, stderr: "rate limited" }));
+      const codexActuator = new FakeAgent("codex", () => ({ kind: "ok", stdout: "done\n", stderr: "" }));
+      const harness: string[] = [];
+      const telemetry: Array<{ agent?: string; exitReason?: string; kind?: string }> = [];
+
+      const code = await runPatchReviewPhase({
+        config: {
+          ...makeReviewConfig({
+            reviewOrder: [CLAUDE_ENTRY],
+            patchOrder: [CLAUDE_ENTRY],
+            reviewActuatorOrder: [CLAUDE_ENTRY, CODEX_ENTRY],
+          }),
+          quotaFallback: "lenient",
+          weakQuotaExitCodes: [17],
+        },
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout: (tag, text) => {
+          if (tag === "harness") harness.push(text.trim());
+        },
+        writeTelemetry: (record) => telemetry.push(record),
+        agents: { claude: reviewer },
+        actuatorAgents: [claudeActuator, codexActuator],
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+      });
+
+      expect(code).toBe(0);
+      expect(claudeActuator.calls).toHaveLength(1);
+      expect(codexActuator.calls).toHaveLength(1);
+      expect(harness.some((line) => line.includes("review: claude:") && line.includes("quota"))).toBe(true);
+      const fallbackRow = telemetry.find((r) => r.exitReason === "quota-fallback");
+      expect(fallbackRow?.agent).toBe("claude");
+      expect(fallbackRow?.kind).toBe("quota");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("actuator lenient weak-quota fallback on final rung terminates like native quota", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    try {
+      const reviewer = new FakeAgent("claude", (_callCount, prompt) => ({
+        kind: "ok",
+        stdout: prompt.includes("Review: Adjudicator") ? "apply fix\n" : "finding\n",
+        stderr: "",
+      }));
+      const claudeActuator = new FakeAgent("claude", () => ({ kind: "error", exitCode: 17, stderr: "rate limited" }));
+      const telemetry: Array<{ agent?: string; exitReason?: string; kind?: string }> = [];
+
+      const code = await runPatchReviewPhase({
+        config: {
+          ...makeReviewConfig({
+            reviewOrder: [CLAUDE_ENTRY],
+            patchOrder: [CLAUDE_ENTRY],
+            reviewActuatorOrder: [CLAUDE_ENTRY],
+          }),
+          quotaFallback: "lenient",
+          weakQuotaExitCodes: [17],
+        },
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout: () => {},
+        writeTelemetry: (record) => telemetry.push(record),
+        agents: { claude: reviewer },
+        actuatorAgents: [claudeActuator],
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+      });
+
+      expect(code).toBe(11);
+      const finalRow = telemetry.find((r) => r.exitReason === "quota");
+      expect(finalRow?.agent).toBe("claude");
+      expect(finalRow?.kind).toBe("quota");
+    } finally {
+      cleanup();
+    }
+  });
+
   test("uses reviewActuator head for verdict actuator only", async () => {
     const { dir, specPath, cleanup } = setupPatchReviewRepo();
     try {
@@ -587,47 +678,6 @@ describe("runPatchReviewPhase", () => {
         baseBranch: "main",
       });
       expect(quotaCode).toBe(11);
-    } finally {
-      cleanup();
-    }
-  });
-
-  test("ordinary weak-quota errors stay terminal in review actuator", async () => {
-    const { dir, specPath, cleanup } = setupPatchReviewRepo();
-    try {
-      const claudeActuator = new FakeAgent("claude", () => ({
-        kind: "error",
-        exitCode: 429,
-        stderr: "rate_limit_exceeded",
-        stdout: "",
-      }));
-      const codexActuator = new FakeAgent("codex", () => ({ kind: "ok", stdout: "done\n", stderr: "" }));
-
-      const code = await runPatchReviewPhase({
-        config: {
-          ...makeReviewConfig({
-            reviewOrder: [CLAUDE_ENTRY],
-            patchOrder: [CLAUDE_ENTRY],
-            reviewActuatorOrder: [CLAUDE_ENTRY, CODEX_ENTRY],
-          }),
-          quotaFallback: "lenient",
-          weakQuotaExitCodes: [429],
-        },
-        cwd: dir,
-        specPath,
-        reviewPassesOverride: 1,
-        skipGates: true,
-        fanout: () => {},
-        writeTelemetry: () => {},
-        agents: { claude: new FakeAgent("claude", () => ({ kind: "ok", stdout: "finding\n", stderr: "" })) },
-        actuatorAgents: [claudeActuator, codexActuator],
-        iterationTimeoutMs: 30_000,
-        baseBranch: "main",
-      });
-
-      expect(code).toBe(11);
-      expect(claudeActuator.calls).toHaveLength(1);
-      expect(codexActuator.calls).toHaveLength(0);
     } finally {
       cleanup();
     }

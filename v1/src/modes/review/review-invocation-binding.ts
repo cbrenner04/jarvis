@@ -13,8 +13,6 @@ export type ReviewInvocationBindingOptions = {
   loadAgent: (args: { name: string; model: string }) => Agent;
 
   onQuotaFallbackEmit?: ((agentName: AgentName, spawnResult: AgentResult, classified: AgentResult) => void) | undefined;
-  /** Debate roles allow lenient weak-quota upgrades; the actuator keeps weak-quota errors terminal. Default true. */
-  allowLenientWeakQuotaFallback?: boolean | undefined;
   recordAttemptTelemetry?: ((data: ReviewAttemptContext) => void | Promise<void>) | undefined;
   additionalReadDirs?: string[] | undefined;
   onSpawned?: AgentRunOptions["onSpawned"] | undefined;
@@ -92,7 +90,7 @@ export function createReviewInvocationBinding<T extends InvocationResult = Invoc
           quotaFallback: opts.config.quotaFallback,
           weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
         },
-        opts.allowLenientWeakQuotaFallback ?? true,
+        true,
       );
 
       opts.onQuotaFallbackEmit?.(opts.agentEntry.agent, spawnResult, classified);

@@ -201,8 +201,16 @@ describe("loadMachineConfigMemory", () => {
     expect(() => loadMachineConfigMemory(configPath)).toThrow(/'memory' must be an object/);
   });
 
-  test("'memory' with no 'minFreeGb' key returns undefined", () => {
-    expect(loadMachineConfigMemory(writeConfig({ memory: {} }))).toBeUndefined();
+  test("'memory' with no 'minFreeGb' key returns minFreeGb undefined with default settleDelayMs", () => {
+    expect(loadMachineConfigMemory(writeConfig({ memory: {} }))).toEqual({
+      minFreeGb: undefined,
+      settleDelayMs: 2000,
+    });
+  });
+
+  test("'memory.settleDelayMs' is honored when 'minFreeGb' is absent", () => {
+    const result = loadMachineConfigMemory(writeConfig({ memory: { settleDelayMs: 5000 } }));
+    expect(result).toEqual({ minFreeGb: undefined, settleDelayMs: 5000 });
   });
 
   test("'memory.minFreeGb' of zero throws", () => {

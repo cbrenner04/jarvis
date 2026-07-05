@@ -27,7 +27,7 @@ export function readMachineConfigDocument(
   return parsed as Record<string, unknown>;
 }
 
-export function validateMachineConfigMemory(memory: unknown): { minFreeGb: number; settleDelayMs: number } | undefined {
+export function validateMachineConfigMemory(memory: unknown): { minFreeGb: number | undefined; settleDelayMs: number } {
   if (typeof memory !== "object" || memory === null || Array.isArray(memory)) {
     throw new Error(
       `Machine config 'memory' must be an object, got ${Array.isArray(memory) ? "array" : memory === null ? "null" : typeof memory}`,
@@ -44,7 +44,7 @@ export function validateMachineConfigMemory(memory: unknown): { minFreeGb: numbe
   }
 
   if (!("minFreeGb" in memory)) {
-    return undefined;
+    return { minFreeGb: undefined, settleDelayMs };
   }
 
   const minFreeGb = (memory as Record<string, unknown>).minFreeGb;
@@ -93,7 +93,7 @@ export function loadMachineConfig(configPath: string = join(homedir(), ".jarvis"
 
 export function loadMachineConfigMemory(
   configPath: string = join(homedir(), ".jarvis", "v2.json"),
-): { minFreeGb: number; settleDelayMs: number } | undefined {
+): { minFreeGb: number | undefined; settleDelayMs: number } | undefined {
   const parsed = readMachineConfigDocument(configPath);
   if (parsed === undefined || !("memory" in parsed)) {
     return undefined;

@@ -5,7 +5,7 @@ const BYTES_PER_GB = 1024 ** 3;
 
 export function hasMemoryHeadroom(configPath?: string, freeMemReader: () => number = freemem): boolean {
   const memory = loadMachineConfigMemory(configPath);
-  if (memory === undefined) {
+  if (memory === undefined || memory.minFreeGb === undefined) {
     return true;
   }
 

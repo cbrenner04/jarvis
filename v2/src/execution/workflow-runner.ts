@@ -160,7 +160,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
 }
 
 /** Fail before durable state changes if any step role is missing from its agent config. */
-function validateWorkflowStepRoles(steps: readonly WorkflowStep[]): void {
+export function validateWorkflowStepRoles(steps: readonly WorkflowStep[]): void {
   const missingBindings: string[] = [];
 
   for (const step of steps) {

@@ -34,6 +34,7 @@ let stateStore: StateStore;
 let server: IpcServer;
 let dirty: boolean;
 let starts: WriteLoopInput[];
+let holdNextWriteLoop: boolean;
 
 function seedRepeatedAndHumanRuns(maxRevisions: number): { repeatedRunId: string; humanRunId: string } {
   const snapshot = workflowSnapshot(maxRevisions);
@@ -70,12 +71,19 @@ beforeEach(async () => {
   stateStore = openStateStore(join(tmpdir(), `jarvis-state-revise-${process.pid}-${Date.now()}.db`));
   dirty = true;
   starts = [];
+  holdNextWriteLoop = false;
 
   const handlers = createRunControlHandlers({
     stateStore,
     writeLoopExecutor: async (input) => {
       starts.push(input);
-      // Settle immediately: tests only assert on spawn-time state.
+      if (holdNextWriteLoop) {
+        holdNextWriteLoop = false;
+        await new Promise<void>(() => {
+          // Never resolves: keeps the worktree claimed for the test's lifetime.
+        });
+      }
+      // Otherwise settle immediately: tests only assert on spawn-time state.
     },
     failureReporter: () => {},
     isWorktreeDirty: () => dirty,
@@ -237,6 +245,33 @@ socketTest("revise is rejected revise_exhausted once maxRevisions is used up", a
   expect(response.kind).toBe("error");
   if (response.kind === "error") {
     expect(response.code).toBe("revise_exhausted");
+  }
+  client.close();
+});
+
+socketTest("revise rejects worktree_claimed when the (project, branch) is already live", async () => {
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+  const { humanRunId } = seedRepeatedAndHumanRuns(2);
+  dirty = true;
+  holdNextWriteLoop = true;
+
+  client.send({ kind: "request", id: "r1", method: "resume", params: { runId: humanRunId, decision: "revise" } });
+  expect((await client.nextFrame()).kind).toBe("response");
+
+  const firstRevisionRun = stateStore.findRunByProjectBranch({
+    project: "test-project",
+    branch: "test-branch",
+    stepId: "implement~r1",
+  });
+  if (!firstRevisionRun) throw new Error("expected ~r1 revision run to exist");
+  stateStore.setRunStatus(firstRevisionRun.id, "completed");
+  stateStore.setRunStatus(humanRunId, "awaiting-human");
+
+  client.send({ kind: "request", id: "r2", method: "resume", params: { runId: humanRunId, decision: "revise" } });
+  const response = await client.nextFrame();
+  expect(response.kind).toBe("error");
+  if (response.kind === "error") {
+    expect(response.code).toBe("worktree_claimed");
   }
   client.close();
 });

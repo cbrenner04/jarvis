@@ -78,6 +78,24 @@ export class WorktreeOwnershipRegistry {
   }
 }
 
+/**
+ * Rejects with `worktree_claimed` when a live run already holds `key`, or
+ * returns `undefined` when the worktree is free to claim.
+ */
+export function checkWorktreeClaimed(
+  registry: WorktreeOwnershipRegistry,
+  key: OwnershipKey,
+): { kind: "error"; code: "worktree_claimed"; message: string } | undefined {
+  if (!registry.isClaimed(key)) {
+    return undefined;
+  }
+  return {
+    kind: "error",
+    code: "worktree_claimed",
+    message: `Worktree already claimed for project=${key.project}, branch=${key.branch}`,
+  };
+}
+
 function isTerminalRunStatus(status: RunStatus): boolean {
   return (
     status === "completed" || status === "blocked" || status === "killed" || status === "paused" || status === "failed"
@@ -533,12 +551,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
 
     // Claimed by a live run? Reject rather than queue behind or admit a second live run.
-    if (_registry.isClaimed(key)) {
-      return {
-        kind: "error",
-        code: "worktree_claimed",
-        message: `Worktree already claimed for project=${key.project}, branch=${key.branch}`,
-      };
+    const claimError = checkWorktreeClaimed(_registry, key);
+    if (claimError) {
+      return claimError;
     }
 
     const worktreePath = getExternalWorktreePath(input.worktree);
@@ -726,12 +741,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
 
     const key: OwnershipKey = { project: repeatedRun.project, branch: repeatedRun.branch };
-    if (_registry.isClaimed(key)) {
-      return {
-        kind: "error",
-        code: "worktree_claimed",
-        message: `Worktree already claimed for project=${key.project}, branch=${key.branch}`,
-      };
+    const claimError = checkWorktreeClaimed(_registry, key);
+    if (claimError) {
+      return claimError;
     }
 
     const stepId = revisionStepId(onRevise.repeatStepId, n);
@@ -849,12 +861,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
     const key: OwnershipKey = { project: run.project, branch: run.branch };
 
-    if (_registry.isClaimed(key)) {
-      return {
-        kind: "error",
-        code: "worktree_claimed",
-        message: `Worktree already claimed for project=${key.project}, branch=${key.branch}`,
-      };
+    const claimError = checkWorktreeClaimed(_registry, key);
+    if (claimError) {
+      return claimError;
     }
 
     // Reconstruct WriteLoopInput from the run and spawn write loop via injected executor

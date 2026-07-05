@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DaemonDoubleClaimError, WorktreeOwnershipRegistry } from "./daemon";
+import { checkWorktreeClaimed, DaemonDoubleClaimError, WorktreeOwnershipRegistry } from "./daemon";
 
 describe("WorktreeOwnershipRegistry", () => {
   test("claim and release", () => {
@@ -45,5 +45,26 @@ describe("WorktreeOwnershipRegistry", () => {
     expect(registry.isClaimed(key1)).toBe(true);
     expect(registry.isClaimed(key2)).toBe(false);
     expect(registry.isClaimed(key3)).toBe(true);
+  });
+});
+
+describe("checkWorktreeClaimed", () => {
+  test("returns undefined when key is unclaimed", () => {
+    const registry = new WorktreeOwnershipRegistry();
+    const key = { project: "test-proj", branch: "main" };
+
+    expect(checkWorktreeClaimed(registry, key)).toBeUndefined();
+  });
+
+  test("returns worktree_claimed error when key is claimed", () => {
+    const registry = new WorktreeOwnershipRegistry();
+    const key = { project: "test-proj", branch: "main" };
+    registry.claim(key, { runId: "run-123", worktreePath: "/tmp/wt" });
+
+    expect(checkWorktreeClaimed(registry, key)).toEqual({
+      kind: "error",
+      code: "worktree_claimed",
+      message: "Worktree already claimed for project=test-proj, branch=main",
+    });
   });
 });

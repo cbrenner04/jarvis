@@ -976,6 +976,28 @@ socketTest("resume admits a paused run while another run is in-flight", async ()
   client.close();
 });
 
+socketTest("resume rejects worktree_claimed when the (project, branch) is already live", async () => {
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+  await startRun(client);
+
+  const pausedRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "test-branch",
+    specPath: "/tmp/test-project/spec.md",
+  });
+  stateStore.setRunStatus(pausedRunId, "paused");
+
+  client.send({ kind: "request", id: "r1", method: "resume", params: { runId: pausedRunId } });
+  const resumeResponse = await client.nextFrame();
+  expect(resumeResponse.kind).toBe("error");
+  if (resumeResponse.kind === "error") {
+    expect(resumeResponse.code).toBe("worktree_claimed");
+  }
+  client.close();
+});
+
 socketTest("kill aborts the abort signal that bindings can observe", async () => {
   const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const runId = await startRun(client);

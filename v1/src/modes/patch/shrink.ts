@@ -428,7 +428,9 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
       agentName: headEntry.agent,
       configuredModel,
       createAgent: (_agentName, _model) =>
-        opts.shrinkAgents?.[rungIndex] ?? opts.agents?.[headEntry.agent] ?? createAgent(headEntry.agent, configuredModel),
+        opts.shrinkAgents?.[rungIndex] ??
+        opts.agents?.[headEntry.agent] ??
+        createAgent(headEntry.agent, configuredModel),
       config: opts.config,
       cwd: opts.cwd,
       abortKillGraceMs: killGraceMs,
@@ -527,7 +529,12 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
     bindings,
   });
 
-  const writeRung = (attempt: ShrinkAgentAttemptData, kind: TelemetryKind, exitReason: string, usageResult?: AgentResult) => {
+  const writeRung = (
+    attempt: ShrinkAgentAttemptData,
+    kind: TelemetryKind,
+    exitReason: string,
+    usageResult?: AgentResult,
+  ) => {
     const telemetryMeta = attempt.configuredModel ? { configured_model: attempt.configuredModel } : {};
     opts.writeTelemetry({
       agent: attempt.agentName,

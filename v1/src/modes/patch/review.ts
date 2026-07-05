@@ -915,7 +915,9 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           adapter: actuatorAdapter,
           roleContext: ctx,
           loadAgent: () =>
-            actuatorAgents?.[rungIndex] ?? opts.agents?.[agentEntry.agent] ?? createAgent(agentEntry.agent, agentEntry.model),
+            actuatorAgents?.[rungIndex] ??
+            opts.agents?.[agentEntry.agent] ??
+            createAgent(agentEntry.agent, agentEntry.model),
           abortKillGraceMs: killGraceMs,
           lastOutputAtMs: bindingStates[rungIndex]!.lastOutputAtMs,
           onSpawned: ({ pid }) => {
@@ -1007,7 +1009,9 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       for (const [index, binding] of bindings.entries()) {
         const state = bindingStates[index]!;
         const outboundAgentName =
-          actuatorAgents?.[index]?.name ?? opts.agents?.[actuatorOrder[index]!.agent]?.name ?? actuatorOrder[index]!.agent;
+          actuatorAgents?.[index]?.name ??
+          opts.agents?.[actuatorOrder[index]!.agent]?.name ??
+          actuatorOrder[index]!.agent;
         binding.shouldAdvance = (result) =>
           result.kind === "quota" || (result.kind === "error" && result.stderr.includes("aborted: idle-timeout"));
         binding.invoke = ((originalInvoke) => {
@@ -1075,7 +1079,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
         }
       }
 
-      const finalAttempt = execution.final === null ? null : attemptContexts[execution.attempts.length - 1] ?? null;
+      const finalAttempt = execution.final === null ? null : (attemptContexts[execution.attempts.length - 1] ?? null);
       if (execution.final === null || finalAttempt === null) {
         opts.fanout("harness", "review: actuator no agents available\n", "stderr");
         throw new ReviewTerminalError("actuator no agents available", 2);

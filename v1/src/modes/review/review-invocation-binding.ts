@@ -32,7 +32,7 @@ export type ReviewInvocationBindingOptions<_T extends InvocationResult = Invocat
   lastOutputNowMs?: AgentRunOptions["lastOutputNowMs"] | undefined;
   abortKillGraceMs?: number | undefined;
   onControllerReady?:
-    | ((ctx: { controller: AbortController; signal: AbortSignal }) => void | (() => void))
+    | ((ctx: { controller: AbortController; signal: AbortSignal }) => undefined | (() => void))
     | undefined;
   now?: (() => number) | undefined;
 };

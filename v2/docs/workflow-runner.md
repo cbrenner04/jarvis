@@ -28,16 +28,31 @@ flattened with each agent's configured rungs for that `role`. Quota on an
 earlier binding can therefore fall through across both the current agent's rung
 list and a later configured agent binding before the step succeeds.
 
-For each step in order:
+For each `write` step in order:
 1. Run its write loop (via `executeWriteLoop`) to a terminal outcome.
 2. If the outcome is `complete`, advance to the next step.
 3. Any other terminal outcome (`blocked`, `contract_miss`, `invocation_failure`) or soft-stop (`budget-exhausted`, `paused`) stops the workflow at that step — no later steps are run.
+
+A `human` step (see [`role-resolution.md`](role-resolution.md#role--behavior-reference))
+dispatches to a separate path that never calls `executeWriteLoop`: the runner
+creates or loads that step's `(project, branch, stepId)` run row and sets its
+status to `awaiting-human` directly via the state store, then stops the
+workflow — `executeWorkflow` returns `WorkflowResult.kind === "awaiting-human"`.
+A human step has no attempt/outcome history and no worktree of its own — its
+run identity is `(project, branch)` carried on the step itself, not derived
+from a `write-behavior.md` worktree. Reaching a human step appends no
+`## Blocker` section to any spec file; that helper is contract-miss-specific
+write-loop output, not a human-review signal. A human step whose run is
+already `completed` (via decision-gated resume) is treated like a completed
+write step: the workflow advances past it with no new work.
 
 In the supported `write-write` composition, step two begins only after step one
 reaches `complete`. Workflow success means both step-local write loops
 completed, not just step one.
 
-Return `WorkflowResult` indicates which step produced the stopping outcome, its run ID, total iterations consumed across all steps, and resumability.
+Return `WorkflowResult` indicates which step produced the stopping outcome
+(`awaiting-human` included), its run ID, total iterations consumed across all
+steps, and resumability.
 
 Each step run also persists the workflow invocation snapshot that launched it:
 one `invocationId` plus the authored `steps[]` metadata (`stepId`, `role`,
@@ -48,15 +63,21 @@ durable attempt history alone. See [`daemon-host.md`](daemon-host.md#workflow-sn
 ## Authoring helper and presets
 
 `defineWorkflowStep(...)` is the authoring helper for one concrete workflow step.
-It takes `{ stepId, role, behavior, ... }`, where `behavior` is the closed
-vocabulary from [`role-resolution.md`](role-resolution.md#role--behavior-reference).
-Today only `behavior: "write"` is valid, so the rest of the input is the full
-[`write-behavior.md`](write-behavior.md) loop shape plus per-step loop controls
-(`maxIterations`, `signal`, `pauseSignal`). Workflow infrastructure such as
-`stateStore` and `logSink` is not part of the public step contract; the runner
-normalizes those once at workflow scope. The helper returns the
-`WorkflowStep` consumed by `executeWorkflow` and passes those loop-control fields
-through unchanged.
+`WorkflowStepInput` (identical in shape to the runtime `WorkflowStep`) is a
+discriminated union on `behavior`:
+
+- `behavior: "write"` — `{ stepId, role, ... }`, the full
+  [`write-behavior.md`](write-behavior.md) loop shape plus per-step loop
+  controls (`maxIterations`, `signal`, `pauseSignal`). Workflow infrastructure
+  such as `stateStore` and `logSink` is not part of the public step contract;
+  the runner normalizes those once at workflow scope.
+- `behavior: "human"` — `{ stepId, project, branch }` only. It carries none of
+  the write-loop-only fields (`role`, `agents`, `stepRules`,
+  `agentModelConfig`, `expectedArtifactPath`) and no `worktree` — see
+  [Execution contract](#execution-contract) above.
+
+The helper returns the `WorkflowStep` consumed by `executeWorkflow`, passing
+loop-control fields through unchanged for `write` steps.
 
 `resolveWorkflowPreset(name, steps)` validates a named preset's fixed step count
 and returns a `WorkflowStep[]`. Callers supply `stepId`, `role`, and the rest of
@@ -82,7 +103,9 @@ through its own `stepId`-scoped run lookup (via
 `findRunByProjectBranch({ project, branch, stepId })`): a step whose run is
 already `completed` returns its stored result idempotently with no new work
 and no binding resolution, and the first non-completed step becomes the first
-step that performs fresh execution.
+step that performs fresh execution. A `human` step re-entered before its
+decision lands re-converges to `awaiting-human` idempotently (same status,
+same run row) rather than performing fresh execution.
 
 The step-level loop-boundary resume rules are unchanged from the single-step
 write loop: an `in-progress` attempt is re-run over a dirty worktree; a

@@ -57,7 +57,7 @@ Valid JSON with missing or invalid `kind` closes the connection.
 | `list` | — | `{ runs: Array<{runId, project, branch, status, isLive, error?, workflow?}> }` | List durable runs merged with in-memory liveness; `isLive=true` only while the loop's Promise is executing. After spawn-boundary executor failure: `status: "failed"`, `isLive: false` (see [Spawn-boundary failure capture](#spawn-boundary-failure-capture)). Optional `error` on non-success terminals (see [Operator error on list and wait](#operator-error-on-list-and-wait)). Workflow-backed rows may also carry authored per-step progress (see [Workflow snapshots on list rows](#workflow-snapshots-on-list-rows)). |
 | `pause` | `{ runId: string }` | `{ ok: true }` | Signal graceful pause for an active run. The run continues at the next iteration boundary (in-flight step is not aborted). Rejected if run is unknown or not active. |
 | `kill` | `{ runId: string }` | `{ ok: true }` | Abort the run's signal immediately and record durable status `killed`. Leaves the worktree dirty. Rejected if run is unknown or not active. |
-| `resume` | `{ runId: string }` | `{ ok: true }` | Resume a paused/killed run, re-invoking `executeWriteLoop` under the start guards. A paused run continues with a fresh attempt; a killed run re-runs the interrupted step. Rejected if run is unknown, in terminal status, or if another run is active (single in-flight guard or per-key guard violation). |
+| `resume` | `{ runId: string }` | `{ ok: true }` | Resume a paused/killed run, re-invoking `executeWriteLoop` under the start guards. A paused run continues with a fresh attempt; a killed run re-runs the interrupted step. Rejected `terminal_run` if status is `completed`, `failed`, `blocked`, or `awaiting-human`; rejected if run is unknown, or if another run is active (single in-flight guard or per-key guard violation). |
 | `wait` | `{ runId: string }` | `{ runStatus, loopOutcomeKind?, iterationsConsumed?, resumable?, error? }` | Long-running one-shot wait for the next invocation boundary. In-progress runs resolve on the next `loop_finished` or `run_execution_failed` after the subscribe cursor. Quiescent runs return immediately from durable status plus the last terminal log signal. Optional `error` matches `list` for the same run (see [Operator error on list and wait](#operator-error-on-list-and-wait)). |
 
 Unknown `method` returns `error` correlated to the request `id` (connection
@@ -175,7 +175,11 @@ Rules:
 - `status` is closed: `pending | in_progress | completed | stopped`.
 - `terminalOutcome` is present only for terminal steps:
   `completed -> "complete"` and
-  `stopped -> "blocked" | "contract_miss" | "invocation_failure" | "budget-exhausted" | "paused" | "killed"`.
+  `stopped -> "blocked" | "contract_miss" | "invocation_failure" | "budget-exhausted" | "paused" | "killed" | "awaiting-human"`.
+  A `human` step converges to run status `awaiting-human`, reported as
+  `status: "stopped"`, `terminalOutcome: "awaiting-human"` — distinct from
+  `blocked`, since a human gate awaits a decision rather than an unresolvable
+  contract miss.
 - `attemptCount` counts started durable attempts for that step, including an
   active in-progress attempt.
 - Live snapshots expose at most one `in_progress` step; quiescent snapshots

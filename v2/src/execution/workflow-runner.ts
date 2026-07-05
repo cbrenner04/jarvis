@@ -17,7 +17,8 @@ const WORKFLOW_PRESET_LENGTHS = {
 export type WorkflowPresetName = keyof typeof WORKFLOW_PRESET_LENGTHS;
 
 /** Per-step write-loop input plus workflow identity; bindings are derived at execution. */
-export type WorkflowStep = Omit<WriteLoopInput, "bindings"> & {
+export type WriteWorkflowStep = Omit<WriteLoopInput, "bindings"> & {
+  behavior: "write";
   stepId: string;
   role: string;
   agents: readonly string[];
@@ -25,14 +26,28 @@ export type WorkflowStep = Omit<WriteLoopInput, "bindings"> & {
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
 };
 
-/** Authoring input for `defineWorkflowStep`; `behavior` is metadata until the runner dispatches on it. */
-export type WorkflowStepInput = WorkflowStep & {
-  behavior: "write";
+/**
+ * A human decision gate. Carries none of the write-loop-only fields (`role`,
+ * `agents`, `stepRules`, `agentModelConfig`, `expectedArtifactPath`) and no
+ * `worktree` of its own — only the `(project, branch)` identity its run row
+ * needs, distinct from the worktree a later `onRevise` decision may name.
+ */
+export type HumanWorkflowStep = {
+  behavior: "human";
+  stepId: string;
+  project: string;
+  branch: string;
 };
+
+/** One authored workflow step, dispatched on `behavior` at execution. */
+export type WorkflowStep = WriteWorkflowStep | HumanWorkflowStep;
+
+/** Authoring input for `defineWorkflowStep`, identical in shape to `WorkflowStep`. */
+export type WorkflowStepInput = WorkflowStep;
 
 /** Result of a workflow invocation. */
 export type WorkflowResult = {
-  kind: WriteLoopOutcomeKind;
+  kind: WriteLoopOutcomeKind | "awaiting-human";
   stepIndex: number;
   stepId: string;
   runId: string;
@@ -47,15 +62,15 @@ export type WorkflowRunnerInput = {
   logSink?: LogSink;
 };
 
-/** Strip authoring-only `behavior` and return the runtime `WorkflowStep` shape. */
-export function defineWorkflowStep({ behavior: _behavior, ...step }: WorkflowStepInput): WorkflowStep {
+/** Build the runtime `WorkflowStep` shape from authoring input; `behavior` selects the dispatch path. */
+export function defineWorkflowStep(step: WorkflowStepInput): WorkflowStep {
   return step;
 }
 
 /** Validate preset step count and return the supplied steps unchanged. */
 export function resolveWorkflowPreset(
   name: WorkflowPresetName,
-  steps: Omit<WorkflowStepInput, "behavior">[],
+  steps: Omit<WriteWorkflowStep, "behavior">[],
 ): WorkflowStep[] {
   const expected = WORKFLOW_PRESET_LENGTHS[name];
   if (expected === undefined) {
@@ -113,6 +128,29 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       const step = args.steps[stepIndex];
       if (!step) throw new Error("Unreachable: step undefined in bounded loop");
 
+      if (step.behavior === "human") {
+        const humanStep = prepareHumanWorkflowStep(step, workflowSnapshot, store);
+        if (humanStep.kind === "completed") {
+          lastStepId = step.stepId;
+          lastResult = {
+            kind: "complete",
+            runId: humanStep.runId,
+            iterationsConsumed: 0,
+            resumable: false,
+          };
+          continue;
+        }
+
+        return {
+          kind: "awaiting-human",
+          stepIndex,
+          stepId: step.stepId,
+          runId: humanStep.runId,
+          iterationsConsumed: totalIterationsConsumed,
+          resumable: false,
+        };
+      }
+
       const preparedStep = prepareWorkflowStep(step, workflowSnapshot, store, args.logSink);
       if (preparedStep.kind === "completed") {
         lastStepId = step.stepId;
@@ -164,6 +202,7 @@ export function validateWorkflowStepRoles(steps: readonly WorkflowStep[]): void 
   const missingBindings: string[] = [];
 
   for (const step of steps) {
+    if (step.behavior !== "write") continue;
     for (const agent of step.agents) {
       const agentEntry = step.agentModelConfig[agent];
       if (!agentEntry || !Object.hasOwn(agentEntry, step.role)) {
@@ -177,15 +216,22 @@ export function validateWorkflowStepRoles(steps: readonly WorkflowStep[]): void 
   }
 }
 
+/** `(project, branch)` run identity for a step, regardless of behavior. */
+function stepIdentity(step: WorkflowStep): { project: string; branch: string } {
+  return step.behavior === "human"
+    ? { project: step.project, branch: step.branch }
+    : { project: step.worktree.projectName, branch: step.worktree.branchName };
+}
+
 function buildWorkflowSnapshot(steps: readonly WorkflowStep[], store: StateStore): WorkflowSnapshot {
-  const authoredSteps = steps.map(({ stepId, role }) => ({ stepId, role }));
+  const authoredSteps = steps.map((step) => ({
+    stepId: step.stepId,
+    role: step.behavior === "write" ? step.role : "",
+  }));
 
   for (const step of steps) {
-    const existingRun = store.findRunByProjectBranch({
-      project: step.worktree.projectName,
-      branch: step.worktree.branchName,
-      stepId: step.stepId,
-    });
+    const { project, branch } = stepIdentity(step);
+    const existingRun = store.findRunByProjectBranch({ project, branch, stepId: step.stepId });
     const candidate = existingRun?.workflowSnapshot;
     if (candidate !== null && candidate !== undefined && snapshotMatchesAuthoredSteps(candidate, authoredSteps)) {
       return candidate;
@@ -214,8 +260,43 @@ function snapshotMatchesAuthoredSteps(
   );
 }
 
+type PreparedHumanStep = { kind: "completed"; runId: string } | { kind: "awaiting-human"; runId: string };
+
+/**
+ * Reaching a human step converges its run to `awaiting-human` directly via the
+ * state store — no write loop, no attempt/outcome history, no `## Blocker` spec edit.
+ */
+function prepareHumanWorkflowStep(
+  step: HumanWorkflowStep,
+  workflowSnapshot: WorkflowSnapshot,
+  store: StateStore,
+): PreparedHumanStep {
+  const existingRun = store.findRunByProjectBranch({
+    project: step.project,
+    branch: step.branch,
+    stepId: step.stepId,
+  });
+  if (existingRun?.status === "completed") {
+    return { kind: "completed", runId: existingRun.id };
+  }
+
+  const runId =
+    existingRun?.id ??
+    store.createRun({
+      project: step.project,
+      specRef: "",
+      worktreePath: "",
+      branch: step.branch,
+      specPath: "",
+      stepId: step.stepId,
+      workflowSnapshot,
+    });
+  store.setRunStatus(runId, "awaiting-human");
+  return { kind: "awaiting-human", runId };
+}
+
 function prepareWorkflowStep(
-  step: WorkflowStep,
+  step: WriteWorkflowStep,
   workflowSnapshot: WorkflowSnapshot,
   store: StateStore,
   logSink?: LogSink,
@@ -229,7 +310,7 @@ function prepareWorkflowStep(
     return { kind: "completed", runId: existingRun.id };
   }
 
-  const { stepId, role, agents, agentModelConfig, createBinding, ...loopInput } = step;
+  const { stepId, role, agents, agentModelConfig, createBinding, behavior: _behavior, ...loopInput } = step;
   const executableRole = resolveExecutableRole(role);
   const bindings = resolveInvocationBindings(
     executableRole,

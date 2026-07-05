@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { type LoadError, loadAgentModelConfig, resolveExecutableRole } from "../config/agent-model-config.ts";
 import { loadMachineConfig } from "../config/machine-config-loader.ts";
-import { validateWorkflowStepRoles, type WorkflowStep } from "./workflow-runner.ts";
+import { validateWorkflowStepRoles, type WriteWorkflowStep } from "./workflow-runner.ts";
 import { DEFAULT_WRITE_AGENTS } from "./write-loop-input.ts";
 
 const AGENT_MODEL_CONFIG_PATH = join(import.meta.dir, "..", "..", "..", "data", "agent-model-config.json");
@@ -10,8 +10,8 @@ function isLoadError(value: unknown): value is LoadError {
   return typeof value === "object" && value !== null && "errors" in value && Array.isArray((value as LoadError).errors);
 }
 
-/** Authored step: `WorkflowStep` minus config-derived `agents`/`agentModelConfig`. */
-export type WorkflowSourceStep = Omit<WorkflowStep, "agents" | "agentModelConfig">;
+/** Authored step: `WriteWorkflowStep` minus config-derived `agents`/`agentModelConfig`. */
+export type WorkflowSourceStep = Omit<WriteWorkflowStep, "agents" | "agentModelConfig">;
 
 /** Test-only path overrides. */
 export type LoadWorkflowStepsDeps = {
@@ -23,7 +23,7 @@ export type LoadWorkflowStepsDeps = {
 export function loadWorkflowSteps(
   steps: readonly WorkflowSourceStep[],
   deps: LoadWorkflowStepsDeps = {},
-): WorkflowStep[] {
+): WriteWorkflowStep[] {
   const agents = loadMachineConfig(deps.machineConfigPath) ?? DEFAULT_WRITE_AGENTS;
 
   const loadResult = loadAgentModelConfig(deps.agentModelConfigPath ?? AGENT_MODEL_CONFIG_PATH, agents);

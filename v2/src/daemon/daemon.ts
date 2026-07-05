@@ -167,7 +167,8 @@ type WorkflowStepTerminalOutcome =
   | "invocation_failure"
   | "budget-exhausted"
   | "paused"
-  | "killed";
+  | "killed"
+  | "awaiting-human";
 
 type WorkflowStepListSnapshot = {
   stepId: string;
@@ -236,6 +237,7 @@ function stoppedOutcomeForRun(run: LoadedRun): Exclude<WorkflowStepTerminalOutco
   if (run.status === "budget-soft-stopped") return "budget-exhausted";
   if (run.status === "paused") return "paused";
   if (run.status === "killed") return "killed";
+  if (run.status === "awaiting-human") return "awaiting-human";
   return "invocation_failure";
 }
 
@@ -506,7 +508,12 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
 
     // Reject terminal statuses
-    if (run.status === "completed" || run.status === "failed" || run.status === "blocked") {
+    if (
+      run.status === "completed" ||
+      run.status === "failed" ||
+      run.status === "blocked" ||
+      run.status === "awaiting-human"
+    ) {
       return { kind: "error", code: "terminal_run", message: `Cannot resume a ${run.status} run` };
     }
 

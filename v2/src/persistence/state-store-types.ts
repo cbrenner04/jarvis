@@ -7,6 +7,7 @@ export const RUN_STATUSES = [
   "paused",
   "failed",
   "killed",
+  "awaiting-human",
 ] as const;
 
 export type RunStatus = (typeof RUN_STATUSES)[number];

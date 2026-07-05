@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { InvocationBinding, InvocationResult } from "../../../shared/invocation/execute.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { openStateStore } from "../persistence/state-store.ts";
@@ -8,8 +9,9 @@ import {
   defineWorkflowStep,
   executeWorkflow,
   resolveWorkflowPreset,
-  type WorkflowStep,
+  type HumanWorkflowStep,
   type WorkflowStepInput,
+  type WriteWorkflowStep,
 } from "./workflow-runner.ts";
 
 const { roots } = trackedTempRoots();
@@ -35,7 +37,7 @@ const NO_STEP_ROLES_CONFIG: AgentModelConfig = {
 function createBindingFactory(
   invoke: (binding: { agentId: string; adapterModel: string; cwd: string }) => Promise<InvocationResult>,
   onResolve?: (binding: { agentId: string; adapterModel: string }) => void,
-): NonNullable<WorkflowStep["createBinding"]> {
+): NonNullable<WriteWorkflowStep["createBinding"]> {
   return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) => {
     onResolve?.({ agentId, adapterModel });
     return {
@@ -70,12 +72,17 @@ function quotaUntilDoneBindingFactory(invocations: string[]) {
 }
 
 function createStep(
-  overrides: Partial<Omit<WorkflowStep, "worktree">> & { stepId: string; role: string; branchName?: string },
-): WorkflowStep {
+  overrides: Partial<Omit<WriteWorkflowStep, "worktree" | "behavior">> & {
+    stepId: string;
+    role: string;
+    branchName?: string;
+  },
+): WriteWorkflowStep {
   const home = createJarvisHome();
   roots.push(home.jarvisRoot);
   const { branchName, ...rest } = overrides;
   return {
+    behavior: "write",
     worktree: {
       projectRoot: "/fake",
       projectName: "demo",
@@ -95,13 +102,13 @@ function createStep(
 }
 
 function createStepInput(
-  overrides: Partial<Omit<WorkflowStepInput, "worktree" | "behavior">> & {
+  overrides: Partial<Omit<WriteWorkflowStep, "worktree" | "behavior">> & {
     stepId: string;
     role: string;
     branchName?: string;
   },
 ): WorkflowStepInput {
-  return { ...createStep(overrides), behavior: "write" };
+  return createStep(overrides);
 }
 
 describe("defineWorkflowStep", () => {
@@ -118,6 +125,8 @@ describe("defineWorkflowStep", () => {
         pauseSignal,
       }),
     );
+
+    if (step.behavior !== "write") throw new Error("Expected a write step");
 
     expect(step.stepId).toBe("step-1");
     expect(step.role).toBe("implement");
@@ -275,7 +284,7 @@ describe("executeWorkflow", () => {
     function createProofBindingFactory(
       stepId: string,
       tokens: readonly string[],
-    ): NonNullable<WorkflowStep["createBinding"]> {
+    ): NonNullable<WriteWorkflowStep["createBinding"]> {
       let tokenIndex = 0;
 
       return createBindingFactory(
@@ -634,6 +643,95 @@ describe("executeWorkflow", () => {
     } finally {
       store.close();
     }
+  });
+});
+
+function createHumanStep(overrides: Partial<HumanWorkflowStep> & { stepId: string }): HumanWorkflowStep {
+  return {
+    behavior: "human",
+    project: "demo",
+    branch: "human-workflow",
+    ...overrides,
+  };
+}
+
+describe("executeWorkflow human steps", () => {
+  test("converges to awaiting-human without running a write loop", async () => {
+    const store = openStateStore(":memory:");
+    const writeStep = createStep({ stepId: "step-1", role: "implement", branchName: "human-workflow" });
+    const humanStep = createHumanStep({ stepId: "step-2" });
+
+    try {
+      const result = await executeWorkflow({ steps: [writeStep, humanStep], stateStore: store });
+
+      expect(result.kind).toBe("awaiting-human");
+      expect(result.stepIndex).toBe(1);
+      expect(result.stepId).toBe("step-2");
+      expect(result.resumable).toBe(false);
+
+      const run = store.findRunByProjectBranch({ project: "demo", branch: "human-workflow", stepId: "step-2" });
+      expect(run?.status).toBe("awaiting-human");
+      expect(run?.attempts).toHaveLength(0);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("appends no ## Blocker section to a prior step's spec on reaching a human step", async () => {
+    const store = openStateStore(":memory:");
+    const home = createJarvisHome();
+    roots.push(home.jarvisRoot);
+    const writeStep = {
+      ...createStep({ stepId: "step-1", role: "implement", branchName: "human-no-blocker" }),
+      worktree: {
+        projectRoot: "/fake",
+        projectName: "demo",
+        branchName: "human-no-blocker",
+        baseRef: "HEAD",
+        jarvisRoot: home.jarvisRoot,
+      },
+      withExternalWorktree: createFakeWithExternalWorktree(home.jarvisRoot),
+    };
+    const humanStep = createHumanStep({ stepId: "step-2", branch: "human-no-blocker" });
+
+    try {
+      await executeWorkflow({ steps: [writeStep, humanStep], stateStore: store });
+
+      const specPath = join(home.jarvisRoot, "worktrees", "demo", "human-no-blocker", "spec.md");
+      expect(readFileSync(specPath, "utf8")).not.toContain("## Blocker");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("a completed human step advances the workflow", async () => {
+    const store = openStateStore(":memory:");
+    const writeStep = createStep({ stepId: "step-1", role: "implement", branchName: "human-advance" });
+    const humanStep = createHumanStep({ stepId: "step-2", branch: "human-advance" });
+    const finalStep = createStep({ stepId: "step-3", role: "implement", branchName: "human-advance" });
+
+    try {
+      const firstResult = await executeWorkflow({ steps: [writeStep, humanStep, finalStep], stateStore: store });
+      expect(firstResult.kind).toBe("awaiting-human");
+
+      store.setRunStatus(firstResult.runId, "completed");
+
+      const secondResult = await executeWorkflow({ steps: [writeStep, humanStep, finalStep], stateStore: store });
+      expect(secondResult.kind).toBe("complete");
+      expect(secondResult.stepIndex).toBe(2);
+      expect(secondResult.stepId).toBe("step-3");
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("defineWorkflowStep human steps", () => {
+  test("accepts a human-behavior input and returns the corresponding step shape", () => {
+    const step = defineWorkflowStep(createHumanStep({ stepId: "gate-1" }));
+
+    expect(step.behavior).toBe("human");
+    expect(step.stepId).toBe("gate-1");
   });
 });
 

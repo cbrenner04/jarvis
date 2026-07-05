@@ -371,6 +371,17 @@ socketTest(
       outcomeKind: "contract_miss",
     });
 
+    const awaitingHumanRunId = stateStore.createRun({
+      project: "wf-outcomes",
+      specRef: "main",
+      worktreePath: "/tmp/wf-outcomes",
+      branch: "wf-human",
+      specPath: "/tmp/spec.md",
+      stepId: "step-human",
+      workflowSnapshot: workflowSnapshot({ stepId: "step-human", role: "implement" }),
+    });
+    stateStore.setRunStatus(awaitingHumanRunId, "awaiting-human");
+
     const runs = await listRuns(client);
     expect(runs?.find((row) => row.runId === budgetRunId)?.workflow).toEqual({
       steps: [
@@ -401,6 +412,17 @@ socketTest(
           status: "stopped",
           attemptCount: 1,
           terminalOutcome: "contract_miss",
+        },
+      ],
+    });
+    expect(runs?.find((row) => row.runId === awaitingHumanRunId)?.workflow).toEqual({
+      steps: [
+        {
+          stepId: "step-human",
+          role: "implement",
+          status: "stopped",
+          attemptCount: 0,
+          terminalOutcome: "awaiting-human",
         },
       ],
     });
@@ -632,6 +654,28 @@ socketTest("resume rejects terminal run status", async () => {
   if (resumeResponse.kind === "error") {
     expect(resumeResponse.code).toBe("terminal_run");
     expect(resumeResponse.message).toBe("Cannot resume a completed run");
+  }
+  client.close();
+});
+
+socketTest("resume rejects an awaiting-human run", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+
+  const runId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "human-branch",
+    specPath: "/tmp/test-project/spec.md",
+  });
+  stateStore.setRunStatus(runId, "awaiting-human");
+
+  client.send({ kind: "request", id: "r1", method: "resume", params: { runId } });
+  const resumeResponse = await client.nextFrame();
+  expect(resumeResponse.kind).toBe("error");
+  if (resumeResponse.kind === "error") {
+    expect(resumeResponse.code).toBe("terminal_run");
+    expect(resumeResponse.message).toBe("Cannot resume a awaiting-human run");
   }
   client.close();
 });

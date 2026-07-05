@@ -910,7 +910,10 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       }));
 
       const bindings = actuatorOrder.map((agentEntry, rungIndex) => {
-        const bindingState = bindingStates[rungIndex]!;
+        const bindingState = bindingStates[rungIndex];
+        if (bindingState === undefined) {
+          throw new Error(`missing binding state at rung ${rungIndex}`);
+        }
         let spawnResultForBinding: AgentResult | undefined;
         let binding: InvocationBinding<AgentResult>;
 

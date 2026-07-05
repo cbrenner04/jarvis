@@ -483,6 +483,10 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
     idleTimeoutHandle: null as NodeJS.Timeout | null,
   }));
   const bindings = reviewActuatorOrder.map((headEntry, rungIndex) => {
+    const bindingState = bindingStates[rungIndex];
+    if (bindingState === undefined) {
+      throw new Error(`missing binding state at rung ${rungIndex}`);
+    }
     const configuredModel = headEntry.model;
     const binding = createShrinkInvocationBinding<AgentResult>({
       agentName: headEntry.agent,
@@ -493,9 +497,8 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
         createAgent(headEntry.agent, configuredModel),
       config: opts.config,
       abortKillGraceMs: killGraceMs,
-      lastOutputAtMs: bindingStates[rungIndex]!.lastOutputAtMs,
+      lastOutputAtMs: bindingState.lastOutputAtMs,
       onControllerReady: ({ controller }) => {
-        const bindingState = bindingStates[rungIndex]!;
         bindingState.timeoutHandle = setTimeout(() => {
           controller.abort("shrink-timeout");
         }, opts.iterationTimeoutMs);
@@ -572,7 +575,6 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
       (attemptResult.kind === "error" && attemptResult.stderr.includes("aborted: idle-timeout"));
     binding.invoke = ((originalInvoke) => {
       return (args) => {
-        const bindingState = bindingStates[rungIndex]!;
         bindingState.lastOutputAtMs.current = null;
         bindingState.lastFileActivityAtMs = null;
         bindingState.timeoutHandle = null;

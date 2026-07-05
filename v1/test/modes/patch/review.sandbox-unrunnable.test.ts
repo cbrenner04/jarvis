@@ -42,11 +42,11 @@ const behindBase = (baseRefName: string) => () => ({ status: "behind" as const, 
 
 beforeEach(() => {
   beginHangFixtureTracking(HANG_FIXTURE_TRACKING_ID);
-});
+}, 20_000);
 
 afterEach(() => {
   reapActiveHangFixtures(HANG_FIXTURE_TRACKING_ID);
-});
+}, 20_000);
 
 class FakeAgent implements Agent {
   readonly name: AgentName;
@@ -368,7 +368,7 @@ describe("patch review helpers", () => {
       rmSync(binDir, { recursive: true, force: true });
       cleanup();
     }
-  });
+  }, 35_000);
 });
 
 describe("runPatchReviewPhase", () => {

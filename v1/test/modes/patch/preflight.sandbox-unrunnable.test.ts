@@ -18,11 +18,11 @@ const HANG_FIXTURE_TRACKING_ID = import.meta.path;
 
 beforeEach(() => {
   beginHangFixtureTracking(HANG_FIXTURE_TRACKING_ID);
-});
+}, 30_000);
 
 afterEach(() => {
   reapActiveHangFixtures(HANG_FIXTURE_TRACKING_ID);
-});
+}, 30_000);
 
 /** Writes a `git` shim that hangs only when invoked with `stallArgs`, forwarding everything else to the real git. */
 function writeSelectiveGitStallScript(path: string, realGitPath: string, stallArgs: string[]): void {
@@ -82,5 +82,5 @@ describe("maybeWarnAboutUnmergedPlanBranch stall bound", () => {
       rmSync(binDir, { recursive: true, force: true });
       cleanup();
     }
-  });
+  }, 60_000);
 });

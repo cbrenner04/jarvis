@@ -14,10 +14,10 @@ be moot after subspecs 03–19.
 
 ## Acceptance criteria
 
-- [ ] `ci-shrink-test-hang` dropped or narrowed per shrink conversion (subspec 06).
-- [ ] `triage-merge-classify-load-flake` dropped or narrowed per CLI/command
+- [x] `ci-shrink-test-hang` dropped or narrowed per shrink conversion (subspec 06).
+- [x] `triage-merge-classify-load-flake` dropped or narrowed per CLI/command
       conversions.
-- [ ] `v2-test-runner-unbounded-spawn` dropped or narrowed per v2 conversion
+- [x] `v2-test-runner-unbounded-spawn` dropped or narrowed per v2 conversion
       (subspec 19).
 
 ## Documentation updates

@@ -28,6 +28,9 @@ scripting tool like this.
 
 ## Scope (for plan → run)
 
+**Spec:** `v1/spec/2026-07-05T05-26-04Z-mock-real-subprocess-tests/` (consolidated;
+supersedes the 17 fan-out ready intents and the 3-subspec boundary-only plan).
+
 - Introduce a mockable subprocess boundary (or reuse the sandbox's `execFileSync`/`spawnSync` call sites) so `git`/`gh` invocations can be intercepted in tests without a real subprocess.
 - Convert the bulk of `*.sandbox-unrunnable.test.ts` coverage to mocked-subprocess tests (fast, deterministic, no real repos/temp dirs, no network).
 - Keep a small, explicitly-justified set of real-subprocess integration tests only where the thing under test *is* real subprocess behavior (e.g., a genuine stall/timeout/kill path, or verifying jarvis correctly shells out with correct args end-to-end) — audit which of the 24 files' individual tests actually need this vs. which are just exercising ordinary git plumbing that could be mocked.

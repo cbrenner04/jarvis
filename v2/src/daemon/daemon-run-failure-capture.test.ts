@@ -100,11 +100,7 @@ test("after executor rejection list reports isLive false and accepts second star
   expect(failedRun?.status).toBe("failed");
 
   executorBehavior = "resolve";
-  const response2 = await handlers.start(
-    { kind: "request", id: "s2", method: "start", params: { input } },
-    new AbortController().signal,
-  );
-  expect(response2.kind).toBe("response");
+  await startRunDirect(handlers, input);
 });
 
 test("failure reporter throw keeps failed status and releases ownership", async () => {
@@ -124,11 +120,7 @@ test("failure reporter throw keeps failed status and releases ownership", async 
   expect(runs?.find((candidate) => candidate.runId === runId)?.isLive).toBe(false);
 
   executorBehavior = "resolve";
-  const response2 = await handlers.start(
-    { kind: "request", id: "s2", method: "start", params: { input } },
-    new AbortController().signal,
-  );
-  expect(response2.kind).toBe("response");
+  await startRunDirect(handlers, input);
 });
 
 test("spawn boundary forwards original rejection to failure reporter", async () => {

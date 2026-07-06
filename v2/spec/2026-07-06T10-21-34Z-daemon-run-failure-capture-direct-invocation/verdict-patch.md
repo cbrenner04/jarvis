@@ -1,0 +1,1 @@
+No valid issues remain. Acceptance criteria are met: 9 test cases preserved (matching base), zero references to socket/IPC symbols, and all 5 tests that reassign fixture state (lines 71, 110, 138, 169, 189) correctly rebuild `handlers` via `createRunControlHandlers`/`createHandlers()` rather than reopening a socket server. No further action required.

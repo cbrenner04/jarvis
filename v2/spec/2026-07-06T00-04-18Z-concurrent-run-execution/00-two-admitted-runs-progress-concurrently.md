@@ -28,22 +28,22 @@ accidentally re-serializes admission would not be caught.
 
 ## Task checklist
 
-- [ ] Add a test asserting: start two runs for different `(project, branch)`
+- [x] Add a test asserting: start two runs for different `(project, branch)`
       keys, both remain pending (not yet settled) at the same time, and
       `list` reports both as live/in-progress simultaneously.
-- [ ] Extend the test to settle one run's write loop and assert the other's
+- [x] Extend the test to settle one run's write loop and assert the other's
       live/in-progress status is unaffected (list shows one `completed`, the
       other still live).
 
 ## Acceptance criteria
 
-- [ ] A test in `v2/src/daemon/daemon-start-list.test.ts` starts two runs for
+- [x] A test in `v2/src/daemon/daemon-start-list.test.ts` starts two runs for
       different `(project, branch)` keys against a fake write-loop executor
       whose returned promises are held pending (unreleased) for both runs
       simultaneously — i.e. neither run's executor promise has resolved when
       both are asserted `isLive: true` via `list` — proving both write loops
       are genuinely in flight at once, not merely reported live.
-- [ ] Releasing (resolving) only the first run's pending executor promise
+- [x] Releasing (resolving) only the first run's pending executor promise
       settles that run to `completed` while the second run's executor
       promise is still unreleased and its `list` status remains live,
       confirming settlement is independent per run rather than coupled to a

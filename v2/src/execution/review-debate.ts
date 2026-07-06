@@ -24,14 +24,14 @@ export type ReviewDebateRoleBindings = {
 };
 
 /** Outcome for one review-debate cycle. */
-export type ReviewDebateCycleOutcome = {
+type ReviewDebateCycleOutcome = {
   roleResults: Partial<Record<ReviewDebateRole, InvocationExecution>>;
 } & (
   | { kind: "completed"; verdict: string; actuatorRan: boolean }
   | { kind: "role_failed"; failedRole: ReviewDebateRole; failureKind: InvocationFailureKind; verdict: string | null }
 );
 
-export type ReviewDebateResult = {
+type ReviewDebateResult = {
   cycles: ReviewDebateCycleOutcome[];
 };
 

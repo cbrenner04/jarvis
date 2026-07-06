@@ -22,7 +22,7 @@ export type WriteExecuteInput = {
 };
 
 /** Result surface for one write behavior execution. */
-export type WriteExecuteResult = {
+type WriteExecuteResult = {
   worktreePath: string;
   worktreeReused: boolean;
   lock: LockStatus;

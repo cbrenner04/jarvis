@@ -31,7 +31,7 @@ Repository-style named ops keyed by durable IDs — no public SQL surface. Signa
 - Multi-step workflows use `stepId` to isolate per-step attempt history: each
   workflow step maintains its own durable `(project, branch, stepId)` run,
   allowing independent resume tracking, run ids, and attempt counts. In one
-  successful `write-write` run, step one and step two keep separate attempt
+  successful two-step run, step one and step two keep separate attempt
   histories even if they complete in different numbers of attempts.
 - Workflow-backed step runs also share one durable `workflow_snapshot`, so a daemon `list` row can render the authored step order, `stepId`, and `role` for not-yet-started and already-finished steps without scanning unrelated runs.
 

@@ -36,7 +36,13 @@ type WorkflowTelemetryContext = {
 
 const WORKFLOW_PRESET_LENGTHS = {
   "write-write": 2,
+  implement: 1,
 } as const;
+
+/** Presets whose `role`/`promptId` are pinned by the preset, overriding any caller-supplied values. */
+const WORKFLOW_PRESET_PINNED_FIELDS: Partial<Record<WorkflowPresetName, { role: string; promptId: string }>> = {
+  implement: { role: "implement", promptId: "patch.prompt.body" },
+};
 
 export type WorkflowPresetName = keyof typeof WORKFLOW_PRESET_LENGTHS;
 
@@ -138,7 +144,10 @@ export function resolveWorkflowPreset(
     throw new Error(`Workflow preset "${name}" requires ${expected} steps, received ${steps.length}`);
   }
 
-  return steps.map((step) => defineWorkflowStep({ ...step, behavior: "write" }));
+  const pinned = WORKFLOW_PRESET_PINNED_FIELDS[name];
+  return steps.map((step) =>
+    defineWorkflowStep({ ...step, behavior: "write", ...(pinned ?? {}) }),
+  );
 }
 
 type PreparedWorkflowStep =

@@ -1,0 +1,5 @@
+Verdict: refine per below.
+
+1. **AC #2 wording must match the actual mechanism.** AC #2 currently implies that releasing the pending executor promise alone settles the run to `completed`. The test actually simulates the real write loop's terminal-status commit via an explicit `stateStore.setRunStatus(...)` call, since the fake executor only mirrors liveness, not status commitment. Rewrite AC #2 so it accurately describes this: releasing the pending promise stops that run's write loop, and completion is then recorded (via the state-store call standing in for the real executor's finally-block status commit), while the second run's promise remains unreleased and its `list` status stays live. The AC is the contract a reviewer checks against the test — it must not overstate causality the test doesn't exercise.
+
+2. No other changes required — the file:line citations for `spawnWriteLoop`/`start` are accurate, the scope-pivot framing is adequately surfaced, and the worktree-path determinism claim is correct (distinct `(project, branch)` pairs already guarantee distinct worktree paths, so no additional coverage is needed there).

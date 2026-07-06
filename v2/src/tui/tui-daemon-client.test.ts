@@ -337,17 +337,13 @@ test("list and wait correlated error frames reject as TuiDaemonRpcError", async 
   });
 });
 
-test("list and wait malformed success payloads reject as TuiDaemonConnectionError", async () => {
-  await withFixedUuid([LIST_REQUEST_ID, WAIT_REQUEST_ID], async () => {
+test("wait malformed success payload (missing runStatus) rejects as TuiDaemonConnectionError", async () => {
+  await withFixedUuid([WAIT_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeGatedIpcClient([
-          { kind: "response", id: LIST_REQUEST_ID, result: { runs: [{ runId: "run-1", project: "demo" }] } },
-          { kind: "response", id: WAIT_REQUEST_ID, result: { loopOutcomeKind: "complete" } },
-        ]),
+        makeGatedIpcClient([{ kind: "response", id: WAIT_REQUEST_ID, result: { loopOutcomeKind: "complete" } }]),
     });
 
-    await expect(client.list()).rejects.toBeInstanceOf(TuiDaemonConnectionError);
     await expect(client.wait("run-1")).rejects.toBeInstanceOf(TuiDaemonConnectionError);
     client.close();
   });

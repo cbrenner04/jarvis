@@ -998,7 +998,7 @@ describe("v2 cli", () => {
     });
   });
 
-  test("run list rejects malformed daemon error payloads", async () => {
+  test("run list rejects a malformed daemon list envelope", async () => {
     const cap = captureIo();
     const requestId = "00000000-0000-4000-8000-000000000003";
     const originalRandomUuid = crypto.randomUUID;
@@ -1008,24 +1008,7 @@ describe("v2 cli", () => {
     try {
       code = await main(["run", "list"], cap.io, {
         connectIpcClient: async () =>
-          makeIpcClient([
-            {
-              kind: "response",
-              id: requestId,
-              result: {
-                runs: [
-                  {
-                    runId: "run-fail",
-                    project: "demo",
-                    branch: "broken",
-                    status: "failed",
-                    isLive: false,
-                    error: { reason: "not-a-reason", retryable: false, nextAction: "stop" },
-                  },
-                ],
-              },
-            },
-          ]),
+          makeIpcClient([{ kind: "response", id: requestId, result: { runs: "not-an-array" } }]),
       });
     } finally {
       crypto.randomUUID = originalRandomUuid;

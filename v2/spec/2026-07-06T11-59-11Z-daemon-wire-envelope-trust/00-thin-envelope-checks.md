@@ -69,17 +69,17 @@ result (e.g. `runs` is an array; `runStatus` is present).
 
 ## Acceptance criteria
 
-- [ ] `parseListRuns` and `parseWaitCompletion` no longer call any per-field
+- [x] `parseListRuns` and `parseWaitCompletion` no longer call any per-field
       guard for `DaemonListRunRow`, workflow step shapes, `RunOperatorError`,
       `RunStatus`, or write-loop-outcome kind.
-- [ ] `daemon-wire.test.ts` contains only envelope-level cases (missing
+- [x] `daemon-wire.test.ts` contains only envelope-level cases (missing
       envelope, malformed envelope, present/absent result key) for
       `parseListRuns` and `parseWaitCompletion`; per-field malformed-payload
       cases are removed as untestable by construction.
-- [ ] `daemon.sandbox-unrunnable.test.ts` has a real-socket case that seeds a
+- [x] `daemon.sandbox-unrunnable.test.ts` has a real-socket case that seeds a
       run into a spawned daemon's state store and lists runs over the IPC
       socket, asserting the envelope-thin `parseListRuns` succeeds on genuine
       daemon output.
-- [ ] `v2/docs/v2-architecture.md` `## Interface & IPC` documents the
+- [x] `v2/docs/v2-architecture.md` `## Interface & IPC` documents the
       envelope-trust decision.
-- [ ] `bun run typecheck` and `test:v2` + `test:integration:v2` pass.
+- [x] `bun run typecheck` and `test:v2` + `test:integration:v2` pass.

@@ -53,12 +53,9 @@ function parsePersistedRecord(value: unknown): PersistedRecord {
   if (!isRecord(value)) {
     throw connectionError("malformed stream-data payload: expected PersistedRecord object");
   }
-  const { runId, seq, ts, event } = value;
-  if (typeof runId !== "string" || typeof seq !== "number" || typeof ts !== "string" || !isRecord(event)) {
-    throw connectionError("malformed stream-data payload: invalid PersistedRecord shape");
-  }
-  if (typeof event.kind !== "string") {
-    throw connectionError("malformed stream-data payload: invalid PersistedRecord event");
+  const { runId, event } = value;
+  if (typeof runId !== "string" || !isRecord(event)) {
+    throw connectionError("malformed stream-data payload: invalid PersistedRecord envelope");
   }
   return value as PersistedRecord;
 }

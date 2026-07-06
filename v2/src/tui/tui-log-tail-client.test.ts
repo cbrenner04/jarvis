@@ -290,6 +290,21 @@ test("malformed stream-data payload rejects with TuiDaemonConnectionError", asyn
   tail.close();
 });
 
+test.each([
+  ["missing runId", JSON.stringify({ event: { kind: "iteration_started" } })],
+  ["non-string runId", JSON.stringify({ runId: 123, event: { kind: "iteration_started" } })],
+  ["missing event", JSON.stringify({ runId: "run-123" })],
+])("stream-data payload with %s rejects with TuiDaemonConnectionError", async (_label, payload) => {
+  const tail = await connectTuiLogTail("run-123", {
+    connectIpcClient: async () => makeClient([{ kind: "stream-data", streamId: STREAM_ID, payload }]),
+  });
+
+  await withFixedStreamId(async () => {
+    await expect(collectRecords(tail)).rejects.toBeInstanceOf(TuiDaemonConnectionError);
+  });
+  tail.close();
+});
+
 test("connection loss during records iteration rejects with TuiDaemonConnectionError", async () => {
   const { client, push } = createDeferredClient();
   const tail = await connectTuiLogTail("run-123", {

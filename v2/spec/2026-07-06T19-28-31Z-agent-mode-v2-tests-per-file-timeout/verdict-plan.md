@@ -1,0 +1,13 @@
+## Verdict
+
+**1. Scope creep: continue-past-any-failure exceeds intent.** The intent's "continue running the remaining files" is scoped to a per-file *timeout*. The draft extends this to *any* non-zero exit, silently changing agent mode's existing fail-fast-on-failure behavior. Narrow back to: continue past a timeout only; an ordinary non-zero exit follows integration mode's existing fail-fast semantics unless the spec explicitly decides otherwise with its own stated rationale and its own AC/test. This removes the undisclosed behavior change and the corresponding missing-AC gap together.
+
+**2. Shared-loop claim must match the resulting semantics.** Once continuation is timeout-only, agent mode and integration mode's per-file loops become identical in control flow (serial spawn, per-file timeout, timeout message, continue past timeout, fail-fast on ordinary failure). State explicitly whether the loop is extracted into one shared parameterized function reused by both modes, or remains two separate call sites — don't leave "extracted per DI convention" and "integration mode unchanged" in tension.
+
+**3. Acknowledge the serial-execution tradeoff.** Add one decision line noting that dropping `--parallel` means agent-mode files now run serially, increasing wall-clock time — this is a foreseeable consequence of the intent's explicit ask to mirror integration mode's serial structure, not a hidden regression, but it should be stated rather than silent.
+
+**4. Flag the per-file timeout budget as an implementation-time check.** Add a note (Decision or AC) that the implementer must confirm no existing agent-mode test file legitimately exceeds `PER_FILE_TIMEOUT_MS` when run standalone before relying on it — a false-positive timeout here would break CI silently, and the spec doesn't currently ask anyone to check this.
+
+**5. Add a negative AC for the eliminated failure mode.** Add an acceptance criterion (or explicitly note it's covered by the existing per-file test) asserting the old undifferentiated message (`error: v2 "agent" test run timed out or was killed`) can no longer occur for agent mode — this is the direct, verifiable payoff of the spec and currently isn't stated as its own criterion.
+
+Optional, non-blocking: a one-line decision on the per-file loop's return shape (e.g., "returns a per-file result list; caller derives the aggregate exit code") would remove implementer ambiguity cheaply but is not required at this altitude.

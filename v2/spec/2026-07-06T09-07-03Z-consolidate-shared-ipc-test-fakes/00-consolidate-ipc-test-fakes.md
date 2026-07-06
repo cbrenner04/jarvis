@@ -6,18 +6,21 @@ implementation.
 
 ## Decisions
 
-- New `v2/src/testing/ipc-client-fake.ts` exports `makeIpcClient(frames, sent?)` and
+- New `v2/src/testing/ipc-client-fake.ts` exports `makeIpcClient(frames, { gated?, sent? })` and
   `createDeferredIpcClient(sent?)` — replaces both files' local `makeClient` plus cli's
   `makeBlockingClient` and tui's `createDeferredClient`.
-- `makeIpcClient` uses cli's ungated semantics: `nextFrame()` returns the next queued
-  frame immediately regardless of how many `send()` calls have occurred, throwing once
-  the queue is empty. Tui's send-gated variant (a frame only delivers once
-  `deliveredCount < sentCount`) is dropped — cli's streaming test sends one
-  `stream-open` frame then calls `nextFrame()` four times to drain four queued response
-  frames, which hangs forever under send-gating. No tui fake-client call site depends on
-  gating: every tui use of `makeClient` pairs one `send()` with one `nextFrame()`, so
-  cli's ungated queue covers it unmodified. (Tui's socket round-trip tests exercise the
-  real `connectIpcClient`, not this fake, and are unaffected — out of scope.)
+- `makeIpcClient` supports both delivery modes from one factory, selected by the `gated` option:
+  - **Ungated (default):** `nextFrame()` returns the next queued frame immediately
+    regardless of how many `send()` calls have occurred, throwing once the queue is empty.
+    Required by cli's streaming test, which sends one `stream-open` frame then calls
+    `nextFrame()` four times to drain four queued response frames (hangs forever under gating).
+  - **Gated (`gated: true`):** a frame delivers only once a matching `send()` has occurred
+    (`deliveredCount < sentCount`). Required by tui's daemon-client reader loop: its greedy
+    draining issues multiple `nextFrame()` calls per client that race ahead of the test's
+    later `send()` calls unless gated. (Verified during implementation — the earlier
+    "no tui call site depends on gating / cli is a strict superset" premise was wrong.)
+  - cli call sites use the default; tui call sites that drive the reader loop pass `gated: true`.
+    (Tui's socket round-trip tests exercise the real `connectIpcClient`, not this fake — out of scope.)
 - `createDeferredIpcClient` uses the tui implementation's queuing `push` (accepts frames
   pushed before `nextFrame` is awaited) rather than cli's single-shot `resolve` — the
   queuing version covers cli's single-push use unmodified, the reverse is not true.
@@ -44,8 +47,8 @@ implementation.
 - [ ] Both test files import `makeIpcClient`/`createDeferredIpcClient`/`withFixedUuid`
       from `v2/src/testing/`.
 - [ ] Every existing `makeClient`/`createDeferredClient` call site in
-      `tui-daemon-client.test.ts` still passes against the shared, ungated
-      `makeIpcClient` (no call site relies on send-gated delivery).
+      `tui-daemon-client.test.ts` passes against the shared `makeIpcClient`, passing
+      `gated: true` where the tui reader loop requires send-gated delivery.
 
 ## Documentation updates
 

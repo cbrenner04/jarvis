@@ -3,9 +3,16 @@ import type { createRunControlHandlers } from "../daemon/daemon.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import type { IpcClient } from "../ipc/client.ts";
+import type { RpcHandler } from "../ipc/server.ts";
 
 type ListRunsResult = { runs?: DaemonListRunRow[] } | undefined;
 type RunControlHandlers = ReturnType<typeof createRunControlHandlers>;
+
+/** Strips the non-RPC `reportReviewDebateProgress` method before passing handlers to `startIpcServer`. */
+export function toIpcHandlers(handlers: RunControlHandlers): Record<string, RpcHandler> {
+  const { reportReviewDebateProgress: _reportReviewDebateProgress, ...ipcHandlers } = handlers;
+  return ipcHandlers;
+}
 
 function requestFrame(
   id: string,

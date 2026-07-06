@@ -5,7 +5,14 @@ import { join } from "node:path";
 import { connectIpcClient } from "../ipc/client.ts";
 import { startIpcServer } from "../ipc/server.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { listRuns, listRunsDirect, mockWriteLoopInput, startRun, startRunDirect } from "../testing/run-control.ts";
+import {
+  listRuns,
+  listRunsDirect,
+  mockWriteLoopInput,
+  startRun,
+  startRunDirect,
+  toIpcHandlers,
+} from "../testing/run-control.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers } from "./daemon.ts";
@@ -78,8 +85,7 @@ afterEach(async () => {
 socketTest("start returns a run ID", async () => {
   const socketPath = uniqueSocketPath("start");
   rmSync(socketPath, { force: true });
-  const { reportReviewDebateProgress: _reportReviewDebateProgress, ...ipcHandlers } = handlers;
-  const server = await startIpcServer(socketPath, ipcHandlers);
+  const server = await startIpcServer(socketPath, toIpcHandlers(handlers));
   try {
     const client = await connectIpcClient(socketPath, 2_000);
     const runId = await startRun(client);
@@ -155,8 +161,7 @@ test("start rejects second start for same (project, branch) while first is activ
 socketTest("list returns durable runs with liveness info", async () => {
   const socketPath = uniqueSocketPath("list");
   rmSync(socketPath, { force: true });
-  const { reportReviewDebateProgress: _reportReviewDebateProgress, ...ipcHandlers } = handlers;
-  const server = await startIpcServer(socketPath, ipcHandlers);
+  const server = await startIpcServer(socketPath, toIpcHandlers(handlers));
   try {
     const client = await connectIpcClient(socketPath, 2_000);
     await startRun(client);

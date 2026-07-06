@@ -7,6 +7,7 @@ import { connectIpcClient } from "../ipc/client.ts";
 import { type IpcServer, startIpcServer } from "../ipc/server.ts";
 import { openLogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { toIpcHandlers } from "../testing/run-control.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import { createRunControlHandlers, createRunExecutionFailureReporter } from "./daemon.ts";
 
@@ -75,12 +76,13 @@ function createHandlers() {
     }
   };
 
-  const { reportReviewDebateProgress: _reportReviewDebateProgress, ...handlers } = createRunControlHandlers({
-    stateStore,
-    writeLoopExecutor,
-    failureReporter,
-  });
-  return handlers;
+  return toIpcHandlers(
+    createRunControlHandlers({
+      stateStore,
+      writeLoopExecutor,
+      failureReporter,
+    }),
+  );
 }
 
 beforeEach(async () => {
@@ -212,17 +214,18 @@ socketTest("spawn boundary forwards original rejection to failure reporter", asy
   };
 
   await server.close();
-  {
-    const { reportReviewDebateProgress: _reportReviewDebateProgress, ...customFailureHandlers } =
+  server = await startIpcServer(
+    SOCKET_PATH,
+    toIpcHandlers(
       createRunControlHandlers({
         stateStore,
         writeLoopExecutor,
         failureReporter: (runId, reason) => {
           reportedFailures.push({ runId, reason });
         },
-      });
-    server = await startIpcServer(SOCKET_PATH, customFailureHandlers);
-  }
+      }),
+    ),
+  );
 
   const client = await connectIpcClient(SOCKET_PATH, 2_000);
   await startRun(client);
@@ -250,15 +253,16 @@ socketTest("terminal durable status is not overwritten on executor rejection", a
   };
 
   await server.close();
-  {
-    const { reportReviewDebateProgress: _reportReviewDebateProgress, ...terminalStatusHandlers } =
+  server = await startIpcServer(
+    SOCKET_PATH,
+    toIpcHandlers(
       createRunControlHandlers({
         stateStore,
         writeLoopExecutor,
         failureReporter,
-      });
-    server = await startIpcServer(SOCKET_PATH, terminalStatusHandlers);
-  }
+      }),
+    ),
+  );
 
   const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const runId = await startRun(client);

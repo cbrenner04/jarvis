@@ -1071,7 +1071,7 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
     return { kind: "response", result: { ok: true } };
   };
 
-  const runControlHandlers = createRunControlHandlers({
+  const { reportReviewDebateProgress: _reportReviewDebateProgress, ...runControlHandlers } = createRunControlHandlers({
     stateStore: store,
     logReader: logReaderInstance,
     writeLoopExecutor,
@@ -1082,12 +1082,7 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
     health: healthHandler,
     status: statusHandler,
     shutdown: shutdownHandler,
-    start: runControlHandlers.start,
-    list: runControlHandlers.list,
-    pause: runControlHandlers.pause,
-    resume: runControlHandlers.resume,
-    kill: runControlHandlers.kill,
-    wait: runControlHandlers.wait,
+    ...runControlHandlers,
   };
 
   let server: IpcServer;

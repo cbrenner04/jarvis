@@ -8,6 +8,7 @@ import { type IpcServer, startIpcServer } from "../ipc/server.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import { type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
+import { toIpcHandlers } from "../testing/run-control.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import { createRunControlHandlers } from "./daemon.ts";
 
@@ -77,13 +78,13 @@ beforeEach(async () => {
   stateStore = openStateStore(join(tmpdir(), `jarvis-wait-state-${unique}.db`));
   logsPath = join(tmpdir(), `jarvis-wait-logs-${unique}.jsonl`);
   logSink = openLogSink(logsPath);
-  const { reportReviewDebateProgress: _reportReviewDebateProgress, ...handlers } = createRunControlHandlers({
+  const handlers = createRunControlHandlers({
     stateStore,
     logReader: openLogReader(logsPath),
     writeLoopExecutor: async () => undefined,
     failureReporter: () => undefined,
   });
-  server = await startIpcServer(SOCKET_PATH, handlers);
+  server = await startIpcServer(SOCKET_PATH, toIpcHandlers(handlers));
 });
 
 afterEach(async () => {

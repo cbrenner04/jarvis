@@ -6,6 +6,7 @@ import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { connectIpcClient } from "../ipc/client.ts";
 import { type IpcServer, startIpcServer } from "../ipc/server.ts";
 import { openStateStore, type StateStore, type WorkflowSnapshot } from "../persistence/state-store.ts";
+import { toIpcHandlers } from "../testing/run-control.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import { createRunControlHandlers } from "./daemon.ts";
 
@@ -72,7 +73,7 @@ beforeEach(async () => {
   starts = [];
   holdNextWriteLoop = false;
 
-  const { reportReviewDebateProgress: _reportReviewDebateProgress, ...handlers } = createRunControlHandlers({
+  const handlers = createRunControlHandlers({
     stateStore,
     writeLoopExecutor: async (input) => {
       starts.push(input);
@@ -88,7 +89,7 @@ beforeEach(async () => {
     isWorktreeDirty: () => dirty,
   });
 
-  server = await startIpcServer(SOCKET_PATH, handlers);
+  server = await startIpcServer(SOCKET_PATH, toIpcHandlers(handlers));
 });
 
 afterEach(async () => {

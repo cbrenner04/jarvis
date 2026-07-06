@@ -30,3 +30,12 @@ unchanged.
 ## Prerequisites
 
 - `v2/src/testing/run-control.ts`'s `startRun`/`listRuns`/`mockWriteLoopInput` invoke daemon handlers directly rather than through an `IpcClient`
+
+## Blocker
+
+Unconfirmed: `v2/src/testing/run-control.ts`'s `startRun`/`listRuns` still send requests
+through an `IpcClient` (socket-based), not direct handler invocation. Direct invocation is
+provided by separate `startRunDirect`/`listRunsDirect` functions in the same file, still
+used side-by-side with the socket versions (e.g. in `v2/src/daemon/daemon-start-list.test.ts`).
+This intent's prerequisite — that `startRun`/`listRuns`/`mockWriteLoopInput` themselves are
+the direct-invocation versions — does not hold yet.

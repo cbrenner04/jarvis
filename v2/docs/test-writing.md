@@ -34,7 +34,7 @@ Sources: `package.json`, `scripts/run-v2-tests.ts`, `test/test-slices.test.ts`
 
 Socket-backed v2 tests import `canUseUnixSockets` from [`v2/src/testing/unix-socket.ts`](../src/testing/unix-socket.ts). Register socket-dependent tests with `test.skipIf(!canUseUnixSockets(), ...)` — do not use silent-return skip wrappers that report pass. Guard hooks with `canUseUnixSockets()`. Emit file-local stderr gated on `socketProbeErrored` when the suite needs operator-visible skip context — the shared probe does not write on failure.
 
-Use for any v2 test binding or connecting to a Unix socket under `tmpdir()`, including agent-runnable (`ipc.test.ts`, `daemon-start-list.test.ts`) and sandbox-unrunnable daemon lifecycle tests.
+Use for any v2 test binding or connecting to a Unix socket under `tmpdir()`: the `ipc.test.ts` transport suite, at most 1-2 round-trip smokes per handler set, and sandbox-unrunnable daemon lifecycle tests. `daemon-start-list.test.ts` predates this cap and is not a general blessed example — see "Do not reimplement production logic in test doubles" below.
 
 Generic daemon run-control request helpers (`mockWriteLoopInput`, `startRun`, `listRuns`) live in [`v2/src/testing/run-control.ts`](../src/testing/run-control.ts). They take an `IpcClient` and optional `WriteLoopInput` overrides — request-shaping, not assertion-specific setup. Use them for any test exercising the daemon run-control protocol.
 
@@ -55,6 +55,7 @@ Treat these as triage smells for both new tests and existing ones:
 - **Ordering / parallelism sensitivity**: the test assumes serial execution, shared mutable globals, or worker timing. Fix by isolating state, removing cross-test coupling, or making sequencing explicit in fixtures.
 - **Redundant coverage**: multiple tests assert the same behavior through slightly different setup. Merge or drop the duplicate once one clear assertion path remains.
 - **Slow default-suite tests**: nested subprocesses, real sleeps, or large end-to-end flows in agent-runnable files. Move irreducible OS coverage to `*.sandbox-unrunnable.test.ts`; otherwise replace the cost with a seam.
+- **Unbudgeted socket round-trip**: a new agent-runnable test gated on `skipIf(!canUseUnixSockets())` is a defect unless it is the `ipc.test.ts` transport suite, a 1-2-per-handler-set round-trip smoke, or a `.sandbox-unrunnable` smoke. Otherwise call the handler factory's returned handlers directly, in-process.
 
 Use this review question set:
 
@@ -76,7 +77,7 @@ When an exported production seam can be exercised with injected fakes, call that
 
 **Anti-pattern:** reimplementing run-control handler orchestration in test-local stubs when `createRunControlHandlers` already owns it. IPC assertions may pass against the fake handlers while production semantics drift unchecked.
 
-**Expected pattern:** call the exported factory with injected dependency fakes, then wire its handlers through `startIpcServer`:
+**Expected pattern:** call the exported factory with injected dependency fakes, then invoke the returned handlers directly, in-process — no socket:
 
 ```typescript
 const handlers = createRunControlHandlers({
@@ -85,14 +86,14 @@ const handlers = createRunControlHandlers({
   failureReporter: () => {},
 });
 
-server = await startIpcServer(SOCKET_PATH, handlers);
+const response = await handlers.startRun(request);
 ```
 
-The write-loop executor fake is outside the owned boundary; assertions exercise real handler behavior. See [`v2/src/daemon/daemon-start-list.test.ts`](../src/daemon/daemon-start-list.test.ts).
+The write-loop executor fake is outside the owned boundary; assertions exercise real handler behavior without a wire round-trip. Tail-stream tests use the same factory-over-fakes pattern with `createTailStreamHandler`, invoking its returned handler directly.
 
-Tail-stream IPC tests use the same factory-over-fakes pattern with `createTailStreamHandler`. See [`v2/src/ipc/ipc.test.ts`](../src/ipc/ipc.test.ts) and [`v2/src/daemon/daemon-tail-stream.test.ts`](../src/daemon/daemon-tail-stream.test.ts).
+Reserve a real socket round-trip for transport coverage: the `ipc.test.ts` transport suite, plus at most 1-2 round-trip smokes per handler set (one budget per exported factory — `createRunControlHandlers` and `createTailStreamHandler` each get their own) proving JSON marshaling survives the wire. `ipc.test.ts` exercising `createTailStreamHandler` through `startIpcServer` counts only against the transport-suite allowance, not against `createTailStreamHandler`'s own round-trip-smoke budget. See [`v2/src/ipc/ipc.test.ts`](../src/ipc/ipc.test.ts).
 
-This example documents the mistake class only; it does not require migrating unrelated tests.
+This standard applies to new tests going forward. It does not require migrating [`v2/src/daemon/daemon-start-list.test.ts`](../src/daemon/daemon-start-list.test.ts) (29 existing socket cases) or [`v2/src/daemon/daemon-tail-stream.test.ts`](../src/daemon/daemon-tail-stream.test.ts) (5 existing socket cases) — those predate the cap and are not defects under it.
 
 ## Worked example: DescendantTracker injection pattern
 

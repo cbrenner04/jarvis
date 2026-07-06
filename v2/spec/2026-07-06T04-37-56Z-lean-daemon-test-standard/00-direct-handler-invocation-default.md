@@ -18,11 +18,11 @@ contradicts the new cap and must be reframed alongside it.
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/test-writing.md`'s worked example under "Do not reimplement production logic in test doubles" shows calling `createRunControlHandlers`/`createTailStreamHandler` directly in-process (no `startIpcServer`) as the expected pattern.
-- [ ] `v2/docs/test-writing.md` states the socket-round-trip allowance is limited to, additively: the `ipc.test.ts` transport suite, at most 1-2 round-trip smokes per handler set (one budget per exported handler factory), and `.sandbox-unrunnable` smokes; and states `ipc.test.ts` counts only against its own transport-suite allowance, not against `createTailStreamHandler`'s per-handler-set budget.
-- [ ] `v2/docs/test-writing.md`'s line-37-area text (the `canUseUnixSockets` shared-fixture section citing `daemon-start-list.test.ts`) no longer holds it up as a general blessed example; it is reframed as a pre-existing test the new standard does not require migrating.
-- [ ] `v2/docs/test-writing.md` states the new standard applies to new tests going forward and does not require migrating `daemon-start-list.test.ts` or `daemon-tail-stream.test.ts`.
-- [ ] `v2/docs/test-writing.md`'s "Determinism smell checklist" includes a rule naming the three retained allowances inline (`ipc.test.ts` transport suite; 1-2 round-trip smokes per handler set; `.sandbox-unrunnable` smokes): a new agent-runnable test gated on `skipIf(!canUseUnixSockets())` is a defect unless it is one of those three.
+- [x] `v2/docs/test-writing.md`'s worked example under "Do not reimplement production logic in test doubles" shows calling `createRunControlHandlers`/`createTailStreamHandler` directly in-process (no `startIpcServer`) as the expected pattern.
+- [x] `v2/docs/test-writing.md` states the socket-round-trip allowance is limited to, additively: the `ipc.test.ts` transport suite, at most 1-2 round-trip smokes per handler set (one budget per exported handler factory), and `.sandbox-unrunnable` smokes; and states `ipc.test.ts` counts only against its own transport-suite allowance, not against `createTailStreamHandler`'s per-handler-set budget.
+- [x] `v2/docs/test-writing.md`'s line-37-area text (the `canUseUnixSockets` shared-fixture section citing `daemon-start-list.test.ts`) no longer holds it up as a general blessed example; it is reframed as a pre-existing test the new standard does not require migrating.
+- [x] `v2/docs/test-writing.md` states the new standard applies to new tests going forward and does not require migrating `daemon-start-list.test.ts` or `daemon-tail-stream.test.ts`.
+- [x] `v2/docs/test-writing.md`'s "Determinism smell checklist" includes a rule naming the three retained allowances inline (`ipc.test.ts` transport suite; 1-2 round-trip smokes per handler set; `.sandbox-unrunnable` smokes): a new agent-runnable test gated on `skipIf(!canUseUnixSockets())` is a defect unless it is one of those three.
 
 ## Documentation updates
 

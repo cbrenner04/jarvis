@@ -9,9 +9,15 @@ implementation.
 - New `v2/src/testing/ipc-client-fake.ts` exports `makeIpcClient(frames, sent?)` and
   `createDeferredIpcClient(sent?)` — replaces both files' local `makeClient` plus cli's
   `makeBlockingClient` and tui's `createDeferredClient`.
-- `makeIpcClient` uses the tui implementation's send/receive pairing (queues frames and
-  supports a pending `nextFrame` waiter) — it is a strict superset of cli's simpler
-  sequential queue, so cli's call sites work unmodified against it.
+- `makeIpcClient` uses cli's ungated semantics: `nextFrame()` returns the next queued
+  frame immediately regardless of how many `send()` calls have occurred, throwing once
+  the queue is empty. Tui's send-gated variant (a frame only delivers once
+  `deliveredCount < sentCount`) is dropped — cli's streaming test sends one
+  `stream-open` frame then calls `nextFrame()` four times to drain four queued response
+  frames, which hangs forever under send-gating. No tui fake-client call site depends on
+  gating: every tui use of `makeClient` pairs one `send()` with one `nextFrame()`, so
+  cli's ungated queue covers it unmodified. (Tui's socket round-trip tests exercise the
+  real `connectIpcClient`, not this fake, and are unaffected — out of scope.)
 - `createDeferredIpcClient` uses the tui implementation's queuing `push` (accepts frames
   pushed before `nextFrame` is awaited) rather than cli's single-shot `resolve` — the
   queuing version covers cli's single-push use unmodified, the reverse is not true.
@@ -37,6 +43,9 @@ implementation.
       `v2/src/tui/tui-daemon-client.test.ts`.
 - [ ] Both test files import `makeIpcClient`/`createDeferredIpcClient`/`withFixedUuid`
       from `v2/src/testing/`.
+- [ ] Every existing `makeClient`/`createDeferredClient` call site in
+      `tui-daemon-client.test.ts` still passes against the shared, ungated
+      `makeIpcClient` (no call site relies on send-gated delivery).
 
 ## Documentation updates
 

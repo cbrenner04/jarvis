@@ -15,8 +15,9 @@ each boot a real unix-socket server + SQLite, with their own copy-pasted harness
   `SOCKET_PATH`, `rmSync`, and `canUseUnixSockets`/`socketTest` gating.
 - `daemon-queue-promotion.test.ts` drops its local `createFakeWriteLoopExecutor` in favor
   of the shared one in `v2/src/testing/`.
-- Both files use the direct-invocation `startRun`/`listRuns`/`mockWriteLoopInput` from
-  `v2/src/testing/run-control.ts`.
+- Both files use the direct-invocation helpers `startRunDirect`/`listRunsDirect` and
+  `mockWriteLoopInput` from `v2/src/testing/run-control.ts` (the socket-based
+  `startRun`/`listRuns` remain for other callers and are not used here).
 
 ## Out of scope
 
@@ -30,4 +31,4 @@ Both files run with 0 skips in the agent sandbox; test counts unchanged.
 ## Prerequisites
 
 - `v2/src/testing/` exports a shared `createFakeWriteLoopExecutor`
-- `v2/src/testing/run-control.ts`'s `startRun`/`listRuns`/`mockWriteLoopInput` invoke daemon handlers directly rather than through an `IpcClient`
+- `v2/src/testing/run-control.ts` exports direct-invocation `startRunDirect`/`listRunsDirect` (taking handlers) alongside `mockWriteLoopInput`

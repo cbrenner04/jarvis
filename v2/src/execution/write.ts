@@ -21,16 +21,13 @@ export type WriteExecuteInput = {
   withExternalWorktree?: typeof realWithExternalWorktree;
 };
 
-/** Result surface for one write behavior execution. */
-type WriteExecuteResult = {
+/** Run one write behavior execution over shared invocation, runner, and worktree seams. */
+export async function executeWrite(args: WriteExecuteInput): Promise<{
   worktreePath: string;
   worktreeReused: boolean;
   lock: LockStatus;
   result: StepRunResult;
-};
-
-/** Run one write behavior execution over shared invocation, runner, and worktree seams. */
-export async function executeWrite(args: WriteExecuteInput): Promise<WriteExecuteResult> {
+}> {
   const withExternalWorktree = args.withExternalWorktree ?? realWithExternalWorktree;
   const wrapped = await withExternalWorktree(args.worktree, async (worktree) => {
     const specPath = resolveInWorktree(worktree.path, args.specPath);

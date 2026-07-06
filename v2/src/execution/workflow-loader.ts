@@ -13,16 +13,10 @@ function isLoadError(value: unknown): value is LoadError {
 /** Authored step: `WriteWorkflowStep` minus config-derived `agents`/`agentModelConfig`. */
 export type WorkflowSourceStep = Omit<WriteWorkflowStep, "agents" | "agentModelConfig">;
 
-/** Test-only path overrides. */
-type LoadWorkflowStepsDeps = {
-  machineConfigPath?: string;
-  agentModelConfigPath?: string;
-};
-
 /** Throws one aggregated error naming every step with an unrunnable role. */
 export function loadWorkflowSteps(
   steps: readonly WorkflowSourceStep[],
-  deps: LoadWorkflowStepsDeps = {},
+  deps: { machineConfigPath?: string; agentModelConfigPath?: string } = {},
 ): WriteWorkflowStep[] {
   const agents = loadMachineConfig(deps.machineConfigPath) ?? DEFAULT_WRITE_AGENTS;
 

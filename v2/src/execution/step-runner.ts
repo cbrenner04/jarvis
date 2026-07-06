@@ -17,15 +17,6 @@ export type StepContract = {
   check: (args: { cwd: string }) => boolean | Promise<boolean>;
 };
 
-type StepRunInput = {
-  prompt: string;
-  cwd: string;
-  bindings: readonly InvocationBinding[];
-  contracts: readonly StepContract[];
-  signal?: AbortSignal;
-  telemetry?: InvocationTelemetryContext;
-};
-
 /** Classified result for one shared step-runner invocation. */
 export type StepRunResult = { invocation: InvocationExecution } & (
   | { kind: "complete"; token: "done" | "no-work" }
@@ -70,7 +61,14 @@ export function parseStepOutcomeToken(stdout: string): StepOutcomeToken | null {
 }
 
 /** One invocation pass through the ordered bindings, then classify; no hidden retries. */
-export async function runStep(args: StepRunInput): Promise<StepRunResult> {
+export async function runStep(args: {
+  prompt: string;
+  cwd: string;
+  bindings: readonly InvocationBinding[];
+  contracts: readonly StepContract[];
+  signal?: AbortSignal;
+  telemetry?: InvocationTelemetryContext;
+}): Promise<StepRunResult> {
   const invocation = await executeWithQuotaFallback({
     prompt: args.prompt,
     cwd: args.cwd,

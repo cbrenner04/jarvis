@@ -23,17 +23,12 @@ export type ReviewDebateRoleBindings = {
   actuator: readonly InvocationBinding[];
 };
 
-/** Outcome for one review-debate cycle. */
 type ReviewDebateCycleOutcome = {
   roleResults: Partial<Record<ReviewDebateRole, InvocationExecution>>;
 } & (
   | { kind: "completed"; verdict: string; actuatorRan: boolean }
   | { kind: "role_failed"; failedRole: ReviewDebateRole; failureKind: InvocationFailureKind; verdict: string | null }
 );
-
-type ReviewDebateResult = {
-  cycles: ReviewDebateCycleOutcome[];
-};
 
 /** Input for one review-debate run. Actuator's prompt is the settled verdict text, not caller-supplied. */
 export type ReviewDebateInput = {
@@ -53,7 +48,9 @@ export type ReviewDebateInput = {
  * adjudicator -> actuator. Each cycle writes the adjudicator's verdict to
  * `verdictPath`; an empty verdict skips the actuator and stops the loop.
  */
-export async function executeReviewDebate(args: ReviewDebateInput): Promise<ReviewDebateResult> {
+export async function executeReviewDebate(
+  args: ReviewDebateInput,
+): Promise<{ cycles: ReviewDebateCycleOutcome[] }> {
   const cycles: ReviewDebateCycleOutcome[] = [];
 
   for (let cycle = 0; cycle < args.maxCycles; cycle += 1) {

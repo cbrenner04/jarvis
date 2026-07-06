@@ -477,7 +477,7 @@ Items tagged **[v2-cleanup candidate]** are dead or vestigial code paths flagged
 
 ### TUI ink rendering
 
-- v2 TUI ink surfaces (run monitor `openInkMonitor`, log-follow `openInkLogFollow`, feedback `showTuiInkFeedback`) load ink and Yoga layout through the shared lazy boundary `loadInkUi()` in `tui-ink-runtime.ts`, consolidating all ink-package imports to a single call site. Test seams inject a mock render function via the `inkRender` parameter; production invocations receive real ink/Yoga state from the shared boundary. The Yoga-layout temporal dead zone (TDZ) workaround for Bun initialization order ensures Yoga is initialized exactly once per TUI session. All v2 TUI components load ink-derived values through `loadInkUi`; no file in `v2/src/tui/` imports `ink` directly. Sources: `v2/src/tui/tui-ink-runtime.ts`, `v2/src/tui/tui-ink-monitor.tsx`, `v2/src/tui/tui-ink-log-follow.tsx`, `v2/src/tui/tui-ink-feedback.tsx`
+- v2 TUI ink surfaces (monitor, log-follow, feedback) load ink/Yoga through `loadInkUi()` in `tui-ink-runtime.ts` — single call site; no direct `ink` imports under `v2/src/tui/`. Injectable `inkRender` seam for tests. Sources: `v2/src/tui/tui-ink-runtime.ts`, `v2/src/tui/tui-ink-monitor.tsx`, `v2/src/tui/tui-ink-log-follow.tsx`, `v2/src/tui/tui-ink-feedback.tsx`
 
 ## Maintenance requirement for future v1 changes
 

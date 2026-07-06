@@ -13,28 +13,19 @@ A Biome linter gate enforces structural honesty in v2 and shared code via two ru
 
 All rules are error-level; no warnings are introduced. The gate scope covers `v2/src/**` and `shared/**` (excluding test files) via Biome `overrides`, leaving `v1/**` untouched.
 
-To verify the gates manually, paste ephemeral snippets into a checked path, run `bun run check`, then delete the file:
+Manual gate check: paste into a checked path, run `bun run check`, delete the file.
 
-**Complexity gate** — create `v2/src/temp-verify-complexity.ts`:
+**Complexity** — `v2/src/temp-verify-complexity.ts`:
 
 ```typescript
-export function overComplexFunction(x: number, y: number, z: number): number {
+export function overComplex(x: number, y: number, z: number): number {
   if (x > 0) {
     if (y > 0) {
       if (z > 0) {
         if (x > y) {
           if (y > z) {
             if (z > 0) {
-              if (x + y > z) {
-                if (y + z > x) {
-                  if (x + z > y) {
-                    if (x > 10) return 1;
-                    else if (y > 10) return 2;
-                    else if (z > 10) return 3;
-                    else return 4;
-                  }
-                }
-              }
+              if (x + y > z) return 1;
             }
           }
         }
@@ -45,19 +36,16 @@ export function overComplexFunction(x: number, y: number, z: number): number {
 }
 ```
 
-Expected: `noExcessiveCognitiveComplexity` error (complexity exceeds threshold 24).
+Expect `noExcessiveCognitiveComplexity`.
 
-**Shared import boundary** — create `shared/temp-verify-import.ts`:
+**Shared import boundary** — `shared/temp-verify-import.ts`:
 
 ```typescript
 import { something } from "../../v1/src/something.ts";
-
-export function testFunction(): void {
-  console.log(something);
-}
+export function probe(): void { console.log(something); }
 ```
 
-Expected: `noRestrictedImports` error at the v1 import statement.
+Expect `noRestrictedImports` on the v1 import.
 
 ## Test-writing conventions
 

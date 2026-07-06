@@ -18,10 +18,10 @@ execution-time `bindings` from `role`/`agents`/`agentModelConfig` via the
 two-axis resolution in [`agent-model-config.md`](agent-model-config.md), then
 passes the resulting write-loop input to `executeWriteLoop`.
 
-For the supported `write-write` preset, resolution happens per step when the
-runner reaches it. The runner does not precompute one shared binding chain or
-reuse step one's resolved bindings for step two, even when both positions use
-the same `implement` role and loaded project agent/model config.
+For a multi-step preset, resolution happens per step when the runner reaches
+it. The runner does not precompute one shared binding chain or reuse step
+one's resolved bindings for step two, even when both positions use the same
+role and loaded project agent/model config.
 
 Within one step, the resolved binding chain is the loaded step `agents` order
 flattened with each agent's configured rungs for that `role`. Quota on an
@@ -59,9 +59,9 @@ re-converges to `awaiting-human` (same run row) and `executeWorkflow` returns
 `WorkflowResult.kind === "revising"` and the workflow stops at that step, same
 as `awaiting-human`.
 
-In the supported `write-write` composition, step two begins only after step one
-reaches `complete`. Workflow success means both step-local write loops
-completed, not just step one.
+In a two-step composition, step two begins only after step one reaches
+`complete`. Workflow success means both step-local write loops completed, not
+just step one.
 
 Return `WorkflowResult` indicates which step produced the stopping outcome
 (`awaiting-human` included), its run ID, total iterations consumed across all
@@ -100,10 +100,14 @@ dispatches on it. The helper passes loop-control fields through unchanged.
 and returns a `WorkflowStep[]`. Callers supply `stepId`, `role`, and the rest of
 the per-step write-loop content for each position, omitting `behavior` (the
 preset supplies `"write"` per position until the runner dispatches on behavior).
+For `implement`, the caller's `role`/`promptId` on that step are discarded: the
+preset pins `role: "implement"` and `promptId: "patch.prompt.body"`
+unconditionally.
 
 Current preset surface:
 
 - `write-write`: two steps
+- `implement`: one step, with `role`/`promptId` fixed by the preset
 
 Validation stays synchronous:
 

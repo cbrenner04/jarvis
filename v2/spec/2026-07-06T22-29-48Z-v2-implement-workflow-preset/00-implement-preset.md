@@ -38,31 +38,31 @@ caller, and stop presenting `write-write` as the operator-facing example.
 
 ## Acceptance criteria
 
-- [ ] `resolveWorkflowPreset("implement", steps)` with 1 step returns a
+- [x] `resolveWorkflowPreset("implement", steps)` with 1 step returns a
       `WorkflowStep[]` whose single step has `behavior: "write"`,
       `role: "implement"`, and `promptId: "patch.prompt.body"`, regardless of
       any `role`/`promptId` passed in `steps[0]`.
-- [ ] `resolveWorkflowPreset("implement", steps)` throws when `steps.length !== 1`,
+- [x] `resolveWorkflowPreset("implement", steps)` throws when `steps.length !== 1`,
       naming the required and received counts (same message shape as the
       existing `write-write` wrong-count error).
-- [ ] `resolveWorkflowPreset("unknown-preset", steps)` still throws and names
+- [x] `resolveWorkflowPreset("unknown-preset", steps)` still throws and names
       the invalid preset (existing behavior unchanged).
-- [ ] `resolveWorkflowPreset("write-write", steps)` is unchanged (still 2
+- [x] `resolveWorkflowPreset("write-write", steps)` is unchanged (still 2
       steps, still throws on wrong count) — `workflow-runner.test.ts` keeps
       "runs the write-write preset end to end with per-step resolution,
       ordered advancement, fallback, and separate durable history" unchanged;
       only narrower resolve/validation-only `write-write` tests may consolidate.
-- [ ] `v2/docs/workflow-runner.md`'s "Current preset surface" list adds
+- [x] `v2/docs/workflow-runner.md`'s "Current preset surface" list adds
       `implement` alongside `write-write`.
-- [ ] `v2/docs/workflow-runner.md` prose that merely names an example preset
+- [x] `v2/docs/workflow-runner.md` prose that merely names an example preset
       (not describing cross-step behavior) cites `implement` instead of
       `write-write`.
-- [ ] `v2/docs/workflow-runner.md` prose describing cross-step semantics (e.g.
+- [x] `v2/docs/workflow-runner.md` prose describing cross-step semantics (e.g.
       per-step resolution order, "step two begins only after step one
       completes") keeps an unnamed/generic 2-step example — not `write-write`,
       not `implement` — since a 1-step preset cannot illustrate cross-step
       behavior.
-- [ ] `v2/docs/state-store.md`'s per-step attempt-history example (inherently
+- [x] `v2/docs/state-store.md`'s per-step attempt-history example (inherently
       2-step: "step one and step two keep separate attempt histories")
       generalizes to an unnamed 2-step case rather than naming `write-write`
       or forcing in `implement`.

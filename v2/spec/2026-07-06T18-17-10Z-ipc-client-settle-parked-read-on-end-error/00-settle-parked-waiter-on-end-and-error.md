@@ -20,23 +20,34 @@ unhandled socket error can crash the process.
   it.
 - No handler settles or rejects merely from the absence of data — only `'end'`, `'close'`, and
   `'error'` trigger settlement, so long-quiet tailing on an open socket is unaffected.
+- Test-only mechanism for genuine `'end'`/`'error'`: a bare `net.createServer` (bypassing
+  `startIpcClient`/`startIpcServer` entirely, mirroring `connectRaw()`'s existing bypass in the
+  other direction) that the client connects to directly, so the test controls the accepted
+  server-side socket and can call `socket.end()` for a real `'end'` or
+  `socket.resetAndDestroy()` for a real `'error'` (RST). The existing `'close'` test's
+  `client.close()` → `socket.destroy()` path cannot produce either.
 
 ## Tests
 
-- Parked unbounded `nextFrame()` rejects with `"connection closed"` on socket `'end'` (no
-  `'close'` follow-up needed in the test).
-- Parked unbounded `nextFrame()` rejects with `"connection closed"` on socket `'error'`.
+- Parked unbounded `nextFrame()` rejects with `"connection closed"` on genuine socket `'end'`,
+  driven via the raw test server calling `socket.end()` on the accepted connection.
+- Parked unbounded `nextFrame()` rejects with `"connection closed"` on genuine socket `'error'`,
+  driven via the raw test server calling `socket.resetAndDestroy()` on the accepted connection.
 - Emitting a socket `'error'` with no other listener does not throw/crash the test process
   (asserts the handler is attached, not just that `nextFrame()` settles).
+- An unbounded `nextFrame()` stays pending across a period of socket inactivity (no `'end'`,
+  `'close'`, or `'error'`) and only settles once a real disconnect event fires afterward.
 - `tui-log-tail-client.test.ts` and `ipc.test.ts` stay green.
 
 ## Acceptance criteria
 
 - [ ] A parked unbounded `nextFrame()` call rejects with `"connection closed"` when the socket
-      emits `'end'`.
+      emits a genuine `'end'` (half-close, no prior `'close'`).
 - [ ] A parked unbounded `nextFrame()` call rejects with `"connection closed"` when the socket
-      emits `'error'`.
+      emits a genuine `'error'` (connection reset).
 - [ ] A socket `'error'` event does not go unhandled (no uncaught exception/process crash).
+- [ ] An unbounded `nextFrame()` remains pending through a period of socket inactivity and only
+      settles once a real disconnect (`'end'`/`'close'`/`'error'`) occurs.
 - [ ] `ipc.test.ts` and `tui-log-tail-client.test.ts` stay green.
 - [ ] `v2/docs/v1-behaviors.md` documents that parked `nextFrame()`/`records()` reads also
       settle on socket `'end'` and `'error'`, not just `'close'`.

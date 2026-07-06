@@ -365,6 +365,33 @@ function validateConfig(input: unknown, file: string): Config {
 
   const git = validateOptionalBoolean(obj.git, "git", DEFAULT_CONFIG.git, (message) => fail(file, message));
 
+  // Unknown top-level keys (e.g. v2's "machineProfile", "agents") are preserved
+  // verbatim rather than validated or dropped, so v1 writes never destroy them.
+  const KNOWN_TOP_LEVEL_KEYS = new Set([
+    "version",
+    "agentOrder",
+    "planAgentOrder",
+    "patchModels",
+    "modes",
+    "quotaFallback",
+    "weakQuotaExitCodes",
+    "maxIterations",
+    "iterationTimeoutMs",
+    "idleOutputTimeoutMs",
+    "runTimeoutMs",
+    "logServerUrl",
+    "logServerBind",
+    "telemetryPath",
+    "git",
+    "projects",
+  ]);
+  const unknownTopLevel: Record<string, unknown> = {};
+  for (const key of Object.keys(obj)) {
+    if (!KNOWN_TOP_LEVEL_KEYS.has(key)) {
+      unknownTopLevel[key] = obj[key];
+    }
+  }
+
   const rawProjects = obj.projects;
   if (rawProjects === null || typeof rawProjects !== "object" || Array.isArray(rawProjects)) {
     fail(file, "projects must be an object");
@@ -561,6 +588,7 @@ function validateConfig(input: unknown, file: string): Config {
   }
 
   return {
+    ...unknownTopLevel,
     version: 2,
     modes: {
       patch: {

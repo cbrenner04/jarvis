@@ -1396,6 +1396,39 @@ describe("git toggle", () => {
   });
 });
 
+describe("unknown top-level keys", () => {
+  test("preserves v2 keys like machineProfile and agents across a v1 write", () => {
+    const file = join(dir, "config.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        maxIterations: 10,
+        projects: {},
+        machineProfile: { hostname: "example" },
+        agents: { claude: { model: "opus" } },
+      }),
+    );
+
+    const loaded = loadConfig({ dir });
+    expect((loaded as unknown as Record<string, unknown>).machineProfile).toEqual({ hostname: "example" });
+    expect((loaded as unknown as Record<string, unknown>).agents).toEqual({ claude: { model: "opus" } });
+
+    setGit(false, { dir });
+
+    const reloaded = loadConfig({ dir });
+    expect((reloaded as unknown as Record<string, unknown>).machineProfile).toEqual({ hostname: "example" });
+    expect((reloaded as unknown as Record<string, unknown>).agents).toEqual({ claude: { model: "opus" } });
+    expect(reloaded.git).toBe(false);
+  });
+});
+
 describe("openSessionLog", () => {
   test("creates sessions dir under the configured jarvis dir and appends", () => {
     const fd = openSessionLog("project-name", "2026-05-10T14:30Z", { dir });

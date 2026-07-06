@@ -25,32 +25,11 @@ type _Unused = [
   TuiDaemonRpcTransport,
 ];
 
+// EXECUTABLE_ROLES is a value (not type-only), so it survives to runtime and needs
+// its own check; the type-only symbols above are already pinned by @ts-expect-error.
 describe("export surface trim", () => {
-  test("cli.ts does not export Io", async () => {
-    const module = await import("./cli.ts");
-    expect(Object.keys(module)).not.toContain("Io");
-  });
-
-  test("agent-model-config.ts does not export EXECUTABLE_ROLES or ExecutableRole", async () => {
+  test("agent-model-config.ts does not export EXECUTABLE_ROLES", async () => {
     const module = await import("./config/agent-model-config.ts");
     expect(Object.keys(module)).not.toContain("EXECUTABLE_ROLES");
-    expect(Object.keys(module)).not.toContain("ExecutableRole");
-  });
-
-  test("testing/bindings.ts does not export SimulatedOutcome", async () => {
-    const module = await import("./testing/bindings.ts");
-    expect(Object.keys(module)).not.toContain("SimulatedOutcome");
-  });
-
-  test("tui-daemon-client.ts does not export TuiDaemonHealthResult, TuiDaemonStatusResult, or TuiDaemonStartResult", async () => {
-    const module = await import("./tui/tui-daemon-client.ts");
-    expect(Object.keys(module)).not.toContain("TuiDaemonHealthResult");
-    expect(Object.keys(module)).not.toContain("TuiDaemonStatusResult");
-    expect(Object.keys(module)).not.toContain("TuiDaemonStartResult");
-  });
-
-  test("tui-daemon-rpc-transport.ts does not export TuiDaemonRpcTransport", async () => {
-    const module = await import("./tui/tui-daemon-rpc-transport.ts");
-    expect(Object.keys(module)).not.toContain("TuiDaemonRpcTransport");
   });
 });

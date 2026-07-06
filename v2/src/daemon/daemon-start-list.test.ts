@@ -587,6 +587,45 @@ test("review-debate progress does not bleed across invocations sharing a stepId"
   });
 });
 
+test("review-debate progress does not leak between separate handler instances", async () => {
+  const snapshot = workflowSnapshot(
+    "workflow-debate-instances",
+    { stepId: "step-1", role: "implement" },
+    { stepId: "step-debate", role: "", behavior: "review-debate" },
+  );
+  const runId = stateStore.createRun({
+    project: "wf-debate-instances",
+    specRef: "main",
+    worktreePath: "/tmp/wf-debate-instances",
+    branch: "wf-debate-instances",
+    specPath: "/tmp/spec.md",
+    stepId: "step-1",
+    workflowSnapshot: snapshot,
+  });
+  stateStore.setRunStatus(runId, "completed");
+
+  const otherHandlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => memoryHeadroom,
+  });
+
+  otherHandlers.reportReviewDebateProgress("workflow-debate-instances", "step-debate", {
+    status: "in_progress",
+    role: "advocate",
+  });
+
+  const runs = await listRunsDirect(handlers);
+  const row = runs?.find((candidate) => candidate.runId === runId);
+  expect(row?.workflow?.steps.find((step) => step.stepId === "step-debate")).toEqual({
+    stepId: "step-debate",
+    role: "",
+    status: "pending",
+    attemptCount: 0,
+  });
+});
+
 test("pause signals graceful stop for an active run", async () => {
   const runId = await startRunDirect(handlers);
   if (!runId) return;

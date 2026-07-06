@@ -87,6 +87,9 @@ describe("daemon (real process)", () => {
     expect(socketUnbound).toBe(true);
   });
 
+  // Uses the in-process startDaemon (not the detached-spawn startDaemon/stopDaemon above):
+  // seeding a run row requires a direct reference to the state store, which only the
+  // in-process launcher exposes. The detached spawn has no seam for this.
   socketTest("list runs over IPC against a genuine daemon response frame", async () => {
     const stateStore = openStateStore(STATE_DB_PATH);
     const runId = stateStore.createRun({

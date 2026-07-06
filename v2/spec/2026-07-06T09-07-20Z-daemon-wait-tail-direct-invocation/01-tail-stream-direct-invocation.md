@@ -54,12 +54,12 @@ behavior changes.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-tail-stream.test.ts` no longer imports
+- [x] `v2/src/daemon/daemon-tail-stream.test.ts` no longer imports
       `startIpcServer`, `connectIpcClient`, or `canUseUnixSockets`, and has no
       `SOCKET_PATH`/socket-file `rmSync`.
-- [ ] `bun test v2/src/daemon/daemon-tail-stream.test.ts` passes with the same
+- [x] `bun test v2/src/daemon/daemon-tail-stream.test.ts` passes with the same
       number of `test`/`socketTest` cases as before conversion, 0 skipped.
-- [ ] The converted file still asserts, each in some test: persisted events
+- [x] The converted file still asserts, each in some test: persisted events
       replay via `onData` in ascending `seq` order for a known run; the
       missing/non-string/unknown-`runId` guard paths close via `onClose`
       without any `onData` call and without invoking `logReader.follow`;

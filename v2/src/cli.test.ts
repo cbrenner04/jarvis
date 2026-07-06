@@ -998,26 +998,6 @@ describe("v2 cli", () => {
     });
   });
 
-  test("run list rejects a malformed daemon list envelope", async () => {
-    const cap = captureIo();
-    const requestId = "00000000-0000-4000-8000-000000000003";
-    const originalRandomUuid = crypto.randomUUID;
-    crypto.randomUUID = () => requestId;
-
-    let code = NaN;
-    try {
-      code = await main(["run", "list"], cap.io, {
-        connectIpcClient: async () =>
-          makeIpcClient([{ kind: "response", id: requestId, result: { runs: "not-an-array" } }]),
-      });
-    } finally {
-      crypto.randomUUID = originalRandomUuid;
-    }
-
-    expect(code).toBe(1);
-    expect(cap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
-  });
-
   test("run log prints replay and follow records as compact JSONL in order", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
@@ -1310,15 +1290,6 @@ describe("v2 cli", () => {
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: "unknown_run: Run run-404 not found\n" });
-  });
-
-  test("run wait prints invalid daemon response for malformed success payload", async () => {
-    const cap = captureIo();
-
-    const code = await runWait(cap, "run-123", [waitResponse({ loopOutcomeKind: "complete" })]);
-
-    expect(code).toBe(1);
-    expect(cap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
   });
 
   test("run wait prints terse connection errors when the socket is unavailable", async () => {

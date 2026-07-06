@@ -605,6 +605,8 @@ surface is a sibling concern, wired via this interface).
   possible. `daemon/daemon-wire.ts` parsers are envelope-thin: they confirm the
   result object is present and route it into its typed result (e.g. `runs` is
   an array) without re-validating per-row/per-field contents, then cast.
+  CLI command handlers (`v2/src/cli.ts`) consume these parse results
+  directly, with no additional per-field re-validation of their own.
   Daemon-side request validation is untouched. Future wire additions should
   not reintroduce per-field client-side validators.
 

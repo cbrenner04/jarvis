@@ -11,7 +11,7 @@ import {
 } from "./config/machine-config-loader.ts";
 import type { WaitRunCompletionResult } from "./daemon/daemon.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon/daemon-lifecycle.ts";
-import { parseListRuns, parseWaitCompletion } from "./daemon/daemon-wire.ts";
+import { parseListRuns, parseStartResult, parseWaitCompletion } from "./daemon/daemon-wire.ts";
 import { executeWriteLoop, type WriteLoopInput, type WriteLoopResult } from "./execution/write-loop.ts";
 import { buildWriteLoopInputFromCliValues, parseWriteArgs } from "./execution/write-loop-input.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
@@ -225,12 +225,12 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
         io.stderr(formatRpcError(response));
         return 1;
       }
-      const runId = stringProperty(response.result, "runId");
-      if (runId === undefined) {
+      const start = parseStartResult(response.result);
+      if (start === undefined) {
         io.stderr("invalid daemon response\n");
         return 1;
       }
-      io.stdout(`${runId}\n`);
+      io.stdout(`${start.runId}\n`);
       return 0;
     });
   }
@@ -380,12 +380,6 @@ function parseStreamPayload(payload: unknown): unknown {
     throw new Error("invalid stream payload");
   }
   return JSON.parse(payload);
-}
-
-function stringProperty(value: unknown, key: string): string | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const prop = (value as Record<string, unknown>)[key];
-  return typeof prop === "string" ? prop : undefined;
 }
 
 /** Tag `input` with the process's operator session id unless the caller already set `telemetry`. */

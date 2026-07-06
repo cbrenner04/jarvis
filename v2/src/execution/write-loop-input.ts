@@ -2,6 +2,9 @@ import { parseArgs } from "node:util";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import type { WriteLoopInput } from "./write-loop.ts";
 
+/** Default step rules injected into every write-loop launch payload. */
+const DEFAULT_WRITE_STEP_RULES = "Return exactly one terminal token: done|no-work|blocked|progress.";
+
 /** Default agent list when launch fields omit `--agents`. */
 export const DEFAULT_WRITE_AGENTS = ["claude"] as const;
 
@@ -53,7 +56,7 @@ export function buildWriteLoopInput(
       baseRef: required.baseRef,
     },
     specPath: required.specPath,
-    stepRules: "Return exactly one terminal token: done|no-work|blocked|progress.",
+    stepRules: DEFAULT_WRITE_STEP_RULES,
     expectedArtifactPath: required.artifactPath,
     bindings: createBindings(required.agents),
   };

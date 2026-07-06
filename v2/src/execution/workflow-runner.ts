@@ -22,6 +22,7 @@ import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from
 
 const DEFAULT_TELEMETRY_SINK_PATH = join(homedir(), ".jarvis", "telemetry.jsonl");
 
+/** Workflow-runner-level telemetry context, shared identically across write and review-debate steps. */
 type WorkflowTelemetryContext = {
   operatorSessionId: string;
   workflow: string;
@@ -60,13 +61,16 @@ export type HumanWorkflowStep = {
   onRevise?: OnReviseConfig;
 };
 
+/** Per-role agent fallback orders for a `review-debate` step's four fixed debate roles. */
+type ReviewDebateStepAgents = Record<ReviewDebateRole, readonly string[]>;
+
 /** Per-step review-debate input plus workflow identity; role bindings are derived at execution. */
 export type ReviewDebateWorkflowStep = Omit<ReviewDebateInput, "bindings" | "onRoleStart"> & {
   stepId: string;
   behavior: "review-debate";
   project: string;
   branch: string;
-  agents: Record<ReviewDebateRole, readonly string[]>;
+  agents: ReviewDebateStepAgents;
   agentModelConfig: AgentModelConfig;
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
 };
@@ -202,18 +206,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
   }
 
   validateWorkflowStepRoles(args.steps);
-
-  const invalidOnReviseTargets: string[] = [];
-  args.steps.forEach((step, stepIndex) => {
-    if (step.behavior !== "human" || step.onRevise === undefined) return;
-    const targetIndex = args.steps.findIndex((candidate) => candidate.stepId === step.onRevise?.repeatStepId);
-    if (targetIndex === -1 || targetIndex >= stepIndex) {
-      invalidOnReviseTargets.push(`(${step.stepId}, ${step.onRevise.repeatStepId})`);
-    }
-  });
-  if (invalidOnReviseTargets.length > 0) {
-    throw new Error(`Workflow onRevise validation failed: ${invalidOnReviseTargets.join(", ")}`);
-  }
+  validateOnReviseTargets(args.steps);
 
   const store = args.stateStore ?? openStateStore();
 
@@ -297,6 +290,23 @@ export function validateWorkflowStepRoles(steps: readonly AnyWorkflowStep[]): vo
 
   if (missingBindings.length > 0) {
     throw new Error(`Workflow step role validation failed: ${missingBindings.join(", ")}`);
+  }
+}
+
+/** Fail before durable state changes if a human step's `onRevise.repeatStepId` isn't an earlier step's `stepId`. */
+function validateOnReviseTargets(steps: readonly AnyWorkflowStep[]): void {
+  const invalidTargets: string[] = [];
+
+  steps.forEach((step, stepIndex) => {
+    if (step.behavior !== "human" || step.onRevise === undefined) return;
+    const targetIndex = steps.findIndex((candidate) => candidate.stepId === step.onRevise?.repeatStepId);
+    if (targetIndex === -1 || targetIndex >= stepIndex) {
+      invalidTargets.push(`(${step.stepId}, ${step.onRevise.repeatStepId})`);
+    }
+  });
+
+  if (invalidTargets.length > 0) {
+    throw new Error(`Workflow onRevise validation failed: ${invalidTargets.join(", ")}`);
   }
 }
 

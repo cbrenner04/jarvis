@@ -1,0 +1,11 @@
+## Verdict: Required Refinements
+
+1. **Disambiguate the "evident" gate.** The spec must state unambiguously whether an export with an evident contract gets *zero* doc-comment or a terse-but-present one-liner. The intent text ("only line per export ... only where the contract isn't evident") supports zero comment as the correct reading — refine the Decisions bullet and AC to say so explicitly: exports evident from name/type get no doc-comment; the one-liner exists only for exports carrying one non-obvious fact worth stating. Leaving this ambiguous invites two incompatible implementations of the same standard.
+
+2. **Reconcile stale content in the target doc.** Add a task checklist item to check `v2/docs/documentation-standard.md` for any existing content (e.g., a placement/shape table row) that assumes the current full-contract-block default, and update it so the doc is internally consistent after the rewrite. A rewritten section that leaves contradicting adjacent content is an incomplete edit, not a lean one.
+
+3. **Add a consolidation task, not new decisions.** Since the "don't narrate bodies" prohibition may overlap existing guidance in the doc, add a task checklist item instructing the rewrite to merge/cross-reference rather than duplicate existing "why not what" guidance. This is a scope note for execution, not a new decision or AC.
+
+4. **Add a small contrastive-examples addition.** Include a short (2-3 example) set of worked cases illustrating "evident, no comment" vs. "not evident, needs a one-liner" vs. "genuinely non-obvious, needs full contract block." This is a cheap, high-value addition that keeps the "evident from name/type" judgment call usable without turning the standard into an exhaustive rules engine — add as a task item and reflect its presence in an acceptance criterion.
+
+Rationale: refinements 1-2 fix defects that would leave the rewritten doc ambiguous or self-contradictory, which fails the subspec's own goal of being a lean, unambiguous standard. Refinements 3-4 keep the addition terse (per repo-wide terseness rules) while resolving avoidable reviewer disagreement — bounded, cheap additions rather than scope creep.

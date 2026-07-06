@@ -12,6 +12,8 @@ function runWrite(args: {
   bindings: readonly InvocationBinding[];
   artifactPath?: string;
   invocationTelemetry?: Parameters<typeof executeWrite>[0]["invocationTelemetry"];
+  promptId?: string;
+  promptPlaceholders?: Record<string, string>;
 }) {
   // Track the parent directory of jarvisRoot for cleanup
   roots.push(join(args.jarvisRoot, ".."));
@@ -28,8 +30,21 @@ function runWrite(args: {
     expectedArtifactPath: args.artifactPath ?? "proof.txt",
     bindings: args.bindings,
     ...(args.invocationTelemetry !== undefined ? { invocationTelemetry: args.invocationTelemetry } : {}),
+    ...(args.promptId !== undefined ? { promptId: args.promptId } : {}),
+    ...(args.promptPlaceholders !== undefined ? { promptPlaceholders: args.promptPlaceholders } : {}),
     withExternalWorktree: createFakeWithExternalWorktree(args.jarvisRoot),
   });
+}
+
+function capturingBinding(onPrompt: (prompt: string) => void): InvocationBinding {
+  return {
+    id: "agent",
+    invoke: async ({ prompt, cwd }) => {
+      onPrompt(prompt);
+      writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+      return { kind: "ok", stdout: "done", stderr: "" };
+    },
+  };
 }
 
 describe("write behavior", () => {
@@ -128,19 +143,7 @@ describe("write behavior", () => {
   test("default prompt id renders write.execute with restraint principles", async () => {
     const { jarvisRoot } = createJarvisHome();
     let capturedPrompt = "";
-    await runWrite({
-      jarvisRoot,
-      bindings: [
-        {
-          id: "agent",
-          invoke: async ({ prompt, cwd }) => {
-            capturedPrompt = prompt;
-            writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
-            return { kind: "ok", stdout: "done", stderr: "" };
-          },
-        },
-      ],
-    });
+    await runWrite({ jarvisRoot, bindings: [capturingBinding((prompt) => (capturedPrompt = prompt))] });
 
     expect(capturedPrompt).toContain("Read the spec at ");
     expect(capturedPrompt).toContain("spec.md.");
@@ -150,31 +153,10 @@ describe("write behavior", () => {
 
   test("non-default prompt id renders the caller-supplied placeholder map", async () => {
     const { jarvisRoot } = createJarvisHome();
-    roots.push(join(jarvisRoot, ".."));
     let capturedPrompt = "";
-    const bindings: InvocationBinding[] = [
-      {
-        id: "agent",
-        invoke: async ({ prompt, cwd }) => {
-          capturedPrompt = prompt;
-          writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
-          return { kind: "ok", stdout: "done", stderr: "" };
-        },
-      },
-    ];
-
-    await executeWrite({
-      worktree: {
-        projectRoot: "/fake",
-        projectName: "demo",
-        branchName: "write-run",
-        baseRef: "HEAD",
-        jarvisRoot,
-      },
-      specPath: "spec.md",
-      stepRules: "Return exactly one terminal token.",
-      expectedArtifactPath: "proof.txt",
-      bindings,
+    await runWrite({
+      jarvisRoot,
+      bindings: [capturingBinding((prompt) => (capturedPrompt = prompt))],
       promptId: "plan.prompt.draft",
       promptPlaceholders: {
         WORKDIR: "/tmp/work",
@@ -182,7 +164,6 @@ describe("write behavior", () => {
         INTENT: "Do the thing.",
         SPEC_GUIDANCE: "Follow the guidance.",
       },
-      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
     });
 
     expect(capturedPrompt).toContain("`/tmp/work`");

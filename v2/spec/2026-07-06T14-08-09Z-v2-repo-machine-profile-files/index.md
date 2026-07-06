@@ -1,0 +1,4 @@
+# Repo-committed machine profile files replace the global model config
+
+- [ ] [00 - Machine profile loader](./00-machine-profile-loader.md)
+- [ ] [01 - Migrate consumers to machine profiles](./01-migrate-consumers-to-machine-profiles.md)

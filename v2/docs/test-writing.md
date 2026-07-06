@@ -36,7 +36,7 @@ Socket-backed v2 tests import `canUseUnixSockets` from [`v2/src/testing/unix-soc
 
 Use for any v2 test binding or connecting to a Unix socket under `tmpdir()`, subject to the round-trip allowance defined in "Do not reimplement production logic in test doubles" below. `daemon-start-list.test.ts` predates that cap and is not a general blessed example.
 
-Generic daemon run-control request helpers (`mockWriteLoopInput`, `startRun`, `listRuns`) live in [`v2/src/testing/run-control.ts`](../src/testing/run-control.ts). They take an `IpcClient` and optional `WriteLoopInput` overrides — request-shaping, not assertion-specific setup. Use them for any test exercising the daemon run-control protocol.
+Generic daemon run-control request helpers (`mockWriteLoopInput`, `startRun`, `listRuns`) live in [`v2/src/testing/run-control.ts`](../src/testing/run-control.ts). They take an `IpcClient` and optional `WriteLoopInput` overrides — request-shaping, not assertion-specific setup. They are socket-only by construction: use them within the retained round-trip allowances (the `ipc.test.ts` transport suite, the 1-2-per-handler-set smokes, `.sandbox-unrunnable` smokes) — not as the default for run-control-protocol tests generally. Default to calling the handler factory's returned handlers directly, in-process; see the worked example below.
 
 Shared write-execution fixtures (`createJarvisHome`, `createFakeWithExternalWorktree`, `trackedTempRoots`) live in [`v2/src/testing/write-fixtures.ts`](../src/testing/write-fixtures.ts). Use them for tests exercising write-loop and write behaviors to unify temporary directory management, Jarvis-home creation, and fake worktree state.
 

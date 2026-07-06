@@ -14,8 +14,9 @@ signature already tells you:
 - **One non-obvious fact** (what it's for, or when it applies, and that isn't
   evident from name + type): a one-liner stating that fact. Nothing more.
 - **Genuinely non-obvious contract** (hidden preconditions, thrown errors,
-  invariants the signature can't convey): a full contract block — purpose,
-  params, returns, thrown errors, invariants.
+  invariants the signature can't convey): a full contract block. Available
+  tags are purpose, params, returns, thrown errors, invariants — include only
+  the ones carrying non-obvious information, not every tag on every symbol.
 
 In every tier, a comment must add information the code cannot: never restate
 a parameter/return type in prose, and never narrate what the body does

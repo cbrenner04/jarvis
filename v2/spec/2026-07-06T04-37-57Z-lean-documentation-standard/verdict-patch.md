@@ -1,0 +1,9 @@
+## Verdict
+
+**Required outcome:** The tier-3 ("genuinely non-obvious contract") bullet in `v2/docs/documentation-standard.md`'s Inline standard section must make clear that the listed elements (purpose, params, returns, thrown errors, invariants) are the *available* tags for a full contract block, not a mandatory checklist — only the tags carrying non-obvious information are actually written.
+
+**Rationale:** The worked example immediately below the bullet (`acquireRunLock`) omits `@returns` despite the bullet's wording listing "purpose, params, returns, thrown errors, invariants" as what a full block contains. As written, the bullet reads as an exhaustive requirement, and the example that follows doesn't satisfy it — a self-contradiction in the same section. This violates the spec's own AC that the doc "explicitly forbids restating types" and must be internally consistent; leaving the mismatch in place means the doc's own example fails its own stated rule.
+
+**Fix scope:** A small wording addition to the tier-3 bullet (or an adjoining clause) stating that only non-obvious tags are included is sufficient — no restructuring of the tiering, decisions, or examples is needed.
+
+No other findings require action: the tier boundaries (no-comment / one-liner / full-block) are already stated unambiguously, the closing paragraph's restatement of "don't restate types, don't narrate bodies" is a reasonable general cross-tier reminder rather than a defect, and a general-purpose heuristic for resolving all evident-vs-not judgment calls beyond the three worked examples is out of scope for this spec.

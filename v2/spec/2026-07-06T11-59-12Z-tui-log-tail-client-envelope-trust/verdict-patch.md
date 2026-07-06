@@ -1,0 +1,3 @@
+Verdict: no required changes.
+
+The `isRecord` array-acceptance gap is real but does not violate this spec's Decisions or Acceptance criteria, which define the envelope check as "an object with a `runId` string and an `event` object" using the codebase's existing notion of "object" — the same one already used elsewhere in this file. The spec's premise is to trust the daemon-produced payload past this thin check, and an array-shaped `event` is not a case the daemon can produce or that the AC requires excluding. This is optional hardening outside the spec's scope, not a defect against its stated contract.

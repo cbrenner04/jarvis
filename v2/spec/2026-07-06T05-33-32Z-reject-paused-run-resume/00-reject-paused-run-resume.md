@@ -67,32 +67,32 @@ resume lands after bindings become reconstructable from role + machine profile
 
 ## Acceptance criteria
 
-- [ ] `resume` on a durable `paused` run returns RPC `error` with
+- [x] `resume` on a durable `paused` run returns RPC `error` with
   `code: "not_implemented"`, `message: "Paused run resume is not yet implemented"`,
   and does not invoke the write-loop executor.
-- [ ] After a rejected paused `resume`, durable `runStatus` remains `"paused"`.
-- [ ] `isRunOperatorError` accepts `{ reason: "not_implemented", retryable: false, nextAction: "stop" }`.
-- [ ] Paused runs on `list`/`wait` still compose `resumable_pause` /
+- [x] After a rejected paused `resume`, durable `runStatus` remains `"paused"`.
+- [x] `isRunOperatorError` accepts `{ reason: "not_implemented", retryable: false, nextAction: "stop" }`.
+- [x] Paused runs on `list`/`wait` still compose `resumable_pause` /
   `nextAction: "resume"`; `composeRunOperatorError` and the composition reason
   table are unchanged.
-- [ ] `run-operator-error.test.ts` `resumable_pause` composition cases stay
+- [x] `run-operator-error.test.ts` `resumable_pause` composition cases stay
   green.
-- [ ] `resume` on an `awaiting-human` run without `decision` still returns
+- [x] `resume` on an `awaiting-human` run without `decision` still returns
   `invalid_params`; with `decision: "approve"` still completes without spawning
   the paused placeholder path.
-- [ ] `resume` on a `paused` run whose `(project, branch)` is live on another run
+- [x] `resume` on a `paused` run whose `(project, branch)` is live on another run
   still returns `worktree_claimed` before any `not_implemented` path.
-- [ ] `daemon-resume.test.ts` proves executor-not-invoked for paused rejection;
+- [x] `daemon-resume.test.ts` proves executor-not-invoked for paused rejection;
   `daemon-start-list.test.ts` paused-admission case expects `not_implemented`.
-- [ ] `daemon-revise.test.ts` stays green.
-- [ ] `v2/docs/v1-behaviors.md` records paused-run `resume` returns
+- [x] `daemon-revise.test.ts` stays green.
+- [x] `v2/docs/v1-behaviors.md` records paused-run `resume` returns
   `not_implemented` (durable status unchanged) and `list`/`wait` paused
   discovery still surfaces `resumable_pause` until binding reconstruction (seed
   08).
-- [ ] `v2/docs/daemon-host.md` `resume` RPC row documents `not_implemented` for
+- [x] `v2/docs/daemon-host.md` `resume` RPC row documents `not_implemented` for
   `paused` runs; notes `not_implemented` is not in the composition reason table;
   `list`/`wait` paused semantics unchanged until seed 08.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2`
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2`
   pass.
 
 ## Documentation updates

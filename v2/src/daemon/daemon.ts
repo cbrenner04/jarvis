@@ -885,6 +885,14 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       return claimError;
     }
 
+    if (run.status === "paused") {
+      return {
+        kind: "error",
+        code: "not_implemented",
+        message: "Paused run resume is not yet implemented",
+      };
+    }
+
     // Reconstruct WriteLoopInput from the run and spawn write loop via injected executor
     const input: WriteLoopInput = {
       worktree: {

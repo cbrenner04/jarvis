@@ -5,18 +5,21 @@ Listed symbols in `v2/src/execution/` are exported but have no importers outside
 ## Decisions
 
 - De-export or delete intent-listed symbols only — rules out refactors, renames, or new helpers in touched modules.
+- In-file-used intent symbols: de-export only, not delete — rules out removing `WRITE_LOOP_OUTCOME_KINDS` and similar runtime references.
+- **Seed 02 supersession:** merge completes seed 02 de-export obligation for the eleven execution/workflow symbols in this subspec — rules out a later seed 02 run re-touching these lines; does not cover file deletes, `state-store-types` merge, resume rejection, or duplicate-test removal.
 - **Exempt:** `WorkflowPresetName` and preset machinery in `workflow-runner.ts` — rules out breaking seed 07 consumers.
 - No durable doc updates — rules out operator-facing or architecture doc churn for a visibility-only trim.
 
 ## Task checklist
 
-- [ ] `review-debate.ts`: de-export `ReviewDebateCycleOutcome`, `ReviewDebateResult` (or delete if unused in-file).
-- [ ] `step-runner.ts`: de-export `StepOutcomeToken`, `StepRunInput` (or delete if unused in-file).
-- [ ] `workflow-loader.ts`: de-export `LoadWorkflowStepsDeps` (or delete if unused in-file).
-- [ ] `workflow-runner.ts`: de-export `WorkflowTelemetryContext`, `ReviewDebateStepAgents`, `validateOnReviseTargets` (or delete if unused in-file); leave preset exports untouched.
-- [ ] `write-loop-input.ts`: de-export `DEFAULT_WRITE_STEP_RULES` (or delete if unused in-file).
-- [ ] `write-loop.ts`: de-export `WRITE_LOOP_OUTCOME_KINDS` (or delete if unused in-file).
-- [ ] `write.ts`: de-export `WriteExecuteResult` (or delete if unused in-file).
+- [ ] `review-debate.ts`: de-export `ReviewDebateCycleOutcome`, `ReviewDebateResult`.
+- [ ] `step-runner.ts`: de-export `StepOutcomeToken`, `StepRunInput`.
+- [ ] `workflow-loader.ts`: de-export `LoadWorkflowStepsDeps`.
+- [ ] `workflow-runner.ts`: de-export `WorkflowTelemetryContext`, `ReviewDebateStepAgents`, `validateOnReviseTargets`; leave preset exports untouched.
+- [ ] `write-loop-input.ts`: de-export `DEFAULT_WRITE_STEP_RULES`.
+- [ ] `write-loop.ts`: de-export `WRITE_LOOP_OUTCOME_KINDS`.
+- [ ] `write.ts`: de-export `WriteExecuteResult`.
+- [ ] Delete intent-listed symbols that are unused even in-file.
 - [ ] Fix any in-file references after de-export/delete; do not change call semantics.
 
 ## Acceptance criteria

@@ -10,7 +10,7 @@ import { buildJsonlSink } from "./telemetry-sink.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";
 
 /** Classification of a loop outcome. */
-export const WRITE_LOOP_OUTCOME_KINDS = [
+const WRITE_LOOP_OUTCOME_KINDS = [
   "complete",
   "progress",
   "blocked",

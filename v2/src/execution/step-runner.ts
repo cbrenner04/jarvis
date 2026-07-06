@@ -9,7 +9,7 @@ import type { InvocationFailureKind } from "./invocation-failure.ts";
 
 const TERMINAL_TOKENS = ["done", "no-work", "blocked", "progress"] as const;
 
-export type StepOutcomeToken = (typeof TERMINAL_TOKENS)[number];
+type StepOutcomeToken = (typeof TERMINAL_TOKENS)[number];
 
 /** A deterministic, side-effect-free pass/fail check run after a terminal token. */
 export type StepContract = {
@@ -17,7 +17,7 @@ export type StepContract = {
   check: (args: { cwd: string }) => boolean | Promise<boolean>;
 };
 
-export type StepRunInput = {
+type StepRunInput = {
   prompt: string;
   cwd: string;
   bindings: readonly InvocationBinding[];

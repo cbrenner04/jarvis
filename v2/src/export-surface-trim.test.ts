@@ -10,9 +10,7 @@ import type { Io } from "./cli.ts";
 import type { ExecutableRole } from "./config/agent-model-config.ts";
 // @ts-expect-error SimulatedOutcome must not be exported from testing/bindings.ts
 import type { SimulatedOutcome } from "./testing/bindings.ts";
-// @ts-expect-error TuiDaemonHealthResult must not be exported from tui-daemon-client.ts
-// @ts-expect-error TuiDaemonStatusResult must not be exported from tui-daemon-client.ts
-// @ts-expect-error TuiDaemonStartResult must not be exported from tui-daemon-client.ts
+// @ts-expect-error TuiDaemonHealthResult, TuiDaemonStatusResult, TuiDaemonStartResult must not be exported from tui-daemon-client.ts
 import type { TuiDaemonHealthResult, TuiDaemonStartResult, TuiDaemonStatusResult } from "./tui/tui-daemon-client.ts";
 // @ts-expect-error TuiDaemonRpcTransport must not be exported from tui-daemon-rpc-transport.ts
 import type { TuiDaemonRpcTransport } from "./tui/tui-daemon-rpc-transport.ts";

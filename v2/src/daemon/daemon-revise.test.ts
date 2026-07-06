@@ -1,20 +1,22 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
-import { connectIpcClient } from "../ipc/client.ts";
-import { type IpcServer, startIpcServer } from "../ipc/server.ts";
 import { openStateStore, type StateStore, type WorkflowSnapshot } from "../persistence/state-store.ts";
-import { toIpcHandlers } from "../testing/run-control.ts";
-import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import { createRunControlHandlers } from "./daemon.ts";
 
-const SOCKET_PATH = join(tmpdir(), `jarvis-daemon-revise-test-${process.pid}.sock`);
-const socketTest = test.skipIf(!canUseUnixSockets());
+type Handlers = ReturnType<typeof createRunControlHandlers>;
 
 async function flushBackgroundRuns(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
+async function resumeDirect(
+  handlers: Handlers,
+  id: string,
+  params: unknown,
+): Promise<Awaited<ReturnType<Handlers["resume"]>>> {
+  return handlers.resume({ kind: "request", id, method: "resume", params }, new AbortController().signal);
 }
 
 const REPEATED_STEP_ID = "implement";
@@ -31,7 +33,7 @@ function workflowSnapshot(maxRevisions: number): WorkflowSnapshot {
 }
 
 let stateStore: StateStore;
-let server: IpcServer;
+let handlers: Handlers;
 let dirty: boolean;
 let starts: WriteLoopInput[];
 let holdNextWriteLoop: boolean;
@@ -63,17 +65,13 @@ function seedRepeatedAndHumanRuns(maxRevisions: number): { repeatedRunId: string
   return { repeatedRunId, humanRunId };
 }
 
-beforeEach(async () => {
-  if (!canUseUnixSockets()) {
-    return;
-  }
-  rmSync(SOCKET_PATH, { force: true });
+beforeEach(() => {
   stateStore = openStateStore(join(tmpdir(), `jarvis-state-revise-${process.pid}-${Date.now()}.db`));
   dirty = true;
   starts = [];
   holdNextWriteLoop = false;
 
-  const handlers = createRunControlHandlers({
+  handlers = createRunControlHandlers({
     stateStore,
     writeLoopExecutor: async (input) => {
       starts.push(input);
@@ -88,20 +86,9 @@ beforeEach(async () => {
     failureReporter: () => {},
     isWorktreeDirty: () => dirty,
   });
-
-  server = await startIpcServer(SOCKET_PATH, toIpcHandlers(handlers));
 });
 
-afterEach(async () => {
-  if (!canUseUnixSockets()) {
-    return;
-  }
-  try {
-    await server.close();
-  } catch {
-    // server may have already stopped
-  }
-  rmSync(SOCKET_PATH, { force: true });
+afterEach(() => {
   try {
     stateStore.close();
   } catch {
@@ -109,68 +96,54 @@ afterEach(async () => {
   }
 });
 
-socketTest(
-  "revise on a dirty worktree spawns the repeated step's write loop under ~r1 and marks revising",
-  async () => {
-    const client = await connectIpcClient(SOCKET_PATH, 2_000);
-    const { humanRunId } = seedRepeatedAndHumanRuns(2);
-    dirty = true;
+test("revise on a dirty worktree spawns the repeated step's write loop under ~r1 and marks revising", async () => {
+  const { humanRunId } = seedRepeatedAndHumanRuns(2);
+  dirty = true;
 
-    client.send({ kind: "request", id: "r1", method: "resume", params: { runId: humanRunId, decision: "revise" } });
-    const response = await client.nextFrame();
-    expect(response.kind).toBe("response");
-    if (response.kind === "response") {
-      expect((response.result as { stepId?: string })?.stepId).toBe("implement~r1");
-    }
+  const response = await resumeDirect(handlers, "r1", { runId: humanRunId, decision: "revise" });
+  expect(response.kind).toBe("response");
+  if (response.kind === "response") {
+    expect((response.result as { stepId?: string })?.stepId).toBe("implement~r1");
+  }
 
-    expect(stateStore.loadRun(humanRunId)?.status).toBe("revising");
-    const revisionRun = stateStore.findRunByProjectBranch({
-      project: "test-project",
-      branch: "test-branch",
-      stepId: "implement~r1",
-    });
-    expect(revisionRun).not.toBeNull();
-    expect(starts).toHaveLength(1);
-    expect(starts[0]?.stepId).toBe("implement~r1");
-    client.close();
-  },
-);
+  expect(stateStore.loadRun(humanRunId)?.status).toBe("revising");
+  const revisionRun = stateStore.findRunByProjectBranch({
+    project: "test-project",
+    branch: "test-branch",
+    stepId: "implement~r1",
+  });
+  expect(revisionRun).not.toBeNull();
+  expect(starts).toHaveLength(1);
+  expect(starts[0]?.stepId).toBe("implement~r1");
+});
 
-socketTest("revise on a clean worktree with no prompt is rejected revise_requires_input", async () => {
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+test("revise on a clean worktree with no prompt is rejected revise_requires_input", async () => {
   const { humanRunId } = seedRepeatedAndHumanRuns(2);
   dirty = false;
 
-  client.send({ kind: "request", id: "r1", method: "resume", params: { runId: humanRunId, decision: "revise" } });
-  const response = await client.nextFrame();
+  const response = await resumeDirect(handlers, "r1", { runId: humanRunId, decision: "revise" });
   expect(response.kind).toBe("error");
   if (response.kind === "error") {
     expect(response.code).toBe("revise_requires_input");
   }
   expect(stateStore.loadRun(humanRunId)?.status).toBe("awaiting-human");
-  client.close();
 });
 
-socketTest("revise on a clean worktree with a prompt succeeds and appends the prompt to stepRules", async () => {
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+test("revise on a clean worktree with a prompt succeeds and appends the prompt to stepRules", async () => {
   const { humanRunId } = seedRepeatedAndHumanRuns(2);
   dirty = false;
 
-  client.send({
-    kind: "request",
-    id: "r1",
-    method: "resume",
-    params: { runId: humanRunId, decision: "revise", prompt: "please fix the edge case" },
+  const response = await resumeDirect(handlers, "r1", {
+    runId: humanRunId,
+    decision: "revise",
+    prompt: "please fix the edge case",
   });
-  const response = await client.nextFrame();
   expect(response.kind).toBe("response");
   expect(starts).toHaveLength(1);
   expect(starts[0]?.stepRules).toContain("please fix the edge case");
-  client.close();
 });
 
-socketTest("revise with no onRevise configured is rejected regardless of worktree or prompt", async () => {
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+test("revise with no onRevise configured is rejected regardless of worktree or prompt", async () => {
   const humanRunId = stateStore.createRun({
     project: "test-project",
     specRef: "main",
@@ -181,27 +154,22 @@ socketTest("revise with no onRevise configured is rejected regardless of worktre
   stateStore.setRunStatus(humanRunId, "awaiting-human");
   dirty = true;
 
-  client.send({
-    kind: "request",
-    id: "r1",
-    method: "resume",
-    params: { runId: humanRunId, decision: "revise", prompt: "irrelevant" },
+  const response = await resumeDirect(handlers, "r1", {
+    runId: humanRunId,
+    decision: "revise",
+    prompt: "irrelevant",
   });
-  const response = await client.nextFrame();
   expect(response.kind).toBe("error");
   if (response.kind === "error") {
     expect(response.code).toBe("revise_unsupported");
   }
-  client.close();
 });
 
-socketTest("a second revise after re-convergence spawns stepId implement~r2", async () => {
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+test("a second revise after re-convergence spawns stepId implement~r2", async () => {
   const { humanRunId } = seedRepeatedAndHumanRuns(2);
   dirty = true;
 
-  client.send({ kind: "request", id: "r1", method: "resume", params: { runId: humanRunId, decision: "revise" } });
-  expect((await client.nextFrame()).kind).toBe("response");
+  expect((await resumeDirect(handlers, "r1", { runId: humanRunId, decision: "revise" })).kind).toBe("response");
   await flushBackgroundRuns();
 
   // Simulate executeWorkflow's re-convergence once the ~r1 revision reaches a terminal outcome.
@@ -214,22 +182,18 @@ socketTest("a second revise after re-convergence spawns stepId implement~r2", as
   stateStore.setRunStatus(firstRevisionRun.id, "completed");
   stateStore.setRunStatus(humanRunId, "awaiting-human");
 
-  client.send({ kind: "request", id: "r2", method: "resume", params: { runId: humanRunId, decision: "revise" } });
-  const secondResponse = await client.nextFrame();
+  const secondResponse = await resumeDirect(handlers, "r2", { runId: humanRunId, decision: "revise" });
   expect(secondResponse.kind).toBe("response");
   if (secondResponse.kind === "response") {
     expect((secondResponse.result as { stepId?: string })?.stepId).toBe("implement~r2");
   }
-  client.close();
 });
 
-socketTest("revise is rejected revise_exhausted once maxRevisions is used up", async () => {
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+test("revise is rejected revise_exhausted once maxRevisions is used up", async () => {
   const { humanRunId } = seedRepeatedAndHumanRuns(1);
   dirty = true;
 
-  client.send({ kind: "request", id: "r1", method: "resume", params: { runId: humanRunId, decision: "revise" } });
-  expect((await client.nextFrame()).kind).toBe("response");
+  expect((await resumeDirect(handlers, "r1", { runId: humanRunId, decision: "revise" })).kind).toBe("response");
 
   const firstRevisionRun = stateStore.findRunByProjectBranch({
     project: "test-project",
@@ -240,23 +204,19 @@ socketTest("revise is rejected revise_exhausted once maxRevisions is used up", a
   stateStore.setRunStatus(firstRevisionRun.id, "completed");
   stateStore.setRunStatus(humanRunId, "awaiting-human");
 
-  client.send({ kind: "request", id: "r2", method: "resume", params: { runId: humanRunId, decision: "revise" } });
-  const response = await client.nextFrame();
+  const response = await resumeDirect(handlers, "r2", { runId: humanRunId, decision: "revise" });
   expect(response.kind).toBe("error");
   if (response.kind === "error") {
     expect(response.code).toBe("revise_exhausted");
   }
-  client.close();
 });
 
-socketTest("revise rejects worktree_claimed when the (project, branch) is already live", async () => {
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+test("revise rejects worktree_claimed when the (project, branch) is already live", async () => {
   const { humanRunId } = seedRepeatedAndHumanRuns(2);
   dirty = true;
   holdNextWriteLoop = true;
 
-  client.send({ kind: "request", id: "r1", method: "resume", params: { runId: humanRunId, decision: "revise" } });
-  expect((await client.nextFrame()).kind).toBe("response");
+  expect((await resumeDirect(handlers, "r1", { runId: humanRunId, decision: "revise" })).kind).toBe("response");
 
   const firstRevisionRun = stateStore.findRunByProjectBranch({
     project: "test-project",
@@ -267,37 +227,27 @@ socketTest("revise rejects worktree_claimed when the (project, branch) is alread
   stateStore.setRunStatus(firstRevisionRun.id, "completed");
   stateStore.setRunStatus(humanRunId, "awaiting-human");
 
-  client.send({ kind: "request", id: "r2", method: "resume", params: { runId: humanRunId, decision: "revise" } });
-  const response = await client.nextFrame();
+  const response = await resumeDirect(handlers, "r2", { runId: humanRunId, decision: "revise" });
   expect(response.kind).toBe("error");
   if (response.kind === "error") {
     expect(response.code).toBe("worktree_claimed");
   }
-  client.close();
 });
 
-socketTest(
-  "resume is accepted (not rejected as terminal) once a revising run re-converges to awaiting-human",
-  async () => {
-    const client = await connectIpcClient(SOCKET_PATH, 2_000);
-    const { humanRunId } = seedRepeatedAndHumanRuns(2);
-    dirty = true;
+test("resume is accepted (not rejected as terminal) once a revising run re-converges to awaiting-human", async () => {
+  const { humanRunId } = seedRepeatedAndHumanRuns(2);
+  dirty = true;
 
-    client.send({ kind: "request", id: "r1", method: "resume", params: { runId: humanRunId, decision: "revise" } });
-    expect((await client.nextFrame()).kind).toBe("response");
-    expect(stateStore.loadRun(humanRunId)?.status).toBe("revising");
+  expect((await resumeDirect(handlers, "r1", { runId: humanRunId, decision: "revise" })).kind).toBe("response");
+  expect(stateStore.loadRun(humanRunId)?.status).toBe("revising");
 
-    // While revising, resume is rejected rather than silently reinterpreted.
-    client.send({ kind: "request", id: "r2", method: "resume", params: { runId: humanRunId } });
-    const whileRevising = await client.nextFrame();
-    expect(whileRevising.kind).toBe("error");
+  // While revising, resume is rejected rather than silently reinterpreted.
+  const whileRevising = await resumeDirect(handlers, "r2", { runId: humanRunId });
+  expect(whileRevising.kind).toBe("error");
 
-    // Once re-converged (simulating executeWorkflow's next call), approve is accepted normally.
-    stateStore.setRunStatus(humanRunId, "awaiting-human");
-    client.send({ kind: "request", id: "r3", method: "resume", params: { runId: humanRunId, decision: "approve" } });
-    const afterReconverge = await client.nextFrame();
-    expect(afterReconverge.kind).toBe("response");
-    expect(stateStore.loadRun(humanRunId)?.status).toBe("completed");
-    client.close();
-  },
-);
+  // Once re-converged (simulating executeWorkflow's next call), approve is accepted normally.
+  stateStore.setRunStatus(humanRunId, "awaiting-human");
+  const afterReconverge = await resumeDirect(handlers, "r3", { runId: humanRunId, decision: "approve" });
+  expect(afterReconverge.kind).toBe("response");
+  expect(stateStore.loadRun(humanRunId)?.status).toBe("completed");
+});

@@ -32,11 +32,11 @@ socket-gated tests to call the handlers directly.
 
 ## Acceptance criteria
 
-- [ ] `daemon-queue-promotion.test.ts` contains no `startIpcServer`, `connectIpcClient`,
+- [x] `daemon-queue-promotion.test.ts` contains no `startIpcServer`, `connectIpcClient`,
       `canUseUnixSockets`, `socketTest`, or `SOCKET_PATH` reference.
-- [ ] `daemon-queue-promotion.test.ts` imports `createFakeWriteLoopExecutor` from
+- [x] `daemon-queue-promotion.test.ts` imports `createFakeWriteLoopExecutor` from
       `../testing/write-loop-executor.ts` rather than defining it locally.
-- [ ] `bun test v2/src/daemon/daemon-queue-promotion.test.ts` passes with the same
+- [x] `bun test v2/src/daemon/daemon-queue-promotion.test.ts` passes with the same
       number of tests as before conversion and 0 skips in the agent sandbox.
 
 ## Documentation updates

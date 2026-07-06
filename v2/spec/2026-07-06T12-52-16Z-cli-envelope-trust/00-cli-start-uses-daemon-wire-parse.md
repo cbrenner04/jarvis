@@ -28,11 +28,11 @@ parse only, no per-field checks). All three were audited and need no change;
 
 ## Acceptance criteria
 
-- [ ] `run start` builds its stdout `runId` line from `parseStartResult(response.result)` instead of a local field re-check.
-- [ ] `stringProperty` no longer exists in `v2/src/cli.ts`.
-- [ ] When `parseStartResult(response.result)` returns `undefined`, `run start` still prints `invalid daemon response` and exits 1 (existing error branch at `v2/src/cli.ts`'s `run start` handler, currently reached via the `runId === undefined` check, is preserved by the swap).
-- [ ] `cli.test.ts` has no test simulating a malformed `list` or `wait` daemon envelope; `bun test v2/src/cli.test.ts` passes.
-- [ ] `run start sends one IPC start request carrying write-loop input and prints run ID` (existing test) stays green.
+- [x] `run start` builds its stdout `runId` line from `parseStartResult(response.result)` instead of a local field re-check.
+- [x] `stringProperty` no longer exists in `v2/src/cli.ts`.
+- [x] When `parseStartResult(response.result)` returns `undefined`, `run start` still prints `invalid daemon response` and exits 1 (existing error branch at `v2/src/cli.ts`'s `run start` handler, currently reached via the `runId === undefined` check, is preserved by the swap).
+- [x] `cli.test.ts` has no test simulating a malformed `list` or `wait` daemon envelope; `bun test v2/src/cli.test.ts` passes.
+- [x] `run start sends one IPC start request carrying write-loop input and prints run ID` (existing test) stays green.
 
 ## Documentation updates
 

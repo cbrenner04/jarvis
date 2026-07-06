@@ -7,7 +7,7 @@ type PendingRpc = {
   reject: (error: Error) => void;
 };
 
-export type TuiDaemonRpcTransport = {
+type TuiDaemonRpcTransport = {
   request(method: string, params?: unknown, options?: { trackWait?: boolean }): Promise<unknown>;
   close(): void;
 };

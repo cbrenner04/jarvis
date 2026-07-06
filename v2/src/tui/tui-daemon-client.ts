@@ -15,13 +15,13 @@ import { TuiDaemonConnectionError } from "./tui-daemon-errors.ts";
 import { createTuiDaemonRpcTransport } from "./tui-daemon-rpc-transport.ts";
 
 /** Successful `health` RPC payload from the daemon host. */
-export type TuiDaemonHealthResult = { ok: true };
+type TuiDaemonHealthResult = { ok: true };
 
 /** Successful IPC `status` RPC payload when the daemon host is live. */
-export type TuiDaemonStatusResult = { state: "running" };
+type TuiDaemonStatusResult = { state: "running" };
 
 /** Successful IPC `start` RPC payload with the spawned run id. */
-export type TuiDaemonStartResult = { runId: string };
+type TuiDaemonStartResult = { runId: string };
 
 /**
  * Connected TUI daemon client over one IPC transport: liveness, run list, launch, steering,

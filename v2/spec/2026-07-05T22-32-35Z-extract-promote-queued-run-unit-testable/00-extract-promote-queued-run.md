@@ -81,12 +81,12 @@ a real IPC socket round trip through `daemon-queue-promotion.test.ts`.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-queue-promotion.test.ts` stays green: the four
+- [x] `v2/src/daemon/daemon-queue-promotion.test.ts` stays green: the four
       promotion-ordering cases listed above call the extracted function
       directly (behavior unchanged by the extraction) and the four RPC-wiring
       cases stay on a real socket.
-- [ ] A new unit test on the extracted function proves a promotion is
+- [x] A new unit test on the extracted function proves a promotion is
       withheld while `settleState.suppressedUntil` is in the future.
-- [ ] `bun run test:v2` passes.
-- [ ] `v2/docs/daemon-host.md` documents the extraction at
+- [x] `bun run test:v2` passes.
+- [x] `v2/docs/daemon-host.md` documents the extraction at
       `#promotion-of-queued-runs`.

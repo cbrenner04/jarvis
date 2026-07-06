@@ -9,7 +9,13 @@ import { type IpcServer, startIpcServer } from "../ipc/server.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { listRuns, mockWriteLoopInput, startRun } from "../testing/run-control.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
-import { createRunControlHandlers } from "./daemon.ts";
+import {
+  createRunControlHandlers,
+  type OwnershipKey,
+  type PromoteQueuedRunDeps,
+  promoteQueuedRunImpl,
+  WorktreeOwnershipRegistry,
+} from "./daemon.ts";
 
 const SOCKET_PATH = join(tmpdir(), `jarvis-daemon-queue-promotion-test-${process.pid}.sock`);
 const socketTest = test.skipIf(!canUseUnixSockets());
@@ -106,40 +112,128 @@ afterEach(async () => {
   }
 });
 
-socketTest(
-  "promotes the oldest queued run before a younger one once memory clears and the settle delay has elapsed",
-  async () => {
-    await startHandlers(0);
-    const client = await connectIpcClient(SOCKET_PATH, 2_000);
+function createUnitStore(): { store: StateStore; dbPath: string } {
+  const dbPath = join(tmpdir(), `jarvis-state-queue-promotion-unit-${process.pid}-${Date.now()}-${Math.random()}.db`);
+  return { store: openStateStore(dbPath), dbPath };
+}
 
-    memoryHeadroom = false;
-    const runIdA = await startRun(client, mockWriteLoopInput({ projectName: "project-a" }));
-    const runIdB = await startRun(client, mockWriteLoopInput({ projectName: "project-b" }));
-    expect(stateStore.loadRun(runIdA!)?.status).toBe("queued");
-    expect(stateStore.loadRun(runIdB!)?.status).toBe("queued");
+function createFakeSpawnWriteLoop(registry: WorktreeOwnershipRegistry) {
+  const calls: Array<{ key: OwnershipKey; runId: string; worktreePath: string }> = [];
+  const spawnWriteLoop = (key: OwnershipKey, runId: string, worktreePath: string): void => {
+    calls.push({ key, runId, worktreePath });
+    registry.claim(key, { runId, worktreePath });
+  };
+  return { spawnWriteLoop, calls };
+}
 
-    memoryHeadroom = true;
-    // A start on a distinct, unrelated key triggers the post-admit promotion check.
-    await startRun(client, mockWriteLoopInput({ projectName: "project-trigger" }));
-    await flushBackgroundRuns();
+function queueRun(store: StateStore, input: WriteLoopInput): string {
+  return store.createRun({
+    project: input.worktree.projectName,
+    specRef: input.worktree.baseRef,
+    worktreePath: getExternalWorktreePath(input.worktree),
+    branch: input.worktree.branchName,
+    specPath: input.specPath,
+    status: "queued",
+    queuedInput: input,
+  });
+}
 
-    expect(stateStore.loadRun(runIdA!)?.status).toBe("in-progress");
-    expect(stateStore.loadRun(runIdB!)?.status).toBe("queued");
+function createPromotionHarness(
+  overrides: Partial<Pick<PromoteQueuedRunDeps, "checkMemoryHeadroom" | "settleDelayMs">> = {},
+) {
+  const { store, dbPath } = createUnitStore();
+  const registry = new WorktreeOwnershipRegistry();
+  const { spawnWriteLoop, calls } = createFakeSpawnWriteLoop(registry);
+  const deps: PromoteQueuedRunDeps = {
+    store,
+    registry,
+    checkMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+    settleState: { suppressedUntil: 0 },
+    spawnWriteLoop,
+    ...overrides,
+  };
+  return {
+    store,
+    registry,
+    calls,
+    deps,
+    promote: (bypassSettleDelay?: boolean) => promoteQueuedRunImpl(deps, bypassSettleDelay),
+    cleanup: (): void => {
+      store.close();
+      rmSync(dbPath, { force: true });
+    },
+  };
+}
 
-    client.close();
-  },
-);
+test("promoteQueuedRunImpl promotes the oldest queued run before a younger one", () => {
+  const { store, calls, promote, cleanup } = createPromotionHarness();
+  try {
+    const runIdA = queueRun(store, mockWriteLoopInput({ projectName: "project-a" }));
+    const runIdB = queueRun(store, mockWriteLoopInput({ projectName: "project-b" }));
 
-socketTest("a queued run stays queued while memory stays below the watermark", async () => {
-  await startHandlers(0);
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+    promote();
 
-  memoryHeadroom = false;
-  const runId = await startRun(client, mockWriteLoopInput({ projectName: "project-a" }));
-  await flushBackgroundRuns();
+    expect(store.loadRun(runIdA)?.status).toBe("in-progress");
+    expect(store.loadRun(runIdB)?.status).toBe("queued");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.runId).toBe(runIdA);
+  } finally {
+    cleanup();
+  }
+});
 
-  expect(stateStore.loadRun(runId!)?.status).toBe("queued");
-  client.close();
+test("promoteQueuedRunImpl leaves a queued run queued while memory stays below the watermark", () => {
+  const { store, calls, promote, cleanup } = createPromotionHarness({ checkMemoryHeadroom: () => false });
+  try {
+    const runId = queueRun(store, mockWriteLoopInput({ projectName: "project-a" }));
+
+    promote();
+
+    expect(store.loadRun(runId)?.status).toBe("queued");
+    expect(calls).toHaveLength(0);
+  } finally {
+    cleanup();
+  }
+});
+
+test("promoteQueuedRunImpl skips a queued run whose key is claimed in favor of the next-oldest eligible run", () => {
+  const { store, registry, calls, promote, cleanup } = createPromotionHarness();
+  try {
+    const liveInput = mockWriteLoopInput({ projectName: "project-live" });
+    const liveKey: OwnershipKey = { project: liveInput.worktree.projectName, branch: liveInput.worktree.branchName };
+    registry.claim(liveKey, { runId: "live-run", worktreePath: getExternalWorktreePath(liveInput.worktree) });
+
+    const blockedQueuedId = queueRun(store, liveInput);
+    const eligibleQueuedId = queueRun(store, mockWriteLoopInput({ projectName: "project-eligible" }));
+
+    promote();
+
+    expect(store.loadRun(eligibleQueuedId)?.status).toBe("in-progress");
+    expect(store.loadRun(blockedQueuedId)?.status).toBe("queued");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.runId).toBe(eligibleQueuedId);
+  } finally {
+    cleanup();
+  }
+});
+
+test("promoteQueuedRunImpl withholds promotion while the settle delay is active", () => {
+  const { store, calls, deps, promote, cleanup } = createPromotionHarness({ settleDelayMs: 100_000 });
+  try {
+    const runIdA = queueRun(store, mockWriteLoopInput({ projectName: "project-settle-a" }));
+    const runIdB = queueRun(store, mockWriteLoopInput({ projectName: "project-settle-b" }));
+
+    promote();
+    expect(store.loadRun(runIdA)?.status).toBe("in-progress");
+    expect(deps.settleState.suppressedUntil).toBeGreaterThan(Date.now());
+
+    promote();
+    expect(store.loadRun(runIdB)?.status).toBe("queued");
+    expect(calls).toHaveLength(1);
+  } finally {
+    cleanup();
+  }
 });
 
 socketTest(
@@ -168,46 +262,6 @@ socketTest(
     memoryHeadroom = false;
     await flushBackgroundRuns();
     expect(stateStore.loadRun(runningId!)?.status).toBe("in-progress");
-
-    client.close();
-  },
-);
-
-socketTest(
-  "a queued run whose key is claimed by a live run is skipped in favor of the next-oldest eligible queued run",
-  async () => {
-    await startHandlers(0);
-    const client = await connectIpcClient(SOCKET_PATH, 2_000);
-
-    const liveInput = mockWriteLoopInput({ projectName: "project-live" });
-    const liveRunId = await startRun(client, liveInput);
-
-    // Persist a queued row directly for the SAME (project, branch) key as the live run.
-    // The `start` RPC itself can never reach this state -- it rejects `worktree_claimed`
-    // before ever queuing behind an existing live claim -- so this simulates, below the
-    // RPC layer, the defensive skip `promoteQueuedRun` guards against.
-    const blockedQueuedId = stateStore.createRun({
-      project: liveInput.worktree.projectName,
-      specRef: liveInput.worktree.baseRef,
-      worktreePath: getExternalWorktreePath(liveInput.worktree),
-      branch: liveInput.worktree.branchName,
-      specPath: liveInput.specPath,
-      status: "queued",
-      queuedInput: liveInput,
-    });
-
-    memoryHeadroom = false;
-    const eligibleQueuedId = await startRun(client, mockWriteLoopInput({ projectName: "project-eligible" }));
-    expect(stateStore.loadRun(blockedQueuedId)?.status).toBe("queued");
-    expect(stateStore.loadRun(eligibleQueuedId!)?.status).toBe("queued");
-
-    memoryHeadroom = true;
-    await startRun(client, mockWriteLoopInput({ projectName: "project-trigger" }));
-    await flushBackgroundRuns();
-
-    expect(stateStore.loadRun(eligibleQueuedId!)?.status).toBe("in-progress");
-    expect(stateStore.loadRun(blockedQueuedId)?.status).toBe("queued");
-    expect(stateStore.loadRun(liveRunId!)?.status).toBe("in-progress");
 
     client.close();
   },

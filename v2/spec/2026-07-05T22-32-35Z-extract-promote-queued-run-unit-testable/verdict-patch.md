@@ -1,0 +1,7 @@
+## Verdict: Required Refinements
+
+1. **Fix doc-comment placement.** The JSDoc block describing `createRunControlHandlers` (its `@param`/`@returns`/`@throws`/`@invariant` contract) currently sits above the newly-inserted `PromotionSettleState`/`PromoteQueuedRunDeps`/`promoteQueuedRunImpl` block, separated from the function it documents. Reorder so the JSDoc comment sits directly above `createRunControlHandlers`, and the extracted promotion block's own doc comments stay with it. This is a readability regression introduced by the extraction, not a spec deviation, but must be corrected before landing.
+
+2. **Fix leaked temp sqlite files in the unit tests.** `createUnitStore()` in `daemon-queue-promotion.test.ts` creates a uniquely-named sqlite file per unit test; each test calls `store.close()` but never removes the file, and the suite's `afterEach` only cleans up the shared IPC-socket-based store. Each unit test using `createUnitStore()` must clean up its own database file (e.g., track the path and `rmSync(path, { force: true })` after `store.close()`), so repeated test runs don't accumulate stray `.db` files on disk.
+
+Both are cosmetic/hygiene follow-ups within the scope of files already touched by this change — they do not affect the extraction's behavior, the settle-state threading, or the test disposition, all of which match the spec's decisions.

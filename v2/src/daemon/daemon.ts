@@ -374,6 +374,53 @@ function stoppedOutcomeForRun(run: LoadedRun): Exclude<WorkflowStepTerminalOutco
   return "invocation_failure";
 }
 
+/** Mutated by {@link promoteQueuedRunImpl} on each promotion; shared across calls. */
+export type PromotionSettleState = { suppressedUntil: number };
+
+export type PromoteQueuedRunDeps = {
+  store: StateStore;
+  registry: WorktreeOwnershipRegistry;
+  checkMemoryHeadroom: () => boolean;
+  settleDelayMs: number;
+  settleState: PromotionSettleState;
+  spawnWriteLoop: (key: OwnershipKey, runId: string, worktreePath: string, input: WriteLoopInput) => void;
+};
+
+/**
+ * FIFO-with-skip promotion: the oldest `queued` run whose `(project, branch)`
+ * is unclaimed is promoted into free headroom. Skips (rather than stops on)
+ * a queued run whose key is currently claimed, trying the next-oldest
+ * instead. Promotes at most one run per call; a settle delay after each
+ * promotion suppresses further promotions until it elapses, except when
+ * `bypassSettleDelay` is set (the one-time immediate recheck `start`
+ * performs on the row it just queued).
+ */
+export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDelay = false): void {
+  const { store, registry, checkMemoryHeadroom, settleDelayMs, settleState, spawnWriteLoop } = deps;
+  if (!bypassSettleDelay && Date.now() < settleState.suppressedUntil) {
+    return;
+  }
+
+  for (const run of store.listQueuedRuns()) {
+    const key: OwnershipKey = { project: run.project, branch: run.branch };
+    if (registry.isClaimed(key)) {
+      continue;
+    }
+    if (!checkMemoryHeadroom()) {
+      return;
+    }
+
+    if (!run.queuedInput) {
+      continue;
+    }
+
+    store.setRunStatus(run.id, "in-progress");
+    spawnWriteLoop(key, run.id, run.worktreePath, normalizeBindings(run.queuedInput));
+    settleState.suppressedUntil = Date.now() + settleDelayMs;
+    return;
+  }
+}
+
 /**
  * Run-control handler factory for `start`/`list`/`pause`/`resume`/`kill`.
  *
@@ -394,7 +441,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const checkWorktreeDirty = deps.isWorktreeDirty ?? isWorktreeDirty;
   const checkMemoryHeadroom = deps.hasMemoryHeadroom ?? (() => hasMemoryHeadroom());
   const settleDelayMs = deps.settleDelayMs ?? loadSettleDelayMs();
-  let promotionsSuppressedUntil = 0;
+  const settleState: PromotionSettleState = { suppressedUntil: 0 };
 
   const resultFrom = (runId: string, runStatus: RunStatus, record?: TerminalLogRecord): WaitRunCompletionResult => {
     const run = store.loadRun(runId);
@@ -495,39 +542,11 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     })();
   };
 
-  /**
-   * FIFO-with-skip promotion: the oldest `queued` run whose `(project, branch)`
-   * is unclaimed is promoted into free headroom. Skips (rather than stops on)
-   * a queued run whose key is currently claimed, trying the next-oldest
-   * instead. Promotes at most one run per call; a settle delay after each
-   * promotion suppresses further promotions until it elapses, except when
-   * `bypassSettleDelay` is set (the one-time immediate recheck `start`
-   * performs on the row it just queued).
-   */
-  const promoteQueuedRun = (bypassSettleDelay = false): void => {
-    if (!bypassSettleDelay && Date.now() < promotionsSuppressedUntil) {
-      return;
-    }
-
-    for (const run of store.listQueuedRuns()) {
-      const key: OwnershipKey = { project: run.project, branch: run.branch };
-      if (_registry.isClaimed(key)) {
-        continue;
-      }
-      if (!checkMemoryHeadroom()) {
-        return;
-      }
-
-      if (!run.queuedInput) {
-        continue;
-      }
-
-      store.setRunStatus(run.id, "in-progress");
-      spawnWriteLoop(key, run.id, run.worktreePath, normalizeBindings(run.queuedInput));
-      promotionsSuppressedUntil = Date.now() + settleDelayMs;
-      return;
-    }
-  };
+  const promoteQueuedRun = (bypassSettleDelay = false): void =>
+    promoteQueuedRunImpl(
+      { store, registry: _registry, checkMemoryHeadroom, settleDelayMs, settleState, spawnWriteLoop },
+      bypassSettleDelay,
+    );
 
   const startHandler: RpcHandler = (frame) => {
     const params = frame.params as { input?: WriteLoopInput } | undefined;

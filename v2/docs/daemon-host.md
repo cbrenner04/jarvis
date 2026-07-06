@@ -362,10 +362,15 @@ converted to bytes. Wired into `start` admission (see
 
 ### Promotion of queued runs
 
-Promotion (FIFO, with skip) runs from two trigger points, not a poll timer:
-after `start` admits or queues a run, and inside `spawnWriteLoop`'s `finally`
-block — the single place that releases a run's `activeRuns` entry and
-registry claim on every exit path, including a run reaching `paused`.
+Promotion logic is `promoteQueuedRunImpl`, a standalone function in
+`v2/src/daemon/daemon.ts` (deps: state store, `WorktreeOwnershipRegistry`,
+memory-headroom check, settle-delay duration/state, `spawnWriteLoop`
+callback) — unit-testable without an IPC socket. `createRunControlHandlers`
+binds it once (`promoteQueuedRun`) and calls that binding from two trigger
+points, not a poll timer: after `start` admits or queues a run, and inside
+`spawnWriteLoop`'s `finally` block — the single place that releases a run's
+`activeRuns` entry and registry claim on every exit path, including a run
+reaching `paused`.
 
 Each trigger considers `queued` runs oldest (`created_at`) first, skipping
 any whose `(project, branch)` key is currently claimed in favor of the

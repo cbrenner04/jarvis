@@ -242,6 +242,9 @@ socketTest("two admitted runs progress concurrently, settling independently", as
 
   fakeExecutor.settleFirst();
   await flushBackgroundRuns();
+  // Fake executor mirrors only liveness, not the real loop's terminal status
+  // commit; simulate that commit directly, as other tests in this file do.
+  stateStore.setRunStatus(runId1 as string, "completed");
 
   expect(fakeExecutor.pendingCount()).toBe(1);
   const runsAfterFirstSettles = await listRuns(client);

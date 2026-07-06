@@ -221,10 +221,7 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
         }
 
         const selectedRunId = currentState.selectedRunId;
-        if (
-          selectedRunId !== null &&
-          !list.runs.some((run) => run.runId === selectedRunId && isSelectableRun(run))
-        ) {
+        if (selectedRunId !== null && !list.runs.some((run) => run.runId === selectedRunId && isSelectableRun(run))) {
           setState({ runs: list.runs, selectedRunId: null, waitState: { kind: "none" }, steeringFeedback: null });
           activeWaitToken += 1;
           continue;

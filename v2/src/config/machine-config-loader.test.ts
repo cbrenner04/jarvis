@@ -2,12 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  loadMachineConfig,
-  loadMachineConfigMemory,
-  readMachineConfigDocument,
-  validateMachineConfigAgents,
-} from "./machine-config-loader.ts";
+import { loadMachineConfig, readMachineConfigDocument, validateMachineConfigAgents } from "./machine-config-loader.ts";
 
 function writeRawConfig(text: string): string {
   const dir = mkdtempSync(join(tmpdir(), "jarvis-config-test-"));
@@ -154,82 +149,5 @@ describe("loadMachineConfig", () => {
     const agents = ["claude-3-opus", "gpt-5.2", "agent_v2"];
     const result = loadMachineConfig(writeConfig({ agents }));
     expect(result).toEqual(agents);
-  });
-});
-
-describe("loadMachineConfigMemory", () => {
-  test("nonexistent config path returns undefined", () => {
-    expect(loadMachineConfigMemory("/nonexistent/path/v2.json")).toBeUndefined();
-  });
-
-  test("config file with no 'memory' key returns undefined", () => {
-    expect(loadMachineConfigMemory(writeConfig({ other: "value" }))).toBeUndefined();
-  });
-
-  test("valid 'memory.minFreeGb' is returned", () => {
-    const result = loadMachineConfigMemory(writeConfig({ memory: { minFreeGb: 8 } }));
-    expect(result).toEqual({ minFreeGb: 8, settleDelayMs: 2000 });
-  });
-
-  test("'memory.settleDelayMs' is returned when set alongside 'minFreeGb'", () => {
-    const result = loadMachineConfigMemory(writeConfig({ memory: { minFreeGb: 8, settleDelayMs: 5000 } }));
-    expect(result).toEqual({ minFreeGb: 8, settleDelayMs: 5000 });
-  });
-
-  test("'memory.settleDelayMs' of zero throws", () => {
-    const configPath = writeConfig({ memory: { minFreeGb: 8, settleDelayMs: 0 } });
-    expect(() => loadMachineConfigMemory(configPath)).toThrow(/must be a positive integer/);
-  });
-
-  test("'memory.settleDelayMs' non-integer throws", () => {
-    const configPath = writeConfig({ memory: { minFreeGb: 8, settleDelayMs: 1.5 } });
-    expect(() => loadMachineConfigMemory(configPath)).toThrow(/must be a positive integer/);
-  });
-
-  test("'memory' as non-object throws", () => {
-    const configPath = writeConfig({ memory: "8gb" });
-    expect(() => loadMachineConfigMemory(configPath)).toThrow(/'memory' must be an object/);
-  });
-
-  test("'memory' as array throws", () => {
-    const configPath = writeConfig({ memory: [8] });
-    expect(() => loadMachineConfigMemory(configPath)).toThrow(/'memory' must be an object/);
-  });
-
-  test("'memory' as null throws", () => {
-    const configPath = writeConfig({ memory: null });
-    expect(() => loadMachineConfigMemory(configPath)).toThrow(/'memory' must be an object/);
-  });
-
-  test("'memory' with no 'minFreeGb' key returns minFreeGb undefined with default settleDelayMs", () => {
-    expect(loadMachineConfigMemory(writeConfig({ memory: {} }))).toEqual({
-      minFreeGb: undefined,
-      settleDelayMs: 2000,
-    });
-  });
-
-  test("'memory.settleDelayMs' is honored when 'minFreeGb' is absent", () => {
-    const result = loadMachineConfigMemory(writeConfig({ memory: { settleDelayMs: 5000 } }));
-    expect(result).toEqual({ minFreeGb: undefined, settleDelayMs: 5000 });
-  });
-
-  test("'memory.minFreeGb' of zero throws", () => {
-    const configPath = writeConfig({ memory: { minFreeGb: 0 } });
-    expect(() => loadMachineConfigMemory(configPath)).toThrow(/must be a positive finite number/);
-  });
-
-  test("'memory.minFreeGb' negative throws", () => {
-    const configPath = writeConfig({ memory: { minFreeGb: -4 } });
-    expect(() => loadMachineConfigMemory(configPath)).toThrow(/must be a positive finite number/);
-  });
-
-  test("'memory.minFreeGb' non-numeric throws", () => {
-    const configPath = writeConfig({ memory: { minFreeGb: "8" } });
-    expect(() => loadMachineConfigMemory(configPath)).toThrow(/must be a positive finite number/);
-  });
-
-  test("'memory.minFreeGb' as Infinity throws", () => {
-    const configPath = writeConfig({ memory: { minFreeGb: Infinity } });
-    expect(() => loadMachineConfigMemory(configPath)).toThrow(/must be a positive finite number/);
   });
 });

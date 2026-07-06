@@ -60,15 +60,15 @@ placeholder until that resolver exists.
 
 ## Acceptance criteria
 
-- [ ] A workflow step for an agent not present in the active profile's `models` fails load the same way missing coverage in `data/agent-model-config.json` did before this migration (hard error naming the agent and role).
-- [ ] Daemon memory-watermark admission reads free-memory floor and settle delay from `config/machines/home.json`, not `~/.jarvis/v2.json`.
-- [ ] `~/.jarvis/v2.json` with a `memory` key present is ignored (no longer read) — only `agents` is honored from that file.
-- [ ] `data/agent-model-config.json` no longer exists in the repo.
-- [ ] `config/machines/work.json`'s `models` has no `claude` entry; loading it with `agents` containing `claude` for any executable role is a hard error.
-- [ ] `config/machines/home.json`'s claude and codex role→model bindings produce identical resolved invocation bindings to today's `data/agent-model-config.json` for the same agents/roles (no silent value drift from hand-transcription).
-- [ ] `memory-watermark.ts` carries no surviving settle-delay literal/default of its own — its only source is `loadMachineProfileMemory`.
-- [ ] A repo-wide search finds no remaining references to `AGENT_MODEL_CONFIG_PATH` or the string `data/agent-model-config.json` after this subspec lands.
-- [ ] A repo-wide search finds no remaining code path reading `~/.jarvis/v2.json`'s `memory` key.
+- [x] A workflow step for an agent not present in the active profile's `models` fails load the same way missing coverage in `data/agent-model-config.json` did before this migration (hard error naming the agent and role).
+- [x] Daemon memory-watermark admission reads free-memory floor and settle delay from `config/machines/home.json`, not `~/.jarvis/v2.json`.
+- [x] `~/.jarvis/v2.json` with a `memory` key present is ignored (no longer read) — only `agents` is honored from that file.
+- [x] `data/agent-model-config.json` no longer exists in the repo.
+- [x] `config/machines/work.json`'s `models` has no `claude` entry; loading it with `agents` containing `claude` for any executable role is a hard error.
+- [x] `config/machines/home.json`'s claude and codex role→model bindings produce identical resolved invocation bindings to today's `data/agent-model-config.json` for the same agents/roles (no silent value drift from hand-transcription).
+- [x] `memory-watermark.ts` carries no surviving settle-delay literal/default of its own — its only source is `loadMachineProfileMemory`.
+- [x] A repo-wide search finds no remaining references to `AGENT_MODEL_CONFIG_PATH` or the string `data/agent-model-config.json` after this subspec lands.
+- [x] A repo-wide search finds no remaining code path reading `~/.jarvis/v2.json`'s `memory` key.
 
 ## Documentation updates
 

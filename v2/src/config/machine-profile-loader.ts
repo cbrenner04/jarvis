@@ -1,9 +1,36 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type AgentModelConfig, type LoadError, validateAgentModelConfig } from "./agent-model-config.ts";
-import { validateMachineConfigMemory } from "./machine-config-loader.ts";
 
 export const DEFAULT_SETTLE_DELAY_MS = 2000;
+
+function validateMachineConfigMemory(memory: unknown): { minFreeGb: number | undefined; settleDelayMs: number } {
+  if (typeof memory !== "object" || memory === null || Array.isArray(memory)) {
+    throw new Error(
+      `Machine config 'memory' must be an object, got ${Array.isArray(memory) ? "array" : memory === null ? "null" : typeof memory}`,
+    );
+  }
+
+  let settleDelayMs = DEFAULT_SETTLE_DELAY_MS;
+  if ("settleDelayMs" in memory) {
+    const rawSettleDelayMs = (memory as Record<string, unknown>).settleDelayMs;
+    if (typeof rawSettleDelayMs !== "number" || !Number.isInteger(rawSettleDelayMs) || rawSettleDelayMs <= 0) {
+      throw new Error(`Machine config 'memory.settleDelayMs' must be a positive integer, got ${rawSettleDelayMs}`);
+    }
+    settleDelayMs = rawSettleDelayMs;
+  }
+
+  if (!("minFreeGb" in memory)) {
+    return { minFreeGb: undefined, settleDelayMs };
+  }
+
+  const minFreeGb = (memory as Record<string, unknown>).minFreeGb;
+  if (typeof minFreeGb !== "number" || !Number.isFinite(minFreeGb) || minFreeGb <= 0) {
+    throw new Error(`Machine config 'memory.minFreeGb' must be a positive finite number, got ${minFreeGb}`);
+  }
+
+  return { minFreeGb, settleDelayMs };
+}
 
 function resolveProfilePath(profileName: string): string {
   return join(import.meta.dir, "..", "..", "..", "config", "machines", `${profileName}.json`);

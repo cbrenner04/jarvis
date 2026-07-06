@@ -154,11 +154,10 @@ Per-project config:
     between the personal and work machines.
   - **Role→model bindings** — each workflow step names a **role** (see
     [`role-resolution.md`](role-resolution.md)); the store maps `(agent, role) →
-    ordered model rungs` (`AgentModelConfig`). Lives in a **separate,
-    machine-independent, version-controlled store** (a checked-in data file beside
-    the global `data/prices.json`), not `config.json`: the assignments are the
-    same on every machine, change often, and would bloat per-machine config.
-    Schema, validation, flattening, and price derivation:
+    ordered model rungs` (`AgentModelConfig`). Lives in a **checked-in
+    per-machine-profile file** (`config/machines/<profileName>.json`), not
+    `~/.jarvis/v2.json`: `~/.jarvis/v2.json` is agent-order-only. Schema,
+    validation, flattening, and price derivation:
     [`agent-model-config.md`](agent-model-config.md).
 - **A step names a role, not a model.** The runner walks the agent fallback
   order; for whichever agent it lands on, it resolves `(agent, role) → rungs`

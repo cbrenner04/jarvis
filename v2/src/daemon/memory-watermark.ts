@@ -1,11 +1,11 @@
 import { freemem } from "node:os";
-import { loadMachineConfigMemory } from "../config/machine-config-loader.ts";
+import { loadMachineProfileMemory } from "../config/machine-profile-loader.ts";
 
 const BYTES_PER_GB = 1024 ** 3;
 
-export function hasMemoryHeadroom(configPath?: string, freeMemReader: () => number = freemem): boolean {
-  const memory = loadMachineConfigMemory(configPath);
-  if (memory === undefined || memory.minFreeGb === undefined) {
+export function hasMemoryHeadroom(profileName: string, freeMemReader: () => number = freemem): boolean {
+  const memory = loadMachineProfileMemory(profileName);
+  if (memory.minFreeGb === undefined) {
     return true;
   }
 
@@ -13,6 +13,6 @@ export function hasMemoryHeadroom(configPath?: string, freeMemReader: () => numb
 }
 
 /** Delay (ms) after promoting a queued run before the next promotion re-measures headroom. */
-export function loadSettleDelayMs(configPath?: string): number {
-  return loadMachineConfigMemory(configPath)?.settleDelayMs ?? 2000;
+export function loadSettleDelayMs(profileName: string): number {
+  return loadMachineProfileMemory(profileName).settleDelayMs;
 }

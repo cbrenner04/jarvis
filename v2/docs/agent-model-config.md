@@ -14,7 +14,11 @@ Two axes, two stores:
 | Axis | Store | Contents |
 | --- | --- | --- |
 | **Agent fallback order** | Per-machine `~/.jarvis/v2.json`, shape `{ "agents": string[] }` | Ordered `agents: Agent[]` — availability/quota chain only |
-| **Role→model bindings** | One harness-global, version-controlled data file beside `data/prices.json` | `AgentModelConfig` — `(agent, role) → ModelEscalation`; may catalog agents beyond any one project's `agents` list |
+| **Role→model bindings** | Repo-committed per-profile file `config/machines/<profileName>.json`, loaded by [`machine-profile-loader.ts`](../src/config/machine-profile-loader.ts) | `AgentModelConfig` — `(agent, role) → ModelEscalation`; may catalog agents beyond any one project's `agents` list |
+
+Two profiles are seeded: `home` (full claude+codex+cursor roster) and `work`
+(codex+cursor only, no `claude`). Which profile a machine loads is a hardcoded
+`"home"` placeholder at each call site until a profile-name resolver lands.
 
 The machine agent-order file is edited with `jarvis config set-agents <agent,agent,...>` and inspected with `jarvis config show` / `jarvis config path` ([Read-only inspection](#read-only-inspection)).
 `set-agents` replaces the full `agents` array, preserves unrelated top-level
@@ -22,14 +26,13 @@ keys in `~/.jarvis/v2.json`, creates missing `~/.jarvis/` state on success, and
 refuses to overwrite an existing file that is not a valid machine-config object.
 
 Per-project variance is **only** the ordered `agents` list. Role→model assignments
-are shared across machines and projects. Load validation applies **only** to
-agents listed in the project's `agents` order — extra agents in the global file
-are ignored at load (see [Load-time validation](#load-time-validation)).
+are shared across machines and projects loading the same profile. Load validation
+applies **only** to agents listed in the project's `agents` order — extra agents in
+the loaded profile are ignored at load (see [Load-time validation](#load-time-validation)).
 Workflow-source validation is separate: after config load succeeds, the loaded
 workflow `steps` array must still resolve each step role for every
 machine-configured agent before the workflow is allowed to run (see
-[`workflow-runner.md`](workflow-runner.md)). The on-disk filename for the
-global data file is deferred to the first consumer that implements load.
+[`workflow-runner.md`](workflow-runner.md)).
 
 v1's combined `{agent, model}` `agentOrder` entries are retired. v2 holds agent
 names in project config and model rungs in the global store.
@@ -362,7 +365,7 @@ For an `actuator` step: `claude/haiku → codex/gpt-5.4` — only each agent's
 
 Load-bearing choices are in the sections above. Pins for first consumer:
 
-- **On-disk data filename** — `data/agent-model-config.json` (repo-root `data/`, beside `prices.json`). Loader at [`v2/src/config/agent-model-config.ts`](../../v2/src/config/agent-model-config.ts). Load validation is aggregate (not fail-fast): all hard-error violations are collected and reported together in one load result.
+- **On-disk data filename** — `config/machines/<profileName>.json` (repo-root `config/machines/`), one file per machine profile. Loader at [`v2/src/config/machine-profile-loader.ts`](../../v2/src/config/machine-profile-loader.ts), which delegates JSON-shape validation to `validateAgentModelConfig` in [`v2/src/config/agent-model-config.ts`](../../v2/src/config/agent-model-config.ts). Load validation is aggregate (not fail-fast): all hard-error violations are collected and reported together in one load result.
 - **`Model` / `priceKey` validation** — adapter catalog + `prices.json` key existence.
 - **Tier→initial rung index** — when a workflow consumer maps runnable `tier:` metadata.
 - **Capability-floor filtering** — when Phase 5 wires v1 `actuationCapabilityFloor` parity.

@@ -1,5 +1,6 @@
 import { rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
+import { promisify } from "node:util";
 import { encodeFrame, FrameDecoder } from "./codec.ts";
 import type { ErrorFrame, IpcFrame, ResponseFrame, StreamDataFrame, StreamEndFrame } from "./types.ts";
 
@@ -285,17 +286,11 @@ export function startIpcServer(
         close: async (options) => {
           acceptingConnections = false;
           const drainTimeoutMs = options?.drainTimeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS;
-          const closeServer = new Promise<void>((closeResolve, closeReject) => {
-            server.close((err) => {
-              if (err) {
-                closeReject(err);
-                return;
-              }
-              closeResolve();
-            });
-          });
           try {
-            await Promise.all([closeServer, waitForSocketDrain(activeSockets, drainTimeoutMs)]);
+            await Promise.all([
+              promisify(server.close.bind(server))(),
+              waitForSocketDrain(activeSockets, drainTimeoutMs),
+            ]);
           } finally {
             rmSync(socketPath, { force: true });
           }

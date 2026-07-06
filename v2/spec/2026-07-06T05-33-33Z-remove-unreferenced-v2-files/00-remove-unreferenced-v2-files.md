@@ -32,19 +32,19 @@ fixtures with zero references. No replacements, stubs, or relocated helpers.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/tui/tui-field-collector.tsx` and `v2/src/tui/tui-field-collector.test.tsx` are absent.
-- [ ] `v2/test/fixtures/complexity-violation.ts` and `v2/test/fixtures/shared-import-violation.ts` are absent.
-- [ ] `v2/test/fixtures/` is absent.
-- [ ] `rg 'tui-field-collector|complexity-violation|shared-import-violation' v2/src v2/test` returns no matches.
-- [ ] `rg 'smoke: loadInkUi' v2/src` returns no matches.
-- [ ] `v2/docs/v2-architecture.md` TUI host domain-map row omits `tui-field-collector.tsx` and does not describe an active `v2/test/fixtures/` Biome-demo directory.
-- [ ] `v2/docs/v1-behaviors.md` has no launch field-collection entry citing `collectLaunchFieldsViaInk` or deleted module paths; surviving TUI ink surfaces still document the `loadInkUi` boundary.
-- [ ] `v2/docs/write-behavior.md` Verification omits `tui-field-collector.test.tsx` and the Linux/Bun Yoga-TDZ `loadInkUi` smoke-guard claim.
-- [ ] `v2/docs/coding-standards.md` does not point operators at `v2/test/fixtures/` or its README for Biome-gate verification.
-- [ ] `v2/docs/v2-vision.md` does not describe `v2/test/fixtures/` or grandfathered Biome-demo fixtures.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/tui/tui-field-collector.tsx` and `v2/src/tui/tui-field-collector.test.tsx` are absent.
+- [x] `v2/test/fixtures/complexity-violation.ts` and `v2/test/fixtures/shared-import-violation.ts` are absent.
+- [x] `v2/test/fixtures/` is absent.
+- [x] `rg 'tui-field-collector|complexity-violation|shared-import-violation' v2/src v2/test` returns no matches.
+- [x] `rg 'smoke: loadInkUi' v2/src` returns no matches.
+- [x] `v2/docs/v2-architecture.md` TUI host domain-map row omits `tui-field-collector.tsx` and does not describe an active `v2/test/fixtures/` Biome-demo directory.
+- [x] `v2/docs/v1-behaviors.md` has no launch field-collection entry citing `collectLaunchFieldsViaInk` or deleted module paths; surviving TUI ink surfaces still document the `loadInkUi` boundary.
+- [x] `v2/docs/write-behavior.md` Verification omits `tui-field-collector.test.tsx` and the Linux/Bun Yoga-TDZ `loadInkUi` smoke-guard claim.
+- [x] `v2/docs/coding-standards.md` does not point operators at `v2/test/fixtures/` or its README for Biome-gate verification.
+- [x] `v2/docs/v2-vision.md` does not describe `v2/test/fixtures/` or grandfathered Biome-demo fixtures.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

@@ -52,11 +52,6 @@ export class FrameDecoder {
     }
   }
 
-  /** Drops any buffered partial frame bytes. */
-  reset(): void {
-    this.#buffer = Buffer.alloc(0);
-  }
-
   /** True when a header or partial body is buffered. */
   hasPartialFrame(): boolean {
     return this.#buffer.length > 0;

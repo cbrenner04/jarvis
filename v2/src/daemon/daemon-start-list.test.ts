@@ -5,13 +5,7 @@ import { join } from "node:path";
 import { connectIpcClient } from "../ipc/client.ts";
 import { startIpcServer } from "../ipc/server.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import {
-  listRuns,
-  listRunsDirect,
-  mockWriteLoopInput,
-  startRun,
-  startRunDirect,
-} from "../testing/run-control.ts";
+import { listRuns, listRunsDirect, mockWriteLoopInput, startRun, startRunDirect } from "../testing/run-control.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers } from "./daemon.ts";
@@ -350,118 +344,115 @@ test("list returns workflow step snapshots for live, stopped, and completed work
   });
 });
 
-test(
-  "list maps stopped workflow steps to budget-exhausted, paused, killed, and contract_miss outcomes",
-  async () => {
-    const budgetRunId = stateStore.createRun({
-      project: "wf-outcomes",
-      specRef: "main",
-      worktreePath: "/tmp/wf-outcomes",
-      branch: "wf-budget",
-      specPath: "/tmp/spec.md",
-      stepId: "step-budget",
-      workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-budget", role: "implement" }),
-    });
-    stateStore.recordAttemptStart(budgetRunId);
-    stateStore.setRunStatus(budgetRunId, "budget-soft-stopped");
+test("list maps stopped workflow steps to budget-exhausted, paused, killed, and contract_miss outcomes", async () => {
+  const budgetRunId = stateStore.createRun({
+    project: "wf-outcomes",
+    specRef: "main",
+    worktreePath: "/tmp/wf-outcomes",
+    branch: "wf-budget",
+    specPath: "/tmp/spec.md",
+    stepId: "step-budget",
+    workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-budget", role: "implement" }),
+  });
+  stateStore.recordAttemptStart(budgetRunId);
+  stateStore.setRunStatus(budgetRunId, "budget-soft-stopped");
 
-    const pausedRunId = stateStore.createRun({
-      project: "wf-outcomes",
-      specRef: "main",
-      worktreePath: "/tmp/wf-outcomes",
-      branch: "wf-paused",
-      specPath: "/tmp/spec.md",
-      stepId: "step-paused",
-      workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-paused", role: "implement" }),
-    });
-    stateStore.recordAttemptStart(pausedRunId);
-    stateStore.setRunStatus(pausedRunId, "paused");
+  const pausedRunId = stateStore.createRun({
+    project: "wf-outcomes",
+    specRef: "main",
+    worktreePath: "/tmp/wf-outcomes",
+    branch: "wf-paused",
+    specPath: "/tmp/spec.md",
+    stepId: "step-paused",
+    workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-paused", role: "implement" }),
+  });
+  stateStore.recordAttemptStart(pausedRunId);
+  stateStore.setRunStatus(pausedRunId, "paused");
 
-    const killedRunId = stateStore.createRun({
-      project: "wf-outcomes",
-      specRef: "main",
-      worktreePath: "/tmp/wf-outcomes",
-      branch: "wf-killed",
-      specPath: "/tmp/spec.md",
-      stepId: "step-killed",
-      workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-killed", role: "implement" }),
-    });
-    stateStore.recordAttemptStart(killedRunId);
-    stateStore.setRunStatus(killedRunId, "killed");
+  const killedRunId = stateStore.createRun({
+    project: "wf-outcomes",
+    specRef: "main",
+    worktreePath: "/tmp/wf-outcomes",
+    branch: "wf-killed",
+    specPath: "/tmp/spec.md",
+    stepId: "step-killed",
+    workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-killed", role: "implement" }),
+  });
+  stateStore.recordAttemptStart(killedRunId);
+  stateStore.setRunStatus(killedRunId, "killed");
 
-    const contractMissRunId = stateStore.createRun({
-      project: "wf-outcomes",
-      specRef: "main",
-      worktreePath: "/tmp/wf-outcomes",
-      branch: "wf-contract",
-      specPath: "/tmp/spec.md",
-      stepId: "step-contract",
-      workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-contract", role: "implement" }),
-    });
-    const contractMissAttemptId = stateStore.recordAttemptStart(contractMissRunId);
-    stateStore.commitCompletionBoundary({
-      attemptId: contractMissAttemptId,
-      runStatus: "blocked",
-      outcomeKind: "contract_miss",
-    });
+  const contractMissRunId = stateStore.createRun({
+    project: "wf-outcomes",
+    specRef: "main",
+    worktreePath: "/tmp/wf-outcomes",
+    branch: "wf-contract",
+    specPath: "/tmp/spec.md",
+    stepId: "step-contract",
+    workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-contract", role: "implement" }),
+  });
+  const contractMissAttemptId = stateStore.recordAttemptStart(contractMissRunId);
+  stateStore.commitCompletionBoundary({
+    attemptId: contractMissAttemptId,
+    runStatus: "blocked",
+    outcomeKind: "contract_miss",
+  });
 
-    const awaitingHumanRunId = stateStore.createRun({
-      project: "wf-outcomes",
-      specRef: "main",
-      worktreePath: "/tmp/wf-outcomes",
-      branch: "wf-human",
-      specPath: "/tmp/spec.md",
-      stepId: "step-human",
-      workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-human", role: "implement" }),
-    });
-    stateStore.setRunStatus(awaitingHumanRunId, "awaiting-human");
+  const awaitingHumanRunId = stateStore.createRun({
+    project: "wf-outcomes",
+    specRef: "main",
+    worktreePath: "/tmp/wf-outcomes",
+    branch: "wf-human",
+    specPath: "/tmp/spec.md",
+    stepId: "step-human",
+    workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-human", role: "implement" }),
+  });
+  stateStore.setRunStatus(awaitingHumanRunId, "awaiting-human");
 
-    const runs = await listRunsDirect(handlers);
-    expect(runs?.find((row) => row.runId === budgetRunId)?.workflow).toEqual({
-      steps: [
-        {
-          stepId: "step-budget",
-          role: "implement",
-          status: "stopped",
-          attemptCount: 1,
-          terminalOutcome: "budget-exhausted",
-        },
-      ],
-    });
-    expect(runs?.find((row) => row.runId === pausedRunId)?.workflow).toEqual({
-      steps: [
-        { stepId: "step-paused", role: "implement", status: "stopped", attemptCount: 1, terminalOutcome: "paused" },
-      ],
-    });
-    expect(runs?.find((row) => row.runId === killedRunId)?.workflow).toEqual({
-      steps: [
-        { stepId: "step-killed", role: "implement", status: "stopped", attemptCount: 1, terminalOutcome: "killed" },
-      ],
-    });
-    expect(runs?.find((row) => row.runId === contractMissRunId)?.workflow).toEqual({
-      steps: [
-        {
-          stepId: "step-contract",
-          role: "implement",
-          status: "stopped",
-          attemptCount: 1,
-          terminalOutcome: "contract_miss",
-        },
-      ],
-    });
-    expect(runs?.find((row) => row.runId === awaitingHumanRunId)?.workflow).toEqual({
-      steps: [
-        {
-          stepId: "step-human",
-          role: "implement",
-          status: "stopped",
-          attemptCount: 0,
-          terminalOutcome: "awaiting-human",
-        },
-      ],
-    });
-  },
-);
+  const runs = await listRunsDirect(handlers);
+  expect(runs?.find((row) => row.runId === budgetRunId)?.workflow).toEqual({
+    steps: [
+      {
+        stepId: "step-budget",
+        role: "implement",
+        status: "stopped",
+        attemptCount: 1,
+        terminalOutcome: "budget-exhausted",
+      },
+    ],
+  });
+  expect(runs?.find((row) => row.runId === pausedRunId)?.workflow).toEqual({
+    steps: [
+      { stepId: "step-paused", role: "implement", status: "stopped", attemptCount: 1, terminalOutcome: "paused" },
+    ],
+  });
+  expect(runs?.find((row) => row.runId === killedRunId)?.workflow).toEqual({
+    steps: [
+      { stepId: "step-killed", role: "implement", status: "stopped", attemptCount: 1, terminalOutcome: "killed" },
+    ],
+  });
+  expect(runs?.find((row) => row.runId === contractMissRunId)?.workflow).toEqual({
+    steps: [
+      {
+        stepId: "step-contract",
+        role: "implement",
+        status: "stopped",
+        attemptCount: 1,
+        terminalOutcome: "contract_miss",
+      },
+    ],
+  });
+  expect(runs?.find((row) => row.runId === awaitingHumanRunId)?.workflow).toEqual({
+    steps: [
+      {
+        stepId: "step-human",
+        role: "implement",
+        status: "stopped",
+        attemptCount: 0,
+        terminalOutcome: "awaiting-human",
+      },
+    ],
+  });
+});
 
 test("list builds a review-debate row from the live role pointer while in progress", async () => {
   const snapshot = workflowSnapshot(
@@ -518,7 +509,10 @@ test("list builds a review-debate row from the terminal role/outcome once the cy
   });
   stateStore.setRunStatus(runId, "completed");
 
-  handlers.reportReviewDebateProgress("workflow-debate-done", "step-debate", { status: "in_progress", role: "adjudicator" });
+  handlers.reportReviewDebateProgress("workflow-debate-done", "step-debate", {
+    status: "in_progress",
+    role: "adjudicator",
+  });
   handlers.reportReviewDebateProgress("workflow-debate-done", "step-debate", {
     status: "completed",
     role: "actuator",

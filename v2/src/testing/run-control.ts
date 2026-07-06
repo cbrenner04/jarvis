@@ -7,7 +7,11 @@ import type { IpcClient } from "../ipc/client.ts";
 type ListRunsResult = { runs?: DaemonListRunRow[] } | undefined;
 type RunControlHandlers = ReturnType<typeof createRunControlHandlers>;
 
-function requestFrame(id: string, method: string, params?: unknown): { kind: "request"; id: string; method: string; params?: unknown } {
+function requestFrame(
+  id: string,
+  method: string,
+  params?: unknown,
+): { kind: "request"; id: string; method: string; params?: unknown } {
   return { kind: "request", id, method, params };
 }
 

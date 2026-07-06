@@ -434,8 +434,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const reviewDebateProgressByInvocation = new Map<string, Map<string, ReviewDebateProgress>>();
   const { stateStore: store, logReader, writeLoopExecutor, failureReporter } = deps;
   const checkWorktreeDirty = deps.isWorktreeDirty ?? isWorktreeDirty;
-  const checkMemoryHeadroom = deps.hasMemoryHeadroom ?? (() => hasMemoryHeadroom());
-  const settleDelayMs = deps.settleDelayMs ?? loadSettleDelayMs();
+  const checkMemoryHeadroom = deps.hasMemoryHeadroom ?? (() => hasMemoryHeadroom("home"));
+  const settleDelayMs = deps.settleDelayMs ?? loadSettleDelayMs("home");
   const settleState: PromotionSettleState = { suppressedUntil: 0 };
 
   const resultFrom = (runId: string, runStatus: RunStatus, record?: TerminalLogRecord): WaitRunCompletionResult => {

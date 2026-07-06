@@ -47,12 +47,12 @@ Purely additive: no existing consumer switches over yet (that's
 
 ## Acceptance criteria
 
-- [ ] `agent-model-config.test.ts` stays green (`loadAgentModelConfig` behavior unchanged by the extraction).
-- [ ] `machine-config-loader.test.ts` stays green (`validateMachineConfigMemory` behavior unchanged by the constant dedupe).
-- [ ] `loadMachineProfileModels("does-not-exist", ["claude"])` throws naming the profile name and the resolved `config/machines/does-not-exist.json` path.
-- [ ] `loadMachineProfileModels` on a profile file with malformed JSON throws naming the file.
-- [ ] `loadMachineProfileModels` on a profile file whose `models` value is missing a required role for a requested agent returns a `LoadError` naming the agent and role (delegated to `validateAgentModelConfig`).
-- [ ] `loadMachineProfileMemory` on a profile file with no `memory` key returns `{ minFreeGb: undefined, settleDelayMs: DEFAULT_SETTLE_DELAY_MS }`.
+- [x] `agent-model-config.test.ts` stays green (`loadAgentModelConfig` behavior unchanged by the extraction).
+- [x] `machine-config-loader.test.ts` stays green (`validateMachineConfigMemory` behavior unchanged by the constant dedupe).
+- [x] `loadMachineProfileModels("does-not-exist", ["claude"])` throws naming the profile name and the resolved `config/machines/does-not-exist.json` path.
+- [x] `loadMachineProfileModels` on a profile file with malformed JSON throws naming the file.
+- [x] `loadMachineProfileModels` on a profile file whose `models` value is missing a required role for a requested agent returns a `LoadError` naming the agent and role (delegated to `validateAgentModelConfig`).
+- [x] `loadMachineProfileMemory` on a profile file with no `memory` key returns `{ minFreeGb: undefined, settleDelayMs: DEFAULT_SETTLE_DELAY_MS }`.
 
 ## Documentation updates
 

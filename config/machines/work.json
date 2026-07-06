@@ -1,0 +1,44 @@
+{
+  "models": {
+    "codex": {
+      "plan": {
+        "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
+      },
+      "implement": {
+        "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
+      },
+      "adversary": {
+        "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
+      },
+      "advocate": {
+        "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
+      },
+      "adjudicator": {
+        "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
+      },
+      "actuator": {
+        "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
+      }
+    },
+    "cursor": {
+      "plan": {
+        "rungs": [{ "adapterModel": "Composer 2.5", "priceKey": "Composer 2.5" }]
+      },
+      "implement": {
+        "rungs": [{ "adapterModel": "Composer 2.5", "priceKey": "Composer 2.5" }]
+      },
+      "adversary": {
+        "rungs": [{ "adapterModel": "Composer 2.5", "priceKey": "Composer 2.5" }]
+      },
+      "advocate": {
+        "rungs": [{ "adapterModel": "Composer 2.5", "priceKey": "Composer 2.5" }]
+      },
+      "adjudicator": {
+        "rungs": [{ "adapterModel": "Composer 2.5", "priceKey": "Composer 2.5" }]
+      },
+      "actuator": {
+        "rungs": [{ "adapterModel": "GPT-5.3 Codex", "priceKey": "GPT-5.3 Codex" }]
+      }
+    }
+  }
+}

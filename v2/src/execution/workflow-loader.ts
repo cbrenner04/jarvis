@@ -1,10 +1,8 @@
-import { join } from "node:path";
-import { type LoadError, loadAgentModelConfig, resolveExecutableRole } from "../config/agent-model-config.ts";
+import { type LoadError, resolveExecutableRole } from "../config/agent-model-config.ts";
 import { loadMachineConfig } from "../config/machine-config-loader.ts";
+import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
 import { validateWorkflowStepRoles, type WriteWorkflowStep } from "./workflow-runner.ts";
 import { DEFAULT_WRITE_AGENTS } from "./write-loop-input.ts";
-
-const AGENT_MODEL_CONFIG_PATH = join(import.meta.dir, "..", "..", "..", "data", "agent-model-config.json");
 
 function isLoadError(value: unknown): value is LoadError {
   return typeof value === "object" && value !== null && "errors" in value && Array.isArray((value as LoadError).errors);
@@ -16,7 +14,7 @@ export type WorkflowSourceStep = Omit<WriteWorkflowStep, "agents" | "agentModelC
 /** Test-only path overrides. */
 type LoadWorkflowStepsDeps = {
   machineConfigPath?: string;
-  agentModelConfigPath?: string;
+  machineProfile?: string;
 };
 
 /** Throws one aggregated error naming every step with an unrunnable role. */
@@ -26,7 +24,7 @@ export function loadWorkflowSteps(
 ): WriteWorkflowStep[] {
   const agents = loadMachineConfig(deps.machineConfigPath) ?? DEFAULT_WRITE_AGENTS;
 
-  const loadResult = loadAgentModelConfig(deps.agentModelConfigPath ?? AGENT_MODEL_CONFIG_PATH, agents);
+  const loadResult = loadMachineProfileModels(deps.machineProfile ?? "home", agents);
   if (isLoadError(loadResult)) {
     throw new Error(`Failed to load agent model config: ${loadResult.errors.join(", ")}`);
   }

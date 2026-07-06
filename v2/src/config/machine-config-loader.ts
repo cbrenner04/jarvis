@@ -20,39 +20,7 @@ export function readMachineConfigDocument(
     validateMachineConfigAgents((parsed as Record<string, unknown>).agents);
   }
 
-  if ("memory" in parsed) {
-    validateMachineConfigMemory((parsed as Record<string, unknown>).memory);
-  }
-
   return parsed as Record<string, unknown>;
-}
-
-export function validateMachineConfigMemory(memory: unknown): { minFreeGb: number | undefined; settleDelayMs: number } {
-  if (typeof memory !== "object" || memory === null || Array.isArray(memory)) {
-    throw new Error(
-      `Machine config 'memory' must be an object, got ${Array.isArray(memory) ? "array" : memory === null ? "null" : typeof memory}`,
-    );
-  }
-
-  let settleDelayMs = 2000;
-  if ("settleDelayMs" in memory) {
-    const rawSettleDelayMs = (memory as Record<string, unknown>).settleDelayMs;
-    if (typeof rawSettleDelayMs !== "number" || !Number.isInteger(rawSettleDelayMs) || rawSettleDelayMs <= 0) {
-      throw new Error(`Machine config 'memory.settleDelayMs' must be a positive integer, got ${rawSettleDelayMs}`);
-    }
-    settleDelayMs = rawSettleDelayMs;
-  }
-
-  if (!("minFreeGb" in memory)) {
-    return { minFreeGb: undefined, settleDelayMs };
-  }
-
-  const minFreeGb = (memory as Record<string, unknown>).minFreeGb;
-  if (typeof minFreeGb !== "number" || !Number.isFinite(minFreeGb) || minFreeGb <= 0) {
-    throw new Error(`Machine config 'memory.minFreeGb' must be a positive finite number, got ${minFreeGb}`);
-  }
-
-  return { minFreeGb, settleDelayMs };
 }
 
 export function validateMachineConfigAgents(agents: unknown): string[] {
@@ -89,17 +57,6 @@ export function loadMachineConfig(configPath: string = join(homedir(), ".jarvis"
   }
 
   return parsed.agents as string[];
-}
-
-export function loadMachineConfigMemory(
-  configPath: string = join(homedir(), ".jarvis", "v2.json"),
-): { minFreeGb: number | undefined; settleDelayMs: number } | undefined {
-  const parsed = readMachineConfigDocument(configPath);
-  if (parsed === undefined || !("memory" in parsed)) {
-    return undefined;
-  }
-
-  return validateMachineConfigMemory(parsed.memory);
 }
 
 function readMachineConfigFile(configPath: string): unknown {

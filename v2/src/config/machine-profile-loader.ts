@@ -62,6 +62,15 @@ function readMachineProfileDocument(profileName: string): Record<string, unknown
 
 export function loadMachineProfileModels(profileName: string, agents: readonly string[]): AgentModelConfig | LoadError {
   const document = readMachineProfileDocument(profileName);
+
+  if (!("models" in document)) {
+    return {
+      errors: [
+        `Machine profile '${profileName}' at ${resolveProfilePath(profileName)} is missing required 'models' key`,
+      ],
+    };
+  }
+
   return validateAgentModelConfig(document.models, agents);
 }
 

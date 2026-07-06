@@ -106,6 +106,16 @@ describe("loadMachineProfileModels", () => {
     }
   });
 
+  test("missing models key returns LoadError naming the missing key, not a malformed-object claim", () => {
+    writeProfile("missing-models-key-profile", JSON.stringify({}));
+    const result = loadMachineProfileModels("missing-models-key-profile", ["claude"]);
+    expect(isError(result)).toBe(true);
+    if (isError(result)) {
+      expect(result.errors.some((e) => e.includes("missing-models-key-profile") && e.includes("models"))).toBe(true);
+      expect(result.errors.some((e) => e.includes("JSON object"))).toBe(false);
+    }
+  });
+
   test("resolves path under config/machines/", () => {
     writeProfile("path-resolution-profile", JSON.stringify({ models: VALID_MODELS }));
     const result = loadMachineProfileModels("path-resolution-profile", ["claude"]);

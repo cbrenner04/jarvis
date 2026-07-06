@@ -347,13 +347,13 @@ settles.
 
 ## Memory watermark
 
-`memory.minFreeGb` in the per-machine config (`~/.jarvis/v2.json`, same file
-as the `agents` key) sets a free-memory floor in GB. Unset (or `memory` key
-absent) means no gating. When present, `minFreeGb` must be a positive finite
-number — `0`, negative, or non-numeric values throw at config load, matching
-`agents` validation.
+`memory.minFreeGb` in the active machine profile (`config/machines/<profile>.json`,
+same file as the `models` key) sets a free-memory floor in GB. Unset (or
+`memory` key absent) means no gating. When present, `minFreeGb` must be a
+positive finite number — `0`, negative, or non-numeric values throw at
+profile load, matching `models` validation.
 
-`hasMemoryHeadroom(configPath?, freeMemReader?)` in
+`hasMemoryHeadroom(profileName: string, freeMemReader?)` in
 `v2/src/daemon/memory-watermark.ts` reports whether current free memory
 clears the configured floor: `true` when unconfigured, else compares an
 injectable free-memory reader (default `os.freemem`) against the floor
@@ -380,9 +380,10 @@ No preemption — promotion only fills free headroom; it never pauses, kills,
 or otherwise touches an already-running run.
 
 **Settle delay:** after a promotion, further promotions are suppressed for
-`memory.settleDelayMs` (config, default `2000`) before headroom is
-re-measured, to avoid racing ahead of the just-admitted run's memory
-footprint ramping up. One exception: `start` performs a one-time immediate
+`memory.settleDelayMs` (profile config, default `DEFAULT_SETTLE_DELAY_MS` in
+`v2/src/config/machine-profile-loader.ts`) before headroom is re-measured, to
+avoid racing ahead of the just-admitted run's memory footprint ramping up.
+One exception: `start` performs a one-time immediate
 recheck (bypassing the settle delay) on the row it just queued, covering the
 case where memory has already recovered by the time the row is persisted —
 without it, a queued run with no other run active has no further promotion

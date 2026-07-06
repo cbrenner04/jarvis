@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { hasMemoryHeadroom } from "./memory-watermark.ts";
+import { DEFAULT_SETTLE_DELAY_MS } from "../config/machine-profile-loader.ts";
+import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
 
 const MACHINES_DIR = join(import.meta.dir, "..", "..", "..", "config", "machines");
 const writtenProfiles: string[] = [];
@@ -41,5 +42,20 @@ describe("hasMemoryHeadroom", () => {
   test("returns true when free memory is above the configured floor", () => {
     const profile = writeProfile("memory-watermark-test-above-floor", { models: {}, memory: { minFreeGb: 4 } });
     expect(hasMemoryHeadroom(profile, () => 5 * GB)).toBe(true);
+  });
+});
+
+describe("loadSettleDelayMs", () => {
+  test("returns the profile's configured settle delay", () => {
+    const profile = writeProfile("memory-watermark-test-settle-delay", {
+      models: {},
+      memory: { settleDelayMs: 500 },
+    });
+    expect(loadSettleDelayMs(profile)).toBe(500);
+  });
+
+  test("returns the default settle delay when unset", () => {
+    const profile = writeProfile("memory-watermark-test-settle-delay-default", { models: {} });
+    expect(loadSettleDelayMs(profile)).toBe(DEFAULT_SETTLE_DELAY_MS);
   });
 });

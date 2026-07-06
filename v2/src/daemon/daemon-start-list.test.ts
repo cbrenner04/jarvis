@@ -49,6 +49,8 @@ function createFakeWriteLoopExecutor(onStart?: (input: WriteLoopInput) => void) 
     executor,
     settleAll: (): void => drainPending("settle"),
     abortAll: (): void => drainPending("abort"),
+    settleFirst: (): void => pending.shift()?.release("settle"),
+    pendingCount: (): number => pending.length,
     isPauseSignalTriggered: (): boolean => pending.some((run) => run.pauseSignal.aborted),
     isAbortSignalTriggered: (): boolean => pending.some((run) => run.signal.aborted),
   };
@@ -220,6 +222,35 @@ socketTest("settled run is no longer live in list", async () => {
   expect(runs.length).toBeGreaterThan(0);
   const run = runs[0];
   expect(run?.isLive).toBe(false);
+  client.close();
+});
+
+socketTest("two admitted runs progress concurrently, settling independently", async () => {
+  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+  const input1 = mockWriteLoopInput({ projectName: "project-one", branchName: "branch-one" });
+  const input2 = mockWriteLoopInput({ projectName: "project-two", branchName: "branch-two" });
+
+  const runId1 = await startRun(client, input1);
+  const runId2 = await startRun(client, input2);
+  await flushBackgroundRuns();
+
+  expect(fakeExecutor.pendingCount()).toBe(2);
+
+  const runsBothLive = await listRuns(client);
+  expect(runsBothLive?.find((run) => run.runId === runId1)?.isLive).toBe(true);
+  expect(runsBothLive?.find((run) => run.runId === runId2)?.isLive).toBe(true);
+
+  fakeExecutor.settleFirst();
+  await flushBackgroundRuns();
+  // Fake executor mirrors only liveness, not the real loop's terminal status
+  // commit; simulate that commit directly, as other tests in this file do.
+  stateStore.setRunStatus(runId1 as string, "completed");
+
+  expect(fakeExecutor.pendingCount()).toBe(1);
+  const runsAfterFirstSettles = await listRuns(client);
+  expect(runsAfterFirstSettles?.find((run) => run.runId === runId1)?.status).toBe("completed");
+  expect(runsAfterFirstSettles?.find((run) => run.runId === runId2)?.isLive).toBe(true);
+
   client.close();
 });
 

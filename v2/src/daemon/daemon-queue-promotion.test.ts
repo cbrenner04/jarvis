@@ -4,11 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
-import { connectIpcClient } from "../ipc/client.ts";
-import { type IpcServer, startIpcServer } from "../ipc/server.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { listRuns, mockWriteLoopInput, startRun, toIpcHandlers } from "../testing/run-control.ts";
-import { canUseUnixSockets } from "../testing/unix-socket.ts";
+import { listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
+import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import {
   createRunControlHandlers,
   type OwnershipKey,
@@ -17,51 +15,10 @@ import {
   WorktreeOwnershipRegistry,
 } from "./daemon.ts";
 
-const SOCKET_PATH = join(tmpdir(), `jarvis-daemon-queue-promotion-test-${process.pid}.sock`);
-const socketTest = test.skipIf(!canUseUnixSockets());
-
-type PendingExecutorRun = {
-  input: WriteLoopInput;
-  signal: AbortSignal;
-  release: () => void;
-};
-
-function createFakeWriteLoopExecutor() {
-  const pending: PendingExecutorRun[] = [];
-
-  const executor = async (input: WriteLoopInput, signal: AbortSignal): Promise<void> => {
-    await new Promise<void>((resolve) => {
-      let released = false;
-      const release = (): void => {
-        if (released) return;
-        released = true;
-        resolve();
-      };
-      pending.push({ input, signal, release });
-      signal.addEventListener("abort", release, { once: true });
-    });
-  };
-
-  return {
-    executor,
-    settleOne: (): void => {
-      pending.shift()?.release();
-    },
-    settleAll: (): void => {
-      while (pending.length > 0) {
-        pending.shift()?.release();
-      }
-    },
-    pendingCount: (): number => pending.length,
-    pendingKeys: (): string[] =>
-      pending.map((run) => `${run.input.worktree.projectName}:${run.input.worktree.branchName}`),
-  };
-}
-
-type FakeWriteLoopExecutor = ReturnType<typeof createFakeWriteLoopExecutor>;
+type Handlers = ReturnType<typeof createRunControlHandlers>;
 
 let stateStore: StateStore;
-let server: IpcServer;
+let handlers: Handlers;
 let fakeExecutor: FakeWriteLoopExecutor;
 let memoryHeadroom: boolean;
 
@@ -70,39 +27,25 @@ async function flushBackgroundRuns(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
-async function startHandlers(settleDelayMs: number): Promise<void> {
-  const handlers = createRunControlHandlers({
+function startHandlers(settleDelayMs: number): void {
+  handlers = createRunControlHandlers({
     stateStore,
     writeLoopExecutor: fakeExecutor.executor,
     failureReporter: () => {},
     hasMemoryHeadroom: () => memoryHeadroom,
     settleDelayMs,
   });
-  server = await startIpcServer(SOCKET_PATH, toIpcHandlers(handlers));
 }
 
-beforeEach(async () => {
-  if (!canUseUnixSockets()) {
-    return;
-  }
-  rmSync(SOCKET_PATH, { force: true });
+beforeEach(() => {
   stateStore = openStateStore(join(tmpdir(), `jarvis-state-queue-promotion-${process.pid}-${Date.now()}.db`));
   fakeExecutor = createFakeWriteLoopExecutor();
   memoryHeadroom = true;
 });
 
 afterEach(async () => {
-  if (!canUseUnixSockets()) {
-    return;
-  }
-  fakeExecutor.settleAll();
+  fakeExecutor.abortAll();
   await flushBackgroundRuns();
-  try {
-    await server.close();
-  } catch {
-    // server may have already stopped
-  }
-  rmSync(SOCKET_PATH, { force: true });
   try {
     stateStore.close();
   } catch {
@@ -234,101 +177,82 @@ test("promoteQueuedRunImpl withholds promotion while the settle delay is active"
   }
 });
 
-socketTest(
-  "promoting one queued run does not touch an already-running run when headroom later reports insufficient",
-  async () => {
-    await startHandlers(100_000);
-    const client = await connectIpcClient(SOCKET_PATH, 2_000);
+test("promoting one queued run does not touch an already-running run when headroom later reports insufficient", async () => {
+  startHandlers(100_000);
 
-    const runningId = await startRun(client, mockWriteLoopInput({ projectName: "project-running" }));
-
-    memoryHeadroom = false;
-    const queuedId = await startRun(client, mockWriteLoopInput({ projectName: "project-queued" }));
-    expect(stateStore.loadRun(queuedId!)?.status).toBe("queued");
-
-    memoryHeadroom = true;
-    // A start on a distinct, unrelated key admits directly and triggers the post-admit
-    // promotion check; project-running is never touched by it.
-    await startRun(client, mockWriteLoopInput({ projectName: "project-trigger" }));
-    await flushBackgroundRuns();
-
-    expect(stateStore.loadRun(queuedId!)?.status).toBe("in-progress");
-    expect(stateStore.loadRun(runningId!)?.status).toBe("in-progress");
-
-    // Memory now drops below the watermark again; project-running's status must never
-    // change as a side effect of headroom checks — there is no preemption.
-    memoryHeadroom = false;
-    await flushBackgroundRuns();
-    expect(stateStore.loadRun(runningId!)?.status).toBe("in-progress");
-
-    client.close();
-  },
-);
-
-socketTest(
-  "a start that queues because memory is briefly tight is promoted immediately once memory has already recovered",
-  async () => {
-    let calls = 0;
-    const handlers = createRunControlHandlers({
-      stateStore,
-      writeLoopExecutor: fakeExecutor.executor,
-      failureReporter: () => {},
-      // Reports no headroom for the initial admission check, then recovered for the
-      // immediate recheck performed right after the row is persisted.
-      hasMemoryHeadroom: () => {
-        calls += 1;
-        return calls > 1;
-      },
-      settleDelayMs: 0,
-    });
-    server = await startIpcServer(SOCKET_PATH, toIpcHandlers(handlers));
-    const client = await connectIpcClient(SOCKET_PATH, 2_000);
-
-    const runId = await startRun(client, mockWriteLoopInput({ projectName: "project-recovering" }));
-    await flushBackgroundRuns();
-
-    expect(stateStore.loadRun(runId!)?.status).toBe("in-progress");
-
-    client.close();
-  },
-);
-
-socketTest("a run reaching a paused status frees its key for promotion of an eligible queued run", async () => {
-  await startHandlers(0);
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
-
-  const pausedKey = mockWriteLoopInput({ projectName: "project-pausing" });
-  const pausingRunId = await startRun(client, pausedKey);
+  const runningId = await startRunDirect(handlers, mockWriteLoopInput({ projectName: "project-running" }));
 
   memoryHeadroom = false;
-  const queuedId = await startRun(client, mockWriteLoopInput({ projectName: "project-queued-2" }));
+  const queuedId = await startRunDirect(handlers, mockWriteLoopInput({ projectName: "project-queued" }));
+  expect(stateStore.loadRun(queuedId!)?.status).toBe("queued");
+
+  memoryHeadroom = true;
+  // A start on a distinct, unrelated key admits directly and triggers the post-admit
+  // promotion check; project-running is never touched by it.
+  await startRunDirect(handlers, mockWriteLoopInput({ projectName: "project-trigger" }));
+  await flushBackgroundRuns();
+
+  expect(stateStore.loadRun(queuedId!)?.status).toBe("in-progress");
+  expect(stateStore.loadRun(runningId!)?.status).toBe("in-progress");
+
+  // Memory now drops below the watermark again; project-running's status must never
+  // change as a side effect of headroom checks — there is no preemption.
+  memoryHeadroom = false;
+  await flushBackgroundRuns();
+  expect(stateStore.loadRun(runningId!)?.status).toBe("in-progress");
+});
+
+test("a start that queues because memory is briefly tight is promoted immediately once memory has already recovered", async () => {
+  let calls = 0;
+  handlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    // Reports no headroom for the initial admission check, then recovered for the
+    // immediate recheck performed right after the row is persisted.
+    hasMemoryHeadroom: () => {
+      calls += 1;
+      return calls > 1;
+    },
+    settleDelayMs: 0,
+  });
+
+  const runId = await startRunDirect(handlers, mockWriteLoopInput({ projectName: "project-recovering" }));
+  await flushBackgroundRuns();
+
+  expect(stateStore.loadRun(runId!)?.status).toBe("in-progress");
+});
+
+test("a run reaching a paused status frees its key for promotion of an eligible queued run", async () => {
+  startHandlers(0);
+
+  const pausedKey = mockWriteLoopInput({ projectName: "project-pausing" });
+  const pausingRunId = await startRunDirect(handlers, pausedKey);
+
+  memoryHeadroom = false;
+  const queuedId = await startRunDirect(handlers, mockWriteLoopInput({ projectName: "project-queued-2" }));
   expect(stateStore.loadRun(queuedId!)?.status).toBe("queued");
 
   memoryHeadroom = true;
   stateStore.setRunStatus(pausingRunId!, "paused");
-  fakeExecutor.settleOne();
+  fakeExecutor.settleFirst();
   await flushBackgroundRuns();
 
   expect(stateStore.loadRun(queuedId!)?.status).toBe("in-progress");
-
-  client.close();
 });
 
-socketTest("list reports a promoted run as in-progress and live", async () => {
-  await startHandlers(0);
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+test("list reports a promoted run as in-progress and live", async () => {
+  startHandlers(0);
 
   memoryHeadroom = false;
-  const queuedId = await startRun(client, mockWriteLoopInput({ projectName: "project-list" }));
+  const queuedId = await startRunDirect(handlers, mockWriteLoopInput({ projectName: "project-list" }));
 
   memoryHeadroom = true;
-  await startRun(client, mockWriteLoopInput({ projectName: "project-trigger-list" }));
+  await startRunDirect(handlers, mockWriteLoopInput({ projectName: "project-trigger-list" }));
   await flushBackgroundRuns();
 
-  const runs = await listRuns(client);
+  const runs = await listRunsDirect(handlers);
   const row = runs?.find((candidate) => candidate.runId === queuedId);
   expect(row?.status).toBe("in-progress");
   expect(row?.isLive).toBe(true);
-
-  client.close();
 });

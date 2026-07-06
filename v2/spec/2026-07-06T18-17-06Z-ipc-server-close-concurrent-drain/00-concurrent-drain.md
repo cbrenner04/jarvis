@@ -21,16 +21,16 @@ never fires, the drain never starts, and `close()` hangs forever.
 
 ## Acceptance criteria
 
-- [ ] `IpcServer.close()`, constructed with an explicit short test
+- [x] `IpcServer.close()`, constructed with an explicit short test
       `drainTimeoutMs` (not the production default), resolves within that
       timeout while a client connection is still open (lingering socket is
       force-destroyed), instead of hanging.
-- [ ] `v2/src/ipc/ipc.test.ts` stays green.
-- [ ] `v2/src/daemon/daemon-start-list.test.ts` stays green.
+- [x] `v2/src/ipc/ipc.test.ts` stays green.
+- [x] `v2/src/daemon/daemon-start-list.test.ts` stays green.
 
 ## Documentation updates
 
-- [ ] `v2/docs/v1-behaviors.md`: add a `[v2 additive]` entry noting
+- [x] `v2/docs/v1-behaviors.md`: add a `[v2 additive]` entry noting
       `IpcServer.close()` force-drains lingering sockets concurrently with
       `server.close` and resolves within `drainTimeoutMs` rather than waiting
       on the close callback.

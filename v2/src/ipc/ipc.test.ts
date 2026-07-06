@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import { rmSync } from "node:fs";
-import { connect } from "node:net";
+import { existsSync, rmSync } from "node:fs";
+import { connect, Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { canUseUnixSockets, socketProbeErrored } from "../testing/unix-socket.ts";
@@ -164,4 +164,40 @@ socketTest("server stays up after a malformed client disconnects", async () => {
   client.send(request("ok", "health"));
   expect(await client.nextFrame()).toEqual({ kind: "response", id: "ok", result: { ok: true } });
   client.close();
+});
+
+socketTest("close() force-drains a lingering connection within drainTimeoutMs instead of hanging", async () => {
+  const path = join(tmpdir(), `jarvis-ipc-test-drain-${process.pid}.sock`);
+  rmSync(path, { force: true });
+  const lingerServer = await startIpcServer(path);
+  const lingering = connect(path);
+  await new Promise<void>((resolve, reject) => {
+    lingering.once("connect", () => resolve());
+    lingering.once("error", reject);
+  });
+
+  const start = Date.now();
+  await lingerServer.close({ drainTimeoutMs: 200 });
+  expect(Date.now() - start).toBeLessThan(2_000);
+
+  rmSync(path, { force: true });
+});
+
+socketTest("close() propagates a server.close() error and still cleans up the socket file", async () => {
+  const path = join(tmpdir(), `jarvis-ipc-test-close-error-${process.pid}.sock`);
+  rmSync(path, { force: true });
+  const errServer = await startIpcServer(path);
+  const closeError = new Error("server.close() boom");
+  const closeSpy = spyOn(Server.prototype, "close").mockImplementation(function (
+    this: Server,
+    callback?: (err?: Error) => void,
+  ) {
+    callback?.(closeError);
+    return this;
+  });
+
+  await expect(errServer.close()).rejects.toThrow(closeError);
+  expect(existsSync(path)).toBe(false);
+
+  closeSpy.mockRestore();
 });

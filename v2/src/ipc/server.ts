@@ -1,5 +1,6 @@
 import { rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
+import { promisify } from "node:util";
 import { encodeFrame, FrameDecoder } from "./codec.ts";
 import type { ErrorFrame, IpcFrame, ResponseFrame, StreamDataFrame, StreamEndFrame } from "./types.ts";
 
@@ -282,24 +283,24 @@ export function startIpcServer(
       server.off("error", reject);
       resolve({
         socketPath,
-        close: (options) =>
-          new Promise((closeResolve, closeReject) => {
-            acceptingConnections = false;
-            const drainTimeoutMs = options?.drainTimeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS;
-            server.close(async (err) => {
-              try {
-                await waitForSocketDrain(activeSockets, drainTimeoutMs);
-                rmSync(socketPath, { force: true });
-                if (err) {
-                  closeReject(err);
-                  return;
-                }
-                closeResolve();
-              } catch (drainErr) {
-                closeReject(drainErr);
-              }
-            });
-          }),
+        close: async (options) => {
+          acceptingConnections = false;
+          const drainTimeoutMs = options?.drainTimeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS;
+          try {
+            const [closeResult, drainResult] = await Promise.allSettled([
+              promisify(server.close.bind(server))(),
+              waitForSocketDrain(activeSockets, drainTimeoutMs),
+            ]);
+            if (closeResult.status === "rejected") {
+              throw closeResult.reason;
+            }
+            if (drainResult.status === "rejected") {
+              throw drainResult.reason;
+            }
+          } finally {
+            rmSync(socketPath, { force: true });
+          }
+        },
       });
     });
   });

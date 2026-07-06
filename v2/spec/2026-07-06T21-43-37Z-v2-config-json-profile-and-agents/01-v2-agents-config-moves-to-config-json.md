@@ -16,6 +16,7 @@ anywhere.
 - `machine-config-loader.ts`'s default path (and `cli.ts`'s `DEFAULT_MACHINE_CONFIG_PATH`) becomes `~/.jarvis/config.json`, not `~/.jarvis/v2.json` — no dual-read fallback, no migration of an existing `v2.json`, per the intent's "retire ~/.jarvis/v2.json entirely."
 - `set-agents` merges into the existing `config.json` document (already the loader's behavior via `{...existing, agents}`), so v1 keys (`projects`, `modes`, etc.) round-trip unchanged.
 - v2 does not import v1's `CONFIG_PATH`/`Config` type from `v1/src/config.ts` — it defines its own path constant to the same file, keeping `v2/**` decoupled from `v1/**` internals.
+- An existing `~/.jarvis/v2.json` is not migrated — it's left inert on disk after cutover; the operator must re-run `set-agents` post-upgrade to repopulate `agents` in `config.json`.
 
 ## Task Checklist
 

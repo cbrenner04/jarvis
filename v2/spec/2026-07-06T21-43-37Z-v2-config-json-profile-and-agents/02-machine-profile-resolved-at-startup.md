@@ -19,6 +19,8 @@ check and settle delay). Replace both with a resolved value read from
 - A `machineProfile` naming a profile whose `config/machines/<profile>.json` file doesn't exist is a hard error — this is already `machine-profile-loader.ts`'s existing behavior (`readMachineProfileDocument` throws `not found`); the resolver doesn't duplicate that check.
 - `machineProfile` is an open string (no enum) — any non-empty string is accepted by the resolver; only the profile-file lookup can fail.
 - Both call sites keep their existing dependency-injection seams (`deps.machineProfile` on `loadWorkflowSteps`, `deps.hasMemoryHeadroom`/`deps.settleDelayMs` on `createRunControlHandlers`) for tests; only the *default* changes from a literal `"home"` to the resolved value.
+- `resolveMachineProfile` reads `~/.jarvis/config.json` via the same path constant introduced in subspec [[01-v2-agents-config-moves-to-config-json]], not a redefinition.
+- Operators must set `machineProfile` in `config.json` before this subspec ships — there's no bootstrap default, so the next `jarvis write`/`jarvis run start` hard-fails otherwise.
 
 ## Task Checklist
 
@@ -32,6 +34,7 @@ check and settle delay). Replace both with a resolved value read from
 - [ ] A `jarvis write`/`jarvis run start` invocation with `machineProfile` set to a profile that has no matching `config/machines/<profile>.json` file fails with an error naming the missing profile file.
 - [ ] With `machineProfile` set to a valid, existing profile, agent model config and daemon memory-watermark settings load from that profile's `config/machines/<profile>.json`, not a hardcoded `home`.
 - [ ] `machineProfile` accepts any non-empty string value (e.g. a profile named `work`), not just `home`.
+- [ ] A `jarvis write`/`jarvis run start` invocation with `machineProfile` set to `""` fails with an error naming the missing key, the same as an absent key.
 
 ## Documentation updates
 

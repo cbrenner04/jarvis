@@ -1,0 +1,4 @@
+# Daemon Start List Direct Invocation
+
+- [ ] [00 - Inject review-debate progress map into handler factory](./00-inject-review-debate-progress-dep.md)
+- [ ] [01 - Convert daemon-start-list.test.ts to direct handler invocation](./01-convert-to-direct-invocation.md)

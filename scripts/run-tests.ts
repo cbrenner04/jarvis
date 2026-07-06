@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { v1Tests } from "./run-v1-tests.ts";
-import { v2Tests } from "./run-v2-tests.ts";
+import { aggregateExitCode, runV2TestFiles, v2Tests } from "./run-v2-tests.ts";
 import { partitionTestFiles, walkTestFiles } from "./test-slice.ts";
 
 /** Aggregate suite: agent tests parallel, sandbox-unrunnable integration tests serial. */
@@ -20,7 +20,7 @@ if (import.meta.main) {
   const { agent, integration } = aggregateTestFiles();
 
   if (agent.length > 0) {
-    const code = runBunTest(["test", "--parallel", ...agent]);
+    const code = aggregateExitCode(runV2TestFiles("agent", agent));
     if (code !== 0) {
       process.exit(code);
     }

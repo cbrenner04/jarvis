@@ -1,3 +1,3 @@
 # Remove Unreferenced v2 Files
 
-- [ ] [00 - Remove unreferenced v2 source and fixture files](./00-remove-unreferenced-v2-files.md)
+- [x] [00 - Remove unreferenced v2 source and fixture files](./00-remove-unreferenced-v2-files.md)

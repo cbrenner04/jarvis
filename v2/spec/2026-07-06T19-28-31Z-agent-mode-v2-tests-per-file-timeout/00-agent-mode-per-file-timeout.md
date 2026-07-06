@@ -44,24 +44,24 @@ isolation.
 
 ## Acceptance criteria
 
-- [ ] Agent mode's `--parallel` invocation and `AGENT_MODE_TIMEOUT_MS` are removed from
+- [x] Agent mode's `--parallel` invocation and `AGENT_MODE_TIMEOUT_MS` are removed from
       `scripts/run-v2-tests.ts`; agent mode spawns each file serially via its own `spawnSync`
       call using `PER_FILE_TIMEOUT_MS`.
-- [ ] On a per-file timeout, agent mode prints `spawnTimeoutMessage("agent", file)` naming the
+- [x] On a per-file timeout, agent mode prints `spawnTimeoutMessage("agent", file)` naming the
       hung file, kills that file's process, and continues running the remaining files instead of
       aborting the run.
-- [ ] An ordinary (non-timeout) failing file stops the agent-mode run, reporting that file's
+- [x] An ordinary (non-timeout) failing file stops the agent-mode run, reporting that file's
       failure, matching integration mode's existing fail-fast behavior.
-- [ ] Agent mode can no longer report the undifferentiated `error: v2 "agent" test run timed out
+- [x] Agent mode can no longer report the undifferentiated `error: v2 "agent" test run timed out
       or was killed` message — a hang always names the offending file instead.
-- [ ] Agent mode and integration mode's per-file loops are driven by one shared function; no
+- [x] Agent mode and integration mode's per-file loops are driven by one shared function; no
       duplicated spawn/timeout/continue logic between the two modes.
-- [ ] `scripts/run-v2-tests.test.ts` exercises the continue-past-timeout loop via an injected fake
+- [x] `scripts/run-v2-tests.test.ts` exercises the continue-past-timeout loop via an injected fake
       `spawn` (no real subprocess), asserting: the timeout message names the hung file, a
       later file in the list still runs, and the aggregate result is non-zero.
-- [ ] Before landing, every existing agent-mode test file is confirmed to run standalone within
+- [x] Before landing, every existing agent-mode test file is confirmed to run standalone within
       `PER_FILE_TIMEOUT_MS` (no false-positive timeout introduced).
-- [ ] `bun run test:v2` passes locally and reports per-file results for agent-mode files.
+- [x] `bun run test:v2` passes locally and reports per-file results for agent-mode files.
 
 ## Documentation updates
 

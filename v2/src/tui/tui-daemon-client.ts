@@ -122,7 +122,7 @@ export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promi
       );
     },
     async list() {
-      return parseOrThrow(parseListRuns(await transport.request("list")), "malformed RPC reply: invalid list result");
+      return parseListRuns(await transport.request("list")) as DaemonListResult;
     },
     async start(input) {
       return parseOrThrow(
@@ -139,10 +139,9 @@ export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promi
     },
     kill: (runId) => okRunRpc("kill", runId),
     async wait(runId) {
-      return parseOrThrow(
-        parseWaitCompletion(await transport.request("wait", { runId }, { trackWait: true })),
-        "malformed RPC reply: invalid wait result",
-      );
+      return parseWaitCompletion(
+        await transport.request("wait", { runId }, { trackWait: true }),
+      ) as WaitRunCompletionResult;
     },
     close() {
       transport.close();

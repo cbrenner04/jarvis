@@ -14,7 +14,7 @@ function isLoadError(value: unknown): value is LoadError {
 export type WorkflowSourceStep = Omit<WriteWorkflowStep, "agents" | "agentModelConfig">;
 
 /** Test-only path overrides. */
-export type LoadWorkflowStepsDeps = {
+type LoadWorkflowStepsDeps = {
   machineConfigPath?: string;
   agentModelConfigPath?: string;
 };

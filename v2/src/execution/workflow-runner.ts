@@ -23,7 +23,7 @@ import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from
 const DEFAULT_TELEMETRY_SINK_PATH = join(homedir(), ".jarvis", "telemetry.jsonl");
 
 /** Workflow-runner-level telemetry context, shared identically across write and review-debate steps. */
-export type WorkflowTelemetryContext = {
+type WorkflowTelemetryContext = {
   operatorSessionId: string;
   workflow: string;
   sinkPath?: string;
@@ -62,7 +62,7 @@ export type HumanWorkflowStep = {
 };
 
 /** Per-role agent fallback orders for a `review-debate` step's four fixed debate roles. */
-export type ReviewDebateStepAgents = Record<ReviewDebateRole, readonly string[]>;
+type ReviewDebateStepAgents = Record<ReviewDebateRole, readonly string[]>;
 
 /** Per-step review-debate input plus workflow identity; role bindings are derived at execution. */
 export type ReviewDebateWorkflowStep = Omit<ReviewDebateInput, "bindings" | "onRoleStart"> & {
@@ -294,7 +294,7 @@ export function validateWorkflowStepRoles(steps: readonly AnyWorkflowStep[]): vo
 }
 
 /** Fail before durable state changes if a human step's `onRevise.repeatStepId` isn't an earlier step's `stepId`. */
-export function validateOnReviseTargets(steps: readonly AnyWorkflowStep[]): void {
+function validateOnReviseTargets(steps: readonly AnyWorkflowStep[]): void {
   const invalidTargets: string[] = [];
 
   steps.forEach((step, stepIndex) => {

@@ -8,6 +8,11 @@ stale drift (`AttemptStatus` variants, `StateStore` signatures, unused
 `state-store.ts`; importers repath; the types file is deleted. Behavior
 unchanged.
 
+## Prerequisites
+
+- v2 lean documentation-standard and in-process daemon-test defaults are
+  landed (seed 01)
+
 ## Out of scope
 
 - `v2/docs/v1-behaviors.md` (behavior-preserving; no catalog change).
@@ -27,20 +32,23 @@ unchanged.
   or partial stub file.
 - Persistence→execution imports stay `import type` only — rules out new runtime
   coupling across the boundary.
+- `daemon-wire.ts` keeps its existing value-import of `isRunStatus` from
+  persistence (host→persistence, not persistence→execution) — rules out
+  extracting `isRunStatus` or converting that edge to `import type` on
+  consolidation grounds.
 
 ## Task checklist
 
 - [ ] Move `RUN_STATUSES`, `RunStatus`, `isRunStatus`, `OnReviseConfig`,
       `WorkflowSnapshot`, and `WorkflowSnapshotStep` from
       `state-store-types.ts` into `state-store.ts` (drop the self-import).
-- [ ] Delete lines 55–167 of `state-store-types.ts` (stale `AttemptStatus`,
-      duplicate `OutcomeKind`/`Run`/`Attempt`, unused `Outcome`, stale
-      `StateStore`), then delete the file.
 - [ ] Repath every `state-store-types` importer under `v2/src/` to
       `state-store.ts` (grep `state-store-types` and `persistence/` path
       patterns): `log-stream.ts`, `write-loop.ts`, `workflow-runner.ts`,
       `run-operator-error.ts`, `daemon.ts`, `daemon-wire.ts`, and co-located
       tests that type-import from the old module.
+- [ ] Delete `state-store-types.ts` after survivors are moved and importers
+      repathed.
 - [ ] Update `v2/docs/v2-architecture.md` **Source layout** persistence row
       to drop `state-store-types.ts`.
 - [ ] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2`.
@@ -53,6 +61,7 @@ unchanged.
 - [ ] `write-loop.test.ts` stays green.
 - [ ] `workflow-runner.test.ts` stays green.
 - [ ] `daemon-revise.test.ts` stays green.
+- [ ] `daemon-wait-run-completion.test.ts` stays green.
 - [ ] `run-operator-error.test.ts` stays green.
 - [ ] `v2/src/persistence/state-store-types.ts` is absent and `rg
       state-store-types v2/src` finds no matches.

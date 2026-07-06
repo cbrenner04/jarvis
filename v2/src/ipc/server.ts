@@ -287,10 +287,16 @@ export function startIpcServer(
           acceptingConnections = false;
           const drainTimeoutMs = options?.drainTimeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS;
           try {
-            await Promise.all([
+            const [closeResult, drainResult] = await Promise.allSettled([
               promisify(server.close.bind(server))(),
               waitForSocketDrain(activeSockets, drainTimeoutMs),
             ]);
+            if (closeResult.status === "rejected") {
+              throw closeResult.reason;
+            }
+            if (drainResult.status === "rejected") {
+              throw drainResult.reason;
+            }
           } finally {
             rmSync(socketPath, { force: true });
           }

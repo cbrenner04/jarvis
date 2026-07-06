@@ -1,0 +1,7 @@
+Confirmed the code matches the described gap. Issuing verdict.
+
+**Verdict: two required outcomes.**
+
+1. **`close()` must not remove the socket file before both the server-close and drain branches have settled, even when one of them rejects.** Currently `Promise.all` short-circuits on the first rejection, so if `server.close()`'s callback errors (e.g. a double-close), the `finally` block runs `rmSync` while `waitForSocketDrain`'s timer/listeners may still be pending — contradicting the spec's own Decisions section ("socket removal (`rmSync`) still happens after both finish") and leaking a timer/listener on the error path. Fix so both branches are always awaited to completion (e.g. `Promise.allSettled`, rethrowing the first rejection only after both have settled) while still propagating the original error to the caller, unchanged from prior behavior.
+
+2. **Add a regression test for the error-propagation decision.** The subspec's Decisions section states "errors from either branch propagate to the caller of `close()`" — this was a decision added specifically during plan review, but no test in `ipc.test.ts` exercises it. Add a test verifying that when `server.close()` (or the drain) rejects, `IpcServer.close()` rejects with that error and still cleans up (rmSync happens) rather than hanging or swallowing the error.

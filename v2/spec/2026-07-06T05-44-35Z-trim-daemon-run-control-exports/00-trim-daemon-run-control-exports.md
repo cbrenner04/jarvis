@@ -4,12 +4,21 @@ Several daemon/run-control symbols are exported but referenced only inside
 their defining file (or not at all). Drop `export` on the listed symbols;
 delete `DaemonRunRejectedError`. No runtime or operator-facing behavior change.
 
+## Prerequisites
+
+- Seed 01 (`lean-documentation-standard`, `lean-daemon-test-standard`) landed.
+
 ## Decisions
 
 - Scope is de-export or delete of the listed symbols only — rules out refactors, renames, or new public API.
 - De-export removes `export` and keeps the symbol when still used in-file — rules out deleting symbols with internal callers.
 - Delete `DaemonRunRejectedError` outright — rules out retaining it as non-exported dead code.
 - **Exempt:** `WorkflowPresetName` and preset machinery — rules out touching seed 07 consumers.
+- Daemon/run-control de-export slice of seed 02 fan-out; seed 02 monolith superseded for this symbol set — rules out duplicate trim in a later wholesale seed 02 run.
+- Independent of `reject-paused-run-resume` (different `daemon.ts` region, behavior change) — rules out serializing or merging with that slice.
+- Exports not listed in the symbol table stay exported in the five touched modules — rules out over-trimming adjacent public API (e.g. `WorktreeOwnershipRegistry`, `RunOperatorErrorReason`, `RunOperatorNextAction`, `DaemonListRunRow`, `withExternalWorktree`).
+- `run-operator-error`: de-export `RUN_OPERATOR_ERROR_REASONS` and `RUN_OPERATOR_NEXT_ACTIONS`; keep `RunOperatorErrorReason` and `RunOperatorNextAction` exported — rules out de-exporting the derived type aliases.
+- `daemon-wire`: de-export step snapshot types; keep `DaemonListRunRow` and other consumer-facing exports — rules out trimming wire types still imported outside the module.
 - No operator-facing behavior change — rules out `v2/docs/` updates.
 
 ### Symbols
@@ -32,10 +41,9 @@ delete `DaemonRunRejectedError`. No runtime or operator-facing behavior change.
 
 - [ ] `DaemonRunRejectedError` is absent from `v2/src/daemon/daemon.ts`.
 - [ ] `WorktreeOwnership`, `ActiveRun`, `DaemonMetadata`, `probeSocket`, `DaemonWorkflowStepStatus`, `DaemonWorkflowStepTerminalOutcome`, `DaemonWorkflowStepSnapshot`, `RUN_OPERATOR_ERROR_REASONS`, `RUN_OPERATOR_NEXT_ACTIONS`, `ensureExternalWorktree`, `acquireExternalWorktreeLock`, and `releaseExternalWorktreeLock` are not exported from their defining modules.
-- [ ] `daemon-registry.test.ts`, `daemon-queue-promotion.test.ts`, `daemon-lifecycle.test.ts`, `daemon-wire.test.ts`, `run-operator-error.test.ts`, and `external-worktree.test.ts` stay green (behavior unchanged by the visibility trim).
 - [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [ ] `bun run test:v2` passes (behavior unchanged by visibility trim).
+- [ ] `bun run test:integration:v2` passes (behavior unchanged by visibility trim).
 
 ## Documentation updates
 

@@ -1,0 +1,9 @@
+## Verdict
+
+**Upheld issue:** Line 39 of `v2/docs/test-writing.md` states the generic run-control request helpers (`mockWriteLoopInput`, `startRun`, `listRuns`) — which take an `IpcClient` and only work over a real socket — should be "used for any test exercising the daemon run-control protocol." That is unqualified and contradicts the direct-invocation default this subspec establishes two sections later: a reader following line 39 literally would wire a socket for every run-control test, the exact default the spec exists to eliminate.
+
+**Required outcome:** `v2/docs/test-writing.md` must not contain any statement that implies socket round-trips are the default or unrestricted path for run-control-protocol tests. The line 39 guidance on `mockWriteLoopInput`/`startRun`/`listRuns` must be scoped so it reads as applicable only within the retained socket allowances (the `ipc.test.ts` transport suite, the 1-2-per-handler-set round-trip smokes, and `.sandbox-unrunnable` smokes) — consistent with the direct-invocation default and worked example already present at lines 76-96.
+
+**Rationale:** The subspec's purpose is to make direct in-process handler invocation the doc's stated default and eliminate contradictory guidance that would lead authors back to sockets. Line 37 was already reframed for this reason; line 39 describes helpers that are socket-only by construction (`IpcClient`-typed) and, left as-is, is the same class of contradiction the subspec was written to remove. Leaving it unaddressed defeats the acceptance criteria's intent even though no AC named it explicitly — the doc must be internally consistent as a whole, not just at the specific lines enumerated.
+
+This is the only required fix; no other adversary concerns need action.

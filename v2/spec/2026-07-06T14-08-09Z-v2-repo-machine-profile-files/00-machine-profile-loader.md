@@ -25,14 +25,20 @@ Purely additive: no existing consumer switches over yet (that's
   settle delay) — reuses `validateMachineConfigMemory` from `machine-config-loader.ts`
   unchanged.
 - Settle-delay default (`2000`ms) is deduped into one exported constant,
-  `DEFAULT_SETTLE_DELAY_MS`, used by both `validateMachineConfigMemory`'s internal
-  default and the new loader's memory accessor — rules out the two independent
-  literal `2000`s drifting apart.
+  `DEFAULT_SETTLE_DELAY_MS`, defined in `machine-profile-loader.ts` (its
+  permanent home once [01](./01-migrate-consumers-to-machine-profiles.md)
+  retires `machine-config-loader.ts`'s memory handling) and imported from
+  there by `validateMachineConfigMemory` — rules out defining it in
+  `machine-config-loader.ts` first and relocating it in 01.
+- `loadMachineProfileModels`/`validateAgentModelConfig` throw on file-read/JSON-parse
+  errors but return a `LoadError` value for content-validation failures (missing
+  role/agent coverage) — inherited unchanged from `loadAgentModelConfig`'s existing
+  dual-channel error shape, not a new choice; callers must handle both.
 
 ## Task Checklist
 
 - [ ] Extract `validateAgentModelConfig(jsonData: unknown, agents): AgentModelConfig | LoadError` in `v2/src/config/agent-model-config.ts`; `loadAgentModelConfig` delegates to it.
-- [ ] Add `DEFAULT_SETTLE_DELAY_MS` constant in `v2/src/config/machine-config-loader.ts`; `validateMachineConfigMemory` uses it instead of the literal `2000`.
+- [ ] Add `DEFAULT_SETTLE_DELAY_MS` constant in `v2/src/config/machine-profile-loader.ts`; `machine-config-loader.ts`'s `validateMachineConfigMemory` imports it instead of using the literal `2000`.
 - [ ] Add `v2/src/config/machine-profile-loader.ts`:
   - `loadMachineProfileModels(profileName: string, agents: readonly string[]): AgentModelConfig | LoadError`
   - `loadMachineProfileMemory(profileName: string): { minFreeGb: number | undefined; settleDelayMs: number }`

@@ -38,17 +38,25 @@ placeholder until that resolver exists.
   source, `agents` remains the only key `~/.jarvis/v2.json` carries.
 - `data/agent-model-config.json` is deleted once `workflow-loader.ts` no longer
   reads it.
+- Path/profile-name trust boundary: no validation beyond join-and-read;
+  sanitization against attacker-controlled profile names is deferred to the
+  profile-name resolver ([[v2-config-json-profile-and-agents]]) — not this
+  migration's concern since the name is currently a hardcoded literal.
+- A profile missing a required agent (e.g., `work.json` + `claude`) fails at
+  the same point in the load path today's missing-agent-in-`data/agent-model-config.json`
+  case fails — no new failure-timing behavior introduced by this migration.
 
 ## Task Checklist
 
 - [ ] Add `config/machines/home.json` and `config/machines/work.json` per the decisions above.
 - [ ] `v2/src/execution/workflow-loader.ts`: replace the `agentModelConfigPath` dep with a `machineProfile` dep (default `"home"`); call `loadMachineProfileModels(deps.machineProfile ?? "home", agents)` instead of `loadAgentModelConfig(AGENT_MODEL_CONFIG_PATH, agents)`.
-- [ ] `v2/src/daemon/memory-watermark.ts`: `hasMemoryHeadroom`/`loadSettleDelayMs` take a required `profileName: string` (drop the optional `configPath`); call `loadMachineProfileMemory(profileName)`.
+- [ ] `v2/src/daemon/memory-watermark.ts`: `hasMemoryHeadroom`/`loadSettleDelayMs` take a required `profileName: string` (drop the optional `configPath`); call `loadMachineProfileMemory(profileName)`; remove the module's own settle-delay literal/default (it now comes solely from `loadMachineProfileMemory`'s `DEFAULT_SETTLE_DELAY_MS`).
 - [ ] `v2/src/daemon/daemon.ts`: pass `"home"` explicitly at the two now-required-arg call sites (`hasMemoryHeadroom`, `loadSettleDelayMs`).
-- [ ] Remove `validateMachineConfigMemory`, `loadMachineConfigMemory`, and the `memory` handling branch from `v2/src/config/machine-config-loader.ts`; move `DEFAULT_SETTLE_DELAY_MS` and any memory-validation logic still needed into `machine-profile-loader.ts` if not already there from [00](./00-machine-profile-loader.md).
+- [ ] Remove `validateMachineConfigMemory`, `loadMachineConfigMemory`, and the `memory` handling branch from `v2/src/config/machine-config-loader.ts` (the exported `DEFAULT_SETTLE_DELAY_MS` already lives in `machine-profile-loader.ts` per [00](./00-machine-profile-loader.md); no relocation needed here).
 - [ ] Delete `data/agent-model-config.json`.
 - [ ] Update `machine-config-loader.test.ts` to drop the removed `loadMachineConfigMemory` describe block; move equivalent coverage to `machine-profile-loader.test.ts` if not already covered there.
 - [ ] Update `memory-watermark.test.ts` and `workflow-loader.test.ts` call sites for the new required/renamed params.
+- [ ] Add a fixture-diff test asserting `loadMachineProfileModels("home", ["claude", "codex"])` produces bindings equivalent to the pre-migration `loadAgentModelConfig(AGENT_MODEL_CONFIG_PATH, ["claude", "codex"])` output.
 
 ## Acceptance criteria
 
@@ -57,6 +65,10 @@ placeholder until that resolver exists.
 - [ ] `~/.jarvis/v2.json` with a `memory` key present is ignored (no longer read) — only `agents` is honored from that file.
 - [ ] `data/agent-model-config.json` no longer exists in the repo.
 - [ ] `config/machines/work.json`'s `models` has no `claude` entry; loading it with `agents` containing `claude` for any executable role is a hard error.
+- [ ] `config/machines/home.json`'s claude and codex role→model bindings produce identical resolved invocation bindings to today's `data/agent-model-config.json` for the same agents/roles (no silent value drift from hand-transcription).
+- [ ] `memory-watermark.ts` carries no surviving settle-delay literal/default of its own — its only source is `loadMachineProfileMemory`.
+- [ ] A repo-wide search finds no remaining references to `AGENT_MODEL_CONFIG_PATH` or the string `data/agent-model-config.json` after this subspec lands.
+- [ ] A repo-wide search finds no remaining code path reading `~/.jarvis/v2.json`'s `memory` key.
 
 ## Documentation updates
 
@@ -72,3 +84,6 @@ placeholder until that resolver exists.
 - Update `v2/docs/v1-behaviors.md`: memory watermark admission's config source
   changes from `~/.jarvis/v2.json` to the active machine profile file (behavior
   change to existing v2 functionality, per repo doc-update rule).
+- Before merge, confirm these three docs are the complete set required by
+  `v2/docs/documentation-standard.md` for this change; add any doc the standard
+  requires that isn't already listed.

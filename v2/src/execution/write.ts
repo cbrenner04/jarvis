@@ -1,13 +1,16 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
+import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import {
   type ExternalWorktreeInput,
   type LockStatus,
   withExternalWorktree as realWithExternalWorktree,
 } from "./external-worktree.ts";
 import { runStep, type StepRunResult } from "./step-runner.ts";
-import { renderWriteExecutePrompt } from "./write-prompt.ts";
+import { renderStepPrompt } from "./write-prompt.ts";
+
+const DEFAULT_PROMPT_ID = "write.execute";
 
 /** Input contract for one write behavior execution. */
 export type WriteExecuteInput = {
@@ -16,6 +19,8 @@ export type WriteExecuteInput = {
   stepRules: string;
   expectedArtifactPath: string;
   bindings: readonly InvocationBinding[];
+  promptId?: string;
+  promptPlaceholders?: Record<string, string>;
   signal?: AbortSignal;
   invocationTelemetry?: Omit<InvocationTelemetryContext, "worktreePath">;
   withExternalWorktree?: typeof realWithExternalWorktree;
@@ -35,10 +40,16 @@ export async function executeWrite(args: WriteExecuteInput): Promise<WriteExecut
   const wrapped = await withExternalWorktree(args.worktree, async (worktree) => {
     const specPath = resolveInWorktree(worktree.path, args.specPath);
     const expectedArtifactPath = resolveInWorktree(worktree.path, args.expectedArtifactPath);
-    const prompt = renderWriteExecutePrompt({
-      specPath,
-      stepRules: args.stepRules,
-    });
+    const promptId = args.promptId ?? DEFAULT_PROMPT_ID;
+    const placeholders =
+      promptId === DEFAULT_PROMPT_ID
+        ? {
+            SPEC_PATH: specPath,
+            STEP_RULES: args.stepRules,
+            PRINCIPLES: loadPromptRegistry().getById("write.principles").body,
+          }
+        : (args.promptPlaceholders ?? {});
+    const prompt = renderStepPrompt(promptId, placeholders);
 
     return runStep({
       prompt,

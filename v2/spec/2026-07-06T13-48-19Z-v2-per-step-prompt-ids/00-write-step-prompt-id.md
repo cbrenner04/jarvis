@@ -30,9 +30,9 @@ an arbitrary placeholder map instead.
 
 ## Acceptance criteria
 
-- [ ] A `WriteWorkflowStep`/`WriteLoopInput` with no `promptId` renders `write.execute` (default preserved): existing `write-loop.test.ts` and `workflow-runner.test.ts` write-step tests stay green.
-- [ ] A `WriteWorkflowStep`/`WriteLoopInput` with `promptId` set to a different registered prompt id whose declared placeholders are unrelated to `SPEC_PATH`/`STEP_RULES` (e.g. `plan.prompt.draft`, needing `WORKDIR`/`NAME`/`INTENT`/`SPEC_GUIDANCE`) causes `executeWrite` to render that artifact's body from a caller-supplied placeholder map, verified by a new test in `write.test.ts` or `write-loop.test.ts` asserting on the rendered prompt passed to `runStep`.
-- [ ] `renderStepPrompt(promptId, placeholders)` renders any registered artifact from an arbitrary placeholder map (not just `{specPath, stepRules}`), and an unknown `promptId` or a placeholder map missing a required declared placeholder surfaces the registry/render layer's existing error uncaught. `renderWriteExecutePrompt` no longer exists; `write-prompt.test.ts` covers `renderStepPrompt` instead, including both error cases.
+- [x] A `WriteWorkflowStep`/`WriteLoopInput` with no `promptId` renders `write.execute` (default preserved): existing `write-loop.test.ts` and `workflow-runner.test.ts` write-step tests stay green.
+- [x] A `WriteWorkflowStep`/`WriteLoopInput` with `promptId` set to a different registered prompt id whose declared placeholders are unrelated to `SPEC_PATH`/`STEP_RULES` (e.g. `plan.prompt.draft`, needing `WORKDIR`/`NAME`/`INTENT`/`SPEC_GUIDANCE`) causes `executeWrite` to render that artifact's body from a caller-supplied placeholder map, verified by a new test in `write.test.ts` or `write-loop.test.ts` asserting on the rendered prompt passed to `runStep`.
+- [x] `renderStepPrompt(promptId, placeholders)` renders any registered artifact from an arbitrary placeholder map (not just `{specPath, stepRules}`), and an unknown `promptId` or a placeholder map missing a required declared placeholder surfaces the registry/render layer's existing error uncaught. `renderWriteExecutePrompt` no longer exists; `write-prompt.test.ts` covers `renderStepPrompt` instead, including both error cases.
 
 ## Documentation updates
 

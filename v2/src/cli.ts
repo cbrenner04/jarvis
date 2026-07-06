@@ -21,7 +21,7 @@ import { runTuiLogFollow } from "./tui/tui-log-follow-entry.tsx";
 import type { RunTuiLogFollowDeps } from "./tui/tui-log-follow-types.ts";
 import type { RunTuiEntryDeps } from "./tui/tui-monitor-types.ts";
 
-export type Io = {
+type Io = {
   stdout: (s: string) => void;
   stderr: (s: string) => void;
 };

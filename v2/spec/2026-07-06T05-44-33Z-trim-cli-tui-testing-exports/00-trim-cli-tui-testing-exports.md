@@ -28,15 +28,15 @@ operator-facing or runtime behavior change.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/export-surface-trim.test.ts` asserts `Io`, `EXECUTABLE_ROLES`, `ExecutableRole`, `SimulatedOutcome`, `TuiDaemonHealthResult`, `TuiDaemonStatusResult`, `TuiDaemonStartResult`, and `TuiDaemonRpcTransport` are not named exports of their defining modules (or are absent when unused internally).
-- [ ] No other `export` is removed from `v2/src/cli.ts`, `v2/src/config/agent-model-config.ts`, `v2/src/testing/bindings.ts`, `v2/src/tui/tui-daemon-client.ts`, or `v2/src/tui/tui-daemon-rpc-transport.ts` beyond the symbols above.
-- [ ] `v2/src/cli.test.ts` stays green.
-- [ ] `v2/src/config/agent-model-config.test.ts` stays green.
-- [ ] `v2/src/execution/write-loop.test.ts` stays green.
-- [ ] `v2/src/tui/tui-daemon-client.test.ts` stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/export-surface-trim.test.ts` asserts `Io`, `EXECUTABLE_ROLES`, `ExecutableRole`, `SimulatedOutcome`, `TuiDaemonHealthResult`, `TuiDaemonStatusResult`, `TuiDaemonStartResult`, and `TuiDaemonRpcTransport` are not named exports of their defining modules (or are absent when unused internally).
+- [x] No other `export` is removed from `v2/src/cli.ts`, `v2/src/config/agent-model-config.ts`, `v2/src/testing/bindings.ts`, `v2/src/tui/tui-daemon-client.ts`, or `v2/src/tui/tui-daemon-rpc-transport.ts` beyond the symbols above.
+- [x] `v2/src/cli.test.ts` stays green.
+- [x] `v2/src/config/agent-model-config.test.ts` stays green.
+- [x] `v2/src/execution/write-loop.test.ts` stays green.
+- [x] `v2/src/tui/tui-daemon-client.test.ts` stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

@@ -19,10 +19,10 @@ in favor of `v2/src/testing/run-control.ts`'s `startRunDirect`/`listRunsDirect`/
 - `beforeEach`/`afterEach` drop all socket/server setup and teardown; keep `stateStore`
   creation/close and the `reportedFailures`/`failureReporter`/`executorBehavior` fixture
   state.
-- Tests that swap `failureReporter` or `writeLoopExecutor` mid-test (e.g. "spawn boundary
-  forwards original rejection", "terminal durable status is not overwritten") rebuild
-  handlers directly via `createRunControlHandlers(...)` instead of closing/reopening a
-  socket server.
+- Every test in the file that currently closes/reopens the socket server mid-test to
+  swap `failureReporter` or `writeLoopExecutor` instead reassigns `handlers` via a fresh
+  `createRunControlHandlers(...)` call — this applies to all such tests in the file, not
+  just an illustrative subset.
 
 ## Out of scope
 

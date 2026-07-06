@@ -1,8 +1,13 @@
 import { appendFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type { LogSink } from "../persistence/log-stream.ts";
-import { type OutcomeKind, openStateStore, type StateStore } from "../persistence/state-store.ts";
-import type { RunStatus, WorkflowSnapshot } from "../persistence/state-store-types.ts";
+import {
+  type OutcomeKind,
+  openStateStore,
+  type RunStatus,
+  type StateStore,
+  type WorkflowSnapshot,
+} from "../persistence/state-store.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import type { StepRunResult } from "./step-runner.ts";

@@ -9,8 +9,13 @@ import { latestRevisionRun, type ReviewDebateProgress } from "../execution/workf
 import { executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
 import { type LogReader, type LoopFinishedEvent, openLogReader, openLogSink } from "../persistence/log-stream.ts";
-import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import type { RunStatus, WorkflowSnapshot, WorkflowSnapshotStep } from "../persistence/state-store-types.ts";
+import {
+  openStateStore,
+  type RunStatus,
+  type StateStore,
+  type WorkflowSnapshot,
+  type WorkflowSnapshotStep,
+} from "../persistence/state-store.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
 import {
   composeRunOperatorError,

@@ -15,7 +15,9 @@ drop the local reimplementations.
 - Call `createRunControlHandlers` output directly; remove `SOCKET_PATH`, `rmSync`, and
   `canUseUnixSockets`/`socketTest` gating.
 - Delete this file's local `mockWriteLoopInput`/`startRun`/`listRuns` in favor of the
-  direct-invocation versions in `v2/src/testing/run-control.ts`.
+  direct-invocation helpers `startRunDirect`/`listRunsDirect`/`mockWriteLoopInput` in
+  `v2/src/testing/run-control.ts` (the socket-based `startRun`/`listRuns` remain for
+  other callers and are not used here).
 
 ## Out of scope
 
@@ -29,4 +31,4 @@ unchanged.
 
 ## Prerequisites
 
-- `v2/src/testing/run-control.ts`'s `startRun`/`listRuns`/`mockWriteLoopInput` invoke daemon handlers directly rather than through an `IpcClient`
+- `v2/src/testing/run-control.ts` exports direct-invocation `startRunDirect`/`listRunsDirect` (taking handlers) alongside `mockWriteLoopInput`

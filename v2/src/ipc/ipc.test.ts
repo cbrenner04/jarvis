@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
@@ -147,9 +147,12 @@ socketTest("parked unbounded nextFrame() rejects when the socket closes", async 
 
 socketTest("parked timed nextFrame() rejects when the socket closes before the timeout fires", async () => {
   const client = await connectIpcClient(SOCKET_PATH);
+  const clearTimeoutSpy = spyOn(globalThis, "clearTimeout");
   const pending = client.nextFrame(2_000);
   client.close();
   await expect(pending).rejects.toThrow("connection closed");
+  expect(clearTimeoutSpy).toHaveBeenCalled();
+  clearTimeoutSpy.mockRestore();
 });
 
 socketTest("server stays up after a malformed client disconnects", async () => {

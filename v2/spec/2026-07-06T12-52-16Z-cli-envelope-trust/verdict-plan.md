@@ -1,0 +1,7 @@
+Verdict: Required refinements
+
+1. **Add an explicit AC pinning the `parseStartResult` failure path.** The spec must state that when `parseStartResult(response.result)` returns `undefined`, `run start` preserves its existing error behavior (prints `invalid daemon response` and exits 1), matching the same pattern already relied on for `list`/`wait`. Per spec-guidance's behavior-preservation rule, this is a refactor AC and should cite the existing code path/test rather than being left implicit — otherwise an implementer could satisfy the primary AC while silently dropping or altering this error branch.
+
+2. **Make the index/subspec signal that `list`, `wait`, and `log` were audited, not skipped.** The spec should make clear — visible from the index or subspec title, not only buried in body prose — that `list`, `wait`, and `log` were reviewed and found already envelope-thin (no redundant checks to remove), distinguishing this from the intent's broader four-command framing. This closes the gap between the intent's language and the spec's actual one-command scope, so a reader of the index alone isn't left wondering whether the other three commands were considered.
+
+No other findings are upheld; the intent-vs-subspec scope mismatch is otherwise adequately resolved by the subspec's existing explanatory paragraph and requires no further action beyond the visibility fix in (2).

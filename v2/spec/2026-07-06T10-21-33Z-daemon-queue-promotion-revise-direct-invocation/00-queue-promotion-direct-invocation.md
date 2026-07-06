@@ -9,11 +9,17 @@ socket-gated tests to call the handlers directly.
 
 - Replace `startIpcServer`/`connectIpcClient`/`toIpcHandlers` usage with direct
   calls against the object returned by `createRunControlHandlers`, via
-  `startRunDirect`/`listRunsDirect` from `v2/src/testing/run-control.ts`.
+  `startRunDirect`/`listRunsDirect` from `v2/src/testing/run-control.ts`. This
+  includes the test that constructs `startIpcServer` inline outside the
+  `startHandlers` wrapper — every socket call site in the file converts, not
+  just the wrapper path.
 - Drop `SOCKET_PATH`, `rmSync` on the socket path, `canUseUnixSockets`, and
   `socketTest` — every test in this file runs unconditionally.
 - Drop the file's local `createFakeWriteLoopExecutor`/`FakeWriteLoopExecutor` in
-  favor of the shared one in `v2/src/testing/write-loop-executor.ts`.
+  favor of the shared one in `v2/src/testing/write-loop-executor.ts`. The shared
+  version exposes `settleFirst()` where the local copy exposed `settleOne()` —
+  same behavior, rename at call sites. The local copy's `pendingKeys()` has no
+  callers in this file and is dropped, not preserved.
 - `startHandlers` stops constructing an `IpcServer`; it builds and returns/stores
   the handlers directly for the test to call.
 - The `promoteQueuedRunImpl` unit tests (no socket, no server) are unaffected.

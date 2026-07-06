@@ -97,8 +97,7 @@ describe("Test slice boundaries", () => {
     ]);
 
     const runnerScript = await Bun.file("scripts/run-v2-tests.ts").text();
-    expect(runnerScript).toContain('spawnSync("bun", ["test", file]');
-    expect(runnerScript).toContain('["test", "--parallel", ...files]');
+    expect(runnerScript).toContain('spawn("bun", ["test", file]');
   });
 
   it("shared integration slice includes preload real-process test", () => {

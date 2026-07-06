@@ -24,7 +24,7 @@ import {
   type TerminalLogRecord,
 } from "./run-operator-error.ts";
 
-export type WorktreeOwnership = {
+type WorktreeOwnership = {
   runId: string;
   worktreePath: string;
 };
@@ -34,7 +34,7 @@ export type OwnershipKey = {
   branch: string;
 };
 
-export type ActiveRun = {
+type ActiveRun = {
   runId: string;
   key: OwnershipKey;
   abortController: AbortController;
@@ -45,13 +45,6 @@ export class DaemonDoubleClaimError extends Error {
   constructor(key: OwnershipKey) {
     super(`Worktree already claimed for project=${key.project}, branch=${key.branch}`);
     this.name = "DaemonDoubleClaimError";
-  }
-}
-
-export class DaemonRunRejectedError extends Error {
-  constructor(reason: string) {
-    super(reason);
-    this.name = "DaemonRunRejectedError";
   }
 }
 

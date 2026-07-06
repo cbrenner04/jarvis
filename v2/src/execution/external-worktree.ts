@@ -74,7 +74,7 @@ export async function withExternalWorktree<T>(
 }
 
 /** Ensure a named external worktree exists and return its path. */
-export function ensureExternalWorktree(
+function ensureExternalWorktree(
   args: ExternalWorktreeInput,
   runner: SubprocessRunner = realSubprocessRunner,
 ): ExternalWorktree {
@@ -107,7 +107,7 @@ export function ensureExternalWorktree(
 }
 
 /** Acquire the lock; a live holder throws {@link WorktreeBusyError} (refuse, don't queue). */
-export function acquireExternalWorktreeLock(lockDir: string): LockStatus {
+function acquireExternalWorktreeLock(lockDir: string): LockStatus {
   const acquisition = acquireLock(getExternalWorktreeLockPath(lockDir));
   if (acquisition.kind === "busy") {
     throw new WorktreeBusyError(acquisition.existingLock);
@@ -116,7 +116,7 @@ export function acquireExternalWorktreeLock(lockDir: string): LockStatus {
 }
 
 /** Best-effort lock-file cleanup. */
-export function releaseExternalWorktreeLock(lockDir: string): void {
+function releaseExternalWorktreeLock(lockDir: string): void {
   releaseLock(getExternalWorktreeLockPath(lockDir));
 }
 

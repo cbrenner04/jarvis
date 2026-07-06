@@ -17,7 +17,7 @@ export class DaemonReadinessTimeoutError extends Error {
   }
 }
 
-export type DaemonMetadata = {
+type DaemonMetadata = {
   pid: number;
   socketPath: string;
 };
@@ -39,7 +39,7 @@ export function isProcessAlive(pid: number): boolean {
   }
 }
 
-export async function probeSocket(socketPath: string, timeoutMs: number): Promise<boolean> {
+async function probeSocket(socketPath: string, timeoutMs: number): Promise<boolean> {
   try {
     const client = await connectIpcClient(socketPath);
     try {

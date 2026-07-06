@@ -2,7 +2,7 @@ import type { LoopFinishedEvent, PersistedRecord, RunExecutionFailedEvent } from
 import type { Attempt, RunStatus } from "../persistence/state-store.ts";
 
 /** Closed operator-facing stop reason; not raw loop or invocation taxonomy. */
-export const RUN_OPERATOR_ERROR_REASONS = [
+const RUN_OPERATOR_ERROR_REASONS = [
   "resumable_pause",
   "resumable_budget",
   "resumable_kill",
@@ -20,7 +20,7 @@ export const RUN_OPERATOR_ERROR_REASONS = [
 export type RunOperatorErrorReason = (typeof RUN_OPERATOR_ERROR_REASONS)[number];
 
 /** Closed remediation hint for operators; not free text. */
-export const RUN_OPERATOR_NEXT_ACTIONS = ["resume", "inspect_spec", "fix_config", "retry_later", "stop"] as const;
+const RUN_OPERATOR_NEXT_ACTIONS = ["resume", "inspect_spec", "fix_config", "retry_later", "stop"] as const;
 
 export type RunOperatorNextAction = (typeof RUN_OPERATOR_NEXT_ACTIONS)[number];
 

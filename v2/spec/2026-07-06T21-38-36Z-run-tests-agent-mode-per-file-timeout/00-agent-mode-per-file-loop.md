@@ -21,9 +21,9 @@ test runs.
 
 ## Acceptance criteria
 
-- [ ] `run-tests.ts` agent mode, given a file that hangs past `PER_FILE_TIMEOUT_MS`, exits
+- [x] `run-tests.ts` agent mode, given a file that hangs past `PER_FILE_TIMEOUT_MS`, exits
       non-zero, names that file in stderr, and still runs the remaining agent files.
-- [ ] `run-v2-tests.test.ts` stays green (behavior of `runV2TestFiles`/`aggregateExitCode`
+- [x] `run-v2-tests.test.ts` stays green (behavior of `runV2TestFiles`/`aggregateExitCode`
       unchanged by this reuse).
 
 ## Documentation updates

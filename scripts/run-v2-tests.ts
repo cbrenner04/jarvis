@@ -15,9 +15,10 @@ export function isSpawnTimeout(result: Pick<SpawnSyncReturns<unknown>, "signal" 
   return result.signal === "SIGKILL" && result.status === null;
 }
 
-export function spawnTimeoutMessage(mode: string, file?: string): string {
+export function spawnTimeoutMessage(mode: string, file?: string, label = "v2"): string {
+  const prefix = label ? `${label} ` : "";
   const suffix = file === undefined ? "" : ` on file "${file}"`;
-  return `error: v2 "${mode}" test run timed out or was killed${suffix}\n`;
+  return `error: ${prefix}"${mode}" test run timed out or was killed${suffix}\n`;
 }
 
 type Spawn = (
@@ -38,7 +39,7 @@ export interface FileResult {
  * integration mode's existing fail-fast-on-timeout behavior. An ordinary non-zero exit
  * always stops the run. Returns one result per file actually run.
  */
-export function runV2TestFiles(mode: string, files: string[], spawn: Spawn = spawnSync): FileResult[] {
+export function runV2TestFiles(mode: string, files: string[], spawn: Spawn = spawnSync, label = "v2"): FileResult[] {
   const results: FileResult[] = [];
   for (const file of files) {
     const result = spawn("bun", ["test", file], {
@@ -47,7 +48,7 @@ export function runV2TestFiles(mode: string, files: string[], spawn: Spawn = spa
       killSignal: "SIGKILL",
     });
     if (isSpawnTimeout(result)) {
-      process.stderr.write(spawnTimeoutMessage(mode, file));
+      process.stderr.write(spawnTimeoutMessage(mode, file, label));
       results.push({ file, timedOut: true, status: result.status });
       if (mode !== "agent") {
         return results;

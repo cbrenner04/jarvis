@@ -1,5 +1,5 @@
 /** RPC request envelope correlated by `id`. */
-export type RequestFrame = {
+type RequestFrame = {
   kind: "request";
   id: string;
   method: string;
@@ -22,7 +22,7 @@ export type ErrorFrame = {
 };
 
 /** Opens a multiplexed stream slot on the connection. */
-export type StreamOpenFrame = {
+type StreamOpenFrame = {
   kind: "stream-open";
   streamId: string;
   payload?: unknown;

@@ -35,12 +35,12 @@ behavior change.
 
 ## Acceptance criteria
 
-- [ ] `RequestFrame` and `StreamOpenFrame` are not exported from `v2/src/ipc/types.ts`; `IpcFrame` remains exported.
-- [ ] `FrameDecoder` in `v2/src/ipc/codec.ts` has no `reset` method.
-- [ ] `IterationStartedEvent`, `BoundaryCommittedEvent`, and `AppendWakeFactory` are not exported from `v2/src/persistence/log-stream.ts`.
-- [ ] `v2/src/ipc/ipc.test.ts` stays green (IPC codec/client/server behavior unchanged).
-- [ ] `v2/src/persistence/log-stream.test.ts` stays green (log-stream behavior unchanged).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `RequestFrame` and `StreamOpenFrame` are not exported from `v2/src/ipc/types.ts`; `IpcFrame` remains exported.
+- [x] `FrameDecoder` in `v2/src/ipc/codec.ts` has no `reset` method.
+- [x] `IterationStartedEvent`, `BoundaryCommittedEvent`, and `AppendWakeFactory` are not exported from `v2/src/persistence/log-stream.ts`.
+- [x] `v2/src/ipc/ipc.test.ts` stays green (IPC codec/client/server behavior unchanged).
+- [x] `v2/src/persistence/log-stream.test.ts` stays green (log-stream behavior unchanged).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

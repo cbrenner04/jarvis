@@ -6,7 +6,7 @@ import type { OutcomeKind, RunStatus } from "./state-store-types.ts";
 /**
  * Event emitted when an iteration begins.
  */
-export type IterationStartedEvent = {
+type IterationStartedEvent = {
   kind: "iteration_started";
   attemptId: string;
 };
@@ -14,7 +14,7 @@ export type IterationStartedEvent = {
 /**
  * Event emitted when a transactional boundary completes.
  */
-export type BoundaryCommittedEvent = {
+type BoundaryCommittedEvent = {
   kind: "boundary_committed";
   attemptId: string;
   outcomeKind: OutcomeKind;
@@ -98,7 +98,7 @@ export interface AppendWake {
  * Factory creating an `AppendWake` for a storage path. Injected by tests;
  * production defaults to `fs.watch`-backed notification.
  */
-export type AppendWakeFactory = (storagePath: string) => AppendWake;
+type AppendWakeFactory = (storagePath: string) => AppendWake;
 
 class FileLogStream implements LogSink, LogReader {
   private storagePath: string;

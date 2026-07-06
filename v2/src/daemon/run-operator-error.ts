@@ -15,6 +15,7 @@ export const RUN_OPERATOR_ERROR_REASONS = [
   "no_binding",
   "invocation_error",
   "harness_failure",
+  "not_implemented",
 ] as const;
 
 export type RunOperatorErrorReason = (typeof RUN_OPERATOR_ERROR_REASONS)[number];

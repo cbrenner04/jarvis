@@ -24,18 +24,18 @@ Listed symbols in `v2/src/execution/` are exported but have no importers outside
 
 ## Acceptance criteria
 
-- [ ] `ReviewDebateCycleOutcome`, `ReviewDebateResult`, `StepOutcomeToken`, `StepRunInput`, `LoadWorkflowStepsDeps`, `WorkflowTelemetryContext`, `ReviewDebateStepAgents`, `validateOnReviseTargets`, `DEFAULT_WRITE_STEP_RULES`, `WRITE_LOOP_OUTCOME_KINDS`, and `WriteExecuteResult` are not exported from their defining modules.
-- [ ] `WorkflowPresetName`, `defineWorkflowStep`, and `resolveWorkflowPreset` remain exported from `workflow-runner.ts`.
-- [ ] `review-debate.test.ts` stays green (behavior unchanged by the trim).
-- [ ] `step-runner.test.ts` stays green (behavior unchanged by the trim).
-- [ ] `workflow-loader.test.ts` stays green (behavior unchanged by the trim).
-- [ ] `workflow-runner.test.ts` stays green (behavior unchanged by the trim).
-- [ ] `write-loop-input.test.ts` stays green (behavior unchanged by the trim).
-- [ ] `write-loop.test.ts` stays green (behavior unchanged by the trim).
-- [ ] `write.test.ts` stays green (behavior unchanged by the trim).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `ReviewDebateCycleOutcome`, `ReviewDebateResult`, `StepOutcomeToken`, `StepRunInput`, `LoadWorkflowStepsDeps`, `WorkflowTelemetryContext`, `ReviewDebateStepAgents`, `validateOnReviseTargets`, `DEFAULT_WRITE_STEP_RULES`, `WRITE_LOOP_OUTCOME_KINDS`, and `WriteExecuteResult` are not exported from their defining modules.
+- [x] `WorkflowPresetName`, `defineWorkflowStep`, and `resolveWorkflowPreset` remain exported from `workflow-runner.ts`.
+- [x] `review-debate.test.ts` stays green (behavior unchanged by the trim).
+- [x] `step-runner.test.ts` stays green (behavior unchanged by the trim).
+- [x] `workflow-loader.test.ts` stays green (behavior unchanged by the trim).
+- [x] `workflow-runner.test.ts` stays green (behavior unchanged by the trim).
+- [x] `write-loop-input.test.ts` stays green (behavior unchanged by the trim).
+- [x] `write-loop.test.ts` stays green (behavior unchanged by the trim).
+- [x] `write.test.ts` stays green (behavior unchanged by the trim).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

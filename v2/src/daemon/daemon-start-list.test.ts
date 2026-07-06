@@ -988,7 +988,7 @@ socketTest("resume with a decision param on a non-awaiting-human run is rejected
   client.close();
 });
 
-socketTest("resume admits a paused run while another run is in-flight", async () => {
+socketTest("resume rejects a paused run while another run is in-flight with not_implemented", async () => {
   const client = await connectIpcClient(SOCKET_PATH, 2_000);
   await startRun(client);
 
@@ -1003,7 +1003,10 @@ socketTest("resume admits a paused run while another run is in-flight", async ()
 
   client.send({ kind: "request", id: "r1", method: "resume", params: { runId: pausedRunId } });
   const resumeResponse = await client.nextFrame();
-  expect(resumeResponse.kind).toBe("response");
+  expect(resumeResponse.kind).toBe("error");
+  if (resumeResponse.kind === "error") {
+    expect(resumeResponse.code).toBe("not_implemented");
+  }
   client.close();
 });
 

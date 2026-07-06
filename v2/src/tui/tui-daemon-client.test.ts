@@ -11,6 +11,7 @@ import type { IpcFrame } from "../ipc/types.ts";
 import { type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
+import { toIpcHandlers } from "../testing/run-control.ts";
 import { canUseUnixSockets, socketProbeErrored } from "../testing/unix-socket.ts";
 import { connectTuiDaemon } from "./tui-daemon-client.ts";
 import { TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-errors.ts";
@@ -228,15 +229,13 @@ beforeEach(async () => {
   logsPath = join(tmpdir(), `jarvis-tui-daemon-logs-${unique}.jsonl`);
   logSink = openLogSink(logsPath);
   fakeExecutor = createFakeWriteLoopExecutor();
-  server = await startIpcServer(
-    SOCKET_PATH,
-    createRunControlHandlers({
-      stateStore,
-      logReader: openLogReader(logsPath),
-      writeLoopExecutor: fakeExecutor.executor,
-      failureReporter: () => undefined,
-    }),
-  );
+  const handlers = createRunControlHandlers({
+    stateStore,
+    logReader: openLogReader(logsPath),
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => undefined,
+  });
+  server = await startIpcServer(SOCKET_PATH, toIpcHandlers(handlers));
 });
 
 afterEach(async () => {

@@ -27,11 +27,11 @@ clearing.
 
 ## Acceptance criteria
 
-- [ ] `daemon.ts` exports no `reviewDebateProgressByInvocation` or module-level
+- [x] `daemon.ts` exports no `reviewDebateProgressByInvocation` or module-level
       `reportReviewDebateProgress`; both are scoped inside `createRunControlHandlers`.
-- [ ] `daemon-start-list.test.ts` passes with 0 skips in the agent sandbox, using the
+- [x] `daemon-start-list.test.ts` passes with 0 skips in the agent sandbox, using the
       handlers-returned `reportReviewDebateProgress` in place of the removed exports.
-- [ ] Two `createRunControlHandlers` instances track review-debate progress
+- [x] Two `createRunControlHandlers` instances track review-debate progress
       independently (no shared state leaks between instances).
 
 ## Documentation updates

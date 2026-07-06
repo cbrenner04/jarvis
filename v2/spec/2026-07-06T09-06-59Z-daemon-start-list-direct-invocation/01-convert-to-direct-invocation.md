@@ -39,19 +39,19 @@ wire (de)serialization.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/testing/` exports a canonical `createFakeWriteLoopExecutor` with settle-all,
+- [x] `v2/src/testing/` exports a canonical `createFakeWriteLoopExecutor` with settle-all,
       abort-all, settle-first, pending-count, pause-signal-triggered, and
       abort-signal-triggered introspection.
-- [ ] `v2/src/testing/run-control.ts` exports direct-invocation helpers that call
+- [x] `v2/src/testing/run-control.ts` exports direct-invocation helpers that call
       `createRunControlHandlers` output directly (no `IpcClient`), used by
       `daemon-start-list.test.ts`'s converted cases.
-- [ ] `startRun`/`listRuns`' existing `IpcClient`-based signatures are unchanged;
+- [x] `startRun`/`listRuns`' existing `IpcClient`-based signatures are unchanged;
       `daemon-queue-promotion.test.ts` compiles and passes unchanged against them.
-- [ ] `daemon-start-list.test.ts` runs with 0 skips in the agent sandbox.
-- [ ] `daemon-start-list.test.ts` retains exactly 1-2 `socketTest` cases exercising a real
+- [x] `daemon-start-list.test.ts` runs with 0 skips in the agent sandbox.
+- [x] `daemon-start-list.test.ts` retains exactly 1-2 `socketTest` cases exercising a real
       `IpcServer`/`IpcClient` round trip; every other case runs as a plain `test` with no
       socket setup.
-- [ ] Total test count in `daemon-start-list.test.ts` is unchanged from before this
+- [x] Total test count in `daemon-start-list.test.ts` is unchanged from before this
       subspec, aside from the 1-2 cases that stay socket-based.
 
 ## Documentation updates

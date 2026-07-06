@@ -7,6 +7,7 @@ import { connectIpcClient } from "../ipc/client.ts";
 import { type IpcServer, startIpcServer } from "../ipc/server.ts";
 import { openLogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { toIpcHandlers } from "../testing/run-control.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import { createRunControlHandlers, createRunExecutionFailureReporter } from "./daemon.ts";
 
@@ -75,11 +76,13 @@ function createHandlers() {
     }
   };
 
-  return createRunControlHandlers({
-    stateStore,
-    writeLoopExecutor,
-    failureReporter,
-  });
+  return toIpcHandlers(
+    createRunControlHandlers({
+      stateStore,
+      writeLoopExecutor,
+      failureReporter,
+    }),
+  );
 }
 
 beforeEach(async () => {
@@ -213,13 +216,15 @@ socketTest("spawn boundary forwards original rejection to failure reporter", asy
   await server.close();
   server = await startIpcServer(
     SOCKET_PATH,
-    createRunControlHandlers({
-      stateStore,
-      writeLoopExecutor,
-      failureReporter: (runId, reason) => {
-        reportedFailures.push({ runId, reason });
-      },
-    }),
+    toIpcHandlers(
+      createRunControlHandlers({
+        stateStore,
+        writeLoopExecutor,
+        failureReporter: (runId, reason) => {
+          reportedFailures.push({ runId, reason });
+        },
+      }),
+    ),
   );
 
   const client = await connectIpcClient(SOCKET_PATH, 2_000);
@@ -250,11 +255,13 @@ socketTest("terminal durable status is not overwritten on executor rejection", a
   await server.close();
   server = await startIpcServer(
     SOCKET_PATH,
-    createRunControlHandlers({
-      stateStore,
-      writeLoopExecutor,
-      failureReporter,
-    }),
+    toIpcHandlers(
+      createRunControlHandlers({
+        stateStore,
+        writeLoopExecutor,
+        failureReporter,
+      }),
+    ),
   );
 
   const client = await connectIpcClient(SOCKET_PATH, 2_000);

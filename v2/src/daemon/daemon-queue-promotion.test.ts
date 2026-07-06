@@ -7,7 +7,7 @@ import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { connectIpcClient } from "../ipc/client.ts";
 import { type IpcServer, startIpcServer } from "../ipc/server.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { listRuns, mockWriteLoopInput, startRun } from "../testing/run-control.ts";
+import { listRuns, mockWriteLoopInput, startRun, toIpcHandlers } from "../testing/run-control.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import {
   createRunControlHandlers,
@@ -71,16 +71,14 @@ async function flushBackgroundRuns(): Promise<void> {
 }
 
 async function startHandlers(settleDelayMs: number): Promise<void> {
-  server = await startIpcServer(
-    SOCKET_PATH,
-    createRunControlHandlers({
-      stateStore,
-      writeLoopExecutor: fakeExecutor.executor,
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => memoryHeadroom,
-      settleDelayMs,
-    }),
-  );
+  const handlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => memoryHeadroom,
+    settleDelayMs,
+  });
+  server = await startIpcServer(SOCKET_PATH, toIpcHandlers(handlers));
 }
 
 beforeEach(async () => {
@@ -271,21 +269,19 @@ socketTest(
   "a start that queues because memory is briefly tight is promoted immediately once memory has already recovered",
   async () => {
     let calls = 0;
-    server = await startIpcServer(
-      SOCKET_PATH,
-      createRunControlHandlers({
-        stateStore,
-        writeLoopExecutor: fakeExecutor.executor,
-        failureReporter: () => {},
-        // Reports no headroom for the initial admission check, then recovered for the
-        // immediate recheck performed right after the row is persisted.
-        hasMemoryHeadroom: () => {
-          calls += 1;
-          return calls > 1;
-        },
-        settleDelayMs: 0,
-      }),
-    );
+    const handlers = createRunControlHandlers({
+      stateStore,
+      writeLoopExecutor: fakeExecutor.executor,
+      failureReporter: () => {},
+      // Reports no headroom for the initial admission check, then recovered for the
+      // immediate recheck performed right after the row is persisted.
+      hasMemoryHeadroom: () => {
+        calls += 1;
+        return calls > 1;
+      },
+      settleDelayMs: 0,
+    });
+    server = await startIpcServer(SOCKET_PATH, toIpcHandlers(handlers));
     const client = await connectIpcClient(SOCKET_PATH, 2_000);
 
     const runId = await startRun(client, mockWriteLoopInput({ projectName: "project-recovering" }));

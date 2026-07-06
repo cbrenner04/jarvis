@@ -21,7 +21,7 @@ are in the domain map.
 | Execution library | `v2/src/execution/` | Relocated from flat root: `external-worktree.ts`, `external-worktree.sandbox-unrunnable.test.ts`, `invocation-failure.ts`, `step-runner.ts`, `step-runner.test.ts`, `write-loop-input.ts`, `write-loop-input.test.ts`, `write-loop.ts`, `write-loop.test.ts`, `write-prompt.ts`, `write-prompt.test.ts`, `write.ts`, `write.test.ts` |
 | Persistence library | `v2/src/persistence/` | Relocated from flat root: `log-stream.ts`, `log-stream.test.ts`, `log-stream.sandbox-unrunnable.test.ts`, `state-store-types.ts`, `state-store.ts`, `state-store.test.ts` |
 | Daemon host | `v2/src/daemon/` | Relocated from flat root: `daemon.ts`, `daemon.sandbox-unrunnable.test.ts`, `daemon-wire.ts`, `daemon-wire.test.ts`, `daemon-lifecycle.ts`, `daemon-lifecycle.test.ts`, `daemon-run-failure-capture.test.ts`, `daemon-start-list.test.ts`, `daemon-tail-stream.test.ts`, `daemon-wait-run-completion.test.ts`, `run-operator-error.ts`, `run-operator-error.test.ts` (`daemon-entrypoint.ts` remains at root per Entrypoints policy) |
-| TUI host | `v2/src/tui/` | Relocated from flat root: `tui-daemon-client.ts`, `tui-daemon-client.test.ts`, `tui-daemon-errors.ts`, `tui-daemon-rpc-transport.ts`, `tui-entry.tsx`, `tui-entry.test.tsx`, `tui-field-collector.tsx`, `tui-ink-feedback.tsx`, `tui-ink-log-follow.tsx`, `tui-ink-monitor.tsx`, `tui-ink-runtime.ts`, `tui-log-follow-entry.tsx`, `tui-log-follow-entry.test.tsx`, `tui-log-follow-lines.ts`, `tui-log-follow-types.ts`, `tui-log-tail-client.ts`, `tui-log-tail-client.test.ts`, `tui-monitor-lines.ts`, `tui-monitor-types.ts` |
+| TUI host | `v2/src/tui/` | Relocated from flat root: `tui-daemon-client.ts`, `tui-daemon-client.test.ts`, `tui-daemon-errors.ts`, `tui-daemon-rpc-transport.ts`, `tui-entry.tsx`, `tui-entry.test.tsx`, `tui-ink-feedback.tsx`, `tui-ink-log-follow.tsx`, `tui-ink-monitor.tsx`, `tui-ink-runtime.ts`, `tui-log-follow-entry.tsx`, `tui-log-follow-entry.test.tsx`, `tui-log-follow-lines.ts`, `tui-log-follow-types.ts`, `tui-log-tail-client.ts`, `tui-log-tail-client.test.ts`, `tui-monitor-lines.ts`, `tui-monitor-types.ts` |
 | CLI host | `v2/src/` root | `cli.ts`, `cli.test.ts` |
 | IPC transport | `v2/src/ipc/` | (already subtree) |
 | Test support | `v2/src/testing/` | `preload.sandbox-unrunnable.test.ts` plus existing `testing/` modules |
@@ -64,7 +64,7 @@ Pinned at `v2/src/` root; relocate only with every caller in the same change set
 ### Conventions
 
 - **Co-located tests:** `*.test.ts(x)` beside modules under `v2/src/<domain>/`;
-  grandfathered `v2/test/fixtures/` (Biome demos) only outside.
+  no parallel `v2/test/` mirror of `v2/src/`.
 - **No barrel `index.ts` re-exports.**
 
 ## The layered model

@@ -11,7 +11,41 @@ A Biome linter gate enforces structural honesty in v2 and shared code via two ru
 - **`noExcessiveCognitiveComplexity`** (error, threshold 24): Functions exceeding cognitive complexity 24 are errors. The threshold is set to pass all existing non-test code in v2 and shared, enforcing structural honesty (preventing over-nested or over-conditional new logic) without rejecting working code. Test files (`*.test.ts`) are excluded from this rule. Smallness is the planner's and reviewer's job; the gate enforces structure, not size targets.
 - **Shared import boundary** (error): Code under `shared/**` must not import from `v1/**` or `v2/**` using relative paths (e.g., `../../v1/...`). The boundary uses relative-aware glob patterns (`**/v1/**`, `**/v2/**`) to catch real import forms. Shared is the lower-layer library consumed by both versions; enforcing its isolation prevents version-specific leakage.
 
-All rules are error-level; no warnings are introduced. The gate scope covers `v2/src/**` and `shared/**` (excluding test files) via Biome `overrides`, leaving `v1/**` untouched. Fixtures demonstrating violations are in `v2/test/fixtures/` and excluded from the regular build; see the fixtures' README for verification instructions.
+All rules are error-level; no warnings are introduced. The gate scope covers `v2/src/**` and `shared/**` (excluding test files) via Biome `overrides`, leaving `v1/**` untouched.
+
+Manual gate check: paste into a checked path, run `bun run check`, delete the file.
+
+**Complexity** — `v2/src/temp-verify-complexity.ts`:
+
+```typescript
+export function overComplex(x: number, y: number, z: number): number {
+  if (x > 0) {
+    if (y > 0) {
+      if (z > 0) {
+        if (x > y) {
+          if (y > z) {
+            if (z > 0) {
+              if (x + y > z) return 1;
+            }
+          }
+        }
+      }
+    }
+  }
+  return 0;
+}
+```
+
+Expect `noExcessiveCognitiveComplexity`.
+
+**Shared import boundary** — `shared/temp-verify-import.ts`:
+
+```typescript
+import { something } from "../../v1/src/something.ts";
+export function probe(): void { console.log(something); }
+```
+
+Expect `noRestrictedImports` on the v1 import.
 
 ## Test-writing conventions
 

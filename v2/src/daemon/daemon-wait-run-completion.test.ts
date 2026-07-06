@@ -3,22 +3,17 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
-import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
-import { type IpcServer, startIpcServer } from "../ipc/server.ts";
-import type { IpcFrame } from "../ipc/types.ts";
+import type { RpcHandler } from "../ipc/server.ts";
 import { type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
-import { toIpcHandlers } from "../testing/run-control.ts";
-import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import { createRunControlHandlers } from "./daemon.ts";
 
-const SOCKET_PATH = join(tmpdir(), `jarvis-daemon-wait-test-${process.pid}.sock`);
-const socketTest = test.skipIf(!canUseUnixSockets());
+type Handlers = ReturnType<typeof createRunControlHandlers>;
 
 let stateStore: StateStore;
 let logSink: LogSink;
-let server: IpcServer;
 let logsPath: string;
+let handlers: Handlers;
 
 function input(): WriteLoopInput {
   return {
@@ -60,66 +55,60 @@ function failRun(runId: string): void {
   logSink.append(runId, { kind: "run_execution_failed" });
 }
 
-async function waitRequest(client: IpcClient, id: string, runId: string): Promise<IpcFrame> {
-  client.send({ kind: "request", id, method: "wait", params: { runId } });
-  return client.nextFrame(2_000);
+type RpcResult = Awaited<ReturnType<RpcHandler>>;
+
+async function waitDirect(id: string, runId: string, signal = new AbortController().signal): Promise<RpcResult> {
+  return handlers.wait({ kind: "request", id, method: "wait", params: { runId } }, signal);
 }
 
-async function expectResponse(frame: IpcFrame): Promise<Record<string, unknown>> {
+async function listDirect(id = "list"): Promise<RpcResult> {
+  return handlers.list({ kind: "request", id, method: "list" }, new AbortController().signal);
+}
+
+async function expectResponse(frame: RpcResult): Promise<Record<string, unknown>> {
   expect(frame.kind).toBe("response");
   if (frame.kind !== "response") throw new Error("not a response");
   return frame.result as Record<string, unknown>;
 }
 
-beforeEach(async () => {
-  if (!canUseUnixSockets()) return;
-  rmSync(SOCKET_PATH, { force: true });
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+beforeEach(() => {
   const unique = `${process.pid}-${Date.now()}-${crypto.randomUUID()}`;
   stateStore = openStateStore(join(tmpdir(), `jarvis-wait-state-${unique}.db`));
   logsPath = join(tmpdir(), `jarvis-wait-logs-${unique}.jsonl`);
   logSink = openLogSink(logsPath);
-  const handlers = createRunControlHandlers({
+  handlers = createRunControlHandlers({
     stateStore,
     logReader: openLogReader(logsPath),
     writeLoopExecutor: async () => undefined,
     failureReporter: () => undefined,
   });
-  server = await startIpcServer(SOCKET_PATH, toIpcHandlers(handlers));
 });
 
-afterEach(async () => {
-  if (!canUseUnixSockets()) return;
-  try {
-    await server.close();
-  } catch {
-    // server may have already stopped
-  }
+afterEach(() => {
   logSink.close();
   stateStore.close();
-  rmSync(SOCKET_PATH, { force: true });
+  rmSync(logsPath, { force: true });
 });
 
-socketTest("wait rejects missing and unknown runId before following logs", async () => {
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
-
-  client.send({ kind: "request", id: "missing", method: "wait", params: {} });
-  const missing = await client.nextFrame();
+test("wait rejects missing and unknown runId before following logs", async () => {
+  const missing = await waitDirect("missing", "");
   expect(missing.kind).toBe("error");
   expect(missing.kind === "error" && missing.code).toBe("invalid_params");
 
-  client.send({ kind: "request", id: "unknown", method: "wait", params: { runId: "nope" } });
-  const unknown = await client.nextFrame();
+  const unknown = await waitDirect("unknown", "nope");
   expect(unknown.kind).toBe("error");
   expect(unknown.kind === "error" && unknown.code).toBe("unknown_run");
-  client.close();
 });
 
-socketTest("wait returns immediately for quiescent run with last loop_finished payload", async () => {
+test("wait returns immediately for quiescent run with last loop_finished payload", async () => {
   const runId = createRun();
   finishLoop(runId, "completed", 3);
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
 
-  const result = await expectResponse(await waitRequest(client, "wait", runId));
+  const result = await expectResponse(await waitDirect("wait", runId));
 
   expect(result).toEqual({
     runStatus: "completed",
@@ -127,10 +116,9 @@ socketTest("wait returns immediately for quiescent run with last loop_finished p
     iterationsConsumed: 3,
     resumable: false,
   });
-  client.close();
 });
 
-socketTest("wait on resumed in-progress run ignores historical loop_finished and resolves on next edge", async () => {
+test("wait on resumed in-progress run ignores historical loop_finished and resolves on next edge", async () => {
   const runId = createRun();
   logSink.append(runId, {
     kind: "loop_finished",
@@ -138,25 +126,21 @@ socketTest("wait on resumed in-progress run ignores historical loop_finished and
     iterationsConsumed: 1,
     resumable: true,
   });
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
-  const pending = waitRequest(client, "wait", runId);
+  const pending = waitDirect("wait", runId);
 
-  await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  await sleep(25);
   finishLoop(runId, "completed", 2);
   const result = await expectResponse(await pending);
 
   expect(result).toMatchObject({ runStatus: "completed", iterationsConsumed: 2 });
-  client.close();
 });
 
-socketTest("two concurrent waits resolve with the same terminal payload", async () => {
+test("two concurrent waits resolve with the same terminal payload", async () => {
   const runId = createRun();
-  const firstClient = await connectIpcClient(SOCKET_PATH, 2_000);
-  const secondClient = await connectIpcClient(SOCKET_PATH, 2_000);
-  const first = waitRequest(firstClient, "w1", runId);
-  const second = waitRequest(secondClient, "w2", runId);
+  const first = waitDirect("w1", runId);
+  const second = waitDirect("w2", runId);
 
-  await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  await sleep(25);
   finishLoop(runId, "blocked", 4);
   const firstResult = await expectResponse(await first);
   const secondResult = await expectResponse(await second);
@@ -168,50 +152,42 @@ socketTest("two concurrent waits resolve with the same terminal payload", async 
     iterationsConsumed: 4,
     error: { reason: "agent_blocked", retryable: false, nextAction: "inspect_spec" },
   });
-  firstClient.close();
-  secondClient.close();
 });
 
-socketTest("pending wait does not block other RPCs on the same connection", async () => {
+test("pending wait does not block other RPCs on the same connection", async () => {
   const runId = createRun();
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
-  client.send({ kind: "request", id: "wait", method: "wait", params: { runId } });
-  client.send({ kind: "request", id: "list", method: "list" });
+  const pending = waitDirect("wait", runId);
 
-  const listFrame = await client.nextFrame(2_000);
+  const listFrame = await listDirect();
   expect(listFrame.kind).toBe("response");
   expect(listFrame.kind === "response" && (listFrame.result as { runs?: unknown[] }).runs?.length).toBe(1);
 
   finishLoop(runId, "completed", 1);
-  const waitFrame = await client.nextFrame(2_000);
+  const waitFrame = await pending;
   expect(waitFrame.kind).toBe("response");
-  client.close();
 });
 
-socketTest("disconnecting one wait client leaves other waiters and durable status alone", async () => {
+test("disconnecting one wait client leaves other waiters and durable status alone", async () => {
   const runId = createRun();
-  const first = await connectIpcClient(SOCKET_PATH, 2_000);
-  const second = await connectIpcClient(SOCKET_PATH, 2_000);
-  first.send({ kind: "request", id: "first", method: "wait", params: { runId } });
-  const secondWait = waitRequest(second, "second", runId);
+  const firstController = new AbortController();
+  const firstWait = waitDirect("first", runId, firstController.signal);
+  const secondWait = waitDirect("second", runId);
 
-  await new Promise<void>((resolve) => setTimeout(resolve, 100));
-  first.close();
-  await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  await sleep(25);
+  firstController.abort();
+  await expect(firstWait).rejects.toThrow();
   expect(stateStore.loadRun(runId)?.status).toBe("in-progress");
 
   finishLoop(runId, "completed", 1);
   const result = await expectResponse(await secondWait);
   expect(result.runStatus).toBe("completed");
-  second.close();
 });
 
-socketTest("wait resolves failed run_execution_failed without loop fields", async () => {
+test("wait resolves failed run_execution_failed without loop fields", async () => {
   const runId = createRun();
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
-  const pending = waitRequest(client, "wait", runId);
+  const pending = waitDirect("wait", runId);
 
-  await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  await sleep(25);
   failRun(runId);
   const result = await expectResponse(await pending);
 
@@ -219,16 +195,13 @@ socketTest("wait resolves failed run_execution_failed without loop fields", asyn
     runStatus: "failed",
     error: { reason: "harness_failure", retryable: false, nextAction: "stop" },
   });
-  client.close();
 });
 
-socketTest("wait resolve payload includes the same error object as list for the same run", async () => {
+test("wait resolve payload includes the same error object as list for the same run", async () => {
   const runId = createRun();
   stateStore.setRunStatus(runId, "killed");
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
 
-  client.send({ kind: "request", id: "list", method: "list" });
-  const listFrame = await client.nextFrame();
+  const listFrame = await listDirect();
   expect(listFrame.kind).toBe("response");
   const listError =
     listFrame.kind === "response"
@@ -237,38 +210,34 @@ socketTest("wait resolve payload includes the same error object as list for the 
         )?.error
       : undefined;
 
-  const waitResult = await expectResponse(await waitRequest(client, "wait", runId));
+  const waitResult = await expectResponse(await waitDirect("wait", runId));
   expect(waitResult.error).toEqual(listError);
   expect(waitResult.error).toEqual({
     reason: "resumable_kill",
     retryable: true,
     nextAction: "resume",
   });
-  client.close();
 });
 
-socketTest("wait returns durable terminal status only when no terminal log signal exists", async () => {
+test("wait returns durable terminal status only when no terminal log signal exists", async () => {
   const runId = createRun();
   stateStore.setRunStatus(runId, "killed");
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
 
-  const result = await expectResponse(await waitRequest(client, "wait", runId));
+  const result = await expectResponse(await waitDirect("wait", runId));
 
   expect(result).toEqual({
     runStatus: "killed",
     error: { reason: "resumable_kill", retryable: true, nextAction: "resume" },
   });
-  client.close();
 });
 
-socketTest("existing start/list behavior stays unchanged", async () => {
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
-  client.send({ kind: "request", id: "start", method: "start", params: { input: input() } });
-  const start = await client.nextFrame();
+test("existing start/list behavior stays unchanged", async () => {
+  const start = await handlers.start(
+    { kind: "request", id: "start", method: "start", params: { input: input() } },
+    new AbortController().signal,
+  );
   expect(start.kind).toBe("response");
 
-  client.send({ kind: "request", id: "list", method: "list" });
-  const list = await client.nextFrame();
+  const list = await listDirect();
   expect(list.kind).toBe("response");
-  client.close();
 });

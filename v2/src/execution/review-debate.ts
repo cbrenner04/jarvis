@@ -48,9 +48,7 @@ export type ReviewDebateInput = {
  * adjudicator -> actuator. Each cycle writes the adjudicator's verdict to
  * `verdictPath`; an empty verdict skips the actuator and stops the loop.
  */
-export async function executeReviewDebate(
-  args: ReviewDebateInput,
-): Promise<{ cycles: ReviewDebateCycleOutcome[] }> {
+export async function executeReviewDebate(args: ReviewDebateInput): Promise<{ cycles: ReviewDebateCycleOutcome[] }> {
   const cycles: ReviewDebateCycleOutcome[] = [];
 
   for (let cycle = 0; cycle < args.maxCycles; cycle += 1) {

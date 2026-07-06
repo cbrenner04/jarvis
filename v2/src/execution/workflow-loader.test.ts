@@ -116,9 +116,9 @@ describe("loadWorkflowSteps", () => {
     const machineProfile = nextProfileName();
     writeProfile(machineProfile, { models: VALID_AGENT_MODEL_CONFIG });
 
-    expect(() =>
-      loadWorkflowSteps([sourceStep({ role: "typo-role" })], { machineConfigPath, machineProfile }),
-    ).toThrow(/step-1.*typo-role/);
+    expect(() => loadWorkflowSteps([sourceStep({ role: "typo-role" })], { machineConfigPath, machineProfile })).toThrow(
+      /step-1.*typo-role/,
+    );
   });
 
   test("surfaces agent model config load failure as-is", () => {

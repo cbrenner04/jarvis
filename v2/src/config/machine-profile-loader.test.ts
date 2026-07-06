@@ -3,7 +3,11 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { LoadError } from "./agent-model-config.ts";
 import { validateAgentModelConfig } from "./agent-model-config.ts";
-import { DEFAULT_SETTLE_DELAY_MS, loadMachineProfileMemory, loadMachineProfileModels } from "./machine-profile-loader.ts";
+import {
+  DEFAULT_SETTLE_DELAY_MS,
+  loadMachineProfileMemory,
+  loadMachineProfileModels,
+} from "./machine-profile-loader.ts";
 
 /** Pre-migration global agent-model-config content for claude/codex, retained here to prove no drift. */
 const PRE_MIGRATION_CLAUDE_CODEX = {

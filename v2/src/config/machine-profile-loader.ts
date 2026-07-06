@@ -60,10 +60,7 @@ function readMachineProfileDocument(profileName: string): Record<string, unknown
   return parsed as Record<string, unknown>;
 }
 
-export function loadMachineProfileModels(
-  profileName: string,
-  agents: readonly string[],
-): AgentModelConfig | LoadError {
+export function loadMachineProfileModels(profileName: string, agents: readonly string[]): AgentModelConfig | LoadError {
   const document = readMachineProfileDocument(profileName);
   return validateAgentModelConfig(document.models, agents);
 }

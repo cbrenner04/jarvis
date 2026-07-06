@@ -46,6 +46,14 @@ const RUN_DELTA: DaemonListRunRow = {
   isLive: false,
 };
 
+const RUN_QUEUED: DaemonListRunRow = {
+  runId: "run-queued",
+  project: "demo",
+  branch: "queued",
+  status: "queued",
+  isLive: false,
+};
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
@@ -332,6 +340,91 @@ describe("runTuiEntry", () => {
       waitState: { kind: "none" },
       steeringFeedback: null,
     });
+  });
+
+  test("initial selection skips queued runs and picks the first non-queued row", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_QUEUED, RUN_ALPHA] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    view.quit();
+    await pending;
+
+    expect(clientOptions.methods).toEqual(["health", "status", "list", "wait:run-alpha", "close"]);
+    expect(view.monitorStates[0]?.selectedRunId).toBe("run-alpha");
+  });
+
+  test("no selection when only queued runs are present", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_QUEUED] }],
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    view.quit();
+    await pending;
+
+    expect(clientOptions.methods).toEqual(["health", "status", "list", "close"]);
+    expect(view.monitorStates[0]?.selectedRunId).toBeNull();
+  });
+
+  test("selectRun is a no-op for a queued run's id", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_ALPHA, RUN_QUEUED] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    view.selectRun("run-queued");
+    await flush();
+    view.quit();
+    await pending;
+
+    expect(view.monitorStates.at(-1)?.selectedRunId).toBe("run-alpha");
+    expect(clientOptions.methods).toEqual(["health", "status", "list", "wait:run-alpha", "close"]);
+  });
+
+  test("refresh clears selection when the selected run transitions to queued", async () => {
+    const view = createViewHost();
+    const refresh = createRefreshScheduler();
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_ALPHA] }, { runs: [{ ...RUN_ALPHA, status: "queued", isLive: false }] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host, refreshScheduler: refresh.scheduler },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    refresh.tick();
+    await flush();
+    view.quit();
+    await pending;
+
+    expect(view.monitorStates.at(-1)?.selectedRunId).toBeNull();
+    expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "none" });
   });
 
   test("refresh updates displayed status and liveness without relaunching", async () => {

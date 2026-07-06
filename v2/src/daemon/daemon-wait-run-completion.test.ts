@@ -71,6 +71,10 @@ async function expectResponse(frame: RpcResult): Promise<Record<string, unknown>
   return frame.result as Record<string, unknown>;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 beforeEach(() => {
   const unique = `${process.pid}-${Date.now()}-${crypto.randomUUID()}`;
   stateStore = openStateStore(join(tmpdir(), `jarvis-wait-state-${unique}.db`));
@@ -124,7 +128,7 @@ test("wait on resumed in-progress run ignores historical loop_finished and resol
   });
   const pending = waitDirect("wait", runId);
 
-  await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  await sleep(25);
   finishLoop(runId, "completed", 2);
   const result = await expectResponse(await pending);
 
@@ -136,7 +140,7 @@ test("two concurrent waits resolve with the same terminal payload", async () => 
   const first = waitDirect("w1", runId);
   const second = waitDirect("w2", runId);
 
-  await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  await sleep(25);
   finishLoop(runId, "blocked", 4);
   const firstResult = await expectResponse(await first);
   const secondResult = await expectResponse(await second);
@@ -169,7 +173,7 @@ test("disconnecting one wait client leaves other waiters and durable status alon
   const firstWait = waitDirect("first", runId, firstController.signal);
   const secondWait = waitDirect("second", runId);
 
-  await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  await sleep(25);
   firstController.abort();
   await expect(firstWait).rejects.toThrow();
   expect(stateStore.loadRun(runId)?.status).toBe("in-progress");
@@ -183,7 +187,7 @@ test("wait resolves failed run_execution_failed without loop fields", async () =
   const runId = createRun();
   const pending = waitDirect("wait", runId);
 
-  await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  await sleep(25);
   failRun(runId);
   const result = await expectResponse(await pending);
 

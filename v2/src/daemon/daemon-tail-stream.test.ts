@@ -38,23 +38,37 @@ function createRunWithLogs(): string {
   return runId;
 }
 
-async function expectTailClosesWithoutData(streamId: string, payload: Record<string, unknown>): Promise<void> {
+function callTailHandler(
+  streamId: string,
+  payload: Record<string, unknown>,
+  signal: AbortSignal,
+): { onData: unknown[]; closes: { count: number }; handlerPromise: Promise<void> } {
   const onData: unknown[] = [];
-  let closeCalls = 0;
-  const controller = new AbortController();
-
-  await tailHandler(
+  const closes = { count: 0 };
+  const handlerPromise = tailHandler(
     streamId,
     payload,
     (record) => onData.push(record),
     () => {
-      closeCalls++;
+      closes.count++;
     },
-    controller.signal,
+    signal,
   );
+  return { onData, closes, handlerPromise };
+}
+
+async function waitForRecords(onData: unknown[], count: number): Promise<void> {
+  while (onData.length < count) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+async function expectTailClosesWithoutData(streamId: string, payload: Record<string, unknown>): Promise<void> {
+  const { onData, closes, handlerPromise } = callTailHandler(streamId, payload, new AbortController().signal);
+  await handlerPromise;
 
   expect(onData).toEqual([]);
-  expect(closeCalls).toBe(1);
+  expect(closes.count).toBe(1);
   expect(followCalled).toBe(false);
 }
 
@@ -87,23 +101,10 @@ afterEach(() => {
 
 test("tail stream replays persisted events in seq order for known run", async () => {
   const runId = createRunWithLogs();
-  const onData: unknown[] = [];
-  let closeCalls = 0;
   const controller = new AbortController();
+  const { onData, closes, handlerPromise } = callTailHandler("tail1", { runId }, controller.signal);
 
-  const handlerPromise = tailHandler(
-    "tail1",
-    { runId },
-    (record) => onData.push(record),
-    () => {
-      closeCalls++;
-    },
-    controller.signal,
-  );
-
-  while (onData.length < 2) {
-    await new Promise<void>((resolve) => setTimeout(resolve, 5));
-  }
+  await waitForRecords(onData, 2);
 
   const record1 = onData[0] as { seq: number; event: { kind: string } };
   expect(record1.seq).toBe(1);
@@ -115,7 +116,7 @@ test("tail stream replays persisted events in seq order for known run", async ()
 
   controller.abort();
   await handlerPromise;
-  expect(closeCalls).toBe(1);
+  expect(closes.count).toBe(1);
 });
 
 test("tail stream closes without stream-data for missing runId", () => expectTailClosesWithoutData("tail-missing", {}));
@@ -149,27 +150,14 @@ test("tail stream aborts follow signal on client stream-end", async () => {
   logSink.append(runId, { kind: "iteration_started", attemptId: "attempt-1" });
   logSink.close();
 
-  const onData: unknown[] = [];
-  let closeCalls = 0;
   const controller = new AbortController();
+  const { onData, closes, handlerPromise } = callTailHandler("tail-abort", { runId }, controller.signal);
 
-  const handlerPromise = tailHandler(
-    "tail-abort",
-    { runId },
-    (record) => onData.push(record),
-    () => {
-      closeCalls++;
-    },
-    controller.signal,
-  );
-
-  while (onData.length < 1) {
-    await new Promise<void>((resolve) => setTimeout(resolve, 5));
-  }
+  await waitForRecords(onData, 1);
 
   controller.abort();
   await handlerPromise;
 
   expect(followSignal?.aborted).toBe(true);
-  expect(closeCalls).toBe(1);
+  expect(closes.count).toBe(1);
 });

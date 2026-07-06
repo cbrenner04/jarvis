@@ -49,13 +49,13 @@ behavior changes.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-wait-run-completion.test.ts` no longer imports
+- [x] `v2/src/daemon/daemon-wait-run-completion.test.ts` no longer imports
       `startIpcServer`, `connectIpcClient`, or `canUseUnixSockets`, and has no
       `SOCKET_PATH`/socket-file `rmSync`.
-- [ ] `bun test v2/src/daemon/daemon-wait-run-completion.test.ts` passes with
+- [x] `bun test v2/src/daemon/daemon-wait-run-completion.test.ts` passes with
       the same number of `test`/`socketTest` cases as before conversion, 0
       skipped.
-- [ ] The converted file still asserts, each in some test: two `wait()` calls
+- [x] The converted file still asserts, each in some test: two `wait()` calls
       on the same `runId` resolve with the identical terminal payload
       (fanout); a `list()` call resolves while a `wait()` on the same `runId`
       is still outstanding; aborting one waiter's signal leaves a second

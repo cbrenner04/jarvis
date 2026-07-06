@@ -24,6 +24,7 @@ let memoryHeadroom: boolean;
 
 async function flushBackgroundRuns(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve));
+  await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
 function startHandlers(settleDelayMs: number): void {

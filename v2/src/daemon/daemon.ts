@@ -270,29 +270,11 @@ type WorkflowStepListSnapshot = {
   terminalOutcome?: WorkflowStepTerminalOutcome;
 };
 
-/**
- * Live/terminal role progress for `review-debate` steps, keyed by `invocationId` then
- * `stepId` — mirroring `runsByWorkflowInvocation`'s scoping so two concurrent invocations
- * sharing a `stepId` don't collide. Tracked in-memory only — a `review-debate` step has
- * no durable run row, so this map is the sole source for its `list` row, populated via
- * {@link reportReviewDebateProgress}.
- */
-export const reviewDebateProgressByInvocation = new Map<string, Map<string, ReviewDebateProgress>>();
-
-/** Records a `review-debate` step's currently-executing or terminal role/outcome. */
-export function reportReviewDebateProgress(invocationId: string, stepId: string, progress: ReviewDebateProgress): void {
-  let steps = reviewDebateProgressByInvocation.get(invocationId);
-  if (!steps) {
-    steps = new Map<string, ReviewDebateProgress>();
-    reviewDebateProgressByInvocation.set(invocationId, steps);
-  }
-  steps.set(stepId, progress);
-}
-
 function workflowRowSnapshot(
   run: LoadedRun,
   runsByWorkflowInvocation: ReadonlyMap<string, Map<string, LoadedRun>>,
   liveRunIds: ReadonlySet<string>,
+  reviewDebateProgressByInvocation: ReadonlyMap<string, Map<string, ReviewDebateProgress>>,
 ): { steps: WorkflowStepListSnapshot[] } | undefined {
   const snapshot = run.workflowSnapshot;
   if (snapshot === null || snapshot === undefined) return undefined;
@@ -300,7 +282,13 @@ function workflowRowSnapshot(
   const workflowRuns = runsByWorkflowInvocation.get(snapshot.invocationId) ?? new Map<string, LoadedRun>();
   return {
     steps: snapshot.steps.map((step) =>
-      workflowStepSnapshot(step, workflowRuns.get(step.stepId), liveRunIds, snapshot.invocationId),
+      workflowStepSnapshot(
+        step,
+        workflowRuns.get(step.stepId),
+        liveRunIds,
+        snapshot.invocationId,
+        reviewDebateProgressByInvocation,
+      ),
     ),
   };
 }
@@ -310,6 +298,7 @@ function workflowStepSnapshot(
   run: LoadedRun | undefined,
   liveRunIds: ReadonlySet<string>,
   invocationId: string,
+  reviewDebateProgressByInvocation: ReadonlyMap<string, Map<string, ReviewDebateProgress>>,
 ): WorkflowStepListSnapshot {
   if (step.behavior === "review-debate") {
     const progress = reviewDebateProgressByInvocation.get(invocationId)?.get(step.stepId);
@@ -435,6 +424,14 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const _registry = new WorktreeOwnershipRegistry();
   const activeRuns = new Map<string, ActiveRun>();
   const waitFanouts = new Map<string, WaitFanout>();
+  /**
+   * Live/terminal role progress for `review-debate` steps, keyed by `invocationId` then
+   * `stepId` — mirroring `runsByWorkflowInvocation`'s scoping so two concurrent invocations
+   * sharing a `stepId` don't collide. Tracked in-memory only — a `review-debate` step has
+   * no durable run row, so this map is the sole source for its `list` row, populated via
+   * `reportReviewDebateProgress`.
+   */
+  const reviewDebateProgressByInvocation = new Map<string, Map<string, ReviewDebateProgress>>();
   const { stateStore: store, logReader, writeLoopExecutor, failureReporter } = deps;
   const checkWorktreeDirty = deps.isWorktreeDirty ?? isWorktreeDirty;
   const checkMemoryHeadroom = deps.hasMemoryHeadroom ?? (() => hasMemoryHeadroom());
@@ -648,7 +645,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         isLive,
         ...(error !== undefined ? { error } : {}),
         ...(fullRun?.workflowSnapshot !== undefined && fullRun?.workflowSnapshot !== null
-          ? { workflow: workflowRowSnapshot(fullRun, workflowRuns, liveRunIds) }
+          ? { workflow: workflowRowSnapshot(fullRun, workflowRuns, liveRunIds, reviewDebateProgressByInvocation) }
           : {}),
       };
     });
@@ -961,6 +958,15 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     resume: resumeHandler,
     kill: killHandler,
     wait: waitHandler,
+    /** Records a `review-debate` step's currently-executing or terminal role/outcome. */
+    reportReviewDebateProgress: (invocationId: string, stepId: string, progress: ReviewDebateProgress): void => {
+      let steps = reviewDebateProgressByInvocation.get(invocationId);
+      if (!steps) {
+        steps = new Map<string, ReviewDebateProgress>();
+        reviewDebateProgressByInvocation.set(invocationId, steps);
+      }
+      steps.set(stepId, progress);
+    },
   };
 }
 
@@ -1065,16 +1071,23 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
     return { kind: "response", result: { ok: true } };
   };
 
+  const runControlHandlers = createRunControlHandlers({
+    stateStore: store,
+    logReader: logReaderInstance,
+    writeLoopExecutor,
+    failureReporter: createRunExecutionFailureReporter(logsPath),
+  });
+
   const handlers: Record<string, RpcHandler> = {
     health: healthHandler,
     status: statusHandler,
     shutdown: shutdownHandler,
-    ...createRunControlHandlers({
-      stateStore: store,
-      logReader: logReaderInstance,
-      writeLoopExecutor,
-      failureReporter: createRunExecutionFailureReporter(logsPath),
-    }),
+    start: runControlHandlers.start,
+    list: runControlHandlers.list,
+    pause: runControlHandlers.pause,
+    resume: runControlHandlers.resume,
+    kill: runControlHandlers.kill,
+    wait: runControlHandlers.wait,
   };
 
   let server: IpcServer;

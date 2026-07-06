@@ -228,15 +228,13 @@ beforeEach(async () => {
   logsPath = join(tmpdir(), `jarvis-tui-daemon-logs-${unique}.jsonl`);
   logSink = openLogSink(logsPath);
   fakeExecutor = createFakeWriteLoopExecutor();
-  server = await startIpcServer(
-    SOCKET_PATH,
-    createRunControlHandlers({
-      stateStore,
-      logReader: openLogReader(logsPath),
-      writeLoopExecutor: fakeExecutor.executor,
-      failureReporter: () => undefined,
-    }),
-  );
+  const { reportReviewDebateProgress: _reportReviewDebateProgress, ...handlers } = createRunControlHandlers({
+    stateStore,
+    logReader: openLogReader(logsPath),
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => undefined,
+  });
+  server = await startIpcServer(SOCKET_PATH, handlers);
 });
 
 afterEach(async () => {

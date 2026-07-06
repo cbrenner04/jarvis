@@ -72,7 +72,7 @@ beforeEach(async () => {
   starts = [];
   holdNextWriteLoop = false;
 
-  const handlers = createRunControlHandlers({
+  const { reportReviewDebateProgress: _reportReviewDebateProgress, ...handlers } = createRunControlHandlers({
     stateStore,
     writeLoopExecutor: async (input) => {
       starts.push(input);

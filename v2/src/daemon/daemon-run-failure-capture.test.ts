@@ -75,11 +75,12 @@ function createHandlers() {
     }
   };
 
-  return createRunControlHandlers({
+  const { reportReviewDebateProgress: _reportReviewDebateProgress, ...handlers } = createRunControlHandlers({
     stateStore,
     writeLoopExecutor,
     failureReporter,
   });
+  return handlers;
 }
 
 beforeEach(async () => {
@@ -211,16 +212,17 @@ socketTest("spawn boundary forwards original rejection to failure reporter", asy
   };
 
   await server.close();
-  server = await startIpcServer(
-    SOCKET_PATH,
-    createRunControlHandlers({
-      stateStore,
-      writeLoopExecutor,
-      failureReporter: (runId, reason) => {
-        reportedFailures.push({ runId, reason });
-      },
-    }),
-  );
+  {
+    const { reportReviewDebateProgress: _reportReviewDebateProgress, ...customFailureHandlers } =
+      createRunControlHandlers({
+        stateStore,
+        writeLoopExecutor,
+        failureReporter: (runId, reason) => {
+          reportedFailures.push({ runId, reason });
+        },
+      });
+    server = await startIpcServer(SOCKET_PATH, customFailureHandlers);
+  }
 
   const client = await connectIpcClient(SOCKET_PATH, 2_000);
   await startRun(client);
@@ -248,14 +250,15 @@ socketTest("terminal durable status is not overwritten on executor rejection", a
   };
 
   await server.close();
-  server = await startIpcServer(
-    SOCKET_PATH,
-    createRunControlHandlers({
-      stateStore,
-      writeLoopExecutor,
-      failureReporter,
-    }),
-  );
+  {
+    const { reportReviewDebateProgress: _reportReviewDebateProgress, ...terminalStatusHandlers } =
+      createRunControlHandlers({
+        stateStore,
+        writeLoopExecutor,
+        failureReporter,
+      });
+    server = await startIpcServer(SOCKET_PATH, terminalStatusHandlers);
+  }
 
   const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const runId = await startRun(client);

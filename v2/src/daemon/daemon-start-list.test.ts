@@ -8,7 +8,7 @@ import { type IpcServer, startIpcServer } from "../ipc/server.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { listRuns, mockWriteLoopInput, startRun } from "../testing/run-control.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
-import { createRunControlHandlers, reportReviewDebateProgress, reviewDebateProgressByInvocation } from "./daemon.ts";
+import { createRunControlHandlers } from "./daemon.ts";
 
 const SOCKET_PATH = join(tmpdir(), `jarvis-daemon-test-${process.pid}.sock`);
 const socketTest = test.skipIf(!canUseUnixSockets());
@@ -69,6 +69,7 @@ let stateStore: StateStore;
 let server: IpcServer;
 let fakeExecutor: FakeWriteLoopExecutor;
 let memoryHeadroom: boolean;
+let handlers: ReturnType<typeof createRunControlHandlers>;
 
 function loadRunOrThrow(store: StateStore, runId: string) {
   const run = store.loadRun(runId);
@@ -89,18 +90,18 @@ beforeEach(async () => {
   fakeExecutor = createFakeWriteLoopExecutor();
   memoryHeadroom = true;
 
-  const handlers = createRunControlHandlers({
+  handlers = createRunControlHandlers({
     stateStore,
     writeLoopExecutor: fakeExecutor.executor,
     failureReporter: () => {},
     hasMemoryHeadroom: () => memoryHeadroom,
   });
 
-  server = await startIpcServer(SOCKET_PATH, handlers);
+  const { reportReviewDebateProgress: _reportReviewDebateProgress, ...ipcHandlers } = handlers;
+  server = await startIpcServer(SOCKET_PATH, ipcHandlers);
 });
 
 afterEach(async () => {
-  reviewDebateProgressByInvocation.clear();
   if (!canUseUnixSockets()) {
     return;
   }
@@ -266,14 +267,12 @@ socketTest("list returns workflow step snapshots for live, stopped, and complete
       stateStore.recordAttemptStart(run.id);
     }
   });
-  server = await startIpcServer(
-    SOCKET_PATH,
-    createRunControlHandlers({
-      stateStore,
-      writeLoopExecutor: fakeExecutor.executor,
-      failureReporter: () => {},
-    }),
-  );
+  const { reportReviewDebateProgress: _reportReviewDebateProgress, ...listHandlers } = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+  });
+  server = await startIpcServer(SOCKET_PATH, listHandlers);
 
   const snapshot = workflowSnapshot(
     "workflow-1",
@@ -531,7 +530,7 @@ socketTest("list builds a review-debate row from the live role pointer while in 
     attemptCount: 0,
   });
 
-  reportReviewDebateProgress("workflow-debate", "step-debate", { status: "in_progress", role: "advocate" });
+  handlers.reportReviewDebateProgress("workflow-debate", "step-debate", { status: "in_progress", role: "advocate" });
 
   runs = await listRuns(client);
   row = runs?.find((candidate) => candidate.runId === runId);
@@ -564,8 +563,8 @@ socketTest("list builds a review-debate row from the terminal role/outcome once 
   });
   stateStore.setRunStatus(runId, "completed");
 
-  reportReviewDebateProgress("workflow-debate-done", "step-debate", { status: "in_progress", role: "adjudicator" });
-  reportReviewDebateProgress("workflow-debate-done", "step-debate", {
+  handlers.reportReviewDebateProgress("workflow-debate-done", "step-debate", { status: "in_progress", role: "adjudicator" });
+  handlers.reportReviewDebateProgress("workflow-debate-done", "step-debate", {
     status: "completed",
     role: "actuator",
     terminalOutcome: "complete",
@@ -619,7 +618,7 @@ socketTest("review-debate progress does not bleed across invocations sharing a s
   });
   stateStore.setRunStatus(runB, "completed");
 
-  reportReviewDebateProgress("workflow-debate-a", "step-debate", { status: "in_progress", role: "advocate" });
+  handlers.reportReviewDebateProgress("workflow-debate-a", "step-debate", { status: "in_progress", role: "advocate" });
 
   const runs = await listRuns(client);
   const rowA = runs?.find((candidate) => candidate.runId === runA);
@@ -769,12 +768,12 @@ socketTest("list includes error on terminal rows and omits it on in-progress and
 
 socketTest("list without logReader composes store-only error", async () => {
   await server.close();
-  const handlers = createRunControlHandlers({
+  const { reportReviewDebateProgress: _reportReviewDebateProgress, ...noLogReaderHandlers } = createRunControlHandlers({
     stateStore,
     writeLoopExecutor: fakeExecutor.executor,
     failureReporter: () => {},
   });
-  server = await startIpcServer(SOCKET_PATH, handlers);
+  server = await startIpcServer(SOCKET_PATH, noLogReaderHandlers);
 
   const pausedRunId = stateStore.createRun({
     project: "paused-project",

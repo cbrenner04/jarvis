@@ -77,15 +77,13 @@ beforeEach(async () => {
   stateStore = openStateStore(join(tmpdir(), `jarvis-wait-state-${unique}.db`));
   logsPath = join(tmpdir(), `jarvis-wait-logs-${unique}.jsonl`);
   logSink = openLogSink(logsPath);
-  server = await startIpcServer(
-    SOCKET_PATH,
-    createRunControlHandlers({
-      stateStore,
-      logReader: openLogReader(logsPath),
-      writeLoopExecutor: async () => undefined,
-      failureReporter: () => undefined,
-    }),
-  );
+  const { reportReviewDebateProgress: _reportReviewDebateProgress, ...handlers } = createRunControlHandlers({
+    stateStore,
+    logReader: openLogReader(logsPath),
+    writeLoopExecutor: async () => undefined,
+    failureReporter: () => undefined,
+  });
+  server = await startIpcServer(SOCKET_PATH, handlers);
 });
 
 afterEach(async () => {

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_SETTLE_DELAY_MS } from "./machine-profile-loader.ts";
 
 export function readMachineConfigDocument(
   configPath: string = join(homedir(), ".jarvis", "v2.json"),
@@ -34,7 +35,7 @@ export function validateMachineConfigMemory(memory: unknown): { minFreeGb: numbe
     );
   }
 
-  let settleDelayMs = 2000;
+  let settleDelayMs = DEFAULT_SETTLE_DELAY_MS;
   if ("settleDelayMs" in memory) {
     const rawSettleDelayMs = (memory as Record<string, unknown>).settleDelayMs;
     if (typeof rawSettleDelayMs !== "number" || !Number.isInteger(rawSettleDelayMs) || rawSettleDelayMs <= 0) {

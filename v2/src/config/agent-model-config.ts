@@ -176,7 +176,7 @@ function loadJsonFile(filePath: string, errors: string[]): unknown {
   }
 }
 
-export function loadAgentModelConfig(filePath: string, agents: readonly string[]): AgentModelConfig | LoadError {
+export function validateAgentModelConfig(jsonData: unknown, agents: readonly string[]): AgentModelConfig | LoadError {
   const errors: string[] = [];
 
   // Check for duplicate agent names
@@ -186,11 +186,6 @@ export function loadAgentModelConfig(filePath: string, agents: readonly string[]
       errors.push(`duplicate agent name: ${agent}`);
     }
     agentSet.add(agent);
-  }
-
-  const jsonData = loadJsonFile(filePath, errors);
-  if (jsonData === undefined) {
-    return { errors };
   }
 
   // Check for object top level
@@ -225,4 +220,15 @@ export function loadAgentModelConfig(filePath: string, agents: readonly string[]
   }
 
   return config;
+}
+
+export function loadAgentModelConfig(filePath: string, agents: readonly string[]): AgentModelConfig | LoadError {
+  const errors: string[] = [];
+
+  const jsonData = loadJsonFile(filePath, errors);
+  if (jsonData === undefined) {
+    return { errors };
+  }
+
+  return validateAgentModelConfig(jsonData, agents);
 }

@@ -5,7 +5,7 @@
 ## Decisions
 
 - Envelope check: parsed JSON is an object with a `runId` string and an `event` object; nothing more.
-- `tui-log-tail-client.test.ts`: delete sections that fabricate impossible `PersistedRecord` shapes (missing/wrong-typed `seq`, `ts`, `event.kind`); keep JSON-parse-failure and stream-protocol-error (unexpected frame, error `stream-end`, connection loss) cases.
+- `tui-log-tail-client.test.ts` has no existing coverage fabricating field-level defects (bad `seq`/`ts`/`event.kind`) — only a JSON-parse-failure case exists today and is unaffected; add new tests covering the narrowed envelope check itself.
 
 ## Out of scope
 
@@ -14,12 +14,12 @@
 ## Task checklist
 
 - [ ] Narrow `parsePersistedRecord` to the envelope check (`runId` string, `event` object) and trust the rest via `PersistedRecord`.
-- [ ] Remove test coverage asserting rejection of fabricated malformed `PersistedRecord` shapes beyond the envelope.
+- [ ] Add tests in `tui-log-tail-client.test.ts` asserting `TuiDaemonConnectionError` when `stream-data` payload has a missing/non-string `runId` or a missing/non-object `event`.
 
 ## Acceptance criteria
 
-- [ ] A `stream-data` payload missing `runId` or `event` (or with a non-string `runId`) still throws `TuiDaemonConnectionError`.
-- [ ] `tui-log-tail-client.test.ts` no longer asserts rejection of well-enveloped payloads with fabricated field-level defects (bad `seq`/`ts`/`event.kind`); JSON-parse-failure and stream-protocol-error tests stay green.
+- [ ] A `stream-data` payload missing `runId` or `event` (or with a non-string `runId`) throws `TuiDaemonConnectionError`, covered by new tests.
+- [ ] Existing JSON-parse-failure and stream-protocol-error tests stay green.
 
 ## Documentation updates
 

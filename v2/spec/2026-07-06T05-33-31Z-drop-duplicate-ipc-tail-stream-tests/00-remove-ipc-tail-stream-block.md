@@ -43,11 +43,11 @@ that kept colocated IPC+tail integration in `ipc.test.ts`.
 
 ## Acceptance criteria
 
-- [ ] `ipc.test.ts` has no tail-stream `socketTest` registrations or tail-only helpers/imports listed in Tasks.
-- [ ] `ipc.test.ts` transport `socketTest` registrations (`health RPC round-trips` through `server stays up after a malformed client disconnects`, lines 63–156) stay green.
-- [ ] `daemon-tail-stream.test.ts` stays green.
-- [ ] `test-writing.md` no longer claims `ipc.test.ts` exercises `createTailStreamHandler`; names `daemon-tail-stream.test.ts` and `tui-log-tail-client.test.ts` as tail round-trip owners.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `ipc.test.ts` has no tail-stream `socketTest` registrations or tail-only helpers/imports listed in Tasks.
+- [x] `ipc.test.ts` transport `socketTest` registrations (`health RPC round-trips` through `server stays up after a malformed client disconnects`, lines 63–156) stay green.
+- [x] `daemon-tail-stream.test.ts` stays green.
+- [x] `test-writing.md` no longer claims `ipc.test.ts` exercises `createTailStreamHandler`; names `daemon-tail-stream.test.ts` and `tui-log-tail-client.test.ts` as tail round-trip owners.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Verification
 

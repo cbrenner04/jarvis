@@ -42,9 +42,11 @@ const VALID_AGENT_MODEL_CONFIG = {
 };
 
 let profileCounter = 0;
-function nextProfileName(): string {
+function writeValidProfile(): string {
   profileCounter += 1;
-  return `workflow-loader-test-profile-${profileCounter}`;
+  const machineProfile = `workflow-loader-test-profile-${profileCounter}`;
+  writeProfile(machineProfile, { models: VALID_AGENT_MODEL_CONFIG });
+  return machineProfile;
 }
 
 function sourceStep(overrides: Partial<WorkflowSourceStep> = {}): WorkflowSourceStep {
@@ -63,8 +65,7 @@ function sourceStep(overrides: Partial<WorkflowSourceStep> = {}): WorkflowSource
 describe("loadWorkflowSteps", () => {
   test("attaches machine agents and agent model config to every step", () => {
     const machineConfigPath = writeJson("v2.json", { agents: ["claude"] });
-    const machineProfile = nextProfileName();
-    writeProfile(machineProfile, { models: VALID_AGENT_MODEL_CONFIG });
+    const machineProfile = writeValidProfile();
 
     const steps = loadWorkflowSteps([sourceStep()], { machineConfigPath, machineProfile });
 
@@ -75,8 +76,7 @@ describe("loadWorkflowSteps", () => {
 
   test("falls back to DEFAULT_WRITE_AGENTS when machine config has no agents key", () => {
     const machineConfigPath = writeJson("v2.json", {});
-    const machineProfile = nextProfileName();
-    writeProfile(machineProfile, { models: VALID_AGENT_MODEL_CONFIG });
+    const machineProfile = writeValidProfile();
 
     const steps = loadWorkflowSteps([sourceStep()], { machineConfigPath, machineProfile });
 
@@ -85,8 +85,7 @@ describe("loadWorkflowSteps", () => {
 
   test("aggregates multiple missing step/role bindings in one load error", () => {
     const machineConfigPath = writeJson("v2.json", { agents: ["claude"] });
-    const machineProfile = nextProfileName();
-    writeProfile(machineProfile, { models: VALID_AGENT_MODEL_CONFIG });
+    const machineProfile = writeValidProfile();
 
     try {
       loadWorkflowSteps(
@@ -103,8 +102,7 @@ describe("loadWorkflowSteps", () => {
 
   test("rejects a step naming role 'operator'", () => {
     const machineConfigPath = writeJson("v2.json", { agents: ["claude"] });
-    const machineProfile = nextProfileName();
-    writeProfile(machineProfile, { models: VALID_AGENT_MODEL_CONFIG });
+    const machineProfile = writeValidProfile();
 
     expect(() => loadWorkflowSteps([sourceStep({ role: "operator" })], { machineConfigPath, machineProfile })).toThrow(
       /step-1.*operator/,
@@ -113,8 +111,7 @@ describe("loadWorkflowSteps", () => {
 
   test("rejects a step naming a role outside the closed Role union", () => {
     const machineConfigPath = writeJson("v2.json", { agents: ["claude"] });
-    const machineProfile = nextProfileName();
-    writeProfile(machineProfile, { models: VALID_AGENT_MODEL_CONFIG });
+    const machineProfile = writeValidProfile();
 
     expect(() => loadWorkflowSteps([sourceStep({ role: "typo-role" })], { machineConfigPath, machineProfile })).toThrow(
       /step-1.*typo-role/,

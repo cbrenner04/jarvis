@@ -138,6 +138,20 @@ socketTest("nextFrame() with no timeoutMs falls back to the client's default tim
   client.close();
 });
 
+socketTest("parked unbounded nextFrame() rejects when the socket closes", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+  const pending = client.nextFrame();
+  client.close();
+  await expect(pending).rejects.toThrow("connection closed");
+});
+
+socketTest("parked timed nextFrame() rejects when the socket closes before the timeout fires", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+  const pending = client.nextFrame(2_000);
+  client.close();
+  await expect(pending).rejects.toThrow("connection closed");
+});
+
 socketTest("server stays up after a malformed client disconnects", async () => {
   const bad = await connectRaw();
   bad.write(encodeFrame({ kind: "nope" }));

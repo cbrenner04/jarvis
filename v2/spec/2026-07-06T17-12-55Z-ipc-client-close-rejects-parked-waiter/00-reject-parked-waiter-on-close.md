@@ -37,14 +37,14 @@ needed in `tui-log-tail-client.ts`.
 
 ## Acceptance criteria
 
-- [ ] An unbounded parked `nextFrame()` call rejects with `"connection closed"` when the socket
+- [x] An unbounded parked `nextFrame()` call rejects with `"connection closed"` when the socket
       closes, instead of hanging indefinitely.
-- [ ] A timed parked `nextFrame()` call also rejects with `"connection closed"` if the socket
+- [x] A timed parked `nextFrame()` call also rejects with `"connection closed"` if the socket
       closes before its timeout fires, and its pending timer is cleared.
-- [ ] `ipc.test.ts`, `daemon-start-list.test.ts`, and `tui-log-tail-client.test.ts` stay green.
-- [ ] `v2/docs/v1-behaviors.md` documents that a parked `nextFrame()` read rejects with
+- [x] `ipc.test.ts`, `daemon-start-list.test.ts`, and `tui-log-tail-client.test.ts` stay green.
+- [x] `v2/docs/v1-behaviors.md` documents that a parked `nextFrame()` read rejects with
       `"connection closed"` on socket close (add if not already documented).
-- [ ] The dated `Test (v2)` CI-flake gotcha entry (2026-07-05) no longer appears in
+- [x] The dated `Test (v2)` CI-flake gotcha entry (2026-07-05) no longer appears in
       `v1/docs/operator-runbook.md` § The gate.
 
 ## Documentation updates

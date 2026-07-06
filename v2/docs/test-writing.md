@@ -34,7 +34,7 @@ Sources: `package.json`, `scripts/run-v2-tests.ts`, `test/test-slices.test.ts`
 
 Socket-backed v2 tests import `canUseUnixSockets` from [`v2/src/testing/unix-socket.ts`](../src/testing/unix-socket.ts). Register socket-dependent tests with `test.skipIf(!canUseUnixSockets(), ...)` — do not use silent-return skip wrappers that report pass. Guard hooks with `canUseUnixSockets()`. Emit file-local stderr gated on `socketProbeErrored` when the suite needs operator-visible skip context — the shared probe does not write on failure.
 
-Use for any v2 test binding or connecting to a Unix socket under `tmpdir()`: the `ipc.test.ts` transport suite, at most 1-2 round-trip smokes per handler set, and sandbox-unrunnable daemon lifecycle tests. `daemon-start-list.test.ts` predates this cap and is not a general blessed example — see "Do not reimplement production logic in test doubles" below.
+Use for any v2 test binding or connecting to a Unix socket under `tmpdir()`, subject to the round-trip allowance defined in "Do not reimplement production logic in test doubles" below. `daemon-start-list.test.ts` predates that cap and is not a general blessed example.
 
 Generic daemon run-control request helpers (`mockWriteLoopInput`, `startRun`, `listRuns`) live in [`v2/src/testing/run-control.ts`](../src/testing/run-control.ts). They take an `IpcClient` and optional `WriteLoopInput` overrides — request-shaping, not assertion-specific setup. Use them for any test exercising the daemon run-control protocol.
 

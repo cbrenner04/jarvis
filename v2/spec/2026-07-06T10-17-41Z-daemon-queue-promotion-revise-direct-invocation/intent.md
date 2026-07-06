@@ -31,3 +31,13 @@ Both files run with 0 skips in the agent sandbox; test counts unchanged.
 
 - `v2/src/testing/` exports a shared `createFakeWriteLoopExecutor`
 - `v2/src/testing/run-control.ts`'s `startRun`/`listRuns`/`mockWriteLoopInput` invoke daemon handlers directly rather than through an `IpcClient`
+
+## Blocker
+
+- Second prerequisite unconfirmed: `v2/src/testing/run-control.ts`'s `startRun`/`listRuns` still
+  send frames through an `IpcClient` (`client.send` + `client.nextFrame`), not direct handler
+  invocation. Direct invocation exists in that file only as separately named `startRunDirect`/
+  `listRunsDirect` (used today by `daemon-start-list.test.ts`), which the intent does not
+  reference. Either `startRun`/`listRuns` need to become the direct-invocation entry points (and
+  their `IpcClient`-based callers updated), or the intent should name `startRunDirect`/
+  `listRunsDirect`/`mockWriteLoopInput` instead. Please clarify before drafting.

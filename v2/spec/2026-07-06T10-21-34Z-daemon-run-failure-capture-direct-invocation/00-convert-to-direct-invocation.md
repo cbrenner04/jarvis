@@ -32,9 +32,9 @@ in favor of `v2/src/testing/run-control.ts`'s `startRunDirect`/`listRunsDirect`/
 
 ## Acceptance criteria
 
-- [ ] `bun test v2/src/daemon/daemon-run-failure-capture.test.ts` runs with 0 skips in the agent sandbox.
-- [ ] `daemon-run-failure-capture.test.ts` has the same number of `test`/`socketTest`-turned-`test` cases as before conversion.
-- [ ] `daemon-run-failure-capture.test.ts` contains no references to `SOCKET_PATH`, `rmSync`, `canUseUnixSockets`, `startIpcServer`, `connectIpcClient`, or `toIpcHandlers`.
+- [x] `bun test v2/src/daemon/daemon-run-failure-capture.test.ts` runs with 0 skips in the agent sandbox.
+- [x] `daemon-run-failure-capture.test.ts` has the same number of `test`/`socketTest`-turned-`test` cases as before conversion.
+- [x] `daemon-run-failure-capture.test.ts` contains no references to `SOCKET_PATH`, `rmSync`, `canUseUnixSockets`, `startIpcServer`, `connectIpcClient`, or `toIpcHandlers`.
 
 ## Documentation updates
 

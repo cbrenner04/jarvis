@@ -11,9 +11,9 @@ import { connectIpcClient } from "../ipc/client";
 import type { ResponseFrame } from "../ipc/types";
 import { openStateStore } from "../persistence/state-store";
 import { canUseUnixSockets, socketProbeErrored } from "../testing/unix-socket";
-import { parseListRuns } from "./daemon-wire";
 import { startDaemon as startInProcessDaemon } from "./daemon";
 import { startDaemon, stopDaemon } from "./daemon-lifecycle";
+import { parseListRuns } from "./daemon-wire";
 
 if (socketProbeErrored) {
   process.stderr.write("skip: daemon socket tests require socket support in /tmp\n");
@@ -106,9 +106,7 @@ describe("daemon (real process)", () => {
 
     const parsed = parseListRuns((listFrame as ResponseFrame).result);
     expect(parsed).toBeDefined();
-    expect(parsed?.runs).toEqual([
-      { runId, project: "p", branch: "b", status: "in-progress", isLive: false },
-    ]);
+    expect(parsed?.runs).toEqual([{ runId, project: "p", branch: "b", status: "in-progress", isLive: false }]);
     client.close();
 
     const shutdownClient = await connectIpcClient(LIST_SOCKET_PATH);

@@ -1,8 +1,7 @@
 import { expect, test } from "bun:test";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
-import type { Attempt } from "../persistence/state-store.ts";
-import type { RunStatus } from "../persistence/state-store-types.ts";
+import type { Attempt, RunStatus } from "../persistence/state-store.ts";
 import type {
   RunOperatorError,
   RunOperatorErrorReason,

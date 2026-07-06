@@ -8,8 +8,13 @@ import {
   resolveInvocationBindings,
 } from "../config/agent-model-config.ts";
 import type { LogSink } from "../persistence/log-stream.ts";
-import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import type { OnReviseConfig, RunStatus, WorkflowSnapshot } from "../persistence/state-store-types.ts";
+import {
+  type OnReviseConfig,
+  openStateStore,
+  type RunStatus,
+  type StateStore,
+  type WorkflowSnapshot,
+} from "../persistence/state-store.ts";
 import {
   executeReviewDebate,
   type ReviewDebateInput,

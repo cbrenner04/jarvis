@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync, type FSWatcher, mkdirSync, readFileSync, watch } from "node:fs";
 import { basename, dirname } from "node:path";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
-import type { OutcomeKind, RunStatus } from "./state-store-types.ts";
+import type { OutcomeKind, RunStatus } from "./state-store.ts";
 
 /**
  * Event emitted when an iteration begins.

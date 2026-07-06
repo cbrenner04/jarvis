@@ -1,5 +1,5 @@
 import { isWriteLoopOutcomeKind } from "../execution/write-loop.ts";
-import { isRunStatus, type RunStatus } from "../persistence/state-store-types.ts";
+import { isRunStatus, type RunStatus } from "../persistence/state-store.ts";
 import type { WaitRunCompletionResult } from "./daemon.ts";
 import { isRunOperatorError, type RunOperatorError } from "./run-operator-error.ts";
 

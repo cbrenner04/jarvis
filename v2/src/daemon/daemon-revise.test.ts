@@ -5,8 +5,7 @@ import { join } from "node:path";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { connectIpcClient } from "../ipc/client.ts";
 import { type IpcServer, startIpcServer } from "../ipc/server.ts";
-import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import type { WorkflowSnapshot } from "../persistence/state-store-types.ts";
+import { openStateStore, type StateStore, type WorkflowSnapshot } from "../persistence/state-store.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import { createRunControlHandlers } from "./daemon.ts";
 

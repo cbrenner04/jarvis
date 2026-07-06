@@ -2,9 +2,61 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { InvocationFailureDetail } from "../execution/invocation-failure.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
-import type { RunStatus, WorkflowSnapshot } from "./state-store-types";
+
+/** Status values for a run. */
+export const RUN_STATUSES = [
+  "in-progress",
+  "completed",
+  "blocked",
+  "budget-soft-stopped",
+  "paused",
+  "failed",
+  "killed",
+  "awaiting-human",
+  "revising",
+  "queued",
+] as const;
+
+export type RunStatus = (typeof RUN_STATUSES)[number];
+
+const runStatusSet = new Set<string>(RUN_STATUSES);
+
+export function isRunStatus(value: unknown): value is RunStatus {
+  return typeof value === "string" && runStatusSet.has(value);
+}
+
+/** A human step's configured repeat-and-revise target. */
+export type OnReviseConfig = {
+  repeatStepId: string;
+  maxRevisions: number;
+};
+
+/**
+ * Authored workflow-step identity retained on workflow-backed runs. Write-step
+ * config (`stepRules`, `expectedArtifactPath`, `agents`, `agentModelConfig`) is
+ * carried here too so a later `revise` can rebuild that step's `WriteLoopInput`
+ * without a live reference to the authoring `WorkflowStep`.
+ */
+export type WorkflowSnapshotStep = {
+  stepId: string;
+  role: string;
+  /** Marks a `review-debate` step; absent for `write`/`human` steps. */
+  behavior?: "review-debate";
+  onRevise?: OnReviseConfig;
+  stepRules?: string;
+  expectedArtifactPath?: string;
+  agents?: readonly string[];
+  agentModelConfig?: AgentModelConfig;
+};
+
+/** Durable workflow invocation snapshot shared by every step run in that workflow. */
+export type WorkflowSnapshot = {
+  invocationId: string;
+  steps: WorkflowSnapshotStep[];
+};
 
 export type AttemptStatus = "in-progress" | "completed";
 

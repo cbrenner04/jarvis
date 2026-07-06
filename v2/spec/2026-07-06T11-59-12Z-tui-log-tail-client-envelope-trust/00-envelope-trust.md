@@ -13,13 +13,13 @@
 
 ## Task checklist
 
-- [ ] Narrow `parsePersistedRecord` to the envelope check (`runId` string, `event` object) and trust the rest via `PersistedRecord`.
-- [ ] Add tests in `tui-log-tail-client.test.ts` asserting `TuiDaemonConnectionError` when `stream-data` payload has a missing/non-string `runId` or a missing/non-object `event`.
+- [x] Narrow `parsePersistedRecord` to the envelope check (`runId` string, `event` object) and trust the rest via `PersistedRecord`.
+- [x] Add tests in `tui-log-tail-client.test.ts` asserting `TuiDaemonConnectionError` when `stream-data` payload has a missing/non-string `runId` or a missing/non-object `event`.
 
 ## Acceptance criteria
 
-- [ ] A `stream-data` payload missing `runId` or `event` (or with a non-string `runId`) throws `TuiDaemonConnectionError`, covered by new tests.
-- [ ] Existing JSON-parse-failure and stream-protocol-error tests stay green.
+- [x] A `stream-data` payload missing `runId` or `event` (or with a non-string `runId`) throws `TuiDaemonConnectionError`, covered by new tests.
+- [x] Existing JSON-parse-failure and stream-protocol-error tests stay green.
 
 ## Documentation updates
 

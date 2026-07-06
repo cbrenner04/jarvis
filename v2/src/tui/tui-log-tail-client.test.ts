@@ -290,6 +290,54 @@ test("malformed stream-data payload rejects with TuiDaemonConnectionError", asyn
   tail.close();
 });
 
+test("stream-data payload missing runId rejects with TuiDaemonConnectionError", async () => {
+  const tail = await connectTuiLogTail("run-123", {
+    connectIpcClient: async () =>
+      makeClient([
+        {
+          kind: "stream-data",
+          streamId: STREAM_ID,
+          payload: JSON.stringify({ event: { kind: "iteration_started" } }),
+        },
+      ]),
+  });
+
+  await withFixedStreamId(async () => {
+    await expect(collectRecords(tail)).rejects.toBeInstanceOf(TuiDaemonConnectionError);
+  });
+  tail.close();
+});
+
+test("stream-data payload with non-string runId rejects with TuiDaemonConnectionError", async () => {
+  const tail = await connectTuiLogTail("run-123", {
+    connectIpcClient: async () =>
+      makeClient([
+        {
+          kind: "stream-data",
+          streamId: STREAM_ID,
+          payload: JSON.stringify({ runId: 123, event: { kind: "iteration_started" } }),
+        },
+      ]),
+  });
+
+  await withFixedStreamId(async () => {
+    await expect(collectRecords(tail)).rejects.toBeInstanceOf(TuiDaemonConnectionError);
+  });
+  tail.close();
+});
+
+test("stream-data payload missing event rejects with TuiDaemonConnectionError", async () => {
+  const tail = await connectTuiLogTail("run-123", {
+    connectIpcClient: async () =>
+      makeClient([{ kind: "stream-data", streamId: STREAM_ID, payload: JSON.stringify({ runId: "run-123" }) }]),
+  });
+
+  await withFixedStreamId(async () => {
+    await expect(collectRecords(tail)).rejects.toBeInstanceOf(TuiDaemonConnectionError);
+  });
+  tail.close();
+});
+
 test("connection loss during records iteration rejects with TuiDaemonConnectionError", async () => {
   const { client, push } = createDeferredClient();
   const tail = await connectTuiLogTail("run-123", {

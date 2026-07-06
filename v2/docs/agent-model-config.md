@@ -17,8 +17,12 @@ Two axes, two stores:
 | **Role→model bindings** | Repo-committed per-profile file `config/machines/<profileName>.json`, loaded by [`machine-profile-loader.ts`](../src/config/machine-profile-loader.ts) | `AgentModelConfig` — `(agent, role) → ModelEscalation`; may catalog agents beyond any one project's `agents` list |
 
 Two profiles are seeded: `home` (full claude+codex+cursor roster) and `work`
-(codex+cursor only, no `claude`). Which profile a machine loads is a hardcoded
-`"home"` placeholder at each call site until a profile-name resolver lands.
+(codex+cursor only, no `claude`). Which profile a machine loads is resolved at
+startup from the required `machineProfile` key in `~/.jarvis/config.json`
+(`resolveMachineProfile`, [`machine-config-loader.ts`](../src/config/machine-config-loader.ts)).
+A missing or empty `machineProfile` is a hard error; an existing key naming a
+profile with no matching `config/machines/<profileName>.json` is also a hard
+error. `machineProfile` is an open string — any non-empty value is accepted.
 
 The machine agent order is edited with `jarvis config set-agents <agent,agent,...>` and inspected with `jarvis config show` / `jarvis config path` ([Read-only inspection](#read-only-inspection)).
 `set-agents` replaces the full `agents` array, preserves unrelated top-level

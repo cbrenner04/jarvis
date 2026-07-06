@@ -85,6 +85,8 @@ beforeEach(() => {
     logReader: openLogReader(logsPath),
     writeLoopExecutor: async () => undefined,
     failureReporter: () => undefined,
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
   });
 });
 

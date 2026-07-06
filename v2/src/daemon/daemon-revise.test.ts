@@ -85,6 +85,8 @@ beforeEach(() => {
     },
     failureReporter: () => {},
     isWorktreeDirty: () => dirty,
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
   });
 });
 

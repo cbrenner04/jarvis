@@ -360,6 +360,12 @@ injectable free-memory reader (default `os.freemem`) against the floor
 converted to bytes. Wired into `start` admission (see
 [Admission guards](#admission-guards-for-start-resume-revise)).
 
+`createRunControlHandlers`'s default `hasMemoryHeadroom`/`settleDelayMs` deps
+resolve `profileName` via `resolveMachineProfile()`
+([`machine-config-loader.ts`](../src/config/machine-config-loader.ts)), which
+reads the required `machineProfile` key from `~/.jarvis/config.json` — not a
+hardcoded profile name. A missing or empty `machineProfile` hard-fails `start`.
+
 ### Promotion of queued runs
 
 Promotion logic is `promoteQueuedRunImpl`, a standalone function in

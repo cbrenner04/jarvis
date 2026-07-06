@@ -1,5 +1,5 @@
 import { type LoadError, resolveExecutableRole } from "../config/agent-model-config.ts";
-import { loadMachineConfig } from "../config/machine-config-loader.ts";
+import { loadMachineConfig, resolveMachineProfile } from "../config/machine-config-loader.ts";
 import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
 import { validateWorkflowStepRoles, type WriteWorkflowStep } from "./workflow-runner.ts";
 import { DEFAULT_WRITE_AGENTS } from "./write-loop-input.ts";
@@ -24,7 +24,7 @@ export function loadWorkflowSteps(
 ): WriteWorkflowStep[] {
   const agents = loadMachineConfig(deps.machineConfigPath) ?? DEFAULT_WRITE_AGENTS;
 
-  const loadResult = loadMachineProfileModels(deps.machineProfile ?? "home", agents);
+  const loadResult = loadMachineProfileModels(deps.machineProfile ?? resolveMachineProfile(), agents);
   if (isLoadError(loadResult)) {
     throw new Error(`Failed to load agent model config: ${loadResult.errors.join(", ")}`);
   }

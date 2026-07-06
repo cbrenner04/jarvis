@@ -30,11 +30,11 @@ check and settle delay). Replace both with a resolved value read from
 
 ## Acceptance criteria
 
-- [ ] A `jarvis write`/`jarvis run start` invocation with no `machineProfile` set in `~/.jarvis/config.json` fails with an error naming the missing key, rather than silently defaulting to a `home` profile.
-- [ ] A `jarvis write`/`jarvis run start` invocation with `machineProfile` set to a profile that has no matching `config/machines/<profile>.json` file fails with an error naming the missing profile file.
-- [ ] With `machineProfile` set to a valid, existing profile, agent model config and daemon memory-watermark settings load from that profile's `config/machines/<profile>.json`, not a hardcoded `home`.
-- [ ] `machineProfile` accepts any non-empty string value (e.g. a profile named `work`), not just `home`.
-- [ ] A `jarvis write`/`jarvis run start` invocation with `machineProfile` set to `""` fails with an error naming the missing key, the same as an absent key.
+- [x] A `jarvis write`/`jarvis run start` invocation with no `machineProfile` set in `~/.jarvis/config.json` fails with an error naming the missing key, rather than silently defaulting to a `home` profile.
+- [x] A `jarvis write`/`jarvis run start` invocation with `machineProfile` set to a profile that has no matching `config/machines/<profile>.json` file fails with an error naming the missing profile file.
+- [x] With `machineProfile` set to a valid, existing profile, agent model config and daemon memory-watermark settings load from that profile's `config/machines/<profile>.json`, not a hardcoded `home`.
+- [x] `machineProfile` accepts any non-empty string value (e.g. a profile named `work`), not just `home`.
+- [x] A `jarvis write`/`jarvis run start` invocation with `machineProfile` set to `""` fails with an error naming the missing key, the same as an absent key.
 
 ## Documentation updates
 

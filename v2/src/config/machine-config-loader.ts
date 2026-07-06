@@ -59,6 +59,17 @@ export function loadMachineConfig(configPath: string = join(homedir(), ".jarvis"
   return parsed.agents as string[];
 }
 
+export function resolveMachineProfile(configPath: string = join(homedir(), ".jarvis", "config.json")): string {
+  const parsed = readMachineConfigDocument(configPath);
+  const machineProfile = parsed?.machineProfile;
+
+  if (typeof machineProfile !== "string" || machineProfile === "") {
+    throw new Error(`Machine config at ${configPath} is missing required 'machineProfile' key`);
+  }
+
+  return machineProfile;
+}
+
 function readMachineConfigFile(configPath: string): unknown {
   let content: string;
   try {

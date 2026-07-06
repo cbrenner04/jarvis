@@ -1,0 +1,7 @@
+Verdict: refine `00-concurrent-drain.md` on two points.
+
+1. **Error propagation under `Promise.all` is unstated.** The Decisions section says close "resolves once both the server-close callback and the drain have settled (`Promise.all`)" but never states what happens when either branch rejects (e.g., `server.close` erroring on a double-close, or the drain rejecting). Add one line to Decisions: errors from either branch propagate to the caller of `close()` — do not swallow `server.close` errors, matching prior behavior. This closes a real ambiguity: without it, an implementer could silently swallow errors or pick either-wins semantics arbitrarily.
+
+2. **The drain-timing acceptance criterion doesn't pin `drainTimeoutMs`.** As worded, "resolves within `drainTimeoutMs`" is satisfiable using whatever the default timeout is, making the test slow and only loosely correlated with the actual concurrency fix. Update the Tests section and the corresponding acceptance criterion to require the test construct `IpcServer` with an explicit short, test-configured `drainTimeoutMs` (not the production default), so the test runs fast and the timing assertion meaningfully proves the drain started concurrently rather than after the callback.
+
+Both are small, additive clarifications to the existing subspec — no new subspec, no scope expansion. The core decision (run drain concurrently with `server.close`) stands as sound and correctly targets the root cause.

@@ -1,9 +1,15 @@
 import { expect } from "bun:test";
+import type { createRunControlHandlers } from "../daemon/daemon.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import type { IpcClient } from "../ipc/client.ts";
 
 type ListRunsResult = { runs?: DaemonListRunRow[] } | undefined;
+type RunControlHandlers = ReturnType<typeof createRunControlHandlers>;
+
+function requestFrame(id: string, method: string, params?: unknown): { kind: "request"; id: string; method: string; params?: unknown } {
+  return { kind: "request", id, method, params };
+}
 
 export function mockWriteLoopInput(worktreeOverrides: Partial<WriteLoopInput["worktree"]> = {}): WriteLoopInput {
   return {
@@ -33,4 +39,19 @@ export async function listRuns(client: IpcClient): Promise<DaemonListRunRow[] | 
   const frame = await client.nextFrame();
   expect(frame.kind).toBe("response");
   return frame.kind === "response" ? (frame.result as ListRunsResult)?.runs : undefined;
+}
+
+export async function startRunDirect(
+  handlers: RunControlHandlers,
+  input = mockWriteLoopInput(),
+): Promise<string | undefined> {
+  const response = await handlers.start(requestFrame("s1", "start", { input }), new AbortController().signal);
+  expect(response.kind).toBe("response");
+  return response.kind === "response" ? (response.result as { runId?: string } | undefined)?.runId : undefined;
+}
+
+export async function listRunsDirect(handlers: RunControlHandlers): Promise<DaemonListRunRow[] | undefined> {
+  const response = await handlers.list(requestFrame("l1", "list"), new AbortController().signal);
+  expect(response.kind).toBe("response");
+  return response.kind === "response" ? (response.result as ListRunsResult)?.runs : undefined;
 }

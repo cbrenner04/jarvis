@@ -1,0 +1,16 @@
+## Verdict
+
+**Upheld: the prerequisite is only partially true, and the spec's scope is built on the false part.**
+
+Direct inspection of `daemon-wire.ts` shows only `parseListRuns` and `parseWaitCompletion` are envelope-thin (checking presence/shape only). `parseHealthResult`, `parseStatusResult`, and `parseStartResult` still perform per-field value/type checks (`ok === true`, `state === "running"`, `typeof runId === "string"`) and were not touched by the referenced prior PR. The intent's prerequisite claims this holds across "daemon-wire.ts parse functions" generally — that claim is false for 3 of 5 functions.
+
+Required refinements:
+
+1. **Narrow scope to the confirmed-thin parsers only.** The subspec must limit the `parseOrThrow` removal to call sites backed by `parseListRuns` and `parseWaitCompletion` (i.e., the `waitCompletion`/list-runs-shaped RPC methods). Call sites backed by `parseHealthResult`, `parseStatusResult`, or `parseStartResult` (and any others not documented/verified as envelope-thin) must keep their throw-if-falsy gate — removing it there deletes the only mechanism that turns a malformed field value into `TuiDaemonConnectionError`, a real behavior regression, not dead code.
+2. **Correct the Decisions section** to state explicitly which RPC methods/parsers are in scope (the two confirmed envelope-thin ones) and which are explicitly out of scope pending their own future thinning work, so the boundary isn't ambiguous to the implementer.
+2b. Fold this scope split into the Prerequisites/intent framing too — either the intent's prerequisite claim is corrected to name only the two functions, or the spec's Decisions section carries the correction; the current blanket wording must not stand uncorrected in the merged spec.
+3. **Align the test-deletion decision with the narrowed scope.** Only delete the malformed-payload test(s) corresponding to the parsers actually being de-gated. Do not delete the malformed-payload test(s) covering `parseHealthResult`/`parseStatusResult`/`parseStartResult`-backed methods (e.g., the "steering malformed success payloads reject..." test), since those methods retain their gate and that test is the only coverage of that behavior.
+4. **Update acceptance criteria** to reflect the narrowed set: assert `parseOrThrow`/the throw-if-falsy gate is removed only for the confirmed-thin call sites, and that it is *retained* for the others — so the criteria can't be satisfied by an over-broad removal.
+5. **Documentation-updates claim needs re-justification** against the narrowed scope: "no operator-facing or v1-behavior change" is only true if no validation is actually lost; confirm this holds once scope is limited to the genuinely envelope-thin parsers.
+
+Rationale: per spec-guidance's prerequisite gate, a prerequisite that cannot be cleanly confirmed should block drafting or be corrected before the spec proceeds; here it can be partially confirmed, so the correct resolution is narrowing scope to match the confirmed portion rather than blocking entirely or proceeding on the false blanket claim.

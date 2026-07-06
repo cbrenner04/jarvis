@@ -39,14 +39,14 @@ implementation.
 
 ## Acceptance criteria
 
-- [ ] `bun test v2/src/cli.test.ts` passes with no local `makeClient`, `makeBlockingClient`,
+- [x] `bun test v2/src/cli.test.ts` passes with no local `makeClient`, `makeBlockingClient`,
       or `withFixedUuid` definitions remaining in `v2/src/cli.test.ts`.
-- [ ] `bun test v2/src/tui/tui-daemon-client.test.ts` passes with no local `makeClient`,
+- [x] `bun test v2/src/tui/tui-daemon-client.test.ts` passes with no local `makeClient`,
       `createDeferredClient`, or `withFixedUuids` definitions remaining in
       `v2/src/tui/tui-daemon-client.test.ts`.
-- [ ] Both test files import `makeIpcClient`/`createDeferredIpcClient`/`withFixedUuid`
+- [x] Both test files import `makeIpcClient`/`createDeferredIpcClient`/`withFixedUuid`
       from `v2/src/testing/`.
-- [ ] Every existing `makeClient`/`createDeferredClient` call site in
+- [x] Every existing `makeClient`/`createDeferredClient` call site in
       `tui-daemon-client.test.ts` passes against the shared `makeIpcClient`, passing
       `gated: true` where the tui reader loop requires send-gated delivery.
 

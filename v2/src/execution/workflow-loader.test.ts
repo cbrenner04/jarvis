@@ -64,7 +64,7 @@ function sourceStep(overrides: Partial<WorkflowSourceStep> = {}): WorkflowSource
 
 describe("loadWorkflowSteps", () => {
   test("attaches machine agents and agent model config to every step", () => {
-    const machineConfigPath = writeJson("v2.json", { agents: ["claude"] });
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
     const machineProfile = writeValidProfile();
 
     const steps = loadWorkflowSteps([sourceStep()], { machineConfigPath, machineProfile });
@@ -75,7 +75,7 @@ describe("loadWorkflowSteps", () => {
   });
 
   test("falls back to DEFAULT_WRITE_AGENTS when machine config has no agents key", () => {
-    const machineConfigPath = writeJson("v2.json", {});
+    const machineConfigPath = writeJson("config.json", {});
     const machineProfile = writeValidProfile();
 
     const steps = loadWorkflowSteps([sourceStep()], { machineConfigPath, machineProfile });
@@ -84,7 +84,7 @@ describe("loadWorkflowSteps", () => {
   });
 
   test("aggregates multiple missing step/role bindings in one load error", () => {
-    const machineConfigPath = writeJson("v2.json", { agents: ["claude"] });
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
     const machineProfile = writeValidProfile();
 
     try {
@@ -101,7 +101,7 @@ describe("loadWorkflowSteps", () => {
   });
 
   test("rejects a step naming role 'operator'", () => {
-    const machineConfigPath = writeJson("v2.json", { agents: ["claude"] });
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
     const machineProfile = writeValidProfile();
 
     expect(() => loadWorkflowSteps([sourceStep({ role: "operator" })], { machineConfigPath, machineProfile })).toThrow(
@@ -110,7 +110,7 @@ describe("loadWorkflowSteps", () => {
   });
 
   test("rejects a step naming a role outside the closed Role union", () => {
-    const machineConfigPath = writeJson("v2.json", { agents: ["claude"] });
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
     const machineProfile = writeValidProfile();
 
     expect(() => loadWorkflowSteps([sourceStep({ role: "typo-role" })], { machineConfigPath, machineProfile })).toThrow(
@@ -119,7 +119,7 @@ describe("loadWorkflowSteps", () => {
   });
 
   test("surfaces agent model config load failure as-is", () => {
-    const machineConfigPath = writeJson("v2.json", { agents: ["claude"] });
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
 
     expect(() =>
       loadWorkflowSteps([sourceStep()], { machineConfigPath, machineProfile: "does-not-exist-profile" }),

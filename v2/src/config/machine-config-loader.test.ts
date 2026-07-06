@@ -6,7 +6,7 @@ import { loadMachineConfig, readMachineConfigDocument, validateMachineConfigAgen
 
 function writeRawConfig(text: string): string {
   const dir = mkdtempSync(join(tmpdir(), "jarvis-config-test-"));
-  const configPath = join(dir, "v2.json");
+  const configPath = join(dir, "config.json");
   writeFileSync(configPath, text);
   return configPath;
 }
@@ -17,7 +17,7 @@ function writeConfig(value: unknown): string {
 
 describe("loadMachineConfig", () => {
   test("nonexistent config path returns undefined", () => {
-    const result = loadMachineConfig("/nonexistent/path/v2.json");
+    const result = loadMachineConfig("/nonexistent/path/config.json");
     expect(result).toBeUndefined();
   });
 

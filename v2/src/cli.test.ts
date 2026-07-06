@@ -37,7 +37,7 @@ function tempPaths() {
 
 function writeRawMachineConfig(text: string): string {
   const dir = mkdtempSync(join(tmpdir(), "jarvis-cli-machine-config-"));
-  const configPath = join(dir, "v2.json");
+  const configPath = join(dir, "config.json");
   writeFileSync(configPath, text);
   return configPath;
 }
@@ -48,7 +48,7 @@ function writeMachineConfig(value: unknown): string {
 
 function absentMachineConfigPath(): string {
   const dir = mkdtempSync(join(tmpdir(), "jarvis-cli-machine-config-"));
-  return join(dir, ".jarvis", "v2.json");
+  return join(dir, ".jarvis", "config.json");
 }
 
 async function runConfig(configPath: string, args: readonly string[], io = captureIo().io): Promise<number> {

@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 export function readMachineConfigDocument(
-  configPath: string = join(homedir(), ".jarvis", "v2.json"),
+  configPath: string = join(homedir(), ".jarvis", "config.json"),
 ): Record<string, unknown> | undefined {
   const parsed = readMachineConfigFile(configPath);
   if (parsed === undefined) return undefined;
@@ -50,7 +50,7 @@ export function validateMachineConfigAgents(agents: unknown): string[] {
   return agents;
 }
 
-export function loadMachineConfig(configPath: string = join(homedir(), ".jarvis", "v2.json")): string[] | undefined {
+export function loadMachineConfig(configPath: string = join(homedir(), ".jarvis", "config.json")): string[] | undefined {
   const parsed = readMachineConfigDocument(configPath);
   if (parsed === undefined || !("agents" in parsed)) {
     return undefined;

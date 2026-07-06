@@ -1,0 +1,17 @@
+## Verdict
+
+**1. Doc examples: split by what the prose illustrates.**
+`v2/docs/workflow-runner.md`'s "current preset surface" list and any prose merely naming a preset as an example must cite `implement`. But prose that describes cross-step semantics (per-step resolution order, "step two begins only after step one completes") is inherently about a 2-step case and cannot be illustrated by a 1-step preset — that prose must keep a generic/unnamed 2-step example instead of `write-write` or `implement`. State this distinction explicitly as two separate acceptance criteria (or one AC with both clauses spelled out) rather than the current single "(or a neutral 2-step example)" hedge, which leaves the choice of which passages get which treatment to the implementer's judgment.
+
+**2. `state-store.md` example: same fix, same reason.**
+The per-step attempt-history example ("step one and step two keep separate attempt histories") is inherently 2-step. Its AC should say to generalize to an unnamed 2-step case, not attempt to force `implement` in — fold this into the same refinement as #1 rather than leaving it as an independently-worded AC that could be resolved differently.
+
+**3. Pin the caller-supplied-but-overridden `role`/`promptId` contract.**
+The spec currently says the preset injects `role`/`promptId` "unconditionally (overriding any `role`/`promptId` the caller passes)" but never states what callers are expected to pass at the call site. This is a real caller-experience decision, not an implementation detail: either (a) callers still pass placeholder `role`/`promptId` values that are silently discarded, or (b) the call signature changes so pinned presets omit those fields. Per the intent's "preset-owned, not caller-supplied" decision and "not a new ad hoc shape" scope constraint, (a) is the more consistent choice, but the spec must state this outright as a Decision rather than leaving the caller contract implicit — an implementer could reasonably build either shape from the current text.
+
+**4. Name the specific `write-write` test that must survive.**
+The AC "keeps a `write-write` composability test, but it is the only place the codebase still exercises the name" is ambiguous against multiple existing tests of different weight (basic resolve/wrong-count tests vs. the full end-to-end integration test covering real branches/timers, per-step binding resolution, ordered advancement, fallback, and separate durable history). Since `implement` (1-step) cannot structurally replace 2-step end-to-end coverage, the AC must explicitly name that the end-to-end `write-write` test is preserved as-is; only the narrower resolve/validation-only tests may consolidate. Leaving this vague risks the integration test being pruned as part of demoting `write-write` from docs.
+
+**Optional, non-blocking (implementer's discretion, no spec change required):** a one-line decision on `stepRules` being unused when `promptId` is pinned, and a one-line "known limitation" note that `implement` isn't wireable end-to-end until the deferred daemon/CLI intent lands — both are cheap clarifications but do not block this spec.
+
+No other adversary findings require changes — the trivial-AC and `validateWorkflowStepRoles`-compatibility concerns confirm existing, unchanged behavior and need no refinement.

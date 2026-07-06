@@ -145,9 +145,7 @@ export function resolveWorkflowPreset(
   }
 
   const pinned = WORKFLOW_PRESET_PINNED_FIELDS[name];
-  return steps.map((step) =>
-    defineWorkflowStep({ ...step, behavior: "write", ...(pinned ?? {}) }),
-  );
+  return steps.map((step) => defineWorkflowStep({ ...step, behavior: "write", ...(pinned ?? {}) }));
 }
 
 type PreparedWorkflowStep =

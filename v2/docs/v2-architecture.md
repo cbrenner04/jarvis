@@ -600,6 +600,13 @@ surface is a sibling concern, wired via this interface).
   remain for cross-process coexistence (daemon runs vs. `jarvis1`, editors, manual
   git). The lock is held for the whole run lifetime; ownership ensures no two
   daemon runs touch the same worktree.
+- **Client trusts daemon response shapes.** Client and daemon are the same
+  build talking over a local Unix socket — no cross-version protocol skew is
+  possible. `daemon/daemon-wire.ts` parsers are envelope-thin: they confirm the
+  result object is present and route it into its typed result (e.g. `runs` is
+  an array) without re-validating per-row/per-field contents, then cast.
+  Daemon-side request validation is untouched. Future wire additions should
+  not reintroduce per-field client-side validators.
 
 ## Orchestration API
 

@@ -9,7 +9,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectIpcClient } from "../ipc/client";
 import type { ResponseFrame } from "../ipc/types";
+import { openStateStore } from "../persistence/state-store";
 import { canUseUnixSockets, socketProbeErrored } from "../testing/unix-socket";
+import { parseListRuns } from "./daemon-wire";
+import { startDaemon as startInProcessDaemon } from "./daemon";
 import { startDaemon, stopDaemon } from "./daemon-lifecycle";
 
 if (socketProbeErrored) {
@@ -18,6 +21,8 @@ if (socketProbeErrored) {
 
 const SOCKET_PATH = join(tmpdir(), `jarvis-daemon-test-${process.pid}-${Date.now()}.sock`);
 const PID_PATH = join(tmpdir(), `jarvis-daemon-test-${process.pid}-${Date.now()}.pid`);
+const LIST_SOCKET_PATH = join(tmpdir(), `jarvis-daemon-list-test-${process.pid}-${Date.now()}.sock`);
+const STATE_DB_PATH = join(tmpdir(), `jarvis-daemon-list-test-${process.pid}-${Date.now()}.sqlite`);
 const socketTest = test.skipIf(!canUseUnixSockets());
 
 beforeEach(() => {
@@ -26,6 +31,8 @@ beforeEach(() => {
   }
   rmSync(SOCKET_PATH, { force: true });
   rmSync(PID_PATH, { force: true });
+  rmSync(LIST_SOCKET_PATH, { force: true });
+  rmSync(STATE_DB_PATH, { force: true });
 });
 
 afterEach(() => {
@@ -34,6 +41,8 @@ afterEach(() => {
   }
   rmSync(SOCKET_PATH, { force: true });
   rmSync(PID_PATH, { force: true });
+  rmSync(LIST_SOCKET_PATH, { force: true });
+  rmSync(STATE_DB_PATH, { force: true });
 });
 
 describe("daemon (real process)", () => {
@@ -76,5 +85,35 @@ describe("daemon (real process)", () => {
       }
     }
     expect(socketUnbound).toBe(true);
+  });
+
+  socketTest("list runs over IPC against a genuine daemon response frame", async () => {
+    const stateStore = openStateStore(STATE_DB_PATH);
+    const runId = stateStore.createRun({
+      project: "p",
+      specRef: "spec-ref",
+      worktreePath: "/tmp/worktree",
+      branch: "b",
+      specPath: "/tmp/worktree/spec.md",
+    });
+
+    await startInProcessDaemon(LIST_SOCKET_PATH, stateStore);
+
+    const client = await connectIpcClient(LIST_SOCKET_PATH);
+    client.send({ kind: "request", id: "l1", method: "list" });
+    const listFrame = await client.nextFrame();
+    expect(listFrame.kind).toBe("response");
+
+    const parsed = parseListRuns((listFrame as ResponseFrame).result);
+    expect(parsed).toBeDefined();
+    expect(parsed?.runs).toEqual([
+      { runId, project: "p", branch: "b", status: "in-progress", isLive: false },
+    ]);
+    client.close();
+
+    const shutdownClient = await connectIpcClient(LIST_SOCKET_PATH);
+    shutdownClient.send({ kind: "request", id: "sd1", method: "shutdown" });
+    await shutdownClient.nextFrame();
+    shutdownClient.close();
   });
 });

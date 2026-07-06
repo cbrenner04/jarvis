@@ -46,8 +46,12 @@ function createRefreshScheduler(intervalMs = TUI_REFRESH_INTERVAL_MS): TuiRefres
   };
 }
 
+function isSelectableRun(run: DaemonListRunRow): boolean {
+  return run.status !== "queued";
+}
+
 function firstRunId(runs: readonly DaemonListRunRow[]): string | null {
-  return runs[0]?.runId ?? null;
+  return runs.find(isSelectableRun)?.runId ?? null;
 }
 
 function buildWaitStateForSelection(runId: string | null): TuiWaitState {
@@ -217,7 +221,10 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
         }
 
         const selectedRunId = currentState.selectedRunId;
-        if (selectedRunId !== null && !list.runs.some((run) => run.runId === selectedRunId)) {
+        if (
+          selectedRunId !== null &&
+          !list.runs.some((run) => run.runId === selectedRunId && isSelectableRun(run))
+        ) {
           setState({ runs: list.runs, selectedRunId: null, waitState: { kind: "none" }, steeringFeedback: null });
           activeWaitToken += 1;
           continue;
@@ -256,7 +263,11 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
       currentState,
       {
         selectRun(runId) {
-          if (!currentState.runs.some((run) => run.runId === runId) || currentState.selectedRunId === runId) return;
+          if (
+            !currentState.runs.some((run) => run.runId === runId && isSelectableRun(run)) ||
+            currentState.selectedRunId === runId
+          )
+            return;
           setSelection(runId);
         },
         pauseSelected() {

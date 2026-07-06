@@ -279,7 +279,12 @@ a server/runner world (pause + route to a human loop vs. process exit).
   `wait`, and steering RPCs (`pause` / `resume` / `kill` on the selected run);
   optional workflow-step snapshots on `list` rows (see
   [`daemon-host.md`](./daemon-host.md#list)); operator contract:
-  [`write-behavior.md`](./write-behavior.md#tui-cli).
+  [`write-behavior.md`](./write-behavior.md#tui-cli). Queued runs (`status: "queued"`)
+  render under a separate "Queue" heading, oldest-queued-first, each showing a
+  fixed "waiting: memory headroom" descriptor in place of liveness; the
+  "Runs" section (non-queued) always renders. Queued runs are excluded from
+  selection (`selectRun`, initial pick, and the selection-loss fallback) since
+  they carry no steering RPCs.
 - **Shipped TUI log follow (`jarvis tui log <run-id>`).** Separate ink session
   over the same production socket: IPC tail replay plus live follow for one run;
   operator contract:

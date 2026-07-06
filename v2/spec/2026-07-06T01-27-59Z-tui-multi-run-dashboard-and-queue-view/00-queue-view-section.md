@@ -65,16 +65,16 @@ memory headroom to admit them.
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 tui` renders queued runs under a distinct "Queue" heading,
+- [x] `jarvis1 tui` renders queued runs under a distinct "Queue" heading,
       separate from the non-queued run list, each showing runId, project,
       branch, status, and the fixed admission-pending descriptor
       "waiting: memory headroom".
-- [ ] The "Queue" heading is omitted entirely when no runs are queued; the
+- [x] The "Queue" heading is omitted entirely when no runs are queued; the
       "Runs" section still renders when it is empty.
-- [ ] Queue rows are ordered oldest-queued-first.
-- [ ] Initial run selection on connect, and the selection-loss fallback when
+- [x] Queue rows are ordered oldest-queued-first.
+- [x] Initial run selection on connect, and the selection-loss fallback when
       the selected run leaves the list, never choose a `queued` run.
-- [ ] Invoking `selectRun` with a `queued` run's id is a no-op (selection
+- [x] Invoking `selectRun` with a `queued` run's id is a no-op (selection
       unchanged).
 
 ## Documentation updates

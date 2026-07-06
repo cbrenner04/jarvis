@@ -147,4 +147,56 @@ describe("monitorTextLines", () => {
     expect(second).toContain("> only implement in_progress attempts=1");
     expect(second).not.toContain("step-2");
   });
+
+  test("no Queue heading when no runs are queued", () => {
+    const lines = monitorTextLines(monitorState({ runs: [SINGLE_STEP_RUN], selectedRunId: "run-single" }));
+
+    expect(lines).not.toContain("Queue");
+  });
+
+  test("queued runs render under a Queue heading, oldest-queued-first, with admission descriptor", () => {
+    const queuedNewer: DaemonListRunRow = {
+      runId: "run-queued-newer",
+      project: "demo",
+      branch: "newer",
+      status: "queued",
+      isLive: false,
+    };
+    const queuedOlder: DaemonListRunRow = {
+      runId: "run-queued-older",
+      project: "demo",
+      branch: "older",
+      status: "queued",
+      isLive: false,
+    };
+
+    // state.runs arrives newest-first (matches daemon `list` ordering); queuedNewer was queued after queuedOlder.
+    const lines = monitorTextLines(
+      monitorState({ runs: [queuedNewer, queuedOlder, SINGLE_STEP_RUN], selectedRunId: "run-single" }),
+    );
+
+    const queueIndex = lines.indexOf("Queue");
+    const olderIndex = lines.findIndex((line) => line.includes("run-queued-older"));
+    const newerIndex = lines.findIndex((line) => line.includes("run-queued-newer"));
+
+    expect(queueIndex).toBeGreaterThan(-1);
+    expect(olderIndex).toBeGreaterThan(queueIndex);
+    expect(newerIndex).toBeGreaterThan(olderIndex);
+    expect(lines[olderIndex]).toBe("  run-queued-older demo older queued waiting: memory headroom");
+  });
+
+  test("Runs section still renders when only queued runs exist", () => {
+    const queuedRun: DaemonListRunRow = {
+      runId: "run-queued",
+      project: "demo",
+      branch: "q",
+      status: "queued",
+      isLive: false,
+    };
+
+    const lines = monitorTextLines(monitorState({ runs: [queuedRun], selectedRunId: null }));
+
+    expect(lines).toContain("No runs.");
+    expect(lines).toContain("Queue");
+  });
 });

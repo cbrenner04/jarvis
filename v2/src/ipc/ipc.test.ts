@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
@@ -136,6 +136,23 @@ socketTest("nextFrame() with no timeoutMs falls back to the client's default tim
   const client = await connectIpcClient(SOCKET_PATH, 50);
   await expect(client.nextFrame()).rejects.toThrow("timed out waiting for frame");
   client.close();
+});
+
+socketTest("parked unbounded nextFrame() rejects when the socket closes", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+  const pending = client.nextFrame();
+  client.close();
+  await expect(pending).rejects.toThrow("connection closed");
+});
+
+socketTest("parked timed nextFrame() rejects when the socket closes before the timeout fires", async () => {
+  const client = await connectIpcClient(SOCKET_PATH);
+  const clearTimeoutSpy = spyOn(globalThis, "clearTimeout");
+  const pending = client.nextFrame(2_000);
+  client.close();
+  await expect(pending).rejects.toThrow("connection closed");
+  expect(clearTimeoutSpy).toHaveBeenCalled();
+  clearTimeoutSpy.mockRestore();
 });
 
 socketTest("server stays up after a malformed client disconnects", async () => {

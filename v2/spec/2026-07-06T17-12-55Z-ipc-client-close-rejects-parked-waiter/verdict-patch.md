@@ -1,0 +1,7 @@
+## Verdict: Required Refinement
+
+**Strengthen the timed-branch close test so it actually verifies timer cleanup.**
+
+The current test only asserts that a timed, parked `nextFrame()` rejects with `"connection closed"` on socket close. Because promise rejection is idempotent, this assertion passes identically whether or not the pending timer is cleared in the `close` handler — a regression that dropped the `clearTimeout` call would slip through undetected. The acceptance criterion explicitly requires the pending timer be cleared, not just that the promise rejects, so the test must independently verify that behavior — e.g., confirm no stray timeout fires/settles the promise again after the original `timeoutMs` has elapsed, or otherwise directly observe that the timer was cleared. The implementation itself already calls `clearTimeout` correctly; this is a test-coverage gap against the spec's own stated acceptance criterion, not a functional defect.
+
+**No other required outcomes.** The missing `socket.on("error", ...)` handler is a legitimate pre-existing gap, but it predates this branch and falls outside this subspec's explicit scope (client.ts's `close`-handling fix only, per the intent's "Out of scope" section). It should be seeded as a follow-up, not fixed here.

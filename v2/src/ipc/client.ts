@@ -46,12 +46,16 @@ export async function connectIpcClient(socketPath: string, defaultTimeoutMs?: nu
   const socket = await connectSocket(socketPath);
   const decoder = new FrameDecoder();
   const pending: IpcFrame[] = [];
-  let waiter: ((frame: IpcFrame) => void) | null = null;
+  let waiter: {
+    resolve: (frame: IpcFrame) => void;
+    reject: (err: Error) => void;
+    timer?: ReturnType<typeof setTimeout>;
+  } | null = null;
   let closed = false;
 
   const resolveNext = (frame: IpcFrame): void => {
     if (waiter) {
-      const resolve = waiter;
+      const { resolve } = waiter;
       waiter = null;
       resolve(frame);
       return;
@@ -72,6 +76,14 @@ export async function connectIpcClient(socketPath: string, defaultTimeoutMs?: nu
 
   socket.on("close", () => {
     closed = true;
+    if (waiter) {
+      const { reject, timer } = waiter;
+      waiter = null;
+      if (timer) {
+        clearTimeout(timer);
+      }
+      reject(new Error("connection closed"));
+    }
   });
 
   return {
@@ -87,8 +99,8 @@ export async function connectIpcClient(socketPath: string, defaultTimeoutMs?: nu
         return Promise.reject(new Error("connection closed"));
       }
       if (timeoutMs === undefined) {
-        return new Promise((resolve) => {
-          waiter = resolve;
+        return new Promise((resolve, reject) => {
+          waiter = { resolve, reject };
         });
       }
       return new Promise((resolve, reject) => {
@@ -96,9 +108,13 @@ export async function connectIpcClient(socketPath: string, defaultTimeoutMs?: nu
           waiter = null;
           reject(new Error("timed out waiting for frame"));
         }, timeoutMs);
-        waiter = (frame) => {
-          clearTimeout(timer);
-          resolve(frame);
+        waiter = {
+          resolve: (frame) => {
+            clearTimeout(timer);
+            resolve(frame);
+          },
+          reject,
+          timer,
         };
       });
     },

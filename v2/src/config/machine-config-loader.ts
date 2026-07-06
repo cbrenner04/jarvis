@@ -50,7 +50,9 @@ export function validateMachineConfigAgents(agents: unknown): string[] {
   return agents;
 }
 
-export function loadMachineConfig(configPath: string = join(homedir(), ".jarvis", "config.json")): string[] | undefined {
+export function loadMachineConfig(
+  configPath: string = join(homedir(), ".jarvis", "config.json"),
+): string[] | undefined {
   const parsed = readMachineConfigDocument(configPath);
   if (parsed === undefined || !("agents" in parsed)) {
     return undefined;

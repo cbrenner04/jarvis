@@ -16,12 +16,26 @@ result (e.g. `runs` is an array; `runStatus` is present).
   `isDaemonWorkflowSnapshot`, `isDaemonWorkflowStepSnapshot`, and their
   supporting guards); it becomes: object present, `runs` is an array, cast to
   `DaemonListRunRow[]`.
-- `parseWaitCompletion` drops enum re-validation (`isRunStatus`,
-  `isWriteLoopOutcomeKind`, `isRunOperatorError`) on the result payload; it
-  becomes: object present, `runStatus` present, cast to
-  `WaitRunCompletionResult`.
+- `parseWaitCompletion` drops the entire conditional per-field result
+  assembly, not just the enum guards (`isRunStatus`,
+  `isWriteLoopOutcomeKind`, `isRunOperatorError`) — those enum checks and the
+  primitive-shape checks on `iterationsConsumed`/`resumable` all go. Once the
+  envelope is confirmed well-shaped with `runStatus` present, the whole result
+  collapses into a single cast to `WaitRunCompletionResult`.
 - `parseHealthResult`, `parseStatusResult`, `parseStartResult` are already
   envelope-thin; left as-is.
+- Casting without runtime narrowing is safe here: client and daemon are the
+  same build/version talking over a local Unix socket, no cross-version
+  protocol skew is possible, so there's no realistic mismatch between the
+  cast type and the actual payload.
+- Only guards/constants defined locally in `daemon-wire.ts` are deleted
+  (`isDaemonListRunRow`, `isDaemonWorkflowSnapshot`,
+  `isDaemonWorkflowStepSnapshot`, `isDaemonWorkflowStepStatus`,
+  `isDaemonWorkflowStoppedOutcome`, `isNonNegativeInteger`, and the
+  workflow-step enum-table constants). Guards imported from other modules
+  (`isRunStatus`, `isRunOperatorError`, `isWriteLoopOutcomeKind`) are used
+  elsewhere and must not be deleted — only their call sites in
+  `daemon-wire.ts` are removed.
 - Deferred to first consumer: whether any future wire method needs partial
   per-field validation (e.g. a value crossing a trust boundary other than
   daemon-to-client) — pin when that caller exists.
@@ -29,15 +43,18 @@ result (e.g. `runs` is an array; `runStatus` is present).
 ## Task checklist
 
 - [ ] Rewrite `parseListRuns` and `parseWaitCompletion` in `daemon-wire.ts` as
-      thin envelope checks; delete now-unused per-field guards and their
-      enum-table constants.
+      thin envelope checks; delete now-unused local guards and enum-table
+      constants (not guards imported from other modules — those keep their
+      definitions, only their call sites here are removed).
 - [ ] Shrink `daemon-wire.test.ts` to envelope-level cases (missing/malformed
       envelope, present/absent result key); delete per-field malformed-payload
       cases that are no longer reachable through the parser.
 - [ ] Add a real-socket integration case to `daemon.sandbox-unrunnable.test.ts`:
-      spawn the real daemon (`startDaemon`), `start` a run and `list` runs over
-      the IPC socket, and assert `parseStartResult`/`parseListRuns` from
-      `daemon-wire.ts` succeed against the genuine response frames.
+      spawn the real daemon (`startDaemon`), seed a run row directly into its
+      state store (no real `start` invocation, which would drive a genuine
+      agent CLI), then `list` runs over the IPC socket and assert
+      `parseListRuns` from `daemon-wire.ts` succeeds against the genuine
+      response frame.
 - [ ] Record the trust decision under `## Interface & IPC` in
       `v2/docs/v2-architecture.md`: client trusts daemon response shapes,
       wire parsers are envelope-thin, future wire additions should not
@@ -54,15 +71,15 @@ result (e.g. `runs` is an array; `runStatus` is present).
 
 - [ ] `parseListRuns` and `parseWaitCompletion` no longer call any per-field
       guard for `DaemonListRunRow`, workflow step shapes, `RunOperatorError`,
-      `RunStatus`, or write-loop-outcome kind; malformed nested fields on an
-      otherwise well-shaped envelope pass through unchanged (untestable by
-      construction, per the removed cases in `daemon-wire.test.ts`).
+      `RunStatus`, or write-loop-outcome kind.
 - [ ] `daemon-wire.test.ts` contains only envelope-level cases (missing
       envelope, malformed envelope, present/absent result key) for
-      `parseListRuns` and `parseWaitCompletion`.
-- [ ] `daemon.sandbox-unrunnable.test.ts` has a real-socket case that starts a
-      run and lists runs against a spawned daemon process and asserts the
-      envelope-thin parse succeeds on genuine daemon output.
+      `parseListRuns` and `parseWaitCompletion`; per-field malformed-payload
+      cases are removed as untestable by construction.
+- [ ] `daemon.sandbox-unrunnable.test.ts` has a real-socket case that seeds a
+      run into a spawned daemon's state store and lists runs over the IPC
+      socket, asserting the envelope-thin `parseListRuns` succeeds on genuine
+      daemon output.
 - [ ] `v2/docs/v2-architecture.md` `## Interface & IPC` documents the
       envelope-trust decision.
 - [ ] `bun run typecheck` and `test:v2` + `test:integration:v2` pass.

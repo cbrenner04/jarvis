@@ -4,10 +4,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { main, withOperatorSessionId } from "./cli.ts";
 import type { WriteLoopInput, WriteLoopResult } from "./execution/write-loop.ts";
-import type { IpcClient } from "./ipc/client.ts";
 import type { IpcFrame } from "./ipc/types.ts";
 import type { PersistedRecord } from "./persistence/log-stream.ts";
 import { simulatedBindings } from "./testing/bindings.ts";
+import { withFixedUuid } from "./testing/fixed-uuid.ts";
+import { createDeferredIpcClient, makeIpcClient } from "./testing/ipc-client-fake.ts";
 import { mockWriteLoopInput } from "./testing/run-control.ts";
 
 function captureIo() {
@@ -100,55 +101,6 @@ function completeResult(): WriteLoopResult {
   };
 }
 
-function makeClient(frames: Array<unknown>, sent: unknown[] = []): IpcClient {
-  let index = 0;
-  return {
-    send(frame: unknown): void {
-      sent.push(frame);
-    },
-    async nextFrame(): Promise<IpcFrame> {
-      if (index < frames.length) {
-        const frame = frames[index];
-        index += 1;
-        return frame as IpcFrame;
-      }
-      throw new Error("connection closed");
-    },
-    close(): void {},
-  };
-}
-
-function makeBlockingClient(sent: unknown[] = []): { client: IpcClient; resolve: (frame: IpcFrame) => void } {
-  let resolver: ((frame: IpcFrame) => void) | undefined;
-  const client: IpcClient = {
-    send(frame: unknown): void {
-      sent.push(frame);
-    },
-    async nextFrame(): Promise<IpcFrame> {
-      return new Promise<IpcFrame>((resolve) => {
-        resolver = resolve;
-      });
-    },
-    close(): void {},
-  };
-  return {
-    client,
-    resolve: (frame: IpcFrame) => {
-      if (resolver === undefined) throw new Error("no pending nextFrame");
-      resolver(frame);
-      resolver = undefined;
-    },
-  };
-}
-
-function withFixedUuid<T>(id: string, fn: () => Promise<T>): Promise<T> {
-  const originalRandomUuid = crypto.randomUUID;
-  crypto.randomUUID = () => id as `${string}-${string}-${string}-${string}-${string}`;
-  return fn().finally(() => {
-    crypto.randomUUID = originalRandomUuid;
-  });
-}
-
 const WAIT_REQUEST_ID = "00000000-0000-4000-8000-000000000010";
 
 function waitResponse(result: unknown): unknown {
@@ -167,7 +119,7 @@ async function runWait(
 ): Promise<number> {
   return withFixedUuid(WAIT_REQUEST_ID, () =>
     main(["run", "wait", runId], cap.io, {
-      connectIpcClient: async () => makeClient(frames, sent),
+      connectIpcClient: async () => makeIpcClient(frames, { sent }),
     }),
   );
 }
@@ -555,7 +507,7 @@ describe("v2 cli", () => {
       code = await main([...RUN_START_ARGS, "--agents", "cursor"], cap.io, {
         machineConfigPath: configPath,
         connectIpcClient: async () =>
-          makeClient(
+          makeIpcClient(
             [
               {
                 kind: "response",
@@ -563,7 +515,7 @@ describe("v2 cli", () => {
                 result: { runId: "run-override" },
               },
             ],
-            sent,
+            { sent },
           ),
       });
     } finally {
@@ -594,7 +546,7 @@ describe("v2 cli", () => {
       code = await main(RUN_START_ARGS, cap.io, {
         machineConfigPath: configPath,
         connectIpcClient: async () =>
-          makeClient(
+          makeIpcClient(
             [
               {
                 kind: "response",
@@ -602,7 +554,7 @@ describe("v2 cli", () => {
                 result: { runId: "run-machine-config" },
               },
             ],
-            sent,
+            { sent },
           ),
       });
     } finally {
@@ -873,7 +825,7 @@ describe("v2 cli", () => {
     try {
       code = await main([...RUN_START_ARGS, "--agents", "claude,codex", "--max-iterations", "4"], cap.io, {
         connectIpcClient: async () =>
-          makeClient(
+          makeIpcClient(
             [
               {
                 kind: "response",
@@ -881,7 +833,7 @@ describe("v2 cli", () => {
                 result: { runId: "run-999" },
               },
             ],
-            sent,
+            { sent },
           ),
       });
     } finally {
@@ -922,7 +874,7 @@ describe("v2 cli", () => {
     try {
       code = await main(RUN_START_ARGS, cap.io, {
         connectIpcClient: async () =>
-          makeClient([
+          makeIpcClient([
             {
               kind: "error",
               id: requestId,
@@ -955,7 +907,7 @@ describe("v2 cli", () => {
     try {
       code = await main(["run", "list"], cap.io, {
         connectIpcClient: async () =>
-          makeClient([
+          makeIpcClient([
             {
               kind: "response",
               id: requestId,
@@ -1004,7 +956,7 @@ describe("v2 cli", () => {
     try {
       code = await main(["run", "list"], cap.io, {
         connectIpcClient: async () =>
-          makeClient([
+          makeIpcClient([
             {
               kind: "response",
               id: requestId,
@@ -1056,7 +1008,7 @@ describe("v2 cli", () => {
     try {
       code = await main(["run", "list"], cap.io, {
         connectIpcClient: async () =>
-          makeClient([
+          makeIpcClient([
             {
               kind: "response",
               id: requestId,
@@ -1099,14 +1051,14 @@ describe("v2 cli", () => {
     try {
       const code = await main(["run", "log", "run-123"], cap.io, {
         connectIpcClient: async () =>
-          makeClient(
+          makeIpcClient(
             [
               { kind: "stream-data", streamId, payload: JSON.stringify(records[0]) },
               { kind: "stream-data", streamId, payload: JSON.stringify(records[1]) },
               { kind: "stream-data", streamId, payload: JSON.stringify(records[2]) },
               { kind: "stream-end", streamId },
             ],
-            sent,
+            { sent },
           ),
       });
 
@@ -1132,7 +1084,7 @@ describe("v2 cli", () => {
     try {
       code = await main(["run", "pause", "run-123"], cap.io, {
         connectIpcClient: async () =>
-          makeClient([
+          makeIpcClient([
             {
               kind: "response",
               id: requestId,
@@ -1158,7 +1110,7 @@ describe("v2 cli", () => {
     try {
       code = await main(["run", "resume", "run-123"], cap.io, {
         connectIpcClient: async () =>
-          makeClient([
+          makeIpcClient([
             {
               kind: "error",
               id: requestId,
@@ -1185,7 +1137,7 @@ describe("v2 cli", () => {
     try {
       code = await main(["run", "kill", "run-404"], cap.io, {
         connectIpcClient: async () =>
-          makeClient([
+          makeIpcClient([
             {
               kind: "error",
               id: requestId,
@@ -1286,7 +1238,7 @@ describe("v2 cli", () => {
   test("run wait blocks until the correlated wait response arrives", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
-    const { client, resolve } = makeBlockingClient(sent);
+    const { client, push } = createDeferredIpcClient(sent);
 
     const pending = withFixedUuid(WAIT_REQUEST_ID, async () =>
       main(["run", "wait", "run-123"], cap.io, {
@@ -1297,7 +1249,7 @@ describe("v2 cli", () => {
     await new Promise((r) => setTimeout(r, 10));
     expect(cap.read().stdout).toBe("");
 
-    resolve(
+    push(
       waitResponse({
         runStatus: "completed",
         loopOutcomeKind: "complete",

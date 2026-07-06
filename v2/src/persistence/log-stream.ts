@@ -4,24 +4,6 @@ import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { OutcomeKind, RunStatus } from "./state-store-types.ts";
 
 /**
- * Event emitted when an iteration begins.
- */
-type IterationStartedEvent = {
-  kind: "iteration_started";
-  attemptId: string;
-};
-
-/**
- * Event emitted when a transactional boundary completes.
- */
-type BoundaryCommittedEvent = {
-  kind: "boundary_committed";
-  attemptId: string;
-  outcomeKind: OutcomeKind;
-  runStatus: RunStatus;
-};
-
-/**
  * Event emitted when the write loop finishes.
  */
 export type LoopFinishedEvent = {
@@ -38,7 +20,11 @@ export type RunExecutionFailedEvent = {
   kind: "run_execution_failed";
 };
 
-export type LogEvent = IterationStartedEvent | BoundaryCommittedEvent | LoopFinishedEvent | RunExecutionFailedEvent;
+export type LogEvent =
+  | { kind: "iteration_started"; attemptId: string }
+  | { kind: "boundary_committed"; attemptId: string; outcomeKind: OutcomeKind; runStatus: RunStatus }
+  | LoopFinishedEvent
+  | RunExecutionFailedEvent;
 
 /**
  * Persisted record of an event with metadata.
@@ -94,10 +80,6 @@ export interface AppendWake {
   close(): void;
 }
 
-/**
- * Factory creating an `AppendWake` for a storage path. Injected by tests;
- * production defaults to `fs.watch`-backed notification.
- */
 type AppendWakeFactory = (storagePath: string) => AppendWake;
 
 class FileLogStream implements LogSink, LogReader {
@@ -108,7 +90,7 @@ class FileLogStream implements LogSink, LogReader {
 
   constructor(storagePath: string, wakeFactory?: AppendWakeFactory) {
     this.storagePath = storagePath;
-    this.wakeFactory = wakeFactory ?? defaultAppendWakeFactory;
+    this.wakeFactory = wakeFactory ?? ((storagePath) => new FsAppendWake(storagePath));
     this.loadSequences();
   }
 
@@ -345,5 +327,3 @@ class FsAppendWake implements AppendWake {
 }
 
 const ABORT_POLL_MS = 500;
-
-const defaultAppendWakeFactory: AppendWakeFactory = (storagePath: string) => new FsAppendWake(storagePath);

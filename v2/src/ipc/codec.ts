@@ -52,7 +52,6 @@ export class FrameDecoder {
     }
   }
 
-  /** True when a header or partial body is buffered. */
   hasPartialFrame(): boolean {
     return this.#buffer.length > 0;
   }

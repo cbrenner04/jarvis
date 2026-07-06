@@ -1,11 +1,3 @@
-/** RPC request envelope correlated by `id`. */
-type RequestFrame = {
-  kind: "request";
-  id: string;
-  method: string;
-  params?: unknown;
-};
-
 /** RPC success envelope correlated to the request `id`. */
 export type ResponseFrame = {
   kind: "response";
@@ -19,13 +11,6 @@ export type ErrorFrame = {
   id: string;
   code: string;
   message: string;
-};
-
-/** Opens a multiplexed stream slot on the connection. */
-type StreamOpenFrame = {
-  kind: "stream-open";
-  streamId: string;
-  payload?: unknown;
 };
 
 /** Carries a base64-encoded byte chunk on an open stream. */
@@ -43,4 +28,10 @@ export type StreamEndFrame = {
 };
 
 /** Discriminated wire envelope union keyed by `kind`. */
-export type IpcFrame = RequestFrame | ResponseFrame | ErrorFrame | StreamOpenFrame | StreamDataFrame | StreamEndFrame;
+export type IpcFrame =
+  | { kind: "request"; id: string; method: string; params?: unknown }
+  | ResponseFrame
+  | ErrorFrame
+  | { kind: "stream-open"; streamId: string; payload?: unknown }
+  | StreamDataFrame
+  | StreamEndFrame;

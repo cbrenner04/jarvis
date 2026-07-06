@@ -1,4 +1,4 @@
-# CLI start uses daemon-wire parse result directly
+# CLI start uses daemon-wire parse result directly (list/wait/log audited: already thin)
 
 `v2/src/cli.ts`'s `run start` handler re-implements a runId field check
 (`stringProperty(response.result, "runId")`) that duplicates
@@ -6,8 +6,8 @@
 envelope-thin check. `run list` and `run wait` already call
 `parseListRuns`/`parseWaitCompletion` directly with no extra field checks;
 `run log`'s `parseStreamPayload` is already envelope-thin (string + JSON
-parse only, no per-field checks). `start` is the one command with a
-redundant re-check to remove.
+parse only, no per-field checks). All three were audited and need no change;
+`start` is the one command with a redundant re-check to remove.
 
 ## Decisions
 
@@ -30,6 +30,7 @@ redundant re-check to remove.
 
 - [ ] `run start` builds its stdout `runId` line from `parseStartResult(response.result)` instead of a local field re-check.
 - [ ] `stringProperty` no longer exists in `v2/src/cli.ts`.
+- [ ] When `parseStartResult(response.result)` returns `undefined`, `run start` still prints `invalid daemon response` and exits 1 (existing error branch at `v2/src/cli.ts`'s `run start` handler, currently reached via the `runId === undefined` check, is preserved by the swap).
 - [ ] `cli.test.ts` has no test simulating a malformed `list` or `wait` daemon envelope; `bun test v2/src/cli.test.ts` passes.
 - [ ] `run start sends one IPC start request carrying write-loop input and prints run ID` (existing test) stays green.
 

@@ -17,14 +17,14 @@
 
 ## Task checklist
 
-- [ ] Remove `parseOrThrow` only at the `list()` and `wait()` call sites in `tui-daemon-client.ts`; each returns its daemon-wire parse result directly (cast to the declared return type). Leave `parseOrThrow` (and its call sites for `health`, `status`, `start`, `pause`, `resume`, `kill`) in place.
-- [ ] Delete the "wait malformed success payload (missing runStatus)" test from `tui-daemon-client.test.ts`. Do not delete the "steering malformed success payloads" test.
+- [x] Remove `parseOrThrow` only at the `list()` and `wait()` call sites in `tui-daemon-client.ts`; each returns its daemon-wire parse result directly (cast to the declared return type). Leave `parseOrThrow` (and its call sites for `health`, `status`, `start`, `pause`, `resume`, `kill`) in place.
+- [x] Delete the "wait malformed success payload (missing runStatus)" test from `tui-daemon-client.test.ts`. Do not delete the "steering malformed success payloads" test.
 
 ## Acceptance criteria
 
-- [ ] `list()` and `wait()` in `tui-daemon-client.ts` no longer route through `parseOrThrow`; `health()`, `status()`, `start()`, `pause()`, `resume()`, `kill()` still do.
-- [ ] `tui-daemon-client.test.ts` no longer contains the "wait malformed success payload (missing runStatus)" test; the "steering malformed success payloads reject as TuiDaemonConnectionError" test and the transport-level malformed/non-correlated-frame tests stay green.
-- [ ] `bun run typecheck` and the `v2` test suite pass.
+- [x] `list()` and `wait()` in `tui-daemon-client.ts` no longer route through `parseOrThrow`; `health()`, `status()`, `start()`, `pause()`, `resume()`, `kill()` still do.
+- [x] `tui-daemon-client.test.ts` no longer contains the "wait malformed success payload (missing runStatus)" test; the "steering malformed success payloads reject as TuiDaemonConnectionError" test and the transport-level malformed/non-correlated-frame tests stay green.
+- [x] `bun run typecheck` and the `v2` test suite pass.
 
 ## Documentation updates
 

@@ -16,17 +16,17 @@ express itself.
 
 ## Task checklist
 
-- [ ] Rewrite the "Inline standard" section of `v2/docs/documentation-standard.md` per the decisions above: no comment when evident, one-liner for one non-obvious fact, full block only for genuinely non-obvious contracts.
-- [ ] Check the rest of `v2/docs/documentation-standard.md` (e.g. the placement table's "Single symbol contract" row) for content assuming the old full-contract-block default, and update it to match the new tiering.
-- [ ] Merge the new "don't narrate bodies" wording with the doc's existing "comment why, not what" / "do not narrate obvious code" guidance rather than duplicating it.
-- [ ] Add 2-3 worked examples contrasting: evident (no comment), one non-obvious fact (one-liner), genuinely non-obvious contract (full block).
+- [x] Rewrite the "Inline standard" section of `v2/docs/documentation-standard.md` per the decisions above: no comment when evident, one-liner for one non-obvious fact, full block only for genuinely non-obvious contracts.
+- [x] Check the rest of `v2/docs/documentation-standard.md` (e.g. the placement table's "Single symbol contract" row) for content assuming the old full-contract-block default, and update it to match the new tiering.
+- [x] Merge the new "don't narrate bodies" wording with the doc's existing "comment why, not what" / "do not narrate obvious code" guidance rather than duplicating it.
+- [x] Add 2-3 worked examples contrasting: evident (no comment), one non-obvious fact (one-liner), genuinely non-obvious contract (full block).
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/documentation-standard.md`'s inline standard states: no doc-comment when the contract is evident from name/type; a one-liner only for one non-obvious fact; a full contract block only for genuinely non-obvious contracts (hidden preconditions, thrown errors, invariants).
-- [ ] It explicitly forbids restating types and narrating bodies, without duplicating the doc's existing why-not-what guidance.
-- [ ] The doc contains no remaining content implying every export needs a full contract block by default (e.g. the placement table is consistent with the new tiering).
-- [ ] The doc includes worked examples for the evident / one-liner / full-block cases.
+- [x] `v2/docs/documentation-standard.md`'s inline standard states: no doc-comment when the contract is evident from name/type; a one-liner only for one non-obvious fact; a full contract block only for genuinely non-obvious contracts (hidden preconditions, thrown errors, invariants).
+- [x] It explicitly forbids restating types and narrating bodies, without duplicating the doc's existing why-not-what guidance.
+- [x] The doc contains no remaining content implying every export needs a full contract block by default (e.g. the placement table is consistent with the new tiering).
+- [x] The doc includes worked examples for the evident / one-liner / full-block cases.
 
 ## Documentation updates
 

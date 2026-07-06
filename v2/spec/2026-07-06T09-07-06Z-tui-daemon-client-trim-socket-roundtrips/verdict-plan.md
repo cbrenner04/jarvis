@@ -1,0 +1,11 @@
+## Verdict
+
+**Upheld issue:** Removing the four `socketTest` round-trip cases orphans more than "helpers" — it orphans the entire per-test fixture (`beforeEach`/`afterEach` setting up `stateStore`, `logSink`, `fakeExecutor`, and a real `IpcServer` on `SOCKET_PATH`), the imports feeding it (`createRunControlHandlers`, `startIpcServer`/`IpcServer`, `openLogReader`/`openLogSink`/`LogSink`, `openStateStore`/`StateStore`), and helper functions (`finishLoop`, `expectRunId`, `input()`), plus likely `SOCKET_PATH` itself. The surviving "rejects unreachable socket" case never touches any of this. The current decision language ("Remove now-unused helpers/fixtures only if no remaining test in the file references them") is directionally correct but vague enough that an implementer could satisfy the letter of the ACs while leaving a dead `IpcServer`/state-store/log-sink fixture spinning up per test.
+
+**Required refinements:**
+
+1. The Decisions section must name the fixture apparatus explicitly as in-scope for removal (conditioned on no remaining reference), not just gesture at "helpers/fixtures" — call out the `beforeEach`/`afterEach` block and its constituent setup (state store, log sink, fake executor, real `IpcServer`), and the named helpers (`finishLoop`, `expectRunId`, `input()`).
+2. Add an acceptance criterion (or extend the existing one) verifying no dead imports/unused fixture code remains — e.g., no unreferenced imports tied to the removed fixture (`createRunControlHandlers`, `startIpcServer`/`IpcServer`, log-sink/state-store opens), checkable via `bun run typecheck` under this repo's strict settings.
+3. Keep the scope boundary intact: `UNREACHABLE_SOCKET_PATH` and anything the surviving case uses must remain explicitly untouched, so the refined language doesn't overreach into removing shared setup the last test needs.
+
+**Rationale:** This is a test-only cleanup subspec; its entire value is leaving the file in a coherent, non-dead-code state. Spec guidance requires acceptance criteria to describe verifiable observable outcomes — "unused fixture code is removed" is not currently checkable from the spec as written, only inferable. Making the fixture removal and the no-dead-imports check explicit closes that gap without expanding scope beyond what the intent already authorizes.

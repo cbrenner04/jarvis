@@ -11,8 +11,12 @@ transport/daemon behavior already covered by the ipc and daemon test suites.
   socket connection".
 - Keep "rejects unreachable socket with TuiDaemonConnectionError and sends no RPCs" —
   this is `tui-daemon-client`'s own connection-failure contract, not duplicated coverage.
-- Remove now-unused helpers/fixtures only if no remaining test in the file references
-  them (test scope only; no production code changes).
+- Remove the per-test `beforeEach`/`afterEach` fixture (state store, log sink, fake
+  executor, real `IpcServer` on `SOCKET_PATH`) and helpers `finishLoop`, `expectRunId`,
+  `input()`, along with any now-unreferenced imports (`createRunControlHandlers`,
+  `startIpcServer`/`IpcServer`, `openLogReader`/`openLogSink`/`LogSink`,
+  `openStateStore`/`StateStore`) — the surviving case does not use them.
+- Keep `UNREACHABLE_SOCKET_PATH` and anything the surviving case uses untouched.
 
 ## Out of scope
 
@@ -23,6 +27,8 @@ transport/daemon behavior already covered by the ipc and daemon test suites.
 
 - [ ] `tui-daemon-client.test.ts` retains exactly one `socketTest` case (the unreachable-socket
   rejection); the other coverage in the file is unchanged.
+- [ ] No dead imports or unused fixture code tied to the removed cases remains (verified
+  by `bun run typecheck`).
 - [ ] `bun run test:v2` passes.
 
 ## Documentation updates

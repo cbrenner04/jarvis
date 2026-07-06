@@ -49,6 +49,11 @@ const PAUSE_REQUEST_ID = "00000000-0000-4000-8000-000000000008";
 const RESUME_REQUEST_ID = "00000000-0000-4000-8000-000000000009";
 const KILL_REQUEST_ID = "00000000-0000-4000-8000-00000000000a";
 
+// All fixed clients in this file drive connectTuiDaemon's reader loop, which requires gated delivery.
+function makeGatedIpcClient(frames: unknown[], options: { sent?: unknown[] } = {}): IpcClient {
+  return makeIpcClient(frames, { ...options, gated: true });
+}
+
 type PendingExecutorRun = {
   signal: AbortSignal;
   release: () => void;
@@ -154,7 +159,7 @@ test("uses injected connectIpcClient instead of production transport", async () 
   const fakeConnect = async (socketPath: string): Promise<IpcClient> => {
     connectCalls += 1;
     expect(socketPath).toBe("/tmp/injected.sock");
-    return makeIpcClient(
+    return makeGatedIpcClient(
       [
         { kind: "response", id: HEALTH_REQUEST_ID, result: { ok: true } },
         { kind: "response", id: STATUS_REQUEST_ID, result: { state: "running" } },
@@ -167,7 +172,7 @@ test("uses injected connectIpcClient instead of production transport", async () 
         },
         { kind: "response", id: WAIT_REQUEST_ID, result: { runStatus: "completed" } },
       ],
-      { gated: true, sent },
+      { sent },
     );
   };
 
@@ -201,7 +206,7 @@ test("defaults socket path to ~/.jarvis/daemon.sock when omitted", async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async (socketPath) => {
         seenPath = socketPath;
-        return makeIpcClient([{ kind: "response", id: HEALTH_REQUEST_ID, result: { ok: true } }], { gated: true });
+        return makeGatedIpcClient([{ kind: "response", id: HEALTH_REQUEST_ID, result: { ok: true } }]);
       },
     });
     await client.health();
@@ -216,15 +221,12 @@ test("health then status reuse one connection without reconnecting", async () =>
     const client = await connectTuiDaemon({
       connectIpcClient: async () => {
         connectCalls += 1;
-        return makeIpcClient(
-          [
-            { kind: "response", id: HEALTH_REQUEST_ID, result: { ok: true } },
-            { kind: "response", id: STATUS_REQUEST_ID, result: { state: "running" } },
-            { kind: "response", id: LIST_REQUEST_ID, result: { runs: [] } },
-            { kind: "response", id: WAIT_REQUEST_ID, result: { runStatus: "completed" } },
-          ],
-          { gated: true },
-        );
+        return makeGatedIpcClient([
+          { kind: "response", id: HEALTH_REQUEST_ID, result: { ok: true } },
+          { kind: "response", id: STATUS_REQUEST_ID, result: { state: "running" } },
+          { kind: "response", id: LIST_REQUEST_ID, result: { runs: [] } },
+          { kind: "response", id: WAIT_REQUEST_ID, result: { runStatus: "completed" } },
+        ]);
       },
     });
 
@@ -242,9 +244,7 @@ test("rejects correlated health error frames as TuiDaemonRpcError", async () => 
   await withFixedUuid([HEALTH_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeIpcClient([{ kind: "error", id: HEALTH_REQUEST_ID, code: "unhealthy", message: "daemon not ready" }], {
-          gated: true,
-        }),
+        makeGatedIpcClient([{ kind: "error", id: HEALTH_REQUEST_ID, code: "unhealthy", message: "daemon not ready" }]),
     });
 
     await expect(client.health()).rejects.toMatchObject({
@@ -260,9 +260,9 @@ test("rejects correlated status error frames as TuiDaemonRpcError", async () => 
   await withFixedUuid([STATUS_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeIpcClient([{ kind: "error", id: STATUS_REQUEST_ID, code: "status_unavailable", message: "no status" }], {
-          gated: true,
-        }),
+        makeGatedIpcClient([
+          { kind: "error", id: STATUS_REQUEST_ID, code: "status_unavailable", message: "no status" },
+        ]),
     });
 
     await expect(client.status()).rejects.toBeInstanceOf(TuiDaemonRpcError);
@@ -275,7 +275,7 @@ test("list sends one correlated IPC list request and returns parsed runs", async
   await withFixedUuid([LIST_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeIpcClient(
+        makeGatedIpcClient(
           [
             {
               kind: "response",
@@ -285,7 +285,7 @@ test("list sends one correlated IPC list request and returns parsed runs", async
               },
             },
           ],
-          { gated: true, sent },
+          { sent },
         ),
     });
 
@@ -302,7 +302,7 @@ test("wait sends one correlated IPC wait request and returns only present option
   await withFixedUuid([WAIT_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeIpcClient(
+        makeGatedIpcClient(
           [
             {
               kind: "response",
@@ -310,7 +310,7 @@ test("wait sends one correlated IPC wait request and returns only present option
               result: { runStatus: "completed", loopOutcomeKind: "complete", iterationsConsumed: 2 },
             },
           ],
-          { gated: true, sent },
+          { sent },
         ),
     });
 
@@ -431,13 +431,10 @@ test("list and wait correlated error frames reject as TuiDaemonRpcError", async 
   await withFixedUuid([LIST_REQUEST_ID, WAIT_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeIpcClient(
-          [
-            { kind: "error", id: LIST_REQUEST_ID, code: "internal_error", message: "list failed" },
-            { kind: "error", id: WAIT_REQUEST_ID, code: "unknown_run", message: "missing run" },
-          ],
-          { gated: true },
-        ),
+        makeGatedIpcClient([
+          { kind: "error", id: LIST_REQUEST_ID, code: "internal_error", message: "list failed" },
+          { kind: "error", id: WAIT_REQUEST_ID, code: "unknown_run", message: "missing run" },
+        ]),
     });
 
     await expect(client.list()).rejects.toBeInstanceOf(TuiDaemonRpcError);
@@ -450,13 +447,10 @@ test("list and wait malformed success payloads reject as TuiDaemonConnectionErro
   await withFixedUuid([LIST_REQUEST_ID, WAIT_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeIpcClient(
-          [
-            { kind: "response", id: LIST_REQUEST_ID, result: { runs: [{ runId: "run-1", project: "demo" }] } },
-            { kind: "response", id: WAIT_REQUEST_ID, result: { loopOutcomeKind: "complete" } },
-          ],
-          { gated: true },
-        ),
+        makeGatedIpcClient([
+          { kind: "response", id: LIST_REQUEST_ID, result: { runs: [{ runId: "run-1", project: "demo" }] } },
+          { kind: "response", id: WAIT_REQUEST_ID, result: { loopOutcomeKind: "complete" } },
+        ]),
     });
 
     await expect(client.list()).rejects.toBeInstanceOf(TuiDaemonConnectionError);
@@ -468,8 +462,7 @@ test("list and wait malformed success payloads reject as TuiDaemonConnectionErro
 test("rejects malformed RPC replies with TuiDaemonConnectionError", async () => {
   await withFixedUuid([HEALTH_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
-      connectIpcClient: async () =>
-        makeIpcClient([{ kind: "stream-open", streamId: "s1" } as IpcFrame], { gated: true }),
+      connectIpcClient: async () => makeGatedIpcClient([{ kind: "stream-open", streamId: "s1" } as IpcFrame]),
     });
 
     await expect(client.health()).rejects.toBeInstanceOf(TuiDaemonConnectionError);
@@ -480,8 +473,7 @@ test("rejects malformed RPC replies with TuiDaemonConnectionError", async () => 
 test("rejects non-correlated RPC replies with TuiDaemonConnectionError", async () => {
   await withFixedUuid([HEALTH_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
-      connectIpcClient: async () =>
-        makeIpcClient([{ kind: "response", id: "other-id", result: { ok: true } }], { gated: true }),
+      connectIpcClient: async () => makeGatedIpcClient([{ kind: "response", id: "other-id", result: { ok: true } }]),
     });
 
     await expect(client.health()).rejects.toBeInstanceOf(TuiDaemonConnectionError);
@@ -588,10 +580,7 @@ test("start sends one correlated IPC start request and returns runId", async () 
   await withFixedUuid([START_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeIpcClient([{ kind: "response", id: START_REQUEST_ID, result: { runId: "run-999" } }], {
-          gated: true,
-          sent,
-        }),
+        makeGatedIpcClient([{ kind: "response", id: START_REQUEST_ID, result: { runId: "run-999" } }], { sent }),
     });
 
     await expect(client.start(START_INPUT)).resolves.toEqual({ runId: "run-999" });
@@ -611,17 +600,14 @@ test("start rejects run_in_progress as TuiDaemonRpcError", async () => {
   await withFixedUuid([START_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeIpcClient(
-          [
-            {
-              kind: "error",
-              id: START_REQUEST_ID,
-              code: "run_in_progress",
-              message: "A run is already in progress; at most one in-flight run globally",
-            },
-          ],
-          { gated: true },
-        ),
+        makeGatedIpcClient([
+          {
+            kind: "error",
+            id: START_REQUEST_ID,
+            code: "run_in_progress",
+            message: "A run is already in progress; at most one in-flight run globally",
+          },
+        ]),
     });
 
     await expect(client.start(START_INPUT)).rejects.toMatchObject({
@@ -636,17 +622,14 @@ test("start rejects worktree_claimed as TuiDaemonRpcError", async () => {
   await withFixedUuid([START_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeIpcClient(
-          [
-            {
-              kind: "error",
-              id: START_REQUEST_ID,
-              code: "worktree_claimed",
-              message: "Run already active for project/branch",
-            },
-          ],
-          { gated: true },
-        ),
+        makeGatedIpcClient([
+          {
+            kind: "error",
+            id: START_REQUEST_ID,
+            code: "worktree_claimed",
+            message: "Run already active for project/branch",
+          },
+        ]),
     });
 
     await expect(client.start(START_INPUT)).rejects.toMatchObject({
@@ -660,17 +643,14 @@ test("start rejects generic daemon error frames as TuiDaemonRpcError", async () 
   await withFixedUuid([START_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeIpcClient(
-          [
-            {
-              kind: "error",
-              id: START_REQUEST_ID,
-              code: "invalid_params",
-              message: "missing input",
-            },
-          ],
-          { gated: true },
-        ),
+        makeGatedIpcClient([
+          {
+            kind: "error",
+            id: START_REQUEST_ID,
+            code: "invalid_params",
+            message: "missing input",
+          },
+        ]),
     });
 
     await expect(client.start(START_INPUT)).rejects.toBeInstanceOf(TuiDaemonRpcError);
@@ -687,7 +667,7 @@ test.each([
   await withFixedUuid([requestId], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeIpcClient([{ kind: "response", id: requestId, result: { ok: true } }], { gated: true, sent }),
+        makeGatedIpcClient([{ kind: "response", id: requestId, result: { ok: true } }], { sent }),
     });
 
     await expect(client[method]("run-123")).resolves.toEqual({ ok: true });
@@ -701,7 +681,7 @@ test("resume forwards decision and prompt for awaiting-human runs", async () => 
   await withFixedUuid([RESUME_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeIpcClient([{ kind: "response", id: RESUME_REQUEST_ID, result: { ok: true } }], { gated: true, sent }),
+        makeGatedIpcClient([{ kind: "response", id: RESUME_REQUEST_ID, result: { ok: true } }], { sent }),
     });
 
     await expect(client.resume("run-123", { decision: "revise", prompt: "try again" })).resolves.toEqual({
@@ -762,14 +742,11 @@ test("steering correlated error frames reject as TuiDaemonRpcError", async () =>
   await withFixedUuid([PAUSE_REQUEST_ID, RESUME_REQUEST_ID, KILL_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeIpcClient(
-          [
-            { kind: "error", id: PAUSE_REQUEST_ID, code: "unknown_run", message: "missing run" },
-            { kind: "error", id: RESUME_REQUEST_ID, code: "terminal_run", message: "Cannot resume a completed run" },
-            { kind: "error", id: KILL_REQUEST_ID, code: "unknown_run", message: "missing run" },
-          ],
-          { gated: true },
-        ),
+        makeGatedIpcClient([
+          { kind: "error", id: PAUSE_REQUEST_ID, code: "unknown_run", message: "missing run" },
+          { kind: "error", id: RESUME_REQUEST_ID, code: "terminal_run", message: "Cannot resume a completed run" },
+          { kind: "error", id: KILL_REQUEST_ID, code: "unknown_run", message: "missing run" },
+        ]),
     });
 
     await expect(client.pause("run-404")).rejects.toMatchObject({ code: "unknown_run" });
@@ -783,23 +760,20 @@ test("pause and kill reject run_not_active as TuiDaemonRpcError", async () => {
   await withFixedUuid([PAUSE_REQUEST_ID, KILL_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeIpcClient(
-          [
-            {
-              kind: "error",
-              id: PAUSE_REQUEST_ID,
-              code: "run_not_active",
-              message: "Run run-123 is not currently active",
-            },
-            {
-              kind: "error",
-              id: KILL_REQUEST_ID,
-              code: "run_not_active",
-              message: "Run run-123 is not currently active",
-            },
-          ],
-          { gated: true },
-        ),
+        makeGatedIpcClient([
+          {
+            kind: "error",
+            id: PAUSE_REQUEST_ID,
+            code: "run_not_active",
+            message: "Run run-123 is not currently active",
+          },
+          {
+            kind: "error",
+            id: KILL_REQUEST_ID,
+            code: "run_not_active",
+            message: "Run run-123 is not currently active",
+          },
+        ]),
     });
 
     await expect(client.pause("run-123")).rejects.toMatchObject({ code: "run_not_active" });
@@ -812,17 +786,14 @@ test("resume rejects run_in_progress as TuiDaemonRpcError", async () => {
   await withFixedUuid([RESUME_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeIpcClient(
-          [
-            {
-              kind: "error",
-              id: RESUME_REQUEST_ID,
-              code: "run_in_progress",
-              message: "A run is already in progress; at most one in-flight run globally",
-            },
-          ],
-          { gated: true },
-        ),
+        makeGatedIpcClient([
+          {
+            kind: "error",
+            id: RESUME_REQUEST_ID,
+            code: "run_in_progress",
+            message: "A run is already in progress; at most one in-flight run globally",
+          },
+        ]),
     });
 
     await expect(client.resume("run-paused")).rejects.toMatchObject({ code: "run_in_progress" });
@@ -834,14 +805,11 @@ test("steering malformed success payloads reject as TuiDaemonConnectionError", a
   await withFixedUuid([PAUSE_REQUEST_ID, RESUME_REQUEST_ID, KILL_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeIpcClient(
-          [
-            { kind: "response", id: PAUSE_REQUEST_ID, result: { ok: false } },
-            { kind: "response", id: RESUME_REQUEST_ID, result: {} },
-            { kind: "response", id: KILL_REQUEST_ID, result: { state: "running" } },
-          ],
-          { gated: true },
-        ),
+        makeGatedIpcClient([
+          { kind: "response", id: PAUSE_REQUEST_ID, result: { ok: false } },
+          { kind: "response", id: RESUME_REQUEST_ID, result: {} },
+          { kind: "response", id: KILL_REQUEST_ID, result: { state: "running" } },
+        ]),
     });
 
     await expect(client.pause("run-1")).rejects.toBeInstanceOf(TuiDaemonConnectionError);

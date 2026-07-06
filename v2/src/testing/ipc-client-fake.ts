@@ -1,6 +1,11 @@
 import type { IpcClient } from "../ipc/client.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 
+type FrameWaiter = {
+  resolve: (frame: IpcFrame) => void;
+  reject: (error: Error) => void;
+};
+
 /**
  * Ungated (default): `nextFrame()` drains queued frames immediately regardless of `send()`
  * calls, throwing once empty. Gated: a frame delivers only once a matching `send()` has
@@ -12,12 +17,7 @@ export function makeIpcClient(frames: unknown[], options: { gated?: boolean; sen
   const queue = [...frames] as IpcFrame[];
   let sentCount = 0;
   let deliveredCount = 0;
-  let waiter:
-    | {
-        resolve: (frame: IpcFrame) => void;
-        reject: (error: Error) => void;
-      }
-    | undefined;
+  let waiter: FrameWaiter | undefined;
   let closed = false;
 
   return {
@@ -64,12 +64,7 @@ export function makeIpcClient(frames: unknown[], options: { gated?: boolean; sen
  * already pending, otherwise queued for the next call. */
 export function createDeferredIpcClient(sent: unknown[] = []): { client: IpcClient; push: (frame: IpcFrame) => void } {
   const queue: IpcFrame[] = [];
-  let waiter:
-    | {
-        resolve: (frame: IpcFrame) => void;
-        reject: (error: Error) => void;
-      }
-    | undefined;
+  let waiter: FrameWaiter | undefined;
   let closed = false;
 
   const push = (frame: IpcFrame): void => {

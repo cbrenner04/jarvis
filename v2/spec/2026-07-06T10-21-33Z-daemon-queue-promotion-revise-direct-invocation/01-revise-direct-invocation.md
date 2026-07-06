@@ -28,9 +28,9 @@ Convert it to call the handler directly.
 
 ## Acceptance criteria
 
-- [ ] `daemon-revise.test.ts` contains no `startIpcServer`, `connectIpcClient`,
+- [x] `daemon-revise.test.ts` contains no `startIpcServer`, `connectIpcClient`,
       `canUseUnixSockets`, `socketTest`, or `SOCKET_PATH` reference.
-- [ ] `bun test v2/src/daemon/daemon-revise.test.ts` passes with the same number
+- [x] `bun test v2/src/daemon/daemon-revise.test.ts` passes with the same number
       of tests as before conversion and 0 skips in the agent sandbox.
 
 ## Documentation updates

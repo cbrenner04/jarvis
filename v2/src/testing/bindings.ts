@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 
 /** A scripted outcome for one simulated invocation pass. */
-export type SimulatedOutcome = "quota" | "model_config" | "error" | "done" | "no-work" | "blocked" | "progress";
+type SimulatedOutcome = "quota" | "model_config" | "error" | "done" | "no-work" | "blocked" | "progress";
 
 /**
  * Build deterministic bindings that replay a scripted outcome sequence.

@@ -1,71 +1,26 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
-import { connectIpcClient } from "../ipc/client.ts";
-import { type IpcServer, startIpcServer } from "../ipc/server.ts";
 import { openLogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { toIpcHandlers } from "../testing/run-control.ts";
-import { canUseUnixSockets } from "../testing/unix-socket.ts";
+import { listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
 import { createRunControlHandlers, createRunExecutionFailureReporter } from "./daemon.ts";
 
-const SOCKET_PATH = join(tmpdir(), `jarvis-daemon-failure-test-${process.pid}.sock`);
-const socketTest = test.skipIf(!canUseUnixSockets());
-
-type RunSummary = { runId: string; project: string; branch: string; status: string; isLive: boolean };
-type ListRunsResult = { runs?: RunSummary[] } | undefined;
+type Handlers = ReturnType<typeof createRunControlHandlers>;
 
 let stateStore: StateStore;
-let server: IpcServer;
 let logsPath: string;
 let reportedFailures: Array<{ runId: string; reason: unknown }>;
 let failureReporter: (runId: string, reason: unknown) => void | Promise<void>;
 let executorBehavior: "reject" | "resolve";
+let handlers: Handlers;
 
 async function flushBackgroundRuns(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
-function mockWriteLoopInput(worktreeOverrides: Partial<WriteLoopInput["worktree"]> = {}): WriteLoopInput {
-  return {
-    worktree: {
-      projectRoot: "/tmp/test-project",
-      projectName: "test-project",
-      branchName: "test-branch",
-      baseRef: "main",
-      ...worktreeOverrides,
-    },
-    specPath: "/tmp/test-project/spec.md",
-    stepRules: "test rules",
-    expectedArtifactPath: "/tmp/test-project/artifact",
-    bindings: [],
-  };
-}
-
-async function startRun(
-  client: Awaited<ReturnType<typeof connectIpcClient>>,
-  input = mockWriteLoopInput(),
-): Promise<string> {
-  client.send({ kind: "request", id: "s1", method: "start", params: { input } });
-  const frame = await client.nextFrame();
-  expect(frame.kind).toBe("response");
-  const runId = frame.kind === "response" ? (frame.result as { runId?: string } | undefined)?.runId : undefined;
-  if (!runId) {
-    throw new Error("start run did not return runId");
-  }
-  return runId;
-}
-
-async function listRuns(client: Awaited<ReturnType<typeof connectIpcClient>>): Promise<RunSummary[] | undefined> {
-  client.send({ kind: "request", id: "l1", method: "list" });
-  const frame = await client.nextFrame();
-  expect(frame.kind).toBe("response");
-  return frame.kind === "response" ? (frame.result as ListRunsResult)?.runs : undefined;
-}
-
-function createHandlers() {
+function createHandlers(): Handlers {
   const writeLoopExecutor = async (
     _input: WriteLoopInput,
     _signal: AbortSignal,
@@ -76,20 +31,14 @@ function createHandlers() {
     }
   };
 
-  return toIpcHandlers(
-    createRunControlHandlers({
-      stateStore,
-      writeLoopExecutor,
-      failureReporter,
-    }),
-  );
+  return createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor,
+    failureReporter,
+  });
 }
 
-beforeEach(async () => {
-  if (!canUseUnixSockets()) {
-    return;
-  }
-  rmSync(SOCKET_PATH, { force: true });
+beforeEach(() => {
   stateStore = openStateStore(join(tmpdir(), `jarvis-failure-state-${process.pid}-${Date.now()}.db`));
   logsPath = join(tmpdir(), `jarvis-failure-logs-${process.pid}-${Date.now()}.jsonl`);
   reportedFailures = [];
@@ -98,19 +47,10 @@ beforeEach(async () => {
     reportedFailures.push({ runId, reason });
   };
 
-  server = await startIpcServer(SOCKET_PATH, createHandlers());
+  handlers = createHandlers();
 });
 
-afterEach(async () => {
-  if (!canUseUnixSockets()) {
-    return;
-  }
-  try {
-    await server.close();
-  } catch {
-    // server may have already stopped
-  }
-  rmSync(SOCKET_PATH, { force: true });
+afterEach(() => {
   try {
     stateStore.close();
   } catch {
@@ -118,90 +58,80 @@ afterEach(async () => {
   }
 });
 
-socketTest("executor rejection sets durable status to failed", async () => {
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
-  const runId = await startRun(client);
+test("executor rejection sets durable status to failed", async () => {
+  const runId = await startRunDirect(handlers);
   await flushBackgroundRuns();
 
-  const run = stateStore.loadRun(runId);
+  const run = stateStore.loadRun(runId as string);
   expect(run?.status).toBe("failed");
-  client.close();
 });
 
-socketTest("executor rejection appends exactly one run_execution_failed via failure reporter", async () => {
+test("executor rejection appends exactly one run_execution_failed via failure reporter", async () => {
   failureReporter = createRunExecutionFailureReporter(logsPath);
+  handlers = createHandlers();
 
-  await server.close();
-  server = await startIpcServer(SOCKET_PATH, createHandlers());
-
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
-  const runId = await startRun(client);
+  const runId = await startRunDirect(handlers);
   await flushBackgroundRuns();
 
-  const records = openLogReader(logsPath).tail(runId);
+  const records = openLogReader(logsPath).tail(runId as string);
   expect(records).toHaveLength(1);
   expect(records[0]?.event).toEqual({ kind: "run_execution_failed" });
-  client.close();
 });
 
-socketTest("failed run keeps in-progress attempt row", async () => {
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
-  const runId = await startRun(client);
-  stateStore.recordAttemptStart(runId);
+test("failed run keeps in-progress attempt row", async () => {
+  const runId = await startRunDirect(handlers);
+  stateStore.recordAttemptStart(runId as string);
   await flushBackgroundRuns();
 
-  const run = stateStore.loadRun(runId);
+  const run = stateStore.loadRun(runId as string);
   expect(run?.status).toBe("failed");
   const latestAttempt = run?.attempts.at(-1);
   expect(latestAttempt?.status).toBe("in-progress");
-  client.close();
 });
 
-socketTest("after executor rejection list reports isLive false and accepts second start", async () => {
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
+test("after executor rejection list reports isLive false and accepts second start", async () => {
   const input = mockWriteLoopInput();
-  const runId = await startRun(client, input);
+  const runId = await startRunDirect(handlers, input);
   await flushBackgroundRuns();
 
-  const runs = await listRuns(client);
+  const runs = await listRunsDirect(handlers);
   const failedRun = runs?.find((candidate) => candidate.runId === runId);
   expect(failedRun?.isLive).toBe(false);
   expect(failedRun?.status).toBe("failed");
 
   executorBehavior = "resolve";
-  client.send({ kind: "request", id: "s2", method: "start", params: { input } });
-  const response2 = await client.nextFrame();
+  const response2 = await handlers.start(
+    { kind: "request", id: "s2", method: "start", params: { input } },
+    new AbortController().signal,
+  );
   expect(response2.kind).toBe("response");
-  client.close();
 });
 
-socketTest("failure reporter throw keeps failed status and releases ownership", async () => {
+test("failure reporter throw keeps failed status and releases ownership", async () => {
   failureReporter = async () => {
     throw new Error("reporter failed");
   };
+  handlers = createHandlers();
 
-  await server.close();
-  server = await startIpcServer(SOCKET_PATH, createHandlers());
-
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
   const input = mockWriteLoopInput();
-  const runId = await startRun(client, input);
+  const runId = await startRunDirect(handlers, input);
   await flushBackgroundRuns();
 
-  const run = stateStore.loadRun(runId);
+  const run = stateStore.loadRun(runId as string);
   expect(run?.status).toBe("failed");
 
-  const runs = await listRuns(client);
+  const runs = await listRunsDirect(handlers);
   expect(runs?.find((candidate) => candidate.runId === runId)?.isLive).toBe(false);
 
   executorBehavior = "resolve";
-  client.send({ kind: "request", id: "s2", method: "start", params: { input } });
-  const response2 = await client.nextFrame();
+  const response2 = await handlers.start(
+    { kind: "request", id: "s2", method: "start", params: { input } },
+    new AbortController().signal,
+  );
   expect(response2.kind).toBe("response");
-  client.close();
 });
 
-socketTest("spawn boundary forwards original rejection to failure reporter", async () => {
+test("spawn boundary forwards original rejection to failure reporter", async () => {
   class CustomExecutorError extends Error {
     constructor() {
       super("custom executor failure");
@@ -213,31 +143,23 @@ socketTest("spawn boundary forwards original rejection to failure reporter", asy
     throw new CustomExecutorError();
   };
 
-  await server.close();
-  server = await startIpcServer(
-    SOCKET_PATH,
-    toIpcHandlers(
-      createRunControlHandlers({
-        stateStore,
-        writeLoopExecutor,
-        failureReporter: (runId, reason) => {
-          reportedFailures.push({ runId, reason });
-        },
-      }),
-    ),
-  );
+  handlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor,
+    failureReporter: (runId, reason) => {
+      reportedFailures.push({ runId, reason });
+    },
+  });
 
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
-  await startRun(client);
+  await startRunDirect(handlers);
   await flushBackgroundRuns();
 
   const reason = reportedFailures[0]?.reason;
   expect(reason).toBeInstanceOf(CustomExecutorError);
   expect((reason as Error).message).toBe("custom executor failure");
-  client.close();
 });
 
-socketTest("terminal durable status is not overwritten on executor rejection", async () => {
+test("terminal durable status is not overwritten on executor rejection", async () => {
   let releaseExecutor!: (err: Error) => void;
   const writeLoopExecutor = async (): Promise<void> => {
     await new Promise<void>((_resolve, reject) => {
@@ -252,44 +174,32 @@ socketTest("terminal durable status is not overwritten on executor rejection", a
     originalSetRunStatus(runId, status);
   };
 
-  await server.close();
-  server = await startIpcServer(
-    SOCKET_PATH,
-    toIpcHandlers(
-      createRunControlHandlers({
-        stateStore,
-        writeLoopExecutor,
-        failureReporter,
-      }),
-    ),
-  );
+  handlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor,
+    failureReporter,
+  });
 
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
-  const runId = await startRun(client);
+  const runId = await startRunDirect(handlers);
   await flushBackgroundRuns();
 
-  stateStore.setRunStatus(runId, "killed");
+  stateStore.setRunStatus(runId as string, "killed");
   releaseExecutor(new Error("executor boom"));
   await flushBackgroundRuns();
 
-  const run = stateStore.loadRun(runId);
+  const run = stateStore.loadRun(runId as string);
   expect(run?.status).toBe("killed");
   expect(setRunStatusCalls.filter((status) => status === "failed")).toHaveLength(0);
-  client.close();
 });
 
-socketTest("settled executor does not invoke failure reporter", async () => {
+test("settled executor does not invoke failure reporter", async () => {
   executorBehavior = "resolve";
+  handlers = createHandlers();
 
-  await server.close();
-  server = await startIpcServer(SOCKET_PATH, createHandlers());
-
-  const client = await connectIpcClient(SOCKET_PATH, 2_000);
-  await startRun(client);
+  await startRunDirect(handlers);
   await flushBackgroundRuns();
 
   expect(reportedFailures).toHaveLength(0);
-  client.close();
 });
 
 test("createRunExecutionFailureReporter appends run_execution_failed through log sink", async () => {

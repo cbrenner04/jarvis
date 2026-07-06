@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
@@ -7,6 +7,7 @@ import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
+import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./write.ts";
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
 
 const { roots } = trackedTempRoots();
@@ -1311,5 +1312,58 @@ describe("write loop", () => {
     const events = sink.getEventsForRun(result.runId);
     const finishedEvent = events[events.length - 1];
     expect(finishedEvent?.kind === "loop_finished" && finishedEvent.loopOutcomeKind).toBe("progress");
+  });
+
+  test("promptId and promptPlaceholders forward through to executeWrite", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const store = openStateStore(stateDbPath);
+    const captured: WriteExecuteInput[] = [];
+    const stubResult: Awaited<ReturnType<typeof realExecuteWrite>> = {
+      worktreePath: join(jarvisRoot, "worktrees", "demo", "prompt-id-run"),
+      worktreeReused: false,
+      lock: { kind: "acquired" },
+      result: {
+        kind: "complete",
+        token: "done",
+        invocation: { attempts: [], final: null, telemetryFailures: [] },
+      },
+    };
+    mock.module("./write.ts", () => ({
+      executeWrite: async (input: WriteExecuteInput) => {
+        captured.push(input);
+        return stubResult;
+      },
+    }));
+
+    try {
+      const loopInput: WriteLoopInput = {
+        worktree: {
+          projectRoot: "/fake",
+          projectName: "demo",
+          branchName: "prompt-id-run",
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
+        specPath: "spec.md",
+        stepRules: "Return exactly one terminal token.",
+        expectedArtifactPath: "proof.txt",
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        stateStore: store,
+        withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        promptId: "custom.prompt",
+        promptPlaceholders: { FOO: "bar" },
+      };
+
+      const result = await executeWriteLoop(loopInput);
+
+      expect(result.kind).toBe("complete");
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.promptId).toBe("custom.prompt");
+      expect(captured[0]?.promptPlaceholders).toEqual({ FOO: "bar" });
+    } finally {
+      store.close();
+      mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+    }
   });
 });

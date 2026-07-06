@@ -454,6 +454,10 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   (unbounded or timed) reject with `"connection closed"` when the socket
   closes, instead of hanging or leaving a stale timer. Sources:
   `v2/src/ipc/client.ts`
+- [v2 additive] `IpcServer.close()` force-drains lingering sockets
+  concurrently with `server.close`, resolving within `drainTimeoutMs`
+  instead of waiting on the close callback (which never fires while a
+  connection is open). Sources: `v2/src/ipc/server.ts`
 
 ## Behaviors with uncertain intent
 

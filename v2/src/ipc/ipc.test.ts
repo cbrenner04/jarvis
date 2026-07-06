@@ -165,3 +165,20 @@ socketTest("server stays up after a malformed client disconnects", async () => {
   expect(await client.nextFrame()).toEqual({ kind: "response", id: "ok", result: { ok: true } });
   client.close();
 });
+
+socketTest("close() force-drains a lingering connection within drainTimeoutMs instead of hanging", async () => {
+  const path = join(tmpdir(), `jarvis-ipc-test-drain-${process.pid}.sock`);
+  rmSync(path, { force: true });
+  const lingerServer = await startIpcServer(path);
+  const lingering = connect(path);
+  await new Promise<void>((resolve, reject) => {
+    lingering.once("connect", () => resolve());
+    lingering.once("error", reject);
+  });
+
+  const start = Date.now();
+  await lingerServer.close({ drainTimeoutMs: 200 });
+  expect(Date.now() - start).toBeLessThan(2_000);
+
+  rmSync(path, { force: true });
+});

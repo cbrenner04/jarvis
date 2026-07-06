@@ -282,24 +282,24 @@ export function startIpcServer(
       server.off("error", reject);
       resolve({
         socketPath,
-        close: (options) =>
-          new Promise((closeResolve, closeReject) => {
-            acceptingConnections = false;
-            const drainTimeoutMs = options?.drainTimeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS;
-            server.close(async (err) => {
-              try {
-                await waitForSocketDrain(activeSockets, drainTimeoutMs);
-                rmSync(socketPath, { force: true });
-                if (err) {
-                  closeReject(err);
-                  return;
-                }
-                closeResolve();
-              } catch (drainErr) {
-                closeReject(drainErr);
+        close: async (options) => {
+          acceptingConnections = false;
+          const drainTimeoutMs = options?.drainTimeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS;
+          const closeServer = new Promise<void>((closeResolve, closeReject) => {
+            server.close((err) => {
+              if (err) {
+                closeReject(err);
+                return;
               }
+              closeResolve();
             });
-          }),
+          });
+          try {
+            await Promise.all([closeServer, waitForSocketDrain(activeSockets, drainTimeoutMs)]);
+          } finally {
+            rmSync(socketPath, { force: true });
+          }
+        },
       });
     });
   });

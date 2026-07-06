@@ -1,19 +1,13 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
-import { rmSync } from "node:fs";
+import { expect, test } from "bun:test";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { createRunControlHandlers } from "../daemon/daemon.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { connectIpcClient } from "../ipc/client.ts";
-import { type IpcServer, startIpcServer } from "../ipc/server.ts";
 import type { IpcFrame } from "../ipc/types.ts";
-import { type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
-import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { createDeferredIpcClient, makeIpcClient } from "../testing/ipc-client-fake.ts";
-import { toIpcHandlers } from "../testing/run-control.ts";
 import { canUseUnixSockets, socketProbeErrored } from "../testing/unix-socket.ts";
 import { connectTuiDaemon } from "./tui-daemon-client.ts";
 import { TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-errors.ts";
@@ -35,7 +29,6 @@ if (socketProbeErrored) {
   process.stderr.write("skip: TUI daemon client socket tests require socket support in /tmp\n");
 }
 
-const SOCKET_PATH = join(tmpdir(), `jarvis-tui-daemon-client-${process.pid}.sock`);
 const UNREACHABLE_SOCKET_PATH = join(tmpdir(), `jarvis-tui-daemon-client-missing-${process.pid}.sock`);
 const DEFAULT_SOCKET_PATH = join(homedir(), ".jarvis", "daemon.sock");
 const socketTest = test.skipIf(!canUseUnixSockets());
@@ -53,105 +46,6 @@ const KILL_REQUEST_ID = "00000000-0000-4000-8000-00000000000a";
 function makeGatedIpcClient(frames: unknown[], options: { sent?: unknown[] } = {}): IpcClient {
   return makeIpcClient(frames, { ...options, gated: true });
 }
-
-type PendingExecutorRun = {
-  signal: AbortSignal;
-  release: () => void;
-};
-
-function createFakeWriteLoopExecutor() {
-  const pending: PendingExecutorRun[] = [];
-
-  return {
-    executor: async (_input: WriteLoopInput, signal: AbortSignal): Promise<void> => {
-      await new Promise<void>((resolve) => {
-        pending.push({ signal, release: resolve });
-        signal.addEventListener("abort", () => resolve(), { once: true });
-      });
-    },
-    settleAll(): void {
-      while (pending.length > 0) {
-        pending.shift()?.release();
-      }
-    },
-  };
-}
-
-function input(): WriteLoopInput {
-  return {
-    worktree: {
-      projectRoot: "/tmp/test-project",
-      projectName: "test-project",
-      branchName: "test-branch",
-      baseRef: "main",
-    },
-    specPath: "/tmp/test-project/spec.md",
-    stepRules: "test rules",
-    expectedArtifactPath: "/tmp/test-project/artifact",
-    bindings: [],
-  };
-}
-
-async function flushBackgroundRuns(): Promise<void> {
-  await new Promise<void>((resolve) => setImmediate(resolve));
-}
-
-function expectRunId(frame: IpcFrame): string {
-  expect(frame.kind).toBe("response");
-  if (frame.kind !== "response") throw new Error("expected response");
-  const runId = (frame.result as { runId?: unknown }).runId;
-  expect(typeof runId).toBe("string");
-  return runId as string;
-}
-
-function finishLoop(runId: string, stateStore: StateStore, logSink: LogSink, iterationsConsumed = 1): void {
-  stateStore.setRunStatus(runId, "completed");
-  logSink.append(runId, {
-    kind: "loop_finished",
-    loopOutcomeKind: "complete",
-    iterationsConsumed,
-    resumable: false,
-  });
-}
-
-let server: IpcServer;
-let stateStore: StateStore;
-let logSink: LogSink;
-let fakeExecutor: ReturnType<typeof createFakeWriteLoopExecutor>;
-let logsPath: string;
-
-beforeEach(async () => {
-  if (!canUseUnixSockets()) {
-    return;
-  }
-  rmSync(SOCKET_PATH, { force: true });
-  rmSync(UNREACHABLE_SOCKET_PATH, { force: true });
-  const unique = `${process.pid}-${Date.now()}-${crypto.randomUUID()}`;
-  stateStore = openStateStore(join(tmpdir(), `jarvis-tui-daemon-state-${unique}.db`));
-  logsPath = join(tmpdir(), `jarvis-tui-daemon-logs-${unique}.jsonl`);
-  logSink = openLogSink(logsPath);
-  fakeExecutor = createFakeWriteLoopExecutor();
-  const handlers = createRunControlHandlers({
-    stateStore,
-    logReader: openLogReader(logsPath),
-    writeLoopExecutor: fakeExecutor.executor,
-    failureReporter: () => undefined,
-  });
-  server = await startIpcServer(SOCKET_PATH, toIpcHandlers(handlers));
-});
-
-afterEach(async () => {
-  if (!canUseUnixSockets() || !server) {
-    return;
-  }
-  fakeExecutor.settleAll();
-  await flushBackgroundRuns();
-  await server.close();
-  logSink.close();
-  stateStore.close();
-  rmSync(SOCKET_PATH, { force: true });
-  rmSync(UNREACHABLE_SOCKET_PATH, { force: true });
-});
 
 test("uses injected connectIpcClient instead of production transport", async () => {
   const sent: unknown[] = [];
@@ -479,80 +373,6 @@ test("rejects non-correlated RPC replies with TuiDaemonConnectionError", async (
     await expect(client.health()).rejects.toBeInstanceOf(TuiDaemonConnectionError);
     client.close();
   });
-});
-
-socketTest("health round-trips over a test IPC server", async () => {
-  const client = await connectTuiDaemon({ socketPath: SOCKET_PATH, connectIpcClient });
-  await expect(client.health()).resolves.toEqual({ ok: true });
-  client.close();
-});
-
-socketTest("status round-trips over a test IPC server", async () => {
-  const client = await connectTuiDaemon({ socketPath: SOCKET_PATH, connectIpcClient });
-  await expect(client.status()).resolves.toEqual({ state: "running" });
-  client.close();
-});
-
-socketTest("list round-trips over a test IPC server", async () => {
-  const ipc = await connectIpcClient(SOCKET_PATH, 2_000);
-  ipc.send({ kind: "request", id: "start", method: "start", params: { input: input() } });
-  const startFrame = await ipc.nextFrame();
-  const runId = expectRunId(startFrame);
-  const client = await connectTuiDaemon({ socketPath: SOCKET_PATH, connectIpcClient });
-
-  await expect(client.list()).resolves.toEqual({
-    runs: [{ runId, project: "test-project", branch: "test-branch", status: "in-progress", isLive: true }],
-  });
-  client.close();
-  ipc.close();
-});
-
-socketTest("wait round-trips over a test IPC server", async () => {
-  const ipc = await connectIpcClient(SOCKET_PATH, 2_000);
-  ipc.send({ kind: "request", id: "start", method: "start", params: { input: input() } });
-  const runId = expectRunId(await ipc.nextFrame());
-
-  const client = await connectTuiDaemon({ socketPath: SOCKET_PATH, connectIpcClient });
-  const pending = client.wait(runId);
-  await Promise.resolve();
-  finishLoop(runId, stateStore, logSink, 3);
-  fakeExecutor.settleAll();
-  await flushBackgroundRuns();
-
-  await expect(pending).resolves.toEqual({
-    runStatus: "completed",
-    loopOutcomeKind: "complete",
-    iterationsConsumed: 3,
-    resumable: false,
-  });
-  client.close();
-  ipc.close();
-});
-
-socketTest("list succeeds while wait is pending on the same socket connection", async () => {
-  const ipc = await connectIpcClient(SOCKET_PATH, 2_000);
-  ipc.send({ kind: "request", id: "start", method: "start", params: { input: input() } });
-  const runId = expectRunId(await ipc.nextFrame());
-
-  const client = await connectTuiDaemon({ socketPath: SOCKET_PATH, connectIpcClient });
-  const pendingWait = client.wait(runId);
-  await Promise.resolve();
-
-  await expect(client.list()).resolves.toEqual({
-    runs: [{ runId, project: "test-project", branch: "test-branch", status: "in-progress", isLive: true }],
-  });
-
-  finishLoop(runId, stateStore, logSink);
-  fakeExecutor.settleAll();
-  await flushBackgroundRuns();
-  await expect(pendingWait).resolves.toEqual({
-    runStatus: "completed",
-    loopOutcomeKind: "complete",
-    iterationsConsumed: 1,
-    resumable: false,
-  });
-  client.close();
-  ipc.close();
 });
 
 socketTest("rejects unreachable socket with TuiDaemonConnectionError and sends no RPCs", async () => {

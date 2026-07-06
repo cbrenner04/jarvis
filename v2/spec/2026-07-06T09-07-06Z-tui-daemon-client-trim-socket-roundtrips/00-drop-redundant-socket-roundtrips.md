@@ -25,11 +25,11 @@ transport/daemon behavior already covered by the ipc and daemon test suites.
 
 ## Acceptance criteria
 
-- [ ] `tui-daemon-client.test.ts` retains exactly one `socketTest` case (the unreachable-socket
+- [x] `tui-daemon-client.test.ts` retains exactly one `socketTest` case (the unreachable-socket
   rejection); the other coverage in the file is unchanged.
-- [ ] No dead imports or unused fixture code tied to the removed cases remains (verified
+- [x] No dead imports or unused fixture code tied to the removed cases remains (verified
   by `bun run typecheck`).
-- [ ] `bun run test:v2` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

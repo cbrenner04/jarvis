@@ -14,11 +14,11 @@ const DAEMON_WORKFLOW_STEP_STOP_OUTCOMES = [
   "awaiting-human",
 ] as const;
 
-export type DaemonWorkflowStepStatus = (typeof DAEMON_WORKFLOW_STEP_STATUSES)[number];
-export type DaemonWorkflowStepTerminalOutcome = "complete" | (typeof DAEMON_WORKFLOW_STEP_STOP_OUTCOMES)[number];
+type DaemonWorkflowStepStatus = (typeof DAEMON_WORKFLOW_STEP_STATUSES)[number];
+type DaemonWorkflowStepTerminalOutcome = "complete" | (typeof DAEMON_WORKFLOW_STEP_STOP_OUTCOMES)[number];
 
 /** One workflow step on daemon `list` wire payloads. */
-export type DaemonWorkflowStepSnapshot = {
+type DaemonWorkflowStepSnapshot = {
   stepId: string;
   role: string;
   status: DaemonWorkflowStepStatus;

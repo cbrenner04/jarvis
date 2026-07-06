@@ -1,0 +1,7 @@
+Verdict: 1 required refinement.
+
+**Signature conflict between subspec 01's `run-control.ts` change and `daemon-queue-promotion.test.ts` (out of scope).**
+
+Subspec 01 changes `startRun`/`listRuns`/`mockWriteLoopInput` in `v2/src/testing/run-control.ts` to call handlers directly instead of going through an `IpcClient`. But `daemon-queue-promotion.test.ts` — explicitly out of scope for this spec — imports and calls these same exported helpers with a real `IpcClient` from `connectIpcClient(SOCKET_PATH, ...)`. Changing the helpers' signatures/behavior as drafted would break that file's compilation or silently change what it exercises (no longer a real socket/wire round trip), which contradicts the "no other daemon test file" and "no behavior coverage dropped" scope boundaries in both the intent and subspec 01.
+
+The spec must resolve this before the `run-control.ts` decision in subspec 01 is safe to implement. Required outcome: subspec 01 must state how `daemon-start-list.test.ts`'s converted cases get direct-invocation entry points into `startRun`/`listRuns`/`mockWriteLoopInput` (or equivalents) without altering the calling contract `daemon-queue-promotion.test.ts` depends on — e.g., by introducing new direct-invocation helpers alongside the existing `IpcClient`-based ones, rather than repurposing the existing exported names/signatures. Add an explicit decision and acceptance criterion covering this, and note in "Out of scope" that `daemon-queue-promotion.test.ts`'s existing calls to the retained helpers continue to compile and pass unchanged.

@@ -1,0 +1,7 @@
+## Verdict: One required outcome (non-blocking on redesign, blocking on merge)
+
+**Required outcome:** Add a test in `write-loop.test.ts` that sets `promptId` and `promptPlaceholders` on `WriteLoopInput`, spies/stubs `executeWrite`, and asserts both fields reach the `WriteExecuteInput` built by `buildWriteExecuteInput`.
+
+**Rationale:** `write-loop.ts:246-247` forwards `args.promptId`/`args.promptPlaceholders` into `WriteExecuteInput` via the same optional-field spread pattern used elsewhere in that function, but `write-loop.test.ts` currently has no test exercising this branch — only the default path is covered. AC #2 ("verified by a new test in `write.test.ts` or `write-loop.test.ts`") is satisfied by a `write.test.ts`-only test today, so this isn't a spec violation, but it leaves the write-loop composition layer — where the spec's own decisions explicitly place `promptId` forwarding — with zero coverage. A future edit to the telemetry/optional-field block in `buildWriteExecuteInput` could silently drop this forwarding with nothing red to catch it. This must be closed before merge.
+
+No other findings survive review — the generalized `renderStepPrompt` signature, `PRINCIPLES` handling, and documentation update are implemented correctly per the spec's decisions.

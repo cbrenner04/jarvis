@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
-import { renderWriteExecutePrompt } from "./write-prompt.ts";
+import { PromptRenderingError } from "../../../shared/prompts/render.ts";
+import { renderStepPrompt } from "./write-prompt.ts";
 
 describe("write prompt", () => {
   test("registers stable id write.execute", () => {
@@ -9,26 +10,33 @@ describe("write prompt", () => {
   });
 
   test("renders through shared registry contract", () => {
-    const rendered = renderWriteExecutePrompt({
-      specPath: "spec/example/index.md",
-      stepRules: "Follow the contract.",
+    const rendered = renderStepPrompt("write.execute", {
+      SPEC_PATH: "spec/example/index.md",
+      PRINCIPLES: "",
+      STEP_RULES: "Follow the contract.",
     });
 
     expect(rendered).toContain("Read the spec at spec/example/index.md.");
     expect(rendered).toContain("Follow the contract.");
   });
 
-  test("renders all seven restraint principles", () => {
-    const rendered = renderWriteExecutePrompt({
-      specPath: "spec/example/index.md",
-      stepRules: "Done.",
+  test("renders an arbitrary registered prompt id from a caller-supplied placeholder map", () => {
+    const rendered = renderStepPrompt("plan.prompt.draft", {
+      WORKDIR: "/tmp/work",
+      NAME: "example-spec",
+      INTENT: "Do the thing.",
+      SPEC_GUIDANCE: "Follow the guidance.",
     });
 
-    // Check for the principles section header as a stable marker
-    expect(rendered).toContain("# Restraint principles");
+    expect(rendered).toContain("`/tmp/work`");
+    expect(rendered).toContain("`example-spec`");
+  });
 
-    // Count the numbered principles (1. through 7.) to verify all seven are present
-    const principleMatches = rendered.match(/^\d+\. /gm);
-    expect(principleMatches?.length).toBe(7);
+  test("unknown prompt id surfaces the registry lookup error", () => {
+    expect(() => renderStepPrompt("no.such.prompt", {})).toThrow(/unknown prompt id/);
+  });
+
+  test("missing a required declared placeholder surfaces the render layer's error", () => {
+    expect(() => renderStepPrompt("write.execute", { SPEC_PATH: "spec.md" })).toThrow(PromptRenderingError);
   });
 });

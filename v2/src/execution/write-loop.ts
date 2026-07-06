@@ -243,6 +243,8 @@ function buildWriteExecuteInput(args: WriteLoopInput, runId: string, attemptId: 
     stepRules: args.stepRules,
     expectedArtifactPath: args.expectedArtifactPath,
     bindings: args.bindings,
+    ...(args.promptId !== undefined ? { promptId: args.promptId } : {}),
+    ...(args.promptPlaceholders !== undefined ? { promptPlaceholders: args.promptPlaceholders } : {}),
     ...(fullTelemetry !== undefined
       ? {
           invocationTelemetry: {

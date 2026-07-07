@@ -259,7 +259,10 @@ test("kill/pause reject a later step's runId once onStepRunCreated has tracked i
 
 test("start with steps is rejected worktree_claimed when a live workflow run holds the (project, branch)", async () => {
   const liveSteps: AnyWorkflowStep[] = [createWriteStep("step-1", "workflow-branch", neverResolvingBindingFactory)];
-  const liveResponse = await handlers.start(requestFrame("s1", "start", { steps: liveSteps }), new AbortController().signal);
+  const liveResponse = await handlers.start(
+    requestFrame("s1", "start", { steps: liveSteps }),
+    new AbortController().signal,
+  );
   expect(liveResponse.kind).toBe("response");
   await flushBackgroundRuns();
 
@@ -270,7 +273,10 @@ test("start with steps is rejected worktree_claimed when a live workflow run hol
 
 test("start with input is rejected worktree_claimed when a live workflow run holds the (project, branch)", async () => {
   const liveSteps: AnyWorkflowStep[] = [createWriteStep("step-1", "workflow-branch", neverResolvingBindingFactory)];
-  const liveResponse = await handlers.start(requestFrame("s1", "start", { steps: liveSteps }), new AbortController().signal);
+  const liveResponse = await handlers.start(
+    requestFrame("s1", "start", { steps: liveSteps }),
+    new AbortController().signal,
+  );
   expect(liveResponse.kind).toBe("response");
   await flushBackgroundRuns();
 

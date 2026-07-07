@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding, InvocationResult } from "../../../shared/invocation/execute.ts";
@@ -65,6 +65,7 @@ function createDebateStep(stepId: string, branch: string): ReviewDebateWorkflowS
     maxCycles: 1,
     agents: { adversary: ["claude"], advocate: ["claude"], adjudicator: ["claude"], actuator: ["claude"] },
     agentModelConfig: DEBATE_AGENT_MODEL_CONFIG,
+    verdictPath: join(mkdtempSync(join(tmpdir(), "daemon-workflow-start-")), "verdict.md"),
   };
 }
 

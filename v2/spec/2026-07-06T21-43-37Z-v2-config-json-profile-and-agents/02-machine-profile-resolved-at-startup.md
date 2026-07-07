@@ -19,6 +19,7 @@ check and settle delay). Replace both with a resolved value read from
 - A `machineProfile` naming a profile whose `config/machines/<profile>.json` file doesn't exist is a hard error — this is already `machine-profile-loader.ts`'s existing behavior (`readMachineProfileDocument` throws `not found`); the resolver doesn't duplicate that check.
 - `machineProfile` is an open string (no enum) — any non-empty string is accepted by the resolver; only the profile-file lookup can fail.
 - Both call sites keep their existing dependency-injection seams (`deps.machineProfile` on `loadWorkflowSteps`, `deps.hasMemoryHeadroom`/`deps.settleDelayMs` on `createRunControlHandlers`) for tests; only the *default* changes from a literal `"home"` to the resolved value.
+- **`resolveMachineProfile()` must be resolved lazily, not at handler/loader construction.** `createRunControlHandlers`'s default `hasMemoryHeadroom`/`settleDelayMs` resolve the profile only when actually invoked (i.e. at start admission), never eagerly when the handlers are constructed. A daemon that only serves `list`/`status`/`health` must not hard-require `machineProfile` — constructing it must not throw when the key is absent. This keeps the real-daemon integration test (`daemon.sandbox-unrunnable.test.ts`, which starts an in-process daemon and calls `list`) working in a fresh environment with no `machineProfile` in `~/.jarvis/config.json`.
 - `resolveMachineProfile` reads `~/.jarvis/config.json` via the same path constant introduced in subspec [[01-v2-agents-config-moves-to-config-json]], not a redefinition.
 - Operators must set `machineProfile` in `config.json` before this subspec ships — there's no bootstrap default, so the next `jarvis write`/`jarvis run start` hard-fails otherwise.
 
@@ -35,6 +36,7 @@ check and settle delay). Replace both with a resolved value read from
 - [ ] With `machineProfile` set to a valid, existing profile, agent model config and daemon memory-watermark settings load from that profile's `config/machines/<profile>.json`, not a hardcoded `home`.
 - [ ] `machineProfile` accepts any non-empty string value (e.g. a profile named `work`), not just `home`.
 - [ ] A `jarvis write`/`jarvis run start` invocation with `machineProfile` set to `""` fails with an error naming the missing key, the same as an absent key.
+- [ ] Constructing the daemon and serving `list`/`status`/`health` does not require `machineProfile`: the real-daemon integration test in `v2/src/daemon/daemon.sandbox-unrunnable.test.ts` (`list runs over IPC …`) passes in an environment whose `~/.jarvis/config.json` has no `machineProfile` key — `resolveMachineProfile()` is invoked only at start-admission, not at handler construction.
 
 ## Documentation updates
 

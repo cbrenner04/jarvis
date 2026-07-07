@@ -53,12 +53,12 @@ else the built-in `DEFAULT_WRITE_AGENTS`.
 
 ## Acceptance criteria
 
-- [ ] `jarvis write` and `jarvis run start` reject `--agents` as an unknown
+- [x] `jarvis write` and `jarvis run start` reject `--agents` as an unknown
       option instead of accepting it.
-- [ ] Agent fallback order for both commands is `~/.jarvis/config.json`
+- [x] Agent fallback order for both commands is `~/.jarvis/config.json`
       `agents` when present, else `DEFAULT_WRITE_AGENTS`, with no per-invocation
       override path.
-- [ ] `bun run typecheck` and `test:v2` (+ `test:integration:v2`) pass.
+- [x] `bun run typecheck` and `test:v2` (+ `test:integration:v2`) pass.
 
 ## Documentation updates
 

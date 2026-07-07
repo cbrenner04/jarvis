@@ -1,0 +1,3 @@
+Verdict: no required changes.
+
+The rejection of `--agents` is already covered by acceptance criterion 1 and the option map's structure — an unrecognized option produces the same error regardless of which string is unrecognized, so a generic unknown-flag test provides equivalent regression protection. Adding an `--agents`-specific negative test would be a nice-to-have but is not required by the spec's task checklist or acceptance criteria, and its absence does not leave any accepted criterion unverified. No action needed.

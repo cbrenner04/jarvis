@@ -39,12 +39,18 @@ export type OwnershipKey = {
   branch: string;
 };
 
-type ActiveRun = {
-  runId: string;
-  key: OwnershipKey;
-  abortController: AbortController;
-  pauseController: AbortController;
-};
+type ActiveRun =
+  | {
+      kind: "write-loop";
+      runId: string;
+      key: OwnershipKey;
+      abortController: AbortController;
+      pauseController: AbortController;
+    }
+  | {
+      kind: "workflow";
+      runId: string;
+    };
 
 export class DaemonDoubleClaimError extends Error {
   constructor(key: OwnershipKey) {
@@ -528,7 +534,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     const ks = ownershipKeyString(key);
     const abortController = new AbortController();
     const pauseController = new AbortController();
-    activeRuns.set(ks, { runId, key, abortController, pauseController });
+    activeRuns.set(ks, { kind: "write-loop", runId, key, abortController, pauseController });
 
     _registry.claim(key, { runId, worktreePath });
 
@@ -576,7 +582,12 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       executeWorkflow({
         steps,
         stateStore: store,
-        onFirstRunCreated: (runId) => resolve({ kind: "response", result: { runId } }),
+        onStepRunCreated: (stepIndex, runId) => {
+          activeRuns.set(runId, { kind: "workflow", runId });
+          if (stepIndex === 0) {
+            resolve({ kind: "response", result: { runId } });
+          }
+        },
       }).catch((err) => {
         resolve({
           kind: "error",
@@ -740,8 +751,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
 
     const ks = ownershipKeyString({ project: run.project, branch: run.branch });
-    const activeRun = activeRuns.get(ks);
-    if (activeRun && activeRun.runId === runId) {
+    const activeRun = activeRuns.get(ks) ?? activeRuns.get(runId);
+    if (activeRun && activeRun.runId === runId && activeRun.kind === "write-loop") {
       activeRun.pauseController.abort();
       return { kind: "response", result: { ok: true } };
     }
@@ -762,8 +773,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
 
     const ks = ownershipKeyString({ project: run.project, branch: run.branch });
-    const activeRun = activeRuns.get(ks);
-    if (activeRun && activeRun.runId === runId) {
+    const activeRun = activeRuns.get(ks) ?? activeRuns.get(runId);
+    if (activeRun && activeRun.runId === runId && activeRun.kind === "write-loop") {
       activeRun.abortController.abort();
       store.setRunStatus(runId, "killed");
       return { kind: "response", result: { ok: true } };
@@ -896,7 +907,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     if (decision === "abort") {
       const ks = ownershipKeyString({ project: run.project, branch: run.branch });
       const activeRun = activeRuns.get(ks);
-      if (activeRun && activeRun.runId === run.id) {
+      if (activeRun && activeRun.runId === run.id && activeRun.kind === "write-loop") {
         activeRun.abortController.abort();
       }
       store.setRunStatus(run.id, "killed");

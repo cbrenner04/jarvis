@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding, InvocationResult } from "../../../shared/invocation/execute.ts";
@@ -31,7 +32,16 @@ function createBindingFactory(
 
 const doneBindingFactory = createBindingFactory(async () => ({ kind: "ok", stdout: "done", stderr: "" }) as const);
 
-function createWriteStep(stepId: string, branchName: string): WriteWorkflowStep {
+const doneWithArtifactBindingFactory = createBindingFactory(async ({ cwd }) => {
+  writeFileSync(join(cwd, "proof.txt"), "done\n", "utf8");
+  return { kind: "ok", stdout: "done", stderr: "" } as const;
+});
+
+function createWriteStep(
+  stepId: string,
+  branchName: string,
+  createBinding: NonNullable<WriteWorkflowStep["createBinding"]> = doneBindingFactory,
+): WriteWorkflowStep {
   const home = createJarvisHome();
   roots.push(home.jarvisRoot);
   return {
@@ -49,7 +59,7 @@ function createWriteStep(stepId: string, branchName: string): WriteWorkflowStep 
     role: "implement",
     agents: ["claude"],
     agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
-    createBinding: doneBindingFactory,
+    createBinding,
     withExternalWorktree: createFakeWithExternalWorktree(home.jarvisRoot),
     stepId,
   };
@@ -166,4 +176,58 @@ test("start with steps derives the ownership key from flat project/branch when t
   const steps: AnyWorkflowStep[] = [humanStep];
   const response = await handlers.start(requestFrame("s2", "start", { steps }), new AbortController().signal);
   expect(response).toEqual({ kind: "error", code: "worktree_claimed", message: expect.any(String) });
+});
+
+test("kill rejects a workflow-started run's step-0 runId with run_not_active", async () => {
+  const steps: AnyWorkflowStep[] = [createWriteStep("step-1", "workflow-branch")];
+  const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
+  const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
+  expect(runId).toBeTruthy();
+
+  const killResponse = await handlers.kill(
+    requestFrame("k1", "kill", { runId }),
+    new AbortController().signal,
+  );
+  expect(killResponse).toEqual({ kind: "error", code: "run_not_active", message: expect.any(String) });
+});
+
+test("pause rejects a workflow-started run's step-0 runId with run_not_active", async () => {
+  const steps: AnyWorkflowStep[] = [createWriteStep("step-1", "workflow-branch")];
+  const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
+  const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
+  expect(runId).toBeTruthy();
+
+  const pauseResponse = await handlers.pause(
+    requestFrame("p1", "pause", { runId }),
+    new AbortController().signal,
+  );
+  expect(pauseResponse).toEqual({ kind: "error", code: "run_not_active", message: expect.any(String) });
+});
+
+test("kill/pause reject a later step's runId once onStepRunCreated has tracked it", async () => {
+  const steps: AnyWorkflowStep[] = [
+    createWriteStep("step-1", "workflow-branch", doneWithArtifactBindingFactory),
+    createWriteStep("step-2", "workflow-branch"),
+  ];
+  await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
+
+  let step2Run = null;
+  for (let attempt = 0; attempt < 20 && !step2Run; attempt++) {
+    await flushBackgroundRuns();
+    step2Run = stateStore.findRunByProjectBranch({ project: "demo", branch: "workflow-branch", stepId: "step-2" });
+  }
+  expect(step2Run?.id).toBeTruthy();
+  const step2RunId = step2Run?.id as string;
+
+  const killResponse = await handlers.kill(
+    requestFrame("k2", "kill", { runId: step2RunId }),
+    new AbortController().signal,
+  );
+  expect(killResponse).toEqual({ kind: "error", code: "run_not_active", message: expect.any(String) });
+
+  const pauseResponse = await handlers.pause(
+    requestFrame("p2", "pause", { runId: step2RunId }),
+    new AbortController().signal,
+  );
+  expect(pauseResponse).toEqual({ kind: "error", code: "run_not_active", message: expect.any(String) });
 });

@@ -3,6 +3,8 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { main, withOperatorSessionId } from "./cli.ts";
+import type { BuildImplementWorkflowStepsInput } from "./execution/implement-workflow-steps.ts";
+import type { AnyWorkflowStep } from "./execution/workflow-runner.ts";
 import type { WriteLoopInput, WriteLoopResult } from "./execution/write-loop.ts";
 import type { IpcFrame } from "./ipc/types.ts";
 import type { PersistedRecord } from "./persistence/log-stream.ts";
@@ -73,6 +75,40 @@ const WRITE_ARGS = [
   "spec.md",
   "--artifact",
   "proof.txt",
+];
+
+const RUN_WORKFLOW_IMPLEMENT_ARGS = [
+  "run",
+  "workflow",
+  "implement",
+  "--branch",
+  "implement-run",
+  "--base",
+  "HEAD",
+  "--spec",
+  "spec.md",
+  "--artifact",
+  "proof.txt",
+];
+
+const FAKE_IMPLEMENT_STEPS: AnyWorkflowStep[] = [
+  {
+    behavior: "write",
+    stepId: "implement",
+    role: "implement",
+    promptId: "patch.prompt.body",
+    stepRules: "Return exactly one terminal token: done|no-work|blocked|progress.",
+    agents: ["claude"],
+    agentModelConfig: {},
+    worktree: {
+      projectRoot: "/tmp/repo",
+      projectName: "demo",
+      branchName: "implement-run",
+      baseRef: "HEAD",
+    },
+    specPath: "spec.md",
+    expectedArtifactPath: "proof.txt",
+  },
 ];
 
 const RUN_START_ARGS = [
@@ -894,6 +930,185 @@ describe("v2 cli", () => {
     expect(cap.read()).toEqual({
       stdout: "",
       stderr: "run_in_progress: A run is already in progress; at most one in-flight run globally\n",
+    });
+  });
+
+  test("run workflow implement sends one IPC start request carrying built workflow steps and prints run ID", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000004";
+    const originalRandomUuid = crypto.randomUUID;
+    crypto.randomUUID = () => requestId;
+
+    let builtInput: BuildImplementWorkflowStepsInput | undefined;
+
+    let code = NaN;
+    try {
+      code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
+        cwd: () => "/tmp/repo/sub",
+        buildImplementWorkflowSteps: (input) => {
+          builtInput = input;
+          return { ok: true, steps: FAKE_IMPLEMENT_STEPS };
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(
+            [
+              {
+                kind: "response",
+                id: requestId,
+                result: { runId: "run-888" },
+              },
+            ],
+            { sent },
+          ),
+      });
+    } finally {
+      crypto.randomUUID = originalRandomUuid;
+    }
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "run-888\n", stderr: "" });
+    expect(builtInput).toEqual({
+      cwd: "/tmp/repo/sub",
+      branchName: "implement-run",
+      baseRef: "HEAD",
+      specPath: "spec.md",
+      artifactPath: "proof.txt",
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      kind: "request",
+      method: "start",
+      params: { steps: FAKE_IMPLEMENT_STEPS },
+    });
+  });
+
+  test("run workflow implement passes through daemon guard errors without local workflow logic", async () => {
+    const cap = captureIo();
+    const requestId = "00000000-0000-4000-8000-000000000005";
+    const originalRandomUuid = crypto.randomUUID;
+    crypto.randomUUID = () => requestId;
+
+    let code = NaN;
+    try {
+      code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
+        cwd: () => "/tmp/repo/sub",
+        buildImplementWorkflowSteps: () => ({ ok: true, steps: FAKE_IMPLEMENT_STEPS }),
+        connectIpcClient: async () =>
+          makeIpcClient([
+            {
+              kind: "error",
+              id: requestId,
+              code: "run_in_progress",
+              message: "A run is already in progress; at most one in-flight run globally",
+            },
+          ]),
+      });
+    } finally {
+      crypto.randomUUID = originalRandomUuid;
+    }
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "run_in_progress: A run is already in progress; at most one in-flight run globally\n",
+    });
+  });
+
+  test("run workflow implement exits nonzero on an invalid daemon response", async () => {
+    const cap = captureIo();
+    const requestId = "00000000-0000-4000-8000-000000000006";
+    const originalRandomUuid = crypto.randomUUID;
+    crypto.randomUUID = () => requestId;
+
+    let code = NaN;
+    try {
+      code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
+        cwd: () => "/tmp/repo/sub",
+        buildImplementWorkflowSteps: () => ({ ok: true, steps: FAKE_IMPLEMENT_STEPS }),
+        connectIpcClient: async () =>
+          makeIpcClient([
+            {
+              kind: "response",
+              id: requestId,
+              result: { runId: 123 },
+            },
+          ]),
+      });
+    } finally {
+      crypto.randomUUID = originalRandomUuid;
+    }
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
+  });
+
+  test("run workflow implement missing required flags prints usage and exits 1 without contacting the daemon", async () => {
+    const cap = captureIo();
+
+    const code = await main(["run", "workflow", "implement", "--branch", "implement-run"], cap.io, {
+      connectIpcClient: async () => {
+        throw new Error("should not contact daemon");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "usage: jarvis run workflow implement --branch <name> --base <ref> --spec <path> --artifact <path>\n",
+    });
+  });
+
+  test("run workflow implement surfaces a builder error without contacting the daemon", async () => {
+    const cap = captureIo();
+
+    const code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
+      cwd: () => "/tmp/unregistered",
+      buildImplementWorkflowSteps: () => ({
+        ok: false,
+        error: "No registered project matches cwd: /tmp/unregistered",
+      }),
+      connectIpcClient: async () => {
+        throw new Error("should not contact daemon");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "No registered project matches cwd: /tmp/unregistered\n",
+    });
+  });
+
+  test("run workflow with an unrecognized preset name falls through to run usage and exits 1", async () => {
+    const cap = captureIo();
+
+    const code = await main(["run", "workflow", "bogus"], cap.io, {
+      connectIpcClient: async () => {
+        throw new Error("should not contact daemon");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "usage: jarvis run <start|list|log|pause|resume|kill|wait> [args]\n",
+    });
+  });
+
+  test("bare run workflow falls through to run usage and exits 1", async () => {
+    const cap = captureIo();
+
+    const code = await main(["run", "workflow"], cap.io, {
+      connectIpcClient: async () => {
+        throw new Error("should not contact daemon");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "usage: jarvis run <start|list|log|pause|resume|kill|wait> [args]\n",
     });
   });
 

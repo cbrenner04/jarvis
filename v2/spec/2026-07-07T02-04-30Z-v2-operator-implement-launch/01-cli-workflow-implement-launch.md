@@ -40,16 +40,16 @@ payloads for this case.
 
 ## Acceptance criteria
 
-- [ ] Running `jarvis run workflow implement --branch <b> --base <ref> --spec <path> --artifact <path>`
+- [x] Running `jarvis run workflow implement --branch <b> --base <ref> --spec <path> --artifact <path>`
       from a registered project's checkout starts a run and prints its run ID.
-- [ ] Running the same command from a directory outside any registered
+- [x] Running the same command from a directory outside any registered
       project fails with an actionable message and does not contact the daemon.
-- [ ] Omitting a required flag fails with usage output and does not contact
+- [x] Omitting a required flag fails with usage output and does not contact
       the daemon.
-- [ ] Running `jarvis run workflow` with an unrecognized or missing preset
+- [x] Running `jarvis run workflow` with an unrecognized or missing preset
       name fails with usage/command-not-found output and does not contact
       the daemon.
-- [ ] `v2/src/cli.test.ts` daemon-RPC-failure and malformed-response cases
+- [x] `v2/src/cli.test.ts` daemon-RPC-failure and malformed-response cases
       (asserted today for `run start`) hold equally for `run workflow implement`.
 
 ## Documentation updates

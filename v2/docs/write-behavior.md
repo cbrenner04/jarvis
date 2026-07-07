@@ -156,6 +156,7 @@ before retrying `jarvis tui` or `jarvis tui log <run-id>`.
 | Command | Input mapping | Output | Exit |
 | --- | --- | --- | --- |
 | `jarvis run start ...` | Same required flags as `jarvis write`; `--project-root`, `--project`, `--branch`, `--base`, `--spec`, `--artifact`, optional `--agents`, `--max-iterations`; mapped to the same `WriteLoopInput` fields and sent over IPC as one `start` request | Run ID | `0` on success |
+| `jarvis run workflow implement ...` | Per-run only: `--branch`, `--base`, `--spec`, `--artifact`. Project comes from cwd (must match a project registered in `~/.jarvis/config.json`); `role`/`promptId`/`agents`/`agentModelConfig` come from the `implement` preset and machine config, not CLI flags. Built via `buildImplementWorkflowSteps` and sent over IPC as one `start` request carrying `{ steps }` | Run ID | `0` on success; `1` on missing/invalid flags, unresolved cwd, or machine-config validation failure — none of which contact the daemon |
 | `jarvis run list` | None | One tab-separated row per run: `runId project branch status liveness reason retryable nextAction` — last three columns are `-` when daemon omits `error` | `0` on success |
 | `jarvis run log <run-id>` | Run ID | One compact JSON line per persisted record; replay first, then follow new records until stream end or client close | `0` on stream end/client close |
 | `jarvis run pause <run-id>` | Run ID | `paused <run-id>` | `0` on success |

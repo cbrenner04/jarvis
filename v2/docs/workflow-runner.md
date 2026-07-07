@@ -192,6 +192,36 @@ of its own. This check runs once at load; `executeWorkflow`'s
 (see [Validation](#validation)) regardless of whether steps came from this
 loader.
 
+## Building `implement` workflow steps from cwd + run args
+
+`buildImplementWorkflowSteps({ cwd, branchName, baseRef, specPath,
+artifactPath }, deps?)` (`v2/src/execution/implement-workflow-steps.ts`) turns
+"operator standing in a project checkout, wants to run `implement`" into the
+`AnyWorkflowStep[]` payload the daemon `start` RPC accepts.
+
+Pipeline order is preset-fields-first, loader-last: the builder assembles a
+`WorkflowSourceStep` directly (`behavior: "write"`, `stepId: "implement"`,
+`role: "implement"`, `promptId: "patch.prompt.body"` — the preset's pinned
+values — plus `stepRules: DEFAULT_WRITE_STEP_RULES` and the per-run
+`worktree`/`specPath`/`expectedArtifactPath`), then runs it through
+`loadWorkflowSteps` to attach `agents`/`agentModelConfig` from machine config,
+then through `resolveWorkflowPreset("implement", ...)` as a step-count/pinned-field
+re-affirmation. The reverse order does not typecheck: `resolveWorkflowPreset`
+requires `agents`/`agentModelConfig` already present, and only
+`loadWorkflowSteps` supplies them.
+
+Project resolution matches `cwd` against `findProjectMatchForPath`
+(`v1/src/config.ts`) — the same registry-only primitive `jarvis init`/`jarvis
+config` populate, with no ad-hoc unregistered-checkout fallback. This is the
+first `v2/src/**` module to import from `v1/src/**`; a precedent for future
+v2 specs reusing v1 registry/config code, not yet an established convention.
+
+Both project-resolution misses and `loadWorkflowSteps` failures (config-load,
+role-validation) return a caller-facing `{ ok: false; error: string }` result
+instead of throwing. `deps.findProjectMatchForPath`/`deps.loadWorkflowSteps`
+are test-only override seams; the builder does not accept an `--agents`
+override.
+
 ## Review-debate dispatch
 
 A step declaring `behavior: "review-debate"` dispatches to

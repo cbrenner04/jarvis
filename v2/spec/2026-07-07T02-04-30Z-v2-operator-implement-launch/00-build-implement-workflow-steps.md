@@ -79,13 +79,13 @@ daemon `start` RPC already accepts for workflow-shaped runs.
 
 ## Acceptance criteria
 
-- [ ] Given a cwd inside a project registered in `~/.jarvis/config.json`,
+- [x] Given a cwd inside a project registered in `~/.jarvis/config.json`,
       the builder returns a one-step workflow whose step has `role: "implement"`
       and `promptId: "patch.prompt.body"` (preset-pinned) and `agents`/`agentModelConfig`
       populated from machine config.
-- [ ] Given a cwd outside any registered project, the builder returns an
+- [x] Given a cwd outside any registered project, the builder returns an
       error result naming the unresolved cwd rather than throwing.
-- [ ] Given a cwd inside a registered project but a machine config that fails
+- [x] Given a cwd inside a registered project but a machine config that fails
       role/agent validation, the builder returns an error result carrying that
       failure rather than throwing.
 

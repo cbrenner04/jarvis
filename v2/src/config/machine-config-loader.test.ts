@@ -140,9 +140,6 @@ describe("loadMachineConfig", () => {
     const agents = ["z-agent", "a-agent", "m-agent"];
     const result = loadMachineConfig(writeConfig({ agents }));
     expect(result).toEqual(agents);
-    expect(result![0]).toBe("z-agent");
-    expect(result![1]).toBe("a-agent");
-    expect(result![2]).toBe("m-agent");
   });
 
   test("ignores extra fields in config", () => {

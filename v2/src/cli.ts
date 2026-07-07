@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
 import { createAgentBindings } from "../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
@@ -12,6 +13,7 @@ import {
 import type { WaitRunCompletionResult } from "./daemon/daemon.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon/daemon-lifecycle.ts";
 import { parseListRuns, parseStartResult, parseWaitCompletion } from "./daemon/daemon-wire.ts";
+import { buildImplementWorkflowSteps } from "./execution/implement-workflow-steps.ts";
 import { executeWriteLoop, type WriteLoopInput, type WriteLoopResult } from "./execution/write-loop.ts";
 import { buildWriteLoopInputFromCliValues, parseWriteArgs } from "./execution/write-loop-input.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
@@ -35,6 +37,8 @@ type CliDeps = {
   getDaemonStatus: typeof getDaemonStatus;
   runTuiEntry: (deps?: RunTuiEntryDeps) => Promise<number>;
   runTuiLogFollow: (runId: string, deps?: RunTuiLogFollowDeps) => Promise<number>;
+  buildImplementWorkflowSteps: typeof buildImplementWorkflowSteps;
+  cwd: () => string;
   socketPath: string;
   pidPath: string;
   machineConfigPath: string;
@@ -52,6 +56,8 @@ const TUI_USAGE = "usage: jarvis tui\n";
 const TUI_LOG_USAGE = "usage: jarvis tui log <run-id>\n";
 const WRITE_USAGE =
   "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--agents <csv>] [--max-iterations <n>]\n";
+const WORKFLOW_IMPLEMENT_USAGE =
+  "usage: jarvis run workflow implement --branch <name> --base <ref> --spec <path> --artifact <path>\n";
 const LOG_FRAME_WAIT_MS = 86_400_000;
 
 export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliDeps>): Promise<number> {
@@ -68,6 +74,8 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     getDaemonStatus,
     runTuiEntry,
     runTuiLogFollow,
+    buildImplementWorkflowSteps,
+    cwd: () => process.cwd(),
     socketPath: DEFAULT_SOCKET_PATH,
     pidPath: DEFAULT_PID_PATH,
     machineConfigPath: DEFAULT_MACHINE_CONFIG_PATH,
@@ -113,11 +121,12 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
       return runtimeDeps.runTuiEntry({ socketPath: runtimeDeps.socketPath });
     }
     if (argv[1] === "log") {
-      if (argv.length !== 3) {
+      const runId = argv[2];
+      if (argv.length !== 3 || runId === undefined) {
         out.stderr(TUI_LOG_USAGE);
         return 1;
       }
-      return runtimeDeps.runTuiLogFollow(argv[2]!, { socketPath: runtimeDeps.socketPath });
+      return runtimeDeps.runTuiLogFollow(runId, { socketPath: runtimeDeps.socketPath });
     }
     out.stderr(TUI_USAGE);
     return 1;
@@ -186,12 +195,13 @@ async function runConfigCommand(argv: readonly string[], io: Io, deps: CliDeps):
     return 0;
   }
 
-  if (argv[0] !== "set-agents" || argv.length !== 2) {
+  const csv = argv[1];
+  if (argv[0] !== "set-agents" || argv.length !== 2 || csv === undefined) {
     io.stderr(CONFIG_USAGE);
     return 1;
   }
 
-  const parsed = parseSetAgentsCsv(argv[1]!);
+  const parsed = parseSetAgentsCsv(csv);
   if (!parsed.ok) {
     io.stderr(parsed.message);
     return 1;
@@ -221,6 +231,41 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
 
     return withRunClient(io, deps, async (client) => {
       const response = await request(client, "start", { input: parsed.input });
+      if (response.kind === "error") {
+        io.stderr(formatRpcError(response));
+        return 1;
+      }
+      const start = parseStartResult(response.result);
+      if (start === undefined) {
+        io.stderr("invalid daemon response\n");
+        return 1;
+      }
+      io.stdout(`${start.runId}\n`);
+      return 0;
+    });
+  }
+
+  if (subcommand === "workflow" && argv[1] === "implement") {
+    const parsed = parseImplementWorkflowArgs(argv.slice(2));
+    if (!parsed.ok) {
+      io.stderr(WORKFLOW_IMPLEMENT_USAGE);
+      return 1;
+    }
+
+    const built = deps.buildImplementWorkflowSteps({
+      cwd: deps.cwd(),
+      branchName: parsed.branchName,
+      baseRef: parsed.baseRef,
+      specPath: parsed.specPath,
+      artifactPath: parsed.artifactPath,
+    });
+    if (!built.ok) {
+      io.stderr(`${built.error}\n`);
+      return 1;
+    }
+
+    return withRunClient(io, deps, async (client) => {
+      const response = await request(client, "start", { steps: built.steps });
       if (response.kind === "error") {
         io.stderr(formatRpcError(response));
         return 1;
@@ -414,10 +459,43 @@ function parseWriteCliInput(argv: readonly string[], deps: CliDeps): WriteCliInp
   return { ok: true, input: built.input };
 }
 
+type ImplementWorkflowCliInput =
+  | { ok: true; branchName: string; baseRef: string; specPath: string; artifactPath: string }
+  | { ok: false };
+
+function parseImplementWorkflowArgs(argv: readonly string[]): ImplementWorkflowCliInput {
+  let values: Record<string, string | boolean | string[] | undefined>;
+  try {
+    values = parseArgs({
+      args: [...argv],
+      allowPositionals: false,
+      strict: true,
+      options: {
+        branch: { type: "string" },
+        base: { type: "string" },
+        spec: { type: "string" },
+        artifact: { type: "string" },
+      },
+    }).values;
+  } catch {
+    return { ok: false };
+  }
+
+  const branchName = typeof values.branch === "string" ? values.branch : undefined;
+  const baseRef = typeof values.base === "string" ? values.base : undefined;
+  const specPath = typeof values.spec === "string" ? values.spec : undefined;
+  const artifactPath = typeof values.artifact === "string" ? values.artifact : undefined;
+
+  if (branchName === undefined || baseRef === undefined || specPath === undefined || artifactPath === undefined) {
+    return { ok: false };
+  }
+
+  return { ok: true, branchName, baseRef, specPath, artifactPath };
+}
+
 function parseSetAgentsCsv(raw: string): { ok: true; agents: string[] } | { ok: false; message: string } {
   const agents = raw.split(",").map((part) => part.trim());
-  for (let i = 0; i < agents.length; i++) {
-    const agent = agents[i]!;
+  for (const [i, agent] of agents.entries()) {
     if (agent.length === 0) {
       return { ok: false, message: `Error: invalid agents CSV "${raw}": empty segment at position ${i + 1}\n` };
     }

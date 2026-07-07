@@ -61,16 +61,18 @@ export async function runTuiLogFollow(runId: string, deps?: RunTuiLogFollowDeps)
 
   try {
     session = await openLogFollowSession(resolved, quit);
+    const activeTail = tail;
+    const activeSession = session;
 
     const consume = (async (): Promise<void> => {
       try {
-        for await (const record of tail!.records()) {
-          await Promise.resolve(session!.appendLine(formatLogFollowLine(record)));
+        for await (const record of activeTail.records()) {
+          await Promise.resolve(activeSession.appendLine(formatLogFollowLine(record)));
         }
       } catch (error) {
         if (error instanceof TuiDaemonConnectionError) {
           if (!quitting) {
-            await Promise.resolve(session!.showFeedback(connectionErrorFeedback(error)));
+            await Promise.resolve(activeSession.showFeedback(connectionErrorFeedback(error)));
             exitCode = 1;
           }
           return;

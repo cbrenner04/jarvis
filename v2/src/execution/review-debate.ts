@@ -83,7 +83,9 @@ export async function executeReviewDebate(args: ReviewDebateInput): Promise<Revi
       break;
     }
 
-    const verdict = (adjudicator.final!.result as InvocationOk).stdout;
+    const adjudicatorFinal = adjudicator.final;
+    if (adjudicatorFinal === null) throw new Error("unreachable: adjudicator failure already handled above");
+    const verdict = (adjudicatorFinal.result as InvocationOk).stdout;
     writeFileSync(args.verdictPath, verdict, "utf8");
 
     if (verdict.trim().length === 0) {

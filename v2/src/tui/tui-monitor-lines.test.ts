@@ -11,6 +11,14 @@ const SINGLE_STEP_RUN: DaemonListRunRow = {
   isLive: true,
 };
 
+const WORKFLOW_STEP_1_COMPLETED = {
+  stepId: "step-1",
+  role: "implement",
+  status: "completed",
+  attemptCount: 2,
+  terminalOutcome: "complete",
+} as const;
+
 const WORKFLOW_RUN: DaemonListRunRow = {
   runId: "run-wf",
   project: "demo",
@@ -19,7 +27,7 @@ const WORKFLOW_RUN: DaemonListRunRow = {
   isLive: true,
   workflow: {
     steps: [
-      { stepId: "step-1", role: "implement", status: "completed", attemptCount: 2, terminalOutcome: "complete" },
+      WORKFLOW_STEP_1_COMPLETED,
       { stepId: "step-2", role: "review", status: "in_progress", attemptCount: 1 },
       { stepId: "step-3", role: "verify", status: "pending", attemptCount: 0 },
     ],
@@ -72,7 +80,7 @@ describe("monitorTextLines", () => {
             isLive: false,
             workflow: {
               steps: [
-                WORKFLOW_RUN.workflow!.steps[0]!,
+                WORKFLOW_STEP_1_COMPLETED,
                 { stepId: "step-2", role: "review", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
                 { stepId: "step-3", role: "verify", status: "stopped", attemptCount: 1, terminalOutcome: "blocked" },
               ],

@@ -23,6 +23,9 @@ payloads for this case.
 
 - [ ] Add `run workflow implement` parsing (branch/base/spec/artifact flags)
       alongside the existing `run` subcommand dispatch in `v2/src/cli.ts`.
+- [ ] `jarvis run workflow <unrecognized>` and bare `jarvis run workflow`
+      fall through to the existing usage/command-not-found handling and
+      exit nonzero, without contacting the daemon.
 - [ ] On parse success, resolve cwd's registered project and build the
       workflow steps via subspec 00's builder, then send `{ steps }` to the
       connected daemon's `start` RPC.
@@ -42,6 +45,9 @@ payloads for this case.
 - [ ] Running the same command from a directory outside any registered
       project fails with an actionable message and does not contact the daemon.
 - [ ] Omitting a required flag fails with usage output and does not contact
+      the daemon.
+- [ ] Running `jarvis run workflow` with an unrecognized or missing preset
+      name fails with usage/command-not-found output and does not contact
       the daemon.
 - [ ] `v2/src/cli.test.ts` daemon-RPC-failure and malformed-response cases
       (asserted today for `run start`) hold equally for `run workflow implement`.

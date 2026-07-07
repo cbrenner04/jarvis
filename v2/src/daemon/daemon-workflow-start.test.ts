@@ -3,7 +3,12 @@ import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding, InvocationResult } from "../../../shared/invocation/execute.ts";
-import type { AnyWorkflowStep, HumanWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
+import type {
+  AnyWorkflowStep,
+  HumanWorkflowStep,
+  ReviewDebateWorkflowStep,
+  WriteWorkflowStep,
+} from "../execution/workflow-runner.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
@@ -36,6 +41,32 @@ const doneWithArtifactBindingFactory = createBindingFactory(async ({ cwd }) => {
   writeFileSync(join(cwd, "proof.txt"), "done\n", "utf8");
   return { kind: "ok", stdout: "done", stderr: "" } as const;
 });
+
+// Never settles, so the step's write loop stays live for the duration of the test.
+const neverResolvingBindingFactory = createBindingFactory(() => new Promise<InvocationResult>(() => {}));
+
+const DEBATE_AGENT_MODEL_CONFIG = {
+  claude: {
+    adversary: { rungs: [{ adapterModel: "ADV", priceKey: "p-adv" }] },
+    advocate: { rungs: [{ adapterModel: "ADVOC", priceKey: "p-advoc" }] },
+    adjudicator: { rungs: [{ adapterModel: "ADJ", priceKey: "p-adj" }] },
+    actuator: { rungs: [{ adapterModel: "ACT", priceKey: "p-act" }] },
+  },
+};
+
+function createDebateStep(stepId: string, branch: string): ReviewDebateWorkflowStep {
+  return {
+    behavior: "review-debate",
+    stepId,
+    cwd: "/fake",
+    project: "demo",
+    branch,
+    prompts: { adversary: "find issues", advocate: "argue merits", adjudicator: "settle it" },
+    maxCycles: 1,
+    agents: { adversary: ["claude"], advocate: ["claude"], adjudicator: ["claude"], actuator: ["claude"] },
+    agentModelConfig: DEBATE_AGENT_MODEL_CONFIG,
+  };
+}
 
 function createWriteStep(
   stepId: string,
@@ -224,4 +255,34 @@ test("kill/pause reject a later step's runId once onStepRunCreated has tracked i
     new AbortController().signal,
   );
   expect(pauseResponse).toEqual({ kind: "error", code: "run_not_active", message: expect.any(String) });
+});
+
+test("start with steps is rejected worktree_claimed when a live workflow run holds the (project, branch)", async () => {
+  const liveSteps: AnyWorkflowStep[] = [createWriteStep("step-1", "workflow-branch", neverResolvingBindingFactory)];
+  const liveResponse = await handlers.start(requestFrame("s1", "start", { steps: liveSteps }), new AbortController().signal);
+  expect(liveResponse.kind).toBe("response");
+  await flushBackgroundRuns();
+
+  const steps: AnyWorkflowStep[] = [createWriteStep("step-1", "workflow-branch")];
+  const response = await handlers.start(requestFrame("s2", "start", { steps }), new AbortController().signal);
+  expect(response).toEqual({ kind: "error", code: "worktree_claimed", message: expect.any(String) });
+});
+
+test("start with input is rejected worktree_claimed when a live workflow run holds the (project, branch)", async () => {
+  const liveSteps: AnyWorkflowStep[] = [createWriteStep("step-1", "workflow-branch", neverResolvingBindingFactory)];
+  const liveResponse = await handlers.start(requestFrame("s1", "start", { steps: liveSteps }), new AbortController().signal);
+  expect(liveResponse.kind).toBe("response");
+  await flushBackgroundRuns();
+
+  const response = await handlers.start(
+    requestFrame("s2", "start", { input: mockWriteLoopInput({ projectName: "demo", branchName: "workflow-branch" }) }),
+    new AbortController().signal,
+  );
+  expect(response).toEqual({ kind: "error", code: "worktree_claimed", message: expect.any(String) });
+});
+
+test("start with steps is rejected invalid_params when the first step is review-debate", async () => {
+  const steps: AnyWorkflowStep[] = [createDebateStep("debate-1", "debate-branch")];
+  const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
+  expect(response).toEqual({ kind: "error", code: "invalid_params", message: expect.any(String) });
 });

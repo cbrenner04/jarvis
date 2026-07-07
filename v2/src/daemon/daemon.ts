@@ -573,10 +573,13 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
    * Start a multi-step workflow: dispatch to `executeWorkflow` and resolve once step 0's
    * run row is durably created, letting the workflow continue running in the background.
    * A failure before that row exists (e.g. invalid step shape) settles the promise with
-   * an error instead of hanging.
+   * an error instead of hanging. `workflowKey` stays claimed in `_registry` for the whole
+   * run (not just until step 0 resolves) so a later start on the same `(project, branch)`
+   * is blocked until this workflow finishes or fails.
    */
   const startWorkflowRun = (
     steps: AnyWorkflowStep[],
+    workflowKey: OwnershipKey,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     return new Promise((resolve) => {
       executeWorkflow({
@@ -588,13 +591,17 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
             resolve({ kind: "response", result: { runId } });
           }
         },
-      }).catch((err) => {
-        resolve({
-          kind: "error",
-          code: "invalid_params",
-          message: err instanceof Error ? err.message : String(err),
+      })
+        .catch((err) => {
+          resolve({
+            kind: "error",
+            code: "invalid_params",
+            message: err instanceof Error ? err.message : String(err),
+          });
+        })
+        .finally(() => {
+          _registry.release(workflowKey);
         });
-      });
     });
   };
 
@@ -606,6 +613,14 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const handleWorkflowStart = (steps: AnyWorkflowStep[]): StartResult => {
     if (steps.length === 0) {
       return { kind: "error", code: "invalid_params", message: "steps must not be empty" };
+    }
+    const firstStep = steps[0];
+    if (firstStep?.behavior === "review-debate") {
+      return {
+        kind: "error",
+        code: "invalid_params",
+        message: "Workflow start's first step must not be review-debate: it has no durable run row",
+      };
     }
     const workflowKey = workflowStartOwnershipKey(steps);
     if (store.hasQueuedRun(workflowKey)) {
@@ -626,7 +641,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         message: "Insufficient memory headroom to start workflow",
       };
     }
-    return startWorkflowRun(steps);
+    const worktreePath = firstStep?.behavior === "write" ? getExternalWorktreePath(firstStep.worktree) : "";
+    _registry.claim(workflowKey, { runId: "", worktreePath });
+    return startWorkflowRun(steps, workflowKey);
   };
 
   const handleWriteLoopStart = (rawInput: WriteLoopInput): StartResult => {

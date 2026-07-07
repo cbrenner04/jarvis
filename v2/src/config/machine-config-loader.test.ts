@@ -2,11 +2,16 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadMachineConfig, readMachineConfigDocument, validateMachineConfigAgents } from "./machine-config-loader.ts";
+import {
+  loadMachineConfig,
+  readMachineConfigDocument,
+  resolveMachineProfile,
+  validateMachineConfigAgents,
+} from "./machine-config-loader.ts";
 
 function writeRawConfig(text: string): string {
   const dir = mkdtempSync(join(tmpdir(), "jarvis-config-test-"));
-  const configPath = join(dir, "v2.json");
+  const configPath = join(dir, "config.json");
   writeFileSync(configPath, text);
   return configPath;
 }
@@ -17,7 +22,7 @@ function writeConfig(value: unknown): string {
 
 describe("loadMachineConfig", () => {
   test("nonexistent config path returns undefined", () => {
-    const result = loadMachineConfig("/nonexistent/path/v2.json");
+    const result = loadMachineConfig("/nonexistent/path/config.json");
     expect(result).toBeUndefined();
   });
 
@@ -149,5 +154,36 @@ describe("loadMachineConfig", () => {
     const agents = ["claude-3-opus", "gpt-5.2", "agent_v2"];
     const result = loadMachineConfig(writeConfig({ agents }));
     expect(result).toEqual(agents);
+  });
+});
+
+describe("resolveMachineProfile", () => {
+  test("nonexistent config path throws naming the missing key", () => {
+    expect(() => resolveMachineProfile("/nonexistent/path/config.json")).toThrow(/missing required 'machineProfile'/);
+  });
+
+  test("missing machineProfile key throws naming the missing key", () => {
+    const configPath = writeConfig({ agents: ["claude"] });
+    expect(() => resolveMachineProfile(configPath)).toThrow(/missing required 'machineProfile'/);
+  });
+
+  test("empty string machineProfile throws the same as an absent key", () => {
+    const configPath = writeConfig({ machineProfile: "" });
+    expect(() => resolveMachineProfile(configPath)).toThrow(/missing required 'machineProfile'/);
+  });
+
+  test("non-string machineProfile throws", () => {
+    const configPath = writeConfig({ machineProfile: 123 });
+    expect(() => resolveMachineProfile(configPath)).toThrow(/missing required 'machineProfile'/);
+  });
+
+  test("valid machineProfile is returned", () => {
+    const configPath = writeConfig({ machineProfile: "home" });
+    expect(resolveMachineProfile(configPath)).toBe("home");
+  });
+
+  test("open-string machineProfile naming a non-'home' profile is accepted", () => {
+    const configPath = writeConfig({ machineProfile: "work" });
+    expect(resolveMachineProfile(configPath)).toBe("work");
   });
 });

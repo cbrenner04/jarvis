@@ -13,16 +13,20 @@ Two axes, two stores:
 
 | Axis | Store | Contents |
 | --- | --- | --- |
-| **Agent fallback order** | Per-machine `~/.jarvis/v2.json`, shape `{ "agents": string[] }` | Ordered `agents: Agent[]` — availability/quota chain only |
+| **Agent fallback order** | Top-level `agents` key in `~/.jarvis/config.json`, shape `{ "agents": string[] }` | Ordered `agents: Agent[]` — availability/quota chain only |
 | **Role→model bindings** | Repo-committed per-profile file `config/machines/<profileName>.json`, loaded by [`machine-profile-loader.ts`](../src/config/machine-profile-loader.ts) | `AgentModelConfig` — `(agent, role) → ModelEscalation`; may catalog agents beyond any one project's `agents` list |
 
 Two profiles are seeded: `home` (full claude+codex+cursor roster) and `work`
-(codex+cursor only, no `claude`). Which profile a machine loads is a hardcoded
-`"home"` placeholder at each call site until a profile-name resolver lands.
+(codex+cursor only, no `claude`). Which profile a machine loads is resolved at
+startup from the required `machineProfile` key in `~/.jarvis/config.json`
+(`resolveMachineProfile`, [`machine-config-loader.ts`](../src/config/machine-config-loader.ts)).
+A missing or empty `machineProfile` is a hard error; an existing key naming a
+profile with no matching `config/machines/<profileName>.json` is also a hard
+error. `machineProfile` is an open string — any non-empty value is accepted.
 
-The machine agent-order file is edited with `jarvis config set-agents <agent,agent,...>` and inspected with `jarvis config show` / `jarvis config path` ([Read-only inspection](#read-only-inspection)).
+The machine agent order is edited with `jarvis config set-agents <agent,agent,...>` and inspected with `jarvis config show` / `jarvis config path` ([Read-only inspection](#read-only-inspection)).
 `set-agents` replaces the full `agents` array, preserves unrelated top-level
-keys in `~/.jarvis/v2.json`, creates missing `~/.jarvis/` state on success, and
+keys in `~/.jarvis/config.json` (e.g. v1's `projects`, `machineProfile`), creates missing `~/.jarvis/` state on success, and
 refuses to overwrite an existing file that is not a valid machine-config object.
 
 Per-project variance is **only** the ordered `agents` list. Role→model assignments
@@ -276,7 +280,7 @@ pair bypasses load validation and both loops for one invocation. No matching
 models). See [`write-behavior.md`](write-behavior.md). This predates full
 `AgentModelConfig` resolution and does not implement inner rungs or role-aware
 binding. `jarvis config set-agents <agent,agent,...>` persists the same outer
-list to `~/.jarvis/v2.json`.
+list to `~/.jarvis/config.json`.
 
 `set-agents` parses at the command boundary before any filesystem mutation:
 empty CSV segments are rejected, and `agent:model` tokens are rejected because
@@ -284,12 +288,12 @@ the machine file stores agent order only. After that parse step, the landed
 array reuses the machine-config loader contract: `agents` must be a non-empty,
 string-only, duplicate-free array.
 
-Precedence for the write/run-start commands: CLI `--agents` > machine config `agents` > `DEFAULT_WRITE_AGENTS` (`["claude"]`). When `--agents` is absent, the per-machine agent list from `~/.jarvis/v2.json` (if present) is used; otherwise the built-in default applies.
+Precedence for the write/run-start commands: CLI `--agents` > machine config `agents` > `DEFAULT_WRITE_AGENTS` (`["claude"]`). When `--agents` is absent, the per-machine agent list from `~/.jarvis/config.json` (if present) is used; otherwise the built-in default applies.
 
 Success stdout for `set-agents` is JSON with the landed order:
 `{"agents":["claude","codex"]}`. Failures print one stderr line naming the
 rejected input or invalid file state, exit non-zero, preserve prior file
-content, and do not create `~/.jarvis/` or `v2.json` when input is rejected
+content, and do not create `~/.jarvis/` or `config.json` when input is rejected
 before the write path starts.
 
 ### Read-only inspection

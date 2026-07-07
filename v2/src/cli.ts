@@ -44,7 +44,7 @@ type WriteCliInput = { ok: true; input: WriteLoopInput } | { ok: false; message?
 
 const DEFAULT_SOCKET_PATH = join(homedir(), ".jarvis", "daemon.sock");
 const DEFAULT_PID_PATH = join(homedir(), ".jarvis", "daemon.pid");
-const DEFAULT_MACHINE_CONFIG_PATH = join(homedir(), ".jarvis", "v2.json");
+const DEFAULT_MACHINE_CONFIG_PATH = join(homedir(), ".jarvis", "config.json");
 const DAEMON_USAGE = "usage: jarvis daemon <start|stop|status>\n";
 const CONFIG_USAGE = "usage: jarvis config <show|path|set-agents> [args]\n";
 const RUN_USAGE = "usage: jarvis run <start|list|log|pause|resume|kill|wait> [args]\n";

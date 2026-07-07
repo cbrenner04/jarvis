@@ -34,6 +34,8 @@ test("resume on a paused run returns not_implemented without invoking the execut
     },
     failureReporter: () => {},
     isWorktreeDirty: () => false,
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
   });
 
   const pausedRunId = stateStore.createRun({

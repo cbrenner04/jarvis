@@ -89,7 +89,7 @@ function createPromotionHarness(
     store,
     registry,
     checkMemoryHeadroom: () => true,
-    settleDelayMs: 0,
+    settleDelayMs: () => 0,
     settleState: { suppressedUntil: 0 },
     spawnWriteLoop,
     ...overrides,
@@ -160,7 +160,7 @@ test("promoteQueuedRunImpl skips a queued run whose key is claimed in favor of t
 });
 
 test("promoteQueuedRunImpl withholds promotion while the settle delay is active", () => {
-  const { store, calls, deps, promote, cleanup } = createPromotionHarness({ settleDelayMs: 100_000 });
+  const { store, calls, deps, promote, cleanup } = createPromotionHarness({ settleDelayMs: () => 100_000 });
   try {
     const runIdA = queueRun(store, mockWriteLoopInput({ projectName: "project-settle-a" }));
     const runIdB = queueRun(store, mockWriteLoopInput({ projectName: "project-settle-b" }));

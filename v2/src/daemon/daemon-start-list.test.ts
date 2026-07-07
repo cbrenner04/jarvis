@@ -69,6 +69,7 @@ beforeEach(() => {
     writeLoopExecutor: fakeExecutor.executor,
     failureReporter: () => {},
     hasMemoryHeadroom: () => memoryHeadroom,
+    settleDelayMs: 0,
   });
 });
 
@@ -239,6 +240,8 @@ test("list returns workflow step snapshots for live, stopped, and completed work
     stateStore,
     writeLoopExecutor: fakeExecutor.executor,
     failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
   });
 
   const snapshot = workflowSnapshot(
@@ -609,6 +612,7 @@ test("review-debate progress does not leak between separate handler instances", 
     writeLoopExecutor: fakeExecutor.executor,
     failureReporter: () => {},
     hasMemoryHeadroom: () => memoryHeadroom,
+    settleDelayMs: 0,
   });
 
   otherHandlers.reportReviewDebateProgress("workflow-debate-instances", "step-debate", {

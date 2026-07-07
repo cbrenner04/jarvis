@@ -330,6 +330,12 @@ Example:
 }
 ```
 
+## Unknown top-level keys
+
+Top-level keys outside this schema (reserved for v2, e.g. `machineProfile`,
+`agents`) are preserved unchanged across v1 config writes — v1 does not
+validate or interpret them.
+
 ## `worktreeSymlinks`
 
 The optional `worktreeSymlinks` field allows sharing build artifacts or

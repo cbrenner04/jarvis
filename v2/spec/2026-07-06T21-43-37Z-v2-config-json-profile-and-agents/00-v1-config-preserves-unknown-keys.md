@@ -15,13 +15,13 @@ sets `machineProfile`/`agents` would wipe them out.
 
 ## Task Checklist
 
-- [ ] `validateConfig` retains unknown top-level keys (e.g. `machineProfile`, `agents`) unchanged in its return value.
-- [ ] `writeConfig`/`loadConfig` round trip no longer drops unknown top-level keys.
+- [x] `validateConfig` retains unknown top-level keys (e.g. `machineProfile`, `agents`) unchanged in its return value.
+- [x] `writeConfig`/`loadConfig` round trip no longer drops unknown top-level keys.
 
 ## Acceptance criteria
 
-- [ ] A `~/.jarvis/config.json` containing `machineProfile` and `agents` keys retains both, unchanged, after a v1 config write (e.g. `jarvis config set-git`).
-- [ ] Existing `v1/src/config.test.ts` coverage for known-key validation and strict nested-key rejection (`projects[name]`, `modes.patch`, etc.) stays green — only top-level unknown-key handling changes.
+- [x] A `~/.jarvis/config.json` containing `machineProfile` and `agents` keys retains both, unchanged, after a v1 config write (e.g. `jarvis config set-git`).
+- [x] Existing `v1/src/config.test.ts` coverage for known-key validation and strict nested-key rejection (`projects[name]`, `modes.patch`, etc.) stays green — only top-level unknown-key handling changes.
 
 ## Documentation updates
 

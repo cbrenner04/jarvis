@@ -35,6 +35,8 @@ function createHandlers(): Handlers {
     stateStore,
     writeLoopExecutor,
     failureReporter,
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
   });
 }
 
@@ -141,6 +143,8 @@ test("spawn boundary forwards original rejection to failure reporter", async () 
     failureReporter: (runId, reason) => {
       reportedFailures.push({ runId, reason });
     },
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
   });
 
   await startRunDirect(handlers);
@@ -170,6 +174,8 @@ test("terminal durable status is not overwritten on executor rejection", async (
     stateStore,
     writeLoopExecutor,
     failureReporter,
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
   });
 
   const runId = await startRunDirect(handlers);

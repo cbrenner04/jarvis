@@ -156,7 +156,7 @@ Per-project config:
     [`role-resolution.md`](role-resolution.md)); the store maps `(agent, role) →
     ordered model rungs` (`AgentModelConfig`). Lives in a **checked-in
     per-machine-profile file** (`config/machines/<profileName>.json`), not
-    `~/.jarvis/v2.json`: `~/.jarvis/v2.json` is agent-order-only. Schema,
+    `~/.jarvis/config.json`: the `agents` key in `~/.jarvis/config.json` is agent-order-only. Schema,
     validation, flattening, and price derivation:
     [`agent-model-config.md`](agent-model-config.md).
 - **A step names a role, not a model.** The runner walks the agent fallback
@@ -181,7 +181,7 @@ Per-project config:
   the end of the agent fallback order, configured only on machines that have it.
   Lifecycle and reach are settled under [Concurrency & memory budget → Local model](#local-model):
   Ollama server resident, qwen on-demand, reached via opencode.
-- **Focused show/edit.** Shipped machine-agent CLI: `jarvis config show`, `jarvis config path`, `jarvis config set-agents <agent,agent,...>` on `~/.jarvis/v2.json`. Per-project workflow drill-down deferred to [`agent-model-config.md`](agent-model-config.md).
+- **Focused show/edit.** Shipped machine-agent CLI: `jarvis config show`, `jarvis config path`, `jarvis config set-agents <agent,agent,...>` on `~/.jarvis/config.json`. Per-project workflow drill-down deferred to [`agent-model-config.md`](agent-model-config.md).
 - **Config-vs-source validation.** Because workflows are source and bindings are
   data, ship a check (companion to the workflow helper) that validates a
   project's config against the workflows it opts into — flags unknown workflow

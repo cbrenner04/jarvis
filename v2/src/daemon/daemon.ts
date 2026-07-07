@@ -6,7 +6,12 @@ import { resolveExecutableRole, resolveInvocationBindings } from "../config/agen
 import { resolveMachineProfile } from "../config/machine-config-loader.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import { nextRevisionNumber, revisionStepId } from "../execution/revision-step-id.ts";
-import { latestRevisionRun, type ReviewDebateProgress } from "../execution/workflow-runner.ts";
+import {
+  type AnyWorkflowStep,
+  executeWorkflow,
+  latestRevisionRun,
+  type ReviewDebateProgress,
+} from "../execution/workflow-runner.ts";
 import { executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
 import { type LogReader, type LoopFinishedEvent, openLogReader, openLogSink } from "../persistence/log-stream.ts";
@@ -35,12 +40,18 @@ export type OwnershipKey = {
   branch: string;
 };
 
-type ActiveRun = {
-  runId: string;
-  key: OwnershipKey;
-  abortController: AbortController;
-  pauseController: AbortController;
-};
+type ActiveRun =
+  | {
+      kind: "write-loop";
+      runId: string;
+      key: OwnershipKey;
+      abortController: AbortController;
+      pauseController: AbortController;
+    }
+  | {
+      kind: "workflow";
+      runId: string;
+    };
 
 export class DaemonDoubleClaimError extends Error {
   constructor(key: OwnershipKey) {
@@ -75,6 +86,21 @@ export class WorktreeOwnershipRegistry {
   isClaimed(key: OwnershipKey): boolean {
     return this.registry.has(ownershipKeyString(key));
   }
+}
+
+/**
+ * `(project, branch)` ownership key for a workflow start, derived from its first
+ * step. A `write` step carries `worktree.projectName`/`worktree.branchName`; `human`
+ * and `review-debate` steps carry flat `project`/`branch` fields.
+ */
+export function workflowStartOwnershipKey(steps: AnyWorkflowStep[]): OwnershipKey {
+  const firstStep = steps[0];
+  if (!firstStep) {
+    throw new Error("workflowStartOwnershipKey requires a non-empty steps array");
+  }
+  return firstStep.behavior === "write"
+    ? { project: firstStep.worktree.projectName, branch: firstStep.worktree.branchName }
+    : { project: firstStep.project, branch: firstStep.branch };
 }
 
 /**
@@ -513,7 +539,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     const ks = ownershipKeyString(key);
     const abortController = new AbortController();
     const pauseController = new AbortController();
-    activeRuns.set(ks, { runId, key, abortController, pauseController });
+    activeRuns.set(ks, { kind: "write-loop", runId, key, abortController, pauseController });
 
     _registry.claim(key, { runId, worktreePath });
 
@@ -548,13 +574,85 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       bypassSettleDelay,
     );
 
-  const startHandler: RpcHandler = (frame) => {
-    const params = frame.params as { input?: WriteLoopInput } | undefined;
-    if (!params?.input) {
-      return { kind: "error", code: "invalid_params", message: "Missing input" };
-    }
+  /**
+   * Start a multi-step workflow: dispatch to `executeWorkflow` and resolve once step 0's
+   * run row is durably created, letting the workflow continue running in the background.
+   * A failure before that row exists (e.g. invalid step shape) settles the promise with
+   * an error instead of hanging. `workflowKey` stays claimed in `_registry` for the whole
+   * run (not just until step 0 resolves) so a later start on the same `(project, branch)`
+   * is blocked until this workflow finishes or fails.
+   */
+  const startWorkflowRun = (
+    steps: AnyWorkflowStep[],
+    workflowKey: OwnershipKey,
+  ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
+    return new Promise((resolve) => {
+      executeWorkflow({
+        steps,
+        stateStore: store,
+        onStepRunCreated: (stepIndex, runId) => {
+          activeRuns.set(runId, { kind: "workflow", runId });
+          if (stepIndex === 0) {
+            resolve({ kind: "response", result: { runId } });
+          }
+        },
+      })
+        .catch((err) => {
+          resolve({
+            kind: "error",
+            code: "invalid_params",
+            message: err instanceof Error ? err.message : String(err),
+          });
+        })
+        .finally(() => {
+          _registry.release(workflowKey);
+        });
+    });
+  };
 
-    const input = normalizeBindings(params.input as WriteLoopInput);
+  type StartResult =
+    | { kind: "response"; result: unknown }
+    | { kind: "error"; code: string; message: string }
+    | Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }>;
+
+  const handleWorkflowStart = (steps: AnyWorkflowStep[]): StartResult => {
+    if (steps.length === 0) {
+      return { kind: "error", code: "invalid_params", message: "steps must not be empty" };
+    }
+    const firstStep = steps[0];
+    if (firstStep?.behavior === "review-debate") {
+      return {
+        kind: "error",
+        code: "invalid_params",
+        message: "Workflow start's first step must not be review-debate: it has no durable run row",
+      };
+    }
+    const workflowKey = workflowStartOwnershipKey(steps);
+    if (store.hasQueuedRun(workflowKey)) {
+      return {
+        kind: "error",
+        code: "worktree_claimed",
+        message: `Worktree already claimed for project=${workflowKey.project}, branch=${workflowKey.branch}`,
+      };
+    }
+    const workflowClaimError = checkWorktreeClaimed(_registry, workflowKey);
+    if (workflowClaimError) {
+      return workflowClaimError;
+    }
+    if (!checkMemoryHeadroom()) {
+      return {
+        kind: "error",
+        code: "insufficient_memory",
+        message: "Insufficient memory headroom to start workflow",
+      };
+    }
+    const worktreePath = firstStep?.behavior === "write" ? getExternalWorktreePath(firstStep.worktree) : "";
+    _registry.claim(workflowKey, { runId: "", worktreePath });
+    return startWorkflowRun(steps, workflowKey);
+  };
+
+  const handleWriteLoopStart = (rawInput: WriteLoopInput): StartResult => {
+    const input = normalizeBindings(rawInput);
     const key: OwnershipKey = {
       project: input.worktree.projectName,
       branch: input.worktree.branchName,
@@ -609,6 +707,20 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     promoteQueuedRun();
 
     return { kind: "response", result: { runId } };
+  };
+
+  const startHandler: RpcHandler = (frame) => {
+    const params = frame.params as { input?: WriteLoopInput; steps?: AnyWorkflowStep[] } | undefined;
+    const hasInput = params?.input !== undefined;
+    const hasSteps = params?.steps !== undefined;
+
+    if (hasInput === hasSteps) {
+      return { kind: "error", code: "invalid_params", message: "Provide exactly one of input or steps" };
+    }
+
+    return hasSteps
+      ? handleWorkflowStart(params?.steps as AnyWorkflowStep[])
+      : handleWriteLoopStart(params?.input as WriteLoopInput);
   };
 
   const listHandler: RpcHandler = () => {
@@ -671,8 +783,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
 
     const ks = ownershipKeyString({ project: run.project, branch: run.branch });
-    const activeRun = activeRuns.get(ks);
-    if (activeRun && activeRun.runId === runId) {
+    const activeRun = activeRuns.get(ks) ?? activeRuns.get(runId);
+    if (activeRun && activeRun.runId === runId && activeRun.kind === "write-loop") {
       activeRun.pauseController.abort();
       return { kind: "response", result: { ok: true } };
     }
@@ -693,8 +805,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
 
     const ks = ownershipKeyString({ project: run.project, branch: run.branch });
-    const activeRun = activeRuns.get(ks);
-    if (activeRun && activeRun.runId === runId) {
+    const activeRun = activeRuns.get(ks) ?? activeRuns.get(runId);
+    if (activeRun && activeRun.runId === runId && activeRun.kind === "write-loop") {
       activeRun.abortController.abort();
       store.setRunStatus(runId, "killed");
       return { kind: "response", result: { ok: true } };
@@ -827,7 +939,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     if (decision === "abort") {
       const ks = ownershipKeyString({ project: run.project, branch: run.branch });
       const activeRun = activeRuns.get(ks);
-      if (activeRun && activeRun.runId === run.id) {
+      if (activeRun && activeRun.runId === run.id && activeRun.kind === "write-loop") {
         activeRun.abortController.abort();
       }
       store.setRunStatus(run.id, "killed");

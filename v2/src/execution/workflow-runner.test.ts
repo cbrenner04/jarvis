@@ -166,6 +166,26 @@ describe("resolveWorkflowPreset", () => {
       'Workflow preset "write-write" requires 2 steps, received 1',
     );
   });
+
+  test("resolves implement to a single step with pinned role and promptId", () => {
+    const steps = resolveWorkflowPreset("implement", [
+      createStep({ stepId: "step-1", role: "placeholder", promptId: "placeholder.prompt" }),
+    ]);
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0]?.behavior).toBe("write");
+    expect((steps[0] as WriteWorkflowStep).role).toBe("implement");
+    expect((steps[0] as WriteWorkflowStep).promptId).toBe("patch.prompt.body");
+  });
+
+  test("throws on wrong implement preset step count", () => {
+    expect(() =>
+      resolveWorkflowPreset("implement", [
+        createStep({ stepId: "step-1", role: "implement" }),
+        createStep({ stepId: "step-2", role: "implement" }),
+      ]),
+    ).toThrow('Workflow preset "implement" requires 1 steps, received 2');
+  });
 });
 
 describe("executeWorkflow", () => {

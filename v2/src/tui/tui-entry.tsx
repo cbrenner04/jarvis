@@ -103,6 +103,11 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
     void Promise.resolve(session?.update(currentState));
   };
 
+  const requireClient = (): TuiDaemonClient => {
+    if (client === undefined) throw new Error("tui daemon client not connected");
+    return client;
+  };
+
   const setState = (state: TuiMonitorState): void => {
     currentState = state;
     syncMonitor();
@@ -179,10 +184,13 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
   };
 
   const runSteeringAction = (method: "pause" | "resume" | "kill", rewaitOnSuccess = false): void =>
-    runAction((runId) => client![method](runId), rewaitOnSuccess);
+    runAction((runId) => requireClient()[method](runId), rewaitOnSuccess);
 
   const runResumeDecisionAction = (decision: "approve" | "abort" | "revise", prompt?: string): void =>
-    runAction((runId) => client!.resume(runId, prompt !== undefined ? { decision, prompt } : { decision }), true);
+    runAction(
+      (runId) => requireClient().resume(runId, prompt !== undefined ? { decision, prompt } : { decision }),
+      true,
+    );
 
   const isSelectedAwaitingHuman = (): boolean => {
     const runId = currentState.selectedRunId;

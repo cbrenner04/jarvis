@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { nextRevisionNumber, parseRevisionNumber, revisionStepId } from "./revision-step-id.ts";
 
 describe("revisionStepId", () => {
-  test("builds the ${repeatStepId}~r<n> stepId", () => {
+  test("builds the <repeatStepId>~r<n> stepId", () => {
     expect(revisionStepId("implement", 1)).toBe("implement~r1");
     expect(revisionStepId("implement", 2)).toBe("implement~r2");
   });

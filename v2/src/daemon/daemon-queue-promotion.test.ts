@@ -27,6 +27,13 @@ async function flushBackgroundRuns(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
+async function startRunDirectExpectingId(handlers: Handlers, input: WriteLoopInput): Promise<string> {
+  const runId = await startRunDirect(handlers, input);
+  expect(runId).toBeDefined();
+  if (runId === undefined) throw new Error("expected startRunDirect to return a runId");
+  return runId;
+}
+
 function startHandlers(settleDelayMs: number): void {
   handlers = createRunControlHandlers({
     stateStore,
@@ -180,11 +187,11 @@ test("promoteQueuedRunImpl withholds promotion while the settle delay is active"
 test("promoting one queued run does not touch an already-running run when headroom later reports insufficient", async () => {
   startHandlers(100_000);
 
-  const runningId = await startRunDirect(handlers, mockWriteLoopInput({ projectName: "project-running" }));
+  const runningId = await startRunDirectExpectingId(handlers, mockWriteLoopInput({ projectName: "project-running" }));
 
   memoryHeadroom = false;
-  const queuedId = await startRunDirect(handlers, mockWriteLoopInput({ projectName: "project-queued" }));
-  expect(stateStore.loadRun(queuedId!)?.status).toBe("queued");
+  const queuedId = await startRunDirectExpectingId(handlers, mockWriteLoopInput({ projectName: "project-queued" }));
+  expect(stateStore.loadRun(queuedId)?.status).toBe("queued");
 
   memoryHeadroom = true;
   // A start on a distinct, unrelated key admits directly and triggers the post-admit
@@ -192,14 +199,14 @@ test("promoting one queued run does not touch an already-running run when headro
   await startRunDirect(handlers, mockWriteLoopInput({ projectName: "project-trigger" }));
   await flushBackgroundRuns();
 
-  expect(stateStore.loadRun(queuedId!)?.status).toBe("in-progress");
-  expect(stateStore.loadRun(runningId!)?.status).toBe("in-progress");
+  expect(stateStore.loadRun(queuedId)?.status).toBe("in-progress");
+  expect(stateStore.loadRun(runningId)?.status).toBe("in-progress");
 
   // Memory now drops below the watermark again; project-running's status must never
   // change as a side effect of headroom checks — there is no preemption.
   memoryHeadroom = false;
   await flushBackgroundRuns();
-  expect(stateStore.loadRun(runningId!)?.status).toBe("in-progress");
+  expect(stateStore.loadRun(runningId)?.status).toBe("in-progress");
 });
 
 test("a start that queues because memory is briefly tight is promoted immediately once memory has already recovered", async () => {
@@ -217,28 +224,28 @@ test("a start that queues because memory is briefly tight is promoted immediatel
     settleDelayMs: 0,
   });
 
-  const runId = await startRunDirect(handlers, mockWriteLoopInput({ projectName: "project-recovering" }));
+  const runId = await startRunDirectExpectingId(handlers, mockWriteLoopInput({ projectName: "project-recovering" }));
   await flushBackgroundRuns();
 
-  expect(stateStore.loadRun(runId!)?.status).toBe("in-progress");
+  expect(stateStore.loadRun(runId)?.status).toBe("in-progress");
 });
 
 test("a run reaching a paused status frees its key for promotion of an eligible queued run", async () => {
   startHandlers(0);
 
   const pausedKey = mockWriteLoopInput({ projectName: "project-pausing" });
-  const pausingRunId = await startRunDirect(handlers, pausedKey);
+  const pausingRunId = await startRunDirectExpectingId(handlers, pausedKey);
 
   memoryHeadroom = false;
-  const queuedId = await startRunDirect(handlers, mockWriteLoopInput({ projectName: "project-queued-2" }));
-  expect(stateStore.loadRun(queuedId!)?.status).toBe("queued");
+  const queuedId = await startRunDirectExpectingId(handlers, mockWriteLoopInput({ projectName: "project-queued-2" }));
+  expect(stateStore.loadRun(queuedId)?.status).toBe("queued");
 
   memoryHeadroom = true;
-  stateStore.setRunStatus(pausingRunId!, "paused");
+  stateStore.setRunStatus(pausingRunId, "paused");
   fakeExecutor.settleFirst();
   await flushBackgroundRuns();
 
-  expect(stateStore.loadRun(queuedId!)?.status).toBe("in-progress");
+  expect(stateStore.loadRun(queuedId)?.status).toBe("in-progress");
 });
 
 test("list reports a promoted run as in-progress and live", async () => {

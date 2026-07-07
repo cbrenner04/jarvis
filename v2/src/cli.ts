@@ -121,11 +121,12 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
       return runtimeDeps.runTuiEntry({ socketPath: runtimeDeps.socketPath });
     }
     if (argv[1] === "log") {
-      if (argv.length !== 3) {
+      const runId = argv[2];
+      if (argv.length !== 3 || runId === undefined) {
         out.stderr(TUI_LOG_USAGE);
         return 1;
       }
-      return runtimeDeps.runTuiLogFollow(argv[2]!, { socketPath: runtimeDeps.socketPath });
+      return runtimeDeps.runTuiLogFollow(runId, { socketPath: runtimeDeps.socketPath });
     }
     out.stderr(TUI_USAGE);
     return 1;
@@ -194,12 +195,13 @@ async function runConfigCommand(argv: readonly string[], io: Io, deps: CliDeps):
     return 0;
   }
 
-  if (argv[0] !== "set-agents" || argv.length !== 2) {
+  const csv = argv[1];
+  if (argv[0] !== "set-agents" || argv.length !== 2 || csv === undefined) {
     io.stderr(CONFIG_USAGE);
     return 1;
   }
 
-  const parsed = parseSetAgentsCsv(argv[1]!);
+  const parsed = parseSetAgentsCsv(csv);
   if (!parsed.ok) {
     io.stderr(parsed.message);
     return 1;
@@ -493,8 +495,7 @@ function parseImplementWorkflowArgs(argv: readonly string[]): ImplementWorkflowC
 
 function parseSetAgentsCsv(raw: string): { ok: true; agents: string[] } | { ok: false; message: string } {
   const agents = raw.split(",").map((part) => part.trim());
-  for (let i = 0; i < agents.length; i++) {
-    const agent = agents[i]!;
+  for (const [i, agent] of agents.entries()) {
     if (agent.length === 0) {
       return { ok: false, message: `Error: invalid agents CSV "${raw}": empty segment at position ${i + 1}\n` };
     }

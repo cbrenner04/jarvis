@@ -18,9 +18,7 @@ export type BuildImplementWorkflowStepsDeps = {
   loadWorkflowSteps?: typeof realLoadWorkflowSteps;
 };
 
-export type BuildImplementWorkflowStepsResult =
-  | { ok: true; steps: AnyWorkflowStep[] }
-  | { ok: false; error: string };
+export type BuildImplementWorkflowStepsResult = { ok: true; steps: AnyWorkflowStep[] } | { ok: false; error: string };
 
 /** Build the one-step `implement` preset workflow for cwd + run args. */
 export function buildImplementWorkflowSteps(

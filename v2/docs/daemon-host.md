@@ -222,6 +222,9 @@ Rules:
 - `invocation_failure` is also the fallback outcome for a step run left
   `in-progress` with no live daemon entry (e.g. a crash-orphaned run); the
   closed vocabulary has no dedicated status for that case.
+- Renders identically whether the workflow run was produced by `{ steps }`
+  dispatch or by `{ input }` (`start`) carrying a `workflowSnapshot`/`stepId` —
+  same row shape, same rules.
 
 ### Live controls on workflow-started runs
 

@@ -210,6 +210,43 @@ describe("executeWorkflow", () => {
     }
   });
 
+  test("onFirstRunCreated fires once step 0's run row is durably created, before the step completes", async () => {
+    const step = createStep({ stepId: "step-1", role: "implement" });
+    const store = openStateStore(":memory:");
+    let firedRunId: string | undefined;
+    let rowExistedAtFireTime = false;
+
+    try {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        onFirstRunCreated: (runId) => {
+          firedRunId = runId;
+          rowExistedAtFireTime = store.loadRun(runId) !== null;
+        },
+      });
+
+      expect(firedRunId).toBe(result.runId);
+      expect(rowExistedAtFireTime).toBe(true);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("onFirstRunCreated does not fire when executeWorkflow rejects before step 0's row is created", async () => {
+    const step1 = createStep({ stepId: "step-1", role: "implement" });
+    const step2 = createStep({ stepId: "step-1", role: "implement" }); // duplicate
+    let fired = false;
+
+    try {
+      await executeWorkflow({ steps: [step1, step2], onFirstRunCreated: () => (fired = true) });
+      expect.unreachable("Should have thrown");
+    } catch (e) {
+      expect(String(e)).toContain("Duplicate stepId");
+    }
+    expect(fired).toBe(false);
+  });
+
   test("runs single step to completion", async () => {
     const step = createStep({ stepId: "step-1", role: "implement" });
     const store = openStateStore(":memory:");

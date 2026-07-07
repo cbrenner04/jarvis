@@ -119,6 +119,8 @@ export type WorkflowRunnerInput = {
   onReviewDebateProgress?: (invocationId: string, stepId: string, progress: ReviewDebateProgress) => void;
   /** Shared telemetry context for every step's invocations; omitted emits no `invocation_completed` rows. */
   telemetry?: WorkflowTelemetryContext;
+  /** Fires once step 0's run row is durably created/resolved, before any step executes. */
+  onFirstRunCreated?: (runId: string) => void;
 };
 
 /** Build the runtime step shape from authoring input; `behavior` selects the dispatch path. */
@@ -174,9 +176,11 @@ async function runWorkflowStep(
   logSink: LogSink | undefined,
   onReviewDebateProgress: ((invocationId: string, stepId: string, progress: ReviewDebateProgress) => void) | undefined,
   telemetry: WorkflowTelemetryContext | undefined,
+  onFirstRunCreated: ((runId: string) => void) | undefined,
 ): Promise<WorkflowStepOutcome> {
   if (step.behavior === "human") {
     const humanStep = prepareHumanWorkflowStep(step, workflowSnapshot, store);
+    onFirstRunCreated?.(humanStep.runId);
     return {
       kind: humanStep.kind === "completed" ? "complete" : humanStep.kind,
       runId: humanStep.runId,
@@ -186,15 +190,18 @@ async function runWorkflowStep(
   }
 
   if (step.behavior === "review-debate") {
-    return runReviewDebateStep(step, workflowSnapshot.invocationId, onReviewDebateProgress, telemetry);
+    return runReviewDebateStep(step, workflowSnapshot.invocationId, onReviewDebateProgress, telemetry, onFirstRunCreated);
   }
 
   const preparedStep = prepareWorkflowStep(step, workflowSnapshot, store, logSink, telemetry);
   if (preparedStep.kind === "completed") {
+    onFirstRunCreated?.(preparedStep.runId);
     return { kind: "complete", runId: preparedStep.runId, iterationsConsumed: 0, resumable: false };
   }
 
-  return executeWriteLoop(preparedStep.input);
+  return executeWriteLoop(
+    onFirstRunCreated ? { ...preparedStep.input, onRunCreated: onFirstRunCreated } : preparedStep.input,
+  );
 }
 
 /**
@@ -239,6 +246,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         args.logSink,
         args.onReviewDebateProgress,
         args.telemetry,
+        stepIndex === 0 ? args.onFirstRunCreated : undefined,
       );
       totalIterationsConsumed += stepResult.iterationsConsumed;
       lastResult = stepResult;
@@ -530,11 +538,13 @@ async function runReviewDebateStep(
   invocationId: string,
   onProgress: ((invocationId: string, stepId: string, progress: ReviewDebateProgress) => void) | undefined,
   telemetry: WorkflowTelemetryContext | undefined,
+  onFirstRunCreated: ((runId: string) => void) | undefined,
 ): Promise<ReviewDebateStepOutcome> {
   const { stepId, project, branch, agents, agentModelConfig, createBinding, ...debateInput } = step;
   const resolveBindings = createBinding ?? createResolvedAgentBinding;
   const runId = crypto.randomUUID();
   const attemptId = crypto.randomUUID();
+  onFirstRunCreated?.(runId);
 
   const bindings = Object.fromEntries(
     REVIEW_DEBATE_ROLES.map((role) => [

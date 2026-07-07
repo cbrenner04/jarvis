@@ -5,7 +5,12 @@ import { createAgentBindings, createResolvedAgentBinding } from "../../../shared
 import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import { nextRevisionNumber, revisionStepId } from "../execution/revision-step-id.ts";
-import { latestRevisionRun, type ReviewDebateProgress } from "../execution/workflow-runner.ts";
+import {
+  type AnyWorkflowStep,
+  executeWorkflow,
+  latestRevisionRun,
+  type ReviewDebateProgress,
+} from "../execution/workflow-runner.ts";
 import { executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
 import { type LogReader, type LoopFinishedEvent, openLogReader, openLogSink } from "../persistence/log-stream.ts";
@@ -543,13 +548,55 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       bypassSettleDelay,
     );
 
+  /**
+   * Start a multi-step workflow: dispatch to `executeWorkflow` and resolve once step 0's
+   * run row is durably created, letting the workflow continue running in the background.
+   * A failure before that row exists (e.g. invalid step shape) settles the promise with
+   * an error instead of hanging.
+   */
+  const startWorkflowRun = (
+    steps: AnyWorkflowStep[],
+  ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
+    return new Promise((resolve) => {
+      executeWorkflow({
+        steps,
+        stateStore: store,
+        onFirstRunCreated: (runId) => resolve({ kind: "response", result: { runId } }),
+      }).catch((err) => {
+        resolve({
+          kind: "error",
+          code: "invalid_params",
+          message: err instanceof Error ? err.message : String(err),
+        });
+      });
+    });
+  };
+
   const startHandler: RpcHandler = (frame) => {
-    const params = frame.params as { input?: WriteLoopInput } | undefined;
-    if (!params?.input) {
-      return { kind: "error", code: "invalid_params", message: "Missing input" };
+    const params = frame.params as { input?: WriteLoopInput; steps?: AnyWorkflowStep[] } | undefined;
+    const hasInput = params?.input !== undefined;
+    const hasSteps = params?.steps !== undefined;
+
+    if (hasInput === hasSteps) {
+      return { kind: "error", code: "invalid_params", message: "Provide exactly one of input or steps" };
     }
 
-    const input = normalizeBindings(params.input as WriteLoopInput);
+    if (hasSteps) {
+      const steps = params?.steps as AnyWorkflowStep[];
+      if (steps.length === 0) {
+        return { kind: "error", code: "invalid_params", message: "steps must not be empty" };
+      }
+      if (!checkMemoryHeadroom()) {
+        return {
+          kind: "error",
+          code: "insufficient_memory",
+          message: "Insufficient memory headroom to start workflow",
+        };
+      }
+      return startWorkflowRun(steps);
+    }
+
+    const input = normalizeBindings(params?.input as WriteLoopInput);
     const key: OwnershipKey = {
       project: input.worktree.projectName,
       branch: input.worktree.branchName,

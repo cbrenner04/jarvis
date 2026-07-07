@@ -49,6 +49,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   pauseSignal?: AbortSignal;
   stepId?: string;
   workflowSnapshot?: WorkflowSnapshot;
+  /** Fires once this run's row is durably created/resolved, before any iteration executes. */
+  onRunCreated?: (runId: string) => void;
   telemetry?: {
     sinkPath?: string;
     operatorSessionId: string;
@@ -75,10 +77,12 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
   try {
     const prepared = prepareRun(args, store);
     if ("result" in prepared) {
+      args.onRunCreated?.(prepared.result.runId);
       // Idempotent re-entry: return prior result with no log events
       return prepared.result;
     }
     const { runId, worktreePath } = prepared;
+    args.onRunCreated?.(runId);
     let iterationsConsumed = 0;
     let resumedAttemptId = prepared.resumedAttemptId;
 

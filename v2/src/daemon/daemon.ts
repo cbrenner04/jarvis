@@ -369,7 +369,7 @@ export type PromoteQueuedRunDeps = {
   store: StateStore;
   registry: WorktreeOwnershipRegistry;
   checkMemoryHeadroom: () => boolean;
-  settleDelayMs: number;
+  settleDelayMs: () => number;
   settleState: PromotionSettleState;
   spawnWriteLoop: (key: OwnershipKey, runId: string, worktreePath: string, input: WriteLoopInput) => void;
 };
@@ -404,7 +404,7 @@ export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDel
 
     store.setRunStatus(run.id, "in-progress");
     spawnWriteLoop(key, run.id, run.worktreePath, normalizeBindings(run.queuedInput));
-    settleState.suppressedUntil = Date.now() + settleDelayMs;
+    settleState.suppressedUntil = Date.now() + settleDelayMs();
     return;
   }
 }
@@ -436,7 +436,11 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const { stateStore: store, logReader, writeLoopExecutor, failureReporter } = deps;
   const checkWorktreeDirty = deps.isWorktreeDirty ?? isWorktreeDirty;
   const checkMemoryHeadroom = deps.hasMemoryHeadroom ?? (() => hasMemoryHeadroom(resolveMachineProfile()));
-  const settleDelayMs = deps.settleDelayMs ?? loadSettleDelayMs(resolveMachineProfile());
+  const injectedSettleDelayMs = deps.settleDelayMs;
+  const settleDelayMs: () => number =
+    injectedSettleDelayMs !== undefined
+      ? () => injectedSettleDelayMs
+      : () => loadSettleDelayMs(resolveMachineProfile());
   const settleState: PromotionSettleState = { suppressedUntil: 0 };
 
   const resultFrom = (runId: string, runStatus: RunStatus, record?: TerminalLogRecord): WaitRunCompletionResult => {

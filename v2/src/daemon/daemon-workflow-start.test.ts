@@ -3,12 +3,12 @@ import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding, InvocationResult } from "../../../shared/invocation/execute.ts";
-import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import type { AnyWorkflowStep, HumanWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
-import { createRunControlHandlers } from "./daemon.ts";
+import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
+import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
+import { createRunControlHandlers } from "./daemon.ts";
 
 const { roots } = trackedTempRoots();
 
@@ -184,10 +184,7 @@ test("kill rejects a workflow-started run's step-0 runId with run_not_active", a
   const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
   expect(runId).toBeTruthy();
 
-  const killResponse = await handlers.kill(
-    requestFrame("k1", "kill", { runId }),
-    new AbortController().signal,
-  );
+  const killResponse = await handlers.kill(requestFrame("k1", "kill", { runId }), new AbortController().signal);
   expect(killResponse).toEqual({ kind: "error", code: "run_not_active", message: expect.any(String) });
 });
 
@@ -197,10 +194,7 @@ test("pause rejects a workflow-started run's step-0 runId with run_not_active", 
   const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
   expect(runId).toBeTruthy();
 
-  const pauseResponse = await handlers.pause(
-    requestFrame("p1", "pause", { runId }),
-    new AbortController().signal,
-  );
+  const pauseResponse = await handlers.pause(requestFrame("p1", "pause", { runId }), new AbortController().signal);
   expect(pauseResponse).toEqual({ kind: "error", code: "run_not_active", message: expect.any(String) });
 });
 

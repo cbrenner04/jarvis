@@ -191,7 +191,14 @@ async function runWorkflowStep(
   }
 
   if (step.behavior === "review-debate") {
-    return runReviewDebateStep(step, stepIndex, workflowSnapshot.invocationId, onReviewDebateProgress, telemetry, onStepRunCreated);
+    return runReviewDebateStep(
+      step,
+      stepIndex,
+      workflowSnapshot.invocationId,
+      onReviewDebateProgress,
+      telemetry,
+      onStepRunCreated,
+    );
   }
 
   const preparedStep = prepareWorkflowStep(step, workflowSnapshot, store, logSink, telemetry);

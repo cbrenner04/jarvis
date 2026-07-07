@@ -598,43 +598,39 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     });
   };
 
-  const startHandler: RpcHandler = (frame) => {
-    const params = frame.params as { input?: WriteLoopInput; steps?: AnyWorkflowStep[] } | undefined;
-    const hasInput = params?.input !== undefined;
-    const hasSteps = params?.steps !== undefined;
+  type StartResult =
+    | { kind: "response"; result: unknown }
+    | { kind: "error"; code: string; message: string }
+    | Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }>;
 
-    if (hasInput === hasSteps) {
-      return { kind: "error", code: "invalid_params", message: "Provide exactly one of input or steps" };
+  const handleWorkflowStart = (steps: AnyWorkflowStep[]): StartResult => {
+    if (steps.length === 0) {
+      return { kind: "error", code: "invalid_params", message: "steps must not be empty" };
     }
-
-    if (hasSteps) {
-      const steps = params?.steps as AnyWorkflowStep[];
-      if (steps.length === 0) {
-        return { kind: "error", code: "invalid_params", message: "steps must not be empty" };
-      }
-      const workflowKey = workflowStartOwnershipKey(steps);
-      if (store.hasQueuedRun(workflowKey)) {
-        return {
-          kind: "error",
-          code: "worktree_claimed",
-          message: `Worktree already claimed for project=${workflowKey.project}, branch=${workflowKey.branch}`,
-        };
-      }
-      const workflowClaimError = checkWorktreeClaimed(_registry, workflowKey);
-      if (workflowClaimError) {
-        return workflowClaimError;
-      }
-      if (!checkMemoryHeadroom()) {
-        return {
-          kind: "error",
-          code: "insufficient_memory",
-          message: "Insufficient memory headroom to start workflow",
-        };
-      }
-      return startWorkflowRun(steps);
+    const workflowKey = workflowStartOwnershipKey(steps);
+    if (store.hasQueuedRun(workflowKey)) {
+      return {
+        kind: "error",
+        code: "worktree_claimed",
+        message: `Worktree already claimed for project=${workflowKey.project}, branch=${workflowKey.branch}`,
+      };
     }
+    const workflowClaimError = checkWorktreeClaimed(_registry, workflowKey);
+    if (workflowClaimError) {
+      return workflowClaimError;
+    }
+    if (!checkMemoryHeadroom()) {
+      return {
+        kind: "error",
+        code: "insufficient_memory",
+        message: "Insufficient memory headroom to start workflow",
+      };
+    }
+    return startWorkflowRun(steps);
+  };
 
-    const input = normalizeBindings(params?.input as WriteLoopInput);
+  const handleWriteLoopStart = (rawInput: WriteLoopInput): StartResult => {
+    const input = normalizeBindings(rawInput);
     const key: OwnershipKey = {
       project: input.worktree.projectName,
       branch: input.worktree.branchName,
@@ -689,6 +685,20 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     promoteQueuedRun();
 
     return { kind: "response", result: { runId } };
+  };
+
+  const startHandler: RpcHandler = (frame) => {
+    const params = frame.params as { input?: WriteLoopInput; steps?: AnyWorkflowStep[] } | undefined;
+    const hasInput = params?.input !== undefined;
+    const hasSteps = params?.steps !== undefined;
+
+    if (hasInput === hasSteps) {
+      return { kind: "error", code: "invalid_params", message: "Provide exactly one of input or steps" };
+    }
+
+    return hasSteps
+      ? handleWorkflowStart(params?.steps as AnyWorkflowStep[])
+      : handleWriteLoopStart(params?.input as WriteLoopInput);
   };
 
   const listHandler: RpcHandler = () => {

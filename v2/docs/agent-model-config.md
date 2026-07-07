@@ -275,12 +275,12 @@ still executes the step's supplied `bindings` unchanged.
 pair bypasses load validation and both loops for one invocation. No matching
 `(agent, role)` entry is needed.
 
-**Interim shipped surface:** `jarvis write` / `jarvis run start` accept
-`--agents <csv>` as the ordered outer fallback list only (agent IDs, no per-role
-models). See [`write-behavior.md`](write-behavior.md). This predates full
-`AgentModelConfig` resolution and does not implement inner rungs or role-aware
-binding. `jarvis config set-agents <agent,agent,...>` persists the same outer
-list to `~/.jarvis/config.json`.
+**Interim shipped surface:** `jarvis write` / `jarvis run start` resolve their
+ordered outer fallback list (agent IDs, no per-role models) from machine
+config only — no CLI override. See [`write-behavior.md`](write-behavior.md).
+This predates full `AgentModelConfig` resolution and does not implement inner
+rungs or role-aware binding. `jarvis config set-agents <agent,agent,...>`
+persists the outer list to `~/.jarvis/config.json`.
 
 `set-agents` parses at the command boundary before any filesystem mutation:
 empty CSV segments are rejected, and `agent:model` tokens are rejected because
@@ -288,7 +288,8 @@ the machine file stores agent order only. After that parse step, the landed
 array reuses the machine-config loader contract: `agents` must be a non-empty,
 string-only, duplicate-free array.
 
-Precedence for the write/run-start commands: CLI `--agents` > machine config `agents` > `DEFAULT_WRITE_AGENTS` (`["claude"]`). When `--agents` is absent, the per-machine agent list from `~/.jarvis/config.json` (if present) is used; otherwise the built-in default applies.
+Precedence for the write/run-start commands: machine config `agents` when
+present, else `DEFAULT_WRITE_AGENTS` (`["claude"]`).
 
 Success stdout for `set-agents` is JSON with the landed order:
 `{"agents":["claude","codex"]}`. Failures print one stderr line naming the

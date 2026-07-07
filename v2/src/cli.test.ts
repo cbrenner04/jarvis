@@ -509,67 +509,7 @@ describe("v2 cli", () => {
     expect(cap.read()).toEqual({ stdout: `${configPath}\n`, stderr: "" });
   });
 
-  test("write --agents still overrides the persisted machine order after config set-agents", async () => {
-    const configPath = absentMachineConfigPath();
-    await setAgents(configPath, "claude,codex");
-
-    let capturedAgents: readonly string[] | undefined;
-    const writeCap = captureIo();
-    const code = await main([...WRITE_ARGS, "--agents", "cursor"], writeCap.io, {
-      machineConfigPath: configPath,
-      createBindings: (agentIds) => {
-        capturedAgents = agentIds;
-        return simulatedBindings(["done"]);
-      },
-      executeWriteLoop: async () => completeResult(),
-    });
-
-    expect(code).toBe(0);
-    expect(capturedAgents).toEqual(["cursor"]);
-  });
-
-  test("run start --agents still overrides the persisted machine order after config set-agents", async () => {
-    const configPath = absentMachineConfigPath();
-    await setAgents(configPath, "claude,codex");
-
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    const requestId = "00000000-0000-4000-8000-000000000021";
-    const originalRandomUuid = crypto.randomUUID;
-    crypto.randomUUID = () => requestId;
-
-    let code = NaN;
-    try {
-      code = await main([...RUN_START_ARGS, "--agents", "cursor"], cap.io, {
-        machineConfigPath: configPath,
-        connectIpcClient: async () =>
-          makeIpcClient(
-            [
-              {
-                kind: "response",
-                id: requestId,
-                result: { runId: "run-override" },
-              },
-            ],
-            { sent },
-          ),
-      });
-    } finally {
-      crypto.randomUUID = originalRandomUuid;
-    }
-
-    expect(code).toBe(0);
-    expect(cap.read()).toEqual({ stdout: "run-override\n", stderr: "" });
-    expect(sent[0]).toMatchObject({
-      params: {
-        input: {
-          bindings: [{ id: "cursor" }],
-        },
-      },
-    });
-  });
-
-  test("run start forwards machine-config agents into IPC start payload when --agents is omitted", async () => {
+  test("run start forwards machine-config agents into IPC start payload", async () => {
     const cap = captureIo();
     const configPath = writeMachineConfig({ agents: ["codex", "cursor"] });
     const sent: unknown[] = [];
@@ -606,27 +546,6 @@ describe("v2 cli", () => {
         },
       },
     });
-  });
-
-  test("forwards parsed agents to the injected binding factory", async () => {
-    const cap = captureIo();
-    let capturedAgents: readonly string[] | undefined;
-    let capturedInput: WriteLoopInput | undefined;
-
-    const code = await main([...WRITE_ARGS, "--agents", "claude,codex"], cap.io, {
-      createBindings: (agentIds) => {
-        capturedAgents = agentIds;
-        return simulatedBindings(["done"]);
-      },
-      executeWriteLoop: async (input) => {
-        capturedInput = input;
-        return completeResult();
-      },
-    });
-
-    expect(code).toBe(0);
-    expect(capturedAgents).toEqual(["claude", "codex"]);
-    expect(capturedInput?.bindings).toHaveLength(1);
   });
 
   test("mints an operatorSessionId when no caller-supplied telemetry is present", async () => {
@@ -670,7 +589,7 @@ describe("v2 cli", () => {
     expect(result.telemetry).toEqual(callerTelemetry);
   });
 
-  test("defaults to the claude agent when --agents is omitted", async () => {
+  test("defaults to the claude agent when machine config has no override", async () => {
     const cap = captureIo();
     let capturedAgents: readonly string[] | undefined;
 
@@ -686,7 +605,7 @@ describe("v2 cli", () => {
     expect(capturedAgents).toEqual(["claude"]);
   });
 
-  test("valid machine config supplies fallback agents when --agents is omitted", async () => {
+  test("valid machine config supplies fallback agents", async () => {
     const cap = captureIo();
     const configPath = writeMachineConfig({ agents: ["codex", "cursor"] });
     let capturedAgents: readonly string[] | undefined;
@@ -704,7 +623,7 @@ describe("v2 cli", () => {
     expect(capturedAgents).toEqual(["codex", "cursor"]);
   });
 
-  test("invalid machine config exits nonzero without invoking any agent when --agents is omitted", async () => {
+  test("invalid machine config exits nonzero without invoking any agent", async () => {
     const cap = captureIo();
     const configPath = writeRawMachineConfig("{ invalid json");
     let createBindingsCalled = false;
@@ -721,24 +640,6 @@ describe("v2 cli", () => {
     expect(code).toBe(1);
     expect(createBindingsCalled).toBe(false);
     expect(cap.read().stderr).toContain("Failed to parse machine config");
-  });
-
-  test("--agents wins over a broken machine config file", async () => {
-    const cap = captureIo();
-    const configPath = writeRawMachineConfig("{ invalid json");
-    let capturedAgents: readonly string[] | undefined;
-
-    const code = await main([...WRITE_ARGS, "--agents", "claude,codex"], cap.io, {
-      machineConfigPath: configPath,
-      createBindings: (agentIds) => {
-        capturedAgents = agentIds;
-        return simulatedBindings(["done"]);
-      },
-      executeWriteLoop: async () => completeResult(),
-    });
-
-    expect(code).toBe(0);
-    expect(capturedAgents).toEqual(["claude", "codex"]);
   });
 
   test("default binding factory yields not-wired error bindings", async () => {
@@ -859,7 +760,8 @@ describe("v2 cli", () => {
 
     let code = NaN;
     try {
-      code = await main([...RUN_START_ARGS, "--agents", "claude,codex", "--max-iterations", "4"], cap.io, {
+      code = await main([...RUN_START_ARGS, "--max-iterations", "4"], cap.io, {
+        machineConfigPath: absentMachineConfigPath(),
         connectIpcClient: async () =>
           makeIpcClient(
             [
@@ -894,7 +796,7 @@ describe("v2 cli", () => {
           stepRules: "Return exactly one terminal token: done|no-work|blocked|progress.",
           expectedArtifactPath: "proof.txt",
           maxIterations: 4,
-          bindings: [{ id: "claude" }, { id: "codex" }],
+          bindings: [{ id: "claude" }],
         },
       },
     });

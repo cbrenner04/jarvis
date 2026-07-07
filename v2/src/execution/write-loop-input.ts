@@ -5,7 +5,7 @@ import type { WriteLoopInput } from "./write-loop.ts";
 /** Default step rules injected into every write-loop launch payload. */
 export const DEFAULT_WRITE_STEP_RULES = "Return exactly one terminal token: done|no-work|blocked|progress.";
 
-/** Default agent list when launch fields omit `--agents`. */
+/** Default agent list when config has no `agents` override. */
 export const DEFAULT_WRITE_AGENTS = ["claude"] as const;
 
 /** Raw launch field values shared by CLI argv mapping and the TUI collector. */
@@ -16,8 +16,6 @@ export type WriteLaunchFieldValues = {
   baseRef: string;
   specPath: string;
   artifactPath: string;
-  /** Comma-separated agent ids; omitted uses {@link DEFAULT_WRITE_AGENTS}. */
-  agents?: string;
   /** Positive integer string; omitted leaves `maxIterations` unset on the payload. */
   maxIterations?: string;
 };
@@ -70,20 +68,13 @@ export function buildWriteLoopInputFromCliValues(
   createBindings: (agentIds: readonly string[]) => readonly InvocationBinding[],
   fallbackAgents?: readonly string[],
 ): BuildWriteLoopInputResult | { ok: false; message?: string } {
-  const agents = stringValue(values.agents);
   const maxIterationsRaw = stringValue(values["max-iterations"]);
   const maxIterationsCheck = parseMaxIterations(maxIterationsRaw, []);
   if (maxIterationsRaw !== undefined && maxIterationsCheck === null) {
     return { ok: false, message: "Error: --max-iterations must be a positive integer\n" };
   }
 
-  const result = buildWriteLoopInput(toLaunchFields(values), createBindings, fallbackAgents);
-
-  if (!result.ok && agents !== undefined && parseAgents(agents, []) === null) {
-    return { ok: false };
-  }
-
-  return result;
+  return buildWriteLoopInput(toLaunchFields(values), createBindings, fallbackAgents);
 }
 
 /** CLI flag names accepted by `jarvis write` and `jarvis run start`. */
@@ -99,7 +90,6 @@ export function parseWriteArgs(argv: readonly string[]): Record<string, string |
       base: { type: "string" },
       spec: { type: "string" },
       artifact: { type: "string" },
-      agents: { type: "string" },
       "max-iterations": { type: "string" },
     },
   }).values;
@@ -116,7 +106,7 @@ function requireLaunchFields(
   const baseRef = requireString(fields.baseRef, "base", errors);
   const specPath = requireString(fields.specPath, "spec", errors);
   const artifactPath = requireString(fields.artifactPath, "artifact", errors);
-  const agents = parseAgents(fields.agents, errors, fallbackAgents);
+  const agents = fallbackAgents ?? DEFAULT_WRITE_AGENTS;
 
   if (
     projectRoot === undefined ||
@@ -124,9 +114,7 @@ function requireLaunchFields(
     branchName === undefined ||
     baseRef === undefined ||
     specPath === undefined ||
-    artifactPath === undefined ||
-    agents === undefined ||
-    agents === null
+    artifactPath === undefined
   ) {
     return null;
   }
@@ -140,23 +128,6 @@ function requireString(value: string | undefined, name: string, errors: string[]
     return undefined;
   }
   return value;
-}
-
-function parseAgents(
-  raw: string | undefined,
-  errors: string[],
-  fallbackAgents?: readonly string[],
-): readonly string[] | null | undefined {
-  if (raw === undefined) return fallbackAgents ?? DEFAULT_WRITE_AGENTS;
-  const agents = raw
-    .split(",")
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0);
-  if (agents.length === 0) {
-    errors.push("invalid agents: empty list");
-    return null;
-  }
-  return agents;
 }
 
 function parseMaxIterations(raw: string | undefined, errors: string[]): number | undefined | null {
@@ -183,7 +154,6 @@ function toLaunchFields(
   assign("baseRef", stringValue(values.base));
   assign("specPath", stringValue(values.spec));
   assign("artifactPath", stringValue(values.artifact));
-  assign("agents", stringValue(values.agents));
   assign("maxIterations", stringValue(values["max-iterations"]));
   return fields;
 }

@@ -39,23 +39,33 @@ describe("buildWriteLoopInput", () => {
     expect("maxIterations" in fromCli.input).toBe(false);
   });
 
-  test("includes optional agents and maxIterations when provided", () => {
+  test("includes optional maxIterations when provided", () => {
     const values = {
       ...FIXTURE_CLI_VALUES,
-      agents: "claude,codex",
       "max-iterations": "4",
     };
 
-    let capturedAgents: readonly string[] | undefined;
-    const built = buildWriteLoopInputFromCliValues(values, (agentIds) => {
-      capturedAgents = agentIds;
-      return simulatedBindings(["done"]);
-    });
+    const built = buildWriteLoopInputFromCliValues(values, createTestBindings);
     expect(built.ok).toBe(true);
     if (!built.ok) return;
-    expect(capturedAgents).toEqual(["claude", "codex"]);
     expect(built.input.maxIterations).toBe(4);
     expect(built.input.bindings).toHaveLength(1);
+  });
+
+  test("resolves agents from fallbackAgents, defaulting to DEFAULT_WRITE_AGENTS when omitted", () => {
+    let capturedAgents: readonly string[] | undefined;
+    const capture = (agentIds: readonly string[]) => {
+      capturedAgents = agentIds;
+      return simulatedBindings(["done"]);
+    };
+
+    const defaulted = buildWriteLoopInputFromCliValues(FIXTURE_CLI_VALUES, capture);
+    expect(defaulted.ok).toBe(true);
+    expect(capturedAgents).toEqual(["claude"]);
+
+    const overridden = buildWriteLoopInputFromCliValues(FIXTURE_CLI_VALUES, capture, ["codex", "cursor"]);
+    expect(overridden.ok).toBe(true);
+    expect(capturedAgents).toEqual(["codex", "cursor"]);
   });
 
   test("parseWriteArgs rejects unknown flags", () => {

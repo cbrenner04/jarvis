@@ -55,7 +55,7 @@ const RUN_USAGE = "usage: jarvis run <start|list|log|pause|resume|kill|wait> [ar
 const TUI_USAGE = "usage: jarvis tui\n";
 const TUI_LOG_USAGE = "usage: jarvis tui log <run-id>\n";
 const WRITE_USAGE =
-  "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--agents <csv>] [--max-iterations <n>]\n";
+  "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--max-iterations <n>]\n";
 const WORKFLOW_IMPLEMENT_USAGE =
   "usage: jarvis run workflow implement --branch <name> --base <ref> --spec <path> --artifact <path>\n";
 const LOG_FRAME_WAIT_MS = 86_400_000;
@@ -442,14 +442,11 @@ function parseWriteCliInput(argv: readonly string[], deps: CliDeps): WriteCliInp
   }
 
   let fallbackAgents: readonly string[] | undefined;
-  const agentsFromCli = typeof values.agents === "string" ? values.agents : undefined;
-  if (agentsFromCli === undefined) {
-    try {
-      fallbackAgents = loadMachineConfig(deps.machineConfigPath);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return { ok: false, message: `${message}\n` };
-    }
+  try {
+    fallbackAgents = loadMachineConfig(deps.machineConfigPath);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, message: `${message}\n` };
   }
 
   const built = buildWriteLoopInputFromCliValues(values, deps.createBindings, fallbackAgents);

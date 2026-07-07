@@ -172,9 +172,10 @@ Per-project config:
   Both axes advance on **quota** only; `model_config` and `error` are terminal.
   Flattening, consumption modes (`actuator` head-only), and composition:
   [`agent-model-config.md`](agent-model-config.md).
-- **CLI override.** Target: `--agent` and `--model` together. Interim:
-  `--agents` CSV on write/run start ([`write-behavior.md`](write-behavior.md)).
-  Details: [`agent-model-config.md`](agent-model-config.md).
+- **CLI override.** Target: `--agent` and `--model` together. Interim: write/run
+  start resolve the outer order from machine config only, no CLI override
+  ([`write-behavior.md`](write-behavior.md)). Details:
+  [`agent-model-config.md`](agent-model-config.md).
 - **Local model is the terminal quota fallback.** When every paid CLI/platform in
   the agent fallback order is quota-exhausted, a locally-run model is the last
   resort rather than v1's hard exit `2` ("all agents quota-exhausted"). It sits at

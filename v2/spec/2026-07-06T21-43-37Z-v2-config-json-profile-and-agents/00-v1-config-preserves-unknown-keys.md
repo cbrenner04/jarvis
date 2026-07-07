@@ -15,8 +15,8 @@ sets `machineProfile`/`agents` would wipe them out.
 
 ## Task Checklist
 
-- [ ] `validateConfig` retains unknown top-level keys (e.g. `machineProfile`, `agents`) unchanged in its return value.
-- [ ] `writeConfig`/`loadConfig` round trip no longer drops unknown top-level keys.
+- [x] `validateConfig` retains unknown top-level keys (e.g. `machineProfile`, `agents`) unchanged in its return value.
+- [x] `writeConfig`/`loadConfig` round trip no longer drops unknown top-level keys.
 
 ## Acceptance criteria
 

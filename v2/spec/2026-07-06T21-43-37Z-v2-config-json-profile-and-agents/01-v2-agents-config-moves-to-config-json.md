@@ -20,10 +20,10 @@ anywhere.
 
 ## Task Checklist
 
-- [ ] `readMachineConfigDocument`/`loadMachineConfig` default to `~/.jarvis/config.json`.
-- [ ] `cli.ts`'s `DEFAULT_MACHINE_CONFIG_PATH` points at `~/.jarvis/config.json`.
-- [ ] All `~/.jarvis/v2.json` references removed from `v2/src` (code and tests use `config.json` fixtures).
-- [ ] `agents` schema/validation (`validateMachineConfigAgents`) unchanged — same ordered, non-empty, no-duplicate string array contract.
+- [x] `readMachineConfigDocument`/`loadMachineConfig` default to `~/.jarvis/config.json`.
+- [x] `cli.ts`'s `DEFAULT_MACHINE_CONFIG_PATH` points at `~/.jarvis/config.json`.
+- [x] All `~/.jarvis/v2.json` references removed from `v2/src` (code and tests use `config.json` fixtures).
+- [x] `agents` schema/validation (`validateMachineConfigAgents`) unchanged — same ordered, non-empty, no-duplicate string array contract.
 
 ## Acceptance criteria
 

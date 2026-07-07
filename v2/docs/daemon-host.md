@@ -250,6 +250,15 @@ concurrently across different `(project, branch)` keys.
    against the `WorktreeOwnershipRegistry`, so the check and its error shape
    can't drift between them.
 
+4. **Workflow starts (`start` with `{ steps }`):** the same two guards
+   (queued-run check, then live-claim check) run first, against a key
+   derived from the workflow's first step — `worktree.projectName`/
+   `worktree.branchName` when that step's `behavior` is `"write"`, else its
+   flat `project`/`branch` fields (`"human"` or `"review-debate"`). This
+   guard is absent in a build that has 00-dispatch-core landed but not this
+   subspec — a transient window where a workflow start bypasses claim/queue
+   checks entirely.
+
 ## Streaming
 
 Streams multiplex on the same connection via `stream-open` / `stream-data` /

@@ -4,8 +4,9 @@ import { join } from "node:path";
 import type { InvocationBinding, InvocationResult } from "../../../shared/invocation/execute.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
-import type { AnyWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
+import type { AnyWorkflowStep, HumanWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
 import { createRunControlHandlers } from "./daemon.ts";
+import { mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 
 const { roots } = trackedTempRoots();
@@ -139,4 +140,30 @@ test("start with steps is rejected insufficient_memory rather than queued when h
   const steps: AnyWorkflowStep[] = [createWriteStep("step-1", "b1")];
   const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
   expect(response).toEqual({ kind: "error", code: "insufficient_memory", message: expect.any(String) });
+});
+
+test("start with steps is rejected worktree_claimed when a live bare run holds the (project, branch)", async () => {
+  await startRunDirect(handlers, mockWriteLoopInput({ projectName: "demo", branchName: "workflow-branch" }));
+
+  const steps: AnyWorkflowStep[] = [createWriteStep("step-1", "workflow-branch")];
+  const response = await handlers.start(requestFrame("s2", "start", { steps }), new AbortController().signal);
+  expect(response).toEqual({ kind: "error", code: "worktree_claimed", message: expect.any(String) });
+});
+
+test("start with steps is rejected worktree_claimed when the (project, branch) already has a queued run", async () => {
+  memoryHeadroom = false;
+  await startRunDirect(handlers, mockWriteLoopInput({ projectName: "demo", branchName: "workflow-branch" }));
+
+  const steps: AnyWorkflowStep[] = [createWriteStep("step-1", "workflow-branch")];
+  const response = await handlers.start(requestFrame("s2", "start", { steps }), new AbortController().signal);
+  expect(response).toEqual({ kind: "error", code: "worktree_claimed", message: expect.any(String) });
+});
+
+test("start with steps derives the ownership key from flat project/branch when the first step is a human step", async () => {
+  await startRunDirect(handlers, mockWriteLoopInput({ projectName: "demo", branchName: "human-branch" }));
+
+  const humanStep: HumanWorkflowStep = { behavior: "human", stepId: "gate", project: "demo", branch: "human-branch" };
+  const steps: AnyWorkflowStep[] = [humanStep];
+  const response = await handlers.start(requestFrame("s2", "start", { steps }), new AbortController().signal);
+  expect(response).toEqual({ kind: "error", code: "worktree_claimed", message: expect.any(String) });
 });

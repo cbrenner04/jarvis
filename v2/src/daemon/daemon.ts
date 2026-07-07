@@ -82,6 +82,21 @@ export class WorktreeOwnershipRegistry {
 }
 
 /**
+ * `(project, branch)` ownership key for a workflow start, derived from its first
+ * step. A `write` step carries `worktree.projectName`/`worktree.branchName`; `human`
+ * and `review-debate` steps carry flat `project`/`branch` fields.
+ */
+export function workflowStartOwnershipKey(steps: AnyWorkflowStep[]): OwnershipKey {
+  const firstStep = steps[0];
+  if (!firstStep) {
+    throw new Error("workflowStartOwnershipKey requires a non-empty steps array");
+  }
+  return firstStep.behavior === "write"
+    ? { project: firstStep.worktree.projectName, branch: firstStep.worktree.branchName }
+    : { project: firstStep.project, branch: firstStep.branch };
+}
+
+/**
  * Returns a `worktree_claimed` error result when a live run already holds
  * `key`, or `undefined` when the worktree is free to claim.
  */
@@ -585,6 +600,18 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       const steps = params?.steps as AnyWorkflowStep[];
       if (steps.length === 0) {
         return { kind: "error", code: "invalid_params", message: "steps must not be empty" };
+      }
+      const workflowKey = workflowStartOwnershipKey(steps);
+      if (store.hasQueuedRun(workflowKey)) {
+        return {
+          kind: "error",
+          code: "worktree_claimed",
+          message: `Worktree already claimed for project=${workflowKey.project}, branch=${workflowKey.branch}`,
+        };
+      }
+      const workflowClaimError = checkWorktreeClaimed(_registry, workflowKey);
+      if (workflowClaimError) {
+        return workflowClaimError;
       }
       if (!checkMemoryHeadroom()) {
         return {

@@ -26,11 +26,11 @@ explicitly rather than only by absence.
 
 ## Acceptance criteria
 
-- [ ] Killing a workflow-started run's step-0 runId is rejected `run_not_active`.
-- [ ] Pausing a workflow-started run's step-0 runId is rejected `run_not_active`.
-- [ ] Once `onStepRunCreated` fires for a later step, killing/pausing that step's
+- [x] Killing a workflow-started run's step-0 runId is rejected `run_not_active`.
+- [x] Pausing a workflow-started run's step-0 runId is rejected `run_not_active`.
+- [x] Once `onStepRunCreated` fires for a later step, killing/pausing that step's
       runId is also rejected `run_not_active`.
-- [ ] Bare write-loop kill/pause behavior is unchanged (existing kill/pause tests
+- [x] Bare write-loop kill/pause behavior is unchanged (existing kill/pause tests
       stay green).
 
 ## Documentation updates

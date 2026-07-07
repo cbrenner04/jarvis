@@ -25,13 +25,13 @@ for the same `(project, branch)`.
 
 ## Acceptance criteria
 
-- [ ] A workflow start whose first step's `(project, branch)` is already claimed by a
+- [x] A workflow start whose first step's `(project, branch)` is already claimed by a
       live run is rejected `worktree_claimed`.
-- [ ] A workflow start whose first step's `(project, branch)` already has a queued
+- [x] A workflow start whose first step's `(project, branch)` already has a queued
       run is rejected `worktree_claimed`.
-- [ ] A workflow start for an unclaimed `(project, branch)` proceeds (dispatches to
+- [x] A workflow start for an unclaimed `(project, branch)` proceeds (dispatches to
       `executeWorkflow` per [00](./00-dispatch-core.md)).
-- [ ] A workflow start whose first step has `behavior: "write"` derives its
+- [x] A workflow start whose first step has `behavior: "write"` derives its
       ownership key from `worktree.projectName`/`worktree.branchName`; one whose
       first step is `"human"` or `"review-debate"` derives it from flat
       `project`/`branch`.

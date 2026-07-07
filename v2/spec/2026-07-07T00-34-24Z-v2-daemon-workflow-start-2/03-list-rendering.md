@@ -15,7 +15,7 @@ rendering against a run actually produced via `start`.
 
 ## Acceptance criteria
 
-- [ ] `list` on a `start`-produced multi-step workflow run returns per-step rows
+- [x] `list` on a `start`-produced multi-step workflow run returns per-step rows
       (`stepId`, `role`, `status`, `attemptCount`) matching the shape
       `workflowRowSnapshot` already produces for preset-produced workflow runs.
 

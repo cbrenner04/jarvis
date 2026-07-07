@@ -43,17 +43,17 @@ the existing single-run write-loop path.
 
 ## Acceptance criteria
 
-- [ ] A bare `{ input: WriteLoopInput }` call to `start` behaves exactly as before
+- [x] A bare `{ input: WriteLoopInput }` call to `start` behaves exactly as before
       (existing `daemon.test.ts` / equivalent start-handler tests stay green).
-- [ ] `start` called with `{ steps: [...] }` (one or more steps) dispatches to
+- [x] `start` called with `{ steps: [...] }` (one or more steps) dispatches to
       `executeWorkflow` and returns `{ runId }` for step 0's run once its row is
       durably created.
-- [ ] `start` called with both `input` and `steps`, with neither, or with
+- [x] `start` called with both `input` and `steps`, with neither, or with
       `steps: []`, is rejected `invalid_params`.
-- [ ] `start` called with `{ steps: [...] }` when `executeWorkflow` fails before
+- [x] `start` called with `{ steps: [...] }` when `executeWorkflow` fails before
       step 0's run row is created (e.g. an invalid step shape) returns an error
       response rather than hanging.
-- [ ] `start` called with `{ steps: [...] }` when memory headroom is insufficient
+- [x] `start` called with `{ steps: [...] }` when memory headroom is insufficient
       is rejected `insufficient_memory` rather than queued.
 
 ## Documentation updates

@@ -36,10 +36,10 @@ The write prompt injects the v2 restraint principles (`write.principles`) at
 every iteration; see [`coding-standards.md`](./coding-standards.md) for the
 canonical principle text and rationale.
 
-Current scope: real agent process spawning is not wired yet.
-`createAgentBindings` (see
-[`shared-invocation.md`](./shared-invocation.md)) returns terminal-`error`
-bindings, so a live `jarvis write` reports `invocation_failure` with
+Current scope: resolved Claude, Codex, and Cursor bindings spawn real agent
+processes through [`shared-invocation.md`](./shared-invocation.md). The older
+bare-agent `createAgentBindings` helper still returns terminal-`error` bindings,
+so any path still using it reports `invocation_failure` with
 `failureKind: "error"` and exits `2`. The control flow (loop, contract dispatch,
 outcome routing, state persistence, and resume) is exercised end-to-end in tests
 by injecting simulated bindings (`v2/src/testing/bindings.ts`); no simulation

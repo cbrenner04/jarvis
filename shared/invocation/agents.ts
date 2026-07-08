@@ -92,6 +92,39 @@ export function createResolvedAgentBinding(
     };
   }
 
+  if (agentId === "cursor") {
+    return {
+      id,
+      metadata,
+      invoke: ({ prompt, cwd, signal }) =>
+        runAgent(
+          {
+            name: "cursor",
+            binary: "cursor",
+            cwd,
+            buildArgv: (promptText) => [
+              "agent",
+              "-p",
+              "--output-format",
+              "text",
+              "--model",
+              resolveCursorCliModel(adapterModel),
+              "--force",
+              "--workspace",
+              cwd,
+              promptText,
+            ],
+            stdio: ["ignore", "pipe", "pipe"],
+            streamErrorPrefix: "cursor:",
+            classifier: "cursor",
+            ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
+          },
+          prompt,
+          signal === undefined ? {} : { signal },
+        ),
+    };
+  }
+
   return {
     ...createUnwiredBinding(
       id,
@@ -114,7 +147,7 @@ export function createAgentBindings(agentIds: readonly string[]): readonly Invoc
   }));
 }
 
-type AgentName = "claude" | "codex";
+type AgentName = "claude" | "codex" | "cursor";
 
 type AgentRunOptions = {
   signal?: AbortSignal;
@@ -198,7 +231,6 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
     };
 
     const settleZeroExit = () => {
-      // Claude-specific zero-exit quota envelope; not generalized per-agent (see note above).
       if (config.classifier === "claude" && isClaudeZeroExitQuotaEnvelope(outBuf)) {
         settle({ kind: "quota", stderr: outBuf });
         return;
@@ -471,6 +503,18 @@ const codexQuotaPatterns = [
   /\bquota exceeded\b/i,
 ] as const;
 
+const cursorQuotaPatterns = [
+  /\byou['’]ve hit your usage limit\b/i,
+  /\byou['’]ve hit your free requests limit\b/i,
+  /\btotal usage limit reached\b/i,
+  /\bmonthly cursor usage limit\b/i,
+  /\bon-demand spending limit\b/i,
+  /\bspend limit\b/i,
+  /\bresource_exhausted\b/i,
+  /\binsufficient[_ ]quota\b/i,
+  /\bquota exceeded\b/i,
+] as const;
+
 const modelConfigurationPatterns = [
   /\bunknown model\b/i,
   /\bunsupported model\b/i,
@@ -509,7 +553,8 @@ const transientPatterns = [
 
 function isQuotaSignal(name: AgentName, exitCode: number, stderr: string): boolean {
   if (exitCode === 0) return false;
-  const patterns = name === "codex" ? codexQuotaPatterns : claudeQuotaPatterns;
+  const patterns =
+    name === "codex" ? codexQuotaPatterns : name === "cursor" ? cursorQuotaPatterns : claudeQuotaPatterns;
   return patterns.some((pattern) => pattern.test(stderr));
 }
 
@@ -541,6 +586,25 @@ function isClaudeZeroExitQuotaEnvelope(stdout: string): boolean {
 
 function isClaudeQuotaMessageText(value: unknown): boolean {
   return typeof value === "string" && claudeQuotaPatterns.some((pattern) => pattern.test(value));
+}
+
+const cursorCliModels: Record<string, string> = {
+  "Composer 2": "composer-2.5",
+  "Composer 2.5": "composer-2.5",
+  "Composer 2.5 Fast": "composer-2.5-fast",
+  "Claude 4 Sonnet": "claude-4-sonnet",
+  "Claude 4.6 Sonnet": "claude-4.6-sonnet-medium",
+  "Claude 4.7 Opus": "claude-opus-4-7-medium",
+  "Claude 4.8 Opus": "claude-opus-4-8-medium",
+  "GPT-5.3 Codex": "gpt-5.3-codex",
+  "GPT-5.4": "gpt-5.4-medium",
+  "GPT-5.5": "gpt-5.5-medium",
+  "Gemini 3.1 Pro": "gemini-3.1-pro",
+  "Gemini 3.5 Flash": "gemini-3.5-flash",
+};
+
+function resolveCursorCliModel(model: string): string {
+  return cursorCliModels[model] ?? model;
 }
 
 type CodexSessionPathState = {

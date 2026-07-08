@@ -1,0 +1,3 @@
+Verdict: no valid issues requiring action.
+
+The advocate's explanation for the model-slug table duplication is correct and consistent with the spec's own explicit Decision ("Port only Cursor argv/model mapping from v1 ... rules out duplicating v1 process lifecycle, fallback loops, or price-key lookup") and the repo-wide constraint that `shared/**` must not import from `v1/**`. Duplicating the CLI-slug table is the intended consequence of "port, don't share," not an oversight — and it mirrors the porting pattern already accepted for quota patterns and spawn shape in this same slice. All eight acceptance criteria are satisfied; no further changes needed.

@@ -72,6 +72,7 @@ describe("maybeMarkPlanPrReady", () => {
     maybeMarkPlanPrReady({
       branch: "feature",
       cwd: gitDir,
+      timeoutMs: 30_000,
       getOpenPrState: (_branch, _cwd) => {
         getPrStateCalled = true;
         return { state: "none" };
@@ -92,6 +93,7 @@ describe("maybeMarkPlanPrReady", () => {
     maybeMarkPlanPrReady({
       branch: "feature",
       cwd: gitDir,
+      timeoutMs: 30_000,
       getOpenPrState: (_branch, _cwd) => {
         getPrStateCalled = true;
         return { state: "ready", number: 456 };
@@ -114,6 +116,7 @@ describe("maybeMarkPlanPrReady", () => {
     maybeMarkPlanPrReady({
       branch: "feature",
       cwd: gitDir,
+      timeoutMs: 30_000,
       getOpenPrState: (_branch, _cwd) => {
         getPrStateCalled = true;
         return { state: "draft", number: 123 };
@@ -138,6 +141,7 @@ describe("maybeMarkPlanPrReady", () => {
       maybeMarkPlanPrReady({
         branch: "feature",
         cwd: gitDir,
+        timeoutMs: 30_000,
         getOpenPrState: () => ({ state: "draft", number: 123 }),
         checkBaseCurrent: currentBase(),
         markReady: () => {
@@ -154,6 +158,7 @@ describe("maybeMarkPlanPrReady", () => {
     maybeMarkPlanPrReady({
       branch: "feature",
       cwd: gitDir,
+      timeoutMs: 30_000,
       getOpenPrState: () => ({ state: "draft", number: 123 }),
       checkBaseCurrent: behindBase("main"),
       markReady: () => {
@@ -177,6 +182,7 @@ describe("maybeMarkPlanPrReady", () => {
     maybeMarkPlanPrReady({
       branch: "feature",
       cwd: gitDir,
+      timeoutMs: 30_000,
       getOpenPrState: () => ({ state: "draft", number: 123 }),
       checkBaseCurrent: behindBase("release"),
       runReady: () => {
@@ -204,6 +210,7 @@ describe("maybeMarkPlanPrReady", () => {
     maybeMarkPlanPrReady({
       branch: "feature",
       cwd: gitDir,
+      timeoutMs: 30_000,
       getOpenPrState: () => ({ state: "draft", number: 123 }),
       checkBaseCurrent: currentBase(),
       runFix: (cwd) => {
@@ -238,6 +245,7 @@ describe("maybeMarkPlanPrReady", () => {
     maybeMarkPlanPrReady({
       branch: "feature",
       cwd: gitDir,
+      timeoutMs: 30_000,
       skipBaseCurrentCheck: true,
       skipReadyGate: true,
       getOpenPrState: () => ({ state: "draft", number: 123 }),
@@ -271,6 +279,7 @@ describe("maybeMarkPlanPrReady", () => {
     maybeMarkPlanPrReady({
       branch: "feature",
       cwd: gitDir,
+      timeoutMs: 30_000,
       agentLabel: "my-agent",
       getOpenPrState: () => ({ state: "draft", number: 123 }),
       checkBaseCurrent: currentBase(),
@@ -307,6 +316,7 @@ describe("maybeMarkPlanPrReady", () => {
       maybeMarkPlanPrReady({
         branch: "feature",
         cwd: gitDir,
+        timeoutMs: 30_000,
         getOpenPrState: () => ({ state: "draft", number: 123 }),
         checkBaseCurrent: currentBase(),
         runFix: () => {},
@@ -334,6 +344,7 @@ describe("maybeMarkPlanPrReady", () => {
       maybeMarkPlanPrReady({
         branch: "feature",
         cwd: gitDir,
+        timeoutMs: 30_000,
         getOpenPrState: () => ({ state: "draft", number: 123 }),
         checkBaseCurrent: currentBase(),
         runFix: (cwd) => {
@@ -366,6 +377,7 @@ describe("maybeMarkPlanPrReady", () => {
       maybeMarkPlanPrReady({
         branch: "feature",
         cwd: gitDir,
+        timeoutMs: 30_000,
         fixCommand: script,
         getOpenPrState: () => ({ state: "draft", number: 123 }),
         checkBaseCurrent: currentBase(),
@@ -386,6 +398,7 @@ describe("maybeMarkPlanPrReady", () => {
     maybeMarkPlanPrReady({
       branch: "feature",
       cwd: gitDir,
+      timeoutMs: 30_000,
       getOpenPrState: () => ({ state: "draft", number: 123 }),
       checkBaseCurrent: currentBase(null),
       markReady: () => {

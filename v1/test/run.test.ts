@@ -2662,6 +2662,7 @@ exit 0
             cwd,
             tier: "full",
             agentLabel: "completion-ready",
+            timeoutMs: DEFAULT_CONFIG.iterationTimeoutMs,
             runFix: () => {},
             runReady: (_c, tier) => {
               tiers.push(tier);

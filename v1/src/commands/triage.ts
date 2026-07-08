@@ -5,7 +5,7 @@ import { parseSpec } from "../../../shared/spec-parser.ts";
 import { type CiCheckState, classifyCiChecks, fetchCommitChecksForSha } from "../ci-checks.ts";
 import { appendAgentTrailer } from "../commit-trailer.ts";
 import type { ConfigOptions } from "../config.ts";
-import { loadConfig, resolvePlanFlags } from "../config.ts";
+import { DEFAULT_CONFIG, loadConfig, resolvePlanFlags } from "../config.ts";
 import { getBaseBranch, withSyncTransientRetry } from "../gh.ts";
 import { type BaseCurrentCheckResult, checkBaseCurrentForFinalize } from "../git/base-current.ts";
 import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "../modes/patch/completion.ts";
@@ -48,7 +48,7 @@ export type TriageCommandOptions = {
   merge?: boolean;
   ghRunner?: TriageGhRunner;
   mergeTargetSeams?: MergeTargetResolutionSeams;
-  runGate?: (cwd: string, readyCommand?: string, fixCommand?: string) => void;
+  runGate?: (cwd: string, readyCommand?: string, fixCommand?: string, timeoutMs?: number) => void;
   prReady?: (branch: string, cwd: string) => void;
   commitAndPushDirty?: (worktreePath: string) => CommitAndPushDirtyResult;
   pushCurrent?: typeof pushCurrent;
@@ -1393,6 +1393,14 @@ function resolveFixCommand(opts: TriageCommandOptions): string | undefined {
   return undefined;
 }
 
+function resolveReadyGateTimeoutMs(opts: TriageCommandOptions): number {
+  try {
+    return loadConfig(opts.config).iterationTimeoutMs;
+  } catch {
+    return DEFAULT_CONFIG.iterationTimeoutMs;
+  }
+}
+
 function triageRunReadyGate(
   opts: TriageCommandOptions,
   worktreePath: string,
@@ -1400,16 +1408,18 @@ function triageRunReadyGate(
   fixCommand: string | undefined,
   agentLabel: string,
 ): Error | null {
-  const defaultRunGate = (cwd: string, cmd?: string, fixCmd?: string) => {
+  const timeoutMs = resolveReadyGateTimeoutMs(opts);
+  const defaultRunGate = (cwd: string, cmd?: string, fixCmd?: string, gateTimeoutMs = timeoutMs) => {
     runReadyGateWithTier({
       cwd,
       agentLabel,
+      timeoutMs: gateTimeoutMs,
       ...(cmd !== undefined ? { readyCommand: cmd } : {}),
       ...(fixCmd !== undefined ? { fixCommand: fixCmd } : {}),
     });
   };
   try {
-    (opts.runGate ?? defaultRunGate)(worktreePath, readyCommand, fixCommand);
+    (opts.runGate ?? defaultRunGate)(worktreePath, readyCommand, fixCommand, timeoutMs);
     return null;
   } catch (err) {
     return err instanceof Error ? err : new Error(String(err));

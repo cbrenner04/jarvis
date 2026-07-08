@@ -71,7 +71,7 @@ type Config = {
   quotaFallback: "strict" | "lenient"; // weak quota-like error fallback mode; default "lenient"
   weakQuotaExitCodes: number[]; // exit codes treated as probable-quota under lenient mode; default []
   maxIterations: number; // positive integer, default 10
-  iterationTimeoutMs: number; // per-iteration timeout in milliseconds, default 10 minutes (600_000)
+  iterationTimeoutMs: number; // per-iteration timeout in milliseconds, default 30 minutes (1_800_000)
   idleOutputTimeoutMs?: number; // optional idle-output timeout in milliseconds; unset by default (disabled)
   runTimeoutMs?: number; // optional global run timeout in milliseconds; unset by default
   logServerUrl: string; // POST endpoint used by jarvis run
@@ -87,9 +87,9 @@ type Config = {
 
 **`updateSnapshotsCommand`** (per-project, optional): the command the snapshot-churn blocker gate runs to refresh outdated snapshots before re-testing (e.g. `bun test --update-snapshots`, `vitest -u`, `jest -u`). Takes precedence over auto-detection from the target repo's root `package.json`; if neither is set, the gate fail-safes (the blocker stands). Used only by that gate.
 
-**`readyCommand`** (per-project, optional): overrides the **verification** command at all patch-mode ready gate sites (completion transition, pre-shrink, review baseline, review final, and `maybeMarkReady`). Value is tokenized on whitespace and run via `execFileSync` (no shell). Must be a non-empty, non-whitespace-only string; rejected at `loadConfig` otherwise. Receives the `JARVIS_READY_TIER` env var (`"fast"` or `"full"`) unchanged. When unset, verification falls back to `bun run ready`. The override is verification-only: on a `full` gate the harness runs the project's `fixCommand` (or built-in `bun run fix` when unset) and commits any dirty output before invoking the override, then commits any post-verification churn after green verification when porcelain is non-empty; residual still-dirty porcelain after that commit aborts (no second harness fix pass). Mutating `readyCommand` side effects are harness-owned committable churn on `full`.
+**`readyCommand`** (per-project, optional): overrides the **verification** command at all patch-mode ready gate sites (completion transition, pre-shrink, review baseline, review final, and `maybeMarkReady`). Value is tokenized on whitespace and run via `execFileSync` (no shell). Must be a non-empty, non-whitespace-only string; rejected at `loadConfig` otherwise. Receives the `JARVIS_READY_TIER` env var (`"fast"` or `"full"`) unchanged. When unset, verification falls back to `bun run ready`. Verification is bounded by `iterationTimeoutMs` (30 min default); timeout failures name the command and gate label. The override is verification-only: on a `full` gate the harness runs the project's `fixCommand` (or built-in `bun run fix` when unset) and commits any dirty output before invoking the override, then commits any post-verification churn after green verification when porcelain is non-empty; residual still-dirty porcelain after that commit aborts (no second harness fix pass). Mutating `readyCommand` side effects are harness-owned committable churn on `full`.
 
-**`fixCommand`** (per-project, optional): overrides the **autofix** command on `full`-tier ready gates (completion transition, pre-shrink, review baseline and final, `maybeMarkReady`, triage `--mark-ready` / `--merge`, and plan-mode draft→ready). Tokenized on whitespace and run via `execFileSync` (no shell). Must be a non-empty, non-whitespace-only string; rejected at `loadConfig` otherwise. When unset, autofix falls back to `bun run fix`. For package-manager-shaped commands (`bun`/`npm`/`pnpm`/`yarn run <script>`), the harness skips autofix when root `package.json` is missing, unreadable, or lacks that script — verification and commit-if-dirty still run. Non-bun repos or repos without a `fix` script must set `fixCommand` (or accept absent-script skip on the default). Verification stays on `readyCommand` / `bun run ready`; do not fold autofix into `readyCommand`.
+**`fixCommand`** (per-project, optional): overrides the **autofix** command on `full`-tier ready gates (completion transition, pre-shrink, review baseline and final, `maybeMarkReady`, triage `--mark-ready` / `--merge`, and plan-mode draft→ready). Tokenized on whitespace and run via `execFileSync` (no shell). Must be a non-empty, non-whitespace-only string; rejected at `loadConfig` otherwise. Autofix is bounded by `iterationTimeoutMs` (30 min default); timeout failures name the command and gate label. When unset, autofix falls back to `bun run fix`. For package-manager-shaped commands (`bun`/`npm`/`pnpm`/`yarn run <script>`), the harness skips autofix when root `package.json` is missing, unreadable, or lacks that script — verification and commit-if-dirty still run. Non-bun repos or repos without a `fix` script must set `fixCommand` (or accept absent-script skip on the default). Verification stays on `readyCommand` / `bun run ready`; do not fold autofix into `readyCommand`.
 
 **`readyGateRetryBound`** (per-project, optional): sets the completion ready gate's retry bound (number of retries before entering fix-up, not counting the initial attempt). A non-negative integer; default is 2 (meaning 3 total attempts). Value 0 runs once and enters fix-up immediately on retryable red. Applies only to the completion-transition ready gate (the only ready gate with a retry loop); other ready gates always run once. Absent the knob, behavior is unchanged (2 retries).
 
@@ -225,7 +225,7 @@ Default contents on first bootstrap:
   "logServerBind": "127.0.0.1:4310",
   "telemetryPath": "~/.jarvis/runs.jsonl",
   "maxIterations": 10,
-  "iterationTimeoutMs": 600000,
+  "iterationTimeoutMs": 1800000,
   // "idleOutputTimeoutMs": 60000,  // optional: abort iteration if no output for 60 seconds
   "git": true,
   "projects": {}

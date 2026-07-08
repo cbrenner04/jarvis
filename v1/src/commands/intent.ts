@@ -945,6 +945,7 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
       maybeMarkPlanPrReady({
         branch,
         cwd: worktreePath,
+        timeoutMs: cfg.iterationTimeoutMs,
         getOpenPrState,
         skipBaseCurrentCheck: true,
         skipReadyGate: true,

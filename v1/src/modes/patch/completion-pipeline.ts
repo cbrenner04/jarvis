@@ -295,6 +295,7 @@ async function runCompletionReadyGate(
           cwd: preflight.agentWorkingDir,
           agentLabel: "completion-ready",
           tier: "full",
+          timeoutMs: preflight.cfg.iterationTimeoutMs,
           ...(readyCommand !== undefined ? { readyCommand } : {}),
           ...(fixCommand !== undefined ? { fixCommand } : {}),
         });
@@ -632,6 +633,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
             indexPath: preflight.specPath,
             cwd: preflight.agentWorkingDir,
             agentLabel: "review-incomplete",
+            timeoutMs: preflight.cfg.iterationTimeoutMs,
             ...(readyCommand !== undefined ? { readyCommand } : {}),
             ...(fixCommand !== undefined ? { fixCommand } : {}),
             ...(ctx.state.completionTransitionReadyResult !== undefined
@@ -660,6 +662,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         indexPath: preflight.specPath,
         cwd: preflight.agentWorkingDir,
         agentLabel: "patch-complete",
+        timeoutMs: preflight.cfg.iterationTimeoutMs,
         autoIntegrateBase: true,
         ...(readyCommand !== undefined ? { readyCommand } : {}),
         ...(fixCommand !== undefined ? { fixCommand } : {}),

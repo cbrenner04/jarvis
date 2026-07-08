@@ -54,6 +54,7 @@ export function selectReadyTier(opts: { cwd: string; recordedGreenResult?: Recor
 
 export type RunReadyAndCommitOpts = {
   cwd: string;
+  timeoutMs: number;
   /** Ready pipeline tier; defaults to `full`. */
   tier?: ReadyTier;
   /** Test seam: agent label for the pre-ready fix commit trailer. */
@@ -119,6 +120,15 @@ export class ReadyVerificationDirtyError extends Error {
     super(message);
     this.name = "ReadyVerificationDirtyError";
   }
+}
+
+function isExecTimeout(err: unknown): boolean {
+  const out = err as NodeJS.ErrnoException & { signal?: NodeJS.Signals };
+  return out.code === "ETIMEDOUT" && out.signal === "SIGTERM";
+}
+
+function commandTimeoutMessage(command: string, timeoutMs: number, agentLabel: string | undefined): string {
+  return `${command} exceeded ${timeoutMs}ms budget (gate: ${agentLabel ?? ""})`;
 }
 
 export function postVerificationStillDirtyErrorMessage(branch: string, porcelain: string): string {
@@ -197,8 +207,12 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
         cwd,
         env: { ...process.env },
         stdio: "pipe",
+        timeout: opts.timeoutMs,
       });
     } catch (err) {
+      if (isExecTimeout(err)) {
+        throw new FixCommandError(commandTimeoutMessage(displayCmd, opts.timeoutMs, opts.agentLabel));
+      }
       const out = err as NodeJS.ErrnoException & {
         stdout?: Buffer;
         stderr?: Buffer;
@@ -288,8 +302,12 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
         cwd,
         env: { ...process.env, JARVIS_READY_TIER: readyTier },
         stdio: "pipe",
+        timeout: opts.timeoutMs,
       });
     } catch (err) {
+      if (isExecTimeout(err)) {
+        throw new ReadyCommandError(commandTimeoutMessage(displayCmd, opts.timeoutMs, opts.agentLabel));
+      }
       const out = err as NodeJS.ErrnoException & {
         stdout?: Buffer;
         stderr?: Buffer;
@@ -332,6 +350,7 @@ export function runReadyGateWithTier(opts: {
   agentLabel: string;
   readyCommand?: string;
   fixCommand?: string;
+  timeoutMs: number;
   recordedGreenResult?: RecordedGreenResult;
   runFix?: (cwd: string) => void;
   runReady?: (cwd: string, tier: ReadyTier) => void;
@@ -349,6 +368,7 @@ export function runReadyGateWithTier(opts: {
     agentLabel: opts.agentLabel,
     ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
     ...(opts.fixCommand !== undefined ? { fixCommand: opts.fixCommand } : {}),
+    timeoutMs: opts.timeoutMs,
     ...(opts.runFix !== undefined ? { runFix: opts.runFix } : {}),
     ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
     ...(opts.commitPreReadyFix !== undefined ? { commitPreReadyFix: opts.commitPreReadyFix } : {}),

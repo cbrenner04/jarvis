@@ -13,6 +13,7 @@ export type AutoIntegrateBaseOpts = {
   cwd: string;
   baseRefName: string;
   agentLabel: string;
+  timeoutMs: number;
   readyCommand?: string;
   fixCommand?: string;
   stderr?: (s: string) => void;
@@ -147,6 +148,7 @@ export function tryAutoIntegrateBase(opts: AutoIntegrateBaseOpts): AutoIntegrate
       cwd: opts.cwd,
       tier: "full",
       agentLabel: opts.agentLabel,
+      timeoutMs: opts.timeoutMs,
       ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
       ...(opts.fixCommand !== undefined ? { fixCommand: opts.fixCommand } : {}),
       ...(opts.runFix !== undefined ? { runFix: opts.runFix } : {}),

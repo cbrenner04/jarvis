@@ -421,6 +421,7 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
         const tier = runReadyGateWithTier({
           cwd: opts.cwd,
           agentLabel: "shrink-baseline",
+          timeoutMs: opts.iterationTimeoutMs,
           ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
           ...(opts.fixCommand !== undefined ? { fixCommand: opts.fixCommand } : {}),
           ...(opts.recordedGreenResult !== undefined ? { recordedGreenResult: opts.recordedGreenResult } : {}),

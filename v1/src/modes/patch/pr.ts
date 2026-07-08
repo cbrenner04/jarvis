@@ -277,6 +277,7 @@ export { runReadyAndCommit };
 export type MaybeMarkReadyOpts = {
   indexPath: string;
   cwd: string;
+  timeoutMs: number;
   /** Test seam: bypass getCurrentBranch when set. Used by pr.test.ts to avoid real git. */
   branchName?: string;
   /** Test seam: agent label for the pre-ready fix commit trailer. Threaded to the `commitPreReadyFix` seam. */
@@ -339,6 +340,7 @@ export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
         cwd: opts.cwd,
         baseRefName: baseCurrent.baseRefName,
         agentLabel: opts.agentLabel ?? "",
+        timeoutMs: opts.timeoutMs,
         ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
         ...(opts.fixCommand !== undefined ? { fixCommand: opts.fixCommand } : {}),
         ...(opts.runFix !== undefined ? { runFix: opts.runFix } : {}),
@@ -384,6 +386,7 @@ export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
   runReadyGateWithTier({
     cwd: opts.cwd,
     agentLabel: opts.agentLabel ?? "",
+    timeoutMs: opts.timeoutMs,
     ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
     ...(opts.fixCommand !== undefined ? { fixCommand: opts.fixCommand } : {}),
     ...(opts.recordedGreenResult !== undefined ? { recordedGreenResult: opts.recordedGreenResult } : {}),

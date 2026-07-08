@@ -65,6 +65,7 @@ describe("runReadyAndCommit", () => {
 
     runReadyAndCommit({
       cwd: dir,
+      timeoutMs: 30_000,
       tier: "fast",
       runFix: () => {
         calls.push("fix");
@@ -88,6 +89,7 @@ describe("runReadyAndCommit", () => {
 
     runReadyAndCommit({
       cwd: dir,
+      timeoutMs: 30_000,
       tier: "full",
       runFix: () => {
         calls.push("fix");
@@ -111,6 +113,7 @@ describe("runReadyAndCommit", () => {
 
     runReadyAndCommit({
       cwd: dir,
+      timeoutMs: 30_000,
       tier: "full",
       runFix: () => {
         calls.push("fix");
@@ -129,6 +132,7 @@ describe("runReadyAndCommit", () => {
     expect(() =>
       runReadyAndCommit({
         cwd: dir,
+        timeoutMs: 30_000,
         tier: "full",
         runFix: () => {
           throw new FixCommandError("bun run fix failed");
@@ -148,6 +152,7 @@ describe("runReadyAndCommit", () => {
 
     runReadyAndCommit({
       cwd: dir,
+      timeoutMs: 30_000,
       tier: "full",
       agentLabel: "test-agent",
       runFix: () => {
@@ -175,6 +180,7 @@ describe("runReadyAndCommit", () => {
 
     runReadyAndCommit({
       cwd: dir,
+      timeoutMs: 30_000,
       tier: "full",
       runFix: () => {},
       runReady: () => {},
@@ -191,6 +197,7 @@ describe("runReadyAndCommit", () => {
     try {
       runReadyAndCommit({
         cwd: dir,
+        timeoutMs: 30_000,
         tier: "full",
         runFix: () => {},
         runReady: () => {
@@ -232,6 +239,7 @@ describe("runReadyAndCommit", () => {
     expect(() =>
       runReadyAndCommit({
         cwd: dir,
+        timeoutMs: 30_000,
         tier: "full",
         runFix: () => {},
         runReady: () => {
@@ -248,6 +256,7 @@ describe("runReadyAndCommit", () => {
     expect(() =>
       runReadyAndCommit({
         cwd: dir,
+        timeoutMs: 30_000,
         tier: "full",
         runFix: () => {},
         runReady: () => {
@@ -264,6 +273,7 @@ describe("runReadyAndCommit", () => {
     expect(() =>
       runReadyAndCommit({
         cwd: dir,
+        timeoutMs: 30_000,
         tier: "full",
         runFix: () => {},
         runReady: () => {
@@ -279,6 +289,7 @@ describe("runReadyAndCommit", () => {
     expect(() =>
       runReadyAndCommit({
         cwd: dir,
+        timeoutMs: 30_000,
         tier: "full",
         runFix: () => {
           writeFileSync(join(dir, "dirty.txt"), "x\n");
@@ -316,6 +327,7 @@ describe("runReadyAndCommit readyCommand", () => {
 
     runReadyAndCommit({
       cwd: dir,
+      timeoutMs: 30_000,
       readyCommand: script,
       runFix: () => {
         writeFileSync(fixSentinel, "fix\n");
@@ -334,6 +346,7 @@ describe("runReadyAndCommit readyCommand", () => {
 
     runReadyAndCommit({
       cwd: dir,
+      timeoutMs: 30_000,
       tier: "fast",
       readyCommand: script,
       runFix: () => {
@@ -352,10 +365,23 @@ describe("runReadyAndCommit readyCommand", () => {
     expect(() =>
       runReadyAndCommit({
         cwd: dir,
+        timeoutMs: 30_000,
         readyCommand: script,
         runFix: () => {},
       }),
     ).toThrow(script);
+  });
+
+  test("readyCommand timeout names command and gate", () => {
+    expect(() =>
+      runReadyAndCommit({
+        cwd: dir,
+        timeoutMs: 10,
+        agentLabel: "timeout-gate",
+        readyCommand: "sleep 1",
+        runFix: () => {},
+      }),
+    ).toThrow("sleep 1 exceeded 10ms budget (gate: timeout-gate)");
   });
 
   test("custom readyCommand green with dirty porcelain commits on full tier", () => {
@@ -371,6 +397,7 @@ exit 0
 
     runReadyAndCommit({
       cwd: dir,
+      timeoutMs: 30_000,
       readyCommand: script,
       runFix: () => {},
       commitPostVerification: () => {
@@ -402,6 +429,7 @@ describe("runReadyAndCommit fixCommand", () => {
 
     runReadyAndCommit({
       cwd: dir,
+      timeoutMs: 30_000,
       tier: "full",
       fixCommand: script,
       runReady: () => {},
@@ -417,6 +445,7 @@ describe("runReadyAndCommit fixCommand", () => {
 
     runReadyAndCommit({
       cwd: dir,
+      timeoutMs: 30_000,
       tier: "full",
       runReady: () => {
         calls.push("ready");
@@ -433,6 +462,7 @@ describe("runReadyAndCommit fixCommand", () => {
 
     runReadyAndCommit({
       cwd: dir,
+      timeoutMs: 30_000,
       tier: "full",
       fixCommand: "npm run lint-fix",
       runReady: () => {
@@ -448,6 +478,7 @@ describe("runReadyAndCommit fixCommand", () => {
 
     runReadyAndCommit({
       cwd: dir,
+      timeoutMs: 30_000,
       tier: "full",
       runReady: () => {
         calls.push("ready");
@@ -465,6 +496,7 @@ describe("runReadyAndCommit fixCommand", () => {
 
     runReadyAndCommit({
       cwd: dir,
+      timeoutMs: 30_000,
       tier: "full",
       fixCommand: script,
       runReady: () => {},
@@ -481,11 +513,25 @@ describe("runReadyAndCommit fixCommand", () => {
     expect(() =>
       runReadyAndCommit({
         cwd: dir,
+        timeoutMs: 30_000,
         tier: "full",
         fixCommand: script,
         runReady: () => {},
       }),
     ).toThrow(script);
+  });
+
+  test("fixCommand timeout names command and gate", () => {
+    expect(() =>
+      runReadyAndCommit({
+        cwd: dir,
+        timeoutMs: 10,
+        agentLabel: "timeout-gate",
+        tier: "full",
+        fixCommand: "sleep 1",
+        runReady: () => {},
+      }),
+    ).toThrow("sleep 1 exceeded 10ms budget (gate: timeout-gate)");
   });
 
   test("absent-script skip still commits dirty output after skipped autofix", () => {
@@ -494,6 +540,7 @@ describe("runReadyAndCommit fixCommand", () => {
 
     runReadyAndCommit({
       cwd: dir,
+      timeoutMs: 30_000,
       tier: "full",
       runReady: () => {},
       commitPreReadyFix: () => {
@@ -514,6 +561,7 @@ describe("runReadyAndCommit fixCommand", () => {
 
     runReadyAndCommit({
       cwd: dir,
+      timeoutMs: 30_000,
       tier: "full",
       runReady: () => {},
       commitPreReadyFix: () => {
@@ -558,6 +606,7 @@ describe("runReadyGateWithTier fixCommand", () => {
 
     runReadyGateWithTier({
       cwd: dir,
+      timeoutMs: 30_000,
       agentLabel: "test",
       fixCommand: script,
       runReady: () => {},
@@ -586,6 +635,7 @@ describe("runReadyGateWithTier readyCommand", () => {
 
     runReadyGateWithTier({
       cwd: dir,
+      timeoutMs: 30_000,
       agentLabel: "test",
       readyCommand: script,
       runFix: () => {},
@@ -614,6 +664,7 @@ describe("runReadyGateWithTier", () => {
 
     const tier = runReadyGateWithTier({
       cwd: dir,
+      timeoutMs: 30_000,
       agentLabel: "test",
       recordedGreenResult: { headSha },
       runFix: () => {
@@ -640,6 +691,7 @@ describe("runReadyGateWithTier", () => {
 
     const tier = runReadyGateWithTier({
       cwd: dir,
+      timeoutMs: 30_000,
       agentLabel: "test",
       runFix: () => {
         calls.push("fix");
@@ -665,6 +717,7 @@ describe("runReadyGateWithTier", () => {
 
     runReadyGateWithTier({
       cwd: dir,
+      timeoutMs: 30_000,
       agentLabel: "test",
       runFix: () => {},
       runReady: () => {

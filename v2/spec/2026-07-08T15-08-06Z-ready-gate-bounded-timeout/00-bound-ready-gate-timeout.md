@@ -97,20 +97,20 @@ calling ready gate (completion transition, pre-shrink, review baseline/final,
 
 ## Acceptance criteria
 
-- [ ] A hung `bun run ready`/`readyCommand` invocation is killed once
+- [x] A hung `bun run ready`/`readyCommand` invocation is killed once
       `iterationTimeoutMs` elapses instead of blocking the calling gate
       indefinitely.
-- [ ] A hung `bun run fix`/`fixCommand` invocation is killed once
+- [x] A hung `bun run fix`/`fixCommand` invocation is killed once
       `iterationTimeoutMs` elapses instead of blocking indefinitely.
-- [ ] The resulting failure names both the exceeded command and the gate site
+- [x] The resulting failure names both the exceeded command and the gate site
       (the call site's `agentLabel`) instead of a bare `ETIMEDOUT`/generic
       exec failure.
-- [ ] All `runReadyAndCommit`/`runReadyGateWithTier` call sites
+- [x] All `runReadyAndCommit`/`runReadyGateWithTier` call sites
       (completion-pipeline.ts, review.ts baseline, review.ts final,
       shrink.ts pre-shrink, pr.ts `maybeMarkReady`, auto-integrate-base.ts,
       plan/pr.ts `maybeMarkPlanPrReady`, triage.ts) pass `iterationTimeoutMs`
       from config rather than leaving the call unbounded.
-- [ ] `ready-gate.test.ts` and other existing ready-gate/completion/review/
+- [x] `ready-gate.test.ts` and other existing ready-gate/completion/review/
       shrink/pr/triage tests stay green (behavior unchanged on non-timeout
       paths).
 

@@ -373,6 +373,7 @@ describe("maybeMarkReady", () => {
       maybeMarkReady({
         indexPath,
         cwd: dir,
+        timeoutMs: 30_000,
         branchName: "feature",
         checkPrExists: () => true,
       }),
@@ -390,6 +391,7 @@ describe("maybeMarkReady", () => {
       maybeMarkReady({
         indexPath,
         cwd: dir,
+        timeoutMs: 30_000,
         branchName: "feature",
         checkPrExists: () => true,
         checkBaseCurrent: currentBase(),
@@ -414,6 +416,7 @@ describe("maybeMarkReady", () => {
       maybeMarkReady({
         indexPath,
         cwd: dir,
+        timeoutMs: 30_000,
         branchName: "feature",
         checkPrExists: () => true,
         checkBaseCurrent: currentBase(),
@@ -431,6 +434,7 @@ describe("maybeMarkReady", () => {
       maybeMarkReady({
         indexPath,
         cwd: dir,
+        timeoutMs: 30_000,
         branchName: "feature",
         checkPrExists: () => false,
       }),
@@ -446,6 +450,7 @@ describe("maybeMarkReady", () => {
     maybeMarkReady({
       indexPath,
       cwd: dir,
+      timeoutMs: 30_000,
       branchName: "feature",
       checkPrExists: () => true,
       checkBaseCurrent: behindBase("main"),
@@ -475,6 +480,7 @@ describe("maybeMarkReady", () => {
     maybeMarkReady({
       indexPath,
       cwd: dir,
+      timeoutMs: 30_000,
       branchName: "feature",
       checkPrExists: () => true,
       checkBaseCurrent: behindBase("main"),
@@ -501,6 +507,7 @@ describe("maybeMarkReady", () => {
     maybeMarkReady({
       indexPath,
       cwd: dir,
+      timeoutMs: 30_000,
       branchName: "feature",
       checkPrExists: () => true,
       checkBaseCurrent: behindBase("release"),
@@ -537,6 +544,7 @@ describe("maybeMarkReady", () => {
     maybeMarkReady({
       indexPath,
       cwd: dir,
+      timeoutMs: 30_000,
       branchName: "feature",
       checkPrExists: () => true,
       checkBaseCurrent: currentBase(),
@@ -574,6 +582,7 @@ describe("maybeMarkReady", () => {
     maybeMarkReady({
       indexPath,
       cwd: dir,
+      timeoutMs: 30_000,
       branchName: "feature",
       checkPrExists: () => true,
       checkBaseCurrent: currentBase(),
@@ -602,6 +611,7 @@ describe("maybeMarkReady", () => {
     maybeMarkReady({
       indexPath,
       cwd: dir,
+      timeoutMs: 30_000,
       branchName: "feature",
       checkPrExists: () => true,
       checkBaseCurrent: currentBase(),
@@ -642,6 +652,7 @@ describe("maybeMarkReady", () => {
       maybeMarkReady({
         indexPath,
         cwd: dir,
+        timeoutMs: 30_000,
         branchName: "feature",
         checkPrExists: () => true,
         checkBaseCurrent: currentBase(),
@@ -673,6 +684,7 @@ describe("maybeMarkReady", () => {
       maybeMarkReady({
         indexPath,
         cwd: dir,
+        timeoutMs: 30_000,
         branchName: "feature",
         checkPrExists: () => true,
         checkBaseCurrent: currentBase(),
@@ -709,6 +721,7 @@ describe("maybeMarkReady", () => {
       maybeMarkReady({
         indexPath,
         cwd: dir,
+        timeoutMs: 30_000,
         branchName: "feature",
         fixCommand: script,
         checkPrExists: () => true,
@@ -738,6 +751,7 @@ describe("maybeMarkReady", () => {
       maybeMarkReady({
         indexPath,
         cwd: dir,
+        timeoutMs: 30_000,
         branchName: "feature",
         readyCommand: script,
         checkPrExists: () => true,
@@ -761,6 +775,7 @@ describe("maybeMarkReady", () => {
     maybeMarkReady({
       indexPath,
       cwd: dir,
+      timeoutMs: 30_000,
       branchName: "feature",
       checkPrExists: () => true,
       checkBaseCurrent: currentBase(null),

@@ -923,6 +923,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           worktreePath: resume.worktreePath,
           specDirPath: resumeSpecPath,
           commit: true,
+          timeoutMs: rawCfg.iterationTimeoutMs,
           ...(planFixCommand !== undefined ? { fixCommand: planFixCommand } : {}),
         });
       } else {
@@ -1500,6 +1501,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           worktreePath: worktreePath as string,
           specDirPath: finalSpecPath,
           commit: true,
+          timeoutMs: rawCfg.iterationTimeoutMs,
           ...(planFixCommand !== undefined ? { fixCommand: planFixCommand } : {}),
         });
       } else {
@@ -1638,6 +1640,7 @@ function safeMarkPlanPrReady(args: {
   specDirPath?: string;
   commit?: boolean;
   fixCommand?: string;
+  timeoutMs: number;
   markReady?: (branch: string, cwd: string) => void;
   getOpenPrState?: (branch: string, cwd: string) => OpenPrInfo;
 }): void {
@@ -1652,6 +1655,7 @@ function safeMarkPlanPrReady(args: {
     maybeMarkPlanPrReady({
       branch: args.branch,
       cwd: args.worktreePath,
+      timeoutMs: args.timeoutMs,
       ...(args.fixCommand !== undefined ? { fixCommand: args.fixCommand } : {}),
       ...(args.markReady ? { markReady: args.markReady } : {}),
       ...(args.getOpenPrState ? { getOpenPrState: args.getOpenPrState } : {}),

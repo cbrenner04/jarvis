@@ -165,7 +165,7 @@ export const DEFAULT_CONFIG: Config = {
   quotaFallback: "lenient",
   weakQuotaExitCodes: [],
   maxIterations: 10,
-  iterationTimeoutMs: 600_000,
+  iterationTimeoutMs: 30 * 60_000,
   idleOutputTimeoutMs: 600000,
   logServerUrl: "http://127.0.0.1:4310/logs",
   logServerBind: "127.0.0.1:4310",

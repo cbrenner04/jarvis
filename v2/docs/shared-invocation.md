@@ -35,7 +35,11 @@ Bindings:
   Resolved `claude` bindings spawn `claude -p --permission-mode acceptEdits
   --model <adapterModel> --output-format json`, pipe the prompt on stdin, and
   settle into `ok | quota | model_config | error` before fallback continues.
-  Other resolved agents still return the terminal unwired `error`. Production
+  Resolved `codex` bindings spawn `codex exec --color never --sandbox
+  workspace-write -c approval_policy="on-request" --model <adapterModel>`,
+  pipe the marker-augmented prompt on stdin, correlate Codex session usage
+  best-effort, and settle into `ok | quota | model_config | error` before
+  fallback continues. Other resolved agents still return the terminal unwired `error`. Production
   `binding.id` records the resolved rung identity as
   `agentId/adapterModel/priceKey`, so attempts stay distinct even when two rungs
   share the same adapter model string.

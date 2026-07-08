@@ -1,5 +1,9 @@
 import type { ChildProcess, SpawnOptions, StdioOptions } from "node:child_process";
 import { spawn as realSpawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { type Dirent, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { InvocationBinding, InvocationResult } from "./execute.ts";
 
 export type ResolvedAgentBinding = {
@@ -12,6 +16,8 @@ type SpawnFn = (binary: string, argv: readonly string[], opts: SpawnOptions) => 
 
 export type ResolvedAgentBindingOptions = {
   spawn?: SpawnFn;
+  codexSessionsDir?: string;
+  randomUUID?: () => string;
 };
 
 function createUnwiredBinding(id: string, stderr: string): InvocationBinding {
@@ -58,11 +64,31 @@ export function createResolvedAgentBinding(
               stdin.end();
             },
             streamErrorPrefix: "claude:",
+            classifier: "claude",
             ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
           },
           prompt,
           signal === undefined ? {} : { signal },
         ),
+    };
+  }
+
+  if (agentId === "codex") {
+    return {
+      id,
+      metadata,
+      invoke: ({ prompt, cwd, signal }) => {
+        const runArgs = {
+          prompt,
+          cwd,
+          adapterModel,
+          ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
+          ...(opts.codexSessionsDir !== undefined ? { sessionsDir: opts.codexSessionsDir } : {}),
+          ...(opts.randomUUID !== undefined ? { randomUUID: opts.randomUUID } : {}),
+          ...(signal !== undefined ? { signal } : {}),
+        };
+        return runCodexBinding(runArgs);
+      },
     };
   }
 
@@ -88,7 +114,7 @@ export function createAgentBindings(agentIds: readonly string[]): readonly Invoc
   }));
 }
 
-type AgentName = "claude";
+type AgentName = "claude" | "codex";
 
 type AgentRunOptions = {
   signal?: AbortSignal;
@@ -104,6 +130,7 @@ type SpawnConfig = {
   stdio: StdioOptions;
   writeStdin?: (stdin: NodeJS.WritableStream, prompt: string) => void;
   streamErrorPrefix: string;
+  classifier: AgentName;
   spawn?: SpawnFn;
 };
 
@@ -172,7 +199,7 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
 
     const settleZeroExit = () => {
       // Claude-specific zero-exit quota envelope; not generalized per-agent (see note above).
-      if (isClaudeZeroExitQuotaEnvelope(outBuf)) {
+      if (config.classifier === "claude" && isClaudeZeroExitQuotaEnvelope(outBuf)) {
         settle({ kind: "quota", stderr: outBuf });
         return;
       }
@@ -181,11 +208,13 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
 
     const settleNonZeroExit = (exitCode: number) => {
       const diagnostics = `${errBuf}${outBuf}`;
-      if (isTransientSignal(exitCode, diagnostics)) {
+      if (isTransientSignal(config.classifier, exitCode, diagnostics)) {
         settle({ kind: "error", exitCode, stderr: diagnostics });
-      } else if (isQuotaSignal(exitCode, diagnostics)) {
+      } else if (isCredentialAuthSignal(config.classifier, exitCode, diagnostics)) {
+        settle({ kind: "quota", stderr: diagnostics, authFailure: true });
+      } else if (isQuotaSignal(config.classifier, exitCode, diagnostics)) {
         settle({ kind: "quota", stderr: diagnostics });
-      } else if (isModelConfigurationSignal(diagnostics)) {
+      } else if (isModelConfigurationSignal(config.classifier, diagnostics)) {
         settle({ kind: "model_config", stderr: diagnostics });
       } else {
         settle({ kind: "error", exitCode, stderr: diagnostics });
@@ -327,7 +356,7 @@ async function runAgent(config: SpawnConfig, prompt: string, opts: AgentRunOptio
       attempt < TRANSIENT_RETRY_CAP &&
       result.kind === "error" &&
       !opts.signal?.aborted &&
-      isTransientSignal(result.exitCode, result.stderr)
+      isTransientSignal(config.classifier, result.exitCode, result.stderr)
     ) {
       const backoffMs = TRANSIENT_BACKOFF_SCHEDULE_MS[attempt];
       if (!opts.signal?.aborted && backoffMs !== undefined) {
@@ -348,9 +377,71 @@ async function runAgent(config: SpawnConfig, prompt: string, opts: AgentRunOptio
   throw new Error("Unexpected: retry loop should always return");
 }
 
-// Patterns below and isQuotaSignal/isModelConfigurationSignal/isTransientSignal encode Claude-specific
-// stderr text (ported from v1's quota.ts). Not yet generalized per-agent; wiring a second agent must
-// not inherit these via runAgent/singleSpawn without review.
+async function runCodexBinding(args: {
+  prompt: string;
+  cwd: string;
+  adapterModel: string;
+  signal?: AbortSignal;
+  spawn?: SpawnFn;
+  sessionsDir?: string;
+  randomUUID?: () => string;
+}): Promise<InvocationResult> {
+  const sessionsDir = args.sessionsDir ?? getCodexSessionsDir();
+  const beforeSnapshot = snapshotCodexSessionFiles(sessionsDir);
+  const invocationId = (args.randomUUID ?? randomUUID)();
+  const invocationMarker = `<!-- jarvis-codex-invocation: ${invocationId} -->`;
+  const result = await runAgent(
+    {
+      name: "codex",
+      binary: "codex",
+      cwd: args.cwd,
+      buildArgv: () => [
+        "exec",
+        "--color",
+        "never",
+        "--sandbox",
+        "workspace-write",
+        "-c",
+        'approval_policy="on-request"',
+        "--model",
+        args.adapterModel,
+      ],
+      stdio: ["pipe", "pipe", "pipe"],
+      writeStdin: (stdin, text) => {
+        stdin.write(text);
+        stdin.end();
+      },
+      streamErrorPrefix: "codex:",
+      classifier: "codex",
+      ...(args.spawn !== undefined ? { spawn: args.spawn } : {}),
+    },
+    `${args.prompt}\n${invocationMarker}`,
+    args.signal === undefined ? {} : { signal: args.signal },
+  );
+
+  if (result.kind !== "ok") {
+    return result;
+  }
+
+  const resolved = resolveCodexSessionUsage({
+    sessionsDir,
+    beforeSnapshot,
+    invocationMarker,
+    cwd: args.cwd,
+  });
+  if (resolved.sessionFile === null) {
+    return {
+      ...result,
+      usage_source: "unavailable",
+      cost_usd: null,
+      cost_source: "no-usage",
+      warnings: resolved.warnings,
+    };
+  }
+  return result;
+}
+
+// Patterns below are ported from v1's quota.ts.
 const transportContextWords = ["error", "err", "failed", "failure", "http", "status"] as const;
 
 function guardedStatusPatterns(statusCodes: readonly number[]): RegExp[] {
@@ -372,6 +463,14 @@ const claudeQuotaPatterns = [
   /\b(usages?|requests?) (?:have been )?exhausted\b/i,
 ] as const;
 
+const codexQuotaPatterns = [
+  /\byou['’]ve (?:hit|reached) your usage limit\b/i,
+  /\busage limit\b.*\b(?:reset|resets|window)\b/i,
+  /\brate_limit_exceeded\b/i,
+  /\binsufficient[_ ]quota\b/i,
+  /\bquota exceeded\b/i,
+] as const;
+
 const modelConfigurationPatterns = [
   /\bunknown model\b/i,
   /\bunsupported model\b/i,
@@ -381,6 +480,15 @@ const modelConfigurationPatterns = [
   /\bnot available for your account\b/i,
   /\bunrecognized model\b/i,
   /\bLLM Provider NOT provided\b/i,
+] as const;
+
+const codexCredentialAuthPatterns = [
+  /\brefresh token was revoked\b/i,
+  /\brefresh token revoked\b/i,
+  /\blog out and sign in\b/i,
+  /\bplease log out and sign in\b/i,
+  /\bre-?authenticate/i,
+  /\bre-?authentication required\b/i,
 ] as const;
 
 const transientPatterns = [
@@ -399,15 +507,22 @@ const transientPatterns = [
   ...guardedStatusPatterns([502, 503, 504, 529]),
 ] as const;
 
-function isQuotaSignal(exitCode: number, stderr: string): boolean {
-  return exitCode !== 0 && claudeQuotaPatterns.some((pattern) => pattern.test(stderr));
+function isQuotaSignal(name: AgentName, exitCode: number, stderr: string): boolean {
+  if (exitCode === 0) return false;
+  const patterns = name === "codex" ? codexQuotaPatterns : claudeQuotaPatterns;
+  return patterns.some((pattern) => pattern.test(stderr));
 }
 
-function isModelConfigurationSignal(stderr: string): boolean {
+function isCredentialAuthSignal(name: AgentName, exitCode: number, stderr: string): boolean {
+  if (exitCode === 0 || name !== "codex") return false;
+  return codexCredentialAuthPatterns.some((pattern) => pattern.test(stderr));
+}
+
+function isModelConfigurationSignal(_name: AgentName, stderr: string): boolean {
   return modelConfigurationPatterns.some((pattern) => pattern.test(stderr));
 }
 
-function isTransientSignal(exitCode: number, stderr: string): boolean {
+function isTransientSignal(_name: AgentName, exitCode: number, stderr: string): boolean {
   return exitCode !== 0 && transientPatterns.some((pattern) => pattern.test(stderr));
 }
 
@@ -426,4 +541,190 @@ function isClaudeZeroExitQuotaEnvelope(stdout: string): boolean {
 
 function isClaudeQuotaMessageText(value: unknown): boolean {
   return typeof value === "string" && claudeQuotaPatterns.some((pattern) => pattern.test(value));
+}
+
+type CodexSessionPathState = {
+  mtimeMs: number;
+  size: number;
+};
+
+type CodexSessionsSnapshot = Map<string, CodexSessionPathState>;
+
+function getCodexSessionsDir(): string {
+  return join(process.env.HOME ?? homedir(), ".codex", "sessions");
+}
+
+function snapshotCodexSessionFiles(sessionsDir: string): CodexSessionsSnapshot {
+  const map: CodexSessionsSnapshot = new Map();
+  for (const file of listSessionFileStats(sessionsDir)) {
+    map.set(file.path, { mtimeMs: file.mtimeMs, size: file.size });
+  }
+  return map;
+}
+
+function listSessionFileStats(dir: string): { path: string; mtimeMs: number; size: number }[] {
+  const out: { path: string; mtimeMs: number; size: number }[] = [];
+  const stack = [dir];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (current === undefined) continue;
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const path = join(current, String(entry.name));
+      if (entry.isDirectory()) {
+        stack.push(path);
+        continue;
+      }
+      if (!entry.isFile() || !String(entry.name).endsWith(".jsonl")) continue;
+      try {
+        const stats = statSync(path);
+        out.push({ path, mtimeMs: stats.mtimeMs, size: stats.size });
+      } catch {
+        // best-effort
+      }
+    }
+  }
+  return out;
+}
+
+function resolveCodexSessionUsage(opts: {
+  sessionsDir: string;
+  beforeSnapshot: CodexSessionsSnapshot;
+  invocationMarker: string;
+  cwd: string;
+}): { warnings: string[]; sessionFile: string | null } {
+  const changed = listChangedCodexSessionFiles(opts.sessionsDir, opts.beforeSnapshot);
+  if (changed.length === 0) {
+    return {
+      warnings: ["codex usage unavailable: no session JSONL changed after this invocation"],
+      sessionFile: null,
+    };
+  }
+
+  const matched: string[] = [];
+  for (const path of changed) {
+    let content: string;
+    try {
+      content = readFileSync(path, "utf8");
+    } catch {
+      continue;
+    }
+    if (!sessionFileCwdsCompatible(content, opts.cwd)) continue;
+    if (!sessionContentHasInvocationMarker(content, opts.invocationMarker)) continue;
+    if (!sessionContentHasTokenCountEvent(content)) continue;
+    matched.push(path);
+  }
+
+  if (matched.length === 0) {
+    return {
+      warnings: ["codex usage unavailable: no changed session file matched this invocation marker and cwd"],
+      sessionFile: null,
+    };
+  }
+  if (matched.length > 1) {
+    return {
+      warnings: [
+        `codex usage unavailable: multiple session files matched this invocation; refusing to guess: ${matched.sort().join(", ")}`,
+      ],
+      sessionFile: null,
+    };
+  }
+  return { warnings: [], sessionFile: matched[0] ?? null };
+}
+
+function listChangedCodexSessionFiles(sessionsDir: string, before: CodexSessionsSnapshot): string[] {
+  const after = snapshotCodexSessionFiles(sessionsDir);
+  const changed: string[] = [];
+  for (const [path, state] of after) {
+    const prev = before.get(path);
+    if (prev === undefined || prev.mtimeMs !== state.mtimeMs || prev.size !== state.size) {
+      changed.push(path);
+    }
+  }
+  return changed;
+}
+
+function sessionFileCwdsCompatible(content: string, jarvisCwd: string): boolean {
+  const seenCwds: string[] = [];
+  for (const line of content.split(/\r?\n/)) {
+    const event = parseJsonObject(line);
+    const payload = event?.payload;
+    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) continue;
+    const rec = payload as Record<string, unknown>;
+    if (
+      event !== null &&
+      (event.type === "session_meta" || event.type === "turn_context") &&
+      typeof rec.cwd === "string"
+    ) {
+      seenCwds.push(rec.cwd);
+    }
+  }
+  if (seenCwds.length === 0) return true;
+  return seenCwds.every((cwd) => cwdEqual(cwd, jarvisCwd));
+}
+
+function cwdEqual(a: string, b: string): boolean {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return a === b;
+  }
+}
+
+function sessionContentHasInvocationMarker(content: string, invocationMarker: string): boolean {
+  for (const line of content.split(/\r?\n/)) {
+    const event = parseJsonObject(line);
+    if (event !== null && lineIncludesMarkerStructured(event, invocationMarker)) {
+      return true;
+    }
+  }
+  return content.includes(invocationMarker);
+}
+
+function lineIncludesMarkerStructured(event: Record<string, unknown>, invocationMarker: string): boolean {
+  const payload = event.payload;
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return false;
+  const rec = payload as Record<string, unknown>;
+  if (event.type === "event_msg" && rec.type === "user_message" && typeof rec.message === "string") {
+    return rec.message.includes(invocationMarker);
+  }
+  if (event.type !== "response_item" || rec.type !== "message" || rec.role !== "user" || !Array.isArray(rec.content)) {
+    return false;
+  }
+  return rec.content.some(
+    (item) =>
+      item !== null &&
+      typeof item === "object" &&
+      !Array.isArray(item) &&
+      (item as Record<string, unknown>).type === "input_text" &&
+      typeof (item as Record<string, unknown>).text === "string" &&
+      String((item as Record<string, unknown>).text).includes(invocationMarker),
+  );
+}
+
+function sessionContentHasTokenCountEvent(content: string): boolean {
+  for (const line of content.split(/\r?\n/)) {
+    const event = parseJsonObject(line);
+    const payload = event?.payload;
+    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) continue;
+    const rec = payload as Record<string, unknown>;
+    if (event?.type === "event_msg" && rec.type === "token_count") return true;
+  }
+  return false;
+}
+
+function parseJsonObject(line: string): Record<string, unknown> | null {
+  if (line.trim() === "") return null;
+  try {
+    const parsed: unknown = JSON.parse(line);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
 }

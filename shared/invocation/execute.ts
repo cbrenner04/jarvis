@@ -2,11 +2,22 @@ export type InvocationOk = {
   kind: "ok";
   stdout: string;
   stderr: string;
+  usage_source?: "agent" | "estimated" | "unavailable";
+  usage?: {
+    input_tokens: number | null;
+    output_tokens: number | null;
+    cache_read_input_tokens: number | null;
+    cache_creation_input_tokens: number | null;
+  };
+  cost_usd?: number | null;
+  cost_source?: "agent" | "computed" | "estimated" | "no-price" | "no-usage";
+  warnings?: string[];
 };
 
 export type InvocationQuota = {
   kind: "quota";
   stderr: string;
+  authFailure?: true;
 };
 
 export type InvocationError =

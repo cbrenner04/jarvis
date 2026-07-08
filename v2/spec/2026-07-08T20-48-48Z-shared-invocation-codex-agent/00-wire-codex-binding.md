@@ -29,12 +29,12 @@
 
 ## Acceptance criteria
 
-- [ ] A resolved `codex` binding invokes `codex exec --color never --sandbox workspace-write -c approval_policy="on-request" --model <adapterModel>`, pipes the augmented prompt on stdin, uses caller `cwd`, and honors abort signals.
-- [ ] Codex binding results classify as `ok`, `quota`, `model_config`, or `error` using the shared subprocess lifecycle and ported v1 Codex/quota semantics, with aborts and spawn failures returning terminal `error`.
-- [ ] A successful Codex invocation remains `ok` when Codex session usage cannot be resolved, while exposing the same unavailable-usage warning semantics as v1.
-- [ ] A settled resolved `codex` invocation emits `invocation_completed` telemetry with real `codex` agent and resolved model metadata.
-- [ ] Unrecognized resolved agents such as `cursor` still return the existing terminal unwired `error` result and keep metadata.
-- [ ] `shared/invocation/execute.test.ts` fallback and telemetry tests stay green.
-- [ ] `shared/invocation/agents.test.ts` covers the Codex binding, Codex classifications, session-usage unavailable success, telemetry metadata, and unwired-agent behavior.
-- [ ] `v2/docs/shared-invocation.md` and, when needed, `v2/docs/v1-behaviors.md` describe the landed behavior without duplicating implementation detail.
-- [ ] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` are green.
+- [x] A resolved `codex` binding invokes `codex exec --color never --sandbox workspace-write -c approval_policy="on-request" --model <adapterModel>`, pipes the augmented prompt on stdin, uses caller `cwd`, and honors abort signals.
+- [x] Codex binding results classify as `ok`, `quota`, `model_config`, or `error` using the shared subprocess lifecycle and ported v1 Codex/quota semantics, with aborts and spawn failures returning terminal `error`.
+- [x] A successful Codex invocation remains `ok` when Codex session usage cannot be resolved, while exposing the same unavailable-usage warning semantics as v1.
+- [x] A settled resolved `codex` invocation emits `invocation_completed` telemetry with real `codex` agent and resolved model metadata.
+- [x] Unrecognized resolved agents such as `cursor` still return the existing terminal unwired `error` result and keep metadata.
+- [x] `shared/invocation/execute.test.ts` fallback and telemetry tests stay green.
+- [x] `shared/invocation/agents.test.ts` covers the Codex binding, Codex classifications, session-usage unavailable success, telemetry metadata, and unwired-agent behavior.
+- [x] `v2/docs/shared-invocation.md` and, when needed, `v2/docs/v1-behaviors.md` describe the landed behavior without duplicating implementation detail.
+- [x] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` are green.

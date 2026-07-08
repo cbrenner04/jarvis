@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { createResolvedAgentBinding } from "./agents.ts";
 import { executeWithQuotaFallback, type InvocationCompletedRecord } from "./execute.ts";
@@ -233,9 +236,153 @@ describe("createResolvedAgentBinding", () => {
     expect(rows[0]?.binding_id).toBe("claude/claude-sonnet-4-6/priced-sonnet");
   });
 
+  test("codex binding invokes the CLI shape with cwd, stdin prompt marker, and abort signal", async () => {
+    const fake = fakeSpawn([{ kind: "hang" }]);
+    const controller = new AbortController();
+    const promise = createResolvedAgentBinding(
+      {
+        agentId: "codex",
+        adapterModel: "gpt-5.4",
+        priceKey: "gpt-5.4",
+      },
+      {
+        spawn: fake.spawn,
+        codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")),
+        randomUUID: () => "marker-id",
+      },
+    ).invoke({ prompt: "implement it", cwd: "/repo", signal: controller.signal });
+
+    controller.abort("operator");
+    const result = await promise;
+
+    expect(result).toEqual({ kind: "error", exitCode: -1, stderr: "aborted: operator" });
+    expect(fake.calls[0]?.binary).toBe("codex");
+    expect(fake.calls[0]?.argv).toEqual([
+      "exec",
+      "--color",
+      "never",
+      "--sandbox",
+      "workspace-write",
+      "-c",
+      'approval_policy="on-request"',
+      "--model",
+      "gpt-5.4",
+    ]);
+    expect(fake.calls[0]?.opts.cwd).toBe("/repo");
+    expect(fake.calls[0]?.opts.detached).toBe(true);
+    expect(fake.calls[0]?.opts.stdio).toEqual(["pipe", "pipe", "pipe"]);
+    expect(fake.calls[0]?.child?.stdinChunks.join("")).toBe(
+      "implement it\n<!-- jarvis-codex-invocation: marker-id -->",
+    );
+    expect(fake.calls[0]?.child?.killedWith).toContain("SIGTERM");
+  });
+
+  test("codex binding classifies quota, model config, and generic errors", async () => {
+    const quota = fakeSpawn([{ kind: "settle", code: 1, stderr: "You've reached your usage limit" }]);
+    const authQuota = fakeSpawn([{ kind: "settle", code: 1, stderr: "please log out and sign in" }]);
+    const model = fakeSpawn([{ kind: "settle", code: 1, stderr: "unknown model: nope" }]);
+    const generic = fakeSpawn([{ kind: "settle", code: 2, stderr: "boom" }]);
+
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+        { spawn: quota.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "quota", stderr: "You've reached your usage limit" });
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+        { spawn: authQuota.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "quota", stderr: "please log out and sign in", authFailure: true });
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "codex", adapterModel: "bad", priceKey: "bad" },
+        { spawn: model.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "model_config", stderr: "unknown model: nope" });
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+        { spawn: generic.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "error", exitCode: 2, stderr: "boom" });
+  });
+
+  test("codex spawn failure returns terminal error", async () => {
+    const fake = fakeSpawn([{ kind: "throw", error: new Error("ENOENT") }]);
+
+    const result = await createResolvedAgentBinding(
+      { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+      { spawn: fake.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toEqual({ kind: "error", exitCode: -1, stderr: "Error: ENOENT" });
+  });
+
+  test("codex session usage unavailable remains ok with warning metadata", async () => {
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: "done", stderr: "warn" }]);
+
+    const result = await createResolvedAgentBinding(
+      { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+      { spawn: fake.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toEqual({
+      kind: "ok",
+      stdout: "done",
+      stderr: "warn",
+      usage_source: "unavailable",
+      cost_usd: null,
+      cost_source: "no-usage",
+      warnings: ["codex usage unavailable: no session JSONL changed after this invocation"],
+    });
+  });
+
+  test("codex telemetry uses resolved binding metadata", async () => {
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: "done" }]);
+    const rows: InvocationCompletedRecord[] = [];
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/repo",
+      bindings: [
+        createResolvedAgentBinding(
+          {
+            agentId: "codex",
+            adapterModel: "gpt-5.4",
+            priceKey: "priced-codex",
+          },
+          { spawn: fake.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+        ),
+      ],
+      telemetry: {
+        sink: {
+          append(record) {
+            rows.push(record);
+          },
+        },
+        operatorSessionId: "session",
+        runId: "run",
+        attemptId: "attempt",
+        project: "jarvis",
+        workflow: "write",
+        stepId: "implement",
+        role: "implement",
+        worktreePath: "/repo",
+        branch: "branch",
+        specRef: "spec",
+        invocationIds: ["invocation"],
+      },
+    });
+
+    expect(rows[0]?.agent).toBe("codex");
+    expect(rows[0]?.model).toBe("gpt-5.4");
+    expect(rows[0]?.binding_id).toBe("codex/gpt-5.4/priced-codex");
+  });
+
   test("unrecognized resolved agents keep unwired terminal error metadata", async () => {
     const binding = createResolvedAgentBinding({
-      agentId: "codex",
+      agentId: "cursor",
       adapterModel: "gpt-5",
       priceKey: "gpt-5",
     });
@@ -243,9 +390,9 @@ describe("createResolvedAgentBinding", () => {
     await expect(binding.invoke({ prompt: "p", cwd: "/repo" })).resolves.toEqual({
       kind: "error",
       exitCode: 127,
-      stderr: "agent 'codex' model 'gpt-5' price 'gpt-5' invocation is not wired yet",
+      stderr: "agent 'cursor' model 'gpt-5' price 'gpt-5' invocation is not wired yet",
     });
-    expect(binding.id).toBe("codex/gpt-5/gpt-5");
-    expect(binding.metadata).toEqual({ agent: "codex", model: "gpt-5" });
+    expect(binding.id).toBe("cursor/gpt-5/gpt-5");
+    expect(binding.metadata).toEqual({ agent: "cursor", model: "gpt-5" });
   });
 });

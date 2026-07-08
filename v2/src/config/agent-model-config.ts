@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import type { ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 
-const EXECUTABLE_ROLES = ["plan", "implement", "adversary", "advocate", "adjudicator", "actuator"] as const;
+const EXECUTABLE_ROLES = ["plan", "implement", "shrink", "adversary", "advocate", "adjudicator", "actuator"] as const;
 
 /** Closed role subset that may reach shared invocation today. */
 type ExecutableRole = (typeof EXECUTABLE_ROLES)[number];

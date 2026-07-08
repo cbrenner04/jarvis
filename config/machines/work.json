@@ -7,6 +7,9 @@
       "implement": {
         "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
       },
+      "shrink": {
+        "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
+      },
       "adversary": {
         "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
       },
@@ -25,6 +28,9 @@
         "rungs": [{ "adapterModel": "Composer 2.5", "priceKey": "Composer 2.5" }]
       },
       "implement": {
+        "rungs": [{ "adapterModel": "Composer 2.5", "priceKey": "Composer 2.5" }]
+      },
+      "shrink": {
         "rungs": [{ "adapterModel": "Composer 2.5", "priceKey": "Composer 2.5" }]
       },
       "adversary": {

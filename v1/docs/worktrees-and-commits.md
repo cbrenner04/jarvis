@@ -182,7 +182,7 @@ still runs `bun run test` (the aggregate test command that covers all slices);
 see
 [v2/docs/v1-behaviors.md#test-execution-and-development-workflows](../../v2/docs/v1-behaviors.md#test-execution-and-development-workflows)
 for the test-command contract. Autofix and verification subprocesses are each
-bounded by `iterationTimeoutMs` (30 min default); timeout failures name the
+bounded by `iterationTimeoutMs` (10 min default); timeout failures name the
 command and gate label. If the ready gate fails, the PR remains in draft for
 manual correction. `fast`-tier gates are unchanged: they do not run `bun run
 fix`, commit fix output, post-verification commit, or post-verification
@@ -296,7 +296,7 @@ The first push uses `git push -u origin plan/<plan-name>` to set up tracking;
 later pushes use plain `git push`.
 
 When every scripted phase succeeds, plan mode attempts a readiness transition (mirroring **`jarvis run`** readiness semantics):
-- If the branch's open PR is **draft**, the ready gate runs built-in `bun run fix` (committing any dirty output first), then built-in `bun run ready`, then post-verification commit-if-dirty when applicable (plan is not wired to `readyCommand`). Both subprocesses are bounded by `iterationTimeoutMs` (30 min default). On success, `gh pr ready` flips it to ready. On gate failure, the PR remains draft.
+- If the branch's open PR is **draft**, the ready gate runs built-in `bun run fix` (committing any dirty output first), then built-in `bun run ready`, then post-verification commit-if-dirty when applicable (plan is not wired to `readyCommand`). Both subprocesses are bounded by `iterationTimeoutMs` (10 min default). On success, `gh pr ready` flips it to ready. On gate failure, the PR remains draft.
 - If the branch's open PR is **already ready**, it remains untouched (idempotent).
 - A later successful `jarvis plan --resume …` invocation retries the transition for still-draft PRs.
 

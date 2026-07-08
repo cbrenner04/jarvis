@@ -71,7 +71,7 @@ type Config = {
   quotaFallback: "strict" | "lenient"; // weak quota-like error fallback mode; default "lenient"
   weakQuotaExitCodes: number[]; // exit codes treated as probable-quota under lenient mode; default []
   maxIterations: number; // positive integer, default 10
-  iterationTimeoutMs: number; // per-iteration timeout in milliseconds, default 30 minutes (1_800_000)
+  iterationTimeoutMs: number; // per-iteration timeout in milliseconds, default 10 minutes (600_000)
   idleOutputTimeoutMs?: number; // optional idle-output timeout in milliseconds; unset by default (disabled)
   runTimeoutMs?: number; // optional global run timeout in milliseconds; unset by default
   logServerUrl: string; // POST endpoint used by jarvis run
@@ -225,7 +225,7 @@ Default contents on first bootstrap:
   "logServerBind": "127.0.0.1:4310",
   "telemetryPath": "~/.jarvis/runs.jsonl",
   "maxIterations": 10,
-  "iterationTimeoutMs": 1800000,
+  "iterationTimeoutMs": 600000,
   // "idleOutputTimeoutMs": 60000,  // optional: abort iteration if no output for 60 seconds
   "git": true,
   "projects": {}

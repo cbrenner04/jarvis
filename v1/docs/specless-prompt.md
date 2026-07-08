@@ -140,7 +140,7 @@ This replaces the entire `modes.prompt.agentOrder` with the provided comma-separ
 
 Prompt mode respects the same timeout and quota configuration as patch mode:
 
-- `iterationTimeoutMs` (default 30 minutes): watchdog timeout per agent invocation.
+- `iterationTimeoutMs` (default 10 minutes): watchdog timeout per agent invocation.
 - `quotaFallback` (strict/lenient): weak quota upgrade policy.
 - `weakQuotaExitCodes`: exit codes treated as weak-quota signals under lenient mode.
 

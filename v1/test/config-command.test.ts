@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Io } from "../src/cli.ts";
 import { configCommand } from "../src/commands/config.ts";
-import { loadConfig, registerProject } from "../src/config.ts";
+import { DEFAULT_CONFIG, loadConfig, registerProject } from "../src/config.ts";
 
 function captureIo(): { io: Io; out: () => string; err: () => string } {
   let out = "";
@@ -54,7 +54,7 @@ describe("config show", () => {
     expect(parsed.quotaFallback).toBe("lenient");
     expect(parsed.weakQuotaExitCodes).toEqual([]);
     expect(parsed.maxIterations).toBe(10);
-    expect(parsed.iterationTimeoutMs).toBe(1800000);
+    expect(parsed.iterationTimeoutMs).toBe(DEFAULT_CONFIG.iterationTimeoutMs);
     expect(parsed.logServerUrl).toBe("http://127.0.0.1:4310/logs");
     expect(parsed.logServerBind).toBe("127.0.0.1:4310");
     expect(parsed.telemetryPath).toBe(join(cfgDir, "runs.jsonl"));

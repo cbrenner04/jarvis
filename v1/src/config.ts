@@ -146,7 +146,7 @@ const DEFAULT_AGENT_ORDER: AgentEntry[] = [
   { agent: "cursor", model: DEFAULT_AGENT_MODELS.cursor },
 ];
 
-const DEFAULT_CONFIG: Config = {
+export const DEFAULT_CONFIG: Config = {
   version: 2,
   modes: {
     patch: {
@@ -165,7 +165,7 @@ const DEFAULT_CONFIG: Config = {
   quotaFallback: "lenient",
   weakQuotaExitCodes: [],
   maxIterations: 10,
-  iterationTimeoutMs: 30 * 60_000,
+  iterationTimeoutMs: 600_000,
   idleOutputTimeoutMs: 600000,
   logServerUrl: "http://127.0.0.1:4310/logs",
   logServerBind: "127.0.0.1:4310",

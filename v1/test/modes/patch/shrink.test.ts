@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
-import type { Config } from "../../../src/config.ts";
+import { DEFAULT_CONFIG, type Config } from "../../../src/config.ts";
 import { buildShrinkPrompt } from "../../../src/modes/patch/prompt.ts";
 import {
   accumulateImplementationTouchedFiles,
@@ -82,7 +82,7 @@ function makeShrinkConfig(shrink: "off" | "agent" = "agent"): Config {
     quotaFallback: "strict",
     weakQuotaExitCodes: [],
     maxIterations: 10,
-    iterationTimeoutMs: 30 * 60_000,
+    iterationTimeoutMs: DEFAULT_CONFIG.iterationTimeoutMs,
     git: true,
     projects: {},
   };

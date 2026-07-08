@@ -250,7 +250,7 @@ Config version 2 is mode-specific. Patch mode (`jarvis1 run`) and plan mode
   "quotaFallback": "lenient",
   "weakQuotaExitCodes": [],
   "maxIterations": 10,
-  "iterationTimeoutMs": 1800000,
+  "iterationTimeoutMs": 600000,
 
   "logServerUrl": "http://127.0.0.1:4310/logs",
   "logServerBind": "127.0.0.1:4310",

@@ -41,13 +41,13 @@ A stalled patch/review/shrink/prompt iteration with no operator override runs
 
 ## Acceptance criteria
 
-- [ ] `DEFAULT_CONFIG.iterationTimeoutMs` in `v1/src/config.ts` equals `600_000`.
-- [ ] Tests asserting the *default* value (e.g. `v1/test/config.test.ts`
+- [x] `DEFAULT_CONFIG.iterationTimeoutMs` in `v1/src/config.ts` equals `600_000`.
+- [x] Tests asserting the *default* value (e.g. `v1/test/config.test.ts`
       `DEFAULT_CONFIG`/`loadConfig()` expectations) are updated to 600,000 and
       stay green. Tests that merely pass `30 * 60_000` as an unrelated,
       explicit fixture/override value (not asserting the default) are left
       unchanged.
-- [ ] A patch iteration, a review iteration, a shrink iteration, and a
+- [x] A patch iteration, a review iteration, a shrink iteration, and a
       prompt-mode iteration each abort via their watchdog at the new default
       when no config override is set — verified by the existing per-mode
       watchdog-timeout tests (`v1/test/run.test.ts`,
@@ -55,9 +55,9 @@ A stalled patch/review/shrink/prompt iteration with no operator override runs
       `v1/test/modes/prompt/run.test.ts`) passing against
       `DEFAULT_CONFIG.iterationTimeoutMs` rather than a hardcoded 30-minute
       value.
-- [ ] No remaining "30 min" / "1,800,000" / "1_800_000" reference to
+- [x] No remaining "30 min" / "1,800,000" / "1_800_000" reference to
       `iterationTimeoutMs` in `v1/docs/config.md`, `v1/docs/run-loop.md`,
       `v1/docs/quota-signals.md`, `v1/docs/specless-prompt.md`, or `README.md`.
-- [ ] `v1/docs/operator-runbook.md` documents the 10-minute default as
+- [x] `v1/docs/operator-runbook.md` documents the 10-minute default as
       hard-fail-fast operator policy.
-- [ ] `v2/docs/v1-behaviors.md` reflects the new 600,000 ms default.
+- [x] `v2/docs/v1-behaviors.md` reflects the new 600,000 ms default.

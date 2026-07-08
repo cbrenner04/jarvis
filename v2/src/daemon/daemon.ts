@@ -439,7 +439,7 @@ export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDel
  * Run-control handler factory for `start`/`list`/`pause`/`resume`/`kill`.
  *
  * @param deps - {@link RunControlHandlerDeps}
- * @returns `{ start, list, pause, resume, kill }` — each an {@link RpcHandler}.
+ * @returns `{ start, list, pause, resume, kill, wait, close }` — handlers plus teardown.
  *   Handlers signal rejections via `{ kind: "error", code, message }`; they do not throw.
  * @throws Never — factory and handlers are non-throwing at the RPC boundary.
  * @invariant Each invocation gets a fresh `WorktreeOwnershipRegistry` and `activeRuns` map.
@@ -533,6 +533,19 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       }
     })();
     return fanout;
+  };
+
+  const close = (): void => {
+    const reason = new Error("run control handlers closed");
+    for (const [runId, fanout] of waitFanouts) {
+      for (const waiter of Array.from(fanout.waiters)) {
+        waiter.signal.removeEventListener("abort", waiter.abortListener);
+        waiter.reject(reason);
+      }
+      fanout.waiters.clear();
+      fanout.controller.abort();
+      waitFanouts.delete(runId);
+    }
   };
 
   const spawnWriteLoop = (key: OwnershipKey, runId: string, worktreePath: string, input: WriteLoopInput): void => {
@@ -1075,6 +1088,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     resume: resumeHandler,
     kill: killHandler,
     wait: waitHandler,
+    close,
     /** Records a `review-debate` step's currently-executing or terminal role/outcome. */
     reportReviewDebateProgress: (invocationId: string, stepId: string, progress: ReviewDebateProgress): void => {
       let steps = reviewDebateProgressByInvocation.get(invocationId);
@@ -1188,7 +1202,11 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
     return { kind: "response", result: { ok: true } };
   };
 
-  const { reportReviewDebateProgress: _reportReviewDebateProgress, ...runControlHandlers } = createRunControlHandlers({
+  const {
+    reportReviewDebateProgress: _reportReviewDebateProgress,
+    close: _closeRunControlHandlers,
+    ...runControlHandlers
+  } = createRunControlHandlers({
     stateStore: store,
     logReader: logReaderInstance,
     writeLoopExecutor,

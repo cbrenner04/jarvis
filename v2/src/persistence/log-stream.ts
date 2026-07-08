@@ -310,21 +310,24 @@ class FsAppendWake implements AppendWake {
       }
       return;
     }
-    // Wait for watcher event (append), abort poll, or close.
+    // Wait for watcher event (append), abort, poll fallback, or close.
     await new Promise<void>((resolve) => {
-      this.pendingResolve = resolve;
-      this.pendingTimer = setTimeout(() => {
-        if (this.pendingResolve === resolve) {
+      const finish = () => {
+        if (this.pendingResolve === finish) {
           this.pendingResolve = null;
         }
-        this.pendingTimer = null;
+        if (this.pendingTimer) {
+          clearTimeout(this.pendingTimer);
+          this.pendingTimer = null;
+        }
+        signal?.removeEventListener("abort", finish);
         resolve();
-      }, ABORT_POLL_MS);
+      };
+      this.pendingResolve = finish;
+      this.pendingTimer = setTimeout(finish, ABORT_POLL_MS);
+      unrefTimer(this.pendingTimer);
+      signal?.addEventListener("abort", finish, { once: true });
     });
-    if (this.pendingTimer) {
-      clearTimeout(this.pendingTimer);
-      this.pendingTimer = null;
-    }
     this.dirty = false;
   }
 
@@ -345,5 +348,13 @@ class FsAppendWake implements AppendWake {
 }
 
 const ABORT_POLL_MS = 500;
+
+function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
+  if (typeof timer !== "object" || timer === null || !("unref" in timer)) return;
+  const unref = timer.unref;
+  if (typeof unref === "function") {
+    unref.call(timer);
+  }
+}
 
 const defaultAppendWakeFactory: AppendWakeFactory = (storagePath: string) => new FsAppendWake(storagePath);

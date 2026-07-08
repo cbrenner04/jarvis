@@ -20,6 +20,7 @@ const { roots } = trackedTempRoots();
 const DEFAULT_AGENT_MODEL_CONFIG = {
   claude: {
     implement: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+    shrink: { rungs: [{ adapterModel: "S1", priceKey: "P1" }] },
   },
 };
 

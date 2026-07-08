@@ -756,9 +756,9 @@ describe("executeWorkflow", () => {
 
       expect(result.kind).toBe("complete");
       expect(calls).toEqual(["I1:write-prompt", "S1:shrink-prompt"]);
-      expect(store.findRunByProjectBranch({ project: "demo", branch: "implement-shrink", stepId: "implement" })?.status).toBe(
-        "completed",
-      );
+      expect(
+        store.findRunByProjectBranch({ project: "demo", branch: "implement-shrink", stepId: "implement" })?.status,
+      ).toBe("completed");
       expect(
         store.findRunByProjectBranch({ project: "demo", branch: "implement-shrink", stepId: "implement~shrink" })
           ?.status,
@@ -923,7 +923,9 @@ describe("executeWorkflow", () => {
       expect(result.stepIndex).toBe(0);
       expect(result.stepId).toBe("implement");
       expect(invoked).toEqual(["I1", "S1"]);
-      expect(store.findRunByProjectBranch({ project: "demo", branch: "shrink-stops-workflow", stepId: "later" })).toBeNull();
+      expect(
+        store.findRunByProjectBranch({ project: "demo", branch: "shrink-stops-workflow", stepId: "later" }),
+      ).toBeNull();
     } finally {
       store.close();
     }

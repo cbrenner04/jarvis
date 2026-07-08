@@ -17,16 +17,21 @@ import {
   type StateStore,
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
+import { getExternalWorktreePath } from "./external-worktree.ts";
 import {
   executeReviewDebate,
   type ReviewDebateInput,
   type ReviewDebateRole,
   type ReviewDebateRoleBindings,
 } from "./review-debate.ts";
-import { getExternalWorktreePath } from "./external-worktree.ts";
 import { parseRevisionNumber } from "./revision-step-id.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
-import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind, type WriteLoopResult } from "./write-loop.ts";
+import {
+  executeWriteLoop,
+  type WriteLoopInput,
+  type WriteLoopOutcomeKind,
+  type WriteLoopResult,
+} from "./write-loop.ts";
 
 const DEFAULT_TELEMETRY_SINK_PATH = join(homedir(), ".jarvis", "telemetry.jsonl");
 
@@ -321,37 +326,42 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
 
 /** Fail before durable state changes if any step role is missing from its agent config. */
 export function validateWorkflowStepRoles(steps: readonly AnyWorkflowStep[]): void {
-  const missingBindings: string[] = [];
-
-  for (const step of steps) {
-    if (step.behavior === "human") continue;
-
-    if (isWriteStep(step)) {
-      for (const agent of step.agents) {
-        const agentEntry = step.agentModelConfig[agent];
-        if (!agentEntry || !Object.hasOwn(agentEntry, step.role)) {
-          missingBindings.push(`(${step.stepId}, ${step.role}, ${agent})`);
-        }
-        if (step.role === "implement" && (!agentEntry || !Object.hasOwn(agentEntry, SHRINK_ROLE))) {
-          missingBindings.push(`(${step.stepId}, ${SHRINK_ROLE}, ${agent})`);
-        }
-      }
-      continue;
-    }
-
-    for (const role of REVIEW_DEBATE_ROLES) {
-      for (const agent of step.agents[role]) {
-        const agentEntry = step.agentModelConfig[agent];
-        if (!agentEntry || !Object.hasOwn(agentEntry, role)) {
-          missingBindings.push(`(${step.stepId}, ${role}, ${agent})`);
-        }
-      }
-    }
-  }
+  const missingBindings = steps.flatMap((step) => missingWorkflowStepRoleBindings(step));
 
   if (missingBindings.length > 0) {
     throw new Error(`Workflow step role validation failed: ${missingBindings.join(", ")}`);
   }
+}
+
+function missingWorkflowStepRoleBindings(step: AnyWorkflowStep): string[] {
+  if (step.behavior === "human") return [];
+  return isWriteStep(step) ? missingWriteStepRoleBindings(step) : missingReviewDebateStepRoleBindings(step);
+}
+
+function missingWriteStepRoleBindings(step: WriteWorkflowStep): string[] {
+  const roles = step.role === "implement" ? [step.role, SHRINK_ROLE] : [step.role];
+  return step.agents.flatMap((agent) => missingAgentRoleBindings(step, agent, roles));
+}
+
+function missingReviewDebateStepRoleBindings(step: ReviewDebateWorkflowStep): string[] {
+  return REVIEW_DEBATE_ROLES.flatMap((role) =>
+    step.agents[role].flatMap((agent) => missingAgentRoleBindings(step, agent, [role])),
+  );
+}
+
+function missingAgentRoleBindings(
+  step: WriteWorkflowStep | ReviewDebateWorkflowStep,
+  agent: string,
+  roles: readonly string[],
+): string[] {
+  return roles
+    .filter((role) => !hasAgentRoleBinding(step.agentModelConfig, agent, role))
+    .map((role) => `(${step.stepId}, ${role}, ${agent})`);
+}
+
+function hasAgentRoleBinding(agentModelConfig: AgentModelConfig, agent: string, role: string): boolean {
+  const agentEntry = agentModelConfig[agent];
+  return agentEntry !== undefined && Object.hasOwn(agentEntry, role);
 }
 
 /** Fail before durable state changes if a human step's `onRevise.repeatStepId` isn't an earlier step's `stepId`. */
@@ -591,8 +601,12 @@ function shrinkPromptPlaceholders(step: WriteWorkflowStep): Record<string, strin
     ALLOWLIST: (allowlist.length > 0 ? allowlist : [step.expectedArtifactPath]).map((path) => `- ${path}`).join("\n"),
     BRANCH_DIFF: gitOutput(worktreePath, ["diff", "--stat", step.worktree.baseRef, "--"]) || "(empty)",
     RUN_SCOPED_DIFF:
-      gitOutput(worktreePath, ["diff", step.worktree.baseRef, "--", ...(allowlist.length > 0 ? allowlist : [step.expectedArtifactPath])]) ||
-      "(empty)",
+      gitOutput(worktreePath, [
+        "diff",
+        step.worktree.baseRef,
+        "--",
+        ...(allowlist.length > 0 ? allowlist : [step.expectedArtifactPath]),
+      ]) || "(empty)",
   };
 }
 

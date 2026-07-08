@@ -171,6 +171,7 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
     };
 
     const settleZeroExit = () => {
+      // Claude-specific zero-exit quota envelope; not generalized per-agent (see note above).
       if (isClaudeZeroExitQuotaEnvelope(outBuf)) {
         settle({ kind: "quota", stderr: outBuf });
         return;
@@ -347,6 +348,9 @@ async function runAgent(config: SpawnConfig, prompt: string, opts: AgentRunOptio
   throw new Error("Unexpected: retry loop should always return");
 }
 
+// Patterns below and isQuotaSignal/isModelConfigurationSignal/isTransientSignal encode Claude-specific
+// stderr text (ported from v1's quota.ts). Not yet generalized per-agent; wiring a second agent must
+// not inherit these via runAgent/singleSpawn without review.
 const transportContextWords = ["error", "err", "failed", "failure", "http", "status"] as const;
 
 function guardedStatusPatterns(statusCodes: readonly number[]): RegExp[] {

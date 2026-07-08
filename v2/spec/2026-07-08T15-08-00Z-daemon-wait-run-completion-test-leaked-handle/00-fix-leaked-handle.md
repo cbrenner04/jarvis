@@ -56,7 +56,7 @@ watcher, or bare timer) outlives test teardown.
       (sandbox-off) passes all 50 iterations, with the process exiting within 1s wall-clock of the
       last test completing each run — not merely under the 30s CI timeout.
 - [ ] `bun run test:v2` and `bun run test:integration:v2` stay green (no regression from the fix).
-- [ ] If the fix changes production/runtime code (not test-only teardown), `v2/docs/v1-behaviors.md`
+- [x] If the fix changes production/runtime code (not test-only teardown), `v2/docs/v1-behaviors.md`
       reflects the corrected behavior.
 - [ ] Every `FSWatcher` created in `FsAppendWake` (`log-stream.ts`) is `.unref()`'d immediately
       after `watch()`, so an active watcher can never keep the worker process alive. Verified by CI

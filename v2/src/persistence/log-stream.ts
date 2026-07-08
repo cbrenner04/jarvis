@@ -208,6 +208,17 @@ export function openLogReader(storagePath: string, wakeFactory?: AppendWakeFacto
 }
 
 /**
+ * Unref a watcher so an active `fs.watch` handle can never keep the process alive by
+ * itself (Linux inotify handles otherwise hold the event loop open through the
+ * microtask gap between `close()` and the owning `follow()` loop's `finally`).
+ */
+function unrefWatcher(watcher: FSWatcher): void {
+  if (typeof watcher.unref === "function") {
+    watcher.unref();
+  }
+}
+
+/**
  * Production `AppendWake` backed by `fs.watch` on the shared storage artifact.
  * Watches the file directly when it exists (kqueue/inotify — low latency); falls
  * back to watching the parent directory to catch file creation, then switches to
@@ -243,6 +254,7 @@ class FsAppendWake implements AppendWake {
     if (this.watcher || this.closed) return;
     try {
       this.watcher = watch(this.storagePath, () => this.fire());
+      unrefWatcher(this.watcher);
       this.watcher.on("error", () => {
         this.watcher?.close();
         this.watcher = null;
@@ -265,6 +277,7 @@ class FsAppendWake implements AppendWake {
           this.fire();
         }
       });
+      unrefWatcher(this.watcher);
       this.watcher.on("error", () => {
         this.watcher?.close();
         this.watcher = null;
@@ -306,7 +319,10 @@ class FsAppendWake implements AppendWake {
     if (!this.watcher) {
       // Cannot watch (storage directory missing); poll for abort only.
       while (!this.closed && !signal?.aborted) {
-        await new Promise((resolve) => setTimeout(resolve, ABORT_POLL_MS));
+        await new Promise((resolve) => {
+          const timer = setTimeout(resolve, ABORT_POLL_MS);
+          timer.unref?.();
+        });
       }
       return;
     }
@@ -320,6 +336,7 @@ class FsAppendWake implements AppendWake {
         this.pendingTimer = null;
         resolve();
       }, ABORT_POLL_MS);
+      this.pendingTimer.unref?.();
     });
     if (this.pendingTimer) {
       clearTimeout(this.pendingTimer);

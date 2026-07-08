@@ -91,6 +91,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  handlers.close();
   logSink.close();
   stateStore.close();
   rmSync(logsPath, { force: true });

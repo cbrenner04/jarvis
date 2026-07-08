@@ -659,7 +659,11 @@ function sessionFileCwdsCompatible(content: string, jarvisCwd: string): boolean 
     const payload = event?.payload;
     if (payload === null || typeof payload !== "object" || Array.isArray(payload)) continue;
     const rec = payload as Record<string, unknown>;
-    if (event !== null && (event.type === "session_meta" || event.type === "turn_context") && typeof rec.cwd === "string") {
+    if (
+      event !== null &&
+      (event.type === "session_meta" || event.type === "turn_context") &&
+      typeof rec.cwd === "string"
+    ) {
       seenCwds.push(rec.cwd);
     }
   }

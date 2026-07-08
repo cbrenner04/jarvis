@@ -1,0 +1,7 @@
+**Verdict**
+
+1. Tighten the exit-latency acceptance criterion. "Each exiting well under the 30s timeout" only gates against the symptom, not the leak itself — a handle with a shorter (but still real) lingering delay would satisfy it while leaving the underlying defect in place. The intent's bar is "exits immediately"; the AC must assert on actual exit latency (e.g., wall-clock delta from last test completion to process exit, bounded tightly, such as <1s) rather than merely staying under the 30s CI timeout.
+
+2. Add a documentation-scope decision covering the branch where the fix touches production code. The spec already contemplates two possible fixes — test-only `afterEach` teardown vs. a source-level change in `log-stream.ts` (e.g., missing `unref()`) — but only names the operator runbook as a doc update regardless of which branch is taken. Per spec guidance, any change to *existing* functionality (not just test scaffolding) must update `v2/docs/v1-behaviors.md`. The spec must state that if the fix changes production/runtime behavior (not just test teardown), `v2/docs/v1-behaviors.md` gets updated accordingly; if the fix is test-only, that requirement doesn't apply.
+
+No other refinements required — the diagnostic-method gap is appropriately left to implementer judgment for a debugging task, and the local stress-test verification bar is inherited directly from the intent's explicit scope, not a spec-level omission.

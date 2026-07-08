@@ -99,15 +99,30 @@ describe("loadMachineProfileModels", () => {
     expect(isError(result)).toBe(false);
   });
 
-  test("models missing required role returns LoadError naming agent and role", () => {
+  test("models missing required role (actuator) returns LoadError naming agent and role", () => {
+    const models = {
+      claude: {
+        ...VALID_MODELS.claude,
+        actuator: undefined,
+      },
+    };
+    writeProfile("missing-actuator-role-profile", JSON.stringify({ models }));
+    const result = loadMachineProfileModels("missing-actuator-role-profile", ["claude"]);
+    expect(isError(result)).toBe(true);
+    if (isError(result)) {
+      expect(result.errors.some((e) => e.includes("claude") && e.includes("actuator"))).toBe(true);
+    }
+  });
+
+  test("models missing required role (shrink) returns LoadError naming agent and role", () => {
     const models = {
       claude: {
         ...VALID_MODELS.claude,
         shrink: undefined,
       },
     };
-    writeProfile("missing-role-profile", JSON.stringify({ models }));
-    const result = loadMachineProfileModels("missing-role-profile", ["claude"]);
+    writeProfile("missing-shrink-role-profile", JSON.stringify({ models }));
+    const result = loadMachineProfileModels("missing-shrink-role-profile", ["claude"]);
     expect(isError(result)).toBe(true);
     if (isError(result)) {
       expect(result.errors.some((e) => e.includes("claude") && e.includes("shrink"))).toBe(true);

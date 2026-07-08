@@ -52,10 +52,10 @@ watcher, or bare timer) outlives test teardown.
 
 ## Acceptance criteria
 
-- [ ] `for i in $(seq 1 50); do timeout 30 bun test v2/src/daemon/daemon-wait-run-completion.test.ts; done`
+- [x] `for i in $(seq 1 50); do timeout 30 bun test v2/src/daemon/daemon-wait-run-completion.test.ts; done`
       (sandbox-off) passes all 50 iterations, with the process exiting within 1s wall-clock of the
       last test completing each run — not merely under the 30s CI timeout.
-- [ ] `bun run test:v2` and `bun run test:integration:v2` stay green (no regression from the fix).
+- [x] `bun run test:v2` and `bun run test:integration:v2` stay green (no regression from the fix).
 - [x] If the fix changes production/runtime code (not test-only teardown), `v2/docs/v1-behaviors.md`
       reflects the corrected behavior.
 - [ ] Every `FSWatcher` created in `FsAppendWake` (`log-stream.ts`) is `.unref()`'d immediately

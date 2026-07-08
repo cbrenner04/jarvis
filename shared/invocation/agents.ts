@@ -438,9 +438,6 @@ async function runCodexBinding(args: {
       warnings: resolved.warnings,
     };
   }
-  if (resolved.warnings.length > 0) {
-    return { ...result, warnings: resolved.warnings };
-  }
   return result;
 }
 

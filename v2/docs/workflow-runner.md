@@ -30,8 +30,19 @@ list and a later configured agent binding before the step succeeds.
 
 For each `write` step in order:
 1. Run its write loop (via `executeWriteLoop`) to a terminal outcome.
-2. If the outcome is `complete`, advance to the next step.
-3. Any other terminal outcome (`blocked`, `contract_miss`, `invocation_failure`) or soft-stop (`budget-exhausted`, `paused`) stops the workflow at that step — no later steps are run.
+2. If the outcome is `complete` and the step role is `implement`, run one
+   hidden shrink write loop before advancing.
+3. If the outcome is `complete`, advance to the next step.
+4. Any other terminal outcome (`blocked`, `contract_miss`, `invocation_failure`) or soft-stop (`budget-exhausted`, `paused`) stops the workflow at that step — no later steps are run.
+
+The hidden shrink pass is not an authored workflow step. It reuses the completed
+`implement` step's worktree, spec path, artifact path, step rules, agent order,
+and model config, but resolves bindings as `(agent, role: "shrink") → rungs`
+and uses prompt id `patch.prompt.shrink`. It runs only after `implement`
+returns `complete`; `budget-exhausted`, `paused`, `blocked`, `contract_miss`,
+and `invocation_failure` do not trigger shrink. A non-`complete` shrink outcome
+replaces the workflow result kind at the implement step and prevents later
+steps from running.
 
 A `human` step (see [`role-resolution.md`](role-resolution.md#role--behavior-reference))
 dispatches to a separate path that never calls `executeWriteLoop`: the runner
@@ -72,6 +83,8 @@ one `invocationId` plus the authored `steps[]` metadata (`stepId`, `role`,
 order). Daemon/TUI consumers read that snapshot back from daemon `list` rows as
 per-step progress in authored order, without reconstructing future steps from
 durable attempt history alone. See [`daemon-host.md`](daemon-host.md#workflow-snapshots-on-list-rows).
+Hidden post-implement shrink runs do not add a step to this snapshot, so
+daemon/TUI rows stay aligned to the authored workflow.
 
 ## Authoring helper and presets
 
@@ -152,7 +165,8 @@ Before running any step, `executeWorkflow` validates:
 - All `stepId` values are unique within the array.
 - For a `write` step, for every agent in that step's `agents` order, that
   step's `agentModelConfig` contains an own binding entry for the step's
-  `role`.
+  `role`. `implement` write steps also require each agent to have a `shrink`
+  binding, because completion immediately consumes it.
 - For a `review-debate` step, the same check runs independently for each of
   the four debate roles' `agents` orders against the step's
   `agentModelConfig`.

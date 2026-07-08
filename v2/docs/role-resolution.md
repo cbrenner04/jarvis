@@ -15,7 +15,7 @@ union:
 | --- | --- |
 | `plan` | Spec and plan authoring — draft and refine spec and plan documents. |
 | `implement` | Implementation authoring — write-loop code changes. |
-| `shrink` | Post-completion cleanup model resolution. Runtime shrink-step invocation is not wired yet. |
+| `shrink` | Hidden post-`implement` completion cleanup model resolution. |
 | `adversary` | Read-only critique in a review debate — surfaces findings against the artifact. |
 | `advocate` | Read-only defense in a review debate — responds to adversary findings. |
 | `adjudicator` | Read-only verdict synthesis — emits the outcome-altitude instruction the actuator applies. |
@@ -46,7 +46,7 @@ Inner rung detail (consumption modes, flattening, terminal outcomes):
 | --- | --- | --- |
 | `plan` | `write` | Plan-mode spec authoring steps. |
 | `implement` | `write` | Implement-mode write-loop steps. |
-| `shrink` | `write` | Post-completion cleanup model-resolution role; runtime steps naming `role: "shrink"` are out of scope until a caller is wired. |
+| `shrink` | `write` | Hidden write-loop pass run by `executeWorkflow` after an `implement` write step returns `complete`. |
 | `adversary` | `review-debate` | Read-only; first reviewer in each debate cycle. |
 | `advocate` | `review-debate` | Read-only; second reviewer. |
 | `adjudicator` | `review-debate` | Read-only; emits verdict. |

@@ -218,7 +218,8 @@ Head-only `actuator` matches v1 `reviewActuator` verdict-tier semantics: inner
 rungs beyond the head are not walked on quota for the same agent.
 
 **Shrink footnote:** v2 model resolution has a dedicated `shrink` role with its
-own rungs. Runtime workflow steps naming `role: "shrink"` are not wired yet.
+own rungs. `executeWorkflow` consumes those rungs for the hidden write-loop pass
+after an `implement` write step returns `complete`.
 Rung strength is config-author guidance only; load validation does not inspect
 model names or prices as policy proxies.
 
@@ -376,7 +377,7 @@ Per-machine project config (excerpt):
 
 For an `implement` step: flat bindings =
 `claude/sonnet → claude/haiku → codex/gpt-5.4`.
-For a `shrink` step once a caller exists: same full-list consumption as
+For the hidden post-implement shrink pass: same full-list consumption as
 `implement`, using `shrink` rungs.
 For an `actuator` step: `claude/haiku → codex/gpt-5.4` — only each agent's
 `rungs[0]`.

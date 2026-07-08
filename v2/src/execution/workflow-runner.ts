@@ -1,5 +1,7 @@
+import { execFileSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import {
@@ -21,9 +23,10 @@ import {
   type ReviewDebateRole,
   type ReviewDebateRoleBindings,
 } from "./review-debate.ts";
+import { getExternalWorktreePath } from "./external-worktree.ts";
 import { parseRevisionNumber } from "./revision-step-id.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
-import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "./write-loop.ts";
+import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind, type WriteLoopResult } from "./write-loop.ts";
 
 const DEFAULT_TELEMETRY_SINK_PATH = join(homedir(), ".jarvis", "telemetry.jsonl");
 
@@ -47,6 +50,9 @@ const WORKFLOW_PRESET_PINNED_FIELDS: Partial<Record<WorkflowPresetName, { role: 
 export type WorkflowPresetName = keyof typeof WORKFLOW_PRESET_LENGTHS;
 
 const REVIEW_DEBATE_ROLES: readonly ReviewDebateRole[] = ["adversary", "advocate", "adjudicator", "actuator"];
+const SHRINK_ROLE = "shrink";
+const SHRINK_PROMPT_ID = "patch.prompt.shrink";
+const SHRINK_STEP_ID_SUFFIX = "~shrink";
 
 /** Per-step write-loop input plus workflow identity; bindings are derived at execution. */
 export type WriteWorkflowStep = Omit<WriteLoopInput, "bindings"> & {
@@ -273,6 +279,27 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           resumable: stepResult.resumable,
         };
       }
+
+      if (step.behavior === "write" && step.role === "implement") {
+        const shrinkResult = await runShrinkAfterImplementComplete(
+          step,
+          workflowSnapshot,
+          store,
+          args.logSink,
+          args.telemetry,
+        );
+        totalIterationsConsumed += shrinkResult.iterationsConsumed;
+        if (shrinkResult.kind !== "complete") {
+          return {
+            kind: shrinkResult.kind,
+            stepIndex,
+            stepId: step.stepId,
+            runId: stepResult.runId,
+            iterationsConsumed: totalIterationsConsumed,
+            resumable: shrinkResult.resumable,
+          };
+        }
+      }
     }
 
     if (!lastResult) throw new Error("Unreachable: lastResult undefined after checked bounds");
@@ -304,6 +331,9 @@ export function validateWorkflowStepRoles(steps: readonly AnyWorkflowStep[]): vo
         const agentEntry = step.agentModelConfig[agent];
         if (!agentEntry || !Object.hasOwn(agentEntry, step.role)) {
           missingBindings.push(`(${step.stepId}, ${step.role}, ${agent})`);
+        }
+        if (step.role === "implement" && (!agentEntry || !Object.hasOwn(agentEntry, SHRINK_ROLE))) {
+          missingBindings.push(`(${step.stepId}, ${SHRINK_ROLE}, ${agent})`);
         }
       }
       continue;
@@ -529,6 +559,87 @@ function prepareWorkflowStep(
         : {}),
     },
   };
+}
+
+async function runShrinkAfterImplementComplete(
+  step: WriteWorkflowStep,
+  workflowSnapshot: WorkflowSnapshot,
+  store: StateStore,
+  logSink: LogSink | undefined,
+  telemetry: WorkflowTelemetryContext | undefined,
+): Promise<WriteLoopResult> {
+  const shrinkStep = {
+    ...step,
+    stepId: `${step.stepId}${SHRINK_STEP_ID_SUFFIX}`,
+    role: SHRINK_ROLE,
+    promptId: SHRINK_PROMPT_ID,
+    promptPlaceholders: shrinkPromptPlaceholders(step),
+  };
+  const preparedStep = prepareWorkflowStep(shrinkStep, workflowSnapshot, store, logSink, telemetry);
+  if (preparedStep.kind === "completed") {
+    return { kind: "complete", runId: preparedStep.runId, iterationsConsumed: 0, resumable: false };
+  }
+  return executeWriteLoop(preparedStep.input);
+}
+
+function shrinkPromptPlaceholders(step: WriteWorkflowStep): Record<string, string> {
+  const worktreePath = getExternalWorktreePath(step.worktree);
+  const allowlist = changedFiles(worktreePath, step.worktree.baseRef);
+  return {
+    SPEC_PATH: step.specPath,
+    SPEC_TREE: readSpecTree(worktreePath, step.specPath),
+    ALLOWLIST: (allowlist.length > 0 ? allowlist : [step.expectedArtifactPath]).map((path) => `- ${path}`).join("\n"),
+    BRANCH_DIFF: gitOutput(worktreePath, ["diff", "--stat", step.worktree.baseRef, "--"]) || "(empty)",
+    RUN_SCOPED_DIFF:
+      gitOutput(worktreePath, ["diff", step.worktree.baseRef, "--", ...(allowlist.length > 0 ? allowlist : [step.expectedArtifactPath])]) ||
+      "(empty)",
+  };
+}
+
+function readSpecTree(worktreePath: string, specPath: string): string {
+  const resolvedSpecPath = isAbsolute(specPath) ? specPath : join(worktreePath, specPath);
+  const specRoot = dirname(resolvedSpecPath);
+  if (!existsSync(specRoot)) return "(missing spec tree)";
+
+  const files = listMarkdownFiles(specRoot).sort();
+  if (files.length === 0) return "(empty spec tree)";
+
+  return files
+    .map((filePath) => {
+      const label = relative(worktreePath, filePath) || filePath;
+      return `## ${label}\n\n${readFileSync(filePath, "utf8")}`;
+    })
+    .join("\n\n");
+}
+
+function listMarkdownFiles(dir: string): string[] {
+  const entries = readdirSync(dir, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...listMarkdownFiles(path));
+    } else if (entry.isFile() && path.endsWith(".md")) {
+      files.push(path);
+    }
+  }
+  return files;
+}
+
+function changedFiles(worktreePath: string, baseRef: string): string[] {
+  return gitOutput(worktreePath, ["diff", "--name-only", baseRef, "--"])
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function gitOutput(worktreePath: string, args: readonly string[]): string {
+  if (!existsSync(join(worktreePath, ".git"))) return "";
+  try {
+    return execFileSync("git", args, { cwd: worktreePath, encoding: "utf8", maxBuffer: 10 * 1024 * 1024 }).trim();
+  } catch {
+    return "";
+  }
 }
 
 type ReviewDebateStepOutcome = {

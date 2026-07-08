@@ -380,9 +380,194 @@ describe("createResolvedAgentBinding", () => {
     expect(rows[0]?.binding_id).toBe("codex/gpt-5.4/priced-codex");
   });
 
+  test("cursor binding invokes the CLI shape with mapped model, cwd, ignored stdin, and abort signal", async () => {
+    const fake = fakeSpawn([{ kind: "hang" }]);
+    const controller = new AbortController();
+    const promise = createResolvedAgentBinding(
+      {
+        agentId: "cursor",
+        adapterModel: "Composer 2.5 Fast",
+        priceKey: "Composer 2.5 Fast",
+      },
+      { spawn: fake.spawn },
+    ).invoke({ prompt: "implement it", cwd: "/repo", signal: controller.signal });
+
+    controller.abort("operator");
+    const result = await promise;
+
+    expect(result).toEqual({ kind: "error", exitCode: -1, stderr: "aborted: operator" });
+    expect(fake.calls[0]?.binary).toBe("cursor");
+    expect(fake.calls[0]?.argv).toEqual([
+      "agent",
+      "-p",
+      "--output-format",
+      "text",
+      "--model",
+      "composer-2.5-fast",
+      "--force",
+      "--workspace",
+      "/repo",
+      "implement it",
+    ]);
+    expect(fake.calls[0]?.opts.cwd).toBe("/repo");
+    expect(fake.calls[0]?.opts.detached).toBe(true);
+    expect(fake.calls[0]?.opts.stdio).toEqual(["ignore", "pipe", "pipe"]);
+    expect(fake.calls[0]?.child?.stdinChunks.join("")).toBe("");
+    expect(fake.calls[0]?.child?.killedWith).toContain("SIGTERM");
+  });
+
+  test("cursor binding passes unmapped model strings through unchanged", async () => {
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: "done", stderr: "" }]);
+
+    const result = await createResolvedAgentBinding(
+      { agentId: "cursor", adapterModel: "custom-cursor-model", priceKey: "custom" },
+      { spawn: fake.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toEqual({ kind: "ok", stdout: "done", stderr: "" });
+    expect(fake.calls[0]?.argv).toContain("custom-cursor-model");
+  });
+
+  test("cursor binding classifies quota, model config, generic errors, and zero-exit ok", async () => {
+    const quota = fakeSpawn([{ kind: "settle", code: 1, stderr: "monthly cursor usage limit reached" }]);
+    const model = fakeSpawn([{ kind: "settle", code: 1, stderr: "unknown model: nope" }]);
+    const generic = fakeSpawn([{ kind: "settle", code: 2, stderr: "boom" }]);
+    const zeroExit = fakeSpawn([{ kind: "settle", code: 0, stdout: "quota exceeded", stderr: "" }]);
+
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "cursor", adapterModel: "GPT-5.4", priceKey: "GPT-5.4" },
+        { spawn: quota.spawn },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "quota", stderr: "monthly cursor usage limit reached" });
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "cursor", adapterModel: "bad", priceKey: "bad" },
+        { spawn: model.spawn },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "model_config", stderr: "unknown model: nope" });
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "cursor", adapterModel: "GPT-5.4", priceKey: "GPT-5.4" },
+        { spawn: generic.spawn },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "error", exitCode: 2, stderr: "boom" });
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "cursor", adapterModel: "GPT-5.4", priceKey: "GPT-5.4" },
+        { spawn: zeroExit.spawn },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "ok", stdout: "quota exceeded", stderr: "" });
+  });
+
+  test("cursor spawn failure returns terminal error", async () => {
+    const fake = fakeSpawn([{ kind: "throw", error: new Error("ENOENT") }]);
+
+    const result = await createResolvedAgentBinding(
+      { agentId: "cursor", adapterModel: "GPT-5.4", priceKey: "GPT-5.4" },
+      { spawn: fake.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toEqual({ kind: "error", exitCode: -1, stderr: "Error: ENOENT" });
+  });
+
+  test("cursor telemetry uses resolved binding metadata", async () => {
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: "done" }]);
+    const rows: InvocationCompletedRecord[] = [];
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/repo",
+      bindings: [
+        createResolvedAgentBinding(
+          {
+            agentId: "cursor",
+            adapterModel: "GPT-5.4",
+            priceKey: "priced-cursor",
+          },
+          { spawn: fake.spawn },
+        ),
+      ],
+      telemetry: {
+        sink: {
+          append(record) {
+            rows.push(record);
+          },
+        },
+        operatorSessionId: "session",
+        runId: "run",
+        attemptId: "attempt",
+        project: "jarvis",
+        workflow: "write",
+        stepId: "implement",
+        role: "implement",
+        worktreePath: "/repo",
+        branch: "branch",
+        specRef: "spec",
+        invocationIds: ["invocation"],
+      },
+    });
+
+    expect(rows[0]?.agent).toBe("cursor");
+    expect(rows[0]?.model).toBe("GPT-5.4");
+    expect(rows[0]?.binding_id).toBe("cursor/GPT-5.4/priced-cursor");
+  });
+
+  test("cursor quota advances fallback but model config and generic error stop", async () => {
+    const quota = fakeSpawn([{ kind: "settle", code: 1, stderr: "You've hit your usage limit" }]);
+    const model = fakeSpawn([{ kind: "settle", code: 1, stderr: "unknown model: nope" }]);
+    const generic = fakeSpawn([{ kind: "settle", code: 2, stderr: "boom" }]);
+
+    const quotaResult = await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/repo",
+      bindings: [
+        createResolvedAgentBinding(
+          { agentId: "cursor", adapterModel: "GPT-5.4", priceKey: "GPT-5.4" },
+          { spawn: quota.spawn },
+        ),
+        {
+          id: "next",
+          invoke: async () => ({ kind: "ok", stdout: "next", stderr: "" }),
+        },
+      ],
+    });
+    const modelResult = await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/repo",
+      bindings: [
+        createResolvedAgentBinding({ agentId: "cursor", adapterModel: "bad", priceKey: "bad" }, { spawn: model.spawn }),
+        {
+          id: "next",
+          invoke: async () => ({ kind: "ok", stdout: "should-not-run", stderr: "" }),
+        },
+      ],
+    });
+    const genericResult = await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/repo",
+      bindings: [
+        createResolvedAgentBinding(
+          { agentId: "cursor", adapterModel: "GPT-5.4", priceKey: "GPT-5.4" },
+          { spawn: generic.spawn },
+        ),
+        {
+          id: "next",
+          invoke: async () => ({ kind: "ok", stdout: "should-not-run", stderr: "" }),
+        },
+      ],
+    });
+
+    expect(quotaResult.attempts.map((attempt) => attempt.binding.id)).toEqual(["cursor/GPT-5.4/GPT-5.4", "next"]);
+    expect(quotaResult.final?.result).toEqual({ kind: "ok", stdout: "next", stderr: "" });
+    expect(modelResult.attempts.map((attempt) => attempt.binding.id)).toEqual(["cursor/bad/bad"]);
+    expect(modelResult.final?.result.kind).toBe("model_config");
+    expect(genericResult.attempts.map((attempt) => attempt.binding.id)).toEqual(["cursor/GPT-5.4/GPT-5.4"]);
+    expect(genericResult.final?.result.kind).toBe("error");
+  });
+
   test("unrecognized resolved agents keep unwired terminal error metadata", async () => {
     const binding = createResolvedAgentBinding({
-      agentId: "cursor",
+      agentId: "opencode",
       adapterModel: "gpt-5",
       priceKey: "gpt-5",
     });
@@ -390,9 +575,9 @@ describe("createResolvedAgentBinding", () => {
     await expect(binding.invoke({ prompt: "p", cwd: "/repo" })).resolves.toEqual({
       kind: "error",
       exitCode: 127,
-      stderr: "agent 'cursor' model 'gpt-5' price 'gpt-5' invocation is not wired yet",
+      stderr: "agent 'opencode' model 'gpt-5' price 'gpt-5' invocation is not wired yet",
     });
-    expect(binding.id).toBe("cursor/gpt-5/gpt-5");
-    expect(binding.metadata).toEqual({ agent: "cursor", model: "gpt-5" });
+    expect(binding.id).toBe("opencode/gpt-5/gpt-5");
+    expect(binding.metadata).toEqual({ agent: "opencode", model: "gpt-5" });
   });
 });

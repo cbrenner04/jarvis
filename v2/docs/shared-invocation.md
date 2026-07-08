@@ -39,7 +39,11 @@ Bindings:
   workspace-write -c approval_policy="on-request" --model <adapterModel>`,
   pipe the marker-augmented prompt on stdin, correlate Codex session usage
   best-effort, and settle into `ok | quota | model_config | error` before
-  fallback continues. Other resolved agents still return the terminal unwired `error`. Production
+  fallback continues. Resolved `cursor` bindings spawn `cursor agent -p
+  --output-format text --model <resolved-cli-model> --force --workspace <cwd>
+  <prompt>`, ignore stdin, and settle into `ok | quota | model_config | error`
+  before fallback continues. Other resolved agents still return the terminal
+  unwired `error`. Production
   `binding.id` records the resolved rung identity as
   `agentId/adapterModel/priceKey`, so attempts stay distinct even when two rungs
   share the same adapter model string.

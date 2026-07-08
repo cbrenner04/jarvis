@@ -17,7 +17,7 @@ import { branchExistsLocal, branchExistsOnOrigin, getCurrentBranch } from "../..
 import { ClaudeAgent } from "../src/agents/claude.ts";
 import { runAgent } from "../src/agents/spawn.ts";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
-import { DEFAULT_CONFIG, type AgentEntry, loadConfig, registerProject, writeConfig } from "../src/config.ts";
+import { type AgentEntry, DEFAULT_CONFIG, loadConfig, registerProject, writeConfig } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
 import {
   __testClearDeltaStateDir,

@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
-import { DEFAULT_CONFIG, type Config } from "../../../src/config.ts";
+import { type Config, DEFAULT_CONFIG } from "../../../src/config.ts";
 import { buildShrinkPrompt } from "../../../src/modes/patch/prompt.ts";
 import {
   accumulateImplementationTouchedFiles,

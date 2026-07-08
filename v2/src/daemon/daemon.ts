@@ -1084,6 +1084,13 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       }
       steps.set(stepId, progress);
     },
+    /** Aborts every live wait fanout so its `follow()` loop unwinds and closes its watcher. */
+    close: (): void => {
+      for (const fanout of waitFanouts.values()) {
+        fanout.controller.abort();
+      }
+      waitFanouts.clear();
+    },
   };
 }
 
@@ -1188,7 +1195,11 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
     return { kind: "response", result: { ok: true } };
   };
 
-  const { reportReviewDebateProgress: _reportReviewDebateProgress, ...runControlHandlers } = createRunControlHandlers({
+  const {
+    reportReviewDebateProgress: _reportReviewDebateProgress,
+    close: _closeRunControlHandlers,
+    ...runControlHandlers
+  } = createRunControlHandlers({
     stateStore: store,
     logReader: logReaderInstance,
     writeLoopExecutor,

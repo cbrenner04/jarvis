@@ -8,9 +8,9 @@ import type { RpcHandler } from "../ipc/server.ts";
 type ListRunsResult = { runs?: DaemonListRunRow[] } | undefined;
 type RunControlHandlers = ReturnType<typeof createRunControlHandlers>;
 
-/** Strips the non-RPC `reportReviewDebateProgress` method before passing handlers to `startIpcServer`. */
+/** Strips the non-RPC `reportReviewDebateProgress`/`close` methods before passing handlers to `startIpcServer`. */
 export function toIpcHandlers(handlers: RunControlHandlers): Record<string, RpcHandler> {
-  const { reportReviewDebateProgress: _reportReviewDebateProgress, ...ipcHandlers } = handlers;
+  const { reportReviewDebateProgress: _reportReviewDebateProgress, close: _close, ...ipcHandlers } = handlers;
   return ipcHandlers;
 }
 

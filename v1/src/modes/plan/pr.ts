@@ -275,6 +275,7 @@ export function getOpenPrState(branch: string, cwd: string): OpenPrInfo {
 export type MaybeMarkPlanPrReadyOpts = {
   branch: string;
   cwd: string;
+  timeoutMs: number;
   /** Test seam: agent label for the pre-ready fix commit trailer. */
   agentLabel?: string;
   /** Test seam: get the open PR state. Defaults to `getOpenPrState`. */
@@ -365,6 +366,7 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
   if (opts.skipReadyGate !== true) {
     runReadyAndCommit({
       cwd: opts.cwd,
+      timeoutMs: opts.timeoutMs,
       ...(opts.agentLabel !== undefined ? { agentLabel: opts.agentLabel } : {}),
       ...(opts.fixCommand !== undefined ? { fixCommand: opts.fixCommand } : {}),
       ...(opts.runFix !== undefined ? { runFix: opts.runFix } : {}),

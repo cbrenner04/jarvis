@@ -311,7 +311,10 @@ repos must configure `fixCommand`. The override is tokenized on whitespace and
 invoked via `execFileSync` (no shell) with `JARVIS_READY_TIER` set in the
 environment. Plan-mode readiness threads `fixCommand` only (not `readyCommand`);
 its committed-path ready flip runs configured or built-in autofix then built-in
-`bun run ready`.
+`bun run ready`. Autofix and verification subprocesses are each bounded by
+`iterationTimeoutMs` (10 min default); a timeout fails the gate with the command
+and gate label, e.g. `bun run ready exceeded 600000ms budget (gate:
+completion-ready)`.
 This completion-transition gate always runs the **`full`** tier through
 `runReadyAndCommit` and consumes zero agent tokens.
 

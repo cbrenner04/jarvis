@@ -1,0 +1,9 @@
+Required outcomes:
+
+1. **Fix the reverted `iterationTimeoutMs` regression.** `v1/src/config.ts` must keep `DEFAULT_CONFIG.iterationTimeoutMs` at `600_000` (10 min), not `30 * 60_000`. Commit `528d62af` (immediately preceding this branch, part of the merged `iteration-timeout-default-10min` intent, #1184) already set the default to 10 minutes; this branch's commit `20e84020` silently reverts it back to 30 minutes based on a factually incorrect "correction" in the spec's Decisions section. This is an unauthorized regression of prior, already-shipped behavior — not a doc-catch-up — and must not ship.
+
+2. **Correct every doc/message value that was changed to reflect "30 min" back to "10 min" (600000ms).** This includes `v1/docs/config.md`, `v1/docs/run-loop.md`, `v1/docs/worktrees-and-commits.md`, `v1/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md`, plus any timeout-exceeded error message text or test expectations that encode the wrong default. All must consistently state the real, currently-shipped 10-minute default.
+
+3. **Re-verify acceptance criteria and tests after the fix**, since multiple call sites and tests may reference the default value — ensure nothing still asserts or documents 30 minutes anywhere touched by this branch.
+
+No other findings require action: the `ETIMEDOUT`+`SIGTERM` timeout-disambiguation mechanism (in place of the spec's literal `killed === true` check) is empirically verified against real Bun behavior via non-mocked tests in `ready-gate.test.ts`, correctly distinguishes a timeout-induced kill from an unrelated signal (e.g. SIGINT), and is functionally correct — no code change required there.

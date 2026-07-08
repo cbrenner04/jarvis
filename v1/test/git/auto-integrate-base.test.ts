@@ -54,6 +54,7 @@ function integrateOpts(h: IntegrateHarness) {
     cwd,
     baseRefName,
     agentLabel: "test",
+    timeoutMs: 30_000,
     stderr: (s: string) => {
       h.stderr += s;
     },
@@ -205,6 +206,7 @@ describe("tryAutoIntegrateBase", () => {
       maybeMarkReady({
         indexPath,
         cwd: indexDir,
+        timeoutMs: 30_000,
         checkPrExists: () => true,
         checkBaseCurrent: () => ({ status: "behind", baseRefName }),
         autoIntegrateBase: true,

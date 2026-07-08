@@ -23,14 +23,14 @@ An `implement` write step that reaches `complete` runs one hidden shrink write-l
 
 ## Acceptance criteria
 
-- [ ] `executeWorkflow` invokes one shrink write-loop pass after an `implement` write step returns `complete`, before returning workflow `complete`.
-- [ ] `executeWorkflow` does not invoke shrink after `budget-exhausted`, `paused`, `blocked`, `contract_miss`, or `invocation_failure` from the implement step.
-- [ ] The shrink pass uses the completed implement step's worktree, spec path, artifact path, step rules, agent order, and model config, but resolves bindings for `role: "shrink"` and the pinned shrink prompt id.
-- [ ] Shrink invocation telemetry records `role: "shrink"` on a distinct binding chain from the implement invocation.
-- [ ] A non-`complete` shrink outcome stops the workflow at the implement step, replaces the step outcome kind with the shrink outcome kind, and does not run later workflow steps.
-- [ ] The `implement` workflow preset remains one authored step and daemon/TUI workflow snapshots do not include a separate shrink step row.
-- [ ] `bun test v2/src/execution/workflow-runner.test.ts v2/src/execution/implement-workflow-steps.test.ts v2/src/execution/write-loop.test.ts` passes.
-- [ ] `v2/docs/workflow-runner.md`, `v2/docs/write-behavior.md`, `v2/docs/role-resolution.md`, and `v2/docs/agent-model-config.md` document runtime shrink wiring with no stale "not wired yet" / "out of scope until a caller is wired" language.
+- [x] `executeWorkflow` invokes one shrink write-loop pass after an `implement` write step returns `complete`, before returning workflow `complete`.
+- [x] `executeWorkflow` does not invoke shrink after `budget-exhausted`, `paused`, `blocked`, `contract_miss`, or `invocation_failure` from the implement step.
+- [x] The shrink pass uses the completed implement step's worktree, spec path, artifact path, step rules, agent order, and model config, but resolves bindings for `role: "shrink"` and the pinned shrink prompt id.
+- [x] Shrink invocation telemetry records `role: "shrink"` on a distinct binding chain from the implement invocation.
+- [x] A non-`complete` shrink outcome stops the workflow at the implement step, replaces the step outcome kind with the shrink outcome kind, and does not run later workflow steps.
+- [x] The `implement` workflow preset remains one authored step and daemon/TUI workflow snapshots do not include a separate shrink step row.
+- [x] `bun test v2/src/execution/workflow-runner.test.ts v2/src/execution/implement-workflow-steps.test.ts v2/src/execution/write-loop.test.ts` passes.
+- [x] `v2/docs/workflow-runner.md`, `v2/docs/write-behavior.md`, `v2/docs/role-resolution.md`, and `v2/docs/agent-model-config.md` document runtime shrink wiring with no stale "not wired yet" / "out of scope until a caller is wired" language.
 
 ## Documentation updates
 

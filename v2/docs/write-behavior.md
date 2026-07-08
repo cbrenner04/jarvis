@@ -190,6 +190,14 @@ without local reclassification.
 - Agent fallback order comes from `~/.jarvis/config.json` `agents` when present,
   else `DEFAULT_WRITE_AGENTS` (`claude`); the chain advances only on `quota`.
 
+For `jarvis run workflow implement`, `complete` means the authored implement
+write loop completed and one hidden shrink write loop also completed. The
+hidden shrink pass uses the same worktree/spec/artifact context and agent order,
+but resolves model rungs with `role: "shrink"` and records telemetry with
+`role: "shrink"`. It is skipped for `budget-exhausted`, `paused`, `blocked`,
+`contract_miss`, and `invocation_failure`. If shrink stops non-`complete`,
+`wait` reports that outcome at the implement workflow step.
+
 ## Loop outcomes
 
 The loop classifies and routes results:

@@ -1,5 +1,7 @@
+import { execFileSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import {
@@ -15,6 +17,7 @@ import {
   type StateStore,
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
+import { getExternalWorktreePath } from "./external-worktree.ts";
 import {
   executeReviewDebate,
   type ReviewDebateInput,
@@ -23,7 +26,12 @@ import {
 } from "./review-debate.ts";
 import { parseRevisionNumber } from "./revision-step-id.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
-import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "./write-loop.ts";
+import {
+  executeWriteLoop,
+  type WriteLoopInput,
+  type WriteLoopOutcomeKind,
+  type WriteLoopResult,
+} from "./write-loop.ts";
 
 const DEFAULT_TELEMETRY_SINK_PATH = join(homedir(), ".jarvis", "telemetry.jsonl");
 
@@ -47,6 +55,9 @@ const WORKFLOW_PRESET_PINNED_FIELDS: Partial<Record<WorkflowPresetName, { role: 
 export type WorkflowPresetName = keyof typeof WORKFLOW_PRESET_LENGTHS;
 
 const REVIEW_DEBATE_ROLES: readonly ReviewDebateRole[] = ["adversary", "advocate", "adjudicator", "actuator"];
+const SHRINK_ROLE = "shrink";
+const SHRINK_PROMPT_ID = "patch.prompt.shrink";
+const SHRINK_STEP_ID_SUFFIX = "~shrink";
 
 /** Per-step write-loop input plus workflow identity; bindings are derived at execution. */
 export type WriteWorkflowStep = Omit<WriteLoopInput, "bindings"> & {
@@ -273,6 +284,29 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           resumable: stepResult.resumable,
         };
       }
+
+      if (step.behavior === "write" && step.role === "implement") {
+        const shrinkResult = await runShrinkAfterImplementComplete(
+          step,
+          stepIndex,
+          workflowSnapshot,
+          store,
+          args.logSink,
+          args.telemetry,
+          args.onStepRunCreated,
+        );
+        totalIterationsConsumed += shrinkResult.iterationsConsumed;
+        if (shrinkResult.kind !== "complete") {
+          return {
+            kind: shrinkResult.kind,
+            stepIndex,
+            stepId: step.stepId,
+            runId: shrinkResult.runId,
+            iterationsConsumed: totalIterationsConsumed,
+            resumable: shrinkResult.resumable,
+          };
+        }
+      }
     }
 
     if (!lastResult) throw new Error("Unreachable: lastResult undefined after checked bounds");
@@ -294,34 +328,42 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
 
 /** Fail before durable state changes if any step role is missing from its agent config. */
 export function validateWorkflowStepRoles(steps: readonly AnyWorkflowStep[]): void {
-  const missingBindings: string[] = [];
-
-  for (const step of steps) {
-    if (step.behavior === "human") continue;
-
-    if (isWriteStep(step)) {
-      for (const agent of step.agents) {
-        const agentEntry = step.agentModelConfig[agent];
-        if (!agentEntry || !Object.hasOwn(agentEntry, step.role)) {
-          missingBindings.push(`(${step.stepId}, ${step.role}, ${agent})`);
-        }
-      }
-      continue;
-    }
-
-    for (const role of REVIEW_DEBATE_ROLES) {
-      for (const agent of step.agents[role]) {
-        const agentEntry = step.agentModelConfig[agent];
-        if (!agentEntry || !Object.hasOwn(agentEntry, role)) {
-          missingBindings.push(`(${step.stepId}, ${role}, ${agent})`);
-        }
-      }
-    }
-  }
+  const missingBindings = steps.flatMap((step) => missingWorkflowStepRoleBindings(step));
 
   if (missingBindings.length > 0) {
     throw new Error(`Workflow step role validation failed: ${missingBindings.join(", ")}`);
   }
+}
+
+function missingWorkflowStepRoleBindings(step: AnyWorkflowStep): string[] {
+  if (step.behavior === "human") return [];
+  return isWriteStep(step) ? missingWriteStepRoleBindings(step) : missingReviewDebateStepRoleBindings(step);
+}
+
+function missingWriteStepRoleBindings(step: WriteWorkflowStep): string[] {
+  const roles = step.role === "implement" ? [step.role, SHRINK_ROLE] : [step.role];
+  return step.agents.flatMap((agent) => missingAgentRoleBindings(step, agent, roles));
+}
+
+function missingReviewDebateStepRoleBindings(step: ReviewDebateWorkflowStep): string[] {
+  return REVIEW_DEBATE_ROLES.flatMap((role) =>
+    step.agents[role].flatMap((agent) => missingAgentRoleBindings(step, agent, [role])),
+  );
+}
+
+function missingAgentRoleBindings(
+  step: WriteWorkflowStep | ReviewDebateWorkflowStep,
+  agent: string,
+  roles: readonly string[],
+): string[] {
+  return roles
+    .filter((role) => !hasAgentRoleBinding(step.agentModelConfig, agent, role))
+    .map((role) => `(${step.stepId}, ${role}, ${agent})`);
+}
+
+function hasAgentRoleBinding(agentModelConfig: AgentModelConfig, agent: string, role: string): boolean {
+  const agentEntry = agentModelConfig[agent];
+  return agentEntry !== undefined && Object.hasOwn(agentEntry, role);
 }
 
 /** Fail before durable state changes if a human step's `onRevise.repeatStepId` isn't an earlier step's `stepId`. */
@@ -529,6 +571,98 @@ function prepareWorkflowStep(
         : {}),
     },
   };
+}
+
+async function runShrinkAfterImplementComplete(
+  step: WriteWorkflowStep,
+  stepIndex: number,
+  workflowSnapshot: WorkflowSnapshot,
+  store: StateStore,
+  logSink: LogSink | undefined,
+  telemetry: WorkflowTelemetryContext | undefined,
+  onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+): Promise<WriteLoopResult> {
+  const shrinkStep = {
+    ...step,
+    stepId: `${step.stepId}${SHRINK_STEP_ID_SUFFIX}`,
+    role: SHRINK_ROLE,
+    promptId: SHRINK_PROMPT_ID,
+    promptPlaceholders: shrinkPromptPlaceholders(step),
+  };
+  const preparedStep = prepareWorkflowStep(shrinkStep, workflowSnapshot, store, logSink, telemetry);
+  if (preparedStep.kind === "completed") {
+    onStepRunCreated?.(stepIndex, preparedStep.runId);
+    return { kind: "complete", runId: preparedStep.runId, iterationsConsumed: 0, resumable: false };
+  }
+  return executeWriteLoop(
+    onStepRunCreated
+      ? { ...preparedStep.input, onRunCreated: (runId) => onStepRunCreated(stepIndex, runId) }
+      : preparedStep.input,
+  );
+}
+
+function shrinkPromptPlaceholders(step: WriteWorkflowStep): Record<string, string> {
+  const worktreePath = getExternalWorktreePath(step.worktree);
+  const allowlist = changedFiles(worktreePath, step.worktree.baseRef);
+  return {
+    SPEC_PATH: step.specPath,
+    SPEC_TREE: readSpecTree(worktreePath, step.specPath),
+    ALLOWLIST: (allowlist.length > 0 ? allowlist : [step.expectedArtifactPath]).map((path) => `- ${path}`).join("\n"),
+    BRANCH_DIFF: gitOutput(worktreePath, ["diff", "--stat", step.worktree.baseRef, "--"]) || "(empty)",
+    RUN_SCOPED_DIFF:
+      gitOutput(worktreePath, [
+        "diff",
+        step.worktree.baseRef,
+        "--",
+        ...(allowlist.length > 0 ? allowlist : [step.expectedArtifactPath]),
+      ]) || "(empty)",
+  };
+}
+
+function readSpecTree(worktreePath: string, specPath: string): string {
+  const resolvedSpecPath = isAbsolute(specPath) ? specPath : join(worktreePath, specPath);
+  const specRoot = dirname(resolvedSpecPath);
+  if (!existsSync(specRoot)) return "(missing spec tree)";
+
+  const files = listMarkdownFiles(specRoot).sort();
+  if (files.length === 0) return "(empty spec tree)";
+
+  return files
+    .map((filePath) => {
+      const label = relative(worktreePath, filePath) || filePath;
+      return `## ${label}\n\n${readFileSync(filePath, "utf8")}`;
+    })
+    .join("\n\n");
+}
+
+function listMarkdownFiles(dir: string): string[] {
+  const entries = readdirSync(dir, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...listMarkdownFiles(path));
+    } else if (entry.isFile() && path.endsWith(".md")) {
+      files.push(path);
+    }
+  }
+  return files;
+}
+
+function changedFiles(worktreePath: string, baseRef: string): string[] {
+  return gitOutput(worktreePath, ["diff", "--name-only", baseRef, "--"])
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function gitOutput(worktreePath: string, args: readonly string[]): string {
+  if (!existsSync(join(worktreePath, ".git"))) return "";
+  try {
+    return execFileSync("git", args, { cwd: worktreePath, encoding: "utf8", maxBuffer: 10 * 1024 * 1024 }).trim();
+  } catch {
+    return "";
+  }
 }
 
 type ReviewDebateStepOutcome = {

@@ -24,15 +24,25 @@ const { roots } = trackedTempRoots();
 const DEFAULT_AGENT_MODEL_CONFIG = {
   claude: {
     implement: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+    shrink: { rungs: [{ adapterModel: "S1", priceKey: "S1" }] },
   },
 };
 const TWO_AGENTS = ["claude", "codex"] as const;
 const VALID_TWO_AGENT_CONFIG: AgentModelConfig = {
-  claude: { implement: { rungs: [{ adapterModel: "claude-implement", priceKey: "claude-implement" }] } },
-  codex: { implement: { rungs: [{ adapterModel: "codex-implement", priceKey: "codex-implement" }] } },
+  claude: {
+    implement: { rungs: [{ adapterModel: "claude-implement", priceKey: "claude-implement" }] },
+    shrink: { rungs: [{ adapterModel: "claude-shrink", priceKey: "claude-shrink" }] },
+  },
+  codex: {
+    implement: { rungs: [{ adapterModel: "codex-implement", priceKey: "codex-implement" }] },
+    shrink: { rungs: [{ adapterModel: "codex-shrink", priceKey: "codex-shrink" }] },
+  },
 };
 const MISSING_CODEX_IMPLEMENT_CONFIG: AgentModelConfig = {
-  claude: { implement: { rungs: [{ adapterModel: "claude-implement", priceKey: "claude-implement" }] } },
+  claude: {
+    implement: { rungs: [{ adapterModel: "claude-implement", priceKey: "claude-implement" }] },
+    shrink: { rungs: [{ adapterModel: "claude-shrink", priceKey: "claude-shrink" }] },
+  },
   codex: {},
 };
 const NO_STEP_ROLES_CONFIG: AgentModelConfig = {
@@ -213,24 +223,25 @@ describe("executeWorkflow", () => {
   test("onStepRunCreated fires once step 0's run row is durably created, before the step completes", async () => {
     const step = createStep({ stepId: "step-1", role: "implement" });
     const store = openStateStore(":memory:");
-    let firedStepIndex: number | undefined;
-    let firedRunId: string | undefined;
-    let rowExistedAtFireTime = false;
+    const fired: Array<{ stepIndex: number; runId: string; rowExisted: boolean }> = [];
 
     try {
       const result = await executeWorkflow({
         steps: [step],
         stateStore: store,
         onStepRunCreated: (stepIndex, runId) => {
-          firedStepIndex = stepIndex;
-          firedRunId = runId;
-          rowExistedAtFireTime = store.loadRun(runId) !== null;
+          fired.push({ stepIndex, runId, rowExisted: store.loadRun(runId) !== null });
         },
       });
 
-      expect(firedStepIndex).toBe(0);
-      expect(firedRunId).toBe(result.runId);
-      expect(rowExistedAtFireTime).toBe(true);
+      // Fires for the implement step's own run, then again for the hidden shrink run.
+      expect(fired).toHaveLength(2);
+      expect(fired[0]?.stepIndex).toBe(0);
+      expect(fired[0]?.runId).toBe(result.runId);
+      expect(fired[0]?.rowExisted).toBe(true);
+      expect(fired[1]?.stepIndex).toBe(0);
+      expect(fired[1]?.runId).not.toBe(result.runId);
+      expect(fired[1]?.rowExisted).toBe(true);
     } finally {
       store.close();
     }
@@ -340,9 +351,18 @@ describe("executeWorkflow", () => {
             { adapterModel: "M2", priceKey: "P2" },
           ],
         },
+        shrink: {
+          rungs: [
+            { adapterModel: "M1", priceKey: "P1" },
+            { adapterModel: "M2", priceKey: "P2" },
+          ],
+        },
       },
       codex: {
         implement: {
+          rungs: [{ adapterModel: "M3", priceKey: "P3" }],
+        },
+        shrink: {
           rungs: [{ adapterModel: "M3", priceKey: "P3" }],
         },
       },
@@ -421,6 +441,18 @@ describe("executeWorkflow", () => {
         "invoke:step-1:claude/M1",
         "invoke:step-1:claude/M2",
         "invoke:step-1:codex/M3",
+        "resolve:step-1:claude/M1",
+        "resolve:step-1:claude/M2",
+        "resolve:step-1:codex/M3",
+        "invoke:step-1:claude/M1",
+        "invoke:step-1:claude/M2",
+        "invoke:step-1:codex/M3",
+        "resolve:step-2:claude/M1",
+        "resolve:step-2:claude/M2",
+        "resolve:step-2:codex/M3",
+        "invoke:step-2:claude/M1",
+        "invoke:step-2:claude/M2",
+        "invoke:step-2:codex/M3",
         "resolve:step-2:claude/M1",
         "resolve:step-2:claude/M2",
         "resolve:step-2:codex/M3",
@@ -664,9 +696,18 @@ describe("executeWorkflow", () => {
               { adapterModel: "M2", priceKey: "P2" },
             ],
           },
+          shrink: {
+            rungs: [
+              { adapterModel: "M1", priceKey: "P1" },
+              { adapterModel: "M2", priceKey: "P2" },
+            ],
+          },
         },
         codex: {
           implement: {
+            rungs: [{ adapterModel: "M3", priceKey: "P3" }],
+          },
+          shrink: {
             rungs: [{ adapterModel: "M3", priceKey: "P3" }],
           },
         },
@@ -681,7 +722,246 @@ describe("executeWorkflow", () => {
       });
 
       expect(result.kind).toBe("complete");
-      expect(invocations).toEqual(["claude/M1", "claude/M2", "codex/M3"]);
+      expect(invocations).toEqual(["claude/M1", "claude/M2", "codex/M3", "claude/M1", "claude/M2", "codex/M3"]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("runs one hidden shrink pass after an implement step completes", async () => {
+    const store = openStateStore(":memory:");
+    const calls: string[] = [];
+    const step = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "implement-shrink",
+      agentModelConfig: {
+        claude: {
+          implement: { rungs: [{ adapterModel: "I1", priceKey: "I1" }] },
+          shrink: { rungs: [{ adapterModel: "S1", priceKey: "S1" }] },
+        },
+      },
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        invoke: async ({ cwd, prompt }) => {
+          calls.push(`${adapterModel}:${prompt.includes("Post-completion Shrink") ? "shrink-prompt" : "write-prompt"}`);
+          writeFileSync(`${cwd}/proof.txt`, "ok\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        },
+        metadata: { agent: agentId, model: adapterModel },
+      }),
+    });
+
+    try {
+      const result = await executeWorkflow({ steps: [step], stateStore: store });
+
+      expect(result.kind).toBe("complete");
+      expect(calls).toEqual(["I1:write-prompt", "S1:shrink-prompt"]);
+      expect(
+        store.findRunByProjectBranch({ project: "demo", branch: "implement-shrink", stepId: "implement" })?.status,
+      ).toBe("completed");
+      expect(
+        store.findRunByProjectBranch({ project: "demo", branch: "implement-shrink", stepId: "implement~shrink" })
+          ?.status,
+      ).toBe("completed");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("does not run shrink after non-complete implement outcomes", async () => {
+    const cases = [
+      { branchName: "shrink-skip-budget", binding: okTokenBindingFactory("progress"), maxIterations: 1 },
+      { branchName: "shrink-skip-paused", binding: okTokenBindingFactory("progress"), pause: true },
+      { branchName: "shrink-skip-blocked", binding: okTokenBindingFactory("blocked") },
+      { branchName: "shrink-skip-contract", binding: okTokenBindingFactory("done") },
+      { branchName: "shrink-skip-failure", binding: errorBindingFactory },
+    ];
+
+    for (const testCase of cases) {
+      const store = openStateStore(":memory:");
+      const pauseController = new AbortController();
+      if (testCase.pause) pauseController.abort();
+      const step = createStep({
+        stepId: "implement",
+        role: "implement",
+        branchName: testCase.branchName,
+        createBinding: testCase.binding,
+        ...(testCase.maxIterations !== undefined ? { maxIterations: testCase.maxIterations } : {}),
+        ...(testCase.pause ? { pauseSignal: pauseController.signal } : {}),
+      });
+
+      try {
+        const result = await executeWorkflow({ steps: [step], stateStore: store });
+
+        expect(result.kind).not.toBe("complete");
+        expect(
+          store.findRunByProjectBranch({ project: "demo", branch: testCase.branchName, stepId: "implement~shrink" }),
+        ).toBeNull();
+      } finally {
+        store.close();
+      }
+    }
+  });
+
+  test("shrink uses implement context with shrink role bindings and pinned prompt", async () => {
+    const store = openStateStore(":memory:");
+    const resolved: string[] = [];
+    const prompts: string[] = [];
+    const step = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "shrink-context",
+      agents: ["claude", "codex"],
+      agentModelConfig: {
+        claude: {
+          implement: { rungs: [{ adapterModel: "I1", priceKey: "I1" }] },
+          shrink: { rungs: [{ adapterModel: "S1", priceKey: "S1" }] },
+        },
+        codex: {
+          implement: { rungs: [{ adapterModel: "I2", priceKey: "I2" }] },
+          shrink: { rungs: [{ adapterModel: "S2", priceKey: "S2" }] },
+        },
+      },
+      createBinding: ({ agentId, adapterModel }) => {
+        resolved.push(`${agentId}/${adapterModel}`);
+        return {
+          id: `${agentId}/${adapterModel}`,
+          invoke: async ({ cwd, prompt }) => {
+            prompts.push(prompt);
+            writeFileSync(`${cwd}/proof.txt`, "ok\n", "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" } as const;
+          },
+          metadata: { agent: agentId, model: adapterModel },
+        };
+      },
+    });
+
+    try {
+      const result = await executeWorkflow({ steps: [step], stateStore: store });
+
+      expect(result.kind).toBe("complete");
+      expect(resolved).toEqual(["claude/I1", "codex/I2", "claude/S1", "codex/S2"]);
+      expect(prompts[1]).toContain("Post-completion Shrink");
+      expect(prompts[1]).toContain("**Spec:** `spec.md`");
+      expect(prompts[1]).toContain("proof.txt");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("shrink telemetry records role shrink on a distinct binding chain", async () => {
+    const store = openStateStore(":memory:");
+    const telemetryPath = join(mkdtempSync(join(tmpdir(), "workflow-shrink-telemetry-")), "telemetry.jsonl");
+    const step = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "shrink-telemetry",
+      agentModelConfig: {
+        claude: {
+          implement: { rungs: [{ adapterModel: "I1", priceKey: "I1" }] },
+          shrink: { rungs: [{ adapterModel: "S1", priceKey: "S1" }] },
+        },
+      },
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        invoke: async ({ cwd }) => {
+          writeFileSync(`${cwd}/proof.txt`, "ok\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        },
+        metadata: { agent: agentId, model: adapterModel },
+      }),
+    });
+
+    try {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        telemetry: { operatorSessionId: "session-1", workflow: "implement", sinkPath: telemetryPath },
+      });
+
+      expect(result.kind).toBe("complete");
+      const rows = loadTelemetryRows(telemetryPath);
+      expect(rows.map((row) => row.role)).toEqual(["implement", "shrink"]);
+      expect(rows.map((row) => row.step_id)).toEqual(["implement", "implement~shrink"]);
+      expect(rows[0]?.binding_id).toBe("claude/I1");
+      expect(rows[1]?.binding_id).toBe("claude/S1");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("non-complete shrink outcome stops at the implement step without running later steps", async () => {
+    const store = openStateStore(":memory:");
+    const invoked: string[] = [];
+    const step1 = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "shrink-stops-workflow",
+      agentModelConfig: {
+        claude: {
+          implement: { rungs: [{ adapterModel: "I1", priceKey: "I1" }] },
+          shrink: { rungs: [{ adapterModel: "S1", priceKey: "S1" }] },
+        },
+      },
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        invoke: async ({ cwd }) => {
+          invoked.push(adapterModel);
+          if (adapterModel === "S1") return { kind: "ok", stdout: "blocked", stderr: "" } as const;
+          writeFileSync(`${cwd}/proof.txt`, "ok\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        },
+        metadata: { agent: agentId, model: adapterModel },
+      }),
+    });
+    const step2 = createStep({ stepId: "later", role: "implement", branchName: "shrink-stops-workflow" });
+
+    try {
+      const result = await executeWorkflow({ steps: [step1, step2], stateStore: store });
+
+      expect(result.kind).toBe("blocked");
+      expect(result.stepIndex).toBe(0);
+      expect(result.stepId).toBe("implement");
+      expect(invoked).toEqual(["I1", "S1"]);
+      expect(
+        store.findRunByProjectBranch({ project: "demo", branch: "shrink-stops-workflow", stepId: "later" }),
+      ).toBeNull();
+    } finally {
+      store.close();
+    }
+  });
+
+  test("implement preset and workflow snapshots stay one authored step", async () => {
+    const store = openStateStore(":memory:");
+    const steps = resolveWorkflowPreset("implement", [
+      createStep({
+        stepId: "implement",
+        role: "placeholder",
+        promptPlaceholders: {
+          SPEC_PATH: "spec.md",
+          SIBLINGS_BLOCK: "",
+          REPO_GUIDANCE: "",
+          ACTIVE_SUBSPEC_PATH: "spec.md",
+          ACTIVE_SUBSPEC_BODY: "",
+          PATCH_RULES: "",
+        },
+      }),
+    ]);
+
+    try {
+      const result = await executeWorkflow({ steps, stateStore: store });
+
+      expect(result.kind).toBe("complete");
+      expect(steps).toHaveLength(1);
+      const run = store.findRunByProjectBranch({ project: "demo", branch: "workflow-run", stepId: "implement" });
+      const shrinkRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "workflow-run",
+        stepId: "implement~shrink",
+      });
+      expect(run?.workflowSnapshot?.steps.map((step) => step.stepId)).toEqual(["implement"]);
+      expect(shrinkRun?.workflowSnapshot?.steps.map((step) => step.stepId)).toEqual(["implement"]);
     } finally {
       store.close();
     }

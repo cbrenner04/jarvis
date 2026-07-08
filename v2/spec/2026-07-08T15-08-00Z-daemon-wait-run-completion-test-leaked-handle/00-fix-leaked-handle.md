@@ -71,11 +71,3 @@ watcher, or bare timer) outlives test teardown.
   handle and resolved — a named per-file timeout on that file is no longer expected going forward.
 - `v2/docs/v1-behaviors.md`: update only if the fix changes production/runtime code; not required
   for a test-only `afterEach` teardown fix.
-
-## Blocker
-
-The source fix is present: both `FsAppendWake` `watch()` calls immediately unref their `FSWatcher`,
-and local `bun run typecheck`, `bun test v2/src/daemon/daemon-wait-run-completion.test.ts`,
-`bun run test:v2`, and `bun run test:integration:v2` pass. The remaining acceptance criterion
-requires a live Linux CI `Test (v2)` pass. `gh pr view` on this branch resolves only closed PR #1186,
-whose `checks` run failed, so there is no current passing CI result to cite without a new pushed PR run.

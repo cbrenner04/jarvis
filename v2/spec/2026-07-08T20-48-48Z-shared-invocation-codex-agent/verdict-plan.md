@@ -1,0 +1,7 @@
+## Verdict
+
+**Required refinement:**
+
+1. **Reconcile the conditional `--model` clause with the binding's type contract.** AC 1 states `--model <adapterModel>` is appended "when a model is present" — mirroring v1's optional-model branch — but `ResolvedAgentBinding.adapterModel` is a required `string`, making that conditional structurally unreachable for resolved bindings. The spec must resolve this ambiguity one of two ways: (a) state plainly that every resolved Codex binding always passes `--model <adapterModel>` (dropping the conditional since it can't occur under the current type), or (b) keep the conditional and add a one-line rationale for why it's preserved despite the type guarantee (e.g., defensive parity with v1 in case `adapterModel` becomes optional later). Leaving this unstated risks an implementer either adding dead/untestable branch logic or silently diverging from the stated AC — a real ambiguity, not invented precision, since it stems directly from an existing type in `shared/invocation/agents.ts`.
+
+**No other refinements required.** The argv/classification shape, the multi-match session-lookup handling, the conditional v1-behaviors.md doc-update gate, and the passing mention of `opencode` as out-of-scope are all consistent with the intent, the actual v1 source, and this repo's spec-guidance conventions — none require spec changes.

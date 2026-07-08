@@ -543,14 +543,9 @@ describe("resolveInvocationBindings", () => {
   });
 
   test("shrink resolves every per-agent rung in order", () => {
-    const bindings = resolveInvocationBindings(
-      "shrink",
-      ["claude", "codex"],
-      config,
-      ({ agentId, adapterModel }) => ({
-        id: `${agentId}/${adapterModel}`,
-      }),
-    );
+    const bindings = resolveInvocationBindings("shrink", ["claude", "codex"], config, ({ agentId, adapterModel }) => ({
+      id: `${agentId}/${adapterModel}`,
+    }));
 
     expect(bindings).toEqual([{ id: "claude/S1" }, { id: "claude/S2" }, { id: "codex/S3" }]);
   });

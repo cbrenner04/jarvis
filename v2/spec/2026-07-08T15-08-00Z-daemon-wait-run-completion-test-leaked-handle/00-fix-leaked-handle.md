@@ -21,6 +21,21 @@ watcher, or bare timer) outlives test teardown.
   `afterEach`) rather than leaving the test to leak by construction.
 - If the root cause is instead a bare timer without `unref()` (e.g. `FsAppendWake`'s `ABORT_POLL_MS`
   `setTimeout`), fix at the source (`log-stream.ts`), not by papering over it in the test.
+- **Empirical (first attempt, closed PR #1186):** adding a `close()` teardown to the run-control
+  handlers (aborts live wait fanouts) **and** unref-ing the `ABORT_POLL_MS` `setTimeout` was **not
+  sufficient** — CI still timed out on this exact file (`error: v2 "agent" test run timed out or
+  was killed on file "…daemon-wait-run-completion.test.ts"`), while every local/sandbox-off stress
+  run (macOS/kqueue) passed. The leak is **Linux-`fs.watch`/inotify-specific and cannot be
+  reproduced locally**, so CI is the only judge — do not treat a green local stress loop as proof.
+- **Root cause the first attempt missed:** the `FSWatcher` returned by `watch()` in
+  `FsAppendWake.watchFile()`/`watchDir()` (`v2/src/persistence/log-stream.ts`) is **never
+  `.unref()`'d**. On Linux an active inotify watcher keeps the event loop alive during the teardown
+  microtask gap (between `close()` aborting the fanout and the `follow()` loop's `finally` reaching
+  `wake.close()`), so the worker never exits. **Fix: `.unref()` the `FSWatcher` immediately after
+  every `watch()` call** (guarding `typeof watcher.unref === "function"`), so a lingering watcher
+  can never hold the process open regardless of platform or teardown timing — belt-and-suspenders
+  alongside the existing `close()`. Keep the timer `unref()` and handler `close()` from the first
+  attempt; add the watcher `unref()`.
 - Documentation scope depends on which fix lands: a test-only `afterEach` teardown needs no
   `v1-behaviors.md` update; a source-level change to production/runtime code (e.g. `log-stream.ts`,
   `daemon.ts`) is a change to existing functionality and must update `v2/docs/v1-behaviors.md` to
@@ -43,6 +58,11 @@ watcher, or bare timer) outlives test teardown.
 - [ ] `bun run test:v2` and `bun run test:integration:v2` stay green (no regression from the fix).
 - [ ] If the fix changes production/runtime code (not test-only teardown), `v2/docs/v1-behaviors.md`
       reflects the corrected behavior.
+- [ ] Every `FSWatcher` created in `FsAppendWake` (`log-stream.ts`) is `.unref()`'d immediately
+      after `watch()`, so an active watcher can never keep the worker process alive. Verified by CI
+      `Test (v2)` (Linux) passing on this file with no per-file-timeout message — the leak is
+      Linux/inotify-specific and does not reproduce on macOS, so a green local stress loop alone
+      does not satisfy this criterion.
 
 ## Documentation updates
 

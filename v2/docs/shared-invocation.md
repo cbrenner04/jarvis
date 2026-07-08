@@ -31,12 +31,14 @@ Bindings:
   `resolveInvocationBindings(...)` flattens executable role + agent + rung
   resolution first, then `shared/invocation/execute.ts` iterates that list.
 - `createResolvedAgentBinding({ agentId, adapterModel, priceKey })` in
-  `shared/invocation/agents.ts` builds one binding from one resolved rung. It is
-  the seam where real `claude`/`codex`/`cursor` process spawning and quota
-  classification land; until then each binding returns a terminal `error`, and
-  tests inject their own bindings. Production `binding.id` records the resolved
-  rung identity as `agentId/adapterModel/priceKey`, so attempts stay distinct
-  even when two rungs share the same adapter model string.
+  `shared/invocation/agents.ts` builds one binding from one resolved rung.
+  Resolved `claude` bindings spawn `claude -p --permission-mode acceptEdits
+  --model <adapterModel> --output-format json`, pipe the prompt on stdin, and
+  settle into `ok | quota | model_config | error` before fallback continues.
+  Other resolved agents still return the terminal unwired `error`. Production
+  `binding.id` records the resolved rung identity as
+  `agentId/adapterModel/priceKey`, so attempts stay distinct even when two rungs
+  share the same adapter model string.
 - `createAgentBindings(agentIds)` remains the older bare-agent helper for paths
   that still inject prebuilt bindings directly.
 

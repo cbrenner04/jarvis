@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   type AgentEntry,
   type Config,
+  DEFAULT_CONFIG,
   effectiveGit,
   findProjectForPath,
   findProjectMatchForPath,
@@ -39,7 +40,7 @@ function testConfig(modes: Config["modes"], overrides: Partial<Config> = {}): Co
     quotaFallback: "lenient",
     weakQuotaExitCodes: [],
     maxIterations: 10,
-    iterationTimeoutMs: 30 * 60_000,
+    iterationTimeoutMs: DEFAULT_CONFIG.iterationTimeoutMs,
     logServerUrl: "http://x/",
     logServerBind: "x",
     git: true,
@@ -72,7 +73,7 @@ describe("loadConfig", () => {
     expect(cfg.quotaFallback).toBe("lenient");
     expect(cfg.weakQuotaExitCodes).toEqual([]);
     expect(cfg.maxIterations).toBe(10);
-    expect(cfg.iterationTimeoutMs).toBe(30 * 60_000);
+    expect(cfg.iterationTimeoutMs).toBe(DEFAULT_CONFIG.iterationTimeoutMs);
     expect(cfg.logServerUrl).toBe("http://127.0.0.1:4310/logs");
     expect(cfg.logServerBind).toBe("127.0.0.1:4310");
     expect(cfg.telemetryPath).toBe(join(dir, "runs.jsonl"));

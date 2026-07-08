@@ -234,6 +234,20 @@ test("wait returns durable terminal status only when no terminal log signal exis
   });
 });
 
+test("close() tears down a live wait fanout for a run left non-terminal", async () => {
+  const runId = createRun();
+  const pending = waitDirect("wait", runId);
+
+  await sleep(25);
+  // Run never reaches a terminal status here — the fanout's follow loop and its
+  // fs.watch-backed reader are still live going into close(), the exact leak scenario.
+  expect(stateStore.loadRun(runId)?.status).toBe("in-progress");
+
+  handlers.close();
+
+  await expect(pending).rejects.toThrow("run control handlers closed");
+});
+
 test("existing start/list behavior stays unchanged", async () => {
   const start = await handlers.start(
     { kind: "request", id: "start", method: "start", params: { input: input() } },

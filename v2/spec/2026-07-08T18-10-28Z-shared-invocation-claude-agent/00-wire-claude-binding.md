@@ -30,11 +30,11 @@
 
 ## Acceptance criteria
 
-- [ ] A resolved `claude` binding invokes the real Claude CLI command shape with `adapterModel`, stdin prompt delivery, caller `cwd`, and abort signal handling.
-- [ ] Claude binding results classify as `ok`, `quota`, `model_config`, or `error` using the ported v1 subprocess and quota semantics, with aborts and spawn failures returning terminal `error`.
-- [ ] A settled resolved `claude` invocation emits `invocation_completed` telemetry with real `claude` agent and resolved model metadata.
-- [ ] Unrecognized resolved agents still return the existing terminal unwired `error` result and keep metadata.
-- [ ] `shared/invocation/execute.test.ts` fallback and telemetry tests stay green.
-- [ ] `shared/invocation/agents.test.ts` covers the Claude binding and unwired-agent behavior.
-- [ ] `v2/docs/shared-invocation.md` and, when needed, `v2/docs/v1-behaviors.md` describe the landed behavior without duplicating implementation detail.
-- [ ] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` are green.
+- [x] A resolved `claude` binding invokes the real Claude CLI command shape with `adapterModel`, stdin prompt delivery, caller `cwd`, and abort signal handling.
+- [x] Claude binding results classify as `ok`, `quota`, `model_config`, or `error` using the ported v1 subprocess and quota semantics, with aborts and spawn failures returning terminal `error`.
+- [x] A settled resolved `claude` invocation emits `invocation_completed` telemetry with real `claude` agent and resolved model metadata.
+- [x] Unrecognized resolved agents still return the existing terminal unwired `error` result and keep metadata.
+- [x] `shared/invocation/execute.test.ts` fallback and telemetry tests stay green.
+- [x] `shared/invocation/agents.test.ts` covers the Claude binding and unwired-agent behavior.
+- [x] `v2/docs/shared-invocation.md` and, when needed, `v2/docs/v1-behaviors.md` describe the landed behavior without duplicating implementation detail.
+- [x] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` are green.

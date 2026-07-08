@@ -288,10 +288,12 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       if (step.behavior === "write" && step.role === "implement") {
         const shrinkResult = await runShrinkAfterImplementComplete(
           step,
+          stepIndex,
           workflowSnapshot,
           store,
           args.logSink,
           args.telemetry,
+          args.onStepRunCreated,
         );
         totalIterationsConsumed += shrinkResult.iterationsConsumed;
         if (shrinkResult.kind !== "complete") {
@@ -299,7 +301,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             kind: shrinkResult.kind,
             stepIndex,
             stepId: step.stepId,
-            runId: stepResult.runId,
+            runId: shrinkResult.runId,
             iterationsConsumed: totalIterationsConsumed,
             resumable: shrinkResult.resumable,
           };
@@ -573,10 +575,12 @@ function prepareWorkflowStep(
 
 async function runShrinkAfterImplementComplete(
   step: WriteWorkflowStep,
+  stepIndex: number,
   workflowSnapshot: WorkflowSnapshot,
   store: StateStore,
   logSink: LogSink | undefined,
   telemetry: WorkflowTelemetryContext | undefined,
+  onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
 ): Promise<WriteLoopResult> {
   const shrinkStep = {
     ...step,
@@ -587,9 +591,14 @@ async function runShrinkAfterImplementComplete(
   };
   const preparedStep = prepareWorkflowStep(shrinkStep, workflowSnapshot, store, logSink, telemetry);
   if (preparedStep.kind === "completed") {
+    onStepRunCreated?.(stepIndex, preparedStep.runId);
     return { kind: "complete", runId: preparedStep.runId, iterationsConsumed: 0, resumable: false };
   }
-  return executeWriteLoop(preparedStep.input);
+  return executeWriteLoop(
+    onStepRunCreated
+      ? { ...preparedStep.input, onRunCreated: (runId) => onStepRunCreated(stepIndex, runId) }
+      : preparedStep.input,
+  );
 }
 
 function shrinkPromptPlaceholders(step: WriteWorkflowStep): Record<string, string> {

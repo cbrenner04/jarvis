@@ -44,6 +44,11 @@ and `invocation_failure` do not trigger shrink. A non-`complete` shrink outcome
 replaces the workflow result kind at the implement step and prevents later
 steps from running.
 
+The trigger keys on the write step's `role` being `implement`, not on "is this
+the shipped implement preset." Any hand-authored `write` step naming
+`role: "implement"` also runs the hidden shrink pass, even outside the shipped
+preset.
+
 A `human` step (see [`role-resolution.md`](role-resolution.md#role--behavior-reference))
 dispatches to a separate path that never calls `executeWriteLoop`: the runner
 creates or loads that step's `(project, branch, stepId)` run row and sets its

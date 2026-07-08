@@ -223,24 +223,25 @@ describe("executeWorkflow", () => {
   test("onStepRunCreated fires once step 0's run row is durably created, before the step completes", async () => {
     const step = createStep({ stepId: "step-1", role: "implement" });
     const store = openStateStore(":memory:");
-    let firedStepIndex: number | undefined;
-    let firedRunId: string | undefined;
-    let rowExistedAtFireTime = false;
+    const fired: Array<{ stepIndex: number; runId: string; rowExisted: boolean }> = [];
 
     try {
       const result = await executeWorkflow({
         steps: [step],
         stateStore: store,
         onStepRunCreated: (stepIndex, runId) => {
-          firedStepIndex = stepIndex;
-          firedRunId = runId;
-          rowExistedAtFireTime = store.loadRun(runId) !== null;
+          fired.push({ stepIndex, runId, rowExisted: store.loadRun(runId) !== null });
         },
       });
 
-      expect(firedStepIndex).toBe(0);
-      expect(firedRunId).toBe(result.runId);
-      expect(rowExistedAtFireTime).toBe(true);
+      // Fires for the implement step's own run, then again for the hidden shrink run.
+      expect(fired).toHaveLength(2);
+      expect(fired[0]?.stepIndex).toBe(0);
+      expect(fired[0]?.runId).toBe(result.runId);
+      expect(fired[0]?.rowExisted).toBe(true);
+      expect(fired[1]?.stepIndex).toBe(0);
+      expect(fired[1]?.runId).not.toBe(result.runId);
+      expect(fired[1]?.rowExisted).toBe(true);
     } finally {
       store.close();
     }

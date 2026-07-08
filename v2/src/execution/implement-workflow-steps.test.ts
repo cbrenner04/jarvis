@@ -33,6 +33,7 @@ const RUNG = { rungs: [{ adapterModel: "m1", priceKey: "p1" }] };
 const FULL_ROLES = {
   plan: RUNG,
   implement: RUNG,
+  shrink: RUNG,
   adversary: RUNG,
   advocate: RUNG,
   adjudicator: RUNG,

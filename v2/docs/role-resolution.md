@@ -14,7 +14,8 @@ union:
 | Role | Purpose |
 | --- | --- |
 | `plan` | Spec and plan authoring — draft and refine spec and plan documents. |
-| `implement` | Implementation authoring — write-loop code changes and post-completion shrink. |
+| `implement` | Implementation authoring — write-loop code changes. |
+| `shrink` | Post-completion cleanup model resolution. Runtime shrink-step invocation is not wired yet. |
 | `adversary` | Read-only critique in a review debate — surfaces findings against the artifact. |
 | `advocate` | Read-only defense in a review debate — responds to adversary findings. |
 | `adjudicator` | Read-only verdict synthesis — emits the outcome-altitude instruction the actuator applies. |
@@ -44,7 +45,8 @@ Inner rung detail (consumption modes, flattening, terminal outcomes):
 | Role | Behavior | Notes |
 | --- | --- | --- |
 | `plan` | `write` | Plan-mode spec authoring steps. |
-| `implement` | `write` | Implement-mode write-loop steps; **shrink** (post-completion cleanup) also binds `implement` under `write`. |
+| `implement` | `write` | Implement-mode write-loop steps. |
+| `shrink` | `write` | Post-completion cleanup model-resolution role; runtime steps naming `role: "shrink"` are out of scope until a caller is wired. |
 | `adversary` | `review-debate` | Read-only; first reviewer in each debate cycle. |
 | `advocate` | `review-debate` | Read-only; second reviewer. |
 | `adjudicator` | `review-debate` | Read-only; emits verdict. |
@@ -65,10 +67,13 @@ Load-bearing taxonomy choices recorded here:
   `human`; roles specialize steps, behaviors do not rename to match roles.
 - **One `actuator` role** — plan vs implement context comes from step metadata,
   not `actuator-plan` / `actuator-implement` split keys.
-- **Shrink binds `implement`** — post-completion shrink is `write`-loop
-  implementation cleanup, not review-debate verdict application; it does
-  not map to `actuator` (which would collide with `reviewActuator` verdict-only
-  tier semantics).
+- **Shrink is its own role** — post-completion cleanup has explicit
+  `(agent, shrink) → rungs` bindings. It no longer shares `implement`, and it
+  does not map to `actuator` (which would collide with `reviewActuator`
+  verdict-only tier semantics).
+- **Model-resolution `shrink` is separate from telemetry phase** —
+  `patch_phase: "shrink"` is a telemetry/workflow phase label, not a `Role`
+  member alias or validation source.
 - **`implement` collapses two independently configurable v1 tiers** — v1's `patchActuator` and `reviewActuator` (implement-side) each map to different configurable tiers; v2 maps both to `implement`, yielding one `(agent, implement) → model` binding per agent. When those v1 tiers differ, v2 cannot represent both independently without disambiguation beyond bare `(agent, role)`. Agent-model-config must not assume full v1 tier parity through a single `implement` key.
 - **`operator` documented now, wired in Phase 9** — taxonomy is not blocked on
   NL-router implementation; behavior binding for `operator` is deferred until

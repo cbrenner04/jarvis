@@ -24,6 +24,12 @@ const PRE_MIGRATION_CLAUDE_CODEX = {
         { adapterModel: "claude-haiku-4-5-20251001", priceKey: "claude-haiku-4-5-20251001" },
       ],
     },
+    shrink: {
+      rungs: [
+        { adapterModel: "claude-sonnet-4-6", priceKey: "claude-sonnet-4-6" },
+        { adapterModel: "claude-haiku-4-5-20251001", priceKey: "claude-haiku-4-5-20251001" },
+      ],
+    },
     adversary: { rungs: [{ adapterModel: "claude-sonnet-4-6", priceKey: "claude-sonnet-4-6" }] },
     advocate: { rungs: [{ adapterModel: "claude-sonnet-4-6", priceKey: "claude-sonnet-4-6" }] },
     adjudicator: { rungs: [{ adapterModel: "claude-sonnet-4-6", priceKey: "claude-sonnet-4-6" }] },
@@ -32,6 +38,7 @@ const PRE_MIGRATION_CLAUDE_CODEX = {
   codex: {
     plan: { rungs: [{ adapterModel: "gpt-5.4", priceKey: "gpt-5.4" }] },
     implement: { rungs: [{ adapterModel: "gpt-5.4", priceKey: "gpt-5.4" }] },
+    shrink: { rungs: [{ adapterModel: "gpt-5.4", priceKey: "gpt-5.4" }] },
     adversary: { rungs: [{ adapterModel: "gpt-5.4", priceKey: "gpt-5.4" }] },
     advocate: { rungs: [{ adapterModel: "gpt-5.4", priceKey: "gpt-5.4" }] },
     adjudicator: { rungs: [{ adapterModel: "gpt-5.4", priceKey: "gpt-5.4" }] },
@@ -45,6 +52,7 @@ const VALID_MODELS = {
   claude: {
     plan: { rungs: [{ adapterModel: "m1", priceKey: "p1" }] },
     implement: { rungs: [{ adapterModel: "m2", priceKey: "p2" }] },
+    shrink: { rungs: [{ adapterModel: "m7", priceKey: "p7" }] },
     adversary: { rungs: [{ adapterModel: "m3", priceKey: "p3" }] },
     advocate: { rungs: [{ adapterModel: "m4", priceKey: "p4" }] },
     adjudicator: { rungs: [{ adapterModel: "m5", priceKey: "p5" }] },
@@ -91,18 +99,33 @@ describe("loadMachineProfileModels", () => {
     expect(isError(result)).toBe(false);
   });
 
-  test("models missing required role returns LoadError naming agent and role", () => {
+  test("models missing required role (actuator) returns LoadError naming agent and role", () => {
     const models = {
       claude: {
         ...VALID_MODELS.claude,
         actuator: undefined,
       },
     };
-    writeProfile("missing-role-profile", JSON.stringify({ models }));
-    const result = loadMachineProfileModels("missing-role-profile", ["claude"]);
+    writeProfile("missing-actuator-role-profile", JSON.stringify({ models }));
+    const result = loadMachineProfileModels("missing-actuator-role-profile", ["claude"]);
     expect(isError(result)).toBe(true);
     if (isError(result)) {
       expect(result.errors.some((e) => e.includes("claude") && e.includes("actuator"))).toBe(true);
+    }
+  });
+
+  test("models missing required role (shrink) returns LoadError naming agent and role", () => {
+    const models = {
+      claude: {
+        ...VALID_MODELS.claude,
+        shrink: undefined,
+      },
+    };
+    writeProfile("missing-shrink-role-profile", JSON.stringify({ models }));
+    const result = loadMachineProfileModels("missing-shrink-role-profile", ["claude"]);
+    expect(isError(result)).toBe(true);
+    if (isError(result)) {
+      expect(result.errors.some((e) => e.includes("claude") && e.includes("shrink"))).toBe(true);
     }
   });
 

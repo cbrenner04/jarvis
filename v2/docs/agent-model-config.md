@@ -97,6 +97,7 @@ Per-agent map from role to escalation list.
 {
   "plan": { "rungs": [ /* Model */ ] },
   "implement": { "rungs": [ /* Model */ ] },
+  "shrink": { "rungs": [ /* Model */ ] },
   "adversary": { "rungs": [ /* Model */ ] },
   "advocate": { "rungs": [ /* Model */ ] },
   "adjudicator": { "rungs": [ /* Model */ ] },
@@ -114,11 +115,13 @@ Top-level harness-global artifact. Maps each agent name to its `ModelsByRole`.
 {
   "claude": {
     "plan": { "rungs": [ /* … */ ] },
-    "implement": { "rungs": [ /* … */ ] }
+    "implement": { "rungs": [ /* … */ ] },
+    "shrink": { "rungs": [ /* … */ ] }
   },
   "codex": {
     "plan": { "rungs": [ /* … */ ] },
-    "implement": { "rungs": [ /* … */ ] }
+    "implement": { "rungs": [ /* … */ ] },
+    "shrink": { "rungs": [ /* … */ ] }
   }
 }
 ```
@@ -181,8 +184,8 @@ steps. The workflow boundary first rejects non-executable roles with
 4. Pass the flat list to `execute`. Quota on binding *k* tries binding *k+1*.
 
 Each outer landing resets to `rungs[0]` — there is no global rung index across
-agents. Example with `agents = [claude, codex]`, `implement` full-list,
-`claude.implement.rungs = [M1, M2]`, `codex.implement.rungs = [M3]`:
+agents. Example with `agents = [claude, codex]`, `shrink` full-list,
+`claude.shrink.rungs = [M1, M2]`, `codex.shrink.rungs = [M3]`:
 
 ```
 claude/M1 → claude/M2 → codex/M3
@@ -205,6 +208,7 @@ error.
 | --- | --- | --- |
 | `plan` | full-list | walk `rungs[0..n]` |
 | `implement` | full-list | walk `rungs[0..n]` |
+| `shrink` | full-list | walk `rungs[0..n]` |
 | `adversary` | full-list | walk `rungs[0..n]` |
 | `advocate` | full-list | walk `rungs[0..n]` |
 | `adjudicator` | full-list | walk `rungs[0..n]` |
@@ -213,12 +217,10 @@ error.
 Head-only `actuator` matches v1 `reviewActuator` verdict-tier semantics: inner
 rungs beyond the head are not walked on quota for the same agent.
 
-**v1 `implement` footnote:** v1 binds implementation loop (`patchActuator`) and
-post-completion shrink (`reviewActuator`, full-list) to different configurable
-tiers. v2 maps both workflow steps to role `implement` — one
-`(agent, implement) → ModelEscalation` per agent. When those v1 tiers differ,
-v2 cannot represent both independently without disambiguation beyond bare
-`(agent, role)`. No full v1 tier parity claim through a single `implement` key.
+**Shrink footnote:** v2 model resolution has a dedicated `shrink` role with its
+own rungs. Runtime workflow steps naming `role: "shrink"` are not wired yet.
+Rung strength is config-author guidance only; load validation does not inspect
+model names or prices as policy proxies.
 
 ## Terminal outcomes
 
@@ -242,7 +244,7 @@ Aligned with [`shared-invocation.md`](shared-invocation.md):
 | --- | --- |
 | Every `agent` in project `agents` has a `ModelsByRole` entry in the data file | hard error |
 | For each such agent, every required role has a `ModelEscalation` entry | hard error |
-| Required roles = closed `Role` union minus optional `operator` | — |
+| Required roles = closed `Role` union minus optional `operator`; includes `shrink` | — |
 | `operator` entry absent | load succeeds; resolving `operator` before Phase 9 is a **runtime** error |
 | `rungs` missing or empty for any present `(agent, role)` | hard error |
 | Duplicate names in project `agents` | hard error |
@@ -332,6 +334,12 @@ relevant to the flat-binding examples below). Global data file (fragment):
         { "adapterModel": "claude-haiku-4-5-20251001", "priceKey": "claude-haiku-4-5-20251001" }
       ]
     },
+    "shrink": {
+      "rungs": [
+        { "adapterModel": "claude-sonnet-4-6", "priceKey": "claude-sonnet-4-6" },
+        { "adapterModel": "claude-haiku-4-5-20251001", "priceKey": "claude-haiku-4-5-20251001" }
+      ]
+    },
     "actuator": {
       "rungs": [
         { "adapterModel": "claude-haiku-4-5-20251001", "priceKey": "claude-haiku-4-5-20251001" }
@@ -340,6 +348,11 @@ relevant to the flat-binding examples below). Global data file (fragment):
   },
   "codex": {
     "implement": {
+      "rungs": [
+        { "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }
+      ]
+    },
+    "shrink": {
       "rungs": [
         { "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }
       ]
@@ -363,6 +376,8 @@ Per-machine project config (excerpt):
 
 For an `implement` step: flat bindings =
 `claude/sonnet → claude/haiku → codex/gpt-5.4`.
+For a `shrink` step once a caller exists: same full-list consumption as
+`implement`, using `shrink` rungs.
 For an `actuator` step: `claude/haiku → codex/gpt-5.4` — only each agent's
 `rungs[0]`.
 
@@ -375,4 +390,4 @@ Load-bearing choices are in the sections above. Pins for first consumer:
 - **Tier→initial rung index** — when a workflow consumer maps runnable `tier:` metadata.
 - **Capability-floor filtering** — when Phase 5 wires v1 `actuationCapabilityFloor` parity.
 
-No v1 migration or dual-write. v1 tier equivalence: [`role-resolution.md`](role-resolution.md) and the `implement` footnote in [Per-role rung consumption](#per-role-rung-consumption).
+No v1 migration or dual-write. v1 tier equivalence: [`role-resolution.md`](role-resolution.md) and the shrink footnote in [Per-role rung consumption](#per-role-rung-consumption).

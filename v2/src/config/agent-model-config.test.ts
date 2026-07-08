@@ -26,6 +26,7 @@ const VALID_CONFIG = {
   claude: {
     plan: { rungs: [{ adapterModel: "m1", priceKey: "p1" }] },
     implement: { rungs: [{ adapterModel: "m2", priceKey: "p2" }] },
+    shrink: { rungs: [{ adapterModel: "m7", priceKey: "p7" }] },
     adversary: { rungs: [{ adapterModel: "m3", priceKey: "p3" }] },
     advocate: { rungs: [{ adapterModel: "m4", priceKey: "p4" }] },
     adjudicator: { rungs: [{ adapterModel: "m5", priceKey: "p5" }] },
@@ -39,6 +40,7 @@ describe("loadAgentModelConfig", () => {
       claude: {
         plan: { rungs: [{ adapterModel: "m1", priceKey: "p1" }] },
         implement: { rungs: [{ adapterModel: "m2", priceKey: "p2" }] },
+        shrink: { rungs: [{ adapterModel: "m7", priceKey: "p7" }] },
         adversary: { rungs: [{ adapterModel: "m3", priceKey: "p3" }] },
         advocate: { rungs: [{ adapterModel: "m4", priceKey: "p4" }] },
         adjudicator: { rungs: [{ adapterModel: "m5", priceKey: "p5" }] },
@@ -51,6 +53,22 @@ describe("loadAgentModelConfig", () => {
     expect(isError(result)).toBe(true);
     if (isError(result)) {
       expect(result.errors.some((e) => e.includes("claude") && e.includes("actuator"))).toBe(true);
+    }
+  });
+
+  test("missing shrink role fails with agent and role name", () => {
+    const config = {
+      claude: {
+        ...VALID_CONFIG.claude,
+        shrink: undefined,
+      },
+    };
+    const filePath = createTempFile(JSON.stringify(config));
+    const result = loadAgentModelConfig(filePath, ["claude"]);
+
+    expect(isError(result)).toBe(true);
+    if (isError(result)) {
+      expect(result.errors.some((e) => e.includes("claude") && e.includes("shrink"))).toBe(true);
     }
   });
 
@@ -210,6 +228,7 @@ describe("loadAgentModelConfig", () => {
       extraAgent: {
         plan: { rungs: [{ adapterModel: "m1", priceKey: "p1" }] },
         implement: { rungs: [{ adapterModel: "m2", priceKey: "p2" }] },
+        shrink: { rungs: [{ adapterModel: "m7", priceKey: "p7" }] },
         adversary: { rungs: [{ adapterModel: "m3", priceKey: "p3" }] },
         advocate: { rungs: [{ adapterModel: "m4", priceKey: "p4" }] },
         adjudicator: { rungs: [{ adapterModel: "m5", priceKey: "p5" }] },
@@ -316,11 +335,11 @@ describe("loadAgentModelConfig", () => {
       claude: {
         plan: { rungs: [{ adapterModel: "m1", priceKey: "p1" }] },
         implement: { rungs: [{ adapterModel: "m2", priceKey: "p2" }] },
-        // missing adversary, advocate, adjudicator, actuator
+        // missing shrink, adversary, advocate, adjudicator, actuator
       },
       codex: {
         plan: { rungs: [{ adapterModel: "m1", priceKey: "p1" }] },
-        // missing implement, adversary, advocate, adjudicator, actuator
+        // missing implement, shrink, adversary, advocate, adjudicator, actuator
       },
     };
     const filePath = createTempFile(JSON.stringify(config));
@@ -371,6 +390,7 @@ describe("loadAgentModelConfig", () => {
       codex: {
         plan: { rungs: [{ adapterModel: "gpt-1", priceKey: "gpt-p1" }] },
         implement: { rungs: [{ adapterModel: "gpt-2", priceKey: "gpt-p2" }] },
+        shrink: { rungs: [{ adapterModel: "gpt-7", priceKey: "gpt-p7" }] },
         adversary: { rungs: [{ adapterModel: "gpt-3", priceKey: "gpt-p3" }] },
         advocate: { rungs: [{ adapterModel: "gpt-4", priceKey: "gpt-p4" }] },
         adjudicator: { rungs: [{ adapterModel: "gpt-5", priceKey: "gpt-p5" }] },
@@ -398,6 +418,7 @@ describe("loadAgentModelConfig", () => {
           ],
         },
         implement: { rungs: [{ adapterModel: "m2", priceKey: "p2" }] },
+        shrink: { rungs: [{ adapterModel: "m7", priceKey: "p7" }] },
         adversary: { rungs: [{ adapterModel: "m3", priceKey: "p3" }] },
         advocate: { rungs: [{ adapterModel: "m4", priceKey: "p4" }] },
         adjudicator: { rungs: [{ adapterModel: "m5", priceKey: "p5" }] },
@@ -446,6 +467,12 @@ describe("resolveInvocationBindings", () => {
           { adapterModel: "M2", priceKey: "P2" },
         ],
       },
+      shrink: {
+        rungs: [
+          { adapterModel: "S1", priceKey: "shrink-1" },
+          { adapterModel: "S2", priceKey: "shrink-2" },
+        ],
+      },
       plan: {
         rungs: [
           { adapterModel: "P1", priceKey: "plan-1" },
@@ -481,6 +508,9 @@ describe("resolveInvocationBindings", () => {
       implement: {
         rungs: [{ adapterModel: "M3", priceKey: "P3" }],
       },
+      shrink: {
+        rungs: [{ adapterModel: "S3", priceKey: "shrink-3" }],
+      },
       plan: {
         rungs: [{ adapterModel: "P3", priceKey: "plan-3" }],
       },
@@ -510,6 +540,14 @@ describe("resolveInvocationBindings", () => {
     );
 
     expect(bindings).toEqual([{ id: "claude/M1" }, { id: "claude/M2" }, { id: "codex/M3" }]);
+  });
+
+  test("shrink resolves every per-agent rung in order", () => {
+    const bindings = resolveInvocationBindings("shrink", ["claude", "codex"], config, ({ agentId, adapterModel }) => ({
+      id: `${agentId}/${adapterModel}`,
+    }));
+
+    expect(bindings).toEqual([{ id: "claude/S1" }, { id: "claude/S2" }, { id: "codex/S3" }]);
   });
 
   test("plan, adversary, advocate, and adjudicator all consume the full per-agent rung list", () => {

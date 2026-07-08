@@ -24,12 +24,12 @@ It no longer shares `implement` rungs by taxonomy, while runtime invocation of
 
 ## Acceptance criteria
 
-- [ ] `v2/src/config/agent-model-config.test.ts` and `v2/src/config/machine-profile-loader.test.ts` extend existing required-role missing-role coverage so a scoped agent without `shrink` fails with the same hard-error shape as other required roles.
-- [ ] `resolveInvocationBindings("shrink", ...)` returns every shrink rung for each configured agent in order, unlike `actuator` which remains head-only.
-- [ ] `config/machines/*.json` define non-empty `shrink` rungs for every agent scoped by required-role validation.
-- [ ] `v2/docs/role-resolution.md` documents `shrink` as a closed role separate from `implement`, notes that runtime shrink-step invocation remains out of scope, and disambiguates model-resolution `shrink` from `patch_phase: "shrink"`.
-- [ ] `v2/docs/agent-model-config.md` documents `shrink` in schema examples, per-role consumption, and load-time required-role validation.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/config/agent-model-config.test.ts` and `v2/src/config/machine-profile-loader.test.ts` extend existing required-role missing-role coverage so a scoped agent without `shrink` fails with the same hard-error shape as other required roles.
+- [x] `resolveInvocationBindings("shrink", ...)` returns every shrink rung for each configured agent in order, unlike `actuator` which remains head-only.
+- [x] `config/machines/*.json` define non-empty `shrink` rungs for every agent scoped by required-role validation.
+- [x] `v2/docs/role-resolution.md` documents `shrink` as a closed role separate from `implement`, notes that runtime shrink-step invocation remains out of scope, and disambiguates model-resolution `shrink` from `patch_phase: "shrink"`.
+- [x] `v2/docs/agent-model-config.md` documents `shrink` in schema examples, per-role consumption, and load-time required-role validation.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

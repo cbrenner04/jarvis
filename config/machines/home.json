@@ -13,6 +13,12 @@
           { "adapterModel": "claude-haiku-4-5-20251001", "priceKey": "claude-haiku-4-5-20251001" }
         ]
       },
+      "shrink": {
+        "rungs": [
+          { "adapterModel": "claude-sonnet-4-6", "priceKey": "claude-sonnet-4-6" },
+          { "adapterModel": "claude-haiku-4-5-20251001", "priceKey": "claude-haiku-4-5-20251001" }
+        ]
+      },
       "adversary": {
         "rungs": [{ "adapterModel": "claude-sonnet-4-6", "priceKey": "claude-sonnet-4-6" }]
       },
@@ -33,6 +39,9 @@
       "implement": {
         "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
       },
+      "shrink": {
+        "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
+      },
       "adversary": {
         "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
       },
@@ -51,6 +60,9 @@
         "rungs": [{ "adapterModel": "Composer 2.5", "priceKey": "Composer 2.5" }]
       },
       "implement": {
+        "rungs": [{ "adapterModel": "Composer 2.5", "priceKey": "Composer 2.5" }]
+      },
+      "shrink": {
         "rungs": [{ "adapterModel": "Composer 2.5", "priceKey": "Composer 2.5" }]
       },
       "adversary": {

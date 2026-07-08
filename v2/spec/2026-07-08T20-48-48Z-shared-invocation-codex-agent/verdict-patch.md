@@ -1,0 +1,7 @@
+**Verdict**
+
+1. **Eliminate the unreachable dead branch in Codex session-usage handling.** In `shared/invocation/agents.ts`, `resolveCodexSessionUsage` never produces a result where `sessionFile` is non-null and `warnings` is non-empty — every warning-producing path pairs with `sessionFile: null`, and the only non-null-`sessionFile` path always returns `warnings: []`. The downstream check in `runCodexBinding` that inspects `resolved.warnings.length > 0` after already confirming `resolved.sessionFile !== null` can never execute. This is a real leftover from the v1 port, not a functional bug (no AC or spec decision is violated — the deferred usage/cost-propagation decision and "unavailable" AC are both satisfied via the `sessionFile === null` path).
+
+   **Required outcome:** either tighten `resolveCodexSessionUsage`'s return type so the impossible `{sessionFile: non-null, warnings: non-empty}` state can't be constructed, or delete the now-provably-dead branch in `runCodexBinding` and return the result directly. Do this for code clarity and to prevent future maintainers from assuming that branch is reachable/tested. This is a small, low-risk cleanup — do not expand scope beyond it (no new tests needed since behavior is unchanged, no other files touched).
+
+No other findings require action.

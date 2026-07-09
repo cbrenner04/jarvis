@@ -1,14 +1,14 @@
-import type { IpcClient } from "../ipc/client.ts";
-import type { ErrorFrame, IpcFrame, ResponseFrame } from "../ipc/types.ts";
-import { TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-errors.ts";
+import type { IpcClient } from "./client.ts";
+import { RpcConnectionError, RpcError } from "./rpc-errors.ts";
+import type { ErrorFrame, IpcFrame, ResponseFrame } from "./types.ts";
 
 type PendingRpc = {
   resolve: (result: unknown) => void;
   reject: (error: Error) => void;
 };
 
-type TuiDaemonRpcTransport = {
-  request(method: string, params?: unknown, options?: { trackWait?: boolean }): Promise<unknown>;
+type RpcTransport = {
+  request(method: string, params?: unknown, options?: { trackWait?: boolean; timeoutMs?: number }): Promise<unknown>;
   close(): void;
 };
 
@@ -24,7 +24,7 @@ async function nextRpcFrame(
   try {
     return await client.nextFrame();
   } catch (cause) {
-    if (!isClosed()) rejectAll(new TuiDaemonConnectionError("IPC connection lost", { cause }));
+    if (!isClosed()) rejectAll(new RpcConnectionError("IPC connection lost", { cause }));
     return undefined;
   }
 }
@@ -49,7 +49,7 @@ function handleRpcFrame(
 
   pending.delete(frame.id);
   if (frame.kind === "error") {
-    entry.reject(new TuiDaemonRpcError(frame.code, frame.message));
+    entry.reject(new RpcError(frame.code, frame.message));
     return { kind: "continue" };
   }
 
@@ -77,7 +77,7 @@ async function readRpcFrames(
 }
 
 /** Multiplex correlated IPC requests on one transport; abandons prior `wait` when a new one starts. */
-export function createTuiDaemonRpcTransport(client: IpcClient): TuiDaemonRpcTransport {
+export function createRpcTransport(client: IpcClient): RpcTransport {
   const pending = new Map<string, PendingRpc>();
   const abandoned = new Set<string>();
   let activeWaitId: string | null = null;
@@ -99,7 +99,7 @@ export function createTuiDaemonRpcTransport(client: IpcClient): TuiDaemonRpcTran
 
   const failProtocol = (message: string): void => {
     client.close();
-    rejectAll(new TuiDaemonConnectionError(message));
+    rejectAll(new RpcConnectionError(message));
   };
 
   const ensureReader = (): void => {
@@ -110,19 +110,26 @@ export function createTuiDaemonRpcTransport(client: IpcClient): TuiDaemonRpcTran
 
   return {
     request(method, params, options) {
-      if (closed) return Promise.reject(new TuiDaemonConnectionError("IPC connection lost"));
+      if (closed) return Promise.reject(new RpcConnectionError("IPC connection lost"));
       if (options?.trackWait && activeWaitId !== null) abandonRequest(activeWaitId);
 
       const id = crypto.randomUUID();
       if (options?.trackWait) activeWaitId = id;
 
       return new Promise<unknown>((resolve, reject) => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const clearTimer = (): void => {
+          if (timer !== undefined) clearTimeout(timer);
+        };
+
         pending.set(id, {
           resolve: (result) => {
+            clearTimer();
             if (activeWaitId === id) activeWaitId = null;
             resolve(result);
           },
           reject: (error) => {
+            clearTimer();
             if (activeWaitId === id) activeWaitId = null;
             reject(error);
           },
@@ -134,14 +141,23 @@ export function createTuiDaemonRpcTransport(client: IpcClient): TuiDaemonRpcTran
           pending.delete(id);
           abandoned.delete(id);
           if (activeWaitId === id) activeWaitId = null;
-          reject(new TuiDaemonConnectionError("IPC connection lost", { cause }));
+          reject(new RpcConnectionError("IPC connection lost", { cause }));
+          return;
+        }
+
+        if (options?.timeoutMs !== undefined) {
+          timer = setTimeout(() => {
+            if (!pending.has(id)) return;
+            abandonRequest(id);
+            reject(new RpcConnectionError(`RPC request timed out after ${options.timeoutMs}ms`));
+          }, options.timeoutMs);
         }
       });
     },
     close() {
       if (closed) return;
       client.close();
-      rejectAll(new TuiDaemonConnectionError("IPC connection lost"));
+      rejectAll(new RpcConnectionError("IPC connection lost"));
     },
   };
 }

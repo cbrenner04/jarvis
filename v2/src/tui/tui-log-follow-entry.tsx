@@ -1,4 +1,4 @@
-import { TuiDaemonConnectionError } from "./tui-daemon-errors.ts";
+import { RpcConnectionError } from "../ipc/rpc-errors.ts";
 import { showTuiInkFeedback } from "./tui-ink-feedback.tsx";
 import { openInkLogFollow } from "./tui-ink-log-follow.tsx";
 import { formatLogFollowLine } from "./tui-log-follow-lines.ts";
@@ -6,7 +6,7 @@ import type { RunTuiLogFollowDeps, TuiLogFollowSession } from "./tui-log-follow-
 import { connectTuiLogTail } from "./tui-log-tail-client.ts";
 import type { TuiViewState } from "./tui-monitor-types.ts";
 
-function connectionErrorFeedback(error: TuiDaemonConnectionError): TuiViewState {
+function connectionErrorFeedback(error: RpcConnectionError): TuiViewState {
   return { kind: "rpc-error", code: "daemon_error", message: error.message };
 }
 
@@ -52,7 +52,7 @@ export async function runTuiLogFollow(runId: string, deps?: RunTuiLogFollowDeps)
   try {
     tail = await connectFn(runId, connectOptions);
   } catch (error) {
-    if (error instanceof TuiDaemonConnectionError) {
+    if (error instanceof RpcConnectionError) {
       await presentFeedback({ kind: "unavailable" }, resolved);
       return 1;
     }
@@ -70,7 +70,7 @@ export async function runTuiLogFollow(runId: string, deps?: RunTuiLogFollowDeps)
           await Promise.resolve(activeSession.appendLine(formatLogFollowLine(record)));
         }
       } catch (error) {
-        if (error instanceof TuiDaemonConnectionError) {
+        if (error instanceof RpcConnectionError) {
           if (!quitting) {
             await Promise.resolve(activeSession.showFeedback(connectionErrorFeedback(error)));
             exitCode = 1;

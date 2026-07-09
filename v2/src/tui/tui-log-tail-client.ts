@@ -1,19 +1,19 @@
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
+import { RpcConnectionError } from "../ipc/rpc-errors.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import { DAEMON_SOCKET_PATH } from "../paths.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
-import { TuiDaemonConnectionError } from "./tui-daemon-errors.ts";
 
 /**
  * Connected tail-log consumer over one IPC transport: replay persisted records, follow live appends, then close.
- * Iteration throws {@link TuiDaemonConnectionError} on transport loss, malformed payloads, or error `stream-end`.
+ * Iteration throws {@link RpcConnectionError} on transport loss, malformed payloads, or error `stream-end`.
  */
 export type TuiLogTailClient = {
   /**
    * Open a tail stream for the run and yield `PersistedRecord`s in server `stream-data` arrival order.
    *
    * @returns Async iterable of parsed persisted log records until benign `stream-end`.
-   * @throws {TuiDaemonConnectionError} On connection loss, malformed `stream-data`, error `stream-end`, or unexpected frames.
+   * @throws {RpcConnectionError} On connection loss, malformed `stream-data`, error `stream-end`, or unexpected frames.
    */
   records(): AsyncIterable<PersistedRecord>;
 
@@ -35,8 +35,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function connectionError(message: string, cause?: unknown): TuiDaemonConnectionError {
-  return new TuiDaemonConnectionError(message, cause !== undefined ? { cause } : undefined);
+function connectionError(message: string, cause?: unknown): RpcConnectionError {
+  return new RpcConnectionError(message, cause !== undefined ? { cause } : undefined);
 }
 
 function streamEndError(payload: unknown): string | undefined {
@@ -87,7 +87,7 @@ async function readTailFrame(client: IpcClient): Promise<IpcFrame> {
  * @param runId Run whose persisted log stream to open.
  * @param options Optional socket path and `connectIpcClient` seam.
  * @returns A client exposing `records` and `close` on one connection.
- * @throws {TuiDaemonConnectionError} When the socket is unreachable before `stream-open`.
+ * @throws {RpcConnectionError} When the socket is unreachable before `stream-open`.
  */
 export async function connectTuiLogTail(runId: string, options?: ConnectTuiLogTailOptions): Promise<TuiLogTailClient> {
   const socketPath = options?.socketPath ?? DAEMON_SOCKET_PATH;

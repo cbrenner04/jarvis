@@ -49,12 +49,12 @@ should just use that instead of a magic 24h constant.
 
 ## Acceptance criteria
 
-- [ ] `cli.test.ts` stays green (all `run start`/`workflow implement`/`list`/
+- [x] `cli.test.ts` stays green (all `run start`/`workflow implement`/`list`/
       `pause`/`resume`/`kill`/`wait`/`log` cases, including RPC-error-frame
       and daemon-response cases, exercise the same observable stdout/stderr/
       exit-code behavior).
-- [ ] `cli.ts` contains no `LOG_FRAME_WAIT_MS` symbol.
-- [ ] `cli.ts`'s `request()` contains no hand-rolled `while (true)` frame loop.
+- [x] `cli.ts` contains no `LOG_FRAME_WAIT_MS` symbol.
+- [x] `cli.ts`'s `request()` contains no hand-rolled `while (true)` frame loop.
 
 ## Documentation updates
 

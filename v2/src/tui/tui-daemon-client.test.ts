@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { connectIpcClient } from "../ipc/client.ts";
+import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import { DAEMON_SOCKET_PATH } from "../paths.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
@@ -12,7 +13,6 @@ import { createDeferredIpcClient, makeIpcClient } from "../testing/ipc-client-fa
 import { canUseUnixSockets, socketProbeErrored } from "../testing/unix-socket.ts";
 import type { TuiDaemonClient } from "./tui-daemon-client.ts";
 import { connectTuiDaemon } from "./tui-daemon-client.ts";
-import { TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-errors.ts";
 
 const START_INPUT: WriteLoopInput = {
   worktree: {
@@ -152,7 +152,7 @@ const HEALTH_UNHEALTHY_CASE: ErrorCase = {
   call: (client) => client.health(),
   assert: (promise) =>
     expect(promise).rejects.toMatchObject({
-      name: "TuiDaemonRpcError",
+      name: "RpcError",
       code: "unhealthy",
       message: "daemon not ready",
     }),
@@ -164,7 +164,7 @@ const STATUS_UNAVAILABLE_CASE: ErrorCase = {
   code: "status_unavailable",
   message: "no status",
   call: (client) => client.status(),
-  assert: (promise) => expect(promise).rejects.toBeInstanceOf(TuiDaemonRpcError),
+  assert: (promise) => expect(promise).rejects.toBeInstanceOf(RpcError),
 };
 
 const LIST_INTERNAL_ERROR_CASE: ErrorCase = {
@@ -173,7 +173,7 @@ const LIST_INTERNAL_ERROR_CASE: ErrorCase = {
   code: "internal_error",
   message: "list failed",
   call: (client) => client.list(),
-  assert: (promise) => expect(promise).rejects.toBeInstanceOf(TuiDaemonRpcError),
+  assert: (promise) => expect(promise).rejects.toBeInstanceOf(RpcError),
 };
 
 const WAIT_UNKNOWN_RUN_CASE: ErrorCase = {
@@ -191,7 +191,7 @@ const START_RUN_IN_PROGRESS_CASE: ErrorCase = {
   code: "run_in_progress",
   message: "A run is already in progress; at most one in-flight run globally",
   call: (client) => client.start(START_INPUT),
-  assert: (promise) => expect(promise).rejects.toMatchObject({ name: "TuiDaemonRpcError", code: "run_in_progress" }),
+  assert: (promise) => expect(promise).rejects.toMatchObject({ name: "RpcError", code: "run_in_progress" }),
 };
 
 const START_WORKTREE_CLAIMED_CASE: ErrorCase = {
@@ -209,7 +209,7 @@ const START_INVALID_PARAMS_CASE: ErrorCase = {
   code: "invalid_params",
   message: "missing input",
   call: (client) => client.start(START_INPUT),
-  assert: (promise) => expect(promise).rejects.toBeInstanceOf(TuiDaemonRpcError),
+  assert: (promise) => expect(promise).rejects.toBeInstanceOf(RpcError),
 };
 
 const PAUSE_UNKNOWN_RUN_CASE: ErrorCase = {
@@ -298,7 +298,7 @@ const ERROR_CASE_GROUPS: Array<[string, ErrorCase[]]> = [
   ["resume/run_in_progress", [RESUME_RUN_IN_PROGRESS_CASE]],
 ];
 
-test.each(ERROR_CASE_GROUPS)("%s rejects as TuiDaemonRpcError", async (_label, cases) => {
+test.each(ERROR_CASE_GROUPS)("%s rejects as RpcError", async (_label, cases) => {
   await runErrorCaseGroup(cases);
 });
 
@@ -459,29 +459,29 @@ test("replacing wait abandons the prior pending request without resolving it", a
   });
 });
 
-test("rejects malformed RPC replies with TuiDaemonConnectionError", async () => {
+test("rejects malformed RPC replies with RpcConnectionError", async () => {
   await withFixedUuid([HEALTH_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () => makeGatedIpcClient([{ kind: "stream-open", streamId: "s1" } as IpcFrame]),
     });
 
-    await expect(client.health()).rejects.toBeInstanceOf(TuiDaemonConnectionError);
+    await expect(client.health()).rejects.toBeInstanceOf(RpcConnectionError);
     client.close();
   });
 });
 
-test("rejects non-correlated RPC replies with TuiDaemonConnectionError", async () => {
+test("rejects non-correlated RPC replies with RpcConnectionError", async () => {
   await withFixedUuid([HEALTH_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () => makeGatedIpcClient([{ kind: "response", id: "other-id", result: { ok: true } }]),
     });
 
-    await expect(client.health()).rejects.toBeInstanceOf(TuiDaemonConnectionError);
+    await expect(client.health()).rejects.toBeInstanceOf(RpcConnectionError);
     client.close();
   });
 });
 
-socketTest("rejects unreachable socket with TuiDaemonConnectionError and sends no RPCs", async () => {
+socketTest("rejects unreachable socket with RpcConnectionError and sends no RPCs", async () => {
   const sent: unknown[] = [];
   const trackingConnect = async (socketPath: string): Promise<IpcClient> => {
     const ipc = await connectIpcClient(socketPath);
@@ -497,7 +497,7 @@ socketTest("rejects unreachable socket with TuiDaemonConnectionError and sends n
 
   await expect(
     connectTuiDaemon({ socketPath: UNREACHABLE_SOCKET_PATH, connectIpcClient: trackingConnect }),
-  ).rejects.toBeInstanceOf(TuiDaemonConnectionError);
+  ).rejects.toBeInstanceOf(RpcConnectionError);
   expect(sent).toEqual([]);
 });
 
@@ -602,7 +602,7 @@ test("steering RPCs succeed while wait is unresolved on the same client", async 
   });
 });
 
-test("steering malformed success payloads reject as TuiDaemonConnectionError", async () => {
+test("steering malformed success payloads reject as RpcConnectionError", async () => {
   await withFixedUuid([PAUSE_REQUEST_ID, RESUME_REQUEST_ID, KILL_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
@@ -613,9 +613,9 @@ test("steering malformed success payloads reject as TuiDaemonConnectionError", a
         ]),
     });
 
-    await expect(client.pause("run-1")).rejects.toBeInstanceOf(TuiDaemonConnectionError);
-    await expect(client.resume("run-1")).rejects.toBeInstanceOf(TuiDaemonConnectionError);
-    await expect(client.kill("run-1")).rejects.toBeInstanceOf(TuiDaemonConnectionError);
+    await expect(client.pause("run-1")).rejects.toBeInstanceOf(RpcConnectionError);
+    await expect(client.resume("run-1")).rejects.toBeInstanceOf(RpcConnectionError);
+    await expect(client.kill("run-1")).rejects.toBeInstanceOf(RpcConnectionError);
     client.close();
   });
 });

@@ -69,16 +69,16 @@ TUI ink components) stays in `tui/tui-daemon-errors.ts`.
 
 ## Acceptance criteria
 
-- [ ] `tui-daemon-client.test.ts` stays green (behavior unchanged by the move
+- [x] `tui-daemon-client.test.ts` stays green (behavior unchanged by the move
       and rename).
-- [ ] `tui-log-tail-client.test.ts` stays green.
-- [ ] `tui-entry.test.tsx` and `tui-log-follow-entry.test.tsx` stay green.
-- [ ] `export-surface-trim.test.ts` stays green against the relocated file.
-- [ ] No file under `v2/src/tui/` exports or defines an RPC transport or RPC
+- [x] `tui-log-tail-client.test.ts` stays green.
+- [x] `tui-entry.test.tsx` and `tui-log-follow-entry.test.tsx` stay green.
+- [x] `export-surface-trim.test.ts` stays green against the relocated file.
+- [x] No file under `v2/src/tui/` exports or defines an RPC transport or RPC
       transport error class.
-- [ ] A new `rpc-transport.test.ts` test covers: a `timeoutMs`-bound request
+- [x] A new `rpc-transport.test.ts` test covers: a `timeoutMs`-bound request
       that times out is abandoned and rejects with `RpcConnectionError`.
-- [ ] A new `rpc-transport.test.ts` test covers: a `timeoutMs`-bound request
+- [x] A new `rpc-transport.test.ts` test covers: a `timeoutMs`-bound request
       that resolves before the timeout is unaffected.
 
 ## Documentation updates

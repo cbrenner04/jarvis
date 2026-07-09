@@ -1,0 +1,5 @@
+Verdict: 1 required refinement.
+
+- Rewrite the acceptance criterion in `00-single-message-builder.md` that currently reads "Existing daemon tests covering `DaemonDoubleClaimError`, `checkWorktreeClaimed`, and the `worktree_claimed` error path ... stay green" to cite actual test file paths rather than describing what they cover, per the spec-guidance rule "cite the test, don't paraphrase" for behavior-preserving/refactor ACs.
+- The citation must include the specific test that string-matches the rendered "Worktree already claimed for project=…, branch=…" message (verify the exact path/line against the real test suite — the adversary pointed at `daemon-registry.test.ts:67`, but confirm the actual filename/line during refinement). This is the test that directly guards against the wording drift the intent identifies as the core risk, so omitting it from the AC leaves the property the spec cares about most unverified.
+- No other scope changes needed — this is confined to the wording/citation of that one acceptance criterion.

@@ -1,12 +1,12 @@
 import type { RunStatus } from "../persistence/state-store.ts";
-import type { WaitRunCompletionResult } from "./daemon.ts";
+import type { WaitRunCompletionResult, WorkflowStepListStatus } from "./daemon.ts";
 import type { RunOperatorError } from "./run-operator-error.ts";
 
 /** One workflow step on daemon `list` wire payloads. */
 type DaemonWorkflowStepSnapshot = {
   stepId: string;
   role: string;
-  status: "pending" | "in_progress" | "completed" | "stopped";
+  status: WorkflowStepListStatus;
   attemptCount: number;
   terminalOutcome?: string;
 };

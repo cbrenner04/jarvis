@@ -288,7 +288,7 @@ export type WaitRunCompletionResult = {
 
 type LoadedRun = NonNullable<ReturnType<StateStore["loadRun"]>>;
 
-type WorkflowStepListStatus = "pending" | "in_progress" | "completed" | "stopped";
+export type WorkflowStepListStatus = "pending" | "in_progress" | "completed" | "stopped";
 type WorkflowStepTerminalOutcome =
   | "complete"
   | "blocked"

@@ -1,0 +1,5 @@
+**Required outcome:** Update `v2/docs/workflow-runner.md` (lines ~96 and ~272) to stop describing `defineWorkflowStep(...)` as the construction pattern — replace both references with the direct object-literal + `satisfies WorkflowStepInput` pattern now used in `resolveWorkflowPreset`.
+
+**Rationale:** The spec's `## Documentation updates: None` claim only accounted for behavior/architecture change, not that `defineWorkflowStep` was itself named as public authoring API in `v2/docs/workflow-runner.md`. Deleting the function while leaving these references makes the doc point to a nonexistent export, violating the requirement to keep docs aligned with code in the same subspec (`v2/docs/documentation-standard.md`).
+
+No other issues found — the `.ts`/`.test.ts` refactor, test unwrapping, describe-block renames, and `satisfies` usage all match spec intent.

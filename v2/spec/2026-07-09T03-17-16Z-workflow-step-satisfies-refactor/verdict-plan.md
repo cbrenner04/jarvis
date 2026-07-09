@@ -1,0 +1,7 @@
+Required refinements:
+
+1. **Doc-comment sweep for `WorkflowStepInput`.** If the `WorkflowStepInput` type (or other nearby types) carries a doc comment that references `defineWorkflowStep` as the construction pattern, that reference goes stale once the wrapper is deleted. Add an explicit checklist item (or fold into the existing deletion item) requiring a check of `WorkflowStepInput`'s doc comment and any other comments in `workflow-runner.ts` that mention `defineWorkflowStep` by name, updating or removing stale references.
+
+2. **Tighten "keep test bodies otherwise unchanged" wording.** The current phrasing instructs replacing `defineWorkflowStep(createStepInput({...}))` with a direct call while also saying test bodies stay "otherwise unchanged" — read literally this is self-contradictory, since the call site itself is a change. Reword to scope the permitted edit precisely: only the `defineWorkflowStep(...)` wrapper call is removed (unwrapped to the direct `createStepInput`/`createHumanStep` call); everything else in each test body (assertions, setup, structure) is untouched.
+
+No other changes needed — the doc comment directly attached to the `defineWorkflowStep` function declaration is already covered by the existing deletion task and does not need a separate checklist item.

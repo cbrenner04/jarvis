@@ -13,9 +13,9 @@ production caller (`resolveWorkflowPreset`, line 161) and test callers
 
 ## Task Checklist
 
-- [ ] Delete `defineWorkflowStep` from `v2/src/execution/workflow-runner.ts`.
+- [ ] Delete `defineWorkflowStep` (and its doc comment) from `v2/src/execution/workflow-runner.ts`; also check `WorkflowStepInput`'s doc comment and any other comments in the file for stale mentions of `defineWorkflowStep` and update or remove them.
 - [ ] In `resolveWorkflowPreset`, replace `defineWorkflowStep({ ...step, behavior: "write", ...(pinned ?? {}) })` with `({ ...step, behavior: "write", ...(pinned ?? {}) }) satisfies WorkflowStepInput`.
-- [ ] In `workflow-runner.test.ts`, replace `defineWorkflowStep(createStepInput({...}))` and `defineWorkflowStep(createHumanStep({...}))` call sites with direct calls to `createStepInput(...)` / `createHumanStep(...)`.
+- [ ] In `workflow-runner.test.ts`, at each `defineWorkflowStep(createStepInput({...}))` / `defineWorkflowStep(createHumanStep({...}))` call site, remove only the `defineWorkflowStep(...)` wrapper so the call becomes `createStepInput({...})` / `createHumanStep({...})` directly; leave assertions, setup, and structure elsewhere in the test body unchanged.
 - [ ] Remove the now-unused `defineWorkflowStep` import from `workflow-runner.test.ts`.
 - [ ] Rename the `describe("defineWorkflowStep", ...)` and `describe("defineWorkflowStep human steps", ...)` blocks to describe the behavior under test instead of the removed function (e.g. `describe("resolveWorkflowPreset step shape", ...)`, `describe("human step shape", ...)`), keeping the test bodies otherwise unchanged.
 

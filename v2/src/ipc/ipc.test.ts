@@ -26,7 +26,10 @@ beforeEach(async () => {
     return;
   }
   rmSync(SOCKET_PATH, { force: true });
-  server = await startIpcServer(SOCKET_PATH);
+  server = await startIpcServer(SOCKET_PATH, {
+    health: () => ({ kind: "response", result: { ok: true } }),
+    status: () => ({ kind: "response", result: { state: "running" } }),
+  });
 });
 
 afterEach(async () => {

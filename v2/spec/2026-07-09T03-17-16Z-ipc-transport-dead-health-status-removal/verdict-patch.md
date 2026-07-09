@@ -1,0 +1,1 @@
+No issues remain. The stub `health`/`status` handler payloads match the spec's pinned values (`{ ok: true }`, `{ state: "running" }`), both methods are verified independently against `unknown_method` fallback, and `v2/docs/v1-behaviors.md` reflects the Documentation updates requirement. Implementation satisfies the spec as written.

@@ -1,6 +1,7 @@
 import { appendFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type { LogSink } from "../persistence/log-stream.ts";
+import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
   type OutcomeKind,
   openStateStore,
@@ -49,6 +50,11 @@ export type WriteLoopInput = WriteExecuteInput & {
   pauseSignal?: AbortSignal;
   stepId?: string;
   workflowSnapshot?: WorkflowSnapshot;
+  bindingResolution?: {
+    role: string;
+    agents: readonly string[];
+    agentModelConfig: AgentModelConfig;
+  };
   /** Fires once this run's row is durably created/resolved, before any iteration executes. */
   onRunCreated?: (runId: string) => void;
   telemetry?: {

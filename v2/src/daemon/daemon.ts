@@ -187,7 +187,13 @@ function buildRevisionWriteLoopInput(
       stepRules,
       expectedArtifactPath: repeatedStepConfig.expectedArtifactPath ?? "",
       bindings,
+      bindingResolution: {
+        role: repeatedStepConfig.role,
+        agents,
+        agentModelConfig: repeatedStepConfig.agentModelConfig ?? {},
+      },
       stepId,
+      ...(repeatedRun.workflowSnapshot ? { workflowSnapshot: repeatedRun.workflowSnapshot } : {}),
     },
   };
 }
@@ -207,7 +213,24 @@ export function createRunExecutionFailureReporter(logsPath: string): (runId: str
   };
 }
 
-function normalizeBindings(input: WriteLoopInput): WriteLoopInput {
+function resolveWriteLoopBindings(input: WriteLoopInput): WriteLoopInput {
+  const context = input.bindingResolution;
+  if (context !== undefined) {
+    return {
+      ...input,
+      bindings: resolveInvocationBindings(
+        resolveExecutableRole(context.role),
+        context.agents,
+        context.agentModelConfig,
+        createResolvedAgentBinding,
+      ),
+    };
+  }
+
+  return rehydrateAdHocBindings(input);
+}
+
+function rehydrateAdHocBindings(input: WriteLoopInput): WriteLoopInput {
   const bindingIds = input.bindings
     .map((binding) => {
       if (typeof binding !== "object" || binding === null) return null;
@@ -216,12 +239,12 @@ function normalizeBindings(input: WriteLoopInput): WriteLoopInput {
     })
     .filter((id): id is string => id !== null);
 
-  const hasLiveBindings = input.bindings.every(
+  const everyBindingCanInvoke = input.bindings.every(
     (binding) =>
       typeof binding === "object" && binding !== null && "invoke" in binding && typeof binding.invoke === "function",
   );
 
-  if (hasLiveBindings || bindingIds.length === 0) {
+  if (everyBindingCanInvoke || bindingIds.length === 0) {
     return input;
   }
 
@@ -429,7 +452,7 @@ export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDel
     }
 
     store.setRunStatus(run.id, "in-progress");
-    spawnWriteLoop(key, run.id, run.worktreePath, normalizeBindings(run.queuedInput));
+    spawnWriteLoop(key, run.id, run.worktreePath, resolveWriteLoopBindings(run.queuedInput));
     settleState.suppressedUntil = Date.now() + settleDelayMs();
     return;
   }
@@ -652,7 +675,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   };
 
   const handleWriteLoopStart = (rawInput: WriteLoopInput): StartResult => {
-    const input = normalizeBindings(rawInput);
+    const input = resolveWriteLoopBindings(rawInput);
     const key: OwnershipKey = {
       project: input.worktree.projectName,
       branch: input.worktree.branchName,
@@ -997,15 +1020,53 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       return claimError;
     }
 
+    const snapshotStep = run.workflowSnapshot?.steps.find((step) => step.stepId === run.stepId);
     if (run.status === "paused") {
-      return {
-        kind: "error",
-        code: "not_implemented",
-        message: "Paused run resume is not yet implemented",
+      if (
+        run.workflowSnapshot === null ||
+        run.workflowSnapshot === undefined ||
+        run.stepId === null ||
+        run.stepId === undefined ||
+        snapshotStep === undefined ||
+        snapshotStep.agents === undefined ||
+        snapshotStep.agentModelConfig === undefined
+      ) {
+        return {
+          kind: "error",
+          code: "not_implemented",
+          message: "Paused run resume is not yet implemented",
+        };
+      }
+
+      const input: WriteLoopInput = {
+        worktree: {
+          projectRoot: run.worktreePath,
+          projectName: run.project,
+          branchName: run.branch,
+          baseRef: run.specRef,
+        },
+        specPath: run.specPath,
+        stepRules: snapshotStep.stepRules ?? "",
+        expectedArtifactPath: snapshotStep.expectedArtifactPath ?? "",
+        bindings: resolveInvocationBindings(
+          resolveExecutableRole(snapshotStep.role),
+          snapshotStep.agents,
+          snapshotStep.agentModelConfig,
+          createResolvedAgentBinding,
+        ),
+        bindingResolution: {
+          role: snapshotStep.role,
+          agents: snapshotStep.agents,
+          agentModelConfig: snapshotStep.agentModelConfig,
+        },
+        stepId: run.stepId,
+        workflowSnapshot: run.workflowSnapshot,
       };
+
+      spawnWriteLoop(key, runId, run.worktreePath, input);
+      return { kind: "response", result: { ok: true } };
     }
 
-    // Reconstruct WriteLoopInput from the run and spawn write loop via injected executor
     const input: WriteLoopInput = {
       worktree: {
         projectRoot: run.worktreePath,

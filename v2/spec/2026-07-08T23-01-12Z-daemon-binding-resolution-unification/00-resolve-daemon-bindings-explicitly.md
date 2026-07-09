@@ -23,16 +23,16 @@ Workflow-step daemon runs still preserve bare or serialized binding ids through 
 
 ## Acceptance criteria
 
-- [ ] Workflow-step daemon `start` from serialized input reaches the first resolved agent binding instead of terminal-erroring from bare serialized bindings.
-- [ ] A queued workflow-step daemon run rehydrates from persisted `WriteLoopInput` resolution context with the same resolved binding chain order it would have used when admitted immediately.
-- [ ] `resume` on a durable workflow-step `paused` run returns `{ ok: true }`, respawns the write loop with reconstructed live bindings, and no longer returns `not_implemented`.
-- [ ] `resume` on an ad-hoc `paused` run still returns `not_implemented` after passing the `worktree_claimed` guard.
-- [ ] `resume` still rejects `worktree_claimed` before spawning a paused run when another live run owns the same `(project, branch)`.
-- [ ] `list` and `wait` for a paused run continue to surface `resumable_pause` / `nextAction: "resume"` until the resumed write loop changes durable status.
-- [ ] `v2/src/daemon/daemon.ts` no longer defines `normalizeBindings` or `hasLiveBindings`, and workflow-step daemon production paths do not import or call `createAgentBindings`.
-- [ ] Ad-hoc/direct daemon production paths remain the only daemon callers of bare `createAgentBindings`.
-- [ ] `bun run typecheck` stays green.
-- [ ] `bun run test:v2` and `bun run test:integration:v2` stay green.
+- [x] Workflow-step daemon `start` from serialized input reaches the first resolved agent binding instead of terminal-erroring from bare serialized bindings.
+- [x] A queued workflow-step daemon run rehydrates from persisted `WriteLoopInput` resolution context with the same resolved binding chain order it would have used when admitted immediately.
+- [x] `resume` on a durable workflow-step `paused` run returns `{ ok: true }`, respawns the write loop with reconstructed live bindings, and no longer returns `not_implemented`.
+- [x] `resume` on an ad-hoc `paused` run still returns `not_implemented` after passing the `worktree_claimed` guard.
+- [x] `resume` still rejects `worktree_claimed` before spawning a paused run when another live run owns the same `(project, branch)`.
+- [x] `list` and `wait` for a paused run continue to surface `resumable_pause` / `nextAction: "resume"` until the resumed write loop changes durable status.
+- [x] `v2/src/daemon/daemon.ts` no longer defines `normalizeBindings` or `hasLiveBindings`, and workflow-step daemon production paths do not import or call `createAgentBindings`.
+- [x] Ad-hoc/direct daemon production paths remain the only daemon callers of bare `createAgentBindings`.
+- [x] `bun run typecheck` stays green.
+- [x] `bun run test:v2` and `bun run test:integration:v2` stay green.
 
 ## Documentation updates
 

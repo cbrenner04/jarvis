@@ -989,12 +989,31 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       run.stepId === undefined ||
       snapshotStep === undefined ||
       snapshotStep.agents === undefined ||
+      snapshotStep.agents.length === 0 ||
       snapshotStep.agentModelConfig === undefined
     ) {
       return {
         kind: "error",
         code: "not_implemented",
         message: "Paused run resume is not yet implemented",
+      };
+    }
+
+    let bindings: WriteLoopInput["bindings"];
+    try {
+      bindings = resolveInvocationBindings(
+        resolveExecutableRole(snapshotStep.role),
+        snapshotStep.agents,
+        snapshotStep.agentModelConfig,
+        createResolvedAgentBinding,
+      );
+    } catch (err) {
+      return {
+        kind: "error",
+        code: "resume_unsupported",
+        message: `Unable to resolve bindings for step "${snapshotStep.stepId}": ${
+          err instanceof Error ? err.message : String(err)
+        }`,
       };
     }
 
@@ -1008,12 +1027,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       specPath: run.specPath,
       stepRules: snapshotStep.stepRules ?? "",
       expectedArtifactPath: snapshotStep.expectedArtifactPath ?? "",
-      bindings: resolveInvocationBindings(
-        resolveExecutableRole(snapshotStep.role),
-        snapshotStep.agents,
-        snapshotStep.agentModelConfig,
-        createResolvedAgentBinding,
-      ),
+      bindings,
       bindingResolution: {
         role: snapshotStep.role,
         agents: snapshotStep.agents,

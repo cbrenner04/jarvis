@@ -25,38 +25,49 @@ undocumented policies, one concept.
   (already imported by both `daemon.ts` and `cli.ts`, and owner of the
   `WriteLoopInput`/`telemetry` type) — avoids a new module for a single
   function and avoids either call site importing from the other's file.
-- Delete `applyOperatorSessionId` and `withOperatorSessionId`; both call sites
-  switch to the new function.
+  Named `applyOperatorSessionId` (reuses the surviving daemon name; the
+  losing `withOperatorSessionId` name is retired with its defer behavior).
+- Delete `applyOperatorSessionId` (old daemon.ts definition) and
+  `withOperatorSessionId`; both call sites switch to the new
+  `applyOperatorSessionId` exported from `write-loop.ts`.
 
 ## Task checklist
 
-- [ ] Add one exported function in `v2/src/execution/write-loop.ts` that
-      merges `operatorSessionId` into `input.telemetry` per the merge policy
-      above, with a doc-comment stating the policy explicitly (non-obvious
-      contract: overwrite-wins merge, not defer-if-present).
-- [ ] Update `v2/src/daemon/daemon.ts:1255` to call the new function; remove
-      `applyOperatorSessionId`.
-- [ ] Update `v2/src/cli.ts:100` to call the new function; remove
+- [ ] Add exported function `applyOperatorSessionId` in
+      `v2/src/execution/write-loop.ts` that merges `operatorSessionId` into
+      `input.telemetry` per the merge policy above, with a doc-comment
+      stating the policy explicitly (non-obvious contract: overwrite-wins
+      merge, not defer-if-present).
+- [ ] Update `v2/src/daemon/daemon.ts:1255` to call
+      `write-loop.ts`'s `applyOperatorSessionId`; remove the old
+      daemon-local definition.
+- [ ] Update `v2/src/cli.ts:100` to call `applyOperatorSessionId`; remove
       `withOperatorSessionId`.
 - [ ] Update `v2/src/daemon/daemon-operator-session.test.ts` to import and
-      exercise the new function (same merge-policy assertions).
+      exercise `applyOperatorSessionId` from `write-loop.ts` (same
+      merge-policy assertions).
 - [ ] Update `v2/src/cli.test.ts:578` ("withOperatorSessionId does not
       overwrite caller-supplied telemetry") to match the unified overwrite
-      policy — the old defer-if-present assertion no longer holds.
+      policy — the old defer-if-present assertion no longer holds — and add
+      an assertion that non-`operatorSessionId` `telemetry` fields
+      (`sinkPath`, `workflow`, `role`) on the CLI-supplied input are
+      preserved after the merge.
 
 ## Acceptance criteria
 
-- [ ] Exactly one exported function implements operator-session-id
-      attachment; `applyOperatorSessionId` and `withOperatorSessionId` no
-      longer exist anywhere in `v2/src`.
+- [ ] Exactly one exported function, `applyOperatorSessionId` in
+      `v2/src/execution/write-loop.ts`, implements operator-session-id
+      attachment; no other `applyOperatorSessionId` or
+      `withOperatorSessionId` definitions exist anywhere in `v2/src`.
 - [ ] The function's doc-comment states the merge policy: daemon-supplied
       `operatorSessionId` always overwrites any existing value, other
       `telemetry` fields are preserved.
 - [ ] `daemon-operator-session.test.ts` stays green against the unified
       function (behavior unchanged for the daemon call site).
 - [ ] `cli.test.ts` reflects the unified overwrite policy at the CLI call
-      site (a caller-supplied `telemetry.operatorSessionId` is overwritten,
-      not preserved).
+      site: a caller-supplied `telemetry.operatorSessionId` is overwritten,
+      not preserved, AND other caller-supplied `telemetry` fields
+      (`sinkPath`, `workflow`, `role`) are preserved through the merge.
 - [ ] `bun run typecheck` and `test:v2` pass.
 
 ## Documentation updates

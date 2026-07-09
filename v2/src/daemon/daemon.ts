@@ -19,7 +19,6 @@ import {
   openStateStore,
   type RunStatus,
   type StateStore,
-  type WorkflowSnapshot,
   type WorkflowSnapshotStep,
 } from "../persistence/state-store.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
@@ -29,6 +28,7 @@ import {
   type RunOperatorError,
   type TerminalLogRecord,
 } from "./run-operator-error.ts";
+import { workflowRowSnapshot } from "./workflow-list-snapshot.ts";
 
 type WorktreeOwnership = {
   runId: string;
@@ -290,117 +290,10 @@ export type WaitRunCompletionResult = {
   error?: RunOperatorError;
 };
 
-type LoadedRun = NonNullable<ReturnType<StateStore["loadRun"]>>;
+export type LoadedRun = NonNullable<ReturnType<StateStore["loadRun"]>>;
 
-export type WorkflowStepListStatus = "pending" | "in_progress" | "completed" | "stopped";
-type WorkflowStepTerminalOutcome =
-  | "complete"
-  | "blocked"
-  | "contract_miss"
-  | "invocation_failure"
-  | "budget-exhausted"
-  | "paused"
-  | "killed"
-  | "awaiting-human";
-
-type WorkflowStepListSnapshot = {
-  stepId: string;
-  role: string;
-  status: WorkflowStepListStatus;
-  attemptCount: number;
-  terminalOutcome?: WorkflowStepTerminalOutcome;
-};
-
-function workflowRowSnapshot(
-  run: LoadedRun,
-  runsByWorkflowInvocation: ReadonlyMap<string, Map<string, LoadedRun>>,
-  liveRunIds: ReadonlySet<string>,
-  reviewDebateProgressByInvocation: ReadonlyMap<string, Map<string, ReviewDebateProgress>>,
-): { steps: WorkflowStepListSnapshot[] } | undefined {
-  const snapshot = run.workflowSnapshot;
-  if (snapshot === null || snapshot === undefined) return undefined;
-
-  const workflowRuns = runsByWorkflowInvocation.get(snapshot.invocationId) ?? new Map<string, LoadedRun>();
-  return {
-    steps: snapshot.steps.map((step) =>
-      workflowStepSnapshot(
-        step,
-        workflowRuns.get(step.stepId),
-        liveRunIds,
-        snapshot.invocationId,
-        reviewDebateProgressByInvocation,
-      ),
-    ),
-  };
-}
-
-function workflowStepSnapshot(
-  step: WorkflowSnapshot["steps"][number],
-  run: LoadedRun | undefined,
-  liveRunIds: ReadonlySet<string>,
-  invocationId: string,
-  reviewDebateProgressByInvocation: ReadonlyMap<string, Map<string, ReviewDebateProgress>>,
-): WorkflowStepListSnapshot {
-  if (step.behavior === "review-debate") {
-    const progress = reviewDebateProgressByInvocation.get(invocationId)?.get(step.stepId);
-    if (!progress) {
-      return { stepId: step.stepId, role: step.role, status: "pending", attemptCount: 0 };
-    }
-    if (progress.status === "in_progress") {
-      return { stepId: step.stepId, role: progress.role, status: "in_progress", attemptCount: 0 };
-    }
-    return {
-      stepId: step.stepId,
-      role: progress.role,
-      status: progress.status,
-      attemptCount: 0,
-      terminalOutcome: progress.terminalOutcome,
-    };
-  }
-
-  if (!run) {
-    return { stepId: step.stepId, role: step.role, status: "pending", attemptCount: 0 };
-  }
-
-  const attemptCount = run.attempts.length;
-  if (run.status === "completed") {
-    return {
-      stepId: step.stepId,
-      role: step.role,
-      status: "completed",
-      attemptCount,
-      terminalOutcome: "complete",
-    };
-  }
-
-  if (run.status === "in-progress" && liveRunIds.has(run.id)) {
-    return {
-      stepId: step.stepId,
-      role: step.role,
-      status: "in_progress",
-      attemptCount,
-    };
-  }
-
-  return {
-    stepId: step.stepId,
-    role: step.role,
-    status: "stopped",
-    attemptCount,
-    terminalOutcome: stoppedOutcomeForRun(run),
-  };
-}
-
-export function stoppedOutcomeForRun(run: LoadedRun): Exclude<WorkflowStepTerminalOutcome, "complete"> {
-  if (run.status === "blocked") {
-    return run.attempts[run.attempts.length - 1]?.outcomeKind === "contract_miss" ? "contract_miss" : "blocked";
-  }
-  if (run.status === "budget-soft-stopped") return "budget-exhausted";
-  if (run.status === "paused") return "paused";
-  if (run.status === "killed") return "killed";
-  if (run.status === "awaiting-human") return "awaiting-human";
-  return "invocation_failure";
-}
+export type { WorkflowStepListStatus } from "./workflow-list-snapshot.ts";
+export { stoppedOutcomeForRun } from "./workflow-list-snapshot.ts";
 
 /** Mutated by {@link promoteQueuedRunImpl} on each promotion; shared across calls. */
 export type PromotionSettleState = { suppressedUntil: number };

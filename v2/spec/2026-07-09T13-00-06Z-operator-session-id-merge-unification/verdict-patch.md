@@ -1,0 +1,1 @@
+Verdict: empty — no required outcomes. Both verdict-plan refinements (pinned function name; CLI-side field-preservation test) are satisfied in the current implementation.

@@ -12,7 +12,7 @@ import {
   latestRevisionRun,
   type ReviewDebateProgress,
 } from "../execution/workflow-runner.ts";
-import { executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
+import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
 import { type LogReader, type LoopFinishedEvent, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import {
@@ -1169,16 +1169,6 @@ export function createTailStreamHandler(deps: TailStreamHandlerDeps): StreamHand
       onClose();
     }
   };
-}
-
-/**
- * Attaches the daemon-minted operator session id to every run's telemetry, whether or
- * not the input already carries a `telemetry` block. Merges into (rather than
- * overwriting) any existing telemetry fields; the daemon's id always wins over any
- * caller-supplied `operatorSessionId`.
- */
-export function applyOperatorSessionId(input: WriteLoopInput, operatorSessionId: string): WriteLoopInput {
-  return { ...input, telemetry: { ...input.telemetry, operatorSessionId } };
 }
 
 export async function startDaemon(socketPath: string, stateStore?: StateStore, logReader?: LogReader): Promise<void> {

@@ -2,10 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { main, withOperatorSessionId } from "./cli.ts";
+import { main } from "./cli.ts";
 import type { BuildImplementWorkflowStepsInput } from "./execution/implement-workflow-steps.ts";
 import type { AnyWorkflowStep } from "./execution/workflow-runner.ts";
 import type { WriteLoopInput, WriteLoopResult } from "./execution/write-loop.ts";
+import { applyOperatorSessionId } from "./execution/write-loop.ts";
 import type { IpcFrame } from "./ipc/types.ts";
 import type { PersistedRecord } from "./persistence/log-stream.ts";
 import { simulatedBindings } from "./testing/bindings.ts";
@@ -575,13 +576,16 @@ describe("v2 cli", () => {
     expect(capturedInput?.telemetry?.operatorSessionId.length).toBeGreaterThan(0);
   });
 
-  test("withOperatorSessionId does not overwrite caller-supplied telemetry", () => {
+  test("applyOperatorSessionId overwrites caller-supplied operatorSessionId, preserves other telemetry fields", () => {
     const callerTelemetry = { sinkPath: "/tmp/t.jsonl", operatorSessionId: "caller-id", workflow: "w", role: "r" };
     const input: WriteLoopInput = { ...mockWriteLoopInput(), telemetry: callerTelemetry };
 
-    const result = withOperatorSessionId(input, "minted-id");
+    const result = applyOperatorSessionId(input, "minted-id");
 
-    expect(result.telemetry).toEqual(callerTelemetry);
+    expect(result.telemetry?.operatorSessionId).toBe("minted-id");
+    expect(result.telemetry?.sinkPath).toBe(callerTelemetry.sinkPath);
+    expect(result.telemetry?.workflow).toBe(callerTelemetry.workflow);
+    expect(result.telemetry?.role).toBe(callerTelemetry.role);
   });
 
   test("defaults to the claude agent when machine config has no override", async () => {

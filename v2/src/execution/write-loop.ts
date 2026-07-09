@@ -65,6 +65,16 @@ export type WriteLoopInput = WriteExecuteInput & {
   };
 };
 
+/**
+ * Attaches `operatorSessionId` to `input.telemetry`, whether or not the input already
+ * carries a `telemetry` block. Merge policy: the given `operatorSessionId` always
+ * overwrites any existing `telemetry.operatorSessionId`; other `telemetry` fields
+ * (`sinkPath`, `workflow`, `role`) are preserved.
+ */
+export function applyOperatorSessionId(input: WriteLoopInput, operatorSessionId: string): WriteLoopInput {
+  return { ...input, telemetry: { ...input.telemetry, operatorSessionId } };
+}
+
 const DEFAULT_MAX_ITERATIONS = 10;
 type StoredRun = NonNullable<ReturnType<StateStore["loadRun"]>>;
 type PreparedRun =

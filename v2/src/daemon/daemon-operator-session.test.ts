@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { applyOperatorSessionId } from "../execution/write-loop.ts";
 import { mockWriteLoopInput } from "../testing/run-control.ts";
-import { applyOperatorSessionId } from "./daemon.ts";
 
 describe("applyOperatorSessionId", () => {
   test("attaches a valid telemetry object when input carries no telemetry", () => {

@@ -55,20 +55,20 @@ undocumented policies, one concept.
 
 ## Acceptance criteria
 
-- [ ] Exactly one exported function, `applyOperatorSessionId` in
+- [x] Exactly one exported function, `applyOperatorSessionId` in
       `v2/src/execution/write-loop.ts`, implements operator-session-id
       attachment; no other `applyOperatorSessionId` or
       `withOperatorSessionId` definitions exist anywhere in `v2/src`.
-- [ ] The function's doc-comment states the merge policy: daemon-supplied
+- [x] The function's doc-comment states the merge policy: daemon-supplied
       `operatorSessionId` always overwrites any existing value, other
       `telemetry` fields are preserved.
-- [ ] `daemon-operator-session.test.ts` stays green against the unified
+- [x] `daemon-operator-session.test.ts` stays green against the unified
       function (behavior unchanged for the daemon call site).
-- [ ] `cli.test.ts` reflects the unified overwrite policy at the CLI call
+- [x] `cli.test.ts` reflects the unified overwrite policy at the CLI call
       site: a caller-supplied `telemetry.operatorSessionId` is overwritten,
       not preserved, AND other caller-supplied `telemetry` fields
       (`sinkPath`, `workflow`, `role`) are preserved through the merge.
-- [ ] `bun run typecheck` and `test:v2` pass.
+- [x] `bun run typecheck` and `test:v2` pass.
 
 ## Documentation updates
 

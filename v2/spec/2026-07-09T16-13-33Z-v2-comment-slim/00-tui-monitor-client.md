@@ -20,6 +20,8 @@ Trim doc-comments in `v2/src/tui/tui-monitor-types.ts` and `v2/src/tui/tui-daemo
 - [ ] `bun run typecheck` passes with no signature changes in either file.
 - [ ] `v2/src/tui/tui-daemon-client.test.ts` stays green (behavior unchanged).
 - [ ] No comment in either file restates a type already expressed in the signature.
+- [ ] `git diff` scoped to `tui-monitor-types.ts` and `tui-daemon-client.ts` touches only comment/whitespace lines.
+- [ ] `connectTuiDaemon`'s contract block is present, unmodified.
 
 ## Documentation updates
 

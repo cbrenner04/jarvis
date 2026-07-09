@@ -6,10 +6,11 @@ Trim the per-event-type doc-comments in `v2/src/persistence/log-stream.ts` (`Ite
 
 - Zero behavior or signature changes; comments only.
 - Drop comments that only restate "Event emitted when X" where X is evident from the type name and its `kind` literal; keep only fields whose semantics aren't evident (e.g., `follow`'s replay-then-block-for-new-appends contract, `append`'s per-run sequencing).
-- No watcher-related comment remains in this file (log-stream is poll-based via `follow`/`tail`); no separate handling needed for the watcher-removal prerequisite.
+- Watcher-removal prerequisite: log-stream is expected to be poll-based via `follow`/`tail` with no watcher-related comment remaining — confirm via the task checklist, not assumed.
 
 ## Task checklist
 
+- [ ] Confirm no watcher-related comment remains in `log-stream.ts` (log-stream is poll-based via `follow`/`tail`); if one is found, treat it under this same trim rule.
 - [ ] Remove restating "Event emitted when a/an X" comments on the four `*Event` types where the type name already says this.
 - [ ] Keep `LogSink.append`'s and `LogReader.follow`'s non-obvious contract facts (sequence assignment, replay-then-block, `AbortSignal` handling).
 - [ ] Re-check `PersistedRecord`'s comment against the tiering rule.
@@ -19,6 +20,7 @@ Trim the per-event-type doc-comments in `v2/src/persistence/log-stream.ts` (`Ite
 - [ ] `bun run typecheck` passes with no signature changes in `log-stream.ts`.
 - [ ] `v2/src/persistence/log-stream.test.ts` stays green (behavior unchanged).
 - [ ] None of the four `*Event` type comments restate their own type name.
+- [ ] `git diff` scoped to `log-stream.ts` touches only comment/whitespace lines.
 
 ## Documentation updates
 

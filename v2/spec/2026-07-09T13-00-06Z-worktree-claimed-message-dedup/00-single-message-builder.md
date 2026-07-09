@@ -26,10 +26,12 @@ Nothing guards the copies from drifting apart.
 - [ ] `v2/src/daemon/daemon.ts` contains exactly one string template that
       produces the "Worktree already claimed for project=…, branch=…"
       message; all 4 former call sites invoke it.
-- [ ] Existing daemon tests covering `DaemonDoubleClaimError`,
-      `checkWorktreeClaimed`, and the `worktree_claimed` error path in
-      `handleWorkflowStart`/`handleWriteLoopStart` stay green (behavior
-      unchanged by the extraction).
+- [ ] `v2/src/daemon/daemon-registry.test.ts:67` (`checkWorktreeClaimed`
+      `"returns worktree_claimed error when key is claimed"`) stays green —
+      this is the test that string-matches the rendered message.
+- [ ] `v2/src/daemon/daemon-workflow-start.test.ts`, `daemon-revise.test.ts`,
+      and `daemon-start-list.test.ts` `worktree_claimed` cases stay green
+      (behavior unchanged by the extraction).
 
 ## Documentation updates
 

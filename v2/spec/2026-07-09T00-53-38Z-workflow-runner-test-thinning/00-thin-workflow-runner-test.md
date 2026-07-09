@@ -61,14 +61,14 @@ unique behavior.
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner.test.ts` has no test named `runs two-step workflow to
+- [x] `workflow-runner.test.ts` has no test named `runs two-step workflow to
       completion`.
-- [ ] `workflow-runner.test.ts` has no test named `workflow-step execution
+- [x] `workflow-runner.test.ts` has no test named `workflow-step execution
       reaches shared invocation with resolver-produced implement bindings`.
-- [ ] `runs single step to completion` asserts only the one-step
+- [x] `runs single step to completion` asserts only the one-step
       run-id-matches-actual-run behavior; its `result.kind`/`stepIndex`/
       `stepId`/`resumable` assertions are gone.
-- [ ] The role-validation trio (`rejects a role absent from loaded config as
+- [x] The role-validation trio (`rejects a role absent from loaded config as
       aggregated per-agent misses before durable state change`, `aggregates
       multiple missing step-role-agent bindings in one load failure`, `fails
       workflow load when an earlier agent has the role and a later fallback
@@ -78,12 +78,12 @@ unique behavior.
       missing workflow role bindings` and `revalidates the loaded step array
       on resume against resume-time config, including already-completed
       steps` remain as separate, unmodified-in-intent tests.
-- [ ] Every `openStateStore(":memory:")` call in `workflow-runner.test.ts`
+- [x] Every `openStateStore(":memory:")` call in `workflow-runner.test.ts`
       goes through a shared fixture exported from
       `v2/src/testing/write-fixtures.ts` instead of a hand-rolled
       try/finally.
-- [ ] `bun test v2/src/execution/workflow-runner.test.ts` passes.
-- [ ] `step-runner.test.ts`, `workflow-loader.test.ts`, and
+- [x] `bun test v2/src/execution/workflow-runner.test.ts` passes.
+- [x] `step-runner.test.ts`, `workflow-loader.test.ts`, and
       `implement-workflow-steps.test.ts` are unmodified and still pass,
       confirming quota-fallback rung-ordering coverage survives at that
       layer.

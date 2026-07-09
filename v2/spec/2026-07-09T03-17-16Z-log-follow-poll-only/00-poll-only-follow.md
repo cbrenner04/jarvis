@@ -34,11 +34,11 @@ poll interval between `tail()` rescans.
 
 ## Acceptance criteria
 
-- [ ] `FsAppendWake`, `AppendWake`, and `AppendWakeFactory` no longer exist anywhere in the repo; `follow()`'s only blocking wait is the named `FOLLOW_POLL_MS` poll.
-- [ ] `log-stream.test.ts` stays green with no `fs.watch`/`FSWatcher` usage in the test file.
+- [x] `FsAppendWake`, `AppendWake`, and `AppendWakeFactory` no longer exist anywhere in the repo; `follow()`'s only blocking wait is the named `FOLLOW_POLL_MS` poll.
+- [x] `log-stream.test.ts` stays green with no `fs.watch`/`FSWatcher` usage in the test file.
 - [ ] `daemon-wait-run-completion.test.ts` passes across 10 consecutive local runs (`bun test v2/src/daemon/daemon-wait-run-completion.test.ts` x10) with no timeout, **and** across 5 consecutive re-runs of the PR's `Test (v2)` CI job with no timeout — local runs alone don't establish the Linux-CI-specific inotify claim.
-- [ ] `v1/docs/operator-runbook.md` § "The gate" `daemon-wait-run-completion.test.ts` note reads resolved (structural fix landed) and no longer claims the wait fanout was converted to per-waiter.
-- [ ] `v2/docs/v1-behaviors.md` no longer describes `FsAppendWake`/watcher `.unref()` or watcher-release behavior anywhere; both affected entries describe poll-only `follow()` instead.
+- [x] `v1/docs/operator-runbook.md` § "The gate" `daemon-wait-run-completion.test.ts` note reads resolved (structural fix landed) and no longer claims the wait fanout was converted to per-waiter.
+- [x] `v2/docs/v1-behaviors.md` no longer describes `FsAppendWake`/watcher `.unref()` or watcher-release behavior anywhere; both affected entries describe poll-only `follow()` instead.
 
 ## Documentation updates
 

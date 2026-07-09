@@ -328,13 +328,12 @@ Steering (the API surface the TUI drives):
 Observability (log follow interface):
 
 - **`follow` replays from the beginning, then streams new.** The reader iterates
-  all persisted events from seq 1 onward, then blocks for new appends woken by
-  `fs.watch`-backed notification on the shared storage artifact (not
-  fixed-interval polling) — a detached `openLogReader` process receives live
+  all persisted events from seq 1 onward, then blocks on a fixed `FOLLOW_POLL_MS`
+  poll between `tail()` rescans — a detached `openLogReader` process receives live
   appends from a separate writer process after replay. No offset/cursor API —
   consumers filter post-hoc via the `seq` field on `PersistedRecord`. Honour
   `AbortSignal` for clean shutdown. Daemon IPC tail inherits this via `follow`;
-  mechanism detail (OS primitive, test seam) pinned in `persistence/log-stream.ts`.
+  mechanism detail pinned in `persistence/log-stream.ts`.
 - **Tail is served over the IPC stream.** Clients open a multiplexed stream with
   `stream-open` carrying the run ID in the payload. The daemon backs the stream
   with the log reader's `follow(runId, signal)`, replaying persisted records,

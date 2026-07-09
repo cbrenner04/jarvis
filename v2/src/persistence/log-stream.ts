@@ -1,5 +1,5 @@
-import { appendFileSync, existsSync, type FSWatcher, mkdirSync, readFileSync, watch } from "node:fs";
-import { basename, dirname } from "node:path";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { dirname } from "node:path";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { OutcomeKind, RunStatus } from "./state-store.ts";
 
@@ -81,34 +81,18 @@ export interface LogReader {
   follow(runId: string, signal?: AbortSignal): AsyncIterableIterator<PersistedRecord>;
 }
 
-/**
- * Wake primitive that resolves when the shared storage artifact may have been appended to.
- * Used by `follow` to block for new records without fixed-interval polling.
- * `wait` must establish OS-level watching synchronously before blocking so appends
- * during the caller's scan are not missed.
- */
-export interface AppendWake {
-  /** Resolve on the next storage-artifact change or when signal aborts. */
-  wait(signal?: AbortSignal): Promise<void>;
-  /** Release OS resources. Idempotent. */
-  close(): void;
-}
-
-/**
- * Factory creating an `AppendWake` for a storage path. Injected by tests;
- * production defaults to `fs.watch`-backed notification.
- */
-type AppendWakeFactory = (storagePath: string) => AppendWake;
+/** Interval `follow()` polls `tail()` for new records. */
+export const FOLLOW_POLL_MS = 250;
 
 class FileLogStream implements LogSink, LogReader {
   private storagePath: string;
   private sequences: Map<string, number> = new Map();
   private closed = false;
-  private readonly wakeFactory: AppendWakeFactory;
+  private readonly pollMs: number;
 
-  constructor(storagePath: string, wakeFactory?: AppendWakeFactory) {
+  constructor(storagePath: string, pollMs?: number) {
     this.storagePath = storagePath;
-    this.wakeFactory = wakeFactory ?? defaultAppendWakeFactory;
+    this.pollMs = pollMs ?? FOLLOW_POLL_MS;
     this.loadSequences();
   }
 
@@ -172,23 +156,16 @@ class FileLogStream implements LogSink, LogReader {
     const lastRecord = existing[existing.length - 1];
     let lastSeq = lastRecord ? lastRecord.seq : 0;
 
-    const wake = this.wakeFactory(this.storagePath);
-    try {
-      while (!signal?.aborted) {
-        // Start watching before scanning so appends during the scan are caught.
-        const wakePromise = wake.wait(signal);
-        const all = this.tail(runId);
-        for (const record of all) {
-          if (record.seq > lastSeq) {
-            if (signal?.aborted) return;
-            lastSeq = record.seq;
-            yield record;
-          }
+    while (!signal?.aborted) {
+      const all = this.tail(runId);
+      for (const record of all) {
+        if (record.seq > lastSeq) {
+          if (signal?.aborted) return;
+          lastSeq = record.seq;
+          yield record;
         }
-        await wakePromise;
       }
-    } finally {
-      wake.close();
+      await sleep(this.pollMs, signal);
     }
   }
 
@@ -202,165 +179,16 @@ export function openLogSink(storagePath: string): LogSink {
   return new FileLogStream(storagePath);
 }
 
-/** Open a log reader for querying events. Optionally inject a wake factory for testing. */
-export function openLogReader(storagePath: string, wakeFactory?: AppendWakeFactory): LogReader {
-  return new FileLogStream(storagePath, wakeFactory);
+/** Open a log reader for querying events. Optionally override `follow`'s poll interval for testing. */
+export function openLogReader(storagePath: string, pollMs?: number): LogReader {
+  return new FileLogStream(storagePath, pollMs);
 }
 
-/**
- * Unref a watcher so an active `fs.watch` handle can never keep the process alive by
- * itself (Linux inotify handles otherwise hold the event loop open through the
- * microtask gap between `close()` and the owning `follow()` loop's `finally`).
- */
-function unrefWatcher(watcher: FSWatcher): void {
-  if (typeof watcher.unref === "function") {
-    watcher.unref();
-  }
+/** Resolve after `ms`, or immediately if `signal` is already aborted. */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    timer.unref?.();
+  });
 }
-
-/**
- * Production `AppendWake` backed by `fs.watch` on the shared storage artifact.
- * Watches the file directly when it exists (kqueue/inotify — low latency); falls
- * back to watching the parent directory to catch file creation, then switches to
- * the file. A `dirty` flag captures change events that arrive while no caller is
- * waiting, so appends between scans are not missed.
- */
-class FsAppendWake implements AppendWake {
-  private readonly storagePath: string;
-  private readonly dir: string;
-  private readonly filename: string;
-  private watcher: FSWatcher | null = null;
-  private dirty = false;
-  private pendingResolve: (() => void) | null = null;
-  private pendingTimer: ReturnType<typeof setTimeout> | null = null;
-  private closed = false;
-
-  constructor(storagePath: string) {
-    this.storagePath = storagePath;
-    this.dir = dirname(storagePath);
-    this.filename = basename(storagePath);
-  }
-
-  private ensureWatcher(): void {
-    if (this.watcher || this.closed) return;
-    if (existsSync(this.storagePath)) {
-      this.watchFile();
-    } else if (existsSync(this.dir)) {
-      this.watchDir();
-    }
-  }
-
-  private watchFile(): void {
-    if (this.watcher || this.closed) return;
-    try {
-      this.watcher = watch(this.storagePath, () => this.fire());
-      unrefWatcher(this.watcher);
-      this.watcher.on("error", () => {
-        this.watcher?.close();
-        this.watcher = null;
-        this.watchDir();
-      });
-    } catch {
-      this.watchDir();
-    }
-  }
-
-  private watchDir(): void {
-    if (this.watcher || this.closed) return;
-    if (!existsSync(this.dir)) return;
-    try {
-      this.watcher = watch(this.dir, (_eventType, filename) => {
-        if (typeof filename === "string" && filename === this.filename) {
-          this.watcher?.close();
-          this.watcher = null;
-          this.watchFile();
-          this.fire();
-        }
-      });
-      unrefWatcher(this.watcher);
-      this.watcher.on("error", () => {
-        this.watcher?.close();
-        this.watcher = null;
-      });
-    } catch {
-      this.watcher = null;
-    }
-  }
-
-  private fire(): void {
-    if (this.pendingResolve) {
-      const resolve = this.pendingResolve;
-      this.pendingResolve = null;
-      resolve();
-    } else {
-      this.dirty = true;
-    }
-  }
-
-  /**
-   * Block until the watcher fires (append), the abort poll elapses, or close is called.
-   * Append notification is event-driven via `fs.watch`; abort is polled at a short
-   * interval since `AbortSignal.addEventListener` is unreliable in some IPC contexts.
-   */
-  async wait(signal?: AbortSignal): Promise<void> {
-    if (this.closed || signal?.aborted) return;
-    this.ensureWatcher();
-    if (this.dirty) {
-      this.dirty = false;
-      return;
-    }
-    if (!this.watcher) {
-      this.ensureWatcher();
-    }
-    if (this.dirty) {
-      this.dirty = false;
-      return;
-    }
-    if (!this.watcher) {
-      // Cannot watch (storage directory missing); poll for abort only.
-      while (!this.closed && !signal?.aborted) {
-        await new Promise((resolve) => {
-          const timer = setTimeout(resolve, ABORT_POLL_MS);
-          timer.unref?.();
-        });
-      }
-      return;
-    }
-    // Wait for watcher event (append), abort poll, or close.
-    await new Promise<void>((resolve) => {
-      this.pendingResolve = resolve;
-      this.pendingTimer = setTimeout(() => {
-        if (this.pendingResolve === resolve) {
-          this.pendingResolve = null;
-        }
-        this.pendingTimer = null;
-        resolve();
-      }, ABORT_POLL_MS);
-      this.pendingTimer.unref?.();
-    });
-    if (this.pendingTimer) {
-      clearTimeout(this.pendingTimer);
-      this.pendingTimer = null;
-    }
-    this.dirty = false;
-  }
-
-  close(): void {
-    this.closed = true;
-    this.watcher?.close();
-    this.watcher = null;
-    if (this.pendingTimer) {
-      clearTimeout(this.pendingTimer);
-      this.pendingTimer = null;
-    }
-    if (this.pendingResolve) {
-      const resolve = this.pendingResolve;
-      this.pendingResolve = null;
-      resolve();
-    }
-  }
-}
-
-const ABORT_POLL_MS = 500;
-
-const defaultAppendWakeFactory: AppendWakeFactory = (storagePath: string) => new FsAppendWake(storagePath);

@@ -1,0 +1,7 @@
+Both adversary points are valid and require refinement:
+
+1. **Stub handler payload shape is unpinned.** The spec must state that the stub `health`/`status` handlers in `ipc.test.ts`'s `beforeEach` return the same payloads the deleted transport-level fallback returned, so existing test assertions require no changes beyond dispatch wiring. Without this, an implementer could invent arbitrary stub responses and silently rewrite assertions to match, masking a behavior change as a passing test — exactly the failure mode the spec-guidance doc warns about for refactor/preservation ACs (assertions must reflect verified prior behavior, not assumed behavior).
+
+2. **The dispatch acceptance criterion must verify `health` and `status` independently**, not as one bundled generic bullet. Split into two explicit bullets (or otherwise state "for both `health` and `status`") so an implementer can't satisfy the AC by testing only one method and assuming symmetry.
+
+Rationale: both gaps sit at the same seam — the spec is precise about what code to delete but leaves the replacement test behavior underspecified, creating implementer discretion in exactly the spot where discretion could hide a behavior change. This directly matches the "refactor/preservation ACs: cite the test, don't paraphrase" principle in spec guidance — pin the expected payload/behavior rather than leaving it to be inferred.

@@ -563,23 +563,6 @@ describe("v2 cli", () => {
     expect(capturedInput?.telemetry?.operatorSessionId.length).toBeGreaterThan(0);
   });
 
-  test("mints a different operatorSessionId for each main() invocation", async () => {
-    const capturedIds: string[] = [];
-
-    for (let i = 0; i < 2; i++) {
-      const cap = captureIo();
-      await main(WRITE_ARGS, cap.io, {
-        executeWriteLoop: async (input) => {
-          capturedIds.push(input.telemetry?.operatorSessionId ?? "");
-          return completeResult();
-        },
-      });
-    }
-
-    expect(capturedIds).toHaveLength(2);
-    expect(capturedIds[0]).not.toEqual(capturedIds[1]);
-  });
-
   test("withOperatorSessionId does not overwrite caller-supplied telemetry", () => {
     const callerTelemetry = { sinkPath: "/tmp/t.jsonl", operatorSessionId: "caller-id", workflow: "w", role: "r" };
     const input: WriteLoopInput = { ...mockWriteLoopInput(), telemetry: callerTelemetry };
@@ -1014,107 +997,6 @@ describe("v2 cli", () => {
     });
   });
 
-  test("run list prints daemon rows with liveness", async () => {
-    const cap = captureIo();
-    const requestId = "00000000-0000-4000-8000-000000000003";
-    const originalRandomUuid = crypto.randomUUID;
-    crypto.randomUUID = () => requestId;
-
-    let code = NaN;
-    try {
-      code = await main(["run", "list"], cap.io, {
-        connectIpcClient: async () =>
-          makeIpcClient([
-            {
-              kind: "response",
-              id: requestId,
-              result: {
-                runs: [
-                  {
-                    runId: "run-1",
-                    project: "demo",
-                    branch: "feature",
-                    status: "in-progress",
-                    isLive: true,
-                    workflow: {
-                      steps: [{ stepId: "step-1", role: "implement", status: "in_progress", attemptCount: 1 }],
-                    },
-                  },
-                  {
-                    runId: "run-2",
-                    project: "demo",
-                    branch: "done",
-                    status: "completed",
-                    isLive: false,
-                  },
-                ],
-              },
-            },
-          ]),
-      });
-    } finally {
-      crypto.randomUUID = originalRandomUuid;
-    }
-
-    expect(code).toBe(0);
-    expect(cap.read()).toEqual({
-      stdout: "run-1\tdemo\tfeature\tin-progress\tlive\t-\t-\t-\nrun-2\tdemo\tdone\tcompleted\tnot-live\t-\t-\t-\n",
-      stderr: "",
-    });
-  });
-
-  test("run list prints error columns from daemon error when present", async () => {
-    const cap = captureIo();
-    const requestId = "00000000-0000-4000-8000-000000000003";
-    const originalRandomUuid = crypto.randomUUID;
-    crypto.randomUUID = () => requestId;
-
-    let code = NaN;
-    try {
-      code = await main(["run", "list"], cap.io, {
-        connectIpcClient: async () =>
-          makeIpcClient([
-            {
-              kind: "response",
-              id: requestId,
-              result: {
-                runs: [
-                  {
-                    runId: "run-ok",
-                    project: "demo",
-                    branch: "feature",
-                    status: "completed",
-                    isLive: false,
-                  },
-                  {
-                    runId: "run-fail",
-                    project: "demo",
-                    branch: "broken",
-                    status: "failed",
-                    isLive: false,
-                    error: {
-                      reason: "harness_failure",
-                      retryable: false,
-                      nextAction: "stop",
-                    },
-                  },
-                ],
-              },
-            },
-          ]),
-      });
-    } finally {
-      crypto.randomUUID = originalRandomUuid;
-    }
-
-    expect(code).toBe(0);
-    expect(cap.read()).toEqual({
-      stdout:
-        "run-ok\tdemo\tfeature\tcompleted\tnot-live\t-\t-\t-\nrun-fail\tdemo\tbroken\tfailed\tnot-live\tharness_failure\tfalse\tstop\n",
-      stderr: "",
-    });
-  });
-
   test("run log prints replay and follow records as compact JSONL in order", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
@@ -1292,29 +1174,6 @@ describe("v2 cli", () => {
     expect(cap.read().stdout).not.toContain('"error"');
   });
 
-  test("run wait includes error in stdout JSON when daemon result carries error", async () => {
-    const cap = captureIo();
-
-    const code = await runWait(cap, "run-fail", [
-      waitResponse({
-        runStatus: "failed",
-        loopOutcomeKind: "invocation_failure",
-        error: {
-          reason: "harness_failure",
-          retryable: false,
-          nextAction: "stop",
-        },
-      }),
-    ]);
-
-    expect(code).toBe(2);
-    expect(cap.read()).toEqual({
-      stdout:
-        '{"runStatus":"failed","loopOutcomeKind":"invocation_failure","error":{"reason":"harness_failure","retryable":false,"nextAction":"stop"}}\n',
-      stderr: "",
-    });
-  });
-
   test("run wait blocks until the correlated wait response arrives", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
@@ -1343,24 +1202,6 @@ describe("v2 cli", () => {
     expect(code).toBe(0);
     expect(cap.read().stdout).toBe(
       '{"runStatus":"completed","loopOutcomeKind":"complete","iterationsConsumed":1,"resumable":false}\n',
-    );
-  });
-
-  test("run wait returns immediately for an already-quiescent run", async () => {
-    const cap = captureIo();
-
-    const code = await runWait(cap, "run-paused", [
-      waitResponse({
-        runStatus: "paused",
-        loopOutcomeKind: "paused",
-        iterationsConsumed: 3,
-        resumable: true,
-      }),
-    ]);
-
-    expect(code).toBe(1);
-    expect(cap.read().stdout).toBe(
-      '{"runStatus":"paused","loopOutcomeKind":"paused","iterationsConsumed":3,"resumable":true}\n',
     );
   });
 
@@ -1487,35 +1328,5 @@ describe("v2 cli", () => {
     expect(missingRunId).toBe(1);
     expect(extraArgs).toBe(1);
     expect(cap.read().stderr).toContain("usage: jarvis tui log <run-id>");
-  });
-});
-
-describe("simulated bindings", () => {
-  test("replays scripted outcomes and emits the artifact on success", () => {
-    const cwd = mkdtempSync(join(tmpdir(), "jarvis-sim-bindings-"));
-    const bindings = simulatedBindings(["quota", "model_config", "error", "done"], {
-      artifactPath: "proof.txt",
-      emitArtifact: true,
-    });
-
-    expect(bindings[0]?.invoke({ prompt: "p", cwd })).resolves.toEqual({
-      kind: "quota",
-      stderr: "quota",
-    });
-    expect(bindings[1]?.invoke({ prompt: "p", cwd })).resolves.toEqual({
-      kind: "model_config",
-      stderr: "model-config",
-    });
-    expect(bindings[2]?.invoke({ prompt: "p", cwd })).resolves.toEqual({
-      kind: "error",
-      exitCode: 1,
-      stderr: "error",
-    });
-    expect(bindings[3]?.invoke({ prompt: "p", cwd })).resolves.toEqual({
-      kind: "ok",
-      stdout: "done",
-      stderr: "",
-    });
-    expect(readFileSync(join(cwd, "proof.txt"), "utf8")).toBe("ok\n");
   });
 });

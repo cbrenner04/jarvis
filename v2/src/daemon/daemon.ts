@@ -976,6 +976,57 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return { kind: "error", code: "invalid_params", message: `Unknown decision: ${decision}` };
   }
 
+  const resumePausedRun = (
+    run: LoadedRun,
+    key: OwnershipKey,
+    runId: string,
+  ): { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string } => {
+    const snapshotStep = run.workflowSnapshot?.steps.find((step) => step.stepId === run.stepId);
+    if (
+      run.workflowSnapshot === null ||
+      run.workflowSnapshot === undefined ||
+      run.stepId === null ||
+      run.stepId === undefined ||
+      snapshotStep === undefined ||
+      snapshotStep.agents === undefined ||
+      snapshotStep.agentModelConfig === undefined
+    ) {
+      return {
+        kind: "error",
+        code: "not_implemented",
+        message: "Paused run resume is not yet implemented",
+      };
+    }
+
+    const input: WriteLoopInput = {
+      worktree: {
+        projectRoot: run.worktreePath,
+        projectName: run.project,
+        branchName: run.branch,
+        baseRef: run.specRef,
+      },
+      specPath: run.specPath,
+      stepRules: snapshotStep.stepRules ?? "",
+      expectedArtifactPath: snapshotStep.expectedArtifactPath ?? "",
+      bindings: resolveInvocationBindings(
+        resolveExecutableRole(snapshotStep.role),
+        snapshotStep.agents,
+        snapshotStep.agentModelConfig,
+        createResolvedAgentBinding,
+      ),
+      bindingResolution: {
+        role: snapshotStep.role,
+        agents: snapshotStep.agents,
+        agentModelConfig: snapshotStep.agentModelConfig,
+      },
+      stepId: run.stepId,
+      workflowSnapshot: run.workflowSnapshot,
+    };
+
+    spawnWriteLoop(key, runId, run.worktreePath, input);
+    return { kind: "response", result: { ok: true } };
+  };
+
   const resumeHandler: RpcHandler = (frame) => {
     const params = frame.params as { runId?: string; decision?: string; prompt?: string } | undefined;
     if (!params?.runId) {
@@ -1020,51 +1071,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       return claimError;
     }
 
-    const snapshotStep = run.workflowSnapshot?.steps.find((step) => step.stepId === run.stepId);
     if (run.status === "paused") {
-      if (
-        run.workflowSnapshot === null ||
-        run.workflowSnapshot === undefined ||
-        run.stepId === null ||
-        run.stepId === undefined ||
-        snapshotStep === undefined ||
-        snapshotStep.agents === undefined ||
-        snapshotStep.agentModelConfig === undefined
-      ) {
-        return {
-          kind: "error",
-          code: "not_implemented",
-          message: "Paused run resume is not yet implemented",
-        };
-      }
-
-      const input: WriteLoopInput = {
-        worktree: {
-          projectRoot: run.worktreePath,
-          projectName: run.project,
-          branchName: run.branch,
-          baseRef: run.specRef,
-        },
-        specPath: run.specPath,
-        stepRules: snapshotStep.stepRules ?? "",
-        expectedArtifactPath: snapshotStep.expectedArtifactPath ?? "",
-        bindings: resolveInvocationBindings(
-          resolveExecutableRole(snapshotStep.role),
-          snapshotStep.agents,
-          snapshotStep.agentModelConfig,
-          createResolvedAgentBinding,
-        ),
-        bindingResolution: {
-          role: snapshotStep.role,
-          agents: snapshotStep.agents,
-          agentModelConfig: snapshotStep.agentModelConfig,
-        },
-        stepId: run.stepId,
-        workflowSnapshot: run.workflowSnapshot,
-      };
-
-      spawnWriteLoop(key, runId, run.worktreePath, input);
-      return { kind: "response", result: { ok: true } };
+      return resumePausedRun(run, key, runId);
     }
 
     const input: WriteLoopInput = {

@@ -1,7 +1,7 @@
 import { appendFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
-import type { LogSink } from "../persistence/log-stream.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
+import type { LogSink } from "../persistence/log-stream.ts";
 import {
   type OutcomeKind,
   openStateStore,

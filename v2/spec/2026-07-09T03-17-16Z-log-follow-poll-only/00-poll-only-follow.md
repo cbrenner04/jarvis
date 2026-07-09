@@ -44,3 +44,7 @@ poll interval between `tail()` rescans.
 
 - `v1/docs/operator-runbook.md` — flip "The gate" residual-leak note to resolved; correct its fanout-conversion phrasing.
 - `v2/docs/v1-behaviors.md` — replace both watcher-semantics entries (`FsAppendWake` unref, `createRunControlHandlers().close()`) with poll-only `follow()` behavior.
+
+## Blocker
+
+`bun test v2/src/daemon/daemon-wait-run-completion.test.ts` passed 10 consecutive local runs. The remaining acceptance criterion also requires 5 consecutive re-runs of the PR's `Test (v2)` CI job, but `gh pr view` reports no PR for branch `2026-07-09T03-17-16Z-log-follow-poll-only`, and `gh run list --branch 2026-07-09T03-17-16Z-log-follow-poll-only` returns no CI runs.

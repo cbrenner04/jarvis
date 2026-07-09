@@ -55,13 +55,17 @@ type ActiveRun =
 
 export class DaemonDoubleClaimError extends Error {
   constructor(key: OwnershipKey) {
-    super(`Worktree already claimed for project=${key.project}, branch=${key.branch}`);
+    super(worktreeClaimedMessage(key));
     this.name = "DaemonDoubleClaimError";
   }
 }
 
 function ownershipKeyString(key: OwnershipKey): string {
   return `${key.project}:${key.branch}`;
+}
+
+function worktreeClaimedMessage(key: OwnershipKey): string {
+  return `Worktree already claimed for project=${key.project}, branch=${key.branch}`;
 }
 
 export class WorktreeOwnershipRegistry {
@@ -117,7 +121,7 @@ export function checkWorktreeClaimed(
   return {
     kind: "error",
     code: "worktree_claimed",
-    message: `Worktree already claimed for project=${key.project}, branch=${key.branch}`,
+    message: worktreeClaimedMessage(key),
   };
 }
 
@@ -591,7 +595,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       return {
         kind: "error",
         code: "worktree_claimed",
-        message: `Worktree already claimed for project=${workflowKey.project}, branch=${workflowKey.branch}`,
+        message: worktreeClaimedMessage(workflowKey),
       };
     }
     const workflowClaimError = checkWorktreeClaimed(_registry, workflowKey);
@@ -622,7 +626,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       return {
         kind: "error",
         code: "worktree_claimed",
-        message: `Worktree already claimed for project=${key.project}, branch=${key.branch}`,
+        message: worktreeClaimedMessage(key),
       };
     }
 

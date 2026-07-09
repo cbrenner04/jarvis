@@ -19,9 +19,9 @@ tests.
 
 ## Acceptance criteria
 
-- [ ] `external-worktree.test.ts` stays green (behavior unchanged by the extraction).
-- [ ] Test count in `external-worktree.test.ts` is unchanged vs baseline (PR body states the before/after count).
-- [ ] No repeated 5-field `withExternalWorktree` input literal remains in the file; each call site uses the `makeInput` helper.
+- [x] `external-worktree.test.ts` stays green (behavior unchanged by the extraction).
+- [x] Test count in `external-worktree.test.ts` is unchanged vs baseline (PR body states the before/after count).
+- [x] No repeated 5-field `withExternalWorktree` input literal remains in the file; each call site uses the `makeInput` helper.
 
 ## Documentation updates
 

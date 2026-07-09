@@ -33,10 +33,10 @@ timeout support.
 
 ## Acceptance criteria
 
-- [ ] `daemon-lifecycle.test.ts` stays green (behavior unchanged; all cases
+- [x] `daemon-lifecycle.test.ts` stays green (behavior unchanged; all cases
       inject `socketProber`/`processProber`, so the rewrite is exercised only
       through those same seams — no test changes expected).
-- [ ] `daemon-lifecycle.ts` contains no direct `client.nextFrame(...)` call
+- [x] `daemon-lifecycle.ts` contains no direct `client.nextFrame(...)` call
       guarded by manual id comparison for `health` or `shutdown`.
 
 ## Documentation updates

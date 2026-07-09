@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { connectIpcClient } from "../ipc/client";
+import { createRpcTransport } from "../ipc/rpc-transport";
 
 export class DaemonAlreadyRunningError extends Error {
   constructor(socketPath: string) {
@@ -42,12 +43,12 @@ export function isProcessAlive(pid: number): boolean {
 async function probeSocket(socketPath: string, timeoutMs: number): Promise<boolean> {
   try {
     const client = await connectIpcClient(socketPath);
+    const transport = createRpcTransport(client);
     try {
-      client.send({ kind: "request", id: "probe", method: "health" });
-      const frame = await client.nextFrame(timeoutMs);
-      return frame.kind === "response" && frame.id === "probe";
+      await transport.request("health", undefined, { timeoutMs });
+      return true;
     } finally {
-      client.close();
+      transport.close();
     }
   } catch {
     return false;
@@ -158,15 +159,13 @@ export async function stopDaemon(
 
   try {
     const client = await connectIpcClient(socketPath);
+    const transport = createRpcTransport(client);
     try {
-      client.send({ kind: "request", id: "shutdown", method: "shutdown" });
-      try {
-        await client.nextFrame(drainTimeoutMs);
-      } catch {
-        // timeout or error is expected; just close
-      }
+      await transport.request("shutdown", undefined, { timeoutMs: drainTimeoutMs });
+    } catch {
+      // timeout or error is expected; just close
     } finally {
-      client.close();
+      transport.close();
     }
   } catch {
     // socket may not be reachable; process-side shutdown signal is fallback

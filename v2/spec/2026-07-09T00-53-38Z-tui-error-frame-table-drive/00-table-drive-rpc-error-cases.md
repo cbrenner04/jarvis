@@ -54,11 +54,11 @@ over the 13 pairs.
 
 ## Acceptance criteria
 
-- [ ] `bun test v2/src/tui/tui-daemon-client.test.ts` passes.
-- [ ] All 13 method/code pairs listed above still have a passing assertion
+- [x] `bun test v2/src/tui/tui-daemon-client.test.ts` passes.
+- [x] All 13 method/code pairs listed above still have a passing assertion
       that the call rejects as `TuiDaemonRpcError` (with `code`/`name`
       matched where the original test matched it).
-- [ ] The `list`/`wait` pair and the `pause`/`resume`/`kill` steering pairs
+- [x] The `list`/`wait` pair and the `pause`/`resume`/`kill` steering pairs
       still assert concurrent-request correlation: multiple requests
       in-flight on a shared connection, only the correlated one rejecting —
       not collapsed to isolated single-request assertions.

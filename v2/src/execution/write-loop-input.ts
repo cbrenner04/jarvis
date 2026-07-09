@@ -20,7 +20,7 @@ export type WriteLaunchFieldValues = {
   maxIterations?: string;
 };
 
-type BuildWriteLoopInputResult = { ok: true; input: WriteLoopInput } | { ok: false; errors: string[] };
+type BuildWriteLoopInputResult = { ok: true; input: WriteLoopInput } | { ok: false };
 
 type RequiredLaunchFields = {
   projectRoot: string;
@@ -38,12 +38,11 @@ export function buildWriteLoopInput(
   createBindings: (agentIds: readonly string[]) => readonly InvocationBinding[],
   fallbackAgents?: readonly string[],
 ): BuildWriteLoopInputResult {
-  const errors: string[] = [];
-  const required = requireLaunchFields(fields, errors, fallbackAgents);
-  const maxIterations = parseMaxIterations(fields.maxIterations, errors);
+  const required = requireLaunchFields(fields, fallbackAgents);
+  const maxIterations = parseMaxIterations(fields.maxIterations);
 
-  if (errors.length > 0 || required === null || maxIterations === null) {
-    return { ok: false, errors };
+  if (required === null || maxIterations === null) {
+    return { ok: false };
   }
 
   const input: WriteLoopInput = {
@@ -67,13 +66,7 @@ export function buildWriteLoopInputFromCliValues(
   values: Record<string, string | boolean | string[] | undefined>,
   createBindings: (agentIds: readonly string[]) => readonly InvocationBinding[],
   fallbackAgents?: readonly string[],
-): BuildWriteLoopInputResult | { ok: false; message?: string } {
-  const maxIterationsRaw = stringValue(values["max-iterations"]);
-  const maxIterationsCheck = parseMaxIterations(maxIterationsRaw, []);
-  if (maxIterationsRaw !== undefined && maxIterationsCheck === null) {
-    return { ok: false, message: "Error: --max-iterations must be a positive integer\n" };
-  }
-
+): BuildWriteLoopInputResult {
   return buildWriteLoopInput(toLaunchFields(values), createBindings, fallbackAgents);
 }
 
@@ -97,15 +90,14 @@ export function parseWriteArgs(argv: readonly string[]): Record<string, string |
 
 function requireLaunchFields(
   fields: Partial<WriteLaunchFieldValues>,
-  errors: string[],
   fallbackAgents?: readonly string[],
 ): RequiredLaunchFields | null {
-  const projectRoot = requireString(fields.projectRoot, "project-root", errors);
-  const projectName = requireString(fields.projectName, "project", errors);
-  const branchName = requireString(fields.branchName, "branch", errors);
-  const baseRef = requireString(fields.baseRef, "base", errors);
-  const specPath = requireString(fields.specPath, "spec", errors);
-  const artifactPath = requireString(fields.artifactPath, "artifact", errors);
+  const projectRoot = requireString(fields.projectRoot);
+  const projectName = requireString(fields.projectName);
+  const branchName = requireString(fields.branchName);
+  const baseRef = requireString(fields.baseRef);
+  const specPath = requireString(fields.specPath);
+  const artifactPath = requireString(fields.artifactPath);
   const agents = fallbackAgents ?? DEFAULT_WRITE_AGENTS;
 
   if (
@@ -122,22 +114,14 @@ function requireLaunchFields(
   return { projectRoot, projectName, branchName, baseRef, specPath, artifactPath, agents };
 }
 
-function requireString(value: string | undefined, name: string, errors: string[]): string | undefined {
-  if (value === undefined || value.length === 0) {
-    errors.push(`missing required field: ${name}`);
-    return undefined;
-  }
-  return value;
+function requireString(value: string | undefined): string | undefined {
+  return value === undefined || value.length === 0 ? undefined : value;
 }
 
-function parseMaxIterations(raw: string | undefined, errors: string[]): number | undefined | null {
+function parseMaxIterations(raw: string | undefined): number | undefined | null {
   if (raw === undefined) return undefined;
   const maxIterations = Number.parseInt(raw, 10);
-  if (Number.isNaN(maxIterations) || maxIterations < 1) {
-    errors.push("invalid max-iterations: must be a positive integer");
-    return null;
-  }
-  return maxIterations;
+  return Number.isNaN(maxIterations) || maxIterations < 1 ? null : maxIterations;
 }
 
 function toLaunchFields(

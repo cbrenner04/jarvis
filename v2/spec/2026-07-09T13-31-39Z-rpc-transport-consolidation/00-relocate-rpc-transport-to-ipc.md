@@ -33,6 +33,13 @@ TUI ink components) stays in `tui/tui-daemon-errors.ts`.
   existing `abandonRequest` path) and rejects with `RpcConnectionError` —
   needed by the bounded liveness probes in subspec 01; omitting it preserves
   today's unbounded wait.
+- The `timeoutMs` timer is cleared as soon as the request settles by any
+  other path (normal resolve, reject, or manual `abandonRequest`) — an
+  unresolved timer must not fire `abandonRequest` a second time on an
+  already-settled request. `trackWait` and `timeoutMs` are independent and
+  compose: `trackWait` only affects wait-tracking/telemetry, so a request
+  with both set is tracked as waiting until it resolves or the timeout
+  abandons it.
 - All existing TUI consumers (`tui-daemon-client.ts`, `tui-log-tail-client.ts`,
   `tui-ink-feedback.tsx`, `tui-ink-log-follow.tsx`, `tui-entry.tsx`, and their
   tests) update imports/names only — no behavior change in this subspec.
@@ -54,6 +61,11 @@ TUI ink components) stays in `tui/tui-daemon-errors.ts`.
 - [ ] Update `v2/docs/v2-architecture.md` domain map: drop
       `tui-daemon-rpc-transport.ts` from the TUI host row; note
       `rpc-transport.ts` and `rpc-errors.ts` under the IPC transport row.
+- [ ] Add unit tests in `rpc-transport.test.ts` covering `timeoutMs`: a
+      request with `timeoutMs` set that never resolves is abandoned and
+      rejects with `RpcConnectionError` once the timeout elapses; a request
+      with `timeoutMs` set that resolves normally before the timeout is
+      unaffected (no spurious abandon/rejection, no dangling timer).
 
 ## Acceptance criteria
 
@@ -64,6 +76,10 @@ TUI ink components) stays in `tui/tui-daemon-errors.ts`.
 - [ ] `export-surface-trim.test.ts` stays green against the relocated file.
 - [ ] No file under `v2/src/tui/` exports or defines an RPC transport or RPC
       transport error class.
+- [ ] A new `rpc-transport.test.ts` test covers: a `timeoutMs`-bound request
+      that times out is abandoned and rejects with `RpcConnectionError`.
+- [ ] A new `rpc-transport.test.ts` test covers: a `timeoutMs`-bound request
+      that resolves before the timeout is unaffected.
 
 ## Documentation updates
 

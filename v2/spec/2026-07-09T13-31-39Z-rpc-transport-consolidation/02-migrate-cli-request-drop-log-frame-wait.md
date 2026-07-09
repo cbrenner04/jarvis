@@ -42,6 +42,10 @@ should just use that instead of a magic 24h constant.
 - [ ] Update `formatRpcError` to accept `RpcError`.
 - [ ] Delete `LOG_FRAME_WAIT_MS` and the `client.nextFrame(LOG_FRAME_WAIT_MS)`
       call in `run log`; use `client.nextFrame()`.
+- [ ] Update `v2/docs/v1-behaviors.md`: `run log`'s frame wait changes from
+      bounded (24h `LOG_FRAME_WAIT_MS`) to unbounded (`nextFrame()`), so a
+      hung daemon no longer errors out after 24h and blocks indefinitely
+      instead.
 
 ## Acceptance criteria
 
@@ -54,5 +58,5 @@ should just use that instead of a magic 24h constant.
 
 ## Documentation updates
 
-None — CLI stdout/stderr/exit-code contracts are unchanged; internal
-implementation detail only.
+- `v2/docs/v1-behaviors.md` — record `run log`'s frame wait moving from
+  bounded (24h) to unbounded, per the task checklist.

@@ -16,7 +16,6 @@ import {
   withStateStore,
 } from "../testing/write-fixtures.ts";
 import {
-  defineWorkflowStep,
   executeWorkflow,
   type HumanWorkflowStep,
   type ReviewDebateWorkflowStep,
@@ -122,20 +121,18 @@ function createStepInput(
   return createStep(overrides);
 }
 
-describe("defineWorkflowStep", () => {
+describe("resolveWorkflowPreset step shape", () => {
   test("builds a workflow step and preserves loop-control fields", () => {
     const signal = new AbortController().signal;
     const pauseSignal = new AbortController().signal;
 
-    const step = defineWorkflowStep(
-      createStepInput({
-        stepId: "step-1",
-        role: "implement",
-        maxIterations: 3,
-        signal,
-        pauseSignal,
-      }),
-    );
+    const step = createStepInput({
+      stepId: "step-1",
+      role: "implement",
+      maxIterations: 3,
+      signal,
+      pauseSignal,
+    });
 
     if (step.behavior !== "write") throw new Error("Expected a write step");
 
@@ -1059,9 +1056,9 @@ describe("executeWorkflow review-debate dispatch", () => {
   });
 });
 
-describe("defineWorkflowStep human steps", () => {
+describe("human step shape", () => {
   test("accepts a human-behavior input and returns the corresponding step shape", () => {
-    const step = defineWorkflowStep(createHumanStep({ stepId: "gate-1" }));
+    const step = createHumanStep({ stepId: "gate-1" });
 
     expect(step.behavior).toBe("human");
     expect(step.stepId).toBe("gate-1");

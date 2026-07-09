@@ -3,6 +3,17 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "../execution/external-worktree.ts";
+import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+
+/** Opens an in-memory state store for `callback`, closing it in `finally`. */
+export async function withStateStore<T>(callback: (store: StateStore) => Promise<T> | T): Promise<T> {
+  const store = openStateStore(":memory:");
+  try {
+    return await callback(store);
+  } finally {
+    store.close();
+  }
+}
 
 /** stateDbPath is an unopened path under jarvisRoot, safe to ignore if unused. */
 export function createJarvisHome(): { jarvisRoot: string; stateDbPath: string } {

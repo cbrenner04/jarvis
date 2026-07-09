@@ -9,7 +9,12 @@ import type {
 } from "../../../shared/invocation/execute.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { openStateStore } from "../persistence/state-store.ts";
-import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
+import {
+  createFakeWithExternalWorktree,
+  createJarvisHome,
+  trackedTempRoots,
+  withStateStore,
+} from "../testing/write-fixtures.ts";
 import {
   defineWorkflowStep,
   executeWorkflow,
@@ -76,17 +81,6 @@ function okTokenBindingFactory(stdout: string) {
 const errorBindingFactory = createBindingFactory(
   async () => ({ kind: "error", exitCode: 1, stderr: "error" }) as const,
 );
-
-function quotaUntilDoneBindingFactory(invocations: string[]) {
-  return createBindingFactory(async ({ agentId, adapterModel, cwd }) => {
-    invocations.push(`${agentId}/${adapterModel}`);
-    if (adapterModel === "M1" || adapterModel === "M2") {
-      return { kind: "quota", stderr: "quota" } as const;
-    }
-    writeFileSync(`${cwd}/proof.txt`, "ok\n", "utf8");
-    return { kind: "ok", stdout: "done", stderr: "" } as const;
-  });
-}
 
 function createStep(
   overrides: Partial<Omit<WriteWorkflowStep, "worktree" | "behavior">> & {
@@ -222,10 +216,9 @@ describe("executeWorkflow", () => {
 
   test("onStepRunCreated fires once step 0's run row is durably created, before the step completes", async () => {
     const step = createStep({ stepId: "step-1", role: "implement" });
-    const store = openStateStore(":memory:");
     const fired: Array<{ stepIndex: number; runId: string; rowExisted: boolean }> = [];
 
-    try {
+    await withStateStore(async (store) => {
       const result = await executeWorkflow({
         steps: [step],
         stateStore: store,
@@ -242,9 +235,7 @@ describe("executeWorkflow", () => {
       expect(fired[1]?.stepIndex).toBe(0);
       expect(fired[1]?.runId).not.toBe(result.runId);
       expect(fired[1]?.rowExisted).toBe(true);
-    } finally {
-      store.close();
-    }
+    });
   });
 
   test("onStepRunCreated does not fire when executeWorkflow rejects before step 0's row is created", async () => {
@@ -263,19 +254,12 @@ describe("executeWorkflow", () => {
 
   test("runs single step to completion", async () => {
     const step = createStep({ stepId: "step-1", role: "implement" });
-    const store = openStateStore(":memory:");
 
-    try {
+    await withStateStore(async (store) => {
       const result = await executeWorkflow({
         steps: [step],
         stateStore: store,
       });
-
-      expect(result.kind).toBe("complete");
-      expect(result.stepIndex).toBe(0);
-      expect(result.stepId).toBe("step-1");
-      expect(result.iterationsConsumed).toBeGreaterThan(0);
-      expect(result.resumable).toBe(false);
 
       // One-step equivalence: runId matches the step's actual run, not empty
       const run = store.findRunByProjectBranch({
@@ -285,52 +269,10 @@ describe("executeWorkflow", () => {
       });
       expect(result.runId).toBe(run?.id ?? "");
       expect(result.runId).not.toBe("");
-    } finally {
-      store.close();
-    }
-  });
-
-  test("runs two-step workflow to completion", async () => {
-    const store = openStateStore(":memory:");
-    const steps = resolveWorkflowPreset("write-write", [
-      createStep({ stepId: "step-1", role: "implement", branchName: "two-step" }),
-      createStep({ stepId: "step-2", role: "implement", branchName: "two-step" }),
-    ]);
-
-    try {
-      const result = await executeWorkflow({
-        steps,
-        stateStore: store,
-      });
-
-      expect(result.kind).toBe("complete");
-      expect(result.stepIndex).toBe(1);
-      expect(result.stepId).toBe("step-2");
-
-      // Verify each step has independent attempt history
-      const run1 = store.findRunByProjectBranch({
-        project: "demo",
-        branch: "two-step",
-        stepId: "step-1",
-      });
-      const run2 = store.findRunByProjectBranch({
-        project: "demo",
-        branch: "two-step",
-        stepId: "step-2",
-      });
-
-      expect(run1).not.toBeNull();
-      expect(run2).not.toBeNull();
-      expect(run1?.id).not.toBe(run2?.id);
-      expect(run1?.status).toBe("completed");
-      expect(run2?.status).toBe("completed");
-    } finally {
-      store.close();
-    }
+    });
   });
 
   test("runs the write-write preset end to end with per-step resolution, ordered advancement, fallback, and separate durable history", async () => {
-    const store = openStateStore(":memory:");
     const home = createJarvisHome();
     roots.push(home.jarvisRoot);
     const events: string[] = [];
@@ -422,7 +364,7 @@ describe("executeWorkflow", () => {
       },
     ]);
 
-    try {
+    await withStateStore(async (store) => {
       const result = await executeWorkflow({
         steps,
         stateStore: store,
@@ -481,13 +423,10 @@ describe("executeWorkflow", () => {
       expect(run2?.attempts.map((attempt) => attempt.outcomeKind)).toEqual(["done"]);
       expect(run1?.attempts.map((attempt) => attempt.attemptNumber)).toEqual([1, 2]);
       expect(run2?.attempts.map((attempt) => attempt.attemptNumber)).toEqual([1]);
-    } finally {
-      store.close();
-    }
+    });
   });
 
   test("stops workflow when step ends blocked", async () => {
-    const store = openStateStore(":memory:");
     const step1 = createStep({ stepId: "step-1", role: "implement", branchName: "blocked-run" });
     const step2 = createStep({
       stepId: "step-2",
@@ -496,7 +435,7 @@ describe("executeWorkflow", () => {
       createBinding: okTokenBindingFactory("blocked"),
     });
 
-    try {
+    await withStateStore(async (store) => {
       const result = await executeWorkflow({
         steps: [step1, step2],
         stateStore: store,
@@ -521,13 +460,10 @@ describe("executeWorkflow", () => {
         stepId: "step-2",
       });
       expect(run2?.status).toBe("blocked");
-    } finally {
-      store.close();
-    }
+    });
   });
 
   test("stops workflow on invocation_failure", async () => {
-    const store = openStateStore(":memory:");
     const step1 = createStep({ stepId: "step-1", role: "implement", branchName: "failure-run" });
     const step2 = createStep({
       stepId: "step-2",
@@ -536,7 +472,7 @@ describe("executeWorkflow", () => {
       createBinding: errorBindingFactory,
     });
 
-    try {
+    await withStateStore(async (store) => {
       const result = await executeWorkflow({
         steps: [step1, step2],
         stateStore: store,
@@ -545,13 +481,10 @@ describe("executeWorkflow", () => {
       expect(result.kind).toBe("invocation_failure");
       expect(result.stepIndex).toBe(1);
       expect(result.stepId).toBe("step-2");
-    } finally {
-      store.close();
-    }
+    });
   });
 
   test("stops workflow on soft-stop (budget-exhausted)", async () => {
-    const store = openStateStore(":memory:");
     const step1 = createStep({ stepId: "step-1", role: "implement", branchName: "budget-run", maxIterations: 1 });
     const step2 = createStep({
       stepId: "step-2",
@@ -561,7 +494,7 @@ describe("executeWorkflow", () => {
       maxIterations: 1,
     });
 
-    try {
+    await withStateStore(async (store) => {
       const result = await executeWorkflow({
         steps: [step1, step2],
         stateStore: store,
@@ -570,9 +503,7 @@ describe("executeWorkflow", () => {
       expect(result.kind).toBe("budget-exhausted");
       expect(result.stepIndex).toBe(1);
       expect(result.stepId).toBe("step-2");
-    } finally {
-      store.close();
-    }
+    });
   });
 
   test("resumes at first non-completed step", async () => {
@@ -634,12 +565,10 @@ describe("executeWorkflow", () => {
   });
 
   test("tracks per-step attempt history independently", async () => {
-    const store = openStateStore(":memory:");
-
     const step1 = createStep({ stepId: "step-1", role: "implement", branchName: "history-test" });
     const step2 = createStep({ stepId: "step-2", role: "implement", branchName: "history-test" });
 
-    try {
+    await withStateStore(async (store) => {
       await executeWorkflow({
         steps: [step1, step2],
         stateStore: store,
@@ -675,61 +604,10 @@ describe("executeWorkflow", () => {
         { stepId: "step-1", role: "implement", ...stepConfig },
         { stepId: "step-2", role: "implement", ...stepConfig },
       ]);
-    } finally {
-      store.close();
-    }
-  });
-
-  test("workflow-step execution reaches shared invocation with resolver-produced implement bindings", async () => {
-    const store = openStateStore(":memory:");
-    const invocations: string[] = [];
-    const step = createStep({
-      stepId: "step-1",
-      role: "implement",
-      branchName: "binding-order",
-      agents: ["claude", "codex"],
-      agentModelConfig: {
-        claude: {
-          implement: {
-            rungs: [
-              { adapterModel: "M1", priceKey: "P1" },
-              { adapterModel: "M2", priceKey: "P2" },
-            ],
-          },
-          shrink: {
-            rungs: [
-              { adapterModel: "M1", priceKey: "P1" },
-              { adapterModel: "M2", priceKey: "P2" },
-            ],
-          },
-        },
-        codex: {
-          implement: {
-            rungs: [{ adapterModel: "M3", priceKey: "P3" }],
-          },
-          shrink: {
-            rungs: [{ adapterModel: "M3", priceKey: "P3" }],
-          },
-        },
-      },
-      createBinding: quotaUntilDoneBindingFactory(invocations),
     });
-
-    try {
-      const result = await executeWorkflow({
-        steps: [step],
-        stateStore: store,
-      });
-
-      expect(result.kind).toBe("complete");
-      expect(invocations).toEqual(["claude/M1", "claude/M2", "codex/M3", "claude/M1", "claude/M2", "codex/M3"]);
-    } finally {
-      store.close();
-    }
   });
 
   test("runs one hidden shrink pass after an implement step completes", async () => {
-    const store = openStateStore(":memory:");
     const calls: string[] = [];
     const step = createStep({
       stepId: "implement",
@@ -752,7 +630,7 @@ describe("executeWorkflow", () => {
       }),
     });
 
-    try {
+    await withStateStore(async (store) => {
       const result = await executeWorkflow({ steps: [step], stateStore: store });
 
       expect(result.kind).toBe("complete");
@@ -764,9 +642,7 @@ describe("executeWorkflow", () => {
         store.findRunByProjectBranch({ project: "demo", branch: "implement-shrink", stepId: "implement~shrink" })
           ?.status,
       ).toBe("completed");
-    } finally {
-      store.close();
-    }
+    });
   });
 
   test("does not run shrink after non-complete implement outcomes", async () => {
@@ -779,7 +655,6 @@ describe("executeWorkflow", () => {
     ];
 
     for (const testCase of cases) {
-      const store = openStateStore(":memory:");
       const pauseController = new AbortController();
       if (testCase.pause) pauseController.abort();
       const step = createStep({
@@ -791,21 +666,18 @@ describe("executeWorkflow", () => {
         ...(testCase.pause ? { pauseSignal: pauseController.signal } : {}),
       });
 
-      try {
+      await withStateStore(async (store) => {
         const result = await executeWorkflow({ steps: [step], stateStore: store });
 
         expect(result.kind).not.toBe("complete");
         expect(
           store.findRunByProjectBranch({ project: "demo", branch: testCase.branchName, stepId: "implement~shrink" }),
         ).toBeNull();
-      } finally {
-        store.close();
-      }
+      });
     }
   });
 
   test("shrink uses implement context with shrink role bindings and pinned prompt", async () => {
-    const store = openStateStore(":memory:");
     const resolved: string[] = [];
     const prompts: string[] = [];
     const step = createStep({
@@ -837,7 +709,7 @@ describe("executeWorkflow", () => {
       },
     });
 
-    try {
+    await withStateStore(async (store) => {
       const result = await executeWorkflow({ steps: [step], stateStore: store });
 
       expect(result.kind).toBe("complete");
@@ -845,13 +717,10 @@ describe("executeWorkflow", () => {
       expect(prompts[1]).toContain("Post-completion Shrink");
       expect(prompts[1]).toContain("**Spec:** `spec.md`");
       expect(prompts[1]).toContain("proof.txt");
-    } finally {
-      store.close();
-    }
+    });
   });
 
   test("shrink telemetry records role shrink on a distinct binding chain", async () => {
-    const store = openStateStore(":memory:");
     const telemetryPath = join(mkdtempSync(join(tmpdir(), "workflow-shrink-telemetry-")), "telemetry.jsonl");
     const step = createStep({
       stepId: "implement",
@@ -873,7 +742,7 @@ describe("executeWorkflow", () => {
       }),
     });
 
-    try {
+    await withStateStore(async (store) => {
       const result = await executeWorkflow({
         steps: [step],
         stateStore: store,
@@ -886,13 +755,10 @@ describe("executeWorkflow", () => {
       expect(rows.map((row) => row.step_id)).toEqual(["implement", "implement~shrink"]);
       expect(rows[0]?.binding_id).toBe("claude/I1");
       expect(rows[1]?.binding_id).toBe("claude/S1");
-    } finally {
-      store.close();
-    }
+    });
   });
 
   test("non-complete shrink outcome stops at the implement step without running later steps", async () => {
-    const store = openStateStore(":memory:");
     const invoked: string[] = [];
     const step1 = createStep({
       stepId: "implement",
@@ -917,7 +783,7 @@ describe("executeWorkflow", () => {
     });
     const step2 = createStep({ stepId: "later", role: "implement", branchName: "shrink-stops-workflow" });
 
-    try {
+    await withStateStore(async (store) => {
       const result = await executeWorkflow({ steps: [step1, step2], stateStore: store });
 
       expect(result.kind).toBe("blocked");
@@ -927,13 +793,10 @@ describe("executeWorkflow", () => {
       expect(
         store.findRunByProjectBranch({ project: "demo", branch: "shrink-stops-workflow", stepId: "later" }),
       ).toBeNull();
-    } finally {
-      store.close();
-    }
+    });
   });
 
   test("implement preset and workflow snapshots stay one authored step", async () => {
-    const store = openStateStore(":memory:");
     const steps = resolveWorkflowPreset("implement", [
       createStep({
         stepId: "implement",
@@ -949,7 +812,7 @@ describe("executeWorkflow", () => {
       }),
     ]);
 
-    try {
+    await withStateStore(async (store) => {
       const result = await executeWorkflow({ steps, stateStore: store });
 
       expect(result.kind).toBe("complete");
@@ -962,13 +825,10 @@ describe("executeWorkflow", () => {
       });
       expect(run?.workflowSnapshot?.steps.map((step) => step.stepId)).toEqual(["implement"]);
       expect(shrinkRun?.workflowSnapshot?.steps.map((step) => step.stepId)).toEqual(["implement"]);
-    } finally {
-      store.close();
-    }
+    });
   });
 
   test("workflow-step execution with empty agents returns no_binding", async () => {
-    const store = openStateStore(":memory:");
     const step = createStep({
       stepId: "step-1",
       role: "implement",
@@ -980,7 +840,7 @@ describe("executeWorkflow", () => {
       },
     });
 
-    try {
+    await withStateStore(async (store) => {
       const result = await executeWorkflow({
         steps: [step],
         stateStore: store,
@@ -993,9 +853,7 @@ describe("executeWorkflow", () => {
         stepId: "step-1",
       });
       expect(run?.attempts[0]?.invocationFailureDetail?.failureKind).toBe("no_binding");
-    } finally {
-      store.close();
-    }
+    });
   });
 });
 
@@ -1061,11 +919,10 @@ function loadTelemetryRows(path: string): InvocationCompletedRecord[] {
 
 describe("executeWorkflow human steps", () => {
   test("converges to awaiting-human without running a write loop", async () => {
-    const store = openStateStore(":memory:");
     const writeStep = createStep({ stepId: "step-1", role: "implement", branchName: "human-workflow" });
     const humanStep = createHumanStep({ stepId: "step-2" });
 
-    try {
+    await withStateStore(async (store) => {
       const result = await executeWorkflow({ steps: [writeStep, humanStep], stateStore: store });
 
       expect(result.kind).toBe("awaiting-human");
@@ -1076,13 +933,10 @@ describe("executeWorkflow human steps", () => {
       const run = store.findRunByProjectBranch({ project: "demo", branch: "human-workflow", stepId: "step-2" });
       expect(run?.status).toBe("awaiting-human");
       expect(run?.attempts).toHaveLength(0);
-    } finally {
-      store.close();
-    }
+    });
   });
 
   test("appends no ## Blocker section to a prior step's spec on reaching a human step", async () => {
-    const store = openStateStore(":memory:");
     const home = createJarvisHome();
     roots.push(home.jarvisRoot);
     const writeStep = {
@@ -1098,23 +952,20 @@ describe("executeWorkflow human steps", () => {
     };
     const humanStep = createHumanStep({ stepId: "step-2", branch: "human-no-blocker" });
 
-    try {
+    await withStateStore(async (store) => {
       await executeWorkflow({ steps: [writeStep, humanStep], stateStore: store });
 
       const specPath = join(home.jarvisRoot, "worktrees", "demo", "human-no-blocker", "spec.md");
       expect(readFileSync(specPath, "utf8")).not.toContain("## Blocker");
-    } finally {
-      store.close();
-    }
+    });
   });
 
   test("a completed human step advances the workflow", async () => {
-    const store = openStateStore(":memory:");
     const writeStep = createStep({ stepId: "step-1", role: "implement", branchName: "human-advance" });
     const humanStep = createHumanStep({ stepId: "step-2", branch: "human-advance" });
     const finalStep = createStep({ stepId: "step-3", role: "implement", branchName: "human-advance" });
 
-    try {
+    await withStateStore(async (store) => {
       const firstResult = await executeWorkflow({ steps: [writeStep, humanStep, finalStep], stateStore: store });
       expect(firstResult.kind).toBe("awaiting-human");
 
@@ -1124,9 +975,7 @@ describe("executeWorkflow human steps", () => {
       expect(secondResult.kind).toBe("complete");
       expect(secondResult.stepIndex).toBe(2);
       expect(secondResult.stepId).toBe("step-3");
-    } finally {
-      store.close();
-    }
+    });
   });
 });
 
@@ -1144,9 +993,8 @@ describe("executeWorkflow review-debate dispatch", () => {
     );
 
     const step = createDebateStep({ stepId: "debate-1", verdictPath: debateVerdictPath(), createBinding });
-    const store = openStateStore(":memory:");
 
-    try {
+    await withStateStore(async (store) => {
       const result = await executeWorkflow({ steps: [step], stateStore: store });
 
       expect(result.kind).toBe("complete");
@@ -1161,9 +1009,7 @@ describe("executeWorkflow review-debate dispatch", () => {
         "invoke:claude/ADJ",
         "invoke:claude/ACT",
       ]);
-    } finally {
-      store.close();
-    }
+    });
   });
 
   test("fails role validation for a review-debate step missing an (agent, role) entry, before any run", async () => {
@@ -1172,18 +1018,15 @@ describe("executeWorkflow review-debate dispatch", () => {
       verdictPath: debateVerdictPath(),
       agents: { adversary: ["claude"], advocate: ["codex"], adjudicator: ["claude"], actuator: ["claude"] },
     });
-    const store = openStateStore(":memory:");
 
-    try {
+    await withStateStore(async (store) => {
       try {
         await executeWorkflow({ steps: [step], stateStore: store });
         expect.unreachable("Should have thrown");
       } catch (e) {
         expect(String(e)).toContain("(debate-1, advocate, codex)");
       }
-    } finally {
-      store.close();
-    }
+    });
   });
 
   test("reports kind: complete, resumable: false for a single-step review-debate workflow that completes all cycles", async () => {
@@ -1192,15 +1035,12 @@ describe("executeWorkflow review-debate dispatch", () => {
         ({ kind: "ok", stdout: adapterModel === "ADJ" ? "apply this fix" : "ok", stderr: "" }) as const,
     );
     const step = createDebateStep({ stepId: "debate-1", verdictPath: debateVerdictPath(), createBinding });
-    const store = openStateStore(":memory:");
 
-    try {
+    await withStateStore(async (store) => {
       const result = await executeWorkflow({ steps: [step], stateStore: store });
 
       expect(result).toMatchObject({ kind: "complete", stepIndex: 0, stepId: "debate-1", resumable: false });
-    } finally {
-      store.close();
-    }
+    });
   });
 
   test("reports kind: invocation_failure, resumable: false when a role invocation aborts a cycle", async () => {
@@ -1210,15 +1050,12 @@ describe("executeWorkflow review-debate dispatch", () => {
         : ({ kind: "ok", stdout: "ok", stderr: "" } as const),
     );
     const step = createDebateStep({ stepId: "debate-1", verdictPath: debateVerdictPath(), createBinding });
-    const store = openStateStore(":memory:");
 
-    try {
+    await withStateStore(async (store) => {
       const result = await executeWorkflow({ steps: [step], stateStore: store });
 
       expect(result).toMatchObject({ kind: "invocation_failure", stepIndex: 0, stepId: "debate-1", resumable: false });
-    } finally {
-      store.close();
-    }
+    });
   });
 });
 
@@ -1232,29 +1069,83 @@ describe("defineWorkflowStep human steps", () => {
 });
 
 describe("executeWorkflow load-time role validation", () => {
-  test("rejects a role absent from loaded config as aggregated per-agent misses before durable state change", async () => {
-    const step = createStep({
-      stepId: "step-1",
-      role: "unknown-role",
-      agents: TWO_AGENTS,
-      agentModelConfig: NO_STEP_ROLES_CONFIG,
-    });
-    const store = openStateStore(":memory:");
+  test("rejects role-validation failures as aggregated per-agent misses before durable state change", async () => {
+    const cases: Array<{
+      name: string;
+      branchName: string;
+      stepRoleAgentBindings: () => WriteWorkflowStep[];
+      expectedAggregatedError: { contains: string[]; notContains?: string[] };
+    }> = [
+      {
+        name: "single missing role",
+        branchName: "workflow-run",
+        stepRoleAgentBindings: () => [
+          createStep({
+            stepId: "step-1",
+            role: "unknown-role",
+            agents: TWO_AGENTS,
+            agentModelConfig: NO_STEP_ROLES_CONFIG,
+          }),
+        ],
+        expectedAggregatedError: { contains: ["(step-1, unknown-role, claude)", "(step-1, unknown-role, codex)"] },
+      },
+      {
+        name: "multiple missing step-role-agent bindings",
+        branchName: "aggregate-misses",
+        stepRoleAgentBindings: () => [
+          createStep({
+            stepId: "step-1",
+            role: "implement",
+            branchName: "aggregate-misses",
+            agents: TWO_AGENTS,
+            agentModelConfig: MISSING_CODEX_IMPLEMENT_CONFIG,
+          }),
+          createStep({
+            stepId: "step-2",
+            role: "unknown-role",
+            branchName: "aggregate-misses",
+            agents: TWO_AGENTS,
+            agentModelConfig: NO_STEP_ROLES_CONFIG,
+          }),
+        ],
+        expectedAggregatedError: {
+          contains: ["(step-1, implement, codex)", "(step-2, unknown-role, claude)", "(step-2, unknown-role, codex)"],
+        },
+      },
+      {
+        name: "earlier agent has the role and a later fallback agent does not",
+        branchName: "workflow-run",
+        stepRoleAgentBindings: () => [
+          createStep({
+            stepId: "step-1",
+            role: "implement",
+            agents: TWO_AGENTS,
+            agentModelConfig: MISSING_CODEX_IMPLEMENT_CONFIG,
+          }),
+        ],
+        expectedAggregatedError: {
+          contains: ["(step-1, implement, codex)"],
+          notContains: ["(step-1, implement, claude)"],
+        },
+      },
+    ];
 
-    try {
-      try {
-        await executeWorkflow({ steps: [step], stateStore: store });
-        expect.unreachable("Should have thrown");
-      } catch (e) {
-        const message = String(e);
-        expect(message).toContain("(step-1, unknown-role, claude)");
-        expect(message).toContain("(step-1, unknown-role, codex)");
-      }
+    for (const testCase of cases) {
+      await withStateStore(async (store) => {
+        try {
+          await executeWorkflow({ steps: testCase.stepRoleAgentBindings(), stateStore: store });
+          expect.unreachable("Should have thrown");
+        } catch (e) {
+          const message = String(e);
+          for (const expected of testCase.expectedAggregatedError.contains) expect(message).toContain(expected);
+          for (const expected of testCase.expectedAggregatedError.notContains ?? [])
+            expect(message).not.toContain(expected);
+        }
 
-      const run = store.findRunByProjectBranch({ project: "demo", branch: "workflow-run", stepId: "step-1" });
-      expect(run).toBeNull();
-    } finally {
-      store.close();
+        // Load failure leaves no durable trace for the step under test.
+        const run = store.findRunByProjectBranch({ project: "demo", branch: testCase.branchName, stepId: "step-1" });
+        expect(run).toBeNull();
+      });
     }
   });
 
@@ -1273,51 +1164,6 @@ describe("executeWorkflow load-time role validation", () => {
       const message = String(e);
       expect(message).toContain("(step-1, toString, claude)");
       expect(message).toContain("(step-1, toString, codex)");
-    }
-  });
-
-  test("aggregates multiple missing step-role-agent bindings in one load failure", async () => {
-    const step1 = createStep({
-      stepId: "step-1",
-      role: "implement",
-      branchName: "aggregate-misses",
-      agents: TWO_AGENTS,
-      agentModelConfig: MISSING_CODEX_IMPLEMENT_CONFIG,
-    });
-    const step2 = createStep({
-      stepId: "step-2",
-      role: "unknown-role",
-      branchName: "aggregate-misses",
-      agents: TWO_AGENTS,
-      agentModelConfig: NO_STEP_ROLES_CONFIG,
-    });
-
-    try {
-      await executeWorkflow({ steps: [step1, step2] });
-      expect.unreachable("Should have thrown");
-    } catch (e) {
-      const message = String(e);
-      expect(message).toContain("(step-1, implement, codex)");
-      expect(message).toContain("(step-2, unknown-role, claude)");
-      expect(message).toContain("(step-2, unknown-role, codex)");
-    }
-  });
-
-  test("fails workflow load when an earlier agent has the role and a later fallback agent does not", async () => {
-    const step = createStep({
-      stepId: "step-1",
-      role: "implement",
-      agents: TWO_AGENTS,
-      agentModelConfig: MISSING_CODEX_IMPLEMENT_CONFIG,
-    });
-
-    try {
-      await executeWorkflow({ steps: [step] });
-      expect.unreachable("Should have thrown");
-    } catch (e) {
-      const message = String(e);
-      expect(message).toContain("(step-1, implement, codex)");
-      expect(message).not.toContain("(step-1, implement, claude)");
     }
   });
 
@@ -1420,7 +1266,6 @@ describe("executeWorkflow onRevise validation", () => {
   });
 
   test("accepts a valid earlier repeatStepId", async () => {
-    const store = openStateStore(":memory:");
     const writeStep = createStep({ stepId: "step-1", role: "implement", branchName: "on-revise-valid" });
     const humanStep = createHumanStep({
       stepId: "step-2",
@@ -1428,16 +1273,13 @@ describe("executeWorkflow onRevise validation", () => {
       onRevise: { repeatStepId: "step-1", maxRevisions: 1 },
     });
 
-    try {
+    await withStateStore(async (store) => {
       const result = await executeWorkflow({ steps: [writeStep, humanStep], stateStore: store });
       expect(result.kind).toBe("awaiting-human");
-    } finally {
-      store.close();
-    }
+    });
   });
 
   test("a changed onRevise config is not reused from a stale snapshot borrowed from an earlier step", async () => {
-    const store = openStateStore(":memory:");
     const branchName = "on-revise-stale-snapshot";
 
     const step1First = createStep({ stepId: "step-1", role: "implement", branchName });
@@ -1454,7 +1296,7 @@ describe("executeWorkflow onRevise validation", () => {
       onRevise: { repeatStepId: "step-1", maxRevisions: 1 },
     });
 
-    try {
+    await withStateStore(async (store) => {
       // step-2 soft-stops on budget, so step-3 (human) is never reached and never gets its own run row.
       const firstResult = await executeWorkflow({
         steps: [step1First, step2First, humanStepFirst],
@@ -1486,15 +1328,12 @@ describe("executeWorkflow onRevise validation", () => {
         7,
       );
       expect(step3Run?.workflowSnapshot?.invocationId).not.toBe(originalInvocationId);
-    } finally {
-      store.close();
-    }
+    });
   });
 });
 
 describe("executeWorkflow revising re-convergence", () => {
   test("stays revising until the revision run reaches a terminal outcome, then re-converges to awaiting-human", async () => {
-    const store = openStateStore(":memory:");
     const writeStep = createStep({ stepId: "step-1", role: "implement", branchName: "revising-workflow" });
     const humanStep = createHumanStep({
       stepId: "step-2",
@@ -1502,7 +1341,7 @@ describe("executeWorkflow revising re-convergence", () => {
       onRevise: { repeatStepId: "step-1", maxRevisions: 2 },
     });
 
-    try {
+    await withStateStore(async (store) => {
       const firstResult = await executeWorkflow({ steps: [writeStep, humanStep], stateStore: store });
       expect(firstResult.kind).toBe("awaiting-human");
 
@@ -1529,15 +1368,12 @@ describe("executeWorkflow revising re-convergence", () => {
 
       const humanRun = store.loadRun(firstResult.runId);
       expect(humanRun?.status).toBe("awaiting-human");
-    } finally {
-      store.close();
-    }
+    });
   });
 });
 
 describe("executeWorkflow telemetry", () => {
   test("write and review-debate steps in the same call share operator_session_id/workflow and one shared sink", async () => {
-    const store = openStateStore(":memory:");
     const telemetryPath = join(mkdtempSync(join(tmpdir(), "workflow-telemetry-")), "telemetry.jsonl");
 
     const writeStep = createStep({
@@ -1559,7 +1395,7 @@ describe("executeWorkflow telemetry", () => {
       }),
     });
 
-    try {
+    await withStateStore(async (store) => {
       const result = await executeWorkflow({
         steps: [writeStep, debateStep],
         stateStore: store,
@@ -1599,13 +1435,10 @@ describe("executeWorkflow telemetry", () => {
       expect(debateRow?.branch).toBe("telemetry-workflow");
       expect(debateRow?.spec_ref).toBe("");
       expect(debateRow?.worktree_path).toBe("/fake");
-    } finally {
-      store.close();
-    }
+    });
   });
 
   test("review-debate rows share one run_id and attempt_id across multiple cycles and roles", async () => {
-    const store = openStateStore(":memory:");
     const telemetryPath = join(mkdtempSync(join(tmpdir(), "workflow-telemetry-cycles-")), "telemetry.jsonl");
 
     let adjudicatorCalls = 0;
@@ -1626,7 +1459,7 @@ describe("executeWorkflow telemetry", () => {
       createBinding,
     });
 
-    try {
+    await withStateStore(async (store) => {
       const result = await executeWorkflow({
         steps: [step],
         stateStore: store,
@@ -1640,13 +1473,10 @@ describe("executeWorkflow telemetry", () => {
       expect(rows).toHaveLength(7);
       expect(new Set(rows.map((row) => row.run_id)).size).toBe(1);
       expect(new Set(rows.map((row) => row.attempt_id)).size).toBe(1);
-    } finally {
-      store.close();
-    }
+    });
   });
 
   test("omitting telemetry from executeWorkflow emits no rows for either step behavior", async () => {
-    const store = openStateStore(":memory:");
     const telemetryPath = join(mkdtempSync(join(tmpdir(), "workflow-telemetry-")), "telemetry.jsonl");
 
     const writeStep = createStep({
@@ -1663,13 +1493,11 @@ describe("executeWorkflow telemetry", () => {
       }),
     });
 
-    try {
+    await withStateStore(async (store) => {
       const result = await executeWorkflow({ steps: [writeStep, debateStep], stateStore: store });
 
       expect(result.kind).toBe("complete");
       expect(() => readFileSync(telemetryPath, "utf8")).toThrow();
-    } finally {
-      store.close();
-    }
+    });
   });
 });

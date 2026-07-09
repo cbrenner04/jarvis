@@ -1,9 +1,8 @@
 import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { MACHINE_CONFIG_PATH } from "../paths.ts";
 
 export function readMachineConfigDocument(
-  configPath: string = join(homedir(), ".jarvis", "config.json"),
+  configPath: string = MACHINE_CONFIG_PATH,
 ): Record<string, unknown> | undefined {
   const parsed = readMachineConfigFile(configPath);
   if (parsed === undefined) return undefined;
@@ -50,9 +49,7 @@ export function validateMachineConfigAgents(agents: unknown): string[] {
   return agents;
 }
 
-export function loadMachineConfig(
-  configPath: string = join(homedir(), ".jarvis", "config.json"),
-): string[] | undefined {
+export function loadMachineConfig(configPath: string = MACHINE_CONFIG_PATH): string[] | undefined {
   const parsed = readMachineConfigDocument(configPath);
   if (parsed === undefined || !("agents" in parsed)) {
     return undefined;
@@ -61,7 +58,7 @@ export function loadMachineConfig(
   return parsed.agents as string[];
 }
 
-export function resolveMachineProfile(configPath: string = join(homedir(), ".jarvis", "config.json")): string {
+export function resolveMachineProfile(configPath: string = MACHINE_CONFIG_PATH): string {
   const parsed = readMachineConfigDocument(configPath);
   const machineProfile = parsed?.machineProfile;
 

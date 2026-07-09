@@ -1,5 +1,7 @@
+import { DAEMON_SOCKET_DISPLAY } from "../paths.ts";
+
 /** Operator-facing socket path in unavailable-daemon feedback. */
-export const TUI_DAEMON_SOCKET_DISPLAY = "~/.jarvis/daemon.sock";
+export const TUI_DAEMON_SOCKET_DISPLAY = DAEMON_SOCKET_DISPLAY;
 
 /** Transport, wire-protocol, or malformed-payload failure while talking to the daemon socket. */
 export class TuiDaemonConnectionError extends Error {

@@ -1,5 +1,3 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
 import type { WaitRunCompletionResult } from "../daemon/daemon.ts";
 import {
   type DaemonListResult,
@@ -11,6 +9,7 @@ import {
 } from "../daemon/daemon-wire.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
+import { DAEMON_SOCKET_PATH } from "../paths.ts";
 import { TuiDaemonConnectionError } from "./tui-daemon-errors.ts";
 import { createTuiDaemonRpcTransport } from "./tui-daemon-rpc-transport.ts";
 
@@ -75,8 +74,6 @@ export type ConnectTuiDaemonOptions = {
   connectIpcClient?: (socketPath: string) => Promise<IpcClient>;
 };
 
-const DEFAULT_SOCKET_PATH = join(homedir(), ".jarvis", "daemon.sock");
-
 function parseOrThrow<T>(parsed: T | undefined, message: string): T {
   if (!parsed) throw new TuiDaemonConnectionError(message);
   return parsed;
@@ -90,7 +87,7 @@ function parseOrThrow<T>(parsed: T | undefined, message: string): T {
  * @throws {TuiDaemonConnectionError} When the socket is unreachable or RPC wire protocol fails.
  */
 export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promise<TuiDaemonClient> {
-  const socketPath = options?.socketPath ?? DEFAULT_SOCKET_PATH;
+  const socketPath = options?.socketPath ?? DAEMON_SOCKET_PATH;
   const connectFn = options?.connectIpcClient ?? connectIpcClient;
 
   let client: IpcClient;

@@ -151,7 +151,11 @@ const HEALTH_UNHEALTHY_CASE: ErrorCase = {
   message: "daemon not ready",
   call: (client) => client.health(),
   assert: (promise) =>
-    expect(promise).rejects.toMatchObject({ name: "TuiDaemonRpcError", code: "unhealthy", message: "daemon not ready" }),
+    expect(promise).rejects.toMatchObject({
+      name: "TuiDaemonRpcError",
+      code: "unhealthy",
+      message: "daemon not ready",
+    }),
 };
 
 const STATUS_UNAVAILABLE_CASE: ErrorCase = {

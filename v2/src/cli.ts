@@ -21,7 +21,8 @@ import {
 } from "./execution/write-loop.ts";
 import { buildWriteLoopInputFromCliValues, parseWriteArgs } from "./execution/write-loop-input.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
-import type { ErrorFrame, ResponseFrame } from "./ipc/types.ts";
+import { RpcError } from "./ipc/rpc-errors.ts";
+import { createRpcTransport } from "./ipc/rpc-transport.ts";
 import { DAEMON_PID_PATH, DAEMON_SOCKET_PATH, MACHINE_CONFIG_PATH } from "./paths.ts";
 import { runTuiEntry } from "./tui/tui-entry.tsx";
 import { runTuiLogFollow } from "./tui/tui-log-follow-entry.tsx";
@@ -60,7 +61,6 @@ const WRITE_USAGE =
   "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--max-iterations <n>]\n";
 const WORKFLOW_IMPLEMENT_USAGE =
   "usage: jarvis run workflow implement --branch <name> --base <ref> --spec <path> --artifact <path>\n";
-const LOG_FRAME_WAIT_MS = 86_400_000;
 
 export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliDeps>): Promise<number> {
   const out = io ?? {
@@ -232,12 +232,17 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
     }
 
     return withRunClient(io, deps, async (client) => {
-      const response = await request(client, "start", { input: parsed.input });
-      if (response.kind === "error") {
-        io.stderr(formatRpcError(response));
-        return 1;
+      let result: unknown;
+      try {
+        result = await request(client, "start", { input: parsed.input });
+      } catch (error) {
+        if (error instanceof RpcError) {
+          io.stderr(formatRpcError(error));
+          return 1;
+        }
+        throw error;
       }
-      const start = parseStartResult(response.result);
+      const start = parseStartResult(result);
       if (start === undefined) {
         io.stderr("invalid daemon response\n");
         return 1;
@@ -267,12 +272,17 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
     }
 
     return withRunClient(io, deps, async (client) => {
-      const response = await request(client, "start", { steps: built.steps });
-      if (response.kind === "error") {
-        io.stderr(formatRpcError(response));
-        return 1;
+      let result: unknown;
+      try {
+        result = await request(client, "start", { steps: built.steps });
+      } catch (error) {
+        if (error instanceof RpcError) {
+          io.stderr(formatRpcError(error));
+          return 1;
+        }
+        throw error;
       }
-      const start = parseStartResult(response.result);
+      const start = parseStartResult(result);
       if (start === undefined) {
         io.stderr("invalid daemon response\n");
         return 1;
@@ -284,13 +294,18 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
 
   if (subcommand === "list" && argv.length === 1) {
     return withRunClient(io, deps, async (client) => {
-      const response = await request(client, "list");
-      if (response.kind === "error") {
-        io.stderr(formatRpcError(response));
-        return 1;
+      let result: unknown;
+      try {
+        result = await request(client, "list");
+      } catch (error) {
+        if (error instanceof RpcError) {
+          io.stderr(formatRpcError(error));
+          return 1;
+        }
+        throw error;
       }
 
-      const list = parseListRuns(response.result);
+      const list = parseListRuns(result);
       if (list === undefined) {
         io.stderr("invalid daemon response\n");
         return 1;
@@ -313,7 +328,7 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
 
       while (true) {
         try {
-          const frame = await client.nextFrame(LOG_FRAME_WAIT_MS);
+          const frame = await client.nextFrame();
           if (frame.kind === "stream-data" && frame.streamId === streamId) {
             const record = parseStreamPayload(frame.payload);
             io.stdout(`${JSON.stringify(record)}\n`);
@@ -334,10 +349,14 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
 
   if ((subcommand === "pause" || subcommand === "resume" || subcommand === "kill") && argv.length === 2) {
     return withRunClient(io, deps, async (client) => {
-      const response = await request(client, subcommand, { runId: argv[1] });
-      if (response.kind === "error") {
-        io.stderr(formatRpcError(response));
-        return 1;
+      try {
+        await request(client, subcommand, { runId: argv[1] });
+      } catch (error) {
+        if (error instanceof RpcError) {
+          io.stderr(formatRpcError(error));
+          return 1;
+        }
+        throw error;
       }
       const message = subcommand === "kill" ? "killed" : `${subcommand}d`;
       io.stdout(`${message} ${argv[1]}\n`);
@@ -347,12 +366,17 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
 
   if (subcommand === "wait" && argv.length === 2) {
     return withRunClient(io, deps, async (client) => {
-      const response = await request(client, "wait", { runId: argv[1] });
-      if (response.kind === "error") {
-        io.stderr(formatRpcError(response));
-        return 1;
+      let response: unknown;
+      try {
+        response = await request(client, "wait", { runId: argv[1] });
+      } catch (error) {
+        if (error instanceof RpcError) {
+          io.stderr(formatRpcError(error));
+          return 1;
+        }
+        throw error;
       }
-      const result = parseWaitCompletion(response.result);
+      const result = parseWaitCompletion(response);
       if (result === undefined) {
         io.stderr("invalid daemon response\n");
         return 1;
@@ -384,15 +408,12 @@ async function withRunClient(io: Io, deps: CliDeps, fn: (client: IpcClient) => P
   }
 }
 
-async function request(client: IpcClient, method: string, params?: unknown): Promise<ResponseFrame | ErrorFrame> {
-  const id = crypto.randomUUID();
-  client.send({ kind: "request", id, method, ...(params !== undefined ? { params } : {}) });
-
-  while (true) {
-    const frame = await client.nextFrame();
-    if ((frame.kind === "response" || frame.kind === "error") && frame.id === id) {
-      return frame;
-    }
+async function request(client: IpcClient, method: string, params?: unknown): Promise<unknown> {
+  const transport = createRpcTransport(client);
+  try {
+    return await transport.request(method, params);
+  } finally {
+    transport.close();
   }
 }
 
@@ -403,8 +424,8 @@ function formatLifecycleError(error: unknown): string {
   return `${String(error)}\n`;
 }
 
-function formatRpcError(frame: ErrorFrame): string {
-  return `${frame.code}: ${frame.message}\n`;
+function formatRpcError(error: RpcError): string {
+  return `${error.code}: ${error.message}\n`;
 }
 
 function formatConnectionError(error: unknown): string {

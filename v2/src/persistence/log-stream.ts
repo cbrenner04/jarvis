@@ -3,17 +3,11 @@ import { dirname } from "node:path";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { OutcomeKind, RunStatus } from "./state-store.ts";
 
-/**
- * Event emitted when an iteration begins.
- */
 type IterationStartedEvent = {
   kind: "iteration_started";
   attemptId: string;
 };
 
-/**
- * Event emitted when a transactional boundary completes.
- */
 type BoundaryCommittedEvent = {
   kind: "boundary_committed";
   attemptId: string;
@@ -21,9 +15,6 @@ type BoundaryCommittedEvent = {
   runStatus: RunStatus;
 };
 
-/**
- * Event emitted when the write loop finishes.
- */
 export type LoopFinishedEvent = {
   kind: "loop_finished";
   loopOutcomeKind: WriteLoopOutcomeKind;
@@ -31,18 +22,12 @@ export type LoopFinishedEvent = {
   resumable: boolean;
 };
 
-/**
- * Event emitted when the daemon spawn boundary catches an unexpected executor rejection.
- */
 export type RunExecutionFailedEvent = {
   kind: "run_execution_failed";
 };
 
 export type LogEvent = IterationStartedEvent | BoundaryCommittedEvent | LoopFinishedEvent | RunExecutionFailedEvent;
 
-/**
- * Persisted record of an event with metadata.
- */
 export type PersistedRecord = {
   runId: string;
   seq: number;
@@ -50,32 +35,19 @@ export type PersistedRecord = {
   event: LogEvent;
 };
 
-/**
- * Log sink for appending events.
- */
 export interface LogSink {
-  /**
-   * Append an event for a run. Per-run sequence number and timestamp are assigned.
-   */
+  /** Per-run sequence number and timestamp are assigned. */
   append(runId: string, event: LogEvent): void;
 
-  /**
-   * Close the sink, flushing resources. Idempotent.
-   */
+  /** Idempotent. */
   close(): void;
 }
 
-/**
- * Log reader for querying persisted events.
- */
 export interface LogReader {
-  /**
-   * Get a snapshot of all persisted events for a run.
-   */
   tail(runId: string): PersistedRecord[];
 
   /**
-   * Subscribe to events for a run. Yields existing events from seq 1, then blocks for new appends.
+   * Yields existing events from seq 1, then blocks for new appends.
    * Honour AbortSignal for clean shutdown.
    */
   follow(runId: string, signal?: AbortSignal): AsyncIterableIterator<PersistedRecord>;

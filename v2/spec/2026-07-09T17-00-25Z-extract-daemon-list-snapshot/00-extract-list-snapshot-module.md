@@ -42,12 +42,12 @@ so `daemon.ts` shrinks and the assembly logic is independently readable.
 
 ## Acceptance criteria
 
-- [ ] `daemon-start-list.test.ts` stays green (behavior unchanged by the extraction).
-- [ ] `daemon-wire.test.ts` stays green (behavior unchanged by the extraction).
-- [ ] `workflowRowSnapshot` and `workflowStepSnapshot` are defined in
+- [x] `daemon-start-list.test.ts` stays green (behavior unchanged by the extraction).
+- [x] `daemon-wire.test.ts` stays green (behavior unchanged by the extraction).
+- [x] `workflowRowSnapshot` and `workflowStepSnapshot` are defined in
       `v2/src/daemon/workflow-list-snapshot.ts`, not `daemon.ts`.
-- [ ] `daemon.ts` re-exports `WorkflowStepListStatus` and `stoppedOutcomeForRun` from the
+- [x] `daemon.ts` re-exports `WorkflowStepListStatus` and `stoppedOutcomeForRun` from the
       new module; `daemon-wire.ts` and `daemon-start-list.test.ts` still import them from
       `./daemon.ts` with unchanged import paths.
-- [ ] `v2/docs/v2-architecture.md` domain map lists `workflow-list-snapshot.ts` under the
+- [x] `v2/docs/v2-architecture.md` domain map lists `workflow-list-snapshot.ts` under the
       daemon host row.

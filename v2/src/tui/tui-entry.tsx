@@ -1,6 +1,6 @@
 import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.ts";
+import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import { connectTuiDaemon, type TuiDaemonClient } from "./tui-daemon-client.ts";
-import { TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-errors.ts";
 import { showTuiInkFeedback } from "./tui-ink-feedback.tsx";
 import { openInkMonitor } from "./tui-ink-monitor.tsx";
 import type {
@@ -59,10 +59,10 @@ function buildWaitStateForSelection(runId: string | null): TuiWaitState {
 }
 
 function entryErrorFeedback(error: unknown): TuiViewState {
-  if (error instanceof TuiDaemonRpcError) {
+  if (error instanceof RpcError) {
     return { kind: "rpc-error", code: error.code, message: error.message };
   }
-  if (error instanceof TuiDaemonConnectionError) {
+  if (error instanceof RpcConnectionError) {
     return { kind: "rpc-error", code: "daemon_error", message: error.message };
   }
   throw error;
@@ -248,7 +248,7 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
   try {
     client = await connectFn(connectOptions);
   } catch (error) {
-    if (error instanceof TuiDaemonConnectionError) {
+    if (error instanceof RpcConnectionError) {
       await presentFeedback({ kind: "unavailable" }, resolved);
       return 1;
     }
@@ -308,7 +308,7 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
     await Promise.race([quitPromise, session.waitUntilExit()]);
     return 0;
   } catch (error) {
-    if (error instanceof TuiDaemonRpcError || error instanceof TuiDaemonConnectionError) {
+    if (error instanceof RpcError || error instanceof RpcConnectionError) {
       await presentFeedback(entryErrorFeedback(error), resolved);
       return 1;
     }

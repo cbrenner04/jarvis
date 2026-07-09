@@ -4,13 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTailStreamHandler } from "../daemon/daemon.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
+import { RpcConnectionError } from "../ipc/rpc-errors.ts";
 import { type IpcServer, startIpcServer } from "../ipc/server.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import { DAEMON_SOCKET_PATH } from "../paths.ts";
 import { openLogReader, openLogSink, type PersistedRecord } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
-import { TuiDaemonConnectionError } from "./tui-daemon-errors.ts";
 import { connectTuiLogTail } from "./tui-log-tail-client.ts";
 
 const SOCKET_PATH = join(tmpdir(), `jarvis-tui-log-tail-${process.pid}.sock`);
@@ -261,7 +261,7 @@ test("benign stream-end without prior stream-data yields no records", async () =
   tail.close();
 });
 
-test("error-payload stream-end rejects with TuiDaemonConnectionError", async () => {
+test("error-payload stream-end rejects with RpcConnectionError", async () => {
   const tail = await connectTuiLogTail("run-123", {
     connectIpcClient: async () =>
       makeClient([
@@ -274,18 +274,18 @@ test("error-payload stream-end rejects with TuiDaemonConnectionError", async () 
   });
 
   await withFixedStreamId(async () => {
-    await expect(collectRecords(tail)).rejects.toBeInstanceOf(TuiDaemonConnectionError);
+    await expect(collectRecords(tail)).rejects.toBeInstanceOf(RpcConnectionError);
   });
   tail.close();
 });
 
-test("malformed stream-data payload rejects with TuiDaemonConnectionError", async () => {
+test("malformed stream-data payload rejects with RpcConnectionError", async () => {
   const tail = await connectTuiLogTail("run-123", {
     connectIpcClient: async () => makeClient([{ kind: "stream-data", streamId: STREAM_ID, payload: "{not-json" }]),
   });
 
   await withFixedStreamId(async () => {
-    await expect(collectRecords(tail)).rejects.toBeInstanceOf(TuiDaemonConnectionError);
+    await expect(collectRecords(tail)).rejects.toBeInstanceOf(RpcConnectionError);
   });
   tail.close();
 });
@@ -294,18 +294,18 @@ test.each([
   ["missing runId", JSON.stringify({ event: { kind: "iteration_started" } })],
   ["non-string runId", JSON.stringify({ runId: 123, event: { kind: "iteration_started" } })],
   ["missing event", JSON.stringify({ runId: "run-123" })],
-])("stream-data payload with %s rejects with TuiDaemonConnectionError", async (_label, payload) => {
+])("stream-data payload with %s rejects with RpcConnectionError", async (_label, payload) => {
   const tail = await connectTuiLogTail("run-123", {
     connectIpcClient: async () => makeClient([{ kind: "stream-data", streamId: STREAM_ID, payload }]),
   });
 
   await withFixedStreamId(async () => {
-    await expect(collectRecords(tail)).rejects.toBeInstanceOf(TuiDaemonConnectionError);
+    await expect(collectRecords(tail)).rejects.toBeInstanceOf(RpcConnectionError);
   });
   tail.close();
 });
 
-test("connection loss during records iteration rejects with TuiDaemonConnectionError", async () => {
+test("connection loss during records iteration rejects with RpcConnectionError", async () => {
   const { client, push } = createDeferredClient();
   const tail = await connectTuiLogTail("run-123", {
     connectIpcClient: async () => client,
@@ -315,7 +315,7 @@ test("connection loss during records iteration rejects with TuiDaemonConnectionE
   push({ kind: "stream-data", streamId: STREAM_ID, payload: JSON.stringify(logRecord(1, "iteration_started")) });
   client.close();
 
-  await expect(pending).rejects.toBeInstanceOf(TuiDaemonConnectionError);
+  await expect(pending).rejects.toBeInstanceOf(RpcConnectionError);
   tail.close();
 });
 
@@ -340,7 +340,7 @@ test("close sends stream-end for the opened stream id", async () => {
   });
 });
 
-test("rejects unreachable socket with TuiDaemonConnectionError before stream-open", async () => {
+test("rejects unreachable socket with RpcConnectionError before stream-open", async () => {
   const sent: unknown[] = [];
   const trackingConnect = async (socketPath: string): Promise<IpcClient> => {
     const ipc = await connectIpcClient(socketPath);
@@ -356,7 +356,7 @@ test("rejects unreachable socket with TuiDaemonConnectionError before stream-ope
 
   await expect(
     connectTuiLogTail("run-123", { socketPath: UNREACHABLE_SOCKET_PATH, connectIpcClient: trackingConnect }),
-  ).rejects.toBeInstanceOf(TuiDaemonConnectionError);
+  ).rejects.toBeInstanceOf(RpcConnectionError);
   expect(sent).toEqual([]);
 });
 

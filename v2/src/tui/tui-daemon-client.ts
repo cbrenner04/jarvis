@@ -9,9 +9,9 @@ import {
 } from "../daemon/daemon-wire.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
+import { RpcConnectionError } from "../ipc/rpc-errors.ts";
+import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import { DAEMON_SOCKET_PATH } from "../paths.ts";
-import { TuiDaemonConnectionError } from "./tui-daemon-errors.ts";
-import { createTuiDaemonRpcTransport } from "./tui-daemon-rpc-transport.ts";
 
 /** Successful `health` RPC payload from the daemon host. */
 type TuiDaemonHealthResult = { ok: true };
@@ -25,8 +25,8 @@ type TuiDaemonStartResult = { runId: string };
 /**
  * Connected TUI daemon client over one IPC transport: liveness, run list, launch, steering,
  * wait, and close.
- * RPC methods throw {@link TuiDaemonConnectionError} on transport or wire failure and
- * {@link TuiDaemonRpcError} on correlated daemon `error` frames.
+ * RPC methods throw {@link RpcConnectionError} on transport or wire failure and
+ * {@link RpcError} on correlated daemon `error` frames.
  */
 export type TuiDaemonClient = {
   health(): Promise<TuiDaemonHealthResult>;
@@ -37,8 +37,8 @@ export type TuiDaemonClient = {
    * Signal graceful pause for an active run at the next iteration boundary.
    * @param runId Durable run id to pause.
    * @returns `{ ok: true }` when the daemon accepts the pause.
-   * @throws {TuiDaemonRpcError} When the daemon rejects the request (`unknown_run`, `run_not_active`, …).
-   * @throws {TuiDaemonConnectionError} When the transport fails or the success payload is malformed.
+   * @throws {RpcError} When the daemon rejects the request (`unknown_run`, `run_not_active`, …).
+   * @throws {RpcConnectionError} When the transport fails or the success payload is malformed.
    */
   pause(runId: string): Promise<TuiDaemonHealthResult>;
   /**
@@ -47,8 +47,8 @@ export type TuiDaemonClient = {
    * @param runId Durable run id to resume.
    * @param options Optional human-loop decision (`approve`/`abort`/`revise`) and revise prompt.
    * @returns `{ ok: true }` when the daemon accepts the resume.
-   * @throws {TuiDaemonRpcError} When the daemon rejects the request (`unknown_run`, `terminal_run`, `run_in_progress`, `worktree_claimed`, …).
-   * @throws {TuiDaemonConnectionError} When the transport fails or the success payload is malformed.
+   * @throws {RpcError} When the daemon rejects the request (`unknown_run`, `terminal_run`, `run_in_progress`, `worktree_claimed`, …).
+   * @throws {RpcConnectionError} When the transport fails or the success payload is malformed.
    */
   resume(
     runId: string,
@@ -58,8 +58,8 @@ export type TuiDaemonClient = {
    * Abort an active run immediately and record durable status `killed`.
    * @param runId Durable run id to kill.
    * @returns `{ ok: true }` when the daemon accepts the kill.
-   * @throws {TuiDaemonRpcError} When the daemon rejects the request (`unknown_run`, `run_not_active`, …).
-   * @throws {TuiDaemonConnectionError} When the transport fails or the success payload is malformed.
+   * @throws {RpcError} When the daemon rejects the request (`unknown_run`, `run_not_active`, …).
+   * @throws {RpcConnectionError} When the transport fails or the success payload is malformed.
    */
   kill(runId: string): Promise<TuiDaemonHealthResult>;
   wait(runId: string): Promise<WaitRunCompletionResult>;
@@ -75,7 +75,7 @@ export type ConnectTuiDaemonOptions = {
 };
 
 function parseOrThrow<T>(parsed: T | undefined, message: string): T {
-  if (!parsed) throw new TuiDaemonConnectionError(message);
+  if (!parsed) throw new RpcConnectionError(message);
   return parsed;
 }
 
@@ -84,7 +84,7 @@ function parseOrThrow<T>(parsed: T | undefined, message: string): T {
  *
  * @param options Optional socket path and `connectIpcClient` seam.
  * @returns A client exposing `health`, `status`, `list`, `start`, `pause`, `resume`, `kill`, `wait`, and `close` on one connection.
- * @throws {TuiDaemonConnectionError} When the socket is unreachable or RPC wire protocol fails.
+ * @throws {RpcConnectionError} When the socket is unreachable or RPC wire protocol fails.
  */
 export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promise<TuiDaemonClient> {
   const socketPath = options?.socketPath ?? DAEMON_SOCKET_PATH;
@@ -94,10 +94,10 @@ export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promi
   try {
     client = await connectFn(socketPath);
   } catch (cause) {
-    throw new TuiDaemonConnectionError(`cannot connect to daemon socket ${socketPath}`, { cause });
+    throw new RpcConnectionError(`cannot connect to daemon socket ${socketPath}`, { cause });
   }
 
-  const transport = createTuiDaemonRpcTransport(client);
+  const transport = createRpcTransport(client);
 
   const okRunRpc = async (method: "pause" | "kill", runId: string): Promise<TuiDaemonHealthResult> =>
     parseOrThrow(

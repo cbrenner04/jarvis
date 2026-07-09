@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { RpcConnectionError } from "../ipc/rpc-errors.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
-import { TUI_DAEMON_SOCKET_DISPLAY, TuiDaemonConnectionError } from "./tui-daemon-errors.ts";
+import { TUI_DAEMON_SOCKET_DISPLAY } from "./tui-daemon-errors.ts";
 import { runTuiLogFollow } from "./tui-log-follow-entry.tsx";
 import { formatLogFollowLine } from "./tui-log-follow-lines.ts";
 import type { TuiLogFollowControls, TuiLogFollowViewHost } from "./tui-log-follow-types.ts";
@@ -278,7 +279,7 @@ describe("runTuiLogFollow", () => {
       viewHost: view.host,
       connectTuiLogTail: async () => {
         openedTail = true;
-        throw new TuiDaemonConnectionError("cannot connect");
+        throw new RpcConnectionError("cannot connect");
       },
     });
 
@@ -395,7 +396,7 @@ describe("runTuiLogFollow", () => {
         return {
           async *[Symbol.asyncIterator]() {
             yield logRecord(1, "iteration_started");
-            throw new TuiDaemonConnectionError("tail stream failed: follow failed");
+            throw new RpcConnectionError("tail stream failed: follow failed");
           },
         };
       },
@@ -421,7 +422,7 @@ describe("runTuiLogFollow", () => {
         return {
           async *[Symbol.asyncIterator]() {
             yield logRecord(1, "iteration_started");
-            throw new TuiDaemonConnectionError("tail stream failed: follow failed");
+            throw new RpcConnectionError("tail stream failed: follow failed");
           },
         };
       },

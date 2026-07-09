@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { WaitRunCompletionResult } from "../daemon/daemon.ts";
 import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.ts";
+import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import type { TuiDaemonClient } from "./tui-daemon-client.ts";
-import { TUI_DAEMON_SOCKET_DISPLAY, TuiDaemonConnectionError, TuiDaemonRpcError } from "./tui-daemon-errors.ts";
+import { TUI_DAEMON_SOCKET_DISPLAY } from "./tui-daemon-errors.ts";
 import { runTuiEntry } from "./tui-entry.tsx";
 import { monitorTextLines } from "./tui-monitor-lines.ts";
 import type {
@@ -164,8 +165,8 @@ function createViewHost() {
 
 type FakeClientOptions = {
   methods?: string[];
-  healthError?: TuiDaemonRpcError;
-  statusError?: TuiDaemonRpcError;
+  healthError?: RpcError;
+  statusError?: RpcError;
   listResponses?: DaemonListResult[];
   listError?: Error;
   waitImpl?: (runId: string) => Promise<WaitRunCompletionResult>;
@@ -264,7 +265,7 @@ describe("runTuiEntry", () => {
       viewHost: view.host,
       connectTuiDaemon: async () => {
         attempted = true;
-        throw new TuiDaemonConnectionError("cannot connect");
+        throw new RpcConnectionError("cannot connect");
       },
     });
 
@@ -622,7 +623,7 @@ describe("runTuiEntry", () => {
       viewHost: view.host,
       connectTuiDaemon: async () =>
         fakeClient({
-          healthError: new TuiDaemonRpcError("unhealthy", "daemon not ready"),
+          healthError: new RpcError("unhealthy", "daemon not ready"),
         }),
     });
 
@@ -630,7 +631,7 @@ describe("runTuiEntry", () => {
       viewHost: view.host,
       connectTuiDaemon: async () =>
         fakeClient({
-          statusError: new TuiDaemonRpcError("status_unavailable", "no status"),
+          statusError: new RpcError("status_unavailable", "no status"),
         }),
     });
 
@@ -649,7 +650,7 @@ describe("runTuiEntry", () => {
       viewHost: view.host,
       connectTuiDaemon: async () =>
         fakeClient({
-          listError: new TuiDaemonConnectionError("malformed RPC reply: invalid list result"),
+          listError: new RpcConnectionError("malformed RPC reply: invalid list result"),
         }),
     });
 
@@ -740,7 +741,7 @@ describe("runTuiEntry", () => {
     await flush();
     expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "pending", runId: "run-alpha" });
 
-    alphaWait.reject(new TuiDaemonRpcError("unknown_run", "run not found"));
+    alphaWait.reject(new RpcError("unknown_run", "run not found"));
     await flush();
 
     expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "error", runId: "run-alpha" });
@@ -863,11 +864,11 @@ describe("runTuiEntry", () => {
 
   test("steering RPC errors render inline and keep the monitor open", async () => {
     const cases = [
-      { action: "pauseSelected" as const, error: new TuiDaemonRpcError("unknown_run", "run not found") },
-      { action: "pauseSelected" as const, error: new TuiDaemonRpcError("run_not_active", "not active") },
-      { action: "killSelected" as const, error: new TuiDaemonRpcError("run_not_active", "not active") },
-      { action: "resumeSelected" as const, error: new TuiDaemonRpcError("terminal_run", "terminal") },
-      { action: "resumeSelected" as const, error: new TuiDaemonRpcError("unknown_run", "run not found") },
+      { action: "pauseSelected" as const, error: new RpcError("unknown_run", "run not found") },
+      { action: "pauseSelected" as const, error: new RpcError("run_not_active", "not active") },
+      { action: "killSelected" as const, error: new RpcError("run_not_active", "not active") },
+      { action: "resumeSelected" as const, error: new RpcError("terminal_run", "terminal") },
+      { action: "resumeSelected" as const, error: new RpcError("unknown_run", "run not found") },
     ];
 
     for (const { action, error } of cases) {
@@ -900,7 +901,7 @@ describe("runTuiEntry", () => {
       {
         listResponses: [{ runs: [RUN_ALPHA] }],
         waitImpl: async () => ({ runStatus: "completed" }),
-        killError: new TuiDaemonConnectionError("socket closed"),
+        killError: new RpcConnectionError("socket closed"),
       },
       { viewHost: view.host },
     );
@@ -946,8 +947,8 @@ describe("runTuiEntry", () => {
       {
         listResponses: [{ runs: [RUN_ALPHA, RUN_BETA] }],
         waitImpl: async () => ({ runStatus: "completed" }),
-        pauseError: new TuiDaemonRpcError("run_not_active", "not active"),
-        killError: new TuiDaemonRpcError("unknown_run", "missing"),
+        pauseError: new RpcError("run_not_active", "not active"),
+        killError: new RpcError("unknown_run", "missing"),
       },
       { viewHost: view.host },
     );
@@ -975,7 +976,7 @@ describe("runTuiEntry", () => {
       {
         listResponses: [{ runs: [RUN_ALPHA] }],
         waitImpl: async () => alphaWait.promise,
-        pauseError: new TuiDaemonRpcError("run_not_active", "not active"),
+        pauseError: new RpcError("run_not_active", "not active"),
       },
       { viewHost: view.host },
     );
@@ -983,7 +984,7 @@ describe("runTuiEntry", () => {
     const pending = runTuiEntry(deps);
     await view.waitUntilOpen();
     await flush();
-    alphaWait.reject(new TuiDaemonRpcError("unknown_run", "run not found"));
+    alphaWait.reject(new RpcError("unknown_run", "run not found"));
     await flush();
     expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "error", runId: "run-alpha" });
 
@@ -1062,7 +1063,7 @@ describe("runTuiEntry", () => {
 
     for (const { row, action, errorKey } of cases) {
       const view = createViewHost();
-      const error = new TuiDaemonRpcError("run_not_active", "not active");
+      const error = new RpcError("run_not_active", "not active");
       const { deps, clientOptions } = entryDeps(
         {
           methods: [],

@@ -2,66 +2,15 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type AppendWake, type LogEvent, openLogReader, openLogSink, type PersistedRecord } from "./log-stream.ts";
+import { type LogEvent, openLogReader, openLogSink, type PersistedRecord } from "./log-stream.ts";
 
-/**
- * Test-only `AppendWake` that tests wake deterministically via `notify()`.
- * `blocking` resolves when `wait` is first about to block, so tests can
- * coordinate append-then-notify without wall-clock sleeps.
- */
-class ControllableWake implements AppendWake {
-  private resolveFns: Array<() => void> = [];
-  private dirty = false;
-  private closed = false;
-  private signalBlocking: (() => void) | null = null;
+/** Short poll interval for tests, well below any per-test timeout. */
+const TEST_POLL_MS = 15;
 
-  readonly blocking: Promise<void>;
-
-  constructor() {
-    this.blocking = new Promise<void>((resolve) => {
-      this.signalBlocking = resolve;
-    });
-  }
-
-  /** Simulate a storage-artifact change. Wakes a blocked `wait` or sets dirty. */
-  notify(): void {
-    const resolve = this.resolveFns.shift();
-    if (resolve) {
-      resolve();
-    } else {
-      this.dirty = true;
-    }
-  }
-
-  async wait(signal?: AbortSignal): Promise<void> {
-    if (this.closed || signal?.aborted) return;
-    if (this.dirty) {
-      this.dirty = false;
-      return;
-    }
-    this.signalBlocking?.();
-    this.signalBlocking = null;
-    await new Promise<void>((resolve) => {
-      this.resolveFns.push(resolve);
-      signal?.addEventListener("abort", () => resolve(), { once: true });
-    });
-  }
-
-  close(): void {
-    this.closed = true;
-    for (const resolve of this.resolveFns) resolve();
-    this.resolveFns = [];
-  }
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Judgment call (2026-07-05): the deleted `log-stream.sandbox-unrunnable.test.ts` spawned a
-// detached child process to prove `fs.watch`-backed `FsAppendWake` notifications cross a real
-// process boundary (separate writer, separate reader). It was itself the source of the
-// `v2-test-runner-unbounded-spawn` flake gotcha. All replay/wake/abort logic below is covered
-// in-process via the injectable `AppendWake` seam, which is deemed sufficient: `follow()`'s
-// contract is defined against the `AppendWake` interface, not `fs.watch` specifically, and
-// `daemon.sandbox-unrunnable.test.ts` already carries the one irreducible real-process/socket
-// smoke test for this subsystem's wire boundary. Not restoring a second real-subprocess test here.
 describe("log-stream", () => {
   let tempDir: string;
   let storagePath: string;
@@ -184,9 +133,8 @@ describe("log-stream", () => {
   });
 
   it("follow yields existing events from seq 1, then new appends in order", async () => {
-    const wake = new ControllableWake();
     const sink = openLogSink(storagePath);
-    const reader = openLogReader(storagePath, () => wake);
+    const reader = openLogReader(storagePath, TEST_POLL_MS);
 
     // Append some initial events
     sink.append("run-1", { kind: "iteration_started", attemptId: "a1" });
@@ -194,7 +142,7 @@ describe("log-stream", () => {
 
     sink.close();
 
-    // Start following with deterministic wake coordination
+    // Start following
     const events: PersistedRecord[] = [];
 
     const followPromise = (async () => {
@@ -206,8 +154,8 @@ describe("log-stream", () => {
       }
     })();
 
-    // Wait for follow to replay existing events and block on the wake seam
-    await wake.blocking;
+    // Let the initial replay and first poll scan complete before appending new records
+    await delay(TEST_POLL_MS * 2);
 
     // Append new events from a new sink (separate writer on shared storage)
     const sink2 = openLogSink(storagePath);
@@ -215,8 +163,6 @@ describe("log-stream", () => {
     sink2.append("run-1", { kind: "iteration_started", attemptId: "a4" });
     sink2.close();
 
-    // Wake the follow loop so it scans and yields the new records
-    wake.notify();
     await followPromise;
 
     expect(events.length).toBe(4);
@@ -238,9 +184,8 @@ describe("log-stream", () => {
   });
 
   it("follow stops without error when AbortSignal aborts", async () => {
-    const wake = new ControllableWake();
     const sink = openLogSink(storagePath);
-    const reader = openLogReader(storagePath, () => wake);
+    const reader = openLogReader(storagePath, TEST_POLL_MS);
 
     sink.append("run-1", { kind: "iteration_started", attemptId: "a1" });
     sink.close();
@@ -254,8 +199,8 @@ describe("log-stream", () => {
       }
     })();
 
-    // Wait for follow to replay the existing event and block on the wake seam
-    await wake.blocking;
+    // Let follow replay the existing event and enter its poll wait
+    await delay(TEST_POLL_MS * 2);
 
     // Abort the signal
     controller.abort();
@@ -267,9 +212,8 @@ describe("log-stream", () => {
   });
 
   it("tail and follow on unknown runId yield empty stream without error", async () => {
-    const wake = new ControllableWake();
     const sink = openLogSink(storagePath);
-    const reader = openLogReader(storagePath, () => wake);
+    const reader = openLogReader(storagePath, TEST_POLL_MS);
 
     sink.append("run-1", { kind: "iteration_started", attemptId: "a1" });
     sink.close();
@@ -286,8 +230,8 @@ describe("log-stream", () => {
       }
     })();
 
-    // Wait for follow to finish replay (empty) and block on the wake seam
-    await wake.blocking;
+    // Let follow finish replay (empty) and enter its poll wait
+    await delay(TEST_POLL_MS * 2);
 
     controller.abort();
 

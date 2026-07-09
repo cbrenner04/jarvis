@@ -1167,7 +1167,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       }
       steps.set(stepId, progress);
     },
-    /** Aborts every live wait fanout so its `follow()` loop unwinds and closes its watcher. */
+    /** Aborts every live wait fanout so its `follow()` loop unwinds. */
     close: (): void => {
       for (const fanout of waitFanouts.values()) {
         fanout.controller.abort();

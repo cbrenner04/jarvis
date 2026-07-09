@@ -21,9 +21,9 @@ production caller (`resolveWorkflowPreset`, line 161) and test callers
 
 ## Acceptance criteria
 
-- [ ] `defineWorkflowStep` no longer exists anywhere in `v2/src/execution/workflow-runner.ts` or its test file.
-- [ ] `workflow-runner.test.ts` stays green (behavior unchanged by the refactor).
-- [ ] `bun run typecheck` passes.
+- [x] `defineWorkflowStep` no longer exists anywhere in `v2/src/execution/workflow-runner.ts` or its test file.
+- [x] `workflow-runner.test.ts` stays green (behavior unchanged by the refactor).
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

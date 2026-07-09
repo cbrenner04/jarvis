@@ -93,7 +93,7 @@ daemon/TUI rows stay aligned to the authored workflow.
 
 ## Authoring helper and presets
 
-`defineWorkflowStep(...)` is the authoring helper for one concrete workflow step.
+A workflow step is authored as a plain object literal `satisfies WorkflowStepInput`.
 `WorkflowStepInput` (identical in shape to the runtime `AnyWorkflowStep`) is a
 discriminated union on `behavior`, the closed vocabulary from
 [`role-resolution.md`](role-resolution.md#role--behavior-reference):
@@ -269,9 +269,9 @@ steps in one workflow otherwise composes normally (ordered advancement, same
 stop-on-non-complete rule).
 
 This slice supports only programmatic/runtime construction of a
-`review-debate` step via `defineWorkflowStep`; `workflow-loader.ts` (and
-therefore YAML/config-file authoring) does not yet support it — it still
-assumes one `role` per step.
+`review-debate` step as an object literal `satisfies WorkflowStepInput`;
+`workflow-loader.ts` (and therefore YAML/config-file authoring) does not yet
+support it — it still assumes one `role` per step.
 
 ## Budget and abort
 

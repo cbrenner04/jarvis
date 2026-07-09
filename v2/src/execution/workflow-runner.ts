@@ -108,7 +108,7 @@ export type WorkflowStep = WriteWorkflowStep | HumanWorkflowStep;
 /** Any dispatchable workflow step, discriminated by `behavior`. */
 export type AnyWorkflowStep = WorkflowStep | ReviewDebateWorkflowStep;
 
-/** Authoring input for `defineWorkflowStep`, identical in shape to `AnyWorkflowStep`. */
+/** Authoring input for a workflow step, identical in shape to `AnyWorkflowStep`. */
 export type WorkflowStepInput = AnyWorkflowStep;
 
 /** Result of a workflow invocation. */
@@ -134,11 +134,6 @@ export type WorkflowRunnerInput = {
   onStepRunCreated?: (stepIndex: number, runId: string) => void;
 };
 
-/** Build the runtime step shape from authoring input; `behavior` selects the dispatch path. */
-export function defineWorkflowStep<T extends WorkflowStepInput>(step: T): T {
-  return step;
-}
-
 function isWriteStep(step: AnyWorkflowStep): step is WriteWorkflowStep {
   return step.behavior === "write";
 }
@@ -158,7 +153,7 @@ export function resolveWorkflowPreset(
   }
 
   const pinned = WORKFLOW_PRESET_PINNED_FIELDS[name];
-  return steps.map((step) => defineWorkflowStep({ ...step, behavior: "write", ...(pinned ?? {}) }));
+  return steps.map((step) => ({ ...step, behavior: "write", ...(pinned ?? {}) }) satisfies WorkflowStepInput);
 }
 
 type PreparedWorkflowStep =

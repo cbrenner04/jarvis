@@ -132,20 +132,29 @@ function getLockRoot(jarvisRoot: string): string {
   return join(jarvisRoot, "worktree-locks", "demo", "write-run");
 }
 
+function makeInput(
+  jarvisRoot: string,
+  projectRoot: string,
+): {
+  projectRoot: string;
+  projectName: string;
+  branchName: string;
+  baseRef: string;
+  jarvisRoot: string;
+} {
+  return {
+    projectRoot,
+    projectName: "demo",
+    branchName: "write-run",
+    baseRef: "HEAD",
+    jarvisRoot,
+  };
+}
+
 describe("external worktree helper", () => {
   test("creates a fresh external worktree and releases lock on success", async () => {
     const { repoRoot, jarvisRoot, runner } = setupMockRepo();
-    const result = await withExternalWorktree(
-      {
-        projectRoot: repoRoot,
-        projectName: "demo",
-        branchName: "write-run",
-        baseRef: "HEAD",
-        jarvisRoot,
-      },
-      () => "ok",
-      runner,
-    );
+    const result = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "ok", runner);
 
     expect(result.lock.kind).toBe("acquired");
     expect(result.worktree.reused).toBe(false);
@@ -159,17 +168,7 @@ describe("external worktree helper", () => {
   test("recovers stale lock and reports recovered status", async () => {
     const { repoRoot, jarvisRoot, runner } = setupMockRepo();
 
-    await withExternalWorktree(
-      {
-        projectRoot: repoRoot,
-        projectName: "demo",
-        branchName: "write-run",
-        baseRef: "HEAD",
-        jarvisRoot,
-      },
-      () => undefined,
-      runner,
-    );
+    await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => undefined, runner);
 
     const lockPath = getExternalWorktreeLockPath(getLockRoot(jarvisRoot));
     writeFileSync(
@@ -182,17 +181,7 @@ describe("external worktree helper", () => {
       "utf8",
     );
 
-    const result = await withExternalWorktree(
-      {
-        projectRoot: repoRoot,
-        projectName: "demo",
-        branchName: "write-run",
-        baseRef: "HEAD",
-        jarvisRoot,
-      },
-      () => "ok",
-      runner,
-    );
+    const result = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "ok", runner);
 
     expect(result.worktree.reused).toBe(true);
     expect(result.lock.kind).toBe("recovered");
@@ -211,78 +200,28 @@ describe("external worktree helper", () => {
     registerRepo(state, otherRepoRoot);
     const runner = createWorktreeRunner(state);
 
-    await withExternalWorktree(
-      {
-        projectRoot: repoRoot,
-        projectName: "demo",
-        branchName: "write-run",
-        baseRef: "HEAD",
-        jarvisRoot,
-      },
-      () => undefined,
-      runner,
-    );
+    await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => undefined, runner);
 
-    await expect(
-      withExternalWorktree(
-        {
-          projectRoot: otherRepoRoot,
-          projectName: "demo",
-          branchName: "write-run",
-          baseRef: "HEAD",
-          jarvisRoot,
-        },
-        () => "never",
-        runner,
-      ),
-    ).rejects.toThrow("belongs to a different repository");
+    await expect(withExternalWorktree(makeInput(jarvisRoot, otherRepoRoot), () => "never", runner)).rejects.toThrow(
+      "belongs to a different repository",
+    );
   });
 
   test("refuses to reuse a worktree on a different branch", async () => {
     const { repoRoot, jarvisRoot, runner } = setupMockRepo();
 
-    const result = await withExternalWorktree(
-      {
-        projectRoot: repoRoot,
-        projectName: "demo",
-        branchName: "write-run",
-        baseRef: "HEAD",
-        jarvisRoot,
-      },
-      () => undefined,
-      runner,
-    );
+    const result = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => undefined, runner);
     runner.run("git", ["checkout", "-b", "other-branch"], result.worktree.path);
 
-    await expect(
-      withExternalWorktree(
-        {
-          projectRoot: repoRoot,
-          projectName: "demo",
-          branchName: "write-run",
-          baseRef: "HEAD",
-          jarvisRoot,
-        },
-        () => "never",
-        runner,
-      ),
-    ).rejects.toThrow("is on branch other-branch, expected write-run");
+    await expect(withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "never", runner)).rejects.toThrow(
+      "is on branch other-branch, expected write-run",
+    );
   });
 
   test("refuses busy lock with v1-compatible payload", async () => {
     const { repoRoot, jarvisRoot, runner } = setupMockRepo();
 
-    await withExternalWorktree(
-      {
-        projectRoot: repoRoot,
-        projectName: "demo",
-        branchName: "write-run",
-        baseRef: "HEAD",
-        jarvisRoot,
-      },
-      () => undefined,
-      runner,
-    );
+    await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => undefined, runner);
 
     const lockPath = getExternalWorktreeLockPath(getLockRoot(jarvisRoot));
     writeFileSync(
@@ -295,45 +234,19 @@ describe("external worktree helper", () => {
       "utf8",
     );
 
-    await expect(
-      withExternalWorktree(
-        {
-          projectRoot: repoRoot,
-          projectName: "demo",
-          branchName: "write-run",
-          baseRef: "HEAD",
-          jarvisRoot,
-        },
-        () => "never",
-        runner,
-      ),
-    ).rejects.toBeInstanceOf(WorktreeBusyError);
+    await expect(withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "never", runner)).rejects.toBeInstanceOf(
+      WorktreeBusyError,
+    );
   });
 
   test("refuses reusing a non-worktree directory", async () => {
     const { repoRoot, jarvisRoot, runner } = setupMockRepo();
-    const path = getExternalWorktreePath({
-      projectRoot: repoRoot,
-      projectName: "demo",
-      branchName: "write-run",
-      baseRef: "HEAD",
-      jarvisRoot,
-    });
+    const path = getExternalWorktreePath(makeInput(jarvisRoot, repoRoot));
     mkdirSync(path, { recursive: true });
 
-    await expect(
-      withExternalWorktree(
-        {
-          projectRoot: repoRoot,
-          projectName: "demo",
-          branchName: "write-run",
-          baseRef: "HEAD",
-          jarvisRoot,
-        },
-        () => "never",
-        runner,
-      ),
-    ).rejects.toThrow(`existing path is not a git worktree: ${path}`);
+    await expect(withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "never", runner)).rejects.toThrow(
+      `existing path is not a git worktree: ${path}`,
+    );
   });
 
   test("releases lock when callback fails", async () => {
@@ -341,13 +254,7 @@ describe("external worktree helper", () => {
 
     await expect(
       withExternalWorktree(
-        {
-          projectRoot: repoRoot,
-          projectName: "demo",
-          branchName: "write-run",
-          baseRef: "HEAD",
-          jarvisRoot,
-        },
+        makeInput(jarvisRoot, repoRoot),
         () => {
           throw new Error("boom");
         },
@@ -361,30 +268,10 @@ describe("external worktree helper", () => {
   test("recreates a missing but still-registered worktree", async () => {
     const { repoRoot, jarvisRoot, runner } = setupMockRepo();
 
-    const first = await withExternalWorktree(
-      {
-        projectRoot: repoRoot,
-        projectName: "demo",
-        branchName: "write-run",
-        baseRef: "HEAD",
-        jarvisRoot,
-      },
-      () => undefined,
-      runner,
-    );
+    const first = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => undefined, runner);
     rmSync(first.worktree.path, { recursive: true, force: true });
 
-    const second = await withExternalWorktree(
-      {
-        projectRoot: repoRoot,
-        projectName: "demo",
-        branchName: "write-run",
-        baseRef: "HEAD",
-        jarvisRoot,
-      },
-      () => "ok",
-      runner,
-    );
+    const second = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "ok", runner);
 
     expect(second.worktree.reused).toBe(false);
     expect(existsSync(second.worktree.path)).toBe(true);

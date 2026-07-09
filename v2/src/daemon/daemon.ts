@@ -10,7 +10,7 @@ import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from ".
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
 import { type LogReader, type LoopFinishedEvent, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
-import { reconvergeRevisingRun, type ReviseReconvergeDeps, reviseAwaitingHuman } from "./daemon-revise.ts";
+import { type ReviseReconvergeDeps, reconvergeRevisingRun, reviseAwaitingHuman } from "./daemon-revise.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
 import {
   composeRunOperatorError,

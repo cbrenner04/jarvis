@@ -1,0 +1,9 @@
+**Verdict: Refinement required.**
+
+1. **Pin the re-export mechanism with an explicit AC.** "`daemon-start-list.test.ts` / `daemon-wire.test.ts` stay green" is satisfiable by two divergent implementations: (a) preserving the `daemon.ts` re-export of `WorkflowStepListStatus`/`stoppedOutcomeForRun` as the Decisions section specifies, or (b) repointing those files' imports directly at the new module. Both pass tests; only (a) matches the stated design and the stated reason for that design (avoiding edits to those files). Add an acceptance criterion that directly verifies the re-export is preserved and those two files' import paths are unchanged — not just that their tests pass.
+
+2. **Complete the cross-module import list in Decisions.** The Decisions bullet names `LoadedRun` as the type imported back into the new module but omits `WorkflowSnapshot` and `ReviewDebateProgress`, which `workflowRowSnapshot`/`workflowStepSnapshot` also depend on. List all cross-module type dependencies the new module needs to import, not just one.
+
+3. **Split the re-export step out as its own checklist item.** The current checklist bundles "import `workflowRowSnapshot`" and "re-export `WorkflowStepListStatus`/`stoppedOutcomeForRun`" into one line. Since the re-export is the easy-to-drop step (per #1), give it its own checklist line so an implementer can't satisfy the checklist while skipping it.
+
+No other findings require spec changes: the circular-import shape (value import one way, type-only import the other) is standard and doesn't need a spec note; the intent's prerequisite wording is imprecise but is intent-author feedback, not a spec defect; single-AC coverage for full removal of the region from `daemon.ts` is sufficient as-is; scope and sizing are fine.

@@ -40,7 +40,10 @@ async function resumeDirect(h: Handlers, params: { runId: string; decision?: str
   return h.resume({ kind: "request", id: "r1", method: "resume", params }, new AbortController().signal);
 }
 
-function runFixture(status: Run["status"], attempts: Array<Pick<Attempt, "outcomeKind">> = []): Run & { attempts: Attempt[] } {
+function runFixture(
+  status: Run["status"],
+  attempts: Array<Pick<Attempt, "outcomeKind">> = [],
+): Run & { attempts: Attempt[] } {
   return {
     id: "run-1",
     project: "wf-outcomes",

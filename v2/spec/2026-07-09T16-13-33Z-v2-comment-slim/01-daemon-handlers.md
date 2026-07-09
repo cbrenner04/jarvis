@@ -17,11 +17,11 @@ Trim the JSDoc blocks on `createTailStreamHandler` and `createRunControlHandlers
 
 ## Acceptance criteria
 
-- [ ] `bun run typecheck` passes with no signature changes in `daemon.ts`.
-- [ ] `v2/src/daemon/daemon-tail-stream.test.ts` stays green (behavior unchanged).
-- [ ] `v2/src/daemon/daemon-lifecycle.test.ts` stays green (behavior unchanged).
-- [ ] The revision-inactive-statuses rationale comment is present, unmodified.
-- [ ] `git diff` scoped to `daemon.ts` touches only comment/whitespace lines.
+- [x] `bun run typecheck` passes with no signature changes in `daemon.ts`.
+- [x] `v2/src/daemon/daemon-tail-stream.test.ts` stays green (behavior unchanged).
+- [x] `v2/src/daemon/daemon-lifecycle.test.ts` stays green (behavior unchanged).
+- [x] The revision-inactive-statuses rationale comment is present, unmodified.
+- [x] `git diff` scoped to `daemon.ts` touches only comment/whitespace lines.
 
 ## Documentation updates
 

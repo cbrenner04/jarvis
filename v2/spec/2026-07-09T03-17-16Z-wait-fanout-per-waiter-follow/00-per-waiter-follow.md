@@ -64,14 +64,14 @@ complexity.
 
 ## Acceptance criteria
 
-- [ ] `daemon-wait-run-completion.test.ts` stays green for all behavior-level
+- [x] `daemon-wait-run-completion.test.ts` stays green for all behavior-level
       cases: immediate resolve on an already-terminal run, two-concurrent-
       waits, disconnect-one-waiter (leaves the other waiter and the durable
       run status unaffected), and `close()` unwinding in-flight waits.
-- [ ] A test confirms the per-request `AbortController` `Set` does not
+- [x] A test confirms the per-request `AbortController` `Set` does not
       accumulate entries across normal (non-abort) wait completions.
-- [ ] `Waiter`, `WaitFanout`, `detachWaiter`, `resolveWaiters`,
+- [x] `Waiter`, `WaitFanout`, `detachWaiter`, `resolveWaiters`,
       `ensureWaitFanout` no longer exist in `v2/src/daemon/daemon.ts`.
-- [ ] `bun run typecheck` passes.
-- [ ] `v2/docs/v1-behaviors.md`'s `close()` entry describes the current
+- [x] `bun run typecheck` passes.
+- [x] `v2/docs/v1-behaviors.md`'s `close()` entry describes the current
       per-waiter mechanism, not the removed fanout.

@@ -202,9 +202,9 @@ describe("external worktree helper", () => {
 
     await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => undefined, runner);
 
-    await expect(
-      withExternalWorktree(makeInput(jarvisRoot, otherRepoRoot), () => "never", runner),
-    ).rejects.toThrow("belongs to a different repository");
+    await expect(withExternalWorktree(makeInput(jarvisRoot, otherRepoRoot), () => "never", runner)).rejects.toThrow(
+      "belongs to a different repository",
+    );
   });
 
   test("refuses to reuse a worktree on a different branch", async () => {
@@ -213,9 +213,9 @@ describe("external worktree helper", () => {
     const result = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => undefined, runner);
     runner.run("git", ["checkout", "-b", "other-branch"], result.worktree.path);
 
-    await expect(
-      withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "never", runner),
-    ).rejects.toThrow("is on branch other-branch, expected write-run");
+    await expect(withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "never", runner)).rejects.toThrow(
+      "is on branch other-branch, expected write-run",
+    );
   });
 
   test("refuses busy lock with v1-compatible payload", async () => {
@@ -234,9 +234,9 @@ describe("external worktree helper", () => {
       "utf8",
     );
 
-    await expect(
-      withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "never", runner),
-    ).rejects.toBeInstanceOf(WorktreeBusyError);
+    await expect(withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "never", runner)).rejects.toBeInstanceOf(
+      WorktreeBusyError,
+    );
   });
 
   test("refuses reusing a non-worktree directory", async () => {
@@ -244,9 +244,9 @@ describe("external worktree helper", () => {
     const path = getExternalWorktreePath(makeInput(jarvisRoot, repoRoot));
     mkdirSync(path, { recursive: true });
 
-    await expect(
-      withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "never", runner),
-    ).rejects.toThrow(`existing path is not a git worktree: ${path}`);
+    await expect(withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "never", runner)).rejects.toThrow(
+      `existing path is not a git worktree: ${path}`,
+    );
   });
 
   test("releases lock when callback fails", async () => {

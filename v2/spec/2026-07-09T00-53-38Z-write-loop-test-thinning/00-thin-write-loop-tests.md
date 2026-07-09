@@ -34,10 +34,13 @@
 
 - Merge each with/without-sink pair into one test that always passes a
   `logSink` and keeps every distinct assertion from both originals.
+  Standardizing on always-passing a `logSink` is safe here because the
+  surviving `calls executeWrite repeatedly until terminal` test already
+  exercises the no-sink path independently.
 - Collapse the three abort tests into one test (with sink) that keeps every
   distinct assertion across all three: `result.kind`/`iterationsConsumed`/
-  `resumable`, the full event-kind sequence plus final event fields, and the
-  state-store attempt statuses.
+  `resumable`, the full event-kind sequence plus the final event's
+  `iterationsConsumed` value, and the state-store attempt statuses.
 - Delete `omitting the log sink leaves loop behavior unchanged` entirely;
   `calls executeWrite repeatedly until terminal` is its surviving owner.
 - Replace the terminal-mapping quartet with one test iterating a table of
@@ -63,9 +66,9 @@
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` has one test covering the crash-resume-over-dirty-worktree scenario (pair A), asserting both the resumed-worktree content and the event/attemptId behavior the two originals covered.
+- [ ] `write-loop.test.ts` has one test covering the crash-resume-over-dirty-worktree scenario (pair A), asserting the resumed-worktree content, the event/attemptId behavior from the sink original, and the state-store fields the no-sink original checked: attempt count, attempts-length/history, outcome kind, and resumed `iterationsConsumed`.
 - [ ] `write-loop.test.ts` has one test covering the mid-boundary-crash-then-retry scenario (pair B), asserting both the attempt-count/history behavior and the event/attemptId behavior the two originals covered.
-- [ ] `write-loop.test.ts` has one abort/cancellation test asserting `result.kind`, `iterationsConsumed`, `resumable`, the full event-kind sequence, the final event's `loopOutcomeKind`, and the state-store attempt statuses.
+- [ ] `write-loop.test.ts` has one abort/cancellation test asserting `result.kind`, `iterationsConsumed`, `resumable`, the full event-kind sequence, the final event's `loopOutcomeKind` and `iterationsConsumed`, and the state-store attempt statuses.
 - [ ] `write-loop.test.ts` no longer contains a test named `omitting the log sink leaves loop behavior unchanged`.
 - [ ] `write-loop.test.ts` has one table-driven test replacing the four `terminal boundary_committed and loop_finished payloads match terminalMapping for <outcome> outcome` tests, covering all four outcome cases (blocked, contract_miss, invocation_failure, no-work).
 - [ ] `bun test v2/src/execution/write-loop.test.ts` passes.

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
@@ -21,6 +22,22 @@ let stateStore: StateStore;
 let handlers: Handlers;
 let fakeExecutor: FakeWriteLoopExecutor;
 let memoryHeadroom: boolean;
+
+const AGENT_MODEL_CONFIG: AgentModelConfig = {
+  codex: {
+    implement: {
+      rungs: [
+        { adapterModel: "codex-fast", priceKey: "codex-fast" },
+        { adapterModel: "codex-deep", priceKey: "codex-deep" },
+      ],
+    },
+  },
+  cursor: {
+    implement: {
+      rungs: [{ adapterModel: "cursor-fast", priceKey: "cursor-fast" }],
+    },
+  },
+};
 
 async function flushBackgroundRuns(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve));
@@ -66,9 +83,9 @@ function createUnitStore(): { store: StateStore; dbPath: string } {
 }
 
 function createFakeSpawnWriteLoop(registry: WorktreeOwnershipRegistry) {
-  const calls: Array<{ key: OwnershipKey; runId: string; worktreePath: string }> = [];
-  const spawnWriteLoop = (key: OwnershipKey, runId: string, worktreePath: string): void => {
-    calls.push({ key, runId, worktreePath });
+  const calls: Array<{ key: OwnershipKey; runId: string; worktreePath: string; bindingIds: string[] }> = [];
+  const spawnWriteLoop = (key: OwnershipKey, runId: string, worktreePath: string, input: WriteLoopInput): void => {
+    calls.push({ key, runId, worktreePath, bindingIds: input.bindings.map((binding) => binding.id) });
     registry.claim(key, { runId, worktreePath });
   };
   return { spawnWriteLoop, calls };
@@ -84,6 +101,36 @@ function queueRun(store: StateStore, input: WriteLoopInput): string {
     status: "queued",
     queuedInput: input,
   });
+}
+
+function workflowInput(overrides: Partial<WriteLoopInput["worktree"]> = {}): WriteLoopInput {
+  return {
+    ...mockWriteLoopInput(overrides),
+    bindings: [{ id: "codex" } as WriteLoopInput["bindings"][number]],
+    bindingResolution: {
+      role: "implement",
+      agents: ["codex", "cursor"],
+      agentModelConfig: AGENT_MODEL_CONFIG,
+    },
+    stepId: "step-1",
+    workflowSnapshot: {
+      invocationId: "workflow-1",
+      steps: [
+        {
+          stepId: "step-1",
+          role: "implement",
+          stepRules: "test rules",
+          expectedArtifactPath: "/tmp/test-project/artifact",
+          agents: ["codex", "cursor"],
+          agentModelConfig: AGENT_MODEL_CONFIG,
+        },
+      ],
+    },
+  };
+}
+
+function serialized(input: WriteLoopInput): WriteLoopInput {
+  return JSON.parse(JSON.stringify(input)) as WriteLoopInput;
 }
 
 function createPromotionHarness(
@@ -161,6 +208,24 @@ test("promoteQueuedRunImpl skips a queued run whose key is claimed in favor of t
     expect(store.loadRun(blockedQueuedId)?.status).toBe("queued");
     expect(calls).toHaveLength(1);
     expect(calls[0]?.runId).toBe(eligibleQueuedId);
+  } finally {
+    cleanup();
+  }
+});
+
+test("promoteQueuedRunImpl resolves queued workflow bindings from persisted context", () => {
+  const { store, calls, promote, cleanup } = createPromotionHarness();
+  try {
+    const runId = queueRun(store, serialized(workflowInput({ projectName: "project-workflow-queued" })));
+
+    promote();
+
+    expect(store.loadRun(runId)?.status).toBe("in-progress");
+    expect(calls[0]?.bindingIds).toEqual([
+      "codex/codex-fast/codex-fast",
+      "codex/codex-deep/codex-deep",
+      "cursor/cursor-fast/cursor-fast",
+    ]);
   } finally {
     cleanup();
   }

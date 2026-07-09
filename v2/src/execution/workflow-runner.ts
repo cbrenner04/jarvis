@@ -557,6 +557,11 @@ function prepareWorkflowStep(
       stepId,
       workflowSnapshot,
       bindings,
+      bindingResolution: {
+        role,
+        agents,
+        agentModelConfig,
+      },
       stateStore: store,
       ...(logSink !== undefined ? { logSink } : {}),
       ...(telemetry !== undefined

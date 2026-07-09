@@ -127,12 +127,11 @@ Top-level harness-global artifact. Maps each agent name to its `ModelsByRole`.
 ```
 
 **Relationships:** project config supplies `agents: Agent[]` (outer order).
-`AgentModelConfig[agent][role]` supplies inner `rungs`. The current
-`executeWorkflow` contract uses workflow-step `role` to validate that each
-configured agent has its own binding entry before any run starts; it does not
-rewrite a step's caller-supplied execution `bindings` from `role`. When a
-consumer does flatten execution bindings from config, it walks `agents` and
-reads `AgentModelConfig[agent][role].rungs` for each landed agent.
+`AgentModelConfig[agent][role]` supplies inner `rungs`. Workflow write steps
+persist `role`/`agents`/`agentModelConfig` on their `WriteLoopInput` so daemon
+start, queued promotion, and paused resume can rebuild live bindings after IPC
+or durable-store serialization. Ad-hoc daemon writes still use bare agent-id
+bindings until they gain role/profile context.
 
 ## Two-axis resolution
 
@@ -269,8 +268,8 @@ and loaded `AgentModelConfig` on every invocation (including resume), whether
 or not steps came from `loadWorkflowSteps`; every step role must resolve for
 every configured agent via an own `(agent, role)` entry. Inherited object
 properties do not count. There is no deferred first-invocation fallback if a
-later configured agent misses the role. After that gate, the current runner
-still executes the step's supplied `bindings` unchanged.
+later configured agent misses the role. After that gate, workflow write steps
+resolve fresh execution bindings from their persisted resolution context.
 
 ## CLI override
 

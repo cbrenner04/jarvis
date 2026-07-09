@@ -2,6 +2,8 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AgentModelConfig } from "../config/agent-model-config.ts";
+import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { connectIpcClient } from "../ipc/client.ts";
 import { startIpcServer } from "../ipc/server.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
@@ -49,10 +51,25 @@ let fakeExecutor: FakeWriteLoopExecutor;
 let memoryHeadroom: boolean;
 let handlers: Handlers;
 
+const AGENT_MODEL_CONFIG: AgentModelConfig = {
+  codex: {
+    implement: {
+      rungs: [
+        { adapterModel: "codex-fast", priceKey: "codex-fast" },
+        { adapterModel: "codex-deep", priceKey: "codex-deep" },
+      ],
+    },
+  },
+};
+
 function loadRunOrThrow(store: StateStore, runId: string) {
   const run = store.loadRun(runId);
   if (!run) throw new Error(`missing run ${runId}`);
   return run;
+}
+
+function serialized(input: WriteLoopInput): WriteLoopInput {
+  return JSON.parse(JSON.stringify(input)) as WriteLoopInput;
 }
 
 async function flushBackgroundRuns(): Promise<void> {
@@ -128,6 +145,37 @@ test("start persists a queued run when memory headroom is unavailable", async ()
   const row = runs?.find((candidate) => candidate.runId === runId);
   expect(row?.status).toBe("queued");
   expect(row?.isLive).toBe(false);
+});
+
+test("start resolves serialized workflow-step input from binding context", async () => {
+  const starts: WriteLoopInput[] = [];
+  const localHandlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: async (input) => {
+      starts.push(input);
+    },
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+  });
+  const input: WriteLoopInput = {
+    ...mockWriteLoopInput({ projectName: "workflow-project", branchName: "workflow-branch" }),
+    bindings: [{ id: "codex" } as WriteLoopInput["bindings"][number]],
+    bindingResolution: {
+      role: "implement",
+      agents: ["codex"],
+      agentModelConfig: AGENT_MODEL_CONFIG,
+    },
+    stepId: "step-1",
+  };
+
+  const runId = await startRunDirect(localHandlers, serialized(input));
+
+  expect(runId).toBeDefined();
+  expect(starts[0]?.bindings.map((binding) => binding.id)).toEqual([
+    "codex/codex-fast/codex-fast",
+    "codex/codex-deep/codex-deep",
+  ]);
 });
 
 test("start rejects a second start for a (project, branch) with an existing queued run", async () => {

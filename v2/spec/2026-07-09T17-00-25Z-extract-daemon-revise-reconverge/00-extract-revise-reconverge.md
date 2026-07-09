@@ -34,10 +34,10 @@ and constructs an `OwnershipKey` inline.
 
 ## Acceptance criteria
 
-- [ ] `daemon-revise.test.ts` stays green (behavior unchanged by the extraction).
-- [ ] `daemon-start-list.test.ts` stays green (behavior unchanged by the extraction).
-- [ ] `bun run typecheck` passes with no errors introduced by the move.
-- [ ] `daemon.ts` no longer defines `buildRevisionWriteLoopInput`, `reviseAwaitingHuman`, `reconvergeRevisingRun`, or `REVISION_INACTIVE_STATUSES`; they live only in `v2/src/daemon/daemon-revise.ts`.
+- [x] `daemon-revise.test.ts` stays green (behavior unchanged by the extraction).
+- [x] `daemon-start-list.test.ts` stays green (behavior unchanged by the extraction).
+- [x] `bun run typecheck` passes with no errors introduced by the move.
+- [x] `daemon.ts` no longer defines `buildRevisionWriteLoopInput`, `reviseAwaitingHuman`, `reconvergeRevisingRun`, or `REVISION_INACTIVE_STATUSES`; they live only in `v2/src/daemon/daemon-revise.ts`.
 
 ## Documentation updates
 

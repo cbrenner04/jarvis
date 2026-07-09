@@ -33,34 +33,18 @@ export type TuiDaemonClient = {
   status(): Promise<TuiDaemonStatusResult>;
   list(): Promise<DaemonListResult>;
   start(input: WriteLoopInput): Promise<TuiDaemonStartResult>;
-  /**
-   * Signal graceful pause for an active run at the next iteration boundary.
-   * @param runId Durable run id to pause.
-   * @returns `{ ok: true }` when the daemon accepts the pause.
-   * @throws {RpcError} When the daemon rejects the request (`unknown_run`, `run_not_active`, …).
-   * @throws {RpcConnectionError} When the transport fails or the success payload is malformed.
-   */
+  /** Signal graceful pause for an active run at the next iteration boundary; rejects with `unknown_run`/`run_not_active`. */
   pause(runId: string): Promise<TuiDaemonHealthResult>;
   /**
    * Resume a paused or killed run under daemon start guards, or resolve an
-   * `awaiting-human` run via `decision`/`prompt`.
-   * @param runId Durable run id to resume.
-   * @param options Optional human-loop decision (`approve`/`abort`/`revise`) and revise prompt.
-   * @returns `{ ok: true }` when the daemon accepts the resume.
-   * @throws {RpcError} When the daemon rejects the request (`unknown_run`, `terminal_run`, `run_in_progress`, `worktree_claimed`, …).
-   * @throws {RpcConnectionError} When the transport fails or the success payload is malformed.
+   * `awaiting-human` run via `decision`/`prompt`; rejects with `unknown_run`, `terminal_run`,
+   * `run_in_progress`, `worktree_claimed`, …
    */
   resume(
     runId: string,
     options?: { decision?: "approve" | "abort" | "revise"; prompt?: string },
   ): Promise<TuiDaemonHealthResult>;
-  /**
-   * Abort an active run immediately and record durable status `killed`.
-   * @param runId Durable run id to kill.
-   * @returns `{ ok: true }` when the daemon accepts the kill.
-   * @throws {RpcError} When the daemon rejects the request (`unknown_run`, `run_not_active`, …).
-   * @throws {RpcConnectionError} When the transport fails or the success payload is malformed.
-   */
+  /** Abort an active run immediately and record durable status `killed`; rejects with `unknown_run`/`run_not_active`. */
   kill(runId: string): Promise<TuiDaemonHealthResult>;
   wait(runId: string): Promise<WaitRunCompletionResult>;
   close(): void;

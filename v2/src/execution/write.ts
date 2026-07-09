@@ -12,7 +12,6 @@ import { renderStepPrompt } from "./write-prompt.ts";
 
 const DEFAULT_PROMPT_ID = "write.execute";
 
-/** Input contract for one write behavior execution. */
 export type WriteExecuteInput = {
   worktree: ExternalWorktreeInput;
   specPath: string;
@@ -26,7 +25,6 @@ export type WriteExecuteInput = {
   withExternalWorktree?: typeof realWithExternalWorktree;
 };
 
-/** Result surface for one write behavior execution. */
 type WriteExecuteResult = {
   worktreePath: string;
   worktreeReused: boolean;

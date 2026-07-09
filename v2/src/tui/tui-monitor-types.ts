@@ -22,40 +22,23 @@ export type TuiMonitorState = {
   steeringFeedback: string | null;
 };
 
-/** Injectable selection, steering, and quit controls exposed to the monitor host. */
+/**
+ * Injectable selection, steering, and quit controls exposed to the monitor host.
+ * All `*Selected` methods: no selection → inline `no run selected`; daemon and
+ * transport failures surface inline without closing the monitor.
+ */
 export type TuiMonitorControls = {
   /** Change selection to the given run when present in the current list. */
   selectRun(runId: string): void;
-  /**
-   * Signal pause for the selected run via daemon `pause`.
-   * No selection → inline `no run selected`. Success keeps the existing wait loop;
-   * daemon and transport failures surface inline without closing the monitor.
-   */
+  /** Signals pause via daemon `pause`. */
   pauseSelected(): void;
-  /**
-   * Resume the selected run via daemon `resume` and re-issue `wait`, abandoning any prior ready snapshot.
-   * No selection → inline `no run selected`. Daemon and transport failures surface inline without closing the monitor.
-   */
+  /** Resumes via daemon `resume` and re-issues `wait`, abandoning any prior ready snapshot. */
   resumeSelected(): void;
-  /**
-   * Signal kill for the selected run via daemon `kill`, or `resume` with `decision: "abort"`
-   * when the selected run is `awaiting-human`.
-   * No selection → inline `no run selected`. Success keeps the existing wait loop;
-   * daemon and transport failures surface inline without closing the monitor.
-   */
+  /** Signals kill via daemon `kill`, or `resume` with `decision: "abort"` when `awaiting-human`. */
   killSelected(): void;
-  /**
-   * Approve the selected `awaiting-human` run via `resume` with `decision: "approve"`.
-   * No selection → inline `no run selected`. Daemon and transport failures surface inline
-   * without closing the monitor.
-   */
+  /** Approves an `awaiting-human` run via `resume` with `decision: "approve"`. */
   approveSelected(): void;
-  /**
-   * Revise the selected `awaiting-human` run via `resume` with `decision: "revise"` and the
-   * given prompt.
-   * No selection → inline `no run selected`. Daemon and transport failures surface inline
-   * without closing the monitor.
-   */
+  /** Revises an `awaiting-human` run via `resume` with `decision: "revise"` and the given prompt. */
   reviseSelected(prompt?: string): void;
   /** Exit the monitor. */
   quit(): void;
@@ -73,26 +56,15 @@ export type TuiMonitorSession = {
 
 /** Injectable view host for tests and alternate renderers. */
 export type TuiViewHost = {
-  /**
-   * Record or render operator-visible non-monitor feedback.
-   * @param state RPC or unavailable-daemon state.
-   */
+  /** Record or render operator-visible non-monitor feedback. */
   show(state: TuiViewState): void | Promise<void>;
-  /**
-   * Open the interactive monitor from the initial snapshot.
-   * @param state Initial run-list and outcome snapshot.
-   * @param controls Selection and quit controls owned by the monitor core.
-   */
+  /** Open the interactive monitor from the initial snapshot. */
   openMonitor(state: TuiMonitorState, controls: TuiMonitorControls): Promise<TuiMonitorSession>;
 };
 
 /** Refresh scheduler seam for periodic daemon `list` polling. */
 export type TuiRefreshScheduler = {
-  /**
-   * Start periodic refresh callbacks.
-   * @param onRefresh Callback that performs one refresh tick.
-   * @returns Disposable handle for teardown.
-   */
+  /** Start periodic refresh callbacks. */
   start(onRefresh: () => void): { close(): void };
 };
 

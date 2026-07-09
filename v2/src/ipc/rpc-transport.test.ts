@@ -9,9 +9,7 @@ test("timeoutMs abandons and rejects a request that never resolves", async () =>
     const { client } = createDeferredIpcClient();
     const transport = createRpcTransport(client);
 
-    await expect(transport.request("wait", undefined, { timeoutMs: 5 })).rejects.toBeInstanceOf(
-      RpcConnectionError,
-    );
+    await expect(transport.request("wait", undefined, { timeoutMs: 5 })).rejects.toBeInstanceOf(RpcConnectionError);
   });
 });
 

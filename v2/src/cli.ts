@@ -451,7 +451,7 @@ function parseWriteCliInput(argv: readonly string[], deps: CliDeps): WriteCliInp
 
   const built = buildWriteLoopInputFromCliValues(values, deps.createBindings, fallbackAgents);
   if (!built.ok) {
-    return "message" in built ? { ok: false, message: built.message } : { ok: false };
+    return { ok: false };
   }
   return { ok: true, input: built.input };
 }

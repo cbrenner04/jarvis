@@ -214,6 +214,18 @@ describe("v2 cli", () => {
     expect(cap.read().stderr).toContain("usage: jarvis write");
   });
 
+  test("invalid --max-iterations prints usage and exits 1", async () => {
+    const cap = captureIo();
+
+    const code = await main([...WRITE_ARGS, "--max-iterations", "0"], cap.io);
+
+    expect(code).toBe(1);
+    expect(cap.read().stdout).toBe("");
+    expect(cap.read().stderr).toBe(
+      "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--max-iterations <n>]\n",
+    );
+  });
+
   test("unknown write args print usage and exit 1", async () => {
     const cap = captureIo();
 

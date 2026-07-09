@@ -54,16 +54,16 @@ dead code. Separately, `buildWriteLoopInputFromCliValues` parses
 
 ## Acceptance criteria
 
-- [ ] `jarvis write` / `jarvis run start` with a missing required flag still
+- [x] `jarvis write` / `jarvis run start` with a missing required flag still
       exits 1 and prints `usage: jarvis write ...` on stderr (behavior
       unchanged; see `cli.test.ts` "missing required write args prints usage
       and exits 1").
-- [ ] `jarvis write` / `jarvis run start` with an invalid (non-positive,
+- [x] `jarvis write` / `jarvis run start` with an invalid (non-positive,
       non-integer) `--max-iterations` value exits 1 and prints
       `usage: jarvis write ...` on stderr, with no other message (see new
       `cli.test.ts` invalid-`--max-iterations` test above).
-- [ ] `write-loop-input.test.ts` and `cli.test.ts` stay green.
-- [ ] No call site parses a raw `max-iterations` CLI value more than once
+- [x] `write-loop-input.test.ts` and `cli.test.ts` stay green.
+- [x] No call site parses a raw `max-iterations` CLI value more than once
       (verified by reading `buildWriteLoopInputFromCliValues` — a single
       `parseMaxIterations` call site remains, inside `buildWriteLoopInput`).
 

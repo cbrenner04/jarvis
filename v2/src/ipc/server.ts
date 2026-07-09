@@ -77,16 +77,7 @@ function dispatchRequest(
     return;
   }
 
-  switch (method) {
-    case "health":
-      socket.write(encodeFrame(responseFrame(id, { ok: true })));
-      return;
-    case "status":
-      socket.write(encodeFrame(responseFrame(id, { state: "running" })));
-      return;
-    default:
-      socket.write(encodeFrame(errorFrame(id, "unknown_method", `unknown method: ${method}`)));
-  }
+  socket.write(encodeFrame(errorFrame(id, "unknown_method", `unknown method: ${method}`)));
 }
 
 function handleFrame(

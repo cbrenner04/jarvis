@@ -47,11 +47,11 @@ handlers.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/ipc/server.ts` `dispatchRequest` has no `case "health"` or
+- [x] `v2/src/ipc/server.ts` `dispatchRequest` has no `case "health"` or
       `case "status"` branches; an IPC server started without a `health`
       handler responds to a `health` request with `unknown_method`.
-- [ ] An IPC server started without a `status` handler responds to a
+- [x] An IPC server started without a `status` handler responds to a
       `status` request with `unknown_method`.
-- [ ] `v2/src/ipc/ipc.test.ts` passes with `bun test v2/src/ipc/ipc.test.ts`.
-- [ ] `v2/docs/v1-behaviors.md` documents the current `health`/`status`
+- [x] `v2/src/ipc/ipc.test.ts` passes with `bun test v2/src/ipc/ipc.test.ts`.
+- [x] `v2/docs/v1-behaviors.md` documents the current `health`/`status`
       dispatch behavior (daemon-handler-only, no transport fallback).

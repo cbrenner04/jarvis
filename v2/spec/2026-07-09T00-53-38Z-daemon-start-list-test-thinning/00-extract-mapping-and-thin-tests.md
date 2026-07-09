@@ -17,7 +17,13 @@ mapping matrix already owned by `run-operator-error.test.ts`.
   `killed`, `awaiting-human`, and the `invocation_failure` fallback).
 - Keep `"list returns workflow step snapshots for live, stopped, and
   completed workflow-backed runs"` unmodified as the one composed list test
-  covering the mapping wired end-to-end through `list`.
+  covering the mapping wired end-to-end through `list`. No other test in
+  this file exercises the run/step-status → `terminalOutcome` mapping
+  end-to-end: the review-debate tests (`"list builds a review-debate row
+  from the terminal role/outcome once the cycle ends"` and its neighbors)
+  assert a distinct role/outcome mapping fed via
+  `handlers.reportReviewDebateProgress`, not `stoppedOutcomeForRun`, and are
+  untouched by this subspec.
 - Drop `"kill aborts the abort signal that bindings can observe"` — strict
   subset of `"kill aborts an active run and records killed status"` (same
   setup, same `isAbortSignalTriggered`/`status: "killed"` assertions, minus
@@ -32,6 +38,10 @@ mapping matrix already owned by `run-operator-error.test.ts`.
   enumerated paused/budget/blocked/failed reason checks and the
   duplicate no-logReader test — those exact reason mappings already live in
   `run-operator-error.test.ts`'s direct `composeRunOperatorError` tests.
+  Drop-list disposition: `"list without logReader composes store-only
+  error"` is dropped as redundant; its store-only coverage is subsumed by
+  the consolidated wiring test above (no separate surviving owner beyond
+  that consolidated test).
 - `run-operator-error.test.ts` stays untouched — it remains the sole owner
   of the operator-error mapping matrix.
 

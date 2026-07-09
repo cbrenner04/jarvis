@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { connectIpcClient } from "../ipc/client.ts";
 import type { IpcFrame } from "../ipc/types.ts";
+import { DAEMON_SOCKET_PATH } from "../paths.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { createDeferredIpcClient, makeIpcClient } from "../testing/ipc-client-fake.ts";
@@ -31,7 +32,6 @@ if (socketProbeErrored) {
 }
 
 const UNREACHABLE_SOCKET_PATH = join(tmpdir(), `jarvis-tui-daemon-client-missing-${process.pid}.sock`);
-const DEFAULT_SOCKET_PATH = join(homedir(), ".jarvis", "daemon.sock");
 const socketTest = test.skipIf(!canUseUnixSockets());
 
 const HEALTH_REQUEST_ID = "00000000-0000-4000-8000-000000000001";
@@ -107,7 +107,7 @@ test("defaults socket path to ~/.jarvis/daemon.sock when omitted", async () => {
     await client.health();
     client.close();
   });
-  expect(seenPath).toBe(DEFAULT_SOCKET_PATH);
+  expect(seenPath).toBe(DAEMON_SOCKET_PATH);
 });
 
 test("health then status reuse one connection without reconnecting", async () => {

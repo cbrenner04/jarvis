@@ -1,7 +1,6 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import type { IpcFrame } from "../ipc/types.ts";
+import { DAEMON_SOCKET_PATH } from "../paths.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 import { TuiDaemonConnectionError } from "./tui-daemon-errors.ts";
 
@@ -31,8 +30,6 @@ export type ConnectTuiLogTailOptions = {
   /** Injectable IPC transport seam for tests and callers. */
   connectIpcClient?: (socketPath: string) => Promise<IpcClient>;
 };
-
-const DEFAULT_SOCKET_PATH = join(homedir(), ".jarvis", "daemon.sock");
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -93,7 +90,7 @@ async function readTailFrame(client: IpcClient): Promise<IpcFrame> {
  * @throws {TuiDaemonConnectionError} When the socket is unreachable before `stream-open`.
  */
 export async function connectTuiLogTail(runId: string, options?: ConnectTuiLogTailOptions): Promise<TuiLogTailClient> {
-  const socketPath = options?.socketPath ?? DEFAULT_SOCKET_PATH;
+  const socketPath = options?.socketPath ?? DAEMON_SOCKET_PATH;
   const connectFn = options?.connectIpcClient ?? connectIpcClient;
 
   let client: IpcClient;

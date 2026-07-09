@@ -58,17 +58,17 @@ A path typo in one site would silently diverge from the others.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/cli.ts`, `v2/src/tui/tui-log-tail-client.ts`,
+- [x] `v2/src/cli.ts`, `v2/src/tui/tui-log-tail-client.ts`,
       `v2/src/tui/tui-daemon-client.ts`, `v2/src/tui/tui-daemon-errors.ts`,
       and `v2/src/config/machine-config-loader.ts` each import their
       `~/.jarvis` path constant(s) from `v2/src/paths.ts` instead of
       redefining them.
-- [ ] `cli.test.ts`, `tui-log-tail-client.test.ts`, `tui-daemon-client.test.ts`,
+- [x] `cli.test.ts`, `tui-log-tail-client.test.ts`, `tui-daemon-client.test.ts`,
       and `machine-config-loader.test.ts` stay green (behavior unchanged by
       the extraction).
-- [ ] `paths.test.ts` asserts the literal values of `DAEMON_SOCKET_PATH`,
+- [x] `paths.test.ts` asserts the literal values of `DAEMON_SOCKET_PATH`,
       `DAEMON_PID_PATH`, `MACHINE_CONFIG_PATH`, and `DAEMON_SOCKET_DISPLAY`.
-- [ ] `bun run typecheck` passes.
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

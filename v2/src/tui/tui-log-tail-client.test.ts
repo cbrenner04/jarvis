@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTailStreamHandler } from "../daemon/daemon.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { type IpcServer, startIpcServer } from "../ipc/server.ts";
 import type { IpcFrame } from "../ipc/types.ts";
+import { DAEMON_SOCKET_PATH } from "../paths.ts";
 import { openLogReader, openLogSink, type PersistedRecord } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
@@ -14,7 +15,6 @@ import { connectTuiLogTail } from "./tui-log-tail-client.ts";
 
 const SOCKET_PATH = join(tmpdir(), `jarvis-tui-log-tail-${process.pid}.sock`);
 const UNREACHABLE_SOCKET_PATH = join(tmpdir(), `jarvis-tui-log-tail-missing-${process.pid}.sock`);
-const DEFAULT_SOCKET_PATH = join(homedir(), ".jarvis", "daemon.sock");
 const LOGS_PATH = join(tmpdir(), `jarvis-tui-log-tail-logs-${process.pid}.jsonl`);
 const STREAM_ID = "00000000-0000-4000-8000-000000000001";
 const socketTest = test.skipIf(!canUseUnixSockets());
@@ -223,7 +223,7 @@ test("defaults socket path to ~/.jarvis/daemon.sock when omitted", async () => {
     await collectRecords(tail);
     tail.close();
   });
-  expect(seenPath).toBe(DEFAULT_SOCKET_PATH);
+  expect(seenPath).toBe(DAEMON_SOCKET_PATH);
 });
 
 test("replays then follows records in server stream-data arrival order until benign stream-end", async () => {

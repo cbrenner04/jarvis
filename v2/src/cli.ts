@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
 import { createAgentBindings } from "../../shared/invocation/agents.ts";
@@ -23,6 +22,7 @@ import {
 import { buildWriteLoopInputFromCliValues, parseWriteArgs } from "./execution/write-loop-input.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import type { ErrorFrame, ResponseFrame } from "./ipc/types.ts";
+import { DAEMON_PID_PATH, DAEMON_SOCKET_PATH, MACHINE_CONFIG_PATH } from "./paths.ts";
 import { runTuiEntry } from "./tui/tui-entry.tsx";
 import { runTuiLogFollow } from "./tui/tui-log-follow-entry.tsx";
 import type { RunTuiLogFollowDeps } from "./tui/tui-log-follow-types.ts";
@@ -51,9 +51,6 @@ type CliDeps = {
 
 type WriteCliInput = { ok: true; input: WriteLoopInput } | { ok: false; message?: string };
 
-const DEFAULT_SOCKET_PATH = join(homedir(), ".jarvis", "daemon.sock");
-const DEFAULT_PID_PATH = join(homedir(), ".jarvis", "daemon.pid");
-const DEFAULT_MACHINE_CONFIG_PATH = join(homedir(), ".jarvis", "config.json");
 const DAEMON_USAGE = "usage: jarvis daemon <start|stop|status>\n";
 const CONFIG_USAGE = "usage: jarvis config <show|path|set-agents> [args]\n";
 const RUN_USAGE = "usage: jarvis run <start|list|log|pause|resume|kill|wait> [args]\n";
@@ -81,9 +78,9 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     runTuiLogFollow,
     buildImplementWorkflowSteps,
     cwd: () => process.cwd(),
-    socketPath: DEFAULT_SOCKET_PATH,
-    pidPath: DEFAULT_PID_PATH,
-    machineConfigPath: DEFAULT_MACHINE_CONFIG_PATH,
+    socketPath: DAEMON_SOCKET_PATH,
+    pidPath: DAEMON_PID_PATH,
+    machineConfigPath: MACHINE_CONFIG_PATH,
     ...deps,
   };
   const command = argv[0];

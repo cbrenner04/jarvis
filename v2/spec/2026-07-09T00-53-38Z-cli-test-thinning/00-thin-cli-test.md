@@ -43,21 +43,21 @@ the existing `run wait maps %p to exit %i` `test.each` table.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/cli.test.ts` no longer contains `"mints a different
+- [x] `v2/src/cli.test.ts` no longer contains `"mints a different
       operatorSessionId for each main() invocation"`.
-- [ ] `v2/src/cli.test.ts` no longer contains `"run wait returns immediately
+- [x] `v2/src/cli.test.ts` no longer contains `"run wait returns immediately
       for an already-quiescent run"`.
-- [ ] `v2/src/cli.test.ts` no longer contains `"run wait includes error in
+- [x] `v2/src/cli.test.ts` no longer contains `"run wait includes error in
       stdout JSON when daemon result carries error"`.
-- [ ] `v2/src/cli.test.ts` no longer contains `"run list prints daemon rows
+- [x] `v2/src/cli.test.ts` no longer contains `"run list prints daemon rows
       with liveness"`.
-- [ ] `v2/src/cli.test.ts` no longer contains `"run list prints error columns
+- [x] `v2/src/cli.test.ts` no longer contains `"run list prints error columns
       from daemon error when present"`.
-- [ ] `v2/src/cli.test.ts` no longer contains a `describe("simulated
+- [x] `v2/src/cli.test.ts` no longer contains a `describe("simulated
       bindings", ...)` block.
-- [ ] `bun test v2/src/cli.test.ts` passes with a lower test count than the
+- [x] `bun test v2/src/cli.test.ts` passes with a lower test count than the
       pre-change baseline, and every other test in the file is unchanged.
-- [ ] `daemon/daemon-wait-run-completion.test.ts` and
+- [x] `daemon/daemon-wait-run-completion.test.ts` and
       `daemon/daemon-start-list.test.ts` are unchanged and pass (wait
       semantics, list-row composition, and operator-error columns stay
       covered at the owning layer).

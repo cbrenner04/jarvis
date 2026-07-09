@@ -6,6 +6,7 @@ import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { connectIpcClient } from "../ipc/client.ts";
 import { startIpcServer } from "../ipc/server.ts";
+import type { Attempt, Run } from "../persistence/state-store.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import {
   listRuns,
@@ -17,7 +18,7 @@ import {
 } from "../testing/run-control.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import { createRunControlHandlers } from "./daemon.ts";
+import { createRunControlHandlers, stoppedOutcomeForRun } from "./daemon.ts";
 
 const socketTest = test.skipIf(!canUseUnixSockets());
 
@@ -37,6 +38,32 @@ async function killDirect(h: Handlers, runId: string) {
 
 async function resumeDirect(h: Handlers, params: { runId: string; decision?: string; prompt?: string }) {
   return h.resume({ kind: "request", id: "r1", method: "resume", params }, new AbortController().signal);
+}
+
+function runFixture(
+  status: Run["status"],
+  attempts: Array<Pick<Attempt, "outcomeKind">> = [],
+): Run & { attempts: Attempt[] } {
+  return {
+    id: "run-1",
+    project: "wf-outcomes",
+    specRef: "main",
+    createdAt: 0,
+    status,
+    attemptCount: attempts.length,
+    worktreePath: "/tmp/wf-outcomes",
+    branch: "wf-outcomes",
+    specPath: "/tmp/spec.md",
+    attempts: attempts.map((attempt, index) => ({
+      id: `attempt-${index}`,
+      runId: "run-1",
+      attemptNumber: index + 1,
+      startedAt: 0,
+      status: "completed",
+      outcomeKind: attempt.outcomeKind,
+      invocationFailureDetail: null,
+    })),
+  };
 }
 
 function workflowSnapshot(
@@ -400,114 +427,32 @@ test("list returns workflow step snapshots for live, stopped, and completed work
   });
 });
 
-test("list maps stopped workflow steps to budget-exhausted, paused, killed, and contract_miss outcomes", async () => {
-  const budgetRunId = stateStore.createRun({
-    project: "wf-outcomes",
-    specRef: "main",
-    worktreePath: "/tmp/wf-outcomes",
-    branch: "wf-budget",
-    specPath: "/tmp/spec.md",
-    stepId: "step-budget",
-    workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-budget", role: "implement" }),
-  });
-  stateStore.recordAttemptStart(budgetRunId);
-  stateStore.setRunStatus(budgetRunId, "budget-soft-stopped");
+test("stoppedOutcomeForRun maps blocked with a contract_miss attempt to contract_miss", () => {
+  expect(stoppedOutcomeForRun(runFixture("blocked", [{ outcomeKind: "contract_miss" }]))).toBe("contract_miss");
+});
 
-  const pausedRunId = stateStore.createRun({
-    project: "wf-outcomes",
-    specRef: "main",
-    worktreePath: "/tmp/wf-outcomes",
-    branch: "wf-paused",
-    specPath: "/tmp/spec.md",
-    stepId: "step-paused",
-    workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-paused", role: "implement" }),
-  });
-  stateStore.recordAttemptStart(pausedRunId);
-  stateStore.setRunStatus(pausedRunId, "paused");
+test("stoppedOutcomeForRun maps blocked without a contract_miss attempt to blocked", () => {
+  expect(stoppedOutcomeForRun(runFixture("blocked", [{ outcomeKind: "blocked" }]))).toBe("blocked");
+});
 
-  const killedRunId = stateStore.createRun({
-    project: "wf-outcomes",
-    specRef: "main",
-    worktreePath: "/tmp/wf-outcomes",
-    branch: "wf-killed",
-    specPath: "/tmp/spec.md",
-    stepId: "step-killed",
-    workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-killed", role: "implement" }),
-  });
-  stateStore.recordAttemptStart(killedRunId);
-  stateStore.setRunStatus(killedRunId, "killed");
+test("stoppedOutcomeForRun maps budget-soft-stopped to budget-exhausted", () => {
+  expect(stoppedOutcomeForRun(runFixture("budget-soft-stopped"))).toBe("budget-exhausted");
+});
 
-  const contractMissRunId = stateStore.createRun({
-    project: "wf-outcomes",
-    specRef: "main",
-    worktreePath: "/tmp/wf-outcomes",
-    branch: "wf-contract",
-    specPath: "/tmp/spec.md",
-    stepId: "step-contract",
-    workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-contract", role: "implement" }),
-  });
-  const contractMissAttemptId = stateStore.recordAttemptStart(contractMissRunId);
-  stateStore.commitCompletionBoundary({
-    attemptId: contractMissAttemptId,
-    runStatus: "blocked",
-    outcomeKind: "contract_miss",
-  });
+test("stoppedOutcomeForRun maps paused to paused", () => {
+  expect(stoppedOutcomeForRun(runFixture("paused"))).toBe("paused");
+});
 
-  const awaitingHumanRunId = stateStore.createRun({
-    project: "wf-outcomes",
-    specRef: "main",
-    worktreePath: "/tmp/wf-outcomes",
-    branch: "wf-human",
-    specPath: "/tmp/spec.md",
-    stepId: "step-human",
-    workflowSnapshot: workflowSnapshot("workflow-1", { stepId: "step-human", role: "implement" }),
-  });
-  stateStore.setRunStatus(awaitingHumanRunId, "awaiting-human");
+test("stoppedOutcomeForRun maps killed to killed", () => {
+  expect(stoppedOutcomeForRun(runFixture("killed"))).toBe("killed");
+});
 
-  const runs = await listRunsDirect(handlers);
-  expect(runs?.find((row) => row.runId === budgetRunId)?.workflow).toEqual({
-    steps: [
-      {
-        stepId: "step-budget",
-        role: "implement",
-        status: "stopped",
-        attemptCount: 1,
-        terminalOutcome: "budget-exhausted",
-      },
-    ],
-  });
-  expect(runs?.find((row) => row.runId === pausedRunId)?.workflow).toEqual({
-    steps: [
-      { stepId: "step-paused", role: "implement", status: "stopped", attemptCount: 1, terminalOutcome: "paused" },
-    ],
-  });
-  expect(runs?.find((row) => row.runId === killedRunId)?.workflow).toEqual({
-    steps: [
-      { stepId: "step-killed", role: "implement", status: "stopped", attemptCount: 1, terminalOutcome: "killed" },
-    ],
-  });
-  expect(runs?.find((row) => row.runId === contractMissRunId)?.workflow).toEqual({
-    steps: [
-      {
-        stepId: "step-contract",
-        role: "implement",
-        status: "stopped",
-        attemptCount: 1,
-        terminalOutcome: "contract_miss",
-      },
-    ],
-  });
-  expect(runs?.find((row) => row.runId === awaitingHumanRunId)?.workflow).toEqual({
-    steps: [
-      {
-        stepId: "step-human",
-        role: "implement",
-        status: "stopped",
-        attemptCount: 0,
-        terminalOutcome: "awaiting-human",
-      },
-    ],
-  });
+test("stoppedOutcomeForRun maps awaiting-human to awaiting-human", () => {
+  expect(stoppedOutcomeForRun(runFixture("awaiting-human"))).toBe("awaiting-human");
+});
+
+test("stoppedOutcomeForRun falls back to invocation_failure for any other status", () => {
+  expect(stoppedOutcomeForRun(runFixture("failed"))).toBe("invocation_failure");
 });
 
 test("list builds a review-debate row from the live role pointer while in progress", async () => {
@@ -722,89 +667,6 @@ test("list includes error on terminal rows and omits it on in-progress and compl
   runs = await listRunsDirect(handlers);
   const completed = runs?.find((candidate) => candidate.runId === runId);
   expect(completed?.error).toBeUndefined();
-
-  const pausedRunId = stateStore.createRun({
-    project: "terminal-project",
-    specRef: "main",
-    worktreePath: "/tmp/paused",
-    branch: "paused-branch",
-    specPath: "/tmp/spec.md",
-  });
-  stateStore.setRunStatus(pausedRunId, "paused");
-
-  const budgetRunId = stateStore.createRun({
-    project: "terminal-project",
-    specRef: "main",
-    worktreePath: "/tmp/budget",
-    branch: "budget-branch",
-    specPath: "/tmp/spec.md",
-  });
-  stateStore.setRunStatus(budgetRunId, "budget-soft-stopped");
-
-  const blockedRunId = stateStore.createRun({
-    project: "terminal-project",
-    specRef: "main",
-    worktreePath: "/tmp/blocked",
-    branch: "blocked-branch",
-    specPath: "/tmp/spec.md",
-  });
-  stateStore.setRunStatus(blockedRunId, "blocked");
-  const blockedAttemptId = stateStore.recordAttemptStart(blockedRunId);
-  stateStore.commitCompletionBoundary({
-    attemptId: blockedAttemptId,
-    runStatus: "blocked",
-    outcomeKind: "blocked",
-  });
-
-  const failedRunId = stateStore.createRun({
-    project: "terminal-project",
-    specRef: "main",
-    worktreePath: "/tmp/failed",
-    branch: "failed-branch",
-    specPath: "/tmp/spec.md",
-  });
-  stateStore.setRunStatus(failedRunId, "failed");
-
-  runs = await listRunsDirect(handlers);
-  expect(runs?.find((row) => row.runId === pausedRunId)?.error).toEqual({
-    reason: "resumable_pause",
-    retryable: true,
-    nextAction: "resume",
-  });
-  expect(runs?.find((row) => row.runId === budgetRunId)?.error).toEqual({
-    reason: "resumable_budget",
-    retryable: true,
-    nextAction: "resume",
-  });
-  expect(runs?.find((row) => row.runId === blockedRunId)?.error).toEqual({
-    reason: "agent_blocked",
-    retryable: false,
-    nextAction: "inspect_spec",
-  });
-  expect(runs?.find((row) => row.runId === failedRunId)?.error).toEqual({
-    reason: "harness_failure",
-    retryable: false,
-    nextAction: "stop",
-  });
-});
-
-test("list without logReader composes store-only error", async () => {
-  const pausedRunId = stateStore.createRun({
-    project: "paused-project",
-    specRef: "main",
-    worktreePath: "/tmp/paused",
-    branch: "paused-branch",
-    specPath: "/tmp/spec.md",
-  });
-  stateStore.setRunStatus(pausedRunId, "paused");
-
-  const runs = await listRunsDirect(handlers);
-  const paused = runs?.find((candidate) => candidate.runId === pausedRunId);
-  expect(paused?.error).toEqual({
-    reason: "resumable_pause",
-    retryable: true,
-    nextAction: "resume",
-  });
 });
 
 test("kill aborts an active run and records killed status", async () => {
@@ -987,17 +849,4 @@ test("resume rejects worktree_claimed when the (project, branch) is already live
   if (resumeResponse.kind === "error") {
     expect(resumeResponse.code).toBe("worktree_claimed");
   }
-});
-
-test("kill aborts the abort signal that bindings can observe", async () => {
-  const runId = await startRunDirect(handlers);
-  if (!runId) return;
-
-  const killResponse = await killDirect(handlers, runId);
-  expect(killResponse.kind).toBe("response");
-  expect(fakeExecutor.isAbortSignalTriggered()).toBe(true);
-
-  const runs = await listRunsDirect(handlers);
-  const run = runs?.find((candidate) => candidate.runId === runId);
-  expect(run?.status).toBe("killed");
 });

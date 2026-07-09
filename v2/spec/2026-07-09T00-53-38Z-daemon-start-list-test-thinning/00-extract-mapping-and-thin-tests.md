@@ -53,28 +53,28 @@ mapping matrix already owned by `run-operator-error.test.ts`.
 
 ## Acceptance criteria
 
-- [ ] `stoppedOutcomeForRun` is exported from `v2/src/daemon/daemon.ts` and
+- [x] `stoppedOutcomeForRun` is exported from `v2/src/daemon/daemon.ts` and
       has direct unit test coverage in `daemon-start-list.test.ts` for every
       branch: `blocked`+`contract_miss`, `blocked` without `contract_miss`,
       `budget-soft-stopped`, `paused`, `killed`, `awaiting-human`, and the
       `invocation_failure` fallback.
-- [ ] `daemon-start-list.test.ts` retains exactly one composed test proving
+- [x] `daemon-start-list.test.ts` retains exactly one composed test proving
       the run/step-status → `terminalOutcome` mapping wired end-to-end
       through `list` (`"list returns workflow step snapshots for live,
       stopped, and completed workflow-backed runs"`).
-- [ ] `"kill aborts the abort signal that bindings can observe"` no longer
+- [x] `"kill aborts the abort signal that bindings can observe"` no longer
       exists in `daemon-start-list.test.ts`; `"kill aborts an active run and
       records killed status"` still passes.
-- [ ] `daemon-start-list.test.ts` contains exactly one operator-error wiring
+- [x] `daemon-start-list.test.ts` contains exactly one operator-error wiring
       test (proving `list` attaches/omits `error` via `composeRunOperatorError`
       on terminal vs. live/completed rows); the enumerated
       paused/budget/blocked/failed reason matrix and the separate
       no-logReader test are gone.
-- [ ] `run-operator-error.test.ts` is byte-for-byte unchanged (`git diff
+- [x] `run-operator-error.test.ts` is byte-for-byte unchanged (`git diff
       --stat` shows no entry for that path).
-- [ ] `bun test v2/src/daemon/daemon-start-list.test.ts
+- [x] `bun test v2/src/daemon/daemon-start-list.test.ts
       v2/src/daemon/run-operator-error.test.ts` and `bun run typecheck` pass.
-- [ ] PR body states the test-count diff vs. baseline for
+- [x] PR body states the test-count diff vs. baseline for
       `daemon-start-list.test.ts` and names, for every dropped test, the
       test that now owns its coverage.
 

@@ -46,6 +46,11 @@ dead code. Separately, `buildWriteLoopInputFromCliValues` parses
       `buildWriteLoopInputFromCliValues` result to the new no-message shape
       (still returns `{ ok: false, message }` for the unrelated
       machine-config load failure).
+- [ ] `cli.test.ts` gets a new test, alongside "missing required write args
+      prints usage and exits 1", that runs the CLI with an invalid
+      (non-positive, non-integer) `--max-iterations` value and asserts exit 1
+      with stderr exactly `usage: jarvis write ...` text and no other
+      message.
 
 ## Acceptance criteria
 
@@ -55,7 +60,8 @@ dead code. Separately, `buildWriteLoopInputFromCliValues` parses
       and exits 1").
 - [ ] `jarvis write` / `jarvis run start` with an invalid (non-positive,
       non-integer) `--max-iterations` value exits 1 and prints
-      `usage: jarvis write ...` on stderr, with no other message.
+      `usage: jarvis write ...` on stderr, with no other message (see new
+      `cli.test.ts` invalid-`--max-iterations` test above).
 - [ ] `write-loop-input.test.ts` and `cli.test.ts` stay green.
 - [ ] No call site parses a raw `max-iterations` CLI value more than once
       (verified by reading `buildWriteLoopInputFromCliValues` — a single

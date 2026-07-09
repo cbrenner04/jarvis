@@ -234,6 +234,42 @@ test("wait returns durable terminal status only when no terminal log signal exis
   });
 });
 
+test("close() rejects an in-flight wait", async () => {
+  const runId = createRun();
+  const pending = waitDirect("wait", runId);
+
+  await sleep(25);
+  handlers.close();
+
+  await expect(pending).rejects.toThrow();
+  expect(stateStore.loadRun(runId)?.status).toBe("in-progress");
+});
+
+test("normal wait completions leave nothing for close() to abort", async () => {
+  const originalAbort = AbortController.prototype.abort;
+  let abortCalls = 0;
+  AbortController.prototype.abort = function (...args: Parameters<typeof originalAbort>) {
+    abortCalls++;
+    return originalAbort.apply(this, args);
+  };
+
+  try {
+    for (let i = 0; i < 3; i++) {
+      const runId = createRun();
+      const pending = waitDirect(`w${i}`, runId);
+      await sleep(10);
+      finishLoop(runId, "completed", 1);
+      await expectResponse(await pending);
+    }
+
+    abortCalls = 0;
+    handlers.close();
+    expect(abortCalls).toBe(0);
+  } finally {
+    AbortController.prototype.abort = originalAbort;
+  }
+});
+
 test("existing start/list behavior stays unchanged", async () => {
   const start = await handlers.start(
     { kind: "request", id: "start", method: "start", params: { input: input() } },

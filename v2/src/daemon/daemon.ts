@@ -286,19 +286,6 @@ export type WaitRunCompletionResult = {
   error?: RunOperatorError;
 };
 
-type Waiter = {
-  minSeq: number;
-  resolve: (value: WaitRunCompletionResult) => void;
-  reject: (reason: unknown) => void;
-  signal: AbortSignal;
-  abortListener: () => void;
-};
-
-type WaitFanout = {
-  controller: AbortController;
-  waiters: Set<Waiter>;
-};
-
 type LoadedRun = NonNullable<ReturnType<StateStore["loadRun"]>>;
 
 type WorkflowStepListStatus = "pending" | "in_progress" | "completed" | "stopped";
@@ -473,7 +460,7 @@ export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDel
 export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const _registry = new WorktreeOwnershipRegistry();
   const activeRuns = new Map<string, ActiveRun>();
-  const waitFanouts = new Map<string, WaitFanout>();
+  const waitAbortControllers = new Set<AbortController>();
   /**
    * Live/terminal role progress for `review-debate` steps, keyed by `invocationId` then
    * `stepId` — mirroring `runsByWorkflowInvocation`'s scoping so two concurrent invocations
@@ -505,57 +492,6 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
           }
         : { runStatus };
     return error === undefined ? base : { ...base, error };
-  };
-
-  const detachWaiter = (runId: string, waiter: Waiter): void => {
-    waiter.signal.removeEventListener("abort", waiter.abortListener);
-    const fanout = waitFanouts.get(runId);
-    if (!fanout) return;
-    fanout.waiters.delete(waiter);
-    if (fanout.waiters.size === 0) {
-      fanout.controller.abort();
-      waitFanouts.delete(runId);
-    }
-  };
-
-  const resolveWaiters = (runId: string, record: TerminalLogRecord): void => {
-    const fanout = waitFanouts.get(runId);
-    if (!fanout) return;
-    const run = store.loadRun(runId);
-    const runStatus = run?.status ?? "failed";
-    for (const waiter of Array.from(fanout.waiters)) {
-      if (record.seq <= waiter.minSeq) continue;
-      detachWaiter(runId, waiter);
-      waiter.resolve(resultFrom(runId, runStatus, record));
-    }
-  };
-
-  const ensureWaitFanout = (runId: string): WaitFanout => {
-    const existing = waitFanouts.get(runId);
-    if (existing) return existing;
-
-    const fanout: WaitFanout = { controller: new AbortController(), waiters: new Set() };
-    waitFanouts.set(runId, fanout);
-    (async () => {
-      try {
-        if (!logReader) return;
-        for await (const record of logReader.follow(runId, fanout.controller.signal)) {
-          if (record.event.kind === "loop_finished" || record.event.kind === "run_execution_failed") {
-            resolveWaiters(runId, record as TerminalLogRecord);
-          }
-          if (fanout.waiters.size === 0) break;
-        }
-      } catch (err) {
-        for (const waiter of Array.from(fanout.waiters)) {
-          detachWaiter(runId, waiter);
-          waiter.reject(err);
-        }
-      } finally {
-        fanout.controller.abort();
-        waitFanouts.delete(runId);
-      }
-    })();
-    return fanout;
   };
 
   const spawnWriteLoop = (key: OwnershipKey, runId: string, worktreePath: string, input: WriteLoopInput): void => {
@@ -1128,27 +1064,27 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       return { kind: "response", result: resultFrom(runId, run.status, findTerminalLogRecord(records)) };
     }
 
-    return {
-      kind: "response",
-      result: await new Promise<WaitRunCompletionResult>((resolve, reject) => {
-        const waiter: Waiter = {
-          minSeq: subscribeSeq,
-          resolve,
-          reject,
-          signal,
-          abortListener: () => {
-            detachWaiter(runId, waiter);
-            reject(new Error("wait aborted"));
-          },
-        };
-        if (signal.aborted) {
-          reject(new Error("wait aborted"));
-          return;
-        }
-        signal.addEventListener("abort", waiter.abortListener, { once: true });
-        ensureWaitFanout(runId).waiters.add(waiter);
-      }),
-    };
+    const followController = new AbortController();
+    waitAbortControllers.add(followController);
+    const onExternalAbort = () => followController.abort();
+    signal.addEventListener("abort", onExternalAbort, { once: true });
+
+    try {
+      if (signal.aborted) {
+        throw new Error("wait aborted");
+      }
+      for await (const record of logReader.follow(runId, followController.signal)) {
+        if (record.seq <= subscribeSeq) continue;
+        if (record.event.kind !== "loop_finished" && record.event.kind !== "run_execution_failed") continue;
+        const terminalRecord = record as TerminalLogRecord;
+        const runStatus = store.loadRun(runId)?.status ?? "failed";
+        return { kind: "response", result: resultFrom(runId, runStatus, terminalRecord) };
+      }
+      throw new Error("wait aborted");
+    } finally {
+      signal.removeEventListener("abort", onExternalAbort);
+      waitAbortControllers.delete(followController);
+    }
   };
 
   return {
@@ -1167,12 +1103,12 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       }
       steps.set(stepId, progress);
     },
-    /** Aborts every live wait fanout so its `follow()` loop unwinds. */
+    /** Aborts every in-flight `wait` follow loop so it unwinds. */
     close: (): void => {
-      for (const fanout of waitFanouts.values()) {
-        fanout.controller.abort();
+      for (const controller of waitAbortControllers) {
+        controller.abort();
       }
-      waitFanouts.clear();
+      waitAbortControllers.clear();
     },
   };
 }

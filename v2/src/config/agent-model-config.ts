@@ -179,7 +179,6 @@ function loadJsonFile(filePath: string, errors: string[]): unknown {
 export function validateAgentModelConfig(jsonData: unknown, agents: readonly string[]): AgentModelConfig | LoadError {
   const errors: string[] = [];
 
-  // Check for duplicate agent names
   const agentSet = new Set<string>();
   for (const agent of agents) {
     if (agentSet.has(agent)) {
@@ -188,7 +187,6 @@ export function validateAgentModelConfig(jsonData: unknown, agents: readonly str
     agentSet.add(agent);
   }
 
-  // Check for object top level
   if (!isObject(jsonData)) {
     errors.push("config file must be a JSON object");
     return { errors };
@@ -196,7 +194,6 @@ export function validateAgentModelConfig(jsonData: unknown, agents: readonly str
 
   const config: Record<string, ModelsByRole> = {};
 
-  // Validate each project-configured agent
   for (const agent of agents) {
     const agentEntry = jsonData[agent];
 

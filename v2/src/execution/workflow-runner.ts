@@ -105,13 +105,10 @@ export type ReviewDebateProgress =
 /** One authored workflow step with durable run identity, dispatched on `behavior` at execution. */
 export type WorkflowStep = WriteWorkflowStep | HumanWorkflowStep;
 
-/** Any dispatchable workflow step, discriminated by `behavior`. */
 export type AnyWorkflowStep = WorkflowStep | ReviewDebateWorkflowStep;
 
-/** Authoring input for a workflow step, identical in shape to `AnyWorkflowStep`. */
 export type WorkflowStepInput = AnyWorkflowStep;
 
-/** Result of a workflow invocation. */
 export type WorkflowResult = {
   kind: WriteLoopOutcomeKind | "awaiting-human" | "revising";
   stepIndex: number;
@@ -121,7 +118,6 @@ export type WorkflowResult = {
   resumable: boolean;
 };
 
-/** Input for the workflow runner. */
 export type WorkflowRunnerInput = {
   steps: AnyWorkflowStep[];
   stateStore?: StateStore;

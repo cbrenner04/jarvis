@@ -15,16 +15,16 @@ Sweep the rest of `v2/src` (outside the files covered by subspecs 00-02) against
 
 ## Task checklist
 
-- [ ] Walk each non-test `.ts`/`.tsx` file under `v2/src` excluding `tui-monitor-types.ts`, `tui-daemon-client.ts`, `daemon.ts`, and `log-stream.ts`.
-- [ ] Trim comments restating names/types/bodies per the tiering rule; leave ambiguous cases untouched.
-- [ ] Confirm every keep-list comment above is present, unmodified.
+- [x] Walk each non-test `.ts`/`.tsx` file under `v2/src` excluding `tui-monitor-types.ts`, `tui-daemon-client.ts`, `daemon.ts`, and `log-stream.ts`.
+- [x] Trim comments restating names/types/bodies per the tiering rule; leave ambiguous cases untouched.
+- [x] Confirm every keep-list comment above is present, unmodified.
 
 ## Acceptance criteria
 
-- [ ] `bun run typecheck` passes with no signature changes anywhere in `v2/src`.
-- [ ] `bun run test:v2` and `bun run test:integration:v2` stay green (behavior unchanged).
-- [ ] Every keep-list comment (snapshot-grafting guard, telemetry-presence rule, review-debate read-only convention, revision-inactive-statuses rationale) is present, unmodified.
-- [ ] `git diff` for this subspec's touched files excludes `tui-monitor-types.ts`, `tui-daemon-client.ts`, `daemon.ts`, `log-stream.ts`, and touches only comment/whitespace lines elsewhere.
+- [x] `bun run typecheck` passes with no signature changes anywhere in `v2/src`.
+- [x] `bun run test:v2` and `bun run test:integration:v2` stay green (behavior unchanged).
+- [x] Every keep-list comment (snapshot-grafting guard, telemetry-presence rule, review-debate read-only convention, revision-inactive-statuses rationale) is present, unmodified.
+- [x] `git diff` for this subspec's touched files excludes `tui-monitor-types.ts`, `tui-daemon-client.ts`, `daemon.ts`, `log-stream.ts`, and touches only comment/whitespace lines elsewhere.
 
 ## Documentation updates
 

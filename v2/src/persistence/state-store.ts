@@ -6,7 +6,6 @@ import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { InvocationFailureDetail } from "../execution/invocation-failure.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 
-/** Status values for a run. */
 export const RUN_STATUSES = [
   "in-progress",
   "completed",

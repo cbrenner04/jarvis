@@ -15,7 +15,6 @@ import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";
 
-/** Classification of a loop outcome. */
 const WRITE_LOOP_OUTCOME_KINDS = [
   "complete",
   "progress",
@@ -34,7 +33,6 @@ export function isWriteLoopOutcomeKind(value: unknown): value is WriteLoopOutcom
   return typeof value === "string" && writeLoopOutcomeKindSet.has(value);
 }
 
-/** Result of a write loop invocation. */
 export type WriteLoopResult = {
   kind: WriteLoopOutcomeKind;
   runId: string;

@@ -23,7 +23,6 @@ export type ReviewDebateRoleBindings = {
   actuator: readonly InvocationBinding[];
 };
 
-/** Outcome for one review-debate cycle. */
 type ReviewDebateCycleOutcome = {
   roleResults: Partial<Record<ReviewDebateRole, InvocationExecution>>;
 } & (

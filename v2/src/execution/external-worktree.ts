@@ -14,13 +14,11 @@ export type ExternalWorktreeInput = {
   jarvisRoot?: string;
 };
 
-/** Materialized external worktree metadata. */
 export type ExternalWorktree = {
   path: string;
   reused: boolean;
 };
 
-/** Lock acquisition outcome. */
 export type LockStatus = { kind: "acquired" } | { kind: "recovered"; stalepid: number };
 
 /** Raised when the lock is held by a live process. */

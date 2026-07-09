@@ -3,12 +3,12 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { join } from "node:path";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
 import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
-import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
 import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./write.ts";
-import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
+import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "./write-loop.ts";
 
 const { roots } = trackedTempRoots();
 
@@ -547,28 +547,6 @@ describe("write loop", () => {
     expect(result.kind).toBe("budget-exhausted");
   });
 
-  test("cancellation propagates via AbortSignal", async () => {
-    const { jarvisRoot, stateDbPath } = createJarvisHome();
-    const controller = new AbortController();
-    let calls = 0;
-    const bindings: InvocationBinding[] = [
-      {
-        id: "track",
-        invoke: async () => {
-          calls += 1;
-          if (calls > 1) controller.abort();
-          return { kind: "ok", stdout: "progress", stderr: "" };
-        },
-      },
-    ];
-
-    const result = await runLoop({ jarvisRoot, stateDbPath, bindings, signal: controller.signal });
-
-    expect(result.kind).toBe("progress");
-    expect(result.iterationsConsumed).toBe(2);
-    expect(result.resumable).toBe(true);
-  });
-
   test("each iteration persists through state store boundary", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
 
@@ -579,8 +557,9 @@ describe("write loop", () => {
     expect(run?.attempts.length).toBe(3);
   });
 
-  test("re-invoking an interrupted run re-runs that iteration over the dirty worktree", async () => {
+  test("re-invoking an interrupted run re-runs that iteration over the dirty worktree, emitting a fresh iteration_started for the interrupted attempt", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
     const dirtiedMarker = "dirty.txt";
     let firstRunCalls = 0;
     const crashBindings: InvocationBinding[] = [
@@ -594,9 +573,9 @@ describe("write loop", () => {
       },
     ];
 
-    await expect(runLoop({ jarvisRoot, stateDbPath, bindings: crashBindings, maxIterations: 1 })).rejects.toThrow(
-      "simulated crash",
-    );
+    await expect(
+      runLoop({ jarvisRoot, stateDbPath, bindings: crashBindings, maxIterations: 1, logSink: sink }),
+    ).rejects.toThrow("simulated crash");
     expect(firstRunCalls).toBe(1);
 
     let resumedCalls = 0;
@@ -612,7 +591,13 @@ describe("write loop", () => {
       },
     ];
 
-    const resumed = await runLoop({ jarvisRoot, stateDbPath, bindings: resumeBindings, maxIterations: 1 });
+    const resumed = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings: resumeBindings,
+      maxIterations: 1,
+      logSink: sink,
+    });
 
     expect(resumed.kind).toBe("complete");
     expect(resumed.iterationsConsumed).toBe(1);
@@ -622,6 +607,20 @@ describe("write loop", () => {
     expect(run?.attemptCount).toBe(1);
     expect(run?.attempts).toHaveLength(1);
     expect(run?.attempts[0]?.outcomeKind).toBe("done");
+
+    const events = sink.getEventsForRun(resumed.runId);
+    // Should have: iteration_started (from first crash), iteration_started (from retry), boundary_committed, loop_finished
+    expect(events.length).toBe(4);
+    expect(events[0]?.kind).toBe("iteration_started");
+    expect(events[1]?.kind).toBe("iteration_started");
+    expect(events[2]?.kind).toBe("boundary_committed");
+    expect(events[3]?.kind).toBe("loop_finished");
+
+    const firstAttemptId = events[0]?.kind === "iteration_started" ? events[0].attemptId : undefined;
+    const resumedAttemptId = events[1]?.kind === "iteration_started" ? events[1].attemptId : undefined;
+    expect(firstAttemptId).toBeDefined();
+    expect(resumedAttemptId).toBeDefined();
+    expect(resumedAttemptId).toBe(firstAttemptId);
   });
 
   test("a budget-soft-stopped run resumes with a fresh per-invocation budget", async () => {
@@ -698,8 +697,9 @@ describe("write loop", () => {
     expect(first.runId).not.toBe(second.runId);
   });
 
-  test("re-running a boundary that fails mid-transaction retries the same attempt without duplicate history", async () => {
+  test("re-running a boundary that fails mid-transaction retries the same attempt without duplicate history, emitting matching events", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
     let firstInvocationCalls = 0;
     const completeBindings: InvocationBinding[] = [
       {
@@ -719,6 +719,7 @@ describe("write loop", () => {
         bindings: completeBindings,
         store: crashOnceMidBoundary(openStateStore(stateDbPath)),
         maxIterations: 1,
+        logSink: sink,
       }),
     ).rejects.toThrow("crash mid-boundary");
     expect(firstInvocationCalls).toBe(1);
@@ -737,6 +738,7 @@ describe("write loop", () => {
         },
       ],
       maxIterations: 1,
+      logSink: sink,
     });
 
     expect(resumed.kind).toBe("complete");
@@ -746,6 +748,20 @@ describe("write loop", () => {
     const run = loadRunOnce(stateDbPath, resumed.runId);
     expect(run?.attemptCount).toBe(1);
     expect(run?.attempts).toHaveLength(1);
+
+    const events = sink.getEventsForRun(resumed.runId);
+    // Should have: iteration_started (failed), iteration_started (retry with same attemptId), boundary_committed (success), loop_finished
+    expect(events.length).toBe(4);
+    expect(events[0]?.kind).toBe("iteration_started");
+    expect(events[1]?.kind).toBe("iteration_started");
+    expect(events[2]?.kind).toBe("boundary_committed");
+    expect(events[3]?.kind).toBe("loop_finished");
+
+    const firstAttemptId = events[0]?.kind === "iteration_started" ? events[0].attemptId : undefined;
+    const retryAttemptId = events[1]?.kind === "iteration_started" ? events[1].attemptId : undefined;
+    expect(firstAttemptId).toBeDefined();
+    expect(retryAttemptId).toBeDefined();
+    expect(retryAttemptId).toBe(firstAttemptId);
   });
 
   test("resume rebuilds a missing worktree from the branch", async () => {
@@ -802,91 +818,77 @@ describe("write loop", () => {
     expect(events[6]?.kind === "loop_finished" && events[6].iterationsConsumed).toBe(3);
   });
 
-  test("terminal boundary_committed and loop_finished payloads match terminalMapping for blocked outcome", async () => {
-    const { jarvisRoot, stateDbPath } = createJarvisHome();
-    const sink = new TestLogSink();
+  test("terminal boundary_committed and loop_finished payloads match terminalMapping for each outcome", async () => {
+    const cases: Array<{
+      label: string;
+      bindings: readonly InvocationBinding[];
+      expectedResultKind: WriteLoopOutcomeKind;
+      expectedBoundaryOutcomeKind: OutcomeKind;
+      expectedBoundaryRunStatus?: RunStatus;
+      expectedFinishedOutcomeKind: WriteLoopOutcomeKind;
+    }> = [
+      {
+        label: "blocked",
+        bindings: simulatedBindings(["blocked"]),
+        expectedResultKind: "blocked",
+        expectedBoundaryOutcomeKind: "blocked",
+        expectedBoundaryRunStatus: "blocked",
+        expectedFinishedOutcomeKind: "blocked",
+      },
+      {
+        label: "contract_miss",
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: false }),
+        expectedResultKind: "contract_miss",
+        expectedBoundaryOutcomeKind: "contract_miss",
+        expectedBoundaryRunStatus: "blocked",
+        expectedFinishedOutcomeKind: "contract_miss",
+      },
+      {
+        label: "invocation_failure",
+        bindings: simulatedBindings(["quota", "quota"]),
+        expectedResultKind: "invocation_failure",
+        expectedBoundaryOutcomeKind: "invocation_failure",
+        expectedBoundaryRunStatus: "failed",
+        expectedFinishedOutcomeKind: "invocation_failure",
+      },
+      {
+        label: "no-work",
+        bindings: simulatedBindings(["no-work"], { artifactPath: "proof.txt", emitArtifact: true }),
+        expectedResultKind: "complete",
+        expectedBoundaryOutcomeKind: "no-work",
+        expectedFinishedOutcomeKind: "complete",
+      },
+    ];
 
-    const result = await runLoop({
-      jarvisRoot,
-      stateDbPath,
-      bindings: simulatedBindings(["blocked"]),
-      logSink: sink,
-    });
+    for (const testCase of cases) {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const sink = new TestLogSink();
 
-    expect(result.kind).toBe("blocked");
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: testCase.bindings,
+        logSink: sink,
+      });
 
-    const events = sink.getEventsForRun(result.runId);
-    const boundaryEvent = events[1];
-    expect(boundaryEvent?.kind === "boundary_committed" && boundaryEvent.outcomeKind).toBe("blocked");
-    expect(boundaryEvent?.kind === "boundary_committed" && boundaryEvent.runStatus).toBe("blocked");
+      expect(result.kind).toBe(testCase.expectedResultKind);
 
-    const finishedEvent = events[2];
-    expect(finishedEvent?.kind === "loop_finished" && finishedEvent.loopOutcomeKind).toBe("blocked");
-  });
+      const events = sink.getEventsForRun(result.runId);
+      const boundaryEvent = events[1];
+      expect(boundaryEvent?.kind === "boundary_committed" && boundaryEvent.outcomeKind).toBe(
+        testCase.expectedBoundaryOutcomeKind,
+      );
+      if (testCase.expectedBoundaryRunStatus) {
+        expect(boundaryEvent?.kind === "boundary_committed" && boundaryEvent.runStatus).toBe(
+          testCase.expectedBoundaryRunStatus,
+        );
+      }
 
-  test("terminal boundary_committed and loop_finished payloads match terminalMapping for contract_miss outcome", async () => {
-    const { jarvisRoot, stateDbPath } = createJarvisHome();
-    const sink = new TestLogSink();
-
-    const result = await runLoop({
-      jarvisRoot,
-      stateDbPath,
-      bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: false }),
-      logSink: sink,
-    });
-
-    expect(result.kind).toBe("contract_miss");
-
-    const events = sink.getEventsForRun(result.runId);
-    const boundaryEvent = events[1];
-    expect(boundaryEvent?.kind === "boundary_committed" && boundaryEvent.outcomeKind).toBe("contract_miss");
-    expect(boundaryEvent?.kind === "boundary_committed" && boundaryEvent.runStatus).toBe("blocked");
-
-    const finishedEvent = events[2];
-    expect(finishedEvent?.kind === "loop_finished" && finishedEvent.loopOutcomeKind).toBe("contract_miss");
-  });
-
-  test("terminal boundary_committed and loop_finished payloads match terminalMapping for invocation_failure outcome", async () => {
-    const { jarvisRoot, stateDbPath } = createJarvisHome();
-    const sink = new TestLogSink();
-
-    const result = await runLoop({
-      jarvisRoot,
-      stateDbPath,
-      bindings: simulatedBindings(["quota", "quota"]),
-      logSink: sink,
-    });
-
-    expect(result.kind).toBe("invocation_failure");
-
-    const events = sink.getEventsForRun(result.runId);
-    const boundaryEvent = events[1];
-    expect(boundaryEvent?.kind === "boundary_committed" && boundaryEvent.outcomeKind).toBe("invocation_failure");
-    expect(boundaryEvent?.kind === "boundary_committed" && boundaryEvent.runStatus).toBe("failed");
-
-    const finishedEvent = events[2];
-    expect(finishedEvent?.kind === "loop_finished" && finishedEvent.loopOutcomeKind).toBe("invocation_failure");
-  });
-
-  test("terminal boundary_committed and loop_finished payloads match terminalMapping for no-work outcome", async () => {
-    const { jarvisRoot, stateDbPath } = createJarvisHome();
-    const sink = new TestLogSink();
-
-    const result = await runLoop({
-      jarvisRoot,
-      stateDbPath,
-      bindings: simulatedBindings(["no-work"], { artifactPath: "proof.txt", emitArtifact: true }),
-      logSink: sink,
-    });
-
-    expect(result.kind).toBe("complete");
-
-    const events = sink.getEventsForRun(result.runId);
-    const boundaryEvent = events[1];
-    expect(boundaryEvent?.kind === "boundary_committed" && boundaryEvent.outcomeKind).toBe("no-work");
-
-    const finishedEvent = events[2];
-    expect(finishedEvent?.kind === "loop_finished" && finishedEvent.loopOutcomeKind).toBe("complete");
+      const finishedEvent = events[2];
+      expect(finishedEvent?.kind === "loop_finished" && finishedEvent.loopOutcomeKind).toBe(
+        testCase.expectedFinishedOutcomeKind,
+      );
+    }
   });
 
   test("budget soft-stop emits no terminal boundary_committed; last boundary has progress outcome", async () => {
@@ -950,133 +952,7 @@ describe("write loop", () => {
     expect(allEvents.length).toBe(6);
   });
 
-  test("kill/crash resume re-run emits a fresh iteration_started for the interrupted attempt", async () => {
-    const { jarvisRoot, stateDbPath } = createJarvisHome();
-    const sink = new TestLogSink();
-    const dirtiedMarker = "dirty.txt";
-    let _firstRunCalls = 0;
-    const crashBindings: InvocationBinding[] = [
-      {
-        id: "agent",
-        invoke: async ({ cwd }) => {
-          _firstRunCalls += 1;
-          writeFileSync(join(cwd, dirtiedMarker), "dirty\n", "utf8");
-          throw new Error("simulated crash");
-        },
-      },
-    ];
-
-    await expect(
-      runLoop({
-        jarvisRoot,
-        stateDbPath,
-        bindings: crashBindings,
-        maxIterations: 1,
-        logSink: sink,
-      }),
-    ).rejects.toThrow("simulated crash");
-
-    let resumedCalls = 0;
-    const resumeBindings: InvocationBinding[] = [
-      {
-        id: "agent",
-        invoke: async ({ cwd }) => {
-          resumedCalls += 1;
-          writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
-          return { kind: "ok", stdout: "done", stderr: "" };
-        },
-      },
-    ];
-
-    const resumed = await runLoop({
-      jarvisRoot,
-      stateDbPath,
-      bindings: resumeBindings,
-      maxIterations: 1,
-      logSink: sink,
-    });
-
-    expect(resumed.kind).toBe("complete");
-    expect(resumedCalls).toBe(1);
-
-    const events = sink.getEventsForRun(resumed.runId);
-    // Should have: iteration_started (from first crash), iteration_started (from retry), boundary_committed, loop_finished
-    expect(events.length).toBe(4);
-    expect(events[0]?.kind).toBe("iteration_started");
-    expect(events[1]?.kind).toBe("iteration_started");
-    expect(events[2]?.kind).toBe("boundary_committed");
-    expect(events[3]?.kind).toBe("loop_finished");
-
-    // Verify same attemptId across the crash and resume
-    const firstAttemptId = events[0]?.kind === "iteration_started" ? events[0].attemptId : undefined;
-    const resumedAttemptId = events[1]?.kind === "iteration_started" ? events[1].attemptId : undefined;
-    expect(firstAttemptId).toBeDefined();
-    expect(resumedAttemptId).toBeDefined();
-    expect(resumedAttemptId).toBe(firstAttemptId);
-  });
-
-  test("mid-boundary rollback emits iteration_started, no boundary_committed on failed attempt, retry with same attemptId, then success", async () => {
-    const { jarvisRoot, stateDbPath } = createJarvisHome();
-    const sink = new TestLogSink();
-    let _firstInvocationCalls = 0;
-    const completeBindings: InvocationBinding[] = [
-      {
-        id: "agent",
-        invoke: async ({ cwd }) => {
-          _firstInvocationCalls += 1;
-          writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
-          return { kind: "ok", stdout: "done", stderr: "" };
-        },
-      },
-    ];
-
-    await expect(
-      runLoop({
-        jarvisRoot,
-        stateDbPath,
-        bindings: completeBindings,
-        store: crashOnceMidBoundary(openStateStore(stateDbPath)),
-        maxIterations: 1,
-        logSink: sink,
-      }),
-    ).rejects.toThrow("crash mid-boundary");
-
-    let _resumedCalls = 0;
-    const resumed = await runLoop({
-      jarvisRoot,
-      stateDbPath,
-      bindings: [
-        {
-          id: "agent",
-          invoke: async () => {
-            _resumedCalls += 1;
-            return { kind: "ok", stdout: "done", stderr: "" };
-          },
-        },
-      ],
-      maxIterations: 1,
-      logSink: sink,
-    });
-
-    expect(resumed.kind).toBe("complete");
-
-    const events = sink.getEventsForRun(resumed.runId);
-    // Should have: iteration_started (failed), iteration_started (retry with same attemptId), boundary_committed (success), loop_finished
-    expect(events.length).toBe(4);
-    expect(events[0]?.kind).toBe("iteration_started");
-    expect(events[1]?.kind).toBe("iteration_started");
-    expect(events[2]?.kind).toBe("boundary_committed");
-    expect(events[3]?.kind).toBe("loop_finished");
-
-    // Verify same attemptId on both iteration_started events
-    const firstAttemptId = events[0]?.kind === "iteration_started" ? events[0].attemptId : undefined;
-    const retryAttemptId = events[1]?.kind === "iteration_started" ? events[1].attemptId : undefined;
-    expect(firstAttemptId).toBeDefined();
-    expect(retryAttemptId).toBeDefined();
-    expect(retryAttemptId).toBe(firstAttemptId);
-  });
-
-  test("abort/cancellation emits paired iteration_started / boundary_committed for each completed iteration plus loop_finished", async () => {
+  test("abort/cancellation stops the loop without committing the in-flight boundary, emitting matching events and state", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();
     const controller = new AbortController();
@@ -1102,6 +978,7 @@ describe("write loop", () => {
 
     expect(result.kind).toBe("progress");
     expect(result.iterationsConsumed).toBe(2);
+    expect(result.resumable).toBe(true);
 
     const events = sink.getEventsForRun(result.runId);
     // Should have: iteration_started, boundary_committed (completed), iteration_started (aborted, no boundary), loop_finished
@@ -1112,6 +989,11 @@ describe("write loop", () => {
     expect(events[3]?.kind).toBe("loop_finished");
     expect(events[3]?.kind === "loop_finished" && events[3].loopOutcomeKind).toBe("progress");
     expect(events[3]?.kind === "loop_finished" && events[3].iterationsConsumed).toBe(2);
+
+    const run = loadRunOnce(stateDbPath, result.runId);
+    expect(run?.attempts).toHaveLength(2);
+    expect(run?.attempts[0]?.status).toBe("completed");
+    expect(run?.attempts[1]?.status).toBe("in-progress");
   });
 
   test("re-invoking a run whose terminal boundary is already committed returns prior outcome without appending log events", async () => {
@@ -1156,20 +1038,6 @@ describe("write loop", () => {
         logSink: sink,
       }),
     ).rejects.toThrow("Simulated append error");
-  });
-
-  test("omitting the log sink leaves loop behavior unchanged", async () => {
-    const { jarvisRoot, stateDbPath } = createJarvisHome();
-
-    const result = await runLoop({
-      jarvisRoot,
-      stateDbPath,
-      bindings: progressThenDone(2),
-    });
-
-    expect(result.kind).toBe("complete");
-    expect(result.iterationsConsumed).toBe(3);
-    expect(result.resumable).toBe(false);
   });
 
   test("pause at iteration boundary lets the in-flight step finish and commit its boundary", async () => {
@@ -1274,44 +1142,6 @@ describe("write loop", () => {
     expect(run?.attemptCount).toBe(3); // Two paused + one new
     expect(run?.attempts).toHaveLength(3);
     expect(run?.attempts[2]?.outcomeKind).toBe("done");
-  });
-
-  test("abort signal path unchanged: aborts stop the loop without committing the in-flight boundary", async () => {
-    const { jarvisRoot, stateDbPath } = createJarvisHome();
-    const sink = new TestLogSink();
-    const controller = new AbortController();
-    let calls = 0;
-    const bindings: InvocationBinding[] = [
-      {
-        id: "track",
-        invoke: async () => {
-          calls += 1;
-          if (calls > 1) controller.abort();
-          return { kind: "ok", stdout: "progress", stderr: "" };
-        },
-      },
-    ];
-
-    const result = await runLoop({
-      jarvisRoot,
-      stateDbPath,
-      bindings,
-      signal: controller.signal,
-      logSink: sink,
-    });
-
-    expect(result.kind).toBe("progress");
-    expect(result.iterationsConsumed).toBe(2);
-
-    // Verify the first attempt's boundary was committed, but not the aborted one
-    const run = loadRunOnce(stateDbPath, result.runId);
-    expect(run?.attempts).toHaveLength(2);
-    expect(run?.attempts[0]?.status).toBe("completed");
-    expect(run?.attempts[1]?.status).toBe("in-progress"); // Aborted mid-step, boundary not committed
-
-    const events = sink.getEventsForRun(result.runId);
-    const finishedEvent = events[events.length - 1];
-    expect(finishedEvent?.kind === "loop_finished" && finishedEvent.loopOutcomeKind).toBe("progress");
   });
 
   test("promptId and promptPlaceholders forward through to executeWrite", async () => {

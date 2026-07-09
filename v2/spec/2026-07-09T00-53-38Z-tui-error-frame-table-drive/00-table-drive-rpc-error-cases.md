@@ -54,16 +54,31 @@ over the 13 pairs.
 
 ## Acceptance criteria
 
-- [ ] `bun test v2/src/tui/tui-daemon-client.test.ts` passes.
-- [ ] All 13 method/code pairs listed above still have a passing assertion
+- [x] `bun test v2/src/tui/tui-daemon-client.test.ts` passes.
+- [x] All 13 method/code pairs listed above still have a passing assertion
       that the call rejects as `TuiDaemonRpcError` (with `code`/`name`
       matched where the original test matched it).
-- [ ] The `list`/`wait` pair and the `pause`/`resume`/`kill` steering pairs
+- [x] The `list`/`wait` pair and the `pause`/`resume`/`kill` steering pairs
       still assert concurrent-request correlation: multiple requests
       in-flight on a shared connection, only the correlated one rejecting —
       not collapsed to isolated single-request assertions.
-- [ ] PR body states the test-count diff vs baseline and names each removed
+- [x] PR body states the test-count diff vs baseline and names each removed
       test alongside the table row(s) now covering its cases.
+
+## Test count vs baseline
+
+9 removed `test(...)` bodies → 1 `test.each` block (9 rows, 13 method/code
+pairs), net -8 top-level tests in `tui-daemon-client.test.ts`:
+
+- `rejects correlated health error frames as TuiDaemonRpcError` → row `health/unhealthy`
+- `rejects correlated status error frames as TuiDaemonRpcError` → row `status/status_unavailable`
+- `list and wait correlated error frames reject as TuiDaemonRpcError` → row `list/internal_error, wait/unknown_run`
+- `start rejects run_in_progress as TuiDaemonRpcError` → row `start/run_in_progress`
+- `start rejects worktree_claimed as TuiDaemonRpcError` → row `start/worktree_claimed`
+- `start rejects generic daemon error frames as TuiDaemonRpcError` → row `start/invalid_params`
+- `steering correlated error frames reject as TuiDaemonRpcError` → row `pause/unknown_run, resume/terminal_run, kill/unknown_run`
+- `pause and kill reject run_not_active as TuiDaemonRpcError` → row `pause/run_not_active, kill/run_not_active`
+- `resume rejects run_in_progress as TuiDaemonRpcError` → row `resume/run_in_progress`
 
 ## Documentation updates
 

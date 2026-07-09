@@ -16,8 +16,8 @@ so `daemon.ts` shrinks and the assembly logic is independently readable.
 - `daemon.ts` re-exports `WorkflowStepListStatus` and `stoppedOutcomeForRun` so existing
   imports (`daemon-wire.ts`, `daemon-start-list.test.ts`) keep resolving from `./daemon.ts`
   unchanged.
-- `LoadedRun` stays defined in `daemon.ts` (used well beyond this region) and is imported
-  as a type into the new module.
+- `LoadedRun`, `WorkflowSnapshot`, and `ReviewDebateProgress` stay defined in `daemon.ts`
+  (used well beyond this region) and are imported as types into the new module.
 - No behavior change; the `list` RPC response shape is identical.
 
 ## Out of scope
@@ -29,8 +29,9 @@ so `daemon.ts` shrinks and the assembly logic is independently readable.
 ## Task checklist
 
 - [ ] Create `v2/src/daemon/workflow-list-snapshot.ts` with the moved functions/types.
-- [ ] Update `daemon.ts` to import `workflowRowSnapshot` from the new module and re-export
-      `WorkflowStepListStatus` / `stoppedOutcomeForRun`.
+- [ ] Update `daemon.ts` to import `workflowRowSnapshot` from the new module.
+- [ ] Add re-exports of `WorkflowStepListStatus` and `stoppedOutcomeForRun` from `daemon.ts`,
+      pointing at the new module.
 - [ ] Update `v2/docs/v2-architecture.md` domain map to list the new file under the daemon
       host row.
 
@@ -45,5 +46,8 @@ so `daemon.ts` shrinks and the assembly logic is independently readable.
 - [ ] `daemon-wire.test.ts` stays green (behavior unchanged by the extraction).
 - [ ] `workflowRowSnapshot` and `workflowStepSnapshot` are defined in
       `v2/src/daemon/workflow-list-snapshot.ts`, not `daemon.ts`.
+- [ ] `daemon.ts` re-exports `WorkflowStepListStatus` and `stoppedOutcomeForRun` from the
+      new module; `daemon-wire.ts` and `daemon-start-list.test.ts` still import them from
+      `./daemon.ts` with unchanged import paths.
 - [ ] `v2/docs/v2-architecture.md` domain map lists `workflow-list-snapshot.ts` under the
       daemon host row.

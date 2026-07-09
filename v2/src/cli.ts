@@ -14,7 +14,12 @@ import type { WaitRunCompletionResult } from "./daemon/daemon.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon/daemon-lifecycle.ts";
 import { parseListRuns, parseStartResult, parseWaitCompletion } from "./daemon/daemon-wire.ts";
 import { buildImplementWorkflowSteps } from "./execution/implement-workflow-steps.ts";
-import { executeWriteLoop, type WriteLoopInput, type WriteLoopResult } from "./execution/write-loop.ts";
+import {
+  applyOperatorSessionId,
+  executeWriteLoop,
+  type WriteLoopInput,
+  type WriteLoopResult,
+} from "./execution/write-loop.ts";
 import { buildWriteLoopInputFromCliValues, parseWriteArgs } from "./execution/write-loop-input.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import type { ErrorFrame, ResponseFrame } from "./ipc/types.ts";
@@ -97,7 +102,7 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
       return 1;
     }
 
-    const loopResult = await runtimeDeps.executeWriteLoop(withOperatorSessionId(parsed.input, operatorSessionId));
+    const loopResult = await runtimeDeps.executeWriteLoop(applyOperatorSessionId(parsed.input, operatorSessionId));
 
     out.stdout(`${writeStdoutJson(loopResult)}\n`);
 
@@ -425,12 +430,6 @@ function parseStreamPayload(payload: unknown): unknown {
     throw new Error("invalid stream payload");
   }
   return JSON.parse(payload);
-}
-
-/** Tag `input` with the process's operator session id unless the caller already set `telemetry`. */
-export function withOperatorSessionId(input: WriteLoopInput, operatorSessionId: string): WriteLoopInput {
-  if (input.telemetry !== undefined) return input;
-  return { ...input, telemetry: { operatorSessionId } };
 }
 
 function parseWriteCliInput(argv: readonly string[], deps: CliDeps): WriteCliInput {

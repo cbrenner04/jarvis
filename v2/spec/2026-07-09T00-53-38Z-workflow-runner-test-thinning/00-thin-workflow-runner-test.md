@@ -87,7 +87,7 @@ unique behavior.
       `implement-workflow-steps.test.ts` are unmodified and still pass,
       confirming quota-fallback rung-ordering coverage survives at that
       layer.
-- [ ] PR body states the test-count diff vs baseline (before/after count in
+- [x] PR body states the test-count diff vs baseline (before/after count in
       `workflow-runner.test.ts`) and names every dropped test with its
       surviving owner (test name + file).
 

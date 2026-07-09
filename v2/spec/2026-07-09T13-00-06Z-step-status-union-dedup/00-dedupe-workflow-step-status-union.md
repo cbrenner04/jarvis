@@ -24,10 +24,10 @@ independently. The two can drift silently.
 
 ## Acceptance criteria
 
-- [ ] `DaemonWorkflowStepSnapshot.status` in `v2/src/daemon/daemon-wire.ts`
+- [x] `DaemonWorkflowStepSnapshot.status` in `v2/src/daemon/daemon-wire.ts`
       is typed via the imported `WorkflowStepListStatus`, not an inline
       literal union.
-- [ ] `bun run typecheck` passes with no new errors.
+- [x] `bun run typecheck` passes with no new errors.
 
 ## Documentation updates
 

@@ -69,7 +69,7 @@ export type ParsedArgs =
       issueUrl?: string;
     }
   | { kind: "plan"; rest: string[] }
-  | { kind: "intent"; rest: string[] }
+  | { kind: "intent"; rest: string[]; agentFlag?: string }
   | {
       kind: "prompt";
       text: string;
@@ -180,7 +180,7 @@ Flags:
 // Populate from plan and intent modules to avoid duplication
 Object.assign(COMMAND_USAGE, { plan: PLAN_USAGE, intent: INTENT_USAGE, runbook: RUNBOOK_USAGE });
 
-const AGENT_FLAG_SUBCOMMANDS = new Set(["run", "plan", "prompt"]);
+const AGENT_FLAG_SUBCOMMANDS = new Set(["run", "plan", "prompt", "intent"]);
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const [first, ...rest] = argv;
@@ -409,11 +409,14 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         return { kind: "help", command: "plan" };
       }
       return { kind: "plan", rest };
-    case "intent":
+    case "intent": {
       if (rest.includes("--help") || rest.includes("-h")) {
         return { kind: "help", command: "intent" };
       }
-      return { kind: "intent", rest };
+      const agentIndex = rest.indexOf("--agent");
+      const agentFlag = agentIndex === -1 ? undefined : rest[agentIndex + 1];
+      return agentFlag === undefined ? { kind: "intent", rest } : { kind: "intent", rest, agentFlag };
+    }
     case "prompt": {
       if (rest.includes("--help") || rest.includes("-h")) {
         return { kind: "help", command: "prompt" };

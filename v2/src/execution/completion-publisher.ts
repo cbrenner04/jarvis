@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 export type CompletionPublisherInput = {
   worktreePath: string;
@@ -46,28 +46,22 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
     const result: CompletionPublisherResult = {};
 
     // Push with retry
-    const pushSha = publishWithRetry(
-      () => {
-        const hasUpstream = checkHasUpstream(git, input.worktreePath, input.branch);
-        if (hasUpstream) {
-          git(input.worktreePath, ["push"]);
-        } else {
-          git(input.worktreePath, ["push", "-u", "origin", input.branch]);
-        }
-        return git(input.worktreePath, ["rev-parse", "HEAD"]);
-      },
-      "push",
-    );
+    const pushSha = publishWithRetry(() => {
+      const hasUpstream = checkHasUpstream(git, input.worktreePath, input.branch);
+      if (hasUpstream) {
+        git(input.worktreePath, ["push"]);
+      } else {
+        git(input.worktreePath, ["push", "-u", "origin", input.branch]);
+      }
+      return git(input.worktreePath, ["rev-parse", "HEAD"]);
+    }, "push");
 
     if (pushSha) {
       result.pushSha = pushSha;
     }
 
     // PR lookup/creation with retry
-    const prNumber = publishWithRetry(
-      () => findOrCreatePr(gh, input.baseRef, input.branch, input.specPath),
-      "pr",
-    );
+    const prNumber = publishWithRetry(() => findOrCreatePr(gh, input.baseRef, input.branch, input.specPath), "pr");
 
     if (prNumber) {
       result.prNumber = prNumber;
@@ -88,10 +82,7 @@ function checkHasUpstream(git: Git, worktreePath: string, branch: string): boole
 
 type PublishResult<T> = T | null;
 
-function publishWithRetry<T>(
-  operation: () => T,
-  operationName: string,
-): PublishResult<T> {
+function publishWithRetry<T>(operation: () => T, operationName: string): PublishResult<T> {
   const maxAttempts = 3;
   const backoffMs = 1000;
 
@@ -112,7 +103,6 @@ function publishWithRetry<T>(
       }
 
       // Transient retry with backoff
-      // biome-ignore lint/correctness/noConsoleLog: emit retry notice to stderr for operator visibility
       console.error(`${operationName}: transient network error; retrying (attempt ${attempt + 1}/3)`);
 
       // Simple synchronous sleep
@@ -154,7 +144,7 @@ function findOrCreatePr(gh: GhCommand, baseRef: string, branch: string, specPath
 
   // Extract PR number from output (URL or number)
   const match = createOutput.match(/(?:pull\/|#)?(\d+)/);
-  if (!match || !match[1]) {
+  if (!match?.[1]) {
     throw new Error(`Failed to parse PR number from: ${createOutput}`);
   }
 

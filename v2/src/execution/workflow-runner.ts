@@ -344,7 +344,9 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 branch: worktree.branchName,
               });
             } catch (publishError) {
-              throw new Error(`Publication failed: ${publishError instanceof Error ? publishError.message : String(publishError)}`);
+              throw new Error(
+                `Publication failed: ${publishError instanceof Error ? publishError.message : String(publishError)}`,
+              );
             }
           }
         }

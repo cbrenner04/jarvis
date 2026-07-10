@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { createCompletionPublisher, type CompletionPublisherInput } from "./completion-publisher.ts";
+import { type CompletionPublisherInput, createCompletionPublisher } from "./completion-publisher.ts";
 
 describe("createCompletionPublisher", () => {
   const baseInput: CompletionPublisherInput = {
@@ -10,10 +10,10 @@ describe("createCompletionPublisher", () => {
   };
 
   it("publishes push with new upstream and creates draft PR", () => {
-    let gitCalls: string[] = [];
-    let ghCalls: string[] = [];
+    const gitCalls: string[] = [];
+    const ghCalls: string[] = [];
 
-    const mockGit = (cwd: string, args: readonly string[]) => {
+    const mockGit = (_cwd: string, args: readonly string[]) => {
       gitCalls.push(args.join(" "));
       if (args.includes("push") && gitCalls.filter((c) => c.includes("push")).length === 1) {
         return ""; // Successful push
@@ -50,9 +50,9 @@ describe("createCompletionPublisher", () => {
   });
 
   it("publishes push with existing upstream", () => {
-    let gitCalls: string[] = [];
+    const gitCalls: string[] = [];
 
-    const mockGit = (cwd: string, args: readonly string[]) => {
+    const mockGit = (_cwd: string, args: readonly string[]) => {
       gitCalls.push(args.join(" "));
       if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) {
         return "upstream/feature-branch"; // Has upstream
@@ -103,7 +103,7 @@ describe("createCompletionPublisher", () => {
   });
 
   it("ignores open PRs with different base", () => {
-    let ghCalls: string[] = [];
+    const ghCalls: string[] = [];
 
     const mockGit = (_cwd: string, args: readonly string[]) => {
       if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");

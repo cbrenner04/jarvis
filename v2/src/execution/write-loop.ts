@@ -1,4 +1,4 @@
-import { appendFileSync } from "node:fs";
+import { appendFileSync, existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { LogSink } from "../persistence/log-stream.ts";
@@ -9,6 +9,7 @@ import {
   type StateStore,
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
+import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import type { StepRunResult } from "./step-runner.ts";
@@ -23,6 +24,7 @@ const WRITE_LOOP_OUTCOME_KINDS = [
   "invocation_failure",
   "budget-exhausted",
   "paused",
+  "completion_commit_failed",
 ] as const;
 
 export type WriteLoopOutcomeKind = (typeof WRITE_LOOP_OUTCOME_KINDS)[number];
@@ -38,6 +40,9 @@ export type WriteLoopResult = {
   runId: string;
   iterationsConsumed: number;
   resumable: boolean;
+  commitSha?: string;
+  completionAgent?: string;
+  completionCommitError?: string;
 } & Partial<InvocationFailureDetail>;
 
 /** Input for the write loop. Run identity derives from `worktree` (project, branch, base). */
@@ -61,6 +66,8 @@ export type WriteLoopInput = WriteExecuteInput & {
     workflow?: string;
     role?: string;
   };
+  completionCommitter?: CompletionCommitter;
+  publishCompletion?: boolean;
 };
 
 /**
@@ -84,6 +91,7 @@ type PreparedRun =
  * done, blocked, or budget runs out, persisting run + per-iteration attempt
  * rows through the state store.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: boundary ordering must stay in the runner.
 export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopResult> {
   const store = args.stateStore ?? openStateStore();
   const maxIterations = args.maxIterations ?? DEFAULT_MAX_ITERATIONS;
@@ -92,7 +100,32 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
     const prepared = prepareRun(args, store);
     if ("result" in prepared) {
       args.onRunCreated?.(prepared.result.runId);
-      // Idempotent re-entry: return prior result with no log events
+      // Completed runs may still have an unpublished, retryable git boundary.
+      if (
+        prepared.result.kind === "complete" &&
+        args.publishCompletion !== false &&
+        existsSync(join(getExternalWorktreePath(args.worktree), ".git"))
+      ) {
+        try {
+          const published = (args.completionCommitter ?? createCompletionCommitter())({
+            worktreePath: getExternalWorktreePath(args.worktree),
+            baseRef: args.worktree.baseRef,
+            specPath: args.specPath,
+            agent: prepared.result.completionAgent ?? "",
+          });
+          args.logSink?.append(prepared.result.runId, {
+            kind: "loop_finished",
+            loopOutcomeKind: "complete",
+            iterationsConsumed: prepared.result.iterationsConsumed,
+            resumable: false,
+          });
+          return published.commitSha === undefined
+            ? prepared.result
+            : { ...prepared.result, commitSha: published.commitSha };
+        } catch {
+          return completionCommitFailed(args, prepared.result);
+        }
+      }
       return prepared.result;
     }
     const { runId, worktreePath } = prepared;
@@ -153,11 +186,14 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               })),
             }
           : undefined;
+      const completionAgent =
+        result.kind === "complete" ? result.invocation.final?.binding.metadata?.agent?.trim() : undefined;
       store.commitCompletionBoundary({
         attemptId,
         runStatus: terminal.runStatus,
         outcomeKind: terminal.outcomeKind,
         ...(detail !== undefined ? { invocationFailureDetail: detail } : {}),
+        ...(completionAgent ? { completionAgent } : {}),
       });
       args.logSink?.append(runId, {
         kind: "boundary_committed",
@@ -166,7 +202,54 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         runStatus: terminal.runStatus,
       });
 
-      return finishLoop(args, runId, terminal.kind, iterationsConsumed, false, detail);
+      const loopResult = finishLoop(
+        args,
+        runId,
+        terminal.kind,
+        iterationsConsumed,
+        false,
+        detail,
+        terminal.kind !== "complete",
+      );
+      if (terminal.kind !== "complete") return loopResult;
+      const agent = result.invocation.final?.binding.metadata?.agent?.trim();
+      const attributed = agent ? { ...loopResult, completionAgent: agent } : loopResult;
+      if (args.publishCompletion === false) {
+        args.logSink?.append(runId, {
+          kind: "loop_finished",
+          loopOutcomeKind: "complete",
+          iterationsConsumed,
+          resumable: false,
+        });
+        return attributed;
+      }
+      if (!existsSync(join(worktreePath, ".git")) && !agent) {
+        args.logSink?.append(runId, {
+          kind: "loop_finished",
+          loopOutcomeKind: "complete",
+          iterationsConsumed,
+          resumable: false,
+        });
+        return loopResult;
+      }
+      if (!agent) return completionCommitFailed(args, attributed);
+      try {
+        const published = (args.completionCommitter ?? createCompletionCommitter())({
+          worktreePath,
+          baseRef: args.worktree.baseRef,
+          specPath: args.specPath,
+          agent,
+        });
+        args.logSink?.append(runId, {
+          kind: "loop_finished",
+          loopOutcomeKind: "complete",
+          iterationsConsumed,
+          resumable: false,
+        });
+        return published.commitSha === undefined ? attributed : { ...attributed, commitSha: published.commitSha };
+      } catch {
+        return completionCommitFailed(args, attributed);
+      }
     }
 
     store.setRunStatus(runId, "budget-soft-stopped");
@@ -191,13 +274,16 @@ function finishLoop(
   iterationsConsumed: number,
   resumable: boolean,
   detail?: InvocationFailureDetail,
+  emitLog = true,
 ): WriteLoopResult {
-  args.logSink?.append(runId, {
-    kind: "loop_finished",
-    loopOutcomeKind: kind,
-    iterationsConsumed,
-    resumable,
-  });
+  if (emitLog) {
+    args.logSink?.append(runId, {
+      kind: "loop_finished",
+      loopOutcomeKind: kind,
+      iterationsConsumed,
+      resumable,
+    });
+  }
   return {
     kind,
     runId,
@@ -303,7 +389,16 @@ function terminalMapping(result: Exclude<StepRunResult, { kind: "progress" }>): 
 
 /** Terminal result already committed by a prior invocation, returned idempotently; null when resumable. */
 function committedResult(run: StoredRun): WriteLoopResult | null {
-  if (run.status === "completed") return { kind: "complete", runId: run.id, iterationsConsumed: 0, resumable: false };
+  if (run.status === "completed") {
+    const agent = run.attempts.at(-1)?.completionAgent?.trim();
+    return {
+      kind: "complete",
+      runId: run.id,
+      iterationsConsumed: 0,
+      resumable: false,
+      ...(agent ? { completionAgent: agent } : {}),
+    };
+  }
   if (run.status === "failed") {
     const detail = run.attempts[run.attempts.length - 1]?.invocationFailureDetail ?? undefined;
     return {
@@ -324,6 +419,21 @@ function committedResult(run: StoredRun): WriteLoopResult | null {
     };
   }
   return null; // in-progress, paused, or budget-soft-stopped: resume
+}
+
+function completionCommitFailed(args: WriteLoopInput, result: WriteLoopResult): WriteLoopResult {
+  args.logSink?.append(result.runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "completion_commit_failed",
+    iterationsConsumed: result.iterationsConsumed,
+    resumable: true,
+  });
+  return {
+    ...result,
+    kind: "completion_commit_failed",
+    resumable: true,
+    completionCommitError: "completion commit failed",
+  };
 }
 
 function resolveSpecPath(worktreePath: string, specPath: string): string {

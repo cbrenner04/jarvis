@@ -402,6 +402,25 @@ describe("write loop", () => {
     expect(result.kind).toBe("complete");
   });
 
+  test("persists the final completion binding for a completed-run retry", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const first = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings: simulatedBindings(["quota", "done"], { artifactPath: "proof.txt", emitArtifact: true }),
+    });
+
+    expect(first.completionAgent).toBe("sim-agent-2");
+    expect(loadRunOnce(stateDbPath, first.runId)?.attempts.at(-1)?.completionAgent).toBe("sim-agent-2");
+
+    const retry = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings: [],
+    });
+    expect(retry.completionAgent).toBe("sim-agent-2");
+  });
+
   test("telemetry append failure leaves state-store and log contracts unchanged while surfacing failure detail", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const logSink = new TestLogSink();

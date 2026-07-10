@@ -28,20 +28,20 @@ worktree dirty. Add a runner-owned git boundary addressable by commit SHA.
 
 ## Acceptance criteria
 
-- [ ] A dirty standalone write commits its completion snapshot only after its terminal SQLite boundary is durable; a workflow commits once only after all steps and hidden shrink complete.
-- [ ] The commit stages the whole captured worktree, has subject `jarvis: complete run`, first body line `Spec: <owning completion input specPath>`, and `Jarvis-Agent: <owning completion binding metadata.agent>` trailer.
-- [ ] Multiple contributing bindings attribute the commit to the final successful completion contributor, including shrink; missing/empty `metadata.agent` produces `completion_commit_failed` without git mutation.
-- [ ] A clean completed worktree succeeds without an empty commit or `commitSha`.
-- [ ] Progress, pause, budget exhaustion, blocked, contract miss, invocation failure, kill, and abort create no completion commit.
-- [ ] Staging, commit-object, ref-update, and process failures leave the captured tracked and untracked completion content recoverable and SQLite `completed` unchanged.
-- [ ] Completion commits bypass hooks; success leaves the captured completion snapshot clean while preserving later operator changes as dirtiness.
-- [ ] Retrying `jarvis run resume <run-id>` after partial or successful completion-commit work creates no duplicate, excludes later operator changes, and returns the original commit SHA when a commit exists.
-- [ ] A dirty successful completion returns `commitSha` to the owning runner.
-- [ ] Foreground completion-publication failure exits `1`; daemon `list` and `wait` retain `completed`, expose retryable `completion_commit_failed` with the resume action, and `wait` exits `1` until retry succeeds.
-- [ ] Git subprocess execution is injectable; the orchestration store API, `commitCompletionBoundary`, and host-agnostic step execution gain no git side effects.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/write-behavior.md` documents commit ownership/timing, snapshot and retry semantics, caller-visible failure, attribution, commit SHA, clean no-op, and external-worktree ownership.
-- [ ] `v2/docs/v1-behaviors.md` marks only whole-worktree staging, completion commit, and trailer mechanics as ported and names the unported subject, label selection, worktree lifecycle, push, and PR behavior.
+- [x] A dirty standalone write commits its completion snapshot only after its terminal SQLite boundary is durable; a workflow commits once only after all steps and hidden shrink complete.
+- [x] The commit stages the whole captured worktree, has subject `jarvis: complete run`, first body line `Spec: <owning completion input specPath>`, and `Jarvis-Agent: <owning completion binding metadata.agent>` trailer.
+- [x] Multiple contributing bindings attribute the commit to the final successful completion contributor, including shrink; missing/empty `metadata.agent` produces `completion_commit_failed` without git mutation.
+- [x] A clean completed worktree succeeds without an empty commit or `commitSha`.
+- [x] Progress, pause, budget exhaustion, blocked, contract miss, invocation failure, kill, and abort create no completion commit.
+- [x] Staging, commit-object, ref-update, and process failures leave the captured tracked and untracked completion content recoverable and SQLite `completed` unchanged.
+- [x] Completion commits bypass hooks; success leaves the captured completion snapshot clean while preserving later operator changes as dirtiness.
+- [x] Retrying `jarvis run resume <run-id>` after partial or successful completion-commit work creates no duplicate, excludes later operator changes, and returns the original commit SHA when a commit exists.
+- [x] A dirty successful completion returns `commitSha` to the owning runner.
+- [x] Foreground completion-publication failure exits `1`; daemon `list` and `wait` retain `completed`, expose retryable `completion_commit_failed` with the resume action, and `wait` exits `1` until retry succeeds.
+- [x] Git subprocess execution is injectable; the orchestration store API, `commitCompletionBoundary`, and host-agnostic step execution gain no git side effects.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/write-behavior.md` documents commit ownership/timing, snapshot and retry semantics, caller-visible failure, attribution, commit SHA, clean no-op, and external-worktree ownership.
+- [x] `v2/docs/v1-behaviors.md` marks only whole-worktree staging, completion commit, and trailer mechanics as ported and names the unported subject, label selection, worktree lifecycle, push, and PR behavior.
 
 ## Documentation updates
 

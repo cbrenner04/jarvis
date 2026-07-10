@@ -571,11 +571,14 @@ function writeStdoutJson(result: WriteLoopResult): string {
     payload.failureKind = result.failureKind;
     payload.bindingAttempts = result.bindingAttempts;
   }
+  if (result.commitSha !== undefined) payload.commitSha = result.commitSha;
+  if (result.completionCommitError !== undefined) payload.completionCommitError = result.completionCommitError;
   return JSON.stringify(payload, null, 2);
 }
 
 function exitCodeForWriteResult(kind: Awaited<ReturnType<typeof executeWriteLoop>>["kind"]): number {
   if (kind === "complete") return 0;
+  if (kind === "completion_commit_failed") return 1;
   if (kind === "invocation_failure") return 2;
   if (kind === "budget-exhausted") return 5;
   return 1;

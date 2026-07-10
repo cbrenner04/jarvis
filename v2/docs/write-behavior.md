@@ -3,6 +3,22 @@
 `jarvis write` runs a resumable write loop: repeatedly calls `executeWrite` until
 work is done, blocked, or the budget runs out. See [`state-store.md`](./state-store.md)
 for durable run state and resume mechanics.
+
+On a successful standalone write, the terminal SQLite boundary is committed before
+the runner publishes completion to the external worktree. Publication captures an
+isolated `git add -A` snapshot, creates one `jarvis: complete run` commit with
+`Spec: <specPath>` and the final successful binding's `Jarvis-Agent` trailer, then
+updates the branch by compare-and-swap. Hooks are bypassed. A clean snapshot is a
+successful no-op and returns no `commitSha`. Workflows suppress per-step commits
+and publish once after every step and hidden shrink completes, attributed to the
+final contributor.
+
+The captured snapshot is the retry identity: later operator edits are excluded.
+Publication failures leave the durable run `completed`, expose retryable
+`completion_commit_failed`, and return exit `1`; `jarvis run resume <run-id>` may
+retry without creating a duplicate. Missing binding attribution fails before git
+mutation. This boundary operates directly in the existing external worktree; it
+does not create, lock, push, or open a PR.
 Workflow-step authoring that wraps this write-loop input shape lives in
 [`workflow-runner.md`](./workflow-runner.md#authoring-helper-and-presets).
 

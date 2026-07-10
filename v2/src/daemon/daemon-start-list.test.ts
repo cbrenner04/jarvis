@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
+import type { LogReader } from "../persistence/log-stream.ts";
 import type { Attempt, Run } from "../persistence/state-store.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
@@ -656,6 +657,44 @@ test("resume rejects terminal run status", async () => {
     expect(resumeResponse.code).toBe("terminal_run");
     expect(resumeResponse.message).toBe("Cannot resume a completed run");
   }
+});
+
+test("resume retries a completed run after completion publication failed", async () => {
+  const runId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "test-branch",
+    specPath: "/tmp/test-project/spec.md",
+  });
+  stateStore.setRunStatus(runId, "completed");
+  const logReader: LogReader = {
+    tail: () => [
+      {
+        runId,
+        seq: 1,
+        ts: "2026-01-01T00:00:00.000Z",
+        event: {
+          kind: "loop_finished",
+          loopOutcomeKind: "completion_commit_failed",
+          iterationsConsumed: 1,
+          resumable: true,
+        },
+      },
+    ],
+    async *follow() {},
+  };
+  handlers = createRunControlHandlers({
+    stateStore,
+    logReader,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+  });
+
+  expect((await resumeDirect(handlers, { runId })).kind).toBe("response");
+  expect(fakeExecutor.pendingCount()).toBe(1);
 });
 
 test("resume without decision on an awaiting-human run is rejected invalid_params", async () => {

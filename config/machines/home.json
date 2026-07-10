@@ -3,79 +3,175 @@
     "claude": {
       "plan": {
         "rungs": [
-          { "adapterModel": "claude-sonnet-4-6", "priceKey": "claude-sonnet-4-6" },
-          { "adapterModel": "claude-haiku-4-5-20251001", "priceKey": "claude-haiku-4-5-20251001" }
+          {
+            "adapterModel": "claude-opus-4-8",
+            "priceKey": "claude-opus-4-8"
+          }
         ]
       },
       "implement": {
         "rungs": [
-          { "adapterModel": "claude-sonnet-4-6", "priceKey": "claude-sonnet-4-6" },
-          { "adapterModel": "claude-haiku-4-5-20251001", "priceKey": "claude-haiku-4-5-20251001" }
+          {
+            "adapterModel": "claude-haiku-4-5-20251001",
+            "priceKey": "claude-haiku-4-5-20251001"
+          }
         ]
       },
       "shrink": {
         "rungs": [
-          { "adapterModel": "claude-sonnet-4-6", "priceKey": "claude-sonnet-4-6" },
-          { "adapterModel": "claude-haiku-4-5-20251001", "priceKey": "claude-haiku-4-5-20251001" }
+          {
+            "adapterModel": "claude-sonnet-5",
+            "priceKey": "claude-sonnet-5"
+          }
         ]
       },
       "adversary": {
-        "rungs": [{ "adapterModel": "claude-sonnet-4-6", "priceKey": "claude-sonnet-4-6" }]
+        "rungs": [
+          {
+            "adapterModel": "claude-opus-4-8",
+            "priceKey": "claude-opus-4-8"
+          }
+        ]
       },
       "advocate": {
-        "rungs": [{ "adapterModel": "claude-sonnet-4-6", "priceKey": "claude-sonnet-4-6" }]
+        "rungs": [
+          {
+            "adapterModel": "claude-opus-4-8",
+            "priceKey": "claude-opus-4-8"
+          }
+        ]
       },
       "adjudicator": {
-        "rungs": [{ "adapterModel": "claude-sonnet-4-6", "priceKey": "claude-sonnet-4-6" }]
+        "rungs": [
+          {
+            "adapterModel": "claude-opus-4-8",
+            "priceKey": "claude-opus-4-8"
+          }
+        ]
       },
       "actuator": {
-        "rungs": [{ "adapterModel": "claude-haiku-4-5-20251001", "priceKey": "claude-haiku-4-5-20251001" }]
+        "rungs": [
+          {
+            "adapterModel": "claude-sonnet-5",
+            "priceKey": "claude-sonnet-5"
+          }
+        ]
       }
     },
     "codex": {
       "plan": {
-        "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
+        "rungs": [
+          {
+            "adapterModel": "gpt-5.6-sol",
+            "priceKey": "gpt-5.6-sol"
+          }
+        ]
       },
       "implement": {
-        "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
+        "rungs": [
+          {
+            "adapterModel": "gpt-5.6-luna",
+            "priceKey": "gpt-5.6-luna"
+          }
+        ]
       },
       "shrink": {
-        "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
+        "rungs": [
+          {
+            "adapterModel": "gpt-5.6-terra",
+            "priceKey": "gpt-5.6-terra"
+          }
+        ]
       },
       "adversary": {
-        "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
+        "rungs": [
+          {
+            "adapterModel": "gpt-5.6-sol",
+            "priceKey": "gpt-5.6-sol"
+          }
+        ]
       },
       "advocate": {
-        "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
+        "rungs": [
+          {
+            "adapterModel": "gpt-5.6-sol",
+            "priceKey": "gpt-5.6-sol"
+          }
+        ]
       },
       "adjudicator": {
-        "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
+        "rungs": [
+          {
+            "adapterModel": "gpt-5.6-sol",
+            "priceKey": "gpt-5.6-sol"
+          }
+        ]
       },
       "actuator": {
-        "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
+        "rungs": [
+          {
+            "adapterModel": "gpt-5.6-terra",
+            "priceKey": "gpt-5.6-terra"
+          }
+        ]
       }
     },
     "cursor": {
       "plan": {
-        "rungs": [{ "adapterModel": "Composer 2.5", "priceKey": "Composer 2.5" }]
+        "rungs": [
+          {
+            "adapterModel": "Composer 2.5",
+            "priceKey": "Composer 2.5"
+          }
+        ]
       },
       "implement": {
-        "rungs": [{ "adapterModel": "Composer 2.5", "priceKey": "Composer 2.5" }]
+        "rungs": [
+          {
+            "adapterModel": "Composer 2.5",
+            "priceKey": "Composer 2.5"
+          }
+        ]
       },
       "shrink": {
-        "rungs": [{ "adapterModel": "Composer 2.5", "priceKey": "Composer 2.5" }]
+        "rungs": [
+          {
+            "adapterModel": "Composer 2.5",
+            "priceKey": "Composer 2.5"
+          }
+        ]
       },
       "adversary": {
-        "rungs": [{ "adapterModel": "Composer 2.5", "priceKey": "Composer 2.5" }]
+        "rungs": [
+          {
+            "adapterModel": "Composer 2.5",
+            "priceKey": "Composer 2.5"
+          }
+        ]
       },
       "advocate": {
-        "rungs": [{ "adapterModel": "Composer 2.5", "priceKey": "Composer 2.5" }]
+        "rungs": [
+          {
+            "adapterModel": "Composer 2.5",
+            "priceKey": "Composer 2.5"
+          }
+        ]
       },
       "adjudicator": {
-        "rungs": [{ "adapterModel": "Composer 2.5", "priceKey": "Composer 2.5" }]
+        "rungs": [
+          {
+            "adapterModel": "Composer 2.5",
+            "priceKey": "Composer 2.5"
+          }
+        ]
       },
       "actuator": {
-        "rungs": [{ "adapterModel": "GPT-5.3 Codex", "priceKey": "GPT-5.3 Codex" }]
+        "rungs": [
+          {
+            "adapterModel": "Composer 2.5",
+            "priceKey": "Composer 2.5"
+          }
+        ]
       }
     }
   }

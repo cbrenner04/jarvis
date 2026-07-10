@@ -147,6 +147,12 @@ Improving the harness means experimenting (cheaper agents, model tiering, cost/s
 
 **Observed actuator tiers (2026-06-29, claude-sparing config).** cursor (Composer 2.5) is a solid free primary — plans + implements most specs solo (~$0.03/phase, estimated), but can stall (idle-watchdog exit 8) or blow the 30-min iteration timeout on a complex spec. `opencode/deepseek-v4-flash-free` is **not viable solo** (cascades to cursor for what it can't finish; "unusable" per another repo's operator) — cheap filler only. `opencode/glm-5.2` is a **capable paid escalation** (~$2.50/run metered when opencode reports cost): it solo-completed an impl cursor timed out on. Optional `prices.json` row enables harness cost attribution on estimated-usage and agent-usage-without-cost enrichment. When cursor stalls/times-out on a hard spec, escalate to GLM 5.2. To swap actuators per-invocation without global `config.json` churn, see seed `per-run-agent-override-flag`.
 
+**`agentOrder` config gotchas** (observed 2026-07-10 reordering to drop a quota-exhausted agent):
+
+- **No duplicate agents in one order.** `validateAgentOrder` rejects the same agent twice even with different models (`Invalid config … modes.patch.agentOrder: duplicate agent "claude"`). You cannot express `claude:opus → claude:haiku` as a fallback chain — each rung is a distinct agent. `plan`/`run` abort at config load, not mid-run.
+- **An unauthenticated primary that errors `model_config` is TERMINAL — no cascade.** cursor without `cursor agent login` / `CURSOR_API_KEY` fails a patch run instantly (`exit 3`, `Authentication required`) with **no** fallback to the next rung, because `model_config` (unlike quota/idle) does not rotate the agent order. So promoting an un-authenticated agent to primary hard-fails every run until it is logged in. Verify actuator auth before leading with it; if unsure, keep an authenticated agent first.
+- **Codex/quota lives in more than one list.** Dropping an agent from `modes.patch/plan/review.agentOrder` still leaves it in `modes.patch.subRoleAgentOrder.reviewPanel`/`reviewActuator`; the patch review sub-phase will keep trying it. Edit the sub-role orders too for a clean removal.
+
 ## Harness suggestions from other repos
 
 **Dual audience:** submit path (other-repo operator) and triage path (Jarvis-on-Jarvis operator).

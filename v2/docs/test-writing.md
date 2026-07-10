@@ -91,9 +91,7 @@ const response = await handlers.startRun(request);
 
 The write-loop executor fake is outside the owned boundary; assertions exercise real handler behavior without a wire round-trip. Tail-stream tests use the same factory-over-fakes pattern with `createTailStreamHandler`, invoking its returned handler directly.
 
-Reserve a real socket round-trip for transport coverage: the [`ipc.test.ts`](../src/ipc/ipc.test.ts) transport suite, plus at most 1-2 round-trip smokes per handler set (one budget per exported factory — `createRunControlHandlers` and `createTailStreamHandler` each get their own) proving JSON marshaling survives the wire. Tail round-trip owners for `createTailStreamHandler` are [`daemon-tail-stream.test.ts`](../src/daemon/daemon-tail-stream.test.ts) and [`tui-log-tail-client.test.ts`](../src/tui/tui-log-tail-client.test.ts).
-
-This standard applies to new tests going forward. It does not require migrating [`v2/src/daemon/daemon-start-list.test.ts`](../src/daemon/daemon-start-list.test.ts) (29 existing socket cases) or [`v2/src/daemon/daemon-tail-stream.test.ts`](../src/daemon/daemon-tail-stream.test.ts) (5 existing socket cases) — those predate the cap and are not defects under it.
+Reserve a real socket round-trip for transport coverage, and put every such test in a `.sandbox-unrunnable` file so the agent slice stays skip-free: the [`ipc.sandbox-unrunnable.test.ts`](../src/ipc/ipc.sandbox-unrunnable.test.ts) transport suite, plus at most 1-2 round-trip smokes per handler set (one budget per exported factory — `createRunControlHandlers` in [`daemon-start-list.sandbox-unrunnable.test.ts`](../src/daemon/daemon-start-list.sandbox-unrunnable.test.ts), `createTailStreamHandler` in [`tui-log-tail-client.sandbox-unrunnable.test.ts`](../src/tui/tui-log-tail-client.sandbox-unrunnable.test.ts)) proving JSON marshaling survives the wire. A `skipIf(!canUseUnixSockets())` gate in a non-suffixed file is a defect: it silently skips in the agent sandbox instead of routing to the integration slice.
 
 ## Worked example: DescendantTracker injection pattern
 

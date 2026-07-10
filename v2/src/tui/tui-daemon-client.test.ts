@@ -10,7 +10,6 @@ import { DAEMON_SOCKET_PATH } from "../paths.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { createDeferredIpcClient, makeIpcClient } from "../testing/ipc-client-fake.ts";
-import { canUseUnixSockets, socketProbeErrored } from "../testing/unix-socket.ts";
 import type { TuiDaemonClient } from "./tui-daemon-client.ts";
 import { connectTuiDaemon } from "./tui-daemon-client.ts";
 
@@ -27,12 +26,7 @@ const START_INPUT: WriteLoopInput = {
   bindings: simulatedBindings(["done"]),
 };
 
-if (socketProbeErrored) {
-  process.stderr.write("skip: TUI daemon client socket tests require socket support in /tmp\n");
-}
-
 const UNREACHABLE_SOCKET_PATH = join(tmpdir(), `jarvis-tui-daemon-client-missing-${process.pid}.sock`);
-const socketTest = test.skipIf(!canUseUnixSockets());
 
 const HEALTH_REQUEST_ID = "00000000-0000-4000-8000-000000000001";
 const STATUS_REQUEST_ID = "00000000-0000-4000-8000-000000000002";
@@ -481,7 +475,7 @@ test("rejects non-correlated RPC replies with RpcConnectionError", async () => {
   });
 });
 
-socketTest("rejects unreachable socket with RpcConnectionError and sends no RPCs", async () => {
+test("rejects unreachable socket with RpcConnectionError and sends no RPCs", async () => {
   const sent: unknown[] = [];
   const trackingConnect = async (socketPath: string): Promise<IpcClient> => {
     const ipc = await connectIpcClient(socketPath);

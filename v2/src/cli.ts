@@ -2,14 +2,15 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
-import { createAgentBindings } from "../../shared/invocation/agents.ts";
-import type { InvocationBinding } from "../../shared/invocation/execute.ts";
+import type { AgentModelConfig, LoadError } from "./config/agent-model-config.ts";
 import {
   loadMachineConfig,
   readMachineConfigDocument,
+  resolveMachineProfile,
   validateMachineConfigAgents,
 } from "./config/machine-config-loader.ts";
-import type { WaitRunCompletionResult } from "./daemon/daemon.ts";
+import { loadMachineProfileModels } from "./config/machine-profile-loader.ts";
+import { resolveWriteLoopBindings, type WaitRunCompletionResult } from "./daemon/daemon.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon/daemon-lifecycle.ts";
 import { parseListRuns, parseStartResult, parseWaitCompletion } from "./daemon/daemon-wire.ts";
 import { buildImplementWorkflowSteps } from "./execution/implement-workflow-steps.ts";
@@ -19,7 +20,11 @@ import {
   type WriteLoopInput,
   type WriteLoopResult,
 } from "./execution/write-loop.ts";
-import { buildWriteLoopInputFromCliValues, parseWriteArgs } from "./execution/write-loop-input.ts";
+import {
+  buildWriteLoopInputFromCliValues,
+  DEFAULT_WRITE_AGENTS,
+  parseWriteArgs,
+} from "./execution/write-loop-input.ts";
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import { RpcError } from "./ipc/rpc-errors.ts";
 import { createRpcTransport } from "./ipc/rpc-transport.ts";
@@ -36,7 +41,7 @@ type Io = {
 
 type CliDeps = {
   executeWriteLoop: (input: WriteLoopInput) => Promise<Awaited<ReturnType<typeof executeWriteLoop>>>;
-  createBindings: (agentIds: readonly string[]) => readonly InvocationBinding[];
+  loadAgentModelConfig: (agents: readonly string[]) => AgentModelConfig | LoadError;
   connectIpcClient: (socketPath: string) => Promise<IpcClient>;
   startDaemon: typeof startDaemon;
   stopDaemon: typeof stopDaemon;
@@ -69,7 +74,7 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
   };
   const runtimeDeps: CliDeps = {
     executeWriteLoop,
-    createBindings: createAgentBindings,
+    loadAgentModelConfig: (agents) => loadMachineProfileModels(resolveMachineProfile(), agents),
     connectIpcClient,
     startDaemon,
     stopDaemon,
@@ -99,7 +104,13 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
       return 1;
     }
 
-    const loopResult = await runtimeDeps.executeWriteLoop(applyOperatorSessionId(parsed.input, operatorSessionId));
+    const resolved = resolveWriteLoopBindings(parsed.input);
+    if (!resolved.ok) {
+      out.stderr(`${resolved.message}\n`);
+      return 1;
+    }
+
+    const loopResult = await runtimeDeps.executeWriteLoop(applyOperatorSessionId(resolved.input, operatorSessionId));
 
     out.stdout(`${writeStdoutJson(loopResult)}\n`);
 
@@ -450,6 +461,10 @@ function parseStreamPayload(payload: unknown): unknown {
   return JSON.parse(payload);
 }
 
+function isLoadError(value: AgentModelConfig | LoadError): value is LoadError {
+  return "errors" in value && Array.isArray((value as LoadError).errors);
+}
+
 function parseWriteCliInput(argv: readonly string[], deps: CliDeps): WriteCliInput {
   let values: Record<string, string | boolean | string[] | undefined>;
   try {
@@ -466,7 +481,19 @@ function parseWriteCliInput(argv: readonly string[], deps: CliDeps): WriteCliInp
     return { ok: false, message: `${message}\n` };
   }
 
-  const built = buildWriteLoopInputFromCliValues(values, deps.createBindings, fallbackAgents);
+  const agents = fallbackAgents ?? DEFAULT_WRITE_AGENTS;
+  let agentModelConfig: AgentModelConfig | LoadError;
+  try {
+    agentModelConfig = deps.loadAgentModelConfig(agents);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, message: `${message}\n` };
+  }
+  if (isLoadError(agentModelConfig)) {
+    return { ok: false, message: `Failed to load agent model config: ${agentModelConfig.errors.join(", ")}\n` };
+  }
+
+  const built = buildWriteLoopInputFromCliValues(values, agentModelConfig, fallbackAgents);
   if (!built.ok) {
     return { ok: false };
   }

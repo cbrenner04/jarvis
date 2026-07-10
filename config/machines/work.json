@@ -1,49 +1,26 @@
 {
   "models": {
-    "codex": {
+    "opencode": {
       "plan": {
-        "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
+        "rungs": [{ "adapterModel": "github-copilot/claude-opus-4.8", "priceKey": "github-copilot/claude-opus-4.8" }]
       },
       "implement": {
-        "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
+        "rungs": [{ "adapterModel": "github-copilot/claude-opus-4.8", "priceKey": "github-copilot/claude-opus-4.8" }]
       },
       "shrink": {
-        "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
+        "rungs": [{ "adapterModel": "github-copilot/claude-opus-4.8", "priceKey": "github-copilot/claude-opus-4.8" }]
       },
       "adversary": {
-        "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
+        "rungs": [{ "adapterModel": "github-copilot/claude-opus-4.8", "priceKey": "github-copilot/claude-opus-4.8" }]
       },
       "advocate": {
-        "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
+        "rungs": [{ "adapterModel": "github-copilot/claude-opus-4.8", "priceKey": "github-copilot/claude-opus-4.8" }]
       },
       "adjudicator": {
-        "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
+        "rungs": [{ "adapterModel": "github-copilot/claude-opus-4.8", "priceKey": "github-copilot/claude-opus-4.8" }]
       },
       "actuator": {
-        "rungs": [{ "adapterModel": "gpt-5.4", "priceKey": "gpt-5.4" }]
-      }
-    },
-    "cursor": {
-      "plan": {
-        "rungs": [{ "adapterModel": "Composer 2.5", "priceKey": "Composer 2.5" }]
-      },
-      "implement": {
-        "rungs": [{ "adapterModel": "Composer 2.5", "priceKey": "Composer 2.5" }]
-      },
-      "shrink": {
-        "rungs": [{ "adapterModel": "Composer 2.5", "priceKey": "Composer 2.5" }]
-      },
-      "adversary": {
-        "rungs": [{ "adapterModel": "Composer 2.5", "priceKey": "Composer 2.5" }]
-      },
-      "advocate": {
-        "rungs": [{ "adapterModel": "Composer 2.5", "priceKey": "Composer 2.5" }]
-      },
-      "adjudicator": {
-        "rungs": [{ "adapterModel": "Composer 2.5", "priceKey": "Composer 2.5" }]
-      },
-      "actuator": {
-        "rungs": [{ "adapterModel": "GPT-5.3 Codex", "priceKey": "GPT-5.3 Codex" }]
+        "rungs": [{ "adapterModel": "github-copilot/claude-opus-4.8", "priceKey": "github-copilot/claude-opus-4.8" }]
       }
     }
   }

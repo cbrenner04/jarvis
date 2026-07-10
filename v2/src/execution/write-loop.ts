@@ -507,20 +507,25 @@ function withBoundaryTelemetry(
   };
 }
 
-type CompletionPublishFailure = { kind: "completion_commit_failed" | "ready_finalize_failed"; error?: Error };
+export type CompletionPublicationSeams = Pick<WriteLoopInput, "completionPublisher" | "readyFinalizer">;
 
-async function publishCompletionArtifacts(
-  args: WriteLoopInput,
+export type CompletionPublishFailure = {
+  kind: "completion_commit_failed" | "ready_finalize_failed";
+  error?: Error;
+};
+
+export async function publishCompletionArtifacts(
+  seams: CompletionPublicationSeams,
   input: { worktreePath: string; baseRef: string; specPath: string; branch: string },
 ): Promise<CompletionPublishFailure | undefined> {
   try {
-    await (args.completionPublisher ?? createCompletionPublisher())(input);
+    await (seams.completionPublisher ?? createCompletionPublisher())(input);
   } catch (publishError) {
     const err = publishError instanceof Error ? publishError : new Error(String(publishError));
     return { kind: "completion_commit_failed", error: err };
   }
   try {
-    await (args.readyFinalizer ?? createReadyFinalizer())({
+    await (seams.readyFinalizer ?? createReadyFinalizer())({
       worktreePath: input.worktreePath,
       branch: input.branch,
     });

@@ -611,6 +611,49 @@ describe("write loop", () => {
       expect(result.kind).toBe("ready_finalize_failed");
       expect(result.readyFinalizeError).toContain("gh pr ready failed");
     });
+
+    test("completed-run resume replays publication after a prior publication failure", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const branchName = "resume-publication";
+      const publish = { commitSha: "commit-1", filesChanged: 2 };
+      let publishCalls = 0;
+
+      const first = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        completionCommitter: () => publish,
+        completionPublisher: async () => {
+          publishCalls += 1;
+          throw new Error("push failed");
+        },
+        readyFinalizer: async () => {
+          throw new Error("should not finalize before publication succeeds");
+        },
+      });
+      expect(first.kind).toBe("completion_commit_failed");
+      expect(first.resumable).toBe(true);
+      expect(publishCalls).toBe(1);
+
+      mkdirSync(join(jarvisRoot, "worktrees", "demo", branchName, ".git"), { recursive: true });
+
+      const retry = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName,
+        bindings: [],
+        completionCommitter: () => publish,
+        completionPublisher: async () => {
+          publishCalls += 1;
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+      expect(retry.kind).toBe("complete");
+      expect(retry.runId).toBe(first.runId);
+      expect(publishCalls).toBe(2);
+    });
   });
 
   test("persists the final completion binding for a completed-run retry", async () => {

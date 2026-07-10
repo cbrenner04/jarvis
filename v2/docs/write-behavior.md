@@ -6,7 +6,9 @@ for durable run state and resume mechanics.
 
 On a successful standalone write, the terminal SQLite boundary is committed before
 the runner publishes completion to the external worktree. Publication is one
-retryable boundary comprising two operations in sequence: commit, then push+PR.
+retryable boundary comprising three operations in sequence: commit, then push+PR,
+then PR body refresh. Ready finalization is a separate retryable boundary after
+publication succeeds: ready gate, then draft→ready flip.
 
 **Commit phase:** captures an isolated `git add -A` snapshot, creates one
 `jarvis: complete run` commit with `Spec: <specPath>` and the final successful
@@ -76,8 +78,9 @@ delay. Missing binding attribution fails before git mutation. This boundary oper
 directly in the existing external worktree and does not create locks.
 
 Workflows suppress per-step commits and publish once after every step and hidden shrink
-completes, attributed to the final contributor. The publication boundary is identical
-to standalone runs: commit once, then push+PR once.
+completes, attributed to the final contributor. The publication and finalization
+boundaries match standalone runs: commit once, then push+PR and body refresh once,
+then ready gate and draft→ready flip once.
 
 The captured snapshot is the retry identity: later operator edits are excluded.
 
@@ -339,9 +342,13 @@ caller-supplied bindings, same seam as write-step invocations.
 ## Exit codes
 
 - `0`: `complete` (success)
-- `1`: `blocked` or `contract_miss` (blocked on agent or spec)
+- `1`: `blocked`, `contract_miss`, `completion_commit_failed`, or `ready_finalize_failed`
 - `2`: `invocation_failure` (binding chain or token parse failure)
 - `5`: `budget-exhausted` (soft-stop, resumable per spec 02)
+
+`completion_commit_failed` and `ready_finalize_failed` leave the durable run
+`completed` with `resumable: true`; `jarvis run resume <run-id>` may retry without
+creating a duplicate commit or PR.
 
 ### Wait exit codes
 
@@ -353,9 +360,12 @@ needing lifecycle success should loop `wait` until exit `0` or inspect stdout
 When `loopOutcomeKind` is present it wins over `runStatus`:
 
 - `0`: `complete`
-- `1`: `blocked`, `contract_miss`, `paused`, `progress`, or any other present kind
+- `1`: `blocked`, `contract_miss`, `completion_commit_failed`, `ready_finalize_failed`, `paused`, `progress`, or any other present kind
 - `2`: `invocation_failure`
 - `5`: `budget-exhausted`
+
+`completion_commit_failed` and `ready_finalize_failed` carry `runStatus: completed`
+and `resumable: true` on stdout; exit `1` is retryable via `jarvis run resume`.
 
 When `loopOutcomeKind` is omitted:
 

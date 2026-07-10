@@ -11,14 +11,14 @@ describe("createReadyFinalizer", () => {
       runReadyGate: (worktreePath) => {
         calls.push(`gate:${worktreePath}`);
       },
-      ghReadyFlip: (branch) => {
-        calls.push(`flip:${branch}`);
+      ghReadyFlip: (branch, worktreePath) => {
+        calls.push(`flip:${branch}@${worktreePath}`);
       },
     });
 
     await finalizer(input);
 
-    expect(calls).toEqual(["gate:/tmp/worktree", "flip:feature-branch"]);
+    expect(calls).toEqual(["gate:/tmp/worktree", "flip:feature-branch@/tmp/worktree"]);
   });
 
   it("leaves the PR draft and does not flip when the ready gate fails", async () => {

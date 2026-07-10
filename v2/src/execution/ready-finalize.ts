@@ -6,7 +6,7 @@ export type ReadyFinalizeInput = {
 };
 
 export type ReadyGate = (worktreePath: string) => void;
-export type GhReadyFlip = (branch: string) => void;
+export type GhReadyFlip = (branch: string, worktreePath: string) => void;
 type Delay = (ms: number) => Promise<void>;
 type RetryNotice = (message: string) => void;
 
@@ -40,9 +40,9 @@ function defaultRunReadyGate(worktreePath: string): void {
   }
 }
 
-function defaultGhReadyFlip(branch: string): void {
+function defaultGhReadyFlip(branch: string, worktreePath: string): void {
   try {
-    execFileSync("gh", ["pr", "ready", branch], { encoding: "utf8", stdio: "pipe" });
+    execFileSync("gh", ["pr", "ready", branch], { cwd: worktreePath, encoding: "utf8", stdio: "pipe" });
   } catch (error) {
     const err = error as NodeJS.ErrnoException & { status?: number; stdout?: Buffer; stderr?: Buffer };
     const combined = [
@@ -98,6 +98,6 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
 
   return async (input) => {
     runReadyGate(input.worktreePath);
-    await flipWithRetry(() => ghReadyFlip(input.branch), delay, retryNotice);
+    await flipWithRetry(() => ghReadyFlip(input.branch, input.worktreePath), delay, retryNotice);
   };
 }

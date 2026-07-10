@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ProjectMatch } from "../../../v1/src/config.ts";
+import type { ProjectMatch } from "../../../shared/project-registry.ts";
 import { buildImplementWorkflowSteps } from "./implement-workflow-steps.ts";
 import { loadWorkflowSteps } from "./workflow-loader.ts";
 
@@ -13,19 +13,17 @@ function writeJson(name: string, value: unknown): string {
   return filePath;
 }
 
-const MACHINES_DIR = join(import.meta.dir, "..", "..", "..", "config", "machines");
-const writtenProfiles: string[] = [];
+let machinesDir: string | undefined;
 
 function writeProfile(name: string, value: unknown): void {
-  mkdirSync(MACHINES_DIR, { recursive: true });
-  const filePath = join(MACHINES_DIR, `${name}.json`);
-  writeFileSync(filePath, JSON.stringify(value));
-  writtenProfiles.push(filePath);
+  machinesDir ??= mkdtempSync(join(tmpdir(), "implement-workflow-steps-machines-"));
+  writeFileSync(join(machinesDir, `${name}.json`), JSON.stringify(value));
 }
 
 afterEach(() => {
-  for (const filePath of writtenProfiles.splice(0)) {
-    if (existsSync(filePath)) rmSync(filePath);
+  if (machinesDir !== undefined) {
+    rmSync(machinesDir, { recursive: true, force: true });
+    machinesDir = undefined;
   }
 });
 
@@ -65,8 +63,8 @@ describe("buildImplementWorkflowSteps", () => {
     const match: ProjectMatch = { key: "proj", root: "/tmp/proj" };
 
     const result = buildImplementWorkflowSteps(INPUT, {
-      findProjectMatchForPath: () => match,
-      loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile }),
+      resolveProjectMatch: () => match,
+      loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
     });
 
     expect(result.ok).toBe(true);
@@ -91,7 +89,7 @@ describe("buildImplementWorkflowSteps", () => {
 
   test("returns an error result naming the unresolved cwd instead of throwing", () => {
     const result = buildImplementWorkflowSteps(INPUT, {
-      findProjectMatchForPath: () => undefined,
+      resolveProjectMatch: () => undefined,
     });
 
     expect(result.ok).toBe(false);
@@ -103,7 +101,7 @@ describe("buildImplementWorkflowSteps", () => {
     const match: ProjectMatch = { key: "proj", root: "/tmp/proj" };
 
     const result = buildImplementWorkflowSteps(INPUT, {
-      findProjectMatchForPath: () => match,
+      resolveProjectMatch: () => match,
       loadWorkflowSteps: () => {
         throw new Error("Failed to load agent model config: profile not found");
       },

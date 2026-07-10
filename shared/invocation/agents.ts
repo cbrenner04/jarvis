@@ -134,19 +134,6 @@ export function createResolvedAgentBinding(
   };
 }
 
-/**
- * Build the ordered agent bindings the runner falls back through.
- *
- * This legacy helper keeps bare agent ids terminal-unwired; resolved production
- * rungs use `createResolvedAgentBinding`.
- */
-export function createAgentBindings(agentIds: readonly string[]): readonly InvocationBinding[] {
-  return agentIds.map((id) => ({
-    ...createUnwiredBinding(id, `agent '${id}' invocation is not wired yet`),
-    metadata: { agent: id, model: id },
-  }));
-}
-
 type AgentName = "claude" | "codex" | "cursor";
 
 type AgentRunOptions = {

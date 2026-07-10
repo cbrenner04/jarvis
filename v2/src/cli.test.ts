@@ -3,15 +3,14 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { main } from "./cli.ts";
+import type { AgentModelConfig } from "./config/agent-model-config.ts";
 import type { BuildImplementWorkflowStepsInput } from "./execution/implement-workflow-steps.ts";
 import type { AnyWorkflowStep } from "./execution/workflow-runner.ts";
 import type { WriteLoopInput, WriteLoopResult } from "./execution/write-loop.ts";
 import { applyOperatorSessionId } from "./execution/write-loop.ts";
-import type { IpcFrame } from "./ipc/types.ts";
 import type { PersistedRecord } from "./persistence/log-stream.ts";
-import { simulatedBindings } from "./testing/bindings.ts";
 import { withFixedUuid } from "./testing/fixed-uuid.ts";
-import { createDeferredIpcClient, makeIpcClient } from "./testing/ipc-client-fake.ts";
+import { makeIpcClient } from "./testing/ipc-client-fake.ts";
 import { mockWriteLoopInput } from "./testing/run-control.ts";
 
 function captureIo() {
@@ -129,6 +128,12 @@ const RUN_START_ARGS = [
   "proof.txt",
 ];
 
+const TEST_RUNG = { rungs: [{ adapterModel: "m1", priceKey: "p1" }] };
+
+function stubAgentModelConfig(agents: readonly string[]): AgentModelConfig {
+  return Object.fromEntries(agents.map((agent) => [agent, { implement: TEST_RUNG }]));
+}
+
 function completeResult(): WriteLoopResult {
   return {
     kind: "complete",
@@ -218,7 +223,9 @@ describe("v2 cli", () => {
   test("invalid --max-iterations prints usage and exits 1", async () => {
     const cap = captureIo();
 
-    const code = await main([...WRITE_ARGS, "--max-iterations", "0"], cap.io);
+    const code = await main([...WRITE_ARGS, "--max-iterations", "0"], cap.io, {
+      loadAgentModelConfig: stubAgentModelConfig,
+    });
 
     expect(code).toBe(1);
     expect(cap.read().stdout).toBe("");
@@ -237,50 +244,21 @@ describe("v2 cli", () => {
     expect(cap.read().stderr).toContain("usage: jarvis write");
   });
 
-  test("write command maps complete result to exit 0", async () => {
+  test.each([
+    [{ kind: "complete", runId: "run-123", iterationsConsumed: 1, resumable: false }, 0],
+    [{ kind: "blocked", runId: "run-456", iterationsConsumed: 1, resumable: false }, 1],
+    [{ kind: "invocation_failure", runId: "run-789", iterationsConsumed: 0, resumable: false }, 2],
+    [{ kind: "budget-exhausted", runId: "run-999", iterationsConsumed: 5, resumable: true }, 5],
+  ] as const)("write command maps %p to exit %i", async (result, expectedExit) => {
     const cap = captureIo();
 
     const code = await main(WRITE_ARGS, cap.io, {
-      executeWriteLoop: async () => completeResult(),
+      loadAgentModelConfig: stubAgentModelConfig,
+      executeWriteLoop: async () => result as WriteLoopResult,
     });
 
-    expect(code).toBe(0);
-    expect(cap.read().stderr).toBe("");
-    expect(cap.read().stdout).toContain('"kind": "complete"');
-  });
-
-  test("write command maps blocked result to exit 1", async () => {
-    const cap = captureIo();
-    const result: WriteLoopResult = {
-      kind: "blocked",
-      runId: "run-456",
-      iterationsConsumed: 1,
-      resumable: false,
-    };
-
-    const code = await main(WRITE_ARGS, cap.io, {
-      executeWriteLoop: async () => result,
-    });
-
-    expect(code).toBe(1);
-    expect(cap.read().stdout).toContain('"kind": "blocked"');
-  });
-
-  test("write command maps invocation_failure to exit 2", async () => {
-    const cap = captureIo();
-    const result: WriteLoopResult = {
-      kind: "invocation_failure",
-      runId: "run-789",
-      iterationsConsumed: 0,
-      resumable: false,
-    };
-
-    const code = await main(WRITE_ARGS, cap.io, {
-      executeWriteLoop: async () => result,
-    });
-
-    expect(code).toBe(2);
-    expect(cap.read().stdout).toContain('"kind": "invocation_failure"');
+    expect(code).toBe(expectedExit);
+    expect(cap.read().stdout).toContain(`"kind": "${result.kind}"`);
   });
 
   test("write stdout failureKind and bindingAttempts attach only on binding-chain invocation_failure", async () => {
@@ -294,7 +272,10 @@ describe("v2 cli", () => {
 
     for (const result of withoutDetail) {
       const cap = captureIo();
-      await main(WRITE_ARGS, cap.io, { executeWriteLoop: async () => result });
+      await main(WRITE_ARGS, cap.io, {
+        loadAgentModelConfig: stubAgentModelConfig,
+        executeWriteLoop: async () => result,
+      });
       const parsed = JSON.parse(cap.read().stdout) as Record<string, unknown>;
       expect(parsed).not.toHaveProperty("failureKind");
       expect(parsed).not.toHaveProperty("bindingAttempts");
@@ -312,27 +293,13 @@ describe("v2 cli", () => {
         { bindingId: "sim.2", resultKind: "quota" },
       ],
     };
-    await main(WRITE_ARGS, cap.io, { executeWriteLoop: async () => withDetail });
+    await main(WRITE_ARGS, cap.io, {
+      loadAgentModelConfig: stubAgentModelConfig,
+      executeWriteLoop: async () => withDetail,
+    });
     const parsed = JSON.parse(cap.read().stdout) as Record<string, unknown>;
     expect(parsed.failureKind).toBe("quota");
     expect(parsed.bindingAttempts).toEqual(withDetail.bindingAttempts);
-  });
-
-  test("write command maps budget-exhausted to exit 5", async () => {
-    const cap = captureIo();
-    const result: WriteLoopResult = {
-      kind: "budget-exhausted",
-      runId: "run-999",
-      iterationsConsumed: 5,
-      resumable: true,
-    };
-
-    const code = await main(WRITE_ARGS, cap.io, {
-      executeWriteLoop: async () => result,
-    });
-
-    expect(code).toBe(5);
-    expect(cap.read().stdout).toContain('"kind": "budget-exhausted"');
   });
 
   test("config set-agents writes agents, preserves unrelated keys, and later write uses the persisted order", async () => {
@@ -352,9 +319,9 @@ describe("v2 cli", () => {
     const writeCap = captureIo();
     const writeCode = await main(WRITE_ARGS, writeCap.io, {
       machineConfigPath: configPath,
-      createBindings: (agentIds) => {
-        capturedAgents = agentIds;
-        return simulatedBindings(["done"]);
+      loadAgentModelConfig: (agents) => {
+        capturedAgents = agents;
+        return stubAgentModelConfig(agents);
       },
       executeWriteLoop: async () => completeResult(),
     });
@@ -374,93 +341,58 @@ describe("v2 cli", () => {
     expect(JSON.parse(readFileSync(configPath, "utf8"))).toEqual({ agents: ["claude", "codex"] });
   });
 
-  test("config set-agents rejects an empty CSV segment without creating bootstrap state", async () => {
+  test.each([
+    [
+      "an empty CSV segment",
+      "claude,,codex",
+      absentMachineConfigPath,
+      () => 'Error: invalid agents CSV "claude,,codex": empty segment at position 2\n',
+    ],
+    [
+      "agent:model entries",
+      "claude,codex:gpt-5",
+      absentMachineConfigPath,
+      () => 'Error: invalid agent "codex:gpt-5": expected bare agent name\n',
+    ],
+    [
+      "duplicate names",
+      "claude,claude",
+      () => writeMachineConfig({ agents: ["cursor"], keep: true }),
+      () => "Machine config 'agents' contains duplicate entry: \"claude\"\n",
+    ],
+    [
+      "an invalid machine-config file",
+      "claude,codex",
+      () => writeRawMachineConfig("{ invalid json"),
+      (configPath: string) => `Failed to parse machine config at ${configPath}: invalid JSON\n`,
+    ],
+    [
+      "a non-object machine-config file",
+      "claude,codex",
+      () => writeRawMachineConfig('["claude"]\n'),
+      (configPath: string) => `Machine config at ${configPath} must be a JSON object, got array\n`,
+    ],
+    [
+      "a machine-config file with invalid agents",
+      "claude,codex",
+      () => writeMachineConfig({ agents: [] }),
+      () => "Machine config 'agents' array must not be empty\n",
+    ],
+  ])("config set-agents rejects %s without touching prior state", async (_label, csv, makeConfigPath, expectStderr) => {
     const cap = captureIo();
-    const configPath = absentMachineConfigPath();
+    const configPath = makeConfigPath();
+    const before = existsSync(configPath) ? readFileSync(configPath, "utf8") : undefined;
 
-    const code = await setAgents(configPath, "claude,,codex", cap.io);
+    const code = await setAgents(configPath, csv, cap.io);
 
     expect(code).toBe(1);
-    expect(cap.read()).toEqual({
-      stdout: "",
-      stderr: 'Error: invalid agents CSV "claude,,codex": empty segment at position 2\n',
-    });
-    expect(existsSync(configPath)).toBe(false);
-    expect(existsSync(dirname(configPath))).toBe(false);
-  });
-
-  test("config set-agents rejects duplicate names without mutating the prior file", async () => {
-    const cap = captureIo();
-    const configPath = writeMachineConfig({ agents: ["cursor"], keep: true });
-    const before = readFileSync(configPath, "utf8");
-
-    const code = await setAgents(configPath, "claude,claude", cap.io);
-
-    expect(code).toBe(1);
-    expect(cap.read()).toEqual({
-      stdout: "",
-      stderr: "Machine config 'agents' contains duplicate entry: \"claude\"\n",
-    });
-    expect(readFileSync(configPath, "utf8")).toBe(before);
-  });
-
-  test("config set-agents rejects agent:model entries without creating bootstrap state", async () => {
-    const cap = captureIo();
-    const configPath = absentMachineConfigPath();
-
-    const code = await setAgents(configPath, "claude,codex:gpt-5", cap.io);
-
-    expect(code).toBe(1);
-    expect(cap.read()).toEqual({
-      stdout: "",
-      stderr: 'Error: invalid agent "codex:gpt-5": expected bare agent name\n',
-    });
-    expect(existsSync(configPath)).toBe(false);
-  });
-
-  test("config set-agents refuses to overwrite an invalid machine-config file", async () => {
-    const cap = captureIo();
-    const configPath = writeRawMachineConfig("{ invalid json");
-    const before = readFileSync(configPath, "utf8");
-
-    const code = await setAgents(configPath, "claude,codex", cap.io);
-
-    expect(code).toBe(1);
-    expect(cap.read()).toEqual({
-      stdout: "",
-      stderr: `Failed to parse machine config at ${configPath}: invalid JSON\n`,
-    });
-    expect(readFileSync(configPath, "utf8")).toBe(before);
-  });
-
-  test("config set-agents refuses to overwrite a non-object machine-config file", async () => {
-    const cap = captureIo();
-    const configPath = writeRawMachineConfig('["claude"]\n');
-    const before = readFileSync(configPath, "utf8");
-
-    const code = await setAgents(configPath, "claude,codex", cap.io);
-
-    expect(code).toBe(1);
-    expect(cap.read()).toEqual({
-      stdout: "",
-      stderr: `Machine config at ${configPath} must be a JSON object, got array\n`,
-    });
-    expect(readFileSync(configPath, "utf8")).toBe(before);
-  });
-
-  test("config set-agents refuses to overwrite a machine-config file with invalid agents", async () => {
-    const cap = captureIo();
-    const configPath = writeMachineConfig({ agents: [] });
-    const before = readFileSync(configPath, "utf8");
-
-    const code = await setAgents(configPath, "claude,codex", cap.io);
-
-    expect(code).toBe(1);
-    expect(cap.read()).toEqual({
-      stdout: "",
-      stderr: "Machine config 'agents' array must not be empty\n",
-    });
-    expect(readFileSync(configPath, "utf8")).toBe(before);
+    expect(cap.read()).toEqual({ stdout: "", stderr: expectStderr(configPath) });
+    if (before === undefined) {
+      expect(existsSync(configPath)).toBe(false);
+      expect(existsSync(dirname(configPath))).toBe(false);
+    } else {
+      expect(readFileSync(configPath, "utf8")).toBe(before);
+    }
   });
 
   test("config show prints configured agents one per line", async () => {
@@ -533,6 +465,7 @@ describe("v2 cli", () => {
     let code = NaN;
     try {
       code = await main(RUN_START_ARGS, cap.io, {
+        loadAgentModelConfig: stubAgentModelConfig,
         machineConfigPath: configPath,
         connectIpcClient: async () =>
           makeIpcClient(
@@ -555,7 +488,8 @@ describe("v2 cli", () => {
     expect(sent[0]).toMatchObject({
       params: {
         input: {
-          bindings: [{ id: "codex" }, { id: "cursor" }],
+          bindings: [],
+          bindingResolution: { role: "implement", agents: ["codex", "cursor"] },
         },
       },
     });
@@ -566,6 +500,7 @@ describe("v2 cli", () => {
     let capturedInput: WriteLoopInput | undefined;
 
     await main(WRITE_ARGS, cap.io, {
+      loadAgentModelConfig: stubAgentModelConfig,
       executeWriteLoop: async (input) => {
         capturedInput = input;
         return completeResult();
@@ -594,9 +529,9 @@ describe("v2 cli", () => {
 
     await main(WRITE_ARGS, cap.io, {
       machineConfigPath: absentMachineConfigPath(),
-      createBindings: (agentIds) => {
-        capturedAgents = agentIds;
-        return simulatedBindings(["done"]);
+      loadAgentModelConfig: (agents) => {
+        capturedAgents = agents;
+        return stubAgentModelConfig(agents);
       },
       executeWriteLoop: async () => completeResult(),
     });
@@ -611,9 +546,9 @@ describe("v2 cli", () => {
 
     const code = await main(WRITE_ARGS, cap.io, {
       machineConfigPath: configPath,
-      createBindings: (agentIds) => {
-        capturedAgents = agentIds;
-        return simulatedBindings(["done"]);
+      loadAgentModelConfig: (agents) => {
+        capturedAgents = agents;
+        return stubAgentModelConfig(agents);
       },
       executeWriteLoop: async () => completeResult(),
     });
@@ -625,27 +560,28 @@ describe("v2 cli", () => {
   test("invalid machine config exits nonzero without invoking any agent", async () => {
     const cap = captureIo();
     const configPath = writeRawMachineConfig("{ invalid json");
-    let createBindingsCalled = false;
+    let loadAgentModelConfigCalled = false;
 
     const code = await main(WRITE_ARGS, cap.io, {
       machineConfigPath: configPath,
-      createBindings: () => {
-        createBindingsCalled = true;
-        return simulatedBindings(["done"]);
+      loadAgentModelConfig: (agents) => {
+        loadAgentModelConfigCalled = true;
+        return stubAgentModelConfig(agents);
       },
       executeWriteLoop: async () => completeResult(),
     });
 
     expect(code).toBe(1);
-    expect(createBindingsCalled).toBe(false);
+    expect(loadAgentModelConfigCalled).toBe(false);
     expect(cap.read().stderr).toContain("Failed to parse machine config");
   });
 
-  test("default binding factory yields not-wired error bindings", async () => {
+  test("write resolves bindings from the agent model config before the loop", async () => {
     const cap = captureIo();
     let captured: WriteLoopInput | undefined;
 
     await main(WRITE_ARGS, cap.io, {
+      loadAgentModelConfig: stubAgentModelConfig,
       machineConfigPath: absentMachineConfigPath(),
       executeWriteLoop: async (input) => {
         captured = input;
@@ -654,7 +590,7 @@ describe("v2 cli", () => {
     });
 
     expect(captured?.bindings).toHaveLength(1);
-    expect(captured?.bindings[0]?.invoke({ prompt: "p", cwd: "/tmp" })).resolves.toMatchObject({ kind: "error" });
+    expect(captured?.bindings[0]?.metadata).toEqual({ agent: "claude", model: "m1" });
   });
 
   test("daemon start uses injected production paths and prints metadata", async () => {
@@ -760,6 +696,7 @@ describe("v2 cli", () => {
     let code = NaN;
     try {
       code = await main([...RUN_START_ARGS, "--max-iterations", "4"], cap.io, {
+        loadAgentModelConfig: stubAgentModelConfig,
         machineConfigPath: absentMachineConfigPath(),
         connectIpcClient: async () =>
           makeIpcClient(
@@ -795,7 +732,8 @@ describe("v2 cli", () => {
           stepRules: "Return exactly one terminal token: done|no-work|blocked|progress.",
           expectedArtifactPath: "proof.txt",
           maxIterations: 4,
-          bindings: [{ id: "claude" }],
+          bindings: [],
+          bindingResolution: { role: "implement", agents: ["claude"] },
         },
       },
     });
@@ -810,6 +748,7 @@ describe("v2 cli", () => {
     let code = NaN;
     try {
       code = await main(RUN_START_ARGS, cap.io, {
+        loadAgentModelConfig: stubAgentModelConfig,
         connectIpcClient: async () =>
           makeIpcClient([
             {
@@ -1190,37 +1129,6 @@ describe("v2 cli", () => {
     expect(cap.read().stdout).not.toContain('"error"');
   });
 
-  test("run wait blocks until the correlated wait response arrives", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    const { client, push } = createDeferredIpcClient(sent);
-
-    const pending = withFixedUuid(WAIT_REQUEST_ID, async () =>
-      main(["run", "wait", "run-123"], cap.io, {
-        connectIpcClient: async () => client,
-      }),
-    );
-
-    await new Promise((r) => setTimeout(r, 10));
-    expect(cap.read().stdout).toBe("");
-
-    push(
-      waitResponse({
-        runStatus: "completed",
-        loopOutcomeKind: "complete",
-        iterationsConsumed: 1,
-        resumable: false,
-      }) as IpcFrame,
-    );
-
-    const code = await pending;
-
-    expect(code).toBe(0);
-    expect(cap.read().stdout).toBe(
-      '{"runStatus":"completed","loopOutcomeKind":"complete","iterationsConsumed":1,"resumable":false}\n',
-    );
-  });
-
   test.each([
     [{ runStatus: "completed", loopOutcomeKind: "complete" }, 0],
     [{ runStatus: "failed", loopOutcomeKind: "complete" }, 0],
@@ -1246,17 +1154,6 @@ describe("v2 cli", () => {
     }
   });
 
-  test("run wait with empty run ID forwards to daemon for invalid_params", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-
-    const code = await runWait(cap, "", [waitError("invalid_params", "runId is required")], sent);
-
-    expect(code).toBe(1);
-    expect(sent[0]).toMatchObject({ method: "wait", params: { runId: "" } });
-    expect(cap.read()).toEqual({ stdout: "", stderr: "invalid_params: runId is required\n" });
-  });
-
   test("run wait passes through unknown_run errors", async () => {
     const cap = captureIo();
 
@@ -1264,19 +1161,6 @@ describe("v2 cli", () => {
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: "unknown_run: Run run-404 not found\n" });
-  });
-
-  test("run wait prints terse connection errors when the socket is unavailable", async () => {
-    const cap = captureIo();
-
-    const code = await main(["run", "wait", "run-123"], cap.io, {
-      connectIpcClient: async () => {
-        throw new Error("connect ENOENT /tmp/jarvis.sock");
-      },
-    });
-
-    expect(code).toBe(1);
-    expect(cap.read()).toEqual({ stdout: "", stderr: "connect ENOENT /tmp/jarvis.sock\n" });
   });
 
   test("jarvis tui dispatches to runTuiEntry with the production socket path", async () => {

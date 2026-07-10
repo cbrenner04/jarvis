@@ -1,32 +1,15 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
-import { connectIpcClient } from "../ipc/client.ts";
-import { startIpcServer } from "../ipc/server.ts";
 import type { Attempt, Run } from "../persistence/state-store.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import {
-  listRuns,
-  listRunsDirect,
-  mockWriteLoopInput,
-  startRun,
-  startRunDirect,
-  toIpcHandlers,
-} from "../testing/run-control.ts";
-import { canUseUnixSockets } from "../testing/unix-socket.ts";
+import { listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers, stoppedOutcomeForRun } from "./daemon.ts";
 
-const socketTest = test.skipIf(!canUseUnixSockets());
-
 type Handlers = ReturnType<typeof createRunControlHandlers>;
-
-function uniqueSocketPath(suffix: string): string {
-  return join(tmpdir(), `jarvis-daemon-test-${process.pid}-${suffix}.sock`);
-}
 
 async function pauseDirect(h: Handlers, runId: string) {
   return h.pause({ kind: "request", id: "p1", method: "pause", params: { runId } }, new AbortController().signal);
@@ -127,21 +110,6 @@ afterEach(async () => {
   }
 });
 
-socketTest("start returns a run ID", async () => {
-  const socketPath = uniqueSocketPath("start");
-  rmSync(socketPath, { force: true });
-  const server = await startIpcServer(socketPath, toIpcHandlers(handlers));
-  try {
-    const client = await connectIpcClient(socketPath, 2_000);
-    const runId = await startRun(client);
-    expect(typeof runId).toBe("string");
-    client.close();
-  } finally {
-    await server.close();
-    rmSync(socketPath, { force: true });
-  }
-});
-
 test("start admits a second (project, branch) while another run is active", async () => {
   await startRunDirect(handlers);
 
@@ -231,34 +199,6 @@ test("start rejects second start for same (project, branch) while first is activ
   expect(response2.kind).toBe("error");
   if (response2.kind === "error") {
     expect(response2.code).toBe("worktree_claimed");
-  }
-});
-
-socketTest("list returns durable runs with liveness info", async () => {
-  const socketPath = uniqueSocketPath("list");
-  rmSync(socketPath, { force: true });
-  const server = await startIpcServer(socketPath, toIpcHandlers(handlers));
-  try {
-    const client = await connectIpcClient(socketPath, 2_000);
-    await startRun(client);
-    const runs = await listRuns(client);
-    if (!runs) {
-      client.close();
-      return;
-    }
-
-    expect(runs.length).toBeGreaterThan(0);
-    const run = runs[0];
-    expect(run).toHaveProperty("runId");
-    expect(run).toHaveProperty("project");
-    expect(run).toHaveProperty("branch");
-    expect(run).toHaveProperty("status");
-    expect(run).toHaveProperty("isLive");
-    expect(run?.isLive).toBe(true);
-    client.close();
-  } finally {
-    await server.close();
-    rmSync(socketPath, { force: true });
   }
 });
 

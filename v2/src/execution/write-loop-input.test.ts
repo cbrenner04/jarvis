@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { simulatedBindings } from "../testing/bindings.ts";
 import { buildWriteLoopInput, buildWriteLoopInputFromCliValues, parseWriteArgs } from "./write-loop-input.ts";
 
 const FIXTURE_CLI_VALUES = {
@@ -20,12 +19,13 @@ const FIXTURE_FIELDS = {
   artifactPath: FIXTURE_CLI_VALUES.artifact,
 };
 
-const createTestBindings = (_agentIds: readonly string[]) => simulatedBindings(["done"]);
+const RUNG = { rungs: [{ adapterModel: "m1", priceKey: "p1" }] };
+const FIXTURE_AGENT_MODEL_CONFIG = { claude: { implement: RUNG } };
 
 describe("buildWriteLoopInput", () => {
   test("matches jarvis run start argv mapping for required fields with omitted optional flags", () => {
-    const fromCli = buildWriteLoopInputFromCliValues(FIXTURE_CLI_VALUES, createTestBindings);
-    const fromFields = buildWriteLoopInput(FIXTURE_FIELDS, createTestBindings);
+    const fromCli = buildWriteLoopInputFromCliValues(FIXTURE_CLI_VALUES, FIXTURE_AGENT_MODEL_CONFIG);
+    const fromFields = buildWriteLoopInput(FIXTURE_FIELDS, FIXTURE_AGENT_MODEL_CONFIG);
 
     expect(fromCli.ok).toBe(true);
     expect(fromFields.ok).toBe(true);
@@ -45,27 +45,31 @@ describe("buildWriteLoopInput", () => {
       "max-iterations": "4",
     };
 
-    const built = buildWriteLoopInputFromCliValues(values, createTestBindings);
+    const built = buildWriteLoopInputFromCliValues(values, FIXTURE_AGENT_MODEL_CONFIG);
     expect(built.ok).toBe(true);
     if (!built.ok) return;
     expect(built.input.maxIterations).toBe(4);
-    expect(built.input.bindings).toHaveLength(1);
+    expect(built.input.bindingResolution?.agentModelConfig).toEqual(FIXTURE_AGENT_MODEL_CONFIG);
   });
 
-  test("resolves agents from fallbackAgents, defaulting to DEFAULT_WRITE_AGENTS when omitted", () => {
-    let capturedAgents: readonly string[] | undefined;
-    const capture = (agentIds: readonly string[]) => {
-      capturedAgents = agentIds;
-      return simulatedBindings(["done"]);
-    };
-
-    const defaulted = buildWriteLoopInputFromCliValues(FIXTURE_CLI_VALUES, capture);
+  test("resolves agents from fallbackAgents into bindingResolution, defaulting to DEFAULT_WRITE_AGENTS", () => {
+    const defaulted = buildWriteLoopInputFromCliValues(FIXTURE_CLI_VALUES, FIXTURE_AGENT_MODEL_CONFIG);
     expect(defaulted.ok).toBe(true);
-    expect(capturedAgents).toEqual(["claude"]);
+    if (!defaulted.ok) return;
+    expect(defaulted.input.bindingResolution).toEqual({
+      role: "implement",
+      agents: ["claude"],
+      agentModelConfig: FIXTURE_AGENT_MODEL_CONFIG,
+    });
 
-    const overridden = buildWriteLoopInputFromCliValues(FIXTURE_CLI_VALUES, capture, ["codex", "cursor"]);
+    const overridden = buildWriteLoopInputFromCliValues(FIXTURE_CLI_VALUES, FIXTURE_AGENT_MODEL_CONFIG, [
+      "codex",
+      "cursor",
+    ]);
     expect(overridden.ok).toBe(true);
-    expect(capturedAgents).toEqual(["codex", "cursor"]);
+    if (!overridden.ok) return;
+    expect(overridden.input.bindingResolution?.agents).toEqual(["codex", "cursor"]);
+    expect(overridden.input.bindings).toHaveLength(0);
   });
 
   test("parseWriteArgs rejects unknown flags", () => {

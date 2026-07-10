@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
+import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopInput } from "./write-loop.ts";
 
 /** Default step rules injected into every write-loop launch payload. */
@@ -35,7 +35,7 @@ type RequiredLaunchFields = {
 /** Map validated launch fields to the daemon `start` / foreground write payload. */
 export function buildWriteLoopInput(
   fields: Partial<WriteLaunchFieldValues>,
-  createBindings: (agentIds: readonly string[]) => readonly InvocationBinding[],
+  agentModelConfig: AgentModelConfig,
   fallbackAgents?: readonly string[],
 ): BuildWriteLoopInputResult {
   const required = requireLaunchFields(fields, fallbackAgents);
@@ -55,7 +55,8 @@ export function buildWriteLoopInput(
     specPath: required.specPath,
     stepRules: DEFAULT_WRITE_STEP_RULES,
     expectedArtifactPath: required.artifactPath,
-    bindings: createBindings(required.agents),
+    bindings: [],
+    bindingResolution: { role: "implement", agents: required.agents, agentModelConfig },
   };
 
   return maxIterations === undefined ? { ok: true, input } : { ok: true, input: { ...input, maxIterations } };
@@ -64,10 +65,10 @@ export function buildWriteLoopInput(
 /** Map `parseArgs` write/run-start flag values to {@link buildWriteLoopInput}. */
 export function buildWriteLoopInputFromCliValues(
   values: Record<string, string | boolean | string[] | undefined>,
-  createBindings: (agentIds: readonly string[]) => readonly InvocationBinding[],
+  agentModelConfig: AgentModelConfig,
   fallbackAgents?: readonly string[],
 ): BuildWriteLoopInputResult {
-  return buildWriteLoopInput(toLaunchFields(values), createBindings, fallbackAgents);
+  return buildWriteLoopInput(toLaunchFields(values), agentModelConfig, fallbackAgents);
 }
 
 /** CLI flag names accepted by `jarvis write` and `jarvis run start`. */

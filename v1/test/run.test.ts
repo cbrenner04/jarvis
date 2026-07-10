@@ -6723,6 +6723,73 @@ exit 0
       execSync("git add -A && git commit -m init", { cwd: projectRoot });
     }
 
+    test("uses timeout checkpoint context for one subsequent normal invocation", async () => {
+      const subspec = join(projectRoot, "00-one.md");
+      const spec = writeSpec("# Feature\n\n- [ ] [00 - One](./00-one.md)\n");
+      writeFileSync(subspec, "# One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n");
+      initGitRepoForCheckpointTests();
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", (callCount) => {
+        if (callCount === 1) {
+          writeFileSync(join(projectRoot, "partial.txt"), "checkpointed\n");
+          return { kind: "error", exitCode: -1, stderr: "aborted: iteration-timeout" };
+        }
+        return { kind: "error", exitCode: 1, stderr: "stop" };
+      });
+      writeConfig(
+        {
+          version: 2,
+          modes: {
+            patch: { agentOrder: [CLAUDE_ENTRY] },
+            plan: { agentOrder: [CLAUDE_ENTRY] },
+            prompt: { agentOrder: [CLAUDE_ENTRY] },
+            review: { passes: 2 },
+          },
+          quotaFallback: "lenient",
+          weakQuotaExitCodes: [],
+          maxIterations: 1,
+          iterationTimeoutMs: 1,
+          git: true,
+          projects: { project: { root: projectRoot } },
+        },
+        { dir: cfgDir },
+      );
+
+      expect(
+        await runWithDefaults({
+          specPath: spec,
+          io: cap.io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          handleSignals: false,
+        }),
+      ).toBe(8);
+      expect(
+        await runWithDefaults({
+          specPath: spec,
+          io: cap.io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          handleSignals: false,
+        }),
+      ).toBe(3);
+      expect(
+        await runWithDefaults({
+          specPath: spec,
+          io: cap.io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          handleSignals: false,
+        }),
+      ).toBe(3);
+
+      expect(claude.calls).toHaveLength(3);
+      expect(claude.calls[1]?.prompt).toContain(
+        "Partial implementation from the previous iteration-timeout checkpoint is present.",
+      );
+      expect(claude.calls[2]?.prompt).not.toContain("Timeout Checkpoint");
+    });
+
     test("iteration timeout commits uncommitted tracked edits and new untracked files as a checkpoint", async () => {
       const spec = writeSpec("- [ ] todo\n");
       initGitRepoForCheckpointTests();

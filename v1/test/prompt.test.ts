@@ -123,6 +123,14 @@ describe("buildPrompt", () => {
     const prompt = buildPrompt("spec/example/index.md");
     expect(prompt).toContain("git commit");
   });
+
+  test("directs continuation when a timeout checkpoint is present", () => {
+    const prompt = buildPrompt("spec/example/index.md", undefined, {
+      timeoutCheckpointContext: "Partial implementation is present; inspect and continue.",
+    });
+    expect(prompt).toContain("## Timeout Checkpoint");
+    expect(prompt).toContain("Partial implementation is present; inspect and continue.");
+  });
 });
 
 describe("buildVerdictActuatorPrompt", () => {

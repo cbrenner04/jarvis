@@ -34,14 +34,14 @@ An iteration-timeout can checkpoint partial edits, but the next implementation p
 
 ## Acceptance criteria
 
-- [ ] After an active subspec iteration times out and commits partial edits, the next normal implementation prompt tells the agent that partial implementation is present and to inspect and continue it.
-- [ ] A successful timeout checkpoint records the exact receipt fields and matching commit identity needed to qualify the same active subspec across a new Jarvis process.
-- [ ] The continuation notice is emitted once: after timeout → notice → non-timeout/no-commit attempt, the following invocation has the pre-change prompt.
-- [ ] Idle timeout, run timeout, non-timeout failure, a no-op/failed checkpoint, an intervening commit, a different active subspec, and absent or invalid receipt metadata retain the pre-change implementation prompt.
-- [ ] Git or receipt inspection/consumption failure warns, omits continuation context, and preserves existing run exit semantics.
-- [ ] Fix-up, shrink, and review prompts remain unchanged.
-- [ ] The bumped `patch.prompt.body` registry revision governs both optional renders: focused tests prove absent output is byte-for-byte stable and present output directs continuation; canonical shared and Codex-wrapper fixtures match the revision.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] After an active subspec iteration times out and commits partial edits, the next normal implementation prompt tells the agent that partial implementation is present and to inspect and continue it.
+- [x] A successful timeout checkpoint records the exact receipt fields and matching commit identity needed to qualify the same active subspec across a new Jarvis process.
+- [x] The continuation notice is emitted once: after timeout → notice → non-timeout/no-commit attempt, the following invocation has the pre-change prompt.
+- [x] Idle timeout, run timeout, non-timeout failure, a no-op/failed checkpoint, an intervening commit, a different active subspec, and absent or invalid receipt metadata retain the pre-change implementation prompt.
+- [x] Git or receipt inspection/consumption failure warns, omits continuation context, and preserves existing run exit semantics.
+- [x] Fix-up, shrink, and review prompts remain unchanged.
+- [x] The bumped `patch.prompt.body` registry revision governs both optional renders: focused tests prove absent output is byte-for-byte stable and present output directs continuation; canonical shared and Codex-wrapper fixtures match the revision.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

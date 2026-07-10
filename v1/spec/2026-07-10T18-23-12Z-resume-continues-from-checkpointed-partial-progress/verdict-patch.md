@@ -1,0 +1,3 @@
+- Ensure every receipt examined for a normal invocation is one-shot evidence: malformed, stale, or mismatched receipts must be retired once inspected so later HEAD/spec restoration cannot revive an old timeout notice. If retirement or inspection fails, warn, omit context, and preserve existing exit behavior. This is required by the immediate-predecessor and one-shot-consumption decisions.
+
+- Add coverage proving fail-closed receipt handling and the full lifecycle: malformed and identity/subspec-mismatched receipts, inspection/consumption failures, and timeout → one continuation prompt → non-timeout/no-commit attempt → unchanged subsequent prompt. This is required by the explicit acceptance criteria for invalid metadata, failure behavior, and one-time emission.

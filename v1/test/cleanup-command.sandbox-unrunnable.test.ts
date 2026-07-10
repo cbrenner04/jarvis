@@ -1415,7 +1415,7 @@ describe("cleanupCommand root-archival pass", () => {
   });
 
   test("an already-archived root spec is not rescanned on a later run", () => {
-    const { io, out } = captureIo();
+    const { io } = captureIo();
     const name = "root-idempotent";
     writeRootSpec(name, completeSpec(name));
     const runner = fakeRunner({});

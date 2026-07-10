@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  commitCheckpointOnTimeout,
   commitSubspec,
   commitWipProgress,
   commitWipProgressWithBlocker,
@@ -515,5 +516,32 @@ Stuck
     } finally {
       teardown();
     }
+  });
+});
+
+describe("commitCheckpointOnTimeout", () => {
+  test("commits staged changes with a WIP checkpoint message and agent trailer", () => {
+    const ops = fakeGitOps();
+
+    commitCheckpointOnTimeout(gitDir, "claude", ops);
+
+    expect(ops.commits).toHaveLength(1);
+    const message = ops.commits[0]?.message ?? "";
+    expect(message).toContain("WIP: checkpoint (iteration-timeout)");
+    expect(message).toContain("Jarvis-Agent: claude");
+  });
+
+  test("is a no-op when there are no staged changes", () => {
+    const ops = fakeGitOps({ staged: false });
+
+    commitCheckpointOnTimeout(gitDir, "claude", ops);
+
+    expect(ops.commits).toHaveLength(0);
+  });
+
+  test("rethrows git commit failures when staged changes exist", () => {
+    const ops = fakeGitOps({ commitError: new Error("git commit failed") });
+
+    expect(() => commitCheckpointOnTimeout(gitDir, "claude", ops)).toThrow("git commit failed");
   });
 });

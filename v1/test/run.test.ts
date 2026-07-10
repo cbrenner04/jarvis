@@ -6514,6 +6514,141 @@ exit 0
       expect(cap.err()).toContain("exceeded timeout");
     });
 
+    function initGitRepoForCheckpointTests(): void {
+      execSync("git init -b jarvis-checkpoint", { cwd: projectRoot });
+      execSync('git config user.email "jarvis-test@example.com"', { cwd: projectRoot });
+      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      execSync("git add -A && git commit -m init", { cwd: projectRoot });
+    }
+
+    test("iteration timeout commits uncommitted tracked edits and new untracked files as a checkpoint", async () => {
+      const spec = writeSpec("- [ ] todo\n");
+      initGitRepoForCheckpointTests();
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [ ] todo\n\nedited by agent\n");
+        writeFileSync(join(projectRoot, "new-file.txt"), "created by agent\n");
+        return { kind: "error", exitCode: -1, stderr: "aborted: iteration-timeout" };
+      });
+      writeConfig(
+        {
+          version: 2,
+          modes: {
+            patch: { agentOrder: [CLAUDE_ENTRY] },
+            plan: { agentOrder: [CLAUDE_ENTRY] },
+            prompt: { agentOrder: [CLAUDE_ENTRY] },
+            review: { passes: 2 },
+          },
+          quotaFallback: "lenient",
+          weakQuotaExitCodes: [],
+          maxIterations: 1,
+          iterationTimeoutMs: 1,
+          git: true,
+          projects: { project: { root: projectRoot } },
+        },
+        { dir: cfgDir },
+      );
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(8);
+      const status = execSync("git status --porcelain", { cwd: projectRoot, encoding: "utf8" }).trim();
+      expect(status).toBe("");
+      const lastCommitSubject = execSync("git log -1 --format=%s", { cwd: projectRoot, encoding: "utf8" }).trim();
+      expect(lastCommitSubject).toBe("WIP: checkpoint (iteration-timeout)");
+      const committedNewFile = execSync("git show HEAD:new-file.txt", { cwd: projectRoot, encoding: "utf8" });
+      expect(committedNewFile).toBe("created by agent\n");
+    });
+
+    test("iteration timeout does not commit a checkpoint when git is disabled", async () => {
+      const spec = writeSpec("- [ ] todo\n");
+      initGitRepoForCheckpointTests();
+      const beforeLog = execSync("git log --format=%H", { cwd: projectRoot, encoding: "utf8" }).trim();
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [ ] todo\n\nedited by agent\n");
+        return { kind: "error", exitCode: -1, stderr: "aborted: iteration-timeout" };
+      });
+      writeConfig(
+        {
+          version: 2,
+          modes: {
+            patch: { agentOrder: [CLAUDE_ENTRY] },
+            plan: { agentOrder: [CLAUDE_ENTRY] },
+            prompt: { agentOrder: [CLAUDE_ENTRY] },
+            review: { passes: 2 },
+          },
+          quotaFallback: "lenient",
+          weakQuotaExitCodes: [],
+          maxIterations: 1,
+          iterationTimeoutMs: 1,
+          git: false,
+          projects: { project: { root: projectRoot } },
+        },
+        { dir: cfgDir },
+      );
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(8);
+      const afterLog = execSync("git log --format=%H", { cwd: projectRoot, encoding: "utf8" }).trim();
+      expect(afterLog).toBe(beforeLog);
+    });
+
+    test("iteration timeout with no uncommitted changes creates no checkpoint commit", async () => {
+      const spec = writeSpec("- [ ] todo\n");
+      initGitRepoForCheckpointTests();
+      const beforeLog = execSync("git log --format=%H", { cwd: projectRoot, encoding: "utf8" }).trim();
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => ({
+        kind: "error",
+        exitCode: -1,
+        stderr: "aborted: iteration-timeout",
+      }));
+      writeConfig(
+        {
+          version: 2,
+          modes: {
+            patch: { agentOrder: [CLAUDE_ENTRY] },
+            plan: { agentOrder: [CLAUDE_ENTRY] },
+            prompt: { agentOrder: [CLAUDE_ENTRY] },
+            review: { passes: 2 },
+          },
+          quotaFallback: "lenient",
+          weakQuotaExitCodes: [],
+          maxIterations: 1,
+          iterationTimeoutMs: 1,
+          git: true,
+          projects: { project: { root: projectRoot } },
+        },
+        { dir: cfgDir },
+      );
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(8);
+      const afterLog = execSync("git log --format=%H", { cwd: projectRoot, encoding: "utf8" }).trim();
+      expect(afterLog).toBe(beforeLog);
+    });
+
     test("watchdog timeout with pgid unavailable records last_output_age_ms only", async () => {
       const spec = writeSpec("- [ ] todo\n");
       const cap = captureIo();

@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
@@ -29,13 +28,16 @@ import {
 import { parseRevisionNumber } from "./revision-step-id.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import {
+  boundaryStampFromStoredRun,
+  DEFAULT_TELEMETRY_SINK_PATH,
+  emitWorkBoundaryRecorded,
+} from "./work-boundary-telemetry.ts";
+import {
   executeWriteLoop,
   type WriteLoopInput,
   type WriteLoopOutcomeKind,
   type WriteLoopResult,
 } from "./write-loop.ts";
-
-const DEFAULT_TELEMETRY_SINK_PATH = join(homedir(), ".jarvis", "telemetry.jsonl");
 
 /** Workflow-runner-level telemetry context, shared identically across write and review-debate steps. */
 type WorkflowTelemetryContext = {
@@ -120,6 +122,7 @@ export type WorkflowResult = {
   resumable: boolean;
   commitSha?: string;
   completionCommitError?: string;
+  boundaryTelemetryFailure?: string;
 };
 
 export type WorkflowRunnerInput = {
@@ -213,12 +216,15 @@ async function runWorkflowStep(
   const preparedStep = prepareWorkflowStep(step, workflowSnapshot, store, logSink, telemetry);
   if (preparedStep.kind === "completed") {
     onStepRunCreated?.(stepIndex, preparedStep.runId);
+    const stored = store.loadRun(preparedStep.runId);
+    const stamp = stored ? boundaryStampFromStoredRun(stored) : undefined;
     return {
       kind: "complete",
       runId: preparedStep.runId,
       iterationsConsumed: 0,
       resumable: false,
       ...(preparedStep.completionAgent ? { completionAgent: preparedStep.completionAgent } : {}),
+      ...(stamp !== undefined ? stamp : {}),
     };
   }
 
@@ -260,6 +266,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     let lastResult: WorkflowStepOutcome | undefined;
     let lastStepId = "";
     let completionAgent: string | undefined;
+    let boundaryTelemetryFailure: string | undefined;
     const workflowSnapshot = buildWorkflowSnapshot(args.steps, store);
 
     for (let stepIndex = 0; stepIndex < args.steps.length; stepIndex++) {
@@ -305,6 +312,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           args.onStepRunCreated,
         );
         totalIterationsConsumed += shrinkResult.iterationsConsumed;
+        lastResult = shrinkResult;
+        lastStepId = step.stepId;
         if (shrinkResult.kind === "complete" && (shrinkResult as WriteLoopResult).completionAgent) {
           completionAgent = (shrinkResult as WriteLoopResult).completionAgent;
         }
@@ -336,7 +345,28 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             agent: publicationAgent,
           });
           if (published.commitSha !== undefined) {
-            (lastResult as WriteLoopResult).commitSha = published.commitSha;
+            const stamped = lastResult as WriteLoopResult;
+            (stamped as WriteLoopResult).commitSha = published.commitSha;
+            if (
+              published.filesChanged !== undefined &&
+              stamped.attemptId !== undefined &&
+              stamped.outcomeKind !== undefined &&
+              stamped.runStatus !== undefined
+            ) {
+              const failure = emitWorkBoundaryRecorded(
+                args.telemetry,
+                {
+                  runId: stamped.runId,
+                  attemptId: stamped.attemptId,
+                  outcomeKind: stamped.outcomeKind,
+                  runStatus: stamped.runStatus,
+                },
+                { commitSha: published.commitSha, filesChanged: published.filesChanged },
+              );
+              if (failure !== undefined) {
+                boundaryTelemetryFailure = failure;
+              }
+            }
             try {
               await (args.completionPublisher ?? createCompletionPublisher())({
                 worktreePath: getExternalWorktreePath(worktree),
@@ -379,6 +409,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       ...((lastResult as WriteLoopResult).commitSha !== undefined
         ? { commitSha: (lastResult as WriteLoopResult).commitSha }
         : {}),
+      ...(boundaryTelemetryFailure !== undefined ? { boundaryTelemetryFailure } : {}),
     };
   } finally {
     if (!args.stateStore) {
@@ -660,12 +691,15 @@ async function runShrinkAfterImplementComplete(
   const preparedStep = prepareWorkflowStep(shrinkStep, workflowSnapshot, store, logSink, telemetry);
   if (preparedStep.kind === "completed") {
     onStepRunCreated?.(stepIndex, preparedStep.runId);
+    const stored = store.loadRun(preparedStep.runId);
+    const stamp = stored ? boundaryStampFromStoredRun(stored) : undefined;
     return {
       kind: "complete",
       runId: preparedStep.runId,
       iterationsConsumed: 0,
       resumable: false,
       ...(preparedStep.completionAgent ? { completionAgent: preparedStep.completionAgent } : {}),
+      ...(stamp !== undefined ? stamp : {}),
     };
   }
   return executeWriteLoop(

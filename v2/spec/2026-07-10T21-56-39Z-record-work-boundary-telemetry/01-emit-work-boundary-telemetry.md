@@ -39,13 +39,13 @@ they can be read at the emit point.
 
 ## Acceptance criteria
 
-- [ ] A completion boundary that produces a harness commit appends at least one `work_boundary_recorded` row to the telemetry sink; a boundary that produces no commit, and any boundary with no telemetry block attached, appends none.
-- [ ] The resume-republish of a pending completion commit appends a `work_boundary_recorded` row carrying the same join keys and `files_changed` as the original publish would.
-- [ ] The row is `{ schema_version: 1, record_kind: "work_boundary_recorded", ts, run_id, attempt_id, outcome_kind, run_status, commit_sha, files_changed }` with `files_changed` a count and no `invocation_id` key.
-- [ ] `commit_sha` and `files_changed` come from the completion-commit result; `attempt_id`/`outcome_kind`/`run_status` come from the stamp threaded onto the publishing boundary's `WriteLoopResult` — reachable at the fresh-complete, workflow, and resume-republish publish sites.
-- [ ] Emission is gated on an attached telemetry block; when attached, the sink path uses the injected `sinkPath` when supplied and otherwise defaults to `~/.jarvis/telemetry.jsonl`; the row is written outside `commitCompletionBoundary` and outside the orchestration SQLite store.
-- [ ] The record is appended through a v2-local sink helper; `shared/**` gains no `work_boundary_recorded` type.
-- [ ] A telemetry append failure is reported separately and leaves boundary control flow, the returned result, and persisted orchestration state unchanged.
+- [x] A completion boundary that produces a harness commit appends at least one `work_boundary_recorded` row to the telemetry sink; a boundary that produces no commit, and any boundary with no telemetry block attached, appends none.
+- [x] The resume-republish of a pending completion commit appends a `work_boundary_recorded` row carrying the same join keys and `files_changed` as the original publish would.
+- [x] The row is `{ schema_version: 1, record_kind: "work_boundary_recorded", ts, run_id, attempt_id, outcome_kind, run_status, commit_sha, files_changed }` with `files_changed` a count and no `invocation_id` key.
+- [x] `commit_sha` and `files_changed` come from the completion-commit result; `attempt_id`/`outcome_kind`/`run_status` come from the stamp threaded onto the publishing boundary's `WriteLoopResult` — reachable at the fresh-complete, workflow, and resume-republish publish sites.
+- [x] Emission is gated on an attached telemetry block; when attached, the sink path uses the injected `sinkPath` when supplied and otherwise defaults to `~/.jarvis/telemetry.jsonl`; the row is written outside `commitCompletionBoundary` and outside the orchestration SQLite store.
+- [x] The record is appended through a v2-local sink helper; `shared/**` gains no `work_boundary_recorded` type.
+- [x] A telemetry append failure is reported separately and leaves boundary control flow, the returned result, and persisted orchestration state unchanged.
 
 ## Documentation updates
 

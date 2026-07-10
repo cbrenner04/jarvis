@@ -25,11 +25,11 @@ computed by the harness from the completion commit's own trees.
 
 ## Acceptance criteria
 
-- [ ] `CompletionCommitResult.filesChanged` is present on every result that carries a `commitSha`, and its value equals the number of files differing between the completion commit's base tree and completion tree.
-- [ ] `filesChanged` is computed by the committer from the commit's own trees via the injected git runner using a name-only diff with rename detection off (no `-M`) — not from agent output or observability logs.
-- [ ] No-commit paths (missing `.git`, base tree equal to completion tree) return a result with neither `commitSha` nor `filesChanged`.
-- [ ] Republishing the same pending completion commit (resume/retry path) yields the same `filesChanged` value as the first publish.
-- [ ] A new committer unit test asserts the count against a known tree diff and its absence on the no-commit path.
+- [x] `CompletionCommitResult.filesChanged` is present on every result that carries a `commitSha`, and its value equals the number of files differing between the completion commit's base tree and completion tree.
+- [x] `filesChanged` is computed by the committer from the commit's own trees via the injected git runner using a name-only diff with rename detection off (no `-M`) — not from agent output or observability logs.
+- [x] No-commit paths (missing `.git`, base tree equal to completion tree) return a result with neither `commitSha` nor `filesChanged`.
+- [x] Republishing the same pending completion commit (resume/retry path) yields the same `filesChanged` value as the first publish.
+- [x] A new committer unit test asserts the count against a known tree diff and its absence on the no-commit path.
 
 ## Documentation updates
 

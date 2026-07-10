@@ -159,6 +159,7 @@ type PreparedWorkflowStep =
   | {
       kind: "completed";
       runId: string;
+      completionAgent?: string;
     }
   | {
       kind: "pending";
@@ -209,7 +210,13 @@ async function runWorkflowStep(
   const preparedStep = prepareWorkflowStep(step, workflowSnapshot, store, logSink, telemetry);
   if (preparedStep.kind === "completed") {
     onStepRunCreated?.(stepIndex, preparedStep.runId);
-    return { kind: "complete", runId: preparedStep.runId, iterationsConsumed: 0, resumable: false };
+    return {
+      kind: "complete",
+      runId: preparedStep.runId,
+      iterationsConsumed: 0,
+      resumable: false,
+      ...(preparedStep.completionAgent ? { completionAgent: preparedStep.completionAgent } : {}),
+    };
   }
 
   return executeWriteLoop(
@@ -269,7 +276,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       totalIterationsConsumed += stepResult.iterationsConsumed;
       lastResult = stepResult;
       lastStepId = step.stepId;
-      if (stepResult.kind === "complete") {
+      if (stepResult.kind === "complete" && (stepResult as WriteLoopResult).completionAgent) {
         completionAgent = (stepResult as WriteLoopResult).completionAgent;
       }
 
@@ -295,7 +302,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           args.onStepRunCreated,
         );
         totalIterationsConsumed += shrinkResult.iterationsConsumed;
-        if (shrinkResult.kind === "complete") {
+        if (shrinkResult.kind === "complete" && (shrinkResult as WriteLoopResult).completionAgent) {
           completionAgent = (shrinkResult as WriteLoopResult).completionAgent;
         }
         if (shrinkResult.kind !== "complete") {
@@ -316,13 +323,13 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     const publicationAgent = lastResult.kind === "complete" ? (completionAgent ?? "") : undefined;
     if (publicationAgent !== undefined) {
       try {
-        const finalStep = args.steps[args.steps.length - 1];
-        if (finalStep?.behavior === "write") {
-          const worktree = finalStep.worktree;
+        const completionStep = [...args.steps].reverse().find(isWriteStep);
+        if (completionStep) {
+          const worktree = completionStep.worktree;
           const published = (args.completionCommitter ?? createCompletionCommitter())({
             worktreePath: getExternalWorktreePath(worktree),
             baseRef: worktree.baseRef,
-            specPath: finalStep.specPath,
+            specPath: completionStep.specPath,
             agent: publicationAgent,
           });
           if (published.commitSha !== undefined) (lastResult as WriteLoopResult).commitSha = published.commitSha;
@@ -574,7 +581,8 @@ function prepareWorkflowStep(
     stepId: step.stepId,
   });
   if (existingRun?.status === "completed") {
-    return { kind: "completed", runId: existingRun.id };
+    const completionAgent = existingRun.attempts.at(-1)?.completionAgent?.trim();
+    return { kind: "completed", runId: existingRun.id, ...(completionAgent ? { completionAgent } : {}) };
   }
 
   const { stepId, role, agents, agentModelConfig, createBinding, behavior: _behavior, ...loopInput } = step;
@@ -634,7 +642,13 @@ async function runShrinkAfterImplementComplete(
   const preparedStep = prepareWorkflowStep(shrinkStep, workflowSnapshot, store, logSink, telemetry);
   if (preparedStep.kind === "completed") {
     onStepRunCreated?.(stepIndex, preparedStep.runId);
-    return { kind: "complete", runId: preparedStep.runId, iterationsConsumed: 0, resumable: false };
+    return {
+      kind: "complete",
+      runId: preparedStep.runId,
+      iterationsConsumed: 0,
+      resumable: false,
+      ...(preparedStep.completionAgent ? { completionAgent: preparedStep.completionAgent } : {}),
+    };
   }
   return executeWriteLoop(
     onStepRunCreated

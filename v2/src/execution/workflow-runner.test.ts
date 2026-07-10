@@ -974,6 +974,29 @@ describe("executeWorkflow human steps", () => {
       expect(secondResult.stepId).toBe("step-3");
     });
   });
+
+  test("publishes after a completed human step with the prior shrink binding and write context", async () => {
+    const writeStep = createStep({ stepId: "step-1", role: "implement", branchName: "human-publication" });
+    const humanStep = createHumanStep({ stepId: "step-2", branch: "human-publication" });
+    const published: Array<{ specPath: string; agent: string }> = [];
+
+    await withStateStore(async (store) => {
+      const first = await executeWorkflow({ steps: [writeStep, humanStep], stateStore: store });
+      store.setRunStatus(first.runId, "completed");
+
+      const result = await executeWorkflow({
+        steps: [writeStep, humanStep],
+        stateStore: store,
+        completionCommitter: (input) => {
+          published.push({ specPath: input.specPath, agent: input.agent });
+          return { commitSha: "commit-1" };
+        },
+      });
+
+      expect(result).toMatchObject({ kind: "complete", commitSha: "commit-1" });
+      expect(published).toEqual([{ specPath: "spec.md", agent: "claude" }]);
+    });
+  });
 });
 
 describe("executeWorkflow review-debate dispatch", () => {

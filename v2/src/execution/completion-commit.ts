@@ -13,6 +13,7 @@ type PendingCommit = {
   branchRef: string;
   message: string;
   agent: string;
+  timestamp: string;
   commitSha?: string;
 };
 
@@ -23,6 +24,8 @@ function git(cwd: string, args: readonly string[], env?: Record<string, string>)
 /** Captures and publishes one completion snapshot; hooks are bypassed by design. */
 export function createCompletionCommitter(runGit: Git = git): CompletionCommitter {
   return (input) => {
+    const agent = input.agent.trim();
+    if (!agent) throw new Error("completion attribution is missing");
     if (!existsSync(join(input.worktreePath, ".git"))) return {};
     const index = join(tmpdir(), `jarvis-index-${crypto.randomUUID()}`);
     const gitDirValue = runGit(input.worktreePath, ["rev-parse", "--git-dir"]);
@@ -39,13 +42,13 @@ export function createCompletionCommitter(runGit: Git = git): CompletionCommitte
         const tree = runGit(input.worktreePath, ["write-tree"], { GIT_INDEX_FILE: index });
         const baseTree = runGit(input.worktreePath, ["rev-parse", `${head}^{tree}`]);
         if (tree === baseTree) return {};
-        if (!input.agent.trim()) throw new Error("completion attribution is missing");
         pending = {
           baseHead: head,
           tree,
           branchRef: runGit(input.worktreePath, ["symbolic-ref", "HEAD"]),
-          message: `jarvis: complete run\n\nSpec: ${input.specPath}\n\nJarvis-Agent: ${input.agent}`,
-          agent: input.agent.trim(),
+          message: `jarvis: complete run\n\nSpec: ${input.specPath}\n\nJarvis-Agent: ${agent}`,
+          agent,
+          timestamp: new Date().toISOString(),
         };
         writeFileSync(pendingPath, `${JSON.stringify(pending)}\n`, "utf8");
       }
@@ -59,7 +62,10 @@ export function createCompletionCommitter(runGit: Git = git): CompletionCommitte
 
       const commit =
         pending.commitSha ??
-        runGit(input.worktreePath, ["commit-tree", pending.tree, "-p", pending.baseHead, "-m", pending.message]);
+        runGit(input.worktreePath, ["commit-tree", pending.tree, "-p", pending.baseHead, "-m", pending.message], {
+          GIT_AUTHOR_DATE: pending.timestamp,
+          GIT_COMMITTER_DATE: pending.timestamp,
+        });
       if (pending.commitSha === undefined) {
         pending = { ...pending, commitSha: commit };
         writeFileSync(pendingPath, `${JSON.stringify(pending)}\n`, "utf8");

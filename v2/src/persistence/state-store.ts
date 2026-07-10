@@ -94,6 +94,7 @@ export type Attempt = {
   status: AttemptStatus;
   outcomeKind: OutcomeKind | null;
   invocationFailureDetail: InvocationFailureDetail | null;
+  completionAgent?: string | null;
 };
 
 /** Repository-style durable state API, keyed by IDs; no generic SQL surface. */
@@ -144,6 +145,7 @@ export interface StateStore {
     runStatus: RunStatus;
     outcomeKind: OutcomeKind;
     invocationFailureDetail?: InvocationFailureDetail;
+    completionAgent?: string;
     beforeRunUpdate?: () => void;
   }): void;
 
@@ -187,7 +189,8 @@ const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, 
   workflow_snapshot AS workflowSnapshotJson, queued_input AS queuedInputJson`;
 
 const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, started_at AS startedAt, status,
-  outcome_kind AS outcomeKind, invocation_failure_detail AS invocationFailureDetailJson`;
+  outcome_kind AS outcomeKind, invocation_failure_detail AS invocationFailureDetailJson,
+  completion_agent AS completionAgent`;
 
 const SCHEMA_MIGRATIONS = [
   {
@@ -205,6 +208,10 @@ const SCHEMA_MIGRATIONS = [
   {
     id: "007-run-queued-input",
     up: "ALTER TABLE runs ADD COLUMN queued_input TEXT",
+  },
+  {
+    id: "008-attempt-completion-agent",
+    up: "ALTER TABLE attempts ADD COLUMN completion_agent TEXT",
   },
 ] as const;
 
@@ -358,6 +365,7 @@ class StateStoreImpl implements StateStore {
     runStatus: RunStatus;
     outcomeKind: OutcomeKind;
     invocationFailureDetail?: InvocationFailureDetail;
+    completionAgent?: string;
     beforeRunUpdate?: () => void;
   }): void {
     this.db.transaction(() => {
@@ -374,9 +382,9 @@ class StateStoreImpl implements StateStore {
 
       this.db
         .prepare(
-          "UPDATE attempts SET status = 'completed', outcome_kind = ?, completed_at = ?, invocation_failure_detail = ? WHERE id = ?",
+          "UPDATE attempts SET status = 'completed', outcome_kind = ?, completed_at = ?, invocation_failure_detail = ?, completion_agent = ? WHERE id = ?",
         )
-        .run(args.outcomeKind, Date.now(), detailJson, args.attemptId);
+        .run(args.outcomeKind, Date.now(), detailJson, args.completionAgent?.trim() || null, args.attemptId);
 
       args.beforeRunUpdate?.();
 

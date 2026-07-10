@@ -186,11 +186,13 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               })),
             }
           : undefined;
+      const completionAgent = result.kind === "complete" ? result.invocation.final?.binding.metadata?.agent?.trim() : undefined;
       store.commitCompletionBoundary({
         attemptId,
         runStatus: terminal.runStatus,
         outcomeKind: terminal.outcomeKind,
         ...(detail !== undefined ? { invocationFailureDetail: detail } : {}),
+        ...(completionAgent ? { completionAgent } : {}),
       });
       args.logSink?.append(runId, {
         kind: "boundary_committed",
@@ -386,7 +388,16 @@ function terminalMapping(result: Exclude<StepRunResult, { kind: "progress" }>): 
 
 /** Terminal result already committed by a prior invocation, returned idempotently; null when resumable. */
 function committedResult(run: StoredRun): WriteLoopResult | null {
-  if (run.status === "completed") return { kind: "complete", runId: run.id, iterationsConsumed: 0, resumable: false };
+  if (run.status === "completed") {
+    const agent = run.attempts.at(-1)?.completionAgent?.trim();
+    return {
+      kind: "complete",
+      runId: run.id,
+      iterationsConsumed: 0,
+      resumable: false,
+      ...(agent ? { completionAgent: agent } : {}),
+    };
+  }
   if (run.status === "failed") {
     const detail = run.attempts[run.attempts.length - 1]?.invocationFailureDetail ?? undefined;
     return {

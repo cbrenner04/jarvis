@@ -6,7 +6,7 @@ The v2 completion publisher opens a draft PR whose body is a bare `Spec: <specPa
 
 ## Reconciling attribution with the v2 collapse model
 
-v2 does **not** create per-subspec commits. A completed run collapses all work into one `jarvis: complete run` meta-commit whose first body line is `Spec: <specPath>` and which carries a `Jarvis-Agent` trailer (see [`write-behavior.md`](../../docs/write-behavior.md) commit phase). So on `baseRef..HEAD` exactly one commit qualifies under v1's `Spec: `-prefix selection.
+v2 does **not** create per-subspec commits. A completed run collapses all work into one `jarvis: complete run` meta-commit whose first body line is `Spec: <specPath>` and which carries a `Jarvis-Agent` trailer (see [`write-behavior.md`](../../docs/write-behavior.md) commit phase). So on `baseRef..HEAD` exactly one commit qualifies under v1's `Spec:`-prefix selection.
 
 This slice **accepts the collapse model** (R1 option B): attribution is rendered from the meta-commit's own `Jarvis-Agent` trailer(s), not from many per-attempt commits. This corrects the intent's headline decision "rules out binding attribution to the completion agent": under the collapse, the meta-commit's trailer *is* the honest attribution source. Today that commit carries exactly one trailer — the final successful binding — so the footer is a single bullet naming that agent.
 
@@ -16,7 +16,7 @@ The ported renderer already handles the general N-commit / N-trailer case (a com
 
 ## Decisions
 
-- Footer derives from `Jarvis-Agent` trailer(s) on `baseRef..HEAD` commits whose first body line begins with `Spec: ` — under v2's collapse this selects the single `jarvis: complete run` meta-commit; rules out binding attribution to the current process or state-store attempt rows.
+- Footer derives from `Jarvis-Agent` trailer(s) on `baseRef..HEAD` commits whose first body line begins with `Spec:` — under v2's collapse this selects the single `jarvis: complete run` meta-commit; rules out binding attribution to the current process or state-store attempt rows.
 - Attribution is the selected commit's own trailers (today the final successful binding), not the last agent the completion publisher happened to run — rules out reading `process`/CLI state instead of the commit.
 - The ported renderer keeps v1's per-commit bullet + first-seen label dedup + `Written by … through Jarvis.` summary unchanged; a qualifying commit with no `Jarvis-Agent` trailer renders `unknown` in its bullet and is excluded from the summary — rules out re-deriving a v2-specific renderer that drops v1's multi-trailer generality.
 - Zero qualifying commits ⇒ empty footer ⇒ body is the regenerated header (plus narrative if present) with **no** `---` separator (v1 `updatePrBody` parity) — rules out emitting a dangling separator over an empty footer.
@@ -44,8 +44,8 @@ The two slices form one ordered post-completion sequence: **push+PR → body ref
 
 ## Acceptance criteria
 
-- [ ] After a completed run's draft PR is ensured, its body is refreshed to include an attribution footer rendered from `Jarvis-Agent` trailer(s) on the `baseRef..HEAD` commit(s) whose first body line begins with `Spec: ` (v2's single `jarvis: complete run` meta-commit).
-- [ ] The footer lists one bullet per qualifying commit in chronological order as `- <shortSha> <subject> — <label>`, where `<label>` is the commit's `Jarvis-Agent` trailer(s) joined by `, `, followed by a `Written by <labels> through Jarvis.` summary; summary labels are deduplicated first-seen in commit/trailer order; a qualifying commit with no `Jarvis-Agent` trailer renders `unknown` and is excluded from the summary.
+- [ ] After a completed run's draft PR is ensured, its body is refreshed to include an attribution footer rendered from `Jarvis-Agent` trailer(s) on the `baseRef..HEAD` commit(s) whose first body line begins with `Spec:` (v2's single `jarvis: complete run` meta-commit).
+- [ ] The footer lists one bullet per qualifying commit in chronological order as `- <shortSha> <subject> — <label>`, where `<label>` is the commit's `Jarvis-Agent` trailer(s) joined by `,`, followed by a `Written by <labels> through Jarvis.` summary; summary labels are deduplicated first-seen in commit/trailer order; a qualifying commit with no `Jarvis-Agent` trailer renders `unknown` and is excluded from the summary.
 - [ ] When no commit qualifies, the footer is empty and the refreshed body is the regenerated `Spec:` header (plus preserved narrative if present) with no `---` separator.
 - [ ] Content between the `<!-- jarvis:narrative:start -->` / `<!-- jarvis:narrative:end -->` markers in the existing PR body is preserved across refresh; when the markers are absent, the body is the regenerated `Spec:` header plus, when the footer is non-empty, a `---` separator and the footer.
 - [ ] Body refresh edits the ensured PR without opening a new one; a transient `gh` refresh failure returns the retryable `completion_commit_failed` publication failure that leaves the durable run `completed`, and resume re-refreshes the same PR without duplicating it.

@@ -32,12 +32,17 @@ function validateMachineConfigMemory(memory: unknown): { minFreeGb: number | und
   return { minFreeGb, settleDelayMs };
 }
 
-function resolveProfilePath(profileName: string): string {
-  return join(import.meta.dir, "..", "..", "..", "config", "machines", `${profileName}.json`);
+const DEFAULT_MACHINES_DIR = join(import.meta.dir, "..", "..", "..", "config", "machines");
+
+/** Test seam: `machinesDir` redirects profile reads away from the repo's committed config/machines/. */
+export type MachineProfileLoadOptions = { machinesDir?: string | undefined };
+
+function resolveProfilePath(profileName: string, machinesDir?: string): string {
+  return join(machinesDir ?? DEFAULT_MACHINES_DIR, `${profileName}.json`);
 }
 
-function readMachineProfileDocument(profileName: string): Record<string, unknown> {
-  const filePath = resolveProfilePath(profileName);
+function readMachineProfileDocument(profileName: string, machinesDir?: string): Record<string, unknown> {
+  const filePath = resolveProfilePath(profileName, machinesDir);
 
   let raw: string;
   try {
@@ -60,13 +65,17 @@ function readMachineProfileDocument(profileName: string): Record<string, unknown
   return parsed as Record<string, unknown>;
 }
 
-export function loadMachineProfileModels(profileName: string, agents: readonly string[]): AgentModelConfig | LoadError {
-  const document = readMachineProfileDocument(profileName);
+export function loadMachineProfileModels(
+  profileName: string,
+  agents: readonly string[],
+  opts?: MachineProfileLoadOptions,
+): AgentModelConfig | LoadError {
+  const document = readMachineProfileDocument(profileName, opts?.machinesDir);
 
   if (!("models" in document)) {
     return {
       errors: [
-        `Machine profile '${profileName}' at ${resolveProfilePath(profileName)} is missing required 'models' key`,
+        `Machine profile '${profileName}' at ${resolveProfilePath(profileName, opts?.machinesDir)} is missing required 'models' key`,
       ],
     };
   }
@@ -74,11 +83,14 @@ export function loadMachineProfileModels(profileName: string, agents: readonly s
   return validateAgentModelConfig(document.models, agents);
 }
 
-export function loadMachineProfileMemory(profileName: string): {
+export function loadMachineProfileMemory(
+  profileName: string,
+  opts?: MachineProfileLoadOptions,
+): {
   minFreeGb: number | undefined;
   settleDelayMs: number;
 } {
-  const document = readMachineProfileDocument(profileName);
+  const document = readMachineProfileDocument(profileName, opts?.machinesDir);
 
   if (!("memory" in document)) {
     return { minFreeGb: undefined, settleDelayMs: DEFAULT_SETTLE_DELAY_MS };

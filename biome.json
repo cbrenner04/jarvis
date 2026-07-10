@@ -94,16 +94,6 @@
       }
     },
     {
-      "includes": ["v2/src/execution/implement-workflow-steps.ts"],
-      "linter": {
-        "rules": {
-          "style": {
-            "noRestrictedImports": "off"
-          }
-        }
-      }
-    },
-    {
       "includes": ["shared/**/*.ts", "!shared/**/*.test.ts"],
       "linter": {
         "rules": {

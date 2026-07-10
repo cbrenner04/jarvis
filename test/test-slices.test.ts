@@ -92,8 +92,11 @@ describe("Test slice boundaries", () => {
 
     expect([...agent, ...integration].sort()).toEqual(onDisk);
     expect(integration).toEqual([
+      "v2/src/daemon/daemon-start-list.sandbox-unrunnable.test.ts",
       "v2/src/daemon/daemon.sandbox-unrunnable.test.ts",
+      "v2/src/ipc/ipc.sandbox-unrunnable.test.ts",
       "v2/src/testing/preload.sandbox-unrunnable.test.ts",
+      "v2/src/tui/tui-log-tail-client.sandbox-unrunnable.test.ts",
     ]);
 
     const runnerScript = await Bun.file("scripts/run-v2-tests.ts").text();

@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { getCurrentBranch } from "../../../../shared/git.ts";
 import { parseSpec } from "../../../../shared/spec-parser.ts";
 import type { Agent, AgentRunOptions } from "../../agents/types.ts";
-import { type SyncTransientRetryOptions, withSyncTransientRetry } from "../../gh.ts";
+import { getBaseBranch, type SyncTransientRetryOptions, withSyncTransientRetry } from "../../gh.ts";
 import { tryAutoIntegrateBase } from "../../git/auto-integrate-base.ts";
 import { type BaseCurrentCheckResult, checkBaseCurrent, writeReadyFlipBlocked } from "../../git/base-current.ts";
 import { checkPrExists, extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER } from "../../pr.ts";
@@ -278,6 +278,8 @@ export type MaybeMarkReadyOpts = {
   indexPath: string;
   cwd: string;
   timeoutMs: number;
+  /** Test seam: fixed base branch instead of `getBaseBranch`. */
+  baseBranch?: string;
   /** Test seam: bypass getCurrentBranch when set. Used by pr.test.ts to avoid real git. */
   branchName?: string;
   /** Test seam: agent label for the pre-ready fix commit trailer. Threaded to the `commitPreReadyFix` seam. */
@@ -317,7 +319,7 @@ export type MaybeMarkReadyOpts = {
   tryAutoIntegrateBase?: typeof tryAutoIntegrateBase;
 };
 
-export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
+export async function maybeMarkReady(opts: MaybeMarkReadyOpts): Promise<void> {
   if (!linkedSubspecsAreComplete(readFileSync(opts.indexPath, "utf8"))) {
     return;
   }
@@ -383,10 +385,12 @@ export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
   };
 
   // Run ready at the tier selected from the recorded green carrier, then flip draft→ready.
+  const baseBranch = opts.baseBranch ?? (await getBaseBranch(opts.cwd));
   runReadyGateWithTier({
     cwd: opts.cwd,
     agentLabel: opts.agentLabel ?? "",
     timeoutMs: opts.timeoutMs,
+    baseBranch,
     ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
     ...(opts.fixCommand !== undefined ? { fixCommand: opts.fixCommand } : {}),
     ...(opts.recordedGreenResult !== undefined ? { recordedGreenResult: opts.recordedGreenResult } : {}),

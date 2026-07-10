@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync, execSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getCurrentBranch } from "../../shared/git.ts";
@@ -14,6 +14,7 @@ import {
   postVerificationStillDirtyErrorMessage,
   ReadyCommandError,
   ReadyVerificationDirtyError,
+  resolveReadyTestScope,
   runReadyAndCommit,
   runReadyGateWithTier,
   selectReadyTier,
@@ -55,6 +56,38 @@ describe("selectReadyTier", () => {
     const headSha = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim();
     writeFileSync(join(dir, "dirty.txt"), "x\n");
     expect(selectReadyTier({ cwd: dir, recordedGreenResult: { headSha } })).toBe("full");
+  });
+});
+
+describe("resolveReadyTestScope", () => {
+  test("returns full when the base branch's merge-base can't be resolved", () => {
+    expect(resolveReadyTestScope(dir, "no-such-branch")).toBe("full");
+  });
+
+  test("returns the v1 surface scope for a tracked v1/** diff since merge-base", () => {
+    const baseSha = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim();
+    mkdirSync(join(dir, "v1"), { recursive: true });
+    writeFileSync(join(dir, "v1", "foo.ts"), "export {};\n");
+    execSync("git add v1/foo.ts && git commit -m v1change", { cwd: dir });
+
+    expect(resolveReadyTestScope(dir, baseSha)).toEqual(["test:v1", "test:integration:v1"]);
+  });
+
+  test("includes an untracked new file under v1/** in classification", () => {
+    const baseSha = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim();
+    mkdirSync(join(dir, "v1"), { recursive: true });
+    writeFileSync(join(dir, "v1", "untracked.ts"), "export {};\n");
+
+    expect(resolveReadyTestScope(dir, baseSha)).toEqual(["test:v1", "test:integration:v1"]);
+  });
+
+  test("returns empty scope for docs-only diff since merge-base", () => {
+    const baseSha = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim();
+    mkdirSync(join(dir, "v2", "docs"), { recursive: true });
+    writeFileSync(join(dir, "v2", "docs", "note.md"), "# note\n");
+    execSync("git add v2/docs/note.md && git commit -m docs", { cwd: dir });
+
+    expect(resolveReadyTestScope(dir, baseSha)).toEqual([]);
   });
 });
 
@@ -355,6 +388,56 @@ describe("runReadyAndCommit readyCommand", () => {
     });
 
     expect(readFileSync(tierFile, "utf8").trim()).toBe("fast");
+  });
+
+  test("passes JARVIS_READY_TEST_SCOPE env var to readyCommand when baseBranch is given", () => {
+    const scopeFile = join(sentinelDir, "scope.txt");
+    const script = join(sentinelDir, "ready-scope.sh");
+    writeFileSync(script, `#!/bin/sh\necho "$JARVIS_READY_TEST_SCOPE" > "${scopeFile}"\n`);
+    chmodSync(script, 0o755);
+
+    const baseSha = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim();
+    mkdirSync(join(dir, "v1"), { recursive: true });
+    writeFileSync(join(dir, "v1", "foo.ts"), "export {};\n");
+    execSync("git add v1/foo.ts && git commit -m v1change", { cwd: dir });
+
+    runReadyAndCommit({
+      cwd: dir,
+      timeoutMs: 30_000,
+      tier: "fast",
+      readyCommand: script,
+      baseBranch: baseSha,
+      runFix: () => {
+        throw new Error("fix should not run on fast tier");
+      },
+    });
+
+    expect(readFileSync(scopeFile, "utf8").trim()).toBe("test:v1 test:integration:v1");
+  });
+
+  test("passes empty JARVIS_READY_TEST_SCOPE for docs-only diff when baseBranch is given", () => {
+    const scopeFile = join(sentinelDir, "scope-docs.txt");
+    const script = join(sentinelDir, "ready-scope-docs.sh");
+    writeFileSync(script, `#!/bin/sh\necho "$JARVIS_READY_TEST_SCOPE" > "${scopeFile}"\n`);
+    chmodSync(script, 0o755);
+
+    const baseSha = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim();
+    mkdirSync(join(dir, "v1", "spec"), { recursive: true });
+    writeFileSync(join(dir, "v1", "spec", "note.md"), "# note\n");
+    execSync("git add v1/spec/note.md && git commit -m docs", { cwd: dir });
+
+    runReadyAndCommit({
+      cwd: dir,
+      timeoutMs: 30_000,
+      tier: "fast",
+      readyCommand: script,
+      baseBranch: baseSha,
+      runFix: () => {
+        throw new Error("fix should not run on fast tier");
+      },
+    });
+
+    expect(readFileSync(scopeFile, "utf8").trim()).toBe("");
   });
 
   test("error message names the readyCommand on failure", () => {

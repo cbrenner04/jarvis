@@ -412,6 +412,8 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
     return;
   }
 
+  const base = opts.baseBranch ?? (await getBaseBranch(opts.cwd));
+
   if (!opts.skipPreShrinkGate) {
     opts.fanout("harness", "shrink: running pre-shrink ready gate\n", "stdout");
     try {
@@ -422,6 +424,7 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
           cwd: opts.cwd,
           agentLabel: "shrink-baseline",
           timeoutMs: opts.iterationTimeoutMs,
+          baseBranch: base,
           ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
           ...(opts.fixCommand !== undefined ? { fixCommand: opts.fixCommand } : {}),
           ...(opts.recordedGreenResult !== undefined ? { recordedGreenResult: opts.recordedGreenResult } : {}),
@@ -445,7 +448,6 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
   const specDir = dirname(opts.specPath);
   const preShrinkHead = ops.revParseHead(opts.cwd);
   const criteriaBefore = snapshotAllAcceptanceCriteria(opts.specPath);
-  const base = opts.baseBranch ?? (await getBaseBranch(opts.cwd));
   const branch = getCurrentBranchBounded(opts.cwd, ops);
   const allowlist = [...opts.allowlist].sort();
   const killGraceMs = opts.__testKillGraceMs ?? 5000;

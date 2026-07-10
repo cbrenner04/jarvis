@@ -2,6 +2,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import type { ScopedTests } from "./ci-test-scope.ts";
 
 export const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 export const GRACE_PERIOD_MS = 5000; // 5 seconds for SIGTERM before SIGKILL
@@ -28,6 +29,24 @@ export function parseReadyTier(envValue = process.env.JARVIS_READY_TIER): ReadyT
   }
 
   return "full";
+}
+
+/**
+ * Parse `JARVIS_READY_TEST_SCOPE`. Unset means "no scoping requested" (`undefined`, distinct from
+ * an explicit empty scope `[]`), `"full"` and `""` are passed through, anything else is
+ * whitespace-split script names.
+ */
+export function parseReadyTestScope(envValue = process.env.JARVIS_READY_TEST_SCOPE): ScopedTests | undefined {
+  if (envValue === undefined) {
+    return undefined;
+  }
+  if (envValue === "") {
+    return [];
+  }
+  if (envValue === "full") {
+    return "full";
+  }
+  return envValue.trim().split(/\s+/).filter(Boolean);
 }
 
 export function parseTimeout(): number {
@@ -189,12 +208,17 @@ export function shouldRunInstall(repoRoot: string): boolean {
 }
 
 /** Ordered subprocess steps for the requested ready tier. */
-export function getReadyCommands(tier: ReadyTier, opts: { runInstall: boolean }): ReadyCommand[] {
+export function getReadyCommands(
+  tier: ReadyTier,
+  opts: { runInstall: boolean; testScope?: ScopedTests },
+): ReadyCommand[] {
+  const testSteps: ReadyCommand[] =
+    opts.testScope === undefined || opts.testScope === "full"
+      ? [{ name: "bun", args: ["run", "test"] }]
+      : opts.testScope.map((script) => ({ name: "bun", args: ["run", script] }));
+
   if (tier === "fast") {
-    return [
-      { name: "bun", args: ["run", "typecheck"] },
-      { name: "bun", args: ["run", "test"] },
-    ];
+    return [{ name: "bun", args: ["run", "typecheck"] }, ...testSteps];
   }
 
   const commands: ReadyCommand[] = [];
@@ -202,12 +226,10 @@ export function getReadyCommands(tier: ReadyTier, opts: { runInstall: boolean })
     commands.push({ name: "bun", args: ["install", "--frozen-lockfile"] });
   }
 
-  commands.push(
-    { name: "bun", args: ["run", "check"] },
-    { name: "bun", args: ["run", "typecheck"] },
-    { name: "bun", args: ["run", "test"] },
-    { name: "bun", args: ["run", "lint:md"] },
-  );
+  commands.push({ name: "bun", args: ["run", "check"] }, { name: "bun", args: ["run", "typecheck"] }, ...testSteps, {
+    name: "bun",
+    args: ["run", "lint:md"],
+  });
 
   return commands;
 }
@@ -318,7 +340,8 @@ export async function runReady(opts?: { repoRoot?: string; runCommandFn?: typeof
   const runCommandFn = opts?.runCommandFn ?? runCommand;
   const tier = parseReadyTier();
   const runInstall = tier === "full" && shouldRunInstall(repoRoot);
-  const commands = getReadyCommands(tier, { runInstall });
+  const testScope = parseReadyTestScope();
+  const commands = getReadyCommands(tier, { runInstall, ...(testScope !== undefined ? { testScope } : {}) });
   const timeoutMs = parseTimeout();
   const startTime = Date.now();
 

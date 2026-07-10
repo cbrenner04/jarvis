@@ -30,23 +30,23 @@ scope — not named in the intent.
 
 ## Acceptance criteria
 
-- [ ] Completion-transition gate (`v1/src/modes/patch/completion-pipeline.ts`,
+- [x] Completion-transition gate (`v1/src/modes/patch/completion-pipeline.ts`,
       `runCompletionReadyGate`) passes `baseBranch` resolved via
       `getBaseBranch`.
-- [ ] Review baseline and review final gates (`v1/src/modes/patch/review.ts`)
+- [x] Review baseline and review final gates (`v1/src/modes/patch/review.ts`)
       both pass `baseBranch`, resolved once and reused between them.
-- [ ] Pre-shrink gate (`v1/src/modes/patch/shrink.ts`) passes `baseBranch`.
-- [ ] `maybeMarkReady` (`v1/src/modes/patch/pr.ts`) passes `baseBranch`.
-- [ ] Triage's ready gate (`v1/src/commands/triage.ts`,
+- [x] Pre-shrink gate (`v1/src/modes/patch/shrink.ts`) passes `baseBranch`.
+- [x] `maybeMarkReady` (`v1/src/modes/patch/pr.ts`) passes `baseBranch`.
+- [x] Triage's ready gate (`v1/src/commands/triage.ts`,
       `triageRunReadyGate`) passes `baseBranch`.
-- [ ] A diff touching only `v1/**` at one of these call sites runs `test:v1`
+- [x] A diff touching only `v1/**` at one of these call sites runs `test:v1`
       (+ `test:integration:v1`) instead of the full aggregate suite; a diff
       touching `shared/**` still runs the full suite (`classifyChangedPaths`'s
       existing `shared/**` → full rule, unchanged).
-- [ ] A diff touching only docs/specs (empty scope) run through one real gate
+- [x] A diff touching only docs/specs (empty scope) run through one real gate
       call site (e.g. completion-transition) drops the test step entirely and
       the gate completes without error.
-- [ ] `v1/test/ready-gate.test.ts` and each touched call site's existing test
+- [x] `v1/test/ready-gate.test.ts` and each touched call site's existing test
       file stay green.
 
 ## Documentation updates

@@ -283,6 +283,7 @@ async function runCompletionReadyGate(
   const totalAttempts = retryBound + 1;
   let lastFailureText = "ready gate failed";
   let lastVerificationRed: boolean | undefined;
+  const baseBranch = await getBaseBranch(preflight.agentWorkingDir);
 
   for (let attempt = 1; attempt <= totalAttempts; attempt++) {
     let result: CompletionReadyGateResult;
@@ -296,6 +297,7 @@ async function runCompletionReadyGate(
           agentLabel: "completion-ready",
           tier: "full",
           timeoutMs: preflight.cfg.iterationTimeoutMs,
+          baseBranch,
           ...(readyCommand !== undefined ? { readyCommand } : {}),
           ...(fixCommand !== undefined ? { fixCommand } : {}),
         });
@@ -629,7 +631,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
       if (reviewExitCode === 11) {
         // Auto-ready on review-incomplete if the tree is unchanged since completion gate green
         try {
-          maybeMarkReady({
+          await maybeMarkReady({
             indexPath: preflight.specPath,
             cwd: preflight.agentWorkingDir,
             agentLabel: "review-incomplete",
@@ -658,7 +660,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
     }
   } else if (preflight.gitEnabled) {
     try {
-      maybeMarkReady({
+      await maybeMarkReady({
         indexPath: preflight.specPath,
         cwd: preflight.agentWorkingDir,
         agentLabel: "patch-complete",

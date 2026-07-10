@@ -786,6 +786,7 @@ function mapReviewExitCode(exitCode: number): number {
 /** Run patch review passes through the shared review runner. */
 export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promise<number> {
   let idleTimeoutOccurred = false;
+  const base = opts.baseBranch ?? (await getBaseBranch(opts.cwd));
   if (!opts.skipGates) {
     opts.fanout("harness", "review: running baseline gate\n", "stdout");
     try {
@@ -804,6 +805,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           agentLabel: "review-baseline",
           tier,
           timeoutMs: opts.iterationTimeoutMs,
+          baseBranch: base,
           ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
           ...(opts.fixCommand !== undefined ? { fixCommand: opts.fixCommand } : {}),
           ...(opts.runFix !== undefined ? { runFix: opts.runFix } : {}),
@@ -827,7 +829,6 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
   }
 
   const branch = getCurrentBranch(opts.cwd);
-  const base = opts.baseBranch ?? (await getBaseBranch(opts.cwd));
   const specDir = dirname(opts.specPath);
   const killGraceMs = opts.__testKillGraceMs ?? 5000;
   const descendantPollIntervalMs =
@@ -1417,6 +1418,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           agentLabel: "review-final",
           tier: "full",
           timeoutMs: opts.iterationTimeoutMs,
+          baseBranch: base,
           ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
           ...(opts.fixCommand !== undefined ? { fixCommand: opts.fixCommand } : {}),
           ...(opts.runFix !== undefined ? { runFix: opts.runFix } : {}),

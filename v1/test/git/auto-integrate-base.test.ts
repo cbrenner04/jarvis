@@ -203,10 +203,11 @@ describe("tryAutoIntegrateBase", () => {
       const helperResult = tryAutoIntegrateBase(integrateOpts(helperHarness));
 
       const maybeHarness = makeHarness(scenario);
-      maybeMarkReady({
+      await maybeMarkReady({
         indexPath,
         cwd: indexDir,
         timeoutMs: 30_000,
+        baseBranch: "main",
         checkPrExists: () => true,
         checkBaseCurrent: () => ({ status: "behind", baseRefName }),
         autoIntegrateBase: true,

@@ -1056,15 +1056,16 @@ async function triageMarkReady(opts: TriageCommandOptions): Promise<number> {
     return 1;
   }
 
+  const baseBranch = await getBaseBranch(worktreePath);
+
   if (!prState) {
     try {
-      const base = await getBaseBranch(worktreePath);
       await (opts.ensureDraftPr ?? ensureDraftPr)({
         branch,
-        base,
+        base: baseBranch,
         title: getIndexTitle(specPath),
-        bodyGenerator: () => generatePrBody(specPath, null as never, worktreePath, "template", base),
-        footer: renderAttributionSummary({ cwd: worktreePath, base }),
+        bodyGenerator: () => generatePrBody(specPath, null as never, worktreePath, "template", baseBranch),
+        footer: renderAttributionSummary({ cwd: worktreePath, base: baseBranch }),
         cwd: worktreePath,
       });
     } catch (err) {
@@ -1080,6 +1081,7 @@ async function triageMarkReady(opts: TriageCommandOptions): Promise<number> {
     resolveReadyCommand(opts),
     resolveFixCommand(opts),
     "triage-mark-ready",
+    baseBranch,
   );
   if (gateError) {
     opts.io.stderr(`${label}: ready gate failed\n${gateError.message}\n`);
@@ -1407,6 +1409,7 @@ function triageRunReadyGate(
   readyCommand: string | undefined,
   fixCommand: string | undefined,
   agentLabel: string,
+  baseBranch: string,
 ): Error | null {
   const timeoutMs = resolveReadyGateTimeoutMs(opts);
   const defaultRunGate = (cwd: string, cmd?: string, fixCmd?: string, gateTimeoutMs = timeoutMs) => {
@@ -1414,6 +1417,7 @@ function triageRunReadyGate(
       cwd,
       agentLabel,
       timeoutMs: gateTimeoutMs,
+      baseBranch,
       ...(cmd !== undefined ? { readyCommand: cmd } : {}),
       ...(fixCmd !== undefined ? { fixCommand: fixCmd } : {}),
     });
@@ -1639,7 +1643,7 @@ function waitForCiGreen(
   }
 }
 
-function triageMerge(opts: TriageCommandOptions): number {
+async function triageMerge(opts: TriageCommandOptions): Promise<number> {
   const label = "triage --merge";
   const ctx = resolveTriageNamedWorktree(opts, label);
   if (!ctx.ok) {
@@ -1678,12 +1682,14 @@ function triageMerge(opts: TriageCommandOptions): number {
     return 1;
   }
 
+  const baseBranch = await getBaseBranch(worktreePath);
   const gateError = triageRunReadyGate(
     opts,
     worktreePath,
     resolveReadyCommand(opts),
     resolveFixCommand(opts),
     "triage-merge",
+    baseBranch,
   );
   if (gateError) {
     const getChecksForSha = ghRunner.getChecksForSha ?? ((sha: string) => fetchCommitChecksForSha(worktreePath, sha));

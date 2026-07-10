@@ -273,13 +273,13 @@ const headShaGreenGh = {
   getChecksForSha: () => [{ name: "ci", status: "success" as const }],
 };
 
-function runMergeFlakeRecovery(overrides: Partial<TriageCommandOptions> = {}) {
+async function runMergeFlakeRecovery(overrides: Partial<TriageCommandOptions> = {}) {
   setupMergeWorktree("branch-1");
   let probeCalls = 0;
   const probeArgs: string[][] = [];
   const { runRecoveryProbe: userProbe, ...rest } = overrides;
   const { io, out, err } = captureIo();
-  const code = triageCommand(
+  const code = await triageCommand(
     triageMergeOpts({
       projectRoot,
       io,
@@ -301,8 +301,11 @@ function runMergeFlakeRecovery(overrides: Partial<TriageCommandOptions> = {}) {
   return { code, probeCalls, probeArgs, out: out(), err: err() };
 }
 
-function expectMergeRecoveryRefused(overrides: Partial<TriageCommandOptions>, expectedProbeCalls: number): void {
-  const { code, probeCalls, err } = runMergeFlakeRecovery(overrides);
+async function expectMergeRecoveryRefused(
+  overrides: Partial<TriageCommandOptions>,
+  expectedProbeCalls: number,
+): Promise<void> {
+  const { code, probeCalls, err } = await runMergeFlakeRecovery(overrides);
   expect(code).toBe(1);
   expect(probeCalls).toBe(expectedProbeCalls);
   expectMergeRefusal(err, "implementation PR", "ready gate failed");
@@ -343,9 +346,9 @@ afterEach(() => {
 });
 
 describe("triage command", () => {
-  test("no worktrees prints no worktrees", () => {
+  test("no worktrees prints no worktrees", async () => {
     const { io, out } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
     });
@@ -353,7 +356,7 @@ describe("triage command", () => {
     expect(out()).toBe("no worktrees\n");
   });
 
-  test("with worktrees prints header and summary lines", () => {
+  test("with worktrees prints header and summary lines", async () => {
     // Create a worktree with git repo
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
@@ -365,7 +368,7 @@ describe("triage command", () => {
     execSync("git config user.name Test", { cwd: worktreePath });
 
     const { io, out } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
     });
@@ -377,9 +380,9 @@ describe("triage command", () => {
     expect(output).toContain(worktreeName);
   });
 
-  test("unknown worktree with name returns error", () => {
+  test("unknown worktree with name returns error", async () => {
     const { io, err } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       worktreeName: "nonexistent",
@@ -388,7 +391,7 @@ describe("triage command", () => {
     expect(err()).toContain("unknown worktree: nonexistent");
   });
 
-  test("named form prints section headers", () => {
+  test("named form prints section headers", async () => {
     // Create a worktree with git repo
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
@@ -400,7 +403,7 @@ describe("triage command", () => {
     execSync("git config user.name Test", { cwd: worktreePath });
 
     const { io, out } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       worktreeName,
@@ -417,7 +420,7 @@ describe("triage command", () => {
     expect(output).toContain("Inspect");
   });
 
-  test("with .keep directory is filtered", () => {
+  test("with .keep directory is filtered", async () => {
     // Create a .keep directory
     mkdirSync(join(worktreeDir, ".keep"), { recursive: true });
 
@@ -436,7 +439,7 @@ describe("triage command", () => {
     };
 
     const { io, out } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       ghRunner,
@@ -450,7 +453,7 @@ describe("triage command", () => {
     expect(output).toContain("Session-end verdict");
   });
 
-  test("drill-down with clean worktree and no marker", () => {
+  test("drill-down with clean worktree and no marker", async () => {
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
     mkdirSync(worktreePath, { recursive: true });
@@ -462,7 +465,7 @@ describe("triage command", () => {
     execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
 
     const { io, out } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       worktreeName,
@@ -480,7 +483,7 @@ describe("triage command", () => {
     expect(output).toContain("pre-marker worktree");
   });
 
-  test("drill-down with dirty worktree (untracked files)", () => {
+  test("drill-down with dirty worktree (untracked files)", async () => {
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
     mkdirSync(worktreePath, { recursive: true });
@@ -495,7 +498,7 @@ describe("triage command", () => {
     writeFileSync(join(worktreePath, "test.txt"), "test content");
 
     const { io, out } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       worktreeName,
@@ -506,7 +509,7 @@ describe("triage command", () => {
     expect(output).toContain("?? test.txt");
   });
 
-  test("drill-down with unpushed commits", () => {
+  test("drill-down with unpushed commits", async () => {
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
     mkdirSync(worktreePath, { recursive: true });
@@ -526,7 +529,7 @@ describe("triage command", () => {
     });
 
     const { io, out } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       worktreeName,
@@ -979,7 +982,7 @@ describe("scoped abandon preflight", () => {
 });
 
 describe("triage verdict", () => {
-  test("all-landed verdict when all worktrees are merged, clean, and no unpushed", () => {
+  test("all-landed verdict when all worktrees are merged, clean, and no unpushed", async () => {
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
     setupWorktree(worktreePath);
@@ -992,7 +995,7 @@ describe("triage verdict", () => {
     };
 
     const { io, out } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       ghRunner,
@@ -1003,7 +1006,7 @@ describe("triage verdict", () => {
     expect(output).toContain("all work landed");
   });
 
-  test("outstanding verdict lists worktrees with draft PRs", () => {
+  test("outstanding verdict lists worktrees with draft PRs", async () => {
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
     setupWorktree(worktreePath, true);
@@ -1016,7 +1019,7 @@ describe("triage verdict", () => {
     };
 
     const { io, out } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       ghRunner,
@@ -1030,7 +1033,7 @@ describe("triage verdict", () => {
     expect(output).toContain("(draft)");
   });
 
-  test("outstanding verdict lists worktrees with ready (non-draft) PRs", () => {
+  test("outstanding verdict lists worktrees with ready (non-draft) PRs", async () => {
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
     setupWorktree(worktreePath);
@@ -1043,7 +1046,7 @@ describe("triage verdict", () => {
     };
 
     const { io, out } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       ghRunner,
@@ -1057,7 +1060,7 @@ describe("triage verdict", () => {
     expect(output).not.toContain("(draft)");
   });
 
-  test("merged dirty worktree is outstanding", () => {
+  test("merged dirty worktree is outstanding", async () => {
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
     setupWorktree(worktreePath, true);
@@ -1070,7 +1073,7 @@ describe("triage verdict", () => {
     };
 
     const { io, out } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       ghRunner,
@@ -1083,7 +1086,7 @@ describe("triage verdict", () => {
     expect(output).toContain("merged");
   });
 
-  test("plan worktree is classified as outstanding", () => {
+  test("plan worktree is classified as outstanding", async () => {
     const worktreeName = "plan-new-feature";
     const worktreePath = join(worktreeDir, worktreeName);
     setupWorktree(worktreePath);
@@ -1096,7 +1099,7 @@ describe("triage verdict", () => {
     };
 
     const { io, out } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       ghRunner,
@@ -1108,7 +1111,7 @@ describe("triage verdict", () => {
     expect(output).toContain(worktreeName);
   });
 
-  test("no PR state is classified as outstanding", () => {
+  test("no PR state is classified as outstanding", async () => {
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
     setupWorktree(worktreePath);
@@ -1118,7 +1121,7 @@ describe("triage verdict", () => {
     };
 
     const { io, out } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       ghRunner,
@@ -1130,7 +1133,7 @@ describe("triage verdict", () => {
     expect(output).toContain(worktreeName);
   });
 
-  test("mixed verdict with both landed and outstanding worktrees", () => {
+  test("mixed verdict with both landed and outstanding worktrees", async () => {
     // Create first worktree (landed)
     const landed = "branch-landed";
     const landedPath = join(worktreeDir, landed);
@@ -1151,7 +1154,7 @@ describe("triage verdict", () => {
     };
 
     const { io, out } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       ghRunner,
@@ -1166,7 +1169,7 @@ describe("triage verdict", () => {
     expect(verdictSection).not.toContain(landed);
   });
 
-  test("gate state shows as blocked when merge is blocked", () => {
+  test("gate state shows as blocked when merge is blocked", async () => {
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
     setupWorktree(worktreePath);
@@ -1182,7 +1185,7 @@ describe("triage verdict", () => {
     };
 
     const { io, out } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       ghRunner,
@@ -1195,7 +1198,7 @@ describe("triage verdict", () => {
     expect(output).toContain("[BLOCKED]");
   });
 
-  test("gate state shows as clean when merge is permitted", () => {
+  test("gate state shows as clean when merge is permitted", async () => {
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
     setupWorktree(worktreePath);
@@ -1211,7 +1214,7 @@ describe("triage verdict", () => {
     };
 
     const { io, out } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       ghRunner,
@@ -1224,7 +1227,7 @@ describe("triage verdict", () => {
     expect(output).toContain("[CLEAN]");
   });
 
-  test("gate state shows as unavailable when getMergeGateState returns null", () => {
+  test("gate state shows as unavailable when getMergeGateState returns null", async () => {
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
     setupWorktree(worktreePath);
@@ -1238,7 +1241,7 @@ describe("triage verdict", () => {
     };
 
     const { io, out } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       ghRunner,
@@ -1251,7 +1254,7 @@ describe("triage verdict", () => {
     expect(output).toContain("[unavailable]");
   });
 
-  test("gate state is not shown for landed worktrees", () => {
+  test("gate state is not shown for landed worktrees", async () => {
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
     setupWorktree(worktreePath);
@@ -1267,7 +1270,7 @@ describe("triage verdict", () => {
     };
 
     const { io, out } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       ghRunner,
@@ -1280,7 +1283,7 @@ describe("triage verdict", () => {
     expect(output).not.toContain("[CLEAN]");
   });
 
-  test("gate state query failure does not abort sweep", () => {
+  test("gate state query failure does not abort sweep", async () => {
     // Create first worktree (outstanding, gate state query fails)
     const outstanding1 = "branch-1";
     const outstanding1Path = join(worktreeDir, outstanding1);
@@ -1305,7 +1308,7 @@ describe("triage verdict", () => {
     };
 
     const { io, out } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       ghRunner,
@@ -1330,12 +1333,12 @@ describe("triage --mark-ready", () => {
 
   const currentBaseSeam = { checkBaseCurrent: currentBase() };
 
-  test("--mark-ready without worktree name should not pass to command layer (CLI rejects)", () => {
+  test("--mark-ready without worktree name should not pass to command layer (CLI rejects)", async () => {
     // This test verifies that the CLI layer rejects --mark-ready without a worktree name
     // and never calls the triage command. The command layer doesn't need to handle this,
     // but we verify the read-only listing still works.
     const { io, out } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       // No worktreeName provided - the CLI would have already rejected --mark-ready in this case
@@ -2134,7 +2137,7 @@ describe("triage --mark-ready", () => {
       expect(gateRan).toBe(true);
     });
 
-    test("--merge markerless resolved worktree derives spec from branch and merges", () => {
+    test("--merge markerless resolved worktree derives spec from branch and merges", async () => {
       const branchName = "2026-01-01T00-00-00Z-merge-markerless";
       setupWorktree(join(worktreeDir, branchName));
       execSync(`git branch -M ${branchName}`, { cwd: join(worktreeDir, branchName), stdio: "pipe" });
@@ -2142,7 +2145,7 @@ describe("triage --mark-ready", () => {
 
       let mergeRan = false;
       const { io, out } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2242,7 +2245,7 @@ describe("triage --mark-ready", () => {
       expect(gateRan).toBe(false);
     });
 
-    test("--merge corrupted .active-spec-path refuses without branch fallback", () => {
+    test("--merge corrupted .active-spec-path refuses without branch fallback", async () => {
       const branchName = "2026-01-01T00-00-00Z-corrupt-marker-merge";
       const worktreePath = join(worktreeDir, branchName);
       setupWorktree(worktreePath);
@@ -2254,7 +2257,7 @@ describe("triage --mark-ready", () => {
 
       let mergeRan = false;
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2288,7 +2291,7 @@ describe("triage --mark-ready", () => {
       expect(gateRan).toBe(true);
     });
 
-    test("--merge markerless resolves spec via PR-reference target resolution", () => {
+    test("--merge markerless resolves spec via PR-reference target resolution", async () => {
       const branchName = "2026-01-01T00-00-00Z-pr-ref-merge";
       const worktreePath = join(worktreeDir, branchName);
       setupWorktree(worktreePath);
@@ -2298,7 +2301,7 @@ describe("triage --mark-ready", () => {
 
       let mergeRan = false;
       const { io, out } = captureIo();
-      const code = triageCommand({
+      const code = await triageCommand({
         projectRoot,
         io,
         worktreeName: "#42",
@@ -2324,9 +2327,9 @@ describe("triage --mark-ready", () => {
   });
 
   describe("--merge flag", () => {
-    test("--merge on unknown worktree returns error", () => {
+    test("--merge on unknown worktree returns error", async () => {
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2337,13 +2340,13 @@ describe("triage --mark-ready", () => {
       expectMergeRefusal(err(), "unknown worktree", "unresolvable target");
     });
 
-    test("--merge with missing .active-spec-path and no matching spec returns error", () => {
+    test("--merge with missing .active-spec-path and no matching spec returns error", async () => {
       const worktreeName = "branch-1";
       const worktreePath = join(worktreeDir, worktreeName);
       setupWorktree(worktreePath);
 
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2355,11 +2358,11 @@ describe("triage --mark-ready", () => {
       expectMergeRefusal(err(), "implementation PR", "no spec found for branch");
     });
 
-    test("--merge when no PR exists returns error", () => {
+    test("--merge when no PR exists returns error", async () => {
       setupMergeWorktree("branch-1");
 
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2374,11 +2377,11 @@ describe("triage --mark-ready", () => {
       expectMergeRefusal(err(), "implementation PR", "no PR found");
     });
 
-    test("--merge when PR is merged returns error", () => {
+    test("--merge when PR is merged returns error", async () => {
       setupMergeWorktree("branch-1");
 
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2396,11 +2399,11 @@ describe("triage --mark-ready", () => {
       expectMergeRefusal(err(), "implementation PR", "already merged");
     });
 
-    test("--merge when PR is closed returns error", () => {
+    test("--merge when PR is closed returns error", async () => {
       setupMergeWorktree("branch-1");
 
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2418,7 +2421,7 @@ describe("triage --mark-ready", () => {
       expectMergeRefusal(err(), "implementation PR", "already closed");
     });
 
-    test("--merge with incomplete spec returns error", () => {
+    test("--merge with incomplete spec returns error", async () => {
       const worktreeName = "branch-1";
       const worktreePath = join(worktreeDir, worktreeName);
       setupWorktree(worktreePath);
@@ -2437,7 +2440,7 @@ describe("triage --mark-ready", () => {
       writeFileSync(join(worktreePath, ".active-spec-path"), indexPath);
 
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2455,13 +2458,13 @@ describe("triage --mark-ready", () => {
       expectMergeRefusal(err(), "implementation PR", "spec is not complete");
     });
 
-    test("--merge on plan worktree merges with incomplete subspec AC", () => {
+    test("--merge on plan worktree merges with incomplete subspec AC", async () => {
       const planName = "plan-merge-eligibility";
       setupPlanMergeWorktree(planName);
 
       let mergeRan = false;
       const { io, out } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2479,13 +2482,13 @@ describe("triage --mark-ready", () => {
       expect(out()).toContain("merged successfully");
     });
 
-    test("--merge on plan PR ref merges with incomplete subspec AC", () => {
+    test("--merge on plan PR ref merges with incomplete subspec AC", async () => {
       const planName = "plan-merge-pr-ref";
       const { branch } = setupPlanMergeWorktree(planName, { markerless: true });
 
       let mergeRan = false;
       const { io, out } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2507,12 +2510,12 @@ describe("triage --mark-ready", () => {
       expect(out()).toContain("merged successfully");
     });
 
-    test("--merge on plan worktree gate failure uses plan PR refusal class", () => {
+    test("--merge on plan worktree gate failure uses plan PR refusal class", async () => {
       const planName = "plan-merge-gate-fail";
       setupPlanMergeWorktree(planName);
 
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2531,13 +2534,13 @@ describe("triage --mark-ready", () => {
       expect(err()).not.toContain("implementation PR");
     });
 
-    test("--merge on plan worktree CI red uses plan PR refusal class", () => {
+    test("--merge on plan worktree CI red uses plan PR refusal class", async () => {
       const planName = "plan-merge-ci-red";
       setupPlanMergeWorktree(planName);
 
       let mergeRan = false;
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2560,13 +2563,13 @@ describe("triage --mark-ready", () => {
       expect(err()).not.toContain("implementation PR");
     });
 
-    test("--merge on plan worktree CI poll timeout uses plan PR refusal class", () => {
+    test("--merge on plan worktree CI poll timeout uses plan PR refusal class", async () => {
       const planName = "plan-merge-ci-timeout";
       setupPlanMergeWorktree(planName);
 
       let mergeRan = false;
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2591,7 +2594,7 @@ describe("triage --mark-ready", () => {
       expect(err()).not.toContain("implementation PR");
     });
 
-    test("--merge on plan worktree lock uses plan PR refusal class", () => {
+    test("--merge on plan worktree lock uses plan PR refusal class", async () => {
       const planName = "plan-merge-lock";
       const { worktreePath } = setupPlanMergeWorktree(planName);
 
@@ -2606,7 +2609,7 @@ describe("triage --mark-ready", () => {
 
       let mergeRan = false;
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2626,12 +2629,12 @@ describe("triage --mark-ready", () => {
       expect(err()).not.toContain("implementation PR");
     });
 
-    test("--merge on plan worktree adminMerge failure uses plan PR refusal class", () => {
+    test("--merge on plan worktree adminMerge failure uses plan PR refusal class", async () => {
       const planName = "plan-merge-transport";
       setupPlanMergeWorktree(planName);
 
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2649,7 +2652,7 @@ describe("triage --mark-ready", () => {
       expect(err()).not.toContain("implementation PR");
     });
 
-    test("--merge with green CI checks merges the PR", () => {
+    test("--merge with green CI checks merges the PR", async () => {
       setupMergeWorktree("branch-1");
 
       let gateRan = false;
@@ -2661,7 +2664,7 @@ describe("triage --mark-ready", () => {
       ];
 
       const { io, out } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2692,13 +2695,13 @@ describe("triage --mark-ready", () => {
       expect(out()).toContain("merged successfully");
     });
 
-    test("--merge with red CI check refuses to merge", () => {
+    test("--merge with red CI check refuses to merge", async () => {
       setupMergeWorktree("branch-1");
 
       let mergeRan = false;
 
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2727,13 +2730,13 @@ describe("triage --mark-ready", () => {
       expect(err()).toContain("lint");
     });
 
-    test("--merge with pending CI checks waits", () => {
+    test("--merge with pending CI checks waits", async () => {
       setupMergeWorktree("branch-1");
 
       let pollCount = 0;
 
       const { io, out } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2762,13 +2765,13 @@ describe("triage --mark-ready", () => {
       expect(out()).toContain("merged successfully");
     });
 
-    test("--merge with local gate failure refuses to merge", () => {
+    test("--merge with local gate failure refuses to merge", async () => {
       setupMergeWorktree("branch-1");
 
       let mergeRan = false;
 
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2794,13 +2797,13 @@ describe("triage --mark-ready", () => {
       expect(err()).toContain("typecheck failed");
     });
 
-    test("--merge on already-ready PR proceeds without prReady call", () => {
+    test("--merge on already-ready PR proceeds without prReady call", async () => {
       setupMergeWorktree("branch-1");
 
       let prReadyRan = false;
 
       const { io, out } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2825,13 +2828,13 @@ describe("triage --mark-ready", () => {
       expect(out()).toContain("merged successfully");
     });
 
-    test("--merge with poll timeout refuses to merge", () => {
+    test("--merge with poll timeout refuses to merge", async () => {
       setupMergeWorktree("branch-1");
 
       let mergeRan = false;
 
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2859,7 +2862,7 @@ describe("triage --mark-ready", () => {
       expect(err()).toContain("Still pending");
     });
 
-    test("--merge with locked worktree refuses to merge", () => {
+    test("--merge with locked worktree refuses to merge", async () => {
       const worktreeName = "branch-1";
       const { worktreePath } = setupMergeWorktree(worktreeName);
 
@@ -2874,7 +2877,7 @@ describe("triage --mark-ready", () => {
 
       let mergeRan = false;
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2893,11 +2896,11 @@ describe("triage --mark-ready", () => {
       expectMergeRefusal(err(), "implementation PR", "worktree is locked by live run");
     });
 
-    test("--merge with adminMerge failure refuses to merge", () => {
+    test("--merge with adminMerge failure refuses to merge", async () => {
       setupMergeWorktree("branch-1");
 
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2915,13 +2918,13 @@ describe("triage --mark-ready", () => {
       expect(err()).toContain("merge rejected by branch protection");
     });
 
-    test("--merge with local gate failure on already-ready PR refuses to merge", () => {
+    test("--merge with local gate failure on already-ready PR refuses to merge", async () => {
       setupMergeWorktree("branch-1");
 
       let mergeRan = false;
 
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2947,13 +2950,13 @@ describe("triage --mark-ready", () => {
       expect(err()).toContain("test failure");
     });
 
-    test("--merge with empty checks list refuses to merge", () => {
+    test("--merge with empty checks list refuses to merge", async () => {
       setupMergeWorktree("branch-1");
 
       let mergeRan = false;
 
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -2979,13 +2982,13 @@ describe("triage --mark-ready", () => {
       expect(err()).toContain("no checks found");
     });
 
-    test("--merge with null checks (fetch error) refuses to merge", () => {
+    test("--merge with null checks (fetch error) refuses to merge", async () => {
       setupMergeWorktree("branch-1");
 
       let mergeRan = false;
 
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -3010,7 +3013,7 @@ describe("triage --mark-ready", () => {
       expectMergeRefusal(err(), "implementation PR", "CI check failed");
     });
 
-    test("--merge classifies all spec check statuses correctly", () => {
+    test("--merge classifies all spec check statuses correctly", async () => {
       setupMergeWorktree("branch-1");
 
       const testCases: Array<{ status: string; shouldMerge: boolean; shouldWait: boolean }> = [
@@ -3036,7 +3039,7 @@ describe("triage --mark-ready", () => {
         const { io: io2, err: err2, out: out2 } = captureIo();
 
         let pollCount = 0;
-        const code = triageCommand(
+        const code = await triageCommand(
           triageMergeOpts({
             projectRoot,
             io: testCase.shouldWait ? io2 : io,
@@ -3083,9 +3086,9 @@ describe("triage --mark-ready", () => {
       expect(extractFailingTestFilePaths("no failure markers here")).toEqual([]);
     });
 
-    test("--merge recovers on test flake when HEAD-sha CI green and serial probe passes", () => {
+    test("--merge recovers on test flake when HEAD-sha CI green and serial probe passes", async () => {
       let mergeRan = false;
-      const { code, probeCalls, out } = runMergeFlakeRecovery({
+      const { code, probeCalls, out } = await runMergeFlakeRecovery({
         adminMerge: () => {
           mergeRan = true;
         },
@@ -3098,9 +3101,9 @@ describe("triage --mark-ready", () => {
       expect(out).toContain("merged successfully");
     });
 
-    test("--merge recovers with targeted file probe when serial probe stays red", () => {
+    test("--merge recovers with targeted file probe when serial probe stays red", async () => {
       let mergeRan = false;
-      const { code, probeArgs, out } = runMergeFlakeRecovery({
+      const { code, probeArgs, out } = await runMergeFlakeRecovery({
         runRecoveryProbe: (_cwd, args) => (args.length === 1 ? 1 : 0),
         adminMerge: () => {
           mergeRan = true;
@@ -3116,8 +3119,8 @@ describe("triage --mark-ready", () => {
       expect(out).toContain(RECOVERY_STDOUT);
     });
 
-    test("--merge refuses recovery on FixCommandError even when HEAD-sha CI is green", () => {
-      expectMergeRecoveryRefused(
+    test("--merge refuses recovery on FixCommandError even when HEAD-sha CI is green", async () => {
+      await expectMergeRecoveryRefused(
         {
           runGate: () => {
             throw new FixCommandError("bun run fix failed");
@@ -3127,8 +3130,8 @@ describe("triage --mark-ready", () => {
       );
     });
 
-    test("--merge refuses recovery on generic Error with test-like message", () => {
-      expectMergeRecoveryRefused(
+    test("--merge refuses recovery on generic Error with test-like message", async () => {
+      await expectMergeRecoveryRefused(
         {
           runGate: () => {
             throw new Error("ready: serial test failed (code 1)");
@@ -3138,7 +3141,7 @@ describe("triage --mark-ready", () => {
       );
     });
 
-    test("--merge refuses recovery when HEAD-sha CI is not green", () => {
+    test("--merge refuses recovery when HEAD-sha CI is not green", async () => {
       for (const getChecksForSha of [
         () => [{ name: "ci", status: "failure" as const }],
         () => {
@@ -3146,16 +3149,16 @@ describe("triage --mark-ready", () => {
         },
         () => null,
       ]) {
-        expectMergeRecoveryRefused({ ghRunner: { ...headShaGreenGh, getChecksForSha } }, 0);
+        await expectMergeRecoveryRefused({ ghRunner: { ...headShaGreenGh, getChecksForSha } }, 0);
       }
     });
 
-    test("--merge refuses recovery on deadline exceeded or missing harness test markers", () => {
+    test("--merge refuses recovery on deadline exceeded or missing harness test markers", async () => {
       for (const message of [
         `bun run ready failed:\nready: deadline exceeded after 600000ms; killing child tree\n`,
         "bun run ready failed:\nbun run typecheck failed\n",
       ]) {
-        expectMergeRecoveryRefused(
+        await expectMergeRecoveryRefused(
           {
             runGate: () => {
               throw new ReadyCommandError(message);
@@ -3166,8 +3169,8 @@ describe("triage --mark-ready", () => {
       }
     });
 
-    test("--merge refuses recovery when probe 1 red and extraction yields zero paths", () => {
-      expectMergeRecoveryRefused(
+    test("--merge refuses recovery when probe 1 red and extraction yields zero paths", async () => {
+      await expectMergeRecoveryRefused(
         {
           runGate: () => {
             throw readyTestFlakeError("bun run ready failed:\nready: serial test failed (code 1)\n");
@@ -3178,13 +3181,13 @@ describe("triage --mark-ready", () => {
       );
     });
 
-    test("--merge refuses recovery when probes stay red", () => {
-      expectMergeRecoveryRefused({ runRecoveryProbe: () => 1 }, 2);
+    test("--merge refuses recovery when probes stay red", async () => {
+      await expectMergeRecoveryRefused({ runRecoveryProbe: () => 1 }, 2);
     });
 
-    test("--merge refuses recovery when probe exits with signal or timeout code", () => {
+    test("--merge refuses recovery when probe exits with signal or timeout code", async () => {
       for (const exitCode of [124, 130, 143]) {
-        expectMergeRecoveryRefused({ runRecoveryProbe: () => exitCode }, 1);
+        await expectMergeRecoveryRefused({ runRecoveryProbe: () => exitCode }, 1);
       }
     });
 
@@ -3198,7 +3201,7 @@ describe("triage --mark-ready", () => {
       expect(recoveryProbeExitFromExecError(execError({ status: null, signal: null }))).toBe(1);
     });
 
-    test("--merge refuses recovery when default probe runner hits execFileSync signal kill (no probe 2)", () => {
+    test("--merge refuses recovery when default probe runner hits execFileSync signal kill (no probe 2)", async () => {
       setupMergeWorktree("branch-1");
       let probeCalls = 0;
       const signalExecError = Object.assign(new Error("Command failed: bun test"), {
@@ -3210,7 +3213,7 @@ describe("triage --mark-ready", () => {
       }) as typeof import("node:child_process").execFileSync;
 
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -3233,12 +3236,12 @@ describe("triage --mark-ready", () => {
       expectMergeRefusal(err(), "implementation PR", "ready gate failed");
     });
 
-    test("--merge with passing gate runs no recovery probes", () => {
+    test("--merge with passing gate runs no recovery probes", async () => {
       setupMergeWorktree("branch-1");
 
       let probeCalls = 0;
       const { io, out } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -3259,7 +3262,7 @@ describe("triage --mark-ready", () => {
       expect(out()).toContain("merged successfully");
     });
 
-    test("--merge markerless plan worktree resolves spec from worktree's own targetDir", () => {
+    test("--merge markerless plan worktree resolves spec from worktree's own targetDir", async () => {
       const planName = "plan-merge-worktree-spec";
       const worktreeName = `plan-${planName}`;
       const branch = `plan/${planName}`;
@@ -3278,7 +3281,7 @@ describe("triage --mark-ready", () => {
 
       let mergeRan = false;
       const { io, out } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -3299,7 +3302,7 @@ describe("triage --mark-ready", () => {
       expect(out()).toContain("merged successfully");
     });
 
-    test("--merge markerless plan worktree with no spec in either location returns error", () => {
+    test("--merge markerless plan worktree with no spec in either location returns error", async () => {
       const planName = "plan-merge-no-spec";
       const worktreeName = `plan-${planName}`;
       const branch = `plan/${planName}`;
@@ -3311,7 +3314,7 @@ describe("triage --mark-ready", () => {
 
       let mergeRan = false;
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
@@ -3371,14 +3374,14 @@ describe("triage --mark-ready", () => {
       return { worktreePath, specPath };
     }
 
-    test("resolves spec path via spec-directory basename", () => {
+    test("resolves spec path via spec-directory basename", async () => {
       const worktreeName = "2026-06-27T17-26-00Z-merge-target-by-worktree-or-spec";
       const specPath = writeCompleteSpec(`${worktreeName}/index.md`);
       setupResolvableMergeWorktree(worktreeName, { markerSpecPath: specPath });
 
       let mergeRan = false;
       const { io, out } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           cwd: projectRoot,
@@ -3396,7 +3399,7 @@ describe("triage --mark-ready", () => {
       expect(out()).toContain("merged successfully");
     });
 
-    test("resolves spec path via .active-spec-path marker (plan worktree)", () => {
+    test("resolves spec path via .active-spec-path marker (plan worktree)", async () => {
       const planName = "plan-merge-target";
       const worktreeName = `plan-${planName}`;
       const specPath = writeCompleteSpec("2026-06-27T17-26-00Z-merge-target-by-worktree-or-spec/index.md");
@@ -3404,7 +3407,7 @@ describe("triage --mark-ready", () => {
 
       let mergeRan = false;
       const { io } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           cwd: projectRoot,
@@ -3421,7 +3424,7 @@ describe("triage --mark-ready", () => {
       expect(mergeRan).toBe(true);
     });
 
-    test("resolves timestamped plan spec path via plan-slug without marker", () => {
+    test("resolves timestamped plan spec path via plan-slug without marker", async () => {
       const planName = "triage-resolve-plan-spec-path-merge-target";
       const specBasename = `2026-06-29T21-34-56Z-${planName}`;
       writeCompleteSpec(`${specBasename}/index.md`);
@@ -3429,7 +3432,7 @@ describe("triage --mark-ready", () => {
 
       let mergeRan = false;
       const { io, out } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           cwd: projectRoot,
@@ -3447,7 +3450,7 @@ describe("triage --mark-ready", () => {
       expect(out()).toContain("merged successfully");
     });
 
-    test("ambiguous plan spec path (marker vs plan-slug) lists candidates without merge", () => {
+    test("ambiguous plan spec path (marker vs plan-slug) lists candidates without merge", async () => {
       const planSlug = "merge-target-by-worktree-or-spec";
       const specPath = writeCompleteSpec(`2026-06-27T17-26-00Z-${planSlug}/index.md`);
       setupResolvableMergeWorktree(`plan-${planSlug}`, { planBranch: planSlug });
@@ -3455,7 +3458,7 @@ describe("triage --mark-ready", () => {
 
       let mergeRan = false;
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           cwd: projectRoot,
@@ -3474,14 +3477,14 @@ describe("triage --mark-ready", () => {
       expect(mergeRan).toBe(false);
     });
 
-    test("resolves bare .md filename via marker scan only", () => {
+    test("resolves bare .md filename via marker scan only", async () => {
       const worktreeName = "branch-1";
       const specPath = writeCompleteSpec("test-spec.md");
       setupResolvableMergeWorktree(worktreeName, { markerSpecPath: specPath });
 
       let mergeRan = false;
       const { io } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           cwd: join(projectRoot, "v1", "spec"),
@@ -3498,7 +3501,7 @@ describe("triage --mark-ready", () => {
       expect(mergeRan).toBe(true);
     });
 
-    test("resolves PR reference forms and merges", () => {
+    test("resolves PR reference forms and merges", async () => {
       const worktreeName = "branch-1";
       const branch = "feature-merge-target";
       setupResolvableMergeWorktree(worktreeName, { branch });
@@ -3507,7 +3510,7 @@ describe("triage --mark-ready", () => {
       for (const prRef of prForms) {
         let mergeRan = false;
         const { io, out } = captureIo();
-        const code = triageCommand(
+        const code = await triageCommand(
           triageMergeOpts({
             projectRoot,
             cwd: projectRoot,
@@ -3530,14 +3533,14 @@ describe("triage --mark-ready", () => {
       }
     });
 
-    test("numeric worktree name wins over PR number", () => {
+    test("numeric worktree name wins over PR number", async () => {
       const worktreeName = "42";
       setupResolvableMergeWorktree(worktreeName);
 
       let lookupRan = false;
       let mergeRan = false;
       const { io, out } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           cwd: projectRoot,
@@ -3563,10 +3566,10 @@ describe("triage --mark-ready", () => {
       expect(out()).toContain("merged successfully");
     });
 
-    test("unresolvable spec path reports clear error without merge", () => {
+    test("unresolvable spec path reports clear error without merge", async () => {
       let mergeRan = false;
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           cwd: projectRoot,
@@ -3583,7 +3586,7 @@ describe("triage --mark-ready", () => {
       expect(mergeRan).toBe(false);
     });
 
-    test("ambiguous spec path lists candidates without merge", () => {
+    test("ambiguous spec path lists candidates without merge", async () => {
       const specPath = writeCompleteSpec("shared-spec/index.md");
 
       setupResolvableMergeWorktree("branch-a", { markerSpecPath: specPath });
@@ -3591,7 +3594,7 @@ describe("triage --mark-ready", () => {
 
       let mergeRan = false;
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           cwd: projectRoot,
@@ -3610,10 +3613,10 @@ describe("triage --mark-ready", () => {
       expect(mergeRan).toBe(false);
     });
 
-    test("PR reference with no local worktree reports clear error", () => {
+    test("PR reference with no local worktree reports clear error", async () => {
       let mergeRan = false;
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           cwd: projectRoot,
@@ -3634,10 +3637,10 @@ describe("triage --mark-ready", () => {
       expect(mergeRan).toBe(false);
     });
 
-    test("findMatchingOpenPrs refusal at PR-ref resolution", () => {
+    test("findMatchingOpenPrs refusal at PR-ref resolution", async () => {
       let mergeRan = false;
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           cwd: projectRoot,
@@ -3661,12 +3664,12 @@ describe("triage --mark-ready", () => {
       expect(mergeRan).toBe(false);
     });
 
-    test("findMatchingOpenPrs refusal at merge pre-check", () => {
+    test("findMatchingOpenPrs refusal at merge pre-check", async () => {
       setupResolvableMergeWorktree("branch-1");
 
       let mergeRan = false;
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           cwd: projectRoot,
@@ -3692,10 +3695,10 @@ describe("triage --mark-ready", () => {
       expect(mergeRan).toBe(false);
     });
 
-    test("gh failure during PR lookup reports error without merge", () => {
+    test("gh failure during PR lookup reports error without merge", async () => {
       let mergeRan = false;
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           cwd: projectRoot,
@@ -3716,10 +3719,10 @@ describe("triage --mark-ready", () => {
       expect(mergeRan).toBe(false);
     });
 
-    test("closed PR at resolution reports error without merge", () => {
+    test("closed PR at resolution reports error without merge", async () => {
       let mergeRan = false;
       const { io, err } = captureIo();
-      const code = triageCommand(
+      const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           cwd: projectRoot,
@@ -3739,9 +3742,9 @@ describe("triage --mark-ready", () => {
       expect(mergeRan).toBe(false);
     });
 
-    test("drill-down with spec path reports unknown worktree", () => {
+    test("drill-down with spec path reports unknown worktree", async () => {
       const { io, err } = captureIo();
-      const code = triageCommand({
+      const code = await triageCommand({
         projectRoot,
         cwd: projectRoot,
         io,

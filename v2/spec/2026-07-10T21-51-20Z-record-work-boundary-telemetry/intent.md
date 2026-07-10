@@ -39,3 +39,14 @@ flow or persistence.
 ## Prerequisites
 
 - A v2 completion boundary that changes work creates a harness commit and exposes its commit SHA and changed-file count to the boundary layer
+
+## Blocker
+
+The changed-file-count half of the prerequisite is not present in committed code.
+
+- The harness commit result is `CompletionCommitResult = { commitSha?: string }` (`v2/src/execution/completion-commit.ts:7`). It exposes only the commit SHA, which flows to `WriteLoopResult.commitSha` (`v2/src/execution/write-loop.ts:43`). No changed-file count is returned by the committer or surfaced at the write-loop / workflow-runner boundary.
+- The only `changedFiles` helper is a private shrink-prompt utility in `workflow-runner.ts:708`, computed by diffing against `baseRef` — not part of the harness commit result and not available where `commitCompletionBoundary` is called.
+
+This blocks the design: the intent's decision "Source commit facts from the harness commit result" forbids deriving `files_changed` from git or logs, but the harness commit result carries no count to source. Adding that count to the commit result is net-new boundary-layer behavior the intent treats as an already-satisfied prerequisite, so it is out of scope for this spec.
+
+To unblock, either (a) land the count exposure first — have the completion committer return the changed-file count alongside `commitSha` on `CompletionCommitResult`, threaded to the boundary layer — then resume this plan, or (b) revise the intent to bring that exposure into scope (and relax the "source from harness commit result only" decision so `files_changed` may be computed at the boundary).

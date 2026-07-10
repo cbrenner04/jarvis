@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getCurrentBranch } from "../../shared/git.ts";
 import { classifyChangedPaths, type ScopedTests } from "../../scripts/ci-test-scope.ts";
+import { getCurrentBranch } from "../../shared/git.ts";
 import { appendAgentTrailer } from "./commit-trailer.ts";
 import { pushCurrent } from "./worktree.ts";
 

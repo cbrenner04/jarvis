@@ -226,12 +226,10 @@ export function getReadyCommands(
     commands.push({ name: "bun", args: ["install", "--frozen-lockfile"] });
   }
 
-  commands.push(
-    { name: "bun", args: ["run", "check"] },
-    { name: "bun", args: ["run", "typecheck"] },
-    ...testSteps,
-    { name: "bun", args: ["run", "lint:md"] },
-  );
+  commands.push({ name: "bun", args: ["run", "check"] }, { name: "bun", args: ["run", "typecheck"] }, ...testSteps, {
+    name: "bun",
+    args: ["run", "lint:md"],
+  });
 
   return commands;
 }

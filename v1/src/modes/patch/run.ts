@@ -94,8 +94,10 @@ export type LoggingContext = {
   runNamespace: string;
   specDisplayName: string;
   hasTelemetryWrites: () => boolean;
+  hasRunTerminalRecord: () => boolean;
   patchIterationsCompletedForSummary: () => number;
   priorIterationTimeouts: number;
+  activeSubspecPath: string | undefined;
   implementationTouchedFiles: Set<string>;
 };
 
@@ -402,6 +404,19 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     while (true) {
       const outcome = await runIteration(ctx);
       if (outcome.kind === "return") {
+        if (logging.hasTelemetryWrites() && !logging.hasRunTerminalRecord()) {
+          logging.writeTelemetry({
+            agent: "harness",
+            iteration: state.iteration,
+            durationMs: Date.now() - runStartedMs,
+            kind: "ok",
+            exitReason: mapExitCodeToReason(outcome.exitCode),
+            record_role: "run_terminal",
+            ...(logging.activeSubspecPath !== undefined
+              ? { active_subspec_path: logging.activeSubspecPath }
+              : {}),
+          });
+        }
         runExitReason = `${mapExitCodeToReason(outcome.exitCode)} (exit code ${outcome.exitCode})`;
         return outcome.exitCode;
       }

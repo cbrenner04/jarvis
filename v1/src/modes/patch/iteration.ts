@@ -243,6 +243,7 @@ export function setupLogging(opts: RunCommandOptions, preflight: PreflightOk, lo
   const activeSubspecPath = getActiveLinkedSubspecPath(preflight.specPath);
   const priorIterationTimeouts = countTrailingIterationTimeouts(telemetryPath, activeSubspecPath);
   let telemetryWrites = false;
+  let runTerminalRecorded = false;
   let patchIterationsCompletedForSummary = 0;
   const implementationTouchedFiles = new Set<string>();
 
@@ -276,6 +277,9 @@ export function setupLogging(opts: RunCommandOptions, preflight: PreflightOk, lo
         ...(record.active_subspec_path !== undefined ? { active_subspec_path: record.active_subspec_path } : {}),
       });
       telemetryWrites = true;
+      if (record.record_role === "run_terminal") {
+        runTerminalRecorded = true;
+      }
       if (
         record.kind === "ok" &&
         record.agent !== "harness" &&
@@ -346,8 +350,10 @@ export function setupLogging(opts: RunCommandOptions, preflight: PreflightOk, lo
     runNamespace,
     specDisplayName,
     hasTelemetryWrites: () => telemetryWrites,
+    hasRunTerminalRecord: () => runTerminalRecorded,
     patchIterationsCompletedForSummary: () => patchIterationsCompletedForSummary,
     priorIterationTimeouts,
+    activeSubspecPath,
     implementationTouchedFiles,
   };
 }

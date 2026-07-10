@@ -1007,6 +1007,7 @@ describe("executeWorkflow human steps", () => {
         completionPublisher: async () => {
           return {};
         },
+        readyFinalizer: async () => {},
       });
 
       expect(result).toMatchObject({ kind: "complete", commitSha: "commit-1" });
@@ -1425,6 +1426,7 @@ describe("executeWorkflow telemetry", () => {
         telemetry: { operatorSessionId: "session-1", workflow: "demo-workflow", sinkPath: telemetryPath },
         completionCommitter: () => ({ commitSha: "wf-commit", filesChanged: 4 }),
         completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
       });
 
       expect(result).toMatchObject({ kind: "complete", commitSha: "wf-commit" });

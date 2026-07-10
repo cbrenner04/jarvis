@@ -741,7 +741,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     const retryCompletionPublication =
       run.status === "completed" &&
       terminalRecord?.event.kind === "loop_finished" &&
-      terminalRecord.event.loopOutcomeKind === "completion_commit_failed";
+      (terminalRecord.event.loopOutcomeKind === "completion_commit_failed" ||
+        terminalRecord.event.loopOutcomeKind === "ready_finalize_failed");
 
     // A completed durable boundary is idempotent, except a failed external publication.
     if (

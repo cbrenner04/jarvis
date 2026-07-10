@@ -18,6 +18,7 @@ import {
 } from "../persistence/state-store.ts";
 import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
 import { type CompletionPublisher, createCompletionPublisher } from "./completion-publisher.ts";
+import { type ReadyFinalizer, createReadyFinalizer } from "./ready-finalize.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import {
   executeReviewDebate,
@@ -122,6 +123,7 @@ export type WorkflowResult = {
   resumable: boolean;
   commitSha?: string;
   completionCommitError?: string;
+  readyFinalizeError?: string;
   boundaryTelemetryFailure?: string;
 };
 
@@ -137,6 +139,7 @@ export type WorkflowRunnerInput = {
   onStepRunCreated?: (stepIndex: number, runId: string) => void;
   completionCommitter?: CompletionCommitter;
   completionPublisher?: CompletionPublisher;
+  readyFinalizer?: ReadyFinalizer;
 };
 
 function isWriteStep(step: AnyWorkflowStep): step is WriteWorkflowStep {
@@ -379,23 +382,39 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 `Publication failed: ${publishError instanceof Error ? publishError.message : String(publishError)}`,
               );
             }
+            try {
+              await (args.readyFinalizer ?? createReadyFinalizer())({
+                worktreePath: getExternalWorktreePath(worktree),
+                branch: worktree.branchName,
+              });
+            } catch (finalizeError) {
+              throw new Error(
+                `Ready finalize failed: ${finalizeError instanceof Error ? finalizeError.message : String(finalizeError)}`,
+              );
+            }
           }
         }
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const loopOutcomeKind = message.startsWith("Ready finalize failed")
+          ? "ready_finalize_failed"
+          : "completion_commit_failed";
         args.logSink?.append(lastResult.runId, {
           kind: "loop_finished",
-          loopOutcomeKind: "completion_commit_failed",
+          loopOutcomeKind,
           iterationsConsumed: totalIterationsConsumed,
           resumable: true,
         });
         return {
-          kind: "completion_commit_failed",
+          kind: loopOutcomeKind,
           stepIndex: args.steps.length - 1,
           stepId: lastStepId,
           runId: lastResult.runId,
           iterationsConsumed: totalIterationsConsumed,
           resumable: true,
-          completionCommitError: error instanceof Error ? error.message : "completion commit failed",
+          ...(loopOutcomeKind === "ready_finalize_failed"
+            ? { readyFinalizeError: message }
+            : { completionCommitError: message }),
         };
       }
     }

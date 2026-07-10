@@ -19,5 +19,5 @@ Phase-start workflow:
 - [x] Phase 5 — Workflow runner + project config binding: linear-with-bounded-loops steps, per-machine agent fallback order + machine-independent role→model store (steps name role; `(agent, role) → rungs`; missing required `(agent, role)` = hard error at load); planning and implementation depend on `role-resolution.md` + `agent-model-config.md` committed on `main`; must not use retired category taxonomy; workflow presets; durable state grows step IDs + attempt history
 - [x] Phase 6 — Remaining behaviors: review-debate (read-only adversary→advocate→adjudicator→verdict, separate actuator), human loop (pause/resume/kill) via the steering API
 - [x] Phase 7 — Concurrency + admission: memory-watermark admission, `queued` status, concurrent runs, TUI queue view. (Local-model-as-terminal-fallback dropped as stale; not part of this phase's delivered scope.)
-- [ ] Phase 8 — PR lifecycle + attribution: worktree → branch → draft PR → ready, per-commit `Jarvis-Agent` footer
+- [x] Phase 8 — PR lifecycle + attribution: worktree → branch → draft PR → ready, per-commit `Jarvis-Agent` footer
 - [ ] Phase 9 — Natural-language prompt router: prompt-first `jarvis "<intent>"` entry that classifies free text and routes to a workflow (new run) or an existing run (resume); conservative — asks for a sharper prompt when unsure

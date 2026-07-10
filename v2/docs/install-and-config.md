@@ -147,6 +147,6 @@ Profile load and `models` validation: [`agent-model-config.md`](./agent-model-co
 | --- | --- |
 | `DaemonAlreadyRunningError: Daemon already running on socket <path>` | Use the existing daemon (`jarvis daemon status`) or `jarvis daemon stop` first |
 | `DaemonReadinessTimeoutError: Daemon failed to become ready on socket <path> within <ms>ms` | Inspect the child process / socket; stop and retry |
-| `PID file directory does not exist: <dir>` | Create `~/.jarvis/` (or the parent of the configured PID path) before starting |
+| `Error: PID file directory does not exist: <dir>` | Create `~/.jarvis/` (or the parent of the configured PID path) before starting |
 
 Lifecycle API: [`daemon-host.md`](./daemon-host.md#daemon-lifecycle-api).

@@ -996,9 +996,11 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
       captureInterruptedDelta(activeSubspecPath, beforeCriteria, hasBlockerBefore);
       if (!hasUntrackedMutations) {
         try {
+          // Checkpoint any partial progress regardless of spec shape; only an
+          // active subspec gets a resume receipt to surface on the next prompt.
           if (
-            activeSubspecPath !== undefined &&
-            commitCheckpointOnTimeout(activeSubspecPath, agentWorkingDir, agent.attributionLabel())
+            commitCheckpointOnTimeout(activeSubspecPath, agentWorkingDir, agent.attributionLabel()) &&
+            activeSubspecPath !== undefined
           ) {
             try {
               writeTimeoutCheckpointReceipt(agentWorkingDir, activeSubspecPath);

@@ -222,7 +222,7 @@ export function commitWipProgressWithBlocker(
 
 /** Commits any staged worktree changes (tracked edits and new untracked files) as a WIP checkpoint. No-op if nothing is staged. */
 export function commitCheckpointOnTimeout(
-  subspecPath: string,
+  subspecPath: string | undefined,
   cwd: string,
   agentLabel: string,
   ops: SubspecGitOps = realSubspecGitOps,
@@ -232,12 +232,15 @@ export function commitCheckpointOnTimeout(
     return false;
   }
 
-  const relativeSpecPath = relative(realpathSync(ops.gitRoot(cwd)), realpathSync(subspecPath));
-  const commitMessage = appendAgentTrailer(
-    `WIP: checkpoint (iteration-timeout)\n\nSpec: ${relativeSpecPath}`,
-    agentLabel,
-  );
-  ops.commit(cwd, commitMessage);
+  // Flat specs have no active subspec to reference (and get no resume receipt), so
+  // their checkpoint message stays the bare subject; subspec checkpoints add the
+  // `Spec:` line the resume receipt validates against.
+  const subject = "WIP: checkpoint (iteration-timeout)";
+  const body =
+    subspecPath === undefined
+      ? subject
+      : `${subject}\n\nSpec: ${relative(realpathSync(ops.gitRoot(cwd)), realpathSync(subspecPath))}`;
+  ops.commit(cwd, appendAgentTrailer(body, agentLabel));
   return true;
 }
 

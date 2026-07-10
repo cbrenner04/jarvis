@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 
 export type CompletionCommitInput = { worktreePath: string; baseRef: string; specPath: string; agent: string };
-export type CompletionCommitResult = { commitSha?: string };
+export type CompletionCommitResult = { commitSha?: string; filesChanged?: number };
 export type CompletionCommitter = (input: CompletionCommitInput) => CompletionCommitResult;
 type Git = (cwd: string, args: readonly string[], env?: Record<string, string>) => string;
 type PendingCommit = {
@@ -19,6 +19,12 @@ type PendingCommit = {
 
 function git(cwd: string, args: readonly string[], env?: Record<string, string>): string {
   return execFileSync("git", args, { cwd, env: { ...process.env, ...env }, encoding: "utf8" }).trim();
+}
+
+function countFilesChanged(runGit: Git, cwd: string, baseTree: string, completionTree: string): number {
+  const output = runGit(cwd, ["diff-tree", "--no-renames", "--name-only", baseTree, completionTree]);
+  if (!output) return 0;
+  return output.split("\n").filter((line) => line.length > 0).length;
 }
 
 /** Captures and publishes one completion snapshot; hooks are bypassed by design. */
@@ -45,7 +51,12 @@ export function createCompletionCommitter(runGit: Git = git): CompletionCommitte
           // HEAD may already be a completion commit whose publish previously failed;
           // report its sha so the caller retries publication instead of no-op'ing.
           const headMessage = runGit(input.worktreePath, ["log", "-1", "--format=%B", head]);
-          return headMessage.startsWith("jarvis: complete run") ? { commitSha: head } : {};
+          return headMessage.startsWith("jarvis: complete run")
+            ? {
+                commitSha: head,
+                filesChanged: countFilesChanged(runGit, input.worktreePath, `${head}^^{tree}`, `${head}^{tree}`),
+              }
+            : {};
         }
         pending = {
           baseHead: head,
@@ -62,7 +73,10 @@ export function createCompletionCommitter(runGit: Git = git): CompletionCommitte
       if (pending.commitSha !== undefined && currentHead === pending.commitSha) {
         runGit(input.worktreePath, ["reset", "--mixed", pending.commitSha]);
         unlinkSync(pendingPath);
-        return { commitSha: pending.commitSha };
+        return {
+          commitSha: pending.commitSha,
+          filesChanged: countFilesChanged(runGit, input.worktreePath, `${pending.baseHead}^{tree}`, pending.tree),
+        };
       }
 
       const commit =
@@ -78,7 +92,10 @@ export function createCompletionCommitter(runGit: Git = git): CompletionCommitte
       runGit(input.worktreePath, ["update-ref", pending.branchRef, commit, pending.baseHead]);
       runGit(input.worktreePath, ["reset", "--mixed", commit]);
       unlinkSync(pendingPath);
-      return { commitSha: commit };
+      return {
+        commitSha: commit,
+        filesChanged: countFilesChanged(runGit, input.worktreePath, `${pending.baseHead}^{tree}`, pending.tree),
+      };
     } finally {
       try {
         rmSync(index, { force: true });

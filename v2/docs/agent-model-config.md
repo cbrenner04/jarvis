@@ -251,6 +251,10 @@ Aligned with [`shared-invocation.md`](shared-invocation.md):
 | Agent present in data file but absent from project `agents` | **ignored at runtime** (not a load error) |
 | Missing `(agent, role)` for a project-configured agent and required role | hard error — no skip, no fallback role, no silent default |
 
+Violations report **one message per invalid entry** — naming the agent/role, or
+agent/role/rung index — not one message per invalid field (operator decision:
+message precision is not worth the validator and test surface it costs).
+
 `Model` / `priceKey` existence checks against the adapter catalog and
 `prices.json` are deferred to the first load consumer. Tier→initial rung index
 and capability-floor filtering are deferred until a workflow consumer needs them.

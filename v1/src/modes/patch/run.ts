@@ -79,7 +79,9 @@ type WriteTelemetry = (record: {
   warnings?: string[];
   watchdog_pgid?: number;
   last_output_age_ms?: number | null;
+  last_file_activity_age_ms?: number | null;
   watchdog_descendants_alive?: boolean;
+  active_subspec_path?: string;
 }) => void;
 
 export type LoggingContext = {
@@ -93,6 +95,7 @@ export type LoggingContext = {
   specDisplayName: string;
   hasTelemetryWrites: () => boolean;
   patchIterationsCompletedForSummary: () => number;
+  priorIterationTimeouts: number;
   implementationTouchedFiles: Set<string>;
 };
 

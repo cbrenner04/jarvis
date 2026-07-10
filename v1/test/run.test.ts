@@ -6476,7 +6476,7 @@ exit 0
     });
 
     test("iteration timeout causes exit code 8", async () => {
-      const spec = writeSpec("- [ ] todo\n");
+      const { spec } = setupLinkedSubspecRepo({ trackedFile: false, criteria: ["todo"] });
       const cap = captureIo();
       const claude = new FakeAgent("claude", () => ({
         kind: "error",
@@ -6512,6 +6512,52 @@ exit 0
 
       expect(code).toBe(8);
       expect(cap.err()).toContain("exceeded timeout");
+      const rows = readFileSync(join(cfgDir, "runs.jsonl"), "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      const timeoutRow = rows.find((row) => row.exit_reason === "iteration-timeout");
+      expect(timeoutRow?.record_role).toBe("run_terminal");
+      expect(timeoutRow?.active_subspec_path).toBeDefined();
+    });
+
+    test("appends a split blocker at the third consecutive subspec timeout", async () => {
+      const { spec, subspec } = setupLinkedSubspecRepo({ trackedFile: false, criteria: ["todo"] });
+      const claude = new FakeAgent("claude", () => ({
+        kind: "error",
+        exitCode: -1,
+        stderr: "aborted: iteration-timeout",
+      }));
+      writeConfig({ ...loadConfig({ dir: cfgDir }), maxIterations: 1, iterationTimeoutMs: 1 }, { dir: cfgDir });
+
+      expect(
+        await runWithDefaults({
+          specPath: spec,
+          io: captureIo().io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          handleSignals: false,
+        }),
+      ).toBe(8);
+      expect(
+        await runWithDefaults({
+          specPath: spec,
+          io: captureIo().io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          handleSignals: false,
+        }),
+      ).toBe(8);
+      expect(
+        await runWithDefaults({
+          specPath: spec,
+          io: captureIo().io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          handleSignals: false,
+        }),
+      ).toBe(8);
+      expect(readFileSync(subspec, "utf8")).toContain("Split the subspec");
     });
 
     test("watchdog timeout with pgid unavailable records last_output_age_ms only", async () => {
@@ -6570,9 +6616,7 @@ exit 0
         .trim()
         .split("\n")
         .map((line) => JSON.parse(line) as Record<string, unknown>);
-      const timeoutRow = rows.find(
-        (row) => row.record_role !== "run_terminal" && row.exit_reason === "watchdog-iteration-timeout",
-      );
+      const timeoutRow = rows.find((row) => row.exit_reason === "watchdog-iteration-timeout");
       expect(timeoutRow).toBeDefined();
       expect(timeoutRow).toHaveProperty("last_output_age_ms");
       expect(timeoutRow?.last_output_age_ms).toBeNull();

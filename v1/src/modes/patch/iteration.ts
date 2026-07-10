@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { closeSync, existsSync, readFileSync, writeFileSync, writeSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, readFileSync, writeFileSync, writeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { detectBlockerClaim, parseSpec, stripBlockerSection } from "../../../../shared/spec-parser.ts";
 import { openSessionLog } from "../../config.ts";
@@ -107,9 +107,57 @@ type TelemetryRecord = {
   last_output_age_ms?: number | null;
   last_file_activity_age_ms?: number | null;
   watchdog_descendants_alive?: boolean;
+  active_subspec_path?: string;
 };
 
 type WriteTelemetry = (record: TelemetryRecord) => void;
+
+const CONSECUTIVE_ITERATION_TIMEOUT_BOUND = 3;
+
+function countTrailingIterationTimeouts(telemetryPath: string | null, activeSubspecPath: string | undefined): number {
+  if (telemetryPath === null || activeSubspecPath === undefined || !existsSync(telemetryPath)) return 0;
+  let rows: string[];
+  try {
+    rows = readFileSync(telemetryPath, "utf8")
+      .split("\n")
+      .filter((line) => line.length > 0);
+  } catch {
+    return 0;
+  }
+  let count = 0;
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    try {
+      const row = JSON.parse(rows[index] ?? "") as Record<string, unknown>;
+      if (row.record_role !== "run_terminal") continue;
+      if (
+        row.active_subspec_path !== activeSubspecPath ||
+        (row.exit_reason !== "iteration-timeout" && row.exit_reason !== "watchdog-iteration-timeout")
+      )
+        break;
+      count += 1;
+    } catch {}
+  }
+  return count;
+}
+
+function appendTimeoutSplitBlocker(
+  activeSubspecPath: string,
+  telemetryPath: string | null,
+  priorTimeouts: number,
+): void {
+  if (telemetryPath === null || priorTimeouts + 1 < CONSECUTIVE_ITERATION_TIMEOUT_BOUND) return;
+  try {
+    const content = readFileSync(activeSubspecPath, "utf8");
+    if (parseSpec(content).blocker !== undefined) return;
+    appendFileSync(
+      activeSubspecPath,
+      `${content.endsWith("\n") ? "" : "\n"}\n## Blocker\n\nThis subspec reached ${CONSECUTIVE_ITERATION_TIMEOUT_BOUND} consecutive iteration timeouts. Split the subspec into smaller independently runnable tasks before rerunning.\n`,
+      "utf8",
+    );
+  } catch {
+    // Timeout reporting remains best-effort, including blocker annotation.
+  }
+}
 
 const realPatchWatchdogTiming: PatchWatchdogTiming = {
   nowMs: () => Date.now(),
@@ -191,6 +239,8 @@ export function setupLogging(opts: RunCommandOptions, preflight: PreflightOk, lo
   const specDisplayName = getSpecDisplayName(preflight.specPath);
   const runNamespace = `${preflight.project.key}:${specDisplayName}`;
   const telemetryPath = cfg.telemetryPath ?? null;
+  const activeSubspecPath = getActiveLinkedSubspecPath(preflight.specPath);
+  const priorIterationTimeouts = countTrailingIterationTimeouts(telemetryPath, activeSubspecPath);
   let telemetryWrites = false;
   let patchIterationsCompletedForSummary = 0;
   const implementationTouchedFiles = new Set<string>();
@@ -222,6 +272,7 @@ export function setupLogging(opts: RunCommandOptions, preflight: PreflightOk, lo
         ...(record.watchdog_descendants_alive !== undefined
           ? { watchdog_descendants_alive: record.watchdog_descendants_alive }
           : {}),
+        ...(record.active_subspec_path !== undefined ? { active_subspec_path: record.active_subspec_path } : {}),
       });
       telemetryWrites = true;
       if (
@@ -295,6 +346,7 @@ export function setupLogging(opts: RunCommandOptions, preflight: PreflightOk, lo
     specDisplayName,
     hasTelemetryWrites: () => telemetryWrites,
     patchIterationsCompletedForSummary: () => patchIterationsCompletedForSummary,
+    priorIterationTimeouts,
     implementationTouchedFiles,
   };
 }
@@ -934,6 +986,15 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
       }
       if (watchdogFired && watchdogDescendantsAlive !== undefined) {
         iterationTelemetryRecord.watchdog_descendants_alive = watchdogDescendantsAlive;
+      }
+      iterationTelemetryRecord.record_role = "run_terminal";
+      if (activeSubspecPath !== undefined) {
+        iterationTelemetryRecord.active_subspec_path = activeSubspecPath;
+        appendTimeoutSplitBlocker(
+          activeSubspecPath,
+          ctx.preflight.cfg.telemetryPath ?? null,
+          ctx.logging.priorIterationTimeouts,
+        );
       }
       writeTelemetry(iterationTelemetryRecord);
       return { kind: "return", exitCode: 8 };

@@ -51,23 +51,23 @@ just re-walls every run with no signal that it needs splitting.
 
 ## Acceptance criteria
 
-- [ ] A patch-mode iteration-timeout terminal telemetry row carries
+- [x] A patch-mode iteration-timeout terminal telemetry row carries
       `active_subspec_path` and `record_role: "run_terminal"`.
-- [ ] A run whose active subspec has 2 prior consecutive iteration-timeout
+- [x] A run whose active subspec has 2 prior consecutive iteration-timeout
       terminal rows and now times out again appends a `## Blocker` to the
       active subspec that explicitly recommends splitting the subspec (not
       just a timeout-count note), and this run still exits 8.
-- [ ] A subspec with only 1 prior timeout (below the bound) exits 8 without a
+- [x] A subspec with only 1 prior timeout (below the bound) exits 8 without a
       blocker on the next timeout (no false positive before the bound).
-- [ ] A prior timeout on a different subspec, or any non-timeout
+- [x] A prior timeout on a different subspec, or any non-timeout
       `run_terminal` row for the same subspec, does not count toward the
       streak.
-- [ ] If the active subspec already has a `## Blocker`, reaching the bound
+- [x] If the active subspec already has a `## Blocker`, reaching the bound
       does not duplicate or overwrite it.
-- [ ] With telemetry disabled (`telemetryPath: null`), a run whose active
+- [x] With telemetry disabled (`telemetryPath: null`), a run whose active
       subspec would otherwise have hit the bound exits 8 as before, with no
       blocker appended and no error/crash.
-- [ ] `v1/test/run.test.ts` gains coverage for the above alongside the
+- [x] `v1/test/run.test.ts` gains coverage for the above alongside the
       existing "iteration timeout causes exit code 8" test (`run.test.ts:6478`).
 
 ## Documentation updates

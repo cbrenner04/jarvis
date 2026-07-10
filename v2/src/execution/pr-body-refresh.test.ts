@@ -1,10 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  extractNarrative,
-  NARRATIVE_END_MARKER,
-  NARRATIVE_START_MARKER,
-  refreshPrBody,
-} from "./pr-body-refresh.ts";
+import { extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER, refreshPrBody } from "./pr-body-refresh.ts";
 
 describe("extractNarrative", () => {
   test("returns null when markers are absent", () => {
@@ -12,13 +7,7 @@ describe("extractNarrative", () => {
   });
 
   test("returns trimmed content between markers", () => {
-    const body = [
-      "Spec: stale",
-      "",
-      NARRATIVE_START_MARKER,
-      "  Operator notes  ",
-      NARRATIVE_END_MARKER,
-    ].join("\n");
+    const body = ["Spec: stale", "", NARRATIVE_START_MARKER, "  Operator notes  ", NARRATIVE_END_MARKER].join("\n");
     expect(extractNarrative(body)).toBe("Operator notes");
   });
 });
@@ -99,9 +88,15 @@ describe("refreshPrBody", () => {
     });
 
     expect(writtenBody).toBe(
-      ["Spec: v2/spec/test/index.md", "", "---", "", "- abc Foo \u2014 Agent A", "", "Written by Agent A through Jarvis."].join(
-        "\n",
-      ),
+      [
+        "Spec: v2/spec/test/index.md",
+        "",
+        "---",
+        "",
+        "- abc Foo \u2014 Agent A",
+        "",
+        "Written by Agent A through Jarvis.",
+      ].join("\n"),
     );
   });
 

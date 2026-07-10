@@ -705,6 +705,28 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return { kind: "response", result: { ok: true } };
   };
 
+  function terminalResumeBlocked(
+    run: LoadedRun,
+    runId: string,
+  ): { kind: "error"; code: string; message: string } | undefined {
+    const terminalRecord = logReader ? findTerminalLogRecord(logReader.tail(runId)) : undefined;
+    const retryCompletionPublication =
+      run.status === "completed" &&
+      terminalRecord?.event.kind === "loop_finished" &&
+      (terminalRecord.event.loopOutcomeKind === "completion_commit_failed" ||
+        terminalRecord.event.loopOutcomeKind === "ready_finalize_failed");
+
+    // A completed durable boundary is idempotent, except a failed external publication.
+    if (
+      (run.status === "completed" && !retryCompletionPublication) ||
+      run.status === "failed" ||
+      run.status === "blocked"
+    ) {
+      return { kind: "error", code: "terminal_run", message: `Cannot resume a ${run.status} run` };
+    }
+    return undefined;
+  }
+
   const resumeHandler: RpcHandler = (frame) => {
     const params = frame.params as { runId?: string; decision?: string; prompt?: string } | undefined;
     if (!params?.runId) {
@@ -737,20 +759,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       return { kind: "error", code: "invalid_params", message: "decision is only valid for awaiting-human runs" };
     }
 
-    const terminalRecord = logReader ? findTerminalLogRecord(logReader.tail(runId)) : undefined;
-    const retryCompletionPublication =
-      run.status === "completed" &&
-      terminalRecord?.event.kind === "loop_finished" &&
-      (terminalRecord.event.loopOutcomeKind === "completion_commit_failed" ||
-        terminalRecord.event.loopOutcomeKind === "ready_finalize_failed");
-
-    // A completed durable boundary is idempotent, except a failed external publication.
-    if (
-      (run.status === "completed" && !retryCompletionPublication) ||
-      run.status === "failed" ||
-      run.status === "blocked"
-    ) {
-      return { kind: "error", code: "terminal_run", message: `Cannot resume a ${run.status} run` };
+    const terminalError = terminalResumeBlocked(run, runId);
+    if (terminalError) {
+      return terminalError;
     }
 
     const key: OwnershipKey = { project: run.project, branch: run.branch };

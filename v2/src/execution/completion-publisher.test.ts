@@ -306,7 +306,8 @@ describe("createCompletionPublisher", () => {
       writePrBody: (_branch, body) => {
         writtenBody = body;
       },
-      renderFooter: () => "- abc123 jarvis: complete run \u2014 Claude Opus 4.8\n\nWritten by Claude Opus 4.8 through Jarvis.",
+      renderFooter: () =>
+        "- abc123 jarvis: complete run \u2014 Claude Opus 4.8\n\nWritten by Claude Opus 4.8 through Jarvis.",
     });
 
     await publisher(baseInput);

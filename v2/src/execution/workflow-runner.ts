@@ -18,8 +18,8 @@ import {
 } from "../persistence/state-store.ts";
 import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
 import { type CompletionPublisher, createCompletionPublisher } from "./completion-publisher.ts";
-import { type ReadyFinalizer, createReadyFinalizer } from "./ready-finalize.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
+import { createReadyFinalizer, type ReadyFinalizer } from "./ready-finalize.ts";
 import {
   executeReviewDebate,
   type ReviewDebateInput,

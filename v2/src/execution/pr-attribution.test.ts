@@ -115,7 +115,7 @@ describe("readBranchCommits with injected git", () => {
   test("parses synthetic git log output", () => {
     const fieldSep = "\x1f";
     const recordSep = "\x1e";
-    const trailerSep = "\x02";
+    const _trailerSep = "\x02";
     const logOutput = [
       `abc1234${fieldSep}jarvis: complete run${fieldSep}Claude Opus 4.8${fieldSep}Spec: v2/spec/test/index.md\n\nJarvis-Agent: Claude Opus 4.8${recordSep}`,
     ].join("");

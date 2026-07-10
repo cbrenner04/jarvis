@@ -66,7 +66,9 @@ export function refreshPrBody(input: RefreshPrBodyInput): void {
     headerAndNarrative += `\n\n${NARRATIVE_START_MARKER}\n${narrative}\n${NARRATIVE_END_MARKER}`;
   }
   const footer = renderFooter(
-    input.git !== undefined ? { cwd: input.cwd, base: input.base, git: input.git } : { cwd: input.cwd, base: input.base },
+    input.git !== undefined
+      ? { cwd: input.cwd, base: input.base, git: input.git }
+      : { cwd: input.cwd, base: input.base },
   );
   const newBody = footer === "" ? headerAndNarrative : `${headerAndNarrative}\n\n---\n\n${footer}`;
   writePrBody(input.branch, newBody, input.cwd);

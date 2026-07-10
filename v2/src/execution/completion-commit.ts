@@ -41,7 +41,12 @@ export function createCompletionCommitter(runGit: Git = git): CompletionCommitte
         runGit(input.worktreePath, ["add", "-A"], { GIT_INDEX_FILE: index });
         const tree = runGit(input.worktreePath, ["write-tree"], { GIT_INDEX_FILE: index });
         const baseTree = runGit(input.worktreePath, ["rev-parse", `${head}^{tree}`]);
-        if (tree === baseTree) return {};
+        if (tree === baseTree) {
+          // HEAD may already be a completion commit whose publish previously failed;
+          // report its sha so the caller retries publication instead of no-op'ing.
+          const headMessage = runGit(input.worktreePath, ["log", "-1", "--format=%B", head]);
+          return headMessage.startsWith("jarvis: complete run") ? { commitSha: head } : {};
+        }
         pending = {
           baseHead: head,
           tree,

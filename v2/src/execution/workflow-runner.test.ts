@@ -992,6 +992,9 @@ describe("executeWorkflow human steps", () => {
           published.push({ specPath: input.specPath, agent: input.agent });
           return { commitSha: "commit-1" };
         },
+        completionPublisher: async () => {
+          return {};
+        },
       });
 
       expect(result).toMatchObject({ kind: "complete", commitSha: "commit-1" });

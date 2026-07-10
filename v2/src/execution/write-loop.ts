@@ -10,6 +10,7 @@ import {
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
 import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
+import { type CompletionPublisher, createCompletionPublisher } from "./completion-publisher.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import type { StepRunResult } from "./step-runner.ts";
@@ -67,6 +68,7 @@ export type WriteLoopInput = WriteExecuteInput & {
     role?: string;
   };
   completionCommitter?: CompletionCommitter;
+  completionPublisher?: CompletionPublisher;
   publishCompletion?: boolean;
 };
 
@@ -113,15 +115,32 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             specPath: args.specPath,
             agent: prepared.result.completionAgent ?? "",
           });
+          if (published.commitSha !== undefined) {
+            try {
+              await (args.completionPublisher ?? createCompletionPublisher())({
+                worktreePath: getExternalWorktreePath(args.worktree),
+                baseRef: args.worktree.baseRef,
+                specPath: args.specPath,
+                branch: args.worktree.branchName,
+              });
+            } catch (publishError) {
+              const err = publishError instanceof Error ? publishError : new Error(String(publishError));
+              return completionCommitFailed(args, prepared.result, err);
+            }
+          }
           args.logSink?.append(prepared.result.runId, {
             kind: "loop_finished",
             loopOutcomeKind: "complete",
             iterationsConsumed: prepared.result.iterationsConsumed,
             resumable: false,
           });
-          return published.commitSha === undefined
-            ? prepared.result
-            : { ...prepared.result, commitSha: published.commitSha };
+          if (published.commitSha === undefined) {
+            return prepared.result;
+          }
+          return {
+            ...prepared.result,
+            commitSha: published.commitSha,
+          } as WriteLoopResult;
         } catch {
           return completionCommitFailed(args, prepared.result);
         }
@@ -240,13 +259,32 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           specPath: args.specPath,
           agent,
         });
+        if (published.commitSha !== undefined) {
+          try {
+            await (args.completionPublisher ?? createCompletionPublisher())({
+              worktreePath,
+              baseRef: args.worktree.baseRef,
+              specPath: args.specPath,
+              branch: args.worktree.branchName,
+            });
+          } catch (publishError) {
+            const err = publishError instanceof Error ? publishError : new Error(String(publishError));
+            return completionCommitFailed(args, attributed, err);
+          }
+        }
         args.logSink?.append(runId, {
           kind: "loop_finished",
           loopOutcomeKind: "complete",
           iterationsConsumed,
           resumable: false,
         });
-        return published.commitSha === undefined ? attributed : { ...attributed, commitSha: published.commitSha };
+        if (published.commitSha === undefined) {
+          return attributed;
+        }
+        return {
+          ...attributed,
+          commitSha: published.commitSha,
+        } as WriteLoopResult;
       } catch {
         return completionCommitFailed(args, attributed);
       }
@@ -421,7 +459,7 @@ function committedResult(run: StoredRun): WriteLoopResult | null {
   return null; // in-progress, paused, or budget-soft-stopped: resume
 }
 
-function completionCommitFailed(args: WriteLoopInput, result: WriteLoopResult): WriteLoopResult {
+function completionCommitFailed(args: WriteLoopInput, result: WriteLoopResult, error?: Error): WriteLoopResult {
   args.logSink?.append(result.runId, {
     kind: "loop_finished",
     loopOutcomeKind: "completion_commit_failed",
@@ -432,7 +470,7 @@ function completionCommitFailed(args: WriteLoopInput, result: WriteLoopResult): 
     ...result,
     kind: "completion_commit_failed",
     resumable: true,
-    completionCommitError: "completion commit failed",
+    completionCommitError: error?.message ?? "completion commit failed",
   };
 }
 

@@ -30,18 +30,18 @@ A completed v2 run commits its external-worktree snapshot locally but provides n
 
 ## Acceptance criteria
 
-- [ ] A completed git-backed standalone run pushes its harness completion commit before ensuring an open draft PR against its existing `baseRef`.
-- [ ] A completed workflow run publishes exactly once after all steps and the hidden shrink complete, not per step.
-- [ ] A publish-disabled completed run skips push and PR entirely; a non-git-backed completed run skips push and PR entirely.
-- [ ] A branch without upstream tracking uses `git push -u origin <branch>`; a tracked branch uses plain `git push`.
-- [ ] Publication reuses the current branch's open PR without mutating its title or body, and creates a new draft when only closed or merged PR history exists; multiple open PRs on the head are disambiguated by `baseRef` base.
-- [ ] Initial draft creation uses title `jarvis: complete run` and body `Spec: <specPath>` against `baseRef`.
-- [ ] `gh` readiness is a single `gh auth status` probe; a nonzero exit (including a missing `gh` binary), or a failed push, PR inspection, or PR creation, returns retryable completion publication failure without changing the completed durable boundary; resume retries without duplicating the completion commit or an open PR.
-- [ ] A non-fast-forward push rejection stops publication without retry, distinct from a transient network failure.
-- [ ] Transient push and `gh` failures retry to 3 total attempts with flat 1000 ms backoff and emit `<op>: transient network error; retrying (attempt <n>/3)`; permanent failures attempt once.
-- [ ] Publication tests use injected subprocess, delay, retry-notice, and `gh`-readiness seams and require no live remote or GitHub credentials.
-- [ ] `v2/docs/write-behavior.md` documents completion push ordering, upstream behavior, draft PR identity/base/content, once-per-workflow publication, retry semantics with pinned values, and the `gh auth status` preflight.
-- [ ] `v2/docs/v1-behaviors.md` marks v2 completion push and draft-PR behaviors as ported.
+- [x] A completed git-backed standalone run pushes its harness completion commit before ensuring an open draft PR against its existing `baseRef`.
+- [x] A completed workflow run publishes exactly once after all steps and the hidden shrink complete, not per step.
+- [x] A publish-disabled completed run skips push and PR entirely; a non-git-backed completed run skips push and PR entirely.
+- [x] A branch without upstream tracking uses `git push -u origin <branch>`; a tracked branch uses plain `git push`.
+- [x] Publication reuses the current branch's open PR without mutating its title or body, and creates a new draft when only closed or merged PR history exists; multiple open PRs on the head are disambiguated by `baseRef` base.
+- [x] Initial draft creation uses title `jarvis: complete run` and body `Spec: <specPath>` against `baseRef`.
+- [x] `gh` readiness is a single `gh auth status` probe; a nonzero exit (including a missing `gh` binary), or a failed push, PR inspection, or PR creation, returns retryable completion publication failure without changing the completed durable boundary; resume retries without duplicating the completion commit or an open PR.
+- [x] A non-fast-forward push rejection stops publication without retry, distinct from a transient network failure.
+- [x] Transient push and `gh` failures retry to 3 total attempts with flat 1000 ms backoff and emit `<op>: transient network error; retrying (attempt <n>/3)`; permanent failures attempt once.
+- [x] Publication tests use injected subprocess, delay, retry-notice, and `gh`-readiness seams and require no live remote or GitHub credentials.
+- [x] `v2/docs/write-behavior.md` documents completion push ordering, upstream behavior, draft PR identity/base/content, once-per-workflow publication, retry semantics with pinned values, and the `gh auth status` preflight.
+- [x] `v2/docs/v1-behaviors.md` marks v2 completion push and draft-PR behaviors as ported.
 
 ## Documentation updates
 

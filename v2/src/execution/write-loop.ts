@@ -186,7 +186,8 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               })),
             }
           : undefined;
-      const completionAgent = result.kind === "complete" ? result.invocation.final?.binding.metadata?.agent?.trim() : undefined;
+      const completionAgent =
+        result.kind === "complete" ? result.invocation.final?.binding.metadata?.agent?.trim() : undefined;
       store.commitCompletionBoundary({
         attemptId,
         runStatus: terminal.runStatus,

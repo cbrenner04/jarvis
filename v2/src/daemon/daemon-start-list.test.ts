@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
-import type { Attempt, Run } from "../persistence/state-store.ts";
 import type { LogReader } from "../persistence/log-stream.ts";
+import type { Attempt, Run } from "../persistence/state-store.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
@@ -674,7 +674,12 @@ test("resume retries a completed run after completion publication failed", async
         runId,
         seq: 1,
         ts: "2026-01-01T00:00:00.000Z",
-        event: { kind: "loop_finished", loopOutcomeKind: "completion_commit_failed", iterationsConsumed: 1, resumable: true },
+        event: {
+          kind: "loop_finished",
+          loopOutcomeKind: "completion_commit_failed",
+          iterationsConsumed: 1,
+          resumable: true,
+        },
       },
     ],
     async *follow() {},

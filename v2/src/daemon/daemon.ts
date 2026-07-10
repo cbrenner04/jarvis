@@ -744,7 +744,11 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       terminalRecord.event.loopOutcomeKind === "completion_commit_failed";
 
     // A completed durable boundary is idempotent, except a failed external publication.
-    if ((run.status === "completed" && !retryCompletionPublication) || run.status === "failed" || run.status === "blocked") {
+    if (
+      (run.status === "completed" && !retryCompletionPublication) ||
+      run.status === "failed" ||
+      run.status === "blocked"
+    ) {
       return { kind: "error", code: "terminal_run", message: `Cannot resume a ${run.status} run` };
     }
 

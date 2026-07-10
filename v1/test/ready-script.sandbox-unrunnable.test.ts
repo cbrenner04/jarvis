@@ -11,6 +11,7 @@ import {
   computeNodeModulesIdentityDigest,
   DEFAULT_TIMEOUT_MS,
   getReadyCommands,
+  parseReadyTestScope,
   parseReadyTier,
   parseTimeout,
   readRecordedInstallDigest,
@@ -190,6 +191,82 @@ describe("ready tier parsing and step lists", () => {
     expect(checkIndex).toBe(0);
     expect(installIndex).toBe(-1);
     expect(commands.map((command) => command.args[1])).toEqual(FULL_TIER_STEP_NAMES);
+  });
+
+  test("getReadyCommands substitutes one bun run <script> step per resolved test scope, in place of bun run test", () => {
+    const commands = getReadyCommands("full", {
+      runInstall: false,
+      testScope: ["test:v1", "test:v2", "test:integration:v2"],
+    });
+
+    expect(commands).toEqual([
+      { name: "bun", args: ["run", "check"] },
+      { name: "bun", args: ["run", "typecheck"] },
+      { name: "bun", args: ["run", "test:v1"] },
+      { name: "bun", args: ["run", "test:v2"] },
+      { name: "bun", args: ["run", "test:integration:v2"] },
+      { name: "bun", args: ["run", "lint:md"] },
+    ]);
+  });
+
+  test("getReadyCommands runs no test step when the resolved test scope is empty", () => {
+    const commands = getReadyCommands("full", { runInstall: false, testScope: [] });
+    expect(commands.some((command) => command.args[1]?.startsWith("test"))).toBe(false);
+  });
+
+  test("parseReadyTestScope: unset means unscoped (undefined), distinct from an explicit empty scope", () => {
+    expect(parseReadyTestScope(undefined)).toBeUndefined();
+    expect(parseReadyTestScope("")).toEqual([]);
+    expect(parseReadyTestScope("full")).toBe("full");
+    expect(parseReadyTestScope("test:v1 test:integration:v1")).toEqual(["test:v1", "test:integration:v1"]);
+  });
+
+  test("runReady runs unscoped bun run test when JARVIS_READY_TEST_SCOPE is unset or full", async () => {
+    for (const scopeEnv of [undefined, "full"]) {
+      const executed: string[] = [];
+      const repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-scope-"));
+
+      try {
+        await withEnvAsync("JARVIS_READY_TIER", "fast", async () => {
+          await withEnvAsync("JARVIS_READY_TEST_SCOPE", scopeEnv, async () => {
+            await runReady({
+              repoRoot,
+              runCommandFn: async (_name, args) => {
+                executed.push(args.join(" "));
+                return 0;
+              },
+            });
+          });
+        });
+
+        expect(executed).toEqual(["run typecheck", "run test"]);
+      } finally {
+        rmSync(repoRoot, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test("runReady runs one bun run <script> step per name in JARVIS_READY_TEST_SCOPE", async () => {
+    const executed: string[] = [];
+    const repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-scope-named-"));
+
+    try {
+      await withEnvAsync("JARVIS_READY_TIER", "fast", async () => {
+        await withEnvAsync("JARVIS_READY_TEST_SCOPE", "test:v1 test:integration:v1", async () => {
+          await runReady({
+            repoRoot,
+            runCommandFn: async (_name, args) => {
+              executed.push(args.join(" "));
+              return 0;
+            },
+          });
+        });
+      });
+
+      expect(executed).toEqual(["run typecheck", "run test:v1", "run test:integration:v1"]);
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
   });
 
   test("full tier keeps install before check when install runs", () => {

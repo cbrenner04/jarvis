@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getCurrentBranch } from "../../shared/git.ts";
+import { classifyChangedPaths, type ScopedTests } from "../../scripts/ci-test-scope.ts";
 import { appendAgentTrailer } from "./commit-trailer.ts";
 import { pushCurrent } from "./worktree.ts";
 
@@ -52,6 +53,50 @@ export function selectReadyTier(opts: { cwd: string; recordedGreenResult?: Recor
   return "full";
 }
 
+function readUntrackedPaths(cwd: string): string[] {
+  const porcelain = execFileSync("git", ["status", "--porcelain"], {
+    cwd,
+    encoding: "utf8",
+    stdio: "pipe",
+  });
+  return porcelain
+    .split("\n")
+    .filter((line) => line.startsWith("??"))
+    .map((line) => line.slice(3).trim())
+    .filter(Boolean);
+}
+
+/**
+ * Classify test scope for the diff since `baseBranch`'s merge-base with HEAD, including uncommitted
+ * working-tree changes and untracked files. Falls back to `"full"` when the merge-base can't be
+ * resolved (mirrors CI's `RESOLVABLE=false` fallback).
+ */
+export function resolveReadyTestScope(cwd: string, baseBranch: string): ScopedTests {
+  let mergeBase: string;
+  try {
+    mergeBase = execFileSync("git", ["merge-base", baseBranch, "HEAD"], {
+      cwd,
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim();
+  } catch {
+    return "full";
+  }
+
+  const diffOutput = execFileSync("git", ["diff", "--name-only", mergeBase], {
+    cwd,
+    encoding: "utf8",
+    stdio: "pipe",
+  });
+  const diffPaths = diffOutput
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const changedPaths = Array.from(new Set([...diffPaths, ...readUntrackedPaths(cwd)]));
+  return classifyChangedPaths(changedPaths);
+}
+
 export type RunReadyAndCommitOpts = {
   cwd: string;
   timeoutMs: number;
@@ -61,6 +106,8 @@ export type RunReadyAndCommitOpts = {
   agentLabel?: string;
   /** Per-project override for `bun run ready`. Tokenized on whitespace; no shell. Receives `JARVIS_READY_TIER`. */
   readyCommand?: string;
+  /** Base branch to scope the ready gate's test step to the diff since its merge-base. Omitted runs full, unscoped `bun run test`. */
+  baseBranch?: string;
   /** Per-project override for `bun run fix`. Tokenized on whitespace; no shell. */
   fixCommand?: string;
   /** Seam for built-in `bun run fix` on `full` tier. Defaults to execFileSync call. */
@@ -191,6 +238,8 @@ function shouldSkipAutofixForAbsentScript(cwd: string, tokens: string[]): boolea
 /** On `full` tier: run fix → commit-if-dirty → strict ready; on `fast`: verification only. */
 export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
   const tier = opts.tier ?? "full";
+  const testScope = opts.baseBranch !== undefined ? resolveReadyTestScope(opts.cwd, opts.baseBranch) : undefined;
+  const testScopeEnv = testScope !== undefined ? (testScope === "full" ? "full" : testScope.join(" ")) : undefined;
 
   const realRunFix = (cwd: string) => {
     const tokens = resolveAutofixTokens(opts.fixCommand);
@@ -300,7 +349,11 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
     try {
       execFileSync(head, args, {
         cwd,
-        env: { ...process.env, JARVIS_READY_TIER: readyTier },
+        env: {
+          ...process.env,
+          JARVIS_READY_TIER: readyTier,
+          ...(testScopeEnv !== undefined ? { JARVIS_READY_TEST_SCOPE: testScopeEnv } : {}),
+        },
         stdio: "pipe",
         timeout: opts.timeoutMs,
       });
@@ -350,6 +403,7 @@ export function runReadyGateWithTier(opts: {
   agentLabel: string;
   readyCommand?: string;
   fixCommand?: string;
+  baseBranch?: string;
   timeoutMs: number;
   recordedGreenResult?: RecordedGreenResult;
   runFix?: (cwd: string) => void;
@@ -368,6 +422,7 @@ export function runReadyGateWithTier(opts: {
     agentLabel: opts.agentLabel,
     ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
     ...(opts.fixCommand !== undefined ? { fixCommand: opts.fixCommand } : {}),
+    ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
     timeoutMs: opts.timeoutMs,
     ...(opts.runFix !== undefined ? { runFix: opts.runFix } : {}),
     ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),

@@ -3,7 +3,10 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { consumeTimeoutCheckpointReceipt, writeTimeoutCheckpointReceipt } from "../../../src/modes/patch/timeout-checkpoint.ts";
+import {
+  consumeTimeoutCheckpointReceipt,
+  writeTimeoutCheckpointReceipt,
+} from "../../../src/modes/patch/timeout-checkpoint.ts";
 
 function setup(): { root: string; spec: string; cleanup: () => void } {
   const root = mkdtempSync(join(tmpdir(), "timeout-checkpoint-"));
@@ -23,9 +26,13 @@ describe("timeout checkpoint receipts", () => {
     const { root, spec, cleanup } = setup();
     try {
       const oid = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
-      execFileSync("git", ["commit", "--allow-empty", "-m", "WIP: checkpoint (iteration-timeout)\n\nSpec: spec/task.md"], {
-        cwd: root,
-      });
+      execFileSync(
+        "git",
+        ["commit", "--allow-empty", "-m", "WIP: checkpoint (iteration-timeout)\n\nSpec: spec/task.md"],
+        {
+          cwd: root,
+        },
+      );
       writeTimeoutCheckpointReceipt(root, spec);
       const receiptPath = execFileSync("git", ["rev-parse", "--git-path", "jarvis/iteration-timeout-checkpoint.json"], {
         cwd: root,
@@ -46,7 +53,11 @@ describe("timeout checkpoint receipts", () => {
   test("rejects a receipt after an intervening commit", () => {
     const { root, spec, cleanup } = setup();
     try {
-      execFileSync("git", ["commit", "--allow-empty", "-m", "WIP: checkpoint (iteration-timeout)\n\nSpec: spec/task.md"], { cwd: root });
+      execFileSync(
+        "git",
+        ["commit", "--allow-empty", "-m", "WIP: checkpoint (iteration-timeout)\n\nSpec: spec/task.md"],
+        { cwd: root },
+      );
       writeTimeoutCheckpointReceipt(root, spec);
       execFileSync("git", ["commit", "--allow-empty", "-m", "intervening"], { cwd: root });
       expect(consumeTimeoutCheckpointReceipt(root, spec)).toBeNull();

@@ -543,6 +543,8 @@ describe("commitCheckpointOnTimeout", () => {
   test("rethrows git commit failures when staged changes exist", () => {
     const ops = fakeGitOps({ commitError: new Error("git commit failed") });
 
-    expect(() => commitCheckpointOnTimeout(createSpecFile("01-test-one.md", "# Test\n"), gitDir, "claude", ops)).toThrow("git commit failed");
+    expect(() =>
+      commitCheckpointOnTimeout(createSpecFile("01-test-one.md", "# Test\n"), gitDir, "claude", ops),
+    ).toThrow("git commit failed");
   });
 });

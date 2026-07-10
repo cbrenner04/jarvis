@@ -33,7 +33,10 @@ export function writeTimeoutCheckpointReceipt(cwd: string, activeSubspecPath: st
   const path = receiptPath(cwd);
   mkdirSync(dirname(path), { recursive: true });
   const temp = `${path}.${process.pid}.tmp`;
-  writeFileSync(temp, `${JSON.stringify({ version: 1, reason: "iteration-timeout", checkpointOid: oid, activeSubspecPath: normalized })}\n`);
+  writeFileSync(
+    temp,
+    `${JSON.stringify({ version: 1, reason: "iteration-timeout", checkpointOid: oid, activeSubspecPath: normalized })}\n`,
+  );
   renameSync(temp, path);
 }
 
@@ -52,7 +55,8 @@ function parseReceipt(raw: string): TimeoutCheckpointReceipt | null {
       isAbsolute(record.activeSubspecPath) ||
       record.activeSubspecPath.split("/").includes("..") ||
       Object.keys(record).length !== 4
-    ) return null;
+    )
+      return null;
     return record as TimeoutCheckpointReceipt;
   } catch {
     return null;

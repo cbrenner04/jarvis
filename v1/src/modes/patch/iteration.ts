@@ -54,7 +54,6 @@ import {
 import { createPatchInvocationBinding } from "./patch-invocation-binding.ts";
 import { findRelocatedSpecFile, refreshActiveSpecPath } from "./preflight.ts";
 import { buildFixupPrompt, buildPrompt, readRepoGuidance } from "./prompt.ts";
-import { consumeTimeoutCheckpointReceipt, writeTimeoutCheckpointReceipt } from "./timeout-checkpoint.ts";
 import { collectSubtree, DESCENDANT_POLL_INTERVAL_MS, listProcesses } from "./reap.ts";
 import type {
   IterationContext,
@@ -75,6 +74,7 @@ import {
   snapshotAcceptanceCriteria,
   snapshotCommittedAcceptanceCriteria,
 } from "./subspec.ts";
+import { consumeTimeoutCheckpointReceipt, writeTimeoutCheckpointReceipt } from "./timeout-checkpoint.ts";
 
 type LogTag = "harness" | "outbound" | "inbound_stdout" | "inbound_stderr";
 type LogStream = "stdout" | "stderr" | null;
@@ -527,7 +527,11 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           "Partial implementation from the previous iteration-timeout checkpoint is present. Inspect the existing changes and continue that implementation; do not redo work that is already complete.";
       }
     } catch (err) {
-      fanout("harness", `warning: could not inspect timeout checkpoint receipt: ${err instanceof Error ? err.message : String(err)}\n`, "stderr");
+      fanout(
+        "harness",
+        `warning: could not inspect timeout checkpoint receipt: ${err instanceof Error ? err.message : String(err)}\n`,
+        "stderr",
+      );
     }
   }
   // Capture runStartHead on first iteration for all-human-only guard
@@ -934,11 +938,18 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
       captureInterruptedDelta(activeSubspecPath, beforeCriteria, hasBlockerBefore);
       if (!hasUntrackedMutations) {
         try {
-          if (activeSubspecPath !== undefined && commitCheckpointOnTimeout(activeSubspecPath, agentWorkingDir, agent.attributionLabel())) {
+          if (
+            activeSubspecPath !== undefined &&
+            commitCheckpointOnTimeout(activeSubspecPath, agentWorkingDir, agent.attributionLabel())
+          ) {
             try {
               writeTimeoutCheckpointReceipt(agentWorkingDir, activeSubspecPath);
             } catch (err) {
-              fanout("harness", `failed to write timeout checkpoint receipt: ${err instanceof Error ? err.message : String(err)}\n`, "stderr");
+              fanout(
+                "harness",
+                `failed to write timeout checkpoint receipt: ${err instanceof Error ? err.message : String(err)}\n`,
+                "stderr",
+              );
             }
           }
         } catch (err) {

@@ -71,27 +71,47 @@ export function consumeTimeoutCheckpointReceipt(
 ): TimeoutCheckpointReceipt | null {
   const path = receiptPath(cwd);
   if (!existsSync(path)) return null;
-  const receipt = parseReceipt(readFileSync(path, "utf8"));
-  if (receipt === null) {
-    onWarning?.("invalid timeout checkpoint receipt");
-    return null;
-  }
-  const root = gitOutput(cwd, ["rev-parse", "--show-toplevel"]);
-  const expected = relative(realpathSync(root), realpathSync(activeSubspecPath));
-  const head = gitOutput(cwd, ["rev-parse", "HEAD"]);
-  const subject = gitOutput(cwd, ["show", "-s", "--format=%s", receipt.checkpointOid]);
-  const body = gitOutput(cwd, ["show", "-s", "--format=%b", receipt.checkpointOid]);
-  if (
-    receipt.activeSubspecPath !== expected ||
-    head !== receipt.checkpointOid ||
-    subject !== "WIP: checkpoint (iteration-timeout)" ||
-    !body.split("\n").some((line) => line === `Spec: ${expected}`)
-  ) {
-    onWarning?.("stale or mismatched timeout checkpoint receipt");
-    return null;
-  }
   const consumed = `${path}.${process.pid}.consumed`;
-  renameSync(path, consumed);
-  rmSync(consumed, { force: true });
-  return receipt;
+  try {
+    // Retire before inspection so invalid evidence cannot become valid again.
+    renameSync(path, consumed);
+  } catch (err) {
+    onWarning?.(`could not consume timeout checkpoint receipt: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+
+  let receipt: TimeoutCheckpointReceipt | null = null;
+  let retired = true;
+  try {
+    receipt = parseReceipt(readFileSync(consumed, "utf8"));
+    if (receipt === null) {
+      onWarning?.("invalid timeout checkpoint receipt");
+    } else {
+      const root = gitOutput(cwd, ["rev-parse", "--show-toplevel"]);
+      const expected = relative(realpathSync(root), realpathSync(activeSubspecPath));
+      const head = gitOutput(cwd, ["rev-parse", "HEAD"]);
+      const subject = gitOutput(cwd, ["show", "-s", "--format=%s", receipt.checkpointOid]);
+      const body = gitOutput(cwd, ["show", "-s", "--format=%b", receipt.checkpointOid]);
+      if (
+        receipt.activeSubspecPath !== expected ||
+        head !== receipt.checkpointOid ||
+        subject !== "WIP: checkpoint (iteration-timeout)" ||
+        !body.split("\n").some((line) => line === `Spec: ${expected}`)
+      ) {
+        onWarning?.("stale or mismatched timeout checkpoint receipt");
+        receipt = null;
+      }
+    }
+  } catch (err) {
+    onWarning?.(`could not inspect timeout checkpoint receipt: ${err instanceof Error ? err.message : String(err)}`);
+    receipt = null;
+  } finally {
+    try {
+      rmSync(consumed, { force: true });
+    } catch (err) {
+      onWarning?.(`could not retire timeout checkpoint receipt: ${err instanceof Error ? err.message : String(err)}`);
+      retired = false;
+    }
+  }
+  return retired ? receipt : null;
 }

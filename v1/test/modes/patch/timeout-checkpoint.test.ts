@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -22,6 +22,14 @@ function setup(): { root: string; spec: string; cleanup: () => void } {
 }
 
 describe("timeout checkpoint receipts", () => {
+  function getReceiptPath(root: string): string {
+    const path = execFileSync("git", ["rev-parse", "--git-path", "jarvis/iteration-timeout-checkpoint.json"], {
+      cwd: root,
+      encoding: "utf8",
+    }).trim();
+    return resolve(root, path);
+  }
+
   test("qualifies and consumes a matching receipt once", () => {
     const { root, spec, cleanup } = setup();
     try {
@@ -61,6 +69,70 @@ describe("timeout checkpoint receipts", () => {
       writeTimeoutCheckpointReceipt(root, spec);
       execFileSync("git", ["commit", "--allow-empty", "-m", "intervening"], { cwd: root });
       expect(consumeTimeoutCheckpointReceipt(root, spec)).toBeNull();
+      expect(existsSync(getReceiptPath(root))).toBeFalse();
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("retires malformed and mismatched receipts", () => {
+    const { root, spec, cleanup } = setup();
+    try {
+      const path = getReceiptPath(root);
+      mkdirSync(join(root, ".git", "jarvis"), { recursive: true });
+      writeFileSync(path, "not json");
+      expect(consumeTimeoutCheckpointReceipt(root, spec)).toBeNull();
+      expect(existsSync(path)).toBeFalse();
+
+      execFileSync("git", ["commit", "--allow-empty", "-m", "WIP: checkpoint (iteration-timeout)\n\nSpec: spec/task.md"], {
+        cwd: root,
+      });
+      writeTimeoutCheckpointReceipt(root, spec);
+      const otherSpec = join(root, "spec", "other.md");
+      writeFileSync(otherSpec, "# Other\n");
+      expect(consumeTimeoutCheckpointReceipt(root, otherSpec)).toBeNull();
+      expect(existsSync(path)).toBeFalse();
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("does not revive stale evidence after HEAD restoration", () => {
+    const { root, spec, cleanup } = setup();
+    try {
+      execFileSync("git", ["commit", "--allow-empty", "-m", "WIP: checkpoint (iteration-timeout)\n\nSpec: spec/task.md"], {
+        cwd: root,
+      });
+      writeTimeoutCheckpointReceipt(root, spec);
+      const checkpoint = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+      execFileSync("git", ["commit", "--allow-empty", "-m", "intervening"], { cwd: root });
+      expect(consumeTimeoutCheckpointReceipt(root, spec)).toBeNull();
+      execFileSync("git", ["reset", "--hard", checkpoint], { cwd: root, stdio: "pipe" });
+      expect(consumeTimeoutCheckpointReceipt(root, spec)).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("warns and omits context when inspection or consumption fails", () => {
+    const { root, spec, cleanup } = setup();
+    try {
+      const path = getReceiptPath(root);
+      mkdirSync(path, { recursive: true });
+      const inspectionWarnings: string[] = [];
+      expect(consumeTimeoutCheckpointReceipt(root, spec, (message) => inspectionWarnings.push(message))).toBeNull();
+      expect(inspectionWarnings.join("\n")).toContain("could not inspect timeout checkpoint receipt");
+      expect(inspectionWarnings.join("\n")).toContain("could not retire timeout checkpoint receipt");
+      rmSync(`${path}.${process.pid}.consumed`, { recursive: true, force: true });
+
+      execFileSync("git", ["commit", "--allow-empty", "-m", "WIP: checkpoint (iteration-timeout)\n\nSpec: spec/task.md"], {
+        cwd: root,
+      });
+      writeTimeoutCheckpointReceipt(root, spec);
+      mkdirSync(`${path}.${process.pid}.consumed`);
+      const consumptionWarnings: string[] = [];
+      expect(consumeTimeoutCheckpointReceipt(root, spec, (message) => consumptionWarnings.push(message))).toBeNull();
+      expect(consumptionWarnings.join("\n")).toContain("could not consume timeout checkpoint receipt");
     } finally {
       cleanup();
     }

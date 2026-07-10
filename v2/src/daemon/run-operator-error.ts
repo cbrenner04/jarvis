@@ -15,6 +15,7 @@ const RUN_OPERATOR_ERROR_REASONS = [
   "invocation_error",
   "harness_failure",
   "not_implemented",
+  "completion_commit_failed",
 ] as const;
 
 export type RunOperatorErrorReason = (typeof RUN_OPERATOR_ERROR_REASONS)[number];
@@ -120,6 +121,8 @@ function mapFromLoopFinished(
   if (resumable) return allowResumableLogOutcomes ? resumable : undefined;
 
   switch (event.loopOutcomeKind) {
+    case "completion_commit_failed":
+      return op("completion_commit_failed", "resume", true);
     case "blocked":
       return op("agent_blocked", "inspect_spec");
     case "contract_miss":
@@ -141,7 +144,8 @@ export function composeRunOperatorError(
   run: RunWithAttempts,
   terminalRecord?: TerminalLogRecord,
 ): RunOperatorError | undefined {
-  if (run.status === "in-progress" || run.status === "completed") return undefined;
+  if (run.status === "in-progress") return undefined;
+  if (run.status === "completed" && terminalRecord?.event.kind !== "loop_finished") return undefined;
 
   const resumable = RESUMABLE_TERMINALS[run.status];
   if (resumable) return resumable;

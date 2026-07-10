@@ -17,6 +17,7 @@ import {
   type StateStore,
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
+import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import {
   executeReviewDebate,
@@ -116,6 +117,7 @@ export type WorkflowResult = {
   runId: string;
   iterationsConsumed: number;
   resumable: boolean;
+  commitSha?: string;
 };
 
 export type WorkflowRunnerInput = {
@@ -128,6 +130,7 @@ export type WorkflowRunnerInput = {
   telemetry?: WorkflowTelemetryContext;
   /** Fires once a step's run row is durably created/resolved, before that step executes. */
   onStepRunCreated?: (stepIndex: number, runId: string) => void;
+  completionCommitter?: CompletionCommitter;
 };
 
 function isWriteStep(step: AnyWorkflowStep): step is WriteWorkflowStep {
@@ -223,6 +226,7 @@ async function runWorkflowStep(
  * Role bindings are validated for every step before any durable state change,
  * including on resume against the config loaded at that time.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: step ordering and final publication are one boundary.
 export async function executeWorkflow(args: WorkflowRunnerInput): Promise<WorkflowResult> {
   if (args.steps.length === 0) {
     throw new Error("Workflow requires at least one step");
@@ -245,6 +249,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     let totalIterationsConsumed = 0;
     let lastResult: WorkflowStepOutcome | undefined;
     let lastStepId = "";
+    let completionAgent: string | undefined;
     const workflowSnapshot = buildWorkflowSnapshot(args.steps, store);
 
     for (let stepIndex = 0; stepIndex < args.steps.length; stepIndex++) {
@@ -264,6 +269,9 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       totalIterationsConsumed += stepResult.iterationsConsumed;
       lastResult = stepResult;
       lastStepId = step.stepId;
+      if (stepResult.kind === "complete") {
+        completionAgent = (stepResult as WriteLoopResult).completionAgent;
+      }
 
       if (stepResult.kind !== "complete") {
         return {
@@ -287,6 +295,9 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           args.onStepRunCreated,
         );
         totalIterationsConsumed += shrinkResult.iterationsConsumed;
+        if (shrinkResult.kind === "complete") {
+          completionAgent = (shrinkResult as WriteLoopResult).completionAgent;
+        }
         if (shrinkResult.kind !== "complete") {
           return {
             kind: shrinkResult.kind,
@@ -302,6 +313,37 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
 
     if (!lastResult) throw new Error("Unreachable: lastResult undefined after checked bounds");
 
+    const publicationAgent = lastResult.kind === "complete" ? (completionAgent ?? "") : undefined;
+    if (publicationAgent !== undefined) {
+      try {
+        const finalStep = args.steps[args.steps.length - 1];
+        if (finalStep?.behavior === "write") {
+          const worktree = finalStep.worktree;
+          const published = (args.completionCommitter ?? createCompletionCommitter())({
+            worktreePath: getExternalWorktreePath(worktree),
+            baseRef: worktree.baseRef,
+            specPath: finalStep.specPath,
+            agent: publicationAgent,
+          });
+          if (published.commitSha !== undefined) (lastResult as WriteLoopResult).commitSha = published.commitSha;
+        }
+      } catch {
+        args.logSink?.append(lastResult.runId, {
+          kind: "loop_finished",
+          loopOutcomeKind: "completion_commit_failed",
+          iterationsConsumed: totalIterationsConsumed,
+          resumable: true,
+        });
+        return {
+          kind: "completion_commit_failed",
+          stepIndex: args.steps.length - 1,
+          stepId: lastStepId,
+          runId: lastResult.runId,
+          iterationsConsumed: totalIterationsConsumed,
+          resumable: true,
+        };
+      }
+    }
     return {
       kind: "complete",
       stepIndex: args.steps.length - 1,
@@ -309,6 +351,9 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       runId: lastResult.runId,
       iterationsConsumed: totalIterationsConsumed,
       resumable: false,
+      ...((lastResult as WriteLoopResult).commitSha !== undefined
+        ? { commitSha: (lastResult as WriteLoopResult).commitSha }
+        : {}),
     };
   } finally {
     if (!args.stateStore) {
@@ -565,6 +610,7 @@ function prepareWorkflowStep(
             },
           }
         : {}),
+      publishCompletion: false,
     },
   };
 }

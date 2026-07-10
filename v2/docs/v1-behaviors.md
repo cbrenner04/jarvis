@@ -468,6 +468,15 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
 
 ## Behaviors with uncertain intent
 
+### Completion commit parity
+
+- [v2 ported] Completion publication stages the whole external worktree with
+  `git add -A`, creates one completion commit after durable success, and uses a
+  `Jarvis-Agent` trailer. The v1 subject (`chore: complete-but-dirty commit`),
+  label selection (`completion-ready`), managed worktree lifecycle, push, and PR
+  behavior remain unported. Sources: `v2/src/execution/completion-commit.ts`,
+  `v2/src/execution/write-loop.ts`, `v2/src/execution/workflow-runner.ts`.
+
 Items marked `[uncertain]` need additional evidence (code inspection, tests, or documentation review) to confirm or clarify their intent.
 
 - [uncertain] Plan-mode collapsed attribution bullets always use fixed text `spec commits (refine, draft, review)` even when grouped commits include blocker/resume variants, so the label can lose subject-level detail; evidence needed: design rationale or test coverage explaining why lossy wording is preferred. Sources: `v1/src/modes/plan/pr.ts`

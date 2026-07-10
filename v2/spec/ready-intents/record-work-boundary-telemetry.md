@@ -14,8 +14,12 @@ append the harness commit facts needed for telemetry analysis.
 Append one `work_boundary_recorded` telemetry row for each completion boundary
 that produces a harness commit. Use the boundary's stamped `run_id` and
 `attempt_id` plus `outcome_kind`, `run_status`, harness `commit_sha`, and the
-count of changed files. Do not derive IDs or git facts from agent output or
-logs.
+count of changed files. The completion committer today returns only
+`commit_sha`; this work extends the harness commit result to also carry the
+changed-file count (computed by the harness from the completion commit's own
+trees, e.g. base-tree vs completion-tree) and threads it to the boundary layer.
+`files_changed` is thus a harness-sourced git fact — never derived from agent
+output or observability logs.
 
 Use the injectable telemetry JSONL sink, defaulting to
 `~/.jarvis/telemetry.jsonl`. Keep emission at the write-loop/workflow-runner
@@ -29,7 +33,7 @@ flow or persistence.
 - Use `{ schema_version: 1, record_kind: "work_boundary_recorded", ts }` with the required boundary fields — rules out aliasing observability `boundary_committed`.
 - Record `files_changed` as a count — rules out a path list in this schema version.
 - Omit `invocation_id` because the record is attempt-grain — rules out assigning a whole-attempt boundary to one invocation.
-- Source commit facts from the harness commit result — rules out parsing agent output or rereading observability logs.
+- Extend the harness completion-commit result to carry the changed-file count alongside `commit_sha`, computed by the harness from the commit's trees, and source both facts from that result — rules out parsing agent output or rereading observability logs, and rules out treating the count as an already-exposed prerequisite.
 - Keep telemetry outside `commitCompletionBoundary` and orchestration SQLite — rules out coupling analysis writes to recovery state.
 
 ## Documentation updates
@@ -38,4 +42,4 @@ flow or persistence.
 
 ## Prerequisites
 
-- A v2 completion boundary that changes work creates a harness commit and exposes its commit SHA and changed-file count to the boundary layer
+- A v2 completion boundary that changes work creates a harness commit and exposes its commit SHA to the boundary layer (`CompletionCommitResult.commitSha`, `v2/src/execution/completion-commit.ts`). This work extends that result to also carry the changed-file count.

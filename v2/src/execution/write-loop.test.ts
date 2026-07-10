@@ -9,6 +9,7 @@ import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } fr
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
 import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./write.ts";
 import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "./write-loop.ts";
+import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 
 const { roots } = trackedTempRoots();
 
@@ -55,6 +56,8 @@ async function runLoop(args: {
   store?: StateStore;
   logSink?: LogSink;
   telemetry?: WriteLoopInput["telemetry"];
+  completionCommitter?: WriteLoopInput["completionCommitter"];
+  completionPublisher?: WriteLoopInput["completionPublisher"];
 }) {
   // Track the parent directory for cleanup
   roots.push(join(args.jarvisRoot, ".."));
@@ -77,6 +80,8 @@ async function runLoop(args: {
     ...(args.signal !== undefined ? { signal: args.signal } : {}),
     ...(args.logSink !== undefined ? { logSink: args.logSink } : {}),
     ...(args.telemetry !== undefined ? { telemetry: args.telemetry } : {}),
+    ...(args.completionCommitter !== undefined ? { completionCommitter: args.completionCommitter } : {}),
+    ...(args.completionPublisher !== undefined ? { completionPublisher: args.completionPublisher } : {}),
   };
   try {
     return await executeWriteLoop(loopInput);
@@ -156,6 +161,18 @@ function loadTelemetryRows(path: string): InvocationCompletedRecord[] {
     .split("\n")
     .filter((line) => line.length > 0)
     .map((line) => JSON.parse(line) as InvocationCompletedRecord);
+}
+
+function loadWorkBoundaryRows(path: string): WorkBoundaryRecordedRecord[] {
+  if (!existsSync(path)) {
+    return [];
+  }
+  return readFileSync(path, "utf8")
+    .trim()
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as WorkBoundaryRecordedRecord)
+    .filter((row) => row.record_kind === "work_boundary_recorded");
 }
 
 /** Wrap a store so the first completion boundary fails mid-transaction. */
@@ -400,6 +417,126 @@ describe("write loop", () => {
     });
 
     expect(result.kind).toBe("complete");
+  });
+
+  describe("work_boundary_recorded telemetry", () => {
+    const completionHooks = {
+      completionCommitter: () => ({ commitSha: "commit-abc", filesChanged: 2 }),
+      completionPublisher: async () => ({}),
+    };
+
+    test("appends one row when a completion commit succeeds", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const telemetryPath = join(jarvisRoot, "boundary-telemetry.jsonl");
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        telemetry: { sinkPath: telemetryPath, operatorSessionId: "session-1" },
+        ...completionHooks,
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(result.commitSha).toBe("commit-abc");
+      const rows = loadWorkBoundaryRows(telemetryPath);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        schema_version: 1,
+        record_kind: "work_boundary_recorded",
+        run_id: result.runId,
+        attempt_id: result.attemptId,
+        outcome_kind: "done",
+        run_status: "completed",
+        commit_sha: "commit-abc",
+        files_changed: 2,
+      });
+      expect(rows[0]).not.toHaveProperty("invocation_id");
+    });
+
+    test("appends none when no telemetry block is attached", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const telemetryPath = join(jarvisRoot, "boundary-telemetry.jsonl");
+      await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        ...completionHooks,
+      });
+
+      expect(loadWorkBoundaryRows(telemetryPath)).toHaveLength(0);
+    });
+
+    test("appends none when the completion commit produces no sha", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const telemetryPath = join(jarvisRoot, "boundary-telemetry.jsonl");
+      await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        telemetry: { sinkPath: telemetryPath, operatorSessionId: "session-1" },
+        completionCommitter: () => ({}),
+        completionPublisher: async () => ({}),
+      });
+
+      expect(loadWorkBoundaryRows(telemetryPath)).toHaveLength(0);
+    });
+
+    test("resume-republish appends a row with the same join keys and files_changed", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const telemetryPath = join(jarvisRoot, "boundary-telemetry.jsonl");
+      const branchName = "resume-boundary";
+      const publish = { commitSha: "commit-1", filesChanged: 3 };
+
+      const first = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        telemetry: { sinkPath: telemetryPath, operatorSessionId: "session-1" },
+        completionCommitter: () => publish,
+        completionPublisher: async () => ({}),
+      });
+      expect(first.kind).toBe("complete");
+      mkdirSync(join(jarvisRoot, "worktrees", "demo", branchName, ".git"), { recursive: true });
+
+      const retry = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName,
+        bindings: [],
+        telemetry: { sinkPath: telemetryPath, operatorSessionId: "session-1" },
+        completionCommitter: () => publish,
+        completionPublisher: async () => ({}),
+      });
+      expect(retry.kind).toBe("complete");
+
+      const rows = loadWorkBoundaryRows(telemetryPath);
+      expect(rows.length).toBeGreaterThanOrEqual(2);
+      expect(rows[0]?.attempt_id).toBe(rows[1]?.attempt_id);
+      expect(rows[0]?.outcome_kind).toBe(rows[1]?.outcome_kind);
+      expect(rows[0]?.run_status).toBe(rows[1]?.run_status);
+      expect(rows[0]?.files_changed).toBe(rows[1]?.files_changed);
+    });
+
+    test("append failure leaves boundary control flow and persistence unchanged", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const telemetryDir = join(jarvisRoot, "boundary-telemetry-dir");
+      mkdirSync(telemetryDir, { recursive: true });
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        telemetry: { sinkPath: telemetryDir, operatorSessionId: "session-1" },
+        ...completionHooks,
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(result.commitSha).toBe("commit-abc");
+      expect(result.boundaryTelemetryFailure).toBeDefined();
+      const run = loadRunOnce(stateDbPath, result.runId);
+      expect(run?.status).toBe("completed");
+      expect(run?.attempts[0]?.outcomeKind).toBe("done");
+    });
   });
 
   test("persists the final completion binding for a completed-run retry", async () => {

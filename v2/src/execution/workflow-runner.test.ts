@@ -23,6 +23,7 @@ import {
   type WorkflowStepInput,
   type WriteWorkflowStep,
 } from "./workflow-runner.ts";
+import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 
 const { roots } = trackedTempRoots();
 const DEFAULT_AGENT_MODEL_CONFIG = {
@@ -915,6 +916,15 @@ function loadTelemetryRows(path: string): InvocationCompletedRecord[] {
     .map((line) => JSON.parse(line) as InvocationCompletedRecord);
 }
 
+function loadWorkBoundaryRows(path: string): WorkBoundaryRecordedRecord[] {
+  return readFileSync(path, "utf8")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as WorkBoundaryRecordedRecord)
+    .filter((row) => row.record_kind === "work_boundary_recorded");
+}
+
 describe("executeWorkflow human steps", () => {
   test("converges to awaiting-human without running a write loop", async () => {
     const writeStep = createStep({ stepId: "step-1", role: "implement", branchName: "human-workflow" });
@@ -1397,6 +1407,41 @@ describe("executeWorkflow revising re-convergence", () => {
 });
 
 describe("executeWorkflow telemetry", () => {
+  test("appends work_boundary_recorded when workflow publication produces a commit", async () => {
+    const telemetryPath = join(mkdtempSync(join(tmpdir(), "workflow-boundary-telemetry-")), "telemetry.jsonl");
+    const writeStep = createStep({
+      stepId: "step-1",
+      role: "implement",
+      branchName: "boundary-workflow",
+      createBinding: doneBindingFactory,
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [writeStep],
+        stateStore: store,
+        telemetry: { operatorSessionId: "session-1", workflow: "demo-workflow", sinkPath: telemetryPath },
+        completionCommitter: () => ({ commitSha: "wf-commit", filesChanged: 4 }),
+        completionPublisher: async () => ({}),
+      });
+
+      expect(result).toMatchObject({ kind: "complete", commitSha: "wf-commit" });
+      const rows = loadWorkBoundaryRows(telemetryPath);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        schema_version: 1,
+        record_kind: "work_boundary_recorded",
+        run_id: result.runId,
+        outcome_kind: "done",
+        run_status: "completed",
+        commit_sha: "wf-commit",
+        files_changed: 4,
+      });
+      expect(rows[0]?.attempt_id).toBeDefined();
+      expect(rows[0]).not.toHaveProperty("invocation_id");
+    });
+  });
+
   test("write and review-debate steps in the same call share operator_session_id/workflow and one shared sink", async () => {
     const telemetryPath = join(mkdtempSync(join(tmpdir(), "workflow-telemetry-")), "telemetry.jsonl");
 

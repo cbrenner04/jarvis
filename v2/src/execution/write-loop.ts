@@ -15,6 +15,11 @@ import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
+import {
+  boundaryStampFromStoredRun,
+  emitWorkBoundaryRecorded,
+  type BoundaryStamp,
+} from "./work-boundary-telemetry.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";
 
 const WRITE_LOOP_OUTCOME_KINDS = [
@@ -44,6 +49,10 @@ export type WriteLoopResult = {
   commitSha?: string;
   completionAgent?: string;
   completionCommitError?: string;
+  attemptId?: string;
+  outcomeKind?: OutcomeKind;
+  runStatus?: RunStatus;
+  boundaryTelemetryFailure?: string;
 } & Partial<InvocationFailureDetail>;
 
 /** Input for the write loop. Run identity derives from `worktree` (project, branch, base). */
@@ -137,10 +146,12 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           if (published.commitSha === undefined) {
             return prepared.result;
           }
-          return {
-            ...prepared.result,
-            commitSha: published.commitSha,
-          } as WriteLoopResult;
+          return withBoundaryTelemetry(
+            args,
+            prepared.result,
+            published.commitSha,
+            published.filesChanged,
+          );
         } catch {
           return completionCommitFailed(args, prepared.result);
         }
@@ -221,6 +232,12 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         runStatus: terminal.runStatus,
       });
 
+      const boundaryStamp: BoundaryStamp = {
+        runId,
+        attemptId,
+        outcomeKind: terminal.outcomeKind,
+        runStatus: terminal.runStatus,
+      };
       const loopResult = finishLoop(
         args,
         runId,
@@ -230,9 +247,15 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         detail,
         terminal.kind !== "complete",
       );
-      if (terminal.kind !== "complete") return loopResult;
+      if (terminal.kind !== "complete") {
+        return { ...loopResult, ...boundaryStamp };
+      }
       const agent = result.invocation.final?.binding.metadata?.agent?.trim();
-      const attributed = agent ? { ...loopResult, completionAgent: agent } : loopResult;
+      const attributed = {
+        ...loopResult,
+        ...boundaryStamp,
+        ...(agent ? { completionAgent: agent } : {}),
+      };
       if (args.publishCompletion === false) {
         args.logSink?.append(runId, {
           kind: "loop_finished",
@@ -281,10 +304,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         if (published.commitSha === undefined) {
           return attributed;
         }
-        return {
-          ...attributed,
-          commitSha: published.commitSha,
-        } as WriteLoopResult;
+        return withBoundaryTelemetry(args, attributed, published.commitSha, published.filesChanged);
       } catch {
         return completionCommitFailed(args, attributed);
       }
@@ -429,12 +449,14 @@ function terminalMapping(result: Exclude<StepRunResult, { kind: "progress" }>): 
 function committedResult(run: StoredRun): WriteLoopResult | null {
   if (run.status === "completed") {
     const agent = run.attempts.at(-1)?.completionAgent?.trim();
+    const stamp = boundaryStampFromStoredRun(run);
     return {
       kind: "complete",
       runId: run.id,
       iterationsConsumed: 0,
       resumable: false,
       ...(agent ? { completionAgent: agent } : {}),
+      ...(stamp !== undefined ? stamp : {}),
     };
   }
   if (run.status === "failed") {
@@ -457,6 +479,37 @@ function committedResult(run: StoredRun): WriteLoopResult | null {
     };
   }
   return null; // in-progress, paused, or budget-soft-stopped: resume
+}
+
+function withBoundaryTelemetry(
+  args: WriteLoopInput,
+  result: WriteLoopResult,
+  commitSha: string,
+  filesChanged: number | undefined,
+): WriteLoopResult {
+  if (
+    filesChanged === undefined ||
+    result.attemptId === undefined ||
+    result.outcomeKind === undefined ||
+    result.runStatus === undefined
+  ) {
+    return { ...result, commitSha };
+  }
+  const boundaryTelemetryFailure = emitWorkBoundaryRecorded(
+    args.telemetry,
+    {
+      runId: result.runId,
+      attemptId: result.attemptId,
+      outcomeKind: result.outcomeKind,
+      runStatus: result.runStatus,
+    },
+    { commitSha, filesChanged },
+  );
+  return {
+    ...result,
+    commitSha,
+    ...(boundaryTelemetryFailure !== undefined ? { boundaryTelemetryFailure } : {}),
+  };
 }
 
 function completionCommitFailed(args: WriteLoopInput, result: WriteLoopResult, error?: Error): WriteLoopResult {

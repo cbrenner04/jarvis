@@ -94,11 +94,19 @@ Same shape for write, review-debate, and plan steps — only `workflow`, `step_i
 
 ### `work_boundary_recorded`
 
-Emitted at `commitCompletionBoundary` with work facts for analysis. Distinct from
+**Implemented** at the write-loop / workflow-runner completion boundary (outside
+`commitCompletionBoundary` and orchestration SQLite). Distinct from
 observability `boundary_committed` — different consumer, different file, different
 name. Required: `run_id`, `attempt_id`, `outcome_kind`, `run_status`,
-`commit_sha`, `files_changed` (count; path list deferred — see [Deferred
-questions](#deferred-implementation-questions)).
+`commit_sha`, `files_changed` (integer count of paths differing between the
+completion commit's base tree and completion tree; name-only diff with rename
+detection off — no path list in schema version 1).
+
+Emission is gated on an attached telemetry block; the sink path is the injected
+`sinkPath` when supplied, otherwise `~/.jarvis/telemetry.jsonl`. Append is
+**at-least-once** (best-effort): a crash before publish may drop a row; a crash
+after emit may duplicate one. An append failure is surfaced separately on the
+returned result and does not alter boundary control flow or orchestration state.
 
 Orchestration `outcome_kind` on the attempt row is authoritative for resume;
 telemetry rows are authoritative for analysis history.
@@ -115,7 +123,7 @@ usage in roll-ups. Required: `run_id`, `loop_outcome_kind` or terminal
 | Record kind | Code seam | Notes |
 | --- | --- | --- |
 | `invocation_completed` | `shared/invocation/execute.ts` | Runner passes full ID context in; emitter does not re-parse logs |
-| `work_boundary_recorded` | Write loop / workflow runner at `commitCompletionBoundary` | Git facts from harness commit, not agent |
+| `work_boundary_recorded` | Write loop / workflow runner at completion commit publish | Git facts from harness commit, not agent; gated on attached telemetry block |
 | `run_terminal` | Loop finish / run failure path | One row per terminal run edge |
 
 [`shared-step-runner.md`](shared-step-runner.md) owns token parsing and contract
@@ -183,7 +191,7 @@ first implementation slice.
 | --- | --- |
 | **This doc** (plan spec) | Capture contract only |
 | **Phase 5 + 6** (workflow runner, write + review-debate) | `executeWorkflow` constructs one shared per-step telemetry context (`operatorSessionId`, `workflow`, `sinkPath`) and passes it identically to `write` and `review-debate` steps — same schema for both. No production caller yet: `cli.ts`/`daemon.ts` still call `executeWriteLoop` directly. |
-| **Phase 8** (PR lifecycle) | `work_boundary_recorded` with `commit_sha` / `files_changed` |
+| **Phase 8** (PR lifecycle) | `work_boundary_recorded` with `commit_sha` / `files_changed` — **implemented** |
 | **Post-parity** | Export commands replacing manual CSV reconciliation |
 
 Do not block TUI/daemon on telemetry; do not defer ID-stamped facts until
@@ -200,12 +208,6 @@ first consumer that wires each seam — not ahead of it
   changes.
 
 No new tests ship with this doc-only deliverable.
-
-## Deferred implementation questions
-
-Pinned for the first live emitter. Remaining questions:
-
-1. **`files_changed` shape** — count-only vs path list on `work_boundary_recorded`.
 
 ## Related docs
 

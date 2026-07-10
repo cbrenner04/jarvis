@@ -16,6 +16,7 @@ const RUN_OPERATOR_ERROR_REASONS = [
   "harness_failure",
   "not_implemented",
   "completion_commit_failed",
+  "ready_finalize_failed",
 ] as const;
 
 export type RunOperatorErrorReason = (typeof RUN_OPERATOR_ERROR_REASONS)[number];
@@ -123,6 +124,8 @@ function mapFromLoopFinished(
   switch (event.loopOutcomeKind) {
     case "completion_commit_failed":
       return op("completion_commit_failed", "resume", true);
+    case "ready_finalize_failed":
+      return op("ready_finalize_failed", "resume", true);
     case "blocked":
       return op("agent_blocked", "inspect_spec");
     case "contract_miss":

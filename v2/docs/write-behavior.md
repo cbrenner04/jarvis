@@ -6,7 +6,9 @@ for durable run state and resume mechanics.
 
 On a successful standalone write, the terminal SQLite boundary is committed before
 the runner publishes completion to the external worktree. Publication is one
-retryable boundary comprising two operations in sequence: commit, then push+PR.
+retryable boundary comprising three operations in sequence: commit, then push+PR,
+then PR body refresh. Ready finalization is a separate retryable boundary after
+publication succeeds: ready gate, then draft→ready flip.
 
 **Commit phase:** captures an isolated `git add -A` snapshot, creates one
 `jarvis: complete run` commit with `Spec: <specPath>` and the final successful
@@ -31,10 +33,43 @@ open PRs on the same branch are disambiguated by `baseRef` match; when multiple
 match the same base, the first is reused; when none match, a new PR is created.
 When the branch has no origin or push/PR operations are disabled, this phase is skipped.
 
-Publication failures (commit, push, or PR) leave the durable run `completed`, expose
+**PR body refresh:** after the draft PR is ensured, the publisher rewrites its
+body: regenerated `Spec: <specPath>` header, preserved content between plain
+`<!-- jarvis:narrative:start -->` / `<!-- jarvis:narrative:end -->` markers when
+present, and an attribution footer from `Jarvis-Agent` trailer(s) on commits in
+`baseRef..HEAD` whose first body line begins with `Spec:`. Under v2's single
+completion commit, that selects the `jarvis: complete run` meta-commit. Footer
+shape: one bullet per qualifying commit (`- <shortSha> <subject> — <label>`,
+labels joined per commit; `unknown` when no trailer; excluded from summary),
+blank line, then `Written by <labels> through Jarvis.` with first-seen dedup.
+Empty footer ⇒ header (+ narrative if present) only, no `---` separator. v1's
+hash-verified generated-narrative path (`jarvis:narrative:generated-sha256:`) is
+not ported. Refresh failures reuse retryable `completion_commit_failed`; resume
+re-edits the same PR. Post-completion ordering: push+PR → body refresh → ready
+gate → draft→ready flip (gate/flip in a separate finalization boundary).
+
+**Ready finalization:** after publication (including body refresh) succeeds, a
+separate retryable boundary runs while the PR remains draft: (1) the ready gate
+in the completed run's worktree, then (2) `gh pr ready <branch>`. The default
+gate command is `bun run ready`; any non-zero exit is a gate failure (missing
+and red gate scripts are not distinguished). The gate runs unbounded. On green,
+the flip calls `gh pr ready <branch>` through the same bounded transient-retry
+seam as publication (3 total attempts, flat 1000 ms backoff). Before the
+transient classifier, the flip treats exit-0 (including empty output), and any
+thrown `gh` error whose combined stdout+stderr contains (case-insensitive)
+`already ready` or `not a draft`, as success without retry. Any other thrown
+error is handed to the transient classifier unchanged. Gate or flip failure
+(except the success-guarded flip cases) leaves the PR draft, keeps the durable
+run `completed`, and returns retryable `ready_finalize_failed` (`nextAction:
+resume`), distinct from publication's `completion_commit_failed`. Resume
+replays publication first (idempotent), then re-runs the gate and re-attempts
+the flip. Gate and `gh` are injectable seams so tests require no live
+verification or GitHub credentials.
+
+Publication failures (commit, push, PR, or body refresh) leave the durable run `completed`, expose
 retryable `completion_commit_failed`, and return exit `1`; `jarvis run resume <run-id>`
 may retry without creating a duplicate commit or PR. Non-fast-forward push rejection
-is permanent (no retry). Transient network failures (push, PR lookup, PR creation) retry
+is permanent (no retry). Transient network failures (push, PR lookup, PR creation, body refresh) retry
 to 3 total attempts with flat 1000 ms backoff between re-attempts and emit
 `<op>: transient network error; retrying (attempt <n>/3)` to stderr. Subprocess, backoff
 delay, retry-notice, and `gh`-readiness are each independently injectable seams, so
@@ -43,8 +78,9 @@ delay. Missing binding attribution fails before git mutation. This boundary oper
 directly in the existing external worktree and does not create locks.
 
 Workflows suppress per-step commits and publish once after every step and hidden shrink
-completes, attributed to the final contributor. The publication boundary is identical
-to standalone runs: commit once, then push+PR once.
+completes, attributed to the final contributor. The publication and finalization
+boundaries match standalone runs: commit once, then push+PR and body refresh once,
+then ready gate and draft→ready flip once.
 
 The captured snapshot is the retry identity: later operator edits are excluded.
 
@@ -306,9 +342,13 @@ caller-supplied bindings, same seam as write-step invocations.
 ## Exit codes
 
 - `0`: `complete` (success)
-- `1`: `blocked` or `contract_miss` (blocked on agent or spec)
+- `1`: `blocked`, `contract_miss`, `completion_commit_failed`, or `ready_finalize_failed`
 - `2`: `invocation_failure` (binding chain or token parse failure)
 - `5`: `budget-exhausted` (soft-stop, resumable per spec 02)
+
+`completion_commit_failed` and `ready_finalize_failed` leave the durable run
+`completed` with `resumable: true`; `jarvis run resume <run-id>` may retry without
+creating a duplicate commit or PR.
 
 ### Wait exit codes
 
@@ -320,9 +360,12 @@ needing lifecycle success should loop `wait` until exit `0` or inspect stdout
 When `loopOutcomeKind` is present it wins over `runStatus`:
 
 - `0`: `complete`
-- `1`: `blocked`, `contract_miss`, `paused`, `progress`, or any other present kind
+- `1`: `blocked`, `contract_miss`, `completion_commit_failed`, `ready_finalize_failed`, `paused`, `progress`, or any other present kind
 - `2`: `invocation_failure`
 - `5`: `budget-exhausted`
+
+`completion_commit_failed` and `ready_finalize_failed` carry `runStatus: completed`
+and `resumable: true` on stdout; exit `1` is retryable via `jarvis run resume`.
 
 When `loopOutcomeKind` is omitted:
 

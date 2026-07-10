@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { type RefreshPrBodyInput, refreshPrBody } from "./pr-body-refresh.ts";
 
 export type CompletionPublisherInput = {
   worktreePath: string;
@@ -15,10 +16,14 @@ export type CompletionPublisherResult = {
 export type CompletionPublisher = (input: CompletionPublisherInput) => Promise<CompletionPublisherResult>;
 
 type Git = (cwd: string, args: readonly string[], env?: Record<string, string>) => string;
-type GhCommand = (args: readonly string[], env?: Record<string, string>) => string;
-type GhReady = () => boolean;
+type GhCommand = (cwd: string, args: readonly string[], env?: Record<string, string>) => string;
+type GhReady = (cwd: string) => boolean;
 type Delay = (ms: number) => Promise<void>;
 type RetryNotice = (message: string) => void;
+
+type FetchPrBody = RefreshPrBodyInput["fetchPrBody"];
+type WritePrBody = RefreshPrBodyInput["writePrBody"];
+type RenderFooter = NonNullable<RefreshPrBodyInput["renderFooter"]>;
 
 type PublisherSeams = {
   git: Git;
@@ -26,19 +31,22 @@ type PublisherSeams = {
   ghReady: GhReady;
   delay: Delay;
   retryNotice: RetryNotice;
+  fetchPrBody?: FetchPrBody;
+  writePrBody?: WritePrBody;
+  renderFooter?: RenderFooter;
 };
 
 function defaultGit(cwd: string, args: readonly string[], env?: Record<string, string>): string {
   return execFileSync("git", args, { cwd, env: { ...process.env, ...env }, encoding: "utf8" }).trim();
 }
 
-function defaultGh(args: readonly string[], env?: Record<string, string>): string {
-  return execFileSync("gh", args, { env: { ...process.env, ...env }, encoding: "utf8" }).trim();
+function defaultGh(cwd: string, args: readonly string[], env?: Record<string, string>): string {
+  return execFileSync("gh", args, { cwd, env: { ...process.env, ...env }, encoding: "utf8" }).trim();
 }
 
-function defaultGhReady(): boolean {
+function defaultGhReady(cwd: string): boolean {
   try {
-    execFileSync("gh", ["auth", "status"], { env: process.env, encoding: "utf8" });
+    execFileSync("gh", ["auth", "status"], { cwd, env: process.env, encoding: "utf8" });
     return true;
   } catch {
     return false;
@@ -63,7 +71,7 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
 
   return async (input) => {
     // Single gh readiness probe gates all GitHub operations
-    if (!ghReady()) {
+    if (!ghReady(input.worktreePath)) {
       throw new Error("GitHub auth unavailable; cannot publish PR");
     }
 
@@ -91,7 +99,7 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
 
     // PR lookup/creation with retry
     const prNumber = await publishWithRetry(
-      () => findOrCreatePr(gh, input.baseRef, input.branch, input.specPath),
+      () => findOrCreatePr(gh, input.worktreePath, input.baseRef, input.branch, input.specPath),
       "pr",
       delay,
       retryNotice,
@@ -100,6 +108,25 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
     if (prNumber) {
       result.prNumber = prNumber;
     }
+
+    await publishWithRetry(
+      () => {
+        refreshPrBody({
+          specPath: input.specPath,
+          branch: input.branch,
+          base: input.baseRef,
+          cwd: input.worktreePath,
+          git,
+          ...(seams?.fetchPrBody !== undefined ? { fetchPrBody: seams.fetchPrBody } : {}),
+          ...(seams?.writePrBody !== undefined ? { writePrBody: seams.writePrBody } : {}),
+          ...(seams?.renderFooter !== undefined ? { renderFooter: seams.renderFooter } : {}),
+        });
+        return true;
+      },
+      "pr-body-refresh",
+      delay,
+      retryNotice,
+    );
 
     return result;
   };
@@ -149,9 +176,9 @@ async function publishWithRetry<T>(
   return null;
 }
 
-function findOrCreatePr(gh: GhCommand, baseRef: string, branch: string, specPath: string): number {
-  // Find open PRs for this branch
-  const prListJson = gh(["pr", "list", "--head", branch, "--state", "open", "--json", "number,baseRefName"]);
+function findOrCreatePr(gh: GhCommand, cwd: string, baseRef: string, branch: string, specPath: string): number {
+  // Find open PRs for this branch in the worktree's repository
+  const prListJson = gh(cwd, ["pr", "list", "--head", branch, "--state", "open", "--json", "number,baseRefName"]);
   const prs = JSON.parse(prListJson) as Array<{ number: number; baseRefName: string }>;
 
   // Filter by matching base
@@ -163,7 +190,7 @@ function findOrCreatePr(gh: GhCommand, baseRef: string, branch: string, specPath
   }
 
   // Create new draft PR
-  const createOutput = gh([
+  const createOutput = gh(cwd, [
     "pr",
     "create",
     "--draft",

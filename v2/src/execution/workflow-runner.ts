@@ -17,8 +17,9 @@ import {
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
 import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
-import { type CompletionPublisher, createCompletionPublisher } from "./completion-publisher.ts";
+import type { CompletionPublisher } from "./completion-publisher.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
+import type { ReadyFinalizer } from "./ready-finalize.ts";
 import {
   executeReviewDebate,
   type ReviewDebateInput,
@@ -34,6 +35,7 @@ import {
 } from "./work-boundary-telemetry.ts";
 import {
   executeWriteLoop,
+  publishCompletionArtifacts,
   type WriteLoopInput,
   type WriteLoopOutcomeKind,
   type WriteLoopResult,
@@ -122,6 +124,7 @@ export type WorkflowResult = {
   resumable: boolean;
   commitSha?: string;
   completionCommitError?: string;
+  readyFinalizeError?: string;
   boundaryTelemetryFailure?: string;
 };
 
@@ -137,6 +140,7 @@ export type WorkflowRunnerInput = {
   onStepRunCreated?: (stepIndex: number, runId: string) => void;
   completionCommitter?: CompletionCommitter;
   completionPublisher?: CompletionPublisher;
+  readyFinalizer?: ReadyFinalizer;
 };
 
 function isWriteStep(step: AnyWorkflowStep): step is WriteWorkflowStep {
@@ -334,19 +338,20 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
 
     const publicationAgent = lastResult.kind === "complete" ? (completionAgent ?? "") : undefined;
     if (publicationAgent !== undefined) {
-      try {
-        const completionStep = [...args.steps].reverse().find(isWriteStep);
-        if (completionStep) {
-          const worktree = completionStep.worktree;
+      const completionStep = [...args.steps].reverse().find(isWriteStep);
+      if (completionStep) {
+        const worktree = completionStep.worktree;
+        const worktreePath = getExternalWorktreePath(worktree);
+        try {
           const published = (args.completionCommitter ?? createCompletionCommitter())({
-            worktreePath: getExternalWorktreePath(worktree),
+            worktreePath,
             baseRef: worktree.baseRef,
             specPath: completionStep.specPath,
             agent: publicationAgent,
           });
           if (published.commitSha !== undefined) {
             const stamped = lastResult as WriteLoopResult;
-            (stamped as WriteLoopResult).commitSha = published.commitSha;
+            stamped.commitSha = published.commitSha;
             if (
               published.filesChanged !== undefined &&
               stamped.attemptId !== undefined &&
@@ -367,36 +372,57 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 boundaryTelemetryFailure = failure;
               }
             }
-            try {
-              await (args.completionPublisher ?? createCompletionPublisher())({
-                worktreePath: getExternalWorktreePath(worktree),
+            const publishError = await publishCompletionArtifacts(
+              {
+                ...(args.completionPublisher !== undefined ? { completionPublisher: args.completionPublisher } : {}),
+                ...(args.readyFinalizer !== undefined ? { readyFinalizer: args.readyFinalizer } : {}),
+              },
+              {
+                worktreePath,
                 baseRef: worktree.baseRef,
                 specPath: completionStep.specPath,
                 branch: worktree.branchName,
+              },
+            );
+            if (publishError !== undefined) {
+              const loopOutcomeKind = publishError.kind;
+              args.logSink?.append(lastResult.runId, {
+                kind: "loop_finished",
+                loopOutcomeKind,
+                iterationsConsumed: totalIterationsConsumed,
+                resumable: true,
               });
-            } catch (publishError) {
-              throw new Error(
-                `Publication failed: ${publishError instanceof Error ? publishError.message : String(publishError)}`,
-              );
+              return {
+                kind: loopOutcomeKind,
+                stepIndex: args.steps.length - 1,
+                stepId: lastStepId,
+                runId: lastResult.runId,
+                iterationsConsumed: totalIterationsConsumed,
+                resumable: true,
+                ...(loopOutcomeKind === "ready_finalize_failed"
+                  ? { readyFinalizeError: publishError.error?.message ?? "ready finalize failed" }
+                  : { completionCommitError: publishError.error?.message ?? "completion commit failed" }),
+              };
             }
           }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          args.logSink?.append(lastResult.runId, {
+            kind: "loop_finished",
+            loopOutcomeKind: "completion_commit_failed",
+            iterationsConsumed: totalIterationsConsumed,
+            resumable: true,
+          });
+          return {
+            kind: "completion_commit_failed",
+            stepIndex: args.steps.length - 1,
+            stepId: lastStepId,
+            runId: lastResult.runId,
+            iterationsConsumed: totalIterationsConsumed,
+            resumable: true,
+            completionCommitError: message,
+          };
         }
-      } catch (error) {
-        args.logSink?.append(lastResult.runId, {
-          kind: "loop_finished",
-          loopOutcomeKind: "completion_commit_failed",
-          iterationsConsumed: totalIterationsConsumed,
-          resumable: true,
-        });
-        return {
-          kind: "completion_commit_failed",
-          stepIndex: args.steps.length - 1,
-          stepId: lastStepId,
-          runId: lastResult.runId,
-          iterationsConsumed: totalIterationsConsumed,
-          resumable: true,
-          completionCommitError: error instanceof Error ? error.message : "completion commit failed",
-        };
       }
     }
     return {

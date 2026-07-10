@@ -146,6 +146,12 @@ test("composeRunOperatorError resolves failed plus loop_finished complete to sto
   ).toEqual(err("model_config", "fix_config"));
 });
 
+test("composeRunOperatorError maps ready_finalize_failed from loop_finished", () => {
+  expect(composeRunOperatorError(runWith("completed"), loopFinished("ready_finalize_failed"))).toEqual(
+    err("ready_finalize_failed", "resume", true),
+  );
+});
+
 test("composeRunOperatorError returns undefined for in-progress and successful completed terminals", () => {
   expect(composeRunOperatorError(runWith("in-progress"))).toBeUndefined();
   expect(composeRunOperatorError(runWith("completed"), loopFinished("complete"))).toBeUndefined();

@@ -44,14 +44,14 @@ Gate+flip is a **separate** finalization boundary that runs only after the publi
 
 ## Acceptance criteria
 
-- [ ] A completed run runs the ready gate in its worktree while the PR remains draft, before any `gh pr ready` call.
-- [ ] A failed ready gate (any non-zero exit; missing and red gate scripts are not distinguished) leaves the PR draft and returns a retryable `ready_finalize_failed` finalization failure that leaves the durable run `completed`; `gh pr ready` is not called, and resume re-runs the gate.
-- [ ] On a green gate, `gh pr ready <branch>` flips the draft PR to ready.
-- [ ] The ready flip treats a `gh` response whose combined stdout+stderr contains (case-insensitive) `already ready` or `not a draft`, and an empty exit-0 response, as success without retry, short-circuiting before the transient classifier; any other transient `gh` failure retries to 3 total attempts with flat 1000 ms backoff.
-- [ ] The ready flip runs only after the PR body attribution refresh (slice 00) completes.
-- [ ] Ready-gate and ready-flip tests use injected gate and `gh` seams and require no live verification run or GitHub credentials.
-- [ ] `v2/docs/write-behavior.md` documents the ready-gate-before-flip ordering, the default `bun run ready` gate, the coarse missing-vs-red non-distinction, the unbounded gate, the draft→ready flip and retry semantics, the `already ready` / `not a draft` / empty-exit-0 success guard sitting before the transient classifier, the `ready_finalize_failed` retryable boundary, and gate-failure-leaves-draft semantics.
-- [ ] `v2/docs/v1-behaviors.md` marks the ported ready-gate and draft→ready behaviors.
+- [x] A completed run runs the ready gate in its worktree while the PR remains draft, before any `gh pr ready` call.
+- [x] A failed ready gate (any non-zero exit; missing and red gate scripts are not distinguished) leaves the PR draft and returns a retryable `ready_finalize_failed` finalization failure that leaves the durable run `completed`; `gh pr ready` is not called, and resume re-runs the gate.
+- [x] On a green gate, `gh pr ready <branch>` flips the draft PR to ready.
+- [x] The ready flip treats a `gh` response whose combined stdout+stderr contains (case-insensitive) `already ready` or `not a draft`, and an empty exit-0 response, as success without retry, short-circuiting before the transient classifier; any other transient `gh` failure retries to 3 total attempts with flat 1000 ms backoff.
+- [x] The ready flip runs only after the PR body attribution refresh (slice 00) completes.
+- [x] Ready-gate and ready-flip tests use injected gate and `gh` seams and require no live verification run or GitHub credentials.
+- [x] `v2/docs/write-behavior.md` documents the ready-gate-before-flip ordering, the default `bun run ready` gate, the coarse missing-vs-red non-distinction, the unbounded gate, the draft→ready flip and retry semantics, the `already ready` / `not a draft` / empty-exit-0 success guard sitting before the transient classifier, the `ready_finalize_failed` retryable boundary, and gate-failure-leaves-draft semantics.
+- [x] `v2/docs/v1-behaviors.md` marks the ported ready-gate and draft→ready behaviors.
 
 ## Documentation updates
 

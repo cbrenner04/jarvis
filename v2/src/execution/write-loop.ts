@@ -13,6 +13,7 @@ import { type CompletionCommitter, createCompletionCommitter } from "./completio
 import { type CompletionPublisher, createCompletionPublisher } from "./completion-publisher.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
+import { createReadyFinalizer, type ReadyFinalizer } from "./ready-finalize.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import { type BoundaryStamp, boundaryStampFromStoredRun, emitWorkBoundaryRecorded } from "./work-boundary-telemetry.ts";
@@ -27,6 +28,7 @@ const WRITE_LOOP_OUTCOME_KINDS = [
   "budget-exhausted",
   "paused",
   "completion_commit_failed",
+  "ready_finalize_failed",
 ] as const;
 
 export type WriteLoopOutcomeKind = (typeof WRITE_LOOP_OUTCOME_KINDS)[number];
@@ -45,6 +47,7 @@ export type WriteLoopResult = {
   commitSha?: string;
   completionAgent?: string;
   completionCommitError?: string;
+  readyFinalizeError?: string;
   attemptId?: string;
   outcomeKind?: OutcomeKind;
   runStatus?: RunStatus;
@@ -74,6 +77,7 @@ export type WriteLoopInput = WriteExecuteInput & {
   };
   completionCommitter?: CompletionCommitter;
   completionPublisher?: CompletionPublisher;
+  readyFinalizer?: ReadyFinalizer;
   publishCompletion?: boolean;
 };
 
@@ -121,16 +125,16 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             agent: prepared.result.completionAgent ?? "",
           });
           if (published.commitSha !== undefined) {
-            try {
-              await (args.completionPublisher ?? createCompletionPublisher())({
-                worktreePath: getExternalWorktreePath(args.worktree),
-                baseRef: args.worktree.baseRef,
-                specPath: args.specPath,
-                branch: args.worktree.branchName,
-              });
-            } catch (publishError) {
-              const err = publishError instanceof Error ? publishError : new Error(String(publishError));
-              return completionCommitFailed(args, prepared.result, err);
+            const publishError = await publishCompletionArtifacts(args, {
+              worktreePath: getExternalWorktreePath(args.worktree),
+              baseRef: args.worktree.baseRef,
+              specPath: args.specPath,
+              branch: args.worktree.branchName,
+            });
+            if (publishError !== undefined) {
+              return publishError.kind === "completion_commit_failed"
+                ? completionCommitFailed(args, prepared.result, publishError.error)
+                : readyFinalizeFailed(args, prepared.result, publishError.error);
             }
           }
           args.logSink?.append(prepared.result.runId, {
@@ -274,16 +278,16 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           agent,
         });
         if (published.commitSha !== undefined) {
-          try {
-            await (args.completionPublisher ?? createCompletionPublisher())({
-              worktreePath,
-              baseRef: args.worktree.baseRef,
-              specPath: args.specPath,
-              branch: args.worktree.branchName,
-            });
-          } catch (publishError) {
-            const err = publishError instanceof Error ? publishError : new Error(String(publishError));
-            return completionCommitFailed(args, attributed, err);
+          const publishError = await publishCompletionArtifacts(args, {
+            worktreePath,
+            baseRef: args.worktree.baseRef,
+            specPath: args.specPath,
+            branch: args.worktree.branchName,
+          });
+          if (publishError !== undefined) {
+            return publishError.kind === "completion_commit_failed"
+              ? completionCommitFailed(args, attributed, publishError.error)
+              : readyFinalizeFailed(args, attributed, publishError.error);
           }
         }
         args.logSink?.append(runId, {
@@ -503,6 +507,35 @@ function withBoundaryTelemetry(
   };
 }
 
+export type CompletionPublicationSeams = Pick<WriteLoopInput, "completionPublisher" | "readyFinalizer">;
+
+export type CompletionPublishFailure = {
+  kind: "completion_commit_failed" | "ready_finalize_failed";
+  error?: Error;
+};
+
+export async function publishCompletionArtifacts(
+  seams: CompletionPublicationSeams,
+  input: { worktreePath: string; baseRef: string; specPath: string; branch: string },
+): Promise<CompletionPublishFailure | undefined> {
+  try {
+    await (seams.completionPublisher ?? createCompletionPublisher())(input);
+  } catch (publishError) {
+    const err = publishError instanceof Error ? publishError : new Error(String(publishError));
+    return { kind: "completion_commit_failed", error: err };
+  }
+  try {
+    await (seams.readyFinalizer ?? createReadyFinalizer())({
+      worktreePath: input.worktreePath,
+      branch: input.branch,
+    });
+  } catch (finalizeError) {
+    const err = finalizeError instanceof Error ? finalizeError : new Error(String(finalizeError));
+    return { kind: "ready_finalize_failed", error: err };
+  }
+  return undefined;
+}
+
 function completionCommitFailed(args: WriteLoopInput, result: WriteLoopResult, error?: Error): WriteLoopResult {
   args.logSink?.append(result.runId, {
     kind: "loop_finished",
@@ -515,6 +548,21 @@ function completionCommitFailed(args: WriteLoopInput, result: WriteLoopResult, e
     kind: "completion_commit_failed",
     resumable: true,
     completionCommitError: error?.message ?? "completion commit failed",
+  };
+}
+
+function readyFinalizeFailed(args: WriteLoopInput, result: WriteLoopResult, error?: Error): WriteLoopResult {
+  args.logSink?.append(result.runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "ready_finalize_failed",
+    iterationsConsumed: result.iterationsConsumed,
+    resumable: true,
+  });
+  return {
+    ...result,
+    kind: "ready_finalize_failed",
+    resumable: true,
+    readyFinalizeError: error?.message ?? "ready finalize failed",
   };
 }
 

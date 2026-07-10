@@ -44,14 +44,14 @@ The two slices form one ordered post-completion sequence: **push+PR → body ref
 
 ## Acceptance criteria
 
-- [ ] After a completed run's draft PR is ensured, its body is refreshed to include an attribution footer rendered from `Jarvis-Agent` trailer(s) on the `baseRef..HEAD` commit(s) whose first body line begins with `Spec:` (v2's single `jarvis: complete run` meta-commit).
-- [ ] The footer lists one bullet per qualifying commit in chronological order as `- <shortSha> <subject> — <label>`, where `<label>` is the commit's `Jarvis-Agent` trailer(s) joined by `,`, followed by a `Written by <labels> through Jarvis.` summary; summary labels are deduplicated first-seen in commit/trailer order; a qualifying commit with no `Jarvis-Agent` trailer renders `unknown` and is excluded from the summary.
-- [ ] When no commit qualifies, the footer is empty and the refreshed body is the regenerated `Spec:` header (plus preserved narrative if present) with no `---` separator.
-- [ ] Content between the `<!-- jarvis:narrative:start -->` / `<!-- jarvis:narrative:end -->` markers in the existing PR body is preserved across refresh; when the markers are absent, the body is the regenerated `Spec:` header plus, when the footer is non-empty, a `---` separator and the footer.
-- [ ] Body refresh edits the ensured PR without opening a new one; a transient `gh` refresh failure returns the retryable `completion_commit_failed` publication failure that leaves the durable run `completed`, and resume re-refreshes the same PR without duplicating it.
-- [ ] Attribution and refresh tests use injected git/`gh` seams and require no live remote or GitHub credentials.
-- [ ] `v2/docs/write-behavior.md` documents attribution rendering (single-meta-commit selection under the collapse model, label dedup, `unknown` labeling, empty-footer shape), the post-PR body refresh, plain narrative-marker preservation (and the deliberately un-ported generated-narrative hash path), and that refresh failure reuses `completion_commit_failed`.
-- [ ] `v2/docs/v1-behaviors.md` marks the ported attribution-footer and PR-body-refresh behaviors and notes v2's single-commit collapse vs v1's per-subspec commits.
+- [x] After a completed run's draft PR is ensured, its body is refreshed to include an attribution footer rendered from `Jarvis-Agent` trailer(s) on the `baseRef..HEAD` commit(s) whose first body line begins with `Spec:` (v2's single `jarvis: complete run` meta-commit).
+- [x] The footer lists one bullet per qualifying commit in chronological order as `- <shortSha> <subject> — <label>`, where `<label>` is the commit's `Jarvis-Agent` trailer(s) joined by `,`, followed by a `Written by <labels> through Jarvis.` summary; summary labels are deduplicated first-seen in commit/trailer order; a qualifying commit with no `Jarvis-Agent` trailer renders `unknown` and is excluded from the summary.
+- [x] When no commit qualifies, the footer is empty and the refreshed body is the regenerated `Spec:` header (plus preserved narrative if present) with no `---` separator.
+- [x] Content between the `<!-- jarvis:narrative:start -->` / `<!-- jarvis:narrative:end -->` markers in the existing PR body is preserved across refresh; when the markers are absent, the body is the regenerated `Spec:` header plus, when the footer is non-empty, a `---` separator and the footer.
+- [x] Body refresh edits the ensured PR without opening a new one; a transient `gh` refresh failure returns the retryable `completion_commit_failed` publication failure that leaves the durable run `completed`, and resume re-refreshes the same PR without duplicating it.
+- [x] Attribution and refresh tests use injected git/`gh` seams and require no live remote or GitHub credentials.
+- [x] `v2/docs/write-behavior.md` documents attribution rendering (single-meta-commit selection under the collapse model, label dedup, `unknown` labeling, empty-footer shape), the post-PR body refresh, plain narrative-marker preservation (and the deliberately un-ported generated-narrative hash path), and that refresh failure reuses `completion_commit_failed`.
+- [x] `v2/docs/v1-behaviors.md` marks the ported attribution-footer and PR-body-refresh behaviors and notes v2's single-commit collapse vs v1's per-subspec commits.
 
 ## Documentation updates
 

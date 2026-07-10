@@ -58,6 +58,7 @@ async function runLoop(args: {
   telemetry?: WriteLoopInput["telemetry"];
   completionCommitter?: WriteLoopInput["completionCommitter"];
   completionPublisher?: WriteLoopInput["completionPublisher"];
+  readyFinalizer?: WriteLoopInput["readyFinalizer"];
 }) {
   // Track the parent directory for cleanup
   roots.push(join(args.jarvisRoot, ".."));
@@ -82,6 +83,7 @@ async function runLoop(args: {
     ...(args.telemetry !== undefined ? { telemetry: args.telemetry } : {}),
     ...(args.completionCommitter !== undefined ? { completionCommitter: args.completionCommitter } : {}),
     ...(args.completionPublisher !== undefined ? { completionPublisher: args.completionPublisher } : {}),
+    ...(args.readyFinalizer !== undefined ? { readyFinalizer: args.readyFinalizer } : {}),
   };
   try {
     return await executeWriteLoop(loopInput);
@@ -423,6 +425,7 @@ describe("write loop", () => {
     const completionHooks = {
       completionCommitter: () => ({ commitSha: "commit-abc", filesChanged: 2 }),
       completionPublisher: async () => ({}),
+      readyFinalizer: async () => {},
     };
 
     test("appends one row when a completion commit succeeds", async () => {
@@ -476,6 +479,7 @@ describe("write loop", () => {
         telemetry: { sinkPath: telemetryPath, operatorSessionId: "session-1" },
         completionCommitter: () => ({}),
         completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
       });
 
       expect(loadWorkBoundaryRows(telemetryPath)).toHaveLength(0);
@@ -495,6 +499,7 @@ describe("write loop", () => {
         telemetry: { sinkPath: telemetryPath, operatorSessionId: "session-1" },
         completionCommitter: () => publish,
         completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
       });
       expect(first.kind).toBe("complete");
       mkdirSync(join(jarvisRoot, "worktrees", "demo", branchName, ".git"), { recursive: true });
@@ -507,6 +512,7 @@ describe("write loop", () => {
         telemetry: { sinkPath: telemetryPath, operatorSessionId: "session-1" },
         completionCommitter: () => publish,
         completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
       });
       expect(retry.kind).toBe("complete");
 
@@ -536,6 +542,117 @@ describe("write loop", () => {
       const run = loadRunOnce(stateDbPath, result.runId);
       expect(run?.status).toBe("completed");
       expect(run?.attempts[0]?.outcomeKind).toBe("done");
+    });
+  });
+
+  describe("ready finalization", () => {
+    const completionHooks = {
+      completionCommitter: () => ({ commitSha: "commit-abc", filesChanged: 1 }),
+      completionPublisher: async () => ({}),
+    };
+
+    test("runs ready finalization only after publication succeeds", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const calls: string[] = [];
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        completionCommitter: completionHooks.completionCommitter,
+        completionPublisher: async () => {
+          calls.push("publish");
+          return {};
+        },
+        readyFinalizer: async () => {
+          calls.push("finalize");
+        },
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(calls).toEqual(["publish", "finalize"]);
+    });
+
+    test("returns retryable ready_finalize_failed when the gate fails and does not call the flip", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        logSink,
+        ...completionHooks,
+        readyFinalizer: async () => {
+          throw new Error("ready gate failed (exit 1): tests failed");
+        },
+      });
+
+      expect(result.kind).toBe("ready_finalize_failed");
+      expect(result.resumable).toBe(true);
+      expect(result.readyFinalizeError).toContain("ready gate failed");
+      expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "ready_finalize_failed",
+        resumable: true,
+      });
+    });
+
+    test("returns retryable ready_finalize_failed when publication succeeded but flip fails", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        ...completionHooks,
+        readyFinalizer: async () => {
+          throw new Error("gh pr ready failed");
+        },
+      });
+
+      expect(result.kind).toBe("ready_finalize_failed");
+      expect(result.readyFinalizeError).toContain("gh pr ready failed");
+    });
+
+    test("completed-run resume replays publication after a prior publication failure", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const branchName = "resume-publication";
+      const publish = { commitSha: "commit-1", filesChanged: 2 };
+      let publishCalls = 0;
+
+      const first = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        completionCommitter: () => publish,
+        completionPublisher: async () => {
+          publishCalls += 1;
+          throw new Error("push failed");
+        },
+        readyFinalizer: async () => {
+          throw new Error("should not finalize before publication succeeds");
+        },
+      });
+      expect(first.kind).toBe("completion_commit_failed");
+      expect(first.resumable).toBe(true);
+      expect(publishCalls).toBe(1);
+
+      mkdirSync(join(jarvisRoot, "worktrees", "demo", branchName, ".git"), { recursive: true });
+
+      const retry = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName,
+        bindings: [],
+        completionCommitter: () => publish,
+        completionPublisher: async () => {
+          publishCalls += 1;
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+      expect(retry.kind).toBe("complete");
+      expect(retry.runId).toBe(first.runId);
+      expect(publishCalls).toBe(2);
     });
   });
 

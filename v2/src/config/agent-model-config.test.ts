@@ -30,8 +30,16 @@ describe("validateAgentModelConfig", () => {
     ["empty rungs array", { ...VALID_CLAUDE, plan: { rungs: [] } }, ["claude", "plan", "non-empty array"]],
     ["non-array rungs", { ...VALID_CLAUDE, plan: { rungs: "not-array" } }, ["claude", "plan", "non-empty array"]],
     ["non-object role entry", { ...VALID_CLAUDE, plan: "not-object" }, ["claude", "plan"]],
-    ["rung missing adapterModel", { ...VALID_CLAUDE, plan: { rungs: [{ priceKey: "p1" }] } }, ["claude", "plan", "rung 0"]],
-    ["rung missing priceKey", { ...VALID_CLAUDE, plan: { rungs: [{ adapterModel: "m1" }] } }, ["claude", "plan", "rung 0"]],
+    [
+      "rung missing adapterModel",
+      { ...VALID_CLAUDE, plan: { rungs: [{ priceKey: "p1" }] } },
+      ["claude", "plan", "rung 0"],
+    ],
+    [
+      "rung missing priceKey",
+      { ...VALID_CLAUDE, plan: { rungs: [{ adapterModel: "m1" }] } },
+      ["claude", "plan", "rung 0"],
+    ],
     [
       "rung non-string adapterModel",
       { ...VALID_CLAUDE, plan: { rungs: [{ adapterModel: 123, priceKey: "p1" }] } },
@@ -182,19 +190,23 @@ describe("resolveInvocationBindings", () => {
     codex: Object.fromEntries(roles.map((role) => [role, rungsFor("codex", 1, role)])),
   };
 
-  test.each(["plan", "implement", "shrink", "adversary", "advocate", "adjudicator"] as const)(
-    "%s resolves the flat per-agent rung order shared invocation consumes",
-    (role) => {
-      const bindings = resolveInvocationBindings(
-        role,
-        ["claude", "codex"],
-        config,
-        ({ agentId, adapterModel }) => `${agentId}/${adapterModel}`,
-      );
+  test.each([
+    "plan",
+    "implement",
+    "shrink",
+    "adversary",
+    "advocate",
+    "adjudicator",
+  ] as const)("%s resolves the flat per-agent rung order shared invocation consumes", (role) => {
+    const bindings = resolveInvocationBindings(
+      role,
+      ["claude", "codex"],
+      config,
+      ({ agentId, adapterModel }) => `${agentId}/${adapterModel}`,
+    );
 
-      expect(bindings).toEqual([`claude/claude-${role}-1`, `claude/claude-${role}-2`, `codex/codex-${role}-1`]);
-    },
-  );
+    expect(bindings).toEqual([`claude/claude-${role}-1`, `claude/claude-${role}-2`, `codex/codex-${role}-1`]);
+  });
 
   test("actuator resolves head-only bindings", () => {
     const bindings = resolveInvocationBindings(

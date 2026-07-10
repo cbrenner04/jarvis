@@ -6573,13 +6573,40 @@ exit 0
       writeConfig({ ...loadConfig({ dir: cfgDir }), maxIterations: 1, iterationTimeoutMs: 1 }, { dir: cfgDir });
 
       for (let index = 0; index < 2; index += 1) {
-        expect(await runWithDefaults({ specPath: spec, io: captureIo().io, config: { dir: cfgDir }, agents: { claude }, handleSignals: false })).toBe(8);
+        expect(
+          await runWithDefaults({
+            specPath: spec,
+            io: captureIo().io,
+            config: { dir: cfgDir },
+            agents: { claude },
+            handleSignals: false,
+          }),
+        ).toBe(8);
       }
-      expect(await runWithDefaults({ specPath: spec, io: captureIo().io, config: { dir: cfgDir }, agents: { claude }, handleSignals: false })).toBe(5);
-      expect(await runWithDefaults({ specPath: spec, io: captureIo().io, config: { dir: cfgDir }, agents: { claude }, handleSignals: false })).toBe(8);
+      expect(
+        await runWithDefaults({
+          specPath: spec,
+          io: captureIo().io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          handleSignals: false,
+        }),
+      ).toBe(5);
+      expect(
+        await runWithDefaults({
+          specPath: spec,
+          io: captureIo().io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          handleSignals: false,
+        }),
+      ).toBe(8);
 
       expect(readFileSync(subspec, "utf8")).not.toContain("## Blocker");
-      const rows = readFileSync(join(cfgDir, "runs.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+      const rows = readFileSync(join(cfgDir, "runs.jsonl"), "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
       expect(rows.some((row) => row.exit_reason === "max-iterations" && row.record_role === "run_terminal")).toBe(true);
     });
 
@@ -6588,43 +6615,103 @@ exit 0
       const secondSubspec = join(dirname(subspec), "01-two.md");
       writeFileSync(secondSubspec, "# 01 - Two\n\n## Acceptance criteria\n\n- [ ] two\n");
       writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n- [ ] [01 - Two](./01-two.md)\n"));
-      const claude = new FakeAgent("claude", () => ({ kind: "error", exitCode: -1, stderr: "aborted: iteration-timeout" }));
+      const claude = new FakeAgent("claude", () => ({
+        kind: "error",
+        exitCode: -1,
+        stderr: "aborted: iteration-timeout",
+      }));
       writeConfig({ ...loadConfig({ dir: cfgDir }), maxIterations: 1, iterationTimeoutMs: 1 }, { dir: cfgDir });
 
       for (let index = 0; index < 2; index += 1) {
-        expect(await runWithDefaults({ specPath: spec, io: captureIo().io, config: { dir: cfgDir }, agents: { claude }, handleSignals: false })).toBe(8);
+        expect(
+          await runWithDefaults({
+            specPath: spec,
+            io: captureIo().io,
+            config: { dir: cfgDir },
+            agents: { claude },
+            handleSignals: false,
+          }),
+        ).toBe(8);
       }
       writeFileSync(spec, withRepo("- [x] [00 - One](./00-one.md)\n- [ ] [01 - Two](./01-two.md)\n"));
-      expect(await runWithDefaults({ specPath: spec, io: captureIo().io, config: { dir: cfgDir }, agents: { claude }, handleSignals: false })).toBe(8);
+      expect(
+        await runWithDefaults({
+          specPath: spec,
+          io: captureIo().io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          handleSignals: false,
+        }),
+      ).toBe(8);
       writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n- [ ] [01 - Two](./01-two.md)\n"));
-      expect(await runWithDefaults({ specPath: spec, io: captureIo().io, config: { dir: cfgDir }, agents: { claude }, handleSignals: false })).toBe(8);
+      expect(
+        await runWithDefaults({
+          specPath: spec,
+          io: captureIo().io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          handleSignals: false,
+        }),
+      ).toBe(8);
 
       expect(readFileSync(subspec, "utf8")).not.toContain("## Blocker");
     });
 
     test("does not duplicate a pre-existing blocker", async () => {
       const { spec, subspec } = setupLinkedSubspecRepo({ trackedFile: false, criteria: ["todo"] });
-      const claude = new FakeAgent("claude", () => ({ kind: "error", exitCode: -1, stderr: "aborted: iteration-timeout" }));
+      const claude = new FakeAgent("claude", () => ({
+        kind: "error",
+        exitCode: -1,
+        stderr: "aborted: iteration-timeout",
+      }));
       writeConfig({ ...loadConfig({ dir: cfgDir }), maxIterations: 1, iterationTimeoutMs: 1 }, { dir: cfgDir });
 
       for (let index = 0; index < 2; index += 1) {
-        expect(await runWithDefaults({ specPath: spec, io: captureIo().io, config: { dir: cfgDir }, agents: { claude }, handleSignals: false })).toBe(8);
+        expect(
+          await runWithDefaults({
+            specPath: spec,
+            io: captureIo().io,
+            config: { dir: cfgDir },
+            agents: { claude },
+            handleSignals: false,
+          }),
+        ).toBe(8);
       }
       writeFileSync(subspec, `${readFileSync(subspec, "utf8")}\n## Blocker\n\nAlready blocked.\n`);
-      expect(await runWithDefaults({ specPath: spec, io: captureIo().io, config: { dir: cfgDir }, agents: { claude }, handleSignals: false })).toBe(7);
+      expect(
+        await runWithDefaults({
+          specPath: spec,
+          io: captureIo().io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          handleSignals: false,
+        }),
+      ).toBe(7);
       expect(readFileSync(subspec, "utf8").match(/^## Blocker$/gm)).toHaveLength(1);
     });
 
     test("does not append a split blocker when telemetry is disabled", async () => {
       const { spec, subspec } = setupLinkedSubspecRepo({ trackedFile: false, criteria: ["todo"] });
-      const claude = new FakeAgent("claude", () => ({ kind: "error", exitCode: -1, stderr: "aborted: iteration-timeout" }));
+      const claude = new FakeAgent("claude", () => ({
+        kind: "error",
+        exitCode: -1,
+        stderr: "aborted: iteration-timeout",
+      }));
       writeConfig(
         { ...loadConfig({ dir: cfgDir }), maxIterations: 1, iterationTimeoutMs: 1, telemetryPath: null },
         { dir: cfgDir },
       );
 
       for (let index = 0; index < 3; index += 1) {
-        expect(await runWithDefaults({ specPath: spec, io: captureIo().io, config: { dir: cfgDir }, agents: { claude }, handleSignals: false })).toBe(8);
+        expect(
+          await runWithDefaults({
+            specPath: spec,
+            io: captureIo().io,
+            config: { dir: cfgDir },
+            agents: { claude },
+            handleSignals: false,
+          }),
+        ).toBe(8);
       }
       expect(readFileSync(subspec, "utf8")).not.toContain("## Blocker");
     });

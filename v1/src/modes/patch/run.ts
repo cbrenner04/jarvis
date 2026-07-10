@@ -412,9 +412,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
             kind: "ok",
             exitReason: mapExitCodeToReason(outcome.exitCode),
             record_role: "run_terminal",
-            ...(logging.activeSubspecPath !== undefined
-              ? { active_subspec_path: logging.activeSubspecPath }
-              : {}),
+            ...(logging.activeSubspecPath !== undefined ? { active_subspec_path: logging.activeSubspecPath } : {}),
           });
         }
         runExitReason = `${mapExitCodeToReason(outcome.exitCode)} (exit code ${outcome.exitCode})`;

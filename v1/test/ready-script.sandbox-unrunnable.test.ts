@@ -23,6 +23,20 @@ import {
   writeRecordedInstallDigest,
 } from "../../scripts/ready.ts";
 
+const inheritedReadyTestScope = process.env.JARVIS_READY_TEST_SCOPE;
+
+beforeEach(() => {
+  delete process.env.JARVIS_READY_TEST_SCOPE;
+});
+
+afterEach(() => {
+  if (inheritedReadyTestScope === undefined) {
+    delete process.env.JARVIS_READY_TEST_SCOPE;
+  } else {
+    process.env.JARVIS_READY_TEST_SCOPE = inheritedReadyTestScope;
+  }
+});
+
 function withEnv(key: string, value: string | undefined, fn: () => void): void {
   const prev = process.env[key];
   if (value === undefined) {
@@ -49,13 +63,22 @@ async function withEnvAsync(key: string, value: string | undefined, fn: () => Pr
     process.env[key] = value;
   }
   try {
-    await fn();
+    // runReady reads its environment before its first await. Restore it before
+    // the async test body yields so concurrent tests cannot inherit the override.
+    const pending = fn();
+    restoreEnv(key, prev);
+    await pending;
+    return;
   } finally {
-    if (prev === undefined) {
-      delete process.env[key];
-    } else {
-      process.env[key] = prev;
-    }
+    restoreEnv(key, prev);
+  }
+}
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key];
+  } else {
+    process.env[key] = value;
   }
 }
 

@@ -368,3 +368,5 @@ If quota contention is **not a concern** (e.g., you have ample quota or the comp
 ## Branch-before-edit discipline
 
 Never edit specs or code on `main` directly. Active specs run through Jarvis on per-spec worktrees; new specs draft in plan mode → merge → then a separate run. Operator-side doc edits get their own worktree/branch too. `main` stays a stable merge target.
+
+Repeated iteration timeouts are a split signal: after three consecutive per-iteration wall-clock timeouts for the same active subspec, Jarvis appends a `## Blocker` recommending that the subspec be split. The timeout run still exits `8`; split the subspec, resolve/remove the blocker, and rerun.

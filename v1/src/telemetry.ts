@@ -52,6 +52,7 @@ export type TelemetryRecord = {
   last_output_age_ms?: number | null;
   /** Whether ≥1 descendant of the agent root pid was live at watchdog snapshot.*/
   watchdog_descendants_alive?: boolean;
+  active_subspec_path?: string;
 };
 
 export function appendTelemetryLine(telemetryPath: string | null, record: TelemetryRecord): void {

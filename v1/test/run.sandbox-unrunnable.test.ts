@@ -339,9 +339,7 @@ wait
         .trim()
         .split("\n")
         .map((line) => JSON.parse(line) as Record<string, unknown>);
-      const timeoutRow = rows.find(
-        (row) => row.record_role !== "run_terminal" && row.exit_reason === "watchdog-iteration-timeout",
-      );
+      const timeoutRow = rows.find((row) => row.exit_reason === "watchdog-iteration-timeout");
       expect(timeoutRow).toBeDefined();
       expect(typeof timeoutRow?.watchdog_pgid).toBe("number");
       expect(timeoutRow?.last_output_age_ms).toBeNull();
@@ -401,9 +399,7 @@ wait
         .trim()
         .split("\n")
         .map((line) => JSON.parse(line) as Record<string, unknown>);
-      const timeoutRow = rows.find(
-        (row) => row.record_role !== "run_terminal" && row.exit_reason === "watchdog-iteration-timeout",
-      );
+      const timeoutRow = rows.find((row) => row.exit_reason === "watchdog-iteration-timeout");
       expect(timeoutRow).toBeDefined();
       expect(timeoutRow?.watchdog_descendants_alive).toBe(false);
     });
@@ -510,9 +506,7 @@ done
         .trim()
         .split("\n")
         .map((line) => JSON.parse(line) as Record<string, unknown>);
-      const timeoutRow = rows.find(
-        (row) => row.record_role !== "run_terminal" && row.exit_reason === "watchdog-iteration-timeout",
-      );
+      const timeoutRow = rows.find((row) => row.exit_reason === "watchdog-iteration-timeout");
       expect(timeoutRow).toBeDefined();
       expect(typeof timeoutRow?.last_output_age_ms).toBe("number");
       expect(timeoutRow?.last_output_age_ms as number).toBeLessThan(iterationTimeoutMs - 500);

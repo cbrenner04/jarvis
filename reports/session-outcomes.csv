@@ -235,3 +235,6 @@ report,session_id,report_date,cost,completed_work_units,success_status,failure_r
 2026-07-09T18-19-29Z-operator,worktree-claimed-message-dedup,2026-07-09,$3.29,1,completed,,patch,1,7.22,$0.4563,,,single-subspec; plan+run merged; files_touched not per-spec attributed
 2026-07-09T18-19-29Z-operator,write-loop-input-error-channel-unification,2026-07-09,$4.59,1,completed,,patch,1,10.82,$0.4239,,,single-subspec; plan+run merged; files_touched not per-spec attributed
 2026-07-09T18-19-29Z-operator,write-loop-test-thinning,2026-07-09,$5.64,1,completed,,patch,1,12.14,$0.4645,,,single-subspec; plan+run merged; files_touched not per-spec attributed
+2026-07-10T03-36-27Z-operator,intent-agent-flag-rejected-by-dispatcher,2026-07-10,$4.30,1,completed,,patch,1,52.97,$0.0812,6,$0.7167,single subspec; dispatcher admits --agent for intent
+2026-07-10T03-36-27Z-operator,cleanup-archive-already-merged-specs,2026-07-10,$7.47,1,completed,,patch,1,66.78,$0.1119,8,$0.9338,review-incomplete (exit 11) recovery; operator finalized
+2026-07-10T03-36-27Z-operator,ready-gate-scope-tests-by-changed-path,2026-07-10,$2.72,2,completed,3-agent iteration-wall timeouts; operator+subagent hand-finalize,patch,3,59.98,$0.0454,16,$0.1700,2 subspecs; claude/cursor/glm all timed out on subspec 01; completed via manual finalization on CI-green

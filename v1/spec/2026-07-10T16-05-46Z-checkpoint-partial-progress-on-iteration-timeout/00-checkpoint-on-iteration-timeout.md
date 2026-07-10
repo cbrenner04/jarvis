@@ -58,23 +58,23 @@ iteration because nothing commits them. Checkpoint them instead.
 
 ## Acceptance criteria
 
-- [ ] A `git: true`, non-external-spec run whose agent leaves uncommitted
+- [x] A `git: true`, non-external-spec run whose agent leaves uncommitted
       tracked edits at iteration-timeout has those edits committed to the
       worktree branch before the run exits 8.
-- [ ] A `git: true`, non-external-spec run whose agent creates a new
+- [x] A `git: true`, non-external-spec run whose agent creates a new
       untracked file at iteration-timeout has that file committed alongside
       any tracked edits, not left untracked.
-- [ ] The checkpoint commit does not tick any acceptance criteria in the
+- [x] The checkpoint commit does not tick any acceptance criteria in the
       active subspec and does not modify `index.md`.
-- [ ] A `git: false` (no-commit) or external-spec run behaves unchanged at
+- [x] A `git: false` (no-commit) or external-spec run behaves unchanged at
       iteration-timeout — no checkpoint commit attempted, existing
       `no-commit-delta.ts` reset still applies on the next invocation.
-- [ ] An iteration-timeout with no uncommitted changes (agent made no edits,
+- [x] An iteration-timeout with no uncommitted changes (agent made no edits,
       or edits were already committed) exits 8 with no new commit created.
-- [ ] An iteration-timeout where the checkpoint commit itself fails (e.g.
+- [x] An iteration-timeout where the checkpoint commit itself fails (e.g.
       `git commit` errors) logs the failure to stderr and the run still
       exits 8, not a harder or different exit code.
-- [ ] An iteration-timeout on an iteration whose only change is a
+- [x] An iteration-timeout on an iteration whose only change is a
       dep-install-regenerated lockfile still produces at most one commit —
       the checkpoint path does not duplicate a lockfile commit, since
       dep-install/`commitLockfileChanges` only run on the post-agent-success

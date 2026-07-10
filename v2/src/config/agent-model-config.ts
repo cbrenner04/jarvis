@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import type { ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 
 const EXECUTABLE_ROLES = ["plan", "implement", "shrink", "adversary", "advocate", "adjudicator", "actuator"] as const;
@@ -43,47 +42,20 @@ function isString(value: unknown): value is string {
 function validateRungs(agent: string, role: string, rungs: unknown, errors: string[]): Model[] {
   const validRungs: Model[] = [];
 
-  if (rungs === undefined) {
-    errors.push(`agent ${agent}, role ${role}: missing rungs`);
-    return validRungs;
-  }
-
-  if (!isArray(rungs)) {
-    errors.push(`agent ${agent}, role ${role}: rungs must be an array`);
-    return validRungs;
-  }
-
-  if (rungs.length === 0) {
-    errors.push(`agent ${agent}, role ${role}: rungs must not be empty`);
+  if (!isArray(rungs) || rungs.length === 0) {
+    errors.push(`agent ${agent}, role ${role}: rungs must be a non-empty array`);
     return validRungs;
   }
 
   for (let i = 0; i < rungs.length; i++) {
     const rung = rungs[i];
 
-    if (!isObject(rung)) {
-      errors.push(`agent ${agent}, role ${role}, rung ${i}: value must be an object`);
+    if (!isObject(rung) || !isString(rung.adapterModel) || !isString(rung.priceKey)) {
+      errors.push(`agent ${agent}, role ${role}, rung ${i}: expected { adapterModel: string, priceKey: string }`);
       continue;
     }
 
-    const adapterModel = rung.adapterModel;
-    const priceKey = rung.priceKey;
-
-    if (adapterModel === undefined) {
-      errors.push(`agent ${agent}, role ${role}, rung ${i}: missing adapterModel`);
-    } else if (!isString(adapterModel)) {
-      errors.push(`agent ${agent}, role ${role}, rung ${i}: adapterModel must be a string`);
-    }
-
-    if (priceKey === undefined) {
-      errors.push(`agent ${agent}, role ${role}, rung ${i}: missing priceKey`);
-    } else if (!isString(priceKey)) {
-      errors.push(`agent ${agent}, role ${role}, rung ${i}: priceKey must be a string`);
-    }
-
-    if (isString(adapterModel) && isString(priceKey)) {
-      validRungs.push({ adapterModel, priceKey });
-    }
+    validRungs.push({ adapterModel: rung.adapterModel, priceKey: rung.priceKey });
   }
 
   return validRungs;
@@ -160,22 +132,6 @@ function validateRoles(agent: string, agentEntry: Record<string, unknown>, error
   return modelsByRole;
 }
 
-function loadJsonFile(filePath: string, errors: string[]): unknown {
-  try {
-    const raw = readFileSync(filePath, "utf-8");
-    return JSON.parse(raw);
-  } catch (err) {
-    if (err instanceof SyntaxError) {
-      errors.push(`malformed JSON in ${filePath}: ${err.message}`);
-    } else if (err instanceof Error && "code" in err && err.code === "ENOENT") {
-      errors.push(`file not found: ${filePath}`);
-    } else {
-      errors.push(`failed to read ${filePath}: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    return undefined;
-  }
-}
-
 export function validateAgentModelConfig(jsonData: unknown, agents: readonly string[]): AgentModelConfig | LoadError {
   const errors: string[] = [];
 
@@ -217,15 +173,4 @@ export function validateAgentModelConfig(jsonData: unknown, agents: readonly str
   }
 
   return config;
-}
-
-export function loadAgentModelConfig(filePath: string, agents: readonly string[]): AgentModelConfig | LoadError {
-  const errors: string[] = [];
-
-  const jsonData = loadJsonFile(filePath, errors);
-  if (jsonData === undefined) {
-    return { errors };
-  }
-
-  return validateAgentModelConfig(jsonData, agents);
 }

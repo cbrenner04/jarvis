@@ -67,6 +67,7 @@ import type {
 import { accumulateImplementationTouchedFiles } from "./shrink.ts";
 import {
   type AcceptanceCriterion,
+  commitCheckpointOnTimeout,
   commitSubspec,
   commitWipProgress,
   commitWipProgressWithBlocker,
@@ -967,6 +968,14 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     if (result.kind === "error" && result.stderr.includes("aborted: iteration-timeout")) {
       fanout("harness", `iteration ${iteration} exceeded timeout of ${cfg.iterationTimeoutMs}ms\n`, "stderr");
       captureInterruptedDelta(activeSubspecPath, beforeCriteria, hasBlockerBefore);
+      if (!hasUntrackedMutations) {
+        try {
+          commitCheckpointOnTimeout(agentWorkingDir, agent.attributionLabel());
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          fanout("harness", `failed to commit checkpoint on iteration-timeout: ${message}\n`, "stderr");
+        }
+      }
       const iterationTelemetryRecord: TelemetryRecord = {
         agent: agent.name,
         iteration,

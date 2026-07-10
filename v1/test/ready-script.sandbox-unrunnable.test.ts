@@ -91,6 +91,25 @@ function writePackage(repoRoot: string, pkgPath: string, name: string, version: 
 
 const FULL_TIER_STEP_NAMES = ["check", "typecheck", "test", "lint:md"];
 
+// This file's own `bun run test:integration:v1` may be invoked as a step of an enclosing
+// `bun run ready` that scoped itself via JARVIS_READY_TEST_SCOPE (e.g. `test:v1 test:integration:v1`
+// for a v1-only diff). That ambient value would leak into these tests, which assert the
+// script's behavior against an unset scope. Isolate it per-test.
+let ambientTestScope: string | undefined;
+
+beforeEach(() => {
+  ambientTestScope = process.env.JARVIS_READY_TEST_SCOPE;
+  delete process.env.JARVIS_READY_TEST_SCOPE;
+});
+
+afterEach(() => {
+  if (ambientTestScope === undefined) {
+    delete process.env.JARVIS_READY_TEST_SCOPE;
+  } else {
+    process.env.JARVIS_READY_TEST_SCOPE = ambientTestScope;
+  }
+});
+
 describe("ready script deadline enforcement", () => {
   test("timeout validation: parsing valid JARVIS_READY_TIMEOUT_MS", () => {
     withEnv("JARVIS_READY_TIMEOUT_MS", "5000", () => {

@@ -174,4 +174,3 @@ export function validateAgentModelConfig(jsonData: unknown, agents: readonly str
 
   return config;
 }
-

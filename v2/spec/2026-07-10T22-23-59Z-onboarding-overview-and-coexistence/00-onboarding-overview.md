@@ -20,19 +20,19 @@ reader to the `jarvis1` vs `jarvis` split or the v2 vocabulary.
 
 ## Task checklist
 
-- [ ] Write `v2/docs/onboarding.md`.
-- [ ] Add its path to `.markdownlint-cli2.jsonc` globs.
-- [ ] Link it from README (intro + Documentation section) and update the README "Markdown linting" surface list to include `v2/docs`.
+- [x] Write `v2/docs/onboarding.md`.
+- [x] Add its path to `.markdownlint-cli2.jsonc` globs.
+- [x] Link it from README (intro + Documentation section) and update the README "Markdown linting" surface list to include `v2/docs`.
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/onboarding.md` exists and states, at a user level, what jarvis is: it drives a coding-agent CLI against Markdown specs and does not implement an agent itself.
-- [ ] The page names both binaries — `jarvis1` (stable v1 daily driver) and `jarvis` (v2) — and states that today the answer is always `jarvis1` while `jarvis` is opt-in, in-progress, and never required.
-- [ ] The page frames v2 as in-progress and does not instruct a newcomer to adopt `jarvis` for daily work (consistent with the binary currently answering `v2 not ready`).
-- [ ] The page introduces the v2 vocabulary — workflows, behaviors, roles — at a user level and links to `v2/docs/` (e.g. `v2-vision.md`, `v2-architecture.md`, `role-resolution.md`) for the definitions rather than restating them.
-- [ ] The page links out to install/setup and the first-run walkthrough via the README Quickstart, plus at least one deeper `v2/docs/` reference; every relative link resolves to a file present on `main`.
-- [ ] README links to the onboarding page from both its intro and its Documentation section.
-- [ ] `bun run lint:md` passes with `v2/docs/onboarding.md` included in the linter globs.
+- [x] `v2/docs/onboarding.md` exists and states, at a user level, what jarvis is: it drives a coding-agent CLI against Markdown specs and does not implement an agent itself.
+- [x] The page names both binaries — `jarvis1` (stable v1 daily driver) and `jarvis` (v2) — and states that today the answer is always `jarvis1` while `jarvis` is opt-in, in-progress, and never required.
+- [x] The page frames v2 as in-progress and does not instruct a newcomer to adopt `jarvis` for daily work (consistent with the binary currently answering `v2 not ready`).
+- [x] The page introduces the v2 vocabulary — workflows, behaviors, roles — at a user level and links to `v2/docs/` (e.g. `v2-vision.md`, `v2-architecture.md`, `role-resolution.md`) for the definitions rather than restating them.
+- [x] The page links out to install/setup and the first-run walkthrough via the README Quickstart, plus at least one deeper `v2/docs/` reference; every relative link resolves to a file present on `main`.
+- [x] README links to the onboarding page from both its intro and its Documentation section.
+- [x] `bun run lint:md` passes with `v2/docs/onboarding.md` included in the linter globs.
 
 ## Documentation updates
 

@@ -1263,6 +1263,174 @@ describe("cleanupCommand", () => {
   });
 });
 
+describe("cleanupCommand root-archival pass", () => {
+  function runRootArchivalCleanup(
+    io: CleanupIo,
+    runner?: SubprocessRunner,
+    opts: Partial<Parameters<typeof cleanupCommand>[0]> = {},
+  ): number {
+    return cleanupCommand({
+      projectRoot,
+      io,
+      findMatchingOpenPrs: () => [],
+      ...(runner !== undefined ? { runner } : {}),
+      ...opts,
+    });
+  }
+
+  function writeRootSpec(name: string, body: string): string {
+    const source = join(projectRoot, "spec", name);
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "index.md"), body);
+    return source;
+  }
+
+  test("archives a root spec with no matching worktree ever having existed this run", () => {
+    const { io, out } = captureIo();
+    const name = "root-no-worktree";
+    const source = writeRootSpec(name, completeSpec(name));
+    const destination = join(projectRoot, "spec", "completed", name);
+    const runner = fakeRunner({});
+
+    const code = runRootArchivalCleanup(io, runner);
+
+    expect(code).toBe(0);
+    expect(existsSync(source)).toBe(false);
+    expect(existsSync(destination)).toBe(true);
+    expect(out()).toContain(`moved spec directory ${source}`);
+  });
+
+  test("scoped jarvis1 cleanup <spec-name> archives that one root spec", () => {
+    const { io, out } = captureIo();
+    const targetName = "root-scoped-target";
+    const otherName = "root-scoped-other";
+    const targetSource = writeRootSpec(targetName, completeSpec(targetName));
+    const otherSource = writeRootSpec(otherName, completeSpec(otherName));
+    const targetDestination = join(projectRoot, "spec", "completed", targetName);
+    const runner = fakeRunner({});
+
+    const code = runRootArchivalCleanup(io, runner, { worktreeName: targetName });
+
+    expect(code).toBe(0);
+    expect(existsSync(targetSource)).toBe(false);
+    expect(existsSync(targetDestination)).toBe(true);
+    expect(existsSync(otherSource)).toBe(true);
+    expect(out()).not.toContain(otherName);
+  });
+
+  test("leaves an unchecked root spec in place", () => {
+    const { io, out } = captureIo();
+    const name = "root-unchecked";
+    const source = writeRootSpec(name, `# ${name}\n\n## Acceptance criteria\n- [ ] not done\n`);
+    const runner = fakeRunner({});
+
+    const code = runRootArchivalCleanup(io, runner);
+
+    expect(code).toBe(0);
+    expect(existsSync(source)).toBe(true);
+    expect(out()).toContain(`skipping archival of ${name}`);
+  });
+
+  test("leaves a root spec with an open PR in place", () => {
+    const { io } = captureIo();
+    const name = "root-open-pr";
+    const source = writeRootSpec(name, completeSpec(name));
+    const runner = fakeRunner({});
+
+    const code = runRootArchivalCleanup(io, runner, {
+      findMatchingOpenPrs: (branch) => (branch === name ? [{ number: 3, isDraft: true }] : []),
+    });
+
+    expect(code).toBe(0);
+    expect(existsSync(source)).toBe(true);
+  });
+
+  test("leaves a root spec with a live worktree in place", () => {
+    const { io } = captureIo();
+    const name = "root-live-worktree";
+    const source = writeRootSpec(name, completeSpec(name));
+    createTrackedWorktree(name);
+    const runner = fakeRunner({});
+
+    const code = runRootArchivalCleanup(io, runner);
+
+    expect(code).toBe(0);
+    expect(existsSync(source)).toBe(true);
+  });
+
+  test("runs the root-archival scan even with zero merged worktrees to remove", () => {
+    const { io, out } = captureIo();
+    const name = "root-zero-removed";
+    const _source = writeRootSpec(name, completeSpec(name));
+    const destination = join(projectRoot, "spec", "completed", name);
+    const runner = fakeRunner({});
+
+    const code = runRootArchivalCleanup(io, runner);
+
+    expect(code).toBe(0);
+    expect(existsSync(destination)).toBe(true);
+    expect(out()).not.toContain("no merged worktrees to remove");
+  });
+
+  test("--dry-run lists root-archival candidates and archives nothing", () => {
+    const { io, out } = captureIo();
+    const name = "root-dry-run";
+    const source = writeRootSpec(name, completeSpec(name));
+    const runner = fakeRunner({});
+
+    const code = runRootArchivalCleanup(io, runner, { dryRun: true });
+
+    expect(code).toBe(0);
+    expect(existsSync(source)).toBe(true);
+    expect(out()).toContain("Root specs to archive:");
+    expect(out()).toContain(name);
+  });
+
+  test("--abandon does not run the root-archival pass", () => {
+    const { io, out } = captureIo();
+    const name = "root-abandon-skip";
+    const source = writeRootSpec(name, completeSpec(name));
+    const runner = fakeRunner({});
+
+    const code = runRootArchivalCleanup(io, runner, { abandon: true });
+
+    expect(code).toBe(0);
+    expect(existsSync(source)).toBe(true);
+    expect(out()).not.toContain("Root specs to archive:");
+  });
+
+  test("two archivable root candidates in one run each get their own commit", () => {
+    const { io } = captureIo();
+    const nameA = "root-multi-a";
+    const nameB = "root-multi-b";
+    writeRootSpec(nameA, completeSpec(nameA));
+    writeRootSpec(nameB, completeSpec(nameB));
+    const runner = fakeRunner({});
+
+    const code = runRootArchivalCleanup(io, runner);
+
+    expect(code).toBe(0);
+    const commitCalls = runner.calls.filter((c) => c.args[0] === "git" && c.args[1] === "commit");
+    expect(commitCalls.length).toBe(2);
+  });
+
+  test("an already-archived root spec is not rescanned on a later run", () => {
+    const { io, out } = captureIo();
+    const name = "root-idempotent";
+    writeRootSpec(name, completeSpec(name));
+    const runner = fakeRunner({});
+
+    const firstCode = runRootArchivalCleanup(io, runner);
+    expect(firstCode).toBe(0);
+
+    const { io: io2, out: out2 } = captureIo();
+    const secondCode = runRootArchivalCleanup(io2, runner);
+
+    expect(secondCode).toBe(0);
+    expect(out2()).toBe("no merged worktrees to remove\n");
+  });
+});
+
 // ── Real-subprocess tests ──────────────────────────────────────────────────────
 // These tests verify real git commit content, branch ref state, or scoped
 // abort-after-commit scenarios that inherently require real subprocess semantics.

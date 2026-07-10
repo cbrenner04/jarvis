@@ -397,6 +397,23 @@ describe("parseArgs", () => {
     }
   });
 
+  test("cleanup with a spec name and no --abandon scopes the root-archival pass", () => {
+    expect(parseArgs(["cleanup", "my-spec"])).toEqual({
+      kind: "cleanup",
+      abandon: false,
+      dryRun: false,
+      worktreeName: "my-spec",
+    });
+  });
+
+  test("cleanup with a spec name and no --abandon plus extra positional is usage error", () => {
+    const parsed = parseArgs(["cleanup", "one", "two"]);
+    expect(parsed.kind).toBe("error");
+    if (parsed.kind === "error") {
+      expect(parsed.message).toContain("too many arguments");
+    }
+  });
+
   test.each([
     ["run", "--help", "run"],
     ["run", "-h", "run"],

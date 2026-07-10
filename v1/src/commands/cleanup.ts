@@ -225,6 +225,75 @@ function checkArchivePreconditions(args: {
   return true;
 }
 
+function findArchivableRootSpecs(args: {
+  projectRoot: string;
+  targetDir: string;
+  scopedSpecName?: string;
+  io: CleanupIo;
+  findMatchingOpenPrs: (branch: string, cwd?: string) => MatchingOpenPr[];
+}): Array<{ source: string; specName: string }> {
+  const { projectRoot, targetDir, scopedSpecName, io, findMatchingOpenPrs } = args;
+  const rootDir = join(projectRoot, targetDir);
+  if (!existsSync(rootDir)) {
+    return [];
+  }
+
+  const entries = readdirSync(rootDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name !== "completed")
+    .map((entry) => entry.name)
+    .filter((name) => scopedSpecName === undefined || name === scopedSpecName);
+
+  const candidates: Array<{ source: string; specName: string }> = [];
+  for (const specName of entries) {
+    const source = join(rootDir, specName);
+    if (resolveCompletionSpecFile(source) === null) {
+      continue;
+    }
+    if (
+      checkArchivePreconditions({
+        io,
+        projectRoot,
+        source,
+        specName,
+        removedWorktreeDir: "",
+        findMatchingOpenPrs,
+      })
+    ) {
+      candidates.push({ source, specName });
+    }
+  }
+  return candidates;
+}
+
+function archiveRootSpecs(args: {
+  io: CleanupIo;
+  projectRoot: string;
+  targetDir: string;
+  candidates: Array<{ source: string; specName: string }>;
+  runner: SubprocessRunner;
+}): boolean {
+  const rootDir = join(args.projectRoot, args.targetDir);
+  let hadFailures = false;
+  for (const candidate of args.candidates) {
+    const archived = archiveResolvedSpec({
+      io: args.io,
+      branch: candidate.specName,
+      dir: candidate.specName,
+      archiveRoot: rootDir,
+      source: candidate.source,
+      specName: candidate.specName,
+      missingSource: candidate.source,
+      onArchive: (destination, resolvedSpecName) => {
+        commitArchivedSpecMove(args.projectRoot, candidate.source, destination, resolvedSpecName, args.runner);
+      },
+    });
+    if (!archived) {
+      hadFailures = true;
+    }
+  }
+  return hadFailures;
+}
+
 function deleteMergedBranch(projectRoot: string, branch: string, runner: SubprocessRunner): void {
   try {
     runner.run("git", ["branch", "-d", branch], projectRoot);
@@ -284,6 +353,19 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
     });
   }
 
+  if (!abandon && opts.worktreeName !== undefined) {
+    return scopedRootArchivalCleanup({
+      commit,
+      dryRun: opts.dryRun ?? false,
+      io: opts.io,
+      projectRoot: opts.projectRoot,
+      targetDir,
+      specName: opts.worktreeName,
+      findMatchingOpenPrs: deps.findMatchingOpenPrs,
+      runner,
+    });
+  }
+
   const worktrees = readdirSync(worktreeDir).filter((name) => name !== ".keep");
 
   const toRemove: CleanupItem[] = [];
@@ -326,25 +408,46 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
     toRemove.push({ path: worktreePath, branch, dir: worktreeName });
   }
 
-  if (toRemove.length === 0) {
+  const rootCandidates =
+    !abandon && commit
+      ? findArchivableRootSpecs({
+          projectRoot: opts.projectRoot,
+          targetDir,
+          io: opts.io,
+          findMatchingOpenPrs: deps.findMatchingOpenPrs,
+        })
+      : [];
+
+  if (toRemove.length === 0 && rootCandidates.length === 0) {
     opts.io.stdout(abandon ? "no abandoned worktrees to remove\n" : "no merged worktrees to remove\n");
     return 0;
   }
 
-  opts.io.stdout("\nWorktrees to remove:\n");
-  for (const item of toRemove) {
-    const tag = isPlanBranch(item.branch) ? " (plan)" : "";
-    opts.io.stdout(`  ${item.branch}${tag}\n`);
+  if (toRemove.length > 0) {
+    opts.io.stdout("\nWorktrees to remove:\n");
+    for (const item of toRemove) {
+      const tag = isPlanBranch(item.branch) ? " (plan)" : "";
+      opts.io.stdout(`  ${item.branch}${tag}\n`);
+    }
+  }
+
+  if (rootCandidates.length > 0) {
+    opts.io.stdout("\nRoot specs to archive:\n");
+    for (const candidate of rootCandidates) {
+      opts.io.stdout(`  ${candidate.specName}\n`);
+    }
   }
 
   if (opts.dryRun) {
     return 0;
   }
 
-  const response = opts.io.readlineSync("\nRemove these worktrees? [y/N] ");
-  if (!["y", "yes"].includes(response.toLowerCase())) {
-    opts.io.stdout("cancelled\n");
-    return 0;
+  if (toRemove.length > 0) {
+    const response = opts.io.readlineSync("\nRemove these worktrees? [y/N] ");
+    if (!["y", "yes"].includes(response.toLowerCase())) {
+      opts.io.stdout("cancelled\n");
+      return 0;
+    }
   }
 
   let hadFailures = false;
@@ -434,6 +537,66 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
       hadFailures = true;
     }
   }
+
+  if (
+    archiveRootSpecs({
+      io: opts.io,
+      projectRoot: opts.projectRoot,
+      targetDir,
+      candidates: rootCandidates,
+      runner,
+    })
+  ) {
+    hadFailures = true;
+  }
+
+  return hadFailures ? 1 : 0;
+}
+
+function scopedRootArchivalCleanup(args: {
+  commit: boolean;
+  dryRun: boolean;
+  io: CleanupIo;
+  projectRoot: string;
+  targetDir: string;
+  specName: string;
+  findMatchingOpenPrs: (branch: string, cwd?: string) => MatchingOpenPr[];
+  runner: SubprocessRunner;
+}): number {
+  if (!args.commit) {
+    args.io.stdout("no root specs to archive\n");
+    return 0;
+  }
+
+  const candidates = findArchivableRootSpecs({
+    projectRoot: args.projectRoot,
+    targetDir: args.targetDir,
+    scopedSpecName: args.specName,
+    io: args.io,
+    findMatchingOpenPrs: args.findMatchingOpenPrs,
+  });
+
+  if (candidates.length === 0) {
+    args.io.stdout("no root specs to archive\n");
+    return 0;
+  }
+
+  args.io.stdout("\nRoot specs to archive:\n");
+  for (const candidate of candidates) {
+    args.io.stdout(`  ${candidate.specName}\n`);
+  }
+
+  if (args.dryRun) {
+    return 0;
+  }
+
+  const hadFailures = archiveRootSpecs({
+    io: args.io,
+    projectRoot: args.projectRoot,
+    targetDir: args.targetDir,
+    candidates,
+    runner: args.runner,
+  });
 
   return hadFailures ? 1 : 0;
 }

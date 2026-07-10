@@ -33,17 +33,17 @@ picked up — it sits at `<targetDir>` root and the operator moves it by hand.
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 cleanup` (default mode, `commit:true`) archives a spec dir sitting at `<targetDir>` root into `<targetDir>/completed/<spec-name>/` when it is complete, has no open PR matching its name, and no live `.worktree/<spec-name>/` — with no worktree removed for it in the same run.
-- [ ] Scoped `jarvis1 cleanup <spec-name>` (`commit:true`) archives that one root spec under the same conditions.
-- [ ] This root-archival scan runs even when zero worktrees were removed in the run (today's `no merged worktrees to remove` early return no longer skips it).
-- [ ] A root spec dir with unchecked non-human-only acceptance criteria, an open PR on its name, or a live `.worktree/<spec-name>/` is left in place.
-- [ ] `--dry-run` lists root-archival candidates and archives nothing.
-- [ ] `jarvis1 cleanup --abandon` (global or scoped) does not archive root specs.
-- [ ] `commit:false` external-home cleanup behavior is unchanged.
-- [ ] Two archivable root candidates in one run each get their own commit (not batched into one).
-- [ ] An already-archived root spec is not rescanned or re-archived on a subsequent `jarvis1 cleanup` run.
-- [ ] `cleanup-command.sandbox-unrunnable.test.ts` existing archival/guard tests stay green.
-- [ ] `bun run typecheck` and `bun run test:v1` pass.
+- [x] `jarvis1 cleanup` (default mode, `commit:true`) archives a spec dir sitting at `<targetDir>` root into `<targetDir>/completed/<spec-name>/` when it is complete, has no open PR matching its name, and no live `.worktree/<spec-name>/` — with no worktree removed for it in the same run.
+- [x] Scoped `jarvis1 cleanup <spec-name>` (`commit:true`) archives that one root spec under the same conditions.
+- [x] This root-archival scan runs even when zero worktrees were removed in the run (today's `no merged worktrees to remove` early return no longer skips it).
+- [x] A root spec dir with unchecked non-human-only acceptance criteria, an open PR on its name, or a live `.worktree/<spec-name>/` is left in place.
+- [x] `--dry-run` lists root-archival candidates and archives nothing.
+- [x] `jarvis1 cleanup --abandon` (global or scoped) does not archive root specs.
+- [x] `commit:false` external-home cleanup behavior is unchanged.
+- [x] Two archivable root candidates in one run each get their own commit (not batched into one).
+- [x] An already-archived root spec is not rescanned or re-archived on a subsequent `jarvis1 cleanup` run.
+- [x] `cleanup-command.sandbox-unrunnable.test.ts` existing archival/guard tests stay green.
+- [x] `bun run typecheck` and `bun run test:v1` pass.
 
 ## Documentation updates
 

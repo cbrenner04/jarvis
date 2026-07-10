@@ -338,9 +338,6 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       const dryRun = rest.includes("--dry-run");
       const abandon = rest.includes("--abandon");
       const positionals = rest.filter((arg) => arg !== "--dry-run" && arg !== "--abandon");
-      if (positionals.length > 0 && !abandon) {
-        return { kind: "error", message: "cleanup: [<worktree-name>] requires --abandon" };
-      }
       if (positionals.length > 1) {
         return { kind: "error", message: "cleanup: too many arguments" };
       }

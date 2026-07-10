@@ -18,7 +18,9 @@ just re-walls every run with no signal that it needs splitting.
   same as other telemetry-dependent reporting.
 - Add `active_subspec_path` to the iteration-timeout terminal telemetry
   record and mark it `record_role: "run_terminal"` — rules out inferring
-  subspec identity from row position alone.
+  subspec identity from row position alone; rows are disambiguated by path,
+  so two projects/repos sharing an identical subspec path in a shared
+  telemetry log is the only residual conflation risk.
 - At run start, count trailing consecutive `run_terminal` timeout rows
   attributed to the resolved active subspec; the first non-matching subspec
   or non-timeout terminal row resets the count to 0 — rules out counting
@@ -31,9 +33,16 @@ just re-walls every run with no signal that it needs splitting.
   subspec (harness-authored, precedented by plan mode's
   `appendBoundaryBlocker`) instead of exiting 8 silently again — reuses the
   existing blocker-halts-next-run check (`iteration.ts:556-576`) rather than
-  inventing a new stop path.
+  inventing a new stop path. The blocker text explicitly recommends splitting
+  the subspec (not just a timeout-count note) — the intent asks for a clear
+  "split it" signal, not a bare fact. The run that hits the bound and appends
+  the blocker still exits 8 itself, same as every other iteration-timeout
+  exit; the blocker only changes what the *next* run does.
 - If the active subspec already carries a `## Blocker`, skip appending
-  (idempotent, no duplicate/overwrite).
+  (idempotent, no duplicate/overwrite). Known limitation: if that existing
+  blocker is unrelated (e.g. an ambiguity halt), reaching the bound is
+  silently suppressed and the operator sees only the unrelated blocker, not
+  the split signal — accepted tradeoff, not handled by this subspec.
 
 ## Out of scope
 
@@ -46,8 +55,8 @@ just re-walls every run with no signal that it needs splitting.
       `active_subspec_path` and `record_role: "run_terminal"`.
 - [ ] A run whose active subspec has 2 prior consecutive iteration-timeout
       terminal rows and now times out again appends a `## Blocker` to the
-      active subspec identifying repeated iteration timeouts, instead of
-      exiting 8 with no blocker.
+      active subspec that explicitly recommends splitting the subspec (not
+      just a timeout-count note), and this run still exits 8.
 - [ ] A subspec with only 1 prior timeout (below the bound) exits 8 without a
       blocker on the next timeout (no false positive before the bound).
 - [ ] A prior timeout on a different subspec, or any non-timeout
@@ -55,6 +64,9 @@ just re-walls every run with no signal that it needs splitting.
       streak.
 - [ ] If the active subspec already has a `## Blocker`, reaching the bound
       does not duplicate or overwrite it.
+- [ ] With telemetry disabled (`telemetryPath: null`), a run whose active
+      subspec would otherwise have hit the bound exits 8 as before, with no
+      blocker appended and no error/crash.
 - [ ] `v1/test/run.test.ts` gains coverage for the above alongside the
       existing "iteration timeout causes exit code 8" test (`run.test.ts:6478`).
 

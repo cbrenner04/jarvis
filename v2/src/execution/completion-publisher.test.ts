@@ -11,6 +11,11 @@ describe("createCompletionPublisher", () => {
 
   const noopDelay = async () => {};
   const readyGh = () => true;
+  const noopRefreshSeams = {
+    fetchPrBody: () => "",
+    writePrBody: () => {},
+    renderFooter: () => "",
+  };
 
   it("publishes push with new upstream and creates draft PR", async () => {
     const gitCalls: string[] = [];
@@ -41,7 +46,13 @@ describe("createCompletionPublisher", () => {
       return "";
     };
 
-    const publisher = createCompletionPublisher({ git: mockGit, gh: mockGh, ghReady: readyGh, delay: noopDelay });
+    const publisher = createCompletionPublisher({
+      git: mockGit,
+      gh: mockGh,
+      ghReady: readyGh,
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
     const result = await publisher(baseInput);
 
     expect(result.pushSha).toBe("abc123def456");
@@ -69,7 +80,13 @@ describe("createCompletionPublisher", () => {
       return "";
     };
 
-    const publisher = createCompletionPublisher({ git: mockGit, gh: mockGh, ghReady: readyGh, delay: noopDelay });
+    const publisher = createCompletionPublisher({
+      git: mockGit,
+      gh: mockGh,
+      ghReady: readyGh,
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
     await publisher(baseInput);
 
     expect(gitCalls.some((c) => c === "push")).toBe(true);
@@ -94,7 +111,13 @@ describe("createCompletionPublisher", () => {
       return "";
     };
 
-    const publisher = createCompletionPublisher({ git: mockGit, gh: mockGh, ghReady: readyGh, delay: noopDelay });
+    const publisher = createCompletionPublisher({
+      git: mockGit,
+      gh: mockGh,
+      ghReady: readyGh,
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
     const result = await publisher(baseInput);
 
     expect(result.prNumber).toBe(99);
@@ -118,7 +141,13 @@ describe("createCompletionPublisher", () => {
       return "";
     };
 
-    const publisher = createCompletionPublisher({ git: mockGit, gh: mockGh, ghReady: readyGh, delay: noopDelay });
+    const publisher = createCompletionPublisher({
+      git: mockGit,
+      gh: mockGh,
+      ghReady: readyGh,
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
     const result = await publisher(baseInput);
 
     expect(result.prNumber).toBe(99);
@@ -135,7 +164,13 @@ describe("createCompletionPublisher", () => {
 
     const mockGh = () => "";
 
-    const publisher = createCompletionPublisher({ git: mockGit, gh: mockGh, ghReady: readyGh, delay: noopDelay });
+    const publisher = createCompletionPublisher({
+      git: mockGit,
+      gh: mockGh,
+      ghReady: readyGh,
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
 
     await expect(publisher(baseInput)).rejects.toThrow("Non-fast-forward push rejection");
   });
@@ -189,6 +224,7 @@ describe("createCompletionPublisher", () => {
       retryNotice: (message) => {
         notices.push(message);
       },
+      ...noopRefreshSeams,
     });
     const result = await publisher(baseInput);
 
@@ -211,7 +247,13 @@ describe("createCompletionPublisher", () => {
 
     const mockGh = () => "";
 
-    const publisher = createCompletionPublisher({ git: mockGit, gh: mockGh, ghReady: readyGh, delay: noopDelay });
+    const publisher = createCompletionPublisher({
+      git: mockGit,
+      gh: mockGh,
+      ghReady: readyGh,
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
 
     await expect(publisher(baseInput)).rejects.toThrow("Connection timeout");
   });
@@ -231,9 +273,146 @@ describe("createCompletionPublisher", () => {
       return "";
     };
 
-    const publisher = createCompletionPublisher({ git: mockGit, gh: mockGh, ghReady: readyGh, delay: noopDelay });
+    const publisher = createCompletionPublisher({
+      git: mockGit,
+      gh: mockGh,
+      ghReady: readyGh,
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
     const result = await publisher(baseInput);
 
     expect(result.prNumber).toBe(123);
+  });
+
+  it("refreshes ensured PR body with attribution footer via injected seams", async () => {
+    const mockGit = (_cwd: string, args: readonly string[]) => {
+      if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+      return "";
+    };
+
+    let writtenBody = "";
+    const publisher = createCompletionPublisher({
+      git: mockGit,
+      gh: (args) => {
+        if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+        if (args[0] === "pr" && args[1] === "create") return "https://github.com/user/repo/pull/42";
+        return "";
+      },
+      ghReady: readyGh,
+      delay: noopDelay,
+      fetchPrBody: () => `Spec: ${baseInput.specPath}`,
+      writePrBody: (_branch, body) => {
+        writtenBody = body;
+      },
+      renderFooter: () => "- abc123 jarvis: complete run \u2014 Claude Opus 4.8\n\nWritten by Claude Opus 4.8 through Jarvis.",
+    });
+
+    await publisher(baseInput);
+
+    expect(writtenBody).toContain(`Spec: ${baseInput.specPath}`);
+    expect(writtenBody).toContain("Written by Claude Opus 4.8 through Jarvis.");
+    expect(writtenBody).toContain("---");
+  });
+
+  it("reuses existing PR and refreshes its body without creating a second PR", async () => {
+    const ghCalls: string[] = [];
+    let writtenBody = "";
+
+    const publisher = createCompletionPublisher({
+      git: (_cwd, args) => {
+        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+        return "";
+      },
+      gh: (args) => {
+        ghCalls.push(args.join(" "));
+        if (args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 99, baseRefName: "main" }]);
+        }
+        return "";
+      },
+      ghReady: readyGh,
+      delay: noopDelay,
+      fetchPrBody: () => "Spec: stale",
+      writePrBody: (_branch, body) => {
+        writtenBody = body;
+      },
+      renderFooter: () => "",
+    });
+
+    const result = await publisher(baseInput);
+
+    expect(result.prNumber).toBe(99);
+    expect(ghCalls.some((c) => c.includes("pr create"))).toBe(false);
+    expect(writtenBody).toBe(`Spec: ${baseInput.specPath}`);
+  });
+
+  it("retries transient pr-body-refresh errors up to 3 attempts", async () => {
+    let refreshAttempts = 0;
+    const delays: number[] = [];
+    const notices: string[] = [];
+
+    const publisher = createCompletionPublisher({
+      git: (_cwd, args) => {
+        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+        return "";
+      },
+      gh: (args) => {
+        if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+        if (args[0] === "pr" && args[1] === "create") return "#42";
+        return "";
+      },
+      ghReady: readyGh,
+      delay: async (ms) => {
+        delays.push(ms);
+      },
+      retryNotice: (message) => {
+        notices.push(message);
+      },
+      fetchPrBody: () => "",
+      writePrBody: () => {
+        refreshAttempts += 1;
+        if (refreshAttempts < 3) {
+          throw new Error("Connection reset by peer");
+        }
+      },
+      renderFooter: () => "",
+    });
+
+    await publisher(baseInput);
+
+    expect(refreshAttempts).toBe(3);
+    expect(delays).toEqual([1000, 1000]);
+    expect(notices).toEqual([
+      "pr-body-refresh: transient network error; retrying (attempt 2/3)",
+      "pr-body-refresh: transient network error; retrying (attempt 3/3)",
+    ]);
+  });
+
+  it("throws after 3 failed pr-body-refresh attempts", async () => {
+    const publisher = createCompletionPublisher({
+      git: (_cwd, args) => {
+        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+        return "";
+      },
+      gh: (args) => {
+        if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+        if (args[0] === "pr" && args[1] === "create") return "#42";
+        return "";
+      },
+      ghReady: readyGh,
+      delay: noopDelay,
+      fetchPrBody: () => "",
+      writePrBody: () => {
+        throw new Error("gh pr edit failed");
+      },
+      renderFooter: () => "",
+    });
+
+    await expect(publisher(baseInput)).rejects.toThrow("gh pr edit failed");
   });
 });

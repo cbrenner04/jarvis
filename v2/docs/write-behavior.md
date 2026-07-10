@@ -31,10 +31,25 @@ open PRs on the same branch are disambiguated by `baseRef` match; when multiple
 match the same base, the first is reused; when none match, a new PR is created.
 When the branch has no origin or push/PR operations are disabled, this phase is skipped.
 
-Publication failures (commit, push, or PR) leave the durable run `completed`, expose
+**PR body refresh:** after the draft PR is ensured, the publisher rewrites its
+body: regenerated `Spec: <specPath>` header, preserved content between plain
+`<!-- jarvis:narrative:start -->` / `<!-- jarvis:narrative:end -->` markers when
+present, and an attribution footer from `Jarvis-Agent` trailer(s) on commits in
+`baseRef..HEAD` whose first body line begins with `Spec:`. Under v2's single
+completion commit, that selects the `jarvis: complete run` meta-commit. Footer
+shape: one bullet per qualifying commit (`- <shortSha> <subject> — <label>`,
+labels joined per commit; `unknown` when no trailer; excluded from summary),
+blank line, then `Written by <labels> through Jarvis.` with first-seen dedup.
+Empty footer ⇒ header (+ narrative if present) only, no `---` separator. v1's
+hash-verified generated-narrative path (`jarvis:narrative:generated-sha256:`) is
+not ported. Refresh failures reuse retryable `completion_commit_failed`; resume
+re-edits the same PR. Post-completion ordering: push+PR → body refresh → ready
+gate → draft→ready flip (gate/flip in a separate finalization boundary).
+
+Publication failures (commit, push, PR, or body refresh) leave the durable run `completed`, expose
 retryable `completion_commit_failed`, and return exit `1`; `jarvis run resume <run-id>`
 may retry without creating a duplicate commit or PR. Non-fast-forward push rejection
-is permanent (no retry). Transient network failures (push, PR lookup, PR creation) retry
+is permanent (no retry). Transient network failures (push, PR lookup, PR creation, body refresh) retry
 to 3 total attempts with flat 1000 ms backoff between re-attempts and emit
 `<op>: transient network error; retrying (attempt <n>/3)` to stderr. Subprocess, backoff
 delay, retry-notice, and `gh`-readiness are each independently injectable seams, so

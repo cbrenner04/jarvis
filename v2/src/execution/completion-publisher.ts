@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { type RefreshPrBodyInput, refreshPrBody } from "./pr-body-refresh.ts";
 
 export type CompletionPublisherInput = {
   worktreePath: string;
@@ -20,12 +21,19 @@ type GhReady = () => boolean;
 type Delay = (ms: number) => Promise<void>;
 type RetryNotice = (message: string) => void;
 
+type FetchPrBody = RefreshPrBodyInput["fetchPrBody"];
+type WritePrBody = RefreshPrBodyInput["writePrBody"];
+type RenderFooter = NonNullable<RefreshPrBodyInput["renderFooter"]>;
+
 type PublisherSeams = {
   git: Git;
   gh: GhCommand;
   ghReady: GhReady;
   delay: Delay;
   retryNotice: RetryNotice;
+  fetchPrBody?: FetchPrBody;
+  writePrBody?: WritePrBody;
+  renderFooter?: RenderFooter;
 };
 
 function defaultGit(cwd: string, args: readonly string[], env?: Record<string, string>): string {
@@ -100,6 +108,25 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
     if (prNumber) {
       result.prNumber = prNumber;
     }
+
+    await publishWithRetry(
+      () => {
+        refreshPrBody({
+          specPath: input.specPath,
+          branch: input.branch,
+          base: input.baseRef,
+          cwd: input.worktreePath,
+          git,
+          ...(seams?.fetchPrBody !== undefined ? { fetchPrBody: seams.fetchPrBody } : {}),
+          ...(seams?.writePrBody !== undefined ? { writePrBody: seams.writePrBody } : {}),
+          ...(seams?.renderFooter !== undefined ? { renderFooter: seams.renderFooter } : {}),
+        });
+        return true;
+      },
+      "pr-body-refresh",
+      delay,
+      retryNotice,
+    );
 
     return result;
   };

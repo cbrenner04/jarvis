@@ -6554,17 +6554,37 @@ exit 0
       );
 
       expect(
-        await runWithDefaults({ specPath: spec, io: cap.io, config: { dir: cfgDir }, agents: { claude }, handleSignals: false }),
+        await runWithDefaults({
+          specPath: spec,
+          io: cap.io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          handleSignals: false,
+        }),
       ).toBe(8);
       expect(
-        await runWithDefaults({ specPath: spec, io: cap.io, config: { dir: cfgDir }, agents: { claude }, handleSignals: false }),
+        await runWithDefaults({
+          specPath: spec,
+          io: cap.io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          handleSignals: false,
+        }),
       ).toBe(3);
       expect(
-        await runWithDefaults({ specPath: spec, io: cap.io, config: { dir: cfgDir }, agents: { claude }, handleSignals: false }),
+        await runWithDefaults({
+          specPath: spec,
+          io: cap.io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          handleSignals: false,
+        }),
       ).toBe(3);
 
       expect(claude.calls).toHaveLength(3);
-      expect(claude.calls[1]?.prompt).toContain("Partial implementation from the previous iteration-timeout checkpoint is present.");
+      expect(claude.calls[1]?.prompt).toContain(
+        "Partial implementation from the previous iteration-timeout checkpoint is present.",
+      );
       expect(claude.calls[2]?.prompt).not.toContain("Timeout Checkpoint");
     });
 

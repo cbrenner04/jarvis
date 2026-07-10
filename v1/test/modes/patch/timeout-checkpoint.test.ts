@@ -84,9 +84,13 @@ describe("timeout checkpoint receipts", () => {
       expect(consumeTimeoutCheckpointReceipt(root, spec)).toBeNull();
       expect(existsSync(path)).toBeFalse();
 
-      execFileSync("git", ["commit", "--allow-empty", "-m", "WIP: checkpoint (iteration-timeout)\n\nSpec: spec/task.md"], {
-        cwd: root,
-      });
+      execFileSync(
+        "git",
+        ["commit", "--allow-empty", "-m", "WIP: checkpoint (iteration-timeout)\n\nSpec: spec/task.md"],
+        {
+          cwd: root,
+        },
+      );
       writeTimeoutCheckpointReceipt(root, spec);
       const otherSpec = join(root, "spec", "other.md");
       writeFileSync(otherSpec, "# Other\n");
@@ -100,9 +104,13 @@ describe("timeout checkpoint receipts", () => {
   test("does not revive stale evidence after HEAD restoration", () => {
     const { root, spec, cleanup } = setup();
     try {
-      execFileSync("git", ["commit", "--allow-empty", "-m", "WIP: checkpoint (iteration-timeout)\n\nSpec: spec/task.md"], {
-        cwd: root,
-      });
+      execFileSync(
+        "git",
+        ["commit", "--allow-empty", "-m", "WIP: checkpoint (iteration-timeout)\n\nSpec: spec/task.md"],
+        {
+          cwd: root,
+        },
+      );
       writeTimeoutCheckpointReceipt(root, spec);
       const checkpoint = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
       execFileSync("git", ["commit", "--allow-empty", "-m", "intervening"], { cwd: root });
@@ -125,9 +133,13 @@ describe("timeout checkpoint receipts", () => {
       expect(inspectionWarnings.join("\n")).toContain("could not retire timeout checkpoint receipt");
       rmSync(`${path}.${process.pid}.consumed`, { recursive: true, force: true });
 
-      execFileSync("git", ["commit", "--allow-empty", "-m", "WIP: checkpoint (iteration-timeout)\n\nSpec: spec/task.md"], {
-        cwd: root,
-      });
+      execFileSync(
+        "git",
+        ["commit", "--allow-empty", "-m", "WIP: checkpoint (iteration-timeout)\n\nSpec: spec/task.md"],
+        {
+          cwd: root,
+        },
+      );
       writeTimeoutCheckpointReceipt(root, spec);
       mkdirSync(`${path}.${process.pid}.consumed`);
       const consumptionWarnings: string[] = [];

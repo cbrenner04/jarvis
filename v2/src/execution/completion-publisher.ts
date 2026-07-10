@@ -176,13 +176,7 @@ async function publishWithRetry<T>(
   return null;
 }
 
-function findOrCreatePr(
-  gh: GhCommand,
-  cwd: string,
-  baseRef: string,
-  branch: string,
-  specPath: string,
-): number {
+function findOrCreatePr(gh: GhCommand, cwd: string, baseRef: string, branch: string, specPath: string): number {
   // Find open PRs for this branch in the worktree's repository
   const prListJson = gh(cwd, ["pr", "list", "--head", branch, "--state", "open", "--json", "number,baseRefName"]);
   const prs = JSON.parse(prListJson) as Array<{ number: number; baseRefName: string }>;

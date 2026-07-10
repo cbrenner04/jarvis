@@ -17,9 +17,9 @@ import {
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
 import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
-import { type CompletionPublisher } from "./completion-publisher.ts";
+import type { CompletionPublisher } from "./completion-publisher.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
-import { type ReadyFinalizer } from "./ready-finalize.ts";
+import type { ReadyFinalizer } from "./ready-finalize.ts";
 import {
   executeReviewDebate,
   type ReviewDebateInput,
@@ -374,9 +374,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             }
             const publishError = await publishCompletionArtifacts(
               {
-                ...(args.completionPublisher !== undefined
-                  ? { completionPublisher: args.completionPublisher }
-                  : {}),
+                ...(args.completionPublisher !== undefined ? { completionPublisher: args.completionPublisher } : {}),
                 ...(args.readyFinalizer !== undefined ? { readyFinalizer: args.readyFinalizer } : {}),
               },
               {

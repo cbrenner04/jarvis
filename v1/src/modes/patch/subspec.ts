@@ -222,17 +222,23 @@ export function commitWipProgressWithBlocker(
 
 /** Commits any staged worktree changes (tracked edits and new untracked files) as a WIP checkpoint. No-op if nothing is staged. */
 export function commitCheckpointOnTimeout(
+  subspecPath: string,
   cwd: string,
   agentLabel: string,
   ops: SubspecGitOps = realSubspecGitOps,
-): void {
+): boolean {
   ops.add(cwd);
   if (!ops.hasStagedChanges(cwd)) {
-    return;
+    return false;
   }
 
-  const commitMessage = appendAgentTrailer("WIP: checkpoint (iteration-timeout)", agentLabel);
+  const relativeSpecPath = relative(realpathSync(ops.gitRoot(cwd)), realpathSync(subspecPath));
+  const commitMessage = appendAgentTrailer(
+    `WIP: checkpoint (iteration-timeout)\n\nSpec: ${relativeSpecPath}`,
+    agentLabel,
+  );
   ops.commit(cwd, commitMessage);
+  return true;
 }
 
 function getGitRoot(subspecPath: string, ops: SubspecGitOps): string {

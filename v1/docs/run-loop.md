@@ -1133,3 +1133,5 @@ interval inside that attempt's `try/finally`, take one final snapshot before
 reap, then reap in the per-attempt `finally` (lock release and telemetry stay in
 the outer `finally`). Review passes and verdict-actuator invocations use the
 same per-invocation strategy, including a final snapshot before reap.
+
+After a normal implementation iteration-timeout, a successful WIP checkpoint writes `git rev-parse --git-path jarvis/iteration-timeout-checkpoint.json`. The version-1 receipt is accepted only for the current `HEAD` and same active repo-relative subspec. The next normal invocation consumes it before agent spawn and adds a one-shot prompt section directing the agent to inspect and continue the partial implementation. Invalid receipts and inspection/consumption failures omit the section and warn without changing run exit semantics. Fix-up, shrink, and review prompts are unaffected. Sources: `v1/src/modes/patch/timeout-checkpoint.ts`, `v1/src/modes/patch/iteration.ts`, `prompts/patch/instructions.md`.

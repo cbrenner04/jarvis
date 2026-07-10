@@ -523,18 +523,19 @@ describe("commitCheckpointOnTimeout", () => {
   test("commits staged changes with a WIP checkpoint message and agent trailer", () => {
     const ops = fakeGitOps();
 
-    commitCheckpointOnTimeout(gitDir, "claude", ops);
+    commitCheckpointOnTimeout(createSpecFile("01-test-one.md", "# Test\n"), gitDir, "claude", ops);
 
     expect(ops.commits).toHaveLength(1);
     const message = ops.commits[0]?.message ?? "";
     expect(message).toContain("WIP: checkpoint (iteration-timeout)");
+    expect(message).toContain("Spec: spec/01-test-one.md");
     expect(message).toContain("Jarvis-Agent: claude");
   });
 
   test("is a no-op when there are no staged changes", () => {
     const ops = fakeGitOps({ staged: false });
 
-    commitCheckpointOnTimeout(gitDir, "claude", ops);
+    commitCheckpointOnTimeout(createSpecFile("01-test-one.md", "# Test\n"), gitDir, "claude", ops);
 
     expect(ops.commits).toHaveLength(0);
   });
@@ -542,6 +543,6 @@ describe("commitCheckpointOnTimeout", () => {
   test("rethrows git commit failures when staged changes exist", () => {
     const ops = fakeGitOps({ commitError: new Error("git commit failed") });
 
-    expect(() => commitCheckpointOnTimeout(gitDir, "claude", ops)).toThrow("git commit failed");
+    expect(() => commitCheckpointOnTimeout(createSpecFile("01-test-one.md", "# Test\n"), gitDir, "claude", ops)).toThrow("git commit failed");
   });
 });

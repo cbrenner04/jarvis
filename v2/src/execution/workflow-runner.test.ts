@@ -226,12 +226,13 @@ describe("executeWorkflow", () => {
       });
 
       // Fires for the implement step's own run, then again for the hidden shrink run.
+      // The shrink run is the actual publishing boundary, so it's the one reflected in result.runId.
       expect(fired).toHaveLength(2);
       expect(fired[0]?.stepIndex).toBe(0);
-      expect(fired[0]?.runId).toBe(result.runId);
+      expect(fired[0]?.runId).not.toBe(result.runId);
       expect(fired[0]?.rowExisted).toBe(true);
       expect(fired[1]?.stepIndex).toBe(0);
-      expect(fired[1]?.runId).not.toBe(result.runId);
+      expect(fired[1]?.runId).toBe(result.runId);
       expect(fired[1]?.rowExisted).toBe(true);
     });
   });
@@ -259,11 +260,12 @@ describe("executeWorkflow", () => {
         stateStore: store,
       });
 
-      // One-step equivalence: runId matches the step's actual run, not empty
+      // The implement role triggers a hidden shrink pass, which is the true publishing
+      // boundary, so result.runId matches the shrink run, not the implement run.
       const run = store.findRunByProjectBranch({
         project: "demo",
         branch: "workflow-run",
-        stepId: "step-1",
+        stepId: "step-1~shrink",
       });
       expect(result.runId).toBe(run?.id ?? "");
       expect(result.runId).not.toBe("");
@@ -1426,18 +1428,38 @@ describe("executeWorkflow telemetry", () => {
       });
 
       expect(result).toMatchObject({ kind: "complete", commitSha: "wf-commit" });
+
+      // step-1 is implement, which triggers a hidden shrink pass (see workflow-runner.ts
+      // runShrinkAfterImplementComplete). The shrink run is the actual publishing boundary,
+      // so the telemetry row must carry the shrink run's attempt, not the implement run's.
+      const implementRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "boundary-workflow",
+        stepId: "step-1",
+      });
+      const shrinkRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "boundary-workflow",
+        stepId: "step-1~shrink",
+      });
+      const implementAttemptId = implementRun?.attempts.at(-1)?.id;
+      const shrinkAttemptId = shrinkRun?.attempts.at(-1)?.id;
+      expect(shrinkAttemptId).toBeDefined();
+      expect(implementAttemptId).toBeDefined();
+      expect(implementAttemptId).not.toBe(shrinkAttemptId);
+
       const rows = loadWorkBoundaryRows(telemetryPath);
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({
         schema_version: 1,
         record_kind: "work_boundary_recorded",
-        run_id: result.runId,
+        run_id: shrinkRun?.id,
+        attempt_id: shrinkAttemptId,
         outcome_kind: "done",
         run_status: "completed",
         commit_sha: "wf-commit",
         files_changed: 4,
       });
-      expect(rows[0]?.attempt_id).toBeDefined();
       expect(rows[0]).not.toHaveProperty("invocation_id");
     });
   });

@@ -312,6 +312,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           args.onStepRunCreated,
         );
         totalIterationsConsumed += shrinkResult.iterationsConsumed;
+        lastResult = shrinkResult;
+        lastStepId = step.stepId;
         if (shrinkResult.kind === "complete" && (shrinkResult as WriteLoopResult).completionAgent) {
           completionAgent = (shrinkResult as WriteLoopResult).completionAgent;
         }

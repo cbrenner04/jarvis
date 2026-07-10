@@ -35,11 +35,11 @@ and override logic ever runs, because `v1/src/cli.ts:183`'s
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 intent --agent <name>[:<model>] <seed>` no longer errors with
+- [x] `jarvis1 intent --agent <name>[:<model>] <seed>` no longer errors with
       `intent: --agent is not supported`.
-- [ ] `parseArgs(["intent", "--agent", "codex:gpt-5.5", "seed.md"])` returns
+- [x] `parseArgs(["intent", "--agent", "codex:gpt-5.5", "seed.md"])` returns
       `agentFlag: "codex:gpt-5.5"` on the parsed result.
-- [ ] `config --agent claude show` still errors with `--agent is not
+- [x] `config --agent claude show` still errors with `--agent is not
       supported` (unsupported subcommand behavior unchanged).
 
 ## Documentation updates

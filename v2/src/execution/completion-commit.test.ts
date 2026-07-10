@@ -144,13 +144,7 @@ describe("createCompletionCommitter", () => {
 
     expect(result.filesChanged).toBe(3);
     const diffCall = calls.find((c) => c.args[0] === "diff-tree");
-    expect(diffCall?.args).toEqual([
-      "diff-tree",
-      "--no-renames",
-      "--name-only",
-      "base-head^{tree}",
-      "new-tree",
-    ]);
+    expect(diffCall?.args).toEqual(["diff-tree", "--no-renames", "--name-only", "base-head^{tree}", "new-tree"]);
 
     const noChangeGit = (_cwd: string, args: readonly string[]): string => {
       if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;

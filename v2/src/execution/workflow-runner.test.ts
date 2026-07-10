@@ -15,6 +15,7 @@ import {
   trackedTempRoots,
   withStateStore,
 } from "../testing/write-fixtures.ts";
+import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import {
   executeWorkflow,
   type HumanWorkflowStep,
@@ -23,7 +24,6 @@ import {
   type WorkflowStepInput,
   type WriteWorkflowStep,
 } from "./workflow-runner.ts";
-import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 
 const { roots } = trackedTempRoots();
 const DEFAULT_AGENT_MODEL_CONFIG = {

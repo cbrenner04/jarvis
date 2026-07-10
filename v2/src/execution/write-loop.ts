@@ -15,11 +15,7 @@ import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
-import {
-  boundaryStampFromStoredRun,
-  emitWorkBoundaryRecorded,
-  type BoundaryStamp,
-} from "./work-boundary-telemetry.ts";
+import { type BoundaryStamp, boundaryStampFromStoredRun, emitWorkBoundaryRecorded } from "./work-boundary-telemetry.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";
 
 const WRITE_LOOP_OUTCOME_KINDS = [
@@ -146,12 +142,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           if (published.commitSha === undefined) {
             return prepared.result;
           }
-          return withBoundaryTelemetry(
-            args,
-            prepared.result,
-            published.commitSha,
-            published.filesChanged,
-          );
+          return withBoundaryTelemetry(args, prepared.result, published.commitSha, published.filesChanged);
         } catch {
           return completionCommitFailed(args, prepared.result);
         }

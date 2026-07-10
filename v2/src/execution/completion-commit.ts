@@ -75,12 +75,7 @@ export function createCompletionCommitter(runGit: Git = git): CompletionCommitte
         unlinkSync(pendingPath);
         return {
           commitSha: pending.commitSha,
-          filesChanged: countFilesChanged(
-            runGit,
-            input.worktreePath,
-            `${pending.baseHead}^{tree}`,
-            pending.tree,
-          ),
+          filesChanged: countFilesChanged(runGit, input.worktreePath, `${pending.baseHead}^{tree}`, pending.tree),
         };
       }
 

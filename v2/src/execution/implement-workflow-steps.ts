@@ -1,4 +1,5 @@
-import { findProjectMatchForPath } from "../../../v1/src/config.ts";
+import { findProjectMatch, type ProjectMatch } from "../../../shared/project-registry.ts";
+import { readProjectRegistry } from "../config/machine-config-loader.ts";
 import { loadWorkflowSteps as realLoadWorkflowSteps, type WorkflowSourceStep } from "./workflow-loader.ts";
 import { type AnyWorkflowStep, resolveWorkflowPreset } from "./workflow-runner.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
@@ -14,7 +15,7 @@ export type BuildImplementWorkflowStepsInput = {
 
 /** Test-only seams for project resolution and machine-config loading. */
 export type BuildImplementWorkflowStepsDeps = {
-  findProjectMatchForPath?: typeof findProjectMatchForPath;
+  resolveProjectMatch?: (p: string) => ProjectMatch | undefined;
   loadWorkflowSteps?: typeof realLoadWorkflowSteps;
 };
 
@@ -25,7 +26,7 @@ export function buildImplementWorkflowSteps(
   input: BuildImplementWorkflowStepsInput,
   deps: BuildImplementWorkflowStepsDeps = {},
 ): BuildImplementWorkflowStepsResult {
-  const resolveProjectMatch = deps.findProjectMatchForPath ?? findProjectMatchForPath;
+  const resolveProjectMatch = deps.resolveProjectMatch ?? ((p: string) => findProjectMatch(p, readProjectRegistry()));
   const loadSteps = deps.loadWorkflowSteps ?? realLoadWorkflowSteps;
 
   const match = resolveProjectMatch(input.cwd);

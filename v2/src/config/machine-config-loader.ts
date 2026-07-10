@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { MACHINE_CONFIG_PATH } from "../paths.ts";
 
 export function readMachineConfigDocument(
@@ -56,6 +57,24 @@ export function loadMachineConfig(configPath: string = MACHINE_CONFIG_PATH): str
   }
 
   return parsed.agents as string[];
+}
+
+export function readProjectRegistry(configPath: string = MACHINE_CONFIG_PATH): Record<string, ProjectRegistryEntry> {
+  const parsed = readMachineConfigDocument(configPath);
+  const projects = parsed?.projects;
+  if (typeof projects !== "object" || projects === null || Array.isArray(projects)) {
+    return {};
+  }
+
+  const registry: Record<string, ProjectRegistryEntry> = {};
+  for (const [key, value] of Object.entries(projects)) {
+    if (typeof value !== "object" || value === null) continue;
+    const root = (value as Record<string, unknown>).root;
+    if (typeof root !== "string" || root === "") continue;
+    const origin = (value as Record<string, unknown>).origin;
+    registry[key] = typeof origin === "string" ? { root, origin } : { root };
+  }
+  return registry;
 }
 
 export function resolveMachineProfile(configPath: string = MACHINE_CONFIG_PATH): string {

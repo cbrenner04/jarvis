@@ -8,10 +8,13 @@ import { connectIpcClient } from "./client.ts";
 import { encodeFrame } from "./codec.ts";
 import { type IpcServer, startIpcServer } from "./server.ts";
 
-// Judgment call (2026-07-05): the deleted `ipc.sandbox-unrunnable.test.ts` caused
-// `v2-test-runner-unbounded-spawn` flakes. Transport RPC coverage stays in-process here;
-// `daemon.sandbox-unrunnable.test.ts` carries the one irreducible real-process/socket
-// smoke test for this subsystem's wire boundary. Not restoring a second real-subprocess test here.
+// Real unix sockets are the behavior under test: this is the transport suite (framing,
+// correlation, multi-client, drain/close semantics), so it carries the sandbox-unrunnable
+// suffix and runs in the integration slice.
+// Judgment call (2026-07-05, retained): an earlier subprocess-spawning variant of this file
+// caused `v2-test-runner-unbounded-spawn` flakes. All tests here stay in-process (server and
+// client in one process over a real socket); `daemon.sandbox-unrunnable.test.ts` carries the
+// one irreducible real-subprocess smoke. Do not reintroduce subprocess spawning here.
 if (socketProbeErrored) {
   process.stderr.write("skip: IPC tests require socket support in /tmp\n");
 }

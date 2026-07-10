@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve, sep } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
+import { findProjectMatch } from "../../shared/project-registry.ts";
 import { AGENT_NAMES, type AgentName, isAgentName, validateAgentOrderEntries } from "./agent-order-validation.ts";
 
 export type { AgentName };
@@ -995,25 +996,7 @@ export function findProjectForPath(p: string, opts?: ConfigOptions): Project | u
 }
 
 export function findProjectMatchForPath(p: string, opts?: ConfigOptions): ProjectMatch | undefined {
-  const target = resolve(p);
-  const cfg = loadConfig(opts);
-  let best: ProjectMatch | undefined;
-  let bestLen = -1;
-  for (const [key, project] of Object.entries(cfg.projects)) {
-    const root = project.root;
-    const prefix = root.endsWith(sep) ? root : root + sep;
-    if (target === root || target.startsWith(prefix)) {
-      if (root.length > bestLen) {
-        const match: ProjectMatch = { key, root };
-        if (project.origin !== undefined) {
-          match.origin = project.origin;
-        }
-        best = match;
-        bestLen = root.length;
-      }
-    }
-  }
-  return best;
+  return findProjectMatch(p, loadConfig(opts).projects);
 }
 
 export function openSessionLog(namespace: string, timestamp: string, opts?: ConfigOptions): number {

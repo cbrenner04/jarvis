@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { isWorktreeDirty } from "../../../shared/git.ts";
-import { createAgentBindings, createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
+import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
 import { resolveMachineProfile } from "../config/machine-config-loader.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
@@ -136,45 +136,46 @@ export function createRunExecutionFailureReporter(logsPath: string): (runId: str
   };
 }
 
-function resolveWriteLoopBindings(input: WriteLoopInput): WriteLoopInput {
+export type ResolvedWriteLoopInput = { ok: true; input: WriteLoopInput } | { ok: false; message: string };
+
+/**
+ * Bindings crossing a JSON boundary must arrive as `bindingResolution` context and be
+ * re-resolved here; serialized binding husks (post-JSON objects without `invoke`) are
+ * rejected rather than stubbed.
+ */
+export function resolveWriteLoopBindings(input: WriteLoopInput): ResolvedWriteLoopInput {
   const context = input.bindingResolution;
   if (context !== undefined) {
+    try {
+      return {
+        ok: true,
+        input: {
+          ...input,
+          bindings: resolveInvocationBindings(
+            resolveExecutableRole(context.role),
+            context.agents,
+            context.agentModelConfig,
+            createResolvedAgentBinding,
+          ),
+        },
+      };
+    } catch (err) {
+      return { ok: false, message: `Unable to resolve bindings: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  }
+
+  const hasHusk = input.bindings.some(
+    (binding) =>
+      typeof binding !== "object" || binding === null || typeof (binding as { invoke?: unknown }).invoke !== "function",
+  );
+  if (input.bindings.length > 0 && hasHusk) {
     return {
-      ...input,
-      bindings: resolveInvocationBindings(
-        resolveExecutableRole(context.role),
-        context.agents,
-        context.agentModelConfig,
-        createResolvedAgentBinding,
-      ),
+      ok: false,
+      message: "input carries serialized bindings without bindingResolution (role, agents, agentModelConfig)",
     };
   }
 
-  return rehydrateAdHocBindings(input);
-}
-
-function rehydrateAdHocBindings(input: WriteLoopInput): WriteLoopInput {
-  const bindingIds = input.bindings
-    .map((binding) => {
-      if (typeof binding !== "object" || binding === null) return null;
-      const id = "id" in binding ? binding.id : undefined;
-      return typeof id === "string" ? id : null;
-    })
-    .filter((id): id is string => id !== null);
-
-  const everyBindingCanInvoke = input.bindings.every(
-    (binding) =>
-      typeof binding === "object" && binding !== null && "invoke" in binding && typeof binding.invoke === "function",
-  );
-
-  if (everyBindingCanInvoke || bindingIds.length === 0) {
-    return input;
-  }
-
-  return {
-    ...input,
-    bindings: createAgentBindings(bindingIds),
-  };
+  return { ok: true, input };
 }
 
 /**
@@ -254,8 +255,14 @@ export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDel
       continue;
     }
 
+    const resolved = resolveWriteLoopBindings(run.queuedInput);
+    if (!resolved.ok) {
+      store.setRunStatus(run.id, "failed");
+      continue;
+    }
+
     store.setRunStatus(run.id, "in-progress");
-    spawnWriteLoop(key, run.id, run.worktreePath, resolveWriteLoopBindings(run.queuedInput));
+    spawnWriteLoop(key, run.id, run.worktreePath, resolved.input);
     settleState.suppressedUntil = Date.now() + settleDelayMs();
     return;
   }
@@ -427,7 +434,11 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   };
 
   const handleWriteLoopStart = (rawInput: WriteLoopInput): StartResult => {
-    const input = resolveWriteLoopBindings(rawInput);
+    const resolved = resolveWriteLoopBindings(rawInput);
+    if (!resolved.ok) {
+      return { kind: "error", code: "invalid_params", message: resolved.message };
+    }
+    const input = resolved.input;
     const key: OwnershipKey = {
       project: input.worktree.projectName,
       branch: input.worktree.branchName,

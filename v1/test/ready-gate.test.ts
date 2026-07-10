@@ -80,6 +80,15 @@ describe("resolveReadyTestScope", () => {
 
     expect(resolveReadyTestScope(dir, baseSha)).toEqual(["test:v1", "test:integration:v1"]);
   });
+
+  test("returns empty scope for docs-only diff since merge-base", () => {
+    const baseSha = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim();
+    mkdirSync(join(dir, "v2", "docs"), { recursive: true });
+    writeFileSync(join(dir, "v2", "docs", "note.md"), "# note\n");
+    execSync("git add v2/docs/note.md && git commit -m docs", { cwd: dir });
+
+    expect(resolveReadyTestScope(dir, baseSha)).toEqual([]);
+  });
 });
 
 describe("runReadyAndCommit", () => {
@@ -404,6 +413,31 @@ describe("runReadyAndCommit readyCommand", () => {
     });
 
     expect(readFileSync(scopeFile, "utf8").trim()).toBe("test:v1 test:integration:v1");
+  });
+
+  test("passes empty JARVIS_READY_TEST_SCOPE for docs-only diff when baseBranch is given", () => {
+    const scopeFile = join(sentinelDir, "scope-docs.txt");
+    const script = join(sentinelDir, "ready-scope-docs.sh");
+    writeFileSync(script, `#!/bin/sh\necho "$JARVIS_READY_TEST_SCOPE" > "${scopeFile}"\n`);
+    chmodSync(script, 0o755);
+
+    const baseSha = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim();
+    mkdirSync(join(dir, "v1", "spec"), { recursive: true });
+    writeFileSync(join(dir, "v1", "spec", "note.md"), "# note\n");
+    execSync("git add v1/spec/note.md && git commit -m docs", { cwd: dir });
+
+    runReadyAndCommit({
+      cwd: dir,
+      timeoutMs: 30_000,
+      tier: "fast",
+      readyCommand: script,
+      baseBranch: baseSha,
+      runFix: () => {
+        throw new Error("fix should not run on fast tier");
+      },
+    });
+
+    expect(readFileSync(scopeFile, "utf8").trim()).toBe("");
   });
 
   test("error message names the readyCommand on failure", () => {

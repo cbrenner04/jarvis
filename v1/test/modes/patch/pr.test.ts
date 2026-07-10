@@ -366,10 +366,10 @@ describe("updatePrBody", () => {
 });
 
 describe("maybeMarkReady", () => {
-  test("returns early when subspecs are not complete", () => {
+  test("returns early when subspecs are not complete", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
 
-    expect(() =>
+    await expect(
       maybeMarkReady({
         indexPath,
         cwd: dir,
@@ -377,42 +377,40 @@ describe("maybeMarkReady", () => {
         branchName: "feature",
         checkPrExists: () => true,
       }),
-    ).not.toThrow();
+    ).resolves.toBeUndefined();
   });
 
-  test("calls markReady when all subspecs complete", () => {
+  test("calls markReady when all subspecs complete", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n- [x] [01 - two](./01-two.md)\n");
 
     let markReadyCalled = false;
     let markReadyBranch = "";
     let markReadyCwd = "";
 
-    expect(() => {
-      maybeMarkReady({
-        indexPath,
-        cwd: dir,
-        timeoutMs: 30_000,
-        branchName: "feature",
-        checkPrExists: () => true,
-        checkBaseCurrent: currentBase(),
-        markReady: (branch, cwd) => {
-          markReadyCalled = true;
-          markReadyBranch = branch;
-          markReadyCwd = cwd;
-        },
-      });
-    }).not.toThrow();
+    await maybeMarkReady({
+      indexPath,
+      cwd: dir,
+      timeoutMs: 30_000,
+      branchName: "feature",
+      checkPrExists: () => true,
+      checkBaseCurrent: currentBase(),
+      markReady: (branch, cwd) => {
+        markReadyCalled = true;
+        markReadyBranch = branch;
+        markReadyCwd = cwd;
+      },
+    });
 
     expect(markReadyCalled).toBe(true);
     expect(markReadyBranch).toBe("feature");
     expect(markReadyCwd).toBe(dir);
   });
 
-  test("propagates errors from markReady", () => {
+  test("propagates errors from markReady", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
 
     const multilineError = "bun run ready failed:\nsrc/foo.ts(1,1): error TS2345: ...\nFound 1 error.";
-    expect(() =>
+    await expect(
       maybeMarkReady({
         indexPath,
         cwd: dir,
@@ -424,13 +422,13 @@ describe("maybeMarkReady", () => {
           throw new Error(multilineError);
         },
       }),
-    ).toThrow(multilineError);
+    ).rejects.toThrow(multilineError);
   });
 
-  test("throws when no PR exists for the branch", () => {
+  test("throws when no PR exists for the branch", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
 
-    expect(() =>
+    await expect(
       maybeMarkReady({
         indexPath,
         cwd: dir,
@@ -438,16 +436,16 @@ describe("maybeMarkReady", () => {
         branchName: "feature",
         checkPrExists: () => false,
       }),
-    ).toThrow("cannot mark PR ready: no PR found");
+    ).rejects.toThrow("cannot mark PR ready: no PR found");
   });
 
-  test("autoIntegrateBase merges behind base on conflict-free completion", () => {
+  test("autoIntegrateBase merges behind base on conflict-free completion", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
 
     let integrateCalled = false;
     let ghReadyCalled = false;
 
-    maybeMarkReady({
+    await maybeMarkReady({
       indexPath,
       cwd: dir,
       timeoutMs: 30_000,
@@ -471,13 +469,13 @@ describe("maybeMarkReady", () => {
     expect(ghReadyCalled).toBe(false);
   });
 
-  test("blocks ready flip when branch is behind base", () => {
+  test("blocks ready flip when branch is behind base", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
 
     let markReadyCalled = false;
     let stderr = "";
 
-    maybeMarkReady({
+    await maybeMarkReady({
       indexPath,
       cwd: dir,
       timeoutMs: 30_000,
@@ -498,13 +496,13 @@ describe("maybeMarkReady", () => {
     expect(stderr).toContain("PR stays draft");
   });
 
-  test("blocks ready flip when branch diverged from base", () => {
+  test("blocks ready flip when branch diverged from base", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
 
     let ghPrReadyCalled = false;
     let stderr = "";
 
-    maybeMarkReady({
+    await maybeMarkReady({
       indexPath,
       cwd: dir,
       timeoutMs: 30_000,
@@ -531,7 +529,7 @@ describe("maybeMarkReady", () => {
   // runReadyGateWithTier which shells out to git via readPorcelain / getCurrentHeadSha
   // with no injectable seam — a minimal real git repo is required for these.
 
-  test("(a) runFix leaves clean tree -> commitPreReadyFix not called, ghPrReady called", () => {
+  test("(a) runFix leaves clean tree -> commitPreReadyFix not called, ghPrReady called", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n- [x] [01 - two](./01-two.md)\n");
     setupMinimalGitRepo();
 
@@ -541,11 +539,12 @@ describe("maybeMarkReady", () => {
     let ghPrReadyCalled = false;
     let ghPrReadyBranch = "";
 
-    maybeMarkReady({
+    await maybeMarkReady({
       indexPath,
       cwd: dir,
       timeoutMs: 30_000,
       branchName: "feature",
+      baseBranch: "main",
       checkPrExists: () => true,
       checkBaseCurrent: currentBase(),
       agentLabel: "test-agent",
@@ -571,7 +570,7 @@ describe("maybeMarkReady", () => {
     expect(ghPrReadyBranch).toBe("feature");
   });
 
-  test("recorded green on unchanged tree runs fast tier before gh pr ready", () => {
+  test("recorded green on unchanged tree runs fast tier before gh pr ready", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n- [x] [01 - two](./01-two.md)\n");
     setupMinimalGitRepo();
     const headSha = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim();
@@ -579,11 +578,12 @@ describe("maybeMarkReady", () => {
     const tiers: string[] = [];
     let ghPrReadyCalled = false;
 
-    maybeMarkReady({
+    await maybeMarkReady({
       indexPath,
       cwd: dir,
       timeoutMs: 30_000,
       branchName: "feature",
+      baseBranch: "main",
       checkPrExists: () => true,
       checkBaseCurrent: currentBase(),
       recordedGreenResult: { headSha },
@@ -599,7 +599,7 @@ describe("maybeMarkReady", () => {
     expect(ghPrReadyCalled).toBe(true);
   });
 
-  test("(b) runFix dirties tree -> commitPreReadyFix called with correct args before runReady, then ghPrReady", () => {
+  test("(b) runFix dirties tree -> commitPreReadyFix called with correct args before runReady, then ghPrReady", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
     setupMinimalGitRepo();
 
@@ -608,11 +608,12 @@ describe("maybeMarkReady", () => {
     let commitPreReadyFixAgentLabel = "";
     let ghPrReadyCalled = false;
 
-    maybeMarkReady({
+    await maybeMarkReady({
       indexPath,
       cwd: dir,
       timeoutMs: 30_000,
       branchName: "feature",
+      baseBranch: "main",
       checkPrExists: () => true,
       checkBaseCurrent: currentBase(),
       agentLabel: "my-agent",
@@ -641,19 +642,20 @@ describe("maybeMarkReady", () => {
     expect(ghPrReadyCalled).toBe(true);
   });
 
-  test("(c) runReady throws -> commitPreReadyFix not called when fix is clean, ghPrReady not called, error propagates", () => {
+  test("(c) runReady throws -> commitPreReadyFix not called when fix is clean, ghPrReady not called, error propagates", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
     setupMinimalGitRepo();
 
     let commitPreReadyFixCalled = false;
     let ghPrReadyCalled = false;
 
-    expect(() =>
+    await expect(
       maybeMarkReady({
         indexPath,
         cwd: dir,
         timeoutMs: 30_000,
         branchName: "feature",
+        baseBranch: "main",
         checkPrExists: () => true,
         checkBaseCurrent: currentBase(),
         runFix: () => {},
@@ -667,25 +669,26 @@ describe("maybeMarkReady", () => {
           ghPrReadyCalled = true;
         },
       }),
-    ).toThrow("runReady failed");
+    ).rejects.toThrow("runReady failed");
 
     expect(commitPreReadyFixCalled).toBe(false);
     expect(ghPrReadyCalled).toBe(false);
   });
 
-  test("(d) commitPreReadyFix throws -> runReady and ghPrReady not called, error propagates", () => {
+  test("(d) commitPreReadyFix throws -> runReady and ghPrReady not called, error propagates", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
     setupMinimalGitRepo();
 
     let runReadyCalled = false;
     let ghPrReadyCalled = false;
 
-    expect(() =>
+    await expect(
       maybeMarkReady({
         indexPath,
         cwd: dir,
         timeoutMs: 30_000,
         branchName: "feature",
+        baseBranch: "main",
         checkPrExists: () => true,
         checkBaseCurrent: currentBase(),
         runFix: () => {
@@ -701,13 +704,13 @@ describe("maybeMarkReady", () => {
           ghPrReadyCalled = true;
         },
       }),
-    ).toThrow("commitPreReadyFix failed");
+    ).rejects.toThrow("commitPreReadyFix failed");
 
     expect(runReadyCalled).toBe(false);
     expect(ghPrReadyCalled).toBe(false);
   });
 
-  test("invokes fixCommand at maybeMarkReady gate site", () => {
+  test("invokes fixCommand at maybeMarkReady gate site", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
     setupMinimalGitRepo();
 
@@ -718,11 +721,12 @@ describe("maybeMarkReady", () => {
       writeFileSync(script, `#!/bin/sh\ntouch "${sentinel}"\n`);
       chmodSync(script, 0o755);
 
-      maybeMarkReady({
+      await maybeMarkReady({
         indexPath,
         cwd: dir,
         timeoutMs: 30_000,
         branchName: "feature",
+        baseBranch: "main",
         fixCommand: script,
         checkPrExists: () => true,
         checkBaseCurrent: currentBase(),
@@ -737,7 +741,7 @@ describe("maybeMarkReady", () => {
     }
   });
 
-  test("invokes readyCommand at maybeMarkReady gate site", () => {
+  test("invokes readyCommand at maybeMarkReady gate site", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
     setupMinimalGitRepo();
 
@@ -748,11 +752,12 @@ describe("maybeMarkReady", () => {
       writeFileSync(script, `#!/bin/sh\ntouch "${sentinel}"\n`);
       chmodSync(script, 0o755);
 
-      maybeMarkReady({
+      await maybeMarkReady({
         indexPath,
         cwd: dir,
         timeoutMs: 30_000,
         branchName: "feature",
+        baseBranch: "main",
         readyCommand: script,
         checkPrExists: () => true,
         checkBaseCurrent: currentBase(),
@@ -767,12 +772,12 @@ describe("maybeMarkReady", () => {
     }
   });
 
-  test("fetch/base resolution failure does not block ready flip", () => {
+  test("fetch/base resolution failure does not block ready flip", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
 
     let markReadyCalled = false;
 
-    maybeMarkReady({
+    await maybeMarkReady({
       indexPath,
       cwd: dir,
       timeoutMs: 30_000,

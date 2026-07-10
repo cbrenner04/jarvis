@@ -1361,7 +1361,7 @@ describe("cleanupCommand root-archival pass", () => {
   test("runs the root-archival scan even with zero merged worktrees to remove", () => {
     const { io, out } = captureIo();
     const name = "root-zero-removed";
-    const source = writeRootSpec(name, completeSpec(name));
+    const _source = writeRootSpec(name, completeSpec(name));
     const destination = join(projectRoot, "spec", "completed", name);
     const runner = fakeRunner({});
 

@@ -11,11 +11,13 @@ existing call site passes it yet, so no default behavior changes here.
 - Reuse `classifyChangedPaths` directly; no reimplementation of path
   classification in `v1/src`.
 - New `resolveReadyTestScope(cwd, baseBranch)` in `v1/src/ready-gate.ts`
-  resolves `git merge-base <baseBranch> HEAD`, then classifies paths from
-  `git diff --name-only <mergeBase>` (working tree, not `HEAD` only) — includes
-  uncommitted changes already on disk when the gate runs, not just committed
-  diff, since the gate's own pre-ready fix step may have produced uncommitted
-  edits by the time scoping is decided.
+  resolves `git merge-base <baseBranch> HEAD`, then classifies paths from the
+  union of `git diff --name-only <mergeBase>` and untracked files (e.g. `git
+  status --porcelain` entries not already covered by the diff) — includes
+  uncommitted changes and new, not-yet-tracked files already on disk when the
+  gate runs, not just committed diff, since the gate's own pre-ready fix step
+  may have produced uncommitted edits (including new files) by the time
+  scoping is decided.
 - Merge-base resolution failure (unfetched/unmerged base, ad-hoc checkout)
   returns `"full"` — mirrors CI's `RESOLVABLE=false` fallback.
 - `RunReadyAndCommitOpts` and `runReadyGateWithTier`'s opts gain an optional
@@ -43,6 +45,17 @@ existing call site passes it yet, so no default behavior changes here.
       branch's merge-base can't be resolved, and otherwise returns
       `classifyChangedPaths`'s result for the paths changed since merge-base
       (including uncommitted working-tree changes).
+- [ ] Given a merge-base with only `v1/**` files changed (tracked diff),
+      `resolveReadyTestScope` returns the `v1`-surface scope (`test:v1` +
+      `test:integration:v1`), not `"full"`.
+- [ ] Given a merge-base where the only change is a new, untracked file under
+      `v1/**` (not yet `git add`ed), `resolveReadyTestScope` still includes
+      that path in classification and returns the `v1`-surface scope, not
+      `"full"`.
+- [ ] Given a diff touching both `v1/**` and `v2/**`, `getReadyCommands`
+      substitutes one `bun run <script>` step per resolved script (e.g.
+      `test:v1`, `test:v2`, `test:integration:v2`) in place of the single
+      `bun run test` step.
 - [ ] `RunReadyAndCommitOpts.baseBranch` is optional; omitting it leaves
       `runReadyAndCommit`/`runReadyGateWithTier` behavior unchanged (full,
       unscoped `bun run test`), verified by existing `ready-gate.test.ts`

@@ -19,6 +19,11 @@ scope — not named in the intent.
   for another purpose (review baseline's later diff, review final, `pr.ts`'s
   `branch`), hoist that resolution above the gate call and reuse the same
   value rather than resolving twice.
+- Review baseline and review final share the same resolved `baseBranch`
+  string, but each independently re-runs `resolveReadyTestScope` against its
+  own diff at its own call time — the two gates can therefore scope to
+  different test scripts if the working tree changes between them (e.g. the
+  fix step lands new edits between baseline and final).
 - Call sites wired: completion transition (`completion-pipeline.ts`), review
   baseline and review final (`review.ts`), pre-shrink (`shrink.ts`),
   `maybeMarkReady` (`patch/pr.ts`), triage (`commands/triage.ts`).
@@ -38,6 +43,9 @@ scope — not named in the intent.
       (+ `test:integration:v1`) instead of the full aggregate suite; a diff
       touching `shared/**` still runs the full suite (`classifyChangedPaths`'s
       existing `shared/**` → full rule, unchanged).
+- [ ] A diff touching only docs/specs (empty scope) run through one real gate
+      call site (e.g. completion-transition) drops the test step entirely and
+      the gate completes without error.
 - [ ] `v1/test/ready-gate.test.ts` and each touched call site's existing test
       file stay green.
 
@@ -49,3 +57,7 @@ scope — not named in the intent.
   scoped slices" note) to record that these six gate call sites now scope the
   test step by changed path via `classifyChangedPaths`, falling back to full
   when the base can't be resolved; CI's own scoping is unchanged.
+- Same doc: note that scoped per-surface test steps (`test:v1`, `test:v2`, …)
+  run without the serial-retry-on-flake safety net the unscoped `bun run
+  test` step has — a behavior regression traded for scoping, per 00's
+  deferred-first-consumer decision.

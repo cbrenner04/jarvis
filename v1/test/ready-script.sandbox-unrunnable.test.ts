@@ -49,13 +49,22 @@ async function withEnvAsync(key: string, value: string | undefined, fn: () => Pr
     process.env[key] = value;
   }
   try {
-    await fn();
+    // runReady reads its environment before its first await. Restore it before
+    // the async test body yields so concurrent tests cannot inherit the override.
+    const pending = fn();
+    restoreEnv(key, prev);
+    await pending;
+    return;
   } finally {
-    if (prev === undefined) {
-      delete process.env[key];
-    } else {
-      process.env[key] = prev;
-    }
+    restoreEnv(key, prev);
+  }
+}
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key];
+  } else {
+    process.env[key] = value;
   }
 }
 

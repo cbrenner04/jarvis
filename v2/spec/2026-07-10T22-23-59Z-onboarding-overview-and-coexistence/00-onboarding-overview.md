@@ -15,7 +15,7 @@ reader to the `jarvis1` vs `jarvis` split or the v2 vocabulary.
 - Frame v2 as opt-in and in-progress (the `jarvis` binary currently answers `v2 not ready` / `--version`). Rules out presenting v2 as a ready orchestration layer a newcomer should adopt for daily work.
 - Link-first: link to `v2/docs/` for workflow/behavior/role definitions rather than restating them. Rules out duplicating `v2-architecture.md` / `role-resolution.md` content.
 - "When to reach for each": state that today the answer is always `jarvis1`; `jarvis` is opt-in and in-progress with nothing to adopt for daily work yet. Rules out inventing a v2 daily-use case for capability that does not exist (v2 answers only `v2 not ready` / `--version`).
-- First-run walkthrough link points at the README Quickstart, which exists on `main` today. Rules out linking a `v2/docs/` walkthrough doc that lives only on an unmerged branch (a silent dead link `lint:md` cannot catch — MD051 is off). `Deferred to first consumer: swap the walkthrough link to the dedicated `v2/docs/` walkthrough doc — pin when that doc lands on `main``.
+- First-run walkthrough link points at the README Quickstart, which exists on `main` today. Rules out linking a `v2/docs/` walkthrough doc that lives only on an unmerged branch (a silent dead link `lint:md` cannot catch — MD051 is off). `Deferred to first consumer: swap the walkthrough link to the dedicated`v2/docs/` walkthrough doc — pin when that doc lands on `main``.
 - The onboarding page owns the user-level orientation framing ("drives a coding-agent CLI; does not implement an agent"); the README intro may restate the one line but defers to onboarding for orientation. Rules out a future editor treating the shared line as accidental drift to dedupe.
 
 ## Task checklist

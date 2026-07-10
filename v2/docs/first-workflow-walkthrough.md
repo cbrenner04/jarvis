@@ -16,8 +16,8 @@ Before starting:
    matching `config/machines/<profile>.json` with role bindings, and agent
    fallback order configured (`jarvis config show`). See
    [`agent-model-config.md`](./agent-model-config.md).
-2. **Project registry** — target repo registered in `~/.jarvis/config.json` so
-   `--project-root` and `--project` resolve.
+2. **Project flags** — `--project-root` is the path to the target repo;
+   `--project` is a free-text label. No prior registration is required.
 3. **GitHub CLI** — `gh auth status` succeeds (completion publishing gates on it).
 4. **`origin` remote** — target repo has a GitHub `origin` remote; completion
    pushes with `git push -u origin <branch>` when upstream is unset.
@@ -101,7 +101,12 @@ transcript — values refresh every second):
   optional `loopOutcomeKind`, `iterationsConsumed`, and `resumable`. Shows
   `Waiting for <run-id>...` while `wait` is pending.
 - **Steering feedback** — inline `<code>: <message>` after a steering RPC
-  failure.
+  failure, triggered by the interactive keys below.
+
+Keys act on the selected run: `k` kills any live run; `a` (approve) and `v`
+(revise, then type a prompt and Enter) only apply to `awaiting-human` runs —
+not reachable via this ad-hoc walkthrough, which uses `jarvis run start`
+rather than a workflow with human-approval steps.
 
 Quit with `q` or Ctrl-C.
 

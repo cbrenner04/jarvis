@@ -9,6 +9,7 @@ export type BuildPromptExtras = {
   repoGuidance?: string;
   activeSubspecPath?: string;
   activeSubspecBody?: string;
+  timeoutCheckpointContext?: string;
 };
 
 /** Read bounded repo guidance from the registered target repo root. */
@@ -66,6 +67,7 @@ export function buildPrompt(specPath: string, siblings?: string[], extras?: Buil
   const repoGuidance = extras?.repoGuidance ?? "";
   const activeSubspecPath = extras?.activeSubspecPath ?? "";
   const activeSubspecBody = extras?.activeSubspecBody ?? "";
+  const timeoutCheckpointContext = extras?.timeoutCheckpointContext ?? "";
   const activeSubspecPathLine = activeSubspecPath.length > 0 ? `${activeSubspecPath}\n` : "";
 
   let rendered = renderTemplateWithDeclarations(
@@ -77,6 +79,7 @@ export function buildPrompt(specPath: string, siblings?: string[], extras?: Buil
       { name: "ACTIVE_SUBSPEC_PATH", type: "string", required: true },
       { name: "ACTIVE_SUBSPEC_BODY", type: "string", required: true },
       { name: "PATCH_RULES", type: "string", required: true },
+      { name: "TIMEOUT_CHECKPOINT_CONTEXT", type: "string", required: true },
     ],
     {
       SPEC_PATH: specPath,
@@ -85,6 +88,7 @@ export function buildPrompt(specPath: string, siblings?: string[], extras?: Buil
       ACTIVE_SUBSPEC_PATH: activeSubspecPathLine,
       ACTIVE_SUBSPEC_BODY: activeSubspecBody,
       PATCH_RULES: registry.getById("patch.rules").body.trim(),
+      TIMEOUT_CHECKPOINT_CONTEXT: timeoutCheckpointContext,
     },
   );
 
@@ -100,6 +104,12 @@ export function buildPrompt(specPath: string, siblings?: string[], extras?: Buil
       header: "## Active Subspec",
       begin: "<<<ACTIVE_SUBSPEC_BEGIN>>>",
       end: "<<<ACTIVE_SUBSPEC_END>>>",
+    },
+    {
+      content: timeoutCheckpointContext,
+      header: "## Timeout Checkpoint",
+      begin: "<<<TIMEOUT_CHECKPOINT_BEGIN>>>",
+      end: "<<<TIMEOUT_CHECKPOINT_END>>>",
     },
   ];
   for (const section of optionalSections) {

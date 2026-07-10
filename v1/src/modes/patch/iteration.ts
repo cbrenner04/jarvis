@@ -74,6 +74,7 @@ import {
   snapshotAcceptanceCriteria,
   snapshotCommittedAcceptanceCriteria,
 } from "./subspec.ts";
+import { consumeTimeoutCheckpointReceipt, writeTimeoutCheckpointReceipt } from "./timeout-checkpoint.ts";
 
 type LogTag = "harness" | "outbound" | "inbound_stdout" | "inbound_stderr";
 type LogStream = "stdout" | "stderr" | null;
@@ -573,6 +574,24 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
   const task = isFixupIteration ? null : getFirstUncheckedTask(specPath);
   const taskExcerpt = isFixupIteration ? "ready: fix bun run ready failure" : task?.line.slice(0, 140);
   const activeSubspecPath = isFixupIteration ? undefined : getActiveLinkedSubspecPath(specPath);
+  let timeoutCheckpointContext: string | undefined;
+  if (!isFixupIteration && activeSubspecPath !== undefined && gitEnabled) {
+    try {
+      const receipt = consumeTimeoutCheckpointReceipt(agentWorkingDir, activeSubspecPath, (message) => {
+        fanout("harness", `warning: ${message}\n`, "stderr");
+      });
+      if (receipt !== null) {
+        timeoutCheckpointContext =
+          "Partial implementation from the previous iteration-timeout checkpoint is present. Inspect the existing changes and continue that implementation; do not redo work that is already complete.";
+      }
+    } catch (err) {
+      fanout(
+        "harness",
+        `warning: could not inspect timeout checkpoint receipt: ${err instanceof Error ? err.message : String(err)}\n`,
+        "stderr",
+      );
+    }
+  }
   // Capture runStartHead on first iteration for all-human-only guard
   if (gitEnabled && existsSync(join(agentWorkingDir, ".git")) && state.runStartHead === null) {
     state.runStartHead = execFileSync("git", ["rev-parse", "HEAD"], {
@@ -785,6 +804,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           activeSubspecPath !== undefined && existsSync(activeSubspecPath)
             ? readFileSync(activeSubspecPath, "utf8")
             : "",
+        ...(timeoutCheckpointContext === undefined ? {} : { timeoutCheckpointContext }),
       });
   fanout("outbound", prompt, null, {
     iteration,
@@ -976,7 +996,22 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
       captureInterruptedDelta(activeSubspecPath, beforeCriteria, hasBlockerBefore);
       if (!hasUntrackedMutations) {
         try {
-          commitCheckpointOnTimeout(agentWorkingDir, agent.attributionLabel());
+          // Checkpoint any partial progress regardless of spec shape; only an
+          // active subspec gets a resume receipt to surface on the next prompt.
+          if (
+            commitCheckpointOnTimeout(activeSubspecPath, agentWorkingDir, agent.attributionLabel()) &&
+            activeSubspecPath !== undefined
+          ) {
+            try {
+              writeTimeoutCheckpointReceipt(agentWorkingDir, activeSubspecPath);
+            } catch (err) {
+              fanout(
+                "harness",
+                `failed to write timeout checkpoint receipt: ${err instanceof Error ? err.message : String(err)}\n`,
+                "stderr",
+              );
+            }
+          }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           fanout("harness", `failed to commit checkpoint on iteration-timeout: ${message}\n`, "stderr");

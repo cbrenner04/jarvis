@@ -805,6 +805,7 @@ describe("executeWorkflow", () => {
           ACTIVE_SUBSPEC_PATH: "spec.md",
           ACTIVE_SUBSPEC_BODY: "",
           PATCH_RULES: "",
+          TIMEOUT_CHECKPOINT_CONTEXT: "",
         },
       }),
     ]);

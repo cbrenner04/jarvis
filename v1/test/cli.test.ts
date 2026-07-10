@@ -235,6 +235,14 @@ describe("parseArgs", () => {
     });
   });
 
+  test("intent with --agent colon model", () => {
+    expect(parseArgs(["intent", "--agent", "codex:gpt-5.5", "seed.md"])).toEqual({
+      kind: "intent",
+      rest: ["--agent", "codex:gpt-5.5", "seed.md"],
+      agentFlag: "codex:gpt-5.5",
+    });
+  });
+
   test("prompt with text", () => {
     expect(parseArgs(["prompt", "hello world"])).toEqual({
       kind: "prompt",
@@ -291,10 +299,7 @@ describe("parseArgs", () => {
   });
 
   test("unsupported subcommands reject --agent", () => {
-    for (const argv of [
-      ["intent", "--agent", "claude", "seed.md"],
-      ["config", "--agent", "claude", "show"],
-    ] as const) {
+    for (const argv of [["config", "--agent", "claude", "show"]] as const) {
       const parsed = parseArgs([...argv]);
       expect(parsed.kind).toBe("error");
       if (parsed.kind === "error") {
@@ -781,14 +786,14 @@ describe("run", () => {
     }
   });
 
-  test("intent --agent exits 1 with usage error", async () => {
+  test("intent --agent no longer rejected as unsupported", async () => {
     const cap = captureIo();
     const code = await run(["intent", "--agent", "claude", "seed.md"], {
       io: cap.io,
       config: { dir: cfgDir },
     });
     expect(code).toBe(1);
-    expect(cap.err()).toContain("--agent is not supported");
+    expect(cap.err()).not.toContain("--agent is not supported");
   });
 
   test("run/init/config bootstrap the config dir", () => {

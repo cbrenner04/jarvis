@@ -1,7 +1,7 @@
 // Some tests use real subprocesses: the `runCommand` tests (spawn boundary — deadline, exit codes, signals)
 // inherently require real subprocess semantics and cannot be mocked. The worktree digest test uses real git
 // solely for test environment setup. All other subprocess interactions go through the `runCommandFn` seam.
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,6 +22,20 @@ import {
   TIMEOUT_EXIT_CODE,
   writeRecordedInstallDigest,
 } from "../../scripts/ready.ts";
+
+const inheritedReadyTestScope = process.env.JARVIS_READY_TEST_SCOPE;
+
+beforeEach(() => {
+  delete process.env.JARVIS_READY_TEST_SCOPE;
+});
+
+afterEach(() => {
+  if (inheritedReadyTestScope === undefined) {
+    delete process.env.JARVIS_READY_TEST_SCOPE;
+  } else {
+    process.env.JARVIS_READY_TEST_SCOPE = inheritedReadyTestScope;
+  }
+});
 
 function withEnv(key: string, value: string | undefined, fn: () => void): void {
   const prev = process.env[key];

@@ -1,0 +1,162 @@
+import { execFileSync, spawnSync } from "node:child_process";
+
+export type CompletionPublisherInput = {
+  worktreePath: string;
+  baseRef: string;
+  specPath: string;
+  branch: string;
+};
+
+export type CompletionPublisherResult = {
+  pushSha?: string;
+  prNumber?: number;
+};
+
+export type CompletionPublisher = (input: CompletionPublisherInput) => CompletionPublisherResult;
+
+type Git = (cwd: string, args: readonly string[], env?: Record<string, string>) => string;
+type GhCommand = (args: readonly string[], env?: Record<string, string>) => string;
+
+type PublisherSeams = {
+  git: Git;
+  gh: GhCommand;
+};
+
+function defaultGit(cwd: string, args: readonly string[], env?: Record<string, string>): string {
+  return execFileSync("git", args, { cwd, env: { ...process.env, ...env }, encoding: "utf8" }).trim();
+}
+
+function defaultGh(args: readonly string[], env?: Record<string, string>): string {
+  return execFileSync("gh", args, { env: { ...process.env, ...env }, encoding: "utf8" }).trim();
+}
+
+/** Publishes completion commit: push to origin and ensure open draft PR. Retryable on transient failures. */
+export function createCompletionPublisher(seams?: Partial<PublisherSeams>): CompletionPublisher {
+  const git = seams?.git ?? defaultGit;
+  const gh = seams?.gh ?? defaultGh;
+
+  return (input) => {
+    // Single gh auth status probe gates all GitHub operations
+    try {
+      gh(["auth", "status"]);
+    } catch {
+      throw new Error("GitHub auth unavailable; cannot publish PR");
+    }
+
+    const result: CompletionPublisherResult = {};
+
+    // Push with retry
+    const pushSha = publishWithRetry(
+      () => {
+        const hasUpstream = checkHasUpstream(git, input.worktreePath, input.branch);
+        if (hasUpstream) {
+          git(input.worktreePath, ["push"]);
+        } else {
+          git(input.worktreePath, ["push", "-u", "origin", input.branch]);
+        }
+        return git(input.worktreePath, ["rev-parse", "HEAD"]);
+      },
+      "push",
+    );
+
+    if (pushSha) {
+      result.pushSha = pushSha;
+    }
+
+    // PR lookup/creation with retry
+    const prNumber = publishWithRetry(
+      () => findOrCreatePr(gh, input.baseRef, input.branch, input.specPath),
+      "pr",
+    );
+
+    if (prNumber) {
+      result.prNumber = prNumber;
+    }
+
+    return result;
+  };
+}
+
+function checkHasUpstream(git: Git, worktreePath: string, branch: string): boolean {
+  try {
+    git(worktreePath, ["rev-parse", `${branch}@{u}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+type PublishResult<T> = T | null;
+
+function publishWithRetry<T>(
+  operation: () => T,
+  operationName: string,
+): PublishResult<T> {
+  const maxAttempts = 3;
+  const backoffMs = 1000;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return operation();
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      const msg = err.message;
+
+      // Non-fast-forward is permanent
+      if (msg.includes("non-fast-forward") || msg.includes("failed to push some refs")) {
+        throw new Error("Non-fast-forward push rejection; PR head diverged from remote");
+      }
+
+      if (attempt === maxAttempts) {
+        throw err;
+      }
+
+      // Transient retry with backoff
+      // biome-ignore lint/correctness/noConsoleLog: emit retry notice to stderr for operator visibility
+      console.error(`${operationName}: transient network error; retrying (attempt ${attempt + 1}/3)`);
+
+      // Simple synchronous sleep
+      const start = Date.now();
+      while (Date.now() - start < backoffMs) {
+        // Busy wait
+      }
+    }
+  }
+
+  return null;
+}
+
+function findOrCreatePr(gh: GhCommand, baseRef: string, branch: string, specPath: string): number {
+  // Find open PRs for this branch
+  const prListJson = gh(["pr", "list", "--head", branch, "--state", "open", "--json", "number,baseRefName"]);
+  const prs = JSON.parse(prListJson) as Array<{ number: number; baseRefName: string }>;
+
+  // Filter by matching base
+  const matching = prs.filter((pr) => pr.baseRefName === baseRef);
+
+  if (matching.length > 0 && matching[0]) {
+    // Return first matching open PR
+    return matching[0].number;
+  }
+
+  // Create new draft PR
+  const createOutput = gh([
+    "pr",
+    "create",
+    "--draft",
+    "--base",
+    baseRef,
+    "--title",
+    "jarvis: complete run",
+    "--body",
+    `Spec: ${specPath}`,
+  ]);
+
+  // Extract PR number from output (URL or number)
+  const match = createOutput.match(/(?:pull\/|#)?(\d+)/);
+  if (!match || !match[1]) {
+    throw new Error(`Failed to parse PR number from: ${createOutput}`);
+  }
+
+  return Number.parseInt(match[1], 10);
+}

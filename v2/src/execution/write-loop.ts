@@ -117,7 +117,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           });
           if (published.commitSha !== undefined) {
             try {
-              (args.completionPublisher ?? createCompletionPublisher())({
+              await (args.completionPublisher ?? createCompletionPublisher())({
                 worktreePath: getExternalWorktreePath(args.worktree),
                 baseRef: args.worktree.baseRef,
                 specPath: args.specPath,
@@ -261,7 +261,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         });
         if (published.commitSha !== undefined) {
           try {
-            (args.completionPublisher ?? createCompletionPublisher())({
+            await (args.completionPublisher ?? createCompletionPublisher())({
               worktreePath,
               baseRef: args.worktree.baseRef,
               specPath: args.specPath,

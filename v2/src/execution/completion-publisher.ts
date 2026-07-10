@@ -12,14 +12,20 @@ export type CompletionPublisherResult = {
   prNumber?: number;
 };
 
-export type CompletionPublisher = (input: CompletionPublisherInput) => CompletionPublisherResult;
+export type CompletionPublisher = (input: CompletionPublisherInput) => Promise<CompletionPublisherResult>;
 
 type Git = (cwd: string, args: readonly string[], env?: Record<string, string>) => string;
 type GhCommand = (args: readonly string[], env?: Record<string, string>) => string;
+type GhReady = () => boolean;
+type Delay = (ms: number) => Promise<void>;
+type RetryNotice = (message: string) => void;
 
 type PublisherSeams = {
   git: Git;
   gh: GhCommand;
+  ghReady: GhReady;
+  delay: Delay;
+  retryNotice: RetryNotice;
 };
 
 function defaultGit(cwd: string, args: readonly string[], env?: Record<string, string>): string {
@@ -30,38 +36,66 @@ function defaultGh(args: readonly string[], env?: Record<string, string>): strin
   return execFileSync("gh", args, { env: { ...process.env, ...env }, encoding: "utf8" }).trim();
 }
 
+function defaultGhReady(): boolean {
+  try {
+    execFileSync("gh", ["auth", "status"], { env: process.env, encoding: "utf8" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function defaultDelay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function defaultRetryNotice(message: string): void {
+  console.error(message);
+}
+
 /** Publishes completion commit: push to origin and ensure open draft PR. Retryable on transient failures. */
 export function createCompletionPublisher(seams?: Partial<PublisherSeams>): CompletionPublisher {
   const git = seams?.git ?? defaultGit;
   const gh = seams?.gh ?? defaultGh;
+  const ghReady = seams?.ghReady ?? defaultGhReady;
+  const delay = seams?.delay ?? defaultDelay;
+  const retryNotice = seams?.retryNotice ?? defaultRetryNotice;
 
-  return (input) => {
-    // Single gh auth status probe gates all GitHub operations
-    try {
-      gh(["auth", "status"]);
-    } catch {
+  return async (input) => {
+    // Single gh readiness probe gates all GitHub operations
+    if (!ghReady()) {
       throw new Error("GitHub auth unavailable; cannot publish PR");
     }
 
     const result: CompletionPublisherResult = {};
 
     // Push with retry
-    const pushSha = publishWithRetry(() => {
-      const hasUpstream = checkHasUpstream(git, input.worktreePath, input.branch);
-      if (hasUpstream) {
-        git(input.worktreePath, ["push"]);
-      } else {
-        git(input.worktreePath, ["push", "-u", "origin", input.branch]);
-      }
-      return git(input.worktreePath, ["rev-parse", "HEAD"]);
-    }, "push");
+    const pushSha = await publishWithRetry(
+      () => {
+        const hasUpstream = checkHasUpstream(git, input.worktreePath, input.branch);
+        if (hasUpstream) {
+          git(input.worktreePath, ["push"]);
+        } else {
+          git(input.worktreePath, ["push", "-u", "origin", input.branch]);
+        }
+        return git(input.worktreePath, ["rev-parse", "HEAD"]);
+      },
+      "push",
+      delay,
+      retryNotice,
+    );
 
     if (pushSha) {
       result.pushSha = pushSha;
     }
 
     // PR lookup/creation with retry
-    const prNumber = publishWithRetry(() => findOrCreatePr(gh, input.baseRef, input.branch, input.specPath), "pr");
+    const prNumber = await publishWithRetry(
+      () => findOrCreatePr(gh, input.baseRef, input.branch, input.specPath),
+      "pr",
+      delay,
+      retryNotice,
+    );
 
     if (prNumber) {
       result.prNumber = prNumber;
@@ -82,7 +116,12 @@ function checkHasUpstream(git: Git, worktreePath: string, branch: string): boole
 
 type PublishResult<T> = T | null;
 
-function publishWithRetry<T>(operation: () => T, operationName: string): PublishResult<T> {
+async function publishWithRetry<T>(
+  operation: () => T,
+  operationName: string,
+  delay: Delay,
+  retryNotice: RetryNotice,
+): Promise<PublishResult<T>> {
   const maxAttempts = 3;
   const backoffMs = 1000;
 
@@ -102,14 +141,8 @@ function publishWithRetry<T>(operation: () => T, operationName: string): Publish
         throw err;
       }
 
-      // Transient retry with backoff
-      console.error(`${operationName}: transient network error; retrying (attempt ${attempt + 1}/3)`);
-
-      // Simple synchronous sleep
-      const start = Date.now();
-      while (Date.now() - start < backoffMs) {
-        // Busy wait
-      }
+      retryNotice(`${operationName}: transient network error; retrying (attempt ${attempt + 1}/3)`);
+      await delay(backoffMs);
     }
   }
 

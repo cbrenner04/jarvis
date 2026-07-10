@@ -992,7 +992,7 @@ describe("executeWorkflow human steps", () => {
           published.push({ specPath: input.specPath, agent: input.agent });
           return { commitSha: "commit-1" };
         },
-        completionPublisher: () => {
+        completionPublisher: async () => {
           return {};
         },
       });

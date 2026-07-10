@@ -119,6 +119,7 @@ export type WorkflowResult = {
   iterationsConsumed: number;
   resumable: boolean;
   commitSha?: string;
+  completionCommitError?: string;
 };
 
 export type WorkflowRunnerInput = {
@@ -337,7 +338,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           if (published.commitSha !== undefined) {
             (lastResult as WriteLoopResult).commitSha = published.commitSha;
             try {
-              (args.completionPublisher ?? createCompletionPublisher())({
+              await (args.completionPublisher ?? createCompletionPublisher())({
                 worktreePath: getExternalWorktreePath(worktree),
                 baseRef: worktree.baseRef,
                 specPath: completionStep.specPath,
@@ -350,7 +351,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             }
           }
         }
-      } catch {
+      } catch (error) {
         args.logSink?.append(lastResult.runId, {
           kind: "loop_finished",
           loopOutcomeKind: "completion_commit_failed",
@@ -364,6 +365,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           runId: lastResult.runId,
           iterationsConsumed: totalIterationsConsumed,
           resumable: true,
+          completionCommitError: error instanceof Error ? error.message : "completion commit failed",
         };
       }
     }

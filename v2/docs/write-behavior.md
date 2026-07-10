@@ -11,15 +11,23 @@ retryable boundary comprising two operations in sequence: commit, then push+PR.
 **Commit phase:** captures an isolated `git add -A` snapshot, creates one
 `jarvis: complete run` commit with `Spec: <specPath>` and the final successful
 binding's `Jarvis-Agent` trailer, then updates the branch by compare-and-swap.
-Hooks are bypassed. A clean snapshot is a successful no-op and returns no `commitSha`.
+Hooks are bypassed. A clean snapshot with a HEAD that predates this completion
+(no `jarvis: complete run` commit) is a true no-op and returns no `commitSha`.
+A clean snapshot whose HEAD *is* the completion commit — i.e. the commit landed
+on a prior attempt but publication never confirmed success — reports that
+existing `commitSha` again rather than no-op'ing, so resume re-attempts
+publication instead of masking a failed publish as success.
 
-**Push+PR phase:** (when commit succeeds) pushes to origin with upstream detection:
-a branch without upstream tracking uses `git push -u origin <branch>`; a tracked
-branch uses plain `git push`. PR lookup follows: scans for open PRs on the current
-branch, filters by matching base ref (the run's `baseRef`), and reuses the first match
-without mutating its title or body; when no matching open PR exists, creates a new
-draft PR with title `jarvis: complete run` and body `Spec: <specPath>` against `baseRef`.
-Multiple open PRs on the same branch are disambiguated by `baseRef` match; when multiple
+**Push+PR phase:** (when commit succeeds, or resume finds an already-committed
+HEAD) gates on a single injectable `gh` readiness probe (`gh auth status`;
+nonzero exit, including a missing binary, is not-ready) before pushing to origin
+with upstream detection: a branch without upstream tracking uses
+`git push -u origin <branch>`; a tracked branch uses plain `git push`. PR lookup
+follows: scans for open PRs on the current branch, filters by matching base ref
+(the run's `baseRef`), and reuses the first match without mutating its title or
+body; when no matching open PR exists, creates a new draft PR with title
+`jarvis: complete run` and body `Spec: <specPath>` against `baseRef`. Multiple
+open PRs on the same branch are disambiguated by `baseRef` match; when multiple
 match the same base, the first is reused; when none match, a new PR is created.
 When the branch has no origin or push/PR operations are disabled, this phase is skipped.
 
@@ -28,9 +36,11 @@ retryable `completion_commit_failed`, and return exit `1`; `jarvis run resume <r
 may retry without creating a duplicate commit or PR. Non-fast-forward push rejection
 is permanent (no retry). Transient network failures (push, PR lookup, PR creation) retry
 to 3 total attempts with flat 1000 ms backoff between re-attempts and emit
-`<op>: transient network error; retrying (attempt <n>/3)` to stderr. Missing binding
-attribution fails before git mutation. This boundary operates directly in the existing
-external worktree and does not create locks.
+`<op>: transient network error; retrying (attempt <n>/3)` to stderr. Subprocess, backoff
+delay, retry-notice, and `gh`-readiness are each independently injectable seams, so
+publication tests exercise retries and failures without live git/`gh` calls or wall-clock
+delay. Missing binding attribution fails before git mutation. This boundary operates
+directly in the existing external worktree and does not create locks.
 
 Workflows suppress per-step commits and publish once after every step and hidden shrink
 completes, attributed to the final contributor. The publication boundary is identical

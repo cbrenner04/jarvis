@@ -31,16 +31,16 @@ with the real commands and their real output.
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/first-workflow-walkthrough.md` exists and walks one happy path in order: prerequisites → start the daemon → start a run against a spec → observe → steer → draft-PR output.
-- [ ] Every `jarvis` command and flag shown in the doc matches a real command in `v2/src/cli.ts` (no invented commands or flags).
-- [ ] The doc lists prerequisites: agents/models configured, authenticated `gh`, and an `origin` GitHub remote.
-- [ ] The doc runs `jarvis daemon start` before `jarvis run start` and explains `run start` connects to the daemon.
-- [ ] The start section starts the run with `jarvis run start` and its actual required flags (`--project-root`, `--project`, `--branch`, `--base`, `--spec`, `--artifact`), explains what value to pass for `--artifact`, and shows that it prints a run ID.
-- [ ] The doc describes the observable run states a user sees (running → paused → completed / failed / blocked / killed).
-- [ ] The observe section describes what the reader sees in the full-screen `jarvis tui` (its panes / live-state view, not a pasted transcript) and shows the structured log via `jarvis tui log <run-id>` and `jarvis run log <run-id>`, plus `jarvis run list`.
-- [ ] The steer section shows `jarvis run pause <run-id>`, `jarvis run kill <run-id>`, and `jarvis run wait <run-id>`, and states that resuming an *ad-hoc* (`run start`) paused run is not yet implemented (returns `not_implemented`) rather than showing it as a working step.
-- [ ] The output section describes the completed run's draft PR: the single `jarvis: complete run` completion commit carrying a `Spec: <path>` body and one `Jarvis-Agent:` trailer, the draft PR's `Spec: <path>` body, and how to find the branch and PR.
-- [ ] The doc cross-links `v2/docs/daemon-host.md` and `v2/docs/workflow-runner.md` and does not restate their contents.
+- [x] `v2/docs/first-workflow-walkthrough.md` exists and walks one happy path in order: prerequisites → start the daemon → start a run against a spec → observe → steer → draft-PR output.
+- [x] Every `jarvis` command and flag shown in the doc matches a real command in `v2/src/cli.ts` (no invented commands or flags).
+- [x] The doc lists prerequisites: agents/models configured, authenticated `gh`, and an `origin` GitHub remote.
+- [x] The doc runs `jarvis daemon start` before `jarvis run start` and explains `run start` connects to the daemon.
+- [x] The start section starts the run with `jarvis run start` and its actual required flags (`--project-root`, `--project`, `--branch`, `--base`, `--spec`, `--artifact`), explains what value to pass for `--artifact`, and shows that it prints a run ID.
+- [x] The doc describes the observable run states a user sees (running → paused → completed / failed / blocked / killed).
+- [x] The observe section describes what the reader sees in the full-screen `jarvis tui` (its panes / live-state view, not a pasted transcript) and shows the structured log via `jarvis tui log <run-id>` and `jarvis run log <run-id>`, plus `jarvis run list`.
+- [x] The steer section shows `jarvis run pause <run-id>`, `jarvis run kill <run-id>`, and `jarvis run wait <run-id>`, and states that resuming an *ad-hoc* (`run start`) paused run is not yet implemented (returns `not_implemented`) rather than showing it as a working step.
+- [x] The output section describes the completed run's draft PR: the single `jarvis: complete run` completion commit carrying a `Spec: <path>` body and one `Jarvis-Agent:` trailer, the draft PR's `Spec: <path>` body, and how to find the branch and PR.
+- [x] The doc cross-links `v2/docs/daemon-host.md` and `v2/docs/workflow-runner.md` and does not restate their contents.
 
 ## Documentation updates
 

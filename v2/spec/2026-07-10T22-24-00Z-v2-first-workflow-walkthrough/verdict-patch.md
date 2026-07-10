@@ -1,0 +1,9 @@
+## Verdict
+
+Two defects are confirmed against source and must be fixed.
+
+1. **Remove the invented project-registry semantics for `--project-root`/`--project` (blocking, factual error).** No project-registry lookup exists anywhere in `v2/src` for the `run start` path — `parseWriteCliInput` consumes `--project-root` and `--project` as plain CLI arguments (a raw filesystem path and a free-text label), with no `~/.jarvis/config.json` resolution step. The doc's prerequisite describing these flags as needing prior registration in a config registry describes a mechanism that does not exist in v2. This is the same "invented semantics for a real flag" error the spec's flag-verification requirement (AC #2, and the general rule that every command/flag must match `v2/src/cli.ts`) is meant to prevent. Fix: state plainly that `--project-root` is a path to the target repo and `--project` is a free-text label, with no registration step.
+
+2. **Make the TUI steering-feedback description internally consistent.** The doc's Observe section describes a "steering feedback" panel (inline error after a failed steering RPC) without ever explaining what triggers it. `tui-ink-monitor.tsx` wires real interactive keys (`a` approve, `v` revise, `k` kill) that issue those steering RPCs from within the TUI. The doc must state which keys drive steering feedback from inside the TUI, with the caveat that `a`/`v` apply only to `awaiting-human` workflow runs (not reachable via this ad-hoc walkthrough) while `k` works on any live run — so the panel it describes is reproducible rather than a name-dropped UI element with no path to trigger it.
+
+Both are scoped corrections within the existing doc structure — they don't change the spec's core decisions (ad-hoc path choice, single-commit attribution, command/flag surface, cross-links).

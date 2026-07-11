@@ -127,7 +127,7 @@ export type ReviewWorkflowStep = Omit<ReviewCycleInput, "bindings" | "onRoleStar
   agentModelConfig: AgentModelConfig;
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
   /** When configured, landing is deferred until after successful review. */
-  deferredIntentOutput?: { config: IntentOutputConfig; stagingDir: string; invocationId: string };
+  deferredIntentOutput?: { config: IntentOutputConfig; stagingDir: string; invocationId: string; baseRef: string };
 };
 
 /** Live/terminal progress for a review step's daemon-visible row, tracked in-memory only. */
@@ -259,6 +259,7 @@ async function runWorkflowStep(
       onReviewDebateProgress,
       telemetry,
       onStepRunCreated,
+      store,
     );
   }
 
@@ -996,6 +997,20 @@ async function runReviewDebateStep(
   return { kind, runId, iterationsConsumed: result.cycles.length, resumable: false };
 }
 
+/**
+ * A review step's own durable completion checkpoint, keyed like a write/human step's run row.
+ * Retrying any later completion boundary (landing, commit, push, PR, finalization) re-enters
+ * `runReviewStep` for this step; finding a completed checkpoint here resumes past review
+ * without re-invoking critic or actuator.
+ */
+function findCompletedReviewRun(
+  store: StateStore,
+  step: ReviewWorkflowStep,
+): NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>> | undefined {
+  const existing = store.findRunByProjectBranch({ project: step.project, branch: step.branch, stepId: step.stepId });
+  return existing?.status === "completed" ? existing : undefined;
+}
+
 async function runReviewStep(
   step: ReviewWorkflowStep,
   stepIndex: number,
@@ -1003,9 +1018,17 @@ async function runReviewStep(
   onProgress: ((invocationId: string, stepId: string, progress: ReviewProgress) => void) | undefined,
   telemetry: WorkflowTelemetryContext | undefined,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+  store: StateStore,
 ): Promise<ReviewStepOutcome> {
   const { stepId, project, branch, agents, agentModelConfig, createBinding, deferredIntentOutput, ...reviewInput } =
     step;
+
+  const completedRun = findCompletedReviewRun(store, step);
+  if (completedRun !== undefined) {
+    onStepRunCreated?.(stepIndex, completedRun.id);
+    return { kind: "complete", runId: completedRun.id, iterationsConsumed: 0, resumable: false };
+  }
+
   const resolveBindings = createBinding ?? createResolvedAgentBinding;
   const bindings = {
     critic: resolveInvocationBindings("critic", agents.critic, agentModelConfig, resolveBindings),
@@ -1078,7 +1101,7 @@ async function runReviewStep(
       // Run final validation and landing.
       landIntentWorkflowOutput({
         worktreePath,
-        baseRef: "HEAD", // Review doesn't change baseRef; use HEAD.
+        baseRef: deferredIntentOutput.baseRef,
         output: deferredIntentOutput.config,
         invocationId: deferredIntentOutput.invocationId,
       });
@@ -1104,6 +1127,17 @@ async function runReviewStep(
   });
 
   const isFailure = landingError !== undefined || result.kind === "invocation_failure";
+  if (!isFailure) {
+    store.createRun({
+      project,
+      specRef: "",
+      worktreePath: step.cwd,
+      branch,
+      specPath: "",
+      stepId,
+      status: "completed",
+    });
+  }
   const outcome: ReviewStepOutcome = isFailure
     ? {
         kind: "invocation_failure",

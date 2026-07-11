@@ -372,6 +372,7 @@ export async function buildReviewedIntentWorkflowSteps(
               config: writeStep.intentOutput,
               stagingDir: join(worktree, STAGE_DIR),
               invocationId: splitResult.identity.invocationId,
+              baseRef: writeStep.worktree.baseRef,
             },
           }
         : reviewStepBase;

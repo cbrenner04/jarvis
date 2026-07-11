@@ -55,3 +55,13 @@ export function getCurrentBranch(cwd: string, runner: SubprocessRunner = realSub
 export function isWorktreeDirty(cwd: string, runner: SubprocessRunner = realSubprocessRunner): boolean {
   return runner.run("git", ["status", "--porcelain"], cwd).trim().length > 0;
 }
+
+/** True when `cwd` is inside a git working tree; false for plain (git-disabled) directories. */
+export function isGitRepo(cwd: string): boolean {
+  try {
+    execFileSync("git", ["rev-parse", "--is-inside-work-tree"], { cwd, stdio: ["ignore", "pipe", "ignore"] });
+    return true;
+  } catch {
+    return false;
+  }
+}

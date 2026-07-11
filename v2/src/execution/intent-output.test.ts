@@ -69,4 +69,14 @@ describe("landIntentWorkflowOutput", () => {
     expect(result.specPath).toBe(join(root, "ready-intents"));
     expect(existsSync(join(root, ".jarvis-intent-stage"))).toBe(false);
   });
+
+  test("rejects rogue edits without git state", () => {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-intent-output-no-git-"));
+    stage(root);
+    writeFileSync(join(root, "rogue"), "no\n", "utf8");
+    expect(() =>
+      landIntentWorkflowOutput({ worktreePath: root, baseRef: "none", output: { durableDir: "ready-intents" } }),
+    ).toThrow("rogue");
+    expect(readFileSync(join(root, ".jarvis-intent-stage", "one.md"), "utf8")).toContain("name: one");
+  });
 });

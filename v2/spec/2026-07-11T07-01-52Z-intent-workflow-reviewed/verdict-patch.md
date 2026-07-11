@@ -1,0 +1,14 @@
+## Verdict
+
+The following issues are upheld and must be fixed before this spec can be considered done.
+
+**1. Filesystem-isolation enforcement must actually work for git-disabled runs.**
+Boundary checks in `review-intent-enforcement.ts` (and the rogue-file check in `intent-output.ts`) rely on shelling out to `git status`/`git diff` and silently treat any failure (including "not a git repo") as "no changes." When a reviewed-intent run has `output.publish === false`, the working directory is a plain non-git `localPath`, so these git calls throw, get swallowed, and every isolation/rogue-file check trivially passes. This directly contradicts subspec 02's decision that critic/actuator boundaries must be enforced, not assumed from prompt compliance. Required outcome: critic read-only and actuator staging-only boundaries must be detected and enforced regardless of whether the run is git-enabled or git-disabled, and the same must hold for the landing-time rogue-file check.
+
+**2. Retrying after a successful review must not re-run critic/actuator.**
+`runReviewStep` has no durable checkpoint of its own completion, and the durable-run identity table in `buildWorkflowSnapshot` excludes review-behavior steps. As a result, a retry after review succeeds but landing/publish fails would re-invoke the full review cycle against a stage directory that landing may have already consumed or removed. Subspec 02's acceptance criterion — "retrying landing or any later completion boundary after successful review does not invoke critic or actuator again" — is currently unmet despite being marked complete. Required outcome: a persisted checkpoint of successful review completion must exist so that retries of landing, commit, push, PR, or finalization resume post-review without re-invoking critic or actuator, and this behavior must be covered by a test.
+
+**3. Verdict "ownership" must reflect genuine invocation identity.**
+`checkVerdictOwnershipBefore` only distinguishes empty vs. non-empty verdict content and always reports the same fixed "owned" identity — it performs no actual check of which invocation produced the file. Once outcome #2 (durable review checkpointing) is fixed, this becomes exploitable in more cases (any resumed invocation could wrongly treat its own stale verdict as foreign, or vice versa). Required outcome: verdict ownership must be tied to a real invocation identity (e.g., checkpoint/run id), so a pre-existing verdict from the same resumable invocation is distinguishable from a foreign collision, per subspec 02's collision-handling decision.
+
+Lower-priority cleanup (address if convenient, not blocking): the hardcoded `"HEAD"` `baseRef` used for the reviewed landing path is inconsistent with the `completionStep.worktree.baseRef` used elsewhere, and should be unified to avoid a fallback-path inconsistency in `changedPaths`.

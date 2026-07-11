@@ -10,6 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
+import { isGitRepo } from "../../../shared/git.ts";
 import { validateIntentStage } from "../../../shared/intent-stage.ts";
 
 export type IntentOutputConfig = {
@@ -18,29 +19,46 @@ export type IntentOutputConfig = {
 
 export type IntentOutputResult = { specPath: string; files: string[] };
 
-function changedPaths(worktreePath: string, baseRef: string): string[] {
-  try {
-    const status = execFileSync("git", ["status", "--short", "--untracked-files=all"], {
-      cwd: worktreePath,
-      encoding: "utf8",
-    });
-    return status
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => line.slice(3).trim())
-      .filter(Boolean);
-  } catch {
-    try {
-      return execFileSync("git", ["diff", "--name-only", baseRef, "--"], {
-        cwd: worktreePath,
-        encoding: "utf8",
-      })
-        .split("\n")
-        .filter(Boolean);
-    } catch {
-      return [];
+/** Relative file paths currently present under `worktreePath`, excluding `.git`. */
+function listFiles(worktreePath: string, dir: string = worktreePath, out: string[] = []): string[] {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory() && entry.name === ".git") continue;
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      listFiles(worktreePath, full, out);
+    } else if (entry.isFile()) {
+      out.push(relative(worktreePath, full).replace(/\\/g, "/"));
     }
   }
+  return out;
+}
+
+function changedPaths(worktreePath: string, baseRef: string): string[] {
+  if (isGitRepo(worktreePath)) {
+    try {
+      const status = execFileSync("git", ["status", "--short", "--untracked-files=all"], {
+        cwd: worktreePath,
+        encoding: "utf8",
+      });
+      return status
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => line.slice(3).trim())
+        .filter(Boolean);
+    } catch {
+      try {
+        return execFileSync("git", ["diff", "--name-only", baseRef, "--"], {
+          cwd: worktreePath,
+          encoding: "utf8",
+        })
+          .split("\n")
+          .filter(Boolean);
+      } catch {
+        // fall through to a plain filesystem listing
+      }
+    }
+  }
+  return existsSync(worktreePath) ? listFiles(worktreePath) : [];
 }
 
 function failure(message: string): never {
@@ -89,10 +107,16 @@ export function landIntentWorkflowOutput(input: {
     .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
     .map((entry) => entry.name);
   const durablePrefix = `${relative(input.worktreePath, durableDir).replace(/\\/g, "/").replace(/\/$/, "")}/`;
+  const ownershipRelPath = relative(input.worktreePath, ownershipFile).replace(/\\/g, "/");
   const allPaths = changedPaths(input.worktreePath, input.baseRef);
   const rogue = allPaths.filter((path) => {
     if (path === ".jarvis-intent-stage" || path.startsWith(".jarvis-intent-stage/")) return false;
-    return !(path.startsWith(durablePrefix) && stagedNames.includes(path.slice(durablePrefix.length)));
+    if (path === ownershipRelPath) return false;
+    if (path.startsWith(durablePrefix)) {
+      const name = path.slice(durablePrefix.length);
+      return !(stagedNames.includes(name) || ownedFiles.includes(name));
+    }
+    return true;
   });
   if (rogue.length > 0) failure(`intent: splitter wrote outside .jarvis-intent-stage/: ${rogue.join(", ")}`);
   const paths = allPaths.filter((path) => path === ".jarvis-intent-stage" || path.startsWith(".jarvis-intent-stage/"));

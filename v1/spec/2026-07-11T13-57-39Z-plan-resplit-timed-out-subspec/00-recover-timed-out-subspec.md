@@ -28,12 +28,12 @@
 
 ## Acceptance criteria
 
-- [ ] An operator can invoke recovery for one qualifying terminal iteration-timeout record; patch runs and ordinary `jarvis1 plan --resume` leave timed-out subspecs unchanged.
-- [ ] Recovery refuses missing, malformed, idle, run, non-terminal, or other-subspec timeout evidence; malformed, duplicate, completed, missing, and out-of-tree targets; and pending or unsafe timeout-checkpoint work, without changing the selected tree.
-- [ ] Recovery opens a separate spec-only plan branch, worktree, and draft PR, then atomically replaces the selected unchecked task with two or more independently testable collision-safe sibling subspecs; completed neighbors, index order/check state, and resolvable supported structured links are preserved, and the replaced file has no stale structured target.
-- [ ] Drafting or normal spec-tree validation failure leaves the original tree and plan state intact.
-- [ ] Automated coverage proves explicit invocation, evidence/target/checkpoint refusals, replacement reconciliation and atomicity; `v1/test/plan-command.test.ts` resume coverage stays green.
-- [ ] `v2/docs/v1-behaviors.md` canonically records recovery, evidence, checkpoint, lifecycle, and three-timeout-blocker boundaries; `v1/docs/plan-mode.md` documents invocation and links to it; `v1/docs/operator-runbook.md` replaces manual surgery with the supported recovery boundary.
+- [x] An operator can invoke recovery for one qualifying terminal iteration-timeout record; patch runs and ordinary `jarvis1 plan --resume` leave timed-out subspecs unchanged.
+- [x] Recovery refuses missing, malformed, idle, run, non-terminal, or other-subspec timeout evidence; malformed, duplicate, completed, missing, and out-of-tree targets; and pending or unsafe timeout-checkpoint work, without changing the selected tree.
+- [x] Recovery opens a separate spec-only plan branch, worktree, and draft PR, then atomically replaces the selected unchecked task with two or more independently testable collision-safe sibling subspecs; completed neighbors, index order/check state, and resolvable supported structured links are preserved, and the replaced file has no stale structured target.
+- [x] Drafting or normal spec-tree validation failure leaves the original tree and plan state intact.
+- [x] Automated coverage proves explicit invocation, evidence/target/checkpoint refusals, replacement reconciliation and atomicity; `v1/test/plan-command.test.ts` resume coverage stays green.
+- [x] `v2/docs/v1-behaviors.md` canonically records recovery, evidence, checkpoint, lifecycle, and three-timeout-blocker boundaries; `v1/docs/plan-mode.md` documents invocation and links to it; `v1/docs/operator-runbook.md` replaces manual surgery with the supported recovery boundary.
 
 ## Documentation updates
 

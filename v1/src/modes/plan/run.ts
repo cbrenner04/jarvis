@@ -41,6 +41,12 @@ import {
 } from "./boundary.ts";
 import { commitPlanBlocker, commitPlanDraft } from "./commits.ts";
 import { runDraftPhase, validateDraftOutput } from "./draft.ts";
+import {
+  assertRecoveryCheckpointSafe,
+  findRecoveryTarget,
+  hasQualifyingTimeout,
+  validateRecoveryReconciliation,
+} from "./recovery.ts";
 import { stripNonContractIndexLines } from "./index-cleanup.ts";
 import { repairPlanSpecMarkdown } from "./markdown-repair.ts";
 import { createPlanTelemetryWriter, type PlanTelemetryWriter } from "./plan-telemetry.ts";
@@ -54,6 +60,7 @@ import {
 } from "./spec-paths.ts";
 
 export const PLAN_USAGE = `Usage: jarvis1 plan [--review-passes <n>] [--agent <name>[:<model>]] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] [--resume] <targetDir>/ready-intents/<name>.md
+       jarvis1 plan --recover <relative-subspec> <targetDir>/<spec-dir>/index.md
                             Run plan mode (draft specs under spec/…); see docs/plan-mode.md.
 `;
 
@@ -766,6 +773,91 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       planLogClient,
       `plan: resolved flags specTimestamp=${specTimestamp} commit=${commit} targetDir=${targetDir} gitEnabled=${gitEnabled}`,
     );
+
+    if (inv.recover !== undefined) {
+      if (!commit) {
+        opts.io.stderr("recovery: requires committed plan mode\n");
+        return 1;
+      }
+      let target;
+      try {
+        target = findRecoveryTarget(candidatePath, inv.recover);
+        const specDirBasename = basename(dirname(candidatePath));
+        assertRecoveryCheckpointSafe(project.root, specDirBasename);
+        if (!hasQualifyingTimeout(rawCfg.telemetryPath ?? "", project.root, target.subspecPath)) {
+          throw new Error("recovery: no qualifying terminal iteration-timeout for selected subspec");
+        }
+      } catch (err) {
+        opts.io.stderr(`${(err as Error).message}\n`);
+        return 1;
+      }
+
+      const specDirBasename = basename(dirname(candidatePath));
+      const recoveryName = await ensureUniquePlanName(
+        project.root,
+        `recover-${stripPlanSpecTimestampPrefix(specDirBasename)}-${basename(target.subspecPath, ".md")}`,
+        targetDir,
+      );
+      let recoveryWorktree: string;
+      try {
+        recoveryWorktree = await createPlanWorktree({ projectRoot: project.root, name: recoveryName });
+        createWorktreeSymlinks(project.root, recoveryWorktree, rawCfg.worktreeSymlinks);
+      } catch (err) {
+        opts.io.stderr(`recovery: could not create plan worktree: ${(err as Error).message}\n`);
+        return 1;
+      }
+      const recoverySpecDir = join(recoveryWorktree, targetDir, specDirBasename);
+      const recoveryIndex = join(recoverySpecDir, "index.md");
+      const originalIntent = readFileSync(join(recoverySpecDir, "intent.md"), "utf8");
+      const oldSubspecBasename = basename(target.subspecPath);
+      const recoveryIntent = `${originalIntent}\n\n## Recovery\n\nReplace \`${oldSubspecBasename}\` with two or more independently testable numbered sibling subspecs. Preserve completed neighbors and unchecked index order. Delete the old file and rewrite each unambiguous relative Markdown link to it. Do not change intent.md.\n`;
+      try {
+        const drafted = await runDraftPhase({
+          onOutboundPrompt: logOutboundPrompt,
+          worktreePath: recoveryWorktree,
+          name: specDirBasename,
+          config: planCfg,
+          intentBefore: recoveryIntent,
+          stderr: opts.io.stderr,
+          targetDir,
+          createAgent: resolveAgent,
+          planWorktreeDir: recoveryWorktree,
+          idleOutputTimeoutMs: rawCfg.idleOutputTimeoutMs,
+        });
+        if (drafted.result.kind !== "ok") throw new Error("recovery: drafting replacements failed");
+        writeFileSync(join(recoverySpecDir, "intent.md"), originalIntent, "utf8");
+        const validation = validateDraftOutput(recoveryWorktree, specDirBasename, originalIntent, recoverySpecDir);
+        if (!validation.valid) throw new Error(`recovery: spec validation failed: ${validation.error}`);
+        const replacements = validateRecoveryReconciliation({
+          specDir: recoverySpecDir,
+          oldSubspecBasename,
+          indexPath: recoveryIndex,
+        });
+        commitPlanDraft({
+          worktreePath: recoveryWorktree,
+          specDirBasename,
+          agentLabel: drafted.agentLabel ?? "unknown",
+          subspecCount: replacements,
+          subjectSuffix: "recovery",
+          targetDir,
+        });
+        const branch = `plan/${recoveryName}`;
+        await ensureDraftPr({
+          branch,
+          base: getCurrentBranch(project.root),
+          title: `plan: recover ${specDirBasename}`,
+          bodyGenerator: async () => buildPlanPrHeader({ name: recoveryName, specDirBasename, worktreePath: recoveryWorktree, targetDir }),
+          footer: renderAttribution({ cwd: recoveryWorktree, base: getCurrentBranch(project.root) }),
+          cwd: recoveryWorktree,
+        });
+        opts.io.stdout(`${getPrUrl(recoveryWorktree, branch)}\n`);
+        return 0;
+      } catch (err) {
+        opts.io.stderr(`${(err as Error).message}\n`);
+        cleanupCommittedTempPlanState(project.root, recoveryName, recoveryWorktree, targetDir);
+        return 1;
+      }
+    }
 
     if (inv.resume || inv.resumeDraft) {
       if (inv.resumeDraft) {

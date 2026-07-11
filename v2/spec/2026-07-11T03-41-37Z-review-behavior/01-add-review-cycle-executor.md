@@ -28,17 +28,17 @@ Add the standalone critic-to-actuator review loop.
 
 ## Acceptance criteria
 
-- [ ] Each cycle invokes the caller-constrained critic, writes its stdout verbatim to `verdictPath`, and passes the same non-empty text as the actuator's entire prompt.
-- [ ] An empty or whitespace-only verdict skips the actuator and ends the loop successfully, including before `maxCycles` when the bound exceeds one.
-- [ ] Non-empty verdicts continue through at most `maxCycles`; zero performs no invocation or verdict write, while negative, fractional, `NaN`, and infinite values throw `RangeError` before side effects.
-- [ ] Each critic start creates one cycle result; critic- and actuator-failed cycles count, while pre-cycle validation or verdict invalidation failure consumes zero cycles.
-- [ ] Before each critic starts, prior verdict content is invalidated; critic failure cannot expose stale content as the current verdict.
-- [ ] Critic failure skips the actuator and later cycles; actuator failure skips later cycles; both identify the failed role and invocation failure kind.
-- [ ] Verdict invalidation or write failure stops the loop as `invocation_failure` with failure kind `error` and does not run the actuator or later cycles.
-- [ ] Abort during critic or actuator maps to that role's `error` failure and stops later work; a verdict written before actuator abort remains at `verdictPath`.
-- [ ] Quota exhaustion falls through the supplied binding chain independently for critic and actuator.
-- [ ] Co-located tests cover emptiness, verbatim entire-prompt handoff, valid and invalid bounds, cycle accounting, stale-verdict invalidation, verdict I/O failures, both role failures and aborts, and quota fallthrough for both roles.
-- [ ] `v2/docs/write-behavior.md` documents the review order, caller-owned read-only boundary, verdict lifecycle, termination, I/O/role/abort failure, and cycle-bound/accounting semantics without duplicating workflow dispatch.
+- [x] Each cycle invokes the caller-constrained critic, writes its stdout verbatim to `verdictPath`, and passes the same non-empty text as the actuator's entire prompt.
+- [x] An empty or whitespace-only verdict skips the actuator and ends the loop successfully, including before `maxCycles` when the bound exceeds one.
+- [x] Non-empty verdicts continue through at most `maxCycles`; zero performs no invocation or verdict write, while negative, fractional, `NaN`, and infinite values throw `RangeError` before side effects.
+- [x] Each critic start creates one cycle result; critic- and actuator-failed cycles count, while pre-cycle validation or verdict invalidation failure consumes zero cycles.
+- [x] Before each critic starts, prior verdict content is invalidated; critic failure cannot expose stale content as the current verdict.
+- [x] Critic failure skips the actuator and later cycles; actuator failure skips later cycles; both identify the failed role and invocation failure kind.
+- [x] Verdict invalidation or write failure stops the loop as `invocation_failure` with failure kind `error` and does not run the actuator or later cycles.
+- [x] Abort during critic or actuator maps to that role's `error` failure and stops later work; a verdict written before actuator abort remains at `verdictPath`.
+- [x] Quota exhaustion falls through the supplied binding chain independently for critic and actuator.
+- [x] Co-located tests cover emptiness, verbatim entire-prompt handoff, valid and invalid bounds, cycle accounting, stale-verdict invalidation, verdict I/O failures, both role failures and aborts, and quota fallthrough for both roles.
+- [x] `v2/docs/write-behavior.md` documents the review order, caller-owned read-only boundary, verdict lifecycle, termination, I/O/role/abort failure, and cycle-bound/accounting semantics without duplicating workflow dispatch.
 
 ## Documentation updates
 

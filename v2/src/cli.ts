@@ -69,7 +69,7 @@ const TUI_LOG_USAGE = "usage: jarvis tui log <run-id>\n";
 const WRITE_USAGE =
   "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--max-iterations <n>]\n";
 const WORKFLOW_IMPLEMENT_USAGE =
-  "usage: jarvis run workflow implement --branch <name> --base <ref> --spec <path> --artifact <path>\n";
+  "usage: jarvis run workflow implement --branch <name> --base <ref> --spec <path>\n";
 const WORKFLOW_INTENT_USAGE =
   "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>]\n";
 const WORKFLOW_INTENT_REVIEWED_USAGE =
@@ -561,7 +561,7 @@ function parseWriteCliInput(argv: readonly string[], deps: CliDeps): WriteCliInp
 }
 
 type ImplementWorkflowCliInput =
-  | { ok: true; branchName: string; baseRef: string; specPath: string; artifactPath: string }
+  | { ok: true; branchName: string; baseRef: string; specPath: string }
   | { ok: false };
 
 function parseImplementWorkflowArgs(argv: readonly string[]): ImplementWorkflowCliInput {
@@ -587,11 +587,15 @@ function parseImplementWorkflowArgs(argv: readonly string[]): ImplementWorkflowC
   const specPath = typeof values.spec === "string" ? values.spec : undefined;
   const artifactPath = typeof values.artifact === "string" ? values.artifact : undefined;
 
-  if (branchName === undefined || baseRef === undefined || specPath === undefined || artifactPath === undefined) {
+  if (branchName === undefined || baseRef === undefined || specPath === undefined) {
     return { ok: false };
   }
 
-  return { ok: true, branchName, baseRef, specPath, artifactPath };
+  if (artifactPath !== undefined) {
+    return { ok: false };
+  }
+
+  return { ok: true, branchName, baseRef, specPath };
 }
 
 type IntentWorkflowCliInput =

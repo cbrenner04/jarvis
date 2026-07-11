@@ -3,6 +3,11 @@ import { readProjectRegistry } from "../config/machine-config-loader.ts";
 import { loadWorkflowSteps as realLoadWorkflowSteps, type WorkflowSourceStep } from "./workflow-loader.ts";
 import { type AnyWorkflowStep, resolveWorkflowPreset } from "./workflow-runner.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
+import {
+  resolveActiveLinkedSubspec as realResolveActiveLinkedSubspec,
+  type ActiveLinkedSubspec,
+} from "./linked-subspec-routing.ts";
+import { resolve } from "node:path";
 
 /** Per-run inputs the operator supplies alongside cwd project resolution. */
 export type BuildImplementWorkflowStepsInput = {
@@ -10,13 +15,13 @@ export type BuildImplementWorkflowStepsInput = {
   branchName: string;
   baseRef: string;
   specPath: string;
-  artifactPath: string;
 };
 
 /** Test-only seams for project resolution and machine-config loading. */
 export type BuildImplementWorkflowStepsDeps = {
   resolveProjectMatch?: (p: string) => ProjectMatch | undefined;
   loadWorkflowSteps?: typeof realLoadWorkflowSteps;
+  resolveActiveLinkedSubspec?: (specPath: string, projectRoot: string) => ReturnType<typeof realResolveActiveLinkedSubspec>;
 };
 
 export type BuildImplementWorkflowStepsResult = { ok: true; steps: AnyWorkflowStep[] } | { ok: false; error: string };
@@ -28,12 +33,23 @@ export function buildImplementWorkflowSteps(
 ): BuildImplementWorkflowStepsResult {
   const resolveProjectMatch = deps.resolveProjectMatch ?? ((p: string) => findProjectMatch(p, readProjectRegistry()));
   const loadSteps = deps.loadWorkflowSteps ?? realLoadWorkflowSteps;
+  const resolveLinkedSubspec = deps.resolveActiveLinkedSubspec ?? realResolveActiveLinkedSubspec;
 
   const match = resolveProjectMatch(input.cwd);
   if (match === undefined) {
     return { ok: false, error: `No registered project matches cwd: ${input.cwd}` };
   }
 
+  const resolvedSpecPath = resolve(input.specPath);
+  const routingResult = resolveLinkedSubspec(resolvedSpecPath, match.root);
+  if (!routingResult.ok) {
+    return {
+      ok: false,
+      error: `implement.${routingResult.errorKind}: ${routingResult.error}`,
+    };
+  }
+
+  const { active } = routingResult;
   const sourceStep: WorkflowSourceStep = {
     behavior: "write",
     stepId: "implement",
@@ -47,7 +63,7 @@ export function buildImplementWorkflowSteps(
       baseRef: input.baseRef,
     },
     specPath: input.specPath,
-    expectedArtifactPath: input.artifactPath,
+    expectedArtifactPath: active.path,
   };
 
   try {

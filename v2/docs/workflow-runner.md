@@ -285,10 +285,30 @@ loader.
 
 ## Building `implement` workflow steps from cwd + run args
 
-`buildImplementWorkflowSteps({ cwd, branchName, baseRef, specPath,
-artifactPath }, deps?)` (`v2/src/execution/implement-workflow-steps.ts`) turns
-"operator standing in a project checkout, wants to run `implement`" into the
-`AnyWorkflowStep[]` payload the daemon `start` RPC accepts.
+`buildImplementWorkflowSteps({ cwd, branchName, baseRef, specPath }, deps?)`
+(`v2/src/execution/implement-workflow-steps.ts`) turns "operator standing in a
+project checkout, wants to run `implement`" into the `AnyWorkflowStep[]` payload
+the daemon `start` RPC accepts.
+
+**Linked-subspec routing:** When `specPath` points to a multi-subspec
+`index.md`, the builder resolves the first unchecked linked subspec via
+`resolveActiveLinkedSubspec`. The active subspec's resolved file path is set as
+`expectedArtifactPath`, and that subspec's body is injected into the prompt
+during iteration. Routing state is validated and protected during iteration:
+agent-authored changes to index checkboxes are restored and reported as
+`implement.index_routing_mutated`; agent edits to the active subspec's criteria
+remain allowed. Harness advancement checks non-human-only acceptance criteria
+only; unchecked human-only criteria do not block routing. After the final
+linked subspec completes, shrink runs once. Direct subspec input (non-index
+`specPath`) fails with `implement.requires_index`. Empty indexes (no linked
+subspecs) and already-complete indexes (all checked) return complete without
+implement or shrink invocation. Invalid linked paths fail before agent
+invocation: `implement.malformed_link` (empty/invalid path syntax),
+`implement.link_missing` (file not found), `implement.link_unreadable` (I/O
+error), `implement.link_out_of_tree` (resolved path outside project).
+
+**Non-linked routing:** When `specPath` is a direct subspec or an index with no
+linked subspecs but tasks, routing behavior is unchanged (direct file routing).
 
 Pipeline order is preset-fields-first, loader-last: the builder assembles a
 `WorkflowSourceStep` directly (`behavior: "write"`, `stepId: "implement"`,
@@ -309,9 +329,10 @@ v2 specs reusing v1 registry/config code, not yet an established convention.
 
 Both project-resolution misses and `loadWorkflowSteps` failures (config-load,
 role-validation) return a caller-facing `{ ok: false; error: string }` result
-instead of throwing. `deps.findProjectMatchForPath`/`deps.loadWorkflowSteps`
-are test-only override seams; the builder does not accept an `--agents`
-override.
+instead of throwing. Linked-subspec routing resolution failures also return
+`{ ok: false; error: string }` with error prefixed by the specific kind
+(e.g. `implement.link_missing: …`). `deps.resolveActiveLinkedSubspec` is a
+test-only override seam; the builder does not accept an `--agents` override.
 
 ## Review-debate dispatch
 

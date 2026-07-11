@@ -87,8 +87,6 @@ const RUN_WORKFLOW_IMPLEMENT_ARGS = [
   "HEAD",
   "--spec",
   "spec.md",
-  "--artifact",
-  "proof.txt",
 ];
 
 const FAKE_IMPLEMENT_STEPS: AnyWorkflowStep[] = [
@@ -815,7 +813,6 @@ describe("v2 cli", () => {
       branchName: "implement-run",
       baseRef: "HEAD",
       specPath: "spec.md",
-      artifactPath: "proof.txt",
     });
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({
@@ -901,7 +898,7 @@ describe("v2 cli", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",
-      stderr: "usage: jarvis run workflow implement --branch <name> --base <ref> --spec <path> --artifact <path>\n",
+      stderr: "usage: jarvis run workflow implement --branch <name> --base <ref> --spec <path>\n",
     });
   });
 

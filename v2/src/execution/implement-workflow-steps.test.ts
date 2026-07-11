@@ -54,7 +54,6 @@ const INPUT = {
   branchName: "implement-run",
   baseRef: "main",
   specPath: "spec.md",
-  artifactPath: "proof.txt",
 };
 
 describe("buildImplementWorkflowSteps", () => {
@@ -66,6 +65,16 @@ describe("buildImplementWorkflowSteps", () => {
     const result = buildImplementWorkflowSteps(INPUT, {
       resolveProjectMatch: () => match,
       loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
+      resolveActiveLinkedSubspec: () => ({
+        ok: true,
+        active: {
+          index: 0,
+          subspec: { checked: false, body: "- [ ] [Sub](./sub.md)", text: "Sub", path: "./sub.md" },
+          path: "/tmp/proj/sub.md",
+          body: "# Subspec\n",
+        },
+        isTerminal: true,
+      }),
     });
 
     expect(result.ok).toBe(true);
@@ -85,7 +94,7 @@ describe("buildImplementWorkflowSteps", () => {
       baseRef: "main",
     });
     expect(step.specPath).toBe("spec.md");
-    expect(step.expectedArtifactPath).toBe("proof.txt");
+    expect(step.expectedArtifactPath).toBe("/tmp/proj/sub.md");
   });
 
   test("returns an error result naming the unresolved cwd instead of throwing", () => {
@@ -106,6 +115,16 @@ describe("buildImplementWorkflowSteps", () => {
       loadWorkflowSteps: () => {
         throw new Error("Failed to load agent model config: profile not found");
       },
+      resolveActiveLinkedSubspec: () => ({
+        ok: true,
+        active: {
+          index: 0,
+          subspec: { checked: false, body: "- [ ] [Sub](./sub.md)", text: "Sub", path: "./sub.md" },
+          path: "/tmp/proj/sub.md",
+          body: "# Subspec\n",
+        },
+        isTerminal: true,
+      }),
     });
 
     expect(result.ok).toBe(false);

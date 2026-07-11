@@ -414,6 +414,24 @@ but resolves model rungs with `role: "shrink"` and records telemetry with
 `contract_miss`, and `invocation_failure`. If shrink stops non-`complete`,
 `wait` reports that outcome at the implement workflow step.
 
+**Implement routing to linked subspecs:** When `jarvis run workflow implement`
+is launched with a multi-subspec `index.md`, the harness routes each write-loop
+iteration to the first unchecked linked subspec in the index. The active linked
+subspec's path and body are injected into the prompt; agent iterations execute
+that subspec rather than the index. Routing state is protected: agent-authored
+changes to index checkboxes are detected, restored, and reported as
+`implement.index_routing_mutated` without advancing routing; agent edits to the
+active subspec's acceptance criteria remain allowed. Harness-only advancement
+occurs when all non-human-only criteria in the active subspec are complete;
+unchecked human-only criteria do not block routing advancement. After the final
+linked subspec completes, shrink runs once. Direct subspec input (non-index
+`--spec`) fails with `implement.requires_index`; empty or already-complete
+indexes return complete without implement or shrink invocation. Invalid linked
+paths (malformed, missing, unreadable, out-of-tree) fail before agent
+invocation with named diagnostics: `implement.malformed_link`,
+`implement.link_missing`, `implement.link_unreadable`, or
+`implement.link_out_of_tree`.
+
 ## Loop outcomes
 
 The loop classifies and routes results:

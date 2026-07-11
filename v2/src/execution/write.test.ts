@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
@@ -169,6 +169,76 @@ describe("write behavior", () => {
     expect(capturedPrompt).toContain("`/tmp/work`");
     expect(capturedPrompt).toContain("`example-spec`");
     expect(capturedPrompt).not.toContain("Read the spec at");
+  });
+
+  test("intentSeed branch: agent-instructed write path matches the seeded/validated spec directory", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const specPath = "v2/spec/2099-01-01T00-00-00Z-demo";
+    const intentSeed = "---\nname: demo\n---\n\n## Prerequisites\n\nnone\n";
+    let capturedPrompt = "";
+
+    const result = await executeWrite({
+      worktree: { projectRoot: "/fake", projectName: "demo", branchName: "plan-run", baseRef: "HEAD", jarvisRoot },
+      specPath,
+      stepRules: "unused",
+      expectedArtifactPath: ".jarvis-plan-stage",
+      promptId: "plan.prompt.draft",
+      intentSeed,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ prompt, cwd }) => {
+            capturedPrompt = prompt;
+            const specDir = join(cwd, specPath);
+            mkdirSync(specDir, { recursive: true });
+            writeFileSync(join(specDir, "index.md"), "# Index\n", "utf8");
+            writeFileSync(join(specDir, "00-first.md"), "## Acceptance criteria\n", "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+    });
+
+    expect(result.result.kind).toBe("complete");
+    const expectedSpecDir = join(result.worktreePath, specPath);
+    expect(capturedPrompt).toContain(`Only write files under \`${expectedSpecDir}/\`.`);
+    expect(capturedPrompt).not.toContain("spec/<NAME>/");
+
+    const intentPath = join(result.worktreePath, specPath, "intent.md");
+    expect(existsSync(intentPath)).toBe(true);
+    expect(readFileSync(intentPath, "utf8")).toBe(intentSeed);
+  });
+
+  test("intentSeed branch: a genuine blocker in intent.md short-circuits completion", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const specPath = "v2/spec/2099-01-01T00-00-01Z-blocked";
+    const intentSeed = "---\nname: blocked\n---\n\n## Prerequisites\n\nnone\n";
+
+    const result = await executeWrite({
+      worktree: { projectRoot: "/fake", projectName: "demo", branchName: "plan-run-blocked", baseRef: "HEAD", jarvisRoot },
+      specPath,
+      stepRules: "unused",
+      expectedArtifactPath: ".jarvis-plan-stage",
+      promptId: "plan.prompt.draft",
+      intentSeed,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ cwd }) => {
+            const specDir = join(cwd, specPath);
+            mkdirSync(specDir, { recursive: true });
+            writeFileSync(join(specDir, "intent.md"), `${intentSeed}\n## Blocker\n\nMissing prerequisite X.\n`, "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+    });
+
+    expect(result.result.kind).not.toBe("complete");
   });
 
   test("telemetry append failure is surfaced separately without changing the settled step result", async () => {

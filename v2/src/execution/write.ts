@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
+import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import {
   type ExternalWorktreeInput,
   type LockStatus,
@@ -131,7 +132,7 @@ export async function executeWrite(args: WriteExecuteInput): Promise<WriteExecut
 
     if (promptId === "plan.prompt.draft" && args.intentSeed !== undefined) {
       // Plan preset: seed intent.md and supply all four required placeholders
-      const specDir = dirname(specPath);
+      const specDir = specPath;
       mkdirSync(specDir, { recursive: true });
       const intentPath = join(specDir, "intent.md");
       writeFileSync(intentPath, args.intentSeed, "utf8");
@@ -152,11 +153,15 @@ export async function executeWrite(args: WriteExecuteInput): Promise<WriteExecut
         SPEC_GUIDANCE: specGuidance,
       };
 
-      // Render the prompt with placeholders
-      let prompt = renderStepPrompt("plan.prompt.draft", placeholders);
-
-      // Rewrite spec/<NAME>/ to <targetDir>/<NAME>/
-      prompt = prompt.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`);
+      // Rewrite spec/<NAME>/ to <targetDir>/<NAME>/ in the template source, before
+      // <NAME> is substituted, so the literal token still matches at render time.
+      const registry = loadPromptRegistry();
+      const artifact = registry.getById("plan.prompt.draft");
+      const rewrittenArtifact = {
+        ...artifact,
+        body: artifact.body.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`),
+      };
+      const prompt = renderArtifactTemplate(rewrittenArtifact, placeholders).trim();
 
       const validator = args.completionValidator ?? validatePlanDraftShape;
       const intentBefore = args.intentBefore ?? args.intentSeed;

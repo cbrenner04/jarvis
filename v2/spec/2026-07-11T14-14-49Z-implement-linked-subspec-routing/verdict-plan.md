@@ -1,0 +1,7 @@
+- Define terminal routing: after each completed linked subspec, advance its index item and continue; run shrink only after no unchecked linked subspec remains — otherwise the workflow can shrink/finish after the first slice.
+- Define behavior for direct subspec input and an empty/already-complete index — callers need an unambiguous completion and shrink outcome after `--artifact` removal.
+- Define named terminal diagnostics for malformed, missing, unreadable, or out-of-tree linked paths — parser reuse alone is not an operator contract.
+- Require harness protection of index routing state against agent-authored index-link edits — harness-owned advancement is not preserved if agents can alter the link checklist.
+- Preserve that incomplete non-human criteria block advancement and human-only markers do not; require coverage where completion routing touches those semantics.
+- Replace structural test-file mandates with behavioral coverage for prompt isolation, active-subspec completion, harness-only advancement, and routing progression.
+- Align durable docs in `write-behavior.md`, `workflow-runner.md`, and the applicable `v1-behaviors.md` entry; do not remove `--artifact` from the `run start` walkthrough, whose command remains an ad-hoc write contract — documentation-standard requires each changed operator behavior in its durable home.

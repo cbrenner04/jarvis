@@ -1,7 +1,12 @@
 import { type AgentModelConfig, type LoadError, resolveExecutableRole } from "../config/agent-model-config.ts";
 import { loadMachineConfig, resolveMachineProfile } from "../config/machine-config-loader.ts";
 import { loadMachineProfileModels, type MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
-import { type ReviewWorkflowStep, validateWorkflowStepRoles, type WriteWorkflowStep } from "./workflow-runner.ts";
+import {
+  type ReviewDebateWorkflowStep,
+  type ReviewWorkflowStep,
+  validateWorkflowStepRoles,
+  type WriteWorkflowStep,
+} from "./workflow-runner.ts";
 import { DEFAULT_WRITE_AGENTS } from "./write-loop-input.ts";
 
 function isLoadError(value: unknown): value is LoadError {
@@ -14,11 +19,14 @@ export type WriteWorkflowSourceStep = Omit<WriteWorkflowStep, "agents" | "agentM
 /** Authored review step minus config-derived `agents`/`agentModelConfig`. */
 export type ReviewWorkflowSourceStep = Omit<ReviewWorkflowStep, "agents" | "agentModelConfig">;
 
+/** Authored review-debate step minus config-derived `agents`/`agentModelConfig`. */
+export type ReviewDebateWorkflowSourceStep = Omit<ReviewDebateWorkflowStep, "agents" | "agentModelConfig">;
+
 /** Authored executable workflow step before machine configuration is attached. */
-export type WorkflowSourceStep = WriteWorkflowSourceStep | ReviewWorkflowSourceStep;
+export type WorkflowSourceStep = WriteWorkflowSourceStep | ReviewWorkflowSourceStep | ReviewDebateWorkflowSourceStep;
 
 /** Executable workflow step with machine-derived agent bindings. */
-export type LoadedWorkflowStep = WriteWorkflowStep | ReviewWorkflowStep;
+export type LoadedWorkflowStep = WriteWorkflowStep | ReviewWorkflowStep | ReviewDebateWorkflowStep;
 
 /** Test-only path overrides. */
 type LoadWorkflowStepsDeps = {
@@ -71,7 +79,20 @@ export function loadWorkflowSteps(
       return { ...step, agents, agentModelConfig };
     }
 
-    return { ...step, agents: { critic: agents, actuator: agents }, agentModelConfig };
+    if (step.behavior === "review") {
+      return { ...step, agents: { critic: agents, actuator: agents }, agentModelConfig };
+    }
+
+    return {
+      ...step,
+      agents: {
+        adversary: agents,
+        advocate: agents,
+        adjudicator: agents,
+        actuator: agents,
+      },
+      agentModelConfig,
+    };
   });
   if (invalidRoles.length > 0) {
     throw new Error(`Workflow step role validation failed: non-executable role ${invalidRoles.join(", ")}`);

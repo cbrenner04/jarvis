@@ -12,7 +12,18 @@ const load = (steps: readonly WorkflowSourceStep[]): LoadedWorkflowStep[] =>
   steps.map((step) =>
     step.behavior === "write"
       ? { ...step, agents: ["claude"], agentModelConfig: {} }
-      : { ...step, agents: { critic: ["claude"], actuator: ["claude"] }, agentModelConfig: {} },
+      : step.behavior === "review"
+        ? { ...step, agents: { critic: ["claude"], actuator: ["claude"] }, agentModelConfig: {} }
+        : {
+            ...step,
+            agents: {
+              adversary: ["claude"],
+              advocate: ["claude"],
+              adjudicator: ["claude"],
+              actuator: ["claude"],
+            },
+            agentModelConfig: {},
+          },
   );
 
 describe("buildIntentWorkflowSteps", () => {

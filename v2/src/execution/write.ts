@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
@@ -23,6 +23,12 @@ export type WriteExecuteInput = {
   signal?: AbortSignal;
   invocationTelemetry?: Omit<InvocationTelemetryContext, "worktreePath">;
   withExternalWorktree?: typeof realWithExternalWorktree;
+  /** Intent seed content to write to spec/<name>/intent.md before invoking agent. */
+  intentSeed?: string;
+  /** Name for plan preset: used to construct spec/<NAME>/ output path rewrite. */
+  presetName?: string;
+  /** Target directory for plan preset: used in spec/<NAME>/ to <targetDir>/<NAME>/ rewrite. */
+  targetDir?: string;
 };
 
 type WriteExecuteResult = {
@@ -39,6 +45,15 @@ export async function executeWrite(args: WriteExecuteInput): Promise<WriteExecut
     const specPath = resolveInWorktree(worktree.path, args.specPath);
     const expectedArtifactPath = resolveInWorktree(worktree.path, args.expectedArtifactPath);
     const promptId = args.promptId ?? DEFAULT_PROMPT_ID;
+
+    // Seed intent.md before invoking agent if intentSeed is provided
+    if (args.intentSeed !== undefined) {
+      const specDir = resolveInWorktree(worktree.path, args.specPath);
+      mkdirSync(specDir, { recursive: true });
+      const intentPath = join(specDir, "intent.md");
+      writeFileSync(intentPath, args.intentSeed, "utf8");
+    }
+
     const placeholders =
       promptId === DEFAULT_PROMPT_ID
         ? {
@@ -47,7 +62,13 @@ export async function executeWrite(args: WriteExecuteInput): Promise<WriteExecut
             PRINCIPLES: loadPromptRegistry().getById("write.principles").body,
           }
         : (args.promptPlaceholders ?? {});
-    const prompt = renderStepPrompt(promptId, placeholders);
+
+    // Apply spec/<NAME>/ rewrite for plan preset
+    let prompt = renderStepPrompt(promptId, placeholders);
+    if (args.presetName === "plan" && args.targetDir !== undefined && args.promptPlaceholders?.NAME !== undefined) {
+      const name = args.promptPlaceholders.NAME;
+      prompt = prompt.replaceAll(`spec/${name}/`, `${args.targetDir}/${name}/`);
+    }
 
     return runStep({
       prompt,

@@ -191,12 +191,28 @@ export async function buildPlanWorkflowSteps(
 
   // Build write step
   try {
+    // Read spec guidance
+    const specGuidancePath = input.jarvisRoot
+      ? join(input.jarvisRoot, "v1", "docs", "spec-guidance.md")
+      : join(import.meta.dir, "..", "..", "..", "v1", "docs", "spec-guidance.md");
+    let specGuidance: string;
+    try {
+      specGuidance = readFileSync(specGuidancePath, "utf8");
+    } catch (err) {
+      return { ok: false, error: `plan: could not read spec guidance: ${(err as Error).message}` };
+    }
+
     const sourceStep = {
       behavior: "write",
       stepId: "plan",
       role: "plan",
       promptId: "plan.prompt.draft",
-      promptPlaceholders: { WORKDIR: project.root, SPEC_DIR: specDir },
+      promptPlaceholders: {
+        WORKDIR: project.root,
+        NAME: specDirBasename,
+        INTENT: content,
+        SPEC_GUIDANCE: specGuidance,
+      },
       stepRules: DEFAULT_WRITE_STEP_RULES,
       worktree: {
         projectRoot: project.root,
@@ -208,6 +224,8 @@ export async function buildPlanWorkflowSteps(
       expectedArtifactPath: "index.md",
       publishCompletion: true,
       intentSeed: content,
+      presetName: "plan",
+      targetDir,
     } as unknown as WorkflowSourceStep;
     const loaded = realLoadWorkflowSteps([sourceStep]);
     return { ok: true, steps: resolveWorkflowPreset("plan", loaded), identity };

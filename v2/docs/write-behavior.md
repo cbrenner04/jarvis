@@ -84,6 +84,21 @@ then ready gate and draft→ready flip once.
 
 The captured snapshot is the retry identity: later operator edits are excluded.
 
+## Registered Presets
+
+The `plan` workflow preset wires spec-tree drafting with run-time intent seeding and prompt rendering.
+At the start of the worktree phase (after `withExternalWorktree` establishes the worktree but before invoking the agent), the write step:
+
+1. Seeds `<spec-dir>/intent.md` from the `intentSeed` field (preserving frontmatter verbatim).
+2. Supplies the four required placeholders to `plan.prompt.draft`:
+   - `WORKDIR`: the project root (working directory for the agent).
+   - `NAME`: the timestamped spec-dir basename (e.g., `2026-07-11T09-47-44Z-my-spec`).
+   - `INTENT`: the seeded intent content (same as the written `intent.md`).
+   - `SPEC_GUIDANCE`: the bundled spec-guidance reference doc (read from `v1/docs/spec-guidance.md`).
+3. Applies a path rewrite to the prompt: replaces the literal `spec/<NAME>/` with `<targetDir>/<NAME>/` so the agent writes into the timestamped spec directory (e.g., `spec/2026-07-11T09-47-44Z-my-spec/`).
+
+The plan completion contract is unchanged: the write step checks for `index.md` existence and publishes the completion artifacts via the existing completion publisher (commit, push, and draft PR).
+
 Workflow-step authoring that wraps this write-loop input shape lives in
 [`workflow-runner.md`](./workflow-runner.md#authoring-helper-and-presets).
 

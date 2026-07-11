@@ -402,6 +402,9 @@ function buildWriteExecuteInput(args: WriteLoopInput, runId: string, attemptId: 
     bindings: args.bindings,
     ...(args.promptId !== undefined ? { promptId: args.promptId } : {}),
     ...(args.promptPlaceholders !== undefined ? { promptPlaceholders: args.promptPlaceholders } : {}),
+    ...(args.intentSeed !== undefined ? { intentSeed: args.intentSeed } : {}),
+    ...(args.presetName !== undefined ? { presetName: args.presetName } : {}),
+    ...(args.targetDir !== undefined ? { targetDir: args.targetDir } : {}),
     ...(fullTelemetry !== undefined
       ? {
           invocationTelemetry: {

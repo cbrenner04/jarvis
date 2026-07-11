@@ -23,12 +23,12 @@ Wire the `plan` write step's run-time behavior: seed `<spec-dir>/intent.md` from
 
 ## Acceptance criteria
 
-- [ ] A successful run seeds the ready-intent verbatim to `<spec-dir>/intent.md` (frontmatter preserved) inside the worktree before the agent runs, on branch `plan/<name>`, under spec dir `<targetDir>/<UTC-timestamp>-<name>/`.
-- [ ] The write step renders `plan.prompt.draft` with all four required placeholders (`WORKDIR`, `NAME`, `INTENT`, `SPEC_GUIDANCE`) satisfied.
-- [ ] The `spec/<NAME>/` output path is rewritten so the agent writes into `<targetDir>/<UTC-timestamp>-<name>/` (agent-written path and inspected path match).
-- [ ] A passing `index.md`-exists contract commits and opens a draft PR via the existing completion publisher.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] A successful run seeds the ready-intent verbatim to `<spec-dir>/intent.md` (frontmatter preserved) inside the worktree before the agent runs, on branch `plan/<name>`, under spec dir `<targetDir>/<UTC-timestamp>-<name>/`.
+- [x] The write step renders `plan.prompt.draft` with all four required placeholders (`WORKDIR`, `NAME`, `INTENT`, `SPEC_GUIDANCE`) satisfied.
+- [x] The `spec/<NAME>/` output path is rewritten so the agent writes into `<targetDir>/<UTC-timestamp>-<name>/` (agent-written path and inspected path match).
+- [x] A passing `index.md`-exists contract commits and opens a draft PR via the existing completion publisher.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

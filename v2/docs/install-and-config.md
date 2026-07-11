@@ -93,9 +93,11 @@ Per-project implement defaults:
 | Key | Type | Default | Validation |
 | --- | --- | --- | --- |
 | `projects.<key>.implement.reviewPasses` | non-negative integer | `0` when absent | Rejected at implement launch when present but fractional, negative, or non-integer |
+| `projects.<key>.implement.reviewBehavior` | `"debate"` or `"light"` | `"debate"` when absent | Rejected at implement launch when present but not `"debate"` or `"light"` |
 
 An explicit `jarvis run workflow implement --review-passes <n>` overrides the
-registered-project value.
+registered-project value. An explicit `--review-behavior debate|light` overrides
+the registered-project review behavior.
 
 ## Daemon
 

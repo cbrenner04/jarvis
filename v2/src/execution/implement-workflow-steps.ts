@@ -3,9 +3,11 @@ import { findProjectMatch, type ProjectMatch } from "../../../shared/project-reg
 import { readProjectRegistry } from "../config/machine-config-loader.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { resolveActiveLinkedSubspec as realResolveActiveLinkedSubspec } from "./linked-subspec-routing.ts";
-import { PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS } from "./review-debate-render.ts";
+import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
+import { PATCH_REVIEW_CRITIC_PROMPT_ID, PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS } from "./review-debate-render.ts";
 import {
   type ReviewDebateWorkflowSourceStep,
+  type ReviewWorkflowSourceStep,
   loadWorkflowSteps as realLoadWorkflowSteps,
   type WorkflowSourceStep,
   type WriteWorkflowSourceStep,
@@ -13,6 +15,7 @@ import {
 import {
   type AnyWorkflowStep,
   type ReviewDebateWorkflowStep,
+  type ReviewWorkflowStep,
   resolveWorkflowPreset,
   type WriteWorkflowStep,
 } from "./workflow-runner.ts";
@@ -28,6 +31,7 @@ export type BuildImplementWorkflowStepsInput = {
   projectRoot?: string;
   projectName?: string;
   reviewPasses: number;
+  reviewBehavior?: ImplementReviewBehavior;
 };
 
 /** Test-only seams for project resolution and machine-config loading. */
@@ -97,6 +101,7 @@ function loadImplementWorkflowSteps(
   loadSteps: NonNullable<BuildImplementWorkflowStepsDeps["loadWorkflowSteps"]>,
   sourceSteps: readonly WorkflowSourceStep[],
   reviewPasses: number,
+  reviewBehavior: ImplementReviewBehavior,
 ): BuildImplementWorkflowStepsResult {
   try {
     if (reviewPasses === 0) {
@@ -106,6 +111,14 @@ function loadImplementWorkflowSteps(
 
     const loaded = loadSteps(sourceSteps);
     const writeSteps = loaded.filter((step): step is WriteWorkflowStep => step.behavior === "write");
+    if (reviewBehavior === "light") {
+      const reviewStep = loaded.find((step): step is ReviewWorkflowStep => step.behavior === "review");
+      if (reviewStep === undefined) {
+        return { ok: false, error: "implement: review step was not loaded" };
+      }
+      return { ok: true, steps: [...resolveWorkflowPreset("implement", writeSteps), reviewStep] };
+    }
+
     const debateStep = loaded.find((step): step is ReviewDebateWorkflowStep => step.behavior === "review-debate");
     if (debateStep === undefined) {
       return { ok: false, error: "implement: review-debate step was not loaded" };
@@ -123,6 +136,7 @@ export function buildImplementWorkflowSteps(
 ): BuildImplementWorkflowStepsResult {
   const reviewPasses = resolveImplementReviewPasses(input.reviewPasses);
   if (typeof reviewPasses === "object") return { ok: false, error: reviewPasses.error };
+  const reviewBehavior = input.reviewBehavior ?? "debate";
 
   const resolveProjectMatch = deps.resolveProjectMatch ?? ((p: string) => findProjectMatch(p, readProjectRegistry()));
   const loadSteps = deps.loadWorkflowSteps ?? realLoadWorkflowSteps;
@@ -158,10 +172,31 @@ export function buildImplementWorkflowSteps(
   };
 
   if (reviewPasses === 0) {
-    return loadImplementWorkflowSteps(loadSteps, [sourceStep], reviewPasses);
+    return loadImplementWorkflowSteps(loadSteps, [sourceStep], reviewPasses, reviewBehavior);
   }
 
   const cwd = getExternalWorktreePath(sourceStep.worktree);
+  const verdictPath = join(cwd, dirname(input.specPath), "verdict-patch.md");
+  const patchReviewContext = {
+    specPath: input.specPath,
+    baseBranch: input.baseRef,
+  };
+
+  if (reviewBehavior === "light") {
+    const reviewStep: ReviewWorkflowSourceStep = {
+      behavior: "review",
+      stepId: "implement-review",
+      project: sourceStep.worktree.projectName,
+      branch: sourceStep.worktree.branchName,
+      cwd,
+      prompt: PATCH_REVIEW_CRITIC_PROMPT_ID,
+      verdictPath,
+      maxCycles: reviewPasses,
+      patchReviewContext,
+    };
+    return loadImplementWorkflowSteps(loadSteps, [sourceStep, reviewStep], reviewPasses, reviewBehavior);
+  }
+
   const reviewStep: ReviewDebateWorkflowSourceStep = {
     behavior: "review-debate",
     stepId: "implement-review",
@@ -173,13 +208,10 @@ export function buildImplementWorkflowSteps(
       advocate: PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS.advocate,
       adjudicator: PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS.adjudicator,
     },
-    verdictPath: join(cwd, dirname(input.specPath), "verdict-patch.md"),
+    verdictPath,
     maxCycles: reviewPasses,
-    patchReviewContext: {
-      specPath: input.specPath,
-      baseBranch: input.baseRef,
-    },
+    patchReviewContext,
   };
 
-  return loadImplementWorkflowSteps(loadSteps, [sourceStep, reviewStep], reviewPasses);
+  return loadImplementWorkflowSteps(loadSteps, [sourceStep, reviewStep], reviewPasses, reviewBehavior);
 }

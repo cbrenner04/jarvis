@@ -59,6 +59,50 @@ export function loadMachineConfig(configPath: string = MACHINE_CONFIG_PATH): str
   return parsed.agents as string[];
 }
 
+export type ImplementReviewBehavior = "debate" | "light";
+
+export function readProjectImplementReviewBehavior(
+  projectKey: string,
+  configPath: string = MACHINE_CONFIG_PATH,
+): { ok: true; reviewBehavior: ImplementReviewBehavior } | { ok: false; error: string } {
+  const parsed = readMachineConfigDocument(configPath);
+  const projects = parsed?.projects;
+  if (typeof projects !== "object" || projects === null || Array.isArray(projects)) {
+    return { ok: true, reviewBehavior: "debate" };
+  }
+
+  const project = (projects as Record<string, unknown>)[projectKey];
+  if (typeof project !== "object" || project === null || Array.isArray(project)) {
+    return { ok: true, reviewBehavior: "debate" };
+  }
+
+  const implement = (project as Record<string, unknown>).implement;
+  if (implement === undefined) {
+    return { ok: true, reviewBehavior: "debate" };
+  }
+
+  if (typeof implement !== "object" || implement === null || Array.isArray(implement)) {
+    return {
+      ok: false,
+      error: `projects.${projectKey}.implement must be an object`,
+    };
+  }
+
+  const reviewBehavior = (implement as Record<string, unknown>).reviewBehavior;
+  if (reviewBehavior === undefined) {
+    return { ok: true, reviewBehavior: "debate" };
+  }
+
+  if (reviewBehavior !== "debate" && reviewBehavior !== "light") {
+    return {
+      ok: false,
+      error: `projects.${projectKey}.implement.reviewBehavior must be "debate" or "light"`,
+    };
+  }
+
+  return { ok: true, reviewBehavior };
+}
+
 export function readProjectImplementReviewPasses(
   projectKey: string,
   configPath: string = MACHINE_CONFIG_PATH,

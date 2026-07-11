@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   loadMachineConfig,
   readMachineConfigDocument,
+  readProjectImplementReviewBehavior,
   readProjectImplementReviewPasses,
   resolveMachineProfile,
   validateMachineConfigAgents,
@@ -218,6 +219,45 @@ describe("readProjectImplementReviewPasses", () => {
       expect(readProjectImplementReviewPasses("demo", configPath)).toEqual({
         ok: false,
         error: "projects.demo.implement.reviewPasses must be a non-negative integer",
+      });
+    }
+  });
+});
+
+describe("readProjectImplementReviewBehavior", () => {
+  test("returns debate when projects or implement.reviewBehavior is absent", () => {
+    expect(readProjectImplementReviewBehavior("demo", writeConfig({ agents: ["claude"] }))).toEqual({
+      ok: true,
+      reviewBehavior: "debate",
+    });
+    expect(
+      readProjectImplementReviewBehavior("demo", writeConfig({ projects: { demo: { root: "/tmp/repo" } } })),
+    ).toEqual({ ok: true, reviewBehavior: "debate" });
+    expect(
+      readProjectImplementReviewBehavior(
+        "demo",
+        writeConfig({ projects: { demo: { root: "/tmp/repo", implement: {} } } }),
+      ),
+    ).toEqual({ ok: true, reviewBehavior: "debate" });
+  });
+
+  test("returns a valid configured reviewBehavior", () => {
+    for (const reviewBehavior of ["debate", "light"] as const) {
+      const configPath = writeConfig({
+        projects: { demo: { root: "/tmp/repo", implement: { reviewBehavior } } },
+      });
+      expect(readProjectImplementReviewBehavior("demo", configPath)).toEqual({ ok: true, reviewBehavior });
+    }
+  });
+
+  test("rejects malformed reviewBehavior", () => {
+    for (const reviewBehavior of ["heavy", 1, true]) {
+      const configPath = writeConfig({
+        projects: { demo: { root: "/tmp/repo", implement: { reviewBehavior } } },
+      });
+      expect(readProjectImplementReviewBehavior("demo", configPath)).toEqual({
+        ok: false,
+        error: 'projects.demo.implement.reviewBehavior must be "debate" or "light"',
       });
     }
   });

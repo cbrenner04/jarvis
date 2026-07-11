@@ -170,6 +170,44 @@ describe("buildImplementWorkflowSteps", () => {
     expect(review.prompts.adversary).toBe("patch.prompt.review.adversary");
   });
 
+  test("positive reviewPasses with light reviewBehavior appends one review step", () => {
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
+    const machineProfile = writeValidProfile();
+    const match: ProjectMatch = { key: "proj", root: "/tmp/proj" };
+
+    const result = buildImplementWorkflowSteps(
+      { ...INPUT, reviewPasses: 2, reviewBehavior: "light" },
+      {
+        resolveProjectMatch: () => match,
+        loadWorkflowSteps: (steps: readonly WorkflowSourceStep[]) =>
+          loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
+        resolveActiveLinkedSubspec: () => ({
+          ok: true,
+          active: {
+            index: 0,
+            subspec: { checked: false, body: "- [ ] [Sub](./sub.md)", text: "Sub", path: "./sub.md" },
+            path: "/tmp/proj/sub.md",
+            body: "# Subspec\n",
+          },
+          isTerminal: true,
+        }),
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps).toHaveLength(2);
+    expect(result.steps[0]?.behavior).toBe("write");
+    const review = result.steps[1];
+    expect(review?.behavior).toBe("review");
+    if (review?.behavior !== "review") return;
+    expect(review.stepId).toBe("implement-review");
+    expect(review.maxCycles).toBe(2);
+    expect(review.verdictPath).toContain("verdict-patch.md");
+    expect(review.patchReviewContext).toEqual({ specPath: "index.md", baseBranch: "main" });
+    expect(review.prompt).toBe("patch.prompt.review.critic");
+  });
+
   test("rejects invalid reviewPasses at build time", () => {
     const result = buildImplementWorkflowSteps({ ...INPUT, reviewPasses: 1.5 });
     expect(result.ok).toBe(false);

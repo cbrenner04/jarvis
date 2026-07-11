@@ -341,9 +341,11 @@ jarvis run workflow implement \
 | `--branch` | Optional; defaults to the parent directory basename of `--spec` |
 | `--artifact` | Optional for `index.md` (ignored if supplied); required for non-index specs |
 | `--review-passes` | Optional non-negative integer; overrides `projects.<key>.implement.reviewPasses` (default `0`) |
+| `--review-behavior` | Optional `debate` or `light`; overrides `projects.<key>.implement.reviewBehavior` (default `debate`). Applies only when resolved review passes are positive. |
 
-Malformed pass counts (`1x`, `-1`, `1.5`, and similar) and invalid project
-`implement.reviewPasses` values fail before daemon contact.
+Malformed pass counts (`1x`, `-1`, `1.5`, and similar), unknown `--review-behavior`
+values, and invalid project `implement.reviewPasses` or `implement.reviewBehavior`
+values fail before daemon contact.
 
 The CLI sends one IPC `start` request and prints the run ID on stdout:
 

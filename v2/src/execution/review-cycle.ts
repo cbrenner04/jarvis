@@ -25,6 +25,7 @@ export type ReviewCycleInput = {
   signal?: AbortSignal;
   telemetry?: Omit<InvocationTelemetryContext, "role" | "invocationIds">;
   onRoleStart?: (role: ReviewCycleRole) => void;
+  actuatorPromptRenderer?: (verdict: string) => string;
 };
 
 export type ReviewCycleOutcome =
@@ -94,7 +95,8 @@ export async function executeReviewCycle(args: ReviewCycleInput): Promise<Review
       return { kind: "complete", cycles };
     }
 
-    const actuator = await invokeRole(args, "actuator", verdict, args.bindings.actuator);
+    const actuatorPrompt = args.actuatorPromptRenderer ? args.actuatorPromptRenderer(verdict) : verdict;
+    const actuator = await invokeRole(args, "actuator", actuatorPrompt, args.bindings.actuator);
     roleResults.actuator = actuator;
     const actuatorFailure = failureKind(actuator);
     if (actuatorFailure !== null) {

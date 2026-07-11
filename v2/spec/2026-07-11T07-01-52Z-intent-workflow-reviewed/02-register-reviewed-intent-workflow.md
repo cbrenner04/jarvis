@@ -6,7 +6,7 @@ Expose `intent-reviewed` as the standard v2 intent launcher while retaining expl
 
 - Register `intent-reviewed` as a distinct preset and keep `intent` split-only; rules out silently changing the established preset's behavior.
 - Make `--review-passes` valid for `intent-reviewed` and default it to `1`; rules out a separate reviewed builder command or an implicit unbounded loop.
-- Describe `intent-reviewed` as the default v2 posture without aliasing bare `intent` to it; rules out breaking explicit split-only parity.
+- Document `jarvis run workflow intent-reviewed` as the recommended v2 posture without a bare-command alias or implicit launcher default; rules out contradictory operator semantics or breaking explicit split-only parity.
 
 ## Tasks
 
@@ -20,7 +20,7 @@ Expose `intent-reviewed` as the standard v2 intent launcher while retaining expl
 - [ ] `--review-passes N` reaches the reviewed builder, while invalid values and use with split-only `intent` exit nonzero before daemon contact with terse usage guidance.
 - [ ] Explicit `jarvis run workflow intent` remains the existing split-only workflow.
 - [ ] Launcher coverage proves reviewed success publishes only landed post-review intents and review failure publishes nothing.
-- [ ] `v2/docs/workflow-runner.md` distinguishes `intent` from the default-posture `intent-reviewed` launcher and documents `--review-passes`.
+- [ ] `v2/docs/workflow-runner.md` distinguishes split-only `intent` from the recommended named `intent-reviewed` command, documents `--review-passes`, and defines no bare-command alias or implicit default.
 - [ ] `v2/docs/first-workflow-walkthrough.md` documents the reviewed operator path, zero-pass escape hatch, outputs, and failure boundary.
 
 ## Documentation updates

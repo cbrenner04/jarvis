@@ -920,7 +920,7 @@ describe("v2 cli", () => {
     });
   });
 
-  test("run workflow with an unrecognized preset name falls through to run usage and exits 1", async () => {
+  test("run workflow with an unrecognized preset name prints workflow usage and exits 1", async () => {
     const cap = captureIo();
 
     const code = await main(["run", "workflow", "bogus"], cap.io, {
@@ -932,11 +932,11 @@ describe("v2 cli", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",
-      stderr: "usage: jarvis run <start|list|log|pause|resume|kill|wait> [args]\n",
+      stderr: "usage: jarvis run workflow <implement> [flags]\n",
     });
   });
 
-  test("bare run workflow falls through to run usage and exits 1", async () => {
+  test("bare run workflow prints workflow usage and exits 1", async () => {
     const cap = captureIo();
 
     const code = await main(["run", "workflow"], cap.io, {
@@ -948,7 +948,7 @@ describe("v2 cli", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",
-      stderr: "usage: jarvis run <start|list|log|pause|resume|kill|wait> [args]\n",
+      stderr: "usage: jarvis run workflow <implement> [flags]\n",
     });
   });
 

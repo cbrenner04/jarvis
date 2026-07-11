@@ -228,6 +228,10 @@ Sources: `v1/src/commands/plan.ts`, `v1/src/modes/plan/draft.ts`, `v1/src/modes/
 - `jarvis1 init` only registers repos under `~/Work` by deriving the project key from the path relative to that root, and it records `origin` only when `git remote get-url origin` yields a non-empty value. Re-registering the same name+root is idempotent; the same name pointing at a different root errors. Sources: `v1/src/commands/init.ts`, `v1/src/config.ts`
 - `jarvis1 init` additionally scaffolds an `OPERATOR_RUNBOOK.md` file at the project root when absent, seeding it with project facts (repo path, origin URL, inferred stack, resolved `readyCommand`, config modes) and stubbed sections for operator fill-in (manual finalize, recovery by exit reason, resume guidance, gate blind spots, cross-repo coordination). The runbook is not overwritten on re-run; byte-for-byte idempotence is preserved. The runbook includes a static known-gotchas section with jarvis-issue URLs and fixed section headings so references remain stable. Sources: `v1/src/commands/init.ts`, `v1/src/runbook-generator.ts`
 
+### v2 additive: named workflow presets
+
+- `jarvis run workflow <name> [flags]` selects a CLI builder by name; only `implement` is registered. Missing or unknown names print `usage: jarvis run workflow <implement> [flags]` and exit `1` before daemon connection. The `implement` launch preserves its `--branch`, `--base`, `--spec`, and `--artifact` parser, builder payload, IPC `start` request, run-ID stdout, daemon errors, and exit behavior; builder failures print their text with one trailing newline. Sources: `v2/src/cli.ts`, `v2/docs/write-behavior.md`
+
 ### v2 machine config CLI (`jarvis config`)
 
 - [v2 behavior change] v2 `jarvis config` targets the same `~/.jarvis/config.json` file as v1's `jarvis1 config show` / `jarvis1 config path`, storing the agent fallback order under a top-level `agents` key alongside v1's `projects` registry; the two CLIs read/write the same file rather than distinct ones. Sources: `v2/src/cli.ts`, `v1/src/commands/config.ts`, `v2/docs/agent-model-config.md`

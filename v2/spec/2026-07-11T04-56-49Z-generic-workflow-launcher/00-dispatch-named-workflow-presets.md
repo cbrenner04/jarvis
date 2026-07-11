@@ -25,14 +25,14 @@ Replace the implement-only CLI branch with generic preset lookup while preservin
 
 ## Acceptance criteria
 
-- [ ] `v2/src/cli.test.ts` implement launch, invalid-flag, daemon-request, run-ID, and daemon-error tests stay green through the preset registry.
-- [ ] Missing and unknown workflow preset names each print exactly `usage: jarvis run workflow <implement> [flags]\n`, exit `1`, and do not contact the daemon.
-- [ ] An `implement` builder failure prints its error text followed by exactly one trailing newline, exits `1`, and does not contact the daemon.
-- [ ] Only `implement` is a registered workflow preset.
-- [ ] The CLI name-to-builder registry remains separate from `resolveWorkflowPreset`, whose `write-write` runtime preset remains available.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/cli.test.ts` implement launch, invalid-flag, daemon-request, run-ID, and daemon-error tests stay green through the preset registry.
+- [x] Missing and unknown workflow preset names each print exactly `usage: jarvis run workflow <implement> [flags]\n`, exit `1`, and do not contact the daemon.
+- [x] An `implement` builder failure prints its error text followed by exactly one trailing newline, exits `1`, and does not contact the daemon.
+- [x] Only `implement` is a registered workflow preset.
+- [x] The CLI name-to-builder registry remains separate from `resolveWorkflowPreset`, whose `write-write` runtime preset remains available.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

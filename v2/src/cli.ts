@@ -14,6 +14,7 @@ import { resolveWriteLoopBindings, type WaitRunCompletionResult } from "./daemon
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon/daemon-lifecycle.ts";
 import { parseListRuns, parseStartResult, parseWaitCompletion } from "./daemon/daemon-wire.ts";
 import { buildImplementWorkflowSteps } from "./execution/implement-workflow-steps.ts";
+import { WORKFLOW_PRESET_BUILDERS, type WorkflowPresetBuilder } from "./execution/workflow-presets.ts";
 import {
   applyOperatorSessionId,
   executeWriteLoop,
@@ -49,6 +50,7 @@ type CliDeps = {
   runTuiEntry: (deps?: RunTuiEntryDeps) => Promise<number>;
   runTuiLogFollow: (runId: string, deps?: RunTuiLogFollowDeps) => Promise<number>;
   buildImplementWorkflowSteps: typeof buildImplementWorkflowSteps;
+  workflowPresetBuilders: Readonly<Record<string, WorkflowPresetBuilder>>;
   cwd: () => string;
   socketPath: string;
   pidPath: string;
@@ -66,6 +68,7 @@ const WRITE_USAGE =
   "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--max-iterations <n>]\n";
 const WORKFLOW_IMPLEMENT_USAGE =
   "usage: jarvis run workflow implement --branch <name> --base <ref> --spec <path> --artifact <path>\n";
+const WORKFLOW_USAGE = "usage: jarvis run workflow <implement> [flags]\n";
 
 export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliDeps>): Promise<number> {
   const out = io ?? {
@@ -87,6 +90,8 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     pidPath: DAEMON_PID_PATH,
     machineConfigPath: MACHINE_CONFIG_PATH,
     ...deps,
+    workflowPresetBuilders:
+      deps?.workflowPresetBuilders ?? { implement: deps?.buildImplementWorkflowSteps ?? buildImplementWorkflowSteps },
   };
   const command = argv[0];
   const operatorSessionId = crypto.randomUUID();
@@ -263,14 +268,21 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
     });
   }
 
-  if (subcommand === "workflow" && argv[1] === "implement") {
+  if (subcommand === "workflow") {
+    const name = argv[1];
+    const builder = name === undefined ? undefined : deps.workflowPresetBuilders[name];
+    if (builder === undefined) {
+      io.stderr(WORKFLOW_USAGE);
+      return 1;
+    }
+
     const parsed = parseImplementWorkflowArgs(argv.slice(2));
     if (!parsed.ok) {
       io.stderr(WORKFLOW_IMPLEMENT_USAGE);
       return 1;
     }
 
-    const built = deps.buildImplementWorkflowSteps({
+    const built = builder({
       cwd: deps.cwd(),
       branchName: parsed.branchName,
       baseRef: parsed.baseRef,
@@ -278,7 +290,7 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
       artifactPath: parsed.artifactPath,
     });
     if (!built.ok) {
-      io.stderr(`${built.error}\n`);
+      io.stderr(`${built.error.replace(/\n+$/, "")}\n`);
       return 1;
     }
 

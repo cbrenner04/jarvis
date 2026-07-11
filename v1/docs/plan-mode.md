@@ -126,6 +126,7 @@ Jarvis invokes an agent with a focused prompt (`prompts/plan/draft.md`) that:
 - Asks the agent to read the target repo for context.
 - **Before producing any spec content, performs a prerequisite gate:** the agent reads existing repo files and judges whether each behavior in the intent's `## Prerequisites` section is legibly present (observable in committed code, tests, or docs; prose describing future work does not count). If every prerequisite is clearly present, the agent proceeds to normal spec drafting. If the agent cannot cleanly confirm a prerequisite from existing files, it appends a `## Blocker` section to `intent.md` naming each unconfirmed behavior, writes no `index.md` or subspecs, and plan exits non-zero with the blocker body on stderr. An empty or bareword-`none` `## Prerequisites` body skips the gate entirely.
 - Instructs the agent to produce `<targetDir>/<spec-dir>/index.md` plus one or more atomic subspecs (`00-*.md`, `01-*.md`, etc.).
+- Sizes each subspec as one normal patch iteration: one implementation path with focused verification. Independently implementable builder, wiring, or validation paths belong in separate subspecs; coupled changes remain together.
 - Forbids modifications to `intent.md` except for appending a `## Blocker` section.
 
 The agent produces files under `<targetDir>/<spec-dir>/` in the worktree. Jarvis does **not** invoke the agent a second time; the call ends when the agent ends. 

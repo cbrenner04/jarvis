@@ -163,6 +163,17 @@ describe("buildVerdictActuatorPrompt", () => {
 });
 
 describe("draft/review prompts", () => {
+  test("draft prompt sizes subspecs to one implementation path", () => {
+    const prompt = buildDraftPrompt({
+      name: "test-name",
+      intent: "intent",
+      specGuidance: "guidance",
+    });
+    expect(prompt).toContain("one normal patch iteration: one implementation path with focused verification");
+    expect(prompt).toContain("independently implementable builder, wiring, or validation paths");
+    expect(prompt).toContain("keep coupled changes together");
+  });
+
   test("draft prompt includes anti-self-reference acceptance criteria contract", () => {
     const prompt = buildDraftPrompt({
       name: "test-name",

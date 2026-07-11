@@ -24,7 +24,7 @@ Drafting can combine independent implementation paths into a subspec that exceed
 
 ## Acceptance criteria
 
-- [ ] Plan drafting directs the agent to create one-iteration subspecs: one implementation path, focused verification, and no bundled independently implementable builder, wiring, or validation path; coupled changes remain together.
-- [ ] Draft prompt rendering and focused plan-prompt tests cover the one-implementation-path sizing instruction.
-- [ ] `v1/docs/plan-mode.md` is the sizing behavior authority; `v2/docs/v1-behaviors.md` records its source without duplicating the guidance.
-- [ ] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] Plan drafting directs the agent to create one-iteration subspecs: one implementation path, focused verification, and no bundled independently implementable builder, wiring, or validation path; coupled changes remain together.
+- [x] Draft prompt rendering and focused plan-prompt tests cover the one-implementation-path sizing instruction.
+- [x] `v1/docs/plan-mode.md` is the sizing behavior authority; `v2/docs/v1-behaviors.md` records its source without duplicating the guidance.
+- [x] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` pass.

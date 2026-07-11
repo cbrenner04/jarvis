@@ -1063,9 +1063,7 @@ describe("v2 cli", () => {
     });
 
     expect(code).toBe(1);
-    expect(cap.read().stderr).toBe(
-      "projects.test-project.implement.reviewPasses must be a non-negative integer\n",
-    );
+    expect(cap.read().stderr).toBe("projects.test-project.implement.reviewPasses must be a non-negative integer\n");
   });
 
   test("run workflow implement derives branch from spec parent dirname when branch is omitted", async () => {

@@ -193,10 +193,7 @@ describe("readProjectImplementReviewPasses", () => {
       reviewPasses: 0,
     });
     expect(
-      readProjectImplementReviewPasses(
-        "demo",
-        writeConfig({ projects: { demo: { root: "/tmp/repo" } } }),
-      ),
+      readProjectImplementReviewPasses("demo", writeConfig({ projects: { demo: { root: "/tmp/repo" } } })),
     ).toEqual({ ok: true, reviewPasses: 0 });
     expect(
       readProjectImplementReviewPasses(

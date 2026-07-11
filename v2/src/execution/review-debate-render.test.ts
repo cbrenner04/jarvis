@@ -7,10 +7,10 @@ import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import {
   nextReviewDebateCycleContext,
   PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS,
+  type ReviewDebateRenderContext,
   renderReviewDebateActuatorPrompt,
   renderReviewDebateCyclePrompts,
   renderReviewDebateRolePrompt,
-  type ReviewDebateRenderContext,
 } from "./review-debate-render.ts";
 
 function setupPatchReviewRepo(): { dir: string; specPath: string; cleanup: () => void } {
@@ -39,7 +39,11 @@ function setupPatchReviewRepo(): { dir: string; specPath: string; cleanup: () =>
   return { dir, specPath, cleanup: () => rmSync(parent, { recursive: true, force: true }) };
 }
 
-function baseContext(dir: string, specPath: string, overrides: Partial<ReviewDebateRenderContext> = {}): ReviewDebateRenderContext {
+function baseContext(
+  dir: string,
+  specPath: string,
+  overrides: Partial<ReviewDebateRenderContext> = {},
+): ReviewDebateRenderContext {
   return {
     specPath,
     cwd: dir,
@@ -65,7 +69,10 @@ describe("renderReviewDebateRolePrompt", () => {
   test("injects spec tree, branch diff, and pass number", () => {
     const { dir, specPath, cleanup } = setupPatchReviewRepo();
     try {
-      const prompt = renderReviewDebateRolePrompt("adversary", baseContext(dir, specPath, { totalPasses: 2, passNumber: 2 }));
+      const prompt = renderReviewDebateRolePrompt(
+        "adversary",
+        baseContext(dir, specPath, { totalPasses: 2, passNumber: 2 }),
+      );
 
       expect(prompt).toContain("critical review");
       expect(prompt).toContain(specPath);

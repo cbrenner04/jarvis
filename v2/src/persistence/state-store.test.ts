@@ -230,7 +230,11 @@ describe("StateStore", () => {
       ],
     };
     const runZeroId = seedRun(store, { stepId: "implement", workflowSnapshot: withZero });
-    const runPositiveId = seedRun(store, { stepId: "implement", branch: "review-branch", workflowSnapshot: withPositive });
+    const runPositiveId = seedRun(store, {
+      stepId: "implement",
+      branch: "review-branch",
+      workflowSnapshot: withPositive,
+    });
 
     expect(loadRunOrThrow(store, runZeroId).workflowSnapshot).toEqual(withZero);
     expect(loadRunOrThrow(store, runPositiveId).workflowSnapshot).toEqual(withPositive);

@@ -11,7 +11,6 @@ import {
 import { assemblePromptForStep } from "../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { renderTemplateWithDeclarations } from "../../../shared/prompts/render.ts";
-import { buildVerdictActuatorPrompt } from "../../../v1/src/modes/patch/prompt.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
 import type { ReviewDebateRole, ReviewDebateRoleBindings } from "./review-debate.ts";
 
@@ -33,11 +32,71 @@ export type ReviewDebateRenderContext = {
   priorCycleVerdict?: string;
 };
 
+function stripOptionalPromptSection(
+  text: string,
+  sectionHeader: string,
+  beginMarker: string,
+  endMarker: string,
+): string {
+  const headerIndex = text.indexOf(sectionHeader);
+  if (headerIndex === -1) {
+    return text;
+  }
+  const beginIndex = text.indexOf(beginMarker, headerIndex);
+  const endIndex = text.indexOf(endMarker, beginIndex);
+  if (beginIndex === -1 || endIndex === -1) {
+    return text;
+  }
+  let removeEnd = endIndex + endMarker.length;
+  while (text[removeEnd] === "\n") {
+    removeEnd += 1;
+  }
+  return `${text.slice(0, headerIndex)}${text.slice(removeEnd)}`;
+}
+
+function buildPatchBodyPrompt(specPath: string): string {
+  const registry = loadPromptRegistry();
+  const template = assemblePromptForStep({
+    registry,
+    stepPromptId: "patch.prompt.body",
+  });
+
+  let rendered = renderTemplateWithDeclarations(
+    template,
+    [
+      { name: "SPEC_PATH", type: "string", required: true },
+      { name: "SIBLINGS_BLOCK", type: "string", required: true },
+      { name: "REPO_GUIDANCE", type: "string", required: true },
+      { name: "ACTIVE_SUBSPEC_PATH", type: "string", required: true },
+      { name: "ACTIVE_SUBSPEC_BODY", type: "string", required: true },
+      { name: "PATCH_RULES", type: "string", required: true },
+      { name: "TIMEOUT_CHECKPOINT_CONTEXT", type: "string", required: true },
+    ],
+    {
+      SPEC_PATH: specPath,
+      SIBLINGS_BLOCK: "",
+      REPO_GUIDANCE: "",
+      ACTIVE_SUBSPEC_PATH: "",
+      ACTIVE_SUBSPEC_BODY: "",
+      PATCH_RULES: registry.getById("patch.rules").body.trim(),
+      TIMEOUT_CHECKPOINT_CONTEXT: "",
+    },
+  );
+
+  for (const section of [
+    { header: "## Repo Guidance", begin: "<<<REPO_GUIDANCE_BEGIN>>>", end: "<<<REPO_GUIDANCE_END>>>" },
+    { header: "## Active Subspec", begin: "<<<ACTIVE_SUBSPEC_BEGIN>>>", end: "<<<ACTIVE_SUBSPEC_END>>>" },
+    { header: "## Timeout Checkpoint", begin: "<<<TIMEOUT_CHECKPOINT_BEGIN>>>", end: "<<<TIMEOUT_CHECKPOINT_END>>>" },
+  ]) {
+    rendered = stripOptionalPromptSection(rendered, section.header, section.begin, section.end);
+  }
+
+  return rendered.replace("\n\nFollow these Jarvis rules:", "\nFollow these Jarvis rules:").trim();
+}
+
 function reviewPassContext(passNumber: number, totalPasses: number, priorCycleVerdict?: string): string {
   const base =
-    totalPasses === 1
-      ? "This is the only review pass."
-      : `This is review pass ${passNumber} of ${totalPasses}.`;
+    totalPasses === 1 ? "This is the only review pass." : `This is review pass ${passNumber} of ${totalPasses}.`;
   if (priorCycleVerdict !== undefined && priorCycleVerdict.trim().length > 0) {
     return `${base}\n\nPrior cycle verdict:\n${priorCycleVerdict.trim()}`;
   }
@@ -162,7 +221,8 @@ export function renderReviewDebateRolePrompt(
 }
 
 export function renderReviewDebateActuatorPrompt(verdict: string, specPath: string): string {
-  return buildVerdictActuatorPrompt(verdict, specPath);
+  const basePrompt = buildPatchBodyPrompt(specPath);
+  return `${basePrompt}\n\n## Review Actuator Rules\n\n- Apply the review verdict to implementation files only.\n- The completed spec tree is read-only: do not edit spec files, tick criteria, append blockers, or edit verdict-patch.md.\n- Do not expand scope beyond the verdict.\n\n## Review Verdict\n\nBased on a review of your implementation, the following changes are required:\n\n${verdict}`;
 }
 
 export type ReviewDebateCyclePrompts = {

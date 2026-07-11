@@ -1284,7 +1284,11 @@ describe("executeWorkflow implement patch review", () => {
       expect(calls.indexOf("implement")).toBeLessThan(calls.indexOf("shrink"));
       expect(calls.indexOf("shrink")).toBeLessThan(calls.indexOf("review:ADV"));
       expect(readFileSync(verdictPath, "utf8")).toBe("fix it");
-      const run = store.findRunByProjectBranch({ project: "demo", branch: implementStep.worktree.branchName, stepId: "implement" });
+      const run = store.findRunByProjectBranch({
+        project: "demo",
+        branch: implementStep.worktree.branchName,
+        stepId: "implement",
+      });
       expect(run?.workflowSnapshot?.reviewPasses).toBe(reviewStep.maxCycles);
     });
   });
@@ -1408,7 +1412,7 @@ describe("executeWorkflow implement patch review", () => {
           published.push({ specPath: input.specPath, agent: input.agent });
           return { commitSha: "review-commit", filesChanged: 1 };
         },
-        completionPublisher: async () => {},
+        completionPublisher: async () => ({}),
         readyFinalizer: async () => {},
       });
 

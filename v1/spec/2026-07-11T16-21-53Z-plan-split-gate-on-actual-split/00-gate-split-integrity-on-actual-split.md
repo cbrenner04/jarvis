@@ -34,16 +34,16 @@ subspec"` (`review.ts:294-296`) and the plan aborts `exit agent-error`. Observed
 
 ## Acceptance criteria
 
-- [ ] A review verdict whose text matches `/\bsplit\b/i` but whose actuator
+- [x] A review verdict whose text matches `/\bsplit\b/i` but whose actuator
   removed and added no subspec files does not abort the plan (no
   `"split verdict did not replace the original subspec"` error).
-- [ ] When a subspec is both removed and added, a replacement missing from
+- [x] When a subspec is both removed and added, a replacement missing from
   `index.md` still fails with the `split replacement is not linked from index.md`
   error.
-- [ ] When a subspec is both removed and added, a replacement that drops or
+- [x] When a subspec is both removed and added, a replacement that drops or
   duplicates an original task or acceptance outcome still fails with the
   `split did not preserve exactly once` error.
-- [ ] `bun run typecheck` passes and the plan-review surface tests stay green.
+- [x] `bun run typecheck` passes and the plan-review surface tests stay green.
 
 ## Documentation updates
 

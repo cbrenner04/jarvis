@@ -286,13 +286,13 @@ function splitSubspecFiles(snapshot: SpecDirSnapshot): Map<string, string> {
   );
 }
 
-function validateSplitIntegrity(before: SpecDirSnapshot, specDir: string): string | null {
+export function validateSplitIntegrity(before: SpecDirSnapshot, specDir: string): string | null {
   const original = splitSubspecFiles(before);
   const current = splitSubspecFiles(snapshotSpecDirFiles(specDir));
   const removed = [...original.keys()].filter((name) => !current.has(name));
   const replacements = [...current.keys()].filter((name) => !original.has(name));
   if (removed.length === 0 || replacements.length === 0) {
-    return "split verdict did not replace the original subspec";
+    return null;
   }
 
   const index = readFileSync(join(specDir, "index.md"), "utf8");
@@ -950,12 +950,10 @@ export async function runPlanReviewPhase(
         throw new ReviewTerminalError(validation.error ?? "validation failed", 1);
       }
 
-      if (/\bsplit\b/i.test(verdict)) {
-        const splitError = validateSplitIntegrity(specBeforeActuation, finalSpecPath);
-        if (splitError !== null) {
-          opts.stderr?.(`plan: actuator split validation failed: ${splitError}\n`);
-          throw new ReviewTerminalError(splitError, 1);
-        }
+      const splitError = validateSplitIntegrity(specBeforeActuation, finalSpecPath);
+      if (splitError !== null) {
+        opts.stderr?.(`plan: actuator split validation failed: ${splitError}\n`);
+        throw new ReviewTerminalError(splitError, 1);
       }
 
       if (!opts.commit) {

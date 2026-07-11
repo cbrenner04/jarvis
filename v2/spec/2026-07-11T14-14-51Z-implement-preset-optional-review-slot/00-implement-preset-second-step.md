@@ -23,7 +23,7 @@ steps, leaving execution behavior unchanged.
 
 ## Acceptance criteria
 
-- [ ] `resolveWorkflowPreset("implement", ...)` accepts one and two inputs; every returned position is a `write` step pinned to `role: "implement"` and `promptId: "patch.prompt.body"`.
-- [ ] `resolveWorkflowPreset("implement", ...)` rejects zero and three inputs; resolver-supported `write-write`, `intent`, and `plan` retain their exact cardinalities.
-- [ ] Workflow preset tests cover both accepted and rejected `implement` counts plus the exact cardinality of every other resolver-supported preset, without review execution behavior.
-- [ ] `v2/docs/workflow-runner.md` documents the implement preset's one-or-two-step limit and `v2/docs/v1-behaviors.md` records the additive v2 behavior.
+- [x] `resolveWorkflowPreset("implement", ...)` accepts one and two inputs; every returned position is a `write` step pinned to `role: "implement"` and `promptId: "patch.prompt.body"`.
+- [x] `resolveWorkflowPreset("implement", ...)` rejects zero and three inputs; resolver-supported `write-write`, `intent`, and `plan` retain their exact cardinalities.
+- [x] Workflow preset tests cover both accepted and rejected `implement` counts plus the exact cardinality of every other resolver-supported preset, without review execution behavior.
+- [x] `v2/docs/workflow-runner.md` documents the implement preset's one-or-two-step limit and `v2/docs/v1-behaviors.md` records the additive v2 behavior.

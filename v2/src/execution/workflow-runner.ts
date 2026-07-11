@@ -63,7 +63,7 @@ type WorkflowTelemetryContext = {
 
 const WORKFLOW_PRESET_LENGTHS = {
   "write-write": 2,
-  implement: 1,
+  implement: [1, 2] as const,
   intent: 1,
   plan: 1,
 } as const;
@@ -104,6 +104,8 @@ export type WriteWorkflowStep = Omit<WriteLoopInput, "bindings"> & {
    * the next one — continuing until no unchecked link remains.
    */
   linkedIndexRouting?: boolean;
+  /** Pinned by `resolveWorkflowPreset("implement", ...)` on all but the last of its resolved positions, so the post-completion shrink pass fires once per resolved preset, not once per position. */
+  suppressShrink?: boolean;
 };
 
 /**
@@ -212,12 +214,25 @@ export function resolveWorkflowPreset(
     throw new Error(`Unknown workflow preset: "${name}"`);
   }
 
-  if (steps.length !== expected) {
-    throw new Error(`Workflow preset "${name}" requires ${expected} steps, received ${steps.length}`);
+  const isValid = Array.isArray(expected) ? expected.includes(steps.length) : steps.length === expected;
+
+  if (!isValid) {
+    const msg = Array.isArray(expected)
+      ? `Workflow preset "${name}" requires ${expected.join(" or ")} steps, received ${steps.length}`
+      : `Workflow preset "${name}" requires ${expected} steps, received ${steps.length}`;
+    throw new Error(msg);
   }
 
   const pinned = WORKFLOW_PRESET_PINNED_FIELDS[name];
-  return steps.map((step) => ({ ...step, behavior: "write", ...(pinned ?? {}) }) satisfies WorkflowStepInput);
+  return steps.map((step, index) => {
+    const suppressShrink = name === "implement" && index < steps.length - 1 ? true : undefined;
+    return {
+      ...step,
+      behavior: "write",
+      ...(pinned ?? {}),
+      ...(suppressShrink !== undefined ? { suppressShrink } : {}),
+    } satisfies WorkflowStepInput;
+  });
 }
 
 type PreparedWorkflowStep =
@@ -481,7 +496,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         };
       }
 
-      if (step.behavior === "write" && step.role === "implement") {
+      if (step.behavior === "write" && step.role === "implement" && !step.suppressShrink) {
         const shrinkResult = await runShrinkAfterImplementComplete(
           step,
           stepIndex,

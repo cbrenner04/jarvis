@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import {
+  executePatchReviewCycle,
   nextReviewDebateCycleContext,
   PATCH_REVIEW_CRITIC_PROMPT_ID,
   PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS,
@@ -175,5 +176,90 @@ describe("renderReviewDebateActuatorPrompt", () => {
     expect(prompt).toContain("Review Actuator Rules");
     expect(prompt).toContain("Fix the null guard");
     expect(prompt).toContain("do not edit spec files");
+  });
+});
+
+describe("executePatchReviewCycle", () => {
+  test("renders critic per cycle, skips actuator on empty verdict, and uses patch actuator prompt", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    const verdictPath = join(dir, "verdict-patch.md");
+    const prompts: string[] = [];
+    try {
+      const result = await executePatchReviewCycle({
+        cwd: dir,
+        context: { specPath, cwd: dir, baseBranch: "main" },
+        verdictPath,
+        maxCycles: 2,
+        bindings: {
+          critic: [
+            {
+              id: "critic",
+              invoke: async ({ prompt }) => {
+                prompts.push(prompt);
+                const pass = prompts.filter((entry) => entry.includes("read-only")).length;
+                return { kind: "ok" as const, stdout: pass === 1 ? "fix it" : "", stderr: "" };
+              },
+            },
+          ],
+          actuator: [
+            {
+              id: "actuator",
+              invoke: async ({ prompt }) => {
+                prompts.push(prompt);
+                return { kind: "ok" as const, stdout: "done", stderr: "" };
+              },
+            },
+          ],
+        },
+      });
+
+      expect(result.cycles).toHaveLength(2);
+      expect(result.cycles[0]).toMatchObject({ kind: "completed", actuatorRan: true });
+      expect(result.cycles[1]).toMatchObject({ kind: "completed", actuatorRan: false });
+      expect(prompts[0]).toContain("read-only");
+      expect(prompts[0]).toContain("This is review pass 1 of 2.");
+      expect(prompts[1]).toContain("Review Actuator Rules");
+      expect(prompts[1]).toContain("fix it");
+      expect(prompts[2]).toContain("This is review pass 2 of 2.");
+      expect(prompts[2]).toContain("Prior cycle verdict:");
+      expect(prompts.some((entry) => entry === "fix it")).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("does not fail when the critic edits files", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    const verdictPath = join(dir, "verdict-patch.md");
+    try {
+      const result = await executePatchReviewCycle({
+        cwd: dir,
+        context: { specPath, cwd: dir, baseBranch: "main" },
+        verdictPath,
+        maxCycles: 1,
+        bindings: {
+          critic: [
+            {
+              id: "critic",
+              invoke: async () => {
+                writeFileSync(join(dir, "critic-edit.txt"), "oops\n");
+                return { kind: "ok" as const, stdout: "still apply this", stderr: "" };
+              },
+            },
+          ],
+          actuator: [
+            {
+              id: "actuator",
+              invoke: async () => ({ kind: "ok" as const, stdout: "done", stderr: "" }),
+            },
+          ],
+        },
+      });
+
+      expect(result.cycles).toEqual([expect.objectContaining({ kind: "completed", actuatorRan: true })]);
+      expect(readFileSync(join(dir, "critic-edit.txt"), "utf8")).toBe("oops\n");
+    } finally {
+      cleanup();
+    }
   });
 });

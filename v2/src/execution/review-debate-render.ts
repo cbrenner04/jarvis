@@ -12,6 +12,7 @@ import { assemblePromptForStep } from "../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { renderTemplateWithDeclarations } from "../../../shared/prompts/render.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
+import type { ReviewCycleRole, ReviewCycleRoleBindings } from "./review-cycle.ts";
 import type { ReviewDebateRole, ReviewDebateRoleBindings } from "./review-debate.ts";
 
 /** Registry prompt id for the light patch review critic role. */
@@ -333,6 +334,119 @@ async function invokePatchReviewRole(
         }
       : {}),
   });
+}
+
+type PatchReviewCycleOutcome = {
+  roleResults: Partial<Record<ReviewCycleRole, InvocationExecution>>;
+} & (
+  | { kind: "completed"; verdict: string; actuatorRan: boolean }
+  | { kind: "role_failed"; failedRole: ReviewCycleRole; failureKind: InvocationFailureKind; verdict: string | null }
+);
+
+export type PatchReviewCycleInput = {
+  cwd: string;
+  context: Pick<ReviewDebateRenderContext, "specPath" | "cwd" | "baseBranch">;
+  bindings: ReviewCycleRoleBindings;
+  verdictPath: string;
+  maxCycles: number;
+  signal?: AbortSignal;
+  telemetry?: Omit<InvocationTelemetryContext, "role" | "invocationIds">;
+  onRoleStart?: (role: ReviewCycleRole) => void;
+};
+
+async function invokePatchLightReviewRole(
+  args: PatchReviewCycleInput,
+  role: ReviewCycleRole,
+  prompt: string,
+  bindings: readonly InvocationBinding[],
+): Promise<InvocationExecution> {
+  args.onRoleStart?.(role);
+  return executeWithQuotaFallback({
+    prompt,
+    cwd: args.cwd,
+    bindings,
+    ...(args.signal !== undefined ? { signal: args.signal } : {}),
+    ...(args.telemetry !== undefined
+      ? {
+          telemetry: {
+            ...args.telemetry,
+            role,
+            invocationIds: bindings.map(() => crypto.randomUUID()),
+          },
+        }
+      : {}),
+  });
+}
+
+/** Run patch light-review cycles with per-cycle critic rendering and shared patch actuator prompts. */
+export async function executePatchReviewCycle(args: PatchReviewCycleInput): Promise<{ cycles: PatchReviewCycleOutcome[] }> {
+  if (!Number.isFinite(args.maxCycles) || !Number.isInteger(args.maxCycles) || args.maxCycles < 0) {
+    throw new RangeError("maxCycles must be a finite non-negative integer");
+  }
+
+  const cycles: PatchReviewCycleOutcome[] = [];
+  let renderContext: ReviewDebateRenderContext = {
+    ...args.context,
+    passNumber: 1,
+    totalPasses: args.maxCycles,
+  };
+
+  for (let cycle = 0; cycle < args.maxCycles; cycle += 1) {
+    const roleResults: Partial<Record<ReviewCycleRole, InvocationExecution>> = {};
+
+    try {
+      writeFileSync(args.verdictPath, "", "utf8");
+    } catch {
+      cycles.push({ kind: "role_failed", failedRole: "critic", failureKind: "error", verdict: null, roleResults });
+      break;
+    }
+
+    const criticPrompt = renderPatchReviewCriticPrompt(renderContext);
+    const critic = await invokePatchLightReviewRole(args, "critic", criticPrompt, args.bindings.critic);
+    roleResults.critic = critic;
+    const criticFailure = patchReviewFailureKind(critic);
+    if (criticFailure !== null) {
+      cycles.push({
+        kind: "role_failed",
+        failedRole: "critic",
+        failureKind: criticFailure,
+        verdict: null,
+        roleResults,
+      });
+      break;
+    }
+
+    const verdict = (critic.final?.result as InvocationOk).stdout;
+    writeFileSync(args.verdictPath, verdict, "utf8");
+
+    if (verdict.trim().length === 0) {
+      cycles.push({ kind: "completed", verdict, actuatorRan: false, roleResults });
+      break;
+    }
+
+    const actuatorPrompt = renderReviewDebateActuatorPrompt(verdict, args.context.specPath);
+    const actuator = await invokePatchLightReviewRole(args, "actuator", actuatorPrompt, args.bindings.actuator);
+    roleResults.actuator = actuator;
+    const actuatorFailure = patchReviewFailureKind(actuator);
+    if (actuatorFailure !== null) {
+      cycles.push({
+        kind: "role_failed",
+        failedRole: "actuator",
+        failureKind: actuatorFailure,
+        verdict,
+        roleResults,
+      });
+      break;
+    }
+
+    cycles.push({ kind: "completed", verdict, actuatorRan: true, roleResults });
+
+    if (cycle + 1 < args.maxCycles) {
+      renderContext = nextReviewDebateCycleContext(renderContext, verdict);
+    }
+  }
+
+  return { cycles };
 }
 
 /** Run patch review-debate cycles with per-cycle template rendering and role chaining. */

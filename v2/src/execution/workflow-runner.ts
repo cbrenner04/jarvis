@@ -40,7 +40,7 @@ import {
   type ReviewDebateRole,
   type ReviewDebateRoleBindings,
 } from "./review-debate.ts";
-import { executePatchReviewDebate } from "./review-debate-render.ts";
+import { executePatchReviewCycle, executePatchReviewDebate } from "./review-debate-render.ts";
 import {
   cleanupVerdictFile,
   excludeVerdictFromStaging,
@@ -164,6 +164,8 @@ export type ReviewWorkflowStep = Omit<ReviewCycleInput, "bindings" | "onRoleStar
   deferredIntentOutput?: { config: IntentOutputConfig; stagingDir: string; invocationId: string; baseRef: string };
   /** For plan review steps, context for rendering prompts from templates. */
   planReviewContext?: { specPath: string; jarvisRoot?: string };
+  /** When set, critic/actuator prompts render from patch review templates per cycle. */
+  patchReviewContext?: { specPath: string; baseBranch: string };
 };
 
 /** Live/terminal progress for a review step's daemon-visible row, tracked in-memory only. */
@@ -539,7 +541,11 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       const step = args.steps[stepIndex];
       if (!step) throw new Error("Unreachable: step undefined in bounded loop");
 
-      if (step.behavior === "review-debate" && step.patchReviewContext !== undefined && !implementReviewEligible) {
+      if (
+        (step.behavior === "review-debate" || step.behavior === "review") &&
+        step.patchReviewContext !== undefined &&
+        !implementReviewEligible
+      ) {
         continue;
       }
 
@@ -883,8 +889,8 @@ function implementReviewPassesFromSteps(steps: readonly AnyWorkflowStep[]): numb
   if (!hasImplementWrite) return undefined;
 
   const patchReviewStep = steps.find(
-    (step): step is ReviewDebateWorkflowStep =>
-      step.behavior === "review-debate" && step.patchReviewContext !== undefined,
+    (step): step is ReviewDebateWorkflowStep | ReviewWorkflowStep =>
+      (step.behavior === "review-debate" || step.behavior === "review") && step.patchReviewContext !== undefined,
   );
   return patchReviewStep?.maxCycles ?? 0;
 }
@@ -1176,6 +1182,7 @@ type ReviewStepOutcome =
       runId: string;
       iterationsConsumed: number;
       resumable: false;
+      completionAgent?: string;
     }
   | {
       kind: "invocation_failure";
@@ -1396,7 +1403,61 @@ type ReviewWorkflowCycleInput = Omit<
   | "createBinding"
   | "deferredIntentOutput"
   | "planReviewContext"
+  | "patchReviewContext"
 >;
+
+async function runPatchReviewStep(
+  step: ReviewWorkflowStep,
+  reviewInput: ReviewWorkflowCycleInput,
+  patchReviewContext: NonNullable<ReviewWorkflowStep["patchReviewContext"]>,
+  ids: ReviewStepExecutionIds,
+  bindings: ReturnType<typeof resolveReviewStepBindings>,
+  invocationId: string,
+  onProgress: ((invocationId: string, stepId: string, progress: ReviewProgress) => void) | undefined,
+  telemetry: WorkflowTelemetryContext | undefined,
+): Promise<ReviewStepOutcome> {
+  const { stepId } = step;
+  const result = await executePatchReviewCycle({
+    cwd: step.cwd,
+    context: {
+      specPath: patchReviewContext.specPath,
+      cwd: step.cwd,
+      baseBranch: patchReviewContext.baseBranch,
+    },
+    bindings,
+    verdictPath: reviewInput.verdictPath,
+    maxCycles: reviewInput.maxCycles,
+    ...(reviewInput.signal !== undefined ? { signal: reviewInput.signal } : {}),
+    ...buildReviewStepTelemetryFields(step, ids, telemetry),
+    ...buildReviewStepOnRoleStart(invocationId, stepId, onProgress),
+  });
+
+  const lastCycle = result.cycles[result.cycles.length - 1];
+  const kind = lastCycle?.kind === "role_failed" ? "invocation_failure" : "complete";
+  const terminalRole: ReviewCycleRole =
+    lastCycle?.kind === "role_failed" ? lastCycle.failedRole : lastCycle?.actuatorRan ? "actuator" : "critic";
+
+  onProgress?.(invocationId, stepId, {
+    status: kind === "complete" ? "completed" : "stopped",
+    role: terminalRole,
+    terminalOutcome: kind,
+  });
+
+  const actuatorExecution =
+    lastCycle?.kind === "completed" && lastCycle.actuatorRan ? lastCycle.roleResults?.actuator?.final : undefined;
+  const completionAgent =
+    kind === "complete" && actuatorExecution?.result.kind === "ok"
+      ? actuatorExecution.binding.metadata?.agent?.trim()
+      : undefined;
+
+  return {
+    kind,
+    runId: ids.runId,
+    iterationsConsumed: result.cycles.length,
+    resumable: false,
+    ...(completionAgent ? { completionAgent } : {}),
+  };
+}
 
 async function runPlanReviewStep(
   step: ReviewWorkflowStep,
@@ -1529,7 +1590,7 @@ async function runReviewStep(
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
   store: StateStore,
 ): Promise<ReviewStepOutcome> {
-  const { deferredIntentOutput, planReviewContext, ...reviewInput } = step;
+  const { deferredIntentOutput, planReviewContext, patchReviewContext, ...reviewInput } = step;
 
   // Only reviewed-intent workflows carry a durable post-review checkpoint; generic review
   // steps stay non-durable (no run row, fresh synthesized run ID each dispatch).
@@ -1544,6 +1605,19 @@ async function runReviewStep(
   const bindings = resolveReviewStepBindings(step);
   const ids: ReviewStepExecutionIds = { runId: crypto.randomUUID(), attemptId: crypto.randomUUID() };
   onStepRunCreated?.(stepIndex, ids.runId);
+
+  if (patchReviewContext !== undefined) {
+    return runPatchReviewStep(
+      step,
+      reviewInput,
+      patchReviewContext,
+      ids,
+      bindings,
+      invocationId,
+      onProgress,
+      telemetry,
+    );
+  }
 
   if (planReviewContext !== undefined) {
     return runPlanReviewStep(step, reviewInput, planReviewContext, ids, bindings, invocationId, onProgress, telemetry);

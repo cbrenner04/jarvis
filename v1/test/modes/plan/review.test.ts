@@ -24,7 +24,9 @@ import {
   runPlanReviewPhase,
   snapshotSpecFiles,
   validateReviewOutput,
+  validateSplitIntegrity,
 } from "../../../src/modes/plan/review.ts";
+import { snapshotSpecDirFiles } from "../../../src/modes/plan/spec-dir.ts";
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 const CODEX_ENTRY = { agent: "codex" as const, model: "gpt-5.3-codex" };
@@ -1224,6 +1226,92 @@ describe("verdict → refine seam", () => {
       expect(result.exitCode).toBe(0);
       // Verdict file was NOT created (verdict was empty, so actuator was skipped).
       expect(existsSync(join(specDir, "verdict-plan.md"))).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("validateSplitIntegrity", () => {
+  test("returns null when no split occurs (no subspec removed)", () => {
+    const { specDir, cleanup } = setupReviewFixture();
+    try {
+      // Before snapshot with one subspec
+      const before = snapshotSpecDirFiles(specDir);
+
+      // After: no subspec removed, just content changed
+      writeFileSync(join(specDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] modified\n");
+
+      const result = validateSplitIntegrity(before, specDir);
+      expect(result).toBe(null);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("returns null when no split occurs (no subspec added)", () => {
+    const { specDir, cleanup } = setupReviewFixture();
+    try {
+      // Before snapshot with one subspec
+      const before = snapshotSpecDirFiles(specDir);
+
+      // After: remove subspec but don't add new ones
+      rmSync(join(specDir, "00-one.md"));
+      writeFileSync(join(specDir, "index.md"), "# Draft\n");
+
+      const result = validateSplitIntegrity(before, specDir);
+      expect(result).toBe(null);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("fails when split replacement is not linked from index.md", () => {
+    const { specDir, cleanup } = setupReviewFixture();
+    try {
+      const before = snapshotSpecDirFiles(specDir);
+
+      // Remove old and add new subspec but don't link it in index.md
+      rmSync(join(specDir, "00-one.md"));
+      writeFileSync(join(specDir, "00-one-a.md"), "# One A\n\n## Acceptance criteria\n\n- [ ] x\n");
+      writeFileSync(join(specDir, "index.md"), "# Draft\n\n- [ ] [00](./00-one.md)\n");
+
+      const result = validateSplitIntegrity(before, specDir);
+      expect(result).toContain("split replacement is not linked from index.md");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("fails when split does not preserve exactly once", () => {
+    const { specDir, cleanup } = setupReviewFixture();
+    try {
+      const before = snapshotSpecDirFiles(specDir);
+
+      // Remove old and add new subspec but lose a task
+      rmSync(join(specDir, "00-one.md"));
+      writeFileSync(join(specDir, "00-one-a.md"), "# One A\n\n## Acceptance criteria\n\n- [ ] different\n");
+      writeFileSync(join(specDir, "index.md"), "# Draft\n\n- [ ] [00](./00-one-a.md)\n");
+
+      const result = validateSplitIntegrity(before, specDir);
+      expect(result).toContain("split did not preserve exactly once");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("succeeds when split preserves tasks and links new subspecs", () => {
+    const { specDir, cleanup } = setupReviewFixture();
+    try {
+      const before = snapshotSpecDirFiles(specDir);
+
+      // Remove old and add new subspec with same content
+      rmSync(join(specDir, "00-one.md"));
+      writeFileSync(join(specDir, "00-one-a.md"), "# One A\n\n## Acceptance criteria\n\n- [ ] x\n");
+      writeFileSync(join(specDir, "index.md"), "# Draft\n\n- [ ] [00](./00-one-a.md)\n");
+
+      const result = validateSplitIntegrity(before, specDir);
+      expect(result).toBe(null);
     } finally {
       cleanup();
     }

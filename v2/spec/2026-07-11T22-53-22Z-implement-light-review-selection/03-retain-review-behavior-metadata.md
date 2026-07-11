@@ -7,18 +7,19 @@ now.
 
 ## Decisions
 
-- Persist the resolved behavior in the workflow snapshot at launch and copy it onto `list` rows next to `reviewPasses` — rules out re-deriving it from live project config, which can change mid-run.
-- Emit `reviewBehavior` only on implement workflow rows, omitted (not `null`) elsewhere, mirroring `reviewPasses` — rules out a field that consumers must special-case.
+- Thread the resolved behavior from the implement workflow input into the durable workflow snapshot as an explicit snapshot-level field, written at launch, and read it back onto `list` rows — rules out deriving it from the emitted review step the way `reviewPasses` is derived, which cannot work: a review-free launch emits no review step to read, and `reviewPasses` reports zero there precisely because of that derivation. Also rules out re-deriving from live project config, which can change mid-run.
+- Emit `reviewBehavior` only on implement workflow rows, omitted (not `null`) elsewhere — rules out a field that consumers must special-case.
 - Emit it on review-free implement launches too, since the behavior is resolved regardless of pass count — rules out an absent field that reads as "unknown behavior".
 
 ## Task checklist
 
-- [ ] Retain the resolved behavior on the durable workflow snapshot.
+- [ ] Carry the resolved behavior from the implement workflow input onto the durable workflow snapshot as an explicit field.
 - [ ] Surface it on `list` rows and in TUI run data.
 
 ## Acceptance criteria
 
-- [ ] `list` rows for an implement workflow run carry `reviewBehavior` (`"debate"` or `"light"`) matching the behavior resolved at launch, sourced from the durable workflow snapshot rather than live project configuration.
+- [ ] `list` rows for an implement workflow run carry `reviewBehavior` (`"debate"` or `"light"`) matching the behavior resolved at launch, sourced from the durable workflow snapshot rather than live project configuration or the emitted step list.
+- [ ] A review-free implement launch (zero resolved passes, no review step emitted) still carries the resolved `reviewBehavior` on its `list` rows.
 - [ ] Non-implement workflow rows omit `reviewBehavior` entirely.
 - [ ] TUI run data exposes the same field on each `list` row.
 - [ ] `tui-monitor-lines.test.ts` implement `reviewPasses` retention coverage stays green (behavior unchanged for the existing field).

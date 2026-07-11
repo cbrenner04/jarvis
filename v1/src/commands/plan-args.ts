@@ -9,6 +9,7 @@ export type PlanInvocationCommon = {
   cwd: string;
   resume: boolean;
   resumeDraft: boolean;
+  recover?: string;
   agentFlags?: string[];
 };
 
@@ -55,6 +56,7 @@ export function parsePlanArgs(argv: readonly string[], processCwd: string): Plan
   let cwdFlag: string | undefined;
   let resume = false;
   let resumeDraft = false;
+  let recover: string | undefined;
   const agentFlags: string[] = [];
   const positional: string[] = [];
 
@@ -79,6 +81,13 @@ export function parsePlanArgs(argv: readonly string[], processCwd: string): Plan
     }
     if (arg === "--resume-draft") {
       resumeDraft = true;
+      continue;
+    }
+    if (arg === "--recover") {
+      const value = argv[i + 1];
+      if (value === undefined) return { ok: false, exitCode: 1, message: "plan: missing value for --recover" };
+      i += 1;
+      recover = value;
       continue;
     }
     if (FLAGS_WITH_VALUE.has(arg)) {
@@ -139,17 +148,17 @@ export function parsePlanArgs(argv: readonly string[], processCwd: string): Plan
       message: "plan: too many arguments",
     };
   }
-  if (resume && resumeDraft) {
+  if ((resume && resumeDraft) || (recover !== undefined && (resume || resumeDraft))) {
     return {
       ok: false,
       exitCode: 1,
-      message: "plan: --resume and --resume-draft cannot be combined",
+      message: "plan: --recover cannot be combined with --resume or --resume-draft",
     };
   }
 
   const cwd = cwdFlag !== undefined ? (isAbsolute(cwdFlag) ? cwdFlag : resolve(processCwd, cwdFlag)) : processCwd;
 
-  const common: PlanInvocationCommon = { cwd, resume, resumeDraft };
+  const common: PlanInvocationCommon = { cwd, resume, resumeDraft, ...(recover !== undefined ? { recover } : {}) };
   if (reviewPasses !== undefined) common.reviewPasses = reviewPasses;
   if (repo !== undefined) common.repo = repo;
   if (targetDir !== undefined) common.targetDir = targetDir;
@@ -159,14 +168,17 @@ export function parsePlanArgs(argv: readonly string[], processCwd: string): Plan
     return {
       ok: false,
       exitCode: 1,
-      message: "plan: missing required ready-intent (<targetDir>/ready-intents/<name>.md)",
+      message:
+        recover === undefined
+          ? "plan: missing required ready-intent (<targetDir>/ready-intents/<name>.md)"
+          : "plan: --recover requires an index.md path",
     };
   }
 
   const positionalArg = positional[0] as string;
   const candidatePath = isAbsolute(positionalArg) ? positionalArg : resolve(cwd, positionalArg);
 
-  if (resume || resumeDraft) {
+  if (resume || resumeDraft || recover !== undefined) {
     return {
       ok: true,
       invocation: { ...common, mode: "file", readyIntentPath: candidatePath },

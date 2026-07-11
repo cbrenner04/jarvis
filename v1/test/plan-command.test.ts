@@ -1148,6 +1148,16 @@ describe("parsePlanArgs", () => {
     }
   });
 
+  test("--recover keeps the index path and selected subspec separate", () => {
+    const res = parsePlanArgs(["--recover", "./00-task.md", "spec/tree/index.md"], tmp);
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.invocation.recover).toBe("./00-task.md");
+      expect(res.invocation.readyIntentPath).toBe(resolve(tmp, "spec/tree/index.md"));
+      expect(res.invocation.resume).toBe(false);
+    }
+  });
+
   test("--cwd rewrites file resolution base", () => {
     setup();
     try {

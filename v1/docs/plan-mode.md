@@ -297,6 +297,16 @@ For external-spec resumes (`commit: false`, including effective `git: false`), j
 
 > **Removed:** `--resume-draft` and `--refine-turns`. Intent authoring and refinement moved to `jarvis1 intent`; plan starts at draft. `--resume-draft` is still parsed but exits with guidance to use `jarvis1 plan <ready-intent>` (fresh) or `jarvis1 plan --resume <index.md>` (post-draft review).
 
+### `--recover <relative-subspec> <index.md>`
+
+Recover one oversized timed-out task into a separate spec-only draft PR:
+
+```sh
+jarvis1 plan --recover ./00-task.md v1/spec/2026-07-11T00-00-00Z-task/index.md
+```
+
+The target must be one unchecked link in that index and have one terminal patch iteration-timeout record. Recovery refuses pending checkpoint work; resume or abandon that patch work first. It does not alter ordinary patch runs or `--resume`. See [v2/docs/v1-behaviors.md](../../v2/docs/v1-behaviors.md) for the lifecycle and evidence rules.
+
 ## Resuming a plan
 
 Resume runs additional **review passes** against an existing plan branch:

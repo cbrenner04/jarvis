@@ -22,11 +22,11 @@ debate.
 
 ## Acceptance criteria
 
-- [ ] `jarvis run workflow plan-reviewed --ready-intent <path> [--target-dir <dir>] [--review-passes <n>]` accepts valid input, rejects invalid pass counts before daemon contact, and leaves `plan` without a review-selection flag.
-- [ ] With omitted or positive review passes, `plan-reviewed` runs the draft before one `review-debate` step whose cycle limit equals the requested passes, four role orders come from configured workflow loading, and the step uses the plan debate prompts and `<spec-dir>/verdict-plan.md`.
-- [ ] With `--review-passes 0`, `plan-reviewed` produces the same one-step draft workflow as `plan`, with no debate step.
-- [ ] New focused tests cover launcher routing and draft-plus-debate composition, including loaded debate roles, prompt/verdict wiring, and zero-pass omission.
-- [ ] `v2/docs/workflow-runner.md` documents `plan-reviewed`, its default and zero-pass behavior, and when to choose it instead of `plan-reviewed-light`.
+- [x] `jarvis run workflow plan-reviewed --ready-intent <path> [--target-dir <dir>] [--review-passes <n>]` accepts valid input, rejects invalid pass counts before daemon contact, and leaves `plan` without a review-selection flag.
+- [x] With omitted or positive review passes, `plan-reviewed` runs the draft before one `review-debate` step whose cycle limit equals the requested passes, four role orders come from configured workflow loading, and the step uses the plan debate prompts and `<spec-dir>/verdict-plan.md`.
+- [x] With `--review-passes 0`, `plan-reviewed` produces the same one-step draft workflow as `plan`, with no debate step.
+- [x] New focused tests cover launcher routing and draft-plus-debate composition, including loaded debate roles, prompt/verdict wiring, and zero-pass omission.
+- [x] `v2/docs/workflow-runner.md` documents `plan-reviewed`, its default and zero-pass behavior, and when to choose it instead of `plan-reviewed-light`.
 
 ## Documentation updates
 

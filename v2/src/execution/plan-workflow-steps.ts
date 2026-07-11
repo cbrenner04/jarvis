@@ -4,8 +4,20 @@ import { basename, dirname, isAbsolute, join } from "node:path";
 import { getBaseBranch } from "../../../shared/git.ts";
 import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
-import { loadWorkflowSteps as realLoadWorkflowSteps, type WriteWorkflowSourceStep } from "./workflow-loader.ts";
-import { type AnyWorkflowStep, resolveWorkflowPreset, type WriteWorkflowStep } from "./workflow-runner.ts";
+import type { MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
+import {
+  type LoadedWorkflowStep,
+  loadWorkflowSteps as realLoadWorkflowSteps,
+  type ReviewDebateWorkflowSourceStep,
+  type WorkflowSourceStep,
+  type WriteWorkflowSourceStep,
+} from "./workflow-loader.ts";
+import {
+  type AnyWorkflowStep,
+  type ReviewDebateWorkflowStep,
+  resolveWorkflowPreset,
+  type WriteWorkflowStep,
+} from "./workflow-runner.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 const STAGE_DIR = ".jarvis-plan-stage";
@@ -16,6 +28,7 @@ export type PlanWorkflowInput = {
   targetDir?: string;
   configPath?: string;
   jarvisRoot?: string;
+  reviewPasses?: number;
 };
 
 type ProjectConfig = ProjectMatch & {
@@ -31,6 +44,23 @@ export type PlanWorkflowIdentity = {
 export type PlanWorkflowResult =
   | { ok: true; steps: AnyWorkflowStep[]; identity: PlanWorkflowIdentity }
   | { ok: false; error: string };
+
+export type PlanWorkflowDeps = {
+  resolveProjectMatch?: (path: string) => ProjectMatch | undefined;
+  loadWorkflowSteps?: (
+    steps: readonly WorkflowSourceStep[],
+    options?: {
+      machineConfigPath?: string;
+      machineProfile?: string;
+      machinesDir?: MachineProfileLoadOptions["machinesDir"];
+    },
+  ) => LoadedWorkflowStep[];
+  readReadyIntent?: (path: string) => { ok: true; name: string; content: string } | { ok: false; message: string };
+  resolveBaseBranch?: (projectRoot: string) => string | Promise<string>;
+  machineConfigPath?: string;
+  machineProfile?: string;
+  machinesDir?: MachineProfileLoadOptions["machinesDir"];
+};
 
 function isExistingFile(path: string): boolean {
   try {
@@ -183,15 +213,10 @@ function resolveTargetDir(input: PlanWorkflowInput, project: ProjectConfig): str
   return targetDir;
 }
 
-export async function buildPlanWorkflowSteps(
+async function buildPlanWorkflowSourceStep(
   input: PlanWorkflowInput,
-  deps?: {
-    resolveProjectMatch?: (path: string) => ProjectMatch | undefined;
-    loadWorkflowSteps?: (steps: readonly WriteWorkflowSourceStep[]) => WriteWorkflowStep[];
-    readReadyIntent?: (path: string) => { ok: true; name: string; content: string } | { ok: false; message: string };
-    resolveBaseBranch?: (projectRoot: string) => string | Promise<string>;
-  },
-): Promise<PlanWorkflowResult> {
+  deps: PlanWorkflowDeps = {},
+): Promise<{ ok: true; step: WriteWorkflowSourceStep; identity: PlanWorkflowIdentity } | { ok: false; error: string }> {
   if (isAbsolute(input.readyIntent)) {
     return { ok: false, error: "plan: --ready-intent must be a relative path" };
   }
@@ -246,9 +271,70 @@ export async function buildPlanWorkflowSteps(
     publishCompletion: true,
   };
 
+  return { ok: true, step: sourceStep, identity: { name, branch } };
+}
+
+function workflowLoadOptions(deps: PlanWorkflowDeps) {
+  return {
+    ...(deps.machineConfigPath !== undefined ? { machineConfigPath: deps.machineConfigPath } : {}),
+    ...(deps.machineProfile !== undefined ? { machineProfile: deps.machineProfile } : {}),
+    ...(deps.machinesDir !== undefined ? { machinesDir: deps.machinesDir } : {}),
+  };
+}
+
+export async function buildPlanWorkflowSteps(
+  input: PlanWorkflowInput,
+  deps: PlanWorkflowDeps = {},
+): Promise<PlanWorkflowResult> {
+  const source = await buildPlanWorkflowSourceStep(input, deps);
+  if (!source.ok) return source;
   try {
-    const loaded = (deps?.loadWorkflowSteps ?? realLoadWorkflowSteps)([sourceStep]);
-    return { ok: true, steps: resolveWorkflowPreset("plan", loaded), identity: { name, branch } };
+    const loaded = (deps.loadWorkflowSteps ?? realLoadWorkflowSteps)([source.step], workflowLoadOptions(deps));
+    const writeSteps = loaded.filter((step): step is WriteWorkflowStep => step.behavior === "write");
+    return { ok: true, steps: resolveWorkflowPreset("plan", writeSteps), identity: source.identity };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export async function buildReviewedPlanWorkflowSteps(
+  input: PlanWorkflowInput,
+  deps: PlanWorkflowDeps = {},
+): Promise<PlanWorkflowResult> {
+  const reviewPasses = input.reviewPasses ?? 1;
+  if (!Number.isInteger(reviewPasses) || reviewPasses < 0) {
+    return { ok: false, error: "plan: --review-passes must be a non-negative integer" };
+  }
+  if (reviewPasses === 0) return buildPlanWorkflowSteps(input, deps);
+
+  const source = await buildPlanWorkflowSourceStep(input, deps);
+  if (!source.ok) return source;
+  const cwd = source.step.promptPlaceholders?.WORKDIR;
+  if (typeof cwd !== "string") return { ok: false, error: "plan: unable to determine review worktree" };
+  const reviewStep: ReviewDebateWorkflowSourceStep = {
+    behavior: "review-debate",
+    stepId: "review-debate",
+    project: source.step.worktree.projectName,
+    branch: source.step.worktree.branchName,
+    cwd,
+    prompts: {
+      adversary: "plan.prompt.review.adversary",
+      advocate: "plan.prompt.review.advocate",
+      adjudicator: "plan.prompt.review.adjudicator",
+    },
+    verdictPath: join(cwd, source.step.specPath, "verdict-plan.md"),
+    maxCycles: reviewPasses,
+  };
+  try {
+    const loaded = (deps.loadWorkflowSteps ?? realLoadWorkflowSteps)([source.step, reviewStep], workflowLoadOptions(deps));
+    const writeSteps = loaded.filter((step): step is WriteWorkflowStep => step.behavior === "write");
+    const debateStep = loaded.find((step): step is ReviewDebateWorkflowStep => step.behavior === "review-debate");
+    if (debateStep === undefined) return { ok: false, error: "plan: review-debate step was not loaded" };
+    return {
+      ok: true,
+      steps: [...resolveWorkflowPreset("plan-reviewed", writeSteps), debateStep],
+      identity: source.identity,
+    };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }

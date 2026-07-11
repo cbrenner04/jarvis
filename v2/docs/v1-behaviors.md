@@ -230,7 +230,7 @@ Sources: `v1/src/commands/plan.ts`, `v1/src/modes/plan/draft.ts`, `v1/src/modes/
 
 ### v2 additive: named workflow presets
 
-- `jarvis run workflow <name> [flags]` selects a CLI builder by name; only `implement` is registered. Missing or unknown names print `usage: jarvis run workflow <implement> [flags]` and exit `1` before daemon connection. The `implement` launch preserves its `--branch`, `--base`, `--spec`, and `--artifact` parser, builder payload, IPC `start` request, run-ID stdout, daemon errors, and exit behavior; builder failures print their text with one trailing newline. Sources: `v2/src/cli.ts`, `v2/docs/write-behavior.md`
+- `jarvis run workflow <name> [flags]` selects a CLI builder by name; `implement`, `intent`, `intent-reviewed`, and `plan` are registered. Missing or unknown names print `usage: jarvis run workflow <implement|intent|intent-reviewed|plan> [flags]` and exit `1` before daemon connection. The `implement` launch preserves its `--branch`, `--base`, `--spec`, and `--artifact` parser; `intent`/`intent-reviewed` use `(--seed <path> | --seed-text <text>) [--target-dir <dir>]`; `plan` uses `--ready-intent <path> [--target-dir <dir>]`. All builders validate their inputs and exit `1` pre-daemon before bad state reaches the daemon. Sources: `v2/src/cli.ts`, `v2/src/execution/plan-workflow-steps.ts`, `v2/docs/workflow-runner.md`
 
 ### v2 machine config CLI (`jarvis config`)
 

@@ -971,6 +971,105 @@ describe("v2 cli", () => {
     });
   });
 
+  test("run workflow intent-reviewed builds seed text with default review passes before one daemon start", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000008";
+    const originalRandomUuid = crypto.randomUUID;
+    crypto.randomUUID = () => requestId;
+    let received: unknown;
+    try {
+      const code = await main(["run", "workflow", "intent-reviewed", "--seed-text", "Improve API"], cap.io, {
+        cwd: () => "/tmp/repo",
+        workflowPresetBuilders: {
+          "intent-reviewed": (input) => {
+            received = input;
+            return { ok: true, steps: FAKE_IMPLEMENT_STEPS };
+          },
+        },
+        connectIpcClient: async () =>
+          makeIpcClient([{ kind: "response", id: requestId, result: { runId: "intent-reviewed-1" } }], { sent }),
+      });
+      expect(code).toBe(0);
+    } finally {
+      crypto.randomUUID = originalRandomUuid;
+    }
+    expect(received).toMatchObject({ cwd: "/tmp/repo", seedText: "Improve API" });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ kind: "request", method: "start", params: { steps: FAKE_IMPLEMENT_STEPS } });
+    expect(cap.read()).toEqual({ stdout: "intent-reviewed-1\n", stderr: "" });
+  });
+
+  test("run workflow intent-reviewed accepts review-passes before daemon start", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000009";
+    const originalRandomUuid = crypto.randomUUID;
+    crypto.randomUUID = () => requestId;
+    let received: unknown;
+    try {
+      const code = await main(
+        ["run", "workflow", "intent-reviewed", "--seed-text", "Improve API", "--review-passes", "2"],
+        cap.io,
+        {
+          cwd: () => "/tmp/repo",
+          workflowPresetBuilders: {
+            "intent-reviewed": (input) => {
+              received = input;
+              return { ok: true, steps: FAKE_IMPLEMENT_STEPS };
+            },
+          },
+          connectIpcClient: async () =>
+            makeIpcClient([{ kind: "response", id: requestId, result: { runId: "intent-reviewed-2" } }], { sent }),
+        },
+      );
+      expect(code).toBe(0);
+    } finally {
+      crypto.randomUUID = originalRandomUuid;
+    }
+    expect(received).toMatchObject({ cwd: "/tmp/repo", seedText: "Improve API", reviewPasses: 2 });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ kind: "request", method: "start", params: { steps: FAKE_IMPLEMENT_STEPS } });
+    expect(cap.read()).toEqual({ stdout: "intent-reviewed-2\n", stderr: "" });
+  });
+
+  test("run workflow intent-reviewed rejects invalid review-passes before daemon contact", async () => {
+    const cap = captureIo();
+    const code = await main(
+      ["run", "workflow", "intent-reviewed", "--seed-text", "Improve API", "--review-passes", "invalid"],
+      cap.io,
+      {
+        connectIpcClient: async () => {
+          throw new Error("should not contact daemon");
+        },
+      },
+    );
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr:
+        "usage: jarvis run workflow intent-reviewed (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>]\n",
+    });
+  });
+
+  test("run workflow intent rejects review-passes before daemon contact", async () => {
+    const cap = captureIo();
+    const code = await main(
+      ["run", "workflow", "intent", "--seed-text", "Improve API", "--review-passes", "1"],
+      cap.io,
+      {
+        connectIpcClient: async () => {
+          throw new Error("should not contact daemon");
+        },
+      },
+    );
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>]\n",
+    });
+  });
+
   test("run workflow with an unrecognized preset name prints workflow usage and exits 1", async () => {
     const cap = captureIo();
 
@@ -983,7 +1082,7 @@ describe("v2 cli", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",
-      stderr: "usage: jarvis run workflow <implement> [flags]\n",
+      stderr: "usage: jarvis run workflow <implement|intent|intent-reviewed> [flags]\n",
     });
   });
 
@@ -999,7 +1098,7 @@ describe("v2 cli", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",
-      stderr: "usage: jarvis run workflow <implement> [flags]\n",
+      stderr: "usage: jarvis run workflow <implement|intent|intent-reviewed> [flags]\n",
     });
   });
 
@@ -1015,7 +1114,7 @@ describe("v2 cli", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",
-      stderr: "usage: jarvis run workflow <implement> [flags]\n",
+      stderr: "usage: jarvis run workflow <implement|intent|intent-reviewed> [flags]\n",
     });
   });
 

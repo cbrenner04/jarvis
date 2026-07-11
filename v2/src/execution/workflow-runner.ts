@@ -28,6 +28,11 @@ import {
   type ReviewDebateRole,
   type ReviewDebateRoleBindings,
 } from "./review-debate.ts";
+import {
+  cleanupVerdictFile,
+  excludeVerdictFromStaging,
+  executeReviewCycleEnforced,
+} from "./review-intent-enforcement.ts";
 import { parseRevisionNumber } from "./revision-step-id.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import {
@@ -121,6 +126,8 @@ export type ReviewWorkflowStep = Omit<ReviewCycleInput, "bindings" | "onRoleStar
   agents: ReviewStepAgents;
   agentModelConfig: AgentModelConfig;
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
+  /** When configured, landing is deferred until after successful review. */
+  deferredIntentOutput?: { config: IntentOutputConfig; stagingDir: string; invocationId: string; baseRef: string };
 };
 
 /** Live/terminal progress for a review step's daemon-visible row, tracked in-memory only. */
@@ -252,6 +259,7 @@ async function runWorkflowStep(
       onReviewDebateProgress,
       telemetry,
       onStepRunCreated,
+      store,
     );
   }
 
@@ -377,7 +385,12 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     const publicationAgent = lastResult.kind === "complete" ? (completionAgent ?? "") : undefined;
     let publicationSpecPath: string | undefined;
     const completionStep = [...args.steps].reverse().find(isWriteStep);
-    if (publicationAgent !== undefined && completionStep?.intentOutput !== undefined) {
+    const lastStep = args.steps[args.steps.length - 1];
+    const isReviewLastStep = lastStep?.behavior === "review";
+
+    // For reviewed intent workflows, landing is deferred until after review completes.
+    // Skip landing if the last step is a review step; it will be handled after review.
+    if (publicationAgent !== undefined && completionStep?.intentOutput !== undefined && !isReviewLastStep) {
       const worktreePath = getExternalWorktreePath(completionStep.worktree);
       try {
         publicationSpecPath = landIntentWorkflowOutput({
@@ -891,19 +904,33 @@ function gitOutput(worktreePath: string, args: readonly string[]): string {
   }
 }
 
-type ReviewDebateStepOutcome = {
-  kind: Extract<WriteLoopOutcomeKind, "complete" | "invocation_failure">;
-  runId: string;
-  iterationsConsumed: number;
-  resumable: false;
-};
+type ReviewDebateStepOutcome =
+  | {
+      kind: "complete";
+      runId: string;
+      iterationsConsumed: number;
+      resumable: false;
+    }
+  | {
+      kind: "invocation_failure";
+      runId: string;
+      iterationsConsumed: number;
+      resumable: false;
+    };
 
-type ReviewStepOutcome = {
-  kind: Extract<WriteLoopOutcomeKind, "complete" | "invocation_failure">;
-  runId: string;
-  iterationsConsumed: number;
-  resumable: false;
-};
+type ReviewStepOutcome =
+  | {
+      kind: "complete";
+      runId: string;
+      iterationsConsumed: number;
+      resumable: false;
+    }
+  | {
+      kind: "invocation_failure";
+      runId: string;
+      iterationsConsumed: number;
+      resumable: boolean;
+    };
 
 /**
  * Resolve each of the step's four per-role `agents` orders to that role's bindings and run
@@ -970,6 +997,44 @@ async function runReviewDebateStep(
   return { kind, runId, iterationsConsumed: result.cycles.length, resumable: false };
 }
 
+/**
+ * A review step's own durable completion checkpoint, keyed like a write/human step's run row.
+ * Retrying any later completion boundary (landing, commit, push, PR, finalization) re-enters
+ * `runReviewStep` for this step; finding a completed checkpoint here resumes past review
+ * without re-invoking critic or actuator.
+ */
+function findCompletedReviewRun(
+  store: StateStore,
+  step: ReviewWorkflowStep,
+): NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>> | undefined {
+  const existing = store.findRunByProjectBranch({ project: step.project, branch: step.branch, stepId: step.stepId });
+  return existing?.status === "completed" ? existing : undefined;
+}
+
+/**
+ * Exclude the verdict file from staging, run final validation + transactional landing, then
+ * remove the verdict. Returns an error message on failure, or undefined on success.
+ */
+function landReviewedIntentOutput(
+  worktreePath: string,
+  deferred: NonNullable<ReviewWorkflowStep["deferredIntentOutput"]>,
+  verdictPath: string,
+): string | undefined {
+  try {
+    excludeVerdictFromStaging(deferred.stagingDir, verdictPath);
+    landIntentWorkflowOutput({
+      worktreePath,
+      baseRef: deferred.baseRef,
+      output: deferred.config,
+      invocationId: deferred.invocationId,
+    });
+    cleanupVerdictFile(verdictPath);
+    return undefined;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
 async function runReviewStep(
   step: ReviewWorkflowStep,
   stepIndex: number,
@@ -977,8 +1042,21 @@ async function runReviewStep(
   onProgress: ((invocationId: string, stepId: string, progress: ReviewProgress) => void) | undefined,
   telemetry: WorkflowTelemetryContext | undefined,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+  store: StateStore,
 ): Promise<ReviewStepOutcome> {
-  const { stepId, project, branch, agents, agentModelConfig, createBinding, ...reviewInput } = step;
+  const { stepId, project, branch, agents, agentModelConfig, createBinding, deferredIntentOutput, ...reviewInput } =
+    step;
+
+  // Only reviewed-intent workflows carry a durable post-review checkpoint; generic review
+  // steps stay non-durable (no run row, fresh synthesized run ID each dispatch).
+  if (deferredIntentOutput !== undefined) {
+    const completedRun = findCompletedReviewRun(store, step);
+    if (completedRun !== undefined) {
+      onStepRunCreated?.(stepIndex, completedRun.id);
+      return { kind: "complete", runId: completedRun.id, iterationsConsumed: 0, resumable: false };
+    }
+  }
+
   const resolveBindings = createBinding ?? createResolvedAgentBinding;
   const bindings = {
     critic: resolveInvocationBindings("critic", agents.critic, agentModelConfig, resolveBindings),
@@ -987,7 +1065,8 @@ async function runReviewStep(
   const runId = crypto.randomUUID();
   const attemptId = crypto.randomUUID();
   onStepRunCreated?.(stepIndex, runId);
-  const result = await executeReviewCycle({
+
+  const reviewCycleInput: ReviewCycleInput = {
     ...reviewInput,
     bindings,
     ...(telemetry !== undefined
@@ -1009,7 +1088,42 @@ async function runReviewStep(
     ...(onProgress !== undefined
       ? { onRoleStart: (role: ReviewCycleRole) => onProgress(invocationId, stepId, { status: "in_progress", role }) }
       : {}),
-  });
+  };
+
+  // Apply enforcement if this is a reviewed intent workflow.
+  const enforcementResult =
+    deferredIntentOutput !== undefined
+      ? await executeReviewCycleEnforced({
+          input: reviewCycleInput,
+          invocationId: deferredIntentOutput.invocationId,
+          stagingDir: deferredIntentOutput.stagingDir,
+          cwd: step.cwd,
+          verdictPath: reviewInput.verdictPath,
+        })
+      : {
+          result: await executeReviewCycle(reviewCycleInput),
+          verdictState: { kind: "missing" } as const,
+          boundaryViolation: undefined as string | undefined,
+        };
+
+  const { result, boundaryViolation: boundaryViolationMsg } = enforcementResult;
+
+  // Handle boundary violations (critic/actuator made unauthorized changes).
+  if (boundaryViolationMsg !== undefined) {
+    return {
+      kind: "invocation_failure",
+      runId,
+      iterationsConsumed: result.cycles.length,
+      resumable: true,
+    };
+  }
+
+  // After successful review, run final validation and landing for reviewed intent workflows.
+  const landingError =
+    result.kind === "complete" && deferredIntentOutput !== undefined
+      ? landReviewedIntentOutput(step.cwd, deferredIntentOutput, reviewInput.verdictPath)
+      : undefined;
+
   const lastCycle = result.cycles[result.cycles.length - 1];
   const terminalRole: ReviewCycleRole =
     lastCycle?.kind === "role_failed"
@@ -1018,14 +1132,37 @@ async function runReviewStep(
         ? "actuator"
         : "critic";
   onProgress?.(invocationId, stepId, {
-    status: result.kind === "complete" ? "completed" : "stopped",
+    status: result.kind === "complete" && landingError === undefined ? "completed" : "stopped",
     role: terminalRole,
     terminalOutcome: result.kind,
   });
-  return {
-    kind: result.kind,
-    runId,
-    iterationsConsumed: result.cycles.length,
-    resumable: false,
-  };
+
+  const isFailure = landingError !== undefined || result.kind === "invocation_failure";
+  // Persist the post-review checkpoint only for reviewed-intent workflows; generic review
+  // steps remain non-durable so retries re-run them from cycle zero.
+  if (!isFailure && deferredIntentOutput !== undefined) {
+    store.createRun({
+      project,
+      specRef: "",
+      worktreePath: step.cwd,
+      branch,
+      specPath: "",
+      stepId,
+      status: "completed",
+    });
+  }
+  const outcome: ReviewStepOutcome = isFailure
+    ? {
+        kind: "invocation_failure",
+        runId,
+        iterationsConsumed: result.cycles.length,
+        resumable: landingError !== undefined,
+      }
+    : {
+        kind: "complete",
+        runId,
+        iterationsConsumed: result.cycles.length,
+        resumable: false,
+      };
+  return outcome;
 }

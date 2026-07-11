@@ -16,12 +16,12 @@ Expose `intent-reviewed` as the standard v2 intent launcher while retaining expl
 
 ## Acceptance criteria
 
-- [ ] `jarvis run workflow intent-reviewed` accepts the existing seed and target options, defaults to one review pass, and sends one daemon start request after a successful build.
-- [ ] `--review-passes N` reaches the reviewed builder, while invalid values and use with split-only `intent` exit nonzero before daemon contact with terse usage guidance.
-- [ ] Explicit `jarvis run workflow intent` remains the existing split-only workflow.
-- [ ] Launcher coverage proves reviewed success publishes only landed post-review intents and review failure publishes nothing.
-- [ ] `v2/docs/workflow-runner.md` distinguishes split-only `intent` from the recommended named `intent-reviewed` command, documents `--review-passes`, and defines no bare-command alias or implicit default.
-- [ ] `v2/docs/first-workflow-walkthrough.md` documents the reviewed operator path, zero-pass escape hatch, outputs, and failure boundary.
+- [x] `jarvis run workflow intent-reviewed` accepts the existing seed and target options, defaults to one review pass, and sends one daemon start request after a successful build.
+- [x] `--review-passes N` reaches the reviewed builder, while invalid values and use with split-only `intent` exit nonzero before daemon contact with terse usage guidance.
+- [x] Explicit `jarvis run workflow intent` remains the existing split-only workflow.
+- [x] Launcher coverage proves reviewed success publishes only landed post-review intents and review failure publishes nothing.
+- [x] `v2/docs/workflow-runner.md` distinguishes split-only `intent` from the recommended named `intent-reviewed` command, documents `--review-passes`, and defines no bare-command alias or implicit default.
+- [x] `v2/docs/first-workflow-walkthrough.md` documents the reviewed operator path, zero-pass escape hatch, outputs, and failure boundary.
 
 ## Documentation updates
 

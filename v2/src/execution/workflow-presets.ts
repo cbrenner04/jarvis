@@ -5,6 +5,7 @@ import {
 } from "./implement-workflow-steps.ts";
 import {
   buildIntentWorkflowSteps,
+  buildReviewedIntentWorkflowSteps,
   type IntentWorkflowInput,
   type IntentWorkflowResult,
 } from "./intent-workflow-steps.ts";
@@ -18,6 +19,7 @@ export type WorkflowPresetBuilder = (
 export const WORKFLOW_PRESET_BUILDERS = {
   implement: buildImplementWorkflowSteps,
   intent: (input) => buildIntentWorkflowSteps(input as unknown as IntentWorkflowInput),
+  "intent-reviewed": (input) => buildReviewedIntentWorkflowSteps(input as unknown as IntentWorkflowInput),
 } satisfies Record<string, WorkflowPresetBuilder>;
 
 export type CliWorkflowPresetName = keyof typeof WORKFLOW_PRESET_BUILDERS;

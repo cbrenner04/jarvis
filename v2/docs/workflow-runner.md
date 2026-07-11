@@ -109,7 +109,7 @@ daemon/TUI rows stay aligned to the authored workflow.
 
 ## Authoring helper and presets
 
-`buildIntentWorkflowSteps` accepts exactly one file `seed` or inline `seedText` and
+`buildIntentWorkflowSteps` (preset: `intent`) accepts exactly one file `seed` or inline `seedText` and
 an optional relative, non-traversing `targetDir`. It resolves the seed and
 registered project before daemon contact; file seeds must be relative and remain
 inside the project after symlink resolution. The slug is normalized from the file basename
@@ -132,6 +132,23 @@ collisions are named failures unless the recorded invocation ID matches the
 resumable invocation. The seed mapping is fingerprinted so a distinct seed
 cannot attach to an existing slug. Divergent remote state fails without reset,
 force-push, suffixing, or publication.
+
+**CLI usage (split-only):** `jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>]`
+
+`buildReviewedIntentWorkflowSteps` (preset: `intent-reviewed`) extends the split workflow with an optional
+review step. It accepts a non-negative `reviewPasses` parameter (defaulting
+to `1`); zero passes delegates to the split-only builder, while positive values
+add one critic-actuator review step with `maxCycles` equal to the pass count.
+The builder loads independent `critic` and `actuator` agent chains from the
+machine's configured agent order (or `DEFAULT_WRITE_AGENTS` when absent) and the
+repo profile selected by `machineProfile`. Role bindings are validated before
+daemon contact: the builder throws if either role lacks configured model
+escalations for any loaded agent. The review step targets `.jarvis-intent-review-verdict.md`
+(a sibling of `.jarvis-intent-stage/`) for the critic's verdict, and uses the
+`intent.prompt.review` prompt for the critic role. Runtime enforcement of prompt
+composition, verdict injection, and role isolation is deferred to subspec 02.
+
+**CLI usage (split + review):** `jarvis run workflow intent-reviewed (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>]` — defaults to one review pass.
 
 A workflow step is authored as a plain object literal `satisfies WorkflowStepInput`.
 `WorkflowStepInput` (identical in shape to the runtime `AnyWorkflowStep`) is a
@@ -170,6 +187,8 @@ Current preset surface:
 
 - `write-write`: two steps
 - `implement`: one step, with `role`/`promptId` fixed by the preset
+- `intent`: one step (split only)
+- `intent-reviewed`: two steps (split + review)
 
 Validation stays synchronous:
 
@@ -323,22 +342,68 @@ A programmatic `review` step is an object literal `satisfies WorkflowStepInput`.
 It declares `project`, `branch`, `cwd`, `prompt`, `verdictPath`, `maxCycles`,
 shared `agentModelConfig`, and separate `agents.critic` and `agents.actuator`
 orders. The non-empty critic verdict is the actuator prompt; there is no
-actuator prompt field.
+actuator prompt field. When part of a reviewed intent workflow, the step also
+carries `deferredIntentOutput` configuration: the write step's `intentOutput`,
+a staging directory path, and an `invocationId` for landing after review
+completes.
 
 The runner validates every `(agent, role)` entry for both orders before it
 creates a snapshot or durable state. When reached, it resolves the roles
 independently through the normal agent/rung fallback, then runs the review
-cycle. Quota falls through within each role's order independently.
+cycle with enforcement (for intent workflows).
 
-An empty verdict or all bounded cycles return `complete`; critic, actuator,
-abort, and verdict-I/O failures return `invocation_failure` and stop later
-steps. `iterationsConsumed` counts cycles whose critic started, including a
-role-failed cycle, but not invalidation or pre-critic verdict-I/O failures.
+**Enforcement and isolation:** When `deferredIntentOutput` is configured,
+the review step enforces role filesystem boundaries. Before and after each
+review cycle, the working tree is checked:
+- **Critic read-only:** After the critic runs, the working tree must remain
+  unchanged outside the reserved verdict file (`.jarvis-intent-review-verdict.md`).
+  Any unauthorized changes are detected, the tree is restored, and review fails.
+- **Actuator staging-only:** After the actuator runs, all changes must be
+  within the configured staging directory (`.jarvis-intent-stage/`). Changes
+  outside the staging directory are detected and fail review.
+
+**Verdict lifecycle:** The verdict file at `verdictPath` is reserved for the
+review step and managed by enforcement:
+- Pre-existing non-empty verdict files indicate a foreign invocation owns them;
+  review fails before any role invocation.
+- The verdict file is created empty by the review cycle before each critic
+  invocation and written with the critic's output.
+- After successful review, the verdict file is excluded from intent validation
+  and landing by the enforcement layer; it is not copied to the durable output
+  directory.
+- On successful landing (see below), the verdict file is deleted. On failed
+  landing, it remains for diagnostics and can be inspected or removed manually.
+
+**Landing and convergence:** When `deferredIntentOutput` is configured and
+review completes successfully (all bounded cycles complete with `kind: "complete"`),
+the enforcement layer immediately runs final intent validation and landing:
+- The verdict file is excluded from the staged output before validation.
+- The staged intent files are validated identically to a standalone intent
+  write step (see [`workflow-runner.md` Intent preset](#authoring-helper-and-presets)).
+- Valid intents are landed transactionally to the durable output directory;
+  landing semantics match the standalone intent step's landing.
+- The verdict file is deleted after successful landing.
+
+If landing fails (collision, validation, or I/O error), the review step returns
+`kind: "invocation_failure"` with `resumable: true`. The verdict file remains
+for diagnostics. Resume retries landing without re-running critic or actuator,
+preserving the reviewed output unchanged. After successful landing, the
+completion checkpoint is preserved: landing or publication retries do not
+re-run the review step.
+
+An empty verdict (trimmed) or all bounded cycles without actuator invocation
+converges to `complete` without landing (landing only occurs when
+`deferredIntentOutput` is configured and cycles complete). Critic, actuator,
+abort, verdict-I/O failures, and landing failures return `invocation_failure`
+and stop later steps. `iterationsConsumed` counts cycles whose critic started,
+including a role-failed cycle, but not pre-critic failures or landing attempts.
 
 Each reached review step receives a fresh synthesized run ID and invokes
 `onStepRunCreated` before role execution. The ID is reporting-only:
-`resumable` is always `false`, no durable run row is created, and review state
-is never resumed. A review-only invocation gets a fresh snapshot and starts at
+`resumable` is `false` for successful completion, `true` for
+invocation_failure with deferredIntentOutput (landing retry). No durable run
+row is created, and review state is never resumed between separate workflow
+invocations. A review-only invocation gets a fresh snapshot and starts at
 cycle zero. A mixed workflow may reuse a matching snapshot found through a
 durable write or human step; matching includes each review entry's
 `(stepId, behavior)`. Review entries remain in authored order in daemon/TUI

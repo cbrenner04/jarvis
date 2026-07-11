@@ -24,13 +24,13 @@ Wire the composed review step (subspec 01) into the intent completion boundary: 
 
 ## Acceptance criteria
 
-- [ ] Empty verdict skips actuation and proceeds to final validation; non-empty verdict actuates and repeats within the bound, and the final allowed actuation may proceed directly to final validation.
-- [ ] Critic edits or actuator edits outside `.jarvis-intent-stage/` are detected, restored, and fail review before landing.
-- [ ] `.jarvis-intent-review-verdict.md` rejects foreign collisions, is excluded from intent validation and landing, remains diagnostic on failure, and is removed after successful final validation.
-- [ ] Critic or actuator failure/non-completion prevents landing, commit, push, PR publication, and git-disabled durable output.
-- [ ] Final validation runs after the last review action and immediately before only validated post-review intents land to the existing git-enabled or git-disabled destination.
-- [ ] Retrying landing or any later completion boundary after successful review does not invoke critic or actuator again and retains existing publication semantics.
-- [ ] `v2/docs/write-behavior.md` documents intent-review composition and enforceable role isolation without changing generic review defaults.
+- [x] Empty verdict skips actuation and proceeds to final validation; non-empty verdict actuates and repeats within the bound, and the final allowed actuation may proceed directly to final validation.
+- [x] Critic edits or actuator edits outside `.jarvis-intent-stage/` are detected, restored, and fail review before landing.
+- [x] `.jarvis-intent-review-verdict.md` rejects foreign collisions, is excluded from intent validation and landing, remains diagnostic on failure, and is removed after successful final validation.
+- [x] Critic or actuator failure/non-completion prevents landing, commit, push, PR publication, and git-disabled durable output.
+- [x] Final validation runs after the last review action and immediately before only validated post-review intents land to the existing git-enabled or git-disabled destination.
+- [x] Retrying landing or any later completion boundary after successful review does not invoke critic or actuator again and retains existing publication semantics.
+- [x] `v2/docs/write-behavior.md` documents intent-review composition and enforceable role isolation without changing generic review defaults.
 
 ## Documentation updates
 

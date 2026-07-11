@@ -150,6 +150,70 @@ least one binding.
 Programmatic workflow dispatch for this cycle is documented in
 [`workflow-runner.md`](./workflow-runner.md#review-dispatch).
 
+## Intent review cycle
+
+Intent review is a specialized read-only-critic / write-actuator cycle that
+operates on staged ready-intent artifacts in `.jarvis-intent-stage/`. This
+distinguishes it from generic review's verdict-only actuator prompt.
+
+The intent-owned `intent.prompt.review` critic reads the staged intent artifact
+and emits a verdict using governed context about intent quality standards (clear
+prerequisites, properly scoped acceptance criteria, load-bearing decisions).
+The intent-owned `intent.prompt.review-actuator` receives the staged intent,
+spec guidance, and the unchanged critic verdict in an enforced delimited data
+slot, then applies refinements to the staged intent file in place.
+
+Critic role is read-only on the staged intent; actuator role may write only
+within the `.jarvis-intent-stage/` directory. Both roles carry explicit
+worktree-boundary and directory-scope obligations stated in their governed
+prompts. The verdict is written to a reserved `.jarvis-intent-review-verdict.md`
+sibling of the staging directory before actuator invocation.
+
+**Enforcement isolation:** When part of a workflow, intent review enforces role
+filesystem boundaries at runtime:
+
+- **Critic read-only:** After each critic invocation, the working tree is
+  checked for unauthorized changes outside the reserved verdict file. Any
+  changes are detected, the worktree is restored to its prior state, and review
+  fails. This ensures the critic cannot modify staged intents or other worktree
+  files.
+
+- **Actuator staging-only:** After each actuator invocation (when the verdict is
+  non-empty), the working tree is checked to ensure all changes are within
+  `.jarvis-intent-stage/`. Any changes outside the staging directory are
+  detected and review fails. This prevents the actuator from modifying files
+  outside its intended scope.
+
+**Verdict lifecycle:** The `.jarvis-intent-review-verdict.md` file is reserved
+by the review cycle and managed by enforcement:
+
+- Pre-existing non-empty verdict files indicate a prior invocation owns them;
+  review fails without starting.
+- The verdict file is excluded from intent validation and landing; it is never
+  copied to the durable ready-intents output directory.
+- After successful review and landing, the verdict file is deleted.
+- On landing failure, the verdict file remains for diagnostics and troubleshooting.
+
+**Landing and final validation:** After successful review (all bounded cycles
+complete), the enforcement layer runs final intent validation and landing as a
+single atomic step:
+
+- The verdict file is excluded from the staged output before validation.
+- Staged intent files are validated identically to a standalone write-step
+  intent output (artifact contract, well-formedness).
+- Valid intents are landed transactionally to the durable `ready-intents/`
+  directory (same transactional semantics as standalone intent landing).
+- The verdict file is deleted after successful landing.
+
+On landing failure (collision, validation error, or I/O failure), the review
+returns failure with `resumable: true`. The verdict file remains. Resume retries
+landing without re-running critic or actuator, preserving the reviewed output.
+
+Unlike generic review's reusable verdict-only actuator, intent review's composed
+actuator prompt carries the stage-boundary contract inline, rules out worktree-wide
+mutation, and passes the unchanged verdict byte-for-byte via a delimited data
+zone — enabling the enforcement mechanisms in this section.
+
 ## Command
 
 ```

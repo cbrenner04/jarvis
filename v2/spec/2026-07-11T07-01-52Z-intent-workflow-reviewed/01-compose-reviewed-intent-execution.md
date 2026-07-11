@@ -25,10 +25,10 @@ Add a parameterized reviewed-intent builder that appends one light `review` step
 
 ## Acceptance criteria
 
-- [ ] The reviewed builder defaults to split plus one light cycle; critic and actuator use independently loaded configured role bindings and the actuator step receives the governed context with the unchanged verdict.
-- [ ] Positive-pass binding/config errors and negative, fractional, or non-numeric pass counts fail before daemon contact; loading honors machine agent fallback/default order and the `machineProfile` role-model store with no project model override.
-- [ ] Zero review passes produces the split-only builder's step shape and adds no review step without changing the explicit `intent` builder.
-- [ ] The composed review step targets `.jarvis-intent-review-verdict.md` and carries `maxCycles` equal to the requested pass count.
+- [x] The reviewed builder defaults to split plus one light cycle; critic and actuator use independently loaded configured role bindings and the actuator step receives the governed context with the unchanged verdict.
+- [x] Positive-pass binding/config errors and negative, fractional, or non-numeric pass counts fail before daemon contact; loading honors machine agent fallback/default order and the `machineProfile` role-model store with no project model override.
+- [x] Zero review passes produces the split-only builder's step shape and adds no review step without changing the explicit `intent` builder.
+- [x] The composed review step targets `.jarvis-intent-review-verdict.md` and carries `maxCycles` equal to the requested pass count.
 
 ## Documentation updates
 

@@ -226,7 +226,7 @@ retry publish without a duplicate commit.
 
 ## Split an intent seed
 
-The split-only path accepts either a file seed or inline text and sends one
+The split-only preset (`intent`) accepts either a file seed or inline text and sends one
 workflow start request after local validation:
 
 ```bash
@@ -254,6 +254,44 @@ Git-disabled runs do not create a branch, worktree, commit, push, or PR. They
 complete locally after landing the durable files and print their paths. A
 validation or landing failure retains staging for retry without another model
 invocation; resume retries the completion boundary atomically.
+
+See [`workflow-runner.md`](./workflow-runner.md) for the runner contract and
+publication ordering.
+
+## Review an intent seed
+
+The reviewed intent preset (`intent-reviewed`) is the recommended operator workflow
+for v2 intent generation. It composes split + review, accepting the same seed flags as the split preset:
+
+```bash
+jarvis run workflow intent-reviewed --seed path/to/seed.md
+jarvis run workflow intent-reviewed --seed-text "Add a safer checkout flow" --review-passes 2
+```
+
+The `--review-passes` flag (optional, defaults to `1`) controls the critic-actuator review cycle count.
+Passing `--review-passes 0` is equivalent to the split-only preset (skips review).
+
+**Outputs and failure boundary:**
+
+- **Successful review → published intents:** After the critic validates and
+  actuator lands intents successfully, the workflow publishes landed intent files
+  to `<targetDir>/ready-intents/` (git-enabled) or `~/.jarvis/specs/<project-safe-id>/ready-intents/`
+  (git-disabled), making them part of the durable output.
+- **Review failure:** If either the critic or actuator encounters a role failure,
+  the workflow stops at the review step. No intents are published. The working tree
+  is reverted to post-split state and the verdict file retained for inspection.
+  Resume retries review without re-splitting; resume does not re-publish if review
+  had previously succeeded.
+
+**Zero-pass escape hatch:**
+
+To bypass review and use split-only, pass `--review-passes 0`:
+
+```bash
+jarvis run workflow intent-reviewed --seed path/to/seed.md --review-passes 0
+```
+
+This publishes the split output directly without invoking the critic or actuator.
 
 See [`workflow-runner.md`](./workflow-runner.md) for the runner contract and
 publication ordering.

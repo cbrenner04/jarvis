@@ -1,5 +1,5 @@
 {
-  "globs": ["v1/spec/**/*.md", "v1/docs/**/*.md", "reports/**/*.md", "README.md", "AGENTS.md"],
+  "globs": ["v1/spec/**/*.md", "v1/docs/**/*.md", "reports/**/*.md", "v2/docs/onboarding.md", "README.md", "AGENTS.md"],
   "ignores": ["**/completed/**", "**/node_modules/**", "**/verdict-*.md"],
   "config": {
     "default": true,

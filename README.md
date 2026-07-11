@@ -7,7 +7,9 @@ words carefully and repeatably. Jarvis is that idea applied._
 Jarvis is a TypeScript/Bun harness for running coding-agent CLIs against
 Markdown specs. It does not implement an agent itself. Instead, it prepares the
 repo, calls one configured CLI at a time, records what happened, and handles the
-git and GitHub bookkeeping around each successful step.
+git and GitHub bookkeeping around each successful step. For newcomer orientation
+(binaries, v2 vocabulary, link map), see
+[v2/docs/onboarding.md](v2/docs/onboarding.md).
 
 The current main workflows are:
 
@@ -371,6 +373,8 @@ details, including cleanup and triage behavior.
 
 ## Documentation
 
+- [v2/docs/onboarding.md](v2/docs/onboarding.md): start here — newcomer
+  orientation (binaries, v2 vocabulary, link map).
 - [v1/docs/run-loop.md](v1/docs/run-loop.md): `jarvis1 run` resolution, iteration,
   completion, output destinations, telemetry, stop conditions, and exit codes.
 - [v1/docs/plan-mode.md](v1/docs/plan-mode.md): `jarvis1 plan` phases, flags, commit
@@ -424,7 +428,7 @@ Unsafe fix variants are also available as `format:unsafe`,
 ### Markdown linting
 
 `bun run lint:md` lints Markdown files across `v1/spec/`, `v1/docs/`, `reports/`,
-and root docs (`README.md`, `AGENTS.md`). Completed specs under `**/completed/**`
+`v2/docs/onboarding.md`, and root docs (`README.md`, `AGENTS.md`). Completed specs under `**/completed/**`
 are exempted. The linter is rules-based and non-mutating; violations report
 genuine deviations from conventions (spacing, headings, and list markers)
 rather than style noise. See `.markdownlint-cli2.jsonc` for the active rule set.

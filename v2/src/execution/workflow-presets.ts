@@ -11,6 +11,7 @@ import {
 } from "./intent-workflow-steps.ts";
 import {
   buildPlanWorkflowSteps,
+  buildReviewedPlanLightWorkflowSteps,
   buildReviewedPlanWorkflowSteps,
   type PlanWorkflowInput,
   type PlanWorkflowResult,
@@ -28,6 +29,7 @@ export const WORKFLOW_PRESET_BUILDERS = {
   "intent-reviewed": (input) => buildReviewedIntentWorkflowSteps(input as unknown as IntentWorkflowInput),
   plan: (input) => buildPlanWorkflowSteps(input as unknown as PlanWorkflowInput),
   "plan-reviewed": (input) => buildReviewedPlanWorkflowSteps(input as unknown as PlanWorkflowInput),
+  "plan-reviewed-light": (input) => buildReviewedPlanLightWorkflowSteps(input as unknown as PlanWorkflowInput),
 } satisfies Record<string, WorkflowPresetBuilder>;
 
 export type CliWorkflowPresetName = keyof typeof WORKFLOW_PRESET_BUILDERS;

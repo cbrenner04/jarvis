@@ -298,6 +298,28 @@ This publishes the split output directly without invoking the critic or actuator
 See [`workflow-runner.md`](./workflow-runner.md) for the runner contract and
 publication ordering.
 
+## Draft and light-review a plan ready-intent
+
+The `plan-reviewed-light` preset drafts a spec tree from a ready-intent, then
+runs one critic-actuator review cycle (by default) over the materialized draft:
+
+```bash
+jarvis run workflow plan-reviewed-light --ready-intent spec/ready-intents/my-feature.md
+jarvis run workflow plan-reviewed-light --ready-intent spec/ready-intents/my-feature.md --review-passes 2
+```
+
+`--review-passes` defaults to `1`. Passing `--review-passes 0` produces the
+same draft-only workflow as `plan` (no review step is loaded). Invalid pass
+counts (`1x`, `-1`, `1.5`, and similar) and `--review-behavior` are rejected
+before daemon contact.
+
+On successful review, the actuator's edits land in the drafted spec tree and
+the critic verdict is persisted at `<spec-dir>/verdict-plan.md` inside the
+published spec directory.
+
+See [`workflow-runner.md`](./workflow-runner.md) for preset composition and
+[`write-behavior.md`](./write-behavior.md) for the light review rendering contract.
+
 ## Workflow-started implement
 
 The implement workflow preset launches a write loop against an `index.md` spec

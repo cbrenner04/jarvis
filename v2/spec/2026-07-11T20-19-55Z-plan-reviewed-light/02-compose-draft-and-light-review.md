@@ -24,12 +24,12 @@ existing critic-actuator review behavior.
 
 ## Acceptance criteria
 
-- [ ] `jarvis run workflow plan-reviewed-light --ready-intent <path> [--target-dir <dir>] [--review-passes <n>]` accepts valid input, rejects non-integer/prefix/negative pass counts (e.g. `1x`, `-1`) and `--review-behavior` before daemon contact, and leaves `plan` draft-only.
-- [ ] With omitted or positive review passes, `plan-reviewed-light` runs the loaded draft before one loaded `review` step whose cycle limit equals the requested passes and whose critic and actuator bindings resolve separately from configured machine roles.
-- [ ] The composed positive-pass review step references `plan.prompt.review.critic`, the existing verdict-driven `plan.prompt.review-actuator` behavior, and the `<spec-dir>/verdict-plan.md` path.
-- [ ] With `--review-passes 0`, `plan-reviewed-light` produces the same one-step draft workflow as `plan`, without loading or invoking a review step.
-- [ ] New focused tests cover launcher routing, invalid inputs, default/positive/zero pass composition, loaded critic/actuator roles, prompt IDs, and verdict-path wiring.
-- [ ] `v2/docs/first-workflow-walkthrough.md`, `v2/docs/workflow-runner.md`, and `v2/docs/v1-behaviors.md` document the CLI, light composition, default and zero-pass behavior, and verdict location.
+- [x] `jarvis run workflow plan-reviewed-light --ready-intent <path> [--target-dir <dir>] [--review-passes <n>]` accepts valid input, rejects non-integer/prefix/negative pass counts (e.g. `1x`, `-1`) and `--review-behavior` before daemon contact, and leaves `plan` draft-only.
+- [x] With omitted or positive review passes, `plan-reviewed-light` runs the loaded draft before one loaded `review` step whose cycle limit equals the requested passes and whose critic and actuator bindings resolve separately from configured machine roles.
+- [x] The composed positive-pass review step references `plan.prompt.review.critic`, the existing verdict-driven `plan.prompt.review-actuator` behavior, and the `<spec-dir>/verdict-plan.md` path.
+- [x] With `--review-passes 0`, `plan-reviewed-light` produces the same one-step draft workflow as `plan`, without loading or invoking a review step.
+- [x] New focused tests cover launcher routing, invalid inputs, default/positive/zero pass composition, loaded critic/actuator roles, prompt IDs, and verdict-path wiring.
+- [x] `v2/docs/first-workflow-walkthrough.md`, `v2/docs/workflow-runner.md`, and `v2/docs/v1-behaviors.md` document the CLI, light composition, default and zero-pass behavior, and verdict location.
 
 ## Documentation updates
 

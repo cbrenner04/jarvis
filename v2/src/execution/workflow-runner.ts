@@ -27,7 +27,13 @@ import {
   resolveActiveLinkedSubspec,
 } from "./linked-subspec-routing.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
-import { executeReviewCycle, type ReviewCycleInput, type ReviewCycleRole } from "./review-cycle.ts";
+import { executePlanReviewCycle, type PlanReviewCycleOutcome } from "./render-plan-review-prompts.ts";
+import {
+  executeReviewCycle,
+  type ReviewCycleInput,
+  type ReviewCycleResult,
+  type ReviewCycleRole,
+} from "./review-cycle.ts";
 import {
   executeReviewDebate,
   type ReviewDebateInput,
@@ -67,6 +73,7 @@ const WORKFLOW_PRESET_LENGTHS = {
   intent: 1,
   plan: 1,
   "plan-reviewed": 1,
+  "plan-reviewed-light": 1,
 } as const;
 
 /** Presets whose `role`/`promptId` are pinned by the preset, overriding any caller-supplied values. */
@@ -75,6 +82,7 @@ const WORKFLOW_PRESET_PINNED_FIELDS: Partial<Record<WorkflowPresetName, { role: 
   intent: { role: "plan", promptId: "intent.prompt.split" },
   plan: { role: "plan", promptId: "plan.prompt.draft" },
   "plan-reviewed": { role: "plan", promptId: "plan.prompt.draft" },
+  "plan-reviewed-light": { role: "plan", promptId: "plan.prompt.draft" },
 };
 
 export type WorkflowPresetName = keyof typeof WORKFLOW_PRESET_LENGTHS;
@@ -151,6 +159,8 @@ export type ReviewWorkflowStep = Omit<ReviewCycleInput, "bindings" | "onRoleStar
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
   /** When configured, landing is deferred until after successful review. */
   deferredIntentOutput?: { config: IntentOutputConfig; stagingDir: string; invocationId: string; baseRef: string };
+  /** For plan review steps, context for rendering prompts from templates. */
+  planReviewContext?: { specPath: string; jarvisRoot?: string };
 };
 
 /** Live/terminal progress for a review step's daemon-visible row, tracked in-memory only. */
@@ -1182,62 +1192,139 @@ function landReviewedIntentOutput(
   }
 }
 
-async function runReviewStep(
+type ReviewStepExecutionIds = {
+  runId: string;
+  attemptId: string;
+};
+
+function resolveReviewStepBindings(step: ReviewWorkflowStep) {
+  const resolveBindings = step.createBinding ?? createResolvedAgentBinding;
+  return {
+    critic: resolveInvocationBindings("critic", step.agents.critic, step.agentModelConfig, resolveBindings),
+    actuator: resolveInvocationBindings("actuator", step.agents.actuator, step.agentModelConfig, resolveBindings),
+  };
+}
+
+function buildReviewStepTelemetryFields(
+  step: Pick<ReviewWorkflowStep, "stepId" | "project" | "branch" | "cwd">,
+  ids: ReviewStepExecutionIds,
+  telemetry: WorkflowTelemetryContext | undefined,
+) {
+  if (telemetry === undefined) {
+    return {};
+  }
+  return {
+    telemetry: {
+      sink: buildJsonlSink(telemetry.sinkPath ?? DEFAULT_TELEMETRY_SINK_PATH),
+      operatorSessionId: telemetry.operatorSessionId,
+      runId: ids.runId,
+      attemptId: ids.attemptId,
+      project: step.project,
+      workflow: telemetry.workflow,
+      stepId: step.stepId,
+      worktreePath: step.cwd,
+      branch: step.branch,
+      specRef: "",
+    },
+  };
+}
+
+function buildReviewStepOnRoleStart(
+  invocationId: string,
+  stepId: string,
+  onProgress: ((invocationId: string, stepId: string, progress: ReviewProgress) => void) | undefined,
+) {
+  if (onProgress === undefined) {
+    return {};
+  }
+  return {
+    onRoleStart: (role: ReviewCycleRole) => {
+      onProgress(invocationId, stepId, { status: "in_progress", role });
+    },
+  };
+}
+
+function terminalRoleFromReviewCycles(cycles: ReviewCycleResult["cycles"]): ReviewCycleRole {
+  const lastCycle = cycles[cycles.length - 1];
+  if (lastCycle?.kind === "role_failed") {
+    return lastCycle.failedRole;
+  }
+  if (lastCycle?.kind === "completed" && lastCycle.actuatorRan) {
+    return "actuator";
+  }
+  return "critic";
+}
+
+type ReviewWorkflowCycleInput = Omit<
+  ReviewWorkflowStep,
+  | "stepId"
+  | "behavior"
+  | "project"
+  | "branch"
+  | "agents"
+  | "agentModelConfig"
+  | "createBinding"
+  | "deferredIntentOutput"
+  | "planReviewContext"
+>;
+
+async function runPlanReviewStep(
   step: ReviewWorkflowStep,
-  stepIndex: number,
+  reviewInput: ReviewWorkflowCycleInput,
+  planReviewContext: NonNullable<ReviewWorkflowStep["planReviewContext"]>,
+  ids: ReviewStepExecutionIds,
+  bindings: ReturnType<typeof resolveReviewStepBindings>,
   invocationId: string,
   onProgress: ((invocationId: string, stepId: string, progress: ReviewProgress) => void) | undefined,
   telemetry: WorkflowTelemetryContext | undefined,
-  onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+): Promise<ReviewStepOutcome> {
+  const { stepId } = step;
+  const planReviewCycleInput = {
+    context: { ...planReviewContext, worktreePath: step.cwd },
+    cwd: step.cwd,
+    bindings,
+    verdictPath: reviewInput.verdictPath,
+    maxCycles: reviewInput.maxCycles,
+    ...(reviewInput.signal !== undefined ? { signal: reviewInput.signal } : {}),
+    ...buildReviewStepTelemetryFields(step, ids, telemetry),
+    ...buildReviewStepOnRoleStart(invocationId, stepId, onProgress),
+  };
+
+  const result = await executePlanReviewCycle(planReviewCycleInput);
+  const lastCycle = result.cycles[result.cycles.length - 1];
+  const terminalRole: ReviewCycleRole = lastCycle?.kind === "role_failed" ? lastCycle.failedRole : "actuator";
+  const isComplete = result.cycles.every((cycle: PlanReviewCycleOutcome) => cycle.kind !== "role_failed");
+
+  onProgress?.(invocationId, stepId, {
+    status: isComplete ? "completed" : "stopped",
+    role: terminalRole,
+    terminalOutcome: isComplete ? "complete" : "invocation_failure",
+  });
+
+  return isComplete
+    ? { kind: "complete", runId: ids.runId, iterationsConsumed: result.cycles.length, resumable: false }
+    : { kind: "invocation_failure", runId: ids.runId, iterationsConsumed: result.cycles.length, resumable: true };
+}
+
+async function runStandardReviewStep(
+  step: ReviewWorkflowStep,
+  reviewInput: ReviewWorkflowCycleInput,
+  deferredIntentOutput: ReviewWorkflowStep["deferredIntentOutput"],
+  ids: ReviewStepExecutionIds,
+  bindings: ReturnType<typeof resolveReviewStepBindings>,
+  invocationId: string,
+  onProgress: ((invocationId: string, stepId: string, progress: ReviewProgress) => void) | undefined,
+  telemetry: WorkflowTelemetryContext | undefined,
   store: StateStore,
 ): Promise<ReviewStepOutcome> {
-  const { stepId, project, branch, agents, agentModelConfig, createBinding, deferredIntentOutput, ...reviewInput } =
-    step;
-
-  // Only reviewed-intent workflows carry a durable post-review checkpoint; generic review
-  // steps stay non-durable (no run row, fresh synthesized run ID each dispatch).
-  if (deferredIntentOutput !== undefined) {
-    const completedRun = findCompletedReviewRun(store, step);
-    if (completedRun !== undefined) {
-      onStepRunCreated?.(stepIndex, completedRun.id);
-      return { kind: "complete", runId: completedRun.id, iterationsConsumed: 0, resumable: false };
-    }
-  }
-
-  const resolveBindings = createBinding ?? createResolvedAgentBinding;
-  const bindings = {
-    critic: resolveInvocationBindings("critic", agents.critic, agentModelConfig, resolveBindings),
-    actuator: resolveInvocationBindings("actuator", agents.actuator, agentModelConfig, resolveBindings),
-  };
-  const runId = crypto.randomUUID();
-  const attemptId = crypto.randomUUID();
-  onStepRunCreated?.(stepIndex, runId);
-
+  const { stepId, project, branch } = step;
   const reviewCycleInput: ReviewCycleInput = {
     ...reviewInput,
     bindings,
-    ...(telemetry !== undefined
-      ? {
-          telemetry: {
-            sink: buildJsonlSink(telemetry.sinkPath ?? DEFAULT_TELEMETRY_SINK_PATH),
-            operatorSessionId: telemetry.operatorSessionId,
-            runId,
-            attemptId,
-            project,
-            workflow: telemetry.workflow,
-            stepId,
-            worktreePath: step.cwd,
-            branch,
-            specRef: "",
-          },
-        }
-      : {}),
-    ...(onProgress !== undefined
-      ? { onRoleStart: (role: ReviewCycleRole) => onProgress(invocationId, stepId, { status: "in_progress", role }) }
-      : {}),
+    ...buildReviewStepTelemetryFields(step, ids, telemetry),
+    ...buildReviewStepOnRoleStart(invocationId, stepId, onProgress),
   };
 
-  // Apply enforcement if this is a reviewed intent workflow.
   const enforcementResult =
     deferredIntentOutput !== undefined
       ? await executeReviewCycleEnforced({
@@ -1255,38 +1342,27 @@ async function runReviewStep(
 
   const { result, boundaryViolation: boundaryViolationMsg } = enforcementResult;
 
-  // Handle boundary violations (critic/actuator made unauthorized changes).
   if (boundaryViolationMsg !== undefined) {
     return {
       kind: "invocation_failure",
-      runId,
+      runId: ids.runId,
       iterationsConsumed: result.cycles.length,
       resumable: true,
     };
   }
 
-  // After successful review, run final validation and landing for reviewed intent workflows.
   const landingError =
     result.kind === "complete" && deferredIntentOutput !== undefined
       ? landReviewedIntentOutput(step.cwd, deferredIntentOutput, reviewInput.verdictPath)
       : undefined;
 
-  const lastCycle = result.cycles[result.cycles.length - 1];
-  const terminalRole: ReviewCycleRole =
-    lastCycle?.kind === "role_failed"
-      ? lastCycle.failedRole
-      : lastCycle?.kind === "completed" && lastCycle.actuatorRan
-        ? "actuator"
-        : "critic";
   onProgress?.(invocationId, stepId, {
     status: result.kind === "complete" && landingError === undefined ? "completed" : "stopped",
-    role: terminalRole,
+    role: terminalRoleFromReviewCycles(result.cycles),
     terminalOutcome: result.kind,
   });
 
   const isFailure = landingError !== undefined || result.kind === "invocation_failure";
-  // Persist the post-review checkpoint only for reviewed-intent workflows; generic review
-  // steps remain non-durable so retries re-run them from cycle zero.
   if (!isFailure && deferredIntentOutput !== undefined) {
     store.createRun({
       project,
@@ -1298,18 +1374,60 @@ async function runReviewStep(
       status: "completed",
     });
   }
-  const outcome: ReviewStepOutcome = isFailure
+
+  return isFailure
     ? {
         kind: "invocation_failure",
-        runId,
+        runId: ids.runId,
         iterationsConsumed: result.cycles.length,
         resumable: landingError !== undefined,
       }
     : {
         kind: "complete",
-        runId,
+        runId: ids.runId,
         iterationsConsumed: result.cycles.length,
         resumable: false,
       };
-  return outcome;
+}
+
+async function runReviewStep(
+  step: ReviewWorkflowStep,
+  stepIndex: number,
+  invocationId: string,
+  onProgress: ((invocationId: string, stepId: string, progress: ReviewProgress) => void) | undefined,
+  telemetry: WorkflowTelemetryContext | undefined,
+  onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+  store: StateStore,
+): Promise<ReviewStepOutcome> {
+  const { deferredIntentOutput, planReviewContext, ...reviewInput } = step;
+
+  // Only reviewed-intent workflows carry a durable post-review checkpoint; generic review
+  // steps stay non-durable (no run row, fresh synthesized run ID each dispatch).
+  if (deferredIntentOutput !== undefined) {
+    const completedRun = findCompletedReviewRun(store, step);
+    if (completedRun !== undefined) {
+      onStepRunCreated?.(stepIndex, completedRun.id);
+      return { kind: "complete", runId: completedRun.id, iterationsConsumed: 0, resumable: false };
+    }
+  }
+
+  const bindings = resolveReviewStepBindings(step);
+  const ids: ReviewStepExecutionIds = { runId: crypto.randomUUID(), attemptId: crypto.randomUUID() };
+  onStepRunCreated?.(stepIndex, ids.runId);
+
+  if (planReviewContext !== undefined) {
+    return runPlanReviewStep(step, reviewInput, planReviewContext, ids, bindings, invocationId, onProgress, telemetry);
+  }
+
+  return runStandardReviewStep(
+    step,
+    reviewInput,
+    deferredIntentOutput,
+    ids,
+    bindings,
+    invocationId,
+    onProgress,
+    telemetry,
+    store,
+  );
 }

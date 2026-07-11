@@ -52,8 +52,8 @@ export function buildReviewPrompt(opts: {
   workDirLabel?: string;
   /** Committed spec root (defaults to "spec" for backwards compatibility). */
   targetDir?: string;
-  /** Review role: adversary, advocate, or adjudicator. */
-  role?: "adversary" | "advocate" | "adjudicator";
+  /** Review role: adversary, advocate, adjudicator, or critic. */
+  role?: "adversary" | "advocate" | "adjudicator" | "critic";
   /** Prior role's artifact (e.g., adversary findings for advocate). */
   priorArtifact?: string;
 }): string {
@@ -74,7 +74,9 @@ export function buildReviewPrompt(opts: {
       ? "plan.prompt.review.adjudicator"
       : role === "advocate"
         ? "plan.prompt.review.advocate"
-        : "plan.prompt.review.adversary";
+        : role === "critic"
+          ? "plan.prompt.review.critic"
+          : "plan.prompt.review.adversary";
 
   let template = assemblePromptForStep({
     registry,

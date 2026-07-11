@@ -33,6 +33,7 @@ artifacts that shape agent behavior in patch mode and plan draft/review:
 - `plan.prompt.draft` (`prompts/plan/draft.md`)
 - `plan.prompt.pr-description` (`prompts/plan/pr-description.md`)
 - `plan.prompt.review` (`prompts/plan/review.md`)
+- `plan.prompt.review.critic` (`prompts/plan/review-critic.md`) — editorial critic for light plan-review workflow; read-only advisory role reviewing spec clarity and completeness
 - `plan.prompt.review-actuator` (`prompts/plan/review-actuator.md`)
 - `intent.prompt.split` (`prompts/intent/split.md`) — intent-owned seed splitting prompt
 - `intent.prompt.review` (`prompts/intent/review.md`) — intent-owned critic prompt for reviewing staged ready-intents

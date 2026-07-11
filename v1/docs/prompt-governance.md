@@ -35,6 +35,8 @@ artifacts that shape agent behavior in patch mode and plan draft/review:
 - `plan.prompt.review` (`prompts/plan/review.md`)
 - `plan.prompt.review-actuator` (`prompts/plan/review-actuator.md`)
 - `intent.prompt.split` (`prompts/intent/split.md`) — intent-owned seed splitting prompt
+- `intent.prompt.review` (`prompts/intent/review.md`) — intent-owned read-only staged-intent critic
+- `intent.prompt.review-actuator` (`prompts/intent/review-actuator.md`) — intent-owned staged-intent actuator
 
 Deferred in this rollout:
 
@@ -89,6 +91,7 @@ Shared rendering follows this contract:
   best-effort).
 - Patch layering is `global.documentation -> global.naming -> global.terse -> patch.prompt.body`.
 - Plan draft/review layering is `global.documentation -> global.terse -> plan.decisions-ledger -> plan.defer-to-consumer -> plan.prompt.*`.
+- Intent review layering is `global.documentation -> global.terse -> intent.prompt.*`; the critic is read-only and the actuator is limited to `.jarvis-intent-stage/`.
 - `patch.rules` remains step-owned injected content, not an always-layered patch fragment.
 - `patch.prompt.shrink` is a post-completion step prompt (not layered into `patch.prompt.body`). It layers `global.terse` only — not `global.documentation`, `global.naming`, or `patch.rules`. Prevention surfaces (`global.terse`, `patch.rules`) run during implementation; `patch.prompt.shrink` is the post-completion gate that hunts named bloat patterns after the spec is complete.
 - `global.documentation` requires docs-first execution order: read relevant

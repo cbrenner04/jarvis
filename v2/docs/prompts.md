@@ -13,7 +13,7 @@ For shipped v1 runtime details and tests, see [v1/docs/prompt-governance.md](../
   one-line edit (no code change); frontmatter-less templates (e.g. `plan/name-only.md`,
   `plan/inline-draft.md`) stay off the list and are loaded directly by their call sites.
 - Runtime lookup is by prompt `id`, not file path.
-- First rollout scope: patch body/rules, plan draft/review/refine/review-actuator, and shared global/plan fragments.
+- First rollout scope: patch body/rules, plan draft/review/refine/review-actuator, intent split/review/review-actuator, and shared global/plan fragments.
 - Deferred from rollout: human-facing chooser/confirmation strings plus `plan/name-only.md` and `plan/inline-draft.md`.
 
 ## Schema
@@ -62,10 +62,16 @@ Rollout layering inventory:
 
 - Patch: `global.documentation -> global.naming -> global.terse -> patch.prompt.body`
 - Plan: `global.documentation -> global.terse -> plan.decisions-ledger -> plan.defer-to-consumer -> plan.prompt.*`
+- Intent review: `global.documentation -> global.terse -> intent.prompt.review` or `intent.prompt.review-actuator`; the critic reads staged ready-intents and emits a verdict, while the actuator receives staged content plus the unchanged verdict and is limited to `.jarvis-intent-stage/`.
 - Write: a write step renders any registered prompt id via a caller-supplied placeholder map (`renderStepPrompt(promptId, placeholders)`); `write.execute` is the default when a step declares no `promptId`, and is the only id whose caller (`executeWrite`) wires `write.principles` (body) into its `<PRINCIPLES>` placeholder (v2-only; no layered global/behavior fragments)
 - Patch PR description: `global.documentation -> global.naming -> global.terse -> shared.pr-description -> patch.prompt.pr-description`
 - Plan PR description: `global.documentation -> global.terse -> plan.decisions-ledger -> plan.defer-to-consumer -> shared.pr-description -> plan.prompt.pr-description`
 - `patch.rules` remains step-owned injected body content (not always-layered global/behavior text).
+
+Intent review prompt ownership is shared prompt source; runtime owns placeholder
+rendering and enforces the actuator's staging boundary. The generic review cycle
+still passes its verdict as the actuator's entire prompt; intent review composes
+an intent-specific actuator prompt around that unchanged verdict.
 
 As shipped, the prompt surface is root-shared under `shared/prompts/`
 (`types.ts`, `registry.ts`, `render.ts`, `assemble.ts`) and consumed by both

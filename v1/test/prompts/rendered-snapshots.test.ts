@@ -4,6 +4,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
+import { assemblePromptForStep } from "../../../shared/prompts/assemble.ts";
+import { renderTemplateWithDeclarations } from "../../../shared/prompts/render.ts";
 import { buildPrDescriptionPrompt as buildPatchPrDescriptionPrompt } from "../../src/modes/patch/pr-description-prompt.ts";
 import { buildReviewPrompt as buildPatchReviewPrompt, buildPrompt } from "../../src/modes/patch/prompt.ts";
 import { buildDraftPrompt } from "../../src/modes/plan/draft.ts";
@@ -60,6 +62,37 @@ function setupPatchReviewSnapshotRepo(): { dir: string; specPath: string; cleanu
 
 describe("rendered prompt snapshots", () => {
   const registry = loadPromptRegistry();
+
+  test("intent review prompts preserve their read and write boundaries", () => {
+    const stagedIntents = "name: example\n\n# Example\n";
+    const critic = registry.getById("intent.prompt.review");
+    const actuator = registry.getById("intent.prompt.review-actuator");
+    const criticRendered = renderTemplateWithDeclarations(
+      assemblePromptForStep({ registry, stepPromptId: critic.metadata.id }),
+      critic.metadata.placeholders,
+      { STAGED_INTENTS: stagedIntents },
+    );
+    const verdict = "Add a prerequisite.";
+    const actuatorRendered = renderTemplateWithDeclarations(
+      assemblePromptForStep({ registry, stepPromptId: actuator.metadata.id }),
+      actuator.metadata.placeholders,
+      { STAGED_INTENTS: stagedIntents, VERDICT: verdict },
+    );
+
+    expect(critic.metadata.behavior).toBe("intent");
+    expect(critic.metadata.kind).toBe("step");
+    expect(critic.metadata.revision).toBe("1");
+    expect(actuator.metadata.id).toBe("intent.prompt.review-actuator");
+    expect(actuator.metadata.behavior).toBe("intent");
+    expect(actuator.metadata.kind).toBe("step");
+    expect(actuator.metadata.revision).toBe("1");
+    expect(criticRendered).toContain("Read only: do not edit the worktree");
+    expect(criticRendered).toContain("Emit an empty response if");
+    expect(criticRendered).toContain("they are ready");
+    expect(actuatorRendered).toContain("Edit only files under `.jarvis-intent-stage/`");
+    expect(actuatorRendered).toContain("<<<VERDICT_BEGIN>>>\nAdd a prerequisite.\n<<<VERDICT_END>>>");
+    expect(actuatorRendered).toContain("do not commit or push");
+  });
 
   test("shared snapshots are keyed by id and revision", () => {
     expect(registry.getById("patch.prompt.body").metadata.revision).toBe("8");

@@ -125,6 +125,15 @@ written verbatim to the caller-supplied `verdictPath` and passed unchanged as
 the actuator's entire prompt. Read-only critic operation is a caller binding
 obligation; this executor does not add a sandbox.
 
+Intent review uses `intent.prompt.review` for a read-only critic over staged
+ready-intents and `intent.prompt.review-actuator` for the actuator. The latter
+composes the staging boundary and staged content around the unchanged,
+delimited verdict; it is not the generic review cycle's verdict-only contract.
+Runtime isolation enforcement must ensure the actuator can change only
+`.jarvis-intent-stage/` and must reject or clean up out-of-bound edits before
+landing. See [`workflow-runner.md`](./workflow-runner.md) for the workflow
+boundary.
+
 Before each critic invocation, `verdictPath` is cleared. A verdict that is
 empty after trimming ends successfully without invoking the actuator. A
 non-empty verdict continues until `maxCycles`; zero runs no work. `maxCycles`

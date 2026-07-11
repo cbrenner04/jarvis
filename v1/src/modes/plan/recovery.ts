@@ -23,7 +23,8 @@ export function findRecoveryTarget(indexPath: string, selectedPath: string): Rec
   if (isAbsolute(selectedPath)) throw new Error("recovery: selected subspec must be a relative index target");
 
   const wanted = resolve(treeRoot, selectedPath);
-  if (relative(treeRoot, wanted).startsWith("..")) throw new Error("recovery: selected subspec is outside the spec tree");
+  if (relative(treeRoot, wanted).startsWith(".."))
+    throw new Error("recovery: selected subspec is outside the spec tree");
   const lines = readFileSync(indexPath, "utf8").replace(/\r\n/g, "\n").split("\n");
   const matches: number[] = [];
   for (let i = 0; i < lines.length; i += 1) {
@@ -33,7 +34,8 @@ export function findRecoveryTarget(indexPath: string, selectedPath: string): Rec
       matches.push(i);
     }
   }
-  if (matches.length !== 1) throw new Error(`recovery: selected subspec must have one unchecked index link (found ${matches.length})`);
+  if (matches.length !== 1)
+    throw new Error(`recovery: selected subspec must have one unchecked index link (found ${matches.length})`);
   if (!existsSync(wanted)) throw new Error(`recovery: selected subspec not found: ${selectedPath}`);
   return { indexPath: resolve(indexPath), subspecPath: wanted, indexLine: matches[0] as number };
 }

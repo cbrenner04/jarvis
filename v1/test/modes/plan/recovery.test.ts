@@ -24,7 +24,9 @@ describe("timed-out subspec recovery", () => {
       );
       expect(findRecoveryTarget(join(spec, "index.md"), "./00-task.md").subspecPath).toBe(join(spec, "00-task.md"));
       expect(hasQualifyingTimeout(join(root, "runs.jsonl"), root, join(spec, "00-task.md"))).toBe(true);
-    } finally { rmSync(root, { recursive: true, force: true }); }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("rejects unrelated records, duplicate links, and invalid replacements", () => {
@@ -34,11 +36,16 @@ describe("timed-out subspec recovery", () => {
       mkdirSync(spec);
       writeFileSync(join(spec, "00-task.md"), "# Task\n\n## Acceptance criteria\n\n- [ ] works\n");
       writeFileSync(join(spec, "index.md"), "- [ ] [A](./00-task.md)\n- [ ] [B](./00-task.md)\n");
-      writeFileSync(join(root, "runs.jsonl"), `${JSON.stringify({ record_role: "run_terminal", mode: "patch", exit_reason: "idle-timeout", active_subspec_path: "spec/00-task.md" })}\n`);
+      writeFileSync(
+        join(root, "runs.jsonl"),
+        `${JSON.stringify({ record_role: "run_terminal", mode: "patch", exit_reason: "idle-timeout", active_subspec_path: "spec/00-task.md" })}\n`,
+      );
       expect(() => findRecoveryTarget(join(spec, "index.md"), "./00-task.md")).toThrow("one unchecked index link");
       expect(hasQualifyingTimeout(join(root, "runs.jsonl"), root, join(spec, "00-task.md"))).toBe(false);
       expect(() => validateRecoveryReplacement("bad.md", "# x")).toThrow("invalid replacement filename");
-    } finally { rmSync(root, { recursive: true, force: true }); }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("refuses checkpoint work and requires an atomic replacement", () => {
@@ -53,7 +60,15 @@ describe("timed-out subspec recovery", () => {
       writeFileSync(join(spec, "index.md"), "- [ ] [A](./01-a.md)\n- [ ] [B](./02-b.md)\n");
       writeFileSync(join(spec, "01-a.md"), "# A\n\n## Acceptance criteria\n\n- [ ] a\n");
       writeFileSync(join(spec, "02-b.md"), "# B\n\n## Acceptance criteria\n\n- [ ] b\n");
-      expect(validateRecoveryReconciliation({ specDir: spec, oldSubspecBasename: "00-old.md", indexPath: join(spec, "index.md") })).toBe(2);
-    } finally { rmSync(root, { recursive: true, force: true }); }
+      expect(
+        validateRecoveryReconciliation({
+          specDir: spec,
+          oldSubspecBasename: "00-old.md",
+          indexPath: join(spec, "index.md"),
+        }),
+      ).toBe(2);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

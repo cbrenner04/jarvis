@@ -41,16 +41,17 @@ import {
 } from "./boundary.ts";
 import { commitPlanBlocker, commitPlanDraft } from "./commits.ts";
 import { runDraftPhase, validateDraftOutput } from "./draft.ts";
-import {
-  assertRecoveryCheckpointSafe,
-  findRecoveryTarget,
-  hasQualifyingTimeout,
-  validateRecoveryReconciliation,
-} from "./recovery.ts";
 import { stripNonContractIndexLines } from "./index-cleanup.ts";
 import { repairPlanSpecMarkdown } from "./markdown-repair.ts";
 import { createPlanTelemetryWriter, type PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { buildPlanPrHeader, maybeMarkPlanPrReady, type OpenPrInfo, updatePlanPrBody } from "./pr.ts";
+import {
+  assertRecoveryCheckpointSafe,
+  findRecoveryTarget,
+  hasQualifyingTimeout,
+  type RecoveryTarget,
+  validateRecoveryReconciliation,
+} from "./recovery.ts";
 import { type PlanReviewPhaseOptions, runPlanReviewPhase } from "./review.ts";
 import {
   computeNoCommitSpecRoot,
@@ -779,7 +780,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         opts.io.stderr("recovery: requires committed plan mode\n");
         return 1;
       }
-      let target;
+      let target: RecoveryTarget;
       try {
         target = findRecoveryTarget(candidatePath, inv.recover);
         const specDirBasename = basename(dirname(candidatePath));
@@ -846,7 +847,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           branch,
           base: getCurrentBranch(project.root),
           title: `plan: recover ${specDirBasename}`,
-          bodyGenerator: async () => buildPlanPrHeader({ name: recoveryName, specDirBasename, worktreePath: recoveryWorktree, targetDir }),
+          bodyGenerator: async () =>
+            buildPlanPrHeader({ name: recoveryName, specDirBasename, worktreePath: recoveryWorktree, targetDir }),
           footer: renderAttribution({ cwd: recoveryWorktree, base: getCurrentBranch(project.root) }),
           cwd: recoveryWorktree,
         });

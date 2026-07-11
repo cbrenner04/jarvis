@@ -168,7 +168,10 @@ export function parsePlanArgs(argv: readonly string[], processCwd: string): Plan
     return {
       ok: false,
       exitCode: 1,
-      message: recover === undefined ? "plan: missing required ready-intent (<targetDir>/ready-intents/<name>.md)" : "plan: --recover requires an index.md path",
+      message:
+        recover === undefined
+          ? "plan: missing required ready-intent (<targetDir>/ready-intents/<name>.md)"
+          : "plan: --recover requires an index.md path",
     };
   }
 

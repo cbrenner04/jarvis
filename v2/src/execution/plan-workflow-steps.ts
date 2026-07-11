@@ -244,6 +244,7 @@ export async function buildPlanWorkflowSteps(
     specPath: specDir,
     expectedArtifactPath: STAGE_DIR,
     intentSeed,
+    jarvisRoot,
     workflowInvocationId: crypto.randomUUID(),
     publishCompletion: true,
   };

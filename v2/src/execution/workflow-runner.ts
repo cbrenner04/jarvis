@@ -89,6 +89,8 @@ export type WriteWorkflowStep = Omit<WriteLoopInput, "bindings"> & {
   workflowInvocationId?: string;
   /** Raw ready-intent content threaded from the plan builder; consumed by write-step seeding. */
   intentSeed?: string;
+  /** Jarvis root directory for plan workflow. */
+  jarvisRoot?: string;
 };
 
 /**

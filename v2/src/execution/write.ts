@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join } from "node:path";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import {
@@ -23,6 +23,8 @@ export type WriteExecuteInput = {
   signal?: AbortSignal;
   invocationTelemetry?: Omit<InvocationTelemetryContext, "worktreePath">;
   withExternalWorktree?: typeof realWithExternalWorktree;
+  intentSeed?: string;
+  jarvisRoot?: string;
 };
 
 type WriteExecuteResult = {
@@ -39,6 +41,58 @@ export async function executeWrite(args: WriteExecuteInput): Promise<WriteExecut
     const specPath = resolveInWorktree(worktree.path, args.specPath);
     const expectedArtifactPath = resolveInWorktree(worktree.path, args.expectedArtifactPath);
     const promptId = args.promptId ?? DEFAULT_PROMPT_ID;
+
+    if (promptId === "plan.prompt.draft" && args.intentSeed !== undefined) {
+      // Plan preset: seed intent.md and supply all four required placeholders
+      const specDir = dirname(specPath);
+      mkdirSync(specDir, { recursive: true });
+      const intentPath = join(specDir, "intent.md");
+      writeFileSync(intentPath, args.intentSeed, "utf8");
+
+      // Extract NAME (basename of spec directory) and targetDir from specPath
+      const name = getSpecDirName(specPath);
+      const targetDir = getTargetDir(specPath);
+
+      // Read spec guidance from jarvis root
+      const specGuidancePath = getSpecGuidancePath(args.jarvisRoot);
+      const specGuidance = readFileSync(specGuidancePath, "utf8");
+
+      // Supply all four required placeholders
+      const placeholders = {
+        WORKDIR: args.promptPlaceholders?.WORKDIR ?? worktree.path,
+        NAME: name,
+        INTENT: args.intentSeed,
+        SPEC_GUIDANCE: specGuidance,
+      };
+
+      // Render the prompt with placeholders
+      let prompt = renderStepPrompt("plan.prompt.draft", placeholders);
+
+      // Rewrite spec/<NAME>/ to <targetDir>/<NAME>/
+      prompt = prompt.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`);
+
+      return runStep({
+        prompt,
+        cwd: worktree.path,
+        bindings: args.bindings,
+        contracts: [
+          {
+            id: "artifact.exists",
+            check: () => existsSync(expectedArtifactPath),
+          },
+        ],
+        ...(args.signal !== undefined ? { signal: args.signal } : {}),
+        ...(args.invocationTelemetry !== undefined
+          ? {
+              telemetry: {
+                ...args.invocationTelemetry,
+                worktreePath: worktree.path,
+              },
+            }
+          : {}),
+      });
+    }
+
     const placeholders =
       promptId === DEFAULT_PROMPT_ID
         ? {
@@ -81,4 +135,30 @@ export async function executeWrite(args: WriteExecuteInput): Promise<WriteExecut
 
 function resolveInWorktree(worktreePath: string, path: string): string {
   return isAbsolute(path) ? path : join(worktreePath, path);
+}
+
+function getSpecDirName(specPath: string): string {
+  // Extract the basename of the spec directory (e.g., "2026-07-11T09-47-44Z-plan-workflow-draft")
+  const parts = specPath.replace(/\\/g, "/").split("/");
+  return parts[parts.length - 1] || specPath;
+}
+
+function getTargetDir(specPath: string): string {
+  // Extract the target directory from specPath
+  // E.g., "spec/2026-07-11T09-47-44Z-plan-workflow-draft" -> "spec"
+  // or "v2/spec/2026-07-11T09-47-44Z-plan-workflow-draft" -> "v2/spec"
+  const normalized = specPath.replace(/\\/g, "/");
+  const parts = normalized.split("/");
+  return parts.slice(0, -1).join("/");
+}
+
+function getSpecGuidancePath(jarvisRoot?: string): string {
+  // Resolve spec-guidance.md from the jarvis installation
+  // It's located at v1/docs/spec-guidance.md relative to the jarvis root
+  if (jarvisRoot) {
+    return join(jarvisRoot, "..", "..", "v1", "docs", "spec-guidance.md");
+  }
+  // Fallback: use import.meta.dir to find the current location
+  // write.ts is at v2/src/execution/, so we need to go up to the repo root
+  return join(import.meta.dir, "..", "..", "..", "v1", "docs", "spec-guidance.md");
 }

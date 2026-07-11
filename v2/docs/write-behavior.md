@@ -150,6 +150,34 @@ least one binding.
 Programmatic workflow dispatch for this cycle is documented in
 [`workflow-runner.md`](./workflow-runner.md#review-dispatch).
 
+## Plan write-step seeding
+
+The `plan` preset's single write step executes with runtime seeding and prompt
+rendering to prepare the draft phase:
+
+**Intent.md seeding:** Before the agent runs, the write step creates the
+timestamped spec directory (`<targetDir>/<UTC-timestamp>-<name>/`) inside the
+worktree and seeds `intent.md` from the `intentSeed` content (the ready-intent
+verbatim, with frontmatter preserved). The intent is the sole durable
+artifact passed to the draft agent.
+
+**Placeholder supply:** The write step supplies four required `plan.prompt.draft`
+placeholders:
+- `WORKDIR`: the worktree root
+- `NAME`: the timestamped spec-directory basename (e.g., `2026-07-11T09-47-44Z-plan-workflow-draft`)
+- `INTENT`: the seeded ready-intent content (same as written to `intent.md`)
+- `SPEC_GUIDANCE`: the jarvis-bundled spec-guidance document from `v1/docs/spec-guidance.md`
+
+All four placeholders are mandatory; a missing placeholder fails the render.
+
+**Output path rewrite:** After rendering, the prompt's literal `spec/<NAME>/`
+output-path directive is rewritten to `<targetDir>/<NAME>/` so the agent writes
+to the actual spec directory, not a placeholder pattern. This parity with v1's
+draft behavior ensures the agent and the contract inspector read and write the
+same durable path. For example, if `targetDir` is `v2/spec` and `NAME` is
+`2026-07-11T09-47-44Z-plan-workflow-draft`, the agent writes to
+`v2/spec/2026-07-11T09-47-44Z-plan-workflow-draft/`.
+
 ## Intent review cycle
 
 Intent review is a specialized read-only-critic / write-actuator cycle that

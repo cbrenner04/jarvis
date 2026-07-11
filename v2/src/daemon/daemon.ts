@@ -424,7 +424,10 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         branch: firstStep.worktree.branchName,
         stepId: firstStep.stepId,
       });
-      if (existing?.workflowSnapshot?.invocationId !== undefined && existing.workflowSnapshot.invocationId !== firstStep.workflowInvocationId) {
+      if (
+        existing?.workflowSnapshot?.invocationId !== undefined &&
+        existing.workflowSnapshot.invocationId !== firstStep.workflowInvocationId
+      ) {
         return {
           kind: "error",
           code: "worktree_claimed",

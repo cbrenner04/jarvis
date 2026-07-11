@@ -18,10 +18,10 @@ debate adversary before the workflow can reference it.
 
 ## Acceptance criteria
 
-- [ ] `plan.prompt.review.critic` resolves through the prompt registry with valid governed metadata and renders the `WORKDIR`, `NAME`, `INTENT`, `CURRENT_SPEC`, and `SPEC_GUIDANCE` placeholders from their plan-review sources.
-- [ ] The critic prompt directs the agent to report actionable draft-spec gaps as advice only — no editing or committing — while not using debate adversary semantics.
-- [ ] Focused registry and rendered-prompt tests cover the critic's registration and the composed output's placeholders.
-- [ ] `v1/docs/prompt-governance.md` and `v2/docs/prompts.md` document `plan.prompt.review.critic` as the editorial critic for the light plan-review workflow, including its placeholders and rendering contract.
+- [x] `plan.prompt.review.critic` resolves through the prompt registry with valid governed metadata and renders the `WORKDIR`, `NAME`, `INTENT`, `CURRENT_SPEC`, and `SPEC_GUIDANCE` placeholders from their plan-review sources.
+- [x] The critic prompt directs the agent to report actionable draft-spec gaps as advice only — no editing or committing — while not using debate adversary semantics.
+- [x] Focused registry and rendered-prompt tests cover the critic's registration and the composed output's placeholders.
+- [x] `v1/docs/prompt-governance.md` and `v2/docs/prompts.md` document `plan.prompt.review.critic` as the editorial critic for the light plan-review workflow, including its placeholders and rendering contract.
 
 ## Documentation updates
 

@@ -11,7 +11,9 @@ function binding(id: string, stdout: string, calls: string[], kind: "ok" | "quot
     metadata: { agent: id, model: id },
     invoke: async ({ prompt }) => {
       calls.push(`${id}:${prompt}`);
-      return kind === "quota" ? { kind: "quota" as const, stderr: "quota" } : { kind: "ok" as const, stdout, stderr: "" };
+      return kind === "quota"
+        ? { kind: "quota" as const, stderr: "quota" }
+        : { kind: "ok" as const, stdout, stderr: "" };
     },
   };
 }
@@ -69,14 +71,20 @@ describe("executeReviewCycle", () => {
     ];
     const result = await executeReviewCycle(args);
     expect(readFileSync(path, "utf8")).toBe("");
-    expect(result).toMatchObject({ kind: "invocation_failure", failedRole: "critic", cycles: [{ failedRole: "critic" }] });
+    expect(result).toMatchObject({
+      kind: "invocation_failure",
+      failedRole: "critic",
+      cycles: [{ failedRole: "critic" }],
+    });
   });
 
   test("maps critic abort to its terminal error and counts the cycle", async () => {
     const calls: string[] = [];
     const path = join(dir(), "verdict.md");
     const args = input(path, calls, "fix", 2);
-    args.bindings.critic = [{ id: "critic.1", invoke: async () => ({ kind: "error" as const, exitCode: -1, stderr: "aborted" }) }];
+    args.bindings.critic = [
+      { id: "critic.1", invoke: async () => ({ kind: "error" as const, exitCode: -1, stderr: "aborted" }) },
+    ];
     const result = await executeReviewCycle(args);
     expect(result).toMatchObject({ kind: "invocation_failure", failedRole: "critic", failureKind: "error" });
     expect(result.cycles).toHaveLength(1);
@@ -97,7 +105,11 @@ describe("executeReviewCycle", () => {
       },
     ];
     const result = await executeReviewCycle(args);
-    expect(result).toMatchObject({ kind: "invocation_failure", failureKind: "error", cycles: [{ kind: "invocation_failure" }] });
+    expect(result).toMatchObject({
+      kind: "invocation_failure",
+      failureKind: "error",
+      cycles: [{ kind: "invocation_failure" }],
+    });
     expect(calls).toEqual([]);
   });
 
@@ -117,9 +129,15 @@ describe("executeReviewCycle", () => {
     const calls: string[] = [];
     const path = join(dir(), "verdict.md");
     const args = input(path, calls, "fix", 3);
-    args.bindings.actuator = [{ id: "actuator.1", invoke: async () => ({ kind: "error" as const, exitCode: -1, stderr: "aborted" }) }];
+    args.bindings.actuator = [
+      { id: "actuator.1", invoke: async () => ({ kind: "error" as const, exitCode: -1, stderr: "aborted" }) },
+    ];
     const result = await executeReviewCycle(args);
-    expect(result).toMatchObject({ kind: "invocation_failure", failedRole: "actuator", cycles: [{ kind: "role_failed", failedRole: "actuator", failureKind: "error" }] });
+    expect(result).toMatchObject({
+      kind: "invocation_failure",
+      failedRole: "actuator",
+      cycles: [{ kind: "role_failed", failedRole: "actuator", failureKind: "error" }],
+    });
     expect(result.cycles).toHaveLength(1);
   });
 

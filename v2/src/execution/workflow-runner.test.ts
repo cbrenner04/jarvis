@@ -1324,7 +1324,9 @@ describe("executeWorkflow review dispatch", () => {
 
       const second = await executeWorkflow({ steps: [makeReview(), makeWrite()], stateStore: store });
       expect(second.kind).toBe("complete");
-      expect(store.findRunByProjectBranch({ project: "demo", branch: "mixed-review", stepId: "write-1" })?.attempts).toHaveLength(1);
+      expect(
+        store.findRunByProjectBranch({ project: "demo", branch: "mixed-review", stepId: "write-1" })?.attempts,
+      ).toHaveLength(1);
       expect(calls).toHaveLength(2);
     });
   });

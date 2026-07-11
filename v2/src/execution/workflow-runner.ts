@@ -20,13 +20,13 @@ import { type CompletionCommitter, createCompletionCommitter } from "./completio
 import type { CompletionPublisher } from "./completion-publisher.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
+import { executeReviewCycle, type ReviewCycleInput, type ReviewCycleRole } from "./review-cycle.ts";
 import {
   executeReviewDebate,
   type ReviewDebateInput,
   type ReviewDebateRole,
   type ReviewDebateRoleBindings,
 } from "./review-debate.ts";
-import { executeReviewCycle, type ReviewCycleInput, type ReviewCycleRole } from "./review-cycle.ts";
 import { parseRevisionNumber } from "./revision-step-id.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import {
@@ -918,10 +918,28 @@ async function runReviewStep(
   stepIndex: number,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
 ): Promise<ReviewStepOutcome> {
-  const { stepId: _stepId, project: _project, branch: _branch, agents, agentModelConfig, createBinding, ...reviewInput } = step;
+  const {
+    stepId: _stepId,
+    project: _project,
+    branch: _branch,
+    agents,
+    agentModelConfig,
+    createBinding,
+    ...reviewInput
+  } = step;
   const bindings = {
-    critic: resolveInvocationBindings("critic", agents.critic, agentModelConfig, createBinding ?? createResolvedAgentBinding),
-    actuator: resolveInvocationBindings("actuator", agents.actuator, agentModelConfig, createBinding ?? createResolvedAgentBinding),
+    critic: resolveInvocationBindings(
+      "critic",
+      agents.critic,
+      agentModelConfig,
+      createBinding ?? createResolvedAgentBinding,
+    ),
+    actuator: resolveInvocationBindings(
+      "actuator",
+      agents.actuator,
+      agentModelConfig,
+      createBinding ?? createResolvedAgentBinding,
+    ),
   };
   const runId = crypto.randomUUID();
   onStepRunCreated?.(stepIndex, runId);

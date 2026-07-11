@@ -3,4 +3,4 @@
 - [x] [00 - Resolve implement review passes](./00-resolve-implement-review-passes.md)
 - [x] [01 - Render debate review prompts](./01-render-debate-review-prompts.md)
 - [x] [02 - Append implement debate review](./02-append-implement-debate-review.md)
-- [ ] [03 - Surface implement review selection](./03-surface-implement-review-selection.md)
+- [x] [03 - Surface implement review selection](./03-surface-implement-review-selection.md)

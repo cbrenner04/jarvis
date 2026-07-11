@@ -53,8 +53,25 @@ function runFixture(
 function workflowSnapshot(
   invocationId: string,
   ...steps: Array<{ stepId: string; role: string; behavior?: "review-debate" | "review" }>
+): { invocationId: string; steps: Array<{ stepId: string; role: string; behavior?: "review-debate" | "review" }> };
+function workflowSnapshot(
+  invocationId: string,
+  reviewPasses: number,
+  ...steps: Array<{ stepId: string; role: string; behavior?: "review-debate" | "review" }>
+): {
+  invocationId: string;
+  reviewPasses: number;
+  steps: Array<{ stepId: string; role: string; behavior?: "review-debate" | "review" }>;
+};
+function workflowSnapshot(
+  invocationId: string,
+  reviewPassesOrFirstStep: number | { stepId: string; role: string; behavior?: "review-debate" | "review" },
+  ...rest: Array<{ stepId: string; role: string; behavior?: "review-debate" | "review" }>
 ) {
-  return { invocationId, steps };
+  if (typeof reviewPassesOrFirstStep === "number") {
+    return { invocationId, reviewPasses: reviewPassesOrFirstStep, steps: rest };
+  }
+  return { invocationId, steps: [reviewPassesOrFirstStep, ...rest] };
 }
 
 let stateStore: StateStore;
@@ -366,6 +383,54 @@ test("list returns workflow step snapshots for live, stopped, and completed work
       { stepId: "step-b", role: "review", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
     ],
   });
+});
+
+test("list exposes retained implement reviewPasses and omits it for non-implement workflows", async () => {
+  const implementZeroSnapshot = workflowSnapshot("workflow-implement-0", 0, { stepId: "implement", role: "implement" });
+  const implementPositiveSnapshot = workflowSnapshot(
+    "workflow-implement-2",
+    2,
+    { stepId: "implement", role: "implement" },
+    { stepId: "implement-review", role: "", behavior: "review-debate" },
+  );
+  const planSnapshot = workflowSnapshot("workflow-plan", { stepId: "step-1", role: "plan" });
+
+  const implementZeroRunId = stateStore.createRun({
+    project: "wf-project",
+    specRef: "main",
+    worktreePath: "/tmp/wf-project",
+    branch: "wf-implement-0",
+    specPath: "/tmp/spec.md",
+    stepId: "implement",
+    workflowSnapshot: implementZeroSnapshot,
+  });
+  const implementPositiveRunId = stateStore.createRun({
+    project: "wf-project",
+    specRef: "main",
+    worktreePath: "/tmp/wf-project",
+    branch: "wf-implement-2",
+    specPath: "/tmp/spec.md",
+    stepId: "implement",
+    workflowSnapshot: implementPositiveSnapshot,
+  });
+  const planRunId = stateStore.createRun({
+    project: "wf-project",
+    specRef: "main",
+    worktreePath: "/tmp/wf-project",
+    branch: "wf-plan",
+    specPath: "/tmp/spec.md",
+    stepId: "step-1",
+    workflowSnapshot: planSnapshot,
+  });
+
+  const runs = await listRunsDirect(handlers);
+  const implementZeroRow = runs?.find((row) => row.runId === implementZeroRunId);
+  const implementPositiveRow = runs?.find((row) => row.runId === implementPositiveRunId);
+  const planRow = runs?.find((row) => row.runId === planRunId);
+
+  expect(implementZeroRow?.reviewPasses).toBe(0);
+  expect(implementPositiveRow?.reviewPasses).toBe(2);
+  expect(planRow?.reviewPasses).toBeUndefined();
 });
 
 test("list projects a review behavior entry in authored order without a durable run", async () => {

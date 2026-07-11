@@ -207,4 +207,32 @@ describe("monitorTextLines", () => {
     expect(lines).toContain("No runs.");
     expect(lines).toContain("Queue");
   });
+
+  test("retains implement reviewPasses on daemon list rows projected into monitor state", () => {
+    const implementRun: DaemonListRunRow = {
+      runId: "run-implement",
+      project: "demo",
+      branch: "implement",
+      status: "in-progress",
+      isLive: true,
+      reviewPasses: 0,
+      workflow: {
+        steps: [{ stepId: "implement", role: "implement", status: "in_progress", attemptCount: 1 }],
+      },
+    };
+    const planRun: DaemonListRunRow = {
+      runId: "run-plan",
+      project: "demo",
+      branch: "plan",
+      status: "in-progress",
+      isLive: true,
+      workflow: {
+        steps: [{ stepId: "step-1", role: "plan", status: "in_progress", attemptCount: 1 }],
+      },
+    };
+
+    const state = monitorState({ runs: [implementRun, planRun], selectedRunId: implementRun.runId });
+    expect(state.runs.find((run) => run.runId === implementRun.runId)?.reviewPasses).toBe(0);
+    expect(state.runs.find((run) => run.runId === planRun.runId)?.reviewPasses).toBeUndefined();
+  });
 });

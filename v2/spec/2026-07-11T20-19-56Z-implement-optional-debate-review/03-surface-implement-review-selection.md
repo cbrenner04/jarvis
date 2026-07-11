@@ -18,11 +18,11 @@ from a configured one.
 
 ## Documentation updates
 
-- [ ] Update `v2/docs/daemon-host.md` with the list metadata contract, including the non-implement absent case.
+- [x] Update `v2/docs/daemon-host.md` with the list metadata contract, including the non-implement absent case.
 
 ## Acceptance criteria
 
-- [ ] Every workflow-started implement run retains its resolved numeric `reviewPasses`, including `0` (numeric, never absent), on the durable workflow snapshot carried by its write-step run row.
-- [ ] Daemon `list` output and TUI run data expose the retained `reviewPasses` as a top-level numeric field without rereading project configuration.
-- [ ] A non-implement workflow run carries no `reviewPasses` value on the list row or TUI run data.
-- [ ] `v2/src/persistence/state-store.test.ts`, daemon list tests, and the affected TUI data-model tests cover the retained value including the zero and non-implement cases.
+- [x] Every workflow-started implement run retains its resolved numeric `reviewPasses`, including `0` (numeric, never absent), on the durable workflow snapshot carried by its write-step run row.
+- [x] Daemon `list` output and TUI run data expose the retained `reviewPasses` as a top-level numeric field without rereading project configuration.
+- [x] A non-implement workflow run carries no `reviewPasses` value on the list row or TUI run data.
+- [x] `v2/src/persistence/state-store.test.ts`, daemon list tests, and the affected TUI data-model tests cover the retained value including the zero and non-implement cases.

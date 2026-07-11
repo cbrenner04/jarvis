@@ -55,6 +55,8 @@ export type WorkflowSnapshotStep = {
 export type WorkflowSnapshot = {
   invocationId: string;
   steps: WorkflowSnapshotStep[];
+  /** Resolved implement review count; present only on implement workflow snapshots. */
+  reviewPasses?: number;
 };
 
 export type AttemptStatus = "in-progress" | "completed";

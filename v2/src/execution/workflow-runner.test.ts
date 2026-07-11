@@ -941,6 +941,8 @@ describe("executeWorkflow", () => {
       });
       expect(run?.workflowSnapshot?.steps.map((step) => step.stepId)).toEqual(["implement"]);
       expect(shrinkRun?.workflowSnapshot?.steps.map((step) => step.stepId)).toEqual(["implement"]);
+      expect(run?.workflowSnapshot?.reviewPasses).toBe(0);
+      expect(shrinkRun?.workflowSnapshot?.reviewPasses).toBe(0);
     });
   });
 
@@ -1282,6 +1284,8 @@ describe("executeWorkflow implement patch review", () => {
       expect(calls.indexOf("implement")).toBeLessThan(calls.indexOf("shrink"));
       expect(calls.indexOf("shrink")).toBeLessThan(calls.indexOf("review:ADV"));
       expect(readFileSync(verdictPath, "utf8")).toBe("fix it");
+      const run = store.findRunByProjectBranch({ project: "demo", branch: implementStep.worktree.branchName, stepId: "implement" });
+      expect(run?.workflowSnapshot?.reviewPasses).toBe(reviewStep.maxCycles);
     });
   });
 

@@ -215,6 +215,27 @@ describe("StateStore", () => {
     expect(run.workflowSnapshot).toEqual(workflowSnapshot);
   });
 
+  test("loadRun retains implement reviewPasses on the workflow snapshot", () => {
+    const withZero = {
+      invocationId: "workflow-implement-0",
+      reviewPasses: 0,
+      steps: [{ stepId: "implement", role: "implement" }],
+    };
+    const withPositive = {
+      invocationId: "workflow-implement-2",
+      reviewPasses: 2,
+      steps: [
+        { stepId: "implement", role: "implement" },
+        { stepId: "implement-review", role: "", behavior: "review-debate" as const },
+      ],
+    };
+    const runZeroId = seedRun(store, { stepId: "implement", workflowSnapshot: withZero });
+    const runPositiveId = seedRun(store, { stepId: "implement", branch: "review-branch", workflowSnapshot: withPositive });
+
+    expect(loadRunOrThrow(store, runZeroId).workflowSnapshot).toEqual(withZero);
+    expect(loadRunOrThrow(store, runPositiveId).workflowSnapshot).toEqual(withPositive);
+  });
+
   test("loadRun returns undefined/null for stepId when not set", () => {
     const runId = seedRun(store);
 

@@ -823,7 +823,30 @@ function buildWorkflowSnapshot(steps: readonly AnyWorkflowStep[], store: StateSt
   return {
     invocationId: requestedInvocationId ?? crypto.randomUUID(),
     steps: authoredSteps,
+    ...implementReviewPassesField(steps),
   };
+}
+
+/** Retains the resolved implement review count on the workflow snapshot when applicable. */
+function implementReviewPassesField(
+  steps: readonly AnyWorkflowStep[],
+): { reviewPasses: number } | Record<string, never> {
+  const reviewPasses = implementReviewPassesFromSteps(steps);
+  return reviewPasses === undefined ? {} : { reviewPasses };
+}
+
+function implementReviewPassesFromSteps(steps: readonly AnyWorkflowStep[]): number | undefined {
+  const hasImplementWrite = steps.some(
+    (step): step is WriteWorkflowStep =>
+      step.behavior === "write" && step.role === "implement" && step.suppressShrink !== true,
+  );
+  if (!hasImplementWrite) return undefined;
+
+  const patchReviewStep = steps.find(
+    (step): step is ReviewDebateWorkflowStep =>
+      step.behavior === "review-debate" && step.patchReviewContext !== undefined,
+  );
+  return patchReviewStep?.maxCycles ?? 0;
 }
 
 /**

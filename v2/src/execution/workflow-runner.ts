@@ -238,7 +238,14 @@ async function runWorkflowStep(
   }
 
   if (step.behavior === "review") {
-    return runReviewStep(step, stepIndex, workflowSnapshot.invocationId, onReviewDebateProgress, telemetry, onStepRunCreated);
+    return runReviewStep(
+      step,
+      stepIndex,
+      workflowSnapshot.invocationId,
+      onReviewDebateProgress,
+      telemetry,
+      onStepRunCreated,
+    );
   }
 
   const preparedStep = prepareWorkflowStep(step, workflowSnapshot, store, logSink, telemetry);
@@ -927,29 +934,11 @@ async function runReviewStep(
   telemetry: WorkflowTelemetryContext | undefined,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
 ): Promise<ReviewStepOutcome> {
-  const {
-    stepId,
-    project,
-    branch,
-    agents,
-    agentModelConfig,
-    createBinding,
-    ...reviewInput
-  } = step;
+  const { stepId, project, branch, agents, agentModelConfig, createBinding, ...reviewInput } = step;
   const resolveBindings = createBinding ?? createResolvedAgentBinding;
   const bindings = {
-    critic: resolveInvocationBindings(
-      "critic",
-      agents.critic,
-      agentModelConfig,
-      resolveBindings,
-    ),
-    actuator: resolveInvocationBindings(
-      "actuator",
-      agents.actuator,
-      agentModelConfig,
-      resolveBindings,
-    ),
+    critic: resolveInvocationBindings("critic", agents.critic, agentModelConfig, resolveBindings),
+    actuator: resolveInvocationBindings("actuator", agents.actuator, agentModelConfig, resolveBindings),
   };
   const runId = crypto.randomUUID();
   const attemptId = crypto.randomUUID();

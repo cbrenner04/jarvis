@@ -263,6 +263,29 @@ actuator prompt carries the stage-boundary contract inline, rules out worktree-w
 mutation, and passes the unchanged verdict byte-for-byte via a delimited data
 zone — enabling the enforcement mechanisms in this section.
 
+## Plan light review cycle
+
+Plan light review is a specialized read-only-critic / write-actuator cycle over the
+materialized post-draft spec tree. Generic `review` forwards only a verdict to its
+actuator; plan light review renders `plan.prompt.review.critic` and
+`plan.prompt.review-actuator` against the built worktree state: spec files under
+`<spec-dir>/`, seeded `intent.md`, jarvis-bundled spec guidance, and the critic's
+stdout verdict. Builder-time metadata is not part of the live render context.
+
+Review `cwd` and `<spec-dir>/verdict-plan.md` resolve from the draft step's
+published worktree and timestamped spec directory. The executor clears
+`verdict-plan.md` before each critic invocation, writes the critic stdout verbatim
+on success, and skips the actuator when the trimmed verdict is empty.
+
+**Role boundary:** the critic is advisory-only. After each critic invocation the
+executor snapshots the worktree and fails the cycle when any filesystem change
+occurred; unauthorized edits are restored before the actuator runs. The actuator
+is the sole mutator of the spec tree. Actuator prompts carry the unchanged verdict
+plus the same materialized draft context as the critic.
+
+Workflow dispatch for plan-reviewed presets supplies `planReviewContext` on the
+loaded review step; see [`workflow-runner.md`](./workflow-runner.md#review-dispatch).
+
 ## Command
 
 ```

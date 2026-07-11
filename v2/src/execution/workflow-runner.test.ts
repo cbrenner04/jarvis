@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -1464,6 +1464,64 @@ describe("executeWorkflow review dispatch", () => {
       ).toHaveLength(1);
       expect(calls).toHaveLength(2);
     });
+  });
+});
+
+describe("executeWorkflow plan review dispatch", () => {
+  const config: AgentModelConfig = {
+    claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
+    codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
+  };
+
+  test("renders live draft context, persists verdict, and publishes actuator edits", async () => {
+    const root = mkdtempSync(join(tmpdir(), "workflow-plan-review-"));
+    const specDir = join(root, "spec", "2026-test-reviewed");
+    mkdirSync(specDir, { recursive: true });
+    const subspecPath = join(specDir, "01-test.md");
+    writeFileSync(join(specDir, "intent.md"), "Intent body", "utf8");
+    writeFileSync(join(specDir, "index.md"), "# Index", "utf8");
+    writeFileSync(subspecPath, "# Before", "utf8");
+    const verdictPath = join(specDir, "verdict-plan.md");
+    const criticPrompts: string[] = [];
+    const actuatorPrompts: string[] = [];
+
+    const step: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "plan-review",
+      project: "demo",
+      branch: "plan-reviewed",
+      cwd: root,
+      prompt: "",
+      verdictPath,
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: config,
+      planReviewContext: { specPath: specDir },
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async ({ prompt }) => {
+          if (agentId === "claude") {
+            criticPrompts.push(prompt);
+            return { kind: "ok" as const, stdout: "Clarify acceptance criteria", stderr: "" };
+          }
+          actuatorPrompts.push(prompt);
+          writeFileSync(subspecPath, "# After review", "utf8");
+          return { kind: "ok" as const, stdout: "done", stderr: "" };
+        },
+      }),
+    };
+
+    const result = await executeWorkflow({ steps: [step] });
+
+    expect(result).toMatchObject({ kind: "complete", iterationsConsumed: 1, resumable: false });
+    expect(readFileSync(verdictPath, "utf8")).toBe("Clarify acceptance criteria");
+    expect(readFileSync(subspecPath, "utf8")).toBe("# After review");
+    expect(criticPrompts[0]).toContain("Intent body");
+    expect(criticPrompts[0]).toContain("# Index");
+    expect(criticPrompts[0]).not.toContain("builder-time");
+    expect(actuatorPrompts[0]).toContain("Clarify acceptance criteria");
+    expect(actuatorPrompts[0]).toContain("Intent body");
   });
 });
 

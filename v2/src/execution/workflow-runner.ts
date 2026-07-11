@@ -28,13 +28,7 @@ import {
 } from "./linked-subspec-routing.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import { executeReviewCycle, type ReviewCycleInput, type ReviewCycleRole } from "./review-cycle.ts";
-import {
-  executePlanReviewCycle,
-  renderActuatorPrompt,
-  renderCriticPrompt,
-  type PlanReviewCycleOutcome,
-  type PlanReviewPromptContext,
-} from "./render-plan-review-prompts.ts";
+import { executePlanReviewCycle, type PlanReviewCycleOutcome } from "./render-plan-review-prompts.ts";
 import {
   executeReviewDebate,
   type ReviewDebateInput,

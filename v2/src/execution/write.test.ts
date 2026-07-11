@@ -218,7 +218,13 @@ describe("write behavior", () => {
     const intentSeed = "---\nname: blocked\n---\n\n## Prerequisites\n\nnone\n";
 
     const result = await executeWrite({
-      worktree: { projectRoot: "/fake", projectName: "demo", branchName: "plan-run-blocked", baseRef: "HEAD", jarvisRoot },
+      worktree: {
+        projectRoot: "/fake",
+        projectName: "demo",
+        branchName: "plan-run-blocked",
+        baseRef: "HEAD",
+        jarvisRoot,
+      },
       specPath,
       stepRules: "unused",
       expectedArtifactPath: ".jarvis-plan-stage",

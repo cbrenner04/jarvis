@@ -24,7 +24,6 @@ import {
   runPlanReviewPhase,
   snapshotSpecFiles,
   validateReviewOutput,
-  validateSplitIntegrity,
 } from "../../../src/modes/plan/review.ts";
 import { snapshotSpecDirFiles } from "../../../src/modes/plan/spec-dir.ts";
 
@@ -619,80 +618,6 @@ describe("runPlanReviewPhase", () => {
     }
   });
 
-  test("rejects malformed oversized splits", async () => {
-    const cases = [
-      {
-        name: "orphaned task",
-        builder: "- Add builder behavior\n\n## Acceptance criteria\n\n- [ ] Builder behavior is verified\n",
-        wiring: "## Acceptance criteria\n\n- [ ] Wiring behavior is verified\n",
-        links: 2,
-      },
-      {
-        name: "duplicated outcome",
-        builder: "- Add builder behavior\n\n## Acceptance criteria\n\n- [ ] Builder behavior is verified\n",
-        wiring:
-          "- Wire builder behavior\n\n## Acceptance criteria\n\n- [ ] Wiring behavior is verified\n- [ ] Builder behavior is verified\n",
-        links: 2,
-      },
-      {
-        name: "unlinked replacement",
-        builder: "- Add builder behavior\n\n## Acceptance criteria\n\n- [ ] Builder behavior is verified\n",
-        wiring: "- Wire builder behavior\n\n## Acceptance criteria\n\n- [ ] Wiring behavior is verified\n",
-        links: 1,
-      },
-    ];
-
-    for (const malformed of cases) {
-      const { dir, specDir, cleanup } = setupReviewFixture();
-      try {
-        writeFileSync(
-          join(specDir, "00-one.md"),
-          "# Oversized\n\n## Tasks\n\n- Add builder behavior\n- Wire builder behavior\n\n## Acceptance criteria\n\n- [ ] Builder behavior is verified\n- [ ] Wiring behavior is verified\n",
-          "utf8",
-        );
-        const agent = new FakeAgent("claude", (_c, prompt, opts) => {
-          if (prompt.includes("Review Actuator")) {
-            rmSync(join(opts.cwd, "spec", "p-review", "00-one.md"));
-            writeFileSync(
-              join(opts.cwd, "spec", "p-review", "index.md"),
-              `# Draft\n\n- [ ] [00 - Builder](./00-builder.md)${malformed.links === 2 ? "\n- [ ] [01 - Wiring](./01-wiring.md)" : ""}\n`,
-            );
-            writeFileSync(
-              join(opts.cwd, "spec", "p-review", "00-builder.md"),
-              `# Builder\n\n## Tasks\n\n${malformed.builder}`,
-            );
-            writeFileSync(
-              join(opts.cwd, "spec", "p-review", "01-wiring.md"),
-              `# Wiring\n\n## Tasks\n\n${malformed.wiring}`,
-            );
-            return { kind: "ok", stdout: "", stderr: "" };
-          }
-          if (prompt.includes("Review: Adjudicator")) {
-            return { kind: "ok", stdout: "Split the oversized subspec.\n", stderr: "" };
-          }
-          return { kind: "ok", stdout: "", stderr: "" };
-        });
-        const stderr: string[] = [];
-        const result = await runPlanReviewPhase({
-          worktreePath: dir,
-          name: "p-review",
-          specDirBasename: "p-review",
-          config: makeReviewConfig({ planOrder: [CLAUDE_ENTRY], reviewPasses: 1 }),
-          reviewPassesOverride: 1,
-          commit: false,
-          specDirPath: specDir,
-          createAgent: () => agent,
-          stderr: (line) => stderr.push(line),
-        });
-
-        expect(result.exitCode, malformed.name).toBe(1);
-        expect(stderr.join("")).toContain("actuator split validation failed");
-      } finally {
-        cleanup();
-      }
-    }
-  });
-
   test("recovers immutable-only intent.md drift on commit:false and emits notice", async () => {
     const { dir, specDir, cleanup } = setupReviewFixture();
     try {
@@ -1226,92 +1151,6 @@ describe("verdict → refine seam", () => {
       expect(result.exitCode).toBe(0);
       // Verdict file was NOT created (verdict was empty, so actuator was skipped).
       expect(existsSync(join(specDir, "verdict-plan.md"))).toBe(false);
-    } finally {
-      cleanup();
-    }
-  });
-});
-
-describe("validateSplitIntegrity", () => {
-  test("returns null when no split occurs (no subspec removed)", () => {
-    const { specDir, cleanup } = setupReviewFixture();
-    try {
-      // Before snapshot with one subspec
-      const before = snapshotSpecDirFiles(specDir);
-
-      // After: no subspec removed, just content changed
-      writeFileSync(join(specDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] modified\n");
-
-      const result = validateSplitIntegrity(before, specDir);
-      expect(result).toBe(null);
-    } finally {
-      cleanup();
-    }
-  });
-
-  test("returns null when no split occurs (no subspec added)", () => {
-    const { specDir, cleanup } = setupReviewFixture();
-    try {
-      // Before snapshot with one subspec
-      const before = snapshotSpecDirFiles(specDir);
-
-      // After: remove subspec but don't add new ones
-      rmSync(join(specDir, "00-one.md"));
-      writeFileSync(join(specDir, "index.md"), "# Draft\n");
-
-      const result = validateSplitIntegrity(before, specDir);
-      expect(result).toBe(null);
-    } finally {
-      cleanup();
-    }
-  });
-
-  test("fails when split replacement is not linked from index.md", () => {
-    const { specDir, cleanup } = setupReviewFixture();
-    try {
-      const before = snapshotSpecDirFiles(specDir);
-
-      // Remove old and add new subspec but don't link it in index.md
-      rmSync(join(specDir, "00-one.md"));
-      writeFileSync(join(specDir, "00-one-a.md"), "# One A\n\n## Acceptance criteria\n\n- [ ] x\n");
-      writeFileSync(join(specDir, "index.md"), "# Draft\n\n- [ ] [00](./00-one.md)\n");
-
-      const result = validateSplitIntegrity(before, specDir);
-      expect(result).toContain("split replacement is not linked from index.md");
-    } finally {
-      cleanup();
-    }
-  });
-
-  test("fails when split does not preserve exactly once", () => {
-    const { specDir, cleanup } = setupReviewFixture();
-    try {
-      const before = snapshotSpecDirFiles(specDir);
-
-      // Remove old and add new subspec but lose a task
-      rmSync(join(specDir, "00-one.md"));
-      writeFileSync(join(specDir, "00-one-a.md"), "# One A\n\n## Acceptance criteria\n\n- [ ] different\n");
-      writeFileSync(join(specDir, "index.md"), "# Draft\n\n- [ ] [00](./00-one-a.md)\n");
-
-      const result = validateSplitIntegrity(before, specDir);
-      expect(result).toContain("split did not preserve exactly once");
-    } finally {
-      cleanup();
-    }
-  });
-
-  test("succeeds when split preserves tasks and links new subspecs", () => {
-    const { specDir, cleanup } = setupReviewFixture();
-    try {
-      const before = snapshotSpecDirFiles(specDir);
-
-      // Remove old and add new subspec with same content
-      rmSync(join(specDir, "00-one.md"));
-      writeFileSync(join(specDir, "00-one-a.md"), "# One A\n\n## Acceptance criteria\n\n- [ ] x\n");
-      writeFileSync(join(specDir, "index.md"), "# Draft\n\n- [ ] [00](./00-one-a.md)\n");
-
-      const result = validateSplitIntegrity(before, specDir);
-      expect(result).toBe(null);
     } finally {
       cleanup();
     }

@@ -364,10 +364,9 @@ run identity in this slice; mixing a `review-debate` step with `write`/`human`
 steps in one workflow otherwise composes normally (ordered advancement, same
 stop-on-non-complete rule).
 
-This slice supports only programmatic/runtime construction of a
-`review-debate` step as an object literal `satisfies WorkflowStepInput`;
-`workflow-loader.ts` (and therefore YAML/config-file authoring) does not yet
-support it — it still assumes one `role` per step.
+Programmatic source loading through `workflow-loader.ts` supports both `write`
+and `review-debate` steps. A `review-debate` step may also be constructed as an
+object literal `satisfies WorkflowStepInput`.
 
 ## Review dispatch
 

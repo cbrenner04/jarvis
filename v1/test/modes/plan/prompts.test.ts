@@ -163,6 +163,17 @@ describe("buildVerdictActuatorPrompt", () => {
 });
 
 describe("draft/review prompts", () => {
+  test("draft prompt sizes subspecs to one implementation path", () => {
+    const prompt = buildDraftPrompt({
+      name: "test-name",
+      intent: "intent",
+      specGuidance: "guidance",
+    });
+    expect(prompt).toContain("one normal patch iteration: one implementation path with focused verification");
+    expect(prompt).toContain("independently implementable builder, wiring, or validation paths");
+    expect(prompt).toContain("keep coupled changes together");
+  });
+
   test("draft prompt includes anti-self-reference acceptance criteria contract", () => {
     const prompt = buildDraftPrompt({
       name: "test-name",
@@ -195,6 +206,35 @@ describe("draft/review prompts", () => {
     expect(prompt).toContain("observable outcomes");
   });
 
+  test("review prompts adjudicate oversized subspecs as complete splits", () => {
+    const adversary = buildReviewPrompt({
+      name: "x",
+      intent: "i",
+      specGuidance: "g",
+      currentSpec: "spec",
+    });
+    const advocate = buildReviewPrompt({
+      name: "x",
+      intent: "i",
+      specGuidance: "g",
+      currentSpec: "spec",
+      role: "advocate",
+    });
+    const adjudicator = buildReviewPrompt({
+      name: "x",
+      intent: "i",
+      specGuidance: "g",
+      currentSpec: "spec",
+      role: "adjudicator",
+    });
+
+    expect(adversary).toContain("exceeding one implementation path with focused verification");
+    expect(adversary).toContain("prose compression as a remedy");
+    expect(advocate).toContain("Do not defend prose compression as a split");
+    expect(adjudicator).toContain("every original task and acceptance outcome exactly once");
+    expect(adjudicator).toContain("every replacement linked from the index");
+  });
+
   test("review actuator prompt rewrites structural product acceptance criteria", () => {
     const prompt = buildVerdictActuatorPrompt({
       name: "p",
@@ -205,6 +245,19 @@ describe("draft/review prompts", () => {
     });
     expect(prompt).toContain("Rewrite structural **product** acceptance criteria into behavioral ones");
     expect(prompt).toContain("when structure is the contract");
+  });
+
+  test("review actuator prompt requires complete oversized-subspec splits", () => {
+    const prompt = buildVerdictActuatorPrompt({
+      name: "p",
+      intent: "# Intent\n",
+      currentSpec: "spec",
+      specGuidance: "guidance",
+      verdict: "Split the oversized subspec.",
+    });
+    expect(prompt).toContain("Preserve every original task and acceptance outcome exactly once");
+    expect(prompt).toContain("link every replacement from `index.md`");
+    expect(prompt).toContain("do not compress prose instead of splitting");
   });
 });
 

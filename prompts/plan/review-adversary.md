@@ -2,7 +2,7 @@
 id: plan.prompt.review.adversary
 behavior: plan
 kind: step
-revision: 2
+revision: 3
 placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, CURRENT_SPEC:string!, SPEC_GUIDANCE:string!, REVIEW_PASS_CONTEXT:string!]
 remove: [global.naming]
 ---
@@ -57,6 +57,7 @@ Critically review the spec draft against the intent and guidance. Your role is t
 - Architectural or design risks
 - Edge cases or scenarios not addressed
 - Spec violations of the guidance conventions
+- Oversized subspecs: any subspec exceeding one implementation path with focused verification. Identify its independently implementable paths; do not treat prose compression as a remedy.
 - Structural **product** acceptance criteria that mandate files, modules, tables, or shapes when structure is not the contract (flag for rewrite into observable outcomes)
 
 Report your findings clearly. Do not propose rewrites; just identify the problems.

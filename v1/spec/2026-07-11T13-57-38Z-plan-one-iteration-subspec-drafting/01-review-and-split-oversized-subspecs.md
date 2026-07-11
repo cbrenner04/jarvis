@@ -26,9 +26,9 @@ Review can leave an oversized subspec intact by compressing its prose instead of
 
 ## Acceptance criteria
 
-- [ ] Plan self-review explicitly identifies an oversized subspec and requires an adjudicated independently testable split rather than prose compression.
-- [ ] An oversized-split outcome preserves scope: every original task and acceptance outcome appears exactly once across replacements, with no orphaned work, and the routable index links every replacement.
-- [ ] An end-to-end actuator guard proves an oversized verdict produces the valid split tree without expanding implementation scope.
-- [ ] Review and actuator prompt rendering plus focused plan-prompt tests cover the sizing check and adjudicated split outcome.
-- [ ] `v1/docs/plan-mode.md` is the self-review behavior authority; `v2/docs/v1-behaviors.md` records its source without duplicating the guidance.
-- [ ] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] Plan self-review explicitly identifies an oversized subspec and requires an adjudicated independently testable split rather than prose compression.
+- [x] An oversized-split outcome preserves scope: every original task and acceptance outcome appears exactly once across replacements, with no orphaned work, and the routable index links every replacement.
+- [x] An end-to-end actuator guard proves an oversized verdict produces the valid split tree without expanding implementation scope.
+- [x] Review and actuator prompt rendering plus focused plan-prompt tests cover the sizing check and adjudicated split outcome.
+- [x] `v1/docs/plan-mode.md` is the self-review behavior authority; `v2/docs/v1-behaviors.md` records its source without duplicating the guidance.
+- [x] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` pass.

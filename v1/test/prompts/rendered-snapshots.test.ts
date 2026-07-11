@@ -63,15 +63,19 @@ describe("rendered prompt snapshots", () => {
 
   test("shared snapshots are keyed by id and revision", () => {
     expect(registry.getById("patch.prompt.body").metadata.revision).toBe("8");
-    expect(registry.getById("plan.prompt.draft").metadata.revision).toBe("8");
+    expect(registry.getById("plan.prompt.draft").metadata.revision).toBe("9");
     expect(registry.getById("plan.prompt.review").metadata.revision).toBe("6");
-    expect(registry.getById("plan.prompt.review.adversary").metadata.revision).toBe("2");
-    expect(registry.getById("plan.prompt.review-actuator").metadata.revision).toBe("3");
+    expect(registry.getById("plan.prompt.review.adversary").metadata.revision).toBe("3");
+    expect(registry.getById("plan.prompt.review.advocate").metadata.revision).toBe("2");
+    expect(registry.getById("plan.prompt.review.adjudicator").metadata.revision).toBe("2");
+    expect(registry.getById("plan.prompt.review-actuator").metadata.revision).toBe("4");
 
     const patchKey = `${registry.getById("patch.prompt.body").metadata.id}@r${registry.getById("patch.prompt.body").metadata.revision}.shared.txt`;
     const draftKey = `${registry.getById("plan.prompt.draft").metadata.id}@r${registry.getById("plan.prompt.draft").metadata.revision}.shared.txt`;
     const reviewStepOneKey = `${registry.getById("plan.prompt.review.adversary").metadata.id}@r${registry.getById("plan.prompt.review.adversary").metadata.revision}.pass-1.shared.txt`;
     const reviewStepTwoKey = `${registry.getById("plan.prompt.review.adversary").metadata.id}@r${registry.getById("plan.prompt.review.adversary").metadata.revision}.pass-2.shared.txt`;
+    const advocateKey = `${registry.getById("plan.prompt.review.advocate").metadata.id}@r${registry.getById("plan.prompt.review.advocate").metadata.revision}.pass-1.shared.txt`;
+    const adjudicatorKey = `${registry.getById("plan.prompt.review.adjudicator").metadata.id}@r${registry.getById("plan.prompt.review.adjudicator").metadata.revision}.pass-1.shared.txt`;
     const reviewActuatorKey = `${registry.getById("plan.prompt.review-actuator").metadata.id}@r${registry.getById("plan.prompt.review-actuator").metadata.revision}.shared.txt`;
 
     const patch = buildPrompt("v1/spec/example/index.md", ["../shared-lib", "../infra"]);
@@ -103,11 +107,29 @@ describe("rendered prompt snapshots", () => {
       currentSpec: '<<<FILE name="00-task.md" BEGIN>>>\n- [ ] Task\n<<<FILE END>>>',
       verdict: "Verdict",
     });
+    const advocate = buildReviewPrompt({
+      name: "prompt-registry",
+      intent: "Intent",
+      specGuidance: "Guide",
+      currentSpec: '<<<FILE name="00-task.md" BEGIN>>>\n- [ ] Task\n<<<FILE END>>>',
+      role: "advocate",
+      priorArtifact: "Adversary finding",
+    });
+    const adjudicator = buildReviewPrompt({
+      name: "prompt-registry",
+      intent: "Intent",
+      specGuidance: "Guide",
+      currentSpec: '<<<FILE name="00-task.md" BEGIN>>>\n- [ ] Task\n<<<FILE END>>>',
+      role: "adjudicator",
+      priorArtifact: "Advocate response",
+    });
 
     expect(patch).toBe(readFixture(patchKey));
     expect(draft).toBe(readFixture(draftKey));
     expect(reviewPass1).toBe(readFixture(reviewStepOneKey));
     expect(reviewPass2).toBe(readFixture(reviewStepTwoKey));
+    expect(advocate).toBe(readFixture(advocateKey).trimEnd());
+    expect(adjudicator).toBe(readFixture(adjudicatorKey).trimEnd());
     expect(reviewActuator).toBe(readFixture(reviewActuatorKey));
   });
 

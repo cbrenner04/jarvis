@@ -831,7 +831,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         const validation = validateDraftOutput(recoveryWorktree, specDirBasename, recoveryIntent, recoverySpecDir);
         writeFileSync(join(recoverySpecDir, "intent.md"), originalIntent, "utf8");
         if (!validation.valid) throw new Error(`recovery: spec validation failed: ${validation.error}`);
-        if (validation.blocker !== undefined) throw new Error(`recovery: drafting reported a blocker: ${validation.blocker}`);
+        if (validation.blocker !== undefined)
+          throw new Error(`recovery: drafting reported a blocker: ${validation.blocker}`);
         stripNonContractIndexLines({ specDirPath: recoverySpecDir, stderr: opts.io.stderr });
         const replacements = validateRecoveryReconciliation({
           specDir: recoverySpecDir,

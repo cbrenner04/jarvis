@@ -141,7 +141,7 @@ export function parsePlanArgs(argv: readonly string[], processCwd: string): Plan
     positional.push(arg);
   }
 
-  if (positional.length > (recover === undefined ? 1 : 1)) {
+  if (positional.length > 1) {
     return {
       ok: false,
       exitCode: 1,

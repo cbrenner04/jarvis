@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -51,12 +52,14 @@ describe("timed-out subspec recovery", () => {
   test("refuses checkpoint work and requires an atomic replacement", () => {
     const root = mkdtempSync(join(tmpdir(), "jarvis-recovery-"));
     try {
+      execFileSync("git", ["init", "-q", root]);
       const spec = join(root, "spec");
       mkdirSync(spec);
-      mkdirSync(join(root, ".git", "jarvis"), { recursive: true });
-      writeFileSync(join(root, ".git", "jarvis", "iteration-timeout-checkpoint.json"), "{}");
+      const worktreeAdminDir = join(root, ".git", "worktrees", "spec", "jarvis");
+      mkdirSync(worktreeAdminDir, { recursive: true });
+      writeFileSync(join(worktreeAdminDir, "iteration-timeout-checkpoint.json"), "{}");
       expect(() => assertRecoveryCheckpointSafe(root, "spec")).toThrow("checkpoint receipt");
-      unlinkSync(join(root, ".git", "jarvis", "iteration-timeout-checkpoint.json"));
+      unlinkSync(join(worktreeAdminDir, "iteration-timeout-checkpoint.json"));
       writeFileSync(join(spec, "index.md"), "- [ ] [A](./01-a.md)\n- [ ] [B](./02-b.md)\n");
       writeFileSync(join(spec, "01-a.md"), "# A\n\n## Acceptance criteria\n\n- [ ] a\n");
       writeFileSync(join(spec, "02-b.md"), "# B\n\n## Acceptance criteria\n\n- [ ] b\n");
@@ -65,8 +68,30 @@ describe("timed-out subspec recovery", () => {
           specDir: spec,
           oldSubspecBasename: "00-old.md",
           indexPath: join(spec, "index.md"),
+          preexistingSubspecs: [],
         }),
       ).toBe(2);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("counts only newly-created replacements, not preexisting completed siblings", () => {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-recovery-"));
+    try {
+      const spec = join(root, "spec");
+      mkdirSync(spec);
+      writeFileSync(join(spec, "index.md"), "- [x] [A](./01-a.md)\n- [x] [B](./02-b.md)\n");
+      writeFileSync(join(spec, "01-a.md"), "# A\n\n## Acceptance criteria\n\n- [x] a\n");
+      writeFileSync(join(spec, "02-b.md"), "# B\n\n## Acceptance criteria\n\n- [x] b\n");
+      expect(() =>
+        validateRecoveryReconciliation({
+          specDir: spec,
+          oldSubspecBasename: "00-old.md",
+          indexPath: join(spec, "index.md"),
+          preexistingSubspecs: ["01-a.md", "02-b.md"],
+        }),
+      ).toThrow("at least two replacement subspecs");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

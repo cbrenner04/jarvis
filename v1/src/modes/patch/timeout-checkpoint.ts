@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { GIT_SUBPROCESS_OPTS } from "./git-subprocess.ts";
 
 export type TimeoutCheckpointReceipt = {
@@ -20,6 +20,20 @@ function receiptPath(cwd: string): string {
     ...GIT_SUBPROCESS_OPTS,
   }).trim();
   return resolve(cwd, path);
+}
+
+/**
+ * Resolve a worktree's checkpoint receipt path from outside that worktree —
+ * e.g. after it has been removed but its git admin dir (and receipt) survive.
+ */
+export function receiptPathForWorktree(projectRoot: string, worktreeName: string): string {
+  const commonDir = execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
+    cwd: projectRoot,
+    encoding: "utf8",
+    stdio: "pipe",
+    ...GIT_SUBPROCESS_OPTS,
+  }).trim();
+  return join(commonDir, "worktrees", worktreeName, RECEIPT_RELATIVE_PATH);
 }
 
 function gitOutput(cwd: string, args: string[]): string {

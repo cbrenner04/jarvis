@@ -49,6 +49,7 @@ import {
   assertRecoveryCheckpointSafe,
   findRecoveryTarget,
   hasQualifyingTimeout,
+  listNumberedSubspecs,
   type RecoveryTarget,
   validateRecoveryReconciliation,
 } from "./recovery.ts";
@@ -812,6 +813,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       const originalIntent = readFileSync(join(recoverySpecDir, "intent.md"), "utf8");
       const oldSubspecBasename = basename(target.subspecPath);
       const recoveryIntent = `${originalIntent}\n\n## Recovery\n\nReplace \`${oldSubspecBasename}\` with two or more independently testable numbered sibling subspecs. Preserve completed neighbors and unchecked index order. Delete the old file and rewrite each unambiguous relative Markdown link to it. Do not change intent.md.\n`;
+      const preexistingSubspecs = listNumberedSubspecs(recoverySpecDir);
       try {
         const drafted = await runDraftPhase({
           onOutboundPrompt: logOutboundPrompt,
@@ -826,13 +828,16 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           idleOutputTimeoutMs: rawCfg.idleOutputTimeoutMs,
         });
         if (drafted.result.kind !== "ok") throw new Error("recovery: drafting replacements failed");
+        const validation = validateDraftOutput(recoveryWorktree, specDirBasename, recoveryIntent, recoverySpecDir);
         writeFileSync(join(recoverySpecDir, "intent.md"), originalIntent, "utf8");
-        const validation = validateDraftOutput(recoveryWorktree, specDirBasename, originalIntent, recoverySpecDir);
         if (!validation.valid) throw new Error(`recovery: spec validation failed: ${validation.error}`);
+        if (validation.blocker !== undefined) throw new Error(`recovery: drafting reported a blocker: ${validation.blocker}`);
+        stripNonContractIndexLines({ specDirPath: recoverySpecDir, stderr: opts.io.stderr });
         const replacements = validateRecoveryReconciliation({
           specDir: recoverySpecDir,
           oldSubspecBasename,
           indexPath: recoveryIndex,
+          preexistingSubspecs,
         });
         commitPlanDraft({
           worktreePath: recoveryWorktree,

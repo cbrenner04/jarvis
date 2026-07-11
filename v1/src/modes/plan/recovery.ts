@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 import { parseSpec } from "../../../../shared/spec-parser.ts";
+import { receiptPathForWorktree } from "../patch/timeout-checkpoint.ts";
 
 type TimeoutRecord = {
   record_role?: unknown;
@@ -81,10 +82,15 @@ export function assertRecoveryCheckpointSafe(projectRoot: string, specDirBasenam
   if (existsSync(patchWorktree)) {
     throw new Error("recovery: patch worktree exists; resume or abandon it first");
   }
-  const receipt = join(projectRoot, ".git", "jarvis", "iteration-timeout-checkpoint.json");
+  const receipt = receiptPathForWorktree(projectRoot, specDirBasename);
   if (existsSync(receipt)) {
     throw new Error("recovery: timeout checkpoint receipt exists; resume or abandon patch work first");
   }
+}
+
+/** Numbered subspec siblings present before drafting, for verifying genuinely new replacements. */
+export function listNumberedSubspecs(specDir: string): string[] {
+  return readdirSync(specDir).filter((name) => /^\d\d-[a-z0-9][a-z0-9-]*\.md$/.test(name));
 }
 
 /** Ensure the draft replaced, rather than merely supplemented, the selected task. */
@@ -92,6 +98,7 @@ export function validateRecoveryReconciliation(args: {
   specDir: string;
   oldSubspecBasename: string;
   indexPath: string;
+  preexistingSubspecs: string[];
 }): number {
   if (existsSync(join(args.specDir, args.oldSubspecBasename))) {
     throw new Error("recovery: selected subspec was not removed");
@@ -99,9 +106,8 @@ export function validateRecoveryReconciliation(args: {
   const index = readFileSync(args.indexPath, "utf8");
   const oldLink = `](${`./${args.oldSubspecBasename}`})`;
   if (index.includes(oldLink)) throw new Error("recovery: index retains selected subspec link");
-  const replacements = readdirSync(args.specDir)
-    .filter((name) => /^\d\d-[a-z0-9][a-z0-9-]*\.md$/.test(name))
-    .filter((name) => name !== args.oldSubspecBasename);
+  const preexisting = new Set(args.preexistingSubspecs.filter((name) => name !== args.oldSubspecBasename));
+  const replacements = listNumberedSubspecs(args.specDir).filter((name) => !preexisting.has(name));
   if (replacements.length < 2) throw new Error("recovery: recovery must create at least two replacement subspecs");
   for (const name of readdirSync(args.specDir).filter((entry) => entry.endsWith(".md"))) {
     const content = readFileSync(join(args.specDir, name), "utf8");

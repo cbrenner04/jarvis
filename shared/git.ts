@@ -1,4 +1,19 @@
+import { execFileSync } from "node:child_process";
 import { realSubprocessRunner, type SubprocessRunner } from "./subprocess.ts";
+
+/** Resolve GitHub's default branch, falling back to `main` when unavailable. */
+export function getBaseBranch(cwd?: string): string {
+  try {
+    const branch = execFileSync("gh", ["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"], {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return branch.length > 0 ? branch : "main";
+  } catch {
+    return "main";
+  }
+}
 
 /** True when `branchName` resolves to a local ref in `projectRoot`. */
 export function branchExistsLocal(

@@ -427,7 +427,11 @@ async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps
     }
     if (name === "intent") {
       const intentStep = built.steps[0];
-      if (intentStep?.behavior === "write" && intentStep.intentOutput !== undefined && intentStep.publishCompletion === false) {
+      if (
+        intentStep?.behavior === "write" &&
+        intentStep.intentOutput !== undefined &&
+        intentStep.publishCompletion === false
+      ) {
         io.stderr(`intent paths: ${intentStep.intentOutput.durableDir}\n`);
       }
     }

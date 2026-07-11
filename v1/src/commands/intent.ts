@@ -526,7 +526,7 @@ function gateIntentStage(
   return validateIntentFilenames(files);
 }
 
-function validateIntentStage(
+function _validateIntentStage(
   stagingDir: string,
   modifiedPaths: string[],
   warn: (message: string) => void,
@@ -546,7 +546,7 @@ function validateIntentStage(
   return validateIntentStageContent(gating.intents);
 }
 
-function validateExternalIntentStageStructure(stagingDir: string): { ok: true } | { ok: false; error: string } {
+function _validateExternalIntentStageStructure(stagingDir: string): { ok: true } | { ok: false; error: string } {
   try {
     const dirEntries = readdirSync(stagingDir, { withFileTypes: true });
     for (const entry of dirEntries) {

@@ -17,7 +17,11 @@ describe("buildIntentWorkflowSteps", () => {
     const seed = join(root, "Improve API.md");
     writeFileSync(seed, "seed", "utf8");
     const common = { cwd: root, targetDir: "specs" };
-    const deps = { resolveProjectMatch: () => ({ ...match, root }), loadWorkflowSteps: load, resolveBaseBranch: () => "trunk" };
+    const deps = {
+      resolveProjectMatch: () => ({ ...match, root }),
+      loadWorkflowSteps: load,
+      resolveBaseBranch: () => "trunk",
+    };
 
     const file = await buildIntentWorkflowSteps({ ...common, seed }, deps);
     const inline = await buildIntentWorkflowSteps({ ...common, seedText: "Improve API" }, deps);
@@ -46,14 +50,19 @@ describe("buildIntentWorkflowSteps", () => {
     };
     expect((await buildIntentWorkflowSteps({ cwd: "/repo", seedText: "x", seed: "x" }, deps)).ok).toBe(false);
     expect((await buildIntentWorkflowSteps({ cwd: "/repo", seedText: "head" }, deps)).ok).toBe(false);
-    expect((await buildIntentWorkflowSteps({ cwd: "/repo", seedText: "x", targetDir: "../spec" }, deps)).ok).toBe(false);
+    expect((await buildIntentWorkflowSteps({ cwd: "/repo", seedText: "x", targetDir: "../spec" }, deps)).ok).toBe(
+      false,
+    );
     expect(loaded).toBe(false);
   });
 
   test("uses external ready-intents storage when project git is disabled", async () => {
     const root = mkdtempSync(join(tmpdir(), "intent-builder-"));
     const config = join(root, "config.json");
-    writeFileSync(config, JSON.stringify({ projects: { demo: { root, git: false } }, modes: { plan: { targetDir: "configured" } } }));
+    writeFileSync(
+      config,
+      JSON.stringify({ projects: { demo: { root, git: false } }, modes: { plan: { targetDir: "configured" } } }),
+    );
     const result = await buildIntentWorkflowSteps(
       { cwd: root, seedText: "one thing", targetDir: "override", configPath: config, jarvisRoot: "/jarvis" },
       { loadWorkflowSteps: load },

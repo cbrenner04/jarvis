@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative } from "node:path";
-import { findProjectMatch, type ProjectRegistryEntry, type ProjectMatch } from "../../../shared/project-registry.ts";
-import { getBaseBranch } from "../../../v1/src/gh.ts";
+import { getBaseBranch } from "../../../shared/git.ts";
+import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import { loadWorkflowSteps as realLoadWorkflowSteps, type WorkflowSourceStep } from "./workflow-loader.ts";
 import { type AnyWorkflowStep, resolveWorkflowPreset } from "./workflow-runner.ts";
@@ -22,7 +22,7 @@ export type IntentWorkflowInput = {
   jarvisRoot?: string;
 };
 
-type ProjectConfig = ProjectRegistryEntry & {
+type ProjectConfig = ProjectMatch & {
   git?: boolean;
   plan?: { commit?: boolean; targetDir?: string };
 };
@@ -56,7 +56,11 @@ export type IntentWorkflowResult =
   | { ok: false; error: string };
 
 function slugify(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
 }
 
 function inside(parent: string, child: string): boolean {
@@ -79,9 +83,13 @@ function seedFile(path: string): boolean {
 function projectConfig(configPath: string | undefined, project: ProjectMatch): ProjectConfig {
   const document = readMachineConfigDocument(configPath);
   const raw = document?.projects;
-  const entry = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>)[project.key] : undefined;
+  const entry =
+    raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>)[project.key] : undefined;
   const value = entry && typeof entry === "object" && !Array.isArray(entry) ? (entry as Record<string, unknown>) : {};
-  const plan = value.plan && typeof value.plan === "object" && !Array.isArray(value.plan) ? value.plan as Record<string, unknown> : {};
+  const plan =
+    value.plan && typeof value.plan === "object" && !Array.isArray(value.plan)
+      ? (value.plan as Record<string, unknown>)
+      : {};
   return {
     ...project,
     ...(typeof value.git === "boolean" ? { git: value.git } : {}),
@@ -94,12 +102,86 @@ function projectConfig(configPath: string | undefined, project: ProjectMatch): P
 
 function projectRegistry(configPath: string | undefined): Record<string, ProjectRegistryEntry> {
   const projects = readMachineConfigDocument(configPath)?.projects;
-  return projects && typeof projects === "object" && !Array.isArray(projects) ? projects as Record<string, ProjectRegistryEntry> : {};
+  return projects && typeof projects === "object" && !Array.isArray(projects)
+    ? (projects as Record<string, ProjectRegistryEntry>)
+    : {};
 }
 
 function projectSafeId(project: string): string {
   const safe = project.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
   return safe.length > 0 ? safe : "project";
+}
+
+type SeedDetails = { label: string; content: string; slug: string };
+
+function resolveFileSeed(
+  input: IntentWorkflowInput,
+  project: ProjectMatch,
+  seed: string,
+  readSeed: (path: string) => string,
+): SeedDetails | { error: string } {
+  const seedPath = isAbsolute(seed) ? seed : join(input.cwd, seed);
+  if (!seedFile(seedPath)) return { error: `intent: seed is not a file: ${seed}` };
+  let canonicalSeed: string;
+  let canonicalRoot: string;
+  try {
+    canonicalSeed = realpathSync(seedPath);
+    canonicalRoot = realpathSync(project.root);
+  } catch (error) {
+    return { error: `intent: cannot resolve seed path: ${error instanceof Error ? error.message : String(error)}` };
+  }
+  if (!inside(canonicalRoot, canonicalSeed)) {
+    return { error: `intent: seed escapes registered project after symlink resolution: ${seed}` };
+  }
+  return {
+    label: relative(canonicalRoot, canonicalSeed),
+    content: readSeed(canonicalSeed),
+    slug: slugify(basename(canonicalSeed).replace(/\.[^.]*$/u, "")),
+  };
+}
+
+function resolveSeed(
+  input: IntentWorkflowInput,
+  project: ProjectMatch,
+  readSeed: (path: string) => string,
+): SeedDetails | { error: string } {
+  if (input.seed !== undefined) return resolveFileSeed(input, project, input.seed, readSeed);
+  const content = input.seedText ?? "";
+  return { label: "inline seed", content, slug: slugify(content.split(/\s+/u).slice(0, 6).join(" ")) };
+}
+
+function resolveOutput(
+  input: IntentWorkflowInput,
+  project: ProjectConfig,
+  slug: string,
+):
+  | {
+      targetDir: string;
+      publish: boolean;
+      worktree: string;
+      localPath: string;
+      durableDir: string;
+    }
+  | { error: string } {
+  const global = readMachineConfigDocument(input.configPath) ?? {};
+  const modes = global.modes && typeof global.modes === "object" ? (global.modes as Record<string, unknown>) : {};
+  const plan = modes.plan && typeof modes.plan === "object" ? (modes.plan as Record<string, unknown>) : {};
+  const targetDir =
+    input.targetDir ??
+    project.plan?.targetDir ??
+    (typeof plan.targetDir === "string" ? plan.targetDir : undefined) ??
+    "spec";
+  if (!validTargetDir(targetDir)) return { error: "intent: configured targetDir is invalid" };
+  const publish =
+    project.git !== false && (project.plan?.commit ?? (typeof plan.commit === "boolean" ? plan.commit : true));
+  const jarvisRoot = input.jarvisRoot ?? join(homedir(), ".jarvis");
+  const branch = `intent/${slug}`;
+  const worktree = join(jarvisRoot, "worktrees", project.key, branch);
+  const localPath = join(jarvisRoot, "intent-work", projectSafeId(project.key), slug);
+  const durableDir = publish
+    ? join(targetDir, "ready-intents")
+    : join(jarvisRoot, "specs", projectSafeId(project.key), "ready-intents");
+  return { targetDir, publish, worktree, localPath, durableDir };
 }
 
 /** Build the unregistered one-step intent workflow; all failures are pre-daemon results. */
@@ -114,39 +196,14 @@ export async function buildIntentWorkflowSteps(
     return { ok: false, error: "intent: --target-dir must be a relative non-traversing path" };
   }
 
-  const resolveProject = deps.resolveProjectMatch ?? ((path: string) => findProjectMatch(path, projectRegistry(input.configPath)));
+  const resolveProject =
+    deps.resolveProjectMatch ?? ((path: string) => findProjectMatch(path, projectRegistry(input.configPath)));
   const project = resolveProject(input.cwd);
   if (project === undefined) return { ok: false, error: `intent: no registered project matches ${input.cwd}` };
   const config = projectConfig(input.configPath, project);
-  const global = readMachineConfigDocument(input.configPath) ?? {};
-  const modes = global.modes && typeof global.modes === "object" ? global.modes as Record<string, unknown> : {};
-  const plan = modes.plan && typeof modes.plan === "object" ? modes.plan as Record<string, unknown> : {};
-
-  let seedLabel: string;
-  let seedContent: string;
-  let slug: string;
-  if (input.seed !== undefined) {
-    const seedPath = isAbsolute(input.seed) ? input.seed : join(input.cwd, input.seed);
-    if (!seedFile(seedPath)) return { ok: false, error: `intent: seed is not a file: ${input.seed}` };
-    let canonicalSeed: string;
-    let canonicalRoot: string;
-    try {
-      canonicalSeed = realpathSync(seedPath);
-      canonicalRoot = realpathSync(project.root);
-    } catch (error) {
-      return { ok: false, error: `intent: cannot resolve seed path: ${error instanceof Error ? error.message : String(error)}` };
-    }
-    if (!inside(canonicalRoot, canonicalSeed)) {
-      return { ok: false, error: `intent: seed escapes registered project after symlink resolution: ${input.seed}` };
-    }
-    seedLabel = relative(canonicalRoot, canonicalSeed);
-    seedContent = (deps.readSeed ?? ((path: string) => readFileSync(path, "utf8")))(canonicalSeed);
-    slug = slugify(basename(canonicalSeed).replace(/\.[^.]*$/u, ""));
-  } else {
-    seedLabel = "inline seed";
-    seedContent = input.seedText ?? "";
-    slug = slugify(seedContent.split(/\s+/u).slice(0, 6).join(" "));
-  }
+  const seed = resolveSeed(input, project, deps.readSeed ?? ((path: string) => readFileSync(path, "utf8")));
+  if ("error" in seed) return { ok: false, error: seed.error };
+  const { label: seedLabel, content: seedContent, slug } = seed;
   if (slug.length === 0) return { ok: false, error: "intent: seed does not produce a slug" };
   if (RESERVED_SLUGS.has(slug)) return { ok: false, error: `intent: reserved slug: ${slug}` };
 
@@ -164,18 +221,15 @@ export async function buildIntentWorkflowSteps(
     collision !== undefined &&
     (collision.recordedInvocationId === identity.invocationId || collision.resumable === true);
   if (collision !== undefined && !sameInvocation) {
-    return { ok: false, error: `intent: ${collision.message}; rerun with a new seed or resume the recorded invocation` };
+    return {
+      ok: false,
+      error: `intent: ${collision.message}; rerun with a new seed or resume the recorded invocation`,
+    };
   }
 
-  const targetDir = input.targetDir ?? config.plan?.targetDir ?? (typeof plan.targetDir === "string" ? plan.targetDir : undefined) ?? "spec";
-  if (!validTargetDir(targetDir)) return { ok: false, error: "intent: configured targetDir is invalid" };
-  const publish = config.git !== false && (config.plan?.commit ?? (typeof plan.commit === "boolean" ? plan.commit : true));
-  const jarvisRoot = input.jarvisRoot ?? join(homedir(), ".jarvis");
-  const worktree = join(jarvisRoot, "worktrees", project.key, branch);
-  const localPath = join(jarvisRoot, "intent-work", projectSafeId(project.key), slug);
-  const durableDir = publish
-    ? join(targetDir, "ready-intents")
-    : join(jarvisRoot, "specs", projectSafeId(project.key), "ready-intents");
+  const output = resolveOutput(input, config, slug);
+  if ("error" in output) return { ok: false, error: output.error };
+  const { publish, worktree, localPath, durableDir } = output;
   const base = publish ? await (deps.resolveBaseBranch ?? getBaseBranch)(project.root) : "none";
   const sourceStep: WorkflowSourceStep = {
     behavior: "write",

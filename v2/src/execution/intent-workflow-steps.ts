@@ -337,9 +337,13 @@ export async function buildReviewedIntentWorkflowSteps(
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
 
-    // Create review step with promptId as placeholder
-    // Runtime enforcement will render prompts and validate verdicts
-    const reviewStep: ReviewWorkflowStep = {
+    // Create review step with deferred intent output for landing after review completion.
+    const writeStep = splitResult.steps[0];
+    if (!writeStep || writeStep.behavior !== "write") {
+      return { ok: false, error: "intent: split step is not a write step" };
+    }
+
+    const reviewStepBase: Omit<ReviewWorkflowStep, "deferredIntentOutput"> = {
       behavior: "review",
       stepId: "review",
       project,
@@ -355,6 +359,18 @@ export async function buildReviewedIntentWorkflowSteps(
       agentModelConfig: modelConfig,
       ...(deps.createBinding !== undefined ? { createBinding: deps.createBinding } : {}),
     };
+
+    const reviewStep: ReviewWorkflowStep =
+      writeStep.intentOutput !== undefined
+        ? {
+            ...reviewStepBase,
+            deferredIntentOutput: {
+              config: writeStep.intentOutput,
+              stagingDir: join(worktree, STAGE_DIR),
+              invocationId: splitResult.identity.invocationId,
+            },
+          }
+        : reviewStepBase;
 
     return { ok: true, steps: [...splitResult.steps, reviewStep], identity: splitResult.identity };
   } catch (error) {

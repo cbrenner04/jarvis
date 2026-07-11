@@ -23,6 +23,11 @@ import { type IntentOutputConfig, landIntentWorkflowOutput } from "./intent-outp
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import { executeReviewCycle, type ReviewCycleInput, type ReviewCycleRole } from "./review-cycle.ts";
 import {
+  executeReviewCycleEnforced,
+  cleanupVerdictFile,
+  excludeVerdictFromStaging,
+} from "./review-intent-enforcement.ts";
+import {
   executeReviewDebate,
   type ReviewDebateInput,
   type ReviewDebateRole,
@@ -121,6 +126,8 @@ export type ReviewWorkflowStep = Omit<ReviewCycleInput, "bindings" | "onRoleStar
   agents: ReviewStepAgents;
   agentModelConfig: AgentModelConfig;
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
+  /** When configured, landing is deferred until after successful review. */
+  deferredIntentOutput?: { config: IntentOutputConfig; stagingDir: string; invocationId: string };
 };
 
 /** Live/terminal progress for a review step's daemon-visible row, tracked in-memory only. */
@@ -377,7 +384,12 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     const publicationAgent = lastResult.kind === "complete" ? (completionAgent ?? "") : undefined;
     let publicationSpecPath: string | undefined;
     const completionStep = [...args.steps].reverse().find(isWriteStep);
-    if (publicationAgent !== undefined && completionStep?.intentOutput !== undefined) {
+    const lastStep = args.steps[args.steps.length - 1];
+    const isReviewLastStep = lastStep?.behavior === "review";
+
+    // For reviewed intent workflows, landing is deferred until after review completes.
+    // Skip landing if the last step is a review step; it will be handled after review.
+    if (publicationAgent !== undefined && completionStep?.intentOutput !== undefined && !isReviewLastStep) {
       const worktreePath = getExternalWorktreePath(completionStep.worktree);
       try {
         publicationSpecPath = landIntentWorkflowOutput({
@@ -891,19 +903,33 @@ function gitOutput(worktreePath: string, args: readonly string[]): string {
   }
 }
 
-type ReviewDebateStepOutcome = {
-  kind: Extract<WriteLoopOutcomeKind, "complete" | "invocation_failure">;
-  runId: string;
-  iterationsConsumed: number;
-  resumable: false;
-};
+type ReviewDebateStepOutcome =
+  | {
+      kind: "complete";
+      runId: string;
+      iterationsConsumed: number;
+      resumable: false;
+    }
+  | {
+      kind: "invocation_failure";
+      runId: string;
+      iterationsConsumed: number;
+      resumable: false;
+    };
 
-type ReviewStepOutcome = {
-  kind: Extract<WriteLoopOutcomeKind, "complete" | "invocation_failure">;
-  runId: string;
-  iterationsConsumed: number;
-  resumable: false;
-};
+type ReviewStepOutcome =
+  | {
+      kind: "complete";
+      runId: string;
+      iterationsConsumed: number;
+      resumable: false;
+    }
+  | {
+      kind: "invocation_failure";
+      runId: string;
+      iterationsConsumed: number;
+      resumable: boolean;
+    };
 
 /**
  * Resolve each of the step's four per-role `agents` orders to that role's bindings and run
@@ -978,7 +1004,8 @@ async function runReviewStep(
   telemetry: WorkflowTelemetryContext | undefined,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
 ): Promise<ReviewStepOutcome> {
-  const { stepId, project, branch, agents, agentModelConfig, createBinding, ...reviewInput } = step;
+  const { stepId, project, branch, agents, agentModelConfig, createBinding, deferredIntentOutput, ...reviewInput } =
+    step;
   const resolveBindings = createBinding ?? createResolvedAgentBinding;
   const bindings = {
     critic: resolveInvocationBindings("critic", agents.critic, agentModelConfig, resolveBindings),
@@ -987,7 +1014,8 @@ async function runReviewStep(
   const runId = crypto.randomUUID();
   const attemptId = crypto.randomUUID();
   onStepRunCreated?.(stepIndex, runId);
-  const result = await executeReviewCycle({
+
+  const reviewCycleInput: ReviewCycleInput = {
     ...reviewInput,
     bindings,
     ...(telemetry !== undefined
@@ -1009,7 +1037,59 @@ async function runReviewStep(
     ...(onProgress !== undefined
       ? { onRoleStart: (role: ReviewCycleRole) => onProgress(invocationId, stepId, { status: "in_progress", role }) }
       : {}),
-  });
+  };
+
+  // Apply enforcement if this is a reviewed intent workflow.
+  const enforcementResult =
+    deferredIntentOutput !== undefined
+      ? await executeReviewCycleEnforced({
+          input: reviewCycleInput,
+          invocationId: deferredIntentOutput.invocationId,
+          stagingDir: deferredIntentOutput.stagingDir,
+          cwd: step.cwd,
+          verdictPath: reviewInput.verdictPath,
+        })
+      : {
+          result: await executeReviewCycle(reviewCycleInput),
+          verdictState: { kind: "missing" } as const,
+          boundaryViolation: undefined as string | undefined,
+        };
+
+  const { result, boundaryViolation: boundaryViolationMsg } = enforcementResult;
+
+  // Handle boundary violations (critic/actuator made unauthorized changes).
+  if (boundaryViolationMsg !== undefined) {
+    return {
+      kind: "invocation_failure",
+      runId,
+      iterationsConsumed: result.cycles.length,
+      resumable: true,
+    };
+  }
+
+  // After successful review, handle final validation and landing for intent workflows.
+  let landingError: string | undefined;
+  if (result.kind === "complete" && deferredIntentOutput !== undefined) {
+    const worktreePath = step.cwd;
+    try {
+      // Exclude the verdict file from staging before validation/landing.
+      excludeVerdictFromStaging(deferredIntentOutput.stagingDir, reviewInput.verdictPath);
+
+      // Run final validation and landing.
+      landIntentWorkflowOutput({
+        worktreePath,
+        baseRef: "HEAD", // Review doesn't change baseRef; use HEAD.
+        output: deferredIntentOutput.config,
+        invocationId: deferredIntentOutput.invocationId,
+      });
+
+      // Clean up the verdict file after successful landing.
+      cleanupVerdictFile(reviewInput.verdictPath);
+    } catch (error) {
+      landingError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
   const lastCycle = result.cycles[result.cycles.length - 1];
   const terminalRole: ReviewCycleRole =
     lastCycle?.kind === "role_failed"
@@ -1018,14 +1098,24 @@ async function runReviewStep(
         ? "actuator"
         : "critic";
   onProgress?.(invocationId, stepId, {
-    status: result.kind === "complete" ? "completed" : "stopped",
+    status: result.kind === "complete" && landingError === undefined ? "completed" : "stopped",
     role: terminalRole,
     terminalOutcome: result.kind,
   });
-  return {
-    kind: result.kind,
-    runId,
-    iterationsConsumed: result.cycles.length,
-    resumable: false,
-  };
+
+  const isFailure = landingError !== undefined || result.kind === "invocation_failure";
+  const outcome: ReviewStepOutcome = isFailure
+    ? {
+        kind: "invocation_failure",
+        runId,
+        iterationsConsumed: result.cycles.length,
+        resumable: landingError !== undefined,
+      }
+    : {
+        kind: "complete",
+        runId,
+        iterationsConsumed: result.cycles.length,
+        resumable: false,
+      };
+  return outcome;
 }

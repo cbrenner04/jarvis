@@ -59,6 +59,41 @@ export function loadMachineConfig(configPath: string = MACHINE_CONFIG_PATH): str
   return parsed.agents as string[];
 }
 
+export function readProjectImplementReviewPasses(
+  projectKey: string,
+  configPath: string = MACHINE_CONFIG_PATH,
+): { ok: true; reviewPasses: number } | { ok: false; error: string } {
+  const parsed = readMachineConfigDocument(configPath);
+  const projects = parsed?.projects;
+  if (typeof projects !== "object" || projects === null || Array.isArray(projects)) {
+    return { ok: true, reviewPasses: 0 };
+  }
+
+  const project = (projects as Record<string, unknown>)[projectKey];
+  if (typeof project !== "object" || project === null || Array.isArray(project)) {
+    return { ok: true, reviewPasses: 0 };
+  }
+
+  const implement = (project as Record<string, unknown>).implement;
+  if (implement === undefined) {
+    return { ok: true, reviewPasses: 0 };
+  }
+
+  const reviewPasses = (implement as Record<string, unknown>).reviewPasses;
+  if (reviewPasses === undefined) {
+    return { ok: true, reviewPasses: 0 };
+  }
+
+  if (typeof reviewPasses !== "number" || !Number.isInteger(reviewPasses) || reviewPasses < 0) {
+    return {
+      ok: false,
+      error: `projects.${projectKey}.implement.reviewPasses must be a non-negative integer`,
+    };
+  }
+
+  return { ok: true, reviewPasses };
+}
+
 export function readProjectRegistry(configPath: string = MACHINE_CONFIG_PATH): Record<string, ProjectRegistryEntry> {
   const parsed = readMachineConfigDocument(configPath);
   const projects = parsed?.projects;

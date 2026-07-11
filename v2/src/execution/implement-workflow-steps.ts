@@ -15,6 +15,7 @@ export type BuildImplementWorkflowStepsInput = {
   artifactPath?: string;
   projectRoot?: string;
   projectName?: string;
+  reviewPasses: number;
 };
 
 /** Test-only seams for project resolution and machine-config loading. */

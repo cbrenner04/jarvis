@@ -83,6 +83,20 @@ Use `work` when this machine should not load Claude bindings
 (`config/machines/work.json`). Profile contracts:
 [`agent-model-config.md`](./agent-model-config.md#storage-split).
 
+### Project registry
+
+Optional `projects` entries map a registry key to `{ "root": "<absolute-path>", "origin": "<url>"? }`.
+Longest matching root wins when resolving a spec path to a project.
+
+Per-project implement defaults:
+
+| Key | Type | Default | Validation |
+| --- | --- | --- | --- |
+| `projects.<key>.implement.reviewPasses` | non-negative integer | `0` when absent | Rejected at implement launch when present but fractional, negative, or non-integer |
+
+An explicit `jarvis run workflow implement --review-passes <n>` overrides the
+registered-project value.
+
 ## Daemon
 
 Socket and PID paths (production defaults): `~/.jarvis/daemon.sock`,

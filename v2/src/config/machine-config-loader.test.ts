@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   loadMachineConfig,
   readMachineConfigDocument,
+  readProjectImplementReviewPasses,
   resolveMachineProfile,
   validateMachineConfigAgents,
 } from "./machine-config-loader.ts";
@@ -182,5 +183,45 @@ describe("resolveMachineProfile", () => {
   test("open-string machineProfile naming a non-'home' profile is accepted", () => {
     const configPath = writeConfig({ machineProfile: "work" });
     expect(resolveMachineProfile(configPath)).toBe("work");
+  });
+});
+
+describe("readProjectImplementReviewPasses", () => {
+  test("returns 0 when projects or implement.reviewPasses is absent", () => {
+    expect(readProjectImplementReviewPasses("demo", writeConfig({ agents: ["claude"] }))).toEqual({
+      ok: true,
+      reviewPasses: 0,
+    });
+    expect(
+      readProjectImplementReviewPasses(
+        "demo",
+        writeConfig({ projects: { demo: { root: "/tmp/repo" } } }),
+      ),
+    ).toEqual({ ok: true, reviewPasses: 0 });
+    expect(
+      readProjectImplementReviewPasses(
+        "demo",
+        writeConfig({ projects: { demo: { root: "/tmp/repo", implement: {} } } }),
+      ),
+    ).toEqual({ ok: true, reviewPasses: 0 });
+  });
+
+  test("returns a valid configured reviewPasses", () => {
+    const configPath = writeConfig({
+      projects: { demo: { root: "/tmp/repo", implement: { reviewPasses: 2 } } },
+    });
+    expect(readProjectImplementReviewPasses("demo", configPath)).toEqual({ ok: true, reviewPasses: 2 });
+  });
+
+  test("rejects fractional, negative, and malformed reviewPasses", () => {
+    for (const reviewPasses of [1.5, -1, "2"]) {
+      const configPath = writeConfig({
+        projects: { demo: { root: "/tmp/repo", implement: { reviewPasses } } },
+      });
+      expect(readProjectImplementReviewPasses("demo", configPath)).toEqual({
+        ok: false,
+        error: "projects.demo.implement.reviewPasses must be a non-negative integer",
+      });
+    }
   });
 });

@@ -54,6 +54,7 @@ const INPUT = {
   branchName: "implement-run",
   baseRef: "main",
   specPath: "index.md",
+  reviewPasses: 0,
 };
 
 const INPUT_WITH_ARTIFACT = {
@@ -62,6 +63,7 @@ const INPUT_WITH_ARTIFACT = {
   baseRef: "main",
   specPath: "spec.md",
   artifactPath: "artifact.md",
+  reviewPasses: 0,
 };
 
 describe("buildImplementWorkflowSteps", () => {

@@ -212,9 +212,7 @@ export function resolveWorkflowPreset(
     throw new Error(`Unknown workflow preset: "${name}"`);
   }
 
-  const isValid = Array.isArray(expected)
-    ? expected.includes(steps.length)
-    : steps.length === expected;
+  const isValid = Array.isArray(expected) ? expected.includes(steps.length) : steps.length === expected;
 
   if (!isValid) {
     const msg = Array.isArray(expected)

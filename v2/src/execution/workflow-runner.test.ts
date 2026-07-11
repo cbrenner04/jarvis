@@ -216,7 +216,7 @@ describe("resolveWorkflowPreset", () => {
     expect(() => resolveWorkflowPreset("write-write", [createStep({ stepId: "step-1", role: "implement" })])).toThrow(
       'Workflow preset "write-write" requires 2 steps, received 1',
     );
-    
+
     expect(() =>
       resolveWorkflowPreset("write-write", [
         createStep({ stepId: "step-1", role: "implement" }),
@@ -227,9 +227,7 @@ describe("resolveWorkflowPreset", () => {
   });
 
   test("retains exact cardinality for intent preset", () => {
-    expect(() => resolveWorkflowPreset("intent", [])).toThrow(
-      'Workflow preset "intent" requires 1 steps, received 0',
-    );
+    expect(() => resolveWorkflowPreset("intent", [])).toThrow('Workflow preset "intent" requires 1 steps, received 0');
 
     expect(() =>
       resolveWorkflowPreset("intent", [
@@ -240,9 +238,7 @@ describe("resolveWorkflowPreset", () => {
   });
 
   test("retains exact cardinality for plan preset", () => {
-    expect(() => resolveWorkflowPreset("plan", [])).toThrow(
-      'Workflow preset "plan" requires 1 steps, received 0',
-    );
+    expect(() => resolveWorkflowPreset("plan", [])).toThrow('Workflow preset "plan" requires 1 steps, received 0');
 
     expect(() =>
       resolveWorkflowPreset("plan", [

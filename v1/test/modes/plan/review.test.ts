@@ -19,7 +19,6 @@ import type { SubprocessRunner } from "../../../../shared/subprocess.ts";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
 import type { Config } from "../../../src/config.ts";
 import type { PlanCommitGitOps } from "../../../src/modes/plan/commits.ts";
-import { snapshotSpecDirFiles } from "../../../src/modes/plan/spec-dir.ts";
 import {
   hasWorkingTreeChanges,
   runPlanReviewPhase,
@@ -27,6 +26,7 @@ import {
   validateReviewOutput,
   validateSplitIntegrity,
 } from "../../../src/modes/plan/review.ts";
+import { snapshotSpecDirFiles } from "../../../src/modes/plan/spec-dir.ts";
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 const CODEX_ENTRY = { agent: "codex" as const, model: "gpt-5.3-codex" };
@@ -1290,10 +1290,7 @@ describe("validateSplitIntegrity", () => {
 
       // Remove old and add new subspec but lose a task
       rmSync(join(specDir, "00-one.md"));
-      writeFileSync(
-        join(specDir, "00-one-a.md"),
-        "# One A\n\n## Acceptance criteria\n\n- [ ] different\n",
-      );
+      writeFileSync(join(specDir, "00-one-a.md"), "# One A\n\n## Acceptance criteria\n\n- [ ] different\n");
       writeFileSync(join(specDir, "index.md"), "# Draft\n\n- [ ] [00](./00-one-a.md)\n");
 
       const result = validateSplitIntegrity(before, specDir);

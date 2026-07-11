@@ -13,7 +13,12 @@ import {
 } from "../config/machine-config-loader.ts";
 import { loadMachineProfileModels, type MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
 import { loadWorkflowSteps as realLoadWorkflowSteps, type WriteWorkflowSourceStep } from "./workflow-loader.ts";
-import { type AnyWorkflowStep, type ReviewWorkflowStep, resolveWorkflowPreset, type WriteWorkflowStep } from "./workflow-runner.ts";
+import {
+  type AnyWorkflowStep,
+  type ReviewWorkflowStep,
+  resolveWorkflowPreset,
+  type WriteWorkflowStep,
+} from "./workflow-runner.ts";
 import { DEFAULT_WRITE_AGENTS, DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 const STAGE_DIR = ".jarvis-intent-stage";

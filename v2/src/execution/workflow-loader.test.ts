@@ -66,9 +66,7 @@ function sourceStep(overrides: Partial<WriteWorkflowSourceStep> = {}): WriteWork
   };
 }
 
-function debateSourceStep(
-  overrides: Partial<ReviewDebateWorkflowSourceStep> = {},
-): ReviewDebateWorkflowSourceStep {
+function debateSourceStep(overrides: Partial<ReviewDebateWorkflowSourceStep> = {}): ReviewDebateWorkflowSourceStep {
   return {
     behavior: "review-debate",
     stepId: "debate-1",

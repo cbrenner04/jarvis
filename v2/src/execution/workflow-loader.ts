@@ -1,11 +1,7 @@
 import { type AgentModelConfig, type LoadError, resolveExecutableRole } from "../config/agent-model-config.ts";
 import { loadMachineConfig, resolveMachineProfile } from "../config/machine-config-loader.ts";
 import { loadMachineProfileModels, type MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
-import {
-  validateWorkflowStepRoles,
-  type ReviewDebateWorkflowStep,
-  type WriteWorkflowStep,
-} from "./workflow-runner.ts";
+import { type ReviewDebateWorkflowStep, validateWorkflowStepRoles, type WriteWorkflowStep } from "./workflow-runner.ts";
 import { DEFAULT_WRITE_AGENTS } from "./write-loop-input.ts";
 
 function isLoadError(value: unknown): value is LoadError {

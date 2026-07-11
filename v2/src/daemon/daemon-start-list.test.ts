@@ -368,6 +368,33 @@ test("list returns workflow step snapshots for live, stopped, and completed work
   });
 });
 
+test("list projects a review behavior entry in authored order without a durable run", async () => {
+  const snapshot = workflowSnapshot(
+    "workflow-review-entry",
+    { stepId: "step-1", role: "plan" },
+    { stepId: "review-1", role: "", behavior: "review" },
+    { stepId: "step-3", role: "plan" },
+  );
+  const runId = stateStore.createRun({
+    project: "wf-project",
+    specRef: "main",
+    worktreePath: "/tmp/wf-project",
+    branch: "wf-review-entry",
+    specPath: "/tmp/spec.md",
+    stepId: "step-1",
+    workflowSnapshot: snapshot,
+  });
+
+  const runs = await listRunsDirect(handlers);
+  expect(runs?.find((row) => row.runId === runId)?.workflow).toEqual({
+    steps: [
+      { stepId: "step-1", role: "plan", status: "stopped", attemptCount: 0, terminalOutcome: "invocation_failure" },
+      { stepId: "review-1", role: "", status: "pending", attemptCount: 0 },
+      { stepId: "step-3", role: "plan", status: "pending", attemptCount: 0 },
+    ],
+  });
+});
+
 test("stoppedOutcomeForRun maps blocked with a contract_miss attempt to contract_miss", () => {
   expect(stoppedOutcomeForRun(runFixture("blocked", [{ outcomeKind: "contract_miss" }]))).toBe("contract_miss");
 });

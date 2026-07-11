@@ -1163,6 +1163,171 @@ describe("executeWorkflow review dispatch", () => {
       expect(store.listRuns()).toHaveLength(0);
     });
   });
+
+  test("falls through quota independently for critic and actuator orders", async () => {
+    const calls: string[] = [];
+    const step: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "review-fallback",
+      project: "demo",
+      branch: "review-fallback",
+      cwd: "/fake",
+      prompt: "inspect",
+      verdictPath: join(mkdtempSync(join(tmpdir(), "workflow-review-")), "verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude", "codex"], actuator: ["claude", "codex"] },
+      agentModelConfig: {
+        claude: {
+          critic: {
+            rungs: [
+              { adapterModel: "critic-1", priceKey: "critic-1" },
+              { adapterModel: "critic-2", priceKey: "critic-2" },
+            ],
+          },
+          actuator: { rungs: [{ adapterModel: "actuator-1", priceKey: "actuator-1" }] },
+        },
+        codex: {
+          critic: { rungs: [{ adapterModel: "critic-3", priceKey: "critic-3" }] },
+          actuator: { rungs: [{ adapterModel: "actuator-2", priceKey: "actuator-2" }] },
+        },
+      },
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async () => {
+          calls.push(adapterModel);
+          if (["critic-1", "critic-2", "actuator-1"].includes(adapterModel)) {
+            return { kind: "quota" as const, stderr: "quota" };
+          }
+          return { kind: "ok" as const, stdout: adapterModel.startsWith("critic") ? "fix" : "done", stderr: "" };
+        },
+      }),
+    };
+
+    const result = await executeWorkflow({ steps: [step] });
+
+    expect(result).toMatchObject({ kind: "complete", iterationsConsumed: 1, resumable: false });
+    expect(calls).toEqual(["critic-1", "critic-2", "critic-3", "actuator-1", "actuator-2"]);
+  });
+
+  test("accounts for failed critic cycles and suppresses later steps", async () => {
+    const step: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "review-failed",
+      project: "demo",
+      branch: "review-failed",
+      cwd: "/fake",
+      prompt: "inspect",
+      verdictPath: join(mkdtempSync(join(tmpdir(), "workflow-review-")), "verdict.md"),
+      maxCycles: 3,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: config,
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async () => ({ kind: "error" as const, exitCode: 1, stderr: "failed" }),
+      }),
+    };
+    const later = createStep({
+      stepId: "later",
+      role: "plan",
+      branchName: "review-failed",
+      agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "plan", priceKey: "plan" }] } } },
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step, later], stateStore: store });
+
+      expect(result).toMatchObject({ kind: "invocation_failure", stepIndex: 0, iterationsConsumed: 1 });
+      expect(store.findRunByProjectBranch({ project: "demo", branch: "review-failed", stepId: "later" })).toBeNull();
+    });
+  });
+
+  test("fires the synthesized run callback before role execution and does not reuse review-only identity", async () => {
+    const step = (branch: string, calls: string[]): ReviewWorkflowStep => ({
+      behavior: "review",
+      stepId: "review-only",
+      project: "demo",
+      branch,
+      cwd: "/fake",
+      prompt: "inspect",
+      verdictPath: join(mkdtempSync(join(tmpdir(), "workflow-review-")), "verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: config,
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async ({ prompt }) => {
+          calls.push(`${agentId}:${prompt}`);
+          return { kind: "ok" as const, stdout: agentId === "claude" ? "" : "done", stderr: "" };
+        },
+      }),
+    });
+
+    const runIds: string[] = [];
+    const calls: string[] = [];
+    const first = await executeWorkflow({
+      steps: [step("review-only", calls)],
+      onStepRunCreated: (_index, runId) => {
+        runIds.push(runId);
+        expect(calls).toHaveLength(0);
+      },
+    });
+    const second = await executeWorkflow({ steps: [step("review-only", calls)] });
+
+    expect(first.kind).toBe("complete");
+    expect(first.resumable).toBe(false);
+    expect(second.runId).not.toBe(first.runId);
+    expect(runIds[0]).toBe(first.runId);
+    expect(calls).toEqual(["claude:inspect", "claude:inspect"]);
+  });
+
+  test("reuses a matching mixed-workflow snapshot while retaining the review entry", async () => {
+    const calls: string[] = [];
+    const makeReview = (): ReviewWorkflowStep => ({
+      behavior: "review",
+      stepId: "review-1",
+      project: "demo",
+      branch: "mixed-review",
+      cwd: "/fake",
+      prompt: "inspect",
+      verdictPath: join(mkdtempSync(join(tmpdir(), "workflow-review-")), "verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: config,
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async () => {
+          calls.push(agentId);
+          return { kind: "ok" as const, stdout: "", stderr: "" };
+        },
+      }),
+    });
+    const makeWrite = () =>
+      createStep({
+        stepId: "write-1",
+        role: "plan",
+        branchName: "mixed-review",
+        agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "plan", priceKey: "plan" }] } } },
+      });
+
+    await withStateStore(async (store) => {
+      const first = await executeWorkflow({ steps: [makeReview(), makeWrite()], stateStore: store });
+      const writeRun = store.findRunByProjectBranch({ project: "demo", branch: "mixed-review", stepId: "write-1" });
+      expect(first.kind).toBe("complete");
+      expect(writeRun?.workflowSnapshot?.steps.map((entry) => [entry.stepId, entry.behavior])).toEqual([
+        ["review-1", "review"],
+        ["write-1", undefined],
+      ]);
+
+      const second = await executeWorkflow({ steps: [makeReview(), makeWrite()], stateStore: store });
+      expect(second.kind).toBe("complete");
+      expect(store.findRunByProjectBranch({ project: "demo", branch: "mixed-review", stepId: "write-1" })?.attempts).toHaveLength(1);
+      expect(calls).toHaveLength(2);
+    });
+  });
 });
 
 describe("human step shape", () => {

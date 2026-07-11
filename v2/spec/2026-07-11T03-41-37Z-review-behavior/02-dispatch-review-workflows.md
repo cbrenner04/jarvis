@@ -34,7 +34,7 @@ Dispatch programmatic `review` steps through the workflow runner.
 - [x] Shared workflow snapshots include review steps in authored order and daemon/TUI projection; matching compares each review entry's `(stepId, behavior)`, while existing-run lookup considers only durable write/human steps.
 - [x] Review results return `resumable: false`; a repeated review-only invocation gets a fresh snapshot/run ID and starts at cycle zero, while a mixed workflow may reuse a matching durable snapshot without resuming review cycle state.
 - [x] Existing `v2/src/execution/workflow-loader.test.ts` loader-scope tests stay green; loader and presets do not accept `review` steps.
-- [ ] Co-located tests cover role-specific resolution, distinct orders, quota fallthrough, outcome/accounting mapping, run callback timing, snapshot inclusion/matching/reuse, durable-lookup exclusion, later-step suppression, and restart-from-zero.
+- [x] Co-located tests cover role-specific resolution, distinct orders, quota fallthrough, outcome/accounting mapping, run callback timing, snapshot inclusion/matching/reuse, durable-lookup exclusion, later-step suppression, and restart-from-zero.
 - [x] `v2/docs/workflow-runner.md` documents programmatic `review` shape, validation, dispatch, outcomes, identity, snapshot reporting/reuse, and non-resume boundaries, and cross-links `v2/docs/write-behavior.md` for cycle semantics.
 
 ## Documentation updates

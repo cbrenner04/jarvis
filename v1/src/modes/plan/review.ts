@@ -3,7 +3,7 @@ import { join, relative } from "node:path";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
-import { detectBlocker } from "../../../../shared/spec-parser.ts";
+import { detectBlocker, parseSpec } from "../../../../shared/spec-parser.ts";
 import { realSubprocessRunner, type SubprocessRunner } from "../../../../shared/subprocess.ts";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName } from "../../agents/types.ts";
@@ -251,6 +251,69 @@ function readFrontmatter(text: string): string | null {
     return null;
   }
   return normalized.slice(0, end + 5);
+}
+
+function splitItems(content: string, heading: "Tasks" | "Acceptance criteria"): string[] {
+  if (heading === "Acceptance criteria") {
+    return parseSpec(content).acceptanceCriteria.map((criterion) =>
+      `${criterion.checked ? "x" : " "}:${criterion.text}`,
+    );
+  }
+
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const start = lines.indexOf("## Tasks");
+  if (start === -1) {
+    return [];
+  }
+  const items: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    if (line.startsWith("## ")) {
+      break;
+    }
+    const match = line.match(/^\s*-\s+(?:\[([ xX])\]\s+)?(.*)$/);
+    if (match) {
+      items.push(`${match[1] === undefined ? "-" : match[1].toLowerCase()}:${(match[2] ?? "").trim()}`);
+    }
+  }
+  return items;
+}
+
+function splitSubspecFiles(snapshot: SpecDirSnapshot): Map<string, string> {
+  return new Map(
+    [...snapshot].filter(([name]) => name.endsWith(".md") && name !== "index.md" && name !== "intent.md" && name !== "verdict-plan.md"),
+  );
+}
+
+function validateSplitIntegrity(before: SpecDirSnapshot, specDir: string): string | null {
+  const original = splitSubspecFiles(before);
+  const current = splitSubspecFiles(snapshotSpecDirFiles(specDir));
+  const removed = [...original.keys()].filter((name) => !current.has(name));
+  const replacements = [...current.keys()].filter((name) => !original.has(name));
+  if (removed.length === 0 || replacements.length === 0) {
+    return "split verdict did not replace the original subspec";
+  }
+
+  const index = readFileSync(join(specDir, "index.md"), "utf8");
+  for (const replacement of replacements) {
+    if (!new RegExp(`\\]\\((?:\\./)?${replacement.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}\\)`).test(index)) {
+      return `split replacement is not linked from index.md: ${replacement}`;
+    }
+  }
+
+  const expected = removed.flatMap((name) => {
+    const content = original.get(name) ?? "";
+    return [...splitItems(content, "Tasks"), ...splitItems(content, "Acceptance criteria")];
+  });
+  const actual = replacements.flatMap((name) => {
+    const content = current.get(name) ?? "";
+    return [...splitItems(content, "Tasks"), ...splitItems(content, "Acceptance criteria")];
+  });
+  for (const item of expected) {
+    if (actual.filter((candidate) => candidate === item).length !== 1) {
+      return `split did not preserve exactly once: ${item.slice(2)}`;
+    }
+  }
+  return null;
 }
 
 /**
@@ -824,6 +887,7 @@ export async function runPlanReviewPhase(
       opts.stderr?.(`plan: actuator running with verdict\n`);
 
       const intentBefore = readFileSync(join(finalSpecPath, "intent.md"), "utf8");
+      const specBeforeActuation = snapshotSpecDirFiles(finalSpecPath);
 
       // Write verdict to durable doc next to the spec
       const verdictPath = join(finalSpecPath, "verdict-plan.md");
@@ -882,6 +946,14 @@ export async function runPlanReviewPhase(
       if (!validation.valid) {
         opts.stderr?.(`plan: actuator validation failed: ${validation.error}\n`);
         throw new ReviewTerminalError(validation.error ?? "validation failed", 1);
+      }
+
+      if (/\bsplit\b/i.test(verdict)) {
+        const splitError = validateSplitIntegrity(specBeforeActuation, finalSpecPath);
+        if (splitError !== null) {
+          opts.stderr?.(`plan: actuator split validation failed: ${splitError}\n`);
+          throw new ReviewTerminalError(splitError, 1);
+        }
       }
 
       if (!opts.commit) {

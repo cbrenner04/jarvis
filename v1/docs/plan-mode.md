@@ -165,7 +165,7 @@ Reviewer role prompts:
 - Ask the agent to critique, defend, then adjudicate the current spec tree against the intent and guidance.
 - Revert any spec edits made by reviewer roles; reviewers are read-only.
 - Pass role artifacts forward inside the cycle: adversary findings → advocate, advocate response → adjudicator.
-- Treat a subspec exceeding one implementation path with focused verification as oversized. The adjudicator requires an independently testable split, not prose compression; the actuator preserves every original task and acceptance outcome exactly once across replacements and links every replacement from the index.
+- Treat a subspec exceeding one implementation path with focused verification as oversized. The adjudicator requires an independently testable split, not prose compression; a split actuator result is rejected unless it preserves every original task and acceptance outcome exactly once across replacements and links every replacement from the index.
 
 The actuator prompt:
 

@@ -1,12 +1,10 @@
 import {
-  buildImplementWorkflowSteps,
   type BuildImplementWorkflowStepsInput,
   type BuildImplementWorkflowStepsResult,
+  buildImplementWorkflowSteps,
 } from "./implement-workflow-steps.ts";
 
-export type WorkflowPresetBuilder = (
-  input: BuildImplementWorkflowStepsInput,
-) => BuildImplementWorkflowStepsResult;
+export type WorkflowPresetBuilder = (input: BuildImplementWorkflowStepsInput) => BuildImplementWorkflowStepsResult;
 
 export const WORKFLOW_PRESET_BUILDERS = {
   implement: buildImplementWorkflowSteps,

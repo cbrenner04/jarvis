@@ -2,8 +2,8 @@ import { basename, resolve } from "node:path";
 import { findProjectMatch, type ProjectMatch } from "../../../shared/project-registry.ts";
 import { readProjectRegistry } from "../config/machine-config-loader.ts";
 import { resolveActiveLinkedSubspec as realResolveActiveLinkedSubspec } from "./linked-subspec-routing.ts";
-import { loadWorkflowSteps as realLoadWorkflowSteps, type WorkflowSourceStep } from "./workflow-loader.ts";
-import { type AnyWorkflowStep, resolveWorkflowPreset } from "./workflow-runner.ts";
+import { loadWorkflowSteps as realLoadWorkflowSteps, type WriteWorkflowSourceStep } from "./workflow-loader.ts";
+import { type AnyWorkflowStep, resolveWorkflowPreset, type WriteWorkflowStep } from "./workflow-runner.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 /** Per-run inputs the operator supplies alongside cwd project resolution. */
@@ -20,7 +20,7 @@ export type BuildImplementWorkflowStepsInput = {
 /** Test-only seams for project resolution and machine-config loading. */
 export type BuildImplementWorkflowStepsDeps = {
   resolveProjectMatch?: (p: string) => ProjectMatch | undefined;
-  loadWorkflowSteps?: typeof realLoadWorkflowSteps;
+  loadWorkflowSteps?: (steps: readonly WriteWorkflowSourceStep[]) => WriteWorkflowStep[];
   resolveActiveLinkedSubspec?: (
     specPath: string,
     projectRoot: string,
@@ -76,7 +76,7 @@ export function buildImplementWorkflowSteps(
     }
   }
 
-  const sourceStep: WorkflowSourceStep = {
+  const sourceStep: WriteWorkflowSourceStep = {
     behavior: "write",
     stepId: "implement",
     role: "implement",

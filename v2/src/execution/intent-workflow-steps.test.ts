@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProjectMatch } from "../../../shared/project-registry.ts";
 import { buildIntentWorkflowSteps, buildReviewedIntentWorkflowSteps } from "./intent-workflow-steps.ts";
-import type { WorkflowSourceStep } from "./workflow-loader.ts";
+import type { WriteWorkflowSourceStep } from "./workflow-loader.ts";
 import type { ReviewWorkflowStep, WriteWorkflowStep } from "./workflow-runner.ts";
 
 const match: ProjectMatch = { key: "demo", root: "/repo" };
-const load = (steps: readonly WorkflowSourceStep[]): WriteWorkflowStep[] =>
+const load = (steps: readonly WriteWorkflowSourceStep[]): WriteWorkflowStep[] =>
   steps.map((step) => ({ ...step, agents: ["claude"], agentModelConfig: {} }));
 
 describe("buildIntentWorkflowSteps", () => {

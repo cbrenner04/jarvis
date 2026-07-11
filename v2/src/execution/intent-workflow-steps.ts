@@ -12,8 +12,8 @@ import {
   resolveMachineProfile,
 } from "../config/machine-config-loader.ts";
 import { loadMachineProfileModels, type MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
-import { loadWorkflowSteps as realLoadWorkflowSteps, type WorkflowSourceStep } from "./workflow-loader.ts";
-import { type AnyWorkflowStep, type ReviewWorkflowStep, resolveWorkflowPreset } from "./workflow-runner.ts";
+import { loadWorkflowSteps as realLoadWorkflowSteps, type WriteWorkflowSourceStep } from "./workflow-loader.ts";
+import { type AnyWorkflowStep, type ReviewWorkflowStep, resolveWorkflowPreset, type WriteWorkflowStep } from "./workflow-runner.ts";
 import { DEFAULT_WRITE_AGENTS, DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 const STAGE_DIR = ".jarvis-intent-stage";
@@ -37,7 +37,7 @@ type ProjectConfig = ProjectMatch & {
 
 export type IntentWorkflowDeps = {
   resolveProjectMatch?: (path: string) => ProjectMatch | undefined;
-  loadWorkflowSteps?: typeof realLoadWorkflowSteps;
+  loadWorkflowSteps?: (steps: readonly WriteWorkflowSourceStep[]) => WriteWorkflowStep[];
   readSeed?: (path: string) => string;
   resolveBaseBranch?: (projectRoot: string) => string | Promise<string>;
   inspectIdentity?: (identity: IntentWorkflowIdentity) => IntentCollision | undefined;
@@ -244,7 +244,7 @@ export async function buildIntentWorkflowSteps(
   if ("error" in output) return { ok: false, error: output.error };
   const { publish, worktree, localPath, durableDir } = output;
   const base = publish ? await (deps.resolveBaseBranch ?? getBaseBranch)(project.root) : "none";
-  const sourceStep: WorkflowSourceStep = {
+  const sourceStep: WriteWorkflowSourceStep = {
     behavior: "write",
     stepId: "intent",
     role: "plan",

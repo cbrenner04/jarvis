@@ -2,7 +2,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadWorkflowSteps, type WorkflowSourceStep } from "./workflow-loader.ts";
+import {
+  loadWorkflowSteps,
+  type ReviewDebateWorkflowSourceStep,
+  type WriteWorkflowSourceStep,
+} from "./workflow-loader.ts";
 
 function writeJson(name: string, value: unknown): string {
   const dir = mkdtempSync(join(tmpdir(), "workflow-loader-test-"));
@@ -49,7 +53,7 @@ function writeValidProfile(): string {
   return machineProfile;
 }
 
-function sourceStep(overrides: Partial<WorkflowSourceStep> = {}): WorkflowSourceStep {
+function sourceStep(overrides: Partial<WriteWorkflowSourceStep> = {}): WriteWorkflowSourceStep {
   return {
     behavior: "write",
     stepId: "step-1",
@@ -58,6 +62,26 @@ function sourceStep(overrides: Partial<WorkflowSourceStep> = {}): WorkflowSource
     specPath: "spec.md",
     stepRules: "Return exactly one terminal token.",
     expectedArtifactPath: "proof.txt",
+    ...overrides,
+  };
+}
+
+function debateSourceStep(
+  overrides: Partial<ReviewDebateWorkflowSourceStep> = {},
+): ReviewDebateWorkflowSourceStep {
+  return {
+    behavior: "review-debate",
+    stepId: "debate-1",
+    project: "proj",
+    branch: "branch",
+    cwd: "/tmp/proj",
+    prompts: {
+      adversary: "Find flaws.",
+      advocate: "Defend the change.",
+      adjudicator: "Reach a verdict.",
+    },
+    verdictPath: "/tmp/verdict.md",
+    maxCycles: 1,
     ...overrides,
   };
 }
@@ -81,6 +105,36 @@ describe("loadWorkflowSteps", () => {
     const steps = loadWorkflowSteps([sourceStep()], { machineConfigPath, machineProfile, machinesDir });
 
     expect(steps[0]?.agents).toEqual(["claude"]);
+  });
+
+  test("attaches machine agents and agent model config to every debate role", () => {
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
+    const machineProfile = writeValidProfile();
+
+    const steps = loadWorkflowSteps([debateSourceStep()], { machineConfigPath, machineProfile, machinesDir });
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toMatchObject({
+      behavior: "review-debate",
+      agents: {
+        adversary: ["claude"],
+        advocate: ["claude"],
+        adjudicator: ["claude"],
+        actuator: ["claude"],
+      },
+      agentModelConfig: VALID_AGENT_MODEL_CONFIG,
+    });
+  });
+
+  test("aggregates missing bindings across debate roles", () => {
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
+
+    expect(() =>
+      loadWorkflowSteps([debateSourceStep()], {
+        machineConfigPath,
+        loadAgentModelConfig: () => ({ claude: { adversary: RUNG, adjudicator: RUNG } }),
+      }),
+    ).toThrow(/\(debate-1, advocate, claude\).*\(debate-1, actuator, claude\)/);
   });
 
   test("aggregates multiple missing step/role bindings in one load error", () => {

@@ -27,11 +27,11 @@ doc calls `review-debate` loading out of scope.
 
 ## Acceptance criteria
 
-- [ ] `loadWorkflowSteps` accepts a `review-debate` source step and returns it with each of `adversary`, `advocate`, `adjudicator`, and `actuator` set to the loaded machine agent order and the loaded `agentModelConfig` attached.
-- [ ] A `review-debate` source step whose loaded agents miss bindings for more than one role fails with one aggregated error naming every missing `(stepId, role, agent)` tuple, not just the first.
-- [ ] Existing write-step loader behavior (agent/config attach, `DEFAULT_WRITE_AGENTS` fallback, `operator`/out-of-union role rejection, config-load surfacing) stays green — `workflow-loader.test.ts` write-step tests unchanged.
-- [ ] New `workflow-loader.test.ts` cases cover successful `review-debate` loading and a multi-role aggregated binding miss.
-- [ ] `v2/docs/workflow-runner.md` "Loading workflow steps" no longer states `review-debate` loading is out of scope, documents the widened `write | review-debate` loader input and return type, and describes four-role order construction, model-config attach, and aggregated `(stepId, role, agent)` validation; `human` steps remain documented as outside loader input.
+- [x] `loadWorkflowSteps` accepts a `review-debate` source step and returns it with each of `adversary`, `advocate`, `adjudicator`, and `actuator` set to the loaded machine agent order and the loaded `agentModelConfig` attached.
+- [x] A `review-debate` source step whose loaded agents miss bindings for more than one role fails with one aggregated error naming every missing `(stepId, role, agent)` tuple, not just the first.
+- [x] Existing write-step loader behavior (agent/config attach, `DEFAULT_WRITE_AGENTS` fallback, `operator`/out-of-union role rejection, config-load surfacing) stays green — `workflow-loader.test.ts` write-step tests unchanged.
+- [x] New `workflow-loader.test.ts` cases cover successful `review-debate` loading and a multi-role aggregated binding miss.
+- [x] `v2/docs/workflow-runner.md` "Loading workflow steps" no longer states `review-debate` loading is out of scope, documents the widened `write | review-debate` loader input and return type, and describes four-role order construction, model-config attach, and aggregated `(stepId, role, agent)` validation; `human` steps remain documented as outside loader input.
 
 ## Documentation updates
 

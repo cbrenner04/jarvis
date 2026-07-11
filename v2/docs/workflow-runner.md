@@ -139,11 +139,12 @@ force-push, suffixing, or publication.
 review step. It accepts a non-negative `reviewPasses` parameter (defaulting
 to `1`); zero passes delegates to the split-only builder, while positive values
 add one critic-actuator review step with `maxCycles` equal to the pass count.
-The builder loads independent `critic` and `actuator` agent chains from the
-machine's configured agent order (or `DEFAULT_WRITE_AGENTS` when absent) and the
-repo profile selected by `machineProfile`. Role bindings are validated before
-daemon contact: the builder throws if either role lacks configured model
-escalations for any loaded agent. The review step targets `.jarvis-intent-review-verdict.md`
+For positive passes, the builder creates the split and review source steps, then
+makes one `loadWorkflowSteps` call for both. It forwards its machine config path,
+profile, and machines directory; the loader supplies both roles' machine-derived
+bindings. Preset resolution receives only the loaded write step. Loader failures
+return `{ ok: false, error }` with unchanged loader text before daemon contact.
+The review step targets `.jarvis-intent-review-verdict.md`
 (a sibling of `.jarvis-intent-stage/`) for the critic's verdict, and uses the
 `intent.prompt.review` prompt for the critic role. Runtime enforcement of prompt
 composition, verdict injection, and role isolation is deferred to subspec 02.
@@ -264,27 +265,32 @@ runs before role/agent bindings are derived for any pending step.
 ## Loading workflow steps
 
 `loadWorkflowSteps(steps: WorkflowSourceStep[]): (WriteWorkflowStep |
-ReviewDebateWorkflowStep)[]` (`v2/src/execution/workflow-loader.ts`) assembles
+ReviewWorkflowStep | ReviewDebateWorkflowStep)[]` (`v2/src/execution/workflow-loader.ts`) assembles
 the `agents`/`agentModelConfig` that `executeWorkflow` requires from real
 config, ahead of the runner in the pipeline. `WorkflowSourceStep` is a
-behavior-discriminated `write | review-debate` union, with each branch omitting
-`agents` and `agentModelConfig`; `human` steps remain outside this helper.
+behavior-discriminated `write | review | review-debate` union, with each
+branch omitting `agents` and `agentModelConfig`; `human` steps remain outside
+this helper.
 
 The loader loads the machine's configured agent order (falling back to
 `DEFAULT_WRITE_AGENTS` when machine config has no `agents` key) and the global
 `AgentModelConfig` once. A `write` step receives the flat order/config and
-retains its executable single-role check; a `review-debate` step receives that
-same order for each of `adversary`, `advocate`, `adjudicator`, and `actuator`,
-plus the same model config. There is no per-step or per-role order override.
-The loader rejects write steps naming `role: "operator"` or a role outside the
-closed `Role` union, then reuses `executeWorkflow`'s own
+retains its executable single-role check. A `review` step has no write `role`;
+it receives a fixed `{ critic, actuator }` record, with the same machine-derived
+order for both roles and the same model config. A `review-debate` step receives
+the same machine-derived order and model config for each of `adversary`,
+`advocate`, `adjudicator`, and `actuator`. There is no per-step or per-role
+order override. The loader rejects write steps naming
+`role: "operator"` or a role outside the closed `Role` union, then reuses
+`executeWorkflow`'s own
 `validateWorkflowStepRoles` (exported for this purpose) to aggregate every
 missing `(stepId, role, agent)` binding across both step kinds before returning.
 Config load failure surfaces as-is; the loader adds no config-shape validation
 of its own. This check runs once at load; `executeWorkflow`'s
 `validateWorkflowStepRoles` still runs unconditionally on every invocation
 (see [Validation](#validation)) regardless of whether steps came from this
-loader.
+loader. When no profile is injected, profile selection uses
+`resolveMachineProfile(machineConfigPath)`.
 
 ## Building `implement` workflow steps from cwd + run args
 
@@ -442,8 +448,8 @@ durable write or human step; matching includes each review entry's
 projection, with critic/actuator start and terminal completed/stopped progress,
 while durable run lookup considers only write and human steps.
 
-Workflow loading, presets, and YAML/config authoring do not accept `review` in
-this slice.
+Workflow loading accepts `review` source steps; presets and YAML/config authoring
+do not accept them in this slice.
 
 Cycle semantics are defined in [`write-behavior.md`](./write-behavior.md#review-cycle).
 

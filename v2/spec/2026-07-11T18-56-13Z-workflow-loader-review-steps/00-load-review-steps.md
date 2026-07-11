@@ -25,12 +25,12 @@ the loaded shape.
 
 ## Acceptance criteria
 
-- [ ] `loadWorkflowSteps` accepts discriminated authored `write | review` steps and returns their matching loaded union; a review has only fixed `critic` and `actuator` orders, while a write retains its `role`.
-- [ ] `loadWorkflowSteps` returns an authored review step with every configured agent assigned to both critic and actuator plus the loaded model configuration; a supplied machine config path still selects its profile through `resolveMachineProfile` when no profile override is supplied.
-- [ ] Missing critic and actuator bindings for every loaded agent fail synchronously with one error naming every `(stepId, role, agent)` tuple before the loader returns steps.
-- [ ] Existing `workflow-loader.test.ts` write-step cases stay green.
-- [ ] `v2/src/execution/workflow-loader.test.ts` covers multi-agent review loading, config-path profile selection, and aggregated critic/actuator binding misses across both roles and agents.
-- [ ] `v2/docs/workflow-runner.md` documents discriminated `write | review` source/loaded unions, review's fixed role record and no write `role`, shared machine-derived review orders/configuration, load-time aggregated validation, and that human and review-debate steps remain outside this loader; `v2/docs/v1-behaviors.md` records the v2-only loader behavior with sources.
+- [x] `loadWorkflowSteps` accepts discriminated authored `write | review` steps and returns their matching loaded union; a review has only fixed `critic` and `actuator` orders, while a write retains its `role`.
+- [x] `loadWorkflowSteps` returns an authored review step with every configured agent assigned to both critic and actuator plus the loaded model configuration; a supplied machine config path still selects its profile through `resolveMachineProfile` when no profile override is supplied.
+- [x] Missing critic and actuator bindings for every loaded agent fail synchronously with one error naming every `(stepId, role, agent)` tuple before the loader returns steps.
+- [x] Existing `workflow-loader.test.ts` write-step cases stay green.
+- [x] `v2/src/execution/workflow-loader.test.ts` covers multi-agent review loading, config-path profile selection, and aggregated critic/actuator binding misses across both roles and agents.
+- [x] `v2/docs/workflow-runner.md` documents discriminated `write | review` source/loaded unions, review's fixed role record and no write `role`, shared machine-derived review orders/configuration, load-time aggregated validation, and that human and review-debate steps remain outside this loader; `v2/docs/v1-behaviors.md` records the v2-only loader behavior with sources.
 
 ## Documentation updates
 

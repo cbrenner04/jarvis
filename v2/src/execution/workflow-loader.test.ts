@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   loadWorkflowSteps,
   type ReviewDebateWorkflowSourceStep,
+  type ReviewWorkflowSourceStep,
   type WriteWorkflowSourceStep,
 } from "./workflow-loader.ts";
 
@@ -66,6 +67,20 @@ function sourceStep(overrides: Partial<WriteWorkflowSourceStep> = {}): WriteWork
   };
 }
 
+function reviewSourceStep(overrides: Partial<ReviewWorkflowSourceStep> = {}): ReviewWorkflowSourceStep {
+  return {
+    behavior: "review",
+    stepId: "review-1",
+    project: "proj",
+    branch: "branch",
+    cwd: "/tmp/proj",
+    prompt: "Find flaws.",
+    verdictPath: "/tmp/verdict.md",
+    maxCycles: 1,
+    ...overrides,
+  };
+}
+
 function debateSourceStep(overrides: Partial<ReviewDebateWorkflowSourceStep> = {}): ReviewDebateWorkflowSourceStep {
   return {
     behavior: "review-debate",
@@ -105,35 +120,89 @@ describe("loadWorkflowSteps", () => {
     expect(steps[0]?.agents).toEqual(["claude"]);
   });
 
-  test("attaches machine agents and agent model config to every debate role", () => {
-    const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
+  test("attaches every machine agent and model config to both review roles", () => {
+    const machineConfigPath = writeJson("config.json", { agents: ["claude", "codex"] });
     const machineProfile = writeValidProfile();
 
-    const steps = loadWorkflowSteps([debateSourceStep()], { machineConfigPath, machineProfile, machinesDir });
+    const agentModelConfig = { ...VALID_AGENT_MODEL_CONFIG, codex: FULL_ROLES };
+    const steps = loadWorkflowSteps([reviewSourceStep()], {
+      machineConfigPath,
+      machineProfile,
+      machinesDir,
+      loadAgentModelConfig: () => agentModelConfig,
+    });
 
     expect(steps).toHaveLength(1);
     expect(steps[0]).toMatchObject({
+      behavior: "review",
+      agents: {
+        critic: ["claude", "codex"],
+        actuator: ["claude", "codex"],
+      },
+      agentModelConfig,
+    });
+    expect("role" in (steps[0] ?? {})).toBe(false);
+  });
+
+  test("uses the supplied config path to select the machine profile", () => {
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"], machineProfile: "configured" });
+    writeProfile("configured", { models: VALID_AGENT_MODEL_CONFIG });
+
+    const steps = loadWorkflowSteps([reviewSourceStep()], { machineConfigPath, machinesDir });
+
+    expect(steps[0]?.agentModelConfig).toEqual(VALID_AGENT_MODEL_CONFIG);
+  });
+
+  test("attaches every machine agent and model config to all debate roles", () => {
+    const machineConfigPath = writeJson("config.json", { agents: ["claude", "codex"] });
+    const machineProfile = writeValidProfile();
+    const agentModelConfig = { ...VALID_AGENT_MODEL_CONFIG, codex: FULL_ROLES };
+
+    const steps = loadWorkflowSteps([debateSourceStep()], {
+      machineConfigPath,
+      machineProfile,
+      machinesDir,
+      loadAgentModelConfig: () => agentModelConfig,
+    });
+
+    expect(steps[0]).toMatchObject({
       behavior: "review-debate",
       agents: {
-        adversary: ["claude"],
-        advocate: ["claude"],
-        adjudicator: ["claude"],
-        actuator: ["claude"],
+        adversary: ["claude", "codex"],
+        advocate: ["claude", "codex"],
+        adjudicator: ["claude", "codex"],
+        actuator: ["claude", "codex"],
       },
-      agentModelConfig: VALID_AGENT_MODEL_CONFIG,
+      agentModelConfig,
     });
   });
 
-  test("aggregates missing bindings across debate roles", () => {
-    const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
+  test("aggregates missing bindings across review roles and agents", () => {
+    const machineConfigPath = writeJson("config.json", { agents: ["claude", "codex"] });
+
+    expect(() =>
+      loadWorkflowSteps([reviewSourceStep()], {
+        machineConfigPath,
+        machineProfile: "test-profile",
+        loadAgentModelConfig: () => ({ claude: {}, codex: {} }),
+      }),
+    ).toThrow(
+      /\(review-1, critic, claude\).*\(review-1, critic, codex\).*\(review-1, actuator, claude\).*\(review-1, actuator, codex\)/,
+    );
+  });
+
+  test("aggregates missing bindings across all debate roles and agents", () => {
+    const machineConfigPath = writeJson("config.json", { agents: ["claude", "codex"] });
 
     expect(() =>
       loadWorkflowSteps([debateSourceStep()], {
         machineConfigPath,
         machineProfile: "test-profile",
-        loadAgentModelConfig: () => ({ claude: { adversary: RUNG, adjudicator: RUNG } }),
+        loadAgentModelConfig: () => ({ claude: {}, codex: {} }),
       }),
-    ).toThrow(/\(debate-1, advocate, claude\).*\(debate-1, actuator, claude\)/);
+    ).toThrow(
+      /\(debate-1, adversary, claude\).*\(debate-1, adversary, codex\).*\(debate-1, advocate, claude\).*\(debate-1, advocate, codex\).*\(debate-1, adjudicator, claude\).*\(debate-1, adjudicator, codex\).*\(debate-1, actuator, claude\).*\(debate-1, actuator, codex\)/,
+    );
   });
 
   test("aggregates multiple missing step/role bindings in one load error", () => {

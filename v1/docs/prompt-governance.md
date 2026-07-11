@@ -30,6 +30,9 @@ artifacts that shape agent behavior in patch mode and plan draft/review:
 - `patch.prompt.pr-description` (`prompts/patch/pr-description.md`)
 - `patch.rules` (`prompts/patch/rules.md`)
 - `patch.prompt.shrink` (`prompts/patch/shrink.md`) — post-completion simplification gate; layered with `global.terse` only (not `patch.rules`)
+- `patch.prompt.review` (`prompts/patch/review.md`) — legacy patch review step prompt for a writing agent; registered but unwired (subtractive critique-and-refactor contract)
+- `patch.prompt.review.critic` (`prompts/patch/review-critic.md`) — read-only light patch review critic; emits an actionable verdict or empty output when the branch needs no changes; layered with standard patch globals (`global.documentation -> global.naming -> global.terse`)
+- `patch.prompt.review.adversary` / `.advocate` / `.adjudicator` (`prompts/patch/review-*.md`) — read-only debate review roles; same patch-review placeholder contract as the critic plus role-chaining placeholders for advocate/adjudicator
 - `plan.prompt.draft` (`prompts/plan/draft.md`)
 - `plan.prompt.pr-description` (`prompts/plan/pr-description.md`)
 - `plan.prompt.review` (`prompts/plan/review.md`)

@@ -6,8 +6,10 @@ import { join } from "node:path";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import {
   nextReviewDebateCycleContext,
+  PATCH_REVIEW_CRITIC_PROMPT_ID,
   PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS,
   type ReviewDebateRenderContext,
+  renderPatchReviewCriticPrompt,
   renderReviewDebateActuatorPrompt,
   renderReviewDebateCyclePrompts,
   renderReviewDebateRolePrompt,
@@ -52,6 +54,51 @@ function baseContext(
     ...overrides,
   };
 }
+
+describe("PATCH_REVIEW_CRITIC_PROMPT_ID", () => {
+  test("resolves critic prompt with governed metadata", () => {
+    const registry = loadPromptRegistry();
+    const artifact = registry.getById(PATCH_REVIEW_CRITIC_PROMPT_ID);
+    expect(artifact.metadata.kind).toBe("step");
+    expect(artifact.metadata.behavior).toBe("patch");
+    expect(artifact.metadata.placeholders?.map((entry) => entry.name)).toEqual([
+      "SPEC_PATH",
+      "SPEC_TREE",
+      "BRANCH_DIFF",
+      "REVIEW_PASS_NUMBER",
+      "REVIEW_PASS_CONTEXT",
+    ]);
+  });
+});
+
+describe("renderPatchReviewCriticPrompt", () => {
+  test("injects spec tree, branch diff, and pass context from shared patch-review sources", () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    try {
+      const prompt = renderPatchReviewCriticPrompt(
+        baseContext(dir, specPath, {
+          totalPasses: 2,
+          passNumber: 2,
+          priorCycleVerdict: "Tighten error handling on empty input",
+        }),
+      );
+
+      expect(prompt).toContain("read-only");
+      expect(prompt).toContain("emit an empty verdict");
+      expect(prompt).not.toContain("adversary");
+      expect(prompt).not.toContain("advocate");
+      expect(prompt).toContain(specPath);
+      expect(prompt).toContain("# Feature");
+      expect(prompt).toContain("# 00");
+      expect(prompt).toContain("impl.txt");
+      expect(prompt).toContain("This is review pass 2 of 2.");
+      expect(prompt).toContain("Prior cycle verdict:");
+      expect(prompt).toContain("Tighten error handling on empty input");
+    } finally {
+      cleanup();
+    }
+  });
+});
 
 describe("PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS", () => {
   test("binds debate roles to patch review prompt ids", () => {

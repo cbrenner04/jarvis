@@ -11,16 +11,16 @@ change, distinct from the three debate roles, before any workflow can bind it.
 
 ## Task checklist
 
-- [ ] Add the governed critic prompt artifact and its registry manifest entry.
-- [ ] Render the critic through the existing patch review-prompt renderer, reusing the shared patch context.
-- [ ] Cover registration and rendered placeholders with focused tests.
+- [x] Add the governed critic prompt artifact and its registry manifest entry.
+- [x] Render the critic through the existing patch review-prompt renderer, reusing the shared patch context.
+- [x] Cover registration and rendered placeholders with focused tests.
 
 ## Acceptance criteria
 
-- [ ] `patch.prompt.review.critic` resolves through the prompt registry with valid governed metadata and renders `SPEC_PATH`, `SPEC_TREE`, `BRANCH_DIFF`, `REVIEW_PASS_NUMBER`, and `REVIEW_PASS_CONTEXT` from the same patch-review sources the debate roles use.
-- [ ] The critic prompt directs the agent to emit the actionable verdict for the branch change as read-only output — no editing, no committing — and to emit nothing when the branch needs no changes.
-- [ ] The critic prompt does not use debate semantics (no adversary findings, advocate rebuttal, or adjudication of prior turns).
-- [ ] Registry and rendered-prompt tests cover the critic's registration and composed output.
+- [x] `patch.prompt.review.critic` resolves through the prompt registry with valid governed metadata and renders `SPEC_PATH`, `SPEC_TREE`, `BRANCH_DIFF`, `REVIEW_PASS_NUMBER`, and `REVIEW_PASS_CONTEXT` from the same patch-review sources the debate roles use.
+- [x] The critic prompt directs the agent to emit the actionable verdict for the branch change as read-only output — no editing, no committing — and to emit nothing when the branch needs no changes.
+- [x] The critic prompt does not use debate semantics (no adversary findings, advocate rebuttal, or adjudication of prior turns).
+- [x] Registry and rendered-prompt tests cover the critic's registration and composed output.
 
 ## Documentation updates
 

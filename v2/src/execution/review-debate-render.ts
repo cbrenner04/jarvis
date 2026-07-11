@@ -14,6 +14,9 @@ import { renderTemplateWithDeclarations } from "../../../shared/prompts/render.t
 import type { InvocationFailureKind } from "./invocation-failure.ts";
 import type { ReviewDebateRole, ReviewDebateRoleBindings } from "./review-debate.ts";
 
+/** Registry prompt id for the light patch review critic role. */
+export const PATCH_REVIEW_CRITIC_PROMPT_ID = "patch.prompt.review.critic" as const;
+
 /** Registry prompt ids for the three read-only patch review debate roles. */
 export const PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS = {
   adversary: "patch.prompt.review.adversary",
@@ -178,46 +181,73 @@ function getBranchDiffSummary(cwd: string, baseBranch: string): string {
   }
 }
 
+type PatchReviewPlaceholderContract = {
+  declarations: Array<{ name: string; type: "string"; required: boolean }>;
+  values: Record<string, string>;
+};
+
+function buildPatchReviewPlaceholderContract(context: ReviewDebateRenderContext): PatchReviewPlaceholderContract {
+  const specPathAbs = context.specPath.startsWith("/") ? context.specPath : join(context.cwd, context.specPath);
+  const specTree = buildSpecTree(dirname(specPathAbs), context.cwd);
+  const branchDiff = getBranchDiffSummary(context.cwd, context.baseBranch ?? "main");
+  return {
+    declarations: [
+      { name: "SPEC_PATH", type: "string", required: true },
+      { name: "SPEC_TREE", type: "string", required: true },
+      { name: "BRANCH_DIFF", type: "string", required: true },
+      { name: "REVIEW_PASS_NUMBER", type: "string", required: true },
+      { name: "REVIEW_PASS_CONTEXT", type: "string", required: true },
+    ],
+    values: {
+      SPEC_PATH: context.specPath,
+      SPEC_TREE: specTree,
+      BRANCH_DIFF: branchDiff,
+      REVIEW_PASS_NUMBER: String(context.passNumber),
+      REVIEW_PASS_CONTEXT: reviewPassContext(context.passNumber, context.totalPasses, context.priorCycleVerdict),
+    },
+  };
+}
+
+function renderPatchReviewStepPrompt(
+  stepPromptId: string,
+  context: ReviewDebateRenderContext,
+  extra?: PatchReviewPlaceholderContract,
+): string {
+  const registry = loadPromptRegistry();
+  const template = assemblePromptForStep({
+    registry,
+    stepPromptId,
+  });
+  const base = buildPatchReviewPlaceholderContract(context);
+  const declarations = [...base.declarations, ...(extra?.declarations ?? [])];
+  const values = { ...base.values, ...(extra?.values ?? {}) };
+  return renderTemplateWithDeclarations(template, declarations, values).trim();
+}
+
+/** Render the light patch review critic prompt from shared patch-review context. */
+export function renderPatchReviewCriticPrompt(context: ReviewDebateRenderContext): string {
+  return renderPatchReviewStepPrompt(PATCH_REVIEW_CRITIC_PROMPT_ID, context);
+}
+
 export function renderReviewDebateRolePrompt(
   role: ReviewDebateRenderRole,
   context: ReviewDebateRenderContext,
   priorRoleOutput?: string,
 ): string {
-  const registry = loadPromptRegistry();
-  const template = assemblePromptForStep({
-    registry,
-    stepPromptId: PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS[role],
-  });
-
-  const specPathAbs = context.specPath.startsWith("/") ? context.specPath : join(context.cwd, context.specPath);
-  const specTree = buildSpecTree(dirname(specPathAbs), context.cwd);
-  const branchDiff = getBranchDiffSummary(context.cwd, context.baseBranch ?? "main");
-  const declarations = [
-    { name: "SPEC_PATH", type: "string" as const, required: true },
-    { name: "SPEC_TREE", type: "string" as const, required: true },
-    { name: "BRANCH_DIFF", type: "string" as const, required: true },
-    { name: "REVIEW_PASS_NUMBER", type: "string" as const, required: true },
-    { name: "REVIEW_PASS_CONTEXT", type: "string" as const, required: true },
-  ];
-  const values: Record<string, string> = {
-    SPEC_PATH: context.specPath,
-    SPEC_TREE: specTree,
-    BRANCH_DIFF: branchDiff,
-    REVIEW_PASS_NUMBER: String(context.passNumber),
-    REVIEW_PASS_CONTEXT: reviewPassContext(context.passNumber, context.totalPasses, context.priorCycleVerdict),
-  };
-
+  let extra: PatchReviewPlaceholderContract | undefined;
   if (role === "advocate") {
-    declarations.push({ name: "ADVERSARY_FINDINGS", type: "string" as const, required: true });
-    values.ADVERSARY_FINDINGS = priorRoleOutput ?? "(no prior findings)";
+    extra = {
+      declarations: [{ name: "ADVERSARY_FINDINGS", type: "string", required: true }],
+      values: { ADVERSARY_FINDINGS: priorRoleOutput ?? "(no prior findings)" },
+    };
+  } else if (role === "adjudicator") {
+    extra = {
+      declarations: [{ name: "ADVOCATE_RESPONSE", type: "string", required: true }],
+      values: { ADVOCATE_RESPONSE: priorRoleOutput ?? "(no advocate response)" },
+    };
   }
 
-  if (role === "adjudicator") {
-    declarations.push({ name: "ADVOCATE_RESPONSE", type: "string" as const, required: true });
-    values.ADVOCATE_RESPONSE = priorRoleOutput ?? "(no advocate response)";
-  }
-
-  return renderTemplateWithDeclarations(template, declarations, values).trim();
+  return renderPatchReviewStepPrompt(PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS[role], context, extra);
 }
 
 export function renderReviewDebateActuatorPrompt(verdict: string, specPath: string): string {

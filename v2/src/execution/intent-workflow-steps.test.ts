@@ -60,7 +60,11 @@ describe("buildIntentWorkflowSteps", () => {
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.steps[0]).toMatchObject({ specPath: "/jarvis/specs/demo/ready-intents", worktree: { baseRef: "none" } });
+    expect(result.steps[0]).toMatchObject({
+      specPath: "/jarvis/specs/demo/ready-intents",
+      publishCompletion: false,
+      worktree: { baseRef: "none", git: false, localPath: "/jarvis/intent-work/demo/one-thing" },
+    });
   });
 
   test("only resumes a collision owned by the supplied invocation", async () => {

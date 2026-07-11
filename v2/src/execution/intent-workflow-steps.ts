@@ -172,6 +172,7 @@ export async function buildIntentWorkflowSteps(
   const publish = config.git !== false && (config.plan?.commit ?? (typeof plan.commit === "boolean" ? plan.commit : true));
   const jarvisRoot = input.jarvisRoot ?? join(homedir(), ".jarvis");
   const worktree = join(jarvisRoot, "worktrees", project.key, branch);
+  const localPath = join(jarvisRoot, "intent-work", projectSafeId(project.key), slug);
   const durableDir = publish
     ? join(targetDir, "ready-intents")
     : join(jarvisRoot, "specs", projectSafeId(project.key), "ready-intents");
@@ -183,10 +184,17 @@ export async function buildIntentWorkflowSteps(
     promptId: "intent.prompt.split",
     promptPlaceholders: { WORKDIR: worktree, SEED_LABEL: seedLabel, SEED_CONTENT: seedContent },
     stepRules: DEFAULT_WRITE_STEP_RULES,
-    worktree: { projectRoot: project.root, projectName: project.key, branchName: branch, baseRef: base },
+    worktree: {
+      projectRoot: project.root,
+      projectName: project.key,
+      branchName: branch,
+      baseRef: base,
+      ...(publish ? {} : { git: false, localPath }),
+    },
     specPath: durableDir,
     expectedArtifactPath: STAGE_DIR,
     intentOutput: { durableDir },
+    publishCompletion: publish,
   };
   try {
     const loaded = (deps.loadWorkflowSteps ?? realLoadWorkflowSteps)([sourceStep]);

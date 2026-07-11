@@ -374,8 +374,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
 
     const publicationAgent = lastResult.kind === "complete" ? (completionAgent ?? "") : undefined;
     let publicationSpecPath: string | undefined;
-    if (publicationAgent !== undefined) {
-      const completionStep = [...args.steps].reverse().find(isWriteStep);
+    const completionStep = [...args.steps].reverse().find(isWriteStep);
+    if (publicationAgent !== undefined && completionStep?.publishCompletion !== false) {
       if (completionStep) {
         const worktree = completionStep.worktree;
         const worktreePath = getExternalWorktreePath(worktree);

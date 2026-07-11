@@ -13,7 +13,11 @@ import { loadMachineProfileModels } from "./config/machine-profile-loader.ts";
 import { resolveWriteLoopBindings, type WaitRunCompletionResult } from "./daemon/daemon.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon/daemon-lifecycle.ts";
 import { parseListRuns, parseStartResult, parseWaitCompletion } from "./daemon/daemon-wire.ts";
-import { WORKFLOW_PRESET_BUILDERS, type WorkflowPresetBuilder } from "./execution/workflow-presets.ts";
+import {
+  WORKFLOW_PRESET_BUILDERS,
+  type WorkflowPresetBuilder,
+  type WorkflowPresetBuilderInput,
+} from "./execution/workflow-presets.ts";
 import {
   applyOperatorSessionId,
   executeWriteLoop,
@@ -66,6 +70,8 @@ const WRITE_USAGE =
   "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--max-iterations <n>]\n";
 const WORKFLOW_IMPLEMENT_USAGE =
   "usage: jarvis run workflow implement --branch <name> --base <ref> --spec <path> --artifact <path>\n";
+const WORKFLOW_INTENT_USAGE =
+  "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>]\n";
 const WORKFLOW_USAGE = "usage: jarvis run workflow <implement> [flags]\n";
 
 export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliDeps>): Promise<number> {
@@ -386,19 +392,18 @@ async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps
     return 1;
   }
 
-  const parsed = parseImplementWorkflowArgs(argv.slice(1));
+  const parsed = name === "intent" ? parseIntentWorkflowArgs(argv.slice(1)) : parseImplementWorkflowArgs(argv.slice(1));
   if (!parsed.ok) {
-    io.stderr(WORKFLOW_IMPLEMENT_USAGE);
+    io.stderr(name === "intent" ? WORKFLOW_INTENT_USAGE : WORKFLOW_IMPLEMENT_USAGE);
     return 1;
   }
 
-  const built = builder({
-    cwd: deps.cwd(),
-    branchName: parsed.branchName,
-    baseRef: parsed.baseRef,
-    specPath: parsed.specPath,
-    artifactPath: parsed.artifactPath,
-  });
+  const { ok: _ok, ...parsedValues } = parsed;
+  const builderInput: WorkflowPresetBuilderInput =
+    name === "intent"
+      ? { cwd: deps.cwd(), ...parsedValues, configPath: deps.machineConfigPath }
+      : { cwd: deps.cwd(), ...parsedValues };
+  const built = await builder(builderInput as Parameters<WorkflowPresetBuilder>[0]);
   if (!built.ok) {
     io.stderr(`${built.error.replace(/\n+$/, "")}\n`);
     return 1;
@@ -419,6 +424,12 @@ async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps
     if (start === undefined) {
       io.stderr("invalid daemon response\n");
       return 1;
+    }
+    if (name === "intent") {
+      const intentStep = built.steps[0];
+      if (intentStep?.behavior === "write" && intentStep.intentOutput !== undefined && intentStep.publishCompletion === false) {
+        io.stderr(`intent paths: ${intentStep.intentOutput.durableDir}\n`);
+      }
     }
     io.stdout(`${start.runId}\n`);
     return 0;
@@ -551,6 +562,36 @@ function parseImplementWorkflowArgs(argv: readonly string[]): ImplementWorkflowC
   }
 
   return { ok: true, branchName, baseRef, specPath, artifactPath };
+}
+
+type IntentWorkflowCliInput =
+  | { ok: true; seed: string; targetDir?: string }
+  | { ok: true; seedText: string; targetDir?: string }
+  | { ok: false };
+
+function parseIntentWorkflowArgs(argv: readonly string[]): IntentWorkflowCliInput {
+  let values: Record<string, string | boolean | undefined>;
+  try {
+    values = parseArgs({
+      args: [...argv],
+      allowPositionals: false,
+      strict: true,
+      options: {
+        seed: { type: "string" },
+        "seed-text": { type: "string" },
+        "target-dir": { type: "string" },
+      },
+    }).values;
+  } catch {
+    return { ok: false };
+  }
+  const seed = typeof values.seed === "string" ? values.seed : undefined;
+  const seedText = typeof values["seed-text"] === "string" ? values["seed-text"] : undefined;
+  const targetDir = typeof values["target-dir"] === "string" ? values["target-dir"] : undefined;
+  if ((seed === undefined) === (seedText === undefined)) return { ok: false };
+  if (seed !== undefined) return { ok: true, seed, ...(targetDir !== undefined ? { targetDir } : {}) };
+  if (seedText !== undefined) return { ok: true, seedText, ...(targetDir !== undefined ? { targetDir } : {}) };
+  return { ok: false };
 }
 
 function parseSetAgentsCsv(raw: string): { ok: true; agents: string[] } | { ok: false; message: string } {

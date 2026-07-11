@@ -224,6 +224,40 @@ but publication fails with a retryable `completion_commit_failed` operator error
 on `list` / `wait`; fix prerequisites and use `jarvis run resume <run-id>` to
 retry publish without a duplicate commit.
 
+## Split an intent seed
+
+The split-only path accepts either a file seed or inline text and sends one
+workflow start request after local validation:
+
+```bash
+jarvis run workflow intent --seed path/to/seed.md
+jarvis run workflow intent --seed-text "Add a safer checkout flow"
+```
+
+`--seed` wins only when it is the sole seed flag; the two forms are mutually
+exclusive. File seeds must remain inside the registered project after symlink
+resolution. `--target-dir` is relative and non-traversing. Output is written
+to `<targetDir>/ready-intents/` for git-enabled runs, or to
+`~/.jarvis/specs/<project-safe-id>/ready-intents/` when git publication is
+disabled. One seed produces one or more validated intent files; a single
+intent remains a valid result. The raw seed remains in place.
+
+Git-enabled runs use `intent/<slug>` in a Jarvis worktree and the resolved
+remote default branch for both the worktree base and PR base. Completion first
+validates and lands the complete staged set, then makes one completion commit,
+pushes, and opens or reuses only an open draft PR with the matching base. A
+non-fast-forward push is a publication failure: local state is retained and
+the operator should resolve the remote divergence, then resume. Closed or
+wrong-base PRs are never reused.
+
+Git-disabled runs do not create a branch, worktree, commit, push, or PR. They
+complete locally after landing the durable files and print their paths. A
+validation or landing failure retains staging for retry without another model
+invocation; resume retries the completion boundary atomically.
+
+See [`workflow-runner.md`](./workflow-runner.md) for the runner contract and
+publication ordering.
+
 ## Related docs
 
 - [`daemon-host.md`](./daemon-host.md) — IPC methods, `list`/`wait` error shape, resume semantics

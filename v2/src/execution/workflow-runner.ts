@@ -1023,10 +1023,14 @@ async function runReviewStep(
   const { stepId, project, branch, agents, agentModelConfig, createBinding, deferredIntentOutput, ...reviewInput } =
     step;
 
-  const completedRun = findCompletedReviewRun(store, step);
-  if (completedRun !== undefined) {
-    onStepRunCreated?.(stepIndex, completedRun.id);
-    return { kind: "complete", runId: completedRun.id, iterationsConsumed: 0, resumable: false };
+  // Only reviewed-intent workflows carry a durable post-review checkpoint; generic review
+  // steps stay non-durable (no run row, fresh synthesized run ID each dispatch).
+  if (deferredIntentOutput !== undefined) {
+    const completedRun = findCompletedReviewRun(store, step);
+    if (completedRun !== undefined) {
+      onStepRunCreated?.(stepIndex, completedRun.id);
+      return { kind: "complete", runId: completedRun.id, iterationsConsumed: 0, resumable: false };
+    }
   }
 
   const resolveBindings = createBinding ?? createResolvedAgentBinding;
@@ -1127,7 +1131,9 @@ async function runReviewStep(
   });
 
   const isFailure = landingError !== undefined || result.kind === "invocation_failure";
-  if (!isFailure) {
+  // Persist the post-review checkpoint only for reviewed-intent workflows; generic review
+  // steps remain non-durable so retries re-run them from cycle zero.
+  if (!isFailure && deferredIntentOutput !== undefined) {
     store.createRun({
       project,
       specRef: "",

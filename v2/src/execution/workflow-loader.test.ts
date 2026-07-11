@@ -130,6 +130,7 @@ describe("loadWorkflowSteps", () => {
     expect(() =>
       loadWorkflowSteps([debateSourceStep()], {
         machineConfigPath,
+        machineProfile: "test-profile",
         loadAgentModelConfig: () => ({ claude: { adversary: RUNG, adjudicator: RUNG } }),
       }),
     ).toThrow(/\(debate-1, advocate, claude\).*\(debate-1, actuator, claude\)/);

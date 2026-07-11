@@ -29,6 +29,13 @@ import {
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import { executeReviewCycle, type ReviewCycleInput, type ReviewCycleRole } from "./review-cycle.ts";
 import {
+  executePlanReviewCycle,
+  renderActuatorPrompt,
+  renderCriticPrompt,
+  type PlanReviewCycleOutcome,
+  type PlanReviewPromptContext,
+} from "./render-plan-review-prompts.ts";
+import {
   executeReviewDebate,
   type ReviewDebateInput,
   type ReviewDebateRole,
@@ -151,6 +158,8 @@ export type ReviewWorkflowStep = Omit<ReviewCycleInput, "bindings" | "onRoleStar
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
   /** When configured, landing is deferred until after successful review. */
   deferredIntentOutput?: { config: IntentOutputConfig; stagingDir: string; invocationId: string; baseRef: string };
+  /** For plan review steps, context for rendering prompts from templates. */
+  planReviewContext?: { specPath: string; jarvisRoot?: string };
 };
 
 /** Live/terminal progress for a review step's daemon-visible row, tracked in-memory only. */
@@ -1191,8 +1200,17 @@ async function runReviewStep(
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
   store: StateStore,
 ): Promise<ReviewStepOutcome> {
-  const { stepId, project, branch, agents, agentModelConfig, createBinding, deferredIntentOutput, ...reviewInput } =
-    step;
+  const {
+    stepId,
+    project,
+    branch,
+    agents,
+    agentModelConfig,
+    createBinding,
+    deferredIntentOutput,
+    planReviewContext,
+    ...reviewInput
+  } = step;
 
   // Only reviewed-intent workflows carry a durable post-review checkpoint; generic review
   // steps stay non-durable (no run row, fresh synthesized run ID each dispatch).
@@ -1212,6 +1230,68 @@ async function runReviewStep(
   const runId = crypto.randomUUID();
   const attemptId = crypto.randomUUID();
   onStepRunCreated?.(stepIndex, runId);
+
+  if (planReviewContext !== undefined) {
+    // Plan review: use plan-specific review cycle that renders prompts from templates
+    const planReviewCycleInput = {
+      context: { ...planReviewContext, worktreePath: step.cwd },
+      cwd: step.cwd,
+      bindings,
+      verdictPath: reviewInput.verdictPath,
+      maxCycles: reviewInput.maxCycles,
+      ...(reviewInput.signal !== undefined ? { signal: reviewInput.signal } : {}),
+      ...(telemetry !== undefined
+        ? {
+            telemetry: {
+              sink: buildJsonlSink(telemetry.sinkPath ?? DEFAULT_TELEMETRY_SINK_PATH),
+              operatorSessionId: telemetry.operatorSessionId,
+              runId,
+              attemptId,
+              project,
+              workflow: telemetry.workflow,
+              stepId,
+              worktreePath: step.cwd,
+              branch,
+              specRef: "",
+            },
+          }
+        : {}),
+      ...(onProgress !== undefined
+        ? {
+            onRoleStart: (role: "critic" | "actuator") => {
+              const cycleRole: ReviewCycleRole = role;
+              onProgress(invocationId, stepId, { status: "in_progress", role: cycleRole });
+            },
+          }
+        : {}),
+    };
+
+    const result = await executePlanReviewCycle(planReviewCycleInput);
+    const lastCycle = result.cycles[result.cycles.length - 1];
+    const terminalRole: ReviewCycleRole = lastCycle?.kind === "role_failed" ? lastCycle.failedRole : "actuator";
+    const isComplete = result.cycles.every((c: PlanReviewCycleOutcome) => c.kind !== "role_failed");
+
+    onProgress?.(invocationId, stepId, {
+      status: isComplete ? "completed" : "stopped",
+      role: terminalRole,
+      terminalOutcome: isComplete ? "complete" : "invocation_failure",
+    });
+
+    const outcome: ReviewStepOutcome = isComplete
+      ? {
+          kind: "complete",
+          runId,
+          iterationsConsumed: result.cycles.length,
+          resumable: false,
+        }
+      : {
+          kind: "invocation_failure",
+          runId,
+          iterationsConsumed: result.cycles.length,
+          resumable: true,
+        };
+    return outcome;
+  }
 
   const reviewCycleInput: ReviewCycleInput = {
     ...reviewInput,

@@ -27,7 +27,7 @@ const load = (steps: readonly WorkflowSourceStep[]): LoadedWorkflowStep[] =>
   );
 
 describe("buildReviewedPlanWorkflowSteps", () => {
-  test("defaults to one loaded draft-plus-debate workflow", async () => {
+  test("defaults to one loaded draft-plus-review workflow", async () => {
     const calls: (readonly WorkflowSourceStep[])[] = [];
     const result = await buildReviewedPlanWorkflowSteps(
       { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md", jarvisRoot: "/jarvis" },
@@ -49,18 +49,16 @@ describe("buildReviewedPlanWorkflowSteps", () => {
     expect(result.steps).toHaveLength(2);
     expect(result.steps[0]).toMatchObject({ behavior: "write", promptId: "plan.prompt.draft" });
     expect(result.steps[1]).toMatchObject({
-      behavior: "review-debate",
-      stepId: "review-debate",
+      behavior: "review",
+      stepId: "plan-review",
       maxCycles: 1,
-      prompts: {
-        adversary: "plan.prompt.review.adversary",
-        advocate: "plan.prompt.review.advocate",
-        adjudicator: "plan.prompt.review.adjudicator",
-      },
-      agents: { adversary: ["claude"], advocate: ["claude"], adjudicator: ["claude"], actuator: ["claude"] },
+      agents: { critic: ["claude"], actuator: ["claude"] },
       verdictPath: expect.stringMatching(
         /^\/jarvis\/worktrees\/demo\/plan\/reviewed-plan\/spec\/\d{8}T\d{6}Z-reviewed-plan\/verdict-plan\.md$/,
       ),
+      planReviewContext: expect.objectContaining({
+        specPath: expect.stringMatching(/\/spec\/\d{8}T\d{6}Z-reviewed-plan$/),
+      }),
     });
   });
 
@@ -109,7 +107,7 @@ describe("buildReviewedPlanWorkflowSteps", () => {
     }
   });
 
-  test("points the debate step at the draft's actual localPath when project git is disabled", async () => {
+  test("points the review step at the draft's actual localPath when project git is disabled", async () => {
     const root = mkdtempSync(join(tmpdir(), "plan-builder-"));
     const config = join(root, "config.json");
     writeFileSync(config, JSON.stringify({ projects: { demo: { root, git: false } } }));
@@ -125,9 +123,9 @@ describe("buildReviewedPlanWorkflowSteps", () => {
     const localPath = writeStep.worktree.localPath;
     expect(writeStep.worktree.git).toBe(false);
     expect(typeof localPath).toBe("string");
-    expect(result.steps[1]).toMatchObject({ behavior: "review-debate", cwd: localPath });
-    const debateStep = result.steps[1];
-    if (debateStep?.behavior !== "review-debate") throw new Error("expected review-debate step");
-    expect(debateStep.verdictPath.startsWith(`${localPath}/`)).toBe(true);
+    expect(result.steps[1]).toMatchObject({ behavior: "review", cwd: localPath });
+    const reviewStep = result.steps[1];
+    if (reviewStep?.behavior !== "review") throw new Error("expected review step");
+    expect(reviewStep.verdictPath.startsWith(`${localPath}/`)).toBe(true);
   });
 });

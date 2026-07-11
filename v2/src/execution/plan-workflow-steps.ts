@@ -9,6 +9,7 @@ import { getExternalWorktreePath } from "./external-worktree.ts";
 import {
   type LoadedWorkflowStep,
   type ReviewDebateWorkflowSourceStep,
+  type ReviewWorkflowSourceStep,
   loadWorkflowSteps as realLoadWorkflowSteps,
   type WorkflowSourceStep,
   type WriteWorkflowSourceStep,
@@ -16,6 +17,7 @@ import {
 import {
   type AnyWorkflowStep,
   type ReviewDebateWorkflowStep,
+  type ReviewWorkflowStep,
   resolveWorkflowPreset,
   type WriteWorkflowStep,
 } from "./workflow-runner.ts";
@@ -314,19 +316,19 @@ export async function buildReviewedPlanWorkflowSteps(
     ...source.step.worktree,
     ...(source.step.jarvisRoot !== undefined ? { jarvisRoot: source.step.jarvisRoot } : {}),
   });
-  const reviewStep: ReviewDebateWorkflowSourceStep = {
-    behavior: "review-debate",
-    stepId: "review-debate",
+  const reviewStep: ReviewWorkflowSourceStep = {
+    behavior: "review",
+    stepId: "plan-review",
     project: source.step.worktree.projectName,
     branch: source.step.worktree.branchName,
     cwd,
-    prompts: {
-      adversary: "plan.prompt.review.adversary",
-      advocate: "plan.prompt.review.advocate",
-      adjudicator: "plan.prompt.review.adjudicator",
-    },
+    prompt: "", // Will be rendered at execution time from templates
     verdictPath: join(cwd, source.step.specPath, "verdict-plan.md"),
     maxCycles: reviewPasses,
+    planReviewContext: {
+      specPath: join(cwd, source.step.specPath),
+      ...(source.step.jarvisRoot !== undefined ? { jarvisRoot: source.step.jarvisRoot } : {}),
+    },
   };
   try {
     const loaded = (deps.loadWorkflowSteps ?? realLoadWorkflowSteps)(
@@ -334,11 +336,11 @@ export async function buildReviewedPlanWorkflowSteps(
       workflowLoadOptions(deps),
     );
     const writeSteps = loaded.filter((step): step is WriteWorkflowStep => step.behavior === "write");
-    const debateStep = loaded.find((step): step is ReviewDebateWorkflowStep => step.behavior === "review-debate");
-    if (debateStep === undefined) return { ok: false, error: "plan: review-debate step was not loaded" };
+    const reviewStepLoaded = loaded.find((step): step is ReviewWorkflowStep => step.behavior === "review");
+    if (reviewStepLoaded === undefined) return { ok: false, error: "plan: review step was not loaded" };
     return {
       ok: true,
-      steps: [...resolveWorkflowPreset("plan-reviewed", writeSteps), debateStep],
+      steps: [...resolveWorkflowPreset("plan-reviewed", writeSteps), reviewStepLoaded],
       identity: source.identity,
     };
   } catch (error) {

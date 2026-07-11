@@ -1011,6 +1011,30 @@ function findCompletedReviewRun(
   return existing?.status === "completed" ? existing : undefined;
 }
 
+/**
+ * Exclude the verdict file from staging, run final validation + transactional landing, then
+ * remove the verdict. Returns an error message on failure, or undefined on success.
+ */
+function landReviewedIntentOutput(
+  worktreePath: string,
+  deferred: NonNullable<ReviewWorkflowStep["deferredIntentOutput"]>,
+  verdictPath: string,
+): string | undefined {
+  try {
+    excludeVerdictFromStaging(deferred.stagingDir, verdictPath);
+    landIntentWorkflowOutput({
+      worktreePath,
+      baseRef: deferred.baseRef,
+      output: deferred.config,
+      invocationId: deferred.invocationId,
+    });
+    cleanupVerdictFile(verdictPath);
+    return undefined;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
 async function runReviewStep(
   step: ReviewWorkflowStep,
   stepIndex: number,
@@ -1094,28 +1118,11 @@ async function runReviewStep(
     };
   }
 
-  // After successful review, handle final validation and landing for intent workflows.
-  let landingError: string | undefined;
-  if (result.kind === "complete" && deferredIntentOutput !== undefined) {
-    const worktreePath = step.cwd;
-    try {
-      // Exclude the verdict file from staging before validation/landing.
-      excludeVerdictFromStaging(deferredIntentOutput.stagingDir, reviewInput.verdictPath);
-
-      // Run final validation and landing.
-      landIntentWorkflowOutput({
-        worktreePath,
-        baseRef: deferredIntentOutput.baseRef,
-        output: deferredIntentOutput.config,
-        invocationId: deferredIntentOutput.invocationId,
-      });
-
-      // Clean up the verdict file after successful landing.
-      cleanupVerdictFile(reviewInput.verdictPath);
-    } catch (error) {
-      landingError = error instanceof Error ? error.message : String(error);
-    }
-  }
+  // After successful review, run final validation and landing for reviewed intent workflows.
+  const landingError =
+    result.kind === "complete" && deferredIntentOutput !== undefined
+      ? landReviewedIntentOutput(step.cwd, deferredIntentOutput, reviewInput.verdictPath)
+      : undefined;
 
   const lastCycle = result.cycles[result.cycles.length - 1];
   const terminalRole: ReviewCycleRole =

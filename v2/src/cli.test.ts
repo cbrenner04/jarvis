@@ -907,6 +907,72 @@ describe("v2 cli", () => {
     });
   });
 
+  test("run workflow implement derives branch from spec parent dirname when branch is omitted", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000008";
+    const originalRandomUuid = crypto.randomUUID;
+    crypto.randomUUID = () => requestId;
+
+    let builtInput: BuildImplementWorkflowStepsInput | undefined;
+
+    let code = NaN;
+    try {
+      code = await main(["run", "workflow", "implement", "--base", "main", "--spec", "v2/spec/my-spec/index.md"], cap.io, {
+        cwd: () => "/tmp/repo",
+        readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
+        workflowPresetBuilders: {
+          implement: (input) => {
+            builtInput = input;
+            return { ok: true, steps: FAKE_IMPLEMENT_STEPS };
+          },
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(
+            [
+              {
+                kind: "response",
+                id: requestId,
+                result: { runId: "run-derived-branch" },
+              },
+            ],
+            { sent },
+          ),
+      });
+    } finally {
+      crypto.randomUUID = originalRandomUuid;
+    }
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "run-derived-branch\n", stderr: "" });
+    expect(builtInput).toMatchObject({
+      cwd: "/tmp/repo",
+      branchName: "my-spec",
+      baseRef: "main",
+      specPath: "v2/spec/my-spec/index.md",
+      projectRoot: "/tmp/repo",
+    });
+  });
+
+  test("run workflow implement requires --artifact for non-index specs and surfaces error without daemon contact", async () => {
+    const cap = captureIo();
+
+    const code = await main(
+      ["run", "workflow", "implement", "--base", "main", "--spec", "spec.md"],
+      cap.io,
+      {
+        cwd: () => "/tmp/repo",
+        readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
+        connectIpcClient: async () => {
+          throw new Error("should not contact daemon");
+        },
+      },
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain("Non-index spec requires --artifact");
+  });
+
   test("run workflow implement surfaces a builder error without contacting the daemon", async () => {
     const cap = captureIo();
 

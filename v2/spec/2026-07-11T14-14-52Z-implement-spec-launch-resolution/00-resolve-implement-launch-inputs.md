@@ -24,12 +24,12 @@ Make `implement` resolve its project, default branch, and index artifact from `-
 
 ## Acceptance criteria
 
-- [ ] `jarvis run workflow implement --base <ref> --spec <index>` launched outside the target checkout resolves the registered project containing the resolved spec path and starts its workflow.
-- [ ] A relative `--spec` resolves from invocation cwd; its parent basename supplies an omitted branch, while an explicit branch is unchanged.
-- [ ] A resolved `index.md` launch succeeds without `--artifact`; a supplied value is ignored and both spec and completion artifact reach the workflow as worktree-relative index paths.
-- [ ] A non-index launch still requires `--artifact`; a resolved spec outside registered project roots fails with a spec-path-specific error before daemon contact.
-- [ ] CLI and implement-workflow-step tests cover required `--spec`/`--base`, optional `--branch`, index-only optional `--artifact`, project identity/root, and worktree-relative workflow inputs.
-- [ ] `v2/docs/write-behavior.md` and `v2/docs/first-workflow-walkthrough.md` state that workflow-started implement runs cannot be paused or killed live.
+- [x] `jarvis run workflow implement --base <ref> --spec <index>` launched outside the target checkout resolves the registered project containing the resolved spec path and starts its workflow.
+- [x] A relative `--spec` resolves from invocation cwd; its parent basename supplies an omitted branch, while an explicit branch is unchanged.
+- [x] A resolved `index.md` launch succeeds without `--artifact`; a supplied value is ignored and both spec and completion artifact reach the workflow as worktree-relative index paths.
+- [x] A non-index launch still requires `--artifact`; a resolved spec outside registered project roots fails with a spec-path-specific error before daemon contact.
+- [x] CLI and implement-workflow-step tests cover required `--spec`/`--base`, optional `--branch`, index-only optional `--artifact`, project identity/root, and worktree-relative workflow inputs.
+- [x] `v2/docs/write-behavior.md` and `v2/docs/first-workflow-walkthrough.md` state that workflow-started implement runs cannot be paused or killed live.
 
 ## Documentation updates
 

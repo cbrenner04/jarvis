@@ -14,6 +14,7 @@ type StepOutcomeToken = (typeof TERMINAL_TOKENS)[number];
 /** A deterministic, side-effect-free pass/fail check run after a terminal token. */
 export type StepContract = {
   id: string;
+  reason?: string;
   check: (args: { cwd: string }) => boolean | Promise<boolean>;
 };
 
@@ -35,6 +36,7 @@ export type StepRunResult = { invocation: InvocationExecution } & (
       kind: "contract_miss";
       token: "done" | "no-work";
       failedContractId: string;
+      failureReason?: string;
     }
   | { kind: "invalid_token"; tokenText: string }
   | {
@@ -128,6 +130,7 @@ export async function runStep(args: StepRunInput): Promise<StepRunResult> {
         kind: "contract_miss",
         token,
         failedContractId: contract.id,
+        ...(contract.reason !== undefined ? { failureReason: contract.reason } : {}),
         invocation,
       };
     }

@@ -150,7 +150,7 @@ least one binding.
 Programmatic workflow dispatch for this cycle is documented in
 [`workflow-runner.md`](./workflow-runner.md#review-dispatch).
 
-## Plan write-step seeding
+## Plan write-step seeding and completion contract
 
 The `plan` preset's single write step executes with runtime seeding and prompt
 rendering to prepare the draft phase:
@@ -177,6 +177,17 @@ draft behavior ensures the agent and the contract inspector read and write the
 same durable path. For example, if `targetDir` is `v2/spec` and `NAME` is
 `2026-07-11T09-47-44Z-plan-workflow-draft`, the agent writes to
 `v2/spec/2026-07-11T09-47-44Z-plan-workflow-draft/`.
+
+**Draft output shape contract:** The plan preset supplies an injectable completion
+validator that checks the draft output is a runnable spec tree: `index.md` must
+exist and at least one file matching `/^\d{2}-.*\.md$/` (a subspec) must be
+present in the spec directory. A bare `index.md` with no subspecs fails. When
+this contract passes, the existing commit + draft-PR completion publish proceeds
+unchanged. When it fails, the workflow stops with `contract_miss` outcome and
+opens no draft PR. The failure reason `plan.draft.shape` is carried as a distinct
+field in the contract-miss result (distinct from the contract `id`), allowing
+future subspecs (e.g., subspec 03) to distinguish shape failures from blocker
+detection failures.
 
 ## Intent review cycle
 

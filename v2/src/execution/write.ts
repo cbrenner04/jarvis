@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
@@ -11,6 +11,26 @@ import { runStep, type StepRunResult } from "./step-runner.ts";
 import { renderStepPrompt } from "./write-prompt.ts";
 
 const DEFAULT_PROMPT_ID = "write.execute";
+
+function validatePlanDraftShape(specDir: string): { valid: boolean; reason?: string } {
+  if (!existsSync(specDir)) {
+    return { valid: false, reason: "plan.draft.shape" };
+  }
+
+  const indexPath = join(specDir, "index.md");
+  if (!existsSync(indexPath)) {
+    return { valid: false, reason: "plan.draft.shape" };
+  }
+
+  const files = readdirSync(specDir);
+  const subspecCount = files.filter((f: string) => /^\d{2}-.*\.md$/.test(f)).length;
+
+  if (subspecCount === 0) {
+    return { valid: false, reason: "plan.draft.shape" };
+  }
+
+  return { valid: true };
+}
 
 export type WriteExecuteInput = {
   worktree: ExternalWorktreeInput;
@@ -25,6 +45,7 @@ export type WriteExecuteInput = {
   withExternalWorktree?: typeof realWithExternalWorktree;
   intentSeed?: string;
   jarvisRoot?: string;
+  completionValidator?: (specDir: string) => { valid: boolean; reason?: string };
 };
 
 type WriteExecuteResult = {
@@ -71,6 +92,8 @@ export async function executeWrite(args: WriteExecuteInput): Promise<WriteExecut
       // Rewrite spec/<NAME>/ to <targetDir>/<NAME>/
       prompt = prompt.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`);
 
+      const validator = args.completionValidator ?? validatePlanDraftShape;
+
       return runStep({
         prompt,
         cwd: worktree.path,
@@ -78,7 +101,11 @@ export async function executeWrite(args: WriteExecuteInput): Promise<WriteExecut
         contracts: [
           {
             id: "artifact.exists",
-            check: () => existsSync(expectedArtifactPath),
+            reason: "plan.draft.shape",
+            check: () => {
+              const validation = validator(specDir);
+              return validation.valid;
+            },
           },
         ],
         ...(args.signal !== undefined ? { signal: args.signal } : {}),

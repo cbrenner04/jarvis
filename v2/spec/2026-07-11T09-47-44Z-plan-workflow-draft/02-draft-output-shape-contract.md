@@ -23,12 +23,12 @@ Make the `plan` write step's completion contract injectable and carry a distinct
 
 ## Acceptance criteria
 
-- [ ] A run whose agent produces `index.md` plus ≥1 `NN-*.md` subspec passes the completion contract, commits, and opens a draft PR.
-- [ ] A run producing `index.md` but zero `NN-*.md` subspecs fails the workflow (non-zero) and opens no draft PR.
-- [ ] A run producing no `index.md` fails the workflow (non-zero) and opens no draft PR.
-- [ ] The completion-contract failure result carries a distinct failure reason (`plan.draft.shape`) rather than only a contract id.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] A run whose agent produces `index.md` plus ≥1 `NN-*.md` subspec passes the completion contract, commits, and opens a draft PR.
+- [x] A run producing `index.md` but zero `NN-*.md` subspecs fails the workflow (non-zero) and opens no draft PR.
+- [x] A run producing no `index.md` fails the workflow (non-zero) and opens no draft PR.
+- [x] The completion-contract failure result carries a distinct failure reason (`plan.draft.shape`) rather than only a contract id.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

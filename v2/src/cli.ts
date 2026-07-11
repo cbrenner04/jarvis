@@ -13,8 +13,7 @@ import { loadMachineProfileModels } from "./config/machine-profile-loader.ts";
 import { resolveWriteLoopBindings, type WaitRunCompletionResult } from "./daemon/daemon.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon/daemon-lifecycle.ts";
 import { parseListRuns, parseStartResult, parseWaitCompletion } from "./daemon/daemon-wire.ts";
-import { buildImplementWorkflowSteps } from "./execution/implement-workflow-steps.ts";
-import type { WorkflowPresetBuilder } from "./execution/workflow-presets.ts";
+import { WORKFLOW_PRESET_BUILDERS, type WorkflowPresetBuilder } from "./execution/workflow-presets.ts";
 import {
   applyOperatorSessionId,
   executeWriteLoop,
@@ -49,7 +48,6 @@ type CliDeps = {
   getDaemonStatus: typeof getDaemonStatus;
   runTuiEntry: (deps?: RunTuiEntryDeps) => Promise<number>;
   runTuiLogFollow: (runId: string, deps?: RunTuiLogFollowDeps) => Promise<number>;
-  buildImplementWorkflowSteps: typeof buildImplementWorkflowSteps;
   workflowPresetBuilders: Readonly<Record<string, WorkflowPresetBuilder>>;
   cwd: () => string;
   socketPath: string;
@@ -84,15 +82,12 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     getDaemonStatus,
     runTuiEntry,
     runTuiLogFollow,
-    buildImplementWorkflowSteps,
     cwd: () => process.cwd(),
     socketPath: DAEMON_SOCKET_PATH,
     pidPath: DAEMON_PID_PATH,
     machineConfigPath: MACHINE_CONFIG_PATH,
     ...deps,
-    workflowPresetBuilders: deps?.workflowPresetBuilders ?? {
-      implement: deps?.buildImplementWorkflowSteps ?? buildImplementWorkflowSteps,
-    },
+    workflowPresetBuilders: deps?.workflowPresetBuilders ?? WORKFLOW_PRESET_BUILDERS,
   };
   const command = argv[0];
   const operatorSessionId = crypto.randomUUID();
@@ -382,7 +377,10 @@ function runTuiCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<
 
 async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
   const name = argv[0];
-  const builder = name === undefined ? undefined : deps.workflowPresetBuilders[name];
+  const builder =
+    name !== undefined && Object.hasOwn(deps.workflowPresetBuilders, name)
+      ? deps.workflowPresetBuilders[name]
+      : undefined;
   if (builder === undefined) {
     io.stderr(WORKFLOW_USAGE);
     return 1;

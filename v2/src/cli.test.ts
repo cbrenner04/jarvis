@@ -786,9 +786,11 @@ describe("v2 cli", () => {
     try {
       code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
         cwd: () => "/tmp/repo/sub",
-        buildImplementWorkflowSteps: (input) => {
-          builtInput = input;
-          return { ok: true, steps: FAKE_IMPLEMENT_STEPS };
+        workflowPresetBuilders: {
+          implement: (input) => {
+            builtInput = input;
+            return { ok: true, steps: FAKE_IMPLEMENT_STEPS };
+          },
         },
         connectIpcClient: async () =>
           makeIpcClient(
@@ -833,7 +835,9 @@ describe("v2 cli", () => {
     try {
       code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
         cwd: () => "/tmp/repo/sub",
-        buildImplementWorkflowSteps: () => ({ ok: true, steps: FAKE_IMPLEMENT_STEPS }),
+        workflowPresetBuilders: {
+          implement: () => ({ ok: true, steps: FAKE_IMPLEMENT_STEPS }),
+        },
         connectIpcClient: async () =>
           makeIpcClient([
             {
@@ -865,7 +869,9 @@ describe("v2 cli", () => {
     try {
       code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
         cwd: () => "/tmp/repo/sub",
-        buildImplementWorkflowSteps: () => ({ ok: true, steps: FAKE_IMPLEMENT_STEPS }),
+        workflowPresetBuilders: {
+          implement: () => ({ ok: true, steps: FAKE_IMPLEMENT_STEPS }),
+        },
         connectIpcClient: async () =>
           makeIpcClient([
             {
@@ -904,10 +910,12 @@ describe("v2 cli", () => {
 
     const code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
       cwd: () => "/tmp/unregistered",
-      buildImplementWorkflowSteps: () => ({
-        ok: false,
-        error: "No registered project matches cwd: /tmp/unregistered",
-      }),
+      workflowPresetBuilders: {
+        implement: () => ({
+          ok: false,
+          error: "No registered project matches cwd: /tmp/unregistered",
+        }),
+      },
       connectIpcClient: async () => {
         throw new Error("should not contact daemon");
       },
@@ -924,6 +932,22 @@ describe("v2 cli", () => {
     const cap = captureIo();
 
     const code = await main(["run", "workflow", "bogus"], cap.io, {
+      connectIpcClient: async () => {
+        throw new Error("should not contact daemon");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "usage: jarvis run workflow <implement> [flags]\n",
+    });
+  });
+
+  test("run workflow rejects inherited preset names without contacting the daemon", async () => {
+    const cap = captureIo();
+
+    const code = await main(["run", "workflow", "toString"], cap.io, {
       connectIpcClient: async () => {
         throw new Error("should not contact daemon");
       },

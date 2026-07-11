@@ -7,8 +7,8 @@ import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import type { MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
 import {
   type LoadedWorkflowStep,
-  loadWorkflowSteps as realLoadWorkflowSteps,
   type ReviewDebateWorkflowSourceStep,
+  loadWorkflowSteps as realLoadWorkflowSteps,
   type WorkflowSourceStep,
   type WriteWorkflowSourceStep,
 } from "./workflow-loader.ts";
@@ -326,7 +326,10 @@ export async function buildReviewedPlanWorkflowSteps(
     maxCycles: reviewPasses,
   };
   try {
-    const loaded = (deps.loadWorkflowSteps ?? realLoadWorkflowSteps)([source.step, reviewStep], workflowLoadOptions(deps));
+    const loaded = (deps.loadWorkflowSteps ?? realLoadWorkflowSteps)(
+      [source.step, reviewStep],
+      workflowLoadOptions(deps),
+    );
     const writeSteps = loaded.filter((step): step is WriteWorkflowStep => step.behavior === "write");
     const debateStep = loaded.find((step): step is ReviewDebateWorkflowStep => step.behavior === "review-debate");
     if (debateStep === undefined) return { ok: false, error: "plan: review-debate step was not loaded" };

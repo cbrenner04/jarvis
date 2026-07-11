@@ -1178,7 +1178,11 @@ describe("v2 cli", () => {
     const code = await main(
       ["run", "workflow", "plan-reviewed", "--ready-intent", "spec/ready-intents/demo.md", "--review-passes", "-1"],
       cap.io,
-      { connectIpcClient: async () => { throw new Error("should not contact daemon"); } },
+      {
+        connectIpcClient: async () => {
+          throw new Error("should not contact daemon");
+        },
+      },
     );
     expect(code).toBe(1);
     expect(cap.read()).toEqual({

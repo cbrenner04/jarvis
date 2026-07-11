@@ -479,7 +479,12 @@ async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps
     return 1;
   }
 
-  if ("reviewPasses" in parsed && parsed.reviewPasses !== undefined && name !== "intent-reviewed" && name !== "plan-reviewed") {
+  if (
+    "reviewPasses" in parsed &&
+    parsed.reviewPasses !== undefined &&
+    name !== "intent-reviewed" &&
+    name !== "plan-reviewed"
+  ) {
     io.stderr(getWorkflowUsage(name));
     return 1;
   }
@@ -773,7 +778,9 @@ function parseIntentWorkflowArgs(argv: readonly string[], allowReviewPasses: boo
   return { ok: false };
 }
 
-type PlanWorkflowCliInput = { ok: true; readyIntent: string; targetDir?: string; reviewPasses?: number } | { ok: false };
+type PlanWorkflowCliInput =
+  | { ok: true; readyIntent: string; targetDir?: string; reviewPasses?: number }
+  | { ok: false };
 
 function parsePlanWorkflowArgs(argv: readonly string[], allowReviewPasses: boolean = false): PlanWorkflowCliInput {
   let values: Record<string, string | boolean | undefined>;

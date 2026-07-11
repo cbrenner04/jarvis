@@ -4,7 +4,11 @@ import { buildPlanWorkflowSteps, buildReviewedPlanWorkflowSteps } from "./plan-w
 import type { LoadedWorkflowStep, WorkflowSourceStep } from "./workflow-loader.ts";
 
 const match: ProjectMatch = { key: "demo", root: "/repo" };
-const intent = { ok: true as const, name: "reviewed-plan", content: "---\nname: reviewed-plan\n---\n\n## Prerequisites\n" };
+const intent = {
+  ok: true as const,
+  name: "reviewed-plan",
+  content: "---\nname: reviewed-plan\n---\n\n## Prerequisites\n",
+};
 
 const load = (steps: readonly WorkflowSourceStep[]): LoadedWorkflowStep[] =>
   steps.map((step) =>
@@ -12,11 +16,11 @@ const load = (steps: readonly WorkflowSourceStep[]): LoadedWorkflowStep[] =>
       ? { ...step, agents: ["claude"], agentModelConfig: {} }
       : step.behavior === "review"
         ? { ...step, agents: { critic: ["claude"], actuator: ["claude"] }, agentModelConfig: {} }
-      : {
-          ...step,
-          agents: { adversary: ["claude"], advocate: ["claude"], adjudicator: ["claude"], actuator: ["claude"] },
-          agentModelConfig: {},
-        },
+        : {
+            ...step,
+            agents: { adversary: ["claude"], advocate: ["claude"], adjudicator: ["claude"], actuator: ["claude"] },
+            agentModelConfig: {},
+          },
   );
 
 describe("buildReviewedPlanWorkflowSteps", () => {
@@ -75,7 +79,9 @@ describe("buildReviewedPlanWorkflowSteps", () => {
     if (positive.ok) expect(positive.steps[1]).toMatchObject({ maxCycles: 3 });
 
     loaded = false;
-    expect((await buildReviewedPlanWorkflowSteps({ cwd: "/repo", readyIntent: "x", reviewPasses: -1 }, deps)).ok).toBe(false);
+    expect((await buildReviewedPlanWorkflowSteps({ cwd: "/repo", readyIntent: "x", reviewPasses: -1 }, deps)).ok).toBe(
+      false,
+    );
     expect(loaded).toBe(false);
   });
 

@@ -382,6 +382,21 @@ separate orders, not one order applied to all four roles. Before dispatch,
 via the same two-axis resolution `write` steps use, then passes the four
 per-role binding sets to `executeReviewDebate`.
 
+**Patch review prompt rendering:** `v2/src/execution/review-debate-render.ts`
+binds the three read-only roles to `patch.prompt.review.adversary`,
+`.advocate`, and `.adjudicator`. Each cycle renders those templates with the
+executed spec tree, a branch change summary (`git diff --stat` plus changed
+paths), the pass number, and `REVIEW_PASS_CONTEXT`. Within a cycle, the
+adversary's stdout is injected as `ADVERSARY_FINDINGS` for the advocate, and
+the advocate's stdout as `ADVOCATE_RESPONSE` for the adjudicator. Across
+cycles, the prior cycle's adjudicator verdict is carried in
+`REVIEW_PASS_CONTEXT` for every role in the next cycle. The actuator prompt
+is composed from the patch verdict-actuator template (`buildVerdictActuatorPrompt`
+in `v1/src/modes/patch/prompt.ts`) with the settled adjudicator verdict.
+`renderReviewDebateCyclePrompts` and `nextReviewDebateCycleContext` expose the
+per-cycle render and cross-cycle carry contract for callers that build
+implement's appended `review-debate` step.
+
 Outcome mapping for a `review-debate` step reuses `WorkflowResult`
 (`kind: WriteLoopOutcomeKind`, no new kind added): all configured cycles
 completing without a role failure is `kind: "complete"`; a cycle aborting on

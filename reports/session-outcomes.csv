@@ -245,3 +245,8 @@ report,session_id,report_date,cost,completed_work_units,success_status,failure_r
 2026-07-11T00-13-10Z-operator,onboarding-overview-and-coexistence,2026-07-10,$3.75,1,completed,,implementation,2,53.25,$0.0704,8,$0.4688,
 2026-07-11T00-13-10Z-operator,v2-install-and-config,2026-07-10,$5.50,1,completed,,implementation,2,34.88,$0.1577,6,$0.9167,
 2026-07-11T00-13-10Z-operator,v2-first-workflow-walkthrough,2026-07-10,$6.35,1,completed,,implementation,2,36.73,$0.1729,6,$1.0583,
+2026-07-11T10-30-00Z-operator-v2-seeds-00-04,review-behavior,2026-07-11,$4.94,3,completed,,implementation,1,72.18,$0.0684,24,$0.2058,
+2026-07-11T10-30-00Z-operator-v2-seeds-00-04,generic-workflow-launcher,2026-07-11,$2.95,1,completed,,implementation,1,28.37,$0.1040,8,$0.3688,
+2026-07-11T10-30-00Z-operator-v2-seeds-00-04,intent-workflow-split,2026-07-11,$5.87,4,completed,,implementation,1,89.43,$0.0656,24,$0.2446,
+2026-07-11T10-30-00Z-operator-v2-seeds-00-04,intent-workflow-reviewed,2026-07-11,$9.47,4,completed,,implementation,2,124.42,$0.0761,25,$0.3788,"run retried across haiku/opus timeouts; subspec split; op-fixed durable-review regression"
+2026-07-11T10-30-00Z-operator-v2-seeds-00-04,plan-workflow-draft,2026-07-11,$16.89,4,completed,,implementation,1,117.87,$0.1433,18,$0.9383,"run retried; two subspecs hand-split; review caught 2 real bugs"

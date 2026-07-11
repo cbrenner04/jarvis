@@ -245,3 +245,8 @@ report,name,plan_model,plan_cost,plan_time,plan_tokens_in,plan_tokens_out,run_mo
 2026-07-11T00-13-10Z-operator,onboarding-overview-and-coexistence,claude-opus-4-8,$2.75,0:15:33,16204,22509,claude-sonnet-5 cursor,$1.00,0:37:42,22537,5132,$3.75,66382,$0.0565,docs; run terminal agent cursor (est $0)
 2026-07-11T00-13-10Z-operator,v2-install-and-config,claude-opus-4-8,$3.82,0:18:49,15309,30268,claude-sonnet-5 cursor,$1.68,0:16:04,22839,9782,$5.50,78198,$0.0703,docs
 2026-07-11T00-13-10Z-operator,v2-first-workflow-walkthrough,claude-opus-4-8,$3.83,0:19:13,16100,34628,claude-sonnet-5 cursor,$2.52,0:17:31,26031,17662,$6.35,94421,$0.0673,docs
+2026-07-11T10-30-00Z-operator-v2-seeds-00-04,review-behavior,codex,$1.88,0:13:26,213778,12778,codex,$3.06,0:58:45,818871,57591,$4.94,1103018,$0.0045,codex plan+run
+2026-07-11T10-30-00Z-operator-v2-seeds-00-04,generic-workflow-launcher,codex,$1.29,0:10:43,167253,5817,codex,$1.66,0:17:39,455561,26067,$2.95,654698,$0.0045,codex plan+run
+2026-07-11T10-30-00Z-operator-v2-seeds-00-04,intent-workflow-split,codex,$1.79,0:13:00,211639,11600,codex,$4.08,1:16:26,1416806,85254,$5.87,1725299,$0.0034,codex; v1+shared+v2 surfaces
+2026-07-11T10-30-00Z-operator-v2-seeds-00-04,intent-workflow-reviewed,codex,$1.97,0:14:21,218687,13035,claude-haiku-4-5 claude-opus-4-8,$7.50,1:35:43,5268,144792,$9.47,381782,$0.0248,run: haiku impl+opus review; subspec 01 hand-split; excludes 3 zero-cost timeout attempts
+2026-07-11T10-30-00Z-operator-v2-seeds-00-04,plan-workflow-draft,claude-opus-4-8,$7.38,0:26:09,83,49739,claude-haiku-4-5 claude-opus-4-8,$9.51,1:05:34,5512,178708,$16.89,234042,$0.0722,codex capacity-dropped; run: haiku impl+opus review; two subspecs hand-split; excludes zero-cost timeout attempts

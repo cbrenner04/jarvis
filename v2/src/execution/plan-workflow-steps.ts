@@ -4,8 +4,8 @@ import { basename, dirname, isAbsolute, join } from "node:path";
 import { getBaseBranch } from "../../../shared/git.ts";
 import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
-import { loadWorkflowSteps as realLoadWorkflowSteps, type WorkflowSourceStep } from "./workflow-loader.ts";
-import { type AnyWorkflowStep, resolveWorkflowPreset } from "./workflow-runner.ts";
+import { loadWorkflowSteps as realLoadWorkflowSteps, type WriteWorkflowSourceStep } from "./workflow-loader.ts";
+import { type AnyWorkflowStep, resolveWorkflowPreset, type WriteWorkflowStep } from "./workflow-runner.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 const STAGE_DIR = ".jarvis-plan-stage";
@@ -187,7 +187,7 @@ export async function buildPlanWorkflowSteps(
   input: PlanWorkflowInput,
   deps?: {
     resolveProjectMatch?: (path: string) => ProjectMatch | undefined;
-    loadWorkflowSteps?: typeof realLoadWorkflowSteps;
+    loadWorkflowSteps?: (steps: readonly WriteWorkflowSourceStep[]) => WriteWorkflowStep[];
     readReadyIntent?: (path: string) => { ok: true; name: string; content: string } | { ok: false; message: string };
     resolveBaseBranch?: (projectRoot: string) => string | Promise<string>;
   },
@@ -222,7 +222,7 @@ export async function buildPlanWorkflowSteps(
   const specDir = join(targetDir, `${specTimestamp}-${name}`);
   const base = publish ? await (deps?.resolveBaseBranch ?? getBaseBranch)(project.root) : "none";
 
-  const sourceStep: WorkflowSourceStep = {
+  const sourceStep: WriteWorkflowSourceStep = {
     behavior: "write",
     stepId: "plan",
     role: "plan",

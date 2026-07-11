@@ -1,0 +1,1 @@
+- Update `v2/docs/workflow-runner.md` to remove the obsolete claim that `workflow-loader.ts` only supports single-role steps and cannot load `review-debate`. The documentation must consistently state that programmatic source loading supports `write | review-debate`, as required by the completed subspec.

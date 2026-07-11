@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import {
   executeWithQuotaFallback,
@@ -89,7 +89,12 @@ export function renderActuatorPrompt(context: PlanReviewPromptContext, verdict: 
 
 export type PlanReviewCycleOutcome =
   | { kind: "completed"; verdict: string; actuatorRan: boolean }
-  | { kind: "role_failed"; failedRole: "critic" | "actuator"; failureKind: InvocationFailureKind; verdict: string | null };
+  | {
+      kind: "role_failed";
+      failedRole: "critic" | "actuator";
+      failureKind: InvocationFailureKind;
+      verdict: string | null;
+    };
 
 export type PlanReviewCycleInput = {
   context: PlanReviewPromptContext;

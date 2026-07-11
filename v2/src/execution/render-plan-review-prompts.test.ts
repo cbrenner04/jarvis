@@ -3,16 +3,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
-import {
-  executePlanReviewCycle,
-  renderActuatorPrompt,
-  renderCriticPrompt,
-} from "./render-plan-review-prompts.ts";
+import { executePlanReviewCycle, renderActuatorPrompt, renderCriticPrompt } from "./render-plan-review-prompts.ts";
 
-function binding(
-  id: string,
-  invoke: InvocationBinding["invoke"],
-): InvocationBinding {
+function binding(id: string, invoke: InvocationBinding["invoke"]): InvocationBinding {
   return { id, invoke, metadata: { agent: id, model: id } };
 }
 
@@ -78,9 +71,7 @@ describe("executePlanReviewCycle", () => {
       verdictPath,
       maxCycles: 1,
       bindings: {
-        critic: [
-          binding("critic", async () => ({ kind: "ok", stdout: "Tighten acceptance criteria", stderr: "" })),
-        ],
+        critic: [binding("critic", async () => ({ kind: "ok", stdout: "Tighten acceptance criteria", stderr: "" }))],
         actuator: [
           binding("actuator", async () => {
             writeFileSync(subspecPath, "# After review", "utf8");

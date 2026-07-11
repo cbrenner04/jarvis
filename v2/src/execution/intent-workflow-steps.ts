@@ -1,13 +1,16 @@
+import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import { createHash } from "node:crypto";
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative } from "node:path";
 import { getBaseBranch } from "../../../shared/git.ts";
 import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
-import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
+import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
+import { loadMachineConfig, readMachineConfigDocument, resolveMachineProfile } from "../config/machine-config-loader.ts";
+import { loadMachineProfileModels, type MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
 import { loadWorkflowSteps as realLoadWorkflowSteps, type WorkflowSourceStep } from "./workflow-loader.ts";
-import { type AnyWorkflowStep, resolveWorkflowPreset } from "./workflow-runner.ts";
-import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
+import { type AnyWorkflowStep, type ReviewWorkflowStep, resolveWorkflowPreset } from "./workflow-runner.ts";
+import { DEFAULT_WRITE_AGENTS, DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 const STAGE_DIR = ".jarvis-intent-stage";
 const RESERVED_SLUGS = new Set(["index", "head"]);
@@ -20,6 +23,7 @@ export type IntentWorkflowInput = {
   invocationId?: string;
   configPath?: string;
   jarvisRoot?: string;
+  reviewPasses?: number;
 };
 
 type ProjectConfig = ProjectMatch & {
@@ -33,6 +37,10 @@ export type IntentWorkflowDeps = {
   readSeed?: (path: string) => string;
   resolveBaseBranch?: (projectRoot: string) => string | Promise<string>;
   inspectIdentity?: (identity: IntentWorkflowIdentity) => IntentCollision | undefined;
+  machineConfigPath?: string;
+  machineProfile?: string;
+  machinesDir?: MachineProfileLoadOptions["machinesDir"];
+  createBinding?: (binding: ResolvedAgentBinding) => ReturnType<typeof createResolvedAgentBinding>;
 };
 
 export type IntentWorkflowIdentity = {
@@ -255,6 +263,100 @@ export async function buildIntentWorkflowSteps(
   try {
     const loaded = (deps.loadWorkflowSteps ?? realLoadWorkflowSteps)([sourceStep]);
     return { ok: true, steps: resolveWorkflowPreset("intent", loaded), identity };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+const REVIEW_VERDICT_PATH = ".jarvis-intent-review-verdict.md";
+
+/** Build intent workflow with optional review step. */
+export async function buildReviewedIntentWorkflowSteps(
+  input: IntentWorkflowInput,
+  deps: IntentWorkflowDeps = {},
+): Promise<IntentWorkflowResult> {
+  const reviewPasses = input.reviewPasses ?? 1;
+
+  // Validate review passes
+  if (!Number.isInteger(reviewPasses) || reviewPasses < 0) {
+    return { ok: false, error: "intent: reviewPasses must be a non-negative integer" };
+  }
+
+  // If no review passes, delegate to split-only builder
+  if (reviewPasses === 0) {
+    return buildIntentWorkflowSteps(input, deps);
+  }
+
+  // Build the split step first
+  const splitResult = await buildIntentWorkflowSteps(input, deps);
+  if (!splitResult.ok) return splitResult;
+
+  const splitStep = splitResult.steps[0];
+  if (splitStep?.behavior !== "write") {
+    return { ok: false, error: "intent: split step must be a write step" };
+  }
+
+  const worktree = splitStep.worktree?.projectRoot;
+  if (!worktree) {
+    return { ok: false, error: "intent: unable to determine worktree for review step" };
+  }
+
+  const branch = splitStep.worktree?.branchName;
+  if (!branch) {
+    return { ok: false, error: "intent: unable to determine branch for review step" };
+  }
+
+  const project = splitStep.worktree?.projectName;
+  if (!project) {
+    return { ok: false, error: "intent: unable to determine project for review step" };
+  }
+
+  // Load machine config and profile for review bindings
+  try {
+    const agents = loadMachineConfig(deps.machineConfigPath) ?? DEFAULT_WRITE_AGENTS;
+    const machineProfile = deps.machineProfile ?? resolveMachineProfile(deps.machineConfigPath);
+
+    const loadResult = loadMachineProfileModels(machineProfile, agents, {
+      machinesDir: deps.machinesDir,
+    });
+
+    if ("errors" in loadResult) {
+      const errors = loadResult.errors as readonly string[];
+      return { ok: false, error: `intent: failed to load machine profile: ${errors.join(", ")}` };
+    }
+
+    const modelConfig = loadResult;
+
+    // Validate critic and actuator role bindings exist
+    try {
+      resolveExecutableRole("critic");
+      resolveExecutableRole("actuator");
+      resolveInvocationBindings("critic", agents, modelConfig, deps.createBinding ?? createResolvedAgentBinding);
+      resolveInvocationBindings("actuator", agents, modelConfig, deps.createBinding ?? createResolvedAgentBinding);
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+
+    // Create review step with promptId as placeholder
+    // Runtime enforcement will render prompts and validate verdicts
+    const reviewStep: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "review",
+      project,
+      branch,
+      cwd: worktree,
+      prompt: "intent.prompt.review",
+      verdictPath: join(worktree, REVIEW_VERDICT_PATH),
+      maxCycles: reviewPasses,
+      agents: {
+        critic: agents,
+        actuator: agents,
+      },
+      agentModelConfig: modelConfig,
+      ...(deps.createBinding !== undefined ? { createBinding: deps.createBinding } : {}),
+    };
+
+    return { ok: true, steps: [...splitResult.steps, reviewStep], identity: splitResult.identity };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }

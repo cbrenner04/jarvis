@@ -133,6 +133,19 @@ resumable invocation. The seed mapping is fingerprinted so a distinct seed
 cannot attach to an existing slug. Divergent remote state fails without reset,
 force-push, suffixing, or publication.
 
+`buildReviewedIntentWorkflowSteps` extends the split workflow with an optional
+light review step. It accepts a non-negative `reviewPasses` parameter (defaulting
+to `1`); zero passes delegates to the split-only builder, while positive values
+add one critic-actuator review step with `maxCycles` equal to the pass count.
+The builder loads independent `critic` and `actuator` agent chains from the
+machine's configured agent order (or `DEFAULT_WRITE_AGENTS` when absent) and the
+repo profile selected by `machineProfile`. Role bindings are validated before
+daemon contact: the builder throws if either role lacks configured model
+escalations for any loaded agent. The review step targets `.jarvis-intent-review-verdict.md`
+(a sibling of `.jarvis-intent-stage/`) for the critic's verdict, and uses the
+`intent.prompt.review` prompt for the critic role. Runtime enforcement of prompt
+composition, verdict injection, and role isolation is deferred to subspec 02.
+
 A workflow step is authored as a plain object literal `satisfies WorkflowStepInput`.
 `WorkflowStepInput` (identical in shape to the runtime `AnyWorkflowStep`) is a
 discriminated union on `behavior`, the closed vocabulary from

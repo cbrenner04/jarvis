@@ -1,0 +1,16 @@
+- Make registration depend on a completed validation-and-landing boundary; rules out exposing a runnable preset that can publish unchecked staging output.
+- Define preset-aware pre-publication validation and landing before workflow-level commit/publish; rules out post-publication validation or step-level publication.
+- Define validation failure, operator guidance, workflow state, and resume behavior; rules out an ambiguous completed-step/non-published state.
+- Require the v1-compatible worktree boundary check before landing or publication, allowing only expected staging changes; rules out committing arbitrary model edits.
+- Define git-disabled and non-git-project support, configuration precedence, durable destination, and publication behavior; rules out silently assuming git publication is always enabled.
+- Pin base-ref resolution and PR base selection; rules out differing choices among current `HEAD`, configured defaults, and remote defaults.
+- Define safe handling of existing branches/worktrees, divergent remotes, concurrent identical slugs, and reusable draft PRs; rules out destructive reuse or nondeterministic failure.
+- Require canonical file-seed containment within the registered project after symlink resolution; rules out lexical or symlink path escape.
+- Define slug rejection and collision behavior for empty normalization, reserved names, and distinct seeds yielding one slug; rules out invalid branches or accidental workflow reuse.
+- State target-directory precedence completely—run override, project config, global config, then default; rules out implementation-dependent fallback behavior.
+- Name the staging artifact path and completion predicate, including non-empty validated Markdown; rules out directory existence or partial output counting as success.
+- Include first-H1 insertion/repair in the v1 parity contract and anchor preserved behavior to existing v1 tests; rules out an incomplete or behavior-changing validator extraction.
+- Define all-or-nothing landing and cleanup after mid-operation filesystem failure; rules out treating collision preflight alone as atomicity.
+- Require retry-idempotent landing and publication, distinguishing the same workflow’s files from unrelated collisions; rules out retries failing on their own durable output.
+- Define the intent workflow’s publication metadata, including the durable `specPath` represented in the existing publisher contract; rules out staging paths or meaningless PR metadata.
+- Split shared v1/v2 validator extraction from v2 landing/publication integration, and order registration only after safe completion exists; rules out a non-atomic subspec spanning cross-version refactoring, transactional landing, and new publication behavior.

@@ -26,17 +26,17 @@
 
 ## Acceptance criteria
 
-- [ ] An implement run launched with a multi-subspec `index.md` injects only the first unchecked linked subspec's body and path into its first prompt.
-- [ ] A multi-subspec implement run validates completion against only the active linked subspec; incomplete non-human-only criteria block its index advancement, while unchecked human-only criteria do not.
-- [ ] On each completed linked subspec, the harness alone checks its matching index item and routes the next iteration to the next unchecked link; shrink runs only after the final link advances.
-- [ ] Agent-authored changes to an index routing checklist are restored, reported as `implement.index_routing_mutated`, and do not advance routing; acceptance-criteria edits in the active subspec remain allowed.
-- [ ] `jarvis run workflow implement` requires `--spec` but rejects the obsolete `--artifact` flag before daemon connection.
-- [ ] Direct subspec input fails as `implement.requires_index`; empty and already-complete indexes return complete without implement or shrink invocation.
-- [ ] Malformed, missing, unreadable, and out-of-tree unchecked linked paths fail before agent invocation with their respective named diagnostics.
-- [ ] Automated coverage verifies prompt isolation, active-subspec completion, incomplete and human-only criterion routing, harness-only advancement, routing progression, terminal shrink timing, index-mutation protection, and obsolete-flag rejection.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] An implement run launched with a multi-subspec `index.md` injects only the first unchecked linked subspec's body and path into its first prompt.
+- [x] A multi-subspec implement run validates completion against only the active linked subspec; incomplete non-human-only criteria block its index advancement, while unchecked human-only criteria do not.
+- [x] On each completed linked subspec, the harness alone checks its matching index item and routes the next iteration to the next unchecked link; shrink runs only after the final link advances.
+- [x] Agent-authored changes to an index routing checklist are restored, reported as `implement.index_routing_mutated`, and do not advance routing; acceptance-criteria edits in the active subspec remain allowed.
+- [x] `jarvis run workflow implement` requires `--spec` but rejects the obsolete `--artifact` flag before daemon connection.
+- [x] Direct subspec input fails as `implement.requires_index`; empty and already-complete indexes return complete without implement or shrink invocation.
+- [x] Malformed, missing, unreadable, and out-of-tree unchecked linked paths fail before agent invocation with their respective named diagnostics.
+- [x] Automated coverage verifies prompt isolation, active-subspec completion, incomplete and human-only criterion routing, harness-only advancement, routing progression, terminal shrink timing, index-mutation protection, and obsolete-flag rejection.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

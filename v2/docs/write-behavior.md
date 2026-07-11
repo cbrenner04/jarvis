@@ -147,6 +147,9 @@ lives in the production CLI. `failureKind: "no_binding"` is exercised today only
 via empty injected bindings in tests; live `createAgentBindings` always yields at
 least one binding.
 
+Programmatic workflow dispatch for this cycle is documented in
+[`workflow-runner.md`](./workflow-runner.md#review-dispatch).
+
 ## Command
 
 ```

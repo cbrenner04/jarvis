@@ -52,7 +52,7 @@ function runFixture(
 
 function workflowSnapshot(
   invocationId: string,
-  ...steps: Array<{ stepId: string; role: string; behavior?: "review-debate" }>
+  ...steps: Array<{ stepId: string; role: string; behavior?: "review-debate" | "review" }>
 ) {
   return { invocationId, steps };
 }

@@ -110,6 +110,10 @@ discriminated union on `behavior`, the closed vocabulary from
   [Execution contract](#execution-contract) above.
 - `behavior: "review-debate"` — see
   [Review-debate dispatch](#review-debate-dispatch) below.
+- `behavior: "review"` — `{ stepId, project, branch, cwd, prompt, agents,
+  agentModelConfig, verdictPath, maxCycles }`, with separate `critic` and
+  `actuator` agent orders. It has no actuator prompt; the non-empty critic
+  verdict is the actuator prompt.
 
 `behavior` is kept on the returned runtime step (not stripped) — the runner
 dispatches on it. The helper passes loop-control fields through unchanged.
@@ -272,6 +276,38 @@ This slice supports only programmatic/runtime construction of a
 `review-debate` step as an object literal `satisfies WorkflowStepInput`;
 `workflow-loader.ts` (and therefore YAML/config-file authoring) does not yet
 support it — it still assumes one `role` per step.
+
+## Review dispatch
+
+A programmatic `review` step is an object literal `satisfies WorkflowStepInput`.
+It declares `project`, `branch`, `cwd`, `prompt`, `verdictPath`, `maxCycles`,
+shared `agentModelConfig`, and separate `agents.critic` and `agents.actuator`
+orders. The non-empty critic verdict is the actuator prompt; there is no
+actuator prompt field.
+
+The runner validates every `(agent, role)` entry for both orders before it
+creates a snapshot or durable state. When reached, it resolves the roles
+independently through the normal agent/rung fallback, then runs the review
+cycle. Quota falls through within each role's order independently.
+
+An empty verdict or all bounded cycles return `complete`; critic, actuator,
+abort, and verdict-I/O failures return `invocation_failure` and stop later
+steps. `iterationsConsumed` counts cycles whose critic started, including a
+role-failed cycle, but not invalidation or pre-critic verdict-I/O failures.
+
+Each reached review step receives a fresh synthesized run ID and invokes
+`onStepRunCreated` before role execution. The ID is reporting-only:
+`resumable` is always `false`, no durable run row is created, and review state
+is never resumed. A review-only invocation gets a fresh snapshot and starts at
+cycle zero. A mixed workflow may reuse a matching snapshot found through a
+durable write or human step; matching includes each review entry's
+`(stepId, behavior)`. Review entries remain in authored order in daemon/TUI
+projection, while durable run lookup considers only write and human steps.
+
+Workflow loading, presets, and YAML/config authoring do not accept `review` in
+this slice.
+
+Cycle semantics are defined in [`write-behavior.md`](./write-behavior.md#review-cycle).
 
 ## Budget and abort
 

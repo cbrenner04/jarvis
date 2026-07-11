@@ -20,6 +20,7 @@ import {
   executeWorkflow,
   type HumanWorkflowStep,
   type ReviewDebateWorkflowStep,
+  type ReviewWorkflowStep,
   resolveWorkflowPreset,
   type WorkflowStepInput,
   type WriteWorkflowStep,
@@ -1092,6 +1093,74 @@ describe("executeWorkflow review-debate dispatch", () => {
       const result = await executeWorkflow({ steps: [step], stateStore: store });
 
       expect(result).toMatchObject({ kind: "invocation_failure", stepIndex: 0, stepId: "debate-1", resumable: false });
+    });
+  });
+});
+
+describe("executeWorkflow review dispatch", () => {
+  const config: AgentModelConfig = {
+    claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
+    codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
+  };
+
+  test("resolves role orders independently and reports a fresh non-durable run", async () => {
+    const calls: string[] = [];
+    const step: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "review-1",
+      project: "demo",
+      branch: "review-only",
+      cwd: "/fake",
+      prompt: "inspect",
+      verdictPath: join(mkdtempSync(join(tmpdir(), "workflow-review-")), "verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: config,
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async ({ prompt }) => {
+          calls.push(`${agentId}:${prompt}`);
+          return { kind: "ok" as const, stdout: agentId === "claude" ? "fix" : "done", stderr: "" };
+        },
+      }),
+    };
+    const fired: Array<{ index: number; runId: string; durable: boolean }> = [];
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        onStepRunCreated: (index, runId) => fired.push({ index, runId, durable: store.loadRun(runId) !== null }),
+      });
+
+      expect(result).toMatchObject({ kind: "complete", resumable: false, iterationsConsumed: 1 });
+      expect(calls).toEqual(["claude:inspect", "codex:fix"]);
+      expect(fired).toHaveLength(1);
+      expect(fired[0]).toMatchObject({ index: 0, runId: result.runId, durable: false });
+      expect(store.listRuns()).toHaveLength(0);
+    });
+  });
+
+  test("aggregates missing critic and actuator bindings before durable state", async () => {
+    const step: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "review-1",
+      project: "demo",
+      branch: "review-invalid",
+      cwd: "/fake",
+      prompt: "inspect",
+      verdictPath: "/fake/verdict.md",
+      maxCycles: 1,
+      agents: { critic: ["codex"], actuator: ["claude"] },
+      agentModelConfig: config,
+    };
+
+    await withStateStore(async (store) => {
+      await expect(executeWorkflow({ steps: [step], stateStore: store })).rejects.toThrow(
+        "(review-1, critic, codex), (review-1, actuator, claude)",
+      );
+      expect(store.listRuns()).toHaveLength(0);
     });
   });
 });

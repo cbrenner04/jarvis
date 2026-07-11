@@ -4,12 +4,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProjectMatch } from "../../../shared/project-registry.ts";
 import { buildIntentWorkflowSteps, buildReviewedIntentWorkflowSteps } from "./intent-workflow-steps.ts";
-import type { WriteWorkflowSourceStep } from "./workflow-loader.ts";
-import type { ReviewWorkflowStep, WriteWorkflowStep } from "./workflow-runner.ts";
+import type { LoadedWorkflowStep, WorkflowSourceStep } from "./workflow-loader.ts";
+import type { ReviewWorkflowStep } from "./workflow-runner.ts";
 
 const match: ProjectMatch = { key: "demo", root: "/repo" };
-const load = (steps: readonly WriteWorkflowSourceStep[]): WriteWorkflowStep[] =>
-  steps.map((step) => ({ ...step, agents: ["claude"], agentModelConfig: {} }));
+const load = (steps: readonly WorkflowSourceStep[]): LoadedWorkflowStep[] =>
+  steps.map((step) =>
+    step.behavior === "write"
+      ? { ...step, agents: ["claude"], agentModelConfig: {} }
+      : { ...step, agents: { critic: ["claude"], actuator: ["claude"] }, agentModelConfig: {} },
+  );
 
 describe("buildIntentWorkflowSteps", () => {
   test("builds file and inline seeds as one plan step", async () => {
@@ -148,88 +152,39 @@ describe("buildReviewedIntentWorkflowSteps", () => {
     });
   });
 
-  test("defaults reviewPasses to 1 when omitted", async () => {
+  test("loads mixed reviewed intent sources once with forwarded machine options", async () => {
     const root = mkdtempSync(join(tmpdir(), "reviewed-intent-"));
     writeFileSync(join(root, "test.md"), "test", "utf8");
-    const tempDir = mkdtempSync(join(tmpdir(), "machine-profile-"));
-    const profileFile = join(tempDir, "local.json");
-
-    const modelConfig = {
-      models: {
-        claude: {
-          plan: { rungs: [{ adapterModel: "claude", priceKey: "claude" }] },
-          implement: { rungs: [{ adapterModel: "claude", priceKey: "claude" }] },
-          shrink: { rungs: [{ adapterModel: "claude", priceKey: "claude" }] },
-          critic: { rungs: [{ adapterModel: "claude", priceKey: "claude" }] },
-          actuator: { rungs: [{ adapterModel: "claude", priceKey: "claude" }] },
-          adversary: { rungs: [{ adapterModel: "claude", priceKey: "claude" }] },
-          advocate: { rungs: [{ adapterModel: "claude", priceKey: "claude" }] },
-          adjudicator: { rungs: [{ adapterModel: "claude", priceKey: "claude" }] },
-        },
-      },
-    };
-    writeFileSync(profileFile, JSON.stringify(modelConfig));
-
-    const result = await buildReviewedIntentWorkflowSteps(
-      { cwd: root, seed: "test.md", targetDir: "specs" },
-      {
-        resolveProjectMatch: () => ({ ...match, root }),
-        loadWorkflowSteps: load,
-        resolveBaseBranch: () => "trunk",
-        machineProfile: "local",
-        machinesDir: tempDir,
-      },
-    );
-
-    if (!result.ok) {
-      throw new Error(`Expected ok=true, got error: ${result.error}`);
-    }
-    expect(result.steps).toHaveLength(2);
-    expect(result.steps[0]).toMatchObject({ behavior: "write", role: "plan" });
-    const reviewStep = result.steps[1] as ReviewWorkflowStep;
-    expect(reviewStep).toMatchObject({
-      behavior: "review",
-      stepId: "review",
-      maxCycles: 1,
-    });
-  });
-
-  test("produces split plus review step for positive reviewPasses", async () => {
-    const root = mkdtempSync(join(tmpdir(), "reviewed-intent-"));
-    writeFileSync(join(root, "test.md"), "test", "utf8");
-    const tempDir = mkdtempSync(join(tmpdir(), "machine-profile-"));
-    const profileFile = join(tempDir, "local.json");
-
-    const modelConfig = {
-      models: {
-        claude: {
-          plan: { rungs: [{ adapterModel: "claude", priceKey: "claude" }] },
-          implement: { rungs: [{ adapterModel: "claude", priceKey: "claude" }] },
-          shrink: { rungs: [{ adapterModel: "claude", priceKey: "claude" }] },
-          critic: { rungs: [{ adapterModel: "claude", priceKey: "claude" }] },
-          actuator: { rungs: [{ adapterModel: "claude", priceKey: "claude" }] },
-          adversary: { rungs: [{ adapterModel: "claude", priceKey: "claude" }] },
-          advocate: { rungs: [{ adapterModel: "claude", priceKey: "claude" }] },
-          adjudicator: { rungs: [{ adapterModel: "claude", priceKey: "claude" }] },
-        },
-      },
-    };
-    writeFileSync(profileFile, JSON.stringify(modelConfig));
+    const calls: { steps: readonly WorkflowSourceStep[]; options: unknown }[] = [];
+    const createBinding = () => ({ id: "bound", invoke: async () => ({ kind: "error" as const, exitCode: 1, stderr: "" }) });
 
     const result = await buildReviewedIntentWorkflowSteps(
       { cwd: root, seed: "test.md", targetDir: "specs", reviewPasses: 3 },
       {
         resolveProjectMatch: () => ({ ...match, root }),
-        loadWorkflowSteps: load,
+        loadWorkflowSteps: (steps, options) => {
+          calls.push({ steps, options });
+          return load(steps);
+        },
         resolveBaseBranch: () => "trunk",
+        machineConfigPath: "/config.json",
         machineProfile: "local",
-        machinesDir: tempDir,
+        machinesDir: "/machines",
+        createBinding,
       },
     );
 
     if (!result.ok) {
       throw new Error(`Expected ok=true, got error: ${result.error}`);
     }
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      options: { machineConfigPath: "/config.json", machineProfile: "local", machinesDir: "/machines" },
+      steps: [
+        { behavior: "write", stepId: "intent", role: "plan" },
+        { behavior: "review", stepId: "review", prompt: "intent.prompt.review", createBinding },
+      ],
+    });
     expect(result.steps).toHaveLength(2);
     expect(result.steps[0]).toMatchObject({ behavior: "write", role: "plan", stepId: "intent" });
 
@@ -243,40 +198,35 @@ describe("buildReviewedIntentWorkflowSteps", () => {
         critic: ["claude"],
         actuator: ["claude"],
       },
+      createBinding,
+      deferredIntentOutput: {
+        stagingDir: join(root, ".jarvis-intent-stage"),
+        baseRef: "trunk",
+      },
     });
   });
 
-  test("validates critic and actuator bindings before daemon contact", async () => {
+  test("returns unchanged loader failures before daemon contact", async () => {
     const root = mkdtempSync(join(tmpdir(), "reviewed-intent-"));
     writeFileSync(join(root, "test.md"), "test", "utf8");
-    const tempDir = mkdtempSync(join(tmpdir(), "machine-profile-"));
-    const profileFile = join(tempDir, "local.json");
-
-    // Missing critic role
-    writeFileSync(
-      profileFile,
-      JSON.stringify({
-        models: {
-          claude: {
-            plan: { rungs: [{ adapterModel: "claude", priceKey: "claude" }] },
-            actuator: { rungs: [{ adapterModel: "claude", priceKey: "claude" }] },
-          },
-        },
-      }),
-    );
+    let calls = 0;
 
     const result = await buildReviewedIntentWorkflowSteps(
       { cwd: root, seed: "test.md", targetDir: "specs", reviewPasses: 1 },
       {
         resolveProjectMatch: () => ({ ...match, root }),
-        loadWorkflowSteps: load,
+        loadWorkflowSteps: () => {
+          calls += 1;
+          throw new Error("Workflow step role validation failed: missing binding (review, critic, claude)");
+        },
         resolveBaseBranch: () => "trunk",
-        machineProfile: "local",
-        machinesDir: tempDir,
       },
     );
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toContain("critic");
+    expect(calls).toBe(1);
+    expect(result).toEqual({
+      ok: false,
+      error: "Workflow step role validation failed: missing binding (review, critic, claude)",
+    });
   });
 });

@@ -139,11 +139,12 @@ force-push, suffixing, or publication.
 review step. It accepts a non-negative `reviewPasses` parameter (defaulting
 to `1`); zero passes delegates to the split-only builder, while positive values
 add one critic-actuator review step with `maxCycles` equal to the pass count.
-The builder loads independent `critic` and `actuator` agent chains from the
-machine's configured agent order (or `DEFAULT_WRITE_AGENTS` when absent) and the
-repo profile selected by `machineProfile`. Role bindings are validated before
-daemon contact: the builder throws if either role lacks configured model
-escalations for any loaded agent. The review step targets `.jarvis-intent-review-verdict.md`
+For positive passes, the builder creates the split and review source steps, then
+makes one `loadWorkflowSteps` call for both. It forwards its machine config path,
+profile, and machines directory; the loader supplies both roles' machine-derived
+bindings. Preset resolution receives only the loaded write step. Loader failures
+return `{ ok: false, error }` with unchanged loader text before daemon contact.
+The review step targets `.jarvis-intent-review-verdict.md`
 (a sibling of `.jarvis-intent-stage/`) for the critic's verdict, and uses the
 `intent.prompt.review` prompt for the critic role. Runtime enforcement of prompt
 composition, verdict injection, and role isolation is deferred to subspec 02.
@@ -445,8 +446,8 @@ durable write or human step; matching includes each review entry's
 projection, with critic/actuator start and terminal completed/stopped progress,
 while durable run lookup considers only write and human steps.
 
-Workflow loading, presets, and YAML/config authoring do not accept `review` in
-this slice.
+Workflow loading accepts `review` source steps; presets and YAML/config authoring
+do not accept them in this slice.
 
 Cycle semantics are defined in [`write-behavior.md`](./write-behavior.md#review-cycle).
 

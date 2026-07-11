@@ -5,21 +5,21 @@ import { basename, isAbsolute, join, relative } from "node:path";
 import { getBaseBranch } from "../../../shared/git.ts";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
-import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
+import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
+import type { MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
 import {
-  loadMachineConfig,
-  readMachineConfigDocument,
-  resolveMachineProfile,
-} from "../config/machine-config-loader.ts";
-import { loadMachineProfileModels, type MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
-import { loadWorkflowSteps as realLoadWorkflowSteps, type WriteWorkflowSourceStep } from "./workflow-loader.ts";
+  loadWorkflowSteps as realLoadWorkflowSteps,
+  type LoadedWorkflowStep,
+  type WorkflowSourceStep,
+  type WriteWorkflowSourceStep,
+} from "./workflow-loader.ts";
 import {
   type AnyWorkflowStep,
   type ReviewWorkflowStep,
   resolveWorkflowPreset,
   type WriteWorkflowStep,
 } from "./workflow-runner.ts";
-import { DEFAULT_WRITE_AGENTS, DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 const STAGE_DIR = ".jarvis-intent-stage";
 const RESERVED_SLUGS = new Set(["index", "head"]);
@@ -42,7 +42,14 @@ type ProjectConfig = ProjectMatch & {
 
 export type IntentWorkflowDeps = {
   resolveProjectMatch?: (path: string) => ProjectMatch | undefined;
-  loadWorkflowSteps?: (steps: readonly WriteWorkflowSourceStep[]) => WriteWorkflowStep[];
+  loadWorkflowSteps?: (
+    steps: readonly WorkflowSourceStep[],
+    options?: {
+      machineConfigPath?: string;
+      machineProfile?: string;
+      machinesDir?: MachineProfileLoadOptions["machinesDir"];
+    },
+  ) => LoadedWorkflowStep[];
   readSeed?: (path: string) => string;
   resolveBaseBranch?: (projectRoot: string) => string | Promise<string>;
   inspectIdentity?: (identity: IntentWorkflowIdentity) => IntentCollision | undefined;
@@ -202,11 +209,14 @@ function resolveOutput(
   return { targetDir, publish, worktree, localPath, durableDir };
 }
 
-/** Build the unregistered one-step intent workflow; all failures are pre-daemon results. */
-export async function buildIntentWorkflowSteps(
+type IntentWorkflowSourceResult =
+  | { ok: true; step: WriteWorkflowSourceStep; identity: IntentWorkflowIdentity }
+  | { ok: false; error: string };
+
+async function buildIntentWorkflowSourceStep(
   input: IntentWorkflowInput,
   deps: IntentWorkflowDeps = {},
-): Promise<IntentWorkflowResult> {
+): Promise<IntentWorkflowSourceResult> {
   if ((input.seed === undefined) === (input.seedText === undefined)) {
     return { ok: false, error: "intent: provide exactly one of --seed <path> or --seed-text <text>" };
   }
@@ -249,29 +259,51 @@ export async function buildIntentWorkflowSteps(
   if ("error" in output) return { ok: false, error: output.error };
   const { publish, worktree, localPath, durableDir } = output;
   const base = publish ? await (deps.resolveBaseBranch ?? getBaseBranch)(project.root) : "none";
-  const sourceStep: WriteWorkflowSourceStep = {
-    behavior: "write",
-    stepId: "intent",
-    role: "plan",
-    promptId: "intent.prompt.split",
-    promptPlaceholders: { WORKDIR: worktree, SEED_LABEL: seedLabel, SEED_CONTENT: seedContent },
-    stepRules: DEFAULT_WRITE_STEP_RULES,
-    worktree: {
-      projectRoot: project.root,
-      projectName: project.key,
-      branchName: branch,
-      baseRef: base,
-      ...(publish ? {} : { git: false, localPath }),
+  return {
+    ok: true,
+    step: {
+      behavior: "write",
+      stepId: "intent",
+      role: "plan",
+      promptId: "intent.prompt.split",
+      promptPlaceholders: { WORKDIR: worktree, SEED_LABEL: seedLabel, SEED_CONTENT: seedContent },
+      stepRules: DEFAULT_WRITE_STEP_RULES,
+      worktree: {
+        projectRoot: project.root,
+        projectName: project.key,
+        branchName: branch,
+        baseRef: base,
+        ...(publish ? {} : { git: false, localPath }),
+      },
+      specPath: durableDir,
+      expectedArtifactPath: STAGE_DIR,
+      intentOutput: { durableDir },
+      workflowInvocationId: identity.invocationId,
+      publishCompletion: publish,
     },
-    specPath: durableDir,
-    expectedArtifactPath: STAGE_DIR,
-    intentOutput: { durableDir },
-    workflowInvocationId: identity.invocationId,
-    publishCompletion: publish,
+    identity,
   };
+}
+
+function workflowLoadOptions(deps: IntentWorkflowDeps) {
+  return {
+    ...(deps.machineConfigPath !== undefined ? { machineConfigPath: deps.machineConfigPath } : {}),
+    ...(deps.machineProfile !== undefined ? { machineProfile: deps.machineProfile } : {}),
+    ...(deps.machinesDir !== undefined ? { machinesDir: deps.machinesDir } : {}),
+  };
+}
+
+/** Build the unregistered one-step intent workflow; all failures are pre-daemon results. */
+export async function buildIntentWorkflowSteps(
+  input: IntentWorkflowInput,
+  deps: IntentWorkflowDeps = {},
+): Promise<IntentWorkflowResult> {
+  const source = await buildIntentWorkflowSourceStep(input, deps);
+  if (!source.ok) return source;
   try {
-    const loaded = (deps.loadWorkflowSteps ?? realLoadWorkflowSteps)([sourceStep]);
-    return { ok: true, steps: resolveWorkflowPreset("intent", loaded), identity };
+    const loaded = (deps.loadWorkflowSteps ?? realLoadWorkflowSteps)([source.step], workflowLoadOptions(deps));
+    const writeSteps = loaded.filter((step): step is WriteWorkflowStep => step.behavior === "write");
+    return { ok: true, steps: resolveWorkflowPreset("intent", writeSteps), identity: source.identity };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
@@ -296,14 +328,10 @@ export async function buildReviewedIntentWorkflowSteps(
     return buildIntentWorkflowSteps(input, deps);
   }
 
-  // Build the split step first
-  const splitResult = await buildIntentWorkflowSteps(input, deps);
+  const splitResult = await buildIntentWorkflowSourceStep(input, deps);
   if (!splitResult.ok) return splitResult;
 
-  const splitStep = splitResult.steps[0];
-  if (splitStep?.behavior !== "write") {
-    return { ok: false, error: "intent: split step must be a write step" };
-  }
+  const splitStep = splitResult.step;
 
   const worktree = splitStep.worktree?.projectRoot;
   if (!worktree) {
@@ -320,39 +348,8 @@ export async function buildReviewedIntentWorkflowSteps(
     return { ok: false, error: "intent: unable to determine project for review step" };
   }
 
-  // Load machine config and profile for review bindings
   try {
-    const agents = loadMachineConfig(deps.machineConfigPath) ?? DEFAULT_WRITE_AGENTS;
-    const machineProfile = deps.machineProfile ?? resolveMachineProfile(deps.machineConfigPath);
-
-    const loadResult = loadMachineProfileModels(machineProfile, agents, {
-      machinesDir: deps.machinesDir,
-    });
-
-    if ("errors" in loadResult) {
-      const errors = loadResult.errors as readonly string[];
-      return { ok: false, error: `intent: failed to load machine profile: ${errors.join(", ")}` };
-    }
-
-    const modelConfig = loadResult;
-
-    // Validate critic and actuator role bindings exist
-    try {
-      resolveExecutableRole("critic");
-      resolveExecutableRole("actuator");
-      resolveInvocationBindings("critic", agents, modelConfig, deps.createBinding ?? createResolvedAgentBinding);
-      resolveInvocationBindings("actuator", agents, modelConfig, deps.createBinding ?? createResolvedAgentBinding);
-    } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) };
-    }
-
-    // Create review step with deferred intent output for landing after review completion.
-    const writeStep = splitResult.steps[0];
-    if (!writeStep || writeStep.behavior !== "write") {
-      return { ok: false, error: "intent: split step is not a write step" };
-    }
-
-    const reviewStepBase: Omit<ReviewWorkflowStep, "deferredIntentOutput"> = {
+    const reviewStepBase: Omit<ReviewWorkflowStep, "agents" | "agentModelConfig" | "deferredIntentOutput"> = {
       behavior: "review",
       stepId: "review",
       project,
@@ -361,28 +358,34 @@ export async function buildReviewedIntentWorkflowSteps(
       prompt: "intent.prompt.review",
       verdictPath: join(worktree, REVIEW_VERDICT_PATH),
       maxCycles: reviewPasses,
-      agents: {
-        critic: agents,
-        actuator: agents,
-      },
-      agentModelConfig: modelConfig,
       ...(deps.createBinding !== undefined ? { createBinding: deps.createBinding } : {}),
     };
 
-    const reviewStep: ReviewWorkflowStep =
-      writeStep.intentOutput !== undefined
+    const reviewStep: WorkflowSourceStep =
+      splitStep.intentOutput !== undefined
         ? {
             ...reviewStepBase,
             deferredIntentOutput: {
-              config: writeStep.intentOutput,
+              config: splitStep.intentOutput,
               stagingDir: join(worktree, STAGE_DIR),
               invocationId: splitResult.identity.invocationId,
-              baseRef: writeStep.worktree.baseRef,
+              baseRef: splitStep.worktree.baseRef,
             },
           }
         : reviewStepBase;
 
-    return { ok: true, steps: [...splitResult.steps, reviewStep], identity: splitResult.identity };
+    const loaded = (deps.loadWorkflowSteps ?? realLoadWorkflowSteps)(
+      [splitStep, reviewStep],
+      workflowLoadOptions(deps),
+    );
+    const writeSteps = loaded.filter((step): step is WriteWorkflowStep => step.behavior === "write");
+    const loadedReview = loaded.find((step): step is ReviewWorkflowStep => step.behavior === "review");
+    if (loadedReview === undefined) return { ok: false, error: "intent: review step was not loaded" };
+    return {
+      ok: true,
+      steps: [...resolveWorkflowPreset("intent", writeSteps), loadedReview],
+      identity: splitResult.identity,
+    };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }

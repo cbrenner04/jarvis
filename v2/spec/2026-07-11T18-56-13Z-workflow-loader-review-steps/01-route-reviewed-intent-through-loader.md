@@ -25,12 +25,12 @@ Keep its reviewed workflow composition and pre-daemon failure result unchanged.
 
 ## Acceptance criteria
 
-- [ ] A positive-pass reviewed intent makes exactly one injected loader call containing its write and review source steps, then returns the existing write-plus-review composition with machine-derived bindings.
-- [ ] The unified loader call receives the builder's machine config path, profile, and machines directory when supplied.
-- [ ] A review binding or model-config load failure returns `{ ok: false; error }` with the loader's unchanged error text before daemon contact.
-- [ ] Zero review passes continues to return the split-only workflow without review configuration loading.
-- [ ] `v2/src/execution/intent-workflow-steps.test.ts` covers one mixed injected loader call, forwarded loader options, loader failure text, and preserves the review prompt, verdict/staging paths, deferred output, cycle count, and binding creation.
-- [ ] `v2/docs/workflow-runner.md` documents reviewed intent's one mixed loading pipeline and `{ ok: false; error }` loader failures; `v2/docs/v1-behaviors.md` records the changed builder pipeline with sources.
+- [x] A positive-pass reviewed intent makes exactly one injected loader call containing its write and review source steps, then returns the existing write-plus-review composition with machine-derived bindings.
+- [x] The unified loader call receives the builder's machine config path, profile, and machines directory when supplied.
+- [x] A review binding or model-config load failure returns `{ ok: false; error }` with the loader's unchanged error text before daemon contact.
+- [x] Zero review passes continues to return the split-only workflow without review configuration loading.
+- [x] `v2/src/execution/intent-workflow-steps.test.ts` covers one mixed injected loader call, forwarded loader options, loader failure text, and preserves the review prompt, verdict/staging paths, deferred output, cycle count, and binding creation.
+- [x] `v2/docs/workflow-runner.md` documents reviewed intent's one mixed loading pipeline and `{ ok: false; error }` loader failures; `v2/docs/v1-behaviors.md` records the changed builder pipeline with sources.
 
 ## Documentation updates
 

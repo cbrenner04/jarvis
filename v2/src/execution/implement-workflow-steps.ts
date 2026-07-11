@@ -1,13 +1,10 @@
+import { resolve } from "node:path";
 import { findProjectMatch, type ProjectMatch } from "../../../shared/project-registry.ts";
 import { readProjectRegistry } from "../config/machine-config-loader.ts";
+import { resolveActiveLinkedSubspec as realResolveActiveLinkedSubspec } from "./linked-subspec-routing.ts";
 import { loadWorkflowSteps as realLoadWorkflowSteps, type WorkflowSourceStep } from "./workflow-loader.ts";
 import { type AnyWorkflowStep, resolveWorkflowPreset } from "./workflow-runner.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
-import {
-  resolveActiveLinkedSubspec as realResolveActiveLinkedSubspec,
-  type ActiveLinkedSubspec,
-} from "./linked-subspec-routing.ts";
-import { resolve } from "node:path";
 
 /** Per-run inputs the operator supplies alongside cwd project resolution. */
 export type BuildImplementWorkflowStepsInput = {
@@ -21,7 +18,10 @@ export type BuildImplementWorkflowStepsInput = {
 export type BuildImplementWorkflowStepsDeps = {
   resolveProjectMatch?: (p: string) => ProjectMatch | undefined;
   loadWorkflowSteps?: typeof realLoadWorkflowSteps;
-  resolveActiveLinkedSubspec?: (specPath: string, projectRoot: string) => ReturnType<typeof realResolveActiveLinkedSubspec>;
+  resolveActiveLinkedSubspec?: (
+    specPath: string,
+    projectRoot: string,
+  ) => ReturnType<typeof realResolveActiveLinkedSubspec>;
 };
 
 export type BuildImplementWorkflowStepsResult = { ok: true; steps: AnyWorkflowStep[] } | { ok: false; error: string };

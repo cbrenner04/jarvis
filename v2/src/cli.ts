@@ -68,8 +68,7 @@ const TUI_USAGE = "usage: jarvis tui\n";
 const TUI_LOG_USAGE = "usage: jarvis tui log <run-id>\n";
 const WRITE_USAGE =
   "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--max-iterations <n>]\n";
-const WORKFLOW_IMPLEMENT_USAGE =
-  "usage: jarvis run workflow implement --branch <name> --base <ref> --spec <path>\n";
+const WORKFLOW_IMPLEMENT_USAGE = "usage: jarvis run workflow implement --branch <name> --base <ref> --spec <path>\n";
 const WORKFLOW_INTENT_USAGE =
   "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>]\n";
 const WORKFLOW_INTENT_REVIEWED_USAGE =
@@ -560,9 +559,7 @@ function parseWriteCliInput(argv: readonly string[], deps: CliDeps): WriteCliInp
   return { ok: true, input: built.input };
 }
 
-type ImplementWorkflowCliInput =
-  | { ok: true; branchName: string; baseRef: string; specPath: string }
-  | { ok: false };
+type ImplementWorkflowCliInput = { ok: true; branchName: string; baseRef: string; specPath: string } | { ok: false };
 
 function parseImplementWorkflowArgs(argv: readonly string[]): ImplementWorkflowCliInput {
   let values: Record<string, string | boolean | string[] | undefined>;

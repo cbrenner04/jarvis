@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
-import { isAbsolute, join, relative, resolve } from "node:path";
-import { parseSpec, type LinkedSubspec } from "../../../shared/spec-parser.ts";
+import { isAbsolute, relative, resolve } from "node:path";
+import { type LinkedSubspec, parseSpec } from "../../../shared/spec-parser.ts";
 
 export type ActiveLinkedSubspec = {
   index: number;
@@ -27,10 +27,7 @@ export type LinkedIndexErrorKind =
  * Validates that the spec is an index with linked subspecs, finds the first unchecked link,
  * reads its content, and returns the active subspec plus its path and body.
  */
-export function resolveActiveLinkedSubspec(
-  specPath: string,
-  projectRoot: string,
-): LinkedIndexRoutingResult {
+export function resolveActiveLinkedSubspec(specPath: string, projectRoot: string): LinkedIndexRoutingResult {
   const indexPath = resolve(specPath);
 
   // Read index file

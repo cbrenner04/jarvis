@@ -1,11 +1,11 @@
-import { describe, expect, test, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  resolveActiveLinkedSubspec,
-  findModifiedLinkedCheckbox,
   advanceLinkedSubspecCheckbox,
+  findModifiedLinkedCheckbox,
+  resolveActiveLinkedSubspec,
 } from "./linked-subspec-routing.ts";
 
 let tempDir: string | undefined;

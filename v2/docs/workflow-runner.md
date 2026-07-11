@@ -150,6 +150,14 @@ composition, verdict injection, and role isolation is deferred to subspec 02.
 
 **CLI usage (split + review):** `jarvis run workflow intent-reviewed (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>]` — defaults to one review pass.
 
+`buildPlanWorkflowSteps` (preset: `plan`) accepts a `--ready-intent <path>` and optional relative, non-traversing `targetDir`. It validates the ready-intent file pre-daemon: the file must be located in a `ready-intents/` directory, carry frontmatter `name:` matching the filename (minus `.md`), and include a `## Prerequisites` section. The name is normalized from the validated frontmatter; empty names are rejected.
+
+Target precedence is run override, project `plan.targetDir`, global `modes.plan.targetDir`, then `spec`. Effective publication follows project `plan.commit`, global `modes.plan.commit`, then `true`, with project `git: false` disabling it. Git-enabled output uses branch `plan/<name>` in `~/.jarvis/worktrees`, and the GitHub default branch is used as the base ref. Durable output is `<targetDir>/<UTC-timestamp>-<name>/`. Git-disabled output is external `~/.jarvis/specs/<project-safe-id>/plans/<name>/`; the run does not publish Git or GitHub state. The UTC timestamp is generated once in the builder, pre-daemon, ensuring the spec-dir path is stable across the run.
+
+The builder emits one `write` step with role `plan`, prompt `plan.prompt.draft`, `.jarvis-plan-stage/` as the artifact boundary, and the ready-intent content threaded as `intentSeed` for downstream write-step seeding (subspec 01). Branch, worktree, and project collisions are named failures. Divergent remote state fails without reset, force-push, suffixing, or publication.
+
+**CLI usage:** `jarvis run workflow plan --ready-intent <path> [--target-dir <dir>]`
+
 A workflow step is authored as a plain object literal `satisfies WorkflowStepInput`.
 `WorkflowStepInput` (identical in shape to the runtime `AnyWorkflowStep`) is a
 discriminated union on `behavior`, the closed vocabulary from
@@ -189,6 +197,7 @@ Current preset surface:
 - `implement`: one step, with `role`/`promptId` fixed by the preset
 - `intent`: one step (split only)
 - `intent-reviewed`: two steps (split + review)
+- `plan`: one step, with `role`/`promptId` fixed by the preset
 
 Validation stays synchronous:
 

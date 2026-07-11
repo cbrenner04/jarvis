@@ -74,7 +74,8 @@ const WORKFLOW_INTENT_USAGE =
   "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>]\n";
 const WORKFLOW_INTENT_REVIEWED_USAGE =
   "usage: jarvis run workflow intent-reviewed (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>]\n";
-const WORKFLOW_USAGE = "usage: jarvis run workflow <implement|intent|intent-reviewed> [flags]\n";
+const WORKFLOW_PLAN_USAGE = "usage: jarvis run workflow plan --ready-intent <path> [--target-dir <dir>]\n";
+const WORKFLOW_USAGE = "usage: jarvis run workflow <implement|intent|intent-reviewed|plan> [flags]\n";
 
 export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliDeps>): Promise<number> {
   const out = io ?? {
@@ -395,16 +396,21 @@ async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps
   }
 
   const isIntentPreset = name === "intent" || name === "intent-reviewed";
+  const isPlanPreset = name === "plan";
   const allowReviewPasses = name === "intent-reviewed";
   const parsed = isIntentPreset
     ? parseIntentWorkflowArgs(argv.slice(1), allowReviewPasses)
-    : parseImplementWorkflowArgs(argv.slice(1));
+    : isPlanPreset
+      ? parsePlanWorkflowArgs(argv.slice(1))
+      : parseImplementWorkflowArgs(argv.slice(1));
   if (!parsed.ok) {
     let usage: string;
     if (name === "intent") {
       usage = WORKFLOW_INTENT_USAGE;
     } else if (name === "intent-reviewed") {
       usage = WORKFLOW_INTENT_REVIEWED_USAGE;
+    } else if (name === "plan") {
+      usage = WORKFLOW_PLAN_USAGE;
     } else {
       usage = WORKFLOW_IMPLEMENT_USAGE;
     }
@@ -419,9 +425,10 @@ async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps
   }
 
   const { ok: _ok, ...parsedValues } = parsed;
-  const builderInput: WorkflowPresetBuilderInput = isIntentPreset
-    ? { cwd: deps.cwd(), ...parsedValues, configPath: deps.machineConfigPath }
-    : { cwd: deps.cwd(), ...parsedValues };
+  const builderInput: WorkflowPresetBuilderInput =
+    isIntentPreset || isPlanPreset
+      ? { cwd: deps.cwd(), ...parsedValues, configPath: deps.machineConfigPath }
+      : { cwd: deps.cwd(), ...parsedValues };
   const built = await builder(builderInput as Parameters<WorkflowPresetBuilder>[0]);
   if (!built.ok) {
     io.stderr(`${built.error.replace(/\n+$/, "")}\n`);
@@ -641,6 +648,38 @@ function parseIntentWorkflowArgs(argv: readonly string[], allowReviewPasses: boo
     };
   }
   return { ok: false };
+}
+
+type PlanWorkflowCliInput = { ok: true; readyIntent: string; targetDir?: string } | { ok: false };
+
+function parsePlanWorkflowArgs(argv: readonly string[]): PlanWorkflowCliInput {
+  let values: Record<string, string | boolean | undefined>;
+  try {
+    values = parseArgs({
+      args: [...argv],
+      allowPositionals: false,
+      strict: true,
+      options: {
+        "ready-intent": { type: "string" },
+        "target-dir": { type: "string" },
+      },
+    }).values;
+  } catch {
+    return { ok: false };
+  }
+
+  const readyIntent = typeof values["ready-intent"] === "string" ? values["ready-intent"] : undefined;
+  const targetDir = typeof values["target-dir"] === "string" ? values["target-dir"] : undefined;
+
+  if (readyIntent === undefined) {
+    return { ok: false };
+  }
+
+  return {
+    ok: true,
+    readyIntent,
+    ...(targetDir !== undefined ? { targetDir } : {}),
+  };
 }
 
 function parseSetAgentsCsv(raw: string): { ok: true; agents: string[] } | { ok: false; message: string } {

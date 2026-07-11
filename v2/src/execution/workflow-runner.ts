@@ -59,12 +59,14 @@ const WORKFLOW_PRESET_LENGTHS = {
   "write-write": 2,
   implement: 1,
   intent: 1,
+  plan: 1,
 } as const;
 
 /** Presets whose `role`/`promptId` are pinned by the preset, overriding any caller-supplied values. */
 const WORKFLOW_PRESET_PINNED_FIELDS: Partial<Record<WorkflowPresetName, { role: string; promptId: string }>> = {
   implement: { role: "implement", promptId: "patch.prompt.body" },
   intent: { role: "plan", promptId: "intent.prompt.split" },
+  plan: { role: "plan", promptId: "plan.prompt.draft" },
 };
 
 export type WorkflowPresetName = keyof typeof WORKFLOW_PRESET_LENGTHS;
@@ -85,6 +87,10 @@ export type WriteWorkflowStep = Omit<WriteLoopInput, "bindings"> & {
   intentOutput?: IntentOutputConfig;
   /** Caller-recorded identity for an intent invocation. */
   workflowInvocationId?: string;
+  /** Raw ready-intent content threaded from the plan builder; consumed by write-step seeding. */
+  intentSeed?: string;
+  /** Jarvis root directory for plan workflow. */
+  jarvisRoot?: string;
 };
 
 /**

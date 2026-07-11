@@ -1,0 +1,14 @@
+## Verdict
+
+Both issues are confirmed as real defects in the implementation of subspecs 00/01 and must be fixed before this spec can be considered done.
+
+**1. The `spec/<NAME>/` → `<targetDir>/<NAME>/` prompt rewrite must actually take effect.**
+`renderStepPrompt` (via `renderArtifactTemplate`) substitutes every `<NAME>` token — including the ones inside `spec/<NAME>/` — before `write.ts` gets the rendered string back. By the time `write.ts` calls `.replaceAll("spec/<NAME>/", ...)`, that literal substring no longer exists in the string (it's already been replaced with the real timestamped name), so the rewrite is a no-op. The agent is being instructed to write into the literal `spec/<name>/` path instead of the real `<targetDir>/<name>/` path. This breaks subspec 01 AC3, which requires the agent-written path and the inspected path to match. Fix the rewrite so it demonstrably changes the path the agent is instructed to write to — e.g. by performing the substitution before `<NAME>` is rendered, or by rewriting the template source rather than the fully-rendered output.
+
+**2. `intent.md` and the draft-shape/blocker validators must operate on the correct spec directory.**
+The builder sets `specPath` to the spec directory itself (`<targetDir>/<timestamp>-<name>`), but `write.ts` derives `specDir` via `dirname(specPath)`, which strips the last path segment and lands on `targetDir` (the *parent* of the intended spec directory) instead of the spec directory itself. As a result, `intent.md` is seeded one level too high, and the shape/blocker validators inspect the wrong directory for `index.md`/`NN-*.md`. Combined with Finding 1, the seeded file, the validated directory, and the agent's instructed write target are three different locations, none of which is the correct spec dir. Fix so `intent.md` seeding and validation operate on the actual `<targetDir>/<timestamp>-<name>/` directory.
+
+**3. Add test coverage for the `intentSeed` branch.**
+No test exercises `plan-workflow-steps.ts`, and the existing `write.test.ts` case for `plan.prompt.draft` never sets `intentSeed`, so the entire plan-seeding/rewrite/shape/blocker code path in `write.ts` is currently unexercised — which is why both bugs above shipped undetected. Add coverage (unit and/or integration) that sets `intentSeed`, asserts the agent-instructed write path matches the actual validated spec directory, and exercises the shape and blocker contract outcomes.
+
+These are correctness defects against the spec's own acceptance criteria (subspec 01 AC1 and AC3 in particular), not scope or spec-alignment disagreements, and must be resolved by the actuator.

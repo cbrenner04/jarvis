@@ -9,9 +9,10 @@ import {
   type IntentWorkflowInput,
   type IntentWorkflowResult,
 } from "./intent-workflow-steps.ts";
+import { buildPlanWorkflowSteps, type PlanWorkflowInput, type PlanWorkflowResult } from "./plan-workflow-steps.ts";
 
-export type WorkflowPresetBuilderInput = BuildImplementWorkflowStepsInput | IntentWorkflowInput;
-export type WorkflowPresetBuilderResult = BuildImplementWorkflowStepsResult | IntentWorkflowResult;
+export type WorkflowPresetBuilderInput = BuildImplementWorkflowStepsInput | IntentWorkflowInput | PlanWorkflowInput;
+export type WorkflowPresetBuilderResult = BuildImplementWorkflowStepsResult | IntentWorkflowResult | PlanWorkflowResult;
 export type WorkflowPresetBuilder = (
   input: BuildImplementWorkflowStepsInput,
 ) => WorkflowPresetBuilderResult | Promise<WorkflowPresetBuilderResult>;
@@ -20,6 +21,7 @@ export const WORKFLOW_PRESET_BUILDERS = {
   implement: buildImplementWorkflowSteps,
   intent: (input) => buildIntentWorkflowSteps(input as unknown as IntentWorkflowInput),
   "intent-reviewed": (input) => buildReviewedIntentWorkflowSteps(input as unknown as IntentWorkflowInput),
+  plan: (input) => buildPlanWorkflowSteps(input as unknown as PlanWorkflowInput),
 } satisfies Record<string, WorkflowPresetBuilder>;
 
 export type CliWorkflowPresetName = keyof typeof WORKFLOW_PRESET_BUILDERS;

@@ -150,6 +150,55 @@ least one binding.
 Programmatic workflow dispatch for this cycle is documented in
 [`workflow-runner.md`](./workflow-runner.md#review-dispatch).
 
+## Plan write-step seeding and completion contract
+
+The `plan` preset's single write step executes with runtime seeding and prompt
+rendering to prepare the draft phase:
+
+**Intent.md seeding:** Before the agent runs, the write step creates the
+timestamped spec directory (`<targetDir>/<UTC-timestamp>-<name>/`) inside the
+worktree and seeds `intent.md` from the `intentSeed` content (the ready-intent
+verbatim, with frontmatter preserved). The intent is the sole durable
+artifact passed to the draft agent.
+
+**Placeholder supply:** The write step supplies four required `plan.prompt.draft`
+placeholders:
+- `WORKDIR`: the worktree root
+- `NAME`: the timestamped spec-directory basename (e.g., `2026-07-11T09-47-44Z-plan-workflow-draft`)
+- `INTENT`: the seeded ready-intent content (same as written to `intent.md`)
+- `SPEC_GUIDANCE`: the jarvis-bundled spec-guidance document from `v1/docs/spec-guidance.md`
+
+All four placeholders are mandatory; a missing placeholder fails the render.
+
+**Output path rewrite:** After rendering, the prompt's literal `spec/<NAME>/`
+output-path directive is rewritten to `<targetDir>/<NAME>/` so the agent writes
+to the actual spec directory, not a placeholder pattern. This parity with v1's
+draft behavior ensures the agent and the contract inspector read and write the
+same durable path. For example, if `targetDir` is `v2/spec` and `NAME` is
+`2026-07-11T09-47-44Z-plan-workflow-draft`, the agent writes to
+`v2/spec/2026-07-11T09-47-44Z-plan-workflow-draft/`.
+
+**Prerequisite blocker gate:** Before the shape contract is checked, the write
+step compares the agent-written `intent.md` against the seeded `intentBefore`
+baseline (captured from the ready-intent at workflow start). A genuine blocker
+is exactly that baseline plus an appended `## Blocker` section, with frontmatter
+immutable and no other modifications. When a genuine blocker is detected, the
+workflow fails with `contract_miss` outcome and `plan.draft.blocker` failure
+reason, without opening a draft PR. This terminal failure is distinct from shape
+failures and ensures the workflow treats an agent-appended blocker as a complete
+prerequisite failure.
+
+**Draft output shape contract:** After the blocker gate passes (or no blocker is
+appended), an injectable completion validator checks the draft output is a
+runnable spec tree: `index.md` must exist and at least one file matching
+`/^\d{2}-.*\.md$/` (a subspec) must be present in the spec directory. A bare
+`index.md` with no subspecs fails. When this contract passes, the existing
+commit + draft-PR completion publish proceeds unchanged. When it fails, the
+workflow stops with `contract_miss` outcome and opens no draft PR. The failure
+reason `plan.draft.shape` is carried as a distinct field in the contract-miss
+result (distinct from the contract `id`), preserving the distinction between
+blocker detection failures and shape failures.
+
 ## Intent review cycle
 
 Intent review is a specialized read-only-critic / write-actuator cycle that

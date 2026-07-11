@@ -197,7 +197,8 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       }
 
       if (result.kind === "contract_miss") {
-        appendBlockerToSpec(resolveSpecPath(worktreePath, args.specPath), result.failedContractId);
+        const reason = result.failureReason ?? result.failedContractId;
+        appendBlockerToSpec(resolveSpecPath(worktreePath, args.specPath), reason);
       }
 
       const terminal = terminalMapping(result);
@@ -402,6 +403,8 @@ function buildWriteExecuteInput(args: WriteLoopInput, runId: string, attemptId: 
     bindings: args.bindings,
     ...(args.promptId !== undefined ? { promptId: args.promptId } : {}),
     ...(args.promptPlaceholders !== undefined ? { promptPlaceholders: args.promptPlaceholders } : {}),
+    ...(args.intentSeed !== undefined ? { intentSeed: args.intentSeed, intentBefore: args.intentSeed } : {}),
+    ...(args.jarvisRoot !== undefined ? { jarvisRoot: args.jarvisRoot } : {}),
     ...(fullTelemetry !== undefined
       ? {
           invocationTelemetry: {
@@ -570,6 +573,6 @@ function resolveSpecPath(worktreePath: string, specPath: string): string {
   return isAbsolute(specPath) ? specPath : join(worktreePath, specPath);
 }
 
-function appendBlockerToSpec(specPath: string, failedContractId: string): void {
-  appendFileSync(specPath, `\n## Blocker\n\nArtifact contract check failed: ${failedContractId}\n`, "utf8");
+function appendBlockerToSpec(specPath: string, reason: string): void {
+  appendFileSync(specPath, `\n## Blocker\n\nArtifact contract check failed: ${reason}\n`, "utf8");
 }

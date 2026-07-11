@@ -1,0 +1,6 @@
+- Pin the exact workflow-level usage text for missing and unknown preset names, including whether it lists `implement`; rule out multiple observable error contracts — CLI output is operator-facing behavior.
+- Separate preserved `implement` launch/daemon coverage from new missing/unknown selection coverage; rule out treating changed usage assertions as preservation tests — spec guidance requires anchored preservation criteria and explicit new-behavior criteria.
+- Define builder-error preservation as unchanged error text plus the CLI’s existing single trailing newline; rule out prefixes or reformatting — the intent requires failures to surface unchanged.
+- Require a focused `[v2 additive]` CLI entry in `v2/docs/v1-behaviors.md` with current source citations; rule out rewriting v1 parity behavior — the catalog already records additive v2 behavior.
+- Distinguish the new CLI name-to-builder registry from `resolveWorkflowPreset`’s runtime step-shape registry; rule out merging them or removing its `write-write` preset — they own different contracts.
+- Record the verified prerequisite that workflow execution dispatches `review` steps; rule out implementing against write-only dispatch — the intent declares this as a required foundation.

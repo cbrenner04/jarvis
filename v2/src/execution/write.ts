@@ -12,6 +12,71 @@ import { renderStepPrompt } from "./write-prompt.ts";
 
 const DEFAULT_PROMPT_ID = "write.execute";
 
+function readFrontmatter(text: string): string | null {
+  const normalized = text.replace(/\r\n/g, "\n");
+  if (!normalized.startsWith("---\n")) {
+    return null;
+  }
+  const end = normalized.indexOf("\n---\n", 4);
+  if (end === -1) {
+    return null;
+  }
+  return normalized.slice(0, end + 5);
+}
+
+function extractBlockerSection(text: string): { index: number; body: string | undefined } | undefined {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+
+  let exactBlockerHeaderIndex: number | undefined;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? "";
+    if (line === "## Blocker") {
+      exactBlockerHeaderIndex = i;
+      break;
+    }
+  }
+
+  if (exactBlockerHeaderIndex === undefined) {
+    return undefined;
+  }
+
+  const headingPattern = /^(#{1,6})\s+(.+)$/;
+  const bodyLines: string[] = [];
+  for (let i = exactBlockerHeaderIndex + 1; i < lines.length; i += 1) {
+    const line = lines[i] ?? "";
+    const headingMatch = line.match(headingPattern);
+    if (headingMatch?.[1] === "##") {
+      break;
+    }
+    bodyLines.push(line);
+  }
+
+  const body = bodyLines.join("\n").trim();
+  return {
+    index: exactBlockerHeaderIndex,
+    body: body.length > 0 ? body : undefined,
+  };
+}
+
+function hasGenuineBlocker(intentBefore: string, intentAfter: string): boolean {
+  const blocker = extractBlockerSection(intentAfter);
+
+  if (blocker === undefined || blocker.body === undefined) {
+    return false;
+  }
+
+  // Frontmatter must be identical
+  if (readFrontmatter(intentBefore) !== readFrontmatter(intentAfter)) {
+    return false;
+  }
+
+  // Everything before the blocker section must match intentBefore
+  const afterLines = intentAfter.replace(/\r\n/g, "\n").split("\n");
+  const beforeBlocker = afterLines.slice(0, blocker.index).join("\n").trim();
+
+  return beforeBlocker === intentBefore.trim();
+}
+
 function validatePlanDraftShape(specDir: string): { valid: boolean; reason?: string } {
   if (!existsSync(specDir)) {
     return { valid: false, reason: "plan.draft.shape" };
@@ -44,6 +109,7 @@ export type WriteExecuteInput = {
   invocationTelemetry?: Omit<InvocationTelemetryContext, "worktreePath">;
   withExternalWorktree?: typeof realWithExternalWorktree;
   intentSeed?: string;
+  intentBefore?: string;
   jarvisRoot?: string;
   completionValidator?: (specDir: string) => { valid: boolean; reason?: string };
 };
@@ -93,21 +159,41 @@ export async function executeWrite(args: WriteExecuteInput): Promise<WriteExecut
       prompt = prompt.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`);
 
       const validator = args.completionValidator ?? validatePlanDraftShape;
+      const intentBefore = args.intentBefore ?? args.intentSeed;
+
+      const contracts: Array<{ id: string; reason?: string; check: () => boolean | Promise<boolean> }> = [];
+
+      // Blocker detection runs before shape check (if intentBefore is available)
+      if (intentBefore !== undefined) {
+        contracts.push({
+          id: "plan.draft.blocker",
+          reason: "plan.draft.blocker",
+          check: async () => {
+            const intentPath = join(specDir, "intent.md");
+            if (!existsSync(intentPath)) {
+              return true; // No blocker if intent.md doesn't exist
+            }
+            const intentAfter = readFileSync(intentPath, "utf8");
+            return !hasGenuineBlocker(intentBefore, intentAfter);
+          },
+        });
+      }
+
+      // Shape validation contract
+      contracts.push({
+        id: "artifact.exists",
+        reason: "plan.draft.shape",
+        check: () => {
+          const validation = validator(specDir);
+          return validation.valid;
+        },
+      });
 
       return runStep({
         prompt,
         cwd: worktree.path,
         bindings: args.bindings,
-        contracts: [
-          {
-            id: "artifact.exists",
-            reason: "plan.draft.shape",
-            check: () => {
-              const validation = validator(specDir);
-              return validation.valid;
-            },
-          },
-        ],
+        contracts,
         ...(args.signal !== undefined ? { signal: args.signal } : {}),
         ...(args.invocationTelemetry !== undefined
           ? {

@@ -24,11 +24,11 @@ Treat an agent-appended `## Blocker` on the seeded `intent.md` as a terminal pre
 
 ## Acceptance criteria
 
-- [ ] A run where the agent appended an exact `## Blocker` section to the seeded `intent.md` and wrote no `index.md`/subspecs fails the workflow (non-zero), opens no draft PR, and carries the `plan.draft.blocker` failure reason distinct from `plan.draft.shape`.
-- [ ] The blocker comparison uses the preset-seeded ready-intent as the baseline; a modification to `intent.md` other than an appended `## Blocker` section (including frontmatter edits) is not treated as a blocker and falls through to the shape contract.
-- [ ] Blocker detection runs before the shape check: a blocker run reports `plan.draft.blocker`, not the missing-index shape reason.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] A run where the agent appended an exact `## Blocker` section to the seeded `intent.md` and wrote no `index.md`/subspecs fails the workflow (non-zero), opens no draft PR, and carries the `plan.draft.blocker` failure reason distinct from `plan.draft.shape`.
+- [x] The blocker comparison uses the preset-seeded ready-intent as the baseline; a modification to `intent.md` other than an appended `## Blocker` section (including frontmatter edits) is not treated as a blocker and falls through to the shape contract.
+- [x] Blocker detection runs before the shape check: a blocker run reports `plan.draft.blocker`, not the missing-index shape reason.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

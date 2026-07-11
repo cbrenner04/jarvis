@@ -178,16 +178,26 @@ same durable path. For example, if `targetDir` is `v2/spec` and `NAME` is
 `2026-07-11T09-47-44Z-plan-workflow-draft`, the agent writes to
 `v2/spec/2026-07-11T09-47-44Z-plan-workflow-draft/`.
 
-**Draft output shape contract:** The plan preset supplies an injectable completion
-validator that checks the draft output is a runnable spec tree: `index.md` must
-exist and at least one file matching `/^\d{2}-.*\.md$/` (a subspec) must be
-present in the spec directory. A bare `index.md` with no subspecs fails. When
-this contract passes, the existing commit + draft-PR completion publish proceeds
-unchanged. When it fails, the workflow stops with `contract_miss` outcome and
-opens no draft PR. The failure reason `plan.draft.shape` is carried as a distinct
-field in the contract-miss result (distinct from the contract `id`), allowing
-future subspecs (e.g., subspec 03) to distinguish shape failures from blocker
-detection failures.
+**Prerequisite blocker gate:** Before the shape contract is checked, the write
+step compares the agent-written `intent.md` against the seeded `intentBefore`
+baseline (captured from the ready-intent at workflow start). A genuine blocker
+is exactly that baseline plus an appended `## Blocker` section, with frontmatter
+immutable and no other modifications. When a genuine blocker is detected, the
+workflow fails with `contract_miss` outcome and `plan.draft.blocker` failure
+reason, without opening a draft PR. This terminal failure is distinct from shape
+failures and ensures the workflow treats an agent-appended blocker as a complete
+prerequisite failure.
+
+**Draft output shape contract:** After the blocker gate passes (or no blocker is
+appended), an injectable completion validator checks the draft output is a
+runnable spec tree: `index.md` must exist and at least one file matching
+`/^\d{2}-.*\.md$/` (a subspec) must be present in the spec directory. A bare
+`index.md` with no subspecs fails. When this contract passes, the existing
+commit + draft-PR completion publish proceeds unchanged. When it fails, the
+workflow stops with `contract_miss` outcome and opens no draft PR. The failure
+reason `plan.draft.shape` is carried as a distinct field in the contract-miss
+result (distinct from the contract `id`), preserving the distinction between
+blocker detection failures and shape failures.
 
 ## Intent review cycle
 

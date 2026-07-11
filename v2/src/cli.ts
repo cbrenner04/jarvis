@@ -425,9 +425,10 @@ async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps
   }
 
   const { ok: _ok, ...parsedValues } = parsed;
-  const builderInput: WorkflowPresetBuilderInput = isIntentPreset || isPlanPreset
-    ? { cwd: deps.cwd(), ...parsedValues, configPath: deps.machineConfigPath }
-    : { cwd: deps.cwd(), ...parsedValues };
+  const builderInput: WorkflowPresetBuilderInput =
+    isIntentPreset || isPlanPreset
+      ? { cwd: deps.cwd(), ...parsedValues, configPath: deps.machineConfigPath }
+      : { cwd: deps.cwd(), ...parsedValues };
   const built = await builder(builderInput as Parameters<WorkflowPresetBuilder>[0]);
   if (!built.ok) {
     io.stderr(`${built.error.replace(/\n+$/, "")}\n`);

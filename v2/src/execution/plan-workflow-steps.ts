@@ -1,12 +1,9 @@
 import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { getBaseBranch } from "../../../shared/git.ts";
 import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
-import {
-  loadMachineConfig,
-  readMachineConfigDocument,
-} from "../config/machine-config-loader.ts";
+import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import { loadWorkflowSteps as realLoadWorkflowSteps, type WorkflowSourceStep } from "./workflow-loader.ts";
 import { type AnyWorkflowStep, resolveWorkflowPreset } from "./workflow-runner.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
@@ -102,9 +99,7 @@ function hasPrerequisitesSection(content: string): boolean {
   return /^## Prerequisites\b/m.test(content);
 }
 
-export function validateReadyIntent(
-  readyIntentPath: string,
-):
+export function validateReadyIntent(readyIntentPath: string):
   | {
       ok: true;
       name: string;
@@ -172,7 +167,7 @@ export function validateReadyIntent(
 }
 
 function formatPlanSpecTimestamp(date: Date): string {
-  return date.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+  return `${date.toISOString().replace(/[-:]/g, "").split(".")[0]}Z`;
 }
 
 function resolveTargetDir(input: PlanWorkflowInput, project: ProjectConfig): string | { error: string } {
@@ -239,7 +234,9 @@ export async function buildPlanWorkflowSteps(
       projectName: project.key,
       branchName: branch,
       baseRef: base,
-      ...(publish ? {} : { git: false, localPath: join(jarvisRoot, "specs", projectSafeId(project.key), "plans", name) }),
+      ...(publish
+        ? {}
+        : { git: false, localPath: join(jarvisRoot, "specs", projectSafeId(project.key), "plans", name) }),
     },
     specPath: specDir,
     expectedArtifactPath: STAGE_DIR,

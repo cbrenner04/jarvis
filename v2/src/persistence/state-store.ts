@@ -42,8 +42,8 @@ export type OnReviseConfig = {
 export type WorkflowSnapshotStep = {
   stepId: string;
   role: string;
-  /** Marks a `review-debate` step; absent for `write`/`human` steps. */
-  behavior?: "review-debate";
+  /** Marks a non-durable review step; absent for `write`/`human` steps. */
+  behavior?: "review-debate" | "review";
   onRevise?: OnReviseConfig;
   stepRules?: string;
   expectedArtifactPath?: string;

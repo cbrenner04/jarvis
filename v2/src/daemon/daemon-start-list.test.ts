@@ -52,7 +52,7 @@ function runFixture(
 
 function workflowSnapshot(
   invocationId: string,
-  ...steps: Array<{ stepId: string; role: string; behavior?: "review-debate" }>
+  ...steps: Array<{ stepId: string; role: string; behavior?: "review-debate" | "review" }>
 ) {
   return { invocationId, steps };
 }
@@ -365,6 +365,56 @@ test("list returns workflow step snapshots for live, stopped, and completed work
       { stepId: "step-a", role: "implement", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
       { stepId: "step-b", role: "review", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
     ],
+  });
+});
+
+test("list projects a review behavior entry in authored order without a durable run", async () => {
+  const snapshot = workflowSnapshot(
+    "workflow-review-entry",
+    { stepId: "step-1", role: "plan" },
+    { stepId: "review-1", role: "", behavior: "review" },
+    { stepId: "step-3", role: "plan" },
+  );
+  const runId = stateStore.createRun({
+    project: "wf-project",
+    specRef: "main",
+    worktreePath: "/tmp/wf-project",
+    branch: "wf-review-entry",
+    specPath: "/tmp/spec.md",
+    stepId: "step-1",
+    workflowSnapshot: snapshot,
+  });
+
+  let runs = await listRunsDirect(handlers);
+  expect(runs?.find((row) => row.runId === runId)?.workflow).toEqual({
+    steps: [
+      { stepId: "step-1", role: "plan", status: "stopped", attemptCount: 0, terminalOutcome: "invocation_failure" },
+      { stepId: "review-1", role: "", status: "pending", attemptCount: 0 },
+      { stepId: "step-3", role: "plan", status: "pending", attemptCount: 0 },
+    ],
+  });
+
+  handlers.reportReviewDebateProgress("workflow-review-entry", "review-1", { status: "in_progress", role: "critic" });
+  runs = await listRunsDirect(handlers);
+  expect(runs?.find((row) => row.runId === runId)?.workflow?.steps[1]).toEqual({
+    stepId: "review-1",
+    role: "critic",
+    status: "in_progress",
+    attemptCount: 0,
+  });
+
+  handlers.reportReviewDebateProgress("workflow-review-entry", "review-1", {
+    status: "completed",
+    role: "actuator",
+    terminalOutcome: "complete",
+  });
+  runs = await listRunsDirect(handlers);
+  expect(runs?.find((row) => row.runId === runId)?.workflow?.steps[1]).toEqual({
+    stepId: "review-1",
+    role: "actuator",
+    status: "completed",
+    attemptCount: 0,
+    terminalOutcome: "complete",
   });
 });
 

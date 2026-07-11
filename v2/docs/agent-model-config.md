@@ -99,6 +99,7 @@ Per-agent map from role to escalation list.
   "implement": { "rungs": [ /* Model */ ] },
   "shrink": { "rungs": [ /* Model */ ] },
   "adversary": { "rungs": [ /* Model */ ] },
+  "critic": { "rungs": [ /* Model */ ] },
   "advocate": { "rungs": [ /* Model */ ] },
   "adjudicator": { "rungs": [ /* Model */ ] },
   "actuator": { "rungs": [ /* Model */ ] }
@@ -209,6 +210,7 @@ error.
 | `implement` | full-list | walk `rungs[0..n]` |
 | `shrink` | full-list | walk `rungs[0..n]` |
 | `adversary` | full-list | walk `rungs[0..n]` |
+| `critic` | full-list | walk `rungs[0..n]` |
 | `advocate` | full-list | walk `rungs[0..n]` |
 | `adjudicator` | full-list | walk `rungs[0..n]` |
 | `actuator` | head-only | only `rungs[0]`; quota advances outer agent loop |
@@ -244,7 +246,7 @@ Aligned with [`shared-invocation.md`](shared-invocation.md):
 | --- | --- |
 | Every `agent` in project `agents` has a `ModelsByRole` entry in the data file | hard error |
 | For each such agent, every required role has a `ModelEscalation` entry | hard error |
-| Required roles = closed `Role` union minus optional `operator`; includes `shrink` | — |
+| Required roles = closed `Role` union minus optional `operator`; includes `critic` and `shrink` | — |
 | `operator` entry absent | load succeeds; resolving `operator` before Phase 9 is a **runtime** error |
 | `rungs` missing or empty for any present `(agent, role)` | hard error |
 | Duplicate names in project `agents` | hard error |

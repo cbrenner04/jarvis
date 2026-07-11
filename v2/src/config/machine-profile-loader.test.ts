@@ -15,6 +15,7 @@ const VALID_MODELS = {
     implement: { rungs: [{ adapterModel: "m2", priceKey: "p2" }] },
     shrink: { rungs: [{ adapterModel: "m7", priceKey: "p7" }] },
     adversary: { rungs: [{ adapterModel: "m3", priceKey: "p3" }] },
+    critic: { rungs: [{ adapterModel: "critic-model", priceKey: "critic-price" }] },
     advocate: { rungs: [{ adapterModel: "m4", priceKey: "p4" }] },
     adjudicator: { rungs: [{ adapterModel: "m5", priceKey: "p5" }] },
     actuator: { rungs: [{ adapterModel: "m6", priceKey: "p6" }] },
@@ -63,6 +64,15 @@ describe("loadMachineProfileModels", () => {
     expect(isError(result)).toBe(false);
   });
 
+  test.each([
+    ["home", ["claude", "codex", "cursor"]],
+    ["work", ["opencode"]],
+  ])("committed %s profile loads critic bindings for every cataloged agent", (profile, agents) => {
+    const result = loadMachineProfileModels(profile, agents);
+    expect(isError(result)).toBe(false);
+    if (!isError(result)) for (const agent of agents) expect(result[agent]?.critic?.rungs.length).toBeGreaterThan(0);
+  });
+
   test("models missing required role (actuator) returns LoadError naming agent and role", () => {
     const models = {
       claude: {
@@ -91,6 +101,14 @@ describe("loadMachineProfileModels", () => {
     if (isError(result)) {
       expect(result.errors.some((e) => e.includes("claude") && e.includes("shrink"))).toBe(true);
     }
+  });
+
+  test("models missing required role (critic) returns LoadError naming agent and role", () => {
+    const models = { claude: { ...VALID_MODELS.claude, critic: undefined } };
+    const machinesDir = machinesDirWithProfile("missing-critic-role-profile", JSON.stringify({ models }));
+    const result = loadMachineProfileModels("missing-critic-role-profile", ["claude"], { machinesDir });
+    expect(isError(result)).toBe(true);
+    if (isError(result)) expect(result.errors.some((e) => e.includes("claude") && e.includes("critic"))).toBe(true);
   });
 
   test("missing models key returns LoadError naming the missing key, not a malformed-object claim", () => {

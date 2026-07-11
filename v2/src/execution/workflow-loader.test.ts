@@ -31,6 +31,7 @@ const FULL_ROLES = {
   implement: RUNG,
   shrink: RUNG,
   adversary: RUNG,
+  critic: RUNG,
   advocate: RUNG,
   adjudicator: RUNG,
   actuator: RUNG,

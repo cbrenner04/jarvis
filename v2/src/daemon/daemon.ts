@@ -5,7 +5,7 @@ import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts
 import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
 import { resolveMachineProfile } from "../config/machine-config-loader.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
-import { type AnyWorkflowStep, executeWorkflow, type ReviewDebateProgress } from "../execution/workflow-runner.ts";
+import { type AnyWorkflowStep, executeWorkflow, type ReviewProgress } from "../execution/workflow-runner.ts";
 import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
 import { type LogReader, type LoopFinishedEvent, openLogReader, openLogSink } from "../persistence/log-stream.ts";
@@ -285,13 +285,21 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const activeRuns = new Map<string, ActiveRun>();
   const waitAbortControllers = new Set<AbortController>();
   /**
-   * Live/terminal role progress for `review-debate` steps, keyed by `invocationId` then
+   * Live/terminal role progress for review steps, keyed by `invocationId` then
    * `stepId` — mirroring `runsByWorkflowInvocation`'s scoping so two concurrent invocations
-   * sharing a `stepId` don't collide. Tracked in-memory only — a `review-debate` step has
+   * sharing a `stepId` don't collide. Tracked in-memory only — a review step has
    * no durable run row, so this map is the sole source for its `list` row, populated via
    * `reportReviewDebateProgress`.
    */
-  const reviewDebateProgressByInvocation = new Map<string, Map<string, ReviewDebateProgress>>();
+  const reviewDebateProgressByInvocation = new Map<string, Map<string, ReviewProgress>>();
+  const reportReviewProgress = (invocationId: string, stepId: string, progress: ReviewProgress): void => {
+    let steps = reviewDebateProgressByInvocation.get(invocationId);
+    if (!steps) {
+      steps = new Map<string, ReviewProgress>();
+      reviewDebateProgressByInvocation.set(invocationId, steps);
+    }
+    steps.set(stepId, progress);
+  };
   const { stateStore: store, logReader, writeLoopExecutor, failureReporter } = deps;
   const checkWorktreeDirty = deps.isWorktreeDirty ?? isWorktreeDirty;
   const checkMemoryHeadroom = deps.hasMemoryHeadroom ?? (() => hasMemoryHeadroom(resolveMachineProfile()));
@@ -372,6 +380,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       executeWorkflow({
         steps,
         stateStore: store,
+        onReviewDebateProgress: reportReviewProgress,
         onStepRunCreated: (stepIndex, runId) => {
           activeRuns.set(runId, { kind: "workflow", runId });
           if (stepIndex === 0) {
@@ -844,15 +853,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     resume: resumeHandler,
     kill: killHandler,
     wait: waitHandler,
-    /** Records a `review-debate` step's currently-executing or terminal role/outcome. */
-    reportReviewDebateProgress: (invocationId: string, stepId: string, progress: ReviewDebateProgress): void => {
-      let steps = reviewDebateProgressByInvocation.get(invocationId);
-      if (!steps) {
-        steps = new Map<string, ReviewDebateProgress>();
-        reviewDebateProgressByInvocation.set(invocationId, steps);
-      }
-      steps.set(stepId, progress);
-    },
+    /** Records a review step's currently-executing or terminal role/outcome. */
+    reportReviewDebateProgress: reportReviewProgress,
     /** Aborts every in-flight `wait` follow loop so it unwinds. */
     close: (): void => {
       for (const controller of waitAbortControllers) {

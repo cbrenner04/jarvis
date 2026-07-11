@@ -20,6 +20,7 @@ import { type CompletionCommitter, createCompletionCommitter } from "./completio
 import type { CompletionPublisher } from "./completion-publisher.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
+import { executeReviewCycle, type ReviewCycleInput, type ReviewCycleRole } from "./review-cycle.ts";
 import {
   executeReviewDebate,
   type ReviewDebateInput,
@@ -41,7 +42,7 @@ import {
   type WriteLoopResult,
 } from "./write-loop.ts";
 
-/** Workflow-runner-level telemetry context, shared identically across write and review-debate steps. */
+/** Workflow-runner-level telemetry context, shared identically across write and review steps. */
 type WorkflowTelemetryContext = {
   operatorSessionId: string;
   workflow: string;
@@ -92,6 +93,8 @@ export type HumanWorkflowStep = {
 /** Per-role agent fallback orders for a `review-debate` step's four fixed debate roles. */
 type ReviewDebateStepAgents = Record<ReviewDebateRole, readonly string[]>;
 
+type ReviewStepAgents = Record<ReviewCycleRole, readonly string[]>;
+
 /** Per-step review-debate input plus workflow identity; role bindings are derived at execution. */
 export type ReviewDebateWorkflowStep = Omit<ReviewDebateInput, "bindings" | "onRoleStart"> & {
   stepId: string;
@@ -103,15 +106,32 @@ export type ReviewDebateWorkflowStep = Omit<ReviewDebateInput, "bindings" | "onR
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
 };
 
-/** Live/terminal progress for a `review-debate` step's daemon-visible row, tracked in-memory only. */
-export type ReviewDebateProgress =
-  | { status: "in_progress"; role: ReviewDebateRole }
-  | { status: "completed" | "stopped"; role: ReviewDebateRole; terminalOutcome: "complete" | "invocation_failure" };
+/** Per-step critic/actuator review input; bindings are derived at execution. */
+export type ReviewWorkflowStep = Omit<ReviewCycleInput, "bindings" | "onRoleStart"> & {
+  stepId: string;
+  behavior: "review";
+  project: string;
+  branch: string;
+  agents: ReviewStepAgents;
+  agentModelConfig: AgentModelConfig;
+  createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
+};
+
+/** Live/terminal progress for a review step's daemon-visible row, tracked in-memory only. */
+export type ReviewProgress =
+  | { status: "in_progress"; role: ReviewDebateRole | ReviewCycleRole }
+  | {
+      status: "completed" | "stopped";
+      role: ReviewDebateRole | ReviewCycleRole;
+      terminalOutcome: "complete" | "invocation_failure";
+    };
+
+export type ReviewDebateProgress = ReviewProgress;
 
 /** One authored workflow step with durable run identity, dispatched on `behavior` at execution. */
 export type WorkflowStep = WriteWorkflowStep | HumanWorkflowStep;
 
-export type AnyWorkflowStep = WorkflowStep | ReviewDebateWorkflowStep;
+export type AnyWorkflowStep = WorkflowStep | ReviewDebateWorkflowStep | ReviewWorkflowStep;
 
 export type WorkflowStepInput = AnyWorkflowStep;
 
@@ -132,7 +152,7 @@ export type WorkflowRunnerInput = {
   steps: AnyWorkflowStep[];
   stateStore?: StateStore;
   logSink?: LogSink;
-  /** Reports a `review-debate` step's live/terminal role progress, keyed by `invocationId`+`stepId`. */
+  /** Reports a review step's live/terminal role progress, keyed by `invocationId`+`stepId`. */
   onReviewDebateProgress?: (invocationId: string, stepId: string, progress: ReviewDebateProgress) => void;
   /** Shared telemetry context for every step's invocations; omitted emits no `invocation_completed` rows. */
   telemetry?: WorkflowTelemetryContext;
@@ -208,6 +228,17 @@ async function runWorkflowStep(
 
   if (step.behavior === "review-debate") {
     return runReviewDebateStep(
+      step,
+      stepIndex,
+      workflowSnapshot.invocationId,
+      onReviewDebateProgress,
+      telemetry,
+      onStepRunCreated,
+    );
+  }
+
+  if (step.behavior === "review") {
+    return runReviewStep(
       step,
       stepIndex,
       workflowSnapshot.invocationId,
@@ -455,7 +486,9 @@ export function validateWorkflowStepRoles(steps: readonly AnyWorkflowStep[]): vo
 
 function missingWorkflowStepRoleBindings(step: AnyWorkflowStep): string[] {
   if (step.behavior === "human") return [];
-  return isWriteStep(step) ? missingWriteStepRoleBindings(step) : missingReviewDebateStepRoleBindings(step);
+  if (isWriteStep(step)) return missingWriteStepRoleBindings(step);
+  if (step.behavior === "review-debate") return missingReviewDebateStepRoleBindings(step);
+  return missingReviewStepRoleBindings(step);
 }
 
 function missingWriteStepRoleBindings(step: WriteWorkflowStep): string[] {
@@ -469,8 +502,14 @@ function missingReviewDebateStepRoleBindings(step: ReviewDebateWorkflowStep): st
   );
 }
 
+function missingReviewStepRoleBindings(step: ReviewWorkflowStep): string[] {
+  return (["critic", "actuator"] as const).flatMap((role) =>
+    step.agents[role].flatMap((agent) => missingAgentRoleBindings(step, agent, [role])),
+  );
+}
+
 function missingAgentRoleBindings(
-  step: WriteWorkflowStep | ReviewDebateWorkflowStep,
+  step: WriteWorkflowStep | ReviewDebateWorkflowStep | ReviewWorkflowStep,
   agent: string,
   roles: readonly string[],
 ): string[] {
@@ -509,7 +548,7 @@ function stepIdentity(step: WorkflowStep): { project: string; branch: string } {
 }
 
 /**
- * Every step, including `review-debate`, contributes an entry to the shared snapshot
+ * Every step, including review behaviors, contributes an entry to the shared snapshot
  * so the daemon's `list` handler can render a row for it. Only `write` and `human`
  * steps carry durable run identity, though: a `review-debate` step has no durable
  * run/resume in this slice (deferred to first consumer), so it is excluded from the
@@ -519,7 +558,9 @@ function buildWorkflowSnapshot(steps: readonly AnyWorkflowStep[], store: StateSt
   const authoredSteps = steps.map((step) => ({
     stepId: step.stepId,
     role: step.behavior === "write" ? step.role : "",
-    ...(step.behavior === "review-debate" ? { behavior: "review-debate" as const } : {}),
+    ...(step.behavior === "review-debate" || step.behavior === "review"
+      ? { behavior: step.behavior as "review-debate" | "review" }
+      : {}),
     ...(step.behavior === "human" && step.onRevise !== undefined ? { onRevise: step.onRevise } : {}),
     ...(step.behavior === "write"
       ? {
@@ -531,7 +572,9 @@ function buildWorkflowSnapshot(steps: readonly AnyWorkflowStep[], store: StateSt
       : {}),
   }));
 
-  const identifiableSteps = steps.filter((step): step is WorkflowStep => step.behavior !== "review-debate");
+  const identifiableSteps = steps.filter(
+    (step): step is WorkflowStep | HumanWorkflowStep => step.behavior !== "review-debate" && step.behavior !== "review",
+  );
   for (const step of identifiableSteps) {
     const { project, branch } = stepIdentity(step);
     const existingRun = store.findRunByProjectBranch({ project, branch, stepId: step.stepId });
@@ -555,7 +598,12 @@ function buildWorkflowSnapshot(steps: readonly AnyWorkflowStep[], store: StateSt
  */
 function snapshotMatchesAuthoredSteps(
   snapshot: WorkflowSnapshot,
-  authoredSteps: readonly { stepId: string; role: string; behavior?: "review-debate"; onRevise?: OnReviseConfig }[],
+  authoredSteps: readonly {
+    stepId: string;
+    role: string;
+    behavior?: "review-debate" | "review";
+    onRevise?: OnReviseConfig;
+  }[],
 ): boolean {
   if (snapshot.steps.length !== authoredSteps.length) return false;
   return snapshot.steps.every((step, index) => {
@@ -806,6 +854,13 @@ type ReviewDebateStepOutcome = {
   resumable: false;
 };
 
+type ReviewStepOutcome = {
+  kind: Extract<WriteLoopOutcomeKind, "complete" | "invocation_failure">;
+  runId: string;
+  iterationsConsumed: number;
+  resumable: false;
+};
+
 /**
  * Resolve each of the step's four per-role `agents` orders to that role's bindings and run
  * the debate. No durable run/resume for a review-debate step in this slice (deferred to
@@ -869,4 +924,64 @@ async function runReviewDebateStep(
   });
 
   return { kind, runId, iterationsConsumed: result.cycles.length, resumable: false };
+}
+
+async function runReviewStep(
+  step: ReviewWorkflowStep,
+  stepIndex: number,
+  invocationId: string,
+  onProgress: ((invocationId: string, stepId: string, progress: ReviewProgress) => void) | undefined,
+  telemetry: WorkflowTelemetryContext | undefined,
+  onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+): Promise<ReviewStepOutcome> {
+  const { stepId, project, branch, agents, agentModelConfig, createBinding, ...reviewInput } = step;
+  const resolveBindings = createBinding ?? createResolvedAgentBinding;
+  const bindings = {
+    critic: resolveInvocationBindings("critic", agents.critic, agentModelConfig, resolveBindings),
+    actuator: resolveInvocationBindings("actuator", agents.actuator, agentModelConfig, resolveBindings),
+  };
+  const runId = crypto.randomUUID();
+  const attemptId = crypto.randomUUID();
+  onStepRunCreated?.(stepIndex, runId);
+  const result = await executeReviewCycle({
+    ...reviewInput,
+    bindings,
+    ...(telemetry !== undefined
+      ? {
+          telemetry: {
+            sink: buildJsonlSink(telemetry.sinkPath ?? DEFAULT_TELEMETRY_SINK_PATH),
+            operatorSessionId: telemetry.operatorSessionId,
+            runId,
+            attemptId,
+            project,
+            workflow: telemetry.workflow,
+            stepId,
+            worktreePath: step.cwd,
+            branch,
+            specRef: "",
+          },
+        }
+      : {}),
+    ...(onProgress !== undefined
+      ? { onRoleStart: (role: ReviewCycleRole) => onProgress(invocationId, stepId, { status: "in_progress", role }) }
+      : {}),
+  });
+  const lastCycle = result.cycles[result.cycles.length - 1];
+  const terminalRole: ReviewCycleRole =
+    lastCycle?.kind === "role_failed"
+      ? lastCycle.failedRole
+      : lastCycle?.kind === "completed" && lastCycle.actuatorRan
+        ? "actuator"
+        : "critic";
+  onProgress?.(invocationId, stepId, {
+    status: result.kind === "complete" ? "completed" : "stopped",
+    role: terminalRole,
+    terminalOutcome: result.kind,
+  });
+  return {
+    kind: result.kind,
+    runId,
+    iterationsConsumed: result.cycles.length,
+    resumable: false,
+  };
 }

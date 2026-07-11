@@ -117,6 +117,25 @@ The write prompt injects the v2 restraint principles (`write.principles`) at
 every iteration; see [`coding-standards.md`](./coding-standards.md) for the
 canonical principle text and rationale.
 
+## Review cycle
+
+The standalone review cycle invokes the caller-supplied read-only `critic`,
+then the `actuator` when the critic's verdict is non-empty. The verdict is
+written verbatim to the caller-supplied `verdictPath` and passed unchanged as
+the actuator's entire prompt. Read-only critic operation is a caller binding
+obligation; this executor does not add a sandbox.
+
+Before each critic invocation, `verdictPath` is cleared. A verdict that is
+empty after trimming ends successfully without invoking the actuator. A
+non-empty verdict continues until `maxCycles`; zero runs no work. `maxCycles`
+must be a finite non-negative integer and is validated before filesystem or
+invocation work. Each critic start creates one cycle result, including role
+failures. Invalidation or verdict-write errors are `invocation_failure` with
+failure kind `error` and consume no cycle for invalidation failure. Critic or
+actuator binding failure, including aborts represented by the binding's
+terminal `error`, stops later work and identifies the failed role. A verdict
+written before an actuator failure remains current.
+
 Current scope: resolved Claude, Codex, and Cursor bindings spawn real agent
 processes through [`shared-invocation.md`](./shared-invocation.md). The older
 bare-agent `createAgentBindings` helper still returns terminal-`error` bindings,
@@ -127,6 +146,9 @@ by injecting simulated bindings (`v2/src/testing/bindings.ts`); no simulation
 lives in the production CLI. `failureKind: "no_binding"` is exercised today only
 via empty injected bindings in tests; live `createAgentBindings` always yields at
 least one binding.
+
+Programmatic workflow dispatch for this cycle is documented in
+[`workflow-runner.md`](./workflow-runner.md#review-dispatch).
 
 ## Command
 

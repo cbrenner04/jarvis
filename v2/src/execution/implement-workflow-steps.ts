@@ -1,9 +1,9 @@
 import { basename, dirname, join, resolve } from "node:path";
 import { findProjectMatch, type ProjectMatch } from "../../../shared/project-registry.ts";
+import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
 import { readProjectRegistry } from "../config/machine-config-loader.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { resolveActiveLinkedSubspec as realResolveActiveLinkedSubspec } from "./linked-subspec-routing.ts";
-import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
 import { PATCH_REVIEW_CRITIC_PROMPT_ID, PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS } from "./review-debate-render.ts";
 import {
   type ReviewDebateWorkflowSourceStep,

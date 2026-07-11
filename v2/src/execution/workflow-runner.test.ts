@@ -1460,7 +1460,12 @@ describe("executeWorkflow implement patch light review", () => {
   };
 
   function createLightReviewBindingFactory(
-    invoke: (binding: { agentId: string; adapterModel: string; prompt: string; cwd: string }) => Promise<InvocationResult>,
+    invoke: (binding: {
+      agentId: string;
+      adapterModel: string;
+      prompt: string;
+      cwd: string;
+    }) => Promise<InvocationResult>,
   ): NonNullable<ReviewWorkflowStep["createBinding"]> {
     return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) => ({
       id: `${agentId}/${adapterModel}`,

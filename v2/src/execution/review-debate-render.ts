@@ -379,7 +379,9 @@ async function invokePatchLightReviewRole(
 }
 
 /** Run patch light-review cycles with per-cycle critic rendering and shared patch actuator prompts. */
-export async function executePatchReviewCycle(args: PatchReviewCycleInput): Promise<{ cycles: PatchReviewCycleOutcome[] }> {
+export async function executePatchReviewCycle(
+  args: PatchReviewCycleInput,
+): Promise<{ cycles: PatchReviewCycleOutcome[] }> {
   if (!Number.isFinite(args.maxCycles) || !Number.isInteger(args.maxCycles) || args.maxCycles < 0) {
     throw new RangeError("maxCycles must be a finite non-negative integer");
   }

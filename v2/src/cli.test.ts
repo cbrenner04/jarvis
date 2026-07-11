@@ -1178,9 +1178,7 @@ describe("v2 cli", () => {
     });
 
     expect(code).toBe(1);
-    expect(cap.read().stderr).toBe(
-      'projects.test-project.implement.reviewBehavior must be "debate" or "light"\n',
-    );
+    expect(cap.read().stderr).toBe('projects.test-project.implement.reviewBehavior must be "debate" or "light"\n');
   });
 
   test("run workflow implement derives branch from spec parent dirname when branch is omitted", async () => {

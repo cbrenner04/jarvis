@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import type { ReviewCycleInput, ReviewCycleResult } from "./review-cycle.ts";
 import { executeReviewCycle } from "./review-cycle.ts";
 
@@ -69,10 +68,7 @@ export function restoreWorkingTree(cwd: string): void {
 export const VERDICT_FILE = ".jarvis-intent-review-verdict.md";
 
 /** Verdict lifecycle state. */
-export type VerdictState =
-  | { kind: "missing" }
-  | { kind: "owned"; invocationId: string }
-  | { kind: "foreign" };
+export type VerdictState = { kind: "missing" } | { kind: "owned"; invocationId: string } | { kind: "foreign" };
 
 /**
  * Check verdict file ownership before review starts.
@@ -129,7 +125,7 @@ export async function executeReviewCycleEnforced(args: {
   }
 
   // Snapshot before any review cycle.
-  const beforeReview = snapshotWorkingTree(cwd);
+  const _beforeReview = snapshotWorkingTree(cwd);
 
   // Run the review cycle.
   const result = await executeReviewCycle(input);
@@ -188,7 +184,7 @@ export async function executeReviewCycleEnforced(args: {
  * Exclude the verdict file from intent validation/landing.
  * Called before landIntentWorkflowOutput to remove the verdict file from staging.
  */
-export function excludeVerdictFromStaging(stagingDir: string, verdictPath: string): void {
+export function excludeVerdictFromStaging(_stagingDir: string, verdictPath: string): void {
   if (existsSync(verdictPath)) {
     rmSync(verdictPath, { force: true });
   }

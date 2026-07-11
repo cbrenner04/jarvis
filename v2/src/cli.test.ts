@@ -1008,17 +1008,21 @@ describe("v2 cli", () => {
     crypto.randomUUID = () => requestId;
     let received: unknown;
     try {
-      const code = await main(["run", "workflow", "intent-reviewed", "--seed-text", "Improve API", "--review-passes", "2"], cap.io, {
-        cwd: () => "/tmp/repo",
-        workflowPresetBuilders: {
-          "intent-reviewed": (input) => {
-            received = input;
-            return { ok: true, steps: FAKE_IMPLEMENT_STEPS };
+      const code = await main(
+        ["run", "workflow", "intent-reviewed", "--seed-text", "Improve API", "--review-passes", "2"],
+        cap.io,
+        {
+          cwd: () => "/tmp/repo",
+          workflowPresetBuilders: {
+            "intent-reviewed": (input) => {
+              received = input;
+              return { ok: true, steps: FAKE_IMPLEMENT_STEPS };
+            },
           },
+          connectIpcClient: async () =>
+            makeIpcClient([{ kind: "response", id: requestId, result: { runId: "intent-reviewed-2" } }], { sent }),
         },
-        connectIpcClient: async () =>
-          makeIpcClient([{ kind: "response", id: requestId, result: { runId: "intent-reviewed-2" } }], { sent }),
-      });
+      );
       expect(code).toBe(0);
     } finally {
       crypto.randomUUID = originalRandomUuid;
@@ -1031,25 +1035,34 @@ describe("v2 cli", () => {
 
   test("run workflow intent-reviewed rejects invalid review-passes before daemon contact", async () => {
     const cap = captureIo();
-    const code = await main(["run", "workflow", "intent-reviewed", "--seed-text", "Improve API", "--review-passes", "invalid"], cap.io, {
-      connectIpcClient: async () => {
-        throw new Error("should not contact daemon");
+    const code = await main(
+      ["run", "workflow", "intent-reviewed", "--seed-text", "Improve API", "--review-passes", "invalid"],
+      cap.io,
+      {
+        connectIpcClient: async () => {
+          throw new Error("should not contact daemon");
+        },
       },
-    });
+    );
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",
-      stderr: "usage: jarvis run workflow intent-reviewed (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>]\n",
+      stderr:
+        "usage: jarvis run workflow intent-reviewed (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>]\n",
     });
   });
 
   test("run workflow intent rejects review-passes before daemon contact", async () => {
     const cap = captureIo();
-    const code = await main(["run", "workflow", "intent", "--seed-text", "Improve API", "--review-passes", "1"], cap.io, {
-      connectIpcClient: async () => {
-        throw new Error("should not contact daemon");
+    const code = await main(
+      ["run", "workflow", "intent", "--seed-text", "Improve API", "--review-passes", "1"],
+      cap.io,
+      {
+        connectIpcClient: async () => {
+          throw new Error("should not contact daemon");
+        },
       },
-    });
+    );
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",

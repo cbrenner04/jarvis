@@ -114,17 +114,11 @@ describe("buildReviewedIntentWorkflowSteps", () => {
       },
     };
 
-    const negative = await buildReviewedIntentWorkflowSteps(
-      { cwd: "/repo", seedText: "x", reviewPasses: -1 },
-      deps,
-    );
+    const negative = await buildReviewedIntentWorkflowSteps({ cwd: "/repo", seedText: "x", reviewPasses: -1 }, deps);
     expect(negative.ok).toBe(false);
     if (!negative.ok) expect(negative.error).toContain("non-negative integer");
 
-    const fractional = await buildReviewedIntentWorkflowSteps(
-      { cwd: "/repo", seedText: "x", reviewPasses: 1.5 },
-      deps,
-    );
+    const fractional = await buildReviewedIntentWorkflowSteps({ cwd: "/repo", seedText: "x", reviewPasses: 1.5 }, deps);
     expect(fractional.ok).toBe(false);
     if (!fractional.ok) expect(fractional.error).toContain("non-negative integer");
 

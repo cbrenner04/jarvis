@@ -23,16 +23,16 @@ import { type IntentOutputConfig, landIntentWorkflowOutput } from "./intent-outp
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import { executeReviewCycle, type ReviewCycleInput, type ReviewCycleRole } from "./review-cycle.ts";
 import {
-  executeReviewCycleEnforced,
-  cleanupVerdictFile,
-  excludeVerdictFromStaging,
-} from "./review-intent-enforcement.ts";
-import {
   executeReviewDebate,
   type ReviewDebateInput,
   type ReviewDebateRole,
   type ReviewDebateRoleBindings,
 } from "./review-debate.ts";
+import {
+  cleanupVerdictFile,
+  excludeVerdictFromStaging,
+  executeReviewCycleEnforced,
+} from "./review-intent-enforcement.ts";
 import { parseRevisionNumber } from "./revision-step-id.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import {

@@ -1,12 +1,16 @@
-import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import { createHash } from "node:crypto";
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative } from "node:path";
 import { getBaseBranch } from "../../../shared/git.ts";
+import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
-import { loadMachineConfig, readMachineConfigDocument, resolveMachineProfile } from "../config/machine-config-loader.ts";
+import {
+  loadMachineConfig,
+  readMachineConfigDocument,
+  resolveMachineProfile,
+} from "../config/machine-config-loader.ts";
 import { loadMachineProfileModels, type MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
 import { loadWorkflowSteps as realLoadWorkflowSteps, type WorkflowSourceStep } from "./workflow-loader.ts";
 import { type AnyWorkflowStep, type ReviewWorkflowStep, resolveWorkflowPreset } from "./workflow-runner.ts";

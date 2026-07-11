@@ -5,6 +5,7 @@ import { getBaseBranch } from "../../../shared/git.ts";
 import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import type { MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
+import { getExternalWorktreePath } from "./external-worktree.ts";
 import {
   type LoadedWorkflowStep,
   type ReviewDebateWorkflowSourceStep,
@@ -309,8 +310,10 @@ export async function buildReviewedPlanWorkflowSteps(
 
   const source = await buildPlanWorkflowSourceStep(input, deps);
   if (!source.ok) return source;
-  const cwd = source.step.promptPlaceholders?.WORKDIR;
-  if (typeof cwd !== "string") return { ok: false, error: "plan: unable to determine review worktree" };
+  const cwd = getExternalWorktreePath({
+    ...source.step.worktree,
+    ...(source.step.jarvisRoot !== undefined ? { jarvisRoot: source.step.jarvisRoot } : {}),
+  });
   const reviewStep: ReviewDebateWorkflowSourceStep = {
     behavior: "review-debate",
     stepId: "review-debate",

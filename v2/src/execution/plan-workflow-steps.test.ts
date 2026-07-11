@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ProjectMatch } from "../../../shared/project-registry.ts";
 import { buildPlanWorkflowSteps, buildReviewedPlanWorkflowSteps } from "./plan-workflow-steps.ts";
 import type { LoadedWorkflowStep, WorkflowSourceStep } from "./workflow-loader.ts";
@@ -104,5 +107,27 @@ describe("buildReviewedPlanWorkflowSteps", () => {
         promptId: draft.steps[0]?.behavior === "write" ? draft.steps[0].promptId : undefined,
       });
     }
+  });
+
+  test("points the debate step at the draft's actual localPath when project git is disabled", async () => {
+    const root = mkdtempSync(join(tmpdir(), "plan-builder-"));
+    const config = join(root, "config.json");
+    writeFileSync(config, JSON.stringify({ projects: { demo: { root, git: false } } }));
+    const result = await buildReviewedPlanWorkflowSteps(
+      { cwd: root, readyIntent: "spec/ready-intents/reviewed-plan.md", configPath: config, jarvisRoot: "/jarvis" },
+      { resolveProjectMatch: () => match, readReadyIntent: () => intent, loadWorkflowSteps: load },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const writeStep = result.steps[0];
+    if (writeStep?.behavior !== "write") throw new Error("expected write step");
+    const localPath = writeStep.worktree.localPath;
+    expect(writeStep.worktree.git).toBe(false);
+    expect(typeof localPath).toBe("string");
+    expect(result.steps[1]).toMatchObject({ behavior: "review-debate", cwd: localPath });
+    const debateStep = result.steps[1];
+    if (debateStep?.behavior !== "review-debate") throw new Error("expected review-debate step");
+    expect(debateStep.verdictPath.startsWith(`${localPath}/`)).toBe(true);
   });
 });

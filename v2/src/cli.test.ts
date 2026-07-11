@@ -918,27 +918,31 @@ describe("v2 cli", () => {
 
     let code = NaN;
     try {
-      code = await main(["run", "workflow", "implement", "--base", "main", "--spec", "v2/spec/my-spec/index.md"], cap.io, {
-        cwd: () => "/tmp/repo",
-        readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
-        workflowPresetBuilders: {
-          implement: (input) => {
-            builtInput = input;
-            return { ok: true, steps: FAKE_IMPLEMENT_STEPS };
+      code = await main(
+        ["run", "workflow", "implement", "--base", "main", "--spec", "v2/spec/my-spec/index.md"],
+        cap.io,
+        {
+          cwd: () => "/tmp/repo",
+          readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
+          workflowPresetBuilders: {
+            implement: (input) => {
+              builtInput = input;
+              return { ok: true, steps: FAKE_IMPLEMENT_STEPS };
+            },
           },
+          connectIpcClient: async () =>
+            makeIpcClient(
+              [
+                {
+                  kind: "response",
+                  id: requestId,
+                  result: { runId: "run-derived-branch" },
+                },
+              ],
+              { sent },
+            ),
         },
-        connectIpcClient: async () =>
-          makeIpcClient(
-            [
-              {
-                kind: "response",
-                id: requestId,
-                result: { runId: "run-derived-branch" },
-              },
-            ],
-            { sent },
-          ),
-      });
+      );
     } finally {
       crypto.randomUUID = originalRandomUuid;
     }
@@ -957,17 +961,13 @@ describe("v2 cli", () => {
   test("run workflow implement requires --artifact for non-index specs and surfaces error without daemon contact", async () => {
     const cap = captureIo();
 
-    const code = await main(
-      ["run", "workflow", "implement", "--base", "main", "--spec", "spec.md"],
-      cap.io,
-      {
-        cwd: () => "/tmp/repo",
-        readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
-        connectIpcClient: async () => {
-          throw new Error("should not contact daemon");
-        },
+    const code = await main(["run", "workflow", "implement", "--base", "main", "--spec", "spec.md"], cap.io, {
+      cwd: () => "/tmp/repo",
+      readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
+      connectIpcClient: async () => {
+        throw new Error("should not contact daemon");
       },
-    );
+    });
 
     expect(code).toBe(1);
     expect(cap.read().stderr).toContain("Non-index spec requires --artifact");

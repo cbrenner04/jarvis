@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
+import { findProjectMatch } from "../../shared/project-registry.ts";
 import type { AgentModelConfig, LoadError } from "./config/agent-model-config.ts";
 import {
   loadMachineConfig,
@@ -14,7 +15,6 @@ import { loadMachineProfileModels } from "./config/machine-profile-loader.ts";
 import { resolveWriteLoopBindings, type WaitRunCompletionResult } from "./daemon/daemon.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon/daemon-lifecycle.ts";
 import { parseListRuns, parseStartResult, parseWaitCompletion } from "./daemon/daemon-wire.ts";
-import { findProjectMatch } from "../../shared/project-registry.ts";
 import {
   WORKFLOW_PRESET_BUILDERS,
   type WorkflowPresetBuilder,
@@ -71,7 +71,8 @@ const TUI_USAGE = "usage: jarvis tui\n";
 const TUI_LOG_USAGE = "usage: jarvis tui log <run-id>\n";
 const WRITE_USAGE =
   "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--max-iterations <n>]\n";
-const WORKFLOW_IMPLEMENT_USAGE = "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>]\n";
+const WORKFLOW_IMPLEMENT_USAGE =
+  "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>]\n";
 const WORKFLOW_INTENT_USAGE =
   "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>]\n";
 const WORKFLOW_INTENT_REVIEWED_USAGE =
@@ -387,13 +388,80 @@ function runTuiCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<
   return Promise.resolve(1);
 }
 
+function getWorkflowUsage(name: string): string {
+  if (name === "intent") return WORKFLOW_INTENT_USAGE;
+  if (name === "intent-reviewed") return WORKFLOW_INTENT_REVIEWED_USAGE;
+  if (name === "plan") return WORKFLOW_PLAN_USAGE;
+  if (name === "implement") return WORKFLOW_IMPLEMENT_USAGE;
+  return WORKFLOW_USAGE;
+}
+
+function parseWorkflowArgsByName(
+  args: readonly string[],
+  _name: string,
+  isIntentPreset: boolean,
+  isPlanPreset: boolean,
+  allowReviewPasses: boolean,
+) {
+  if (isIntentPreset) {
+    return parseIntentWorkflowArgs(args, allowReviewPasses);
+  }
+  if (isPlanPreset) {
+    return parsePlanWorkflowArgs(args);
+  }
+  return parseImplementWorkflowArgs(args);
+}
+
+async function buildWorkflowBuilderInput(
+  name: string,
+  parsed: ImplementWorkflowCliInput | IntentWorkflowCliInput | PlanWorkflowCliInput,
+  isIntentPreset: boolean,
+  isPlanPreset: boolean,
+  deps: CliDeps,
+  io: Io,
+): Promise<{ ok: true; input: WorkflowPresetBuilderInput } | { ok: false }> {
+  if (name === "implement") {
+    const resolved = resolveImplementWorkflowInput(
+      parsed as ImplementWorkflowCliInput,
+      deps.cwd(),
+      deps.readProjectRegistry,
+    );
+    if (!resolved.ok) {
+      io.stderr(`${resolved.error}\n`);
+      return { ok: false };
+    }
+    return {
+      ok: true,
+      input: {
+        cwd: deps.cwd(),
+        branchName: resolved.branchName,
+        baseRef: resolved.baseRef,
+        specPath: resolved.specPath,
+        projectRoot: resolved.projectRoot,
+        ...(resolved.artifactPath !== undefined ? { artifactPath: resolved.artifactPath } : {}),
+      },
+    };
+  }
+  const parsedRecord = parsed as Record<string, unknown>;
+  if (isIntentPreset || isPlanPreset) {
+    return {
+      ok: true,
+      input: { cwd: deps.cwd(), ...parsedRecord, configPath: deps.machineConfigPath } as WorkflowPresetBuilderInput,
+    };
+  }
+  return {
+    ok: true,
+    input: { cwd: deps.cwd(), ...parsedRecord } as WorkflowPresetBuilderInput,
+  };
+}
+
 async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
   const name = argv[0];
   const builder =
     name !== undefined && Object.hasOwn(deps.workflowPresetBuilders, name)
       ? deps.workflowPresetBuilders[name]
       : undefined;
-  if (builder === undefined) {
+  if (builder === undefined || name === undefined) {
     io.stderr(WORKFLOW_USAGE);
     return 1;
   }
@@ -401,23 +469,9 @@ async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps
   const isIntentPreset = name === "intent" || name === "intent-reviewed";
   const isPlanPreset = name === "plan";
   const allowReviewPasses = name === "intent-reviewed";
-  const parsed = isIntentPreset
-    ? parseIntentWorkflowArgs(argv.slice(1), allowReviewPasses)
-    : isPlanPreset
-      ? parsePlanWorkflowArgs(argv.slice(1))
-      : parseImplementWorkflowArgs(argv.slice(1));
+  const parsed = parseWorkflowArgsByName(argv.slice(1), name, isIntentPreset, isPlanPreset, allowReviewPasses);
   if (!parsed.ok) {
-    let usage: string;
-    if (name === "intent") {
-      usage = WORKFLOW_INTENT_USAGE;
-    } else if (name === "intent-reviewed") {
-      usage = WORKFLOW_INTENT_REVIEWED_USAGE;
-    } else if (name === "plan") {
-      usage = WORKFLOW_PLAN_USAGE;
-    } else {
-      usage = WORKFLOW_IMPLEMENT_USAGE;
-    }
-    io.stderr(usage);
+    io.stderr(getWorkflowUsage(name));
     return 1;
   }
 
@@ -427,34 +481,10 @@ async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps
     return 1;
   }
 
-  const { ok: _ok, ...parsedValues } = parsed;
+  const builderInputResult = await buildWorkflowBuilderInput(name, parsed, isIntentPreset, isPlanPreset, deps, io);
+  if (!builderInputResult.ok) return 1;
 
-  let builderInput: WorkflowPresetBuilderInput;
-  if (name === "implement") {
-    const resolved = resolveImplementWorkflowInput(
-      parsed as ImplementWorkflowCliInput,
-      deps.cwd(),
-      deps.readProjectRegistry,
-    );
-    if (!resolved.ok) {
-      io.stderr(`${resolved.error}\n`);
-      return 1;
-    }
-    builderInput = {
-      cwd: deps.cwd(),
-      branchName: resolved.branchName,
-      baseRef: resolved.baseRef,
-      specPath: resolved.specPath,
-      projectRoot: resolved.projectRoot,
-      ...(resolved.artifactPath !== undefined ? { artifactPath: resolved.artifactPath } : {}),
-    };
-  } else if (isIntentPreset || isPlanPreset) {
-    builderInput = { cwd: deps.cwd(), ...parsedValues, configPath: deps.machineConfigPath };
-  } else {
-    builderInput = { cwd: deps.cwd(), ...parsedValues };
-  }
-
-  const built = await builder(builderInput as Parameters<WorkflowPresetBuilder>[0]);
+  const built = await builder(builderInputResult.input as Parameters<WorkflowPresetBuilder>[0]);
   if (!built.ok) {
     io.stderr(`${built.error.replace(/\n+$/, "")}\n`);
     return 1;
@@ -585,13 +615,15 @@ function parseWriteCliInput(argv: readonly string[], deps: CliDeps): WriteCliInp
   return { ok: true, input: built.input };
 }
 
-type ImplementWorkflowCliInput = {
-  ok: true;
-  branchName?: string;
-  baseRef: string;
-  specPath: string;
-  artifactPath?: string;
-} | { ok: false };
+type ImplementWorkflowCliInput =
+  | {
+      ok: true;
+      branchName?: string;
+      baseRef: string;
+      specPath: string;
+      artifactPath?: string;
+    }
+  | { ok: false };
 
 function parseImplementWorkflowArgs(argv: readonly string[]): ImplementWorkflowCliInput {
   let values: Record<string, string | boolean | string[] | undefined>;
@@ -629,14 +661,16 @@ function parseImplementWorkflowArgs(argv: readonly string[]): ImplementWorkflowC
   };
 }
 
-type ResolvedImplementWorkflowInput = {
-  ok: true;
-  branchName: string;
-  baseRef: string;
-  specPath: string;
-  projectRoot: string;
-  artifactPath?: string;
-} | { ok: false; error: string };
+type ResolvedImplementWorkflowInput =
+  | {
+      ok: true;
+      branchName: string;
+      baseRef: string;
+      specPath: string;
+      projectRoot: string;
+      artifactPath?: string;
+    }
+  | { ok: false; error: string };
 
 function resolveImplementWorkflowInput(
   parsed: ImplementWorkflowCliInput,

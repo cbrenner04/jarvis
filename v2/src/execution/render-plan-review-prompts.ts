@@ -153,6 +153,7 @@ export async function executePlanReviewCycle(args: PlanReviewCycleInput): Promis
     try {
       writeFileSync(args.verdictPath, "", "utf8");
     } catch {
+      cycles.push({ kind: "role_failed", failedRole: "critic", failureKind: "error", verdict: null });
       break;
     }
 

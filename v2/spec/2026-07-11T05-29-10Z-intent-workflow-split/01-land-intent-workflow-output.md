@@ -22,14 +22,14 @@ Add a preset-aware workflow completion boundary that validates and lands split o
 
 ## Acceptance criteria
 
-- [ ] The intent step completes only when `.jarvis-intent-stage/` contains at least one shared-contract-valid Markdown intent.
-- [ ] Before landing, changes outside `.jarvis-intent-stage/**` fail with named paths, retained staging, failed `pre-publication` workflow state, rerun guidance, and no publication.
-- [ ] Valid output lands all-or-nothing under the resolved durable `ready-intents/`; a mid-operation failure restores prior destination contents and leaves staging retryable.
-- [ ] Successful landing removes `.jarvis-intent-stage/` before publication, whose commit contains only the invocation-owned durable intent files.
-- [ ] Resume after validation or landing failure retries pre-publication without another agent invocation; identical files previously landed by that workflow succeed idempotently, while unrelated or differing collisions fail without overwrite.
-- [ ] A valid single-intent stage can complete with one durable file.
-- [ ] Commit/push/PR publication cannot start until the full set is validated and durably landed.
-- [ ] Publication receives the durable `ready-intents/` directory as `specPath`.
+- [x] The intent step completes only when `.jarvis-intent-stage/` contains at least one shared-contract-valid Markdown intent.
+- [x] Before landing, changes outside `.jarvis-intent-stage/**` fail with named paths, retained staging, failed `pre-publication` workflow state, rerun guidance, and no publication.
+- [x] Valid output lands all-or-nothing under the resolved durable `ready-intents/`; a mid-operation failure restores prior destination contents and leaves staging retryable.
+- [x] Successful landing removes `.jarvis-intent-stage/` before publication, whose commit contains only the invocation-owned durable intent files.
+- [x] Resume after validation or landing failure retries pre-publication without another agent invocation; identical files previously landed by that workflow succeed idempotently, while unrelated or differing collisions fail without overwrite.
+- [x] A valid single-intent stage can complete with one durable file.
+- [x] Commit/push/PR publication cannot start until the full set is validated and durably landed.
+- [x] Publication receives the durable `ready-intents/` directory as `specPath`.
 
 ## Documentation updates
 

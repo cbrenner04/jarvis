@@ -44,6 +44,22 @@ and `invocation_failure` do not trigger shrink. A non-`complete` shrink outcome
 replaces the workflow result kind at the implement step and prevents later
 steps from running.
 
+The `intent` preset is one `plan` write step with prompt `intent.prompt.split`.
+When its step supplies `intentOutput`, completion validates the shared
+`.jarvis-intent-stage/` contract after the step completes, checks that only that
+directory changed, and lands every valid Markdown file transactionally under
+`intentOutput.durableDir`. Staging is removed only after landing succeeds.
+
+Landing runs before completion commit/push/PR publication; publication receives
+the durable directory as `specPath`. Validation, boundary, collision, and
+landing failures return `kind: "pre-publication"`, leave the step completed while
+the workflow remains failed at pre-publication, retain staging, and include rerun
+guidance. Resume retries this boundary without another agent invocation.
+Existing destination files are accepted only
+when byte-identical; differing collisions are never overwritten.
+The workflow records landed filenames by invocation in the worktree's private
+Jarvis state so a retry can distinguish its own output from a collision.
+
 The trigger keys on the write step's `role` being `implement`, not on "is this
 the shipped implement preset." Any hand-authored `write` step naming
 `role: "implement"` also runs the hidden shrink pass, even outside the shipped

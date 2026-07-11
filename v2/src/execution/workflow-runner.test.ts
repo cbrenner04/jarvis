@@ -941,6 +941,8 @@ describe("executeWorkflow", () => {
       });
       expect(run?.workflowSnapshot?.steps.map((step) => step.stepId)).toEqual(["implement"]);
       expect(shrinkRun?.workflowSnapshot?.steps.map((step) => step.stepId)).toEqual(["implement"]);
+      expect(run?.workflowSnapshot?.reviewPasses).toBe(0);
+      expect(shrinkRun?.workflowSnapshot?.reviewPasses).toBe(0);
     });
   });
 
@@ -1207,6 +1209,215 @@ describe("executeWorkflow review-debate dispatch", () => {
       const result = await executeWorkflow({ steps: [step], stateStore: store });
 
       expect(result).toMatchObject({ kind: "invocation_failure", stepIndex: 0, stepId: "debate-1", resumable: false });
+    });
+  });
+});
+
+describe("executeWorkflow implement patch review", () => {
+  function createPatchReviewDebateStep(args: {
+    branchName: string;
+    jarvisRoot: string;
+    verdictPath: string;
+    cwd: string;
+    createBinding?: ReviewDebateWorkflowStep["createBinding"];
+  }): ReviewDebateWorkflowStep {
+    return {
+      behavior: "review-debate",
+      stepId: "implement-review",
+      project: "demo",
+      branch: args.branchName,
+      cwd: args.cwd,
+      prompts: {
+        adversary: "patch.prompt.review.adversary",
+        advocate: "patch.prompt.review.advocate",
+        adjudicator: "patch.prompt.review.adjudicator",
+      },
+      verdictPath: args.verdictPath,
+      maxCycles: 1,
+      agents: { adversary: ["claude"], advocate: ["claude"], adjudicator: ["claude"], actuator: ["claude"] },
+      agentModelConfig: DEBATE_AGENT_MODEL_CONFIG,
+      patchReviewContext: { specPath: "index.md", baseBranch: "HEAD" },
+      ...(args.createBinding !== undefined ? { createBinding: args.createBinding } : {}),
+    };
+  }
+
+  test("runs shrink before appended patch review and overwrites verdict-patch.md each cycle", async () => {
+    const calls: string[] = [];
+    const implementStep = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "implement-patch-review",
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        invoke: async ({ cwd: worktreeCwd, prompt }) => {
+          calls.push(prompt.includes("Post-completion Shrink") ? "shrink" : "implement");
+          writeFileSync(`${worktreeCwd}/proof.txt`, "ok\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        },
+        metadata: { agent: agentId, model: adapterModel },
+      }),
+    });
+    const worktreePath = join(
+      implementStep.worktree.jarvisRoot ?? "",
+      "worktrees",
+      implementStep.worktree.projectName,
+      implementStep.worktree.branchName,
+    );
+    const verdictPath = join(worktreePath, "verdict-patch.md");
+
+    const reviewStep = createPatchReviewDebateStep({
+      branchName: implementStep.worktree.branchName,
+      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
+      verdictPath,
+      cwd: worktreePath,
+      createBinding: createDebateBindingFactory(async ({ adapterModel }) => {
+        calls.push(`review:${adapterModel}`);
+        return { kind: "ok", stdout: adapterModel === "ADJ" ? "fix it" : "ok", stderr: "" } as const;
+      }),
+    });
+    reviewStep.patchReviewContext = { specPath: "spec.md", baseBranch: "HEAD" };
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [implementStep, reviewStep], stateStore: store });
+
+      expect(result.kind).toBe("complete");
+      expect(calls.indexOf("implement")).toBeLessThan(calls.indexOf("shrink"));
+      expect(calls.indexOf("shrink")).toBeLessThan(calls.indexOf("review:ADV"));
+      expect(readFileSync(verdictPath, "utf8")).toBe("fix it");
+      const run = store.findRunByProjectBranch({
+        project: "demo",
+        branch: implementStep.worktree.branchName,
+        stepId: "implement",
+      });
+      expect(run?.workflowSnapshot?.reviewPasses).toBe(reviewStep.maxCycles);
+    });
+  });
+
+  test("skips appended patch review when linked index is already complete", async () => {
+    const reviewCalls: string[] = [];
+    const branchName = "implement-review-skip";
+    const implementStep = {
+      ...createStep({
+        stepId: "implement",
+        role: "implement",
+        branchName,
+        specPath: "index.md",
+        expectedArtifactPath: "index.md",
+      }),
+      linkedIndexRouting: true,
+    };
+    const worktreePath = join(
+      implementStep.worktree.jarvisRoot ?? "",
+      "worktrees",
+      implementStep.worktree.projectName,
+      branchName,
+    );
+    mkdirSync(worktreePath, { recursive: true });
+    writeFileSync(join(worktreePath, "index.md"), "- [x] [Sub](./sub.md)\n", "utf8");
+    writeFileSync(join(worktreePath, "sub.md"), "# Sub\n", "utf8");
+
+    const reviewStep = createPatchReviewDebateStep({
+      branchName,
+      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
+      verdictPath: join(worktreePath, "verdict-patch.md"),
+      cwd: worktreePath,
+      createBinding: createDebateBindingFactory(async () => {
+        reviewCalls.push("review");
+        return { kind: "ok", stdout: "ok", stderr: "" } as const;
+      }),
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [implementStep, reviewStep], stateStore: store });
+
+      expect(result.kind).toBe("complete");
+      expect(reviewCalls).toEqual([]);
+    });
+  });
+
+  test("stops at review invocation_failure without treating it as workflow complete", async () => {
+    const implementStep = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "implement-review-fail",
+    });
+    const worktreePath = join(
+      implementStep.worktree.jarvisRoot ?? "",
+      "worktrees",
+      implementStep.worktree.projectName,
+      implementStep.worktree.branchName,
+    );
+
+    const reviewStep = createPatchReviewDebateStep({
+      branchName: implementStep.worktree.branchName,
+      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
+      verdictPath: join(worktreePath, "verdict-patch.md"),
+      cwd: worktreePath,
+      createBinding: createDebateBindingFactory(async ({ adapterModel }) =>
+        adapterModel === "ADV"
+          ? ({ kind: "error", exitCode: 1, stderr: "boom" } as const)
+          : ({ kind: "ok", stdout: "ok", stderr: "" } as const),
+      ),
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [implementStep, reviewStep], stateStore: store });
+
+      expect(result).toMatchObject({
+        kind: "invocation_failure",
+        stepIndex: 1,
+        stepId: "implement-review",
+        resumable: false,
+      });
+    });
+  });
+
+  test("commits review actuator edits with the same completion committer as implement", async () => {
+    const published: Array<{ specPath: string; agent: string }> = [];
+    const implementStep = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "implement-review-commit",
+    });
+    const worktreePath = join(
+      implementStep.worktree.jarvisRoot ?? "",
+      "worktrees",
+      implementStep.worktree.projectName,
+      implementStep.worktree.branchName,
+    );
+
+    const reviewStep = createPatchReviewDebateStep({
+      branchName: implementStep.worktree.branchName,
+      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
+      verdictPath: join(worktreePath, "verdict-patch.md"),
+      cwd: worktreePath,
+      createBinding: createDebateBindingFactory(async ({ adapterModel }) => {
+        if (adapterModel === "ACT") {
+          writeFileSync(join(worktreePath, "review-edit.txt"), "applied\n", "utf8");
+        }
+        return {
+          kind: "ok",
+          stdout: adapterModel === "ADJ" ? "apply review edit" : "done",
+          stderr: "",
+        } as const;
+      }),
+    });
+    reviewStep.patchReviewContext = { specPath: "spec.md", baseBranch: "HEAD" };
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: (input) => {
+          published.push({ specPath: input.specPath, agent: input.agent });
+          return { commitSha: "review-commit", filesChanged: 1 };
+        },
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result).toMatchObject({ kind: "complete", commitSha: "review-commit" });
+      expect(published.at(-1)).toEqual({ specPath: "spec.md", agent: "claude" });
     });
   });
 });

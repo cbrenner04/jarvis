@@ -817,6 +817,7 @@ describe("v2 cli", () => {
       artifactPath: "sub/index.md",
       projectRoot: "/tmp/repo",
       projectName: "test-project",
+      reviewPasses: 0,
     });
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({
@@ -904,8 +905,165 @@ describe("v2 cli", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",
-      stderr: "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>]\n",
+      stderr:
+        "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>] [--review-passes <n>]\n",
     });
+  });
+
+  test("run workflow implement accepts review-passes before daemon start", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000009";
+    const originalRandomUuid = crypto.randomUUID;
+    crypto.randomUUID = () => requestId;
+
+    let builtInput: BuildImplementWorkflowStepsInput | undefined;
+
+    let code = NaN;
+    try {
+      code = await main([...RUN_WORKFLOW_IMPLEMENT_ARGS, "--review-passes", "2"], cap.io, {
+        cwd: () => "/tmp/repo/sub",
+        readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
+        workflowPresetBuilders: {
+          implement: (input) => {
+            builtInput = input;
+            return { ok: true, steps: FAKE_IMPLEMENT_STEPS };
+          },
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(
+            [
+              {
+                kind: "response",
+                id: requestId,
+                result: { runId: "run-review-passes" },
+              },
+            ],
+            { sent },
+          ),
+      });
+    } finally {
+      crypto.randomUUID = originalRandomUuid;
+    }
+
+    expect(code).toBe(0);
+    expect(builtInput).toMatchObject({ reviewPasses: 2 });
+    expect(sent).toHaveLength(1);
+  });
+
+  test("run workflow implement rejects invalid review-passes before daemon contact", async () => {
+    const cap = captureIo();
+    const code = await main([...RUN_WORKFLOW_IMPLEMENT_ARGS, "--review-passes", "1x"], cap.io, {
+      connectIpcClient: async () => {
+        throw new Error("should not contact daemon");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr:
+        "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>] [--review-passes <n>]\n",
+    });
+  });
+
+  test("run workflow implement uses project implement.reviewPasses when flag is omitted", async () => {
+    const cap = captureIo();
+    const configPath = writeMachineConfig({
+      projects: { "test-project": { root: "/tmp/repo", implement: { reviewPasses: 3 } } },
+    });
+    const requestId = "00000000-0000-4000-8000-000000000010";
+    const originalRandomUuid = crypto.randomUUID;
+    crypto.randomUUID = () => requestId;
+
+    let builtInput: BuildImplementWorkflowStepsInput | undefined;
+
+    let code = NaN;
+    try {
+      code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
+        cwd: () => "/tmp/repo/sub",
+        machineConfigPath: configPath,
+        readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
+        workflowPresetBuilders: {
+          implement: (input) => {
+            builtInput = input;
+            return { ok: true, steps: FAKE_IMPLEMENT_STEPS };
+          },
+        },
+        connectIpcClient: async () =>
+          makeIpcClient([
+            {
+              kind: "response",
+              id: requestId,
+              result: { runId: "run-project-default" },
+            },
+          ]),
+      });
+    } finally {
+      crypto.randomUUID = originalRandomUuid;
+    }
+
+    expect(code).toBe(0);
+    expect(builtInput).toMatchObject({ reviewPasses: 3 });
+  });
+
+  test("run workflow implement --review-passes overrides project implement.reviewPasses", async () => {
+    const cap = captureIo();
+    const configPath = writeMachineConfig({
+      projects: { "test-project": { root: "/tmp/repo", implement: { reviewPasses: 3 } } },
+    });
+    const requestId = "00000000-0000-4000-8000-000000000011";
+    const originalRandomUuid = crypto.randomUUID;
+    crypto.randomUUID = () => requestId;
+
+    let builtInput: BuildImplementWorkflowStepsInput | undefined;
+
+    let code = NaN;
+    try {
+      code = await main([...RUN_WORKFLOW_IMPLEMENT_ARGS, "--review-passes", "1"], cap.io, {
+        cwd: () => "/tmp/repo/sub",
+        machineConfigPath: configPath,
+        readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
+        workflowPresetBuilders: {
+          implement: (input) => {
+            builtInput = input;
+            return { ok: true, steps: FAKE_IMPLEMENT_STEPS };
+          },
+        },
+        connectIpcClient: async () =>
+          makeIpcClient([
+            {
+              kind: "response",
+              id: requestId,
+              result: { runId: "run-cli-override" },
+            },
+          ]),
+      });
+    } finally {
+      crypto.randomUUID = originalRandomUuid;
+    }
+
+    expect(code).toBe(0);
+    expect(builtInput).toMatchObject({ reviewPasses: 1 });
+  });
+
+  test("run workflow implement rejects invalid project implement.reviewPasses before daemon contact", async () => {
+    const cap = captureIo();
+    const configPath = writeMachineConfig({
+      projects: { "test-project": { root: "/tmp/repo", implement: { reviewPasses: -1 } } },
+    });
+
+    const code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
+      cwd: () => "/tmp/repo/sub",
+      machineConfigPath: configPath,
+      readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
+      connectIpcClient: async () => {
+        throw new Error("should not contact daemon");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toBe("projects.test-project.implement.reviewPasses must be a non-negative integer\n");
   });
 
   test("run workflow implement derives branch from spec parent dirname when branch is omitted", async () => {
@@ -956,6 +1114,7 @@ describe("v2 cli", () => {
       baseRef: "main",
       specPath: "v2/spec/my-spec/index.md",
       projectRoot: "/tmp/repo",
+      reviewPasses: 0,
     });
   });
 

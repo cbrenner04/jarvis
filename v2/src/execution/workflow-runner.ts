@@ -40,6 +40,7 @@ import {
   type ReviewDebateRole,
   type ReviewDebateRoleBindings,
 } from "./review-debate.ts";
+import { executePatchReviewDebate } from "./review-debate-render.ts";
 import {
   cleanupVerdictFile,
   excludeVerdictFromStaging,
@@ -146,6 +147,8 @@ export type ReviewDebateWorkflowStep = Omit<ReviewDebateInput, "bindings" | "onR
   agents: ReviewDebateStepAgents;
   agentModelConfig: AgentModelConfig;
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
+  /** When set, prompts are rendered per cycle from patch review templates at execution. */
+  patchReviewContext?: { specPath: string; baseBranch: string };
 };
 
 /** Per-step critic/actuator review input; bindings are derived at execution. */
@@ -265,6 +268,9 @@ type WorkflowStepOutcome = {
   iterationsConsumed: number;
   resumable: boolean;
   routingFailure?: string;
+  /** False when linked implement completed without routing to an active subspec. */
+  implementReviewEligible?: boolean;
+  completionAgent?: string;
 };
 
 /** Dispatch one step to its behavior-specific executor and normalize the result. */
@@ -343,6 +349,96 @@ function resolveInWorktree(worktreePath: string, path: string): string {
   return isAbsolute(path) ? path : join(worktreePath, path);
 }
 
+function linkedImplementRoutingFailureOutcome(
+  routing: Extract<ReturnType<typeof resolveActiveLinkedSubspec>, { ok: false }>,
+  totalIterationsConsumed: number,
+  stepIndex: number,
+  onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+): WorkflowStepOutcome {
+  const runId = crypto.randomUUID();
+  onStepRunCreated?.(stepIndex, runId);
+
+  if (routing.errorKind === "empty_index" || routing.errorKind === "already_complete") {
+    return {
+      kind: "complete",
+      runId,
+      iterationsConsumed: totalIterationsConsumed,
+      resumable: false,
+      implementReviewEligible: false,
+    };
+  }
+  return {
+    kind: "blocked",
+    runId,
+    iterationsConsumed: totalIterationsConsumed,
+    resumable: false,
+    routingFailure: `implement.${routing.errorKind}: ${routing.error}`,
+  };
+}
+
+async function runPreparedLinkedWriteStep(
+  linkStep: WriteWorkflowStep,
+  stepIndex: number,
+  workflowSnapshot: WorkflowSnapshot,
+  store: StateStore,
+  logSink: LogSink | undefined,
+  telemetry: WorkflowTelemetryContext | undefined,
+  onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+): Promise<WorkflowStepOutcome> {
+  const preparedLink = prepareWorkflowStep(linkStep, workflowSnapshot, store, logSink, telemetry);
+  if (preparedLink.kind === "completed") {
+    onStepRunCreated?.(stepIndex, preparedLink.runId);
+    const stored = store.loadRun(preparedLink.runId);
+    const stamp = stored ? boundaryStampFromStoredRun(stored) : undefined;
+    return {
+      kind: "complete",
+      runId: preparedLink.runId,
+      iterationsConsumed: 0,
+      resumable: false,
+      ...(preparedLink.completionAgent ? { completionAgent: preparedLink.completionAgent } : {}),
+      ...(stamp !== undefined ? stamp : {}),
+    };
+  }
+
+  return executeWriteLoop(
+    onStepRunCreated
+      ? { ...preparedLink.input, onRunCreated: (runId) => onStepRunCreated(stepIndex, runId) }
+      : preparedLink.input,
+  );
+}
+
+function finalizeLinkedImplementPass(
+  stepped: WorkflowStepOutcome,
+  routing: Extract<ReturnType<typeof resolveActiveLinkedSubspec>, { ok: true }>,
+  beforeIndexContent: string,
+  indexPath: string,
+): WorkflowStepOutcome | undefined {
+  const subspecContent = readFileSync(routing.active.path, "utf8");
+  const incompleteRequiredCriteria = parseSpec(subspecContent).acceptanceCriteria.some(
+    (criterion) => !criterion.humanOnly && !criterion.checked,
+  );
+  if (incompleteRequiredCriteria) {
+    return { ...stepped, kind: "contract_miss", routingFailure: "implement.link_incomplete" };
+  }
+
+  const afterIndexContent = readFileSync(indexPath, "utf8");
+  const mutatedLink = findModifiedLinkedCheckbox(beforeIndexContent, afterIndexContent);
+  if (mutatedLink !== undefined) {
+    writeFileSync(indexPath, beforeIndexContent, "utf8");
+    return { ...stepped, kind: "blocked", routingFailure: "implement.index_routing_mutated" };
+  }
+
+  const advancedIndexContent = advanceLinkedSubspecCheckbox(beforeIndexContent, routing.active.index);
+  if (advancedIndexContent !== undefined) {
+    writeFileSync(indexPath, advancedIndexContent, "utf8");
+  }
+
+  if (routing.isTerminal) {
+    return { ...stepped, implementReviewEligible: true };
+  }
+  return undefined;
+}
+
 /**
  * Drive one `implement` step across every unchecked linked subspec named by its
  * index (`specPath`). Each pass re-resolves the active link, runs the write
@@ -371,13 +467,7 @@ async function runLinkedImplementStep(
     const beforeIndexContent = readFileSync(indexPath, "utf8");
     const routing = resolveActiveLinkedSubspec(indexPath, worktreePath);
     if (!routing.ok) {
-      return {
-        kind: "blocked",
-        runId: "",
-        iterationsConsumed: totalIterationsConsumed,
-        resumable: false,
-        routingFailure: `implement.${routing.errorKind}: ${routing.error}`,
-      };
+      return linkedImplementRoutingFailureOutcome(routing, totalIterationsConsumed, stepIndex, onStepRunCreated);
     }
 
     const linkStep: WriteWorkflowStep = {
@@ -386,27 +476,15 @@ async function runLinkedImplementStep(
       expectedArtifactPath: routing.active.path,
     };
 
-    const preparedLink = prepareWorkflowStep(linkStep, workflowSnapshot, store, logSink, telemetry);
-    let outcome: WorkflowStepOutcome;
-    if (preparedLink.kind === "completed") {
-      onStepRunCreated?.(stepIndex, preparedLink.runId);
-      const stored = store.loadRun(preparedLink.runId);
-      const stamp = stored ? boundaryStampFromStoredRun(stored) : undefined;
-      outcome = {
-        kind: "complete",
-        runId: preparedLink.runId,
-        iterationsConsumed: 0,
-        resumable: false,
-        ...(preparedLink.completionAgent ? { completionAgent: preparedLink.completionAgent } : {}),
-        ...(stamp !== undefined ? stamp : {}),
-      };
-    } else {
-      outcome = await executeWriteLoop(
-        onStepRunCreated
-          ? { ...preparedLink.input, onRunCreated: (runId) => onStepRunCreated(stepIndex, runId) }
-          : preparedLink.input,
-      );
-    }
+    const outcome = await runPreparedLinkedWriteStep(
+      linkStep,
+      stepIndex,
+      workflowSnapshot,
+      store,
+      logSink,
+      telemetry,
+      onStepRunCreated,
+    );
 
     totalIterationsConsumed += outcome.iterationsConsumed;
     const stepped: WorkflowStepOutcome = { ...outcome, iterationsConsumed: totalIterationsConsumed };
@@ -415,28 +493,9 @@ async function runLinkedImplementStep(
       return stepped;
     }
 
-    const subspecContent = readFileSync(routing.active.path, "utf8");
-    const incompleteRequiredCriteria = parseSpec(subspecContent).acceptanceCriteria.some(
-      (criterion) => !criterion.humanOnly && !criterion.checked,
-    );
-    if (incompleteRequiredCriteria) {
-      return { ...stepped, kind: "contract_miss", routingFailure: "implement.link_incomplete" };
-    }
-
-    const afterIndexContent = readFileSync(indexPath, "utf8");
-    const mutatedLink = findModifiedLinkedCheckbox(beforeIndexContent, afterIndexContent);
-    if (mutatedLink !== undefined) {
-      writeFileSync(indexPath, beforeIndexContent, "utf8");
-      return { ...stepped, kind: "blocked", routingFailure: "implement.index_routing_mutated" };
-    }
-
-    const advancedIndexContent = advanceLinkedSubspecCheckbox(beforeIndexContent, routing.active.index);
-    if (advancedIndexContent !== undefined) {
-      writeFileSync(indexPath, advancedIndexContent, "utf8");
-    }
-
-    if (routing.isTerminal) {
-      return stepped;
+    const finalized = finalizeLinkedImplementPass(stepped, routing, beforeIndexContent, indexPath);
+    if (finalized !== undefined) {
+      return finalized;
     }
   }
 }
@@ -473,11 +532,16 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     let lastStepId = "";
     let completionAgent: string | undefined;
     let boundaryTelemetryFailure: string | undefined;
+    let implementReviewEligible = false;
     const workflowSnapshot = buildWorkflowSnapshot(args.steps, store);
 
     for (let stepIndex = 0; stepIndex < args.steps.length; stepIndex++) {
       const step = args.steps[stepIndex];
       if (!step) throw new Error("Unreachable: step undefined in bounded loop");
+
+      if (step.behavior === "review-debate" && step.patchReviewContext !== undefined && !implementReviewEligible) {
+        continue;
+      }
 
       const stepResult = await runWorkflowStep(
         step,
@@ -492,8 +556,15 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       totalIterationsConsumed += stepResult.iterationsConsumed;
       lastResult = stepResult;
       lastStepId = step.stepId;
-      if (stepResult.kind === "complete" && (stepResult as WriteLoopResult).completionAgent) {
-        completionAgent = (stepResult as WriteLoopResult).completionAgent;
+      if (stepResult.kind === "complete") {
+        if ((stepResult as WriteLoopResult).completionAgent) {
+          completionAgent = (stepResult as WriteLoopResult).completionAgent;
+        } else if (stepResult.completionAgent) {
+          completionAgent = stepResult.completionAgent;
+        }
+      }
+      if (step.behavior === "write" && step.role === "implement" && stepResult.kind === "complete") {
+        implementReviewEligible = stepResult.implementReviewEligible !== false;
       }
 
       if (stepResult.kind !== "complete") {
@@ -508,7 +579,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         };
       }
 
-      if (step.behavior === "write" && step.role === "implement" && !step.suppressShrink) {
+      if (step.behavior === "write" && step.role === "implement" && !step.suppressShrink && implementReviewEligible) {
         const shrinkResult = await runShrinkAfterImplementComplete(
           step,
           stepIndex,
@@ -539,7 +610,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
 
     if (!lastResult) throw new Error("Unreachable: lastResult undefined after checked bounds");
 
-    const publicationAgent = lastResult.kind === "complete" ? (completionAgent ?? "") : undefined;
+    const publicationAgent = lastResult.kind === "complete" ? completionAgent : undefined;
     let publicationSpecPath: string | undefined;
     const completionStep = [...args.steps].reverse().find(isWriteStep);
     const lastStep = args.steps[args.steps.length - 1];
@@ -792,7 +863,30 @@ function buildWorkflowSnapshot(steps: readonly AnyWorkflowStep[], store: StateSt
   return {
     invocationId: requestedInvocationId ?? crypto.randomUUID(),
     steps: authoredSteps,
+    ...implementReviewPassesField(steps),
   };
+}
+
+/** Retains the resolved implement review count on the workflow snapshot when applicable. */
+function implementReviewPassesField(
+  steps: readonly AnyWorkflowStep[],
+): { reviewPasses: number } | Record<string, never> {
+  const reviewPasses = implementReviewPassesFromSteps(steps);
+  return reviewPasses === undefined ? {} : { reviewPasses };
+}
+
+function implementReviewPassesFromSteps(steps: readonly AnyWorkflowStep[]): number | undefined {
+  const hasImplementWrite = steps.some(
+    (step): step is WriteWorkflowStep =>
+      step.behavior === "write" && step.role === "implement" && step.suppressShrink !== true,
+  );
+  if (!hasImplementWrite) return undefined;
+
+  const patchReviewStep = steps.find(
+    (step): step is ReviewDebateWorkflowStep =>
+      step.behavior === "review-debate" && step.patchReviewContext !== undefined,
+  );
+  return patchReviewStep?.maxCycles ?? 0;
 }
 
 /**
@@ -1067,6 +1161,7 @@ type ReviewDebateStepOutcome =
       runId: string;
       iterationsConsumed: number;
       resumable: false;
+      completionAgent?: string;
     }
   | {
       kind: "invocation_failure";
@@ -1103,7 +1198,7 @@ async function runReviewDebateStep(
   telemetry: WorkflowTelemetryContext | undefined,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
 ): Promise<ReviewDebateStepOutcome> {
-  const { stepId, project, branch, agents, agentModelConfig, createBinding, ...debateInput } = step;
+  const { stepId, project, branch, agents, agentModelConfig, createBinding, patchReviewContext, ...debateInput } = step;
   const resolveBindings = createBinding ?? createResolvedAgentBinding;
   const runId = crypto.randomUUID();
   const attemptId = crypto.randomUUID();
@@ -1116,10 +1211,8 @@ async function runReviewDebateStep(
     ]),
   ) as ReviewDebateRoleBindings;
 
-  const result = await executeReviewDebate({
-    ...debateInput,
-    bindings,
-    ...(telemetry !== undefined
+  const telemetryFields =
+    telemetry !== undefined
       ? {
           telemetry: {
             sink: buildJsonlSink(telemetry.sinkPath ?? DEFAULT_TELEMETRY_SINK_PATH),
@@ -1134,11 +1227,35 @@ async function runReviewDebateStep(
             specRef: "",
           },
         }
-      : {}),
-    ...(onProgress !== undefined
+      : {};
+
+  const onRoleStart =
+    onProgress !== undefined
       ? { onRoleStart: (role: ReviewDebateRole) => onProgress(invocationId, stepId, { status: "in_progress", role }) }
-      : {}),
-  });
+      : {};
+
+  const result =
+    patchReviewContext !== undefined
+      ? await executePatchReviewDebate({
+          cwd: debateInput.cwd,
+          bindings,
+          verdictPath: debateInput.verdictPath,
+          maxCycles: debateInput.maxCycles,
+          context: {
+            specPath: patchReviewContext.specPath,
+            cwd: debateInput.cwd,
+            baseBranch: patchReviewContext.baseBranch,
+          },
+          ...(debateInput.signal !== undefined ? { signal: debateInput.signal } : {}),
+          ...telemetryFields,
+          ...onRoleStart,
+        })
+      : await executeReviewDebate({
+          ...debateInput,
+          bindings,
+          ...telemetryFields,
+          ...onRoleStart,
+        });
 
   const lastCycle = result.cycles[result.cycles.length - 1];
   const kind = lastCycle?.kind === "role_failed" ? "invocation_failure" : "complete";
@@ -1151,7 +1268,20 @@ async function runReviewDebateStep(
     terminalOutcome: kind,
   });
 
-  return { kind, runId, iterationsConsumed: result.cycles.length, resumable: false };
+  const actuatorExecution =
+    lastCycle?.kind === "completed" && lastCycle.actuatorRan ? lastCycle.roleResults?.actuator?.final : undefined;
+  const completionAgent =
+    kind === "complete" && actuatorExecution?.result.kind === "ok"
+      ? actuatorExecution.binding.metadata?.agent?.trim()
+      : undefined;
+
+  return {
+    kind,
+    runId,
+    iterationsConsumed: result.cycles.length,
+    resumable: false,
+    ...(completionAgent ? { completionAgent } : {}),
+  };
 }
 
 /**

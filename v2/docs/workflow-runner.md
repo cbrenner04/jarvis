@@ -320,10 +320,12 @@ loader. When no profile is injected, profile selection uses
 
 ## Building `implement` workflow steps from cwd + run args
 
-`buildImplementWorkflowSteps({ cwd, branchName, baseRef, specPath }, deps?)`
+`buildImplementWorkflowSteps({ cwd, branchName, baseRef, specPath, reviewPasses }, deps?)`
 (`v2/src/execution/implement-workflow-steps.ts`) turns "operator standing in a
 project checkout, wants to run `implement`" into the `AnyWorkflowStep[]` payload
-the daemon `start` RPC accepts.
+the daemon `start` RPC accepts. `reviewPasses` is validated as a non-negative
+integer; `0` emits only the implement write step, while a positive value loads
+one appended `review-debate` step with `maxCycles` equal to that count.
 
 **Linked-subspec routing:** When `specPath` points to a multi-subspec
 `index.md`, the builder resolves the first unchecked linked subspec via
@@ -352,7 +354,19 @@ values — plus `stepRules: DEFAULT_WRITE_STEP_RULES` and the per-run
 `worktree`/`specPath`/`expectedArtifactPath`), then runs it through
 `loadWorkflowSteps` to attach `agents`/`agentModelConfig` from machine config,
 then through `resolveWorkflowPreset("implement", ...)` as a step-count/pinned-field
-re-affirmation. The reverse order does not typecheck: `resolveWorkflowPreset`
+re-affirmation. When `reviewPasses > 0`, the builder also loads one
+`review-debate` source step (`stepId: "implement-review"`) in the same
+`loadWorkflowSteps` call, then appends the loaded debate step after the resolved
+implement write step. The debate step runs in the implement worktree, writes
+`verdict-patch.md` beside the executed `specPath` (overwritten each cycle), and
+carries `patchReviewContext` so `executeWorkflow` renders
+`patch.prompt.review.*` per cycle at execution. Runtime order is implement write
+→ terminal shrink (when routing completed work) → optional debate review. The
+appended review is skipped — without hard-fail — when implement did not route
+through a terminal linked subspec, including empty or already-complete indexes,
+or when implement or shrink stopped non-`complete`. Actuator edits from a
+completed review use the same workflow completion committer as implement write
+edits. The reverse order does not typecheck: `resolveWorkflowPreset`
 requires `agents`/`agentModelConfig` already present, and only
 `loadWorkflowSteps` supplies them.
 
@@ -381,6 +395,21 @@ separate orders, not one order applied to all four roles. Before dispatch,
 `executeWorkflow` resolves each role's `agents` order to that role's bindings
 via the same two-axis resolution `write` steps use, then passes the four
 per-role binding sets to `executeReviewDebate`.
+
+**Patch review prompt rendering:** `v2/src/execution/review-debate-render.ts`
+binds the three read-only roles to `patch.prompt.review.adversary`,
+`.advocate`, and `.adjudicator`. Each cycle renders those templates with the
+executed spec tree, a branch change summary (`git diff --stat` plus changed
+paths), the pass number, and `REVIEW_PASS_CONTEXT`. Within a cycle, the
+adversary's stdout is injected as `ADVERSARY_FINDINGS` for the advocate, and
+the advocate's stdout as `ADVOCATE_RESPONSE` for the adjudicator. Across
+cycles, the prior cycle's adjudicator verdict is carried in
+`REVIEW_PASS_CONTEXT` for every role in the next cycle. The actuator prompt
+is composed from the patch verdict-actuator template (`buildVerdictActuatorPrompt`
+in `v1/src/modes/patch/prompt.ts`) with the settled adjudicator verdict.
+`renderReviewDebateCyclePrompts` and `nextReviewDebateCycleContext` expose the
+per-cycle render and cross-cycle carry contract for callers that build
+implement's appended `review-debate` step.
 
 Outcome mapping for a `review-debate` step reuses `WorkflowResult`
 (`kind: WriteLoopOutcomeKind`, no new kind added): all configured cycles

@@ -24,6 +24,8 @@ export type DaemonListRunRow = {
   status: RunStatus;
   isLive: boolean;
   error?: RunOperatorError;
+  /** Retained implement review count; absent on non-implement workflow rows. */
+  reviewPasses?: number;
   workflow?: DaemonWorkflowSnapshot;
 };
 

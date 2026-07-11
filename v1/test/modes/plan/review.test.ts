@@ -25,7 +25,6 @@ import {
   snapshotSpecFiles,
   validateReviewOutput,
 } from "../../../src/modes/plan/review.ts";
-import { snapshotSpecDirFiles } from "../../../src/modes/plan/spec-dir.ts";
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 const CODEX_ENTRY = { agent: "codex" as const, model: "gpt-5.3-codex" };

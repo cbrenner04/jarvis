@@ -619,9 +619,25 @@ describe("runPlanReviewPhase", () => {
 
   test("rejects malformed oversized splits", async () => {
     const cases = [
-      { name: "orphaned task", builder: "- Add builder behavior\n\n## Acceptance criteria\n\n- [ ] Builder behavior is verified\n", wiring: "## Acceptance criteria\n\n- [ ] Wiring behavior is verified\n", links: 2 },
-      { name: "duplicated outcome", builder: "- Add builder behavior\n\n## Acceptance criteria\n\n- [ ] Builder behavior is verified\n", wiring: "- Wire builder behavior\n\n## Acceptance criteria\n\n- [ ] Wiring behavior is verified\n- [ ] Builder behavior is verified\n", links: 2 },
-      { name: "unlinked replacement", builder: "- Add builder behavior\n\n## Acceptance criteria\n\n- [ ] Builder behavior is verified\n", wiring: "- Wire builder behavior\n\n## Acceptance criteria\n\n- [ ] Wiring behavior is verified\n", links: 1 },
+      {
+        name: "orphaned task",
+        builder: "- Add builder behavior\n\n## Acceptance criteria\n\n- [ ] Builder behavior is verified\n",
+        wiring: "## Acceptance criteria\n\n- [ ] Wiring behavior is verified\n",
+        links: 2,
+      },
+      {
+        name: "duplicated outcome",
+        builder: "- Add builder behavior\n\n## Acceptance criteria\n\n- [ ] Builder behavior is verified\n",
+        wiring:
+          "- Wire builder behavior\n\n## Acceptance criteria\n\n- [ ] Wiring behavior is verified\n- [ ] Builder behavior is verified\n",
+        links: 2,
+      },
+      {
+        name: "unlinked replacement",
+        builder: "- Add builder behavior\n\n## Acceptance criteria\n\n- [ ] Builder behavior is verified\n",
+        wiring: "- Wire builder behavior\n\n## Acceptance criteria\n\n- [ ] Wiring behavior is verified\n",
+        links: 1,
+      },
     ];
 
     for (const malformed of cases) {
@@ -639,8 +655,14 @@ describe("runPlanReviewPhase", () => {
               join(opts.cwd, "spec", "p-review", "index.md"),
               `# Draft\n\n- [ ] [00 - Builder](./00-builder.md)${malformed.links === 2 ? "\n- [ ] [01 - Wiring](./01-wiring.md)" : ""}\n`,
             );
-            writeFileSync(join(opts.cwd, "spec", "p-review", "00-builder.md"), `# Builder\n\n## Tasks\n\n${malformed.builder}`);
-            writeFileSync(join(opts.cwd, "spec", "p-review", "01-wiring.md"), `# Wiring\n\n## Tasks\n\n${malformed.wiring}`);
+            writeFileSync(
+              join(opts.cwd, "spec", "p-review", "00-builder.md"),
+              `# Builder\n\n## Tasks\n\n${malformed.builder}`,
+            );
+            writeFileSync(
+              join(opts.cwd, "spec", "p-review", "01-wiring.md"),
+              `# Wiring\n\n## Tasks\n\n${malformed.wiring}`,
+            );
             return { kind: "ok", stdout: "", stderr: "" };
           }
           if (prompt.includes("Review: Adjudicator")) {

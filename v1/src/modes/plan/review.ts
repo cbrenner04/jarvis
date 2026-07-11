@@ -255,8 +255,8 @@ function readFrontmatter(text: string): string | null {
 
 function splitItems(content: string, heading: "Tasks" | "Acceptance criteria"): string[] {
   if (heading === "Acceptance criteria") {
-    return parseSpec(content).acceptanceCriteria.map((criterion) =>
-      `${criterion.checked ? "x" : " "}:${criterion.text}`,
+    return parseSpec(content).acceptanceCriteria.map(
+      (criterion) => `${criterion.checked ? "x" : " "}:${criterion.text}`,
     );
   }
 
@@ -280,7 +280,9 @@ function splitItems(content: string, heading: "Tasks" | "Acceptance criteria"): 
 
 function splitSubspecFiles(snapshot: SpecDirSnapshot): Map<string, string> {
   return new Map(
-    [...snapshot].filter(([name]) => name.endsWith(".md") && name !== "index.md" && name !== "intent.md" && name !== "verdict-plan.md"),
+    [...snapshot].filter(
+      ([name]) => name.endsWith(".md") && name !== "index.md" && name !== "intent.md" && name !== "verdict-plan.md",
+    ),
   );
 }
 

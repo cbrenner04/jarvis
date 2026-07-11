@@ -2,7 +2,7 @@
 id: plan.prompt.review.adjudicator
 behavior: plan
 kind: step
-revision: 1
+revision: 2
 placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, CURRENT_SPEC:string!, SPEC_GUIDANCE:string!, ADVOCATE_RESPONSE:string!, REVIEW_PASS_CONTEXT:string!]
 remove: [global.naming]
 ---
@@ -53,6 +53,7 @@ The text between `<<<ADVOCATE_BEGIN>>>` and `<<<ADVOCATE_END>>>` contains the ad
 - Your verdict must be **outcome-focused** (what the spec needs), not a detailed rewrite prescription.
 - Your verdict must be **self-contained**: the actuator will read only your verdict, not the adversary or advocate artifacts.
 - Be concise: state upheld findings and required refinements only.
+- When a subspec is oversized, require an independently testable split. Require every original task and acceptance outcome exactly once across replacements, with every replacement linked from the index; do not prescribe prose compression.
 
 ## Context
 

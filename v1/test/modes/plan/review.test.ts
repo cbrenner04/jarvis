@@ -545,6 +545,78 @@ describe("runPlanReviewPhase", () => {
     }
   });
 
+  test("actuator turns an oversized verdict into a complete linked split tree", async () => {
+    const { dir, specDir, cleanup } = setupReviewFixture();
+    try {
+      const originalIntent = readFileSync(join(specDir, "intent.md"), "utf8");
+      const originalTask = "Add builder behavior";
+      const originalOutcome = "Builder behavior is verified";
+      const originalWiringTask = "Wire builder behavior";
+      const originalWiringOutcome = "Wiring behavior is verified";
+      writeFileSync(
+        join(specDir, "00-one.md"),
+        `# Oversized\n\n## Tasks\n\n- ${originalTask}\n- ${originalWiringTask}\n\n## Acceptance criteria\n\n- [ ] ${originalOutcome}\n- [ ] ${originalWiringOutcome}\n`,
+        "utf8",
+      );
+      const agent = new FakeAgent("claude", (_c, prompt, opts) => {
+        if (prompt.includes("Review Actuator")) {
+          expect(prompt).toContain("Preserve every original task and acceptance outcome exactly once");
+          expect(prompt).toContain("link every replacement from `index.md`");
+          rmSync(join(opts.cwd, "spec", "p-review", "00-one.md"));
+          writeFileSync(
+            join(opts.cwd, "spec", "p-review", "index.md"),
+            "# Draft\n\n- [ ] [00 - Builder](./00-builder.md)\n- [ ] [01 - Wiring](./01-wiring.md)\n",
+            "utf8",
+          );
+          writeFileSync(
+            join(opts.cwd, "spec", "p-review", "00-builder.md"),
+            `# Builder\n\n## Tasks\n\n- ${originalTask}\n\n## Acceptance criteria\n\n- [ ] ${originalOutcome}\n`,
+            "utf8",
+          );
+          writeFileSync(
+            join(opts.cwd, "spec", "p-review", "01-wiring.md"),
+            `# Wiring\n\n## Tasks\n\n- ${originalWiringTask}\n\n## Acceptance criteria\n\n- [ ] ${originalWiringOutcome}\n`,
+            "utf8",
+          );
+          return { kind: "ok", stdout: "", stderr: "" };
+        }
+        if (prompt.includes("Review: Adjudicator")) {
+          return {
+            kind: "ok",
+            stdout:
+              "Split the oversized subspec. Preserve every original task and acceptance outcome exactly once and link each replacement from the index.\n",
+            stderr: "",
+          };
+        }
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const result = await runPlanReviewPhase({
+        worktreePath: dir,
+        name: "p-review",
+        specDirBasename: "p-review",
+        config: makeReviewConfig({ planOrder: [CLAUDE_ENTRY], reviewPasses: 1 }),
+        reviewPassesOverride: 1,
+        commit: false,
+        specDirPath: specDir,
+        createAgent: () => agent,
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(readFileSync(join(specDir, "intent.md"), "utf8")).toBe(originalIntent);
+      expect(existsSync(join(specDir, "00-one.md"))).toBe(false);
+      const index = readFileSync(join(specDir, "index.md"), "utf8");
+      expect(index).toContain("(./00-builder.md)");
+      expect(index).toContain("(./01-wiring.md)");
+      const replacements = `${readFileSync(join(specDir, "00-builder.md"), "utf8")}${readFileSync(join(specDir, "01-wiring.md"), "utf8")}`;
+      for (const item of [originalTask, originalOutcome, originalWiringTask, originalWiringOutcome]) {
+        expect(replacements.split(item)).toHaveLength(2);
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
   test("recovers immutable-only intent.md drift on commit:false and emits notice", async () => {
     const { dir, specDir, cleanup } = setupReviewFixture();
     try {

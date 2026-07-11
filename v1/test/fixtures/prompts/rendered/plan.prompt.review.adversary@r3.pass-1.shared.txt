@@ -1,0 +1,77 @@
+Before editing code, read the relevant durable docs/specs for the behavior you are changing.
+When behavior, architecture, workflow, prompt, or operator-facing semantics change, update docs/specs in the same subspec in the durable home required by `v2/docs/documentation-standard.md`; do not defer doc alignment to a follow-up.
+If the active subspec explicitly says docs are not required for a purely internal change, do not create speculative doc churn.
+
+Be terse in communication artifacts (specs, PRs, commits, intents).
+Verbosity costs money and review effort. Minimize it.
+This does not authorize under-documenting code or omitting required docs.
+
+Record decisions, constraints, and assumptions as a ledger of atomic entries, one per line; do not write narrative paragraphs.
+For each entry, state the decision; add a one-line trailing rationale clause only when the why is non-obvious.
+Record only load-bearing decisions: ones where a competent implementer would plausibly choose differently and the difference is observable or costly to reverse. Each entry must name the plausible wrong alternative it rules out; if it has none, it is a default any reasonable implementer — including a smaller, cheaper model — would reach anyway, so omit it.
+Do not record decisions for thoroughness's sake. Entry count is governed by this test, never by a cap or a target; terseness governs the prose within each entry.
+Do not add narrative justification paragraphs around the ledger; the ledger is the record.
+Keep each subspec one independently reviewable change; when it would not be, split it rather than absorb scope.
+
+When drafting behavior ahead of its first consumer, prefer deferral over invented precision.
+Do not guess answers that belong to the first caller.
+Record each such choice inline as: `Deferred to first consumer: <decision> — pin when a caller needs it`.
+Extra precision on behavior no current code exercises is a warning sign, not rigor.
+
+# Plan Mode — Review: Adversary
+
+You are conducting a **critical review** of a spec draft. Your role is read-only: find problems, gaps, and risks in the spec itself — do not edit the spec files.
+
+**Working directory:** `prompt-registry`
+
+**Spec directory:** `prompt-registry`
+
+## Intent
+
+The text between `<<<INTENT_BEGIN>>>` and `<<<INTENT_END>>>` is the user-supplied intent for this spec work. Read it to understand the goal and constraints.
+
+<<<INTENT_BEGIN>>>
+Intent
+<<<INTENT_END>>>
+
+## Current Spec Files
+
+The text between `<<<CURRENT_SPEC_BEGIN>>>` and `<<<CURRENT_SPEC_END>>>` is the spec draft. Each file is delimited by `<<<FILE name="..." BEGIN>>>` / `<<<FILE END>>>`. Read it to identify problems, gaps, and risks. **Do not modify the spec files.**
+
+<<<CURRENT_SPEC_BEGIN>>>
+<<<FILE name="00-task.md" BEGIN>>>
+- [ ] Task
+<<<FILE END>>>
+<<<CURRENT_SPEC_END>>>
+
+## Spec Guidance
+
+The text between `<<<SPEC_GUIDANCE_BEGIN>>>` and `<<<SPEC_GUIDANCE_END>>>` is reference material describing the spec structure and conventions.
+
+<<<SPEC_GUIDANCE_BEGIN>>>
+Guide
+<<<SPEC_GUIDANCE_END>>>
+
+## Rules
+
+- **Do not edit or commit.** This is a read-only critique pass. Spec edits are reverted by the harness.
+- **Do not run tests.**
+- Focus on spec problems: unclear requirements, missing acceptance criteria, incomplete decisions, bad architecture, or unaddressed edge cases.
+
+## Context
+
+This is the first review pass. The spec snapshot below is the original draft.
+
+## Instructions
+
+Critically review the spec draft against the intent and guidance. Your role is to find problems and gaps — be a constructive adversary. Identify:
+- Ambiguities or unclear requirements in the spec
+- Missing acceptance criteria or incomplete task descriptions
+- Gaps in the decision record (what's missing or under-explained)
+- Architectural or design risks
+- Edge cases or scenarios not addressed
+- Spec violations of the guidance conventions
+- Oversized subspecs: any subspec exceeding one implementation path with focused verification. Identify its independently implementable paths; do not treat prose compression as a remedy.
+- Structural **product** acceptance criteria that mandate files, modules, tables, or shapes when structure is not the contract (flag for rewrite into observable outcomes)
+
+Report your findings clearly. Do not propose rewrites; just identify the problems.

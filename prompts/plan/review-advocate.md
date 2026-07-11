@@ -2,7 +2,7 @@
 id: plan.prompt.review.advocate
 behavior: plan
 kind: step
-revision: 1
+revision: 2
 placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, CURRENT_SPEC:string!, SPEC_GUIDANCE:string!, ADVERSARY_FINDINGS:string!, REVIEW_PASS_CONTEXT:string!]
 remove: [global.naming]
 ---
@@ -61,5 +61,7 @@ The text between `<<<ADVERSARY_BEGIN>>>` and `<<<ADVERSARY_END>>>` contains the 
 Review the adversary's findings and respond. For each concern raised:
 - Explain why the spec addresses the concern (is it covered by intent, implicit in an acceptance criterion, or ruled out by scope), or
 - Acknowledge if the concern is valid and should be addressed in refinement
+
+For an oversized-subspec finding, assess whether the identified paths are independently implementable with focused verification. Do not defend prose compression as a split.
 
 Be fair and honest: some concerns may be valid and require refinement, some may be addressed by the spec's scope or existing language, and some may be over-reaches. Explain which is which.

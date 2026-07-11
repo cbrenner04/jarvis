@@ -4,7 +4,7 @@ Harden the `plan` write step's completion so a run publishes only when it produc
 
 ## Verified prerequisites
 
-- The `plan` write step, its run-time `intent.md` seeding (`intentSeed`), and its completion publish exist (subspec 00).
+- The `plan` preset builder (subspec 00) and the write step's run-time `intent.md` seeding (`intentSeed`) and completion publish (subspec 01) exist.
 - `plan.prompt.draft` already instructs the agent to check `## Prerequisites` and append a `## Blocker` to `intent.md` on an unconfirmed prerequisite, writing no spec files. Source: `prompts/plan/draft.md`.
 - Write loop maps a failing completion contract to a stop + `## Blocker` append keyed on `failedContractId`. Source: `v2/src/execution/write-loop.ts`, `v2/src/execution/write-loop.test.ts`.
 

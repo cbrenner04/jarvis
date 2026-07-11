@@ -50,10 +50,18 @@ function writeValidProfile(): string {
 }
 
 const INPUT = {
-  cwd: "/tmp/proj/sub",
+  cwd: "/tmp/proj",
+  branchName: "implement-run",
+  baseRef: "main",
+  specPath: "index.md",
+};
+
+const INPUT_WITH_ARTIFACT = {
+  cwd: "/tmp/proj",
   branchName: "implement-run",
   baseRef: "main",
   specPath: "spec.md",
+  artifactPath: "artifact.md",
 };
 
 describe("buildImplementWorkflowSteps", () => {
@@ -93,8 +101,41 @@ describe("buildImplementWorkflowSteps", () => {
       branchName: "implement-run",
       baseRef: "main",
     });
-    expect(step.specPath).toBe("spec.md");
-    expect(step.expectedArtifactPath).toBe("/tmp/proj/sub.md");
+    expect(step.specPath).toBe("index.md");
+    expect(step.expectedArtifactPath).toBe("index.md");
+  });
+
+  test("uses the supplied projectRoot and projectName for CLI-resolved launches", () => {
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
+    const machineProfile = writeValidProfile();
+
+    const result = buildImplementWorkflowSteps(
+      { ...INPUT, projectRoot: "/tmp/proj", projectName: "proj" },
+      {
+        loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
+        resolveActiveLinkedSubspec: () => ({
+          ok: true,
+          active: {
+            index: 0,
+            subspec: { checked: false, body: "- [ ] [Sub](./sub.md)", text: "Sub", path: "./sub.md" },
+            path: "/tmp/proj/sub.md",
+            body: "# Subspec\n",
+          },
+          isTerminal: true,
+        }),
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const step = result.steps[0];
+    if (step?.behavior !== "write") return;
+    expect(step.worktree).toEqual({
+      projectRoot: "/tmp/proj",
+      projectName: "proj",
+      branchName: "implement-run",
+      baseRef: "main",
+    });
   });
 
   test("returns an error result naming the unresolved cwd instead of throwing", () => {
@@ -110,7 +151,7 @@ describe("buildImplementWorkflowSteps", () => {
   test("returns an error result carrying a machine-config validation failure instead of throwing", () => {
     const match: ProjectMatch = { key: "proj", root: "/tmp/proj" };
 
-    const result = buildImplementWorkflowSteps(INPUT, {
+    const result = buildImplementWorkflowSteps(INPUT_WITH_ARTIFACT, {
       resolveProjectMatch: () => match,
       loadWorkflowSteps: () => {
         throw new Error("Failed to load agent model config: profile not found");

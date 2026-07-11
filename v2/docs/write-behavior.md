@@ -371,7 +371,7 @@ before retrying `jarvis tui` or `jarvis tui log <run-id>`.
 | Command | Input mapping | Output | Exit |
 | --- | --- | --- | --- |
 | `jarvis run start ...` | Same required flags as `jarvis write`; `--project-root`, `--project`, `--branch`, `--base`, `--spec`, `--artifact`, optional `--max-iterations`; mapped to the same `WriteLoopInput` fields and sent over IPC as one `start` request | Run ID | `0` on success |
-| `jarvis run workflow <name> ...` | Selects a registered workflow builder by name. Only `implement` is registered. Its flags are `--branch`, `--base`, `--spec`, and `--artifact`; project comes from cwd (must match a project registered in `~/.jarvis/config.json`). The `implement` builder supplies `role`/`promptId`/`agents`/`agentModelConfig` and sends one IPC `start` request carrying `{ steps }` | Run ID | `0` on success; `1` on missing/unknown name, invalid flags, unresolved cwd, or machine-config validation failure — selection, parsing, and builder errors occur before daemon connection |
+| `jarvis run workflow <name> ...` | Selects a registered workflow builder by name. Only `implement` is registered. Required flags: `--base` and `--spec`. Optional flags: `--branch` (defaults to parent directory basename of resolved `--spec`), `--artifact` (required for non-index specs, ignored for index specs). A relative `--spec` is resolved from invocation cwd before project lookup; project is resolved from the registered project containing the resolved spec path (not from invocation cwd). Spec and artifact paths passed to the workflow are worktree-relative. The `implement` builder supplies `role`/`promptId`/`agents`/`agentModelConfig` and sends one IPC `start` request carrying `{ steps }` | Run ID | `0` on success; `1` on missing/unknown name, invalid flags, spec outside registered projects, or machine-config validation failure — selection, parsing, project resolution, and builder errors occur before daemon connection |
 | `jarvis run list` | None | One tab-separated row per run: `runId project branch status liveness reason retryable nextAction` — last three columns are `-` when daemon omits `error` | `0` on success |
 | `jarvis run log <run-id>` | Run ID | One compact JSON line per persisted record; replay first, then follow new records until stream end or client close | `0` on stream end/client close |
 | `jarvis run pause <run-id>` | Run ID | `paused <run-id>` | `0` on success |
@@ -431,6 +431,8 @@ paths (malformed, missing, unreadable, out-of-tree) fail before agent
 invocation with named diagnostics: `implement.malformed_link`,
 `implement.link_missing`, `implement.link_unreadable`, or
 `implement.link_out_of_tree`.
+
+**Workflow-started implement live control:** Implement runs launched via `jarvis run workflow implement` cannot be paused, resumed, or killed via `jarvis run pause/resume/kill`. The workflow step executes atomically to completion within the step's timeout; partial progress cannot be saved. Only `jarvis run start ...` implement runs (direct `write` mode) support live control.
 
 ## Loop outcomes
 

@@ -5,8 +5,10 @@ This is not a command reference — see [`write-behavior.md`](./write-behavior.m
 CLI contracts and [`daemon-host.md`](./daemon-host.md) / [`workflow-runner.md`](./workflow-runner.md)
 for IPC and workflow internals.
 
-The walkthrough uses an ad-hoc `jarvis run start` run (not `jarvis run workflow
-implement`) so live `pause` and `kill` work on the active run.
+The walkthrough uses an ad-hoc `jarvis run start` run (direct write mode) rather
+than `jarvis run workflow implement` so live `pause` and `kill` work on the active run.
+See [Workflow-started implement](#workflow-started-implement) for launching
+via workflow preset without live control.
 
 ## Prerequisites
 
@@ -295,6 +297,40 @@ This publishes the split output directly without invoking the critic or actuator
 
 See [`workflow-runner.md`](./workflow-runner.md) for the runner contract and
 publication ordering.
+
+## Workflow-started implement
+
+The implement workflow preset launches a write loop against an `index.md` spec
+without the live `pause`, `resume`, or `kill` control available in direct
+`jarvis run start` mode:
+
+```bash
+jarvis daemon start
+jarvis run workflow implement \
+  --base main \
+  --spec v2/spec/your-spec/index.md
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `--base` | Base git ref for the worktree |
+| `--spec` | Spec path (typically `index.md`); must exist relative to the registered project root |
+| `--branch` | Optional; defaults to the parent directory basename of `--spec` |
+| `--artifact` | Optional for `index.md` (ignored if supplied); required for non-index specs |
+
+The CLI sends one IPC `start` request and prints the run ID on stdout:
+
+```
+7f3a9c2e-4b1d-4e8a-9f0c-1a2b3c4d5e6f
+```
+
+Observe the run with `jarvis tui` or `jarvis run log <run-id>`. The run cannot be
+paused or killed live; the workflow step executes atomically to completion within
+its step timeout. Pausing/resuming/killing are not supported for
+workflow-started implement runs.
+
+See [`write-behavior.md`](./write-behavior.md#run-control-cli) for the full CLI
+contract and [`workflow-runner.md`](./workflow-runner.md) for workflow composition.
 
 ## Related docs
 

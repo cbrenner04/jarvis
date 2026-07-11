@@ -1,0 +1,11 @@
+- Define actuator prompt composition that preserves the critic verdict and adds `intent.prompt.review-actuator`; rules out relying on generic review’s verdict-only actuator contract.
+- Define enforceable critic read-only and actuator staging-only boundaries, including detection and cleanup after violations; rules out prompt wording alone and landing unauthorized edits.
+- Pin the verdict’s exact sibling path, collision handling, retention/cleanup on success and failure, and exclusion from landing validation; rules out an unmanaged control artifact blocking or contaminating durable output.
+- Preserve completion-boundary retry semantics after review succeeds; rules out publication or landing retries restarting review at cycle zero and producing different output.
+- Define critic and actuator binding ownership, configuration source, precedence, loading, and pre-daemon validation; rules out depending on the current loader, which excludes `review`.
+- State that final intent validation runs after the last review cycle and immediately before landing; rules out ambiguous per-cycle validation.
+- Define convergence: empty verdict skips actuation and proceeds to final validation; non-empty verdict invokes the actuator, repeats while budget remains, and may complete after the final bounded actuation; rules out undefined exhaustion behavior.
+- Clarify builder ownership between split-only `intent` and parameterized reviewed execution; rules out accidentally changing the established `intent` preset while still allowing zero-pass reviewed execution.
+- Define “default posture” as the documented/recommended named `intent-reviewed` command, not a bare-command alias or implicit launcher default; rules out contradictory operator semantics.
+- Add governed intent prompts from subspec 00 as an explicit prerequisite of subspec 01; rules out independently implementing composition before its required artifacts exist.
+- Add `v2/docs/write-behavior.md` alignment for intent-specific review prompt layering and isolation obligations; rules out leaving the canonical review-cycle contract inconsistent with runtime behavior.

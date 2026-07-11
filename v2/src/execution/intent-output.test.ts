@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { landIntentWorkflowOutput } from "./intent-output.ts";
@@ -55,5 +55,18 @@ describe("landIntentWorkflowOutput", () => {
       landIntentWorkflowOutput({ worktreePath: repo, baseRef: "HEAD", output: { durableDir: "ready-intents" } }),
     ).toThrow("different contents");
     expect(readFileSync(join(repo, "ready-intents", "one.md"), "utf8")).toBe("other\n");
+  });
+
+  test("lands output without git state", () => {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-intent-output-no-git-"));
+    stage(root);
+    const result = landIntentWorkflowOutput({
+      worktreePath: root,
+      baseRef: "none",
+      output: { durableDir: "ready-intents" },
+      invocationId: "no-git",
+    });
+    expect(result.specPath).toBe(join(root, "ready-intents"));
+    expect(existsSync(join(root, ".jarvis-intent-stage"))).toBe(false);
   });
 });

@@ -48,8 +48,12 @@ function failure(message: string): never {
 }
 
 function ownershipPath(worktreePath: string): string {
-  const gitDir = execFileSync("git", ["rev-parse", "--git-dir"], { cwd: worktreePath, encoding: "utf8" }).trim();
-  return join(resolve(worktreePath, gitDir), "jarvis-intent-output.json");
+  try {
+    const gitDir = execFileSync("git", ["rev-parse", "--git-dir"], { cwd: worktreePath, encoding: "utf8" }).trim();
+    return join(resolve(worktreePath, gitDir), "jarvis-intent-output.json");
+  } catch {
+    return join(worktreePath, ".jarvis-intent-output.json");
+  }
 }
 
 function readOwnership(path: string): Record<string, string[]> {
@@ -99,6 +103,7 @@ export function landIntentWorkflowOutput(input: {
   const backups = new Map<string, string>();
   const created: string[] = [];
   const backupDir = join(input.worktreePath, `.jarvis-intent-backup-${crypto.randomUUID()}`);
+  const durableDirExisted = existsSync(durableDir);
   try {
     mkdirSync(durableDir, { recursive: true });
     for (const file of files) {
@@ -130,6 +135,7 @@ export function landIntentWorkflowOutput(input: {
     for (const [destination, backup] of backups) {
       if (existsSync(backup)) copyFileSync(backup, destination);
     }
+    if (!durableDirExisted) rmSync(durableDir, { recursive: true, force: true });
     rmSync(backupDir, { recursive: true, force: true });
     if (error instanceof Error) throw error;
     failure(String(error));

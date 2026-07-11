@@ -418,6 +418,20 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         message: "Workflow start's first step must not be review-debate: it has no durable run row",
       };
     }
+    if (firstStep?.behavior === "write" && firstStep.workflowInvocationId !== undefined) {
+      const existing = store.findRunByProjectBranch({
+        project: firstStep.worktree.projectName,
+        branch: firstStep.worktree.branchName,
+        stepId: firstStep.stepId,
+      });
+      if (existing?.workflowSnapshot?.invocationId !== undefined && existing.workflowSnapshot.invocationId !== firstStep.workflowInvocationId) {
+        return {
+          kind: "error",
+          code: "worktree_claimed",
+          message: "intent: existing workflow is owned by another invocation; resume the recorded invocation",
+        };
+      }
+    }
     const workflowKey = workflowStartOwnershipKey(steps);
     if (store.hasQueuedRun(workflowKey)) {
       return {

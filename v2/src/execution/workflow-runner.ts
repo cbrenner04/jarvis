@@ -78,6 +78,8 @@ export type WriteWorkflowStep = Omit<WriteLoopInput, "bindings"> & {
   agentModelConfig: AgentModelConfig;
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
   intentOutput?: IntentOutputConfig;
+  /** Caller-recorded identity for an intent invocation. */
+  workflowInvocationId?: string;
 };
 
 /**
@@ -375,32 +377,34 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     const publicationAgent = lastResult.kind === "complete" ? (completionAgent ?? "") : undefined;
     let publicationSpecPath: string | undefined;
     const completionStep = [...args.steps].reverse().find(isWriteStep);
+    if (publicationAgent !== undefined && completionStep?.intentOutput !== undefined) {
+      const worktreePath = getExternalWorktreePath(completionStep.worktree);
+      try {
+        publicationSpecPath = landIntentWorkflowOutput({
+          worktreePath,
+          baseRef: completionStep.worktree.baseRef,
+          output: completionStep.intentOutput,
+          invocationId: workflowSnapshot.invocationId,
+        }).specPath;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        store.setRunStatus(lastResult.runId, "failed");
+        return {
+          kind: "pre-publication",
+          stepIndex: args.steps.length - 1,
+          stepId: lastStepId,
+          runId: lastResult.runId,
+          iterationsConsumed: totalIterationsConsumed,
+          resumable: true,
+          prePublicationError: message,
+        };
+      }
+    }
     if (publicationAgent !== undefined && completionStep?.publishCompletion !== false) {
       if (completionStep) {
         const worktree = completionStep.worktree;
         const worktreePath = getExternalWorktreePath(worktree);
         try {
-          if (completionStep.intentOutput !== undefined) {
-            try {
-              publicationSpecPath = landIntentWorkflowOutput({
-                worktreePath,
-                baseRef: worktree.baseRef,
-                output: completionStep.intentOutput,
-                invocationId: workflowSnapshot.invocationId,
-              }).specPath;
-            } catch (error) {
-              const message = error instanceof Error ? error.message : String(error);
-              return {
-                kind: "pre-publication",
-                stepIndex: args.steps.length - 1,
-                stepId: lastStepId,
-                runId: lastResult.runId,
-                iterationsConsumed: totalIterationsConsumed,
-                resumable: true,
-                prePublicationError: message,
-              };
-            }
-          }
           const published = (args.completionCommitter ?? createCompletionCommitter())({
             worktreePath,
             baseRef: worktree.baseRef,
@@ -582,6 +586,7 @@ function stepIdentity(step: WorkflowStep): { project: string; branch: string } {
  * existing-run lookup that resumes a prior invocation's snapshot.
  */
 function buildWorkflowSnapshot(steps: readonly AnyWorkflowStep[], store: StateStore): WorkflowSnapshot {
+  const requestedInvocationId = steps.find(isWriteStep)?.workflowInvocationId;
   const authoredSteps = steps.map((step) => ({
     stepId: step.stepId,
     role: step.behavior === "write" ? step.role : "",
@@ -607,12 +612,15 @@ function buildWorkflowSnapshot(steps: readonly AnyWorkflowStep[], store: StateSt
     const existingRun = store.findRunByProjectBranch({ project, branch, stepId: step.stepId });
     const candidate = existingRun?.workflowSnapshot;
     if (candidate !== null && candidate !== undefined && snapshotMatchesAuthoredSteps(candidate, authoredSteps)) {
+      if (requestedInvocationId !== undefined && candidate.invocationId !== requestedInvocationId) {
+        throw new Error("intent: existing workflow is owned by another invocation; resume the recorded invocation");
+      }
       return candidate;
     }
   }
 
   return {
-    invocationId: crypto.randomUUID(),
+    invocationId: requestedInvocationId ?? crypto.randomUUID(),
     steps: authoredSteps,
   };
 }
@@ -730,12 +738,21 @@ function prepareWorkflowStep(
     branch: step.worktree.branchName,
     stepId: step.stepId,
   });
-  if (existingRun?.status === "completed") {
+  if (existingRun?.status === "completed" || (step.intentOutput !== undefined && existingRun?.status === "failed")) {
     const completionAgent = existingRun.attempts.at(-1)?.completionAgent?.trim();
     return { kind: "completed", runId: existingRun.id, ...(completionAgent ? { completionAgent } : {}) };
   }
 
-  const { stepId, role, agents, agentModelConfig, createBinding, behavior: _behavior, ...loopInput } = step;
+  const {
+    stepId,
+    role,
+    agents,
+    agentModelConfig,
+    createBinding,
+    behavior: _behavior,
+    workflowInvocationId: _invocationId,
+    ...loopInput
+  } = step;
   const executableRole = resolveExecutableRole(role);
   const bindings = resolveInvocationBindings(
     executableRole,

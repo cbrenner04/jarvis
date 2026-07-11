@@ -53,6 +53,7 @@ describe("buildIntentWorkflowSteps", () => {
     expect((await buildIntentWorkflowSteps({ cwd: "/repo", seedText: "x", targetDir: "../spec" }, deps)).ok).toBe(
       false,
     );
+    expect((await buildIntentWorkflowSteps({ cwd: "/repo", seed: "/tmp/seed" }, deps)).ok).toBe(false);
     expect(loaded).toBe(false);
   });
 

@@ -28,6 +28,19 @@ function hasPrerequisites(text: string): boolean {
   return /^## Prerequisites\s*$/m.test(text.replace(/\r\n/g, "\n"));
 }
 
+function hasFirstBodyH1(text: string): boolean {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  let body = 0;
+  if (lines[0] === "---") {
+    body = lines.findIndex((line, index) => index > 0 && line === "---") + 1;
+  }
+  for (let index = body; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (line.trim().length > 0) return /^#(?!#)\s+\S/.test(line);
+  }
+  return false;
+}
+
 function validPrerequisites(text: string): boolean {
   const normalized = text.replace(/\r\n/g, "\n");
   const match = /^## Prerequisites\s*$/m.exec(normalized);
@@ -132,7 +145,7 @@ function repairIntentFile(path: string, slug: string): void {
   if (firstNonBlankIdx !== -1) {
     const line = lines[firstNonBlankIdx] ?? "";
     const nameMatch = /^name:\s*(.*)$/.exec(line.trim());
-    if (!line.trim().startsWith("#")) {
+    if (!/^#(?!#)\s+\S/.test(line)) {
       if (nameMatch && (nameMatch[1] ?? "").trim() === slug) lines[firstNonBlankIdx] = derivedTitle;
       else lines.splice(firstNonBlankIdx, 0, derivedTitle);
       modified = true;
@@ -195,6 +208,8 @@ export function validateIntentStageContent(intents: IntentStageFile[]): Result {
     const content = readFileSync(path, "utf8");
     if (parseFrontmatterName(content) !== slug)
       return { ok: false, error: `intent: ${basename(path)} must declare name: ${slug}` };
+    if (!hasFirstBodyH1(content))
+      return { ok: false, error: `intent: ${basename(path)} must start its body with a level-one heading` };
     if (!hasPrerequisites(content))
       return { ok: false, error: `intent: ${basename(path)} is missing ## Prerequisites` };
     if (!validPrerequisites(content))

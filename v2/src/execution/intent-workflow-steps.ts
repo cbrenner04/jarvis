@@ -120,7 +120,8 @@ function resolveFileSeed(
   seed: string,
   readSeed: (path: string) => string,
 ): SeedDetails | { error: string } {
-  const seedPath = isAbsolute(seed) ? seed : join(input.cwd, seed);
+  if (isAbsolute(seed)) return { error: "intent: --seed must be a relative path" };
+  const seedPath = join(input.cwd, seed);
   if (!seedFile(seedPath)) return { error: `intent: seed is not a file: ${seed}` };
   let canonicalSeed: string;
   let canonicalRoot: string;
@@ -248,6 +249,7 @@ export async function buildIntentWorkflowSteps(
     specPath: durableDir,
     expectedArtifactPath: STAGE_DIR,
     intentOutput: { durableDir },
+    workflowInvocationId: identity.invocationId,
     publishCompletion: publish,
   };
   try {

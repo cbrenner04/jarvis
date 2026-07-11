@@ -52,9 +52,9 @@ directory changed, and lands every valid Markdown file transactionally under
 
 Landing runs before completion commit/push/PR publication; publication receives
 the durable directory as `specPath`. Validation, boundary, collision, and
-landing failures return `kind: "pre-publication"`, leave the step completed while
-the workflow remains failed at pre-publication, retain staging, and include rerun
-guidance. Resume retries this boundary without another agent invocation.
+landing failures return `kind: "pre-publication"`, persist the completed step's
+run as `failed`, retain staging, and include rerun guidance. Resume retries this
+boundary without another agent invocation.
 Existing destination files are accepted only
 when byte-identical; differing collisions are never overwritten.
 The workflow records landed filenames by invocation in the worktree's private
@@ -111,8 +111,8 @@ daemon/TUI rows stay aligned to the authored workflow.
 
 `buildIntentWorkflowSteps` accepts exactly one file `seed` or inline `seedText` and
 an optional relative, non-traversing `targetDir`. It resolves the seed and
-registered project before daemon contact; file seeds must remain inside the
-project after symlink resolution. The slug is normalized from the file basename
+registered project before daemon contact; file seeds must be relative and remain
+inside the project after symlink resolution. The slug is normalized from the file basename
 or first inline words; empty, `index`, and `head` are rejected.
 
 Target precedence is run override, project `plan.targetDir`, global

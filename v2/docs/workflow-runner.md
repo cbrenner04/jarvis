@@ -264,27 +264,30 @@ runs before role/agent bindings are derived for any pending step.
 ## Loading workflow steps
 
 `loadWorkflowSteps(steps: WorkflowSourceStep[]): (WriteWorkflowStep |
-ReviewDebateWorkflowStep)[]` (`v2/src/execution/workflow-loader.ts`) assembles
+ReviewWorkflowStep)[]` (`v2/src/execution/workflow-loader.ts`) assembles
 the `agents`/`agentModelConfig` that `executeWorkflow` requires from real
 config, ahead of the runner in the pipeline. `WorkflowSourceStep` is a
-behavior-discriminated `write | review-debate` union, with each branch omitting
-`agents` and `agentModelConfig`; `human` steps remain outside this helper.
+behavior-discriminated `write | review` union, with each branch omitting
+`agents` and `agentModelConfig`; `human` and `review-debate` steps remain
+outside this helper.
 
 The loader loads the machine's configured agent order (falling back to
 `DEFAULT_WRITE_AGENTS` when machine config has no `agents` key) and the global
 `AgentModelConfig` once. A `write` step receives the flat order/config and
-retains its executable single-role check; a `review-debate` step receives that
-same order for each of `adversary`, `advocate`, `adjudicator`, and `actuator`,
-plus the same model config. There is no per-step or per-role order override.
-The loader rejects write steps naming `role: "operator"` or a role outside the
-closed `Role` union, then reuses `executeWorkflow`'s own
+retains its executable single-role check. A `review` step has no write `role`;
+it receives a fixed `{ critic, actuator }` record, with the same machine-derived
+order for both roles and the same model config. There is no per-step or
+per-role order override. The loader rejects write steps naming
+`role: "operator"` or a role outside the closed `Role` union, then reuses
+`executeWorkflow`'s own
 `validateWorkflowStepRoles` (exported for this purpose) to aggregate every
 missing `(stepId, role, agent)` binding across both step kinds before returning.
 Config load failure surfaces as-is; the loader adds no config-shape validation
 of its own. This check runs once at load; `executeWorkflow`'s
 `validateWorkflowStepRoles` still runs unconditionally on every invocation
 (see [Validation](#validation)) regardless of whether steps came from this
-loader.
+loader. When no profile is injected, profile selection uses
+`resolveMachineProfile(machineConfigPath)`.
 
 ## Building `implement` workflow steps from cwd + run args
 

@@ -1,7 +1,7 @@
 import { type AgentModelConfig, type LoadError, resolveExecutableRole } from "../config/agent-model-config.ts";
 import { loadMachineConfig, resolveMachineProfile } from "../config/machine-config-loader.ts";
 import { loadMachineProfileModels, type MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
-import { type ReviewDebateWorkflowStep, validateWorkflowStepRoles, type WriteWorkflowStep } from "./workflow-runner.ts";
+import { type ReviewWorkflowStep, validateWorkflowStepRoles, type WriteWorkflowStep } from "./workflow-runner.ts";
 import { DEFAULT_WRITE_AGENTS } from "./write-loop-input.ts";
 
 function isLoadError(value: unknown): value is LoadError {
@@ -11,13 +11,14 @@ function isLoadError(value: unknown): value is LoadError {
 /** Authored write step minus config-derived `agents`/`agentModelConfig`. */
 export type WriteWorkflowSourceStep = Omit<WriteWorkflowStep, "agents" | "agentModelConfig">;
 
-/** Authored review-debate step minus config-derived `agents`/`agentModelConfig`. */
-export type ReviewDebateWorkflowSourceStep = Omit<ReviewDebateWorkflowStep, "agents" | "agentModelConfig">;
+/** Authored review step minus config-derived `agents`/`agentModelConfig`. */
+export type ReviewWorkflowSourceStep = Omit<ReviewWorkflowStep, "agents" | "agentModelConfig">;
 
 /** Authored executable workflow step before machine configuration is attached. */
-export type WorkflowSourceStep = WriteWorkflowSourceStep | ReviewDebateWorkflowSourceStep;
+export type WorkflowSourceStep = WriteWorkflowSourceStep | ReviewWorkflowSourceStep;
 
-type LoadedWorkflowStep = WriteWorkflowStep | ReviewDebateWorkflowStep;
+/** Executable workflow step with machine-derived agent bindings. */
+export type LoadedWorkflowStep = WriteWorkflowStep | ReviewWorkflowStep;
 
 /** Test-only path overrides. */
 type LoadWorkflowStepsDeps = {
@@ -47,7 +48,7 @@ export function loadWorkflowSteps(
   const agents = loadMachineConfig(deps.machineConfigPath) ?? DEFAULT_WRITE_AGENTS;
 
   const loadAgentModelConfig = deps.loadAgentModelConfig ?? loadMachineProfileModels;
-  const loadResult = loadAgentModelConfig(deps.machineProfile ?? resolveMachineProfile(), agents, {
+  const loadResult = loadAgentModelConfig(deps.machineProfile ?? resolveMachineProfile(deps.machineConfigPath), agents, {
     machinesDir: deps.machinesDir,
   });
   if (isLoadError(loadResult)) {
@@ -66,16 +67,7 @@ export function loadWorkflowSteps(
       return { ...step, agents, agentModelConfig };
     }
 
-    return {
-      ...step,
-      agents: {
-        adversary: agents,
-        advocate: agents,
-        adjudicator: agents,
-        actuator: agents,
-      },
-      agentModelConfig,
-    };
+    return { ...step, agents: { critic: agents, actuator: agents }, agentModelConfig };
   });
   if (invalidRoles.length > 0) {
     throw new Error(`Workflow step role validation failed: non-executable role ${invalidRoles.join(", ")}`);

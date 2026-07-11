@@ -928,6 +928,49 @@ describe("v2 cli", () => {
     });
   });
 
+  test("run workflow intent builds seed text before one daemon start", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000007";
+    const originalRandomUuid = crypto.randomUUID;
+    crypto.randomUUID = () => requestId;
+    let received: unknown;
+    try {
+      const code = await main(["run", "workflow", "intent", "--seed-text", "Improve API"], cap.io, {
+        cwd: () => "/tmp/repo",
+        workflowPresetBuilders: {
+          intent: (input) => {
+            received = input;
+            return { ok: true, steps: FAKE_IMPLEMENT_STEPS };
+          },
+        },
+        connectIpcClient: async () =>
+          makeIpcClient([{ kind: "response", id: requestId, result: { runId: "intent-1" } }], { sent }),
+      });
+      expect(code).toBe(0);
+    } finally {
+      crypto.randomUUID = originalRandomUuid;
+    }
+    expect(received).toMatchObject({ cwd: "/tmp/repo", seedText: "Improve API" });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ kind: "request", method: "start", params: { steps: FAKE_IMPLEMENT_STEPS } });
+    expect(cap.read()).toEqual({ stdout: "intent-1\n", stderr: "" });
+  });
+
+  test("run workflow intent rejects invalid seed arguments before daemon contact", async () => {
+    const cap = captureIo();
+    const code = await main(["run", "workflow", "intent", "--seed", "one", "--seed-text", "two"], cap.io, {
+      connectIpcClient: async () => {
+        throw new Error("should not contact daemon");
+      },
+    });
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>]\n",
+    });
+  });
+
   test("run workflow with an unrecognized preset name prints workflow usage and exits 1", async () => {
     const cap = captureIo();
 

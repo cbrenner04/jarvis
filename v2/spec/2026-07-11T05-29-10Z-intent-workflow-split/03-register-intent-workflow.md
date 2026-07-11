@@ -17,13 +17,13 @@ Expose the completed builder and safe completion boundary through the workflow l
 
 ## Acceptance criteria
 
-- [ ] `jarvis run workflow intent --seed <path>` and `--seed-text <text>` send one daemon `start` request only after builder and safe completion registration succeed.
-- [ ] Unknown/invalid intent arguments and builder failures exit nonzero before daemon contact with terse guidance.
-- [ ] Git-enabled success creates one completion commit, pushes `intent/<slug>`, and opens or reuses only the matching-base open draft PR with durable `ready-intents/` metadata.
-- [ ] A non-fast-forward or wrong-base/closed PR state is never destructively reused; publication failure retains local state and names the recovery action.
-- [ ] Git-disabled success reports durable intent paths and performs no commit, push, or PR operation.
-- [ ] `v2/src/cli.test.ts` implement-preset cases stay green (behavior unchanged while the registry grows).
-- [ ] `v2/docs/first-workflow-walkthrough.md` documents both seed forms, precedence/destinations, git and non-git outcomes, branch/worktree/base behavior, single-intent output, failure/resume atomicity, and draft-PR result.
+- [x] `jarvis run workflow intent --seed <path>` and `--seed-text <text>` send one daemon `start` request only after builder and safe completion registration succeed.
+- [x] Unknown/invalid intent arguments and builder failures exit nonzero before daemon contact with terse guidance.
+- [x] Git-enabled success creates one completion commit, pushes `intent/<slug>`, and opens or reuses only the matching-base open draft PR with durable `ready-intents/` metadata.
+- [x] A non-fast-forward or wrong-base/closed PR state is never destructively reused; publication failure retains local state and names the recovery action.
+- [x] Git-disabled success reports durable intent paths and performs no commit, push, or PR operation.
+- [x] `v2/src/cli.test.ts` implement-preset cases stay green (behavior unchanged while the registry grows).
+- [x] `v2/docs/first-workflow-walkthrough.md` documents both seed forms, precedence/destinations, git and non-git outcomes, branch/worktree/base behavior, single-intent output, failure/resume atomicity, and draft-PR result.
 
 ## Documentation updates
 

@@ -12,6 +12,8 @@ export type ExternalWorktreeInput = {
   branchName: string;
   baseRef: string;
   jarvisRoot?: string;
+  git?: boolean;
+  localPath?: string;
 };
 
 export type ExternalWorktree = {
@@ -41,6 +43,7 @@ export type WithExternalWorktreeResult<T> = {
 
 /** Resolve the external worktree path under `~/.jarvis/worktrees/<project>/<branch>/`. */
 export function getExternalWorktreePath(args: ExternalWorktreeInput): string {
+  if (args.git === false && args.localPath !== undefined) return args.localPath;
   const jarvisRoot = args.jarvisRoot ?? join(homedir(), ".jarvis");
   return join(jarvisRoot, "worktrees", args.projectName, args.branchName);
 }
@@ -60,6 +63,14 @@ export async function withExternalWorktree<T>(
   run: (worktree: ExternalWorktree) => Promise<T> | T,
   runner: SubprocessRunner = realSubprocessRunner,
 ): Promise<WithExternalWorktreeResult<T>> {
+  if (args.git === false && args.localPath !== undefined) {
+    mkdirSync(args.localPath, { recursive: true });
+    return {
+      worktree: { path: args.localPath, reused: true },
+      lock: { kind: "acquired" },
+      value: await run({ path: args.localPath, reused: true }),
+    };
+  }
   const lockRoot = ensureExternalWorktreeLockRoot(args);
   const lock = acquireExternalWorktreeLock(lockRoot);
   try {

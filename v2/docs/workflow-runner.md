@@ -44,6 +44,22 @@ and `invocation_failure` do not trigger shrink. A non-`complete` shrink outcome
 replaces the workflow result kind at the implement step and prevents later
 steps from running.
 
+The `intent` preset is one `plan` write step with prompt `intent.prompt.split`.
+When its step supplies `intentOutput`, completion validates the shared
+`.jarvis-intent-stage/` contract after the step completes, checks that only that
+directory changed, and lands every valid Markdown file transactionally under
+`intentOutput.durableDir`. Staging is removed only after landing succeeds.
+
+Landing runs before completion commit/push/PR publication; publication receives
+the durable directory as `specPath`. Validation, boundary, collision, and
+landing failures return `kind: "pre-publication"`, persist the completed step's
+run as `failed`, retain staging, and include rerun guidance. Resume retries this
+boundary without another agent invocation.
+Existing destination files are accepted only
+when byte-identical; differing collisions are never overwritten.
+The workflow records landed filenames by invocation in the worktree's private
+Jarvis state so a retry can distinguish its own output from a collision.
+
 The trigger keys on the write step's `role` being `implement`, not on "is this
 the shipped implement preset." Any hand-authored `write` step naming
 `role: "implement"` also runs the hidden shrink pass, even outside the shipped
@@ -92,6 +108,30 @@ Hidden post-implement shrink runs do not add a step to this snapshot, so
 daemon/TUI rows stay aligned to the authored workflow.
 
 ## Authoring helper and presets
+
+`buildIntentWorkflowSteps` accepts exactly one file `seed` or inline `seedText` and
+an optional relative, non-traversing `targetDir`. It resolves the seed and
+registered project before daemon contact; file seeds must be relative and remain
+inside the project after symlink resolution. The slug is normalized from the file basename
+or first inline words; empty, `index`, and `head` are rejected.
+
+Target precedence is run override, project `plan.targetDir`, global
+`modes.plan.targetDir`, then `spec`. Effective publication follows project
+`plan.commit`, global `modes.plan.commit`, then `true`, with project `git: false`
+disabling it. Git-enabled output uses branch `intent/<slug>` in
+`~/.jarvis/worktrees`, and the GitHub default branch is used for both its base
+ref and PR base. Durable output is `<targetDir>/ready-intents/`. Git-disabled
+output is external `~/.jarvis/specs/<project-safe-id>/ready-intents/`; the run
+does not publish Git or GitHub state. The project-safe ID is a path-safe form
+of the registered project key.
+
+The builder emits one `write` step with role `plan`, prompt
+`intent.prompt.split`, the shared split prompt, and `.jarvis-intent-stage/` as
+the artifact boundary. Branch, worktree, active-workflow, and seed-identity
+collisions are named failures unless the recorded invocation ID matches the
+resumable invocation. The seed mapping is fingerprinted so a distinct seed
+cannot attach to an existing slug. Divergent remote state fails without reset,
+force-push, suffixing, or publication.
 
 A workflow step is authored as a plain object literal `satisfies WorkflowStepInput`.
 `WorkflowStepInput` (identical in shape to the runtime `AnyWorkflowStep`) is a

@@ -17,10 +17,10 @@ Extract v1 intent-stage repair and validation for v1 and v2 without changing v1 
 
 ## Acceptance criteria
 
-- [ ] Shared validation accepts one or more non-empty valid intents with matching kebab-case filename/frontmatter name, a first body H1, and exact `## Prerequisites`.
-- [ ] Shared repair matches v1 for frontmatter names, first-H1 insertion/replacement, prerequisites insertion/spacing, issue references, and Markdown autofix.
-- [ ] Empty output, invalid or duplicate names, nested/non-Markdown output, malformed frontmatter, and malformed prerequisites remain hard errors.
-- [ ] `v1/test/intent-command.test.ts` and `v1/test/intent-command.sandbox-unrunnable.test.ts` stay green (behavior unchanged by extraction).
+- [x] Shared validation accepts one or more non-empty valid intents with matching kebab-case filename/frontmatter name, a first body H1, and exact `## Prerequisites`.
+- [x] Shared repair matches v1 for frontmatter names, first-H1 insertion/replacement, prerequisites insertion/spacing, issue references, and Markdown autofix.
+- [x] Empty output, invalid or duplicate names, nested/non-Markdown output, malformed frontmatter, and malformed prerequisites remain hard errors.
+- [x] `v1/test/intent-command.test.ts` and `v1/test/intent-command.sandbox-unrunnable.test.ts` stay green (behavior unchanged by extraction).
 
 ## Documentation updates
 

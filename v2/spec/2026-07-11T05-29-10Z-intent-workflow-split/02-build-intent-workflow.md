@@ -24,13 +24,13 @@ Build the unregistered intent workflow from explicit seed input and resolved pro
 
 ## Acceptance criteria
 
-- [ ] File and inline seeds build the same one-step split behavior; invalid inputs, canonical file escape, empty/reserved slug, or identity collision fail before daemon contact with recovery guidance where applicable.
-- [ ] Target resolution is run override, project config, global config, then `spec`.
-- [ ] Git-enabled construction uses `intent/<slug>`, a Jarvis-owned worktree, and one resolved remote-default base for both worktree and PR.
+- [x] File and inline seeds build the same one-step split behavior; invalid inputs, canonical file escape, empty/reserved slug, or identity collision fail before daemon contact with recovery guidance where applicable.
+- [x] Target resolution is run override, project config, global config, then `spec`.
+- [x] Git-enabled construction uses `intent/<slug>`, a Jarvis-owned worktree, and one resolved remote-default base for both worktree and PR.
 - [ ] Existing state resumes only the same invocation; concurrent, unrelated, or divergent state fails without deletion, reset, force-push, or suffixing.
-- [ ] Git-disabled and non-git projects use Jarvis-owned external `ready-intents/` storage and request no git or GitHub operation.
-- [ ] Both seed forms build exactly one plan-role write step using `intent.prompt.split`, the shared prompt, `.jarvis-intent-stage/`, and the intent pre-publication contract.
-- [ ] Builder errors are returned before daemon start.
+- [x] Git-disabled and non-git projects use Jarvis-owned external `ready-intents/` storage and request no git or GitHub operation.
+- [x] Both seed forms build exactly one plan-role write step using `intent.prompt.split`, the shared prompt, `.jarvis-intent-stage/`, and the intent pre-publication contract.
+- [x] Builder errors are returned before daemon start.
 
 ## Documentation updates
 

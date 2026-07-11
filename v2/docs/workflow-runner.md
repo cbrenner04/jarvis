@@ -109,6 +109,28 @@ daemon/TUI rows stay aligned to the authored workflow.
 
 ## Authoring helper and presets
 
+`buildIntentWorkflowSteps` accepts exactly one file `seed` or inline `seedText` and
+an optional relative, non-traversing `targetDir`. It resolves the seed and
+registered project before daemon contact; file seeds must remain inside the
+project after symlink resolution. The slug is normalized from the file basename
+or first inline words; empty, `index`, and `head` are rejected.
+
+Target precedence is run override, project `plan.targetDir`, global
+`modes.plan.targetDir`, then `spec`. Effective publication follows project
+`plan.commit`, global `modes.plan.commit`, then `true`, with project `git: false`
+disabling it. Git-enabled output uses branch `intent/<slug>` in
+`~/.jarvis/worktrees`, and the GitHub default branch is used for both its base
+ref and PR base. Durable output is `<targetDir>/ready-intents/`. Git-disabled
+output is external `~/.jarvis/specs/<project-safe-id>/ready-intents/`; the run
+does not publish Git or GitHub state.
+
+The builder emits one `write` step with role `plan`, prompt
+`intent.prompt.split`, the shared split prompt, and `.jarvis-intent-stage/` as
+the artifact boundary. Branch, worktree, active-workflow, and seed-identity
+collisions are named failures unless the recorded invocation is the same
+resumable invocation. Divergent remote state fails without reset, force-push,
+suffixing, or publication.
+
 A workflow step is authored as a plain object literal `satisfies WorkflowStepInput`.
 `WorkflowStepInput` (identical in shape to the runtime `AnyWorkflowStep`) is a
 discriminated union on `behavior`, the closed vocabulary from

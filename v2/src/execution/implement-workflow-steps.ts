@@ -64,6 +64,7 @@ export function buildImplementWorkflowSteps(
     },
     specPath: input.specPath,
     expectedArtifactPath: active.path,
+    linkedIndexRouting: true,
   };
 
   try {

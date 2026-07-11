@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
+import { parseSpec } from "../../../shared/spec-parser.ts";
 import {
   type AgentModelConfig,
   resolveExecutableRole,
@@ -20,6 +21,11 @@ import { type CompletionCommitter, createCompletionCommitter } from "./completio
 import type { CompletionPublisher } from "./completion-publisher.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { type IntentOutputConfig, landIntentWorkflowOutput } from "./intent-output.ts";
+import {
+  advanceLinkedSubspecCheckbox,
+  findModifiedLinkedCheckbox,
+  resolveActiveLinkedSubspec,
+} from "./linked-subspec-routing.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import { executeReviewCycle, type ReviewCycleInput, type ReviewCycleRole } from "./review-cycle.ts";
 import {
@@ -91,6 +97,13 @@ export type WriteWorkflowStep = Omit<WriteLoopInput, "bindings"> & {
   intentSeed?: string;
   /** Jarvis root directory for plan workflow. */
   jarvisRoot?: string;
+  /**
+   * When set, `specPath` is an index of linked subspecs. Each iteration
+   * re-resolves the first unchecked link, runs the write loop against it, and
+   * on completion advances only that link's index checkbox before resolving
+   * the next one — continuing until no unchecked link remains.
+   */
+  linkedIndexRouting?: boolean;
 };
 
 /**
@@ -166,6 +179,8 @@ export type WorkflowResult = {
   readyFinalizeError?: string;
   boundaryTelemetryFailure?: string;
   prePublicationError?: string;
+  /** Named linked-index routing diagnostic (`implement.<kind>`), set only for linked-index routing failures. */
+  routingFailure?: string;
 };
 
 export type WorkflowRunnerInput = {
@@ -222,6 +237,7 @@ type WorkflowStepOutcome = {
   runId: string;
   iterationsConsumed: number;
   resumable: boolean;
+  routingFailure?: string;
 };
 
 /** Dispatch one step to its behavior-specific executor and normalize the result. */
@@ -269,6 +285,10 @@ async function runWorkflowStep(
     );
   }
 
+  if (step.role === "implement" && step.linkedIndexRouting) {
+    return runLinkedImplementStep(step, stepIndex, workflowSnapshot, store, logSink, telemetry, onStepRunCreated);
+  }
+
   const preparedStep = prepareWorkflowStep(step, workflowSnapshot, store, logSink, telemetry);
   if (preparedStep.kind === "completed") {
     onStepRunCreated?.(stepIndex, preparedStep.runId);
@@ -289,6 +309,109 @@ async function runWorkflowStep(
       ? { ...preparedStep.input, onRunCreated: (runId) => onStepRunCreated(stepIndex, runId) }
       : preparedStep.input,
   );
+}
+
+/** Resolve `path` inside a materialized worktree. */
+function resolveInWorktree(worktreePath: string, path: string): string {
+  return isAbsolute(path) ? path : join(worktreePath, path);
+}
+
+/**
+ * Drive one `implement` step across every unchecked linked subspec named by its
+ * index (`specPath`). Each pass re-resolves the active link, runs the write
+ * loop against it with that link's path as the completion artifact, then — only
+ * once the write loop reports `complete` — verifies the link's non-human-only
+ * acceptance criteria, guards against agent-authored edits to the index routing
+ * checklist, and advances only that link's checkbox before resolving the next
+ * link. Returns as soon as a link produces a non-complete outcome, or once the
+ * terminal link advances.
+ */
+async function runLinkedImplementStep(
+  step: WriteWorkflowStep,
+  stepIndex: number,
+  workflowSnapshot: WorkflowSnapshot,
+  store: StateStore,
+  logSink: LogSink | undefined,
+  telemetry: WorkflowTelemetryContext | undefined,
+  onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+): Promise<WorkflowStepOutcome> {
+  const worktreePath = getExternalWorktreePath(step.worktree);
+  const indexPath = resolveInWorktree(worktreePath, step.specPath);
+
+  let totalIterationsConsumed = 0;
+
+  for (;;) {
+    const beforeIndexContent = readFileSync(indexPath, "utf8");
+    const routing = resolveActiveLinkedSubspec(indexPath, worktreePath);
+    if (!routing.ok) {
+      return {
+        kind: "blocked",
+        runId: "",
+        iterationsConsumed: totalIterationsConsumed,
+        resumable: false,
+        routingFailure: `implement.${routing.errorKind}: ${routing.error}`,
+      };
+    }
+
+    const linkStep: WriteWorkflowStep = {
+      ...step,
+      stepId: `${step.stepId}~link-${routing.active.index}`,
+      expectedArtifactPath: routing.active.path,
+    };
+
+    const preparedLink = prepareWorkflowStep(linkStep, workflowSnapshot, store, logSink, telemetry);
+    let outcome: WorkflowStepOutcome;
+    if (preparedLink.kind === "completed") {
+      onStepRunCreated?.(stepIndex, preparedLink.runId);
+      const stored = store.loadRun(preparedLink.runId);
+      const stamp = stored ? boundaryStampFromStoredRun(stored) : undefined;
+      outcome = {
+        kind: "complete",
+        runId: preparedLink.runId,
+        iterationsConsumed: 0,
+        resumable: false,
+        ...(preparedLink.completionAgent ? { completionAgent: preparedLink.completionAgent } : {}),
+        ...(stamp !== undefined ? stamp : {}),
+      };
+    } else {
+      outcome = await executeWriteLoop(
+        onStepRunCreated
+          ? { ...preparedLink.input, onRunCreated: (runId) => onStepRunCreated(stepIndex, runId) }
+          : preparedLink.input,
+      );
+    }
+
+    totalIterationsConsumed += outcome.iterationsConsumed;
+    const stepped: WorkflowStepOutcome = { ...outcome, iterationsConsumed: totalIterationsConsumed };
+
+    if (outcome.kind !== "complete") {
+      return stepped;
+    }
+
+    const subspecContent = readFileSync(routing.active.path, "utf8");
+    const incompleteRequiredCriteria = parseSpec(subspecContent).acceptanceCriteria.some(
+      (criterion) => !criterion.humanOnly && !criterion.checked,
+    );
+    if (incompleteRequiredCriteria) {
+      return { ...stepped, kind: "contract_miss", routingFailure: "implement.link_incomplete" };
+    }
+
+    const afterIndexContent = readFileSync(indexPath, "utf8");
+    const mutatedLink = findModifiedLinkedCheckbox(beforeIndexContent, afterIndexContent);
+    if (mutatedLink !== undefined) {
+      writeFileSync(indexPath, beforeIndexContent, "utf8");
+      return { ...stepped, kind: "blocked", routingFailure: "implement.index_routing_mutated" };
+    }
+
+    const advancedIndexContent = advanceLinkedSubspecCheckbox(beforeIndexContent, routing.active.index);
+    if (advancedIndexContent !== undefined) {
+      writeFileSync(indexPath, advancedIndexContent, "utf8");
+    }
+
+    if (routing.isTerminal) {
+      return stepped;
+    }
+  }
 }
 
 /**
@@ -354,6 +477,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           runId: stepResult.runId,
           iterationsConsumed: totalIterationsConsumed,
           resumable: stepResult.resumable,
+          ...(stepResult.routingFailure !== undefined ? { routingFailure: stepResult.routingFailure } : {}),
         };
       }
 

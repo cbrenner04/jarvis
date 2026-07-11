@@ -430,8 +430,11 @@ without local reclassification.
   else `DEFAULT_WRITE_AGENTS` (`claude`); the chain advances only on `quota`.
 
 For `jarvis run workflow implement`, `complete` means the authored implement
-write loop completed and one hidden shrink write loop also completed. The
-hidden shrink pass uses the same worktree/spec/artifact context and agent order,
+write loop completed and one hidden shrink write loop also completed when routing
+completed work. A positive `reviewPasses` count appends one bounded
+`review-debate` step after terminal shrink; `reviewPasses: 0` omits that step.
+When review runs, `complete` additionally requires the debate step to finish
+without `invocation_failure`. The hidden shrink pass uses the same worktree/spec/artifact context and agent order,
 but resolves model rungs with `role: "shrink"` and records telemetry with
 `role: "shrink"`. It is skipped for `budget-exhausted`, `paused`, `blocked`,
 `contract_miss`, and `invocation_failure`. If shrink stops non-`complete`,
@@ -454,6 +457,14 @@ paths (malformed, missing, unreadable, out-of-tree) fail before agent
 invocation with named diagnostics: `implement.malformed_link`,
 `implement.link_missing`, `implement.link_unreadable`, or
 `implement.link_out_of_tree`.
+
+**Optional implement debate review:** `--review-passes <n>` (or project
+`implement.reviewPasses`) appends one `review-debate` step after terminal
+shrink. The step runs in the implement worktree, renders `patch.prompt.review.*`
+per cycle, writes `verdict-patch.md` beside the executed index (overwritten each
+cycle), and commits actuator edits through the same completion committer as
+implement write edits. Empty or already-complete indexes, and any non-`complete`
+implement or shrink outcome, skip the review without hard-fail.
 
 **Workflow-started implement live control:** Implement runs launched via `jarvis run workflow implement` cannot be paused, resumed, or killed via `jarvis run pause/resume/kill`. The workflow step executes atomically to completion within the step's timeout; partial progress cannot be saved. Only `jarvis run start ...` implement runs (direct `write` mode) support live control.
 

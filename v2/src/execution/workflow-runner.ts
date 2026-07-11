@@ -34,6 +34,7 @@ import {
   type ReviewCycleResult,
   type ReviewCycleRole,
 } from "./review-cycle.ts";
+import { executePatchReviewDebate } from "./review-debate-render.ts";
 import {
   executeReviewDebate,
   type ReviewDebateInput,
@@ -146,6 +147,8 @@ export type ReviewDebateWorkflowStep = Omit<ReviewDebateInput, "bindings" | "onR
   agents: ReviewDebateStepAgents;
   agentModelConfig: AgentModelConfig;
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
+  /** When set, prompts are rendered per cycle from patch review templates at execution. */
+  patchReviewContext?: { specPath: string; baseBranch: string };
 };
 
 /** Per-step critic/actuator review input; bindings are derived at execution. */
@@ -265,6 +268,9 @@ type WorkflowStepOutcome = {
   iterationsConsumed: number;
   resumable: boolean;
   routingFailure?: string;
+  /** False when linked implement completed without routing to an active subspec. */
+  implementReviewEligible?: boolean;
+  completionAgent?: string;
 };
 
 /** Dispatch one step to its behavior-specific executor and normalize the result. */
@@ -371,6 +377,15 @@ async function runLinkedImplementStep(
     const beforeIndexContent = readFileSync(indexPath, "utf8");
     const routing = resolveActiveLinkedSubspec(indexPath, worktreePath);
     if (!routing.ok) {
+      if (routing.errorKind === "empty_index" || routing.errorKind === "already_complete") {
+        return {
+          kind: "complete",
+          runId: "",
+          iterationsConsumed: totalIterationsConsumed,
+          resumable: false,
+          implementReviewEligible: false,
+        };
+      }
       return {
         kind: "blocked",
         runId: "",
@@ -436,7 +451,7 @@ async function runLinkedImplementStep(
     }
 
     if (routing.isTerminal) {
-      return stepped;
+      return { ...stepped, implementReviewEligible: true };
     }
   }
 }
@@ -473,11 +488,20 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     let lastStepId = "";
     let completionAgent: string | undefined;
     let boundaryTelemetryFailure: string | undefined;
+    let implementReviewEligible = false;
     const workflowSnapshot = buildWorkflowSnapshot(args.steps, store);
 
     for (let stepIndex = 0; stepIndex < args.steps.length; stepIndex++) {
       const step = args.steps[stepIndex];
       if (!step) throw new Error("Unreachable: step undefined in bounded loop");
+
+      if (
+        step.behavior === "review-debate" &&
+        step.patchReviewContext !== undefined &&
+        !implementReviewEligible
+      ) {
+        continue;
+      }
 
       const stepResult = await runWorkflowStep(
         step,
@@ -492,8 +516,15 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       totalIterationsConsumed += stepResult.iterationsConsumed;
       lastResult = stepResult;
       lastStepId = step.stepId;
-      if (stepResult.kind === "complete" && (stepResult as WriteLoopResult).completionAgent) {
-        completionAgent = (stepResult as WriteLoopResult).completionAgent;
+      if (stepResult.kind === "complete") {
+        if ((stepResult as WriteLoopResult).completionAgent) {
+          completionAgent = (stepResult as WriteLoopResult).completionAgent;
+        } else if (stepResult.completionAgent) {
+          completionAgent = stepResult.completionAgent;
+        }
+      }
+      if (step.behavior === "write" && step.role === "implement" && stepResult.kind === "complete") {
+        implementReviewEligible = stepResult.implementReviewEligible !== false;
       }
 
       if (stepResult.kind !== "complete") {
@@ -508,7 +539,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         };
       }
 
-      if (step.behavior === "write" && step.role === "implement" && !step.suppressShrink) {
+      if (step.behavior === "write" && step.role === "implement" && !step.suppressShrink && implementReviewEligible) {
         const shrinkResult = await runShrinkAfterImplementComplete(
           step,
           stepIndex,
@@ -539,7 +570,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
 
     if (!lastResult) throw new Error("Unreachable: lastResult undefined after checked bounds");
 
-    const publicationAgent = lastResult.kind === "complete" ? (completionAgent ?? "") : undefined;
+    const publicationAgent = lastResult.kind === "complete" ? completionAgent : undefined;
     let publicationSpecPath: string | undefined;
     const completionStep = [...args.steps].reverse().find(isWriteStep);
     const lastStep = args.steps[args.steps.length - 1];
@@ -1067,6 +1098,7 @@ type ReviewDebateStepOutcome =
       runId: string;
       iterationsConsumed: number;
       resumable: false;
+      completionAgent?: string;
     }
   | {
       kind: "invocation_failure";
@@ -1103,7 +1135,8 @@ async function runReviewDebateStep(
   telemetry: WorkflowTelemetryContext | undefined,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
 ): Promise<ReviewDebateStepOutcome> {
-  const { stepId, project, branch, agents, agentModelConfig, createBinding, ...debateInput } = step;
+  const { stepId, project, branch, agents, agentModelConfig, createBinding, patchReviewContext, ...debateInput } =
+    step;
   const resolveBindings = createBinding ?? createResolvedAgentBinding;
   const runId = crypto.randomUUID();
   const attemptId = crypto.randomUUID();
@@ -1116,10 +1149,8 @@ async function runReviewDebateStep(
     ]),
   ) as ReviewDebateRoleBindings;
 
-  const result = await executeReviewDebate({
-    ...debateInput,
-    bindings,
-    ...(telemetry !== undefined
+  const telemetryFields =
+    telemetry !== undefined
       ? {
           telemetry: {
             sink: buildJsonlSink(telemetry.sinkPath ?? DEFAULT_TELEMETRY_SINK_PATH),
@@ -1134,11 +1165,35 @@ async function runReviewDebateStep(
             specRef: "",
           },
         }
-      : {}),
-    ...(onProgress !== undefined
+      : {};
+
+  const onRoleStart =
+    onProgress !== undefined
       ? { onRoleStart: (role: ReviewDebateRole) => onProgress(invocationId, stepId, { status: "in_progress", role }) }
-      : {}),
-  });
+      : {};
+
+  const result =
+    patchReviewContext !== undefined
+      ? await executePatchReviewDebate({
+          cwd: debateInput.cwd,
+          bindings,
+          verdictPath: debateInput.verdictPath,
+          maxCycles: debateInput.maxCycles,
+          context: {
+            specPath: patchReviewContext.specPath,
+            cwd: debateInput.cwd,
+            baseBranch: patchReviewContext.baseBranch,
+          },
+          ...(debateInput.signal !== undefined ? { signal: debateInput.signal } : {}),
+          ...telemetryFields,
+          ...onRoleStart,
+        })
+      : await executeReviewDebate({
+          ...debateInput,
+          bindings,
+          ...telemetryFields,
+          ...onRoleStart,
+        });
 
   const lastCycle = result.cycles[result.cycles.length - 1];
   const kind = lastCycle?.kind === "role_failed" ? "invocation_failure" : "complete";
@@ -1151,7 +1206,20 @@ async function runReviewDebateStep(
     terminalOutcome: kind,
   });
 
-  return { kind, runId, iterationsConsumed: result.cycles.length, resumable: false };
+  const actuatorExecution =
+    lastCycle?.kind === "completed" && lastCycle.actuatorRan ? lastCycle.roleResults?.actuator?.final : undefined;
+  const completionAgent =
+    kind === "complete" && actuatorExecution?.result.kind === "ok"
+      ? actuatorExecution.binding.metadata?.agent?.trim()
+      : undefined;
+
+  return {
+    kind,
+    runId,
+    iterationsConsumed: result.cycles.length,
+    resumable: false,
+    ...(completionAgent ? { completionAgent } : {}),
+  };
 }
 
 /**

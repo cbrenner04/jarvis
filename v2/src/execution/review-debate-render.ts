@@ -1,10 +1,19 @@
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
+import {
+  executeWithQuotaFallback,
+  type InvocationBinding,
+  type InvocationExecution,
+  type InvocationOk,
+  type InvocationTelemetryContext,
+} from "../../../shared/invocation/execute.ts";
 import { assemblePromptForStep } from "../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { renderTemplateWithDeclarations } from "../../../shared/prompts/render.ts";
 import { buildVerdictActuatorPrompt } from "../../../v1/src/modes/patch/prompt.ts";
+import type { InvocationFailureKind } from "./invocation-failure.ts";
+import type { ReviewDebateRole, ReviewDebateRoleBindings } from "./review-debate.ts";
 
 /** Registry prompt ids for the three read-only patch review debate roles. */
 export const PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS = {
@@ -183,4 +192,147 @@ export function nextReviewDebateCycleContext(
     passNumber: context.passNumber + 1,
     priorCycleVerdict,
   };
+}
+
+type PatchReviewDebateCycleOutcome = {
+  roleResults: Partial<Record<ReviewDebateRole, InvocationExecution>>;
+} & (
+  | { kind: "completed"; verdict: string; actuatorRan: boolean }
+  | { kind: "role_failed"; failedRole: ReviewDebateRole; failureKind: InvocationFailureKind; verdict: string | null }
+);
+
+type PatchReviewDebateResult = {
+  cycles: PatchReviewDebateCycleOutcome[];
+};
+
+export type PatchReviewDebateInput = {
+  cwd: string;
+  context: Pick<ReviewDebateRenderContext, "specPath" | "cwd" | "baseBranch">;
+  bindings: ReviewDebateRoleBindings;
+  verdictPath: string;
+  maxCycles: number;
+  signal?: AbortSignal;
+  telemetry?: Omit<InvocationTelemetryContext, "role" | "invocationIds">;
+  onRoleStart?: (role: ReviewDebateRole) => void;
+};
+
+function patchReviewFailureKind(execution: InvocationExecution): InvocationFailureKind | null {
+  if (execution.final === null) return "no_binding";
+  return execution.final.result.kind === "ok" ? null : execution.final.result.kind;
+}
+
+async function invokePatchReviewRole(
+  args: PatchReviewDebateInput,
+  role: ReviewDebateRole,
+  prompt: string,
+  bindings: readonly InvocationBinding[],
+): Promise<InvocationExecution> {
+  args.onRoleStart?.(role);
+  return executeWithQuotaFallback({
+    prompt,
+    cwd: args.cwd,
+    bindings,
+    ...(args.signal !== undefined ? { signal: args.signal } : {}),
+    ...(args.telemetry !== undefined
+      ? {
+          telemetry: {
+            ...args.telemetry,
+            role,
+            invocationIds: bindings.map(() => crypto.randomUUID()),
+          },
+        }
+      : {}),
+  });
+}
+
+/** Run patch review-debate cycles with per-cycle template rendering and role chaining. */
+export async function executePatchReviewDebate(args: PatchReviewDebateInput): Promise<PatchReviewDebateResult> {
+  const cycles: PatchReviewDebateCycleOutcome[] = [];
+  let renderContext: ReviewDebateRenderContext = {
+    ...args.context,
+    passNumber: 1,
+    totalPasses: args.maxCycles,
+  };
+
+  for (let cycle = 0; cycle < args.maxCycles; cycle += 1) {
+    const roleResults: Partial<Record<ReviewDebateRole, InvocationExecution>> = {};
+
+    const adversaryPrompt = renderReviewDebateRolePrompt("adversary", renderContext);
+    const adversary = await invokePatchReviewRole(args, "adversary", adversaryPrompt, args.bindings.adversary);
+    roleResults.adversary = adversary;
+    const adversaryFailure = patchReviewFailureKind(adversary);
+    if (adversaryFailure !== null) {
+      cycles.push({
+        kind: "role_failed",
+        failedRole: "adversary",
+        failureKind: adversaryFailure,
+        verdict: null,
+        roleResults,
+      });
+      break;
+    }
+
+    const adversaryStdout = (adversary.final?.result as InvocationOk).stdout;
+    const advocatePrompt = renderReviewDebateRolePrompt("advocate", renderContext, adversaryStdout);
+    const advocate = await invokePatchReviewRole(args, "advocate", advocatePrompt, args.bindings.advocate);
+    roleResults.advocate = advocate;
+    const advocateFailure = patchReviewFailureKind(advocate);
+    if (advocateFailure !== null) {
+      cycles.push({
+        kind: "role_failed",
+        failedRole: "advocate",
+        failureKind: advocateFailure,
+        verdict: null,
+        roleResults,
+      });
+      break;
+    }
+
+    const advocateStdout = (advocate.final?.result as InvocationOk).stdout;
+    const adjudicatorPrompt = renderReviewDebateRolePrompt("adjudicator", renderContext, advocateStdout);
+    const adjudicator = await invokePatchReviewRole(args, "adjudicator", adjudicatorPrompt, args.bindings.adjudicator);
+    roleResults.adjudicator = adjudicator;
+    const adjudicatorFailure = patchReviewFailureKind(adjudicator);
+    if (adjudicatorFailure !== null) {
+      cycles.push({
+        kind: "role_failed",
+        failedRole: "adjudicator",
+        failureKind: adjudicatorFailure,
+        verdict: null,
+        roleResults,
+      });
+      break;
+    }
+
+    const verdict = (adjudicator.final?.result as InvocationOk).stdout;
+    writeFileSync(args.verdictPath, verdict, "utf8");
+
+    if (verdict.trim().length === 0) {
+      cycles.push({ kind: "completed", verdict, actuatorRan: false, roleResults });
+      break;
+    }
+
+    const actuatorPrompt = renderReviewDebateActuatorPrompt(verdict, args.context.specPath);
+    const actuator = await invokePatchReviewRole(args, "actuator", actuatorPrompt, args.bindings.actuator);
+    roleResults.actuator = actuator;
+    const actuatorFailure = patchReviewFailureKind(actuator);
+    if (actuatorFailure !== null) {
+      cycles.push({
+        kind: "role_failed",
+        failedRole: "actuator",
+        failureKind: actuatorFailure,
+        verdict,
+        roleResults,
+      });
+      break;
+    }
+
+    cycles.push({ kind: "completed", verdict, actuatorRan: true, roleResults });
+
+    if (cycle + 1 < args.maxCycles) {
+      renderContext = nextReviewDebateCycleContext(renderContext, verdict);
+    }
+  }
+
+  return { cycles };
 }

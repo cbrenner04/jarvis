@@ -16,23 +16,23 @@ after the implement write path.
 
 ## Tasks
 
-- [ ] Make the implement workflow builder validate and consume its resolved review count.
-- [ ] For a positive count, load the implement write source and one `review-debate` source together, with `maxCycles` equal to the count.
-- [ ] Run the appended review in the implement run worktree and write its verdict as `verdict-patch.md` beside the executed `index.md`, overwritten each cycle.
-- [ ] Give actuator review edits the same commit handling as implement write edits.
-- [ ] Preserve existing index routing and terminal shrink before workflow advancement reaches debate review; skip the review when the index is empty or already complete.
-- [ ] Cover zero and positive composition, review ordering, verdict placement/overwrite, skip-on-non-completion, commit handling, and failure stop behavior.
+- [x] Make the implement workflow builder validate and consume its resolved review count.
+- [x] For a positive count, load the implement write source and one `review-debate` source together, with `maxCycles` equal to the count.
+- [x] Run the appended review in the implement run worktree and write its verdict as `verdict-patch.md` beside the executed `index.md`, overwritten each cycle.
+- [x] Give actuator review edits the same commit handling as implement write edits.
+- [x] Preserve existing index routing and terminal shrink before workflow advancement reaches debate review; skip the review when the index is empty or already complete.
+- [x] Cover zero and positive composition, review ordering, verdict placement/overwrite, skip-on-non-completion, commit handling, and failure stop behavior.
 
 ## Documentation updates
 
-- [ ] Update `v2/docs/workflow-runner.md` with the optional implement review step and its ordering.
-- [ ] Update `v2/docs/write-behavior.md` with implement's positive-count completion path.
-- [ ] Update `v2/docs/v1-behaviors.md` with the changed v2 implement workflow behavior.
+- [x] Update `v2/docs/workflow-runner.md` with the optional implement review step and its ordering.
+- [x] Update `v2/docs/write-behavior.md` with implement's positive-count completion path.
+- [x] Update `v2/docs/v1-behaviors.md` with the changed v2 implement workflow behavior.
 
 ## Acceptance criteria
 
-- [ ] An effective count of `0` runs the existing implement write-and-shrink behavior with no authored review step.
-- [ ] A positive effective count runs exactly one bounded `review-debate` step, in the implement run worktree, only after every linked subspec is complete and terminal shrink has completed.
-- [ ] The appended review writes `verdict-patch.md` beside the executed `index.md`, overwriting it each cycle, and its actuator edits are committed like implement write edits.
-- [ ] A non-complete implement or shrink outcome — including an empty or already-complete index — prevents the appended review from running (skip, not hard-fail).
-- [ ] `v2/src/execution/implement-workflow-steps.test.ts` and `v2/src/execution/workflow-runner.test.ts` cover composition and ordering.
+- [x] An effective count of `0` runs the existing implement write-and-shrink behavior with no authored review step.
+- [x] A positive effective count runs exactly one bounded `review-debate` step, in the implement run worktree, only after every linked subspec is complete and terminal shrink has completed.
+- [x] The appended review writes `verdict-patch.md` beside the executed `index.md`, overwriting it each cycle, and its actuator edits are committed like implement write edits.
+- [x] A non-complete implement or shrink outcome — including an empty or already-complete index — prevents the appended review from running (skip, not hard-fail).
+- [x] `v2/src/execution/implement-workflow-steps.test.ts` and `v2/src/execution/workflow-runner.test.ts` cover composition and ordering.

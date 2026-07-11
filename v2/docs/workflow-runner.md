@@ -320,10 +320,12 @@ loader. When no profile is injected, profile selection uses
 
 ## Building `implement` workflow steps from cwd + run args
 
-`buildImplementWorkflowSteps({ cwd, branchName, baseRef, specPath }, deps?)`
+`buildImplementWorkflowSteps({ cwd, branchName, baseRef, specPath, reviewPasses }, deps?)`
 (`v2/src/execution/implement-workflow-steps.ts`) turns "operator standing in a
 project checkout, wants to run `implement`" into the `AnyWorkflowStep[]` payload
-the daemon `start` RPC accepts.
+the daemon `start` RPC accepts. `reviewPasses` is validated as a non-negative
+integer; `0` emits only the implement write step, while a positive value loads
+one appended `review-debate` step with `maxCycles` equal to that count.
 
 **Linked-subspec routing:** When `specPath` points to a multi-subspec
 `index.md`, the builder resolves the first unchecked linked subspec via
@@ -352,7 +354,19 @@ values — plus `stepRules: DEFAULT_WRITE_STEP_RULES` and the per-run
 `worktree`/`specPath`/`expectedArtifactPath`), then runs it through
 `loadWorkflowSteps` to attach `agents`/`agentModelConfig` from machine config,
 then through `resolveWorkflowPreset("implement", ...)` as a step-count/pinned-field
-re-affirmation. The reverse order does not typecheck: `resolveWorkflowPreset`
+re-affirmation. When `reviewPasses > 0`, the builder also loads one
+`review-debate` source step (`stepId: "implement-review"`) in the same
+`loadWorkflowSteps` call, then appends the loaded debate step after the resolved
+implement write step. The debate step runs in the implement worktree, writes
+`verdict-patch.md` beside the executed `specPath` (overwritten each cycle), and
+carries `patchReviewContext` so `executeWorkflow` renders
+`patch.prompt.review.*` per cycle at execution. Runtime order is implement write
+→ terminal shrink (when routing completed work) → optional debate review. The
+appended review is skipped — without hard-fail — when implement did not route
+through a terminal linked subspec, including empty or already-complete indexes,
+or when implement or shrink stopped non-`complete`. Actuator edits from a
+completed review use the same workflow completion committer as implement write
+edits. The reverse order does not typecheck: `resolveWorkflowPreset`
 requires `agents`/`agentModelConfig` already present, and only
 `loadWorkflowSteps` supplies them.
 

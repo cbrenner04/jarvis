@@ -8,6 +8,7 @@
 - Accept only non-negative integers for CLI and project values; rules out coercing fractional, negative, or malformed counts.
 - Prefer explicit `--review-passes` over the registered-project value; rules out config silently overriding an invocation.
 - Default an absent CLI and project value to `0`; rules out adding review to existing implement launches.
+- Reject a present-but-invalid project `implement.reviewPasses` (fractional/negative/malformed) at effective-count resolution, before daemon contact; rules out silently coercing or ignoring a bad config value.
 
 ## Tasks
 
@@ -18,6 +19,7 @@
 
 ## Documentation updates
 
+- [ ] Update `v2/docs/write-behavior.md` with the `jarvis run workflow implement --review-passes` CLI flag.
 - [ ] Update `v2/docs/install-and-config.md` with `projects.<key>.implement.reviewPasses` and its validation/default.
 - [ ] Update `v2/docs/first-workflow-walkthrough.md` with the implement flag and precedence.
 
@@ -25,5 +27,6 @@
 
 - [ ] `jarvis run workflow implement --review-passes <non-negative integer>` starts with that effective count, while malformed, fractional, and negative values fail before daemon contact.
 - [ ] An implement launch without the flag uses its registered project's valid `implement.reviewPasses`, or `0` when absent.
+- [ ] A present-but-invalid project `implement.reviewPasses` (fractional, negative, or malformed) fails at effective-count resolution before daemon contact, not silently coerced.
 - [ ] An explicit implement `--review-passes` value overrides the registered-project default.
 - [ ] `v2/src/cli.test.ts` and the configuration-reader tests cover the effective-count selection.

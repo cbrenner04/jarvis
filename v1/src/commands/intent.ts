@@ -1,13 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import {
+  listIntentStageMarkdownFiles,
+  repairIntentStageContent as sharedRepairIntentStageContent,
+  validateIntentFilenames as sharedValidateIntentFilenames,
+  validateIntentStage as sharedValidateIntentStage,
+  validateIntentStageContent as sharedValidateIntentStageContent,
+  validateIntentStageStructure,
+} from "../../../shared/intent-stage.ts";
 import { realSubprocessRunner, type SubprocessRunner } from "../../../shared/subprocess.ts";
 import type { Agent, AgentName } from "../agents/types.ts";
 import { CONFIG_DIR, loadConfig, resolvePlanFlags, validateTargetDir } from "../config.ts";
 import type { LogClient } from "../logging.ts";
 import { keepIssueReferencesOffLineStart, runMarkdownlintAutofix } from "../markdownlint-repair.ts";
 import { enterMode } from "../mode-entry.ts";
-import { listStageMarkdownFiles, runIntentSplitTurn } from "../modes/plan/intent-split.ts";
+import { runIntentSplitTurn } from "../modes/plan/intent-split.ts";
 import { getOpenPrState, maybeMarkPlanPrReady } from "../modes/plan/pr.ts";
 import { computeProjectSafeId } from "../modes/plan/spec-paths.ts";
 import { parseAgentFlagValues, prefixAgentFlagError } from "../parse-agent-flag.ts";
@@ -411,14 +419,14 @@ function repairIntentStageContent(
   warn: (message: string) => void,
   harnessRootOverride?: string | null,
 ): void {
-  const files = listStageMarkdownFiles(stagingDir);
+  const files = listIntentStageMarkdownFiles(stagingDir);
   for (const path of files) {
     const slug = basename(path, ".md");
     repairIntentFile(path, slug);
   }
 
   runMarkdownlintAutofix({
-    files: listStageMarkdownFiles(stagingDir),
+    files: listIntentStageMarkdownFiles(stagingDir),
     warn,
     ...(harnessRootOverride !== undefined ? { harnessRootOverride } : {}),
   });
@@ -514,7 +522,7 @@ function gateIntentStage(
     }
   }
 
-  const files = listStageMarkdownFiles(stagingDir);
+  const files = listIntentStageMarkdownFiles(stagingDir);
   return validateIntentFilenames(files);
 }
 
@@ -784,22 +792,22 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
         return 1;
       }
 
-      const stageDirStructure = validateExternalIntentStageStructure(externalStageDir);
+      const stageDirStructure = validateIntentStageStructure(externalStageDir);
       if (!stageDirStructure.ok) {
         opts.io.stderr(`${stageDirStructure.error}\n`);
         return 1;
       }
 
-      const files = listStageMarkdownFiles(externalStageDir);
-      const filenameValidation = validateIntentFilenames(files);
+      const files = listIntentStageMarkdownFiles(externalStageDir);
+      const filenameValidation = sharedValidateIntentFilenames(files);
       if (!filenameValidation.ok) {
         opts.io.stderr(`${filenameValidation.error}\n`);
         return 1;
       }
 
-      repairIntentStageContent(externalStageDir, opts.io.stderr, opts.markdownlintHarnessRoot);
+      sharedRepairIntentStageContent(externalStageDir, opts.io.stderr, opts.markdownlintHarnessRoot);
 
-      const validation = validateIntentStageContent(filenameValidation.intents);
+      const validation = sharedValidateIntentStageContent(filenameValidation.intents);
       if (!validation.ok) {
         opts.io.stderr(`${validation.error}\n`);
         return 1;
@@ -879,7 +887,7 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
       return 1;
     }
 
-    const validation = validateIntentStage(
+    const validation = sharedValidateIntentStage(
       stageDir,
       listModifiedPaths(worktreePath, runner),
       opts.io.stderr,

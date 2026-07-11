@@ -242,3 +242,6 @@ report,name,plan_model,plan_cost,plan_time,plan_tokens_in,plan_tokens_out,run_mo
 2026-07-11T00-01-14Z-operator,publish-completed-run-draft-pr,claude codex,$5.49,0:11:45,58313,24258,claude codex,$5.20,0:41:56,14220,79334,$10.70,176125,$0.0607,""
 2026-07-11T00-01-14Z-operator,record-work-boundary-telemetry,claude codex,$5.02,0:11:50,22551,43143,claude codex cursor,$4.20,0:40:52,28287,43463,$9.21,137444,$0.0670,"plan blocked then re-planned (intent revised #1280); run: 1 cursor auth-fail then cursor solo"
 2026-07-11T00-01-14Z-operator,finalize-pr-attribution-and-ready,claude,$5.89,0:15:29,17981,59981,claude cursor,$0.05,0:53:53,62281,5611,$5.94,145854,$0.0407,"cursor free run"
+2026-07-11T00-13-10Z-operator,onboarding-overview-and-coexistence,claude-opus-4-8,$2.75,0:15:33,16204,22509,claude-sonnet-5 cursor,$1.00,0:37:42,22537,5132,$3.75,66382,$0.0565,docs; run terminal agent cursor (est $0)
+2026-07-11T00-13-10Z-operator,v2-install-and-config,claude-opus-4-8,$3.82,0:18:49,15309,30268,claude-sonnet-5 cursor,$1.68,0:16:04,22839,9782,$5.50,78198,$0.0703,docs
+2026-07-11T00-13-10Z-operator,v2-first-workflow-walkthrough,claude-opus-4-8,$3.83,0:19:13,16100,34628,claude-sonnet-5 cursor,$2.52,0:17:31,26031,17662,$6.35,94421,$0.0673,docs

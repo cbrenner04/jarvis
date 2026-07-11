@@ -150,6 +150,30 @@ least one binding.
 Programmatic workflow dispatch for this cycle is documented in
 [`workflow-runner.md`](./workflow-runner.md#review-dispatch).
 
+## Intent review cycle
+
+Intent review is a specialized read-only-critic / write-actuator cycle that
+operates on staged ready-intent artifacts in `.jarvis-intent-stage/`. This
+distinguishes it from generic review's verdict-only actuator prompt.
+
+The intent-owned `intent.prompt.review` critic reads the staged intent artifact
+and emits a verdict using governed context about intent quality standards (clear
+prerequisites, properly scoped acceptance criteria, load-bearing decisions).
+The intent-owned `intent.prompt.review-actuator` receives the staged intent,
+spec guidance, and the unchanged critic verdict in an enforced delimited data
+slot, then applies refinements to the staged intent file in place.
+
+Critic role is read-only on the staged intent; actuator role may write only
+within the `.jarvis-intent-stage/` directory. Both roles carry explicit
+worktree-boundary and directory-scope obligations stated in their governed
+prompts. The verdict is written to a reserved `.jarvis-intent-review-verdict.md`
+sibling of the staging directory before actuator invocation.
+
+Unlike generic review's reusable verdict-only actuator, intent review's composed
+actuator prompt carries the stage-boundary contract inline, rules out worktree-wide
+mutation, and passes the unchanged verdict byte-for-byte via a delimited data
+zone — architecture precondition for later enforcement mechanisms in subspec 02.
+
 ## Command
 
 ```

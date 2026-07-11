@@ -65,6 +65,8 @@ Rollout layering inventory:
 - Write: a write step renders any registered prompt id via a caller-supplied placeholder map (`renderStepPrompt(promptId, placeholders)`); `write.execute` is the default when a step declares no `promptId`, and is the only id whose caller (`executeWrite`) wires `write.principles` (body) into its `<PRINCIPLES>` placeholder (v2-only; no layered global/behavior fragments)
 - Patch PR description: `global.documentation -> global.naming -> global.terse -> shared.pr-description -> patch.prompt.pr-description`
 - Plan PR description: `global.documentation -> global.terse -> plan.decisions-ledger -> plan.defer-to-consumer -> shared.pr-description -> plan.prompt.pr-description`
+- Intent review: `global.documentation -> global.terse -> intent.prompt.review`
+- Intent review actuator: `global.documentation -> global.terse -> intent.prompt.review-actuator`
 - `patch.rules` remains step-owned injected body content (not always-layered global/behavior text).
 
 As shipped, the prompt surface is root-shared under `shared/prompts/`
@@ -93,6 +95,8 @@ For mixed builders, only stable instruction text relocates in pass one; interpol
 | Agent-bound prompt bodies/fragments | Plan inline-draft prompt template | `v1/src/modes/plan/prompts/inline-draft.md` (loaded by `v1/src/modes/plan/inline-draft.ts`) | Move to shared prompt source now | Entire file verbatim | Keep loader invocation and template slot filling in runtime code. |
 | Agent transport wrappers and correlation markers | Codex invocation marker wrapper appended to outbound prompt payload | `v1/src/agents/codex.ts` (`<!-- jarvis-codex-invocation: <uuid> -->`) | Minimized adapter-local prompt surface | Marker string constant + append behavior | Adapter-transport concern; keep local to Codex adapter with snapshot coverage. |
 | Human-facing chooser/confirmation text | TTY-only non-index confirmation text (`[s] switch`, `[e] exit`, `Choice [e]`) | `v1/src/modes/patch/run.ts` | Keep in runtime code for now | Prompt line array + response handling as one unit | Operator control-flow chooser, not shared agent prompt artifact in pass one. |
+| Agent-bound prompt bodies/fragments | Intent review prompt | `prompts/intent/review.md` | Move to shared prompt source now | Entire file verbatim | Read-only critic artifact; sentinel-delimited staged-intent section. |
+| Agent-bound prompt bodies/fragments | Intent review actuator prompt | `prompts/intent/review-actuator.md` | Move to shared prompt source now | Entire file verbatim | Write-boundary actuator artifact; renders unchanged verdict in delimited data slot. |
 | Human-facing chooser/confirmation text | Project disambiguation chooser text (interactive + non-TTY candidate output) | `v1/src/disambiguation-prompt.ts` | Keep in runtime code for now | `promptForProject` user-facing strings + list rendering | Human routing UX; still inventory-tracked for later unification review. |
 | Generated handoff/next-step text | Printed plan next-step / handoff output (draft PR review, resume command, run command guidance) | `v1/src/commands/plan.ts` | Keep in runtime code for now | `buildPlanCompletionMessage` output block | Runtime-generated from repo/spec/PR state; not moved in relocation-only pass. |
 

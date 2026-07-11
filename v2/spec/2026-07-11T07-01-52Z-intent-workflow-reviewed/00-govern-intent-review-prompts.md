@@ -17,11 +17,11 @@ Add intent-owned critic and actuator context to the shared prompt registry.
 
 ## Acceptance criteria
 
-- [ ] The prompt registry resolves `intent.prompt.review` and `intent.prompt.review-actuator` with valid governed metadata.
-- [ ] Rendered prompt coverage pins the critic's read-only staged-intent/verdict contract and the actuator's staging-only boundary plus unchanged delimited verdict.
-- [ ] `v1/docs/prompt-governance.md` lists both prompt IDs and their ownership.
-- [ ] `v2/docs/prompts.md` documents their intent-specific layering and runtime ownership.
-- [ ] `v2/docs/write-behavior.md` distinguishes the intent-specific composed actuator prompt from generic review's verdict-only contract and cross-links runtime isolation enforcement.
+- [x] The prompt registry resolves `intent.prompt.review` and `intent.prompt.review-actuator` with valid governed metadata.
+- [x] Rendered prompt coverage pins the critic's read-only staged-intent/verdict contract and the actuator's staging-only boundary plus unchanged delimited verdict.
+- [x] `v1/docs/prompt-governance.md` lists both prompt IDs and their ownership.
+- [x] `v2/docs/prompts.md` documents their intent-specific layering and runtime ownership.
+- [x] `v2/docs/write-behavior.md` distinguishes the intent-specific composed actuator prompt from generic review's verdict-only contract and cross-links runtime isolation enforcement.
 
 ## Documentation updates
 

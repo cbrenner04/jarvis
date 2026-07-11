@@ -24,3 +24,5 @@ write/principles.md
 prompt/instructions.md
 prompt/rules.md
 intent/split.md
+intent/review.md
+intent/review-actuator.md

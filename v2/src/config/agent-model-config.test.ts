@@ -17,6 +17,7 @@ const VALID_CLAUDE = {
   implement: { rungs: [{ adapterModel: "m2", priceKey: "p2" }] },
   shrink: { rungs: [{ adapterModel: "m7", priceKey: "p7" }] },
   adversary: { rungs: [{ adapterModel: "m3", priceKey: "p3" }] },
+  critic: { rungs: [{ adapterModel: "critic-model", priceKey: "critic-price" }] },
   advocate: { rungs: [{ adapterModel: "m4", priceKey: "p4" }] },
   adjudicator: { rungs: [{ adapterModel: "m5", priceKey: "p5" }] },
   actuator: { rungs: [{ adapterModel: "m6", priceKey: "p6" }] },
@@ -25,6 +26,7 @@ const VALID_CLAUDE = {
 describe("validateAgentModelConfig", () => {
   test.each([
     ["missing required role (actuator)", { ...VALID_CLAUDE, actuator: undefined }, ["claude", "actuator", "missing"]],
+    ["missing required role (critic)", { ...VALID_CLAUDE, critic: undefined }, ["claude", "critic", "missing"]],
     ["missing required role (shrink)", { ...VALID_CLAUDE, shrink: undefined }, ["claude", "shrink", "missing"]],
     ["missing rungs field", { ...VALID_CLAUDE, plan: {} }, ["claude", "plan", "non-empty array"]],
     ["empty rungs array", { ...VALID_CLAUDE, plan: { rungs: [] } }, ["claude", "plan", "non-empty array"]],
@@ -178,7 +180,7 @@ describe("validateAgentModelConfig", () => {
 });
 
 describe("resolveInvocationBindings", () => {
-  const roles = ["plan", "implement", "shrink", "adversary", "advocate", "adjudicator", "actuator"] as const;
+  const roles = ["plan", "implement", "shrink", "adversary", "critic", "advocate", "adjudicator", "actuator"] as const;
   const rungsFor = (agent: string, count: number, role: string) => ({
     rungs: Array.from({ length: count }, (_, i) => ({
       adapterModel: `${agent}-${role}-${i + 1}`,
@@ -195,6 +197,7 @@ describe("resolveInvocationBindings", () => {
     "implement",
     "shrink",
     "adversary",
+    "critic",
     "advocate",
     "adjudicator",
   ] as const)("%s resolves the flat per-agent rung order shared invocation consumes", (role) => {
@@ -206,6 +209,22 @@ describe("resolveInvocationBindings", () => {
     );
 
     expect(bindings).toEqual([`claude/claude-${role}-1`, `claude/claude-${role}-2`, `codex/codex-${role}-1`]);
+  });
+
+  test("critic uses its own bindings and walks all same-agent rungs first", () => {
+    const criticConfig = {
+      claude: { ...config.claude, critic: rungsFor("claude", 2, "critic") },
+      codex: { ...config.codex, critic: rungsFor("codex", 1, "critic") },
+    };
+    const bindings = resolveInvocationBindings(
+      "critic",
+      ["claude", "codex"],
+      criticConfig,
+      ({ agentId, adapterModel }) => `${agentId}/${adapterModel}`,
+    );
+
+    expect(bindings).toEqual(["claude/claude-critic-1", "claude/claude-critic-2", "codex/codex-critic-1"]);
+    expect(bindings).not.toContain("claude/claude-adversary-1");
   });
 
   test("actuator resolves head-only bindings", () => {

@@ -18,12 +18,12 @@ Add `critic` as an executable role with independent model escalation.
 
 ## Acceptance criteria
 
-- [ ] Valid agent-model config requires and accepts independent `critic` rungs for every configured agent.
-- [ ] Resolving `critic` walks all same-agent critic rungs in order before advancing agents on quota, without reading `adversary` bindings.
-- [ ] The committed `home` and `work` profiles load with critic bindings for every cataloged agent.
-- [ ] Co-located tests cover missing critic config, committed-profile loading, distinct critic/adversary models, and same-agent critic quota fallback.
-- [ ] `v2/docs/role-resolution.md` lists `critic` and maps it to `review` while retaining `actuator` for verdict application.
-- [ ] `v2/docs/agent-model-config.md` makes `critic` globally required and documents its schema and full-list consumption.
+- [x] Valid agent-model config requires and accepts independent `critic` rungs for every configured agent.
+- [x] Resolving `critic` walks all same-agent critic rungs in order before advancing agents on quota, without reading `adversary` bindings.
+- [x] The committed `home` and `work` profiles load with critic bindings for every cataloged agent.
+- [x] Co-located tests cover missing critic config, committed-profile loading, distinct critic/adversary models, and same-agent critic quota fallback.
+- [x] `v2/docs/role-resolution.md` lists `critic` and maps it to `review` while retaining `actuator` for verdict application.
+- [x] `v2/docs/agent-model-config.md` makes `critic` globally required and documents its schema and full-list consumption.
 
 ## Documentation updates
 

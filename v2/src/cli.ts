@@ -13,7 +13,7 @@ import { loadMachineProfileModels } from "./config/machine-profile-loader.ts";
 import { resolveWriteLoopBindings, type WaitRunCompletionResult } from "./daemon/daemon.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon/daemon-lifecycle.ts";
 import { parseListRuns, parseStartResult, parseWaitCompletion } from "./daemon/daemon-wire.ts";
-import { buildImplementWorkflowSteps } from "./execution/implement-workflow-steps.ts";
+import { WORKFLOW_PRESET_BUILDERS, type WorkflowPresetBuilder } from "./execution/workflow-presets.ts";
 import {
   applyOperatorSessionId,
   executeWriteLoop,
@@ -48,7 +48,7 @@ type CliDeps = {
   getDaemonStatus: typeof getDaemonStatus;
   runTuiEntry: (deps?: RunTuiEntryDeps) => Promise<number>;
   runTuiLogFollow: (runId: string, deps?: RunTuiLogFollowDeps) => Promise<number>;
-  buildImplementWorkflowSteps: typeof buildImplementWorkflowSteps;
+  workflowPresetBuilders: Readonly<Record<string, WorkflowPresetBuilder>>;
   cwd: () => string;
   socketPath: string;
   pidPath: string;
@@ -66,6 +66,7 @@ const WRITE_USAGE =
   "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--max-iterations <n>]\n";
 const WORKFLOW_IMPLEMENT_USAGE =
   "usage: jarvis run workflow implement --branch <name> --base <ref> --spec <path> --artifact <path>\n";
+const WORKFLOW_USAGE = "usage: jarvis run workflow <implement> [flags]\n";
 
 export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliDeps>): Promise<number> {
   const out = io ?? {
@@ -81,12 +82,12 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     getDaemonStatus,
     runTuiEntry,
     runTuiLogFollow,
-    buildImplementWorkflowSteps,
     cwd: () => process.cwd(),
     socketPath: DAEMON_SOCKET_PATH,
     pidPath: DAEMON_PID_PATH,
     machineConfigPath: MACHINE_CONFIG_PATH,
     ...deps,
+    workflowPresetBuilders: deps?.workflowPresetBuilders ?? WORKFLOW_PRESET_BUILDERS,
   };
   const command = argv[0];
   const operatorSessionId = crypto.randomUUID();
@@ -130,19 +131,7 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
   }
 
   if (command === "tui") {
-    if (argv.length === 1) {
-      return runtimeDeps.runTuiEntry({ socketPath: runtimeDeps.socketPath });
-    }
-    if (argv[1] === "log") {
-      const runId = argv[2];
-      if (argv.length !== 3 || runId === undefined) {
-        out.stderr(TUI_LOG_USAGE);
-        return 1;
-      }
-      return runtimeDeps.runTuiLogFollow(runId, { socketPath: runtimeDeps.socketPath });
-    }
-    out.stderr(TUI_USAGE);
-    return 1;
+    return runTuiCommand(argv.slice(1), out, runtimeDeps);
   }
 
   out.stdout("v2 not ready\n");
@@ -263,44 +252,8 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
     });
   }
 
-  if (subcommand === "workflow" && argv[1] === "implement") {
-    const parsed = parseImplementWorkflowArgs(argv.slice(2));
-    if (!parsed.ok) {
-      io.stderr(WORKFLOW_IMPLEMENT_USAGE);
-      return 1;
-    }
-
-    const built = deps.buildImplementWorkflowSteps({
-      cwd: deps.cwd(),
-      branchName: parsed.branchName,
-      baseRef: parsed.baseRef,
-      specPath: parsed.specPath,
-      artifactPath: parsed.artifactPath,
-    });
-    if (!built.ok) {
-      io.stderr(`${built.error}\n`);
-      return 1;
-    }
-
-    return withRunClient(io, deps, async (client) => {
-      let result: unknown;
-      try {
-        result = await request(client, "start", { steps: built.steps });
-      } catch (error) {
-        if (error instanceof RpcError) {
-          io.stderr(formatRpcError(error));
-          return 1;
-        }
-        throw error;
-      }
-      const start = parseStartResult(result);
-      if (start === undefined) {
-        io.stderr("invalid daemon response\n");
-        return 1;
-      }
-      io.stdout(`${start.runId}\n`);
-      return 0;
-    });
+  if (subcommand === "workflow") {
+    return runWorkflowCommand(argv.slice(1), io, deps);
   }
 
   if (subcommand === "list" && argv.length === 1) {
@@ -404,6 +357,72 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
 
   io.stderr(subcommand === "start" ? WRITE_USAGE : RUN_USAGE);
   return 1;
+}
+
+function runTuiCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
+  if (argv.length === 0) {
+    return deps.runTuiEntry({ socketPath: deps.socketPath });
+  }
+  if (argv[0] === "log") {
+    const runId = argv[1];
+    if (argv.length !== 2 || runId === undefined) {
+      io.stderr(TUI_LOG_USAGE);
+      return Promise.resolve(1);
+    }
+    return deps.runTuiLogFollow(runId, { socketPath: deps.socketPath });
+  }
+  io.stderr(TUI_USAGE);
+  return Promise.resolve(1);
+}
+
+async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
+  const name = argv[0];
+  const builder =
+    name !== undefined && Object.hasOwn(deps.workflowPresetBuilders, name)
+      ? deps.workflowPresetBuilders[name]
+      : undefined;
+  if (builder === undefined) {
+    io.stderr(WORKFLOW_USAGE);
+    return 1;
+  }
+
+  const parsed = parseImplementWorkflowArgs(argv.slice(1));
+  if (!parsed.ok) {
+    io.stderr(WORKFLOW_IMPLEMENT_USAGE);
+    return 1;
+  }
+
+  const built = builder({
+    cwd: deps.cwd(),
+    branchName: parsed.branchName,
+    baseRef: parsed.baseRef,
+    specPath: parsed.specPath,
+    artifactPath: parsed.artifactPath,
+  });
+  if (!built.ok) {
+    io.stderr(`${built.error.replace(/\n+$/, "")}\n`);
+    return 1;
+  }
+
+  return withRunClient(io, deps, async (client) => {
+    let result: unknown;
+    try {
+      result = await request(client, "start", { steps: built.steps });
+    } catch (error) {
+      if (error instanceof RpcError) {
+        io.stderr(formatRpcError(error));
+        return 1;
+      }
+      throw error;
+    }
+    const start = parseStartResult(result);
+    if (start === undefined) {
+      io.stderr("invalid daemon response\n");
+      return 1;
+    }
+    io.stdout(`${start.runId}\n`);
+    return 0;
+  });
 }
 
 async function withRunClient(io: Io, deps: CliDeps, fn: (client: IpcClient) => Promise<number>): Promise<number> {

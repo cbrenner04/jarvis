@@ -438,6 +438,7 @@ async function buildWorkflowBuilderInput(
         baseRef: resolved.baseRef,
         specPath: resolved.specPath,
         projectRoot: resolved.projectRoot,
+        projectName: resolved.projectName,
         ...(resolved.artifactPath !== undefined ? { artifactPath: resolved.artifactPath } : {}),
       },
     };
@@ -668,6 +669,7 @@ type ResolvedImplementWorkflowInput =
       baseRef: string;
       specPath: string;
       projectRoot: string;
+      projectName: string;
       artifactPath?: string;
     }
   | { ok: false; error: string };
@@ -708,6 +710,7 @@ function resolveImplementWorkflowInput(
     baseRef: parsed.baseRef,
     specPath: worktreeRelativeSpec,
     projectRoot: match.root,
+    projectName: match.key,
     ...(worktreeRelativeArtifact !== undefined ? { artifactPath: worktreeRelativeArtifact } : {}),
   };
 }

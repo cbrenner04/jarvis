@@ -14,6 +14,7 @@ export type BuildImplementWorkflowStepsInput = {
   specPath: string;
   artifactPath?: string;
   projectRoot?: string;
+  projectName?: string;
 };
 
 /** Test-only seams for project resolution and machine-config loading. */
@@ -40,7 +41,7 @@ export function buildImplementWorkflowSteps(
   // If projectRoot is provided, use it directly; otherwise resolve from cwd
   let match: ProjectMatch;
   if (input.projectRoot !== undefined) {
-    match = { key: "", root: input.projectRoot };
+    match = { key: input.projectName ?? "", root: input.projectRoot };
   } else {
     const resolved = resolveProjectMatch(input.cwd);
     if (resolved === undefined) {

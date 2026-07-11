@@ -816,6 +816,7 @@ describe("v2 cli", () => {
       specPath: "sub/index.md",
       artifactPath: "sub/index.md",
       projectRoot: "/tmp/repo",
+      projectName: "test-project",
     });
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({

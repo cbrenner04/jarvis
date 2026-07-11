@@ -78,7 +78,9 @@ const WORKFLOW_INTENT_USAGE =
 const WORKFLOW_INTENT_REVIEWED_USAGE =
   "usage: jarvis run workflow intent-reviewed (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>]\n";
 const WORKFLOW_PLAN_USAGE = "usage: jarvis run workflow plan --ready-intent <path> [--target-dir <dir>]\n";
-const WORKFLOW_USAGE = "usage: jarvis run workflow <implement|intent|intent-reviewed|plan> [flags]\n";
+const WORKFLOW_PLAN_REVIEWED_USAGE =
+  "usage: jarvis run workflow plan-reviewed --ready-intent <path> [--target-dir <dir>] [--review-passes <n>]\n";
+const WORKFLOW_USAGE = "usage: jarvis run workflow <implement|intent|intent-reviewed|plan|plan-reviewed> [flags]\n";
 
 export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliDeps>): Promise<number> {
   const out = io ?? {
@@ -392,6 +394,7 @@ function getWorkflowUsage(name: string): string {
   if (name === "intent") return WORKFLOW_INTENT_USAGE;
   if (name === "intent-reviewed") return WORKFLOW_INTENT_REVIEWED_USAGE;
   if (name === "plan") return WORKFLOW_PLAN_USAGE;
+  if (name === "plan-reviewed") return WORKFLOW_PLAN_REVIEWED_USAGE;
   if (name === "implement") return WORKFLOW_IMPLEMENT_USAGE;
   return WORKFLOW_USAGE;
 }
@@ -407,7 +410,7 @@ function parseWorkflowArgsByName(
     return parseIntentWorkflowArgs(args, allowReviewPasses);
   }
   if (isPlanPreset) {
-    return parsePlanWorkflowArgs(args);
+    return parsePlanWorkflowArgs(args, allowReviewPasses);
   }
   return parseImplementWorkflowArgs(args);
 }
@@ -468,17 +471,21 @@ async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps
   }
 
   const isIntentPreset = name === "intent" || name === "intent-reviewed";
-  const isPlanPreset = name === "plan";
-  const allowReviewPasses = name === "intent-reviewed";
+  const isPlanPreset = name === "plan" || name === "plan-reviewed";
+  const allowReviewPasses = name === "intent-reviewed" || name === "plan-reviewed";
   const parsed = parseWorkflowArgsByName(argv.slice(1), name, isIntentPreset, isPlanPreset, allowReviewPasses);
   if (!parsed.ok) {
     io.stderr(getWorkflowUsage(name));
     return 1;
   }
 
-  // Validate that --review-passes is only used with intent-reviewed
-  if ("reviewPasses" in parsed && parsed.reviewPasses !== undefined && name !== "intent-reviewed") {
-    io.stderr(WORKFLOW_INTENT_USAGE);
+  if (
+    "reviewPasses" in parsed &&
+    parsed.reviewPasses !== undefined &&
+    name !== "intent-reviewed" &&
+    name !== "plan-reviewed"
+  ) {
+    io.stderr(getWorkflowUsage(name));
     return 1;
   }
 
@@ -771,19 +778,23 @@ function parseIntentWorkflowArgs(argv: readonly string[], allowReviewPasses: boo
   return { ok: false };
 }
 
-type PlanWorkflowCliInput = { ok: true; readyIntent: string; targetDir?: string } | { ok: false };
+type PlanWorkflowCliInput =
+  | { ok: true; readyIntent: string; targetDir?: string; reviewPasses?: number }
+  | { ok: false };
 
-function parsePlanWorkflowArgs(argv: readonly string[]): PlanWorkflowCliInput {
+function parsePlanWorkflowArgs(argv: readonly string[], allowReviewPasses: boolean = false): PlanWorkflowCliInput {
   let values: Record<string, string | boolean | undefined>;
   try {
+    const options: Record<string, { type: "string" }> = {
+      "ready-intent": { type: "string" },
+      "target-dir": { type: "string" },
+    };
+    if (allowReviewPasses) options["review-passes"] = { type: "string" };
     values = parseArgs({
       args: [...argv],
       allowPositionals: false,
       strict: true,
-      options: {
-        "ready-intent": { type: "string" },
-        "target-dir": { type: "string" },
-      },
+      options,
     }).values;
   } catch {
     return { ok: false };
@@ -791,6 +802,13 @@ function parsePlanWorkflowArgs(argv: readonly string[]): PlanWorkflowCliInput {
 
   const readyIntent = typeof values["ready-intent"] === "string" ? values["ready-intent"] : undefined;
   const targetDir = typeof values["target-dir"] === "string" ? values["target-dir"] : undefined;
+  let reviewPasses: number | undefined;
+  if (allowReviewPasses && typeof values["review-passes"] === "string") {
+    const raw = values["review-passes"];
+    if (!/^\d+$/u.test(raw)) return { ok: false };
+    const parsed = Number(raw);
+    reviewPasses = parsed;
+  }
 
   if (readyIntent === undefined) {
     return { ok: false };
@@ -800,6 +818,7 @@ function parsePlanWorkflowArgs(argv: readonly string[]): PlanWorkflowCliInput {
     ok: true,
     readyIntent,
     ...(targetDir !== undefined ? { targetDir } : {}),
+    ...(reviewPasses !== undefined ? { reviewPasses } : {}),
   };
 }
 

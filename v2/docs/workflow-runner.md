@@ -159,6 +159,19 @@ The builder emits one `write` step with role `plan`, prompt `plan.prompt.draft`,
 
 **CLI usage:** `jarvis run workflow plan --ready-intent <path> [--target-dir <dir>]`
 
+`buildReviewedPlanWorkflowSteps` (preset: `plan-reviewed`) composes the loaded
+plan draft with one loaded `review-debate` step. It defaults `reviewPasses` to
+`1`; zero delegates to the draft-only `plan` workflow. Positive values set the
+debate cycle limit and load the `adversary`, `advocate`, `adjudicator`, and
+`actuator` orders from machine configuration. The debate uses
+`plan.prompt.review.adversary`, `.advocate`, and `.adjudicator`; its
+verdict-driven actuator applies the verdict at
+`<spec-dir>/verdict-plan.md`.
+
+**CLI usage (draft + debate):** `jarvis run workflow plan-reviewed --ready-intent <path> [--target-dir <dir>] [--review-passes <n>]` — defaults to one debate pass.
+Choose it for adversarial review; `plan-reviewed-light` is the critic-actuator
+alternative for a lighter editorial pass.
+
 A workflow step is authored as a plain object literal `satisfies WorkflowStepInput`.
 `WorkflowStepInput` (identical in shape to the runtime `AnyWorkflowStep`) is a
 discriminated union on `behavior`, the closed vocabulary from
@@ -199,6 +212,7 @@ Current preset surface:
 - `intent`: one step (split only)
 - `intent-reviewed`: two steps (split + review)
 - `plan`: one step, with `role`/`promptId` fixed by the preset
+- `plan-reviewed`: one validated draft write step followed by a loaded `review-debate` step
 
 Validation stays synchronous:
 

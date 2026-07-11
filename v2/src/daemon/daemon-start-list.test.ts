@@ -385,13 +385,36 @@ test("list projects a review behavior entry in authored order without a durable 
     workflowSnapshot: snapshot,
   });
 
-  const runs = await listRunsDirect(handlers);
+  let runs = await listRunsDirect(handlers);
   expect(runs?.find((row) => row.runId === runId)?.workflow).toEqual({
     steps: [
       { stepId: "step-1", role: "plan", status: "stopped", attemptCount: 0, terminalOutcome: "invocation_failure" },
       { stepId: "review-1", role: "", status: "pending", attemptCount: 0 },
       { stepId: "step-3", role: "plan", status: "pending", attemptCount: 0 },
     ],
+  });
+
+  handlers.reportReviewDebateProgress("workflow-review-entry", "review-1", { status: "in_progress", role: "critic" });
+  runs = await listRunsDirect(handlers);
+  expect(runs?.find((row) => row.runId === runId)?.workflow?.steps[1]).toEqual({
+    stepId: "review-1",
+    role: "critic",
+    status: "in_progress",
+    attemptCount: 0,
+  });
+
+  handlers.reportReviewDebateProgress("workflow-review-entry", "review-1", {
+    status: "completed",
+    role: "actuator",
+    terminalOutcome: "complete",
+  });
+  runs = await listRunsDirect(handlers);
+  expect(runs?.find((row) => row.runId === runId)?.workflow?.steps[1]).toEqual({
+    stepId: "review-1",
+    role: "actuator",
+    status: "completed",
+    attemptCount: 0,
+    terminalOutcome: "complete",
   });
 });
 

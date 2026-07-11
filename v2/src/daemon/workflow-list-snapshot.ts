@@ -1,4 +1,4 @@
-import type { ReviewDebateProgress } from "../execution/workflow-runner.ts";
+import type { ReviewProgress } from "../execution/workflow-runner.ts";
 import type { WorkflowSnapshot } from "../persistence/state-store.ts";
 import type { LoadedRun } from "./daemon.ts";
 
@@ -25,7 +25,7 @@ export function workflowRowSnapshot(
   run: LoadedRun,
   runsByWorkflowInvocation: ReadonlyMap<string, Map<string, LoadedRun>>,
   liveRunIds: ReadonlySet<string>,
-  reviewDebateProgressByInvocation: ReadonlyMap<string, Map<string, ReviewDebateProgress>>,
+  reviewDebateProgressByInvocation: ReadonlyMap<string, Map<string, ReviewProgress>>,
 ): { steps: WorkflowStepListSnapshot[] } | undefined {
   const snapshot = run.workflowSnapshot;
   if (snapshot === null || snapshot === undefined) return undefined;
@@ -49,7 +49,7 @@ function workflowStepSnapshot(
   run: LoadedRun | undefined,
   liveRunIds: ReadonlySet<string>,
   invocationId: string,
-  reviewDebateProgressByInvocation: ReadonlyMap<string, Map<string, ReviewDebateProgress>>,
+  reviewDebateProgressByInvocation: ReadonlyMap<string, Map<string, ReviewProgress>>,
 ): WorkflowStepListSnapshot {
   if (step.behavior === "review-debate" || step.behavior === "review") {
     const progress = reviewDebateProgressByInvocation.get(invocationId)?.get(step.stepId);

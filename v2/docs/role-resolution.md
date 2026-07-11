@@ -20,14 +20,14 @@ union:
 | `critic` | Read-only critique in a review — evaluates the artifact independently. |
 | `advocate` | Read-only defense in a review debate — responds to adversary findings. |
 | `adjudicator` | Read-only verdict synthesis — emits the outcome-altitude instruction the actuator applies. |
-| `actuator` | Verdict application — the only writer in a review-debate cycle after the debate panel. |
+| `actuator` | Verdict application — the only writer after either review primitive produces a non-empty verdict. |
 | `operator` | Natural-language routing and steering (wired in Phase 9; behavior binding deferred). |
 
 ## Step binding and resolution
 
 A workflow **step** binds three inputs: **behavior** (loop primitive), **prompt**
 (task text), and **role** (model-resolution key). Behaviors are orchestration
-primitives (`write`, `review-debate`, `human`); they are not renamed to
+primitives (`write`, `review`, `review-debate`, `human`); they are not renamed to
 match roles.
 Workflow-step authoring and named preset resolution for this behavior vocabulary
 live in [`workflow-runner.md`](workflow-runner.md#authoring-helper-and-presets).
@@ -52,7 +52,7 @@ Inner rung detail (consumption modes, flattening, terminal outcomes):
 | `critic` | `review` | Read-only; independent critic for review workflows. |
 | `advocate` | `review-debate` | Read-only; second reviewer. |
 | `adjudicator` | `review-debate` | Read-only; emits verdict. |
-| `actuator` | `review-debate` | Verdict application only — not shrink. Plan vs implement context comes from step metadata, not split resolution keys. |
+| `actuator` | `review`, `review-debate` | Verdict application only — not shrink. Plan vs implement context comes from step metadata, not split resolution keys. |
 | `operator` | — | Behavior binding deferred to Phase 9. |
 | — | `human` | No agent resolution; pause for human review, approval, or resume. |
 

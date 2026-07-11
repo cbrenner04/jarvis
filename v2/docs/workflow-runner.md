@@ -302,7 +302,8 @@ is never resumed. A review-only invocation gets a fresh snapshot and starts at
 cycle zero. A mixed workflow may reuse a matching snapshot found through a
 durable write or human step; matching includes each review entry's
 `(stepId, behavior)`. Review entries remain in authored order in daemon/TUI
-projection, while durable run lookup considers only write and human steps.
+projection, with critic/actuator start and terminal completed/stopped progress,
+while durable run lookup considers only write and human steps.
 
 Workflow loading, presets, and YAML/config authoring do not accept `review` in
 this slice.

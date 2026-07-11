@@ -42,7 +42,7 @@ import {
   type WriteLoopResult,
 } from "./write-loop.ts";
 
-/** Workflow-runner-level telemetry context, shared identically across write and review-debate steps. */
+/** Workflow-runner-level telemetry context, shared identically across write and review steps. */
 type WorkflowTelemetryContext = {
   operatorSessionId: string;
   workflow: string;
@@ -117,10 +117,16 @@ export type ReviewWorkflowStep = Omit<ReviewCycleInput, "bindings" | "onRoleStar
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
 };
 
-/** Live/terminal progress for a `review-debate` step's daemon-visible row, tracked in-memory only. */
-export type ReviewDebateProgress =
-  | { status: "in_progress"; role: ReviewDebateRole }
-  | { status: "completed" | "stopped"; role: ReviewDebateRole; terminalOutcome: "complete" | "invocation_failure" };
+/** Live/terminal progress for a review step's daemon-visible row, tracked in-memory only. */
+export type ReviewProgress =
+  | { status: "in_progress"; role: ReviewDebateRole | ReviewCycleRole }
+  | {
+      status: "completed" | "stopped";
+      role: ReviewDebateRole | ReviewCycleRole;
+      terminalOutcome: "complete" | "invocation_failure";
+    };
+
+export type ReviewDebateProgress = ReviewProgress;
 
 /** One authored workflow step with durable run identity, dispatched on `behavior` at execution. */
 export type WorkflowStep = WriteWorkflowStep | HumanWorkflowStep;
@@ -146,7 +152,7 @@ export type WorkflowRunnerInput = {
   steps: AnyWorkflowStep[];
   stateStore?: StateStore;
   logSink?: LogSink;
-  /** Reports a `review-debate` step's live/terminal role progress, keyed by `invocationId`+`stepId`. */
+  /** Reports a review step's live/terminal role progress, keyed by `invocationId`+`stepId`. */
   onReviewDebateProgress?: (invocationId: string, stepId: string, progress: ReviewDebateProgress) => void;
   /** Shared telemetry context for every step's invocations; omitted emits no `invocation_completed` rows. */
   telemetry?: WorkflowTelemetryContext;
@@ -232,7 +238,7 @@ async function runWorkflowStep(
   }
 
   if (step.behavior === "review") {
-    return runReviewStep(step, stepIndex, onStepRunCreated);
+    return runReviewStep(step, stepIndex, workflowSnapshot.invocationId, onReviewDebateProgress, telemetry, onStepRunCreated);
   }
 
   const preparedStep = prepareWorkflowStep(step, workflowSnapshot, store, logSink, telemetry);
@@ -535,7 +541,7 @@ function stepIdentity(step: WorkflowStep): { project: string; branch: string } {
 }
 
 /**
- * Every step, including `review-debate`, contributes an entry to the shared snapshot
+ * Every step, including review behaviors, contributes an entry to the shared snapshot
  * so the daemon's `list` handler can render a row for it. Only `write` and `human`
  * steps carry durable run identity, though: a `review-debate` step has no durable
  * run/resume in this slice (deferred to first consumer), so it is excluded from the
@@ -916,34 +922,73 @@ async function runReviewDebateStep(
 async function runReviewStep(
   step: ReviewWorkflowStep,
   stepIndex: number,
+  invocationId: string,
+  onProgress: ((invocationId: string, stepId: string, progress: ReviewProgress) => void) | undefined,
+  telemetry: WorkflowTelemetryContext | undefined,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
 ): Promise<ReviewStepOutcome> {
   const {
-    stepId: _stepId,
-    project: _project,
-    branch: _branch,
+    stepId,
+    project,
+    branch,
     agents,
     agentModelConfig,
     createBinding,
     ...reviewInput
   } = step;
+  const resolveBindings = createBinding ?? createResolvedAgentBinding;
   const bindings = {
     critic: resolveInvocationBindings(
       "critic",
       agents.critic,
       agentModelConfig,
-      createBinding ?? createResolvedAgentBinding,
+      resolveBindings,
     ),
     actuator: resolveInvocationBindings(
       "actuator",
       agents.actuator,
       agentModelConfig,
-      createBinding ?? createResolvedAgentBinding,
+      resolveBindings,
     ),
   };
   const runId = crypto.randomUUID();
+  const attemptId = crypto.randomUUID();
   onStepRunCreated?.(stepIndex, runId);
-  const result = await executeReviewCycle({ ...reviewInput, bindings });
+  const result = await executeReviewCycle({
+    ...reviewInput,
+    bindings,
+    ...(telemetry !== undefined
+      ? {
+          telemetry: {
+            sink: buildJsonlSink(telemetry.sinkPath ?? DEFAULT_TELEMETRY_SINK_PATH),
+            operatorSessionId: telemetry.operatorSessionId,
+            runId,
+            attemptId,
+            project,
+            workflow: telemetry.workflow,
+            stepId,
+            worktreePath: step.cwd,
+            branch,
+            specRef: "",
+          },
+        }
+      : {}),
+    ...(onProgress !== undefined
+      ? { onRoleStart: (role: ReviewCycleRole) => onProgress(invocationId, stepId, { status: "in_progress", role }) }
+      : {}),
+  });
+  const lastCycle = result.cycles[result.cycles.length - 1];
+  const terminalRole: ReviewCycleRole =
+    lastCycle?.kind === "role_failed"
+      ? lastCycle.failedRole
+      : lastCycle?.kind === "completed" && lastCycle.actuatorRan
+        ? "actuator"
+        : "critic";
+  onProgress?.(invocationId, stepId, {
+    status: result.kind === "complete" ? "completed" : "stopped",
+    role: terminalRole,
+    terminalOutcome: result.kind,
+  });
   return {
     kind: result.kind,
     runId,

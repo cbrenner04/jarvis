@@ -1105,6 +1105,8 @@ describe("executeWorkflow review dispatch", () => {
 
   test("resolves role orders independently and reports a fresh non-durable run", async () => {
     const calls: string[] = [];
+    const progress: string[] = [];
+    const telemetryPath = join(mkdtempSync(join(tmpdir(), "workflow-review-telemetry-")), "telemetry.jsonl");
     const step: ReviewWorkflowStep = {
       behavior: "review",
       stepId: "review-1",
@@ -1132,6 +1134,8 @@ describe("executeWorkflow review dispatch", () => {
         steps: [step],
         stateStore: store,
         onStepRunCreated: (index, runId) => fired.push({ index, runId, durable: store.loadRun(runId) !== null }),
+        onReviewDebateProgress: (_invocationId, _stepId, update) => progress.push(`${update.status}:${update.role}`),
+        telemetry: { operatorSessionId: "session-1", workflow: "demo-workflow", sinkPath: telemetryPath },
       });
 
       expect(result).toMatchObject({ kind: "complete", resumable: false, iterationsConsumed: 1 });
@@ -1139,6 +1143,23 @@ describe("executeWorkflow review dispatch", () => {
       expect(fired).toHaveLength(1);
       expect(fired[0]).toMatchObject({ index: 0, runId: result.runId, durable: false });
       expect(store.listRuns()).toHaveLength(0);
+      expect(progress).toEqual(["in_progress:critic", "in_progress:actuator", "completed:actuator"]);
+      expect(loadTelemetryRows(telemetryPath)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            workflow: "demo-workflow",
+            step_id: "review-1",
+            run_id: result.runId,
+            role: "critic",
+          }),
+          expect.objectContaining({
+            workflow: "demo-workflow",
+            step_id: "review-1",
+            run_id: result.runId,
+            role: "actuator",
+          }),
+        ]),
+      );
     });
   });
 

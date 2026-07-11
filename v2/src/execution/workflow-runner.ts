@@ -68,6 +68,7 @@ const WORKFLOW_PRESET_LENGTHS = {
   intent: 1,
   plan: 1,
   "plan-reviewed": 1,
+  "plan-reviewed-light": 1,
 } as const;
 
 /** Presets whose `role`/`promptId` are pinned by the preset, overriding any caller-supplied values. */
@@ -76,6 +77,7 @@ const WORKFLOW_PRESET_PINNED_FIELDS: Partial<Record<WorkflowPresetName, { role: 
   intent: { role: "plan", promptId: "intent.prompt.split" },
   plan: { role: "plan", promptId: "plan.prompt.draft" },
   "plan-reviewed": { role: "plan", promptId: "plan.prompt.draft" },
+  "plan-reviewed-light": { role: "plan", promptId: "plan.prompt.draft" },
 };
 
 export type WorkflowPresetName = keyof typeof WORKFLOW_PRESET_LENGTHS;

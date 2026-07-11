@@ -172,6 +172,17 @@ verdict-driven actuator applies the verdict at
 Choose it for adversarial review; `plan-reviewed-light` is the critic-actuator
 alternative for a lighter editorial pass.
 
+`buildReviewedPlanLightWorkflowSteps` (preset: `plan-reviewed-light`) composes
+the loaded plan draft with one loaded `review` step. It defaults `reviewPasses`
+to `1`; zero delegates to the draft-only `plan` workflow. Positive values set
+the critic-actuator cycle limit and load separate `critic` and `actuator`
+orders from machine configuration. Runtime rendering uses
+`plan.prompt.review.critic` and `plan.prompt.review-actuator` against the
+materialized draft; the critic verdict is written to
+`<spec-dir>/verdict-plan.md`.
+
+**CLI usage (draft + light review):** `jarvis run workflow plan-reviewed-light --ready-intent <path> [--target-dir <dir>] [--review-passes <n>]` — defaults to one review pass. `--review-behavior` is not accepted on this preset. Malformed pass counts (for example `1x`, `-1`, `1.5`) are rejected before daemon contact.
+
 A workflow step is authored as a plain object literal `satisfies WorkflowStepInput`.
 `WorkflowStepInput` (identical in shape to the runtime `AnyWorkflowStep`) is a
 discriminated union on `behavior`, the closed vocabulary from
@@ -213,6 +224,7 @@ Current preset surface:
 - `intent-reviewed`: two steps (split + review)
 - `plan`: one step, with `role`/`promptId` fixed by the preset
 - `plan-reviewed`: one validated draft write step followed by a loaded `review-debate` step
+- `plan-reviewed-light`: one validated draft write step followed by a loaded `review` step
 
 Validation stays synchronous:
 

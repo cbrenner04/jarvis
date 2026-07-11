@@ -80,7 +80,10 @@ const WORKFLOW_INTENT_REVIEWED_USAGE =
 const WORKFLOW_PLAN_USAGE = "usage: jarvis run workflow plan --ready-intent <path> [--target-dir <dir>]\n";
 const WORKFLOW_PLAN_REVIEWED_USAGE =
   "usage: jarvis run workflow plan-reviewed --ready-intent <path> [--target-dir <dir>] [--review-passes <n>]\n";
-const WORKFLOW_USAGE = "usage: jarvis run workflow <implement|intent|intent-reviewed|plan|plan-reviewed> [flags]\n";
+const WORKFLOW_PLAN_REVIEWED_LIGHT_USAGE =
+  "usage: jarvis run workflow plan-reviewed-light --ready-intent <path> [--target-dir <dir>] [--review-passes <n>]\n";
+const WORKFLOW_USAGE =
+  "usage: jarvis run workflow <implement|intent|intent-reviewed|plan|plan-reviewed|plan-reviewed-light> [flags]\n";
 
 export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliDeps>): Promise<number> {
   const out = io ?? {
@@ -395,6 +398,7 @@ function getWorkflowUsage(name: string): string {
   if (name === "intent-reviewed") return WORKFLOW_INTENT_REVIEWED_USAGE;
   if (name === "plan") return WORKFLOW_PLAN_USAGE;
   if (name === "plan-reviewed") return WORKFLOW_PLAN_REVIEWED_USAGE;
+  if (name === "plan-reviewed-light") return WORKFLOW_PLAN_REVIEWED_LIGHT_USAGE;
   if (name === "implement") return WORKFLOW_IMPLEMENT_USAGE;
   return WORKFLOW_USAGE;
 }
@@ -471,8 +475,8 @@ async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps
   }
 
   const isIntentPreset = name === "intent" || name === "intent-reviewed";
-  const isPlanPreset = name === "plan" || name === "plan-reviewed";
-  const allowReviewPasses = name === "intent-reviewed" || name === "plan-reviewed";
+  const isPlanPreset = name === "plan" || name === "plan-reviewed" || name === "plan-reviewed-light";
+  const allowReviewPasses = name === "intent-reviewed" || name === "plan-reviewed" || name === "plan-reviewed-light";
   const parsed = parseWorkflowArgsByName(argv.slice(1), name, isIntentPreset, isPlanPreset, allowReviewPasses);
   if (!parsed.ok) {
     io.stderr(getWorkflowUsage(name));
@@ -483,7 +487,8 @@ async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps
     "reviewPasses" in parsed &&
     parsed.reviewPasses !== undefined &&
     name !== "intent-reviewed" &&
-    name !== "plan-reviewed"
+    name !== "plan-reviewed" &&
+    name !== "plan-reviewed-light"
   ) {
     io.stderr(getWorkflowUsage(name));
     return 1;

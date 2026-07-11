@@ -300,29 +300,82 @@ export async function buildPlanWorkflowSteps(
   }
 }
 
+function resolvePlanReviewPasses(reviewPasses: number | undefined): number | { error: string } {
+  const passes = reviewPasses ?? 1;
+  if (!Number.isInteger(passes) || passes < 0) {
+    return { error: "plan: --review-passes must be a non-negative integer" };
+  }
+  return passes;
+}
+
+function resolvePlanReviewCwd(sourceStep: WriteWorkflowSourceStep): string {
+  return getExternalWorktreePath({
+    ...sourceStep.worktree,
+    ...(sourceStep.jarvisRoot !== undefined ? { jarvisRoot: sourceStep.jarvisRoot } : {}),
+  });
+}
+
 export async function buildReviewedPlanWorkflowSteps(
   input: PlanWorkflowInput,
   deps: PlanWorkflowDeps = {},
 ): Promise<PlanWorkflowResult> {
-  const reviewPasses = input.reviewPasses ?? 1;
-  if (!Number.isInteger(reviewPasses) || reviewPasses < 0) {
-    return { ok: false, error: "plan: --review-passes must be a non-negative integer" };
-  }
+  const reviewPasses = resolvePlanReviewPasses(input.reviewPasses);
+  if (typeof reviewPasses === "object") return { ok: false, error: reviewPasses.error };
   if (reviewPasses === 0) return buildPlanWorkflowSteps(input, deps);
 
   const source = await buildPlanWorkflowSourceStep(input, deps);
   if (!source.ok) return source;
-  const cwd = getExternalWorktreePath({
-    ...source.step.worktree,
-    ...(source.step.jarvisRoot !== undefined ? { jarvisRoot: source.step.jarvisRoot } : {}),
-  });
+  const cwd = resolvePlanReviewCwd(source.step);
+  const reviewStep: ReviewDebateWorkflowSourceStep = {
+    behavior: "review-debate",
+    stepId: "review-debate",
+    project: source.step.worktree.projectName,
+    branch: source.step.worktree.branchName,
+    cwd,
+    prompts: {
+      adversary: "plan.prompt.review.adversary",
+      advocate: "plan.prompt.review.advocate",
+      adjudicator: "plan.prompt.review.adjudicator",
+    },
+    verdictPath: join(cwd, source.step.specPath, "verdict-plan.md"),
+    maxCycles: reviewPasses,
+  };
+  try {
+    const loaded = (deps.loadWorkflowSteps ?? realLoadWorkflowSteps)(
+      [source.step, reviewStep],
+      workflowLoadOptions(deps),
+    );
+    const writeSteps = loaded.filter((step): step is WriteWorkflowStep => step.behavior === "write");
+    const debateStep = loaded.find((step): step is ReviewDebateWorkflowStep => step.behavior === "review-debate");
+    if (debateStep === undefined) return { ok: false, error: "plan: review-debate step was not loaded" };
+    return {
+      ok: true,
+      steps: [...resolveWorkflowPreset("plan-reviewed", writeSteps), debateStep],
+      identity: source.identity,
+    };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export async function buildReviewedPlanLightWorkflowSteps(
+  input: PlanWorkflowInput,
+  deps: PlanWorkflowDeps = {},
+): Promise<PlanWorkflowResult> {
+  const reviewPasses = resolvePlanReviewPasses(input.reviewPasses);
+  if (typeof reviewPasses === "object") return { ok: false, error: reviewPasses.error };
+  if (reviewPasses === 0) return buildPlanWorkflowSteps(input, deps);
+
+  const source = await buildPlanWorkflowSourceStep(input, deps);
+  if (!source.ok) return source;
+  const cwd = resolvePlanReviewCwd(source.step);
   const reviewStep: ReviewWorkflowSourceStep = {
     behavior: "review",
     stepId: "plan-review",
     project: source.step.worktree.projectName,
     branch: source.step.worktree.branchName,
     cwd,
-    prompt: "", // Will be rendered at execution time from templates
+    prompt: "",
     verdictPath: join(cwd, source.step.specPath, "verdict-plan.md"),
     maxCycles: reviewPasses,
     planReviewContext: {
@@ -340,7 +393,7 @@ export async function buildReviewedPlanWorkflowSteps(
     if (reviewStepLoaded === undefined) return { ok: false, error: "plan: review step was not loaded" };
     return {
       ok: true,
-      steps: [...resolveWorkflowPreset("plan-reviewed", writeSteps), reviewStepLoaded],
+      steps: [...resolveWorkflowPreset("plan-reviewed-light", writeSteps), reviewStepLoaded],
       identity: source.identity,
     };
   } catch (error) {

@@ -352,11 +352,16 @@ function resolveInWorktree(worktreePath: string, path: string): string {
 function linkedImplementRoutingFailureOutcome(
   routing: Extract<ReturnType<typeof resolveActiveLinkedSubspec>, { ok: false }>,
   totalIterationsConsumed: number,
+  stepIndex: number,
+  onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
 ): WorkflowStepOutcome {
+  const runId = crypto.randomUUID();
+  onStepRunCreated?.(stepIndex, runId);
+
   if (routing.errorKind === "empty_index" || routing.errorKind === "already_complete") {
     return {
       kind: "complete",
-      runId: "",
+      runId,
       iterationsConsumed: totalIterationsConsumed,
       resumable: false,
       implementReviewEligible: false,
@@ -364,7 +369,7 @@ function linkedImplementRoutingFailureOutcome(
   }
   return {
     kind: "blocked",
-    runId: "",
+    runId,
     iterationsConsumed: totalIterationsConsumed,
     resumable: false,
     routingFailure: `implement.${routing.errorKind}: ${routing.error}`,
@@ -462,7 +467,7 @@ async function runLinkedImplementStep(
     const beforeIndexContent = readFileSync(indexPath, "utf8");
     const routing = resolveActiveLinkedSubspec(indexPath, worktreePath);
     if (!routing.ok) {
-      return linkedImplementRoutingFailureOutcome(routing, totalIterationsConsumed);
+      return linkedImplementRoutingFailureOutcome(routing, totalIterationsConsumed, stepIndex, onStepRunCreated);
     }
 
     const linkStep: WriteWorkflowStep = {

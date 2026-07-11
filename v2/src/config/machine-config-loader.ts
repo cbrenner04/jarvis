@@ -79,6 +79,13 @@ export function readProjectImplementReviewPasses(
     return { ok: true, reviewPasses: 0 };
   }
 
+  if (typeof implement !== "object" || implement === null || Array.isArray(implement)) {
+    return {
+      ok: false,
+      error: `projects.${projectKey}.implement must be an object`,
+    };
+  }
+
   const reviewPasses = (implement as Record<string, unknown>).reviewPasses;
   if (reviewPasses === undefined) {
     return { ok: true, reviewPasses: 0 };

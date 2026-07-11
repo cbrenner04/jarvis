@@ -1082,7 +1082,7 @@ describe("v2 cli", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",
-      stderr: "usage: jarvis run workflow <implement|intent|intent-reviewed> [flags]\n",
+      stderr: "usage: jarvis run workflow <implement|intent|intent-reviewed|plan> [flags]\n",
     });
   });
 
@@ -1098,7 +1098,7 @@ describe("v2 cli", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",
-      stderr: "usage: jarvis run workflow <implement|intent|intent-reviewed> [flags]\n",
+      stderr: "usage: jarvis run workflow <implement|intent|intent-reviewed|plan> [flags]\n",
     });
   });
 
@@ -1114,7 +1114,7 @@ describe("v2 cli", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",
-      stderr: "usage: jarvis run workflow <implement|intent|intent-reviewed> [flags]\n",
+      stderr: "usage: jarvis run workflow <implement|intent|intent-reviewed|plan> [flags]\n",
     });
   });
 

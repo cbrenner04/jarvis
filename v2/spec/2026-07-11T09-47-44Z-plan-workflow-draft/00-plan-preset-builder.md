@@ -31,16 +31,16 @@ Add a `plan` workflow preset builder and register it on the launcher: `jarvis ru
 
 ## Acceptance criteria
 
-- [ ] `jarvis run workflow plan --ready-intent <path>` resolves the `plan` preset and builds exactly one `write` step with `role: "plan"` and `promptId: "plan.prompt.draft"`.
-- [ ] A ready-intent missing `name:` frontmatter, whose `name` mismatches the filename, lacking a `## Prerequisites` section, or not located in a `ready-intents/` directory is rejected pre-daemon with a non-zero exit and no step built.
-- [ ] The built step carries `intentSeed` (the ready-intent content verbatim), a timestamped `NAME` basename, branch `plan/<name>`, and a spec dir `<targetDir>/<UTC-timestamp>-<name>/`; the timestamp is generated once and stable across the built step.
-- [ ] `--ready-intent` and `--target-dir` are independent: identity routes to `--target-dir` (or its precedence chain) regardless of which `ready-intents/` tree the intent file lives in.
-- [ ] `--target-dir` overrides the target directory; absent it, precedence resolves project `plan.targetDir` → global `modes.plan.targetDir` → `spec` (builder receives `configPath`).
-- [ ] The built write step carries `publishCompletion: true`.
-- [ ] `WORKFLOW_USAGE` lists `plan`; an unknown preset name still exits `1` without contacting the daemon.
-- [ ] No registered project matching cwd yields a non-zero pre-daemon error naming the cwd.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `jarvis run workflow plan --ready-intent <path>` resolves the `plan` preset and builds exactly one `write` step with `role: "plan"` and `promptId: "plan.prompt.draft"`.
+- [x] A ready-intent missing `name:` frontmatter, whose `name` mismatches the filename, lacking a `## Prerequisites` section, or not located in a `ready-intents/` directory is rejected pre-daemon with a non-zero exit and no step built.
+- [x] The built step carries `intentSeed` (the ready-intent content verbatim), a timestamped `NAME` basename, branch `plan/<name>`, and a spec dir `<targetDir>/<UTC-timestamp>-<name>/`; the timestamp is generated once and stable across the built step.
+- [x] `--ready-intent` and `--target-dir` are independent: identity routes to `--target-dir` (or its precedence chain) regardless of which `ready-intents/` tree the intent file lives in.
+- [x] `--target-dir` overrides the target directory; absent it, precedence resolves project `plan.targetDir` → global `modes.plan.targetDir` → `spec` (builder receives `configPath`).
+- [x] The built write step carries `publishCompletion: true`.
+- [x] `WORKFLOW_USAGE` lists `plan`; an unknown preset name still exits `1` without contacting the daemon.
+- [x] No registered project matching cwd yields a non-zero pre-daemon error naming the cwd.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

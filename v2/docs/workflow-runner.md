@@ -150,6 +150,29 @@ composition, verdict injection, and role isolation is deferred to subspec 02.
 
 **CLI usage (split + review):** `jarvis run workflow intent-reviewed (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>]` — defaults to one review pass.
 
+`buildPlanWorkflowSteps` (preset: `plan`) accepts a `--ready-intent <path>` to an authored ready-intent file
+and an optional relative, non-traversing `targetDir`. It validates the ready-intent
+before daemon contact: the file must exist in a `ready-intents/` directory,
+carry frontmatter `name:` that matches the filename (without `.md`), and
+include a `## Prerequisites` section. The name is used for the branch
+(`plan/<name>`) and spec-dir basename.
+
+Target precedence is run override, project `plan.targetDir`, global
+`modes.plan.targetDir`, then `spec`. The spec-dir path is
+`<targetDir>/<UTC-timestamp>-<name>/`, where the timestamp is generated
+once at build time and remains stable across the run. Branch is `plan/<name>`
+(untimestamped). The builder publishes directly to `<spec-dir>/` with
+`publishCompletion: true`, so the spec tree is committed immediately;
+the interim completion contract is `index.md`-exists.
+
+The builder emits one `write` step with role `plan` and prompt
+`plan.prompt.draft`. The step carries `intentSeed` (the ready-intent content
+verbatim) for consumed by step 01 (write-step seeding). Write-step
+seeding, prompt rendering, and draft output validation are deferred to
+later substeps.
+
+**CLI usage:** `jarvis run workflow plan --ready-intent <path> [--target-dir <dir>]`
+
 A workflow step is authored as a plain object literal `satisfies WorkflowStepInput`.
 `WorkflowStepInput` (identical in shape to the runtime `AnyWorkflowStep`) is a
 discriminated union on `behavior`, the closed vocabulary from
@@ -189,6 +212,7 @@ Current preset surface:
 - `implement`: one step, with `role`/`promptId` fixed by the preset
 - `intent`: one step (split only)
 - `intent-reviewed`: two steps (split + review)
+- `plan`: one step, with `role`/`promptId` fixed by the preset
 
 Validation stays synchronous:
 

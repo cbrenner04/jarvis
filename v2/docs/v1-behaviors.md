@@ -230,7 +230,8 @@ Sources: `v1/src/commands/plan.ts`, `v1/src/modes/plan/draft.ts`, `v1/src/modes/
 
 ### v2 additive: named workflow presets
 
-- `jarvis run workflow <name> [flags]` selects a CLI builder by name; only `implement` is registered. Missing or unknown names print `usage: jarvis run workflow <implement> [flags]` and exit `1` before daemon connection. The `implement` launch preserves its `--branch`, `--base`, `--spec`, and `--artifact` parser, builder payload, IPC `start` request, run-ID stdout, daemon errors, and exit behavior; builder failures print their text with one trailing newline. Sources: `v2/src/cli.ts`, `v2/docs/write-behavior.md`
+- `jarvis run workflow <name> [flags]` selects a CLI builder by name; `implement`, `intent`, `intent-reviewed`, and `plan` are registered. Missing or unknown names print `usage: jarvis run workflow <implement|intent|intent-reviewed|plan> [flags]` and exit `1` before daemon connection. Builder failures print their text with one trailing newline. Sources: `v2/src/cli.ts`, `v2/docs/write-behavior.md`, `v2/docs/workflow-runner.md`
+- [v2 additive] `plan` preset builder accepts `--ready-intent <path>` and optional `--target-dir <dir>`. It validates the ready-intent (file exists, lives in `ready-intents/`, carries `name:` frontmatter matching the filename, includes `## Prerequisites` section) before daemon contact. Target-dir precedence is run override, project `plan.targetDir`, global `modes.plan.targetDir`, then `spec`. The builder emits one `write` step with `role: "plan"` and `promptId: "plan.prompt.draft"`; `spec/<UTC-timestamp>-<name>/` is the timestamped spec-dir path, branch is `plan/<name>` (untimestamped), and `publishCompletion: true` commits the spec tree directly. Sources: `v2/src/cli.ts`, `v2/src/execution/plan-workflow-steps.ts`, `v2/docs/workflow-runner.md`
 
 ### v2 machine config CLI (`jarvis config`)
 

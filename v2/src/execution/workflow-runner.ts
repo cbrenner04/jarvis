@@ -104,6 +104,8 @@ export type WriteWorkflowStep = Omit<WriteLoopInput, "bindings"> & {
    * the next one — continuing until no unchecked link remains.
    */
   linkedIndexRouting?: boolean;
+  /** Pinned by `resolveWorkflowPreset("implement", ...)` on all but the last of its resolved positions, so the post-completion shrink pass fires once per resolved preset, not once per position. */
+  suppressShrink?: boolean;
 };
 
 /**
@@ -222,7 +224,15 @@ export function resolveWorkflowPreset(
   }
 
   const pinned = WORKFLOW_PRESET_PINNED_FIELDS[name];
-  return steps.map((step) => ({ ...step, behavior: "write", ...(pinned ?? {}) }) satisfies WorkflowStepInput);
+  return steps.map((step, index) => {
+    const suppressShrink = name === "implement" && index < steps.length - 1 ? true : undefined;
+    return {
+      ...step,
+      behavior: "write",
+      ...(pinned ?? {}),
+      ...(suppressShrink !== undefined ? { suppressShrink } : {}),
+    } satisfies WorkflowStepInput;
+  });
 }
 
 type PreparedWorkflowStep =
@@ -486,7 +496,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         };
       }
 
-      if (step.behavior === "write" && step.role === "implement") {
+      if (step.behavior === "write" && step.role === "implement" && !step.suppressShrink) {
         const shrinkResult = await runShrinkAfterImplementComplete(
           step,
           stepIndex,

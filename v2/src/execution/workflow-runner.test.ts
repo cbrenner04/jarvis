@@ -704,6 +704,62 @@ describe("executeWorkflow", () => {
     });
   });
 
+  test("runs shrink exactly once for a two-step resolved implement preset", async () => {
+    const shrinkCalls: string[] = [];
+    const stepConfig = {
+      branchName: "implement-preset-shrink",
+      promptPlaceholders: {
+        SPEC_PATH: "spec.md",
+        SIBLINGS_BLOCK: "",
+        REPO_GUIDANCE: "",
+        ACTIVE_SUBSPEC_PATH: "spec.md",
+        ACTIVE_SUBSPEC_BODY: "",
+        PATCH_RULES: "",
+        TIMEOUT_CHECKPOINT_CONTEXT: "",
+      },
+      agentModelConfig: {
+        claude: {
+          implement: { rungs: [{ adapterModel: "I1", priceKey: "I1" }] },
+          shrink: { rungs: [{ adapterModel: "S1", priceKey: "S1" }] },
+        },
+      },
+      createBinding: ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) => ({
+        id: `${agentId}/${adapterModel}`,
+        invoke: async ({ cwd, prompt }: { cwd: string; prompt: string }) => {
+          if (prompt.includes("Post-completion Shrink")) shrinkCalls.push(adapterModel);
+          writeFileSync(`${cwd}/proof.txt`, "ok\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        },
+        metadata: { agent: agentId, model: adapterModel },
+      }),
+    };
+    const steps = resolveWorkflowPreset("implement", [
+      createStep({ stepId: "step-1", role: "implement", ...stepConfig }),
+      createStep({ stepId: "step-2", role: "implement", ...stepConfig }),
+    ]);
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps, stateStore: store });
+
+      expect(result.kind).toBe("complete");
+      expect(shrinkCalls).toEqual(["S1"]);
+      expect(
+        store.findRunByProjectBranch({
+          project: "demo",
+          branch: "implement-preset-shrink",
+          stepId: "step-1~shrink",
+        }),
+      ).toBeNull();
+      expect(
+        store.findRunByProjectBranch({
+          project: "demo",
+          branch: "implement-preset-shrink",
+          stepId: "step-2~shrink",
+        })?.status,
+      ).toBe("completed");
+    });
+  });
+
   test("does not run shrink after non-complete implement outcomes", async () => {
     const cases = [
       { branchName: "shrink-skip-budget", binding: okTokenBindingFactory("progress"), maxIterations: 1 },

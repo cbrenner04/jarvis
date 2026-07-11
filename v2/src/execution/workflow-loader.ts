@@ -48,9 +48,13 @@ export function loadWorkflowSteps(
   const agents = loadMachineConfig(deps.machineConfigPath) ?? DEFAULT_WRITE_AGENTS;
 
   const loadAgentModelConfig = deps.loadAgentModelConfig ?? loadMachineProfileModels;
-  const loadResult = loadAgentModelConfig(deps.machineProfile ?? resolveMachineProfile(deps.machineConfigPath), agents, {
-    machinesDir: deps.machinesDir,
-  });
+  const loadResult = loadAgentModelConfig(
+    deps.machineProfile ?? resolveMachineProfile(deps.machineConfigPath),
+    agents,
+    {
+      machinesDir: deps.machinesDir,
+    },
+  );
   if (isLoadError(loadResult)) {
     throw new Error(`Failed to load agent model config: ${loadResult.errors.join(", ")}`);
   }

@@ -3,13 +3,13 @@ import { readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative } from "node:path";
 import { getBaseBranch } from "../../../shared/git.ts";
-import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
+import type { createResolvedAgentBinding, ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import type { MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
 import {
-  loadWorkflowSteps as realLoadWorkflowSteps,
   type LoadedWorkflowStep,
+  loadWorkflowSteps as realLoadWorkflowSteps,
   type WorkflowSourceStep,
   type WriteWorkflowSourceStep,
 } from "./workflow-loader.ts";

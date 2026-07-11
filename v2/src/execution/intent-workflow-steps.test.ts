@@ -156,7 +156,10 @@ describe("buildReviewedIntentWorkflowSteps", () => {
     const root = mkdtempSync(join(tmpdir(), "reviewed-intent-"));
     writeFileSync(join(root, "test.md"), "test", "utf8");
     const calls: { steps: readonly WorkflowSourceStep[]; options: unknown }[] = [];
-    const createBinding = () => ({ id: "bound", invoke: async () => ({ kind: "error" as const, exitCode: 1, stderr: "" }) });
+    const createBinding = () => ({
+      id: "bound",
+      invoke: async () => ({ kind: "error" as const, exitCode: 1, stderr: "" }),
+    });
 
     const result = await buildReviewedIntentWorkflowSteps(
       { cwd: root, seed: "test.md", targetDir: "specs", reviewPasses: 3 },

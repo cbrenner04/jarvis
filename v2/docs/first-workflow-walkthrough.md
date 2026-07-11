@@ -5,8 +5,10 @@ This is not a command reference — see [`write-behavior.md`](./write-behavior.m
 CLI contracts and [`daemon-host.md`](./daemon-host.md) / [`workflow-runner.md`](./workflow-runner.md)
 for IPC and workflow internals.
 
-The walkthrough uses an ad-hoc `jarvis run start` run (not `jarvis run workflow
-implement`) so live `pause` and `kill` work on the active run.
+The walkthrough uses an ad-hoc `jarvis run start` run (direct write mode) rather
+than `jarvis run workflow implement` so live `pause` and `kill` work on the active run.
+See [Workflow-started implement](#workflow-started-implement) for launching
+via workflow preset without live control.
 
 ## Prerequisites
 

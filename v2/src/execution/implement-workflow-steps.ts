@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { findProjectMatch, type ProjectMatch } from "../../../shared/project-registry.ts";
 import { readProjectRegistry } from "../config/machine-config-loader.ts";
 import { resolveActiveLinkedSubspec as realResolveActiveLinkedSubspec } from "./linked-subspec-routing.ts";
@@ -12,6 +12,8 @@ export type BuildImplementWorkflowStepsInput = {
   branchName: string;
   baseRef: string;
   specPath: string;
+  artifactPath?: string;
+  projectRoot?: string;
 };
 
 /** Test-only seams for project resolution and machine-config loading. */
@@ -35,21 +37,44 @@ export function buildImplementWorkflowSteps(
   const loadSteps = deps.loadWorkflowSteps ?? realLoadWorkflowSteps;
   const resolveLinkedSubspec = deps.resolveActiveLinkedSubspec ?? realResolveActiveLinkedSubspec;
 
-  const match = resolveProjectMatch(input.cwd);
-  if (match === undefined) {
-    return { ok: false, error: `No registered project matches cwd: ${input.cwd}` };
+  // If projectRoot is provided, use it directly; otherwise resolve from cwd
+  let match: ProjectMatch;
+  if (input.projectRoot !== undefined) {
+    match = { key: "", root: input.projectRoot };
+  } else {
+    const resolved = resolveProjectMatch(input.cwd);
+    if (resolved === undefined) {
+      return { ok: false, error: `No registered project matches cwd: ${input.cwd}` };
+    }
+    match = resolved;
   }
 
-  const resolvedSpecPath = resolve(input.specPath);
-  const routingResult = resolveLinkedSubspec(resolvedSpecPath, match.root);
-  if (!routingResult.ok) {
-    return {
-      ok: false,
-      error: `implement.${routingResult.errorKind}: ${routingResult.error}`,
-    };
+  // Spec path may be worktree-relative (from CLI) or absolute (legacy)
+  const absoluteSpecPath = resolve(match.root, input.specPath);
+  const specFilename = basename(absoluteSpecPath);
+  const isIndexSpec = specFilename === "index.md";
+
+  // For artifact path, use provided value or default to spec for index specs
+  let expectedArtifactPath: string;
+  if (isIndexSpec) {
+    expectedArtifactPath = input.specPath;
+  } else if (input.artifactPath !== undefined) {
+    expectedArtifactPath = input.artifactPath;
+  } else {
+    return { ok: false, error: "Non-index spec requires artifact path" };
   }
 
-  const { active } = routingResult;
+  // Resolve linked subspec if this is an index spec
+  if (isIndexSpec) {
+    const routingResult = resolveLinkedSubspec(absoluteSpecPath, match.root);
+    if (!routingResult.ok) {
+      return {
+        ok: false,
+        error: `implement.${routingResult.errorKind}: ${routingResult.error}`,
+      };
+    }
+  }
+
   const sourceStep: WorkflowSourceStep = {
     behavior: "write",
     stepId: "implement",
@@ -63,8 +88,8 @@ export function buildImplementWorkflowSteps(
       baseRef: input.baseRef,
     },
     specPath: input.specPath,
-    expectedArtifactPath: active.path,
-    linkedIndexRouting: true,
+    expectedArtifactPath,
+    linkedIndexRouting: isIndexSpec,
   };
 
   try {

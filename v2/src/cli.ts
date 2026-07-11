@@ -1,11 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { basename, dirname, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
 import type { AgentModelConfig, LoadError } from "./config/agent-model-config.ts";
 import {
   loadMachineConfig,
   readMachineConfigDocument,
+  readProjectRegistry,
   resolveMachineProfile,
   validateMachineConfigAgents,
 } from "./config/machine-config-loader.ts";
@@ -13,6 +14,7 @@ import { loadMachineProfileModels } from "./config/machine-profile-loader.ts";
 import { resolveWriteLoopBindings, type WaitRunCompletionResult } from "./daemon/daemon.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon/daemon-lifecycle.ts";
 import { parseListRuns, parseStartResult, parseWaitCompletion } from "./daemon/daemon-wire.ts";
+import { findProjectMatch } from "../../shared/project-registry.ts";
 import {
   WORKFLOW_PRESET_BUILDERS,
   type WorkflowPresetBuilder,
@@ -53,6 +55,7 @@ type CliDeps = {
   runTuiEntry: (deps?: RunTuiEntryDeps) => Promise<number>;
   runTuiLogFollow: (runId: string, deps?: RunTuiLogFollowDeps) => Promise<number>;
   workflowPresetBuilders: Readonly<Record<string, WorkflowPresetBuilder>>;
+  readProjectRegistry: () => Record<string, { root: string; origin?: string }>;
   cwd: () => string;
   socketPath: string;
   pidPath: string;
@@ -68,7 +71,7 @@ const TUI_USAGE = "usage: jarvis tui\n";
 const TUI_LOG_USAGE = "usage: jarvis tui log <run-id>\n";
 const WRITE_USAGE =
   "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--max-iterations <n>]\n";
-const WORKFLOW_IMPLEMENT_USAGE = "usage: jarvis run workflow implement --branch <name> --base <ref> --spec <path>\n";
+const WORKFLOW_IMPLEMENT_USAGE = "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>]\n";
 const WORKFLOW_INTENT_USAGE =
   "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>]\n";
 const WORKFLOW_INTENT_REVIEWED_USAGE =
@@ -90,6 +93,7 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     getDaemonStatus,
     runTuiEntry,
     runTuiLogFollow,
+    readProjectRegistry,
     cwd: () => process.cwd(),
     socketPath: DAEMON_SOCKET_PATH,
     pidPath: DAEMON_PID_PATH,
@@ -424,10 +428,32 @@ async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps
   }
 
   const { ok: _ok, ...parsedValues } = parsed;
-  const builderInput: WorkflowPresetBuilderInput =
-    isIntentPreset || isPlanPreset
-      ? { cwd: deps.cwd(), ...parsedValues, configPath: deps.machineConfigPath }
-      : { cwd: deps.cwd(), ...parsedValues };
+
+  let builderInput: WorkflowPresetBuilderInput;
+  if (name === "implement") {
+    const resolved = resolveImplementWorkflowInput(
+      parsed as ImplementWorkflowCliInput,
+      deps.cwd(),
+      deps.readProjectRegistry,
+    );
+    if (!resolved.ok) {
+      io.stderr(`${resolved.error}\n`);
+      return 1;
+    }
+    builderInput = {
+      cwd: deps.cwd(),
+      branchName: resolved.branchName,
+      baseRef: resolved.baseRef,
+      specPath: resolved.specPath,
+      projectRoot: resolved.projectRoot,
+      ...(resolved.artifactPath !== undefined ? { artifactPath: resolved.artifactPath } : {}),
+    };
+  } else if (isIntentPreset || isPlanPreset) {
+    builderInput = { cwd: deps.cwd(), ...parsedValues, configPath: deps.machineConfigPath };
+  } else {
+    builderInput = { cwd: deps.cwd(), ...parsedValues };
+  }
+
   const built = await builder(builderInput as Parameters<WorkflowPresetBuilder>[0]);
   if (!built.ok) {
     io.stderr(`${built.error.replace(/\n+$/, "")}\n`);
@@ -559,7 +585,13 @@ function parseWriteCliInput(argv: readonly string[], deps: CliDeps): WriteCliInp
   return { ok: true, input: built.input };
 }
 
-type ImplementWorkflowCliInput = { ok: true; branchName: string; baseRef: string; specPath: string } | { ok: false };
+type ImplementWorkflowCliInput = {
+  ok: true;
+  branchName?: string;
+  baseRef: string;
+  specPath: string;
+  artifactPath?: string;
+} | { ok: false };
 
 function parseImplementWorkflowArgs(argv: readonly string[]): ImplementWorkflowCliInput {
   let values: Record<string, string | boolean | string[] | undefined>;
@@ -584,15 +616,66 @@ function parseImplementWorkflowArgs(argv: readonly string[]): ImplementWorkflowC
   const specPath = typeof values.spec === "string" ? values.spec : undefined;
   const artifactPath = typeof values.artifact === "string" ? values.artifact : undefined;
 
-  if (branchName === undefined || baseRef === undefined || specPath === undefined) {
+  if (baseRef === undefined || specPath === undefined) {
     return { ok: false };
   }
 
-  if (artifactPath !== undefined) {
-    return { ok: false };
+  return {
+    ok: true,
+    ...(branchName !== undefined ? { branchName } : {}),
+    baseRef,
+    specPath,
+    ...(artifactPath !== undefined ? { artifactPath } : {}),
+  };
+}
+
+type ResolvedImplementWorkflowInput = {
+  ok: true;
+  branchName: string;
+  baseRef: string;
+  specPath: string;
+  projectRoot: string;
+  artifactPath?: string;
+} | { ok: false; error: string };
+
+function resolveImplementWorkflowInput(
+  parsed: ImplementWorkflowCliInput,
+  cwd: string,
+  readProjectRegistry: () => Record<string, { root: string; origin?: string }>,
+): ResolvedImplementWorkflowInput {
+  if (!parsed.ok) {
+    return { ok: false, error: "Invalid arguments" };
   }
 
-  return { ok: true, branchName, baseRef, specPath };
+  const resolvedSpecPath = resolve(cwd, parsed.specPath);
+  const registry = readProjectRegistry();
+  const match = findProjectMatch(resolvedSpecPath, registry);
+
+  if (match === undefined) {
+    return { ok: false, error: `Spec path outside registered project roots: ${resolvedSpecPath}` };
+  }
+
+  const specFilename = basename(resolvedSpecPath);
+  const isIndexSpec = specFilename === "index.md";
+  const artifactPath = isIndexSpec ? resolvedSpecPath : parsed.artifactPath;
+
+  if (!isIndexSpec && artifactPath === undefined) {
+    return { ok: false, error: "Non-index spec requires --artifact" };
+  }
+
+  const branchName = parsed.branchName ?? basename(dirname(resolvedSpecPath));
+
+  const worktreeRelativeSpec = relative(match.root, resolvedSpecPath);
+  const worktreeRelativeArtifact = artifactPath ? relative(match.root, artifactPath) : undefined;
+
+  return {
+    ok: true,
+    branchName,
+    baseRef: parsed.baseRef,
+    specPath: worktreeRelativeSpec,
+    projectRoot: match.root,
+    ...(worktreeRelativeArtifact !== undefined ? { artifactPath: worktreeRelativeArtifact } : {}),
+  };
 }
 
 type IntentWorkflowCliInput =

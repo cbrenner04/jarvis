@@ -72,7 +72,9 @@ const WORKFLOW_IMPLEMENT_USAGE =
   "usage: jarvis run workflow implement --branch <name> --base <ref> --spec <path> --artifact <path>\n";
 const WORKFLOW_INTENT_USAGE =
   "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>]\n";
-const WORKFLOW_USAGE = "usage: jarvis run workflow <implement> [flags]\n";
+const WORKFLOW_INTENT_REVIEWED_USAGE =
+  "usage: jarvis run workflow intent-reviewed (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>]\n";
+const WORKFLOW_USAGE = "usage: jarvis run workflow <implement|intent|intent-reviewed> [flags]\n";
 
 export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliDeps>): Promise<number> {
   const out = io ?? {
@@ -392,17 +394,34 @@ async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps
     return 1;
   }
 
-  const parsed = name === "intent" ? parseIntentWorkflowArgs(argv.slice(1)) : parseImplementWorkflowArgs(argv.slice(1));
+  const isIntentPreset = name === "intent" || name === "intent-reviewed";
+  const allowReviewPasses = name === "intent-reviewed";
+  const parsed = isIntentPreset
+    ? parseIntentWorkflowArgs(argv.slice(1), allowReviewPasses)
+    : parseImplementWorkflowArgs(argv.slice(1));
   if (!parsed.ok) {
-    io.stderr(name === "intent" ? WORKFLOW_INTENT_USAGE : WORKFLOW_IMPLEMENT_USAGE);
+    let usage: string;
+    if (name === "intent") {
+      usage = WORKFLOW_INTENT_USAGE;
+    } else if (name === "intent-reviewed") {
+      usage = WORKFLOW_INTENT_REVIEWED_USAGE;
+    } else {
+      usage = WORKFLOW_IMPLEMENT_USAGE;
+    }
+    io.stderr(usage);
+    return 1;
+  }
+
+  // Validate that --review-passes is only used with intent-reviewed
+  if ("reviewPasses" in parsed && parsed.reviewPasses !== undefined && name !== "intent-reviewed") {
+    io.stderr(WORKFLOW_INTENT_USAGE);
     return 1;
   }
 
   const { ok: _ok, ...parsedValues } = parsed;
-  const builderInput: WorkflowPresetBuilderInput =
-    name === "intent"
-      ? { cwd: deps.cwd(), ...parsedValues, configPath: deps.machineConfigPath }
-      : { cwd: deps.cwd(), ...parsedValues };
+  const builderInput: WorkflowPresetBuilderInput = isIntentPreset
+    ? { cwd: deps.cwd(), ...parsedValues, configPath: deps.machineConfigPath }
+    : { cwd: deps.cwd(), ...parsedValues };
   const built = await builder(builderInput as Parameters<WorkflowPresetBuilder>[0]);
   if (!built.ok) {
     io.stderr(`${built.error.replace(/\n+$/, "")}\n`);
@@ -425,7 +444,7 @@ async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps
       io.stderr("invalid daemon response\n");
       return 1;
     }
-    if (name === "intent") {
+    if (isIntentPreset) {
       const intentStep = built.steps[0];
       if (
         intentStep?.behavior === "write" &&
@@ -569,22 +588,26 @@ function parseImplementWorkflowArgs(argv: readonly string[]): ImplementWorkflowC
 }
 
 type IntentWorkflowCliInput =
-  | { ok: true; seed: string; targetDir?: string }
-  | { ok: true; seedText: string; targetDir?: string }
+  | { ok: true; seed: string; targetDir?: string; reviewPasses?: number }
+  | { ok: true; seedText: string; targetDir?: string; reviewPasses?: number }
   | { ok: false };
 
-function parseIntentWorkflowArgs(argv: readonly string[]): IntentWorkflowCliInput {
+function parseIntentWorkflowArgs(argv: readonly string[], allowReviewPasses: boolean = false): IntentWorkflowCliInput {
   let values: Record<string, string | boolean | undefined>;
   try {
+    const options: Record<string, { type: "string" }> = {
+      seed: { type: "string" },
+      "seed-text": { type: "string" },
+      "target-dir": { type: "string" },
+    };
+    if (allowReviewPasses) {
+      options["review-passes"] = { type: "string" };
+    }
     values = parseArgs({
       args: [...argv],
       allowPositionals: false,
       strict: true,
-      options: {
-        seed: { type: "string" },
-        "seed-text": { type: "string" },
-        "target-dir": { type: "string" },
-      },
+      options,
     }).values;
   } catch {
     return { ok: false };
@@ -592,9 +615,31 @@ function parseIntentWorkflowArgs(argv: readonly string[]): IntentWorkflowCliInpu
   const seed = typeof values.seed === "string" ? values.seed : undefined;
   const seedText = typeof values["seed-text"] === "string" ? values["seed-text"] : undefined;
   const targetDir = typeof values["target-dir"] === "string" ? values["target-dir"] : undefined;
+  let reviewPasses: number | undefined;
+  if (allowReviewPasses && typeof values["review-passes"] === "string") {
+    const parsed = Number.parseInt(values["review-passes"], 10);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      return { ok: false };
+    }
+    reviewPasses = parsed;
+  }
   if ((seed === undefined) === (seedText === undefined)) return { ok: false };
-  if (seed !== undefined) return { ok: true, seed, ...(targetDir !== undefined ? { targetDir } : {}) };
-  if (seedText !== undefined) return { ok: true, seedText, ...(targetDir !== undefined ? { targetDir } : {}) };
+  if (seed !== undefined) {
+    return {
+      ok: true,
+      seed,
+      ...(targetDir !== undefined ? { targetDir } : {}),
+      ...(reviewPasses !== undefined ? { reviewPasses } : {}),
+    };
+  }
+  if (seedText !== undefined) {
+    return {
+      ok: true,
+      seedText,
+      ...(targetDir !== undefined ? { targetDir } : {}),
+      ...(reviewPasses !== undefined ? { reviewPasses } : {}),
+    };
+  }
   return { ok: false };
 }
 

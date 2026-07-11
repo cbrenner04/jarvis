@@ -109,7 +109,7 @@ daemon/TUI rows stay aligned to the authored workflow.
 
 ## Authoring helper and presets
 
-`buildIntentWorkflowSteps` accepts exactly one file `seed` or inline `seedText` and
+`buildIntentWorkflowSteps` (preset: `intent`) accepts exactly one file `seed` or inline `seedText` and
 an optional relative, non-traversing `targetDir`. It resolves the seed and
 registered project before daemon contact; file seeds must be relative and remain
 inside the project after symlink resolution. The slug is normalized from the file basename
@@ -133,8 +133,10 @@ resumable invocation. The seed mapping is fingerprinted so a distinct seed
 cannot attach to an existing slug. Divergent remote state fails without reset,
 force-push, suffixing, or publication.
 
-`buildReviewedIntentWorkflowSteps` extends the split workflow with an optional
-light review step. It accepts a non-negative `reviewPasses` parameter (defaulting
+**CLI usage (split-only):** `jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>]`
+
+`buildReviewedIntentWorkflowSteps` (preset: `intent-reviewed`) extends the split workflow with an optional
+review step. It accepts a non-negative `reviewPasses` parameter (defaulting
 to `1`); zero passes delegates to the split-only builder, while positive values
 add one critic-actuator review step with `maxCycles` equal to the pass count.
 The builder loads independent `critic` and `actuator` agent chains from the
@@ -145,6 +147,8 @@ escalations for any loaded agent. The review step targets `.jarvis-intent-review
 (a sibling of `.jarvis-intent-stage/`) for the critic's verdict, and uses the
 `intent.prompt.review` prompt for the critic role. Runtime enforcement of prompt
 composition, verdict injection, and role isolation is deferred to subspec 02.
+
+**CLI usage (split + review):** `jarvis run workflow intent-reviewed (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>]` — defaults to one review pass.
 
 A workflow step is authored as a plain object literal `satisfies WorkflowStepInput`.
 `WorkflowStepInput` (identical in shape to the runtime `AnyWorkflowStep`) is a
@@ -183,6 +187,8 @@ Current preset surface:
 
 - `write-write`: two steps
 - `implement`: one step, with `role`/`promptId` fixed by the preset
+- `intent`: one step (split only)
+- `intent-reviewed`: two steps (split + review)
 
 Validation stays synchronous:
 

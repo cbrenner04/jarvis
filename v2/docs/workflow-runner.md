@@ -122,14 +122,16 @@ disabling it. Git-enabled output uses branch `intent/<slug>` in
 `~/.jarvis/worktrees`, and the GitHub default branch is used for both its base
 ref and PR base. Durable output is `<targetDir>/ready-intents/`. Git-disabled
 output is external `~/.jarvis/specs/<project-safe-id>/ready-intents/`; the run
-does not publish Git or GitHub state.
+does not publish Git or GitHub state. The project-safe ID is a path-safe form
+of the registered project key.
 
 The builder emits one `write` step with role `plan`, prompt
 `intent.prompt.split`, the shared split prompt, and `.jarvis-intent-stage/` as
 the artifact boundary. Branch, worktree, active-workflow, and seed-identity
-collisions are named failures unless the recorded invocation is the same
-resumable invocation. Divergent remote state fails without reset, force-push,
-suffixing, or publication.
+collisions are named failures unless the recorded invocation ID matches the
+resumable invocation. The seed mapping is fingerprinted so a distinct seed
+cannot attach to an existing slug. Divergent remote state fails without reset,
+force-push, suffixing, or publication.
 
 A workflow step is authored as a plain object literal `satisfies WorkflowStepInput`.
 `WorkflowStepInput` (identical in shape to the runtime `AnyWorkflowStep`) is a

@@ -1,12 +1,13 @@
+import { createHash } from "node:crypto";
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative } from "node:path";
 import { findProjectMatch, type ProjectRegistryEntry, type ProjectMatch } from "../../../shared/project-registry.ts";
 import { getBaseBranch } from "../../../v1/src/gh.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
+import { loadWorkflowSteps as realLoadWorkflowSteps, type WorkflowSourceStep } from "./workflow-loader.ts";
 import { type AnyWorkflowStep, resolveWorkflowPreset } from "./workflow-runner.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
-import { loadWorkflowSteps as realLoadWorkflowSteps, type WorkflowSourceStep } from "./workflow-loader.ts";
 
 const STAGE_DIR = ".jarvis-intent-stage";
 const RESERVED_SLUGS = new Set(["index", "head"]);
@@ -39,9 +40,16 @@ export type IntentWorkflowIdentity = {
   project: string;
   slug: string;
   branch: string;
+  seedFingerprint: string;
 };
 
-export type IntentCollision = { message: string; resumable?: boolean };
+export type IntentCollision = {
+  message: string;
+  /** The invocation that owns the existing state; other invocations must fail. */
+  recordedInvocationId?: string;
+  /** Compatibility seam for callers that have already matched the recorded invocation. */
+  resumable?: boolean;
+};
 
 export type IntentWorkflowResult =
   | { ok: true; steps: AnyWorkflowStep[]; identity: IntentWorkflowIdentity }
@@ -87,6 +95,11 @@ function projectConfig(configPath: string | undefined, project: ProjectMatch): P
 function projectRegistry(configPath: string | undefined): Record<string, ProjectRegistryEntry> {
   const projects = readMachineConfigDocument(configPath)?.projects;
   return projects && typeof projects === "object" && !Array.isArray(projects) ? projects as Record<string, ProjectRegistryEntry> : {};
+}
+
+function projectSafeId(project: string): string {
+  const safe = project.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+  return safe.length > 0 ? safe : "project";
 }
 
 /** Build the unregistered one-step intent workflow; all failures are pre-daemon results. */
@@ -138,9 +151,19 @@ export async function buildIntentWorkflowSteps(
   if (RESERVED_SLUGS.has(slug)) return { ok: false, error: `intent: reserved slug: ${slug}` };
 
   const branch = `intent/${slug}`;
-  const identity = { invocationId: input.invocationId ?? crypto.randomUUID(), project: project.key, slug, branch };
+  const seedFingerprint = createHash("sha256").update(`${seedLabel}\0${seedContent}`).digest("hex");
+  const identity = {
+    invocationId: input.invocationId ?? crypto.randomUUID(),
+    project: project.key,
+    slug,
+    branch,
+    seedFingerprint,
+  };
   const collision = deps.inspectIdentity?.(identity);
-  if (collision !== undefined && !collision.resumable) {
+  const sameInvocation =
+    collision !== undefined &&
+    (collision.recordedInvocationId === identity.invocationId || collision.resumable === true);
+  if (collision !== undefined && !sameInvocation) {
     return { ok: false, error: `intent: ${collision.message}; rerun with a new seed or resume the recorded invocation` };
   }
 
@@ -151,7 +174,7 @@ export async function buildIntentWorkflowSteps(
   const worktree = join(jarvisRoot, "worktrees", project.key, branch);
   const durableDir = publish
     ? join(targetDir, "ready-intents")
-    : join(jarvisRoot, "specs", project.key, "ready-intents");
+    : join(jarvisRoot, "specs", projectSafeId(project.key), "ready-intents");
   const base = publish ? await (deps.resolveBaseBranch ?? getBaseBranch)(project.root) : "none";
   const sourceStep: WorkflowSourceStep = {
     behavior: "write",

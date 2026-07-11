@@ -62,4 +62,29 @@ describe("buildIntentWorkflowSteps", () => {
     if (!result.ok) return;
     expect(result.steps[0]).toMatchObject({ specPath: "/jarvis/specs/demo/ready-intents", worktree: { baseRef: "none" } });
   });
+
+  test("only resumes a collision owned by the supplied invocation", async () => {
+    const inspect = (recordedInvocationId: string) => ({
+      resolveProjectMatch: () => match,
+      loadWorkflowSteps: load,
+      inspectIdentity: (identity: { invocationId: string }) => ({
+        message: "intent branch already exists",
+        recordedInvocationId,
+        ...(identity.invocationId === recordedInvocationId ? { resumable: true } : {}),
+      }),
+    });
+
+    const resumed = await buildIntentWorkflowSteps(
+      { cwd: "/repo", seedText: "same", invocationId: "inv-1" },
+      inspect("inv-1"),
+    );
+    expect(resumed.ok).toBe(true);
+
+    const rejected = await buildIntentWorkflowSteps(
+      { cwd: "/repo", seedText: "same", invocationId: "inv-2" },
+      inspect("inv-1"),
+    );
+    expect(rejected).toMatchObject({ ok: false });
+    if (!rejected.ok) expect(rejected.error).toContain("resume the recorded invocation");
+  });
 });

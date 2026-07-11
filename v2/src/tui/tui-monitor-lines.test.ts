@@ -208,7 +208,7 @@ describe("monitorTextLines", () => {
     expect(lines).toContain("Queue");
   });
 
-  test("retains implement reviewPasses on daemon list rows projected into monitor state", () => {
+  test("retains implement reviewPasses and reviewBehavior on daemon list rows projected into monitor state", () => {
     const implementRun: DaemonListRunRow = {
       runId: "run-implement",
       project: "demo",
@@ -216,6 +216,7 @@ describe("monitorTextLines", () => {
       status: "in-progress",
       isLive: true,
       reviewPasses: 0,
+      reviewBehavior: "light",
       workflow: {
         steps: [{ stepId: "implement", role: "implement", status: "in_progress", attemptCount: 1 }],
       },
@@ -233,6 +234,8 @@ describe("monitorTextLines", () => {
 
     const state = monitorState({ runs: [implementRun, planRun], selectedRunId: implementRun.runId });
     expect(state.runs.find((run) => run.runId === implementRun.runId)?.reviewPasses).toBe(0);
+    expect(state.runs.find((run) => run.runId === implementRun.runId)?.reviewBehavior).toBe("light");
     expect(state.runs.find((run) => run.runId === planRun.runId)?.reviewPasses).toBeUndefined();
+    expect(state.runs.find((run) => run.runId === planRun.runId)?.reviewBehavior).toBeUndefined();
   });
 });

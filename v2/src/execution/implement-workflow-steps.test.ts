@@ -133,6 +133,41 @@ describe("buildImplementWorkflowSteps", () => {
     expect(result.steps[0]?.behavior).toBe("write");
   });
 
+  test("stamps resolved reviewBehavior on the implement write step", () => {
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
+    const machineProfile = writeValidProfile();
+    const match: ProjectMatch = { key: "proj", root: "/tmp/proj" };
+    const deps = {
+      resolveProjectMatch: () => match,
+      loadWorkflowSteps: (steps: readonly WorkflowSourceStep[]) =>
+        loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
+      resolveActiveLinkedSubspec: () => ({
+        ok: true as const,
+        active: {
+          index: 0,
+          subspec: { checked: false, body: "- [ ] [Sub](./sub.md)", text: "Sub", path: "./sub.md" },
+          path: "/tmp/proj/sub.md",
+          body: "# Subspec\n",
+        },
+        isTerminal: true,
+      }),
+    };
+
+    const defaulted = buildImplementWorkflowSteps(INPUT, deps);
+    expect(defaulted.ok).toBe(true);
+    if (!defaulted.ok) return;
+    expect(defaulted.steps[0]?.behavior).toBe("write");
+    if (defaulted.steps[0]?.behavior !== "write") return;
+    expect(defaulted.steps[0].implementReviewBehavior).toBe("debate");
+
+    const light = buildImplementWorkflowSteps({ ...INPUT, reviewBehavior: "light" }, deps);
+    expect(light.ok).toBe(true);
+    if (!light.ok) return;
+    expect(light.steps[0]?.behavior).toBe("write");
+    if (light.steps[0]?.behavior !== "write") return;
+    expect(light.steps[0].implementReviewBehavior).toBe("light");
+  });
+
   test("positive reviewPasses appends one review-debate step with maxCycles and verdict path", () => {
     const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
     const machineProfile = writeValidProfile();

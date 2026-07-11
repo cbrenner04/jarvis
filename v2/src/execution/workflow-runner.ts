@@ -9,6 +9,7 @@ import {
   resolveExecutableRole,
   resolveInvocationBindings,
 } from "../config/agent-model-config.ts";
+import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
 import type { LogSink } from "../persistence/log-stream.ts";
 import {
   type OnReviseConfig,
@@ -117,6 +118,8 @@ export type WriteWorkflowStep = Omit<WriteLoopInput, "bindings"> & {
   linkedIndexRouting?: boolean;
   /** Pinned by `resolveWorkflowPreset("implement", ...)` on all but the last of its resolved positions, so the post-completion shrink pass fires once per resolved preset, not once per position. */
   suppressShrink?: boolean;
+  /** Resolved implement review behavior, stamped at workflow build time for snapshot retention. */
+  implementReviewBehavior?: ImplementReviewBehavior;
 };
 
 /**
@@ -870,6 +873,7 @@ function buildWorkflowSnapshot(steps: readonly AnyWorkflowStep[], store: StateSt
     invocationId: requestedInvocationId ?? crypto.randomUUID(),
     steps: authoredSteps,
     ...implementReviewPassesField(steps),
+    ...implementReviewBehaviorField(steps),
   };
 }
 
@@ -879,6 +883,23 @@ function implementReviewPassesField(
 ): { reviewPasses: number } | Record<string, never> {
   const reviewPasses = implementReviewPassesFromSteps(steps);
   return reviewPasses === undefined ? {} : { reviewPasses };
+}
+
+/** Retains the resolved implement review behavior on the workflow snapshot when applicable. */
+function implementReviewBehaviorField(
+  steps: readonly AnyWorkflowStep[],
+): { reviewBehavior: ImplementReviewBehavior } | Record<string, never> {
+  const reviewBehavior = implementReviewBehaviorFromSteps(steps);
+  return reviewBehavior === undefined ? {} : { reviewBehavior };
+}
+
+function implementReviewBehaviorFromSteps(steps: readonly AnyWorkflowStep[]): ImplementReviewBehavior | undefined {
+  const implementStep = steps.find(
+    (step): step is WriteWorkflowStep =>
+      step.behavior === "write" && step.role === "implement" && step.suppressShrink !== true,
+  );
+  if (implementStep === undefined) return undefined;
+  return implementStep.implementReviewBehavior;
 }
 
 function implementReviewPassesFromSteps(steps: readonly AnyWorkflowStep[]): number | undefined {

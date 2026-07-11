@@ -219,11 +219,13 @@ describe("StateStore", () => {
     const withZero = {
       invocationId: "workflow-implement-0",
       reviewPasses: 0,
+      reviewBehavior: "debate" as const,
       steps: [{ stepId: "implement", role: "implement" }],
     };
     const withPositive = {
       invocationId: "workflow-implement-2",
       reviewPasses: 2,
+      reviewBehavior: "light" as const,
       steps: [
         { stepId: "implement", role: "implement" },
         { stepId: "implement-review", role: "", behavior: "review-debate" as const },

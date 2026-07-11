@@ -65,11 +65,32 @@ function workflowSnapshot(
 };
 function workflowSnapshot(
   invocationId: string,
-  reviewPassesOrFirstStep: number | { stepId: string; role: string; behavior?: "review-debate" | "review" },
+  implementReview: { reviewPasses: number; reviewBehavior: "debate" | "light" },
+  ...steps: Array<{ stepId: string; role: string; behavior?: "review-debate" | "review" }>
+): {
+  invocationId: string;
+  reviewPasses: number;
+  reviewBehavior: "debate" | "light";
+  steps: Array<{ stepId: string; role: string; behavior?: "review-debate" | "review" }>;
+};
+function workflowSnapshot(
+  invocationId: string,
+  reviewPassesOrFirstStep:
+    | number
+    | { reviewPasses: number; reviewBehavior: "debate" | "light" }
+    | { stepId: string; role: string; behavior?: "review-debate" | "review" },
   ...rest: Array<{ stepId: string; role: string; behavior?: "review-debate" | "review" }>
 ) {
   if (typeof reviewPassesOrFirstStep === "number") {
     return { invocationId, reviewPasses: reviewPassesOrFirstStep, steps: rest };
+  }
+  if ("reviewPasses" in reviewPassesOrFirstStep) {
+    return {
+      invocationId,
+      reviewPasses: reviewPassesOrFirstStep.reviewPasses,
+      reviewBehavior: reviewPassesOrFirstStep.reviewBehavior,
+      steps: rest,
+    };
   }
   return { invocationId, steps: [reviewPassesOrFirstStep, ...rest] };
 }
@@ -385,11 +406,15 @@ test("list returns workflow step snapshots for live, stopped, and completed work
   });
 });
 
-test("list exposes retained implement reviewPasses and omits it for non-implement workflows", async () => {
-  const implementZeroSnapshot = workflowSnapshot("workflow-implement-0", 0, { stepId: "implement", role: "implement" });
+test("list exposes retained implement reviewPasses and reviewBehavior and omits them for non-implement workflows", async () => {
+  const implementZeroSnapshot = workflowSnapshot(
+    "workflow-implement-0",
+    { reviewPasses: 0, reviewBehavior: "light" },
+    { stepId: "implement", role: "implement" },
+  );
   const implementPositiveSnapshot = workflowSnapshot(
     "workflow-implement-2",
-    2,
+    { reviewPasses: 2, reviewBehavior: "debate" },
     { stepId: "implement", role: "implement" },
     { stepId: "implement-review", role: "", behavior: "review-debate" },
   );
@@ -429,8 +454,11 @@ test("list exposes retained implement reviewPasses and omits it for non-implemen
   const planRow = runs?.find((row) => row.runId === planRunId);
 
   expect(implementZeroRow?.reviewPasses).toBe(0);
+  expect(implementZeroRow?.reviewBehavior).toBe("light");
   expect(implementPositiveRow?.reviewPasses).toBe(2);
+  expect(implementPositiveRow?.reviewBehavior).toBe("debate");
   expect(planRow?.reviewPasses).toBeUndefined();
+  expect(planRow?.reviewBehavior).toBeUndefined();
 });
 
 test("list projects a review behavior entry in authored order without a durable run", async () => {

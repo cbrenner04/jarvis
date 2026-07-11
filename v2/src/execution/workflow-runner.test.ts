@@ -946,6 +946,35 @@ describe("executeWorkflow", () => {
     });
   });
 
+  test("retains implement reviewBehavior on the workflow snapshot from the stamped write step", async () => {
+    const steps = resolveWorkflowPreset("implement", [
+      {
+        ...createStep({
+          stepId: "implement",
+          role: "placeholder",
+          promptPlaceholders: {
+            SPEC_PATH: "spec.md",
+            SIBLINGS_BLOCK: "",
+            REPO_GUIDANCE: "",
+            ACTIVE_SUBSPEC_PATH: "spec.md",
+            ACTIVE_SUBSPEC_BODY: "",
+            PATCH_RULES: "",
+            TIMEOUT_CHECKPOINT_CONTEXT: "",
+          },
+        }),
+        implementReviewBehavior: "light",
+      },
+    ]);
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps, stateStore: store });
+
+      expect(result.kind).toBe("complete");
+      const run = store.findRunByProjectBranch({ project: "demo", branch: "workflow-run", stepId: "implement" });
+      expect(run?.workflowSnapshot?.reviewBehavior).toBe("light");
+    });
+  });
+
   test("workflow-step execution with empty agents returns no_binding", async () => {
     const step = createStep({
       stepId: "step-1",

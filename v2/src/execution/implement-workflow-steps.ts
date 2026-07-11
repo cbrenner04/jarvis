@@ -97,6 +97,17 @@ function validateLinkedIndexRouting(
   return { error: `implement.${routingResult.errorKind}: ${routingResult.error}` };
 }
 
+function stampImplementReviewBehavior(
+  steps: readonly AnyWorkflowStep[],
+  reviewBehavior: ImplementReviewBehavior,
+): AnyWorkflowStep[] {
+  return steps.map((step) =>
+    step.behavior === "write" && step.role === "implement" && step.suppressShrink !== true
+      ? { ...step, implementReviewBehavior: reviewBehavior }
+      : step,
+  );
+}
+
 function loadImplementWorkflowSteps(
   loadSteps: NonNullable<BuildImplementWorkflowStepsDeps["loadWorkflowSteps"]>,
   sourceSteps: readonly WorkflowSourceStep[],
@@ -106,7 +117,10 @@ function loadImplementWorkflowSteps(
   try {
     if (reviewPasses === 0) {
       const loadedSteps = loadSteps(sourceSteps).filter((step): step is WriteWorkflowStep => step.behavior === "write");
-      return { ok: true, steps: resolveWorkflowPreset("implement", loadedSteps) };
+      return {
+        ok: true,
+        steps: stampImplementReviewBehavior(resolveWorkflowPreset("implement", loadedSteps), reviewBehavior),
+      };
     }
 
     const loaded = loadSteps(sourceSteps);
@@ -116,14 +130,26 @@ function loadImplementWorkflowSteps(
       if (reviewStep === undefined) {
         return { ok: false, error: "implement: review step was not loaded" };
       }
-      return { ok: true, steps: [...resolveWorkflowPreset("implement", writeSteps), reviewStep] };
+      return {
+        ok: true,
+        steps: stampImplementReviewBehavior(
+          [...resolveWorkflowPreset("implement", writeSteps), reviewStep],
+          reviewBehavior,
+        ),
+      };
     }
 
     const debateStep = loaded.find((step): step is ReviewDebateWorkflowStep => step.behavior === "review-debate");
     if (debateStep === undefined) {
       return { ok: false, error: "implement: review-debate step was not loaded" };
     }
-    return { ok: true, steps: [...resolveWorkflowPreset("implement", writeSteps), debateStep] };
+    return {
+      ok: true,
+      steps: stampImplementReviewBehavior(
+        [...resolveWorkflowPreset("implement", writeSteps), debateStep],
+        reviewBehavior,
+      ),
+    };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

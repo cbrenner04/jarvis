@@ -253,3 +253,89 @@ test("resume is accepted (not rejected as terminal) once a revising run re-conve
   expect(afterReconverge.kind).toBe("response");
   expect(stateStore.loadRun(humanRunId)?.status).toBe("completed");
 });
+
+test("concurrent revise requests create at most one revision", async () => {
+  const { humanRunId } = seedRepeatedAndHumanRuns(2);
+  let releaseProbe: (() => void) | undefined;
+  const probeHeld = new Promise<void>((resolve) => {
+    releaseProbe = resolve;
+  });
+
+  handlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: async (input) => {
+      starts.push(input);
+    },
+    failureReporter: () => {},
+    isWorktreeDirty: async () => {
+      await probeHeld;
+      return true;
+    },
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+  });
+
+  const first = resumeDirect(handlers, "r1", { runId: humanRunId, decision: "revise" });
+  const second = resumeDirect(handlers, "r2", { runId: humanRunId, decision: "revise" });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  releaseProbe?.();
+
+  const [firstResponse, secondResponse] = await Promise.all([first, second]);
+  expect(firstResponse.kind).toBe("response");
+  expect(secondResponse.kind).toBe("error");
+  if (secondResponse.kind === "error") {
+    expect(secondResponse.code).toBe("revise_in_progress");
+  }
+
+  expect(
+    stateStore.findRunByProjectBranch({
+      project: "test-project",
+      branch: "test-branch",
+      stepId: "implement~r1",
+    }),
+  ).not.toBeNull();
+  expect(
+    stateStore.findRunByProjectBranch({
+      project: "test-project",
+      branch: "test-branch",
+      stepId: "implement~r2",
+    }),
+  ).toBeNull();
+  expect(stateStore.loadRun(humanRunId)?.status).toBe("revising");
+  expect(starts).toHaveLength(1);
+});
+
+test("a dirty-probe failure creates no revision and a later revise can proceed", async () => {
+  const { humanRunId } = seedRepeatedAndHumanRuns(2);
+  let probeCalls = 0;
+
+  handlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: async (input) => {
+      starts.push(input);
+    },
+    failureReporter: () => {},
+    isWorktreeDirty: async () => {
+      probeCalls += 1;
+      if (probeCalls === 1) {
+        throw new Error("git status failed");
+      }
+      return true;
+    },
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+  });
+
+  const failed = await resumeDirect(handlers, "r1", { runId: humanRunId, decision: "revise" });
+  expect(failed.kind).toBe("error");
+  if (failed.kind === "error") {
+    expect(failed.code).toBe("internal_error");
+  }
+  expect(stateStore.loadRun(humanRunId)?.status).toBe("awaiting-human");
+  expect(starts).toHaveLength(0);
+
+  const retry = await resumeDirect(handlers, "r2", { runId: humanRunId, decision: "revise" });
+  expect(retry.kind).toBe("response");
+  expect(starts).toHaveLength(1);
+  expect(stateStore.loadRun(humanRunId)?.status).toBe("revising");
+});

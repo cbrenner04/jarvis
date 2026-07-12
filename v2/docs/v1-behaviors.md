@@ -568,6 +568,10 @@ Items tagged **[v2-cleanup candidate]** are dead or vestigial code paths flagged
 
 - **v2 behavior change:** Unrelated daemon IPC (`list`, `health`, steering, `wait`, `tail`, …) completes while a run-path Git subprocess is pending. Run-path Git on daemon-hosted runs is awaited (`AsyncSubprocessRunner` / `execFile`), so the event loop stays available for other RPCs. Guarded by `v2/src/daemon/daemon-ipc-responsiveness-during-git.sandbox-unrunnable.test.ts`. Sources: `v2/docs/v2-architecture.md`, `shared/subprocess.ts`, `v2/src/execution/external-worktree.ts`
 
+## v2 Parity: Revise dirty-worktree admission responsiveness
+
+- **v2 behavior change:** `resume` with `decision: "revise"` awaits the repeated-step dirty-worktree probe asynchronously; unrelated daemon IPC completes while that probe is pending. Same-run human-decision admission serializes through probe, revision creation, and status transition. Probe failure leaves the human step `awaiting-human` with no revision. Contract: [`daemon-host.md` § `revise` decision](./daemon-host.md#revise-decision). Guarded by `v2/src/daemon/daemon-ipc-responsiveness-during-revise-dirty.sandbox-unrunnable.test.ts`.
+
 ## v2 Parity: Completion publication (push and draft PR)
 
 - **v2-ported:** push, draft PR ensure, post-PR body refresh with attribution footer, ready gate (`bun run ready`), and draft→ready flip (`gh pr ready`). v2 collapses work into one completion commit (v1 uses per-subspec commits for attribution). Attribution footer Git is awaited; push/`gh` publication and ready finalization remain synchronous. Gate+flip failures surface as retryable `ready_finalize_failed`. Sources: `v2/docs/write-behavior.md`, `v2/src/execution/completion-publisher.ts`, `v2/src/execution/pr-attribution.ts`, `v2/src/execution/pr-body-refresh.ts`, `v2/src/execution/ready-finalize.ts`.

@@ -3,7 +3,7 @@ import { dirname, isAbsolute, join, relative } from "node:path";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { parseSpec } from "../../../shared/spec-parser.ts";
-import { realAsyncSubprocessRunner, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import {
   type AgentModelConfig,
   resolveExecutableRole,
@@ -1162,12 +1162,7 @@ async function shrinkPromptPlaceholders(
     RUN_SCOPED_DIFF:
       (await gitOutput(
         worktreePath,
-        [
-          "diff",
-          step.worktree.baseRef,
-          "--",
-          ...(allowlist.length > 0 ? allowlist : [step.expectedArtifactPath]),
-        ],
+        ["diff", step.worktree.baseRef, "--", ...(allowlist.length > 0 ? allowlist : [step.expectedArtifactPath])],
         runner,
       )) || "(empty)",
   };

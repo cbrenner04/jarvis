@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { isGitRepo } from "../../../shared/git.ts";
-import { realAsyncSubprocessRunner, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { ReviewCycleInput, ReviewCycleResult } from "./review-cycle.ts";
 import { executeReviewCycle } from "./review-cycle.ts";
 
@@ -62,9 +62,7 @@ async function gitStatusPaths(
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): Promise<Set<string>> {
   const current = new Set<string>();
-  const status = (
-    await runner.runAsync("git", ["status", "--porcelain", "--untracked-files=all"], cwd)
-  ).trim();
+  const status = (await runner.runAsync("git", ["status", "--porcelain", "--untracked-files=all"], cwd)).trim();
   if (status.length > 0) {
     status.split("\n").forEach((line) => {
       const path = line.slice(3).trim();

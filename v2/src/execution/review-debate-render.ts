@@ -10,7 +10,7 @@ import {
 import { assemblePromptForStep } from "../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { renderTemplateWithDeclarations } from "../../../shared/prompts/render.ts";
-import { realAsyncSubprocessRunner, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
 import type { ReviewCycleRole, ReviewCycleRoleBindings } from "./review-cycle.ts";
 import type { ReviewDebateRole, ReviewDebateRoleBindings } from "./review-debate.ts";
@@ -154,9 +154,7 @@ async function getBranchDiffSummary(
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): Promise<string> {
   try {
-    const mergeBase = (
-      await runner.runAsync("git", ["merge-base", baseBranch, "HEAD"], cwd)
-    ).trim();
+    const mergeBase = (await runner.runAsync("git", ["merge-base", baseBranch, "HEAD"], cwd)).trim();
 
     const stat = (await runner.runAsync("git", ["diff", "--stat", mergeBase, "HEAD"], cwd)).trim();
 

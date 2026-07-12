@@ -11,7 +11,7 @@ import {
 import { basename, join, relative, resolve } from "node:path";
 import { isGitRepo } from "../../../shared/git.ts";
 import { validateIntentStage } from "../../../shared/intent-stage.ts";
-import { realAsyncSubprocessRunner, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 
 export type IntentOutputConfig = {
   durableDir: string;

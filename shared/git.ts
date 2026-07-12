@@ -1,5 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { realAsyncSubprocessRunner, realSubprocessRunner, type AsyncSubprocessRunner, type SubprocessRunner } from "./subprocess.ts";
+import {
+  type AsyncSubprocessRunner,
+  realAsyncSubprocessRunner,
+  realSubprocessRunner,
+  type SubprocessRunner,
+} from "./subprocess.ts";
 
 /** Resolve GitHub's default branch, falling back to `main` when unavailable. */
 export function getBaseBranch(cwd?: string): string {

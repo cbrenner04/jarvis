@@ -138,10 +138,7 @@ async function invokePlanReviewRole(
   });
 }
 
-async function criticWroteFiles(
-  cwd: string,
-  beforeCritic: ReturnType<typeof snapshotWorkingTree>,
-): Promise<boolean> {
+async function criticWroteFiles(cwd: string, beforeCritic: ReturnType<typeof snapshotWorkingTree>): Promise<boolean> {
   return (await getChangedPaths(cwd, beforeCritic)).size > 0;
 }
 

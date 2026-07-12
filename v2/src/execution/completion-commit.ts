@@ -20,15 +20,10 @@ type PendingCommit = {
 
 function git(cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(
-      "git",
-      args,
-      { cwd, env: { ...process.env, ...env }, encoding: "utf8" },
-      (error, stdout) => {
-        if (error) reject(error);
-        else resolve(stdout.trim());
-      },
-    );
+    execFile("git", args, { cwd, env: { ...process.env, ...env }, encoding: "utf8" }, (error, stdout) => {
+      if (error) reject(error);
+      else resolve(stdout.trim());
+    });
   });
 }
 
@@ -92,10 +87,14 @@ export function createCompletionCommitter(runGit: Git = git): CompletionCommitte
 
       const commit =
         pending.commitSha ??
-        (await runGit(input.worktreePath, ["commit-tree", pending.tree, "-p", pending.baseHead, "-m", pending.message], {
-          GIT_AUTHOR_DATE: pending.timestamp,
-          GIT_COMMITTER_DATE: pending.timestamp,
-        }));
+        (await runGit(
+          input.worktreePath,
+          ["commit-tree", pending.tree, "-p", pending.baseHead, "-m", pending.message],
+          {
+            GIT_AUTHOR_DATE: pending.timestamp,
+            GIT_COMMITTER_DATE: pending.timestamp,
+          },
+        ));
       if (pending.commitSha === undefined) {
         pending = { ...pending, commitSha: commit };
         writeFileSync(pendingPath, `${JSON.stringify(pending)}\n`, "utf8");

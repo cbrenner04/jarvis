@@ -580,8 +580,11 @@ repos" principle change is smaller:
   awaited through `AsyncSubprocessRunner` so Git yields to the event loop.
   Validation (branch existence, worktree checks, current branch), worktree
   creation, pruning, and common-dir resolution preserve output encoding, error
-  handling, and sequential setup/cleanup order. Completion commits and
-  publication remain on their own conversion slices.
+  handling, and sequential setup/cleanup order. Workflow shrink changed-file
+  discovery, patch-review diff rendering, and review-enforcement status/checkout/clean
+  are awaited on the same runner (including `maxBuffer` and ignored stdio where
+  applicable). Completion commits and publication remain on their own conversion
+  slices.
 
 ## Interface & IPC
 

@@ -1,9 +1,9 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { parseSpec } from "../../../shared/spec-parser.ts";
+import { realAsyncSubprocessRunner, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import {
   type AgentModelConfig,
   resolveExecutableRole,
@@ -1123,7 +1123,7 @@ async function runShrinkAfterImplementComplete(
     stepId: `${step.stepId}${SHRINK_STEP_ID_SUFFIX}`,
     role: SHRINK_ROLE,
     promptId: SHRINK_PROMPT_ID,
-    promptPlaceholders: shrinkPromptPlaceholders(step),
+    promptPlaceholders: await shrinkPromptPlaceholders(step),
   };
   const preparedStep = prepareWorkflowStep(shrinkStep, workflowSnapshot, store, logSink, telemetry);
   if (preparedStep.kind === "completed") {
@@ -1146,21 +1146,28 @@ async function runShrinkAfterImplementComplete(
   );
 }
 
-function shrinkPromptPlaceholders(step: WriteWorkflowStep): Record<string, string> {
+async function shrinkPromptPlaceholders(
+  step: WriteWorkflowStep,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<Record<string, string>> {
   const worktreePath = getExternalWorktreePath(step.worktree);
-  const allowlist = changedFiles(worktreePath, step.worktree.baseRef);
+  const allowlist = await changedFiles(worktreePath, step.worktree.baseRef, runner);
   return {
     SPEC_PATH: step.specPath,
     SPEC_TREE: readSpecTree(worktreePath, step.specPath),
     ALLOWLIST: (allowlist.length > 0 ? allowlist : [step.expectedArtifactPath]).map((path) => `- ${path}`).join("\n"),
-    BRANCH_DIFF: gitOutput(worktreePath, ["diff", "--stat", step.worktree.baseRef, "--"]) || "(empty)",
+    BRANCH_DIFF: (await gitOutput(worktreePath, ["diff", "--stat", step.worktree.baseRef, "--"], runner)) || "(empty)",
     RUN_SCOPED_DIFF:
-      gitOutput(worktreePath, [
-        "diff",
-        step.worktree.baseRef,
-        "--",
-        ...(allowlist.length > 0 ? allowlist : [step.expectedArtifactPath]),
-      ]) || "(empty)",
+      (await gitOutput(
+        worktreePath,
+        [
+          "diff",
+          step.worktree.baseRef,
+          "--",
+          ...(allowlist.length > 0 ? allowlist : [step.expectedArtifactPath]),
+        ],
+        runner,
+      )) || "(empty)",
   };
 }
 
@@ -1194,17 +1201,27 @@ function listMarkdownFiles(dir: string): string[] {
   return files;
 }
 
-function changedFiles(worktreePath: string, baseRef: string): string[] {
-  return gitOutput(worktreePath, ["diff", "--name-only", baseRef, "--"])
+async function changedFiles(
+  worktreePath: string,
+  baseRef: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<string[]> {
+  return (await gitOutput(worktreePath, ["diff", "--name-only", baseRef, "--"], runner))
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
 }
 
-function gitOutput(worktreePath: string, args: readonly string[]): string {
+const GIT_OUTPUT_MAX_BUFFER = 10 * 1024 * 1024;
+
+async function gitOutput(
+  worktreePath: string,
+  args: readonly string[],
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<string> {
   if (!existsSync(join(worktreePath, ".git"))) return "";
   try {
-    return execFileSync("git", args, { cwd: worktreePath, encoding: "utf8", maxBuffer: 10 * 1024 * 1024 }).trim();
+    return (await runner.runAsync("git", [...args], worktreePath, { maxBuffer: GIT_OUTPUT_MAX_BUFFER })).trim();
   } catch {
     return "";
   }

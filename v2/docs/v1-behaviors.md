@@ -526,6 +526,10 @@ Items tagged **[v2-cleanup candidate]** are dead or vestigial code paths flagged
 
 - **v2-ported with async contract change:** Worktree setup (`ensureExternalWorktree`), reuse, validation, and cleanup remain functionally identical to v1 semantics — same branch existence checks, same common-dir resolution, same error handling and fallbacks, same sequential ordering. **v2 implementation detail:** daemon-reachable write paths await Git through `AsyncSubprocessRunner` (`execFile` with UTF-8 stdout) so worktree setup yields to the event loop without changing user-observable behavior. Worktree paths, lock semantics, and concurrency guards are unchanged. Sources: `v2/src/execution/external-worktree.ts`, `v2/src/execution/write.ts`, `shared/git.ts`, `shared/subprocess.ts`
 
+## v2 Parity: Async workflow and review Git
+
+- **v2-ported with async contract change:** Shrink changed-file discovery, patch-review branch-diff rendering (`merge-base`, `diff --stat`, `diff --name-only`), and review-enforcement tree checks (`git status`, `checkout --`, `clean -fd`) preserve output encoding, `maxBuffer`, trimming, ignored stdio, failure fallbacks, and sequential restore order. **v2 implementation detail:** daemon-reachable workflow/review paths await Git through `AsyncSubprocessRunner` so IPC stays responsive during review rendering and boundary enforcement. User-observable review boundaries, verdict handling, and restoration semantics are unchanged. Sources: `v2/src/execution/workflow-runner.ts`, `v2/src/execution/review-debate-render.ts`, `v2/src/execution/review-intent-enforcement.ts`, `shared/subprocess.ts`
+
 ## Maintenance requirement for future v1 changes
 
 - Any v1 bug fix or user-observable behavior change that can affect v2 parity decisions must update this catalog in the same change window, so v2 design/review never relies on stale v1 behavior documentation. Sources: `v1/spec/completed/2026-05-22T04-09-01Z-v1-behavior-catalog/05-maintenance-reminder-and-final-verification.md`

@@ -138,8 +138,11 @@ async function invokePlanReviewRole(
   });
 }
 
-function criticWroteFiles(cwd: string, beforeCritic: ReturnType<typeof snapshotWorkingTree>): boolean {
-  return getChangedPaths(cwd, beforeCritic).size > 0;
+async function criticWroteFiles(
+  cwd: string,
+  beforeCritic: ReturnType<typeof snapshotWorkingTree>,
+): Promise<boolean> {
+  return (await getChangedPaths(cwd, beforeCritic)).size > 0;
 }
 
 export async function executePlanReviewCycle(args: PlanReviewCycleInput): Promise<PlanReviewCycleResult> {
@@ -168,8 +171,8 @@ export async function executePlanReviewCycle(args: PlanReviewCycleInput): Promis
       break;
     }
 
-    if (criticWroteFiles(args.cwd, beforeCritic)) {
-      restoreWorkingTree(args.cwd, beforeCritic);
+    if (await criticWroteFiles(args.cwd, beforeCritic)) {
+      await restoreWorkingTree(args.cwd, beforeCritic);
       discardSnapshot(beforeCritic);
       cycles.push({ kind: "role_failed", failedRole: "critic", failureKind: "error", verdict: null });
       break;

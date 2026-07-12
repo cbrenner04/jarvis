@@ -6,10 +6,16 @@ export interface SubprocessRunner {
   run(cmd: string, args: string[], cwd: string): string;
 }
 
+export type AsyncSubprocessOptions = {
+  maxBuffer?: number;
+  /** When `ignore`, stdout is not captured and resolves to `""`. Default `pipe`. */
+  stdio?: "pipe" | "ignore";
+};
+
 /** Injectable seam for async subprocess execution. */
 export interface AsyncSubprocessRunner {
   /** Runs `cmd args` in `cwd`, returning stdout; rejects on non-zero exit. */
-  runAsync(cmd: string, args: string[], cwd: string): Promise<string>;
+  runAsync(cmd: string, args: string[], cwd: string, options?: AsyncSubprocessOptions): Promise<string>;
 }
 
 export const realSubprocessRunner: SubprocessRunner = {
@@ -19,12 +25,23 @@ export const realSubprocessRunner: SubprocessRunner = {
 };
 
 export const realAsyncSubprocessRunner: AsyncSubprocessRunner = {
-  async runAsync(cmd, args, cwd) {
+  async runAsync(cmd, args, cwd, options) {
+    const stdio = options?.stdio ?? "pipe";
     return new Promise((resolve, reject) => {
-      execFile(cmd, args, { cwd, encoding: "utf8" }, (error, stdout) => {
-        if (error) reject(error);
-        else resolve(stdout);
-      });
+      execFile(
+        cmd,
+        args,
+        {
+          cwd,
+          encoding: "utf8",
+          ...(options?.maxBuffer !== undefined ? { maxBuffer: options.maxBuffer } : {}),
+          ...(stdio === "ignore" ? { stdio: "ignore" } : {}),
+        },
+        (error, stdout) => {
+          if (error) reject(error);
+          else resolve(stdout ?? "");
+        },
+      );
     });
   },
 };

@@ -363,10 +363,13 @@ describe("write behavior", () => {
       withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
     });
 
+    const specGuidance = readFileSync(
+      join(import.meta.dir, "..", "..", "..", "v1", "docs", "spec-guidance.md"),
+      "utf8",
+    );
     expect(bindingInvoked).toBe(true);
     expect(result.result.kind).toBe("complete");
-    expect(capturedPrompt).toContain("## Spec Guidance");
-    expect(capturedPrompt).toContain("## Prerequisites");
+    expect(capturedPrompt).toContain(specGuidance.slice(0, 80));
   });
 
   test("plan-reviewed preset draft step invokes binding", async () => {

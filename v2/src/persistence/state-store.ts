@@ -413,7 +413,7 @@ class StateStoreImpl implements StateStore {
   }
 
   listRuns(): Run[] {
-    return (this.db.prepare(`SELECT ${RUN_COLUMNS} FROM runs ORDER BY created_at DESC`).all() as RunRow[]).map(
+    return (this.db.prepare(`SELECT ${RUN_COLUMNS} FROM runs ORDER BY created_at DESC, rowid DESC`).all() as RunRow[]).map(
       mapRunRow,
     );
   }

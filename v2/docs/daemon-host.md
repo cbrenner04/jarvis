@@ -54,7 +54,7 @@ Valid JSON with missing or invalid `kind` closes the connection.
 | `health` | — | `{ ok: true }` | Channel liveness |
 | `status` | — | `{ state: "running" }` | Daemon-host liveness only — not run orchestration status |
 | `start` | `{ input: WriteLoopInput } \| { steps: AnyWorkflowStep[] }` | `{ runId: string }` | Exactly one of `input`/`steps`; both, neither, or an empty `steps` array is rejected `invalid_params`. `{ input }` spawns a write loop in the background, or persists it `queued` if memory headroom is unavailable; returns immediately with run ID either way (see [Admission guards](#admission-guards-for-start-resume-revise)). Rejected `worktree_claimed` if an existing queued run holds the `(project, branch)` key, or if memory headroom is clear and the key is claimed by a live run. `{ steps }` dispatches to `executeWorkflow`, returning `{ runId }` for step 0 once its run row is durably created; the workflow then keeps running in the background. Rejected `insufficient_memory` (not queued) if memory headroom is unavailable at call time. A failure before step 0's run row exists (e.g. an invalid step shape) returns an error rather than hanging, surfacing `executeWorkflow`'s thrown message as `invalid_params`. |
-| `list` | — | `{ runs: Array<{runId, project, branch, status, isLive, error?, reviewPasses?, reviewBehavior?, workflow?}> }` | List durable runs merged with in-memory liveness; `isLive=true` only while the loop's Promise is executing. After spawn-boundary executor failure: `status: "failed"`, `isLive: false` (see [Spawn-boundary failure capture](#spawn-boundary-failure-capture)). Optional `error` on non-success terminals (see [Operator error on list and wait](#operator-error-on-list-and-wait)). Workflow-backed rows may also carry authored per-step progress (see [Workflow snapshots on list rows](#workflow-snapshots-on-list-rows)). Implement workflow rows may also carry retained `reviewPasses` and `reviewBehavior` (see [Implement review selection on list rows](#implement-review-selection-on-list-rows)). |
+| `list` | — | `{ runs: Array<{runId, project, branch, status, isLive, error?, reviewPasses?, reviewBehavior?, workflow?}> }` | List durable runs merged with in-memory liveness; `isLive=true` only while the loop's Promise is executing. After spawn-boundary executor failure: `status: "failed"`, `isLive: false` (see [Spawn-boundary failure capture](#spawn-boundary-failure-capture)). Optional `error` on non-success terminals (see [Operator error on list and wait](#operator-error-on-list-and-wait)). Workflow-backed rows may also carry authored per-step progress (see [Workflow snapshots on list rows](#workflow-snapshots-on-list-rows)). Implement workflow rows may also carry retained `reviewPasses` and `reviewBehavior` (see [Implement review selection on list rows](#implement-review-selection-on-list-rows)). Terminal runs (`completed`, `failed`, `blocked`, `killed`) are bounded to the 50 newest by creation time; all other statuses are exempt and always returned. Step runs of a listed workflow invocation are retained with that invocation regardless of the bound. Retention filters the response only — durable rows are kept (see [Terminal run list retention](#terminal-run-list-retention)). |
 | `pause` | `{ runId: string }` | `{ ok: true }` | Signal graceful pause for an active run. The run continues at the next iteration boundary (in-flight step is not aborted). Rejected `run_not_active` if run is unknown, not active, or is a workflow-started run (see [Live controls on workflow-started runs](#live-controls-on-workflow-started-runs)). |
 | `kill` | `{ runId: string }` | `{ ok: true }` | Abort the run's signal immediately and record durable status `killed`. Leaves the worktree dirty. Rejected `run_not_active` if run is unknown, not active, or is a workflow-started run (see [Live controls on workflow-started runs](#live-controls-on-workflow-started-runs)). |
 | `resume` | `{ runId: string, decision?: "approve" \| "revise" \| "abort", prompt?: string }` | `{ ok: true }` (approve/abort/paused workflow resume) or `{ ok: true, stepId: string }` (revise) | Resume a killed run, re-invoking `executeWriteLoop` under the same per-key guard as `start` (re-runs the interrupted step). A workflow-backed `paused` write step resumes by reconstructing its write-loop input and resolving live bindings from the persisted `role`/`agents`/`agentModelConfig`; durable status changes when the spawned loop runs. An ad-hoc `paused` run still returns `not_implemented` (`Paused run resume is not yet implemented`) after the `worktree_claimed` guard, and durable status stays `paused`. `not_implemented` is `resume`-admission vocabulary only — it is not a composed [`error.reason`](#operator-error-on-list-and-wait), so `list`/`wait` on paused rows still surface `resumable_pause` / `nextAction: "resume"` until the resumed loop changes status. Rejected `terminal_run` if status is `completed`, `failed`, or `blocked`; rejected `revise_in_progress` if status is `revising`; rejected if run is unknown, or if the `(project, branch)` key is claimed by another live run (`worktree_claimed`). For an `awaiting-human` run, `decision` is required (`invalid_params` if missing) and gates the human step: `approve` marks the step's run `completed` (no write loop spawned; the workflow advances past it on the next `executeWorkflow` call), `abort` sets status `killed` (same primitives as `kill`), `revise` spawns the configured `onRevise.repeatStepId` step's write loop again (see [`revise` decision](#revise-decision)). `decision` on a non-`awaiting-human` run is rejected `invalid_params`. |
@@ -62,6 +62,25 @@ Valid JSON with missing or invalid `kind` closes the connection.
 
 Unknown `method` returns `error` correlated to the request `id` (connection
 stays open).
+
+### Terminal run list retention
+
+`list` returns at most the 50 newest terminal runs — statuses `completed`,
+`failed`, `blocked`, and `killed` — ordered by `created_at` descending with
+`rowid` as a tiebreak. All other statuses (`in-progress`, `queued`, `paused`,
+`budget-soft-stopped`, `awaiting-human`, `revising`) are exempt: they are always
+returned and do not consume retention slots.
+
+When a workflow invocation has any retained run, every step run sharing that
+invocation's `workflowSnapshot.invocationId` is retained too, including
+terminal step runs older than the 50-newest terminal bound. Companion step runs
+do not consume retention slots.
+
+Retention is applied to the durable row set before per-row `loadRun` and log
+replay, so retired runs are not loaded while serving `list`. Durable rows are
+not deleted — `loadRun` and other store reads still return retired runs.
+`jarvis run list` and `jarvis tui` render every run the daemon returns and apply
+no bound of their own.
 
 ### `revise` decision
 

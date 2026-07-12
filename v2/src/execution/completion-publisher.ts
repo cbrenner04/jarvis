@@ -7,6 +7,7 @@ export type CompletionPublisherInput = {
   baseRef: string;
   specPath: string;
   branch: string;
+  creationTitle?: unknown;
 };
 
 export type CompletionPublisherResult = {
@@ -102,7 +103,7 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
 
     // PR lookup/creation with retry
     const prNumber = await publishWithRetry(
-      () => findOrCreatePr(gh, input.worktreePath, input.baseRef, input.branch, specPath),
+      () => findOrCreatePr(gh, input.worktreePath, input.baseRef, input.branch, specPath, input.creationTitle),
       "pr",
       delay,
       retryNotice,
@@ -179,7 +180,14 @@ async function publishWithRetry<T>(
   return null;
 }
 
-function findOrCreatePr(gh: GhCommand, cwd: string, baseRef: string, branch: string, specPath: string): number {
+function findOrCreatePr(
+  gh: GhCommand,
+  cwd: string,
+  baseRef: string,
+  branch: string,
+  specPath: string,
+  creationTitle: unknown,
+): number {
   // Find open PRs for this branch in the worktree's repository
   const prListJson = gh(cwd, ["pr", "list", "--head", branch, "--state", "open", "--json", "number,baseRefName"]);
   const prs = JSON.parse(prListJson) as Array<{ number: number; baseRefName: string }>;
@@ -200,7 +208,7 @@ function findOrCreatePr(gh: GhCommand, cwd: string, baseRef: string, branch: str
     "--base",
     baseRef,
     "--title",
-    "jarvis: complete run",
+    resolveCreationTitle(creationTitle),
     "--body",
     `Spec: ${specPath}`,
   ]);
@@ -212,4 +220,8 @@ function findOrCreatePr(gh: GhCommand, cwd: string, baseRef: string, branch: str
   }
 
   return Number.parseInt(match[1], 10);
+}
+
+function resolveCreationTitle(subject: unknown): string {
+  return typeof subject === "string" && subject.trim() ? subject.trim() : "jarvis: complete run";
 }

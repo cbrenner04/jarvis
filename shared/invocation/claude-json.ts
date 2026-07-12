@@ -60,8 +60,7 @@ export function parseClaudeJsonOutput(stdout: string): ClaudeParseResult {
       warnings,
     };
   } catch (err) {
-    const reason =
-      err instanceof SyntaxError ? `JSON parse error: ${err.message}` : `unexpected error: ${String(err)}`;
+    const reason = err instanceof SyntaxError ? `JSON parse error: ${err.message}` : `unexpected error: ${String(err)}`;
     return {
       displayText: stdout,
       usage: null,

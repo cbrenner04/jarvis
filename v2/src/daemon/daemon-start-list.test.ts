@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
-import type { LogReader } from "../persistence/log-stream.ts";
+import { executeWriteLoop } from "../execution/write-loop.ts";
+import { openLogReader, openLogSink, type LogReader } from "../persistence/log-stream.ts";
 import type { Attempt, Run } from "../persistence/state-store.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
@@ -22,6 +23,10 @@ async function killDirect(h: Handlers, runId: string) {
 
 async function resumeDirect(h: Handlers, params: { runId: string; decision?: string; prompt?: string }) {
   return h.resume({ kind: "request", id: "r1", method: "resume", params }, new AbortController().signal);
+}
+
+async function waitDirect(h: Handlers, runId: string) {
+  return h.wait({ kind: "request", id: "w1", method: "wait", params: { runId } }, new AbortController().signal);
 }
 
 function runFixture(
@@ -251,6 +256,53 @@ test("settled run is no longer live in list", async () => {
   expect(runs?.length).toBeGreaterThan(0);
   const run = runs?.[0];
   expect(run?.isLive).toBe(false);
+});
+
+test("direct timeout releases liveness and worktree ownership", async () => {
+  const logsPath = join(tmpdir(), `jarvis-timeout-${process.pid}-${Date.now()}.jsonl`);
+  const sink = openLogSink(logsPath);
+  const localHandlers = createRunControlHandlers({
+    stateStore,
+    logReader: openLogReader(logsPath),
+    writeLoopExecutor: async (input, signal) => {
+      await executeWriteLoop({ ...input, stateStore, logSink: sink, signal });
+    },
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+  });
+  const input: WriteLoopInput = {
+    ...mockWriteLoopInput({
+      projectName: "timeout-direct",
+      branchName: "timeout-direct",
+      git: false,
+      localPath: join(tmpdir(), `jarvis-timeout-worktree-${process.pid}-${Date.now()}`),
+    }),
+    iterationTimeoutMs: 5,
+    bindings: [
+      {
+        id: "stall",
+        invoke: ({ signal }) =>
+          new Promise((resolve) =>
+            signal?.addEventListener("abort", () => resolve({ kind: "error", exitCode: 1, stderr: "aborted" }), {
+              once: true,
+            }),
+          ),
+      },
+    ],
+  };
+
+  const runId = await startRunDirect(localHandlers, input);
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  const row = (await listRunsDirect(localHandlers))?.find((candidate) => candidate.runId === runId);
+  expect(row).toMatchObject({ status: "failed", isLive: false });
+  const waited = await waitDirect(localHandlers, runId as string);
+  expect(waited).toMatchObject({ kind: "response", result: { runStatus: "failed", loopOutcomeKind: "iteration_timeout" } });
+
+  const restarted = await startRunDirect(localHandlers, input);
+  expect(restarted).toBeTruthy();
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  sink.close();
 });
 
 test("two admitted runs progress concurrently, settling independently", async () => {

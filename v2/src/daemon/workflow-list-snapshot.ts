@@ -8,6 +8,7 @@ export type WorkflowStepTerminalOutcome =
   | "blocked"
   | "contract_miss"
   | "invocation_failure"
+  | "iteration_timeout"
   | "budget-exhausted"
   | "paused"
   | "killed"
@@ -109,5 +110,6 @@ export function stoppedOutcomeForRun(run: LoadedRun): Exclude<WorkflowStepTermin
   if (run.status === "paused") return "paused";
   if (run.status === "killed") return "killed";
   if (run.status === "awaiting-human") return "awaiting-human";
+  if (run.attempts[run.attempts.length - 1]?.outcomeKind === "iteration_timeout") return "iteration_timeout";
   return "invocation_failure";
 }

@@ -357,14 +357,21 @@ type IterationSettlement =
 
 /** Starts after `iteration_started`, so pre-spawn stalls are fenced too. */
 function awaitIteration(args: WriteLoopInput, runId: string, attemptId: string): Promise<IterationSettlement> {
-  const execution = executeWrite(buildWriteExecuteInput(args, runId, attemptId)).then(
+  const executionController = new AbortController();
+  const abortExecution = () => executionController.abort();
+  if (args.signal?.aborted) abortExecution();
+  args.signal?.addEventListener("abort", abortExecution, { once: true });
+  const execution = executeWrite(buildWriteExecuteInput(args, runId, attemptId, executionController.signal)).then(
     (result): IterationSettlement => ({ kind: "settled", result }),
     (error): IterationSettlement => ({ kind: "threw", error }),
   );
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let removeAbort: (() => void) | undefined;
   const watchdog = new Promise<IterationSettlement>((resolve) => {
-    timeout = setTimeout(() => resolve({ kind: "timed_out" }), args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS);
+    timeout = setTimeout(() => {
+      abortExecution();
+      resolve({ kind: "timed_out" });
+    }, args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS);
   });
   const abort = new Promise<IterationSettlement>((resolve) => {
     if (!args.signal) return;
@@ -376,6 +383,7 @@ function awaitIteration(args: WriteLoopInput, runId: string, attemptId: string):
   });
   return Promise.race([execution, watchdog, abort]).finally(() => {
     if (timeout !== undefined) clearTimeout(timeout);
+    args.signal?.removeEventListener("abort", abortExecution);
     removeAbort?.();
   });
 }
@@ -508,7 +516,12 @@ function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {
     : { result: committed, ...(existingRun.creationTitle ? { creationTitle: existingRun.creationTitle } : {}) };
 }
 
-function buildWriteExecuteInput(args: WriteLoopInput, runId: string, attemptId: string): WriteExecuteInput {
+function buildWriteExecuteInput(
+  args: WriteLoopInput,
+  runId: string,
+  attemptId: string,
+  signal: AbortSignal,
+): WriteExecuteInput {
   const telemetry = args.telemetry;
   // An operator-session-only telemetry attachment (no sinkPath/workflow/role) is a
   // legitimate value that carries no invocation-emission context; only build the
@@ -551,7 +564,7 @@ function buildWriteExecuteInput(args: WriteLoopInput, runId: string, attemptId: 
           },
         }
       : {}),
-    ...(args.signal && { signal: args.signal }),
+    signal,
     ...(args.withExternalWorktree && { withExternalWorktree: args.withExternalWorktree }),
   };
 }

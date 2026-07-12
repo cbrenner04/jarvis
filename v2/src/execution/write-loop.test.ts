@@ -1619,6 +1619,40 @@ describe("write loop", () => {
     }
   });
 
+  test("timeout fences a delayed worktree callback before it can run", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const store = openStateStore(stateDbPath);
+    let callbackRan = false;
+
+    try {
+      const result = await executeWriteLoop({
+        worktree: { projectRoot: "/fake", projectName: "demo", branchName: "fenced-timeout", baseRef: "HEAD", jarvisRoot },
+        specPath: "spec.md",
+        stepRules: "Return exactly one terminal token.",
+        expectedArtifactPath: "proof.txt",
+        bindings: simulatedBindings(["done"]),
+        stateStore: store,
+        iterationTimeoutMs: 5,
+        withExternalWorktree: async (_worktree, run) => {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          callbackRan = true;
+          return {
+            worktree: { path: "/fake", reused: true },
+            lock: { kind: "acquired" },
+            value: await run({ path: "/fake", reused: true }),
+          };
+        },
+      });
+
+      expect(result.kind).toBe("iteration_timeout");
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(callbackRan).toBe(false);
+    } finally {
+      store.close();
+    }
+  });
+
   test("gives each iteration a fresh timeout and ignores a late execution failure", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));

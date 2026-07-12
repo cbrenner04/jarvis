@@ -6,7 +6,7 @@ Prove the invariant the previous subspec makes possible: with the ready gate pen
 
 - Bound is ordering, not wall clock: `list` and `tail` must resolve *while the injected gate seam is still pending* and *before* it is released; rules out a flaky millisecond threshold.
 - Cover both `list` and `tail` over a live `startIpcServer` with connected Unix-socket clients; rules out asserting only the run-control handler in-process.
-- Hold the gate by injecting a pending async `runReadyGate` seam into the finalizer, not by stubbing `readyFinalizer` wholesale; rules out a test that would still pass if the real finalizer went back to `execFileSync`.
+- Hold the gate by composing the real finalizer (`createReadyFinalizer`) with a pending async `runReadyGate` seam; rules out a fake `readyFinalizer`, which would prove nothing about the real finalization path's ordering. The test pins that the finalizer *awaits* the gate rather than blocking on it; the guarantee that it never reverts to `execFileSync` comes from subspec 00's import criterion and subspec 03's guard, not from this test.
 - Follow the existing sandbox-unrunnable convention (`canUseUnixSockets()` skip guard); rules out a test that fails in the sandboxed agent environment.
 
 ## Acceptance criteria

@@ -17,11 +17,11 @@ Fixing 00 removes today's trigger; this subspec removes the failure *mode*, so t
 
 ## Acceptance criteria
 
-- [ ] A write loop whose `executeWrite` throws returns `invocation_failure` with `failureKind: "error"` and `resumable: false`, and the run's stored status is `failed` with its attempt closed at an `invocation_failure` completion boundary.
-- [ ] The structured log for that run records a `run_execution_failed` event carrying the thrown error's message after `iteration_started`; the run is no longer reported as active.
-- [ ] A throwing `executeWrite` produces exactly one `iteration_started` — the loop does not retry it.
-- [ ] A write loop aborted while `executeWrite` throws terminates as an abort (`progress`, resumable), not as `invocation_failure`.
-- [ ] Existing `v2/src/execution/write-loop.test.ts` tests stay green.
+- [x] A write loop whose `executeWrite` throws returns `invocation_failure` with `failureKind: "error"` and `resumable: false`, and the run's stored status is `failed` with its attempt closed at an `invocation_failure` completion boundary.
+- [x] The structured log for that run records a `run_execution_failed` event carrying the thrown error's message after `iteration_started`; the run is no longer reported as active.
+- [x] A throwing `executeWrite` produces exactly one `iteration_started` — the loop does not retry it.
+- [x] A write loop aborted while `executeWrite` throws terminates as an abort (`progress`, resumable), not as `invocation_failure`.
+- [x] Existing `v2/src/execution/write-loop.test.ts` tests stay green.
 
 ## Documentation updates
 

@@ -19,11 +19,11 @@ Production sets top-level `jarvisRoot` (`plan-workflow-steps.ts:247,272` → `wr
 
 ## Acceptance criteria
 
-- [ ] The draft write step of each of `plan`, `plan-reviewed`, and `plan-reviewed-light`, constructed through the production step-builder, invokes its agent binding and returns a step result.
-- [ ] The rendered plan-draft prompt carries the content of `v1/docs/spec-guidance.md`.
-- [ ] Spec-guidance resolution takes no root argument in `v2/src/execution/write.ts` or `v2/src/execution/render-plan-review-prompts.ts`, and no top-level `jarvisRoot` field remains on `WriteExecuteInput`, `PlanReviewPromptContext`, or the `plan-workflow-steps.ts` step-builder inputs.
-- [ ] A plan review prompt renders without a filesystem error.
-- [ ] Existing `v2/src/execution/write.test.ts` plan-draft and intent-split tests stay green.
+- [x] The draft write step of each of `plan`, `plan-reviewed`, and `plan-reviewed-light`, constructed through the production step-builder, invokes its agent binding and returns a step result.
+- [x] The rendered plan-draft prompt carries the content of `v1/docs/spec-guidance.md`.
+- [x] Spec-guidance resolution takes no root argument in `v2/src/execution/write.ts` or `v2/src/execution/render-plan-review-prompts.ts`, and no top-level `jarvisRoot` field remains on `WriteExecuteInput`, `PlanReviewPromptContext`, or the `plan-workflow-steps.ts` step-builder inputs.
+- [x] A plan review prompt renders without a filesystem error.
+- [x] Existing `v2/src/execution/write.test.ts` plan-draft and intent-split tests stay green.
 
 ## Documentation updates
 

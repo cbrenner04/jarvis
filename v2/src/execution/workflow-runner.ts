@@ -110,8 +110,6 @@ export type WriteWorkflowStep = Omit<WriteLoopInput, "bindings"> & {
   creationTitle?: string;
   /** Raw ready-intent content threaded from the plan builder; consumed by write-step seeding. */
   intentSeed?: string;
-  /** Jarvis root directory for plan workflow. */
-  jarvisRoot?: string;
   /**
    * When set, `specPath` is an index of linked subspecs. Each iteration
    * re-resolves the first unchecked link, runs the write loop against it, and
@@ -169,7 +167,7 @@ export type ReviewWorkflowStep = Omit<ReviewCycleInput, "bindings" | "onRoleStar
   /** When configured, landing is deferred until after successful review. */
   deferredIntentOutput?: { config: IntentOutputConfig; stagingDir: string; invocationId: string; baseRef: string };
   /** For plan review steps, context for rendering prompts from templates. */
-  planReviewContext?: { specPath: string; jarvisRoot?: string };
+  planReviewContext?: { specPath: string };
   /** When set, critic/actuator prompts render from patch review templates per cycle. */
   patchReviewContext?: { specPath: string; baseBranch: string };
 };

@@ -413,9 +413,9 @@ class StateStoreImpl implements StateStore {
   }
 
   listRuns(): Run[] {
-    return (this.db.prepare(`SELECT ${RUN_COLUMNS} FROM runs ORDER BY created_at DESC, rowid DESC`).all() as RunRow[]).map(
-      mapRunRow,
-    );
+    return (
+      this.db.prepare(`SELECT ${RUN_COLUMNS} FROM runs ORDER BY created_at DESC, rowid DESC`).all() as RunRow[]
+    ).map(mapRunRow);
   }
 
   hasQueuedRun(args: { project: string; branch: string }): boolean {

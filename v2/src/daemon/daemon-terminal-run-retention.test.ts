@@ -73,9 +73,7 @@ test("list retains only the 50 newest terminal runs", async () => {
   }
 
   const runs = await listRunsDirect(handlers);
-  const listedTerminalIds = new Set(
-    runs?.filter((row) => row.status === "completed").map((row) => row.runId) ?? [],
-  );
+  const listedTerminalIds = new Set(runs?.filter((row) => row.status === "completed").map((row) => row.runId) ?? []);
 
   expect(listedTerminalIds.size).toBe(50);
   for (let index = 5; index < 55; index++) {
@@ -144,7 +142,11 @@ test("listed runs stay in global creation order", async () => {
 });
 
 test("workflow step runs are retained with a listed invocation", async () => {
-  const snapshot = workflowSnapshot("wf-1", { stepId: "step-1", role: "implement" }, { stepId: "step-2", role: "review" });
+  const snapshot = workflowSnapshot(
+    "wf-1",
+    { stepId: "step-1", role: "implement" },
+    { stepId: "step-2", role: "review" },
+  );
   const step1Id = seedRun(stateStore, {
     status: "completed",
     createdAt: 1,

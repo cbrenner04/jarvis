@@ -13,6 +13,15 @@ A Biome linter gate enforces structural honesty in v2 and shared code via two ru
 
 All rules are error-level; no warnings are introduced. The gate scope covers `v2/src/**` and `shared/**` (excluding test files) via Biome `overrides`, leaving `v1/**` untouched.
 
+## Synchronous child processes
+
+`v2/**` and `shared/**` must not introduce synchronous child processes. The
+ready gate and CI enforce this with `scripts/guard-synchronous-child-process-calls.ts`.
+`shared/subprocess.ts` is the sole allowlisted CLI-only home for the v1
+synchronous runner; new allowlist entries need an explicit reason. Small
+synchronous filesystem reads remain permitted when they do not perform child
+process work.
+
 Manual gate check: paste into a checked path, run `bun run check`, delete the file.
 
 **Complexity** — `v2/src/temp-verify-complexity.ts`:

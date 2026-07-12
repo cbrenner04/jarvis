@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { branchExistsLocal, branchExistsOnOrigin, getCurrentBranch, isWorktreeDirty } from "./git.ts";
+import { branchExistsLocal, branchExistsOnOrigin, getCurrentBranch, isGitRepo, isWorktreeDirty } from "./git.ts";
 import type { SubprocessRunner } from "./subprocess.ts";
 
 /** Fake runner: resolves canned results by exact `cmd args` match, records argv+cwd. */
@@ -72,5 +72,15 @@ describe("isWorktreeDirty", () => {
 
     const clean = fakeRunner({ "git status --porcelain": "" });
     expect(isWorktreeDirty("/repo", clean)).toBe(false);
+  });
+});
+
+describe("isGitRepo", () => {
+  test("uses the injected runner", () => {
+    const repo = fakeRunner({ "git rev-parse --is-inside-work-tree": "true\n" });
+    const plainDirectory = fakeRunner({ "git rev-parse --is-inside-work-tree": new Error("not a repository") });
+
+    expect(isGitRepo("/repo", repo)).toBe(true);
+    expect(isGitRepo("/plain", plainDirectory)).toBe(false);
   });
 });

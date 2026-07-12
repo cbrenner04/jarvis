@@ -218,7 +218,11 @@ export function getReadyCommands(
       : opts.testScope.map((script) => ({ name: "bun", args: ["run", script] }));
 
   if (tier === "fast") {
-    return [{ name: "bun", args: ["run", "typecheck"] }, ...testSteps];
+    return [
+      { name: "bun", args: ["run", "scripts/guard-synchronous-child-process-calls.ts"] },
+      { name: "bun", args: ["run", "typecheck"] },
+      ...testSteps,
+    ];
   }
 
   const commands: ReadyCommand[] = [];
@@ -226,10 +230,13 @@ export function getReadyCommands(
     commands.push({ name: "bun", args: ["install", "--frozen-lockfile"] });
   }
 
-  commands.push({ name: "bun", args: ["run", "check"] }, { name: "bun", args: ["run", "typecheck"] }, ...testSteps, {
-    name: "bun",
-    args: ["run", "lint:md"],
-  });
+  commands.push(
+    { name: "bun", args: ["run", "check"] },
+    { name: "bun", args: ["run", "scripts/guard-synchronous-child-process-calls.ts"] },
+    { name: "bun", args: ["run", "typecheck"] },
+    ...testSteps,
+    { name: "bun", args: ["run", "lint:md"] },
+  );
 
   return commands;
 }

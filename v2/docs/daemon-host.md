@@ -13,6 +13,10 @@ Operator-facing `jarvis daemon ...` and `jarvis run ...` behavior lives in
 Finalization (the ready gate and draft-to-ready flip) runs in daemon-hosted
 write loops without blocking unrelated IPC such as `list` and `tail`.
 
+Every daemon-hosted path must avoid synchronous child processes. The ready gate
+and CI run `scripts/guard-synchronous-child-process-calls.ts`, which rejects
+sync child-process APIs in `v2/**` and daemon-reachable shared code.
+
 ## Socket path
 
 Callers supply `socketPath` explicitly. There is no production default,

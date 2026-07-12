@@ -23,6 +23,9 @@ jobs:
       - name: Lint and format (Biome)
         run: bun run check
 
+      - name: Guard synchronous child processes
+        run: bun run scripts/guard-synchronous-child-process-calls.ts
+
       - name: Lint markdown
         run: bun run lint:md
 

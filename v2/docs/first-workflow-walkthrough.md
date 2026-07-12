@@ -136,6 +136,19 @@ jarvis run log 7f3a9c2e-4b1d-4e8a-9f0c-1a2b3c4d5e6f
 
 One compact JSON object per line per persisted record.
 
+### Nothing is happening
+
+Read the detached daemon's stdout/stderr separately from a run's structured
+records:
+
+```bash
+jarvis daemon log --follow
+```
+
+This reads `~/.jarvis/daemon.log` directly and works even when the daemon is
+not running. Use `jarvis run log <run-id>` or `jarvis tui log <run-id>` for
+structured records belonging to one run.
+
 ### List all runs
 
 ```bash

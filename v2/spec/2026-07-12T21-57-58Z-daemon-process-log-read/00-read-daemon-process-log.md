@@ -25,17 +25,17 @@ structured per-run logs.
 
 ## Acceptance criteria
 
-- [ ] `jarvis daemon log` writes the retained daemon process stdout/stderr log to stdout and exits successfully when the configured file exists, regardless of daemon PID, socket, or IPC status.
-- [ ] `jarvis daemon log --follow` replays retained content and emits each byte appended during the replay-to-follow handoff exactly once.
-- [ ] `jarvis daemon log --follow` follows appends from the configured path after truncation or replacement, and reports a removed path on stderr with a nonzero exit instead of tailing its stale file.
-- [ ] `jarvis daemon log --follow` reports read, watch, or reopen failures on stderr and exits nonzero; SIGINT exits `130`.
-- [ ] Only `jarvis daemon log` and `jarvis daemon log --follow` are accepted; flags, alternate orders, and other forms print daemon usage and exit `1`.
-- [ ] When the daemon process log is absent, `jarvis daemon log` reports the configured missing path on stderr and exits nonzero rather than succeeding without diagnostics.
-- [ ] Focused CLI tests use an injected log path and cover replay, lossless follow handoff, path changes, failures, SIGINT, invalid usage, and absent-file behavior.
-- [ ] [`v2/docs/daemon-host.md`](../../docs/daemon-host.md) documents the process-log command, source, and its distinction from structured run logs.
-- [ ] [`v2/docs/first-workflow-walkthrough.md`](../../docs/first-workflow-walkthrough.md) adds the process-log command to the "nothing is happening" recovery path.
-- [ ] [`v2/docs/write-behavior.md`](../../docs/write-behavior.md) documents the daemon-log CLI contract.
-- [ ] [`v2/docs/v1-behaviors.md`](../../docs/v1-behaviors.md) records the v2 additive daemon process-log read behavior with source citations.
+- [x] `jarvis daemon log` writes the retained daemon process stdout/stderr log to stdout and exits successfully when the configured file exists, regardless of daemon PID, socket, or IPC status.
+- [x] `jarvis daemon log --follow` replays retained content and emits each byte appended during the replay-to-follow handoff exactly once.
+- [x] `jarvis daemon log --follow` follows appends from the configured path after truncation or replacement, and reports a removed path on stderr with a nonzero exit instead of tailing its stale file.
+- [x] `jarvis daemon log --follow` reports read, watch, or reopen failures on stderr and exits nonzero; SIGINT exits `130`.
+- [x] Only `jarvis daemon log` and `jarvis daemon log --follow` are accepted; flags, alternate orders, and other forms print daemon usage and exit `1`.
+- [x] When the daemon process log is absent, `jarvis daemon log` reports the configured missing path on stderr and exits nonzero rather than succeeding without diagnostics.
+- [x] Focused CLI tests use an injected log path and cover replay, lossless follow handoff, path changes, failures, SIGINT, invalid usage, and absent-file behavior.
+- [x] [`v2/docs/daemon-host.md`](../../docs/daemon-host.md) documents the process-log command, source, and its distinction from structured run logs.
+- [x] [`v2/docs/first-workflow-walkthrough.md`](../../docs/first-workflow-walkthrough.md) adds the process-log command to the "nothing is happening" recovery path.
+- [x] [`v2/docs/write-behavior.md`](../../docs/write-behavior.md) documents the daemon-log CLI contract.
+- [x] [`v2/docs/v1-behaviors.md`](../../docs/v1-behaviors.md) records the v2 additive daemon process-log read behavior with source citations.
 
 ## Documentation updates
 

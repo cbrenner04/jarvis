@@ -21,7 +21,8 @@ describe("buildPlanDraftPrompt", () => {
       intent: "do thing",
       specGuidance: "guidance",
       specDir: "/tmp/worktree/spec/2026-plan",
-      stepRules: "Return exactly one terminal token: done|no-work|blocked|progress.",
+      stepRules:
+        "The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.",
     });
 
     expect(prompt).toContain("## File output");
@@ -29,7 +30,9 @@ describe("buildPlanDraftPrompt", () => {
     expect(prompt).toContain("/tmp/worktree/spec/2026-plan");
     expect(prompt).toContain("Do not emit spec content to stdout");
     expect(prompt).toContain("## Step completion");
-    expect(prompt).toContain("Return exactly one terminal token: done|no-work|blocked|progress.");
+    expect(prompt).toContain(
+      "The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.",
+    );
   });
 
   test("throws on delimiter-violating intent or specGuidance", () => {

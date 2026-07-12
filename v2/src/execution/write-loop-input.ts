@@ -3,7 +3,8 @@ import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopInput } from "./write-loop.ts";
 
 /** Default step rules injected into every write-loop launch payload. */
-export const DEFAULT_WRITE_STEP_RULES = "Return exactly one terminal token: done|no-work|blocked|progress.";
+export const DEFAULT_WRITE_STEP_RULES =
+  "The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.";
 
 /** Default agent list when config has no `agents` override. */
 export const DEFAULT_WRITE_AGENTS = ["claude"] as const;

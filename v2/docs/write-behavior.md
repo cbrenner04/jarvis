@@ -144,6 +144,20 @@ The write prompt injects the v2 restraint principles (`write.principles`) at
 every iteration; see [`coding-standards.md`](./coding-standards.md) for the
 canonical principle text and rationale.
 
+## Terminal token
+
+Write-step prompts carry `stepRules` from `DEFAULT_WRITE_STEP_RULES`: the
+agent's final response line must be exactly one of `done`, `no-work`, `blocked`,
+or `progress`, with nothing after it. Plan-draft and intent-split builders
+append the same text under `## Step completion` (see
+[`prompts.md`](./prompts.md)); `write.execute` interpolates it via
+`<STEP_RULES>`.
+
+The step runner's parser is more lenient than the prompt — see
+[`shared-step-runner.md`](./shared-step-runner.md): exact match, then last
+bare-token line, then last token word anywhere in stdout. When no token word
+appears at all, the step records `invalid_token`.
+
 ## Review cycle
 
 The standalone review cycle invokes the caller-supplied read-only `critic`,

@@ -21,7 +21,8 @@ const START_INPUT: WriteLoopInput = {
     baseRef: "HEAD",
   },
   specPath: "spec.md",
-  stepRules: "Return exactly one terminal token: done|no-work|blocked|progress.",
+  stepRules:
+    "The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.",
   expectedArtifactPath: "proof.txt",
   bindings: simulatedBindings(["done"]),
 };

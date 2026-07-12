@@ -180,7 +180,8 @@ describe("write behavior", () => {
       jarvisRoot,
       artifactPath: ".jarvis-intent-stage",
       promptId: "intent.prompt.split",
-      stepRules: "Return exactly one terminal token: done|no-work|blocked|progress.",
+      stepRules:
+        "The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.",
       promptPlaceholders: {
         WORKDIR: "/tmp/worktree",
         SEED_LABEL: "inline",
@@ -205,7 +206,9 @@ describe("write behavior", () => {
     });
 
     expect(capturedPrompt).toContain("Write the authored intents as markdown files under `.jarvis-intent-stage`");
-    expect(capturedPrompt).toContain("Return exactly one terminal token: done|no-work|blocked|progress.");
+    expect(capturedPrompt).toContain(
+      "The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.",
+    );
     expect(result.result.kind).toBe("complete");
     expect(existsSync(join(result.worktreePath, ".jarvis-intent-stage", "plan-intent-flag.md"))).toBe(true);
   });
@@ -215,7 +218,8 @@ describe("write behavior", () => {
     roots.push(join(jarvisRoot, ".."));
     const specPath = "v2/spec/2099-01-01T00-00-00Z-demo";
     const intentSeed = "---\nname: demo\n---\n\n## Prerequisites\n\nnone\n";
-    const stepRules = "Return exactly one terminal token: done|no-work|blocked|progress.";
+    const stepRules =
+      "The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.";
     let capturedPrompt = "";
 
     const result = await executeWrite({

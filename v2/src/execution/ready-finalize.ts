@@ -37,7 +37,8 @@ async function defaultRunReadyGate(worktreePath: string): Promise<void> {
       maxBuffer: READY_GATE_MAX_BUFFER,
     });
   } catch (error) {
-    const detail = error instanceof AsyncSubprocessError ? error.stderr : error instanceof Error ? error.message : String(error);
+    const detail =
+      error instanceof AsyncSubprocessError ? error.stderr : error instanceof Error ? error.message : String(error);
     const status = error instanceof AsyncSubprocessError ? error.status : undefined;
     throw new Error(`ready gate failed (exit ${status ?? "unknown"}): ${detail.trim()}`);
   }
@@ -50,9 +51,7 @@ async function defaultGhReadyFlip(branch: string, worktreePath: string): Promise
 function ghFlipCombinedOutput(error: unknown): string {
   if (error instanceof Error) {
     const output = error as Error & { stdout?: string; stderr?: string };
-    return [output.stdout, output.stderr, error.message]
-      .filter(Boolean)
-      .join("\n");
+    return [output.stdout, output.stderr, error.message].filter(Boolean).join("\n");
   }
   return String(error);
 }

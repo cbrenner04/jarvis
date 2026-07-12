@@ -536,7 +536,8 @@ async function _validateIntentStage(
       ok: true;
       intents: { slug: string; path: string }[];
     }
-  | { ok: false; error: string }> {
+  | { ok: false; error: string }
+> {
   const gating = gateIntentStage(stagingDir, modifiedPaths);
   if (!gating.ok) {
     return gating;

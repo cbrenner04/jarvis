@@ -9,8 +9,8 @@ import {
   isWorktreeDirtyAsync,
 } from "./git.ts";
 import {
-  type AsyncSubprocessRunner,
   AsyncSubprocessError,
+  type AsyncSubprocessRunner,
   realAsyncSubprocessRunner,
   realSubprocessRunner,
   type SubprocessRunner,

@@ -22,12 +22,12 @@
 
 ## Acceptance criteria
 
-- [ ] The prompt sent for a `plan.prompt.draft` write step carries the assembled plan behavior fragments, not just the artifact body, plus the intent seed and spec guidance.
-- [ ] That prompt contains file-output instructions naming the absolute resolved spec directory (write `index.md` plus numbered subspecs there, do not emit spec content to stdout) — the same directory the write-loop completion validator checks.
-- [ ] The step payload's `stepRules` string appears verbatim in the rendered prompt's step-completion section.
-- [ ] A delimiter-violating intent seed makes the plan-draft write step fail as `model_config` rather than throwing out of the executor.
-- [ ] Driving a plan-draft write step through the write loop with a stubbed agent that writes `index.md` plus a subspec into the resolved spec directory and emits the done token completes the step successfully.
-- [ ] `v2/src/execution/write.test.ts` plan-draft blocker and `plan.draft.shape` contract tests stay green (contracts unchanged by the prompt change).
+- [x] The prompt sent for a `plan.prompt.draft` write step carries the assembled plan behavior fragments, not just the artifact body, plus the intent seed and spec guidance.
+- [x] That prompt contains file-output instructions naming the absolute resolved spec directory (write `index.md` plus numbered subspecs there, do not emit spec content to stdout) — the same directory the write-loop completion validator checks.
+- [x] The step payload's `stepRules` string appears verbatim in the rendered prompt's step-completion section.
+- [x] A delimiter-violating intent seed makes the plan-draft write step fail as `model_config` rather than throwing out of the executor.
+- [x] Driving a plan-draft write step through the write loop with a stubbed agent that writes `index.md` plus a subspec into the resolved spec directory and emits the done token completes the step successfully.
+- [x] `v2/src/execution/write.test.ts` plan-draft blocker and `plan.draft.shape` contract tests stay green (contracts unchanged by the prompt change).
 
 ## Documentation updates
 

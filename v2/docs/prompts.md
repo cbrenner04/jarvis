@@ -62,6 +62,7 @@ Rollout layering inventory:
 
 - Patch: `global.documentation -> global.naming -> global.terse -> patch.prompt.body`
 - Plan: `global.documentation -> global.terse -> plan.decisions-ledger -> plan.defer-to-consumer -> plan.prompt.*`
+- Plan draft (v2 write loop): `plan.prompt.draft` steps route through `buildPlanDraftPrompt` with full plan layering, then runtime `## File output` and `## Step completion` suffixes appended outside the registry artifact (same pattern as `intent.prompt.split`); v1 plan mode invokes the builder without those suffixes.
 - Write: a write step renders any registered prompt id via a caller-supplied placeholder map (`renderStepPrompt(promptId, placeholders)`); `write.execute` is the default when a step declares no `promptId`, and is the only id whose caller (`executeWrite`) wires `write.principles` (body) into its `<PRINCIPLES>` placeholder (v2-only; no layered global/behavior fragments)
 - Patch PR description: `global.documentation -> global.naming -> global.terse -> shared.pr-description -> patch.prompt.pr-description`
 - Plan PR description: `global.documentation -> global.terse -> plan.decisions-ledger -> plan.defer-to-consumer -> shared.pr-description -> plan.prompt.pr-description`

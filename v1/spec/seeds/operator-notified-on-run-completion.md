@@ -46,10 +46,20 @@ moment you background it to run two things at once, which every real session doe
 
 ## Decisions
 
+- **Publish/subscribe, not poll.** Jarvis already *knows* the terminal boundary — it
+  writes `exit_reason` to `~/.jarvis/runs.jsonl` and, in v2, commits a durable run
+  status and a structured log event. The information exists; there is simply no way
+  to *subscribe* to it, so every consumer re-derives it by tailing and grepping.
+  Publish terminal events on a bus and let consumers subscribe.
+- One published event stream serves every consumer that currently reinvents this:
+  the operator shell, the agent-operator harness, `jarvis run wait`, the TUI, and an
+  OS notifier. Today each of those either polls or has its own bespoke path — v2's
+  `run wait` and the TUI's `list` refresh are two separate answers to the same
+  question, and the v1 operator has none.
 - Fold into the existing invocation surface rather than adding a new subcommand
   where possible — per the north star, "fewer manual steps" is not "more commands".
-  A flag on `run`/`plan`/`intent`, or a config-level notification setting, beats a
-  new `jarvis1 watch`.
+  A subscribe flag on `run`/`plan`/`intent`, or a config-level notification setting,
+  beats a new `jarvis1 watch`.
 - Do not solve this by telling operators to run in the foreground. Parallelism is
   required (plans/intents fan out); the harness must support waiting on backgrounded
   work.

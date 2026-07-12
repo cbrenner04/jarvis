@@ -35,7 +35,7 @@ describe("buildReviewedPlanWorkflowSteps", () => {
   test("defaults to one loaded draft-plus-debate workflow", async () => {
     const calls: (readonly WorkflowSourceStep[])[] = [];
     const result = await buildReviewedPlanWorkflowSteps(
-      { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md", jarvisRoot: "/jarvis" },
+      { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md" },
       {
         resolveProjectMatch: () => match,
         readReadyIntent: () => intent,
@@ -64,7 +64,7 @@ describe("buildReviewedPlanWorkflowSteps", () => {
       },
       agents: { adversary: ["claude"], advocate: ["claude"], adjudicator: ["claude"], actuator: ["claude"] },
       verdictPath: expect.stringMatching(
-        /^\/jarvis\/worktrees\/demo\/plan\/reviewed-plan\/spec\/\d{8}T\d{6}Z-reviewed-plan\/verdict-plan\.md$/,
+        /worktrees\/demo\/plan\/reviewed-plan\/spec\/\d{8}T\d{6}Z-reviewed-plan\/verdict-plan\.md$/,
       ),
     });
   });
@@ -119,7 +119,7 @@ describe("buildReviewedPlanWorkflowSteps", () => {
     const config = join(root, "config.json");
     writeFileSync(config, JSON.stringify({ projects: { demo: { root, git: false } } }));
     const result = await buildReviewedPlanWorkflowSteps(
-      { cwd: root, readyIntent: "spec/ready-intents/reviewed-plan.md", configPath: config, jarvisRoot: "/jarvis" },
+      { cwd: root, readyIntent: "spec/ready-intents/reviewed-plan.md", configPath: config },
       { resolveProjectMatch: () => match, readReadyIntent: () => intent, loadWorkflowSteps: load },
     );
 
@@ -141,7 +141,7 @@ describe("buildReviewedPlanLightWorkflowSteps", () => {
   test("defaults to one loaded draft-plus-light-review workflow", async () => {
     const calls: (readonly WorkflowSourceStep[])[] = [];
     const result = await buildReviewedPlanLightWorkflowSteps(
-      { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md", jarvisRoot: "/jarvis" },
+      { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md" },
       {
         resolveProjectMatch: () => match,
         readReadyIntent: () => intent,
@@ -165,7 +165,7 @@ describe("buildReviewedPlanLightWorkflowSteps", () => {
       maxCycles: 1,
       agents: { critic: ["claude"], actuator: ["claude"] },
       verdictPath: expect.stringMatching(
-        /^\/jarvis\/worktrees\/demo\/plan\/reviewed-plan\/spec\/\d{8}T\d{6}Z-reviewed-plan\/verdict-plan\.md$/,
+        /worktrees\/demo\/plan\/reviewed-plan\/spec\/\d{8}T\d{6}Z-reviewed-plan\/verdict-plan\.md$/,
       ),
       planReviewContext: expect.objectContaining({
         specPath: expect.stringMatching(/\/spec\/\d{8}T\d{6}Z-reviewed-plan$/),
@@ -229,7 +229,7 @@ describe("buildReviewedPlanLightWorkflowSteps", () => {
     const config = join(root, "config.json");
     writeFileSync(config, JSON.stringify({ projects: { demo: { root, git: false } } }));
     const result = await buildReviewedPlanLightWorkflowSteps(
-      { cwd: root, readyIntent: "spec/ready-intents/reviewed-plan.md", configPath: config, jarvisRoot: "/jarvis" },
+      { cwd: root, readyIntent: "spec/ready-intents/reviewed-plan.md", configPath: config },
       { resolveProjectMatch: () => match, readReadyIntent: () => intent, loadWorkflowSteps: load },
     );
 

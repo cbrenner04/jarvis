@@ -20,17 +20,13 @@ import {
 export type PlanReviewPromptContext = {
   worktreePath: string;
   specPath: string;
-  jarvisRoot?: string;
 };
 
 function getSpecDirName(specPath: string): string {
   return basename(specPath.replace(/\\/g, "/"));
 }
 
-function getSpecGuidancePath(jarvisRoot?: string): string {
-  if (jarvisRoot) {
-    return join(jarvisRoot, "..", "..", "v1", "docs", "spec-guidance.md");
-  }
+function getSpecGuidancePath(): string {
   return join(import.meta.dir, "..", "..", "..", "v1", "docs", "spec-guidance.md");
 }
 
@@ -67,7 +63,7 @@ export function renderCriticPrompt(context: PlanReviewPromptContext, reviewPassC
     NAME: getSpecDirName(context.specPath),
     INTENT: readIntentMd(context.specPath),
     CURRENT_SPEC: readSpecFiles(context.specPath),
-    SPEC_GUIDANCE: readFileSync(getSpecGuidancePath(context.jarvisRoot), "utf8"),
+    SPEC_GUIDANCE: readFileSync(getSpecGuidancePath(), "utf8"),
     REVIEW_PASS_CONTEXT: reviewPassContext,
   };
   const artifact = loadPromptRegistry().getById("plan.prompt.review.critic");
@@ -80,7 +76,7 @@ export function renderActuatorPrompt(context: PlanReviewPromptContext, verdict: 
     NAME: getSpecDirName(context.specPath),
     INTENT: readIntentMd(context.specPath),
     CURRENT_SPEC: readSpecFiles(context.specPath),
-    SPEC_GUIDANCE: readFileSync(getSpecGuidancePath(context.jarvisRoot), "utf8"),
+    SPEC_GUIDANCE: readFileSync(getSpecGuidancePath(), "utf8"),
     VERDICT: verdict,
   };
   const artifact = loadPromptRegistry().getById("plan.prompt.review-actuator");

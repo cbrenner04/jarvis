@@ -324,4 +324,128 @@ describe("write behavior", () => {
       { invocationId: "inv-1", bindingId: "agent", message: "disk full" },
     ]);
   });
+
+  test("plan preset draft step invokes binding and renders spec-guidance", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const specPath = "v2/spec/2099-01-01T00-00-00Z-example";
+    const intentSeed = "---\nname: example\n---\n\n## Prerequisites\n\nnone\n";
+    let capturedPrompt = "";
+    let bindingInvoked = false;
+
+    const result = await executeWrite({
+      worktree: {
+        projectRoot: "/fake",
+        projectName: "demo",
+        branchName: "plan-run",
+        baseRef: "HEAD",
+        jarvisRoot,
+      },
+      specPath,
+      stepRules: "unused",
+      expectedArtifactPath: ".jarvis-plan-stage",
+      promptId: "plan.prompt.draft",
+      intentSeed,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ prompt, cwd }) => {
+            bindingInvoked = true;
+            capturedPrompt = prompt;
+            const specDir = join(cwd, specPath);
+            mkdirSync(specDir, { recursive: true });
+            writeFileSync(join(specDir, "index.md"), "# Index\n", "utf8");
+            writeFileSync(join(specDir, "00-first.md"), "## Acceptance criteria\n", "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+    });
+
+    expect(bindingInvoked).toBe(true);
+    expect(result.result.kind).toBe("complete");
+    expect(capturedPrompt).toContain("## Spec Guidance");
+    expect(capturedPrompt).toContain("## Prerequisites");
+  });
+
+  test("plan-reviewed preset draft step invokes binding", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const specPath = "v2/spec/2099-01-01T00-00-01Z-reviewed";
+    const intentSeed = "---\nname: reviewed\n---\n\n## Prerequisites\n\nnone\n";
+    let bindingInvoked = false;
+
+    const result = await executeWrite({
+      worktree: {
+        projectRoot: "/fake",
+        projectName: "demo",
+        branchName: "plan-reviewed-run",
+        baseRef: "HEAD",
+        jarvisRoot,
+      },
+      specPath,
+      stepRules: "unused",
+      expectedArtifactPath: ".jarvis-plan-stage",
+      promptId: "plan.prompt.draft",
+      intentSeed,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ cwd }) => {
+            bindingInvoked = true;
+            const specDir = join(cwd, specPath);
+            mkdirSync(specDir, { recursive: true });
+            writeFileSync(join(specDir, "index.md"), "# Index\n", "utf8");
+            writeFileSync(join(specDir, "00-first.md"), "## Acceptance criteria\n", "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+    });
+
+    expect(bindingInvoked).toBe(true);
+    expect(result.result.kind).toBe("complete");
+  });
+
+  test("plan-reviewed-light preset draft step invokes binding", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const specPath = "v2/spec/2099-01-01T00-00-02Z-light";
+    const intentSeed = "---\nname: light\n---\n\n## Prerequisites\n\nnone\n";
+    let bindingInvoked = false;
+
+    const result = await executeWrite({
+      worktree: {
+        projectRoot: "/fake",
+        projectName: "demo",
+        branchName: "plan-light-run",
+        baseRef: "HEAD",
+        jarvisRoot,
+      },
+      specPath,
+      stepRules: "unused",
+      expectedArtifactPath: ".jarvis-plan-stage",
+      promptId: "plan.prompt.draft",
+      intentSeed,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ cwd }) => {
+            bindingInvoked = true;
+            const specDir = join(cwd, specPath);
+            mkdirSync(specDir, { recursive: true });
+            writeFileSync(join(specDir, "index.md"), "# Index\n", "utf8");
+            writeFileSync(join(specDir, "00-first.md"), "## Acceptance criteria\n", "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+    });
+
+    expect(bindingInvoked).toBe(true);
+    expect(result.result.kind).toBe("complete");
+  });
 });

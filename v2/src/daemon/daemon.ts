@@ -582,8 +582,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
 
     const runList = durableRuns.map((run) => {
-      const ks = ownershipKeyString({ project: run.project, branch: run.branch });
-      const isLive = activeRuns.get(ks)?.runId === run.id;
+      const isLive = run.status === "in-progress" && liveRunIds.has(run.id);
       const fullRun = fullRuns.get(run.id);
       const records = logReader?.tail(run.id) ?? [];
       const error = fullRun ? composeRunOperatorError(fullRun, findTerminalLogRecord(records)) : undefined;

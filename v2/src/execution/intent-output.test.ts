@@ -33,6 +33,7 @@ describe("landIntentWorkflowOutput", () => {
       output: { durableDir: "ready-intents" },
     });
     expect(result.files).toEqual(["one.md"]);
+    expect(result.specPath).toBe("ready-intents");
     expect(readFileSync(join(repo, "ready-intents", "one.md"), "utf8")).toContain("# one");
   });
 
@@ -66,7 +67,7 @@ describe("landIntentWorkflowOutput", () => {
       output: { durableDir: "ready-intents" },
       invocationId: "no-git",
     });
-    expect(result.specPath).toBe(join(root, "ready-intents"));
+    expect(result.specPath).toBe("ready-intents");
     expect(existsSync(join(root, ".jarvis-intent-stage"))).toBe(false);
   });
 

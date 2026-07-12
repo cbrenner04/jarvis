@@ -13,10 +13,10 @@
 
 ## Acceptance criteria
 
-- [ ] `refreshPrBody` accepts an optional summary and renders it after the `Spec:` line and before the narrative markers / footer.
-- [ ] With no summary supplied, existing `pr-body-refresh.test.ts` body-shape tests stay green (body unchanged).
-- [ ] `createCompletionPublisher` passes a `bodySummary` from its input through to `refreshPrBody`; `publishCompletionArtifacts` (`v2/src/execution/write-loop.ts`) forwards it.
-- [ ] `pr-body-refresh.test.ts` header-rebuild + narrative-preservation tests stay green with a summary supplied: a re-refresh with the same summary is byte-identical, and a refresh with a different summary replaces the prior block.
+- [x] `refreshPrBody` accepts an optional summary and renders it after the `Spec:` line and before the narrative markers / footer.
+- [x] With no summary supplied, existing `pr-body-refresh.test.ts` body-shape tests stay green (body unchanged).
+- [x] `createCompletionPublisher` passes a `bodySummary` from its input through to `refreshPrBody`; `publishCompletionArtifacts` (`v2/src/execution/write-loop.ts`) forwards it.
+- [x] `pr-body-refresh.test.ts` header-rebuild + narrative-preservation tests stay green with a summary supplied: a re-refresh with the same summary is byte-identical, and a refresh with a different summary replaces the prior block.
 
 ## Documentation updates
 

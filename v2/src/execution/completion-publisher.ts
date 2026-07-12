@@ -8,6 +8,7 @@ export type CompletionPublisherInput = {
   specPath: string;
   branch: string;
   creationTitle?: unknown;
+  bodySummary?: string;
 };
 
 export type CompletionPublisherResult = {
@@ -122,6 +123,7 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
           base: input.baseRef,
           cwd: input.worktreePath,
           git: syncGitToAttributionGit(git),
+          ...(input.bodySummary !== undefined ? { bodySummary: input.bodySummary } : {}),
           ...(seams?.fetchPrBody !== undefined ? { fetchPrBody: seams.fetchPrBody } : {}),
           ...(seams?.writePrBody !== undefined ? { writePrBody: seams.writePrBody } : {}),
           ...(seams?.renderFooter !== undefined ? { renderFooter: seams.renderFooter } : {}),

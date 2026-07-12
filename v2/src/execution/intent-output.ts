@@ -63,6 +63,10 @@ function failure(message: string): never {
   throw new Error(`${message}; rerun to retry pre-publication`);
 }
 
+export function intentPublicationSpecPath(worktreePath: string, durableDir: string): string {
+  return relative(worktreePath, resolve(worktreePath, durableDir)).replace(/\\/g, "/");
+}
+
 function worktreeRelativePath(worktreePath: string, absolutePath: string): string {
   return relative(worktreePath, absolutePath).replace(/\\/g, "/");
 }
@@ -85,6 +89,18 @@ function readOwnership(path: string): Record<string, string[]> {
   } catch {
     return {};
   }
+}
+
+/** Owned intent filenames for an invocation; empty when ownership is unresolved. */
+export async function listLandedIntentFiles(
+  worktreePath: string,
+  invocationId?: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<string[]> {
+  if (invocationId === undefined) return [];
+  const ownershipFile = await ownershipPath(worktreePath, runner);
+  const owned = readOwnership(ownershipFile)[invocationId] ?? [];
+  return [...owned].sort();
 }
 
 /** Validate and transactionally land an intent step's complete staged output. */

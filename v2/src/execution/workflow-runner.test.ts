@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,6 +16,7 @@ import {
   trackedTempRoots,
   withStateStore,
 } from "../testing/write-fixtures.ts";
+import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import {
   executeWorkflow,
@@ -82,6 +84,83 @@ function okTokenBindingFactory(stdout: string) {
 const errorBindingFactory = createBindingFactory(
   async () => ({ kind: "error", exitCode: 1, stderr: "error" }) as const,
 );
+
+function createIntentWorktreeHarness(branchName: string) {
+  const workspace = mkdtempSync(join(tmpdir(), `intent-workflow-${branchName}-`));
+  execFileSync("git", ["init", "-q"], { cwd: workspace });
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: workspace });
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: workspace });
+  writeFileSync(join(workspace, "base.txt"), "base\n", "utf8");
+  execFileSync("git", ["add", "."], { cwd: workspace });
+  execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+  return {
+    workspace,
+    withExternalWorktree: async <T>(
+      _args: { branchName: string; projectName: string },
+      run: (worktree: ExternalWorktree) => Promise<T> | T,
+    ): Promise<WithExternalWorktreeResult<T>> => ({
+      worktree: { path: workspace, reused: false },
+      lock: { kind: "acquired" },
+      value: await run({ path: workspace, reused: false }),
+    }),
+  };
+}
+
+function seedLandedIntentFiles(workspace: string, invocationId: string, files: readonly string[]): void {
+  const durableDir = join(workspace, "ready-intents");
+  mkdirSync(durableDir, { recursive: true });
+  for (const name of files) {
+    writeFileSync(
+      join(durableDir, name),
+      `---\nname: ${name.replace(/\.md$/, "")}\n---\n\n# ${name}\n\n## Prerequisites\n`,
+      "utf8",
+    );
+  }
+  mkdirSync(join(workspace, ".git"), { recursive: true });
+  writeFileSync(
+    join(workspace, ".git", "jarvis-intent-output.json"),
+    `${JSON.stringify({ [invocationId]: [...files] })}\n`,
+    "utf8",
+  );
+}
+
+function seedCompletedWriteRun(
+  store: ReturnType<typeof openStateStore>,
+  step: WriteWorkflowStep,
+  workspace: string,
+  invocationId: string,
+): string {
+  const runId = store.createRun({
+    project: step.worktree.projectName,
+    specRef: "",
+    worktreePath: workspace,
+    branch: step.worktree.branchName,
+    specPath: step.specPath,
+    stepId: step.stepId,
+    workflowSnapshot: {
+      invocationId,
+      steps: [
+        {
+          stepId: step.stepId,
+          role: step.role,
+          stepRules: step.stepRules,
+          expectedArtifactPath: step.expectedArtifactPath,
+          agents: step.agents,
+          agentModelConfig: step.agentModelConfig,
+        },
+      ],
+      ...(step.creationTitle !== undefined ? { creationTitle: step.creationTitle } : {}),
+    },
+  });
+  const attemptId = store.recordAttemptStart(runId);
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: "completed",
+    outcomeKind: "done",
+    completionAgent: "claude",
+  });
+  return runId;
+}
 
 function createStep(
   overrides: Partial<Omit<WriteWorkflowStep, "worktree" | "behavior">> & {
@@ -1263,6 +1342,189 @@ describe("executeWorkflow human steps", () => {
     });
   });
 
+  test("publishes intent-run body summary from the landed durable dir", async () => {
+    const invocationId = "intent-body-summary-inv";
+    const summaries: Array<string | undefined> = [];
+    const { workspace, withExternalWorktree } = createIntentWorktreeHarness("intent-body-summary");
+    const baseStep = createStep({
+      stepId: "intent",
+      role: "plan",
+      branchName: "intent-body-summary",
+      specPath: "ready-intents",
+      intentOutput: { durableDir: "ready-intents" },
+      creationTitle: "intent: seed-subject",
+      workflowInvocationId: invocationId,
+      withExternalWorktree,
+      agentModelConfig: {
+        claude: {
+          plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+        },
+      },
+    });
+    const step: WriteWorkflowStep = {
+      ...baseStep,
+      worktree: { ...baseStep.worktree, git: false, localPath: workspace },
+    };
+
+    await withStateStore(async (store) => {
+      seedLandedIntentFiles(workspace, invocationId, ["alpha.md", "beta.md"]);
+      seedCompletedWriteRun(store, step, workspace, invocationId);
+
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(summaries).toEqual(["intent: seed-subject\n- alpha.md\n- beta.md"]);
+    });
+  });
+
+  test("re-derives the same intent-run body summary on completion-publication retry", async () => {
+    const invocationId = "intent-body-summary-retry";
+    const summaries: Array<string | undefined> = [];
+    const { workspace, withExternalWorktree } = createIntentWorktreeHarness("intent-body-summary-retry");
+    const baseStep = createStep({
+      stepId: "intent",
+      role: "plan",
+      branchName: "intent-body-summary-retry",
+      specPath: "ready-intents",
+      intentOutput: { durableDir: "ready-intents" },
+      creationTitle: "intent: seed-subject",
+      workflowInvocationId: invocationId,
+      withExternalWorktree,
+      agentModelConfig: {
+        claude: {
+          plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+        },
+      },
+    });
+    const step: WriteWorkflowStep = {
+      ...baseStep,
+      worktree: { ...baseStep.worktree, git: false, localPath: workspace },
+    };
+
+    await withStateStore(async (store) => {
+      seedLandedIntentFiles(workspace, invocationId, ["one.md"]);
+      seedCompletedWriteRun(store, step, workspace, invocationId);
+
+      const failed = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          throw new Error("publish failed");
+        },
+      });
+      expect(failed.kind).toBe("completion_commit_failed");
+
+      const retried = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+      expect(retried.kind).toBe("complete");
+      expect(summaries).toEqual(["intent: seed-subject\n- one.md", "intent: seed-subject\n- one.md"]);
+    });
+  });
+
+  test("publishes reviewed-intent body summary after review-last landing", async () => {
+    const { workspace, withExternalWorktree } = createIntentWorktreeHarness("reviewed-intent-body-summary");
+    const invocationId = "reviewed-intent-body-summary";
+    const summaries: Array<string | undefined> = [];
+    const baseWriteStep = createStep({
+      stepId: "intent",
+      role: "plan",
+      branchName: "reviewed-intent-body-summary",
+      specPath: "ready-intents",
+      intentOutput: { durableDir: "ready-intents" },
+      creationTitle: "intent: reviewed-seed",
+      workflowInvocationId: invocationId,
+      withExternalWorktree,
+      agentModelConfig: {
+        claude: {
+          plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+        },
+      },
+    });
+    const writeStep: WriteWorkflowStep = {
+      ...baseWriteStep,
+      worktree: { ...baseWriteStep.worktree, git: false, localPath: workspace },
+    };
+    const reviewStep: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "review",
+      project: "demo",
+      branch: "reviewed-intent-body-summary",
+      cwd: workspace,
+      prompt: "review",
+      verdictPath: join(workspace, ".jarvis-intent-review-verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: {
+        claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
+        codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
+      },
+      deferredIntentOutput: {
+        config: { durableDir: "ready-intents" },
+        stagingDir: join(workspace, ".jarvis-intent-stage"),
+        invocationId,
+        baseRef: "HEAD",
+      },
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async () => ({ kind: "ok" as const, stdout: agentId === "claude" ? "apply" : "done", stderr: "" }),
+      }),
+    };
+
+    await withStateStore(async (store) => {
+      seedLandedIntentFiles(workspace, invocationId, ["reviewed.md"]);
+      seedCompletedWriteRun(store, writeStep, workspace, invocationId);
+      const reviewRunId = store.createRun({
+        project: "demo",
+        specRef: "",
+        worktreePath: workspace,
+        branch: "reviewed-intent-body-summary",
+        specPath: "",
+        stepId: "review",
+      });
+      const reviewAttemptId = store.recordAttemptStart(reviewRunId);
+      store.commitCompletionBoundary({
+        attemptId: reviewAttemptId,
+        runStatus: "completed",
+        outcomeKind: "done",
+        completionAgent: "codex",
+      });
+
+      const result = await executeWorkflow({
+        steps: [writeStep, reviewStep],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(summaries).toEqual(["intent: reviewed-seed\n- reviewed.md"]);
+    });
+  });
+
   test("plan workflow publishes draft PR with index.md H1 as title", async () => {
     const step = createStep({
       stepId: "plan",
@@ -1438,6 +1700,269 @@ describe("executeWorkflow human steps", () => {
     } finally {
       store.close();
     }
+  });
+
+  test("publishes spec-run body summary from index.md H1 and checklist", async () => {
+    const summaries: Array<string | undefined> = [];
+    const step = createStep({
+      stepId: "plan",
+      role: "plan",
+      promptId: "plan.prompt.draft",
+      branchName: "plan-body-summary",
+      specPath: "spec/2026-01-01T00-00-00Z-plan-body",
+      agentModelConfig: {
+        claude: {
+          plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+        },
+      },
+    });
+    const jarvisRoot = step.worktree.jarvisRoot;
+    if (jarvisRoot === undefined) throw new Error("missing test jarvis root");
+    const worktreePath = join(jarvisRoot, "worktrees", "demo", "plan-body-summary");
+
+    const specDir = join(worktreePath, "spec", "2026-01-01T00-00-00Z-plan-body");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(
+      join(specDir, "index.md"),
+      "# Plan body summary\n\n- [ ] [00 - First](./00-first.md)\n- [x] [01 - Second](./01-second.md)\n",
+      "utf8",
+    );
+
+    await withStateStore(async (store) => {
+      seedCompletedWriteRun(store, step, worktreePath, "plan-body-summary-inv");
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(summaries).toEqual([
+        "# Plan body summary\n\n- [ ] [00 - First](./00-first.md)\n- [x] [01 - Second](./01-second.md)",
+      ]);
+    });
+  });
+
+  test("re-derives the same spec-run body summary on completion-publication retry", async () => {
+    const summaries: Array<string | undefined> = [];
+    const step = createStep({
+      stepId: "plan",
+      role: "plan",
+      promptId: "plan.prompt.draft",
+      branchName: "plan-body-summary-retry",
+      specPath: "spec/2026-01-01T00-00-00Z-plan-retry",
+      agentModelConfig: {
+        claude: {
+          plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+        },
+      },
+    });
+    const jarvisRoot = step.worktree.jarvisRoot;
+    if (jarvisRoot === undefined) throw new Error("missing test jarvis root");
+    const worktreePath = join(jarvisRoot, "worktrees", "demo", "plan-body-summary-retry");
+    const specDir = join(worktreePath, "spec", "2026-01-01T00-00-00Z-plan-retry");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# Retry plan\n\n- [ ] [00 - Only](./00-only.md)\n", "utf8");
+
+    await withStateStore(async (store) => {
+      seedCompletedWriteRun(store, step, worktreePath, "plan-body-summary-retry-inv");
+
+      const failed = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          throw new Error("publish failed");
+        },
+      });
+      expect(failed.kind).toBe("completion_commit_failed");
+
+      const retried = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+      expect(retried.kind).toBe("complete");
+      expect(summaries).toEqual([
+        "# Retry plan\n\n- [ ] [00 - Only](./00-only.md)",
+        "# Retry plan\n\n- [ ] [00 - Only](./00-only.md)",
+      ]);
+    });
+  });
+
+  test("refreshes spec-run body summary when index checklist changes", async () => {
+    const summaries: Array<string | undefined> = [];
+    const step = createStep({
+      stepId: "plan",
+      role: "plan",
+      promptId: "plan.prompt.draft",
+      branchName: "plan-body-summary-refresh",
+      specPath: "spec/2026-01-01T00-00-00Z-plan-refresh",
+      agentModelConfig: {
+        claude: {
+          plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+        },
+      },
+    });
+    const jarvisRoot = step.worktree.jarvisRoot;
+    if (jarvisRoot === undefined) throw new Error("missing test jarvis root");
+    const worktreePath = join(jarvisRoot, "worktrees", "demo", "plan-body-summary-refresh");
+    const indexPath = join(worktreePath, "spec", "2026-01-01T00-00-00Z-plan-refresh", "index.md");
+    mkdirSync(join(worktreePath, "spec", "2026-01-01T00-00-00Z-plan-refresh"), { recursive: true });
+    writeFileSync(indexPath, "# Refresh plan\n\n- [ ] [00 - Alpha](./00-alpha.md)\n", "utf8");
+
+    await withStateStore(async (store) => {
+      seedCompletedWriteRun(store, step, worktreePath, "plan-body-summary-refresh-inv");
+
+      await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          throw new Error("publish failed");
+        },
+      });
+
+      writeFileSync(
+        indexPath,
+        "# Refresh plan\n\n- [ ] [00 - Alpha](./00-alpha.md)\n- [ ] [01 - Beta](./01-beta.md)\n",
+        "utf8",
+      );
+
+      const retried = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+      expect(retried.kind).toBe("complete");
+      expect(summaries).toEqual([
+        "# Refresh plan\n\n- [ ] [00 - Alpha](./00-alpha.md)",
+        "# Refresh plan\n\n- [ ] [00 - Alpha](./00-alpha.md)\n- [ ] [01 - Beta](./01-beta.md)",
+      ]);
+    });
+  });
+
+  test("publishes H1-only spec-run summary when index has no checklist items", async () => {
+    const summaries: Array<string | undefined> = [];
+    const step = createStep({
+      stepId: "plan",
+      role: "plan",
+      promptId: "plan.prompt.draft",
+      branchName: "plan-body-summary-h1-only",
+      specPath: "spec/2026-01-01T00-00-00Z-plan-h1",
+      agentModelConfig: {
+        claude: {
+          plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+        },
+      },
+    });
+    const jarvisRoot = step.worktree.jarvisRoot;
+    if (jarvisRoot === undefined) throw new Error("missing test jarvis root");
+    const worktreePath = join(jarvisRoot, "worktrees", "demo", "plan-body-summary-h1-only");
+    const specDir = join(worktreePath, "spec", "2026-01-01T00-00-00Z-plan-h1");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# H1 only plan\n\nDraft prose.\n", "utf8");
+
+    await withStateStore(async (store) => {
+      seedCompletedWriteRun(store, step, worktreePath, "plan-body-summary-h1-only-inv");
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+      expect(summaries).toEqual(["# H1 only plan"]);
+    });
+  });
+
+  test("publishes no spec-run summary when index.md is missing", async () => {
+    const summaries: Array<string | undefined> = [];
+    const step = createStep({
+      stepId: "plan",
+      role: "plan",
+      promptId: "plan.prompt.draft",
+      branchName: "plan-body-summary-missing",
+      specPath: "spec/2026-01-01T00-00-00Z-plan-missing",
+      agentModelConfig: {
+        claude: {
+          plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+        },
+      },
+    });
+    const jarvisRoot = step.worktree.jarvisRoot;
+    if (jarvisRoot === undefined) throw new Error("missing test jarvis root");
+    const worktreePath = join(jarvisRoot, "worktrees", "demo", "plan-body-summary-missing");
+
+    await withStateStore(async (store) => {
+      seedCompletedWriteRun(store, step, worktreePath, "plan-body-summary-missing-inv");
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+      expect(summaries).toEqual([undefined]);
+    });
+  });
+
+  test("implement runs publish no body summary", async () => {
+    const summaries: Array<string | undefined> = [];
+    const step = createStep({
+      stepId: "implement",
+      role: "implement",
+      promptId: "patch.prompt.body",
+      branchName: "implement-no-summary",
+      specPath: "spec/index.md",
+    });
+    const jarvisRoot = step.worktree.jarvisRoot;
+    if (jarvisRoot === undefined) throw new Error("missing test jarvis root");
+    const worktreePath = join(jarvisRoot, "worktrees", "demo", "implement-no-summary");
+    const specDir = join(worktreePath, "spec");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# Implement index\n\n- [ ] [01 - Sub](./01-sub.md)\n", "utf8");
+
+    await withStateStore(async (store) => {
+      seedCompletedWriteRun(store, step, worktreePath, "implement-no-summary-inv");
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+      expect(summaries).toEqual([undefined]);
+    });
   });
 });
 

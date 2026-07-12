@@ -20,7 +20,7 @@ Make daemon-hosted workflow and review Git yield without changing review enforce
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner.test.ts` stays green for workflow review rendering behavior.
-- [ ] `v2/src/execution/review-debate-render.test.ts` stays green for review-debate rendering behavior.
-- [ ] `v2/src/execution/review-intent-enforcement.test.ts` stays green for review-enforcement status and restoration behavior.
-- [ ] `v2/docs/v2-architecture.md` and `v2/docs/v1-behaviors.md` document awaited daemon run workflow/review Git.
+- [x] `v2/src/execution/workflow-runner.test.ts` stays green for workflow review rendering behavior.
+- [x] `v2/src/execution/review-debate-render.test.ts` stays green for review-debate rendering behavior.
+- [x] `v2/src/execution/review-intent-enforcement.test.ts` stays green for review-enforcement status and restoration behavior.
+- [x] `v2/docs/v2-architecture.md` and `v2/docs/v1-behaviors.md` document awaited daemon run workflow/review Git.

@@ -443,7 +443,7 @@ describe("write loop", () => {
 
   describe("work_boundary_recorded telemetry", () => {
     const completionHooks = {
-      completionCommitter: () => ({ commitSha: "commit-abc", filesChanged: 2 }),
+      completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 2 }),
       completionPublisher: async () => ({}),
       readyFinalizer: async () => {},
     };
@@ -497,7 +497,7 @@ describe("write loop", () => {
         stateDbPath,
         bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
         telemetry: { sinkPath: telemetryPath, operatorSessionId: "session-1" },
-        completionCommitter: () => ({}),
+        completionCommitter: async () => ({}),
         completionPublisher: async () => ({}),
         readyFinalizer: async () => {},
       });
@@ -517,7 +517,7 @@ describe("write loop", () => {
         branchName,
         bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
         telemetry: { sinkPath: telemetryPath, operatorSessionId: "session-1" },
-        completionCommitter: () => publish,
+        completionCommitter: async () => publish,
         completionPublisher: async () => ({}),
         readyFinalizer: async () => {},
       });
@@ -530,7 +530,7 @@ describe("write loop", () => {
         branchName,
         bindings: [],
         telemetry: { sinkPath: telemetryPath, operatorSessionId: "session-1" },
-        completionCommitter: () => publish,
+        completionCommitter: async () => publish,
         completionPublisher: async () => ({}),
         readyFinalizer: async () => {},
       });
@@ -567,7 +567,7 @@ describe("write loop", () => {
 
   describe("ready finalization", () => {
     const completionHooks = {
-      completionCommitter: () => ({ commitSha: "commit-abc", filesChanged: 1 }),
+      completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
       completionPublisher: async () => ({}),
     };
 
@@ -643,7 +643,7 @@ describe("write loop", () => {
         stateDbPath,
         branchName,
         bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
-        completionCommitter: () => publish,
+        completionCommitter: async () => publish,
         completionPublisher: async () => {
           publishCalls += 1;
           throw new Error("push failed");
@@ -663,7 +663,7 @@ describe("write loop", () => {
         stateDbPath,
         branchName,
         bindings: [],
-        completionCommitter: () => publish,
+        completionCommitter: async () => publish,
         completionPublisher: async () => {
           publishCalls += 1;
           return {};
@@ -705,7 +705,7 @@ describe("write loop", () => {
         branchName: testCase.branchName,
         specPath: testCase.specPath,
         bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
-        completionCommitter: () => ({ commitSha: "commit-1" }),
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
         completionPublisher: async (input) => {
           titles.push(input.creationTitle);
           return {};
@@ -729,7 +729,7 @@ describe("write loop", () => {
       branchName,
       specPath: "spec/index.md",
       bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
-      completionCommitter: () => ({ commitSha: "commit-1" }),
+      completionCommitter: async () => ({ commitSha: "commit-1" }),
       completionPublisher: async () => {
         throw new Error("publish failed");
       },
@@ -745,7 +745,7 @@ describe("write loop", () => {
       branchName,
       specPath: "spec/index.md",
       bindings: [],
-      completionCommitter: () => ({ commitSha: "commit-1" }),
+      completionCommitter: async () => ({ commitSha: "commit-1" }),
       completionPublisher: async (input) => {
         titles.push(input.creationTitle);
         return {};

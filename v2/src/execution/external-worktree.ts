@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { branchExistsLocal, branchExistsOnOrigin, getCurrentBranch } from "../../../shared/git.ts";
-import { realSubprocessRunner, type SubprocessRunner } from "../../../shared/subprocess.ts";
+import { branchExistsLocalAsync, branchExistsOnOriginAsync, getCurrentBranchAsync } from "../../../shared/git.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { acquireLock, releaseLock, type WorktreeLock } from "../../../shared/worktree-lock.ts";
 
 /** Naming and git inputs for materialization. */
@@ -61,7 +61,7 @@ export function getExternalWorktreeLockPath(lockDir: string): string {
 export async function withExternalWorktree<T>(
   args: ExternalWorktreeInput,
   run: (worktree: ExternalWorktree) => Promise<T> | T,
-  runner: SubprocessRunner = realSubprocessRunner,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): Promise<WithExternalWorktreeResult<T>> {
   if (args.git === false && args.localPath !== undefined) {
     mkdirSync(args.localPath, { recursive: true });
@@ -74,45 +74,12 @@ export async function withExternalWorktree<T>(
   const lockRoot = ensureExternalWorktreeLockRoot(args);
   const lock = acquireExternalWorktreeLock(lockRoot);
   try {
-    const worktree = ensureExternalWorktree(args, runner);
+    const worktree = await ensureExternalWorktree(args, runner);
     const value = await run(worktree);
     return { worktree, lock, value };
   } finally {
     releaseExternalWorktreeLock(lockRoot);
   }
-}
-
-/** Ensure a named external worktree exists and return its path. */
-function ensureExternalWorktree(
-  args: ExternalWorktreeInput,
-  runner: SubprocessRunner = realSubprocessRunner,
-): ExternalWorktree {
-  const worktreePath = getExternalWorktreePath(args);
-  if (isValidGitWorktree(worktreePath, runner)) {
-    assertReusableWorktreeMatches(args, worktreePath, runner);
-    return { path: worktreePath, reused: true };
-  }
-  if (existsSync(worktreePath)) {
-    throw new Error(`existing path is not a git worktree: ${worktreePath}`);
-  }
-
-  mkdirSync(dirname(worktreePath), { recursive: true });
-  pruneMissingWorktrees(args.projectRoot, runner);
-
-  const branchExists = branchExistsLocal(args.projectRoot, args.branchName, runner);
-  const branchExistsRemote = branchExistsOnOrigin(args.projectRoot, args.branchName, runner);
-
-  if (branchExists || branchExistsRemote) {
-    if (!branchExists && branchExistsRemote) {
-      runner.run("git", ["branch", args.branchName, `origin/${args.branchName}`], args.projectRoot);
-    }
-    runner.run("git", ["worktree", "add", "--checkout", worktreePath, args.branchName], args.projectRoot);
-    return { path: worktreePath, reused: false };
-  }
-
-  runner.run("git", ["branch", args.branchName, args.baseRef], args.projectRoot);
-  runner.run("git", ["worktree", "add", worktreePath, args.branchName], args.projectRoot);
-  return { path: worktreePath, reused: false };
 }
 
 /** Acquire the lock; a live holder throws {@link WorktreeBusyError} (refuse, don't queue). */
@@ -136,36 +103,70 @@ function ensureExternalWorktreeLockRoot(args: ExternalWorktreeInput): string {
   return lockRoot;
 }
 
-function isValidGitWorktree(worktreePath: string, runner: SubprocessRunner): boolean {
+async function ensureExternalWorktree(
+  args: ExternalWorktreeInput,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<ExternalWorktree> {
+  const worktreePath = getExternalWorktreePath(args);
+  if (await isValidGitWorktree(worktreePath, runner)) {
+    await assertReusableWorktreeMatches(args, worktreePath, runner);
+    return { path: worktreePath, reused: true };
+  }
+  if (existsSync(worktreePath)) {
+    throw new Error(`existing path is not a git worktree: ${worktreePath}`);
+  }
+
+  mkdirSync(dirname(worktreePath), { recursive: true });
+  await pruneMissingWorktrees(args.projectRoot, runner);
+
+  const branchExists = await branchExistsLocalAsync(args.projectRoot, args.branchName, runner);
+  const branchExistsRemote = await branchExistsOnOriginAsync(args.projectRoot, args.branchName, runner);
+
+  if (branchExists || branchExistsRemote) {
+    if (!branchExists && branchExistsRemote) {
+      await runner.runAsync("git", ["branch", args.branchName, `origin/${args.branchName}`], args.projectRoot);
+    }
+    await runner.runAsync("git", ["worktree", "add", "--checkout", worktreePath, args.branchName], args.projectRoot);
+    return { path: worktreePath, reused: false };
+  }
+
+  await runner.runAsync("git", ["branch", args.branchName, args.baseRef], args.projectRoot);
+  await runner.runAsync("git", ["worktree", "add", worktreePath, args.branchName], args.projectRoot);
+  return { path: worktreePath, reused: false };
+}
+
+async function isValidGitWorktree(worktreePath: string, runner: AsyncSubprocessRunner): Promise<boolean> {
   if (!existsSync(worktreePath)) return false;
   try {
-    return runner.run("git", ["rev-parse", "--is-inside-work-tree"], worktreePath).trim() === "true";
+    return (await runner.runAsync("git", ["rev-parse", "--is-inside-work-tree"], worktreePath)).trim() === "true";
   } catch {
     return false;
   }
 }
 
-function assertReusableWorktreeMatches(
+async function assertReusableWorktreeMatches(
   args: ExternalWorktreeInput,
   worktreePath: string,
-  runner: SubprocessRunner,
-): void {
-  const expectedRepo = gitCommonDir(args.projectRoot, runner);
-  const actualRepo = gitCommonDir(worktreePath, runner);
+  runner: AsyncSubprocessRunner,
+): Promise<void> {
+  const expectedRepo = await gitCommonDir(args.projectRoot, runner);
+  const actualRepo = await gitCommonDir(worktreePath, runner);
   if (expectedRepo !== actualRepo) {
     throw new Error(`existing worktree ${worktreePath} belongs to a different repository`);
   }
 
-  const currentBranch = getCurrentBranch(worktreePath, runner);
+  const currentBranch = await getCurrentBranchAsync(worktreePath, runner);
   if (currentBranch !== args.branchName) {
     throw new Error(`existing worktree ${worktreePath} is on branch ${currentBranch}, expected ${args.branchName}`);
   }
 }
 
-function gitCommonDir(cwd: string, runner: SubprocessRunner): string {
-  return resolve(runner.run("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], cwd).trim());
+async function gitCommonDir(cwd: string, runner: AsyncSubprocessRunner): Promise<string> {
+  return resolve(
+    (await runner.runAsync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], cwd)).trim(),
+  );
 }
 
-function pruneMissingWorktrees(projectRoot: string, runner: SubprocessRunner): void {
-  runner.run("git", ["worktree", "prune"], projectRoot);
+async function pruneMissingWorktrees(projectRoot: string, runner: AsyncSubprocessRunner): Promise<void> {
+  await runner.runAsync("git", ["worktree", "prune"], projectRoot);
 }

@@ -576,6 +576,23 @@ repos" principle change is smaller:
   same branch is not. And **git:false (loop-only) runs can't run concurrently on
   the same root** — no worktree means no isolation, so they'd clobber each other
   (v1 never hit this because it was one-shot).
+- **Async Git on daemon runs.** Worktree setup on daemon-reachable write paths is
+  awaited through `AsyncSubprocessRunner` so Git yields to the event loop.
+  Validation (branch existence, worktree checks, current branch), worktree
+  creation, pruning, and common-dir resolution preserve output encoding, error
+  handling, and sequential setup/cleanup order. Workflow shrink changed-file
+  discovery, patch-review diff rendering, review-enforcement status/checkout/clean,
+  and intent-output change detection plus ownership lookup (`git status`, `git diff`,
+  `rev-parse --git-dir`), plus completion-commit Git and PR-attribution footer rendering
+  (`git log`, index staging via `GIT_INDEX_FILE`, `commit-tree`, `update-ref`), are awaited
+  (including `maxBuffer` and ignored stdio where applicable). Push, draft PR ensure, and
+  ready finalization remain synchronous on their own conversion slices.
+- **Unrelated IPC during pending run Git.** While a daemon-hosted run awaits any of the
+  Git subprocesses above, unrelated RPCs (`list`, `health`, steering, `wait`, `tail`, …)
+  still dispatch on the same event loop. `daemon-ipc-responsiveness-during-git.sandbox-unrunnable.test.ts`
+  holds a representative `withExternalWorktree` Git command at a signaled pending state,
+  proves `list` resolves before that command is released, then releases Git and completes
+  the run.
 
 ## Interface & IPC
 

@@ -24,10 +24,10 @@ function stage(repo: string, name = "one"): string {
 }
 
 describe("landIntentWorkflowOutput", () => {
-  test("lands one valid intent and removes staging", () => {
+  test("lands one valid intent and removes staging", async () => {
     const repo = createRepo();
     stage(repo);
-    const result = landIntentWorkflowOutput({
+    const result = await landIntentWorkflowOutput({
       worktreePath: repo,
       baseRef: "HEAD",
       output: { durableDir: "ready-intents" },
@@ -37,31 +37,31 @@ describe("landIntentWorkflowOutput", () => {
     expect(readFileSync(join(repo, "ready-intents", "one.md"), "utf8")).toContain("# one");
   });
 
-  test("rejects rogue edits and retains staging", () => {
+  test("rejects rogue edits and retains staging", async () => {
     const repo = createRepo();
     stage(repo);
     writeFileSync(join(repo, "rogue"), "no\n", "utf8");
-    expect(() =>
+    await expect(
       landIntentWorkflowOutput({ worktreePath: repo, baseRef: "HEAD", output: { durableDir: "ready-intents" } }),
-    ).toThrow("rogue");
+    ).rejects.toThrow("rogue");
     expect(readFileSync(join(repo, ".jarvis-intent-stage", "one.md"), "utf8")).toContain("name: one");
   });
 
-  test("rejects differing collisions without overwrite", () => {
+  test("rejects differing collisions without overwrite", async () => {
     const repo = createRepo();
     stage(repo);
     mkdirSync(join(repo, "ready-intents"), { recursive: true });
     writeFileSync(join(repo, "ready-intents", "one.md"), "other\n", "utf8");
-    expect(() =>
+    await expect(
       landIntentWorkflowOutput({ worktreePath: repo, baseRef: "HEAD", output: { durableDir: "ready-intents" } }),
-    ).toThrow("different contents");
+    ).rejects.toThrow("different contents");
     expect(readFileSync(join(repo, "ready-intents", "one.md"), "utf8")).toBe("other\n");
   });
 
-  test("lands output without git state", () => {
+  test("lands output without git state", async () => {
     const root = mkdtempSync(join(tmpdir(), "jarvis-intent-output-no-git-"));
     stage(root);
-    const result = landIntentWorkflowOutput({
+    const result = await landIntentWorkflowOutput({
       worktreePath: root,
       baseRef: "none",
       output: { durableDir: "ready-intents" },
@@ -71,13 +71,13 @@ describe("landIntentWorkflowOutput", () => {
     expect(existsSync(join(root, ".jarvis-intent-stage"))).toBe(false);
   });
 
-  test("rejects rogue edits without git state", () => {
+  test("rejects rogue edits without git state", async () => {
     const root = mkdtempSync(join(tmpdir(), "jarvis-intent-output-no-git-"));
     stage(root);
     writeFileSync(join(root, "rogue"), "no\n", "utf8");
-    expect(() =>
+    await expect(
       landIntentWorkflowOutput({ worktreePath: root, baseRef: "none", output: { durableDir: "ready-intents" } }),
-    ).toThrow("rogue");
+    ).rejects.toThrow("rogue");
     expect(readFileSync(join(root, ".jarvis-intent-stage", "one.md"), "utf8")).toContain("name: one");
   });
 });

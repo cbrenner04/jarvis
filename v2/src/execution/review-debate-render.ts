@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import {
@@ -11,6 +10,7 @@ import {
 import { assemblePromptForStep } from "../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { renderTemplateWithDeclarations } from "../../../shared/prompts/render.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
 import type { ReviewCycleRole, ReviewCycleRoleBindings } from "./review-cycle.ts";
 import type { ReviewDebateRole, ReviewDebateRoleBindings } from "./review-debate.ts";
@@ -148,25 +148,17 @@ function visitSpecFiles(dir: string, cwd: string, lines: string[]): void {
   }
 }
 
-function getBranchDiffSummary(cwd: string, baseBranch: string): string {
+async function getBranchDiffSummary(
+  cwd: string,
+  baseBranch: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<string> {
   try {
-    const mergeBase = execFileSync("git", ["merge-base", baseBranch, "HEAD"], {
-      cwd,
-      encoding: "utf8",
-      stdio: "pipe",
-    }).trim();
+    const mergeBase = (await runner.runAsync("git", ["merge-base", baseBranch, "HEAD"], cwd)).trim();
 
-    const stat = execFileSync("git", ["diff", "--stat", mergeBase, "HEAD"], {
-      cwd,
-      encoding: "utf8",
-      stdio: "pipe",
-    }).trim();
+    const stat = (await runner.runAsync("git", ["diff", "--stat", mergeBase, "HEAD"], cwd)).trim();
 
-    const paths = execFileSync("git", ["diff", "--name-only", mergeBase, "HEAD"], {
-      cwd,
-      encoding: "utf8",
-      stdio: "pipe",
-    })
+    const paths = (await runner.runAsync("git", ["diff", "--name-only", mergeBase, "HEAD"], cwd))
       .trim()
       .split("\n")
       .filter((line) => line.length > 0)
@@ -187,10 +179,13 @@ type PatchReviewPlaceholderContract = {
   values: Record<string, string>;
 };
 
-function buildPatchReviewPlaceholderContract(context: ReviewDebateRenderContext): PatchReviewPlaceholderContract {
+async function buildPatchReviewPlaceholderContract(
+  context: ReviewDebateRenderContext,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<PatchReviewPlaceholderContract> {
   const specPathAbs = context.specPath.startsWith("/") ? context.specPath : join(context.cwd, context.specPath);
   const specTree = buildSpecTree(dirname(specPathAbs), context.cwd);
-  const branchDiff = getBranchDiffSummary(context.cwd, context.baseBranch ?? "main");
+  const branchDiff = await getBranchDiffSummary(context.cwd, context.baseBranch ?? "main", runner);
   return {
     declarations: [
       { name: "SPEC_PATH", type: "string", required: true },
@@ -209,32 +204,37 @@ function buildPatchReviewPlaceholderContract(context: ReviewDebateRenderContext)
   };
 }
 
-function renderPatchReviewStepPrompt(
+async function renderPatchReviewStepPrompt(
   stepPromptId: string,
   context: ReviewDebateRenderContext,
   extra?: PatchReviewPlaceholderContract,
-): string {
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<string> {
   const registry = loadPromptRegistry();
   const template = assemblePromptForStep({
     registry,
     stepPromptId,
   });
-  const base = buildPatchReviewPlaceholderContract(context);
+  const base = await buildPatchReviewPlaceholderContract(context, runner);
   const declarations = [...base.declarations, ...(extra?.declarations ?? [])];
   const values = { ...base.values, ...(extra?.values ?? {}) };
   return renderTemplateWithDeclarations(template, declarations, values).trim();
 }
 
 /** Render the light patch review critic prompt from shared patch-review context. */
-export function renderPatchReviewCriticPrompt(context: ReviewDebateRenderContext): string {
-  return renderPatchReviewStepPrompt(PATCH_REVIEW_CRITIC_PROMPT_ID, context);
+export async function renderPatchReviewCriticPrompt(
+  context: ReviewDebateRenderContext,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<string> {
+  return renderPatchReviewStepPrompt(PATCH_REVIEW_CRITIC_PROMPT_ID, context, undefined, runner);
 }
 
-export function renderReviewDebateRolePrompt(
+export async function renderReviewDebateRolePrompt(
   role: ReviewDebateRenderRole,
   context: ReviewDebateRenderContext,
   priorRoleOutput?: string,
-): string {
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<string> {
   let extra: PatchReviewPlaceholderContract | undefined;
   if (role === "advocate") {
     extra = {
@@ -248,7 +248,7 @@ export function renderReviewDebateRolePrompt(
     };
   }
 
-  return renderPatchReviewStepPrompt(PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS[role], context, extra);
+  return renderPatchReviewStepPrompt(PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS[role], context, extra, runner);
 }
 
 export function renderReviewDebateActuatorPrompt(verdict: string, specPath: string): string {
@@ -263,13 +263,14 @@ export type ReviewDebateCyclePrompts = {
 };
 
 /** Render all three read-only role prompts for one cycle from optional prior-role stdout. */
-export function renderReviewDebateCyclePrompts(
+export async function renderReviewDebateCyclePrompts(
   context: ReviewDebateRenderContext,
   priorRoleOutputs: Partial<Record<ReviewDebateRenderRole, string>> = {},
-): ReviewDebateCyclePrompts {
-  const adversary = renderReviewDebateRolePrompt("adversary", context);
-  const advocate = renderReviewDebateRolePrompt("advocate", context, priorRoleOutputs.adversary);
-  const adjudicator = renderReviewDebateRolePrompt("adjudicator", context, priorRoleOutputs.advocate);
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<ReviewDebateCyclePrompts> {
+  const adversary = await renderReviewDebateRolePrompt("adversary", context, undefined, runner);
+  const advocate = await renderReviewDebateRolePrompt("advocate", context, priorRoleOutputs.adversary, runner);
+  const adjudicator = await renderReviewDebateRolePrompt("adjudicator", context, priorRoleOutputs.advocate, runner);
   return { adversary, advocate, adjudicator };
 }
 
@@ -403,7 +404,7 @@ export async function executePatchReviewCycle(
       break;
     }
 
-    const criticPrompt = renderPatchReviewCriticPrompt(renderContext);
+    const criticPrompt = await renderPatchReviewCriticPrompt(renderContext);
     const critic = await invokePatchLightReviewRole(args, "critic", criticPrompt, args.bindings.critic);
     roleResults.critic = critic;
     const criticFailure = patchReviewFailureKind(critic);
@@ -463,7 +464,7 @@ export async function executePatchReviewDebate(args: PatchReviewDebateInput): Pr
   for (let cycle = 0; cycle < args.maxCycles; cycle += 1) {
     const roleResults: Partial<Record<ReviewDebateRole, InvocationExecution>> = {};
 
-    const adversaryPrompt = renderReviewDebateRolePrompt("adversary", renderContext);
+    const adversaryPrompt = await renderReviewDebateRolePrompt("adversary", renderContext);
     const adversary = await invokePatchReviewRole(args, "adversary", adversaryPrompt, args.bindings.adversary);
     roleResults.adversary = adversary;
     const adversaryFailure = patchReviewFailureKind(adversary);
@@ -479,7 +480,7 @@ export async function executePatchReviewDebate(args: PatchReviewDebateInput): Pr
     }
 
     const adversaryStdout = (adversary.final?.result as InvocationOk).stdout;
-    const advocatePrompt = renderReviewDebateRolePrompt("advocate", renderContext, adversaryStdout);
+    const advocatePrompt = await renderReviewDebateRolePrompt("advocate", renderContext, adversaryStdout);
     const advocate = await invokePatchReviewRole(args, "advocate", advocatePrompt, args.bindings.advocate);
     roleResults.advocate = advocate;
     const advocateFailure = patchReviewFailureKind(advocate);
@@ -495,7 +496,7 @@ export async function executePatchReviewDebate(args: PatchReviewDebateInput): Pr
     }
 
     const advocateStdout = (advocate.final?.result as InvocationOk).stdout;
-    const adjudicatorPrompt = renderReviewDebateRolePrompt("adjudicator", renderContext, advocateStdout);
+    const adjudicatorPrompt = await renderReviewDebateRolePrompt("adjudicator", renderContext, advocateStdout);
     const adjudicator = await invokePatchReviewRole(args, "adjudicator", adjudicatorPrompt, args.bindings.adjudicator);
     roleResults.adjudicator = adjudicator;
     const adjudicatorFailure = patchReviewFailureKind(adjudicator);

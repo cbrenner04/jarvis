@@ -1,9 +1,9 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { parseSpec } from "../../../shared/spec-parser.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import {
   type AgentModelConfig,
   resolveExecutableRole,
@@ -641,12 +641,14 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     if (publicationAgent !== undefined && completionStep?.intentOutput !== undefined && !isReviewLastStep) {
       const worktreePath = getExternalWorktreePath(completionStep.worktree);
       try {
-        publicationSpecPath = landIntentWorkflowOutput({
-          worktreePath,
-          baseRef: completionStep.worktree.baseRef,
-          output: completionStep.intentOutput,
-          invocationId: workflowSnapshot.invocationId,
-        }).specPath;
+        publicationSpecPath = (
+          await landIntentWorkflowOutput({
+            worktreePath,
+            baseRef: completionStep.worktree.baseRef,
+            output: completionStep.intentOutput,
+            invocationId: workflowSnapshot.invocationId,
+          })
+        ).specPath;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         store.setRunStatus(lastResult.runId, "failed");
@@ -666,7 +668,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         const worktree = completionStep.worktree;
         const worktreePath = getExternalWorktreePath(worktree);
         try {
-          const published = (args.completionCommitter ?? createCompletionCommitter())({
+          const published = await (args.completionCommitter ?? createCompletionCommitter())({
             worktreePath,
             baseRef: worktree.baseRef,
             specPath: publicationSpecPath ?? completionStep.specPath,
@@ -1121,7 +1123,7 @@ async function runShrinkAfterImplementComplete(
     stepId: `${step.stepId}${SHRINK_STEP_ID_SUFFIX}`,
     role: SHRINK_ROLE,
     promptId: SHRINK_PROMPT_ID,
-    promptPlaceholders: shrinkPromptPlaceholders(step),
+    promptPlaceholders: await shrinkPromptPlaceholders(step),
   };
   const preparedStep = prepareWorkflowStep(shrinkStep, workflowSnapshot, store, logSink, telemetry);
   if (preparedStep.kind === "completed") {
@@ -1144,21 +1146,23 @@ async function runShrinkAfterImplementComplete(
   );
 }
 
-function shrinkPromptPlaceholders(step: WriteWorkflowStep): Record<string, string> {
+async function shrinkPromptPlaceholders(
+  step: WriteWorkflowStep,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<Record<string, string>> {
   const worktreePath = getExternalWorktreePath(step.worktree);
-  const allowlist = changedFiles(worktreePath, step.worktree.baseRef);
+  const allowlist = await changedFiles(worktreePath, step.worktree.baseRef, runner);
   return {
     SPEC_PATH: step.specPath,
     SPEC_TREE: readSpecTree(worktreePath, step.specPath),
     ALLOWLIST: (allowlist.length > 0 ? allowlist : [step.expectedArtifactPath]).map((path) => `- ${path}`).join("\n"),
-    BRANCH_DIFF: gitOutput(worktreePath, ["diff", "--stat", step.worktree.baseRef, "--"]) || "(empty)",
+    BRANCH_DIFF: (await gitOutput(worktreePath, ["diff", "--stat", step.worktree.baseRef, "--"], runner)) || "(empty)",
     RUN_SCOPED_DIFF:
-      gitOutput(worktreePath, [
-        "diff",
-        step.worktree.baseRef,
-        "--",
-        ...(allowlist.length > 0 ? allowlist : [step.expectedArtifactPath]),
-      ]) || "(empty)",
+      (await gitOutput(
+        worktreePath,
+        ["diff", step.worktree.baseRef, "--", ...(allowlist.length > 0 ? allowlist : [step.expectedArtifactPath])],
+        runner,
+      )) || "(empty)",
   };
 }
 
@@ -1192,17 +1196,27 @@ function listMarkdownFiles(dir: string): string[] {
   return files;
 }
 
-function changedFiles(worktreePath: string, baseRef: string): string[] {
-  return gitOutput(worktreePath, ["diff", "--name-only", baseRef, "--"])
+async function changedFiles(
+  worktreePath: string,
+  baseRef: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<string[]> {
+  return (await gitOutput(worktreePath, ["diff", "--name-only", baseRef, "--"], runner))
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
 }
 
-function gitOutput(worktreePath: string, args: readonly string[]): string {
+const GIT_OUTPUT_MAX_BUFFER = 10 * 1024 * 1024;
+
+async function gitOutput(
+  worktreePath: string,
+  args: readonly string[],
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<string> {
   if (!existsSync(join(worktreePath, ".git"))) return "";
   try {
-    return execFileSync("git", args, { cwd: worktreePath, encoding: "utf8", maxBuffer: 10 * 1024 * 1024 }).trim();
+    return (await runner.runAsync("git", [...args], worktreePath, { maxBuffer: GIT_OUTPUT_MAX_BUFFER })).trim();
   } catch {
     return "";
   }
@@ -1361,11 +1375,11 @@ function findReviewLandingCheckpoint(
  * Exclude the verdict file from staging, run final validation + transactional landing, then
  * remove the verdict. Returns an error message on failure, or undefined on success.
  */
-function landReviewedIntentOutput(
+async function landReviewedIntentOutput(
   worktreePath: string,
   deferred: NonNullable<ReviewWorkflowStep["deferredIntentOutput"]>,
   verdictPath: string,
-): string | undefined {
+): Promise<string | undefined> {
   const ownerPath = `${verdictPath}.owner`;
   const verdict = existsSync(verdictPath) ? readFileSync(verdictPath, "utf8") : undefined;
   const owner = existsSync(ownerPath) ? readFileSync(ownerPath, "utf8") : undefined;
@@ -1374,7 +1388,7 @@ function landReviewedIntentOutput(
     if (owner !== undefined) {
       rmSync(ownerPath, { force: true });
     }
-    landIntentWorkflowOutput({
+    await landIntentWorkflowOutput({
       worktreePath,
       baseRef: deferred.baseRef,
       output: deferred.config,
@@ -1397,15 +1411,15 @@ function reviewCompletionAgent(run: NonNullable<ReturnType<StateStore["findRunBy
   return undefined;
 }
 
-function finishReviewedIntentLanding(
+async function finishReviewedIntentLanding(
   step: ReviewWorkflowStep,
   deferred: NonNullable<ReviewWorkflowStep["deferredIntentOutput"]>,
   runId: string,
   store: StateStore,
   completionAgent: string | undefined,
-): ReviewStepOutcome {
+): Promise<ReviewStepOutcome> {
   const attemptId = store.recordAttemptStart(runId);
-  const landingError = landReviewedIntentOutput(step.cwd, deferred, step.verdictPath);
+  const landingError = await landReviewedIntentOutput(step.cwd, deferred, step.verdictPath);
   if (landingError !== undefined) {
     store.commitCompletionBoundary({
       attemptId,
@@ -1609,7 +1623,7 @@ async function runStandardReviewStep(
   telemetry: WorkflowTelemetryContext | undefined,
   store: StateStore,
 ): Promise<ReviewStepOutcome> {
-  const { stepId, project, branch } = step;
+  const { stepId } = step;
   const reviewCycleInput: ReviewCycleInput = {
     ...reviewInput,
     bindings,
@@ -1688,7 +1702,7 @@ async function runStandardReviewStep(
     outcomeKind: "done",
     ...(completionAgent ? { completionAgent } : {}),
   });
-  const landing = finishReviewedIntentLanding(step, deferredIntentOutput, ids.runId, store, completionAgent);
+  const landing = await finishReviewedIntentLanding(step, deferredIntentOutput, ids.runId, store, completionAgent);
   return { ...landing, iterationsConsumed: result.cycles.length };
 }
 
@@ -1709,7 +1723,7 @@ async function runReviewStep(
     const checkpoint = findReviewLandingCheckpoint(store, step);
     if (checkpoint !== undefined) {
       onStepRunCreated?.(stepIndex, checkpoint.id);
-      return finishReviewedIntentLanding(
+      return await finishReviewedIntentLanding(
         step,
         deferredIntentOutput,
         checkpoint.id,

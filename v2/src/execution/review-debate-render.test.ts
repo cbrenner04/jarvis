@@ -73,10 +73,10 @@ describe("PATCH_REVIEW_CRITIC_PROMPT_ID", () => {
 });
 
 describe("renderPatchReviewCriticPrompt", () => {
-  test("injects spec tree, branch diff, and pass context from shared patch-review sources", () => {
+  test("injects spec tree, branch diff, and pass context from shared patch-review sources", async () => {
     const { dir, specPath, cleanup } = setupPatchReviewRepo();
     try {
-      const prompt = renderPatchReviewCriticPrompt(
+      const prompt = await renderPatchReviewCriticPrompt(
         baseContext(dir, specPath, {
           totalPasses: 2,
           passNumber: 2,
@@ -114,10 +114,10 @@ describe("PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS", () => {
 });
 
 describe("renderReviewDebateRolePrompt", () => {
-  test("injects spec tree, branch diff, and pass number", () => {
+  test("injects spec tree, branch diff, and pass number", async () => {
     const { dir, specPath, cleanup } = setupPatchReviewRepo();
     try {
-      const prompt = renderReviewDebateRolePrompt(
+      const prompt = await renderReviewDebateRolePrompt(
         "adversary",
         baseContext(dir, specPath, { totalPasses: 2, passNumber: 2 }),
       );
@@ -135,11 +135,11 @@ describe("renderReviewDebateRolePrompt", () => {
 });
 
 describe("renderReviewDebateCyclePrompts", () => {
-  test("chains prior-role output within a cycle", () => {
+  test("chains prior-role output within a cycle", async () => {
     const { dir, specPath, cleanup } = setupPatchReviewRepo();
     try {
       const context = baseContext(dir, specPath);
-      const prompts = renderReviewDebateCyclePrompts(context, {
+      const prompts = await renderReviewDebateCyclePrompts(context, {
         adversary: "Missing edge case in parser",
         advocate: "Parser scope excludes that path by design",
       });
@@ -153,12 +153,12 @@ describe("renderReviewDebateCyclePrompts", () => {
     }
   });
 
-  test("carries prior cycle verdict into the next cycle adversary render", () => {
+  test("carries prior cycle verdict into the next cycle adversary render", async () => {
     const { dir, specPath, cleanup } = setupPatchReviewRepo();
     try {
       const cycleOne = baseContext(dir, specPath, { passNumber: 1, totalPasses: 2 });
       const cycleTwo = nextReviewDebateCycleContext(cycleOne, "Tighten error handling on empty input");
-      const prompt = renderReviewDebateRolePrompt("adversary", cycleTwo);
+      const prompt = await renderReviewDebateRolePrompt("adversary", cycleTwo);
 
       expect(prompt).toContain("This is review pass 2 of 2.");
       expect(prompt).toContain("Prior cycle verdict:");

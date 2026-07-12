@@ -13,7 +13,7 @@ describe("extractNarrative", () => {
 });
 
 describe("refreshPrBody", () => {
-  test("composes header + preserved narrative + footer when markers and footer present", () => {
+  test("composes header + preserved narrative + footer when markers and footer present", async () => {
     const humanEditedNarrative = "Human edited narrative\nMultiple lines here";
     const currentBody = [
       "Spec: stale",
@@ -26,7 +26,7 @@ describe("refreshPrBody", () => {
     ].join("\n");
 
     let writtenBody = "";
-    refreshPrBody({
+    await refreshPrBody({
       specPath: "v2/spec/test/index.md",
       branch: "feature",
       base: "main",
@@ -35,7 +35,7 @@ describe("refreshPrBody", () => {
       writePrBody: (_branch, body) => {
         writtenBody = body;
       },
-      renderFooter: () => "- abc Foo \u2014 Agent X\n\nWritten by Agent X through Jarvis.",
+      renderFooter: async () => "- abc Foo \u2014 Agent X\n\nWritten by Agent X through Jarvis.",
     });
 
     expect(writtenBody).toBe(
@@ -55,9 +55,9 @@ describe("refreshPrBody", () => {
     );
   });
 
-  test("omits footer separator when renderFooter returns empty string", () => {
+  test("omits footer separator when renderFooter returns empty string", async () => {
     let writtenBody = "";
-    refreshPrBody({
+    await refreshPrBody({
       specPath: "v2/spec/test/index.md",
       branch: "feature",
       base: "main",
@@ -66,16 +66,16 @@ describe("refreshPrBody", () => {
       writePrBody: (_branch, body) => {
         writtenBody = body;
       },
-      renderFooter: () => "",
+      renderFooter: async () => "",
     });
 
     expect(writtenBody).toBe("Spec: v2/spec/test/index.md");
     expect(writtenBody).not.toContain("---");
   });
 
-  test("uses regenerated header without markers when narrative is absent", () => {
+  test("uses regenerated header without markers when narrative is absent", async () => {
     let writtenBody = "";
-    refreshPrBody({
+    await refreshPrBody({
       specPath: "v2/spec/test/index.md",
       branch: "feature",
       base: "main",
@@ -84,7 +84,7 @@ describe("refreshPrBody", () => {
       writePrBody: (_branch, body) => {
         writtenBody = body;
       },
-      renderFooter: () => "- abc Foo \u2014 Agent A\n\nWritten by Agent A through Jarvis.",
+      renderFooter: async () => "- abc Foo \u2014 Agent A\n\nWritten by Agent A through Jarvis.",
     });
 
     expect(writtenBody).toBe(
@@ -100,10 +100,10 @@ describe("refreshPrBody", () => {
     );
   });
 
-  test("passes branch and cwd through to writer", () => {
+  test("passes branch and cwd through to writer", async () => {
     let seenBranch = "";
     let seenCwd = "";
-    refreshPrBody({
+    await refreshPrBody({
       specPath: "v2/spec/test/index.md",
       branch: "feature-x",
       base: "main",
@@ -113,15 +113,15 @@ describe("refreshPrBody", () => {
         seenBranch = branch;
         seenCwd = cwd;
       },
-      renderFooter: () => "",
+      renderFooter: async () => "",
     });
 
     expect(seenBranch).toBe("feature-x");
     expect(seenCwd).toBe("/tmp/worktree");
   });
 
-  test("surfaces gh failures as thrown errors", () => {
-    expect(() =>
+  test("surfaces gh failures as thrown errors", async () => {
+    await expect(
       refreshPrBody({
         specPath: "v2/spec/test/index.md",
         branch: "feature",
@@ -131,8 +131,8 @@ describe("refreshPrBody", () => {
         writePrBody: () => {
           throw new Error("gh pr edit failed");
         },
-        renderFooter: () => "",
+        renderFooter: async () => "",
       }),
-    ).toThrow("gh pr edit failed");
+    ).rejects.toThrow("gh pr edit failed");
   });
 });

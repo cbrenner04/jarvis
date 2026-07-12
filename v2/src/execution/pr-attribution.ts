@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 
 const SUBSPEC_FIRST_BODY_LINE_PREFIX = "Spec: ";
 const COMMIT_FIELD_SEP = "\x1f";
@@ -12,18 +12,23 @@ export type CommitInfo = {
   jarvisAgentTrailers: string[];
 };
 
-type Git = (cwd: string, args: readonly string[]) => string;
+type Git = (cwd: string, args: readonly string[]) => Promise<string>;
 
-function defaultGit(cwd: string, args: readonly string[]): string {
-  return execFileSync("git", args, { cwd, env: process.env, encoding: "utf8" });
+function defaultGit(cwd: string, args: readonly string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile("git", args, { cwd, env: process.env, encoding: "utf8" }, (error, stdout) => {
+      if (error) reject(error);
+      else resolve(stdout ?? "");
+    });
+  });
 }
 
 /** Read commits on the current branch ahead of `base` for attribution rendering. */
-export function readBranchCommits(opts: { cwd: string; base: string; git?: Git }): CommitInfo[] {
+export async function readBranchCommits(opts: { cwd: string; base: string; git?: Git }): Promise<CommitInfo[]> {
   const git = opts.git ?? defaultGit;
   let output: string;
   try {
-    output = git(opts.cwd, [
+    output = await git(opts.cwd, [
       "log",
       "--reverse",
       `--format=%h${COMMIT_FIELD_SEP}%s${COMMIT_FIELD_SEP}%(trailers:key=Jarvis-Agent,valueonly=true,separator=%x02)${COMMIT_FIELD_SEP}%b${COMMIT_RECORD_SEP}`,
@@ -103,8 +108,8 @@ function getSubspecCommits(commits: CommitInfo[]): CommitInfo[] {
 }
 
 /** Render the PR-body attribution footer from `Jarvis-Agent` trailers on qualifying commits. */
-export function renderAttribution(opts: { cwd: string; base: string; git?: Git }): string {
-  const commits = readBranchCommits(opts);
+export async function renderAttribution(opts: { cwd: string; base: string; git?: Git }): Promise<string> {
+  const commits = await readBranchCommits(opts);
   const subspecCommits = getSubspecCommits(commits);
   if (subspecCommits.length === 0) {
     return "";

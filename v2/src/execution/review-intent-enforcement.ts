@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import {
   copyFileSync,
   existsSync,
@@ -11,7 +10,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
-import { isGitRepo } from "../../../shared/git.ts";
+import { isGitRepoAsync } from "../../../shared/git.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { ReviewCycleInput, ReviewCycleResult } from "./review-cycle.ts";
 import { executeReviewCycle } from "./review-cycle.ts";
 
@@ -57,12 +57,12 @@ function listFiles(root: string, dir: string = root, out: string[] = []): string
   return out;
 }
 
-function gitStatusPaths(cwd: string): Set<string> {
+async function gitStatusPaths(
+  cwd: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<Set<string>> {
   const current = new Set<string>();
-  const status = execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], {
-    cwd,
-    encoding: "utf8",
-  }).trim();
+  const status = (await runner.runAsync("git", ["status", "--porcelain", "--untracked-files=all"], cwd)).trim();
   if (status.length > 0) {
     status.split("\n").forEach((line) => {
       const path = line.slice(3).trim();
@@ -82,8 +82,8 @@ export type TreeSnapshot = { kind: "git" } | { kind: "fs"; backupDir: string; fi
 /**
  * Snapshot the working tree so later changes can be detected and, if unauthorized, undone.
  */
-export function snapshotWorkingTree(cwd: string): TreeSnapshot {
-  if (isGitRepo(cwd)) return { kind: "git" };
+export async function snapshotWorkingTree(cwd: string): Promise<TreeSnapshot> {
+  if (await isGitRepoAsync(cwd)) return { kind: "git" };
   const backupDir = mkdtempSync(join(tmpdir(), "jarvis-review-backup-"));
   copyTree(cwd, backupDir);
   return { kind: "fs", backupDir, files: new Set(listFiles(cwd)) };
@@ -92,10 +92,14 @@ export function snapshotWorkingTree(cwd: string): TreeSnapshot {
 /**
  * Get paths that have changed since `before` was captured.
  */
-export function getChangedPaths(cwd: string, before: TreeSnapshot): Set<string> {
+export async function getChangedPaths(
+  cwd: string,
+  before: TreeSnapshot,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<Set<string>> {
   if (before.kind === "git") {
     try {
-      return gitStatusPaths(cwd);
+      return await gitStatusPaths(cwd, runner);
     } catch {
       return new Set();
     }
@@ -131,11 +135,15 @@ function readFileSafely(path: string): Buffer | undefined {
  * Restore the working tree to `before`, discarding all changes made since. Called after
  * critic or actuator boundary violations to enforce read-only/staging-only semantics.
  */
-export function restoreWorkingTree(cwd: string, before: TreeSnapshot): void {
+export async function restoreWorkingTree(
+  cwd: string,
+  before: TreeSnapshot,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<void> {
   if (before.kind === "git") {
     try {
-      execFileSync("git", ["checkout", "--", "."], { cwd, stdio: "ignore" });
-      execFileSync("git", ["clean", "-fd"], { cwd, stdio: "ignore" });
+      await runner.runAsync("git", ["checkout", "--", "."], cwd, { stdio: "ignore" });
+      await runner.runAsync("git", ["clean", "-fd"], cwd, { stdio: "ignore" });
     } catch {
       // Ignore restore failures; we'll fail the review on boundary violation detection.
     }
@@ -233,7 +241,7 @@ export async function executeReviewCycleEnforced(args: {
   }
 
   // Snapshot before any review cycle.
-  const beforeReview = snapshotWorkingTree(cwd);
+  const beforeReview = await snapshotWorkingTree(cwd);
 
   // Run the review cycle.
   const result = await executeReviewCycle(input);
@@ -241,7 +249,7 @@ export async function executeReviewCycleEnforced(args: {
   // After review, check if there were any boundary violations.
   if (result.kind === "complete") {
     // Critic should be read-only: no changes outside the verdict file.
-    const afterReview = getChangedPaths(cwd, beforeReview);
+    const afterReview = await getChangedPaths(cwd, beforeReview);
 
     // Filter out the verdict file, its owner marker, and the staging directory.
     const stagingPath = relative(cwd, stagingDir).replace(/\\/g, "/");
@@ -260,7 +268,7 @@ export async function executeReviewCycleEnforced(args: {
 
     if (unauthorizedChanges.length > 0) {
       // Unauthorized changes detected. Restore and fail.
-      restoreWorkingTree(cwd, beforeReview);
+      await restoreWorkingTree(cwd, beforeReview);
       discardSnapshot(beforeReview);
       return {
         result,

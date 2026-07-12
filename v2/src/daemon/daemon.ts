@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { isWorktreeDirty } from "../../../shared/git.ts";
+import { isWorktreeDirtyAsync } from "../../../shared/git.ts";
 import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
 import { resolveMachineProfile } from "../config/machine-config-loader.ts";
@@ -210,7 +210,7 @@ export type RunControlHandlerDeps = {
   writeLoopExecutor: (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => Promise<void>;
   failureReporter: (runId: string, reason: unknown) => void | Promise<void>;
   /** `revise`'s dirty-worktree gate; defaults to a real `git status --porcelain` check. */
-  isWorktreeDirty?: (worktreePath: string) => boolean;
+  isWorktreeDirty?: (worktreePath: string) => Promise<boolean>;
   /** `start`'s memory-watermark admission check; defaults to the real free-memory reader. */
   hasMemoryHeadroom?: () => boolean;
   /** Delay (ms) after promoting a queued run before the next promotion re-checks headroom; defaults to configured `memory.settleDelayMs`. */
@@ -316,7 +316,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     steps.set(stepId, progress);
   };
   const { stateStore: store, logReader, writeLoopExecutor, failureReporter, logsPath, operatorSessionId } = deps;
-  const checkWorktreeDirty = deps.isWorktreeDirty ?? isWorktreeDirty;
+  const checkWorktreeDirty = deps.isWorktreeDirty ?? isWorktreeDirtyAsync;
   const checkMemoryHeadroom = deps.hasMemoryHeadroom ?? (() => hasMemoryHeadroom(resolveMachineProfile()));
   const injectedSettleDelayMs = deps.settleDelayMs;
   const settleDelayMs: () => number =
@@ -661,11 +661,11 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     checkWorktreeClaimed,
   };
 
-  function resumeAwaitingHuman(
+  async function resumeAwaitingHuman(
     run: LoadedRun,
     decision: string | undefined,
     prompt: string | undefined,
-  ): { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string } {
+  ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> {
     if (decision === undefined) {
       return { kind: "error", code: "invalid_params", message: "Missing decision for awaiting-human run" };
     }
@@ -686,7 +686,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
 
     if (decision === "revise") {
-      return reviseAwaitingHuman(reviseReconvergeDeps, run, prompt);
+      return await reviseAwaitingHuman(reviseReconvergeDeps, run, prompt);
     }
 
     return { kind: "error", code: "invalid_params", message: `Unknown decision: ${decision}` };
@@ -779,7 +779,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return undefined;
   }
 
-  const resumeHandler: RpcHandler = (frame) => {
+  const resumeHandler: RpcHandler = async (frame) => {
     const params = frame.params as { runId?: string; decision?: string; prompt?: string } | undefined;
     if (!params?.runId) {
       return { kind: "error", code: "invalid_params", message: "Missing runId" };
@@ -792,7 +792,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
 
     if (run.status === "awaiting-human") {
-      return resumeAwaitingHuman(run, params.decision, params.prompt);
+      return await resumeAwaitingHuman(run, params.decision, params.prompt);
     }
 
     if (run.status === "revising") {
@@ -804,7 +804,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
           message: `Run ${runId} is revising; wait for it to re-converge to awaiting-human`,
         };
       }
-      return resumeAwaitingHuman(reconverged, params.decision, params.prompt);
+      return await resumeAwaitingHuman(reconverged, params.decision, params.prompt);
     }
 
     if (params.decision !== undefined) {

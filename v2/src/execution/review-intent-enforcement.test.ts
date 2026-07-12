@@ -61,7 +61,7 @@ describe("review-intent-enforcement", () => {
     expect(VERDICT_FILE).toBe(".jarvis-intent-review-verdict.md");
   });
 
-  test("git-enabled: getChangedPaths detects an edit outside the staging directory", () => {
+  test("git-enabled: getChangedPaths detects an edit outside the staging directory", async () => {
     const repo = dir();
     execFileSync("git", ["init", "-q"], { cwd: repo });
     execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repo });
@@ -70,58 +70,58 @@ describe("review-intent-enforcement", () => {
     execFileSync("git", ["add", "."], { cwd: repo });
     execFileSync("git", ["commit", "-qm", "base"], { cwd: repo });
 
-    const before = snapshotWorkingTree(repo);
+    const before = await snapshotWorkingTree(repo);
     writeFileSync(join(repo, "rogue.txt"), "unauthorized\n", "utf8");
-    const changed = getChangedPaths(repo, before);
+    const changed = await getChangedPaths(repo, before);
     expect(changed.has("rogue.txt")).toBe(true);
     discardSnapshot(before);
   });
 
-  test("git-disabled: getChangedPaths detects an edit outside the staging directory", () => {
+  test("git-disabled: getChangedPaths detects an edit outside the staging directory", async () => {
     const plain = dir();
     writeFileSync(join(plain, "tracked.txt"), "base\n", "utf8");
 
-    const before = snapshotWorkingTree(plain);
+    const before = await snapshotWorkingTree(plain);
     expect(before.kind).toBe("fs");
     writeFileSync(join(plain, "rogue.txt"), "unauthorized\n", "utf8");
-    const changed = getChangedPaths(plain, before);
+    const changed = await getChangedPaths(plain, before);
     expect(changed.has("rogue.txt")).toBe(true);
     discardSnapshot(before);
   });
 
-  test("git-disabled: getChangedPaths detects an in-place content edit", () => {
+  test("git-disabled: getChangedPaths detects an in-place content edit", async () => {
     const plain = dir();
     writeFileSync(join(plain, "tracked.txt"), "base\n", "utf8");
 
-    const before = snapshotWorkingTree(plain);
+    const before = await snapshotWorkingTree(plain);
     writeFileSync(join(plain, "tracked.txt"), "modified\n", "utf8");
-    const changed = getChangedPaths(plain, before);
+    const changed = await getChangedPaths(plain, before);
     expect(changed.has("tracked.txt")).toBe(true);
     discardSnapshot(before);
   });
 
-  test("git-disabled: restoreWorkingTree discards unauthorized changes", () => {
+  test("git-disabled: restoreWorkingTree discards unauthorized changes", async () => {
     const plain = dir();
     writeFileSync(join(plain, "tracked.txt"), "base\n", "utf8");
 
-    const before = snapshotWorkingTree(plain);
+    const before = await snapshotWorkingTree(plain);
     writeFileSync(join(plain, "tracked.txt"), "modified\n", "utf8");
     writeFileSync(join(plain, "rogue.txt"), "unauthorized\n", "utf8");
-    restoreWorkingTree(plain, before);
+    await restoreWorkingTree(plain, before);
     discardSnapshot(before);
 
     expect(readFileSync(join(plain, "tracked.txt"), "utf8")).toBe("base\n");
     expect(existsSync(join(plain, "rogue.txt"))).toBe(false);
   });
 
-  test("git-disabled: getChangedPaths allows edits confined to the staging directory", () => {
+  test("git-disabled: getChangedPaths allows edits confined to the staging directory", async () => {
     const plain = dir();
     const stagingDir = join(plain, ".jarvis-intent-stage");
     mkdirSync(stagingDir, { recursive: true });
 
-    const before = snapshotWorkingTree(plain);
+    const before = await snapshotWorkingTree(plain);
     writeFileSync(join(stagingDir, "one.md"), "content\n", "utf8");
-    const changed = getChangedPaths(plain, before);
+    const changed = await getChangedPaths(plain, before);
     expect(Array.from(changed)).toEqual([".jarvis-intent-stage/one.md"]);
     discardSnapshot(before);
     rmSync(plain, { recursive: true, force: true });

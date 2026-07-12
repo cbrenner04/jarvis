@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SubprocessRunner } from "../../../shared/subprocess.ts";
+import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { trackedTempRoots } from "../testing/write-fixtures.ts";
 import {
   getExternalWorktreeLockPath,
@@ -41,9 +41,9 @@ function registerRepo(state: FakeGitState, projectRoot: string): void {
   });
 }
 
-function createWorktreeRunner(state: FakeGitState): SubprocessRunner {
+function createWorktreeRunner(state: FakeGitState): AsyncSubprocessRunner {
   return {
-    run(cmd, args, cwd) {
+    async runAsync(cmd, args, cwd) {
       if (cmd !== "git") throw new Error(`unexpected cmd ${cmd}`);
       const [subcmd, ...rest] = args;
 
@@ -117,7 +117,7 @@ function createWorktreeRunner(state: FakeGitState): SubprocessRunner {
   };
 }
 
-function setupMockRepo(): { repoRoot: string; jarvisRoot: string; runner: SubprocessRunner } {
+function setupMockRepo(): { repoRoot: string; jarvisRoot: string; runner: AsyncSubprocessRunner } {
   const root = mkdtempSync(join(tmpdir(), "jarvis-v2-worktree-mock-"));
   roots.push(root);
   const repoRoot = join(root, "repo");
@@ -211,7 +211,7 @@ describe("external worktree helper", () => {
     const { repoRoot, jarvisRoot, runner } = setupMockRepo();
 
     const result = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => undefined, runner);
-    runner.run("git", ["checkout", "-b", "other-branch"], result.worktree.path);
+    await runner.runAsync("git", ["checkout", "-b", "other-branch"], result.worktree.path);
 
     await expect(withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "never", runner)).rejects.toThrow(
       "is on branch other-branch, expected write-run",

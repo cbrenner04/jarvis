@@ -58,11 +58,7 @@ export function getActiveLinkedSubspecPath(indexPath: string): string | undefine
   return resolve(dirname(indexPath), firstUncheckedLinked.path);
 }
 
-/**
- * Check if any linked subspec has a blocker. Used during fix-up iterations
- * where there's no active unchecked subspec but we still need to detect blockers.
- * Returns the path and body of the first subspec with a blocker, or undefined.
- */
+/** Returns the first linked subspec blocker, if any. */
 export function findBlockerInLinkedSubspecs(indexPath: string): { path: string; body: string } | undefined {
   const parsed = parseSpec(readSpec(indexPath));
   const baseDir = dirname(indexPath);

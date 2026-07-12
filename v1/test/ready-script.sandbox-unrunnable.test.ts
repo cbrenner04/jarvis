@@ -164,7 +164,8 @@ describe("ready tier parsing and step lists", () => {
     const pkg = JSON.parse(readFileSync("./package.json", "utf8")) as {
       scripts?: Record<string, string>;
     };
-    expect(pkg.scripts?.check).toBe("bun biome check .");
+    // `check` also carries the daemon sync-subprocess guard; biome still runs via bun's binary.
+    expect(pkg.scripts?.check).toBe("bun biome check . && bun run scripts/guard-sync-child-processes.ts");
     expect(pkg.scripts?.["check:fix"]).toBe("bun biome check --write .");
     expect(pkg.scripts?.["check:fix:unsafe"]).toBe("bun biome check --write --unsafe .");
     expect(pkg.scripts?.format).toBe("bun biome format --write .");

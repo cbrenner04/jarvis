@@ -51,6 +51,14 @@ Expect `noRestrictedImports` on the v1 import.
 
 Tests must be deterministic and sandbox-runnable by default. See [`test-writing.md`](./test-writing.md) for agent-runnable test conventions (dependency injection seams instead of spawning real processes or depending on wall-clock timing) and how to mark the rare real-process/real-clock exception.
 
+## Synchronous subprocesses
+
+`v2/**` and `shared/**` may not introduce synchronous child processes. The
+only allowlisted module is `shared/subprocess.ts`, the v1 CLI-only synchronous
+runner seam; new allowlist entries need a CLI-only reason. `bun run check`
+enforces this, including v2 imports of synchronous runner seams and Git helpers.
+Small synchronous filesystem reads remain permitted.
+
 ## Referenced documents
 
 - [`Source layout`](./v2-architecture.md#source-layout) — domain map and import direction

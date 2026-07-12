@@ -75,11 +75,12 @@ re-edits the same PR. Post-completion ordering: push+PR → body refresh → rea
 gate → draft→ready flip (gate/flip in a separate finalization boundary).
 
 **Ready finalization:** after publication (including body refresh) succeeds, a
-separate retryable boundary runs while the PR remains draft: (1) the ready gate
-in the completed run's worktree, then (2) `gh pr ready <branch>`. The default
-gate command is `bun run ready`; any non-zero exit is a gate failure (missing
-and red gate scripts are not distinguished). The gate runs unbounded. On green,
-the flip calls `gh pr ready <branch>` through the same bounded transient-retry
+separate retryable boundary awaits (1) the ready gate in the completed run's
+worktree, then (2) `gh pr ready <branch>`. The default gate command is `bun run
+ready`; any non-zero exit is a gate failure (missing and red gate scripts are
+not distinguished), reported as `ready gate failed (exit N): <stderr>`. The
+gate runs unbounded. On green, the awaited flip calls `gh pr ready <branch>`
+through the same bounded transient-retry
 seam as publication (3 total attempts, flat 1000 ms backoff). Before the
 transient classifier, the flip treats exit-0 (including empty output), and any
 thrown `gh` error whose combined stdout+stderr contains (case-insensitive)

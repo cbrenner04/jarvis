@@ -31,17 +31,17 @@ export function listPlanSpecMarkdownPaths(specDirPath: string): string[] {
  * Lint-clean generated plan spec markdown before the ready gate.
  * Applies MD018 guard, markdownlint autofix, then re-strips non-contract index lines when committing.
  */
-export function repairPlanSpecMarkdown(args: {
+export async function repairPlanSpecMarkdown(args: {
   specDirPath: string;
   commit: boolean;
   warn: (message: string) => void;
-}): void {
+}): Promise<void> {
   const files = listPlanSpecMarkdownPaths(args.specDirPath);
   for (const path of files) {
     applyIssueReferenceGuard(path);
   }
 
-  runMarkdownlintAutofix({ files, warn: args.warn });
+  await runMarkdownlintAutofix({ files, warn: args.warn });
 
   if (args.commit) {
     stripNonContractIndexLines({

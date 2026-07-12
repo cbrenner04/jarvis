@@ -1382,6 +1382,31 @@ describe("v2 cli", () => {
     });
   });
 
+  test("run workflow implement ignores an unresolved registry root unrelated to the spec", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
+    writeFileSync(join(root, "index.md"), "# Index\n", "utf8");
+    const cap = captureIo();
+
+    const code = await withFixedUuid("00000000-0000-4000-8000-000000000022", () =>
+      main(
+        ["run", "workflow", "implement", "--base", "main", "--spec", "index.md"],
+        cap.io,
+        {
+          cwd: () => root,
+          readProjectRegistry: () => ({ stale: { root: join(root, "missing") }, project: { root } }),
+          workflowPresetBuilders: { implement: () => ({ ok: true, steps: FAKE_IMPLEMENT_STEPS }) },
+          connectIpcClient: async () =>
+            makeIpcClient([
+              { kind: "response", id: "00000000-0000-4000-8000-000000000022", result: { runId: "run-1" } },
+            ]),
+        },
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "run-1\n", stderr: "" });
+  });
+
   test("run workflow implement ignores --artifact for index specs", async () => {
     const root = mkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
     writeFileSync(join(root, "index.md"), "# Index\n", "utf8");

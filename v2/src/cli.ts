@@ -730,15 +730,14 @@ function resolveImplementWorkflowInput(
   if (typeof resolvedSpecPath === "object") return resolvedSpecPath;
 
   const registry = readProjectRegistry();
-  const resolvedRegistry: Record<string, { root: string; origin?: string }> = {};
-  for (const [key, project] of Object.entries(registry)) {
-    const root = resolveExistingImplementPath("Registered project root", project.root);
-    if (typeof root === "object") return root;
-    resolvedRegistry[key] = { root, ...(project.origin !== undefined ? { origin: project.origin } : {}) };
+  const lexicalMatch = findProjectMatch(requestedSpecPath, registry) ?? findProjectMatch(resolvedSpecPath, registry);
+  if (lexicalMatch === undefined) {
+    return { ok: false, error: `Spec path outside registered project roots: ${resolvedSpecPath}` };
   }
-  const match = findProjectMatch(resolvedSpecPath, resolvedRegistry);
-
-  if (match === undefined) {
+  const root = resolveExistingImplementPath("Registered project root", lexicalMatch.root);
+  if (typeof root === "object") return root;
+  const match = { ...lexicalMatch, root };
+  if (findProjectMatch(resolvedSpecPath, { [match.key]: { root: match.root } }) === undefined) {
     return { ok: false, error: `Spec path outside registered project roots: ${resolvedSpecPath}` };
   }
 

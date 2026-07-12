@@ -224,6 +224,16 @@ function isWriteStep(step: AnyWorkflowStep): step is WriteWorkflowStep {
   return step.behavior === "write";
 }
 
+/** Telemetry `workflow` label inferred from the first write step in a preset. */
+export function workflowTelemetryLabel(steps: readonly AnyWorkflowStep[]): string {
+  const writeStep = steps.find(isWriteStep);
+  if (writeStep === undefined) return "workflow";
+  if (writeStep.promptId === "intent.prompt.split") return "intent";
+  if (writeStep.role === "implement") return "implement";
+  if (writeStep.promptId === "plan.prompt.draft") return "plan";
+  return writeStep.stepId;
+}
+
 /** Validate preset step count and return the supplied steps unchanged. */
 export function resolveWorkflowPreset(
   name: WorkflowPresetName,

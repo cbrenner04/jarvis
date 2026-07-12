@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding, InvocationResult } from "../../../shared/invocation/execute.ts";
@@ -9,6 +9,7 @@ import type {
   ReviewDebateWorkflowStep,
   WriteWorkflowStep,
 } from "../execution/workflow-runner.ts";
+import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
@@ -166,6 +167,42 @@ test("start with steps dispatches to executeWorkflow and returns step 0's runId"
   const run = runId ? stateStore.loadRun(runId) : null;
   expect(run?.project).toBe("demo");
   expect(run?.branch).toBe("workflow-branch");
+});
+
+test("start with steps appends observability log events when logsPath is configured", async () => {
+  const logsPath = join(tmpdir(), `jarvis-workflow-logs-${process.pid}-${Date.now()}.jsonl`);
+  const invalidTokenFactory = createBindingFactory(
+    async () => ({ kind: "ok", stdout: "prose without a terminal token", stderr: "" }) as const,
+  );
+  handlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => memoryHeadroom,
+    logsPath,
+    operatorSessionId: "workflow-log-test",
+  });
+
+  const steps: AnyWorkflowStep[] = [createWriteStep("step-1", "workflow-log-branch", invalidTokenFactory)];
+  const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
+  expect(response.kind).toBe("response");
+  const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
+  expect(runId).toBeTruthy();
+
+  await flushBackgroundRuns();
+  const records = openLogReader(logsPath).tail(runId as string);
+  expect(records.map((record) => record.event.kind)).toEqual([
+    "iteration_started",
+    "boundary_committed",
+    "invalid_token_detail",
+    "loop_finished",
+  ]);
+  const detail = records.find((record) => record.event.kind === "invalid_token_detail");
+  expect(detail?.event).toMatchObject({
+    kind: "invalid_token_detail",
+    tokenText: "prose without a terminal token",
+  });
+  rmSync(logsPath, { force: true });
 });
 
 test("start with steps returns an error rather than hanging when executeWorkflow fails before step 0's row is created", async () => {

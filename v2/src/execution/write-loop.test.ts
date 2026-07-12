@@ -388,6 +388,20 @@ describe("write loop", () => {
     expect(loadRunOnce(stateDbPath, result.runId)?.attempts[0]?.outcomeKind).toBe("invalid_token");
   });
 
+  test("invalid_token appends invalid_token_detail to the observability log", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
+
+    const result = await runLoop({ jarvisRoot, stateDbPath, bindings: invalidTokenBindings, logSink: sink });
+    const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+    expect(events).toContain("invalid_token_detail");
+    const detail = sink.getEventsForRun(result.runId).find((event) => event.kind === "invalid_token_detail");
+    expect(detail).toMatchObject({
+      kind: "invalid_token_detail",
+      tokenText: "not a terminal token",
+    });
+  });
+
   test("write-loop telemetry appends one row per binding attempt with shared run and attempt context", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const telemetryPath = join(jarvisRoot, "telemetry.jsonl");

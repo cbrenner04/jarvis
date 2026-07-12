@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
-import type { LogSink } from "../persistence/log-stream.ts";
+import { INVALID_TOKEN_LOG_MAX_CHARS, type LogSink } from "../persistence/log-stream.ts";
 import {
   type OutcomeKind,
   openStateStore,
@@ -227,6 +227,17 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         outcomeKind: terminal.outcomeKind,
         runStatus: terminal.runStatus,
       });
+      if (result.kind === "invalid_token") {
+        const tokenText = result.tokenText;
+        args.logSink?.append(runId, {
+          kind: "invalid_token_detail",
+          attemptId,
+          tokenText:
+            tokenText.length <= INVALID_TOKEN_LOG_MAX_CHARS
+              ? tokenText
+              : `${tokenText.slice(0, INVALID_TOKEN_LOG_MAX_CHARS)}…`,
+        });
+      }
 
       const boundaryStamp: BoundaryStamp = {
         runId,

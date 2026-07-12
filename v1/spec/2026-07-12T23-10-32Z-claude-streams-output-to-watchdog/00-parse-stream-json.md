@@ -32,15 +32,15 @@ terminal event instead of the whole buffer, before the invocation flips (01).
 
 ## Acceptance criteria
 
-- [ ] A claude stream-json transcript (init + assistant/tool events + terminal `result`
+- [x] A claude stream-json transcript (init + assistant/tool events + terminal `result`
       event) yields the same final text, token usage, and cost as the equivalent batch
       envelope.
-- [ ] A stream-json transcript whose terminal `result` event reports `is_error` with
+- [x] A stream-json transcript whose terminal `result` event reports `is_error` with
       `api_error_status: 429` and a quota message is classified as a zero-exit quota
       envelope.
-- [ ] A single-line batch envelope still parses (existing `v1/test/claude-json.test.ts`
+- [x] A single-line batch envelope still parses (existing `v1/test/claude-json.test.ts`
       cases stay green).
-- [ ] A transcript with no terminal `result` event returns the raw stdout as display text
+- [x] A transcript with no terminal `result` event returns the raw stdout as display text
       plus a warning, and no usage or cost.
 
 ## Documentation updates

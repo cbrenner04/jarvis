@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","session_id":"deadbeef-dead-beef-dead-beefdeadbeef"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"partial response"}]}}

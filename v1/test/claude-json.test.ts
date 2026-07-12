@@ -37,23 +37,20 @@ describe("parseClaudeJsonOutput", () => {
     const fixture = readFileSync(join(fixturesDir, "2.1.142-truncated.json"), "utf8");
     const result = parseClaudeJsonOutput(fixture);
 
-    // Truncated JSON is invalid, should return raw and warnings
     expect(result.displayText).toBe(fixture);
     expect(result.usage).toBeNull();
     expect(result.cost_usd).toBeNull();
-    expect(result.warnings.length).toBeGreaterThan(0);
-    expect(result.warnings[0]).toContain("JSON parse error");
+    expect(result.warnings).toEqual(["no terminal result event found"]);
   });
 
   test("handles malformed envelope", () => {
     const fixture = readFileSync(join(fixturesDir, "2.1.142-malformed.json"), "utf8");
     const result = parseClaudeJsonOutput(fixture);
 
-    // Malformed envelope: no result field
-    expect(result.displayText).toBe("");
+    expect(result.displayText).toBe(fixture);
     expect(result.usage).toBeNull();
     expect(result.cost_usd).toBeNull();
-    expect(result.warnings).toEqual([]);
+    expect(result.warnings).toEqual(["no terminal result event found"]);
   });
 
   test("extracts cost when total_cost_usd is present", () => {
@@ -88,6 +85,28 @@ describe("parseClaudeJsonOutput", () => {
     expect(result.displayText).toBe("");
     expect(result.usage).toBeTruthy();
   });
+
+  test("parses stream-json transcript matching batch envelope", () => {
+    const batch = parseClaudeJsonOutput(readFileSync(join(fixturesDir, "2.1.142-simple-prose.json"), "utf8"));
+    const stream = parseClaudeJsonOutput(
+      readFileSync(join(fixturesDir, "2.1.142-simple-prose-stream.ndjson"), "utf8"),
+    );
+
+    expect(stream.warnings).toEqual([]);
+    expect(stream.displayText).toBe(batch.displayText);
+    expect(stream.usage).toEqual(batch.usage);
+    expect(stream.cost_usd).toBe(batch.cost_usd);
+  });
+
+  test("returns raw stdout when stream-json has no terminal result event", () => {
+    const fixture = readFileSync(join(fixturesDir, "2.1.142-no-result-stream.ndjson"), "utf8");
+    const result = parseClaudeJsonOutput(fixture);
+
+    expect(result.displayText).toBe(fixture);
+    expect(result.usage).toBeNull();
+    expect(result.cost_usd).toBeNull();
+    expect(result.warnings).toEqual(["no terminal result event found"]);
+  });
 });
 
 describe("isClaudeZeroExitQuotaEnvelope", () => {
@@ -99,6 +118,11 @@ describe("isClaudeZeroExitQuotaEnvelope", () => {
   test("rejects successful prose envelope", () => {
     const fixture = readFileSync(join(fixturesDir, "2.1.142-simple-prose.json"), "utf8");
     expect(isClaudeZeroExitQuotaEnvelope(fixture)).toBe(false);
+  });
+
+  test("matches stream-json quota envelope", () => {
+    const fixture = readFileSync(join(fixturesDir, "2.1.142-monthly-spend-limit-stream.ndjson"), "utf8");
+    expect(isClaudeZeroExitQuotaEnvelope(fixture)).toBe(true);
   });
 
   test("rejects zero-exit error envelopes missing quota predicates", () => {

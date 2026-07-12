@@ -13,55 +13,88 @@ export type ClaudeParseResult = {
  * exhaustion (`is_error`, `api_error_status: 429`, and a quota message in `result`).
  */
 export function isClaudeZeroExitQuotaEnvelope(stdout: string): boolean {
-  try {
-    const envelope: unknown = JSON.parse(stdout);
-    if (envelope === null || typeof envelope !== "object" || Array.isArray(envelope)) {
-      return false;
-    }
-
-    const obj = envelope as Record<string, unknown>;
-    if (obj.is_error !== true || obj.api_error_status !== 429) {
-      return false;
-    }
-
-    const result = obj.result;
-    return typeof result === "string" && isClaudeQuotaMessageText(result);
-  } catch {
+  const { envelope } = findTerminalResultEvent(stdout);
+  if (envelope === null || typeof envelope !== "object" || Array.isArray(envelope)) {
     return false;
   }
+
+  const obj = envelope as Record<string, unknown>;
+  if (obj.is_error !== true || obj.api_error_status !== 429) {
+    return false;
+  }
+
+  const result = obj.result;
+  return typeof result === "string" && isClaudeQuotaMessageText(result);
 }
 
 // Parses Claude's JSON output envelope and extracts usage, cost, and display text.
 export function parseClaudeJsonOutput(stdout: string): ClaudeParseResult {
-  const warnings: string[] = [];
+  const { envelope, warnings } = findTerminalResultEvent(stdout);
 
-  try {
-    const envelope = JSON.parse(stdout);
-
-    // Extract usage from the standard location
-    const usage = extractUsage(envelope);
-
-    // Extract cost
-    const cost_usd = extractCost(envelope);
-
-    // Extract display text (handling tool calls if present)
-    const displayText = extractDisplayText(envelope, warnings);
-
-    return {
-      displayText,
-      usage,
-      cost_usd,
-      warnings,
-    };
-  } catch (err) {
-    const reason = err instanceof SyntaxError ? `JSON parse error: ${err.message}` : `unexpected error: ${String(err)}`;
+  if (envelope === null) {
     return {
       displayText: stdout,
       usage: null,
       cost_usd: null,
-      warnings: [reason],
+      warnings,
     };
   }
+
+  const usage = extractUsage(envelope);
+  const cost_usd = extractCost(envelope);
+  const displayText = extractDisplayText(envelope, warnings);
+
+  return {
+    displayText,
+    usage,
+    cost_usd,
+    warnings,
+  };
+}
+
+function isResultEvent(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  return (value as Record<string, unknown>).type === "result";
+}
+
+function findTerminalResultEvent(stdout: string): { envelope: unknown | null; warnings: string[] } {
+  let lastResult: unknown = null;
+
+  for (const line of stdout.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed === "") {
+      continue;
+    }
+
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (isResultEvent(parsed)) {
+        lastResult = parsed;
+      }
+    } catch {
+      // Skip unparseable NDJSON lines.
+    }
+  }
+
+  if (lastResult !== null) {
+    return { envelope: lastResult, warnings: [] };
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(stdout);
+    if (isResultEvent(parsed)) {
+      return { envelope: parsed, warnings: [] };
+    }
+  } catch {
+    // Fall through to no-result fallback.
+  }
+
+  return {
+    envelope: null,
+    warnings: ["no terminal result event found"],
+  };
 }
 
 function extractUsage(envelope: unknown): TelemetryUsage | null {

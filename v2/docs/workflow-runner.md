@@ -443,8 +443,9 @@ configuration: the write step's `intentOutput`, a staging directory path, and
 an `invocationId` for landing after review completes. Patch context
 (`patchReviewContext`), plan context (`planReviewContext`), and
 `deferredIntentOutput` are mutually exclusive; dispatch branches over all three.
-For reviewed intents, `cwd`, verdict handling, boundary enforcement, and landing
-all use the split step's resolved external workspace, never the operator checkout.
+For reviewed intents, `cwd`, verdict handling, boundary enforcement, staging,
+landing, and any enabled commit, push, and draft-PR publication all use the split
+step's resolved external workspace, never the operator checkout.
 
 **Patch-context light review:** A `review` step with `patchReviewContext`
 (`specPath`, `baseBranch`) runs bounded critic-actuator cycles in the implement
@@ -499,12 +500,14 @@ the enforcement layer immediately runs final intent validation and landing:
   landing semantics match the standalone intent step's landing.
 - The verdict file is deleted after successful landing.
 
-If landing fails (collision, validation, or I/O error), the review step returns
-`kind: "invocation_failure"` with `resumable: true`. The verdict file remains
-for diagnostics. Resume retries landing without re-running critic or actuator,
-preserving the reviewed output unchanged. After successful landing, the
-completion checkpoint is preserved: landing or publication retries do not
-re-run the review step.
+After review succeeds, its durable checkpoint is recorded before landing. If
+landing fails (collision, validation, or I/O error), the review step returns
+`kind: "invocation_failure"` with persisted `failureKind: "landing"` and
+`resumable: true`. The verdict file remains for diagnostics. Resume retries
+landing without re-running critic or actuator, preserving the reviewed output
+unchanged. After successful landing, git-enabled workflows commit, push, and
+open or reuse the draft PR from that workspace; git-disabled workflows only
+land local files and perform no Git or GitHub operation.
 
 An empty verdict (trimmed) or all bounded cycles without actuator invocation
 converges to `complete` without landing (landing only occurs when
@@ -513,13 +516,10 @@ abort, verdict-I/O failures, and landing failures return `invocation_failure`
 and stop later steps. `iterationsConsumed` counts cycles whose critic started,
 including a role-failed cycle, but not pre-critic failures or landing attempts.
 
-Each reached review step receives a fresh synthesized run ID and invokes
-`onStepRunCreated` before role execution. The ID is reporting-only:
-`resumable` is `false` for successful completion, `true` for
-invocation_failure with deferredIntentOutput (landing retry). No durable run
-row is created, and review state is never resumed between separate workflow
-invocations. A review-only invocation gets a fresh snapshot and starts at
-cycle zero. A mixed workflow may reuse a matching snapshot found through a
+Each ordinary review step receives a fresh synthesized run ID and invokes
+`onStepRunCreated` before role execution. Reviewed-intent review instead records
+a durable run and uses it to resume landing after a recorded landing failure.
+A review-only invocation gets a fresh snapshot and starts at cycle zero. A mixed workflow may reuse a matching snapshot found through a
 durable write or human step; matching includes each review entry's
 `(stepId, behavior)`. Review entries remain in authored order in daemon/TUI
 projection, with critic/actuator start and terminal completed/stopped progress,

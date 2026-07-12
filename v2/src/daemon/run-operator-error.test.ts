@@ -99,10 +99,11 @@ test.each([
   ["quota", "quota_exhausted", "retry_later"],
   ["model_config", "model_config", "fix_config"],
   ["no_binding", "no_binding", "fix_config"],
+  ["landing", "landing_failed", "resume"],
   ["error", "invocation_error", "stop"],
 ] as const)("composeRunOperatorError maps failureKind %s from log and store-only failed paths", (failureKind, reason, nextAction) => {
   const storeRun = runWith("failed", [attempt("invocation_failure", { failureKind, bindingAttempts: [] })]);
-  const expected = err(reason, nextAction);
+  const expected = err(reason, nextAction, failureKind === "landing");
 
   expect(composeRunOperatorError(storeRun, loopFinished("invocation_failure"))).toEqual(expected);
   expect(composeRunOperatorError(storeRun)).toEqual(expected);

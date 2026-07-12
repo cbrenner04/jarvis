@@ -274,19 +274,22 @@ The `--review-passes` flag (optional, defaults to `1`) controls the critic-actua
 Passing `--review-passes 0` is equivalent to the split-only preset (skips review).
 
 Review runs entirely in the split workspace: critic and actuator invocations,
-verdict handling, boundary restoration, and landing never modify the operator checkout.
+verdict handling, staging, durable landing, and Git publication never modify the
+operator checkout.
 
 **Outputs and failure boundary:**
 
 - **Successful review → published intents:** After the critic validates and
   actuator lands intents successfully, the workflow publishes landed intent files
   to `<targetDir>/ready-intents/` (git-enabled) or `~/.jarvis/specs/<project-safe-id>/ready-intents/`
-  (git-disabled), making them part of the durable output.
+  (git-disabled), making them part of the durable output. Git-enabled output is
+  committed, pushed, and published through its draft PR; git-disabled output has
+  no Git or GitHub publication.
 - **Review failure:** If either the critic or actuator encounters a role failure,
   the workflow stops at the review step. No intents are published. The working tree
   is reverted to post-split state and the verdict file retained for inspection.
-  Resume retries review without re-splitting; resume does not re-publish if review
-  had previously succeeded.
+  A landing failure records a resumable landing cause and retains the staged output
+  and verdict. Resume retries landing without re-running critic or actuator.
 
 **Zero-pass escape hatch:**
 

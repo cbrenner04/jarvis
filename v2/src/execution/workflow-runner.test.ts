@@ -1836,6 +1836,8 @@ describe("executeWorkflow review dispatch", () => {
       const checkpoint = store.findRunByProjectBranch({ project: "demo", branch: "intent/example", stepId: "review" });
       expect(checkpoint?.attempts.at(-1)?.invocationFailureDetail).toEqual({
         failureKind: "landing",
+        message:
+          "intent: ready-intents/example.md already exists with different contents; rerun to retry pre-publication",
         bindingAttempts: [],
       });
 

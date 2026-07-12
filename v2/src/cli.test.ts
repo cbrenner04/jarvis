@@ -89,6 +89,8 @@ const RUN_WORKFLOW_IMPLEMENT_ARGS = [
   "index.md",
 ];
 
+let FAKE_IMPLEMENT_STEPS: AnyWorkflowStep[];
+
 beforeAll(() => {
   mkdirSync("/tmp/repo/sub", { recursive: true });
   mkdirSync("/tmp/repo/v2/spec/my-spec", { recursive: true });
@@ -97,27 +99,26 @@ beforeAll(() => {
   writeFileSync("/tmp/repo/spec.md", "# Spec\n", "utf8");
   writeFileSync("/tmp/repo/v2/spec/my-spec/index.md", "# Index\n", "utf8");
   writeFileSync("/tmp/unregistered/index.md", "# Index\n", "utf8");
-});
-
-const FAKE_IMPLEMENT_STEPS: AnyWorkflowStep[] = [
-  {
-    behavior: "write",
-    stepId: "implement",
-    role: "implement",
-    promptId: "patch.prompt.body",
-    stepRules: "Return exactly one terminal token: done|no-work|blocked|progress.",
-    agents: ["claude"],
-    agentModelConfig: {},
-    worktree: {
-      projectRoot: realpathSync("/tmp/repo"),
-      projectName: "demo",
-      branchName: "implement-run",
-      baseRef: "HEAD",
+  FAKE_IMPLEMENT_STEPS = [
+    {
+      behavior: "write",
+      stepId: "implement",
+      role: "implement",
+      promptId: "patch.prompt.body",
+      stepRules: "Return exactly one terminal token: done|no-work|blocked|progress.",
+      agents: ["claude"],
+      agentModelConfig: {},
+      worktree: {
+        projectRoot: realpathSync("/tmp/repo"),
+        projectName: "demo",
+        branchName: "implement-run",
+        baseRef: "HEAD",
+      },
+      specPath: "spec.md",
+      expectedArtifactPath: "proof.txt",
     },
-    specPath: "spec.md",
-    expectedArtifactPath: "proof.txt",
-  },
-];
+  ];
+});
 
 const RUN_START_ARGS = [
   "run",

@@ -18,6 +18,12 @@ execution-time `bindings` from `role`/`agents`/`agentModelConfig` via the
 two-axis resolution in [`agent-model-config.md`](agent-model-config.md), then
 passes the resulting write-loop input to `executeWriteLoop`.
 
+Each write step resolves `iterationTimeoutMs` from `~/.jarvis/config.json`
+(default `600,000` ms). Its watchdog starts immediately after
+`iteration_started`, including before an agent subprocess exists. The resolved
+budget is retained in the workflow snapshot, so resume and revise use it.
+Timeout ends the step as non-resumable `iteration_timeout`.
+
 For a multi-step preset, resolution happens per step when the runner reaches
 it. The runner does not precompute one shared binding chain or reuse step
 one's resolved bindings for step two, even when both positions use the same

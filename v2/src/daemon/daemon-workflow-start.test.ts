@@ -99,6 +99,10 @@ function createWriteStep(
   };
 }
 
+async function waitDirect(handlers: ReturnType<typeof createRunControlHandlers>, runId: string) {
+  return handlers.wait({ kind: "request", id: "w1", method: "wait", params: { runId } }, new AbortController().signal);
+}
+
 let stateStore: StateStore;
 let fakeExecutor: FakeWriteLoopExecutor;
 let memoryHeadroom: boolean;
@@ -166,6 +170,36 @@ test("start with steps reports isLive on list while the workflow step is executi
   await flushBackgroundRuns();
   const row = (await listRunsDirect(handlers))?.find((run) => run.runId === runId);
   expect(row).toMatchObject({ status: "in-progress", isLive: true });
+});
+
+test("workflow timeout releases liveness and worktree ownership", async () => {
+  const logsPath = join(tmpdir(), `jarvis-workflow-timeout-${process.pid}-${Date.now()}.jsonl`);
+  handlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    logsPath,
+    logReader: openLogReader(logsPath),
+    operatorSessionId: "workflow-timeout-test",
+  });
+  const step = createWriteStep("step-1", "workflow-timeout", neverResolvingBindingFactory);
+  step.iterationTimeoutMs = 5;
+  const response = await handlers.start(requestFrame("s1", "start", { steps: [step] }), new AbortController().signal);
+  const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
+
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  const row = (await listRunsDirect(handlers))?.find((run) => run.runId === runId);
+  expect(row).toMatchObject({ status: "failed", isLive: false });
+  expect(row?.workflow?.steps[0]).toMatchObject({ status: "stopped", terminalOutcome: "iteration_timeout" });
+  expect(await waitDirect(handlers, runId as string)).toMatchObject({
+    kind: "response",
+    result: { runStatus: "failed", loopOutcomeKind: "iteration_timeout" },
+  });
+
+  const restarted = await handlers.start(requestFrame("s2", "start", { steps: [step] }), new AbortController().signal);
+  expect(restarted.kind).toBe("response");
+  await new Promise((resolve) => setTimeout(resolve, 25));
 });
 
 test("start with steps dispatches to executeWorkflow and returns step 0's runId", async () => {

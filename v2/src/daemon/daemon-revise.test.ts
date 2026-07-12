@@ -26,7 +26,7 @@ function workflowSnapshot(maxRevisions: number): WorkflowSnapshot {
   return {
     invocationId: "wf-revise-1",
     steps: [
-      { stepId: REPEATED_STEP_ID, role: "implement" },
+      { stepId: REPEATED_STEP_ID, role: "implement", iterationTimeoutMs: 123 },
       { stepId: HUMAN_STEP_ID, role: "", onRevise: { repeatStepId: REPEATED_STEP_ID, maxRevisions } },
     ],
   };
@@ -117,6 +117,7 @@ test("revise on a dirty worktree spawns the repeated step's write loop under ~r1
   expect(revisionRun).not.toBeNull();
   expect(starts).toHaveLength(1);
   expect(starts[0]?.stepId).toBe("implement~r1");
+  expect(starts[0]?.iterationTimeoutMs).toBe(123);
 });
 
 test("revise on a clean worktree with no prompt is rejected revise_requires_input", async () => {

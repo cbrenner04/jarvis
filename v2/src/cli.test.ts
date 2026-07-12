@@ -257,6 +257,7 @@ describe("v2 cli", () => {
     [{ kind: "complete", runId: "run-123", iterationsConsumed: 1, resumable: false }, 0],
     [{ kind: "blocked", runId: "run-456", iterationsConsumed: 1, resumable: false }, 1],
     [{ kind: "invocation_failure", runId: "run-789", iterationsConsumed: 0, resumable: false }, 2],
+    [{ kind: "iteration_timeout", runId: "run-timeout", iterationsConsumed: 1, resumable: false }, 1],
     [{ kind: "budget-exhausted", runId: "run-999", iterationsConsumed: 5, resumable: true }, 5],
   ] as const)("write command maps %p to exit %i", async (result, expectedExit) => {
     const cap = captureIo();
@@ -337,6 +338,24 @@ describe("v2 cli", () => {
 
     expect(writeCode).toBe(0);
     expect(capturedAgents).toEqual(["claude", "codex"]);
+  });
+
+  test("write resolves iterationTimeoutMs from machine config", async () => {
+    const cap = captureIo();
+    const configPath = writeMachineConfig({ iterationTimeoutMs: 123 });
+    let capturedTimeout: number | undefined;
+
+    const code = await main(WRITE_ARGS, cap.io, {
+      machineConfigPath: configPath,
+      loadAgentModelConfig: stubAgentModelConfig,
+      executeWriteLoop: async (input) => {
+        capturedTimeout = input.iterationTimeoutMs;
+        return completeResult();
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(capturedTimeout).toBe(123);
   });
 
   test("config set-agents creates missing parent state", async () => {
@@ -2012,6 +2031,7 @@ describe("v2 cli", () => {
     [{ runStatus: "paused", loopOutcomeKind: "paused" }, 1],
     [{ runStatus: "in-progress", loopOutcomeKind: "progress" }, 1],
     [{ runStatus: "failed", loopOutcomeKind: "invocation_failure" }, 2],
+    [{ runStatus: "failed", loopOutcomeKind: "iteration_timeout" }, 1],
     [{ runStatus: "budget-soft-stopped", loopOutcomeKind: "budget-exhausted" }, 5],
     [{ runStatus: "failed" }, 3],
     [{ runStatus: "killed" }, 4],

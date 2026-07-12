@@ -298,20 +298,27 @@ async function executeDefaultWrite(
 
 /** Run one write behavior execution over shared invocation, runner, and worktree seams. */
 export async function executeWrite(args: WriteExecuteInput): Promise<WriteExecuteResult> {
+  throwIfAborted(args.signal);
   const withExternalWorktree = args.withExternalWorktree ?? realWithExternalWorktree;
-  const wrapped = await withExternalWorktree(args.worktree, async (worktree) => {
-    const specPath = resolveInWorktree(worktree.path, args.specPath);
-    const expectedArtifactPath = resolveInWorktree(worktree.path, args.expectedArtifactPath);
-    const promptId = args.promptId ?? DEFAULT_PROMPT_ID;
+  const wrapped = await withExternalWorktree(
+    args.worktree,
+    async (worktree) => {
+      throwIfAborted(args.signal);
+      const specPath = resolveInWorktree(worktree.path, args.specPath);
+      const expectedArtifactPath = resolveInWorktree(worktree.path, args.expectedArtifactPath);
+      const promptId = args.promptId ?? DEFAULT_PROMPT_ID;
 
-    if (promptId === "plan.prompt.draft" && args.intentSeed !== undefined) {
-      return executePlanDraftWrite(args, worktree.path, specPath);
-    }
-    if (promptId === INTENT_SPLIT_PROMPT_ID) {
-      return executeIntentSplitWrite(args, worktree.path, expectedArtifactPath);
-    }
-    return executeDefaultWrite(args, worktree.path, specPath, expectedArtifactPath, promptId);
-  });
+      if (promptId === "plan.prompt.draft" && args.intentSeed !== undefined) {
+        return executePlanDraftWrite(args, worktree.path, specPath);
+      }
+      if (promptId === INTENT_SPLIT_PROMPT_ID) {
+        return executeIntentSplitWrite(args, worktree.path, expectedArtifactPath);
+      }
+      return executeDefaultWrite(args, worktree.path, specPath, expectedArtifactPath, promptId);
+    },
+    undefined,
+    args.signal,
+  );
 
   return {
     worktreePath: wrapped.worktree.path,
@@ -319,6 +326,10 @@ export async function executeWrite(args: WriteExecuteInput): Promise<WriteExecut
     lock: wrapped.lock,
     result: wrapped.value,
   };
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw new Error("write execution aborted");
 }
 
 function resolveInWorktree(worktreePath: string, path: string): string {

@@ -49,6 +49,7 @@ export type WorkflowSnapshotStep = {
   expectedArtifactPath?: string;
   agents?: readonly string[];
   agentModelConfig?: AgentModelConfig;
+  iterationTimeoutMs?: number;
 };
 
 /** Durable workflow invocation snapshot shared by every step run in that workflow. */
@@ -73,6 +74,7 @@ export type OutcomeKind =
   | "blocked"
   | "contract_miss"
   | "invocation_failure"
+  | "iteration_timeout"
   | "invalid_token";
 
 /** A durable run record. */

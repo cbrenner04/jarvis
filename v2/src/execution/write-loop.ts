@@ -26,6 +26,7 @@ const WRITE_LOOP_OUTCOME_KINDS = [
   "blocked",
   "contract_miss",
   "invocation_failure",
+  "iteration_timeout",
   "budget-exhausted",
   "paused",
   "completion_commit_failed",
@@ -58,6 +59,7 @@ export type WriteLoopResult = {
 /** Input for the write loop. Run identity derives from `worktree` (project, branch, base). */
 export type WriteLoopInput = WriteExecuteInput & {
   maxIterations?: number;
+  iterationTimeoutMs?: number;
   stateStore?: StateStore;
   logSink?: LogSink;
   pauseSignal?: AbortSignal;
@@ -94,6 +96,7 @@ export function applyOperatorSessionId(input: WriteLoopInput, operatorSessionId:
 }
 
 const DEFAULT_MAX_ITERATIONS = 10;
+export const DEFAULT_ITERATION_TIMEOUT_MS = 600_000;
 type StoredRun = NonNullable<ReturnType<StateStore["loadRun"]>>;
 type PreparedRun =
   | { runId: string; worktreePath: string; resumedAttemptId: string | null; creationTitle?: string }
@@ -173,15 +176,15 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       args.logSink?.append(runId, { kind: "iteration_started", attemptId });
 
-      let stepResult: Awaited<ReturnType<typeof executeWrite>>;
-      try {
-        stepResult = await executeWrite(buildWriteExecuteInput(args, runId, attemptId));
-      } catch (error) {
-        if (args.signal?.aborted) {
-          return finishLoop(args, runId, "progress", iterationsConsumed, true);
-        }
-        return finishExecuteWriteThrow(args, store, runId, attemptId, iterationsConsumed + 1, error);
+      const settled = await awaitIteration(args, runId, attemptId);
+      if (settled.kind === "aborted") return finishLoop(args, runId, "progress", iterationsConsumed + 1, true);
+      if (settled.kind === "timed_out")
+        return finishIterationTimeout(args, store, runId, attemptId, iterationsConsumed + 1);
+      if (settled.kind === "threw") {
+        if (args.signal?.aborted) return finishLoop(args, runId, "progress", iterationsConsumed, true);
+        return finishExecuteWriteThrow(args, store, runId, attemptId, iterationsConsumed + 1, settled.error);
       }
+      const stepResult = settled.result;
       iterationsConsumed += 1;
 
       // If the abort signal was triggered while the step was running, skip boundary commit
@@ -346,6 +349,67 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
   }
 }
 
+type IterationSettlement =
+  | { kind: "settled"; result: Awaited<ReturnType<typeof executeWrite>> }
+  | { kind: "threw"; error: unknown }
+  | { kind: "timed_out" }
+  | { kind: "aborted" };
+
+/** Starts after `iteration_started`, so pre-spawn stalls are fenced too. */
+function awaitIteration(args: WriteLoopInput, runId: string, attemptId: string): Promise<IterationSettlement> {
+  const executionController = new AbortController();
+  const abortExecution = () => executionController.abort();
+  if (args.signal?.aborted) abortExecution();
+  args.signal?.addEventListener("abort", abortExecution, { once: true });
+  const execution = executeWrite(buildWriteExecuteInput(args, runId, attemptId, executionController.signal)).then(
+    (result): IterationSettlement => ({ kind: "settled", result }),
+    (error): IterationSettlement => ({ kind: "threw", error }),
+  );
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let removeAbort: (() => void) | undefined;
+  const watchdog = new Promise<IterationSettlement>((resolve) => {
+    timeout = setTimeout(() => {
+      abortExecution();
+      resolve({ kind: "timed_out" });
+    }, args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS);
+  });
+  const abort = new Promise<IterationSettlement>((resolve) => {
+    if (!args.signal) return;
+    const resolveAbort = () => queueMicrotask(() => resolve({ kind: "aborted" }));
+    if (args.signal.aborted) return resolveAbort();
+    const onAbort = () => resolveAbort();
+    args.signal.addEventListener("abort", onAbort, { once: true });
+    removeAbort = () => args.signal?.removeEventListener("abort", onAbort);
+  });
+  return Promise.race([execution, watchdog, abort]).finally(() => {
+    if (timeout !== undefined) clearTimeout(timeout);
+    args.signal?.removeEventListener("abort", abortExecution);
+    removeAbort?.();
+  });
+}
+
+function finishIterationTimeout(
+  args: WriteLoopInput,
+  store: StateStore,
+  runId: string,
+  attemptId: string,
+  iterationsConsumed: number,
+): WriteLoopResult {
+  store.commitCompletionBoundary({ attemptId, runStatus: "failed", outcomeKind: "iteration_timeout" });
+  args.logSink?.append(runId, {
+    kind: "boundary_committed",
+    attemptId,
+    outcomeKind: "iteration_timeout",
+    runStatus: "failed",
+  });
+  return {
+    ...finishLoop(args, runId, "iteration_timeout", iterationsConsumed, false),
+    attemptId,
+    outcomeKind: "iteration_timeout",
+    runStatus: "failed",
+  };
+}
+
 function finishExecuteWriteThrow(
   args: WriteLoopInput,
   store: StateStore,
@@ -452,7 +516,12 @@ function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {
     : { result: committed, ...(existingRun.creationTitle ? { creationTitle: existingRun.creationTitle } : {}) };
 }
 
-function buildWriteExecuteInput(args: WriteLoopInput, runId: string, attemptId: string): WriteExecuteInput {
+function buildWriteExecuteInput(
+  args: WriteLoopInput,
+  runId: string,
+  attemptId: string,
+  signal: AbortSignal,
+): WriteExecuteInput {
   const telemetry = args.telemetry;
   // An operator-session-only telemetry attachment (no sinkPath/workflow/role) is a
   // legitimate value that carries no invocation-emission context; only build the
@@ -495,7 +564,7 @@ function buildWriteExecuteInput(args: WriteLoopInput, runId: string, attemptId: 
           },
         }
       : {}),
-    ...(args.signal && { signal: args.signal }),
+    signal,
     ...(args.withExternalWorktree && { withExternalWorktree: args.withExternalWorktree }),
   };
 }
@@ -531,9 +600,10 @@ function committedResult(run: StoredRun): WriteLoopResult | null {
     };
   }
   if (run.status === "failed") {
+    const outcomeKind = run.attempts[run.attempts.length - 1]?.outcomeKind;
     const detail = run.attempts[run.attempts.length - 1]?.invocationFailureDetail ?? undefined;
     return {
-      kind: "invocation_failure",
+      kind: outcomeKind === "iteration_timeout" ? "iteration_timeout" : "invocation_failure",
       runId: run.id,
       iterationsConsumed: 0,
       resumable: false,

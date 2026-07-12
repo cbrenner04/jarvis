@@ -2,8 +2,8 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { LogEvent, LogReader, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
 import type { IpcServer } from "../ipc/server.ts";
+import type { LogEvent, LogReader, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { reconcileOrphanedRuns, startDaemon } from "./daemon.ts";
 
@@ -124,7 +124,12 @@ test("retries an event left pending by a failed log append exactly once", () => 
   expect(() =>
     reconcileOrphanedRuns(
       store,
-      { append: () => { throw new Error("log unavailable"); }, close: () => undefined },
+      {
+        append: () => {
+          throw new Error("log unavailable");
+        },
+        close: () => undefined,
+      },
       reader,
     ),
   ).toThrow("log unavailable");
@@ -138,7 +143,16 @@ test("retries an event left pending by a failed log append exactly once", () => 
     },
     reader,
   );
-  reconcileOrphanedRuns(store, { append: () => { throw new Error("duplicate append"); }, close: () => undefined }, reader);
+  reconcileOrphanedRuns(
+    store,
+    {
+      append: () => {
+        throw new Error("duplicate append");
+      },
+      close: () => undefined,
+    },
+    reader,
+  );
 
   expect(records).toEqual([
     { runId, seq: 1, ts: "now", event: { kind: "run_reconciled", runStatus: "killed", reason: "daemon_restart" } },
@@ -167,13 +181,25 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
 
   for (const failure of [
     {
-      store: { beginRunReconciliation: () => { throw new Error("state unavailable"); } } as unknown as StateStore,
+      store: {
+        beginRunReconciliation: () => {
+          throw new Error("state unavailable");
+        },
+      } as unknown as StateStore,
       sink,
       message: "state unavailable",
     },
     {
-      store: { beginRunReconciliation: () => ["run-1"], finishRunReconciliation: () => undefined } as unknown as StateStore,
-      sink: { append: () => { throw new Error("log unavailable"); }, close: () => undefined } as LogSink,
+      store: {
+        beginRunReconciliation: () => ["run-1"],
+        finishRunReconciliation: () => undefined,
+      } as unknown as StateStore,
+      sink: {
+        append: () => {
+          throw new Error("log unavailable");
+        },
+        close: () => undefined,
+      } as LogSink,
       message: "log unavailable",
     },
   ]) {

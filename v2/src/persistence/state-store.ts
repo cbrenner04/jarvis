@@ -430,7 +430,9 @@ class StateStoreImpl implements StateStore {
         )
         .run();
       return (
-        this.db.prepare("SELECT id FROM runs WHERE reconciliation_pending = 1 ORDER BY created_at DESC, rowid DESC").all() as Array<{
+        this.db
+          .prepare("SELECT id FROM runs WHERE reconciliation_pending = 1 ORDER BY created_at DESC, rowid DESC")
+          .all() as Array<{
           id: string;
         }>
       ).map((run) => run.id);

@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProjectMatch } from "../../../shared/project-registry.ts";
+import { openStateStore } from "../persistence/state-store.ts";
+import type { WithExternalWorktreeResult } from "./external-worktree.ts";
 import { buildImplementWorkflowSteps } from "./implement-workflow-steps.ts";
 import { loadWorkflowSteps, type WorkflowSourceStep } from "./workflow-loader.ts";
+import { executeWorkflow, type WriteWorkflowStep } from "./workflow-runner.ts";
 
 function writeJson(name: string, value: unknown): string {
   const dir = mkdtempSync(join(tmpdir(), "implement-workflow-steps-test-"));
@@ -305,6 +308,119 @@ describe("buildImplementWorkflowSteps", () => {
       branchName: "implement-run",
       baseRef: "main",
     });
+  });
+
+  test("builds a project-relative write step from the source checkout before its worktree exists", () => {
+    const root = mkdtempSync(join(tmpdir(), "implement-workflow-steps-project-"));
+    mkdirSync(join(root, "spec"));
+    writeFileSync(join(root, "spec", "index.md"), "- [ ] [Sub](./sub.md)\n", "utf8");
+    writeFileSync(join(root, "spec", "sub.md"), "# Sub\n", "utf8");
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
+    const machineProfile = writeValidProfile();
+
+    const result = buildImplementWorkflowSteps(
+      {
+        cwd: root,
+        branchName: "new-branch",
+        baseRef: "main",
+        specPath: "spec/index.md",
+        artifactPath: "spec/index.md",
+        projectRoot: root,
+        projectName: "proj",
+        reviewPasses: 0,
+      },
+      {
+        loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const step = result.steps[0];
+    expect(step?.behavior).toBe("write");
+    if (step?.behavior !== "write") return;
+    expect(step.specPath).toBe("spec/index.md");
+    expect(step.expectedArtifactPath).toBe("spec/index.md");
+    expect(step.worktree.branchName).toBe("new-branch");
+  });
+
+  test("executes a first launch in a new worktree with project-relative paths", async () => {
+    const root = mkdtempSync(join(tmpdir(), "implement-workflow-steps-project-"));
+    const home = mkdtempSync(join(tmpdir(), "implement-workflow-steps-home-"));
+    mkdirSync(join(root, "spec"));
+    writeFileSync(join(root, "spec", "spec.md"), "- [ ] Work\n", "utf8");
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
+    const machineProfile = writeValidProfile();
+    let reachedWorktree: string | undefined;
+
+    try {
+      const result = buildImplementWorkflowSteps(
+        {
+          cwd: root,
+          branchName: "new-branch",
+          baseRef: "main",
+          specPath: "spec/spec.md",
+          artifactPath: "spec/spec.md",
+          projectRoot: root,
+          projectName: "proj",
+          reviewPasses: 0,
+        },
+        {
+          loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
+        },
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      const builtStep = result.steps[0];
+      expect(builtStep?.behavior).toBe("write");
+      if (builtStep?.behavior !== "write") return;
+
+      const worktreePath = join(home, "worktrees", "proj", "new-branch");
+      expect(existsSync(worktreePath)).toBe(false);
+      rmSync(root, { recursive: true, force: true });
+      const withExternalWorktree: NonNullable<WriteWorkflowStep["withExternalWorktree"]> = async (_args, run) => {
+        mkdirSync(join(worktreePath, "spec"), { recursive: true });
+        writeFileSync(join(worktreePath, "spec", "spec.md"), "- [ ] Work\n", "utf8");
+        const value = await run({ path: worktreePath, reused: false });
+        return {
+          worktree: { path: worktreePath, reused: false },
+          lock: { kind: "acquired" },
+          value,
+        } satisfies WithExternalWorktreeResult<unknown>;
+      };
+      const step: WriteWorkflowStep = {
+        ...builtStep,
+        worktree: { ...builtStep.worktree, jarvisRoot: home },
+        promptId: "write.execute",
+        suppressShrink: true,
+        publishCompletion: false,
+        withExternalWorktree,
+        createBinding: () => ({
+          id: "claude/m1",
+          metadata: { agent: "claude", model: "m1" },
+          invoke: async ({ cwd }) => {
+            reachedWorktree = cwd;
+            expect(readFileSync(join(cwd, "spec", "spec.md"), "utf8")).toContain("- [ ] Work");
+            writeFileSync(join(cwd, "spec", "spec.md"), "- [x] Work\n", "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" } as const;
+          },
+        }),
+      };
+      const store = openStateStore(":memory:");
+      try {
+        const outcome = await executeWorkflow({ steps: [step], stateStore: store });
+        expect(outcome.kind).toBe("complete");
+      } finally {
+        store.close();
+      }
+
+      expect(reachedWorktree).toBe(worktreePath);
+      expect(readFileSync(join(worktreePath, "spec", "spec.md"), "utf8")).toBe("- [x] Work\n");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   test("returns an error result naming the unresolved cwd instead of throwing", () => {

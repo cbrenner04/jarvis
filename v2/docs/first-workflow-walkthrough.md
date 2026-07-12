@@ -348,16 +348,22 @@ jarvis run workflow implement \
 | Flag | Meaning |
 | --- | --- |
 | `--base` | Base git ref for the worktree |
-| `--spec` | Spec path (typically `index.md`); must exist relative to the registered project root |
+| `--spec` | Spec path (typically `index.md`); must exist inside the registered project after symlink resolution |
 | `--branch` | Optional; defaults to the parent directory basename of `--spec` |
 | `--branch` | Optional; defaults to the parent directory basename of `--spec` |
 | `--artifact` | Optional for `index.md` (ignored if supplied); required for non-index specs |
 | `--review-passes` | Optional non-negative integer; overrides `projects.<key>.implement.reviewPasses` (default `0`) |
 | `--review-behavior` | Optional `debate` or `light`; overrides `projects.<key>.implement.reviewBehavior` (default `debate`). Applies only when resolved review passes are positive. |
 
-Malformed pass counts (`1x`, `-1`, `1.5`, and similar), unknown `--review-behavior`
-values, and invalid project `implement.reviewPasses` or `implement.reviewBehavior`
-values fail before daemon contact.
+Before daemon contact or worktree creation, implement resolves the registered root,
+spec, and effective artifact through symlinks and requires the resolved paths to
+remain inside that root. Non-index artifacts must exist; index launches use the
+spec as the artifact and ignore `--artifact`. The validated paths are made
+project-relative and consumed inside the created worktree, so first launch reads
+the source checkout rather than requiring the future worktree to exist. Malformed
+pass counts (`1x`, `-1`, `1.5`, and similar), unknown `--review-behavior` values,
+and invalid project `implement.reviewPasses` or `implement.reviewBehavior` values
+also fail before daemon contact.
 
 The CLI sends one IPC `start` request and prints the run ID on stdout:
 

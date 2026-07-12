@@ -274,12 +274,13 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
   const fixCommand = preflight.cfg.projects[preflight.project.key]?.fixCommand;
   const reviewPasses = resolveReviewPasses(preflight.cfg, ctx.opts.reviewPasses);
   const implementationIterations = logging.patchIterationsCompletedForSummary();
+  const hasImplementationIterations = implementationIterations > 0 || ctx.state.hadNonHumanImplementationIteration;
   const shouldRunShrink =
-    preflight.gitEnabled && implementationIterations > 0 && preflight.cfg.modes.patch.shrink !== "off";
+    preflight.gitEnabled && hasImplementationIterations && preflight.cfg.modes.patch.shrink !== "off";
   // Review runs when: (1) normal completion with at least one iteration, OR (2) review resume is active
   const shouldRunReview =
-    preflight.gitEnabled && reviewPasses > 0 && (implementationIterations > 0 || ctx.opts.resumeReview === true);
-  const shouldRunCompletionReadyGate = preflight.gitEnabled && implementationIterations > 0;
+    preflight.gitEnabled && reviewPasses > 0 && (hasImplementationIterations || ctx.opts.resumeReview === true);
+  const shouldRunCompletionReadyGate = preflight.gitEnabled && ctx.state.hadNonHumanImplementationIteration;
 
   // Run completion ready gate before shrink and review
   if (shouldRunCompletionReadyGate) {
@@ -318,7 +319,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
   }
 
   // Rewrite PR body once in the completion pipeline, before shrink/review
-  if (preflight.gitEnabled && ctx.state.draftPrEnsured && implementationIterations > 0) {
+  if (preflight.gitEnabled && ctx.state.draftPrEnsured && hasImplementationIterations) {
     try {
       const branch = getCurrentBranch(preflight.agentWorkingDir);
       const base = await getBaseBranch(preflight.agentWorkingDir);

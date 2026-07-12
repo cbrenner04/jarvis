@@ -125,6 +125,7 @@ export type IterationContext = {
     noCommitDelta: DeltaRecord | null;
     noCommitResetAppliedThisRun: boolean;
     runStartHead: string | null;
+    hadNonHumanImplementationIteration: boolean;
   };
 };
 
@@ -326,6 +327,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     noCommitDelta: null,
     noCommitResetAppliedThisRun: false,
     runStartHead: null,
+    hadNonHumanImplementationIteration: false,
   };
 
   const onSigint = () => {

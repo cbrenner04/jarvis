@@ -917,6 +917,13 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
       },
     });
 
+    if (
+      result.kind === "ok" &&
+      (beforeCriteria.length === 0 || beforeCriteria.some((criterion) => !criterion.humanOnly))
+    ) {
+      state.hadNonHumanImplementationIteration = true;
+    }
+
     // Disarm idle watchdog immediately after agent returns, before post-processing begins
     if (idleTimeoutHandle !== null) {
       clearTimeout(idleTimeoutHandle);

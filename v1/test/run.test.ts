@@ -1145,6 +1145,36 @@ describe("runCommand", () => {
     expect(claude.calls).toHaveLength(1);
   });
 
+  test("completion ready gate: red verification is terminal", async () => {
+    const spec = initCompletionGateRepo();
+    const cap = captureIo();
+    const claude = createCompletionAgent(spec);
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+      reviewPasses: 0,
+      runCompletionReadyGate: () => ({
+        kind: "red",
+        failureText: "bun run ready failed:\nboom",
+        verificationRed: true,
+      }),
+    });
+
+    expect(code).toBe(10);
+    expect(claude.calls).toHaveLength(1);
+    const records = readFileSync(join(cfgDir, "runs.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const terminal = records.find((record) => record.record_role === "run_terminal");
+    expect(terminal?.exit_reason).toBe("ready-gate-failed");
+    expect(cap.err()).toContain("bun run ready failed:");
+  });
+
   test.skip("completion ready gate: red-then-green seam yields green completion, no fix-up iteration", async () => {
     const spec = initCompletionGateRepo();
 

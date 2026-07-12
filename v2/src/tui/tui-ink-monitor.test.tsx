@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createElement, Fragment } from "react";
+import { Fragment } from "react";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import { createMonitorDisplay, openInkMonitor } from "./tui-ink-monitor.tsx";
@@ -72,7 +72,7 @@ function collectRowTexts(node: unknown): string[] {
 function createInkCapture(state: TuiMonitorState) {
   const renders: unknown[] = [];
   let TextType: unknown;
-  const inkRender = ((element: unknown) => {
+  const inkRender = ((_element: unknown) => {
     if (TextType === undefined) throw new Error("expected Text before render");
     renders.push(createMonitorDisplay(state, { kind: "idle" }, TextType as Parameters<typeof createMonitorDisplay>[2]));
     return {
@@ -215,7 +215,7 @@ describe("openInkMonitor", () => {
     const reviseLine = textNode(nodes, "Revise prompt: ");
     expect(reviseLine.color).toBeUndefined();
 
-    const session = await openInkMonitor(state, noopControls(), ((element: unknown) => ({
+    const session = await openInkMonitor(state, noopControls(), ((_element: unknown) => ({
       rerender() {},
       unmount() {},
       waitUntilExit: async () => {},

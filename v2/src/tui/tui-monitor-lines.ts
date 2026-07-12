@@ -1,5 +1,5 @@
-import { RUN_STATUSES, type RunStatus } from "../persistence/state-store.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
+import type { RunStatus } from "../persistence/state-store.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
 
 export type MonitorSegmentTone = "active" | "success" | "failure";
@@ -96,9 +96,7 @@ function outcomeLines(state: TuiMonitorState): MonitorLineRow[] {
       ...(waitState.result.iterationsConsumed !== undefined
         ? [row(untoned(`iterationsConsumed: ${waitState.result.iterationsConsumed}`))]
         : []),
-      ...(waitState.result.resumable !== undefined
-        ? [row(untoned(`resumable: ${waitState.result.resumable}`))]
-        : []),
+      ...(waitState.result.resumable !== undefined ? [row(untoned(`resumable: ${waitState.result.resumable}`))] : []),
     ];
   }
   if (waitState.kind === "error") return [row(untoned(`Wait failed for ${waitState.runId}.`))];
@@ -133,9 +131,7 @@ export function monitorSegmentRows(state: TuiMonitorState): MonitorLineRow[] {
       const outcomeSuffix = step.terminalOutcome !== undefined ? ` ${step.terminalOutcome}` : "";
       lines.push(
         row(
-          untoned(
-            `${marker} ${step.stepId} ${step.role} ${step.status}${outcomeSuffix} attempts=${step.attemptCount}`,
-          ),
+          untoned(`${marker} ${step.stepId} ${step.role} ${step.status}${outcomeSuffix} attempts=${step.attemptCount}`),
         ),
       );
     }

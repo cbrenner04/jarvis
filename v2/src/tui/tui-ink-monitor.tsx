@@ -3,9 +3,9 @@ import type { InkRender } from "./tui-ink-feedback.tsx";
 import { loadInkUi } from "./tui-ink-runtime.ts";
 import {
   joinMonitorRow,
-  monitorSegmentRows,
   type MonitorLineRow,
   type MonitorSegmentTone,
+  monitorSegmentRows,
 } from "./tui-monitor-lines.ts";
 import type { TuiMonitorControls, TuiMonitorSession, TuiMonitorState } from "./tui-monitor-types.ts";
 

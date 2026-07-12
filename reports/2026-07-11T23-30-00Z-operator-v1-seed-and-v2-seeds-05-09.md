@@ -75,9 +75,12 @@ linked-subspec impl 2.56, debate-steps plan 2.98, plan drafts 0.67–1.11, fix
 plan 0.85, seed-08 wasted plan 1.09. Paid-tier (codex/claude) Jarvis subtotal is
 roughly **$35–45**; cursor impl runs add negligible metered cost.
 
-**Operator (this Claude Code session) cost: run `/cost` to fill** — not
-self-measurable by the agent. This orchestration loop dominates session spend
-(long session, many poll/merge turns).
+**Operator (this Claude Code session): $101.35** (Opus 4.8) — 37.7k input /
+256.2k output / 167.7M cache-read / 1.1M cache-write tokens; API time 1h 18m,
+wall 14h 12m. The orchestration loop dominated session spend — roughly 2–3× the
+paid-tier Jarvis run cost — as expected for a long serial-drive session with many
+poll / merge / review turns (the exact pattern the runbook's feedback-cadence
+guidance targets).
 
 Full 4-CSV reconciliation deferred — cost source gap (no per-run cost in
 `runs.jsonl`) makes exact per-spec attribution unreliable this session; see the

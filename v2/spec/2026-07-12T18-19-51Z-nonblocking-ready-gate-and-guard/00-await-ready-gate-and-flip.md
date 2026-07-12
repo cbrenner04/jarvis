@@ -13,11 +13,11 @@
 
 ## Acceptance criteria
 
-- [ ] Neither the ready gate nor the draft-to-ready flip blocks the event loop: `v2/src/execution/ready-finalize.ts` imports no synchronous `node:child_process` API and awaits both subprocesses.
-- [ ] The gate is awaited to success before the first flip attempt, and each of the up-to-three flip attempts is awaited.
-- [ ] A non-zero async subprocess exit rejects with an error carrying the exit status and the captured `stdout`/`stderr`, covered by a test in `shared/subprocess.test.ts`; a gate whose output exceeds Node's default `maxBuffer` still succeeds.
-- [ ] `v2/src/execution/ready-finalize.test.ts` stays green with its doubles made async (behavior unchanged by the conversion): retry count, flat backoff, retry notice, `already ready` / `not a draft` success guard, terminal failure propagation, and the `ready gate failed (exit N)` message with captured stderr.
-- [ ] A rejected async gate seam surfaces as a ready-gate failure and no flip is attempted; a rejected async flip seam surfaces through `readyFinalizeError` in `v2/src/execution/write-loop.test.ts`.
+- [x] Neither the ready gate nor the draft-to-ready flip blocks the event loop: `v2/src/execution/ready-finalize.ts` imports no synchronous `node:child_process` API and awaits both subprocesses.
+- [x] The gate is awaited to success before the first flip attempt, and each of the up-to-three flip attempts is awaited.
+- [x] A non-zero async subprocess exit rejects with an error carrying the exit status and the captured `stdout`/`stderr`, covered by a test in `shared/subprocess.test.ts`; a gate whose output exceeds Node's default `maxBuffer` still succeeds.
+- [x] `v2/src/execution/ready-finalize.test.ts` stays green with its doubles made async (behavior unchanged by the conversion): retry count, flat backoff, retry notice, `already ready` / `not a draft` success guard, terminal failure propagation, and the `ready gate failed (exit N)` message with captured stderr.
+- [x] A rejected async gate seam surfaces as a ready-gate failure and no flip is attempted; a rejected async flip seam surfaces through `readyFinalizeError` in `v2/src/execution/write-loop.test.ts`.
 
 ## Documentation updates
 

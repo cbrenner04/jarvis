@@ -12,6 +12,18 @@ export type AsyncSubprocessOptions = {
   stdio?: "pipe" | "ignore";
 };
 
+export class AsyncSubprocessError extends Error {
+  constructor(
+    message: string,
+    readonly status: number | undefined,
+    readonly stdout: string,
+    readonly stderr: string,
+  ) {
+    super(message);
+    this.name = "AsyncSubprocessError";
+  }
+}
+
 /** Injectable seam for async subprocess execution. */
 export interface AsyncSubprocessRunner {
   /** Runs `cmd args` in `cwd`, returning stdout; rejects on non-zero exit. */
@@ -37,8 +49,11 @@ export const realAsyncSubprocessRunner: AsyncSubprocessRunner = {
           ...(options?.maxBuffer !== undefined ? { maxBuffer: options.maxBuffer } : {}),
           ...(stdio === "ignore" ? { stdio: "ignore" } : {}),
         },
-        (error, stdout) => {
-          if (error) reject(error);
+        (error, stdout, stderr) => {
+          if (error) {
+            const status = typeof error.code === "number" ? error.code : undefined;
+            reject(new AsyncSubprocessError(error.message, status, stdout ?? "", stderr ?? ""));
+          }
           else resolve(stdio === "ignore" ? "" : (stdout ?? ""));
         },
       );

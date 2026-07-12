@@ -69,6 +69,10 @@ function collectRowTexts(node: unknown): string[] {
   return [];
 }
 
+// Ignores the real element openInkMonitor passes and rebuilds the tree via createMonitorDisplay
+// instead: walking the actual element would invoke MonitorSessionRoot's useState/useInput outside
+// a reconciler and throw. This proves createMonitorDisplay colors correctly and that renderFn was
+// called, not that openInkMonitor renders this exact tree.
 function createInkCapture(state: TuiMonitorState) {
   const renders: unknown[] = [];
   let TextType: unknown;
@@ -184,6 +188,9 @@ describe("openInkMonitor", () => {
     session.close();
   });
 
+  // loadInkUi(inkRender) never supplies Box, so this only exercises renderSegmentRow's Fragment
+  // fallback, not the real-Ink Box branch used by production `jarvis tui`. Pre-existing gap in
+  // this test seam, not newly introduced here.
   test("concatenated rendered row cells match monitorTextLines entries", async () => {
     const state = monitorState(
       [

@@ -3,11 +3,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProjectMatch } from "../../../shared/project-registry.ts";
-import { buildImplementWorkflowSteps } from "./implement-workflow-steps.ts";
+import { openStateStore } from "../persistence/state-store.ts";
 import type { WithExternalWorktreeResult } from "./external-worktree.ts";
+import { buildImplementWorkflowSteps } from "./implement-workflow-steps.ts";
 import { loadWorkflowSteps, type WorkflowSourceStep } from "./workflow-loader.ts";
 import { executeWorkflow, type WriteWorkflowStep } from "./workflow-runner.ts";
-import { openStateStore } from "../persistence/state-store.ts";
 
 function writeJson(name: string, value: unknown): string {
   const dir = mkdtempSync(join(tmpdir(), "implement-workflow-steps-test-"));
@@ -383,7 +383,11 @@ describe("buildImplementWorkflowSteps", () => {
         mkdirSync(join(worktreePath, "spec"), { recursive: true });
         writeFileSync(join(worktreePath, "spec", "spec.md"), "- [ ] Work\n", "utf8");
         const value = await run({ path: worktreePath, reused: false });
-        return { worktree: { path: worktreePath, reused: false }, lock: { kind: "acquired" }, value } satisfies WithExternalWorktreeResult<unknown>;
+        return {
+          worktree: { path: worktreePath, reused: false },
+          lock: { kind: "acquired" },
+          value,
+        } satisfies WithExternalWorktreeResult<unknown>;
       };
       const step: WriteWorkflowStep = {
         ...builtStep,

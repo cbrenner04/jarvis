@@ -71,8 +71,8 @@ test("reconciles every orphaned status, retaining durable run metadata", () => {
   expect(events.sort((a, b) => a.runId.localeCompare(b.runId))).toEqual(
     runIds
       .map((runId) => ({
-      runId,
-      event: { kind: "run_reconciled" as const, runStatus: "killed" as const, reason: "daemon_restart" as const },
+        runId,
+        event: { kind: "run_reconciled" as const, runStatus: "killed" as const, reason: "daemon_restart" as const },
       }))
       .sort((a, b) => a.runId.localeCompare(b.runId)),
   );
@@ -102,7 +102,11 @@ test("propagates reconciliation errors", () => {
 });
 
 test("propagates durable-state reconciliation errors", () => {
-  const failingStore = { listRuns: () => { throw new Error("state unavailable"); } } as unknown as StateStore;
+  const failingStore = {
+    listRuns: () => {
+      throw new Error("state unavailable");
+    },
+  } as unknown as StateStore;
   const sink: LogSink = { append: () => undefined, close: () => undefined };
 
   expect(() => reconcileOrphanedRuns(failingStore, sink)).toThrow("state unavailable");

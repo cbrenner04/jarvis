@@ -25,16 +25,16 @@ Bound the terminal history `list` returns. Durable records are untouched; only t
 
 ## Acceptance criteria
 
-- [ ] With more than 50 terminal runs persisted, `list` returns only the 50 newest by creation time; the older terminal runs are absent from the response.
-- [ ] Runs with status `in-progress`, `queued`, `paused`, `budget-soft-stopped`, `awaiting-human`, or `revising` are always present in `list`, even when terminal history exceeds the bound and even when they are older than every retained terminal run.
-- [ ] Exempt-status runs do not consume the terminal bound: with 60 exempt runs and 50 terminal runs persisted, all 110 are returned.
-- [ ] A workflow with a listed run and completed step runs older than the terminal bound (60 newer unrelated terminal runs persisted) reports those steps as `completed` with their real attempt counts, not `pending`/0.
-- [ ] The returned runs stay in global creation order, newest first, with exempt and retained terminal rows interleaved — not exempt rows grouped ahead of or behind terminal rows.
-- [ ] Two runs sharing a `created_at` value land on the same side of the cap boundary across repeated `list` calls.
-- [ ] Runs retired from `list` remain readable from the state store (`loadRun` still returns them); no run rows are deleted.
-- [ ] `jarvis run list` and `jarvis tui` render every run the daemon returns, applying no bound of their own.
-- [ ] Retired runs are not loaded or log-replayed while serving `list`: with 200 terminal non-workflow runs and no exempt runs persisted, `list` issues at most 50 `loadRun` calls.
-- [ ] `daemon-start-list.sandbox-unrunnable.test.ts` stays green (its start→list round-trip run is exempt-status, so retention does not touch it).
+- [x] With more than 50 terminal runs persisted, `list` returns only the 50 newest by creation time; the older terminal runs are absent from the response.
+- [x] Runs with status `in-progress`, `queued`, `paused`, `budget-soft-stopped`, `awaiting-human`, or `revising` are always present in `list`, even when terminal history exceeds the bound and even when they are older than every retained terminal run.
+- [x] Exempt-status runs do not consume the terminal bound: with 60 exempt runs and 50 terminal runs persisted, all 110 are returned.
+- [x] A workflow with a listed run and completed step runs older than the terminal bound (60 newer unrelated terminal runs persisted) reports those steps as `completed` with their real attempt counts, not `pending`/0.
+- [x] The returned runs stay in global creation order, newest first, with exempt and retained terminal rows interleaved — not exempt rows grouped ahead of or behind terminal rows.
+- [x] Two runs sharing a `created_at` value land on the same side of the cap boundary across repeated `list` calls.
+- [x] Runs retired from `list` remain readable from the state store (`loadRun` still returns them); no run rows are deleted.
+- [x] `jarvis run list` and `jarvis tui` render every run the daemon returns, applying no bound of their own.
+- [x] Retired runs are not loaded or log-replayed while serving `list`: with 200 terminal non-workflow runs and no exempt runs persisted, `list` issues at most 50 `loadRun` calls.
+- [x] `daemon-start-list.sandbox-unrunnable.test.ts` stays green (its start→list round-trip run is exempt-status, so retention does not touch it).
 
 ## Documentation updates
 

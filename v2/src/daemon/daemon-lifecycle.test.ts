@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach, afterEach } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -214,7 +214,7 @@ describe("daemon-lifecycle", () => {
         ).rejects.toThrow("Daemon failed to become ready");
 
         // Verify the log file was created
-        expect(require("fs").existsSync(logPath)).toBe(true);
+        expect(require("node:fs").existsSync(logPath)).toBe(true);
       } finally {
         rmSync(tmpDir, { recursive: true, force: true });
       }
@@ -273,7 +273,7 @@ describe("daemon-lifecycle", () => {
         ).rejects.toThrow("Daemon failed to become ready");
 
         // Verify rotation happened
-        const fs = require("fs");
+        const fs = require("node:fs");
         expect(fs.existsSync(`${logPath}.1`)).toBe(true);
         const rotatedContent = readFileSync(`${logPath}.1`, "utf-8");
         expect(rotatedContent).toBe("x".repeat(100));
@@ -315,7 +315,7 @@ describe("daemon-lifecycle", () => {
         // Verify file was appended to (fd was opened in append mode)
         // Note: we can't easily verify fd append behavior without actually spawning,
         // but we can verify the file still exists
-        const fs = require("fs");
+        const fs = require("node:fs");
         expect(fs.existsSync(logPath)).toBe(true);
         const content = readFileSync(logPath, "utf-8");
         expect(content).toContain("small content");
@@ -350,7 +350,7 @@ describe("daemon-lifecycle", () => {
         ).rejects.toThrow("Daemon failed to become ready");
 
         // Verify no log file was created
-        const fs = require("fs");
+        const fs = require("node:fs");
         expect(fs.existsSync(logPath)).toBe(false);
       } finally {
         rmSync(tmpDir, { recursive: true, force: true });

@@ -55,6 +55,28 @@ async function probeSocket(socketPath: string, timeoutMs: number): Promise<boole
   }
 }
 
+function setupLogFile(logPath: string, logCapBytes: number): number | undefined {
+  const logDir = dirname(logPath);
+  if (!existsSync(logDir)) {
+    throw new Error(`Log file directory does not exist: ${logDir}`);
+  }
+
+  // Rotate log if it exists and is at or over the cap
+  if (existsSync(logPath)) {
+    const stat = statSync(logPath);
+    if (stat.size >= logCapBytes) {
+      renameSync(logPath, `${logPath}.1`);
+    }
+  }
+
+  // Open log file in append mode
+  try {
+    return openSync(logPath, "a");
+  } catch (_error) {
+    throw new Error(`Failed to open log file for writing: ${logPath}`);
+  }
+}
+
 export async function startDaemon(
   socketPath: string,
   options?: {
@@ -79,28 +101,7 @@ export async function startDaemon(
 
   const daemonScript = options?.daemonScript ?? resolve(import.meta.dir, "../daemon-entrypoint.ts");
 
-  let logFd: number | undefined;
-  if (options?.logPath) {
-    const logDir = dirname(options.logPath);
-    if (!existsSync(logDir)) {
-      throw new Error(`Log file directory does not exist: ${logDir}`);
-    }
-
-    // Rotate log if it exists and is at or over the cap
-    if (existsSync(options.logPath)) {
-      const stat = statSync(options.logPath);
-      if (stat.size >= logCapBytes) {
-        renameSync(options.logPath, `${options.logPath}.1`);
-      }
-    }
-
-    // Open log file in append mode
-    try {
-      logFd = openSync(options.logPath, "a");
-    } catch (error) {
-      throw new Error(`Failed to open log file for writing: ${options.logPath}`);
-    }
-  }
+  const logFd = options?.logPath ? setupLogFile(options.logPath, logCapBytes) : undefined;
 
   const proc = spawn("bun", [daemonScript], {
     detached: true,

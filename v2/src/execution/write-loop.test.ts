@@ -1,16 +1,16 @@
 import { describe, expect, mock, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { AsyncSubprocessError } from "../../../shared/subprocess.ts";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
+import { AsyncSubprocessError } from "../../../shared/subprocess.ts";
 import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
 import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
+import { createReadyFinalizer } from "./ready-finalize.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./write.ts";
-import { createReadyFinalizer } from "./ready-finalize.ts";
 import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "./write-loop.ts";
 
 const { roots } = trackedTempRoots();

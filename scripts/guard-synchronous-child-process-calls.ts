@@ -52,14 +52,8 @@ function findChildProcessModuleBindings(source: string): Array<{ index: number; 
   const childProcessModule = "(?:node:)?child_process";
   const expressions = [
     new RegExp(`import\\s*\\*\\s*as\\s*(\\w+)\\s*from\\s*["']${childProcessModule}["']`, "g"),
-    new RegExp(
-      `(?:const|let|var)\\s+(\\w+)\\s*=\\s*require\\(\\s*["']${childProcessModule}["']\\s*\\)`,
-      "g",
-    ),
-    new RegExp(
-      `(?:const|let|var)\\s+(\\w+)\\s*=\\s*await\\s+import\\(\\s*["']${childProcessModule}["']\\s*\\)`,
-      "g",
-    ),
+    new RegExp(`(?:const|let|var)\\s+(\\w+)\\s*=\\s*require\\(\\s*["']${childProcessModule}["']\\s*\\)`, "g"),
+    new RegExp(`(?:const|let|var)\\s+(\\w+)\\s*=\\s*await\\s+import\\(\\s*["']${childProcessModule}["']\\s*\\)`, "g"),
   ];
   const bindings: Array<{ index: number; name: string }> = [];
   for (const expression of expressions) {

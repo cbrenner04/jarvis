@@ -116,7 +116,6 @@ export type WriteExecuteInput = {
   withExternalWorktree?: typeof realWithExternalWorktree;
   intentSeed?: string;
   intentBefore?: string;
-  jarvisRoot?: string;
   completionValidator?: (specDir: string) => { valid: boolean; reason?: string };
 };
 
@@ -169,7 +168,7 @@ async function executePlanDraftWrite(
 
   const name = getSpecDirName(specPath);
   const targetDir = getTargetDir(specPath);
-  const specGuidance = readFileSync(getSpecGuidancePath(args.jarvisRoot), "utf8");
+  const specGuidance = readFileSync(getSpecGuidancePath(), "utf8");
   const placeholders = {
     WORKDIR: args.promptPlaceholders?.WORKDIR ?? worktreePath,
     NAME: name,
@@ -332,13 +331,8 @@ function getTargetDir(specPath: string): string {
   return parts.slice(0, -1).join("/");
 }
 
-function getSpecGuidancePath(jarvisRoot?: string): string {
+function getSpecGuidancePath(): string {
   // Resolve spec-guidance.md from the jarvis installation
-  // It's located at v1/docs/spec-guidance.md relative to the jarvis root
-  if (jarvisRoot) {
-    return join(jarvisRoot, "..", "..", "v1", "docs", "spec-guidance.md");
-  }
-  // Fallback: use import.meta.dir to find the current location
   // write.ts is at v2/src/execution/, so we need to go up to the repo root
   return join(import.meta.dir, "..", "..", "..", "v1", "docs", "spec-guidance.md");
 }

@@ -30,7 +30,6 @@ export type PlanWorkflowInput = {
   readyIntent: string;
   targetDir?: string;
   configPath?: string;
-  jarvisRoot?: string;
   reviewPasses?: number;
 };
 
@@ -244,7 +243,7 @@ async function buildPlanWorkflowSourceStep(
   const targetDir = targetDirResult;
 
   const publish = config.git !== false && (config.plan?.commit ?? true);
-  const jarvisRoot = input.jarvisRoot ?? join(homedir(), ".jarvis");
+  const jarvisRoot = join(homedir(), ".jarvis");
   const branch = `plan/${name}`;
   const worktree = join(jarvisRoot, "worktrees", project.key, branch);
   const specDir = join(targetDir, `${specTimestamp}-${name}`);
@@ -269,7 +268,6 @@ async function buildPlanWorkflowSourceStep(
     specPath: specDir,
     expectedArtifactPath: STAGE_DIR,
     intentSeed,
-    jarvisRoot,
     workflowInvocationId: crypto.randomUUID(),
     publishCompletion: true,
   };
@@ -309,10 +307,7 @@ function resolvePlanReviewPasses(reviewPasses: number | undefined): number | { e
 }
 
 function resolvePlanReviewCwd(sourceStep: WriteWorkflowSourceStep): string {
-  return getExternalWorktreePath({
-    ...sourceStep.worktree,
-    ...(sourceStep.jarvisRoot !== undefined ? { jarvisRoot: sourceStep.jarvisRoot } : {}),
-  });
+  return getExternalWorktreePath(sourceStep.worktree);
 }
 
 export async function buildReviewedPlanWorkflowSteps(
@@ -380,7 +375,6 @@ export async function buildReviewedPlanLightWorkflowSteps(
     maxCycles: reviewPasses,
     planReviewContext: {
       specPath: join(cwd, source.step.specPath),
-      ...(source.step.jarvisRoot !== undefined ? { jarvisRoot: source.step.jarvisRoot } : {}),
     },
   };
   try {

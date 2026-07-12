@@ -48,22 +48,22 @@ run-state semantics, keeping the text labels.
 
 ## Acceptance criteria
 
-- [ ] Each run-table row renders `status` and `liveness` as distinct ink `Text` cells; every other
+- [x] Each run-table row renders `status` and `liveness` as distinct ink `Text` cells; every other
       cell in the row keeps its current text and no color.
-- [ ] Status text is unchanged from today and always rendered — color is additive, never the only
+- [x] Status text is unchanged from today and always rendered — color is additive, never the only
       state signal.
-- [ ] A render-level test over the fake `inkRender` seam asserts `color` on the status and liveness
+- [x] A render-level test over the fake `inkRender` seam asserts `color` on the status and liveness
       cells: `completed` green; `failed`, `killed`, `blocked`, `budget-soft-stopped` red;
       `in-progress`, `paused`, `queued`, `awaiting-human`, `revising` cyan; `live` cyan; `not-live`
       no `color` prop.
-- [ ] Queue rows color their `status` cell by the same mapping; the `waiting: memory headroom`
+- [x] Queue rows color their `status` cell by the same mapping; the `waiting: memory headroom`
       descriptor renders with no `color` prop.
-- [ ] Concatenating a rendered row's cells yields the same text as that row's `monitorTextLines`
+- [x] Concatenating a rendered row's cells yields the same text as that row's `monitorTextLines`
       entry, separators included — the split introduces no spacing change.
-- [ ] The composing `Revise prompt:` line renders as an uncolored row through the same segment path.
-- [ ] The tone map is a total record over `RunStatus` with no default arm, and a unit test asserts
+- [x] The composing `Revise prompt:` line renders as an uncolored row through the same segment path.
+- [x] The tone map is a total record over `RunStatus` with no default arm, and a unit test asserts
       every member of `RUN_STATUSES` resolves to a tone.
-- [ ] `tui-monitor-lines.test.ts` pins the full `string[]` output of `monitorTextLines` for a
+- [x] `tui-monitor-lines.test.ts` pins the full `string[]` output of `monitorTextLines` for a
       fixture state and that pin matches today's output; it and `tui-entry.test.tsx` stay green.
 
 ## Documentation updates

@@ -24,6 +24,7 @@ export type LoopFinishedEvent = {
 
 export type RunExecutionFailedEvent = {
   kind: "run_execution_failed";
+  message?: string;
 };
 
 /** Agent stdout excerpt when token parsing fails; truncated at append time. */

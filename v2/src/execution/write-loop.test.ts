@@ -935,22 +935,33 @@ describe("write loop", () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();
     const dirtiedMarker = "dirty.txt";
-    let firstRunCalls = 0;
-    const crashBindings: InvocationBinding[] = [
+    const controller = new AbortController();
+    const interruptBindings: InvocationBinding[] = [
       {
         id: "agent",
-        invoke: async ({ cwd }) => {
-          firstRunCalls += 1;
+        invoke: async ({ cwd, signal }) => {
           writeFileSync(join(cwd, dirtiedMarker), "dirty\n", "utf8");
-          throw new Error("simulated crash");
+          while (!signal?.aborted) {
+            await new Promise((resolve) => setTimeout(resolve, 5));
+          }
+          return { kind: "ok", stdout: "progress", stderr: "" };
         },
       },
     ];
 
-    await expect(
-      runLoop({ jarvisRoot, stateDbPath, bindings: crashBindings, maxIterations: 1, logSink: sink }),
-    ).rejects.toThrow("simulated crash");
-    expect(firstRunCalls).toBe(1);
+    const abortTimer = setTimeout(() => controller.abort(), 20);
+    const interrupted = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings: interruptBindings,
+      maxIterations: 1,
+      signal: controller.signal,
+      logSink: sink,
+    });
+    clearTimeout(abortTimer);
+    expect(interrupted.kind).toBe("progress");
+    expect(interrupted.iterationsConsumed).toBe(1);
+    expect(interrupted.resumable).toBe(true);
 
     let resumedCalls = 0;
     const resumeBindings: InvocationBinding[] = [
@@ -983,15 +994,15 @@ describe("write loop", () => {
     expect(run?.attempts[0]?.outcomeKind).toBe("done");
 
     const events = sink.getEventsForRun(resumed.runId);
-    // Should have: iteration_started (from first crash), iteration_started (from retry), boundary_committed, loop_finished
-    expect(events.length).toBe(4);
+    expect(events.length).toBe(5);
     expect(events[0]?.kind).toBe("iteration_started");
-    expect(events[1]?.kind).toBe("iteration_started");
-    expect(events[2]?.kind).toBe("boundary_committed");
-    expect(events[3]?.kind).toBe("loop_finished");
+    expect(events[1]?.kind).toBe("loop_finished");
+    expect(events[2]?.kind).toBe("iteration_started");
+    expect(events[3]?.kind).toBe("boundary_committed");
+    expect(events[4]?.kind).toBe("loop_finished");
 
     const firstAttemptId = events[0]?.kind === "iteration_started" ? events[0].attemptId : undefined;
-    const resumedAttemptId = events[1]?.kind === "iteration_started" ? events[1].attemptId : undefined;
+    const resumedAttemptId = events[2]?.kind === "iteration_started" ? events[2].attemptId : undefined;
     expect(firstAttemptId).toBeDefined();
     expect(resumedAttemptId).toBeDefined();
     expect(resumedAttemptId).toBe(firstAttemptId);
@@ -1516,6 +1527,99 @@ describe("write loop", () => {
     expect(run?.attemptCount).toBe(3); // Two paused + one new
     expect(run?.attempts).toHaveLength(3);
     expect(run?.attempts[2]?.outcomeKind).toBe("done");
+  });
+
+  test("executeWrite throw terminates as invocation_failure with run_execution_failed", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const store = openStateStore(stateDbPath);
+    const sink = new TestLogSink();
+    const throwMessage = "ENOENT: spec-guidance missing";
+    mock.module("./write.ts", () => ({
+      executeWrite: async () => {
+        throw new Error(throwMessage);
+      },
+    }));
+
+    try {
+      const result = await executeWriteLoop({
+        worktree: {
+          projectRoot: "/fake",
+          projectName: "demo",
+          branchName: "throw-run",
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
+        specPath: "spec.md",
+        stepRules: "Return exactly one terminal token.",
+        expectedArtifactPath: "proof.txt",
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        stateStore: store,
+        withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        logSink: sink,
+      });
+
+      expect(result).toMatchObject({
+        kind: "invocation_failure",
+        failureKind: "error",
+        bindingAttempts: [],
+        resumable: false,
+        iterationsConsumed: 1,
+      });
+
+      const run = loadRunOnce(stateDbPath, result.runId);
+      expect(run?.status).toBe("failed");
+      expect(run?.attempts).toHaveLength(1);
+      expect(run?.attempts[0]?.status).toBe("completed");
+      expect(run?.attempts[0]?.outcomeKind).toBe("invocation_failure");
+      expect(run?.attempts[0]?.invocationFailureDetail).toEqual({ failureKind: "error", bindingAttempts: [] });
+
+      const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+      expect(events).toEqual(["iteration_started", "boundary_committed", "run_execution_failed"]);
+      const failed = sink.getEventsForRun(result.runId).find((event) => event.kind === "run_execution_failed");
+      expect(failed).toMatchObject({ kind: "run_execution_failed", message: throwMessage });
+    } finally {
+      store.close();
+      mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+    }
+  });
+
+  test("executeWrite throw while aborted terminates as progress", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const store = openStateStore(stateDbPath);
+    const controller = new AbortController();
+    mock.module("./write.ts", () => ({
+      executeWrite: async () => {
+        controller.abort();
+        throw new Error("pre-spawn failure");
+      },
+    }));
+
+    try {
+      const result = await executeWriteLoop({
+        worktree: {
+          projectRoot: "/fake",
+          projectName: "demo",
+          branchName: "throw-abort-run",
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
+        specPath: "spec.md",
+        stepRules: "Return exactly one terminal token.",
+        expectedArtifactPath: "proof.txt",
+        bindings: simulatedBindings(["progress"]),
+        stateStore: store,
+        withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        signal: controller.signal,
+      });
+
+      expect(result).toMatchObject({ kind: "progress", resumable: true, iterationsConsumed: 0 });
+      expect(loadRunOnce(stateDbPath, result.runId)?.attempts[0]?.status).toBe("in-progress");
+    } finally {
+      store.close();
+      mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+    }
   });
 
   test("promptId and promptPlaceholders forward through to executeWrite", async () => {

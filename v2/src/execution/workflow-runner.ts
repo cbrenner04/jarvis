@@ -21,7 +21,13 @@ import {
 import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
 import type { CompletionPublisher } from "./completion-publisher.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
-import { type IntentOutputConfig, landIntentWorkflowOutput } from "./intent-output.ts";
+import {
+  type IntentOutputConfig,
+  intentPublicationSpecPath,
+  landIntentWorkflowOutput,
+  listLandedIntentFiles,
+} from "./intent-output.ts";
+import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
 import {
   advanceLinkedSubspecCheckbox,
   findModifiedLinkedCheckbox,
@@ -49,6 +55,7 @@ import {
 } from "./review-intent-enforcement.ts";
 import { parseRevisionNumber } from "./revision-step-id.ts";
 import { resolveSpecCreationTitle } from "./spec-creation-title.ts";
+import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import {
   boundaryStampFromStoredRun,
@@ -697,6 +704,22 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 boundaryTelemetryFailure = failure;
               }
             }
+            let bodySummary: string | undefined;
+            if (completionStep.intentOutput !== undefined) {
+              if (publicationSpecPath === undefined) {
+                publicationSpecPath = intentPublicationSpecPath(worktreePath, completionStep.intentOutput.durableDir);
+              }
+              bodySummary = deriveIntentRunBodySummary({
+                creationTitle: workflowSnapshot.creationTitle,
+                intentFiles: await listLandedIntentFiles(worktreePath, workflowSnapshot.invocationId),
+              });
+            } else if (completionStep.promptId === "plan.prompt.draft") {
+              bodySummary = deriveSpecRunBodySummary({
+                worktreePath,
+                specPath: publicationSpecPath ?? completionStep.specPath,
+              });
+            }
+            const publicationPath = publicationSpecPath ?? completionStep.specPath;
             const publishError = await publishCompletionArtifacts(
               {
                 ...(args.completionPublisher !== undefined ? { completionPublisher: args.completionPublisher } : {}),
@@ -705,9 +728,10 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               {
                 worktreePath,
                 baseRef: worktree.baseRef,
-                specPath: publicationSpecPath ?? completionStep.specPath,
+                specPath: publicationPath,
                 branch: worktree.branchName,
                 creationTitle: workflowSnapshot.creationTitle,
+                ...(bodySummary !== undefined ? { bodySummary } : {}),
               },
             );
             if (publishError !== undefined) {

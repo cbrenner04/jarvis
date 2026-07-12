@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { type RefreshPrBodyInput, refreshPrBody } from "./pr-body-refresh.ts";
 import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 
@@ -8,6 +8,7 @@ export type CompletionPublisherInput = {
   specPath: string;
   branch: string;
   creationTitle?: unknown;
+  bodySummary?: string;
 };
 
 export type CompletionPublisherResult = {
@@ -17,9 +18,9 @@ export type CompletionPublisherResult = {
 
 export type CompletionPublisher = (input: CompletionPublisherInput) => Promise<CompletionPublisherResult>;
 
-type Git = (cwd: string, args: readonly string[], env?: Record<string, string>) => string;
-type GhCommand = (cwd: string, args: readonly string[], env?: Record<string, string>) => string;
-type GhReady = (cwd: string) => boolean;
+type Git = (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string>;
+type GhCommand = (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string>;
+type GhReady = (cwd: string) => Promise<boolean>;
 type Delay = (ms: number) => Promise<void>;
 type RetryNotice = (message: string) => void;
 
@@ -39,17 +40,27 @@ type PublisherSeams = {
   renderFooter?: RenderFooter;
 };
 
-function defaultGit(cwd: string, args: readonly string[], env?: Record<string, string>): string {
-  return execFileSync("git", args, { cwd, env: { ...process.env, ...env }, encoding: "utf8" }).trim();
+function defaultGit(cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile("git", args, { cwd, env: { ...process.env, ...env }, encoding: "utf8" }, (error, stdout) => {
+      if (error) reject(error);
+      else resolve(stdout.trim());
+    });
+  });
 }
 
-function defaultGh(cwd: string, args: readonly string[], env?: Record<string, string>): string {
-  return execFileSync("gh", args, { cwd, env: { ...process.env, ...env }, encoding: "utf8" }).trim();
+function defaultGh(cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile("gh", args, { cwd, env: { ...process.env, ...env }, encoding: "utf8" }, (error, stdout) => {
+      if (error) reject(error);
+      else resolve(stdout.trim());
+    });
+  });
 }
 
-function defaultGhReady(cwd: string): boolean {
+async function defaultGhReady(cwd: string): Promise<boolean> {
   try {
-    execFileSync("gh", ["auth", "status"], { cwd, env: process.env, encoding: "utf8" });
+    await defaultGh(cwd, ["auth", "status"]);
     return true;
   } catch {
     return false;
@@ -75,23 +86,21 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
   return async (input) => {
     const specPath = normalizePublicationSpecPath(input.worktreePath, input.specPath);
 
-    // Single gh readiness probe gates all GitHub operations
-    if (!ghReady(input.worktreePath)) {
+    if (!(await ghReady(input.worktreePath))) {
       throw new Error("GitHub auth unavailable; cannot publish PR");
     }
 
     const result: CompletionPublisherResult = {};
 
-    // Push with retry
     const pushSha = await publishWithRetry(
-      () => {
-        const hasUpstream = checkHasUpstream(git, input.worktreePath, input.branch);
+      async () => {
+        const hasUpstream = await checkHasUpstream(git, input.worktreePath, input.branch);
         if (hasUpstream) {
-          git(input.worktreePath, ["push"]);
+          await git(input.worktreePath, ["push"]);
         } else {
-          git(input.worktreePath, ["push", "-u", "origin", input.branch]);
+          await git(input.worktreePath, ["push", "-u", "origin", input.branch]);
         }
-        return git(input.worktreePath, ["rev-parse", "HEAD"]);
+        return await git(input.worktreePath, ["rev-parse", "HEAD"]);
       },
       "push",
       delay,
@@ -102,7 +111,6 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
       result.pushSha = pushSha;
     }
 
-    // PR lookup/creation with retry
     const prNumber = await publishWithRetry(
       () => findOrCreatePr(gh, input.worktreePath, input.baseRef, input.branch, specPath, input.creationTitle),
       "pr",
@@ -122,6 +130,7 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
           base: input.baseRef,
           cwd: input.worktreePath,
           git: syncGitToAttributionGit(git),
+          ...(input.bodySummary !== undefined ? { bodySummary: input.bodySummary } : {}),
           ...(seams?.fetchPrBody !== undefined ? { fetchPrBody: seams.fetchPrBody } : {}),
           ...(seams?.writePrBody !== undefined ? { writePrBody: seams.writePrBody } : {}),
           ...(seams?.renderFooter !== undefined ? { renderFooter: seams.renderFooter } : {}),
@@ -141,9 +150,9 @@ function syncGitToAttributionGit(git: Git): AttributionGit {
   return async (cwd, args) => git(cwd, args);
 }
 
-function checkHasUpstream(git: Git, worktreePath: string, branch: string): boolean {
+async function checkHasUpstream(git: Git, worktreePath: string, branch: string): Promise<boolean> {
   try {
-    git(worktreePath, ["rev-parse", `${branch}@{u}`]);
+    await git(worktreePath, ["rev-parse", `${branch}@{u}`]);
     return true;
   } catch {
     return false;
@@ -168,7 +177,6 @@ async function publishWithRetry<T>(
       const err = error instanceof Error ? error : new Error(String(error));
       const msg = err.message;
 
-      // Non-fast-forward is permanent
       if (msg.includes("non-fast-forward") || msg.includes("failed to push some refs")) {
         throw new Error("Non-fast-forward push rejection; PR head diverged from remote");
       }
@@ -185,28 +193,24 @@ async function publishWithRetry<T>(
   return null;
 }
 
-function findOrCreatePr(
+async function findOrCreatePr(
   gh: GhCommand,
   cwd: string,
   baseRef: string,
   branch: string,
   specPath: string,
   creationTitle: unknown,
-): number {
-  // Find open PRs for this branch in the worktree's repository
-  const prListJson = gh(cwd, ["pr", "list", "--head", branch, "--state", "open", "--json", "number,baseRefName"]);
+): Promise<number> {
+  const prListJson = await gh(cwd, ["pr", "list", "--head", branch, "--state", "open", "--json", "number,baseRefName"]);
   const prs = JSON.parse(prListJson) as Array<{ number: number; baseRefName: string }>;
 
-  // Filter by matching base
   const matching = prs.filter((pr) => pr.baseRefName === baseRef);
 
   if (matching.length > 0 && matching[0]) {
-    // Return first matching open PR
     return matching[0].number;
   }
 
-  // Create new draft PR
-  const createOutput = gh(cwd, [
+  const createOutput = await gh(cwd, [
     "pr",
     "create",
     "--draft",
@@ -218,7 +222,6 @@ function findOrCreatePr(
     `Spec: ${specPath}`,
   ]);
 
-  // Extract PR number from output (URL or number)
   const match = createOutput.match(/(?:pull\/|#)?(\d+)/);
   if (!match?.[1]) {
     throw new Error(`Failed to parse PR number from: ${createOutput}`);

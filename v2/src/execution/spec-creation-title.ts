@@ -1,7 +1,8 @@
 import { readFileSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 
-export function resolveSpecCreationTitle(worktreePath: string, specPath: string): string | undefined {
+/** Resolve `index.md` for a publication spec path (directory, index file, or sibling index). */
+export function resolveSpecIndexPath(worktreePath: string, specPath: string): string {
   const resolvedSpecPath = isAbsolute(specPath) ? specPath : join(worktreePath, specPath);
 
   let isDirectory = false;
@@ -11,11 +12,15 @@ export function resolveSpecCreationTitle(worktreePath: string, specPath: string)
     // resolvedSpecPath may not exist yet as a directory; fall back to file-based resolution
   }
 
-  const indexPath = isDirectory
+  return isDirectory
     ? join(resolvedSpecPath, "index.md")
     : basename(resolvedSpecPath) === "index.md"
       ? resolvedSpecPath
       : join(dirname(resolvedSpecPath), "index.md");
+}
+
+export function resolveSpecCreationTitle(worktreePath: string, specPath: string): string | undefined {
+  const indexPath = resolveSpecIndexPath(worktreePath, specPath);
 
   try {
     const heading = readFileSync(indexPath, "utf8")

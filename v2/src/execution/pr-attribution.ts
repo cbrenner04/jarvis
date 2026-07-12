@@ -26,17 +26,12 @@ function defaultGit(cwd: string, args: readonly string[]): Promise<string> {
 /** Read commits on the current branch ahead of `base` for attribution rendering. */
 export async function readBranchCommits(opts: { cwd: string; base: string; git?: Git }): Promise<CommitInfo[]> {
   const git = opts.git ?? defaultGit;
-  let output: string;
-  try {
-    output = await git(opts.cwd, [
-      "log",
-      "--reverse",
-      `--format=%h${COMMIT_FIELD_SEP}%s${COMMIT_FIELD_SEP}%(trailers:key=Jarvis-Agent,valueonly=true,separator=%x02)${COMMIT_FIELD_SEP}%b${COMMIT_RECORD_SEP}`,
-      `${opts.base}..HEAD`,
-    ]);
-  } catch {
-    return [];
-  }
+  const output = await git(opts.cwd, [
+    "log",
+    "--reverse",
+    `--format=%h${COMMIT_FIELD_SEP}%s${COMMIT_FIELD_SEP}%(trailers:key=Jarvis-Agent,valueonly=true,separator=%x02)${COMMIT_FIELD_SEP}%b${COMMIT_RECORD_SEP}`,
+    `${opts.base}..HEAD`,
+  ]);
 
   const commits: CommitInfo[] = [];
   const records = output.split(COMMIT_RECORD_SEP);

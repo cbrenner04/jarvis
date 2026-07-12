@@ -10,10 +10,10 @@ describe("createCompletionPublisher", () => {
   };
 
   const noopDelay = async () => {};
-  const readyGh = (_cwd: string) => true;
+  const readyGh = async (_cwd: string) => true;
   const noopRefreshSeams = {
-    fetchPrBody: () => "",
-    writePrBody: () => {},
+    fetchPrBody: async () => "",
+    writePrBody: async () => {},
     renderFooter: async () => "",
   };
 
@@ -21,7 +21,7 @@ describe("createCompletionPublisher", () => {
     const gitCalls: string[] = [];
     const ghCalls: string[] = [];
 
-    const mockGit = (_cwd: string, args: readonly string[]) => {
+    const mockGit = async (_cwd: string, args: readonly string[]) => {
       gitCalls.push(args.join(" "));
       if (args.includes("push") && gitCalls.filter((c) => c.includes("push")).length === 1) {
         return ""; // Successful push
@@ -35,7 +35,7 @@ describe("createCompletionPublisher", () => {
       return "";
     };
 
-    const mockGh = (_cwd: string, _args: readonly string[]) => {
+    const mockGh = async (_cwd: string, _args: readonly string[]) => {
       ghCalls.push(_args.join(" "));
       if (_args[0] === "pr" && _args[1] === "list") {
         return JSON.stringify([]); // No existing PRs
@@ -63,12 +63,12 @@ describe("createCompletionPublisher", () => {
   it("uses the supplied title when creating a draft PR", async () => {
     let createArgs: readonly string[] | undefined;
     const publisher = createCompletionPublisher({
-      git: (_cwd, args) => {
+      git: async (_cwd, args) => {
         if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
         if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
         return "";
       },
-      gh: (_cwd, args) => {
+      gh: async (_cwd, args) => {
         if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
         if (args[0] === "pr" && args[1] === "create") {
           createArgs = args;
@@ -96,12 +96,12 @@ describe("createCompletionPublisher", () => {
   ])("uses the fallback title for an unusable supplied subject", async (creationTitle) => {
     let createArgs: readonly string[] | undefined;
     const publisher = createCompletionPublisher({
-      git: (_cwd, args) => {
+      git: async (_cwd, args) => {
         if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
         if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
         return "";
       },
-      gh: (_cwd, args) => {
+      gh: async (_cwd, args) => {
         if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
         if (args[0] === "pr" && args[1] === "create") {
           createArgs = args;
@@ -123,18 +123,18 @@ describe("createCompletionPublisher", () => {
     const ghCwds: string[] = [];
 
     const publisher = createCompletionPublisher({
-      git: (_cwd, args) => {
+      git: async (_cwd, args) => {
         if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
         if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
         return "";
       },
-      gh: (cwd, args) => {
+      gh: async (cwd, args) => {
         ghCwds.push(cwd);
         if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
         if (args[0] === "pr" && args[1] === "create") return "https://github.com/user/repo/pull/42";
         return "";
       },
-      ghReady: (cwd) => {
+      ghReady: async (cwd) => {
         ghCwds.push(cwd);
         return true;
       },
@@ -151,7 +151,7 @@ describe("createCompletionPublisher", () => {
   it("publishes push with existing upstream", async () => {
     const gitCalls: string[] = [];
 
-    const mockGit = (_cwd: string, args: readonly string[]) => {
+    const mockGit = async (_cwd: string, args: readonly string[]) => {
       gitCalls.push(args.join(" "));
       if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) {
         return "upstream/feature-branch"; // Has upstream
@@ -162,7 +162,7 @@ describe("createCompletionPublisher", () => {
       return "";
     };
 
-    const mockGh = (_cwd: string, _args: readonly string[]) => {
+    const mockGh = async (_cwd: string, _args: readonly string[]) => {
       if (_args[0] === "pr" && _args[1] === "list") return JSON.stringify([]);
       if (_args[0] === "pr" && _args[1] === "create") return "https://github.com/user/repo/pull/42";
       return "";
@@ -182,7 +182,7 @@ describe("createCompletionPublisher", () => {
   });
 
   it("reuses existing open PR with matching base", async () => {
-    const mockGit = (_cwd: string, args: readonly string[]) => {
+    const mockGit = async (_cwd: string, args: readonly string[]) => {
       if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) {
         throw new Error("no upstream");
       }
@@ -192,7 +192,7 @@ describe("createCompletionPublisher", () => {
       return "";
     };
 
-    const mockGh = (_cwd: string, args: readonly string[]) => {
+    const mockGh = async (_cwd: string, args: readonly string[]) => {
       if (args[0] === "pr" && args[1] === "list") {
         return JSON.stringify([{ number: 99, baseRefName: "main" }]);
       }
@@ -217,12 +217,12 @@ describe("createCompletionPublisher", () => {
   ])("reuses an open PR without changing its title", async (isDraft, title) => {
     const ghCalls: string[] = [];
     const publisher = createCompletionPublisher({
-      git: (_cwd, args) => {
+      git: async (_cwd, args) => {
         if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
         if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
         return "";
       },
-      gh: (_cwd, args) => {
+      gh: async (_cwd, args) => {
         ghCalls.push(args.join(" "));
         if (args[0] === "pr" && args[1] === "list") {
           return JSON.stringify([{ number: 99, baseRefName: "main", isDraft, title }]);
@@ -242,13 +242,13 @@ describe("createCompletionPublisher", () => {
   it("ignores open PRs with different base", async () => {
     const ghCalls: string[] = [];
 
-    const mockGit = (_cwd: string, args: readonly string[]) => {
+    const mockGit = async (_cwd: string, args: readonly string[]) => {
       if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
       if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
       return "";
     };
 
-    const mockGh = (_cwd: string, args: readonly string[]) => {
+    const mockGh = async (_cwd: string, args: readonly string[]) => {
       ghCalls.push(args.join(" "));
       if (args[0] === "pr" && args[1] === "list") {
         return JSON.stringify([{ number: 88, baseRefName: "develop" }]); // Different base
@@ -271,14 +271,14 @@ describe("createCompletionPublisher", () => {
   });
 
   it("throws on non-fast-forward push rejection", async () => {
-    const mockGit = (_cwd: string, args: readonly string[]) => {
+    const mockGit = async (_cwd: string, args: readonly string[]) => {
       if (args[0] === "push") {
         throw new Error("failed to push some refs to origin");
       }
       return "";
     };
 
-    const mockGh = () => "";
+    const mockGh = async () => "";
 
     const publisher = createCompletionPublisher({
       git: mockGit,
@@ -292,9 +292,9 @@ describe("createCompletionPublisher", () => {
   });
 
   it("throws when gh readiness probe fails", async () => {
-    const mockGit = () => "";
-    const mockGh = () => "";
-    const notReadyGh = (_cwd: string) => false;
+    const mockGit = async () => "";
+    const mockGh = async () => "";
+    const notReadyGh = async (_cwd: string) => false;
 
     const publisher = createCompletionPublisher({
       git: mockGit,
@@ -311,7 +311,7 @@ describe("createCompletionPublisher", () => {
     const delays: number[] = [];
     const notices: string[] = [];
 
-    const mockGit = (_cwd: string, args: readonly string[]) => {
+    const mockGit = async (_cwd: string, args: readonly string[]) => {
       if (args[0] === "push") {
         attempts += 1;
         if (attempts < 3) {
@@ -324,7 +324,7 @@ describe("createCompletionPublisher", () => {
       return "";
     };
 
-    const mockGh = (_cwd: string, args: readonly string[]) => {
+    const mockGh = async (_cwd: string, args: readonly string[]) => {
       if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
       if (args[0] === "pr" && args[1] === "create") return "#42";
       return "";
@@ -354,14 +354,14 @@ describe("createCompletionPublisher", () => {
   });
 
   it("throws after 3 failed push attempts", async () => {
-    const mockGit = (_cwd: string, args: readonly string[]) => {
+    const mockGit = async (_cwd: string, args: readonly string[]) => {
       if (args[0] === "push") {
         throw new Error("Connection timeout");
       }
       return "";
     };
 
-    const mockGh = () => "";
+    const mockGh = async () => "";
 
     const publisher = createCompletionPublisher({
       git: mockGit,
@@ -375,13 +375,13 @@ describe("createCompletionPublisher", () => {
   });
 
   it("parses draft PR creation output correctly", async () => {
-    const mockGit = (_cwd: string, args: readonly string[]) => {
+    const mockGit = async (_cwd: string, args: readonly string[]) => {
       if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
       if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
       return "";
     };
 
-    const mockGh = (_cwd: string, args: readonly string[]) => {
+    const mockGh = async (_cwd: string, args: readonly string[]) => {
       if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
       if (args[0] === "pr" && args[1] === "create") {
         return "https://github.com/org/repo/pull/123\n"; // URL format
@@ -402,7 +402,7 @@ describe("createCompletionPublisher", () => {
   });
 
   it("refreshes ensured PR body with attribution footer via injected seams", async () => {
-    const mockGit = (_cwd: string, args: readonly string[]) => {
+    const mockGit = async (_cwd: string, args: readonly string[]) => {
       if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
       if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
       return "";
@@ -411,15 +411,15 @@ describe("createCompletionPublisher", () => {
     let writtenBody = "";
     const publisher = createCompletionPublisher({
       git: mockGit,
-      gh: (_cwd, args) => {
+      gh: async (_cwd, args) => {
         if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
         if (args[0] === "pr" && args[1] === "create") return "https://github.com/user/repo/pull/42";
         return "";
       },
       ghReady: readyGh,
       delay: noopDelay,
-      fetchPrBody: () => `Spec: ${baseInput.specPath}`,
-      writePrBody: (_branch, body) => {
+      fetchPrBody: async () => `Spec: ${baseInput.specPath}`,
+      writePrBody: async (_branch, body) => {
         writtenBody = body;
       },
       renderFooter: async () =>
@@ -433,17 +433,47 @@ describe("createCompletionPublisher", () => {
     expect(writtenBody).toContain("---");
   });
 
+  it("passes bodySummary through to PR body refresh", async () => {
+    const summary = "## Summary\n\nWhat landed.";
+    const mockGit = async (_cwd: string, args: readonly string[]) => {
+      if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+      return "";
+    };
+
+    let writtenBody = "";
+    const publisher = createCompletionPublisher({
+      git: mockGit,
+      gh: async (_cwd, args) => {
+        if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+        if (args[0] === "pr" && args[1] === "create") return "https://github.com/user/repo/pull/42";
+        return "";
+      },
+      ghReady: readyGh,
+      delay: noopDelay,
+      fetchPrBody: async () => "",
+      writePrBody: async (_branch, body) => {
+        writtenBody = body;
+      },
+      renderFooter: async () => "",
+    });
+
+    await publisher({ ...baseInput, bodySummary: summary });
+
+    expect(writtenBody).toBe(`Spec: ${baseInput.specPath}\n\n${summary}`);
+  });
+
   it("reuses existing PR and refreshes its body without creating a second PR", async () => {
     const ghCalls: string[] = [];
     let writtenBody = "";
 
     const publisher = createCompletionPublisher({
-      git: (_cwd, args) => {
+      git: async (_cwd, args) => {
         if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
         if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
         return "";
       },
-      gh: (_cwd, args) => {
+      gh: async (_cwd, args) => {
         ghCalls.push(args.join(" "));
         if (args[0] === "pr" && args[1] === "list") {
           return JSON.stringify([{ number: 99, baseRefName: "main" }]);
@@ -452,8 +482,8 @@ describe("createCompletionPublisher", () => {
       },
       ghReady: readyGh,
       delay: noopDelay,
-      fetchPrBody: () => "Spec: stale",
-      writePrBody: (_branch, body) => {
+      fetchPrBody: async () => "Spec: stale",
+      writePrBody: async (_branch, body) => {
         writtenBody = body;
       },
       renderFooter: async () => "",
@@ -472,12 +502,12 @@ describe("createCompletionPublisher", () => {
     const notices: string[] = [];
 
     const publisher = createCompletionPublisher({
-      git: (_cwd, args) => {
+      git: async (_cwd, args) => {
         if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
         if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
         return "";
       },
-      gh: (_cwd, args) => {
+      gh: async (_cwd, args) => {
         if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
         if (args[0] === "pr" && args[1] === "create") return "#42";
         return "";
@@ -489,8 +519,8 @@ describe("createCompletionPublisher", () => {
       retryNotice: (message) => {
         notices.push(message);
       },
-      fetchPrBody: () => "",
-      writePrBody: () => {
+      fetchPrBody: async () => "",
+      writePrBody: async () => {
         refreshAttempts += 1;
         if (refreshAttempts < 3) {
           throw new Error("Connection reset by peer");
@@ -511,25 +541,97 @@ describe("createCompletionPublisher", () => {
 
   it("throws after 3 failed pr-body-refresh attempts", async () => {
     const publisher = createCompletionPublisher({
-      git: (_cwd, args) => {
+      git: async (_cwd, args) => {
         if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
         if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
         return "";
       },
-      gh: (_cwd, args) => {
+      gh: async (_cwd, args) => {
         if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
         if (args[0] === "pr" && args[1] === "create") return "#42";
         return "";
       },
       ghReady: readyGh,
       delay: noopDelay,
-      fetchPrBody: () => "",
-      writePrBody: () => {
+      fetchPrBody: async () => "",
+      writePrBody: async () => {
         throw new Error("gh pr edit failed");
       },
       renderFooter: async () => "",
     });
 
     await expect(publisher(baseInput)).rejects.toThrow("gh pr edit failed");
+  });
+
+  it("awaits auth, upstream detection, push, HEAD lookup, PR lookup/create, and body refresh in order", async () => {
+    const events: string[] = [];
+
+    const publisher = createCompletionPublisher({
+      ghReady: async () => {
+        events.push("auth");
+        return true;
+      },
+      git: async (_cwd, args) => {
+        const cmd = args.join(" ");
+        if (cmd.includes("@{u}")) {
+          events.push("upstream");
+          throw new Error("no upstream");
+        }
+        if (cmd === "push -u origin feature-branch") {
+          events.push("push");
+        }
+        if (cmd === "rev-parse HEAD") {
+          events.push("head");
+          return "abc123def456";
+        }
+        return "";
+      },
+      gh: async (_cwd, args) => {
+        if (args[0] === "pr" && args[1] === "list") {
+          events.push("pr-lookup");
+          return JSON.stringify([]);
+        }
+        if (args[0] === "pr" && args[1] === "create") {
+          events.push("pr-create");
+          return "#42";
+        }
+        return "";
+      },
+      delay: noopDelay,
+      fetchPrBody: async () => {
+        events.push("fetch-body");
+        return "";
+      },
+      writePrBody: async () => {
+        events.push("write-body");
+      },
+      renderFooter: async () => "",
+    });
+
+    await publisher(baseInput);
+
+    expect(events).toEqual(["auth", "upstream", "push", "head", "pr-lookup", "pr-create", "fetch-body", "write-body"]);
+  });
+
+  it("fails refresh when attribution git read is rejected", async () => {
+    const publisher = createCompletionPublisher({
+      git: async (_cwd, args) => {
+        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+        if (args[0] === "log") throw new Error("git log failed");
+        return "";
+      },
+      gh: async (_cwd, args) => {
+        if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+        if (args[0] === "pr" && args[1] === "create") return "#42";
+        return "";
+      },
+      ghReady: readyGh,
+      delay: noopDelay,
+      fetchPrBody: async () => "",
+      writePrBody: async () => {},
+    });
+
+    await expect(publisher(baseInput)).rejects.toThrow("git log failed");
   });
 });

@@ -10,7 +10,7 @@ Prove a pending completion-publication command does not block unrelated daemon I
 
 ## Tasks
 
-- [ ] Add a production-transport IPC test that holds a signaled injected publication command, resolves `list` from another Unix-socket client, releases the command, and completes publication.
+- [x] Add a production-transport IPC test that holds a signaled injected publication command, resolves `list` from another Unix-socket client, releases the command, and completes publication.
 
 ## Documentation updates
 
@@ -18,4 +18,4 @@ Prove a pending completion-publication command does not block unrelated daemon I
 
 ## Acceptance criteria
 
-- [ ] An automated `startIpcServer` test with connected Unix-socket clients proves `list` resolves after an injected publication command is pending and before it is released, then completes publication.
+- [x] An automated `startIpcServer` test with connected Unix-socket clients proves `list` resolves after an injected publication command is pending and before it is released, then completes publication.

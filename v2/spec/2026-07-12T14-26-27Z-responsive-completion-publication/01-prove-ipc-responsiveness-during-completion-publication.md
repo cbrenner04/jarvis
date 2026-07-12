@@ -4,13 +4,13 @@ Prove a pending completion-publication command does not block unrelated daemon I
 
 ## Decisions
 
-- Hold a real asynchronous completion-publication command seam after it signals pending, then release it only after an unrelated RPC resolves; rules out a timing race or a publisher-stub-only test that cannot prove event-loop yielding.
-- Exercise the daemon-hosted IPC path; rules out helper-level async tests as proof of daemon responsiveness.
+- Hold an injected production publication command after it signals pending, then release it only after `list` resolves; rules out a timing race or a whole-publisher stub that cannot prove event-loop yielding.
+- Exercise `startIpcServer` through connected Unix-socket clients; rules out helper-level tests or in-process dispatch as proof of daemon responsiveness.
 - Use a non-finalization publication command; rules out extending this proof to ready-gate or draft→ready behavior.
 
 ## Tasks
 
-- [ ] Add a daemon-hosted IPC test that blocks a signaled completion-publication command, completes an unrelated RPC, releases the command, and completes the run.
+- [ ] Add a production-transport IPC test that holds a signaled injected publication command, resolves `list` from another Unix-socket client, releases the command, and completes publication.
 
 ## Documentation updates
 
@@ -18,4 +18,4 @@ Prove a pending completion-publication command does not block unrelated daemon I
 
 ## Acceptance criteria
 
-- [ ] An automated daemon IPC test proves an unrelated RPC resolves after a completion-publication command is pending and before that command is released.
+- [ ] An automated `startIpcServer` test with connected Unix-socket clients proves `list` resolves after an injected publication command is pending and before it is released, then completes publication.

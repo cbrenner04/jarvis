@@ -5,12 +5,12 @@ Expose a non-blocking subprocess seam for daemon consumers without changing v1's
 ## Decisions
 
 - Add an asynchronous shared runner alongside `SubprocessRunner`; rules out changing the synchronous interface used by v1 callers.
-- Preserve the synchronous runner's UTF-8 stdout and non-zero-exit behavior; rules out a daemon-only subprocess contract.
+- Preserve UTF-8 stdout, rejection, and command-result predicate behavior across both runners; rules out a daemon-only subprocess contract.
 
 ## Tasks
 
-- [ ] Add an injectable asynchronous subprocess runner and its real implementation under `shared/`.
-- [ ] Cover successful output and command failure at the shared seam while retaining synchronous-runner callers unchanged.
+- [ ] Add an injectable asynchronous subprocess runner and real implementation under `shared/`.
+- [ ] Cover UTF-8 output, command rejection, and existing predicate outcomes at the shared seam while retaining synchronous-runner callers unchanged.
 
 ## Documentation updates
 
@@ -18,5 +18,5 @@ Expose a non-blocking subprocess seam for daemon consumers without changing v1's
 
 ## Acceptance criteria
 
-- [ ] `shared/subprocess.test.ts` proves the asynchronous runner returns UTF-8 stdout and rejects command failures.
+- [ ] `shared/subprocess.test.ts` proves the asynchronous runner returns UTF-8 stdout and preserves the synchronous runner's rejection and predicate behavior.
 - [ ] `v1/test/modes/plan/boundary.test.ts` stays green for synchronous `SubprocessRunner` callers.

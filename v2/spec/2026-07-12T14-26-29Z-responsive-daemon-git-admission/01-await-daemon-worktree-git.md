@@ -4,23 +4,26 @@ Move daemon-hosted external-worktree setup, reuse validation, and branch probes 
 
 ## Decisions
 
-- Await every Git probe and mutation on the external-worktree path; rules out leaving reuse validation or branch discovery synchronous.
+- Migrate daemon `start`, killed-run `resume`, workflow dispatch/resume, and queued promotion where they enter `withExternalWorktree`; rules out migrating direct non-daemon `write` consumers.
+- Await external-worktree validation, prune, branch discovery/creation, and worktree creation; rules out leaving any daemon-hosted setup Git synchronous.
 - Keep setup and cleanup ordering unchanged; rules out parallelizing dependent Git commands.
 - Leave completion publication and ready-gate Git synchronous in this slice; rules out expanding admission work into terminal publication.
 
 ## Tasks
 
-- [ ] Propagate asynchronous Git helpers through external-worktree materialization, reuse checks, branch probes, and callers that host those operations in the daemon.
-- [ ] Add a daemon-level regression that holds a worktree Git command pending and observes another IPC request complete before it releases.
-- [ ] Record the awaited daemon worktree boundary in the durable architecture and parity catalogs.
+- [ ] Propagate asynchronous Git helpers through daemon-hosted external-worktree materialization, reuse checks, branch probes, and mutations.
+- [ ] Keep Git-probe failures that currently mean "not found" or "not a worktree" mapped to `false`; propagate other setup failures and release the external-worktree lock.
+- [ ] Add a real IPC/server-dispatch regression that holds daemon worktree Git pending and receives `health` before release.
+- [ ] Record the daemon worktree responsiveness boundary in its architecture home and the parity catalog.
 
 ## Documentation updates
 
 - Update `v2/docs/v2-architecture.md` with non-blocking daemon-hosted worktree Git.
-- Update `v2/docs/v1-behaviors.md` with the changed daemon worktree behavior.
+- Update `v2/docs/v1-behaviors.md` with a parity record linking to the architecture contract; do not duplicate responsiveness semantics.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/external-worktree.test.ts` stays green for branch, lock, and failure outcomes after awaited Git probes settle.
-- [ ] An unrelated daemon IPC request completes while a daemon-hosted external-worktree Git command is pending.
-- [ ] `v2/docs/v2-architecture.md` and `v2/docs/v1-behaviors.md` document awaited daemon worktree Git.
+- [ ] `v2/src/execution/external-worktree.test.ts` stays green for branch and reuse outcomes after awaited Git probes settle.
+- [ ] A failed awaited external-worktree setup releases its lock and leaves later setup admissible.
+- [ ] A `health` RPC dispatched through the real daemon server responds before a held daemon-hosted external-worktree Git command releases.
+- [ ] `v2/docs/v2-architecture.md` owns daemon worktree responsiveness; `v2/docs/v1-behaviors.md` records parity without duplicating the contract.

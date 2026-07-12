@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { renderAttribution } from "./pr-attribution.ts";
 import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 
@@ -6,6 +6,8 @@ export const NARRATIVE_START_MARKER = "<!-- jarvis:narrative:start -->";
 export const NARRATIVE_END_MARKER = "<!-- jarvis:narrative:end -->";
 
 type Git = (cwd: string, args: readonly string[]) => Promise<string>;
+type FetchPrBody = (branch: string, cwd: string) => Promise<string>;
+type WritePrBody = (branch: string, body: string, cwd: string) => Promise<void>;
 
 export type RefreshPrBodyInput = {
   specPath: string;
@@ -13,8 +15,8 @@ export type RefreshPrBodyInput = {
   base: string;
   cwd: string;
   bodySummary?: string;
-  fetchPrBody?: (branch: string, cwd: string) => string;
-  writePrBody?: (branch: string, body: string, cwd: string) => void;
+  fetchPrBody?: FetchPrBody;
+  writePrBody?: WritePrBody;
   renderFooter?: (opts: { cwd: string; base: string; git?: Git }) => Promise<string>;
   git?: Git;
 };
@@ -42,21 +44,43 @@ function buildHeaderBlock(specPath: string, worktreePath: string, bodySummary?: 
   return summary ? `${header}\n\n${summary}` : header;
 }
 
-function defaultFetchPrBody(branch: string, cwd: string): string {
-  return execFileSync("gh", ["pr", "view", branch, "--json", "body", "-q", ".body"], {
-    cwd,
-    env: process.env,
-    stdio: "pipe",
-    encoding: "utf8",
+function defaultFetchPrBody(branch: string, cwd: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      "gh",
+      ["pr", "view", branch, "--json", "body", "-q", ".body"],
+      {
+        cwd,
+        env: process.env,
+        encoding: "utf8",
+      },
+      (error: Error | null, stdout: string) => {
+        if (error) reject(error);
+        else resolve(stdout ?? "");
+      },
+    );
   });
 }
 
-function defaultWritePrBody(branch: string, body: string, cwd: string): void {
-  execFileSync("gh", ["pr", "edit", branch, "--body-file", "-"], {
-    cwd,
-    env: process.env,
-    stdio: ["pipe", "pipe", "pipe"],
-    input: body,
+function defaultWritePrBody(branch: string, body: string, cwd: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("gh", ["pr", "edit", branch, "--body-file", "-"], {
+      cwd,
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    child.stdin?.on("error", () => {});
+    child.stdin?.write(body);
+    child.stdin?.end();
+    let stderr = "";
+    child.stderr?.on("data", (chunk: string | Buffer) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(stderr.trim() || `gh pr edit exited ${code ?? "unknown"}`));
+    });
   });
 }
 
@@ -66,7 +90,7 @@ export async function refreshPrBody(input: RefreshPrBodyInput): Promise<void> {
   const writePrBody = input.writePrBody ?? defaultWritePrBody;
   const renderFooter = input.renderFooter ?? renderAttribution;
 
-  const currentBody = fetchPrBody(input.branch, input.cwd);
+  const currentBody = await fetchPrBody(input.branch, input.cwd);
   const narrative = extractNarrative(currentBody);
   const header = buildHeaderBlock(input.specPath, input.cwd, input.bodySummary);
   let headerAndNarrative = header;
@@ -79,5 +103,5 @@ export async function refreshPrBody(input: RefreshPrBodyInput): Promise<void> {
       : { cwd: input.cwd, base: input.base },
   );
   const newBody = footer === "" ? headerAndNarrative : `${headerAndNarrative}\n\n---\n\n${footer}`;
-  writePrBody(input.branch, newBody, input.cwd);
+  await writePrBody(input.branch, newBody, input.cwd);
 }

@@ -13,8 +13,8 @@ Make daemon-reachable completion publication yield while commands run.
 
 ## Tasks
 
-- [ ] Replace daemon-reachable synchronous Git/GitHub execution in completion publication and PR-body refresh, including attribution rendering, with awaited injected seams and retry operations.
-- [ ] Cover sequential publication, retry count/backoff/notices, terminal propagation, non-fast-forward no-retry, and rejected attribution Git reads through async seams.
+- [x] Replace daemon-reachable synchronous Git/GitHub execution in completion publication and PR-body refresh, including attribution rendering, with awaited injected seams and retry operations.
+- [x] Cover sequential publication, retry count/backoff/notices, terminal propagation, non-fast-forward no-retry, and rejected attribution Git reads through async seams.
 
 ## Documentation updates
 
@@ -24,7 +24,7 @@ Make daemon-reachable completion publication yield while commands run.
 
 ## Acceptance criteria
 
-- [ ] Completion publication awaits auth, upstream detection, push, HEAD lookup, PR lookup/create, and body refresh in that order; every retry attempt is awaited.
-- [ ] Async-seam tests in `v2/src/execution/completion-publisher.test.ts`, `v2/src/execution/pr-body-refresh.test.ts`, and `v2/src/execution/pr-attribution.test.ts` preserve retry count, flat backoff, retry notices, terminal propagation, and non-fast-forward push no-retry behavior.
-- [ ] A rejected async attribution Git-read seam fails refresh; only intentional missing attribution input produces an empty footer.
-- [ ] `v2/docs/write-behavior.md` owns asynchronous publication ordering, retries, and failures; `v2/docs/v2-architecture.md` cross-links the IPC responsiveness guarantee; `v2/docs/v1-behaviors.md` records v2 parity/catalog behavior.
+- [x] Completion publication awaits auth, upstream detection, push, HEAD lookup, PR lookup/create, and body refresh in that order; every retry attempt is awaited.
+- [x] Async-seam tests in `v2/src/execution/completion-publisher.test.ts`, `v2/src/execution/pr-body-refresh.test.ts`, and `v2/src/execution/pr-attribution.test.ts` preserve retry count, flat backoff, retry notices, terminal propagation, and non-fast-forward push no-retry behavior.
+- [x] A rejected async attribution Git-read seam fails refresh; only intentional missing attribution input produces an empty footer.
+- [x] `v2/docs/write-behavior.md` owns asynchronous publication ordering, retries, and failures; `v2/docs/v2-architecture.md` cross-links the IPC responsiveness guarantee; `v2/docs/v1-behaviors.md` records v2 parity/catalog behavior.

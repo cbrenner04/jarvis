@@ -6,8 +6,9 @@ import {
   INTENT_SPLIT_PROMPT_ID,
   listIntentStageMarkdownFiles,
 } from "../../../shared/prompts/intent-split.ts";
+import { buildPlanDraftPrompt } from "../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
-import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
+import { PromptRenderingError } from "../../../shared/prompts/render.ts";
 import {
   type ExternalWorktreeInput,
   type LockStatus,
@@ -169,20 +170,28 @@ async function executePlanDraftWrite(
   const name = getSpecDirName(specPath);
   const targetDir = getTargetDir(specPath);
   const specGuidance = readFileSync(getSpecGuidancePath(), "utf8");
-  const placeholders = {
-    WORKDIR: args.promptPlaceholders?.WORKDIR ?? worktreePath,
-    NAME: name,
-    INTENT: args.intentSeed ?? "",
-    SPEC_GUIDANCE: specGuidance,
-  };
 
-  const registry = loadPromptRegistry();
-  const artifact = registry.getById("plan.prompt.draft");
-  const rewrittenArtifact = {
-    ...artifact,
-    body: artifact.body.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`),
-  };
-  const prompt = renderArtifactTemplate(rewrittenArtifact, placeholders).trim();
+  let prompt: string;
+  try {
+    prompt = buildPlanDraftPrompt({
+      name,
+      intent: args.intentSeed ?? "",
+      specGuidance,
+      workDirLabel: args.promptPlaceholders?.WORKDIR ?? worktreePath,
+      targetDir,
+      specDir,
+      stepRules: args.stepRules,
+    });
+  } catch (err) {
+    if (err instanceof PromptRenderingError) {
+      return {
+        kind: "invocation_failure",
+        failureKind: "model_config",
+        invocation: { attempts: [], final: null, telemetryFailures: [] },
+      };
+    }
+    throw err;
+  }
 
   const validator = args.completionValidator ?? validatePlanDraftShape;
   const intentBefore = args.intentBefore ?? args.intentSeed;

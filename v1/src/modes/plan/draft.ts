@@ -1,9 +1,8 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
-import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
-import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
-import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
+import { buildPlanDraftPrompt } from "../../../../shared/prompts/plan-draft.ts";
+import { PromptRenderingError } from "../../../../shared/prompts/render.ts";
 import { detectBlocker, isStructuralAc, parseSpec } from "../../../../shared/spec-parser.ts";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
@@ -15,8 +14,6 @@ import { createPlanInvocationBinding } from "./plan-invocation-binding.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { hasGenuineBlocker } from "./review-gate.ts";
 import { resolvePlanSpecDirPath } from "./spec-dir.ts";
-import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
-
 export type DraftPhaseOptions = {
   worktreePath: string;
   name: string;
@@ -55,53 +52,21 @@ export function buildDraftPrompt(opts: {
   /** Committed spec root (defaults to "spec" for backwards compatibility). */
   targetDir?: string;
 }): string {
-  const registry = loadPromptRegistry();
-  let template = assemblePromptForStep({
-    registry,
-    stepPromptId: "plan.prompt.draft",
-  });
-
-  const workDir = opts.workDirLabel ?? opts.name;
-  const targetDir = opts.targetDir ?? "spec";
-  if (opts.flatSpecLayout) {
-    template = template.replace(
-      "- **Only write files under `spec/<NAME>/`.**",
-      "- **Only write files in the working directory.** Do not create `spec/` subdirectories or other parent paths.",
-    );
-    template = template.replaceAll("spec/<NAME>/intent.md", "intent.md");
-  } else {
-    // For commit specs, replace the placeholder with the actual committed root
-    template = template.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`);
-  }
-
-  enforceDelimiterPolicy({
-    value: opts.intent,
-    begin: "<<<INTENT_BEGIN>>>",
-    end: "<<<INTENT_END>>>",
-    placeholderName: "INTENT",
-  });
-  enforceDelimiterPolicy({
-    value: opts.specGuidance,
-    begin: "<<<SPEC_GUIDANCE_BEGIN>>>",
-    end: "<<<SPEC_GUIDANCE_END>>>",
-    placeholderName: "SPEC_GUIDANCE",
-  });
-
   try {
-    template = renderTemplate(template, new Set(["WORKDIR", "NAME", "INTENT", "SPEC_GUIDANCE"]), {
-      WORKDIR: workDir,
-      NAME: opts.name,
-      INTENT: opts.intent,
-      SPEC_GUIDANCE: opts.specGuidance,
+    return buildPlanDraftPrompt({
+      name: opts.name,
+      intent: opts.intent,
+      specGuidance: opts.specGuidance,
+      ...(opts.flatSpecLayout !== undefined ? { flatSpecLayout: opts.flatSpecLayout } : {}),
+      ...(opts.workDirLabel !== undefined ? { workDirLabel: opts.workDirLabel } : {}),
+      ...(opts.targetDir !== undefined ? { targetDir: opts.targetDir } : {}),
     });
   } catch (err) {
-    if (err instanceof TemplateRenderingError) {
+    if (err instanceof PromptRenderingError) {
       throw new Error(`draft prompt configuration error: ${err.details}`);
     }
     throw err;
   }
-
-  return template;
 }
 
 /**

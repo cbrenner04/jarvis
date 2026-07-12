@@ -2,6 +2,47 @@ import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { RunStatus } from "../persistence/state-store.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
 
+function isActiveRunStatus(status: RunStatus): boolean {
+  switch (status) {
+    case "in-progress":
+    case "awaiting-human":
+    case "revising":
+    case "paused":
+    case "budget-soft-stopped":
+      return true;
+    case "completed":
+    case "failed":
+    case "killed":
+    case "blocked":
+    case "queued":
+      return false;
+    default: {
+      const _exhaustive: never = status;
+      return _exhaustive;
+    }
+  }
+}
+
+/** Non-queued runs in display order: active group then terminal group, daemon order within each. */
+export function orderSelectableRuns(runs: readonly DaemonListRunRow[]): DaemonListRunRow[] {
+  const active: DaemonListRunRow[] = [];
+  const terminal: DaemonListRunRow[] = [];
+  for (const run of runs) {
+    if (run.status === "queued") continue;
+    if (isActiveRunStatus(run.status)) {
+      active.push(run);
+    } else {
+      terminal.push(run);
+    }
+  }
+  return [...active, ...terminal];
+}
+
+/** Initial monitor selection: topmost active run, or first terminal when all are terminal. */
+export function firstSelectableRunId(runs: readonly DaemonListRunRow[]): string | null {
+  return orderSelectableRuns(runs)[0]?.runId ?? null;
+}
+
 export type MonitorSegmentTone = "active" | "success" | "failure";
 
 export type MonitorSegment = {
@@ -107,13 +148,13 @@ function outcomeLines(state: TuiMonitorState): MonitorLineRow[] {
 export function monitorSegmentRows(state: TuiMonitorState): MonitorLineRow[] {
   const selected = state.selectedRunId;
   const lines: MonitorLineRow[] = [row(untoned("jarvis tui"))];
-  const nonQueuedRuns = state.runs.filter((run) => run.status !== "queued");
+  const selectableRuns = orderSelectableRuns(state.runs);
   const queuedRuns = state.runs.filter((run) => run.status === "queued").toReversed();
-  if (nonQueuedRuns.length === 0) {
+  if (selectableRuns.length === 0) {
     lines.push(row(untoned("No runs.")));
   } else {
     lines.push(row(untoned("runId project branch status liveness")));
-    for (const run of nonQueuedRuns) {
+    for (const run of selectableRuns) {
       lines.push(runTableRow(run, selected));
     }
   }

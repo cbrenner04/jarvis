@@ -19,13 +19,13 @@ section.
 
 ## Acceptance criteria
 
-- [ ] The monitor run table lists active runs (`in-progress`, `awaiting-human`, `revising`, `paused`, `budget-soft-stopped`) above terminal runs (`completed`, `failed`, `killed`, `blocked`).
-- [ ] Within each group rows keep the daemon's list order.
-- [ ] An active-status run that is `not-live` still sorts into the active group.
-- [ ] Queued runs remain only in the `Queue` section, in FIFO order.
-- [ ] On entry with a terminal run first in daemon order, the selected (`>`) row is the topmost active run, and `wait` is issued for it.
-- [ ] A selected active run that transitions to a terminal status stays selected and moves with its row into the terminal group; selection is not reset to the top of the grouped order.
-- [ ] `v2/src/tui/tui-monitor-lines.test.ts` and `v2/src/tui/tui-entry.test.tsx` cover the grouping, the selection default, and selection persistence across an active→terminal transition.
+- [x] The monitor run table lists active runs (`in-progress`, `awaiting-human`, `revising`, `paused`, `budget-soft-stopped`) above terminal runs (`completed`, `failed`, `killed`, `blocked`).
+- [x] Within each group rows keep the daemon's list order.
+- [x] An active-status run that is `not-live` still sorts into the active group.
+- [x] Queued runs remain only in the `Queue` section, in FIFO order.
+- [x] On entry with a terminal run first in daemon order, the selected (`>`) row is the topmost active run, and `wait` is issued for it.
+- [x] A selected active run that transitions to a terminal status stays selected and moves with its row into the terminal group; selection is not reset to the top of the grouped order.
+- [x] `v2/src/tui/tui-monitor-lines.test.ts` and `v2/src/tui/tui-entry.test.tsx` cover the grouping, the selection default, and selection persistence across an active→terminal transition.
 
 ## Documentation updates
 

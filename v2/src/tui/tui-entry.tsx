@@ -3,6 +3,7 @@ import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import { connectTuiDaemon, type TuiDaemonClient } from "./tui-daemon-client.ts";
 import { showTuiInkFeedback } from "./tui-ink-feedback.tsx";
 import { openInkMonitor } from "./tui-ink-monitor.tsx";
+import { firstSelectableRunId } from "./tui-monitor-lines.ts";
 import type {
   RunTuiEntryDeps,
   TuiMonitorControls,
@@ -48,10 +49,6 @@ function createRefreshScheduler(intervalMs = TUI_REFRESH_INTERVAL_MS): TuiRefres
 
 function isSelectableRun(run: DaemonListRunRow): boolean {
   return run.status !== "queued";
-}
-
-function firstRunId(runs: readonly DaemonListRunRow[]): string | null {
-  return runs.find(isSelectableRun)?.runId ?? null;
 }
 
 function buildWaitStateForSelection(runId: string | null): TuiWaitState {
@@ -218,7 +215,7 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
         if (list === undefined) return;
 
         if (initial) {
-          const runId = firstRunId(list.runs);
+          const runId = firstSelectableRunId(list.runs);
           currentState = {
             runs: list.runs,
             selectedRunId: runId,

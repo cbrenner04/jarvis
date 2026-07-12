@@ -304,6 +304,73 @@ describe("runTuiEntry", () => {
     expect(refresh.isClosed()).toBe(true);
   });
 
+  test("terminal-first daemon order selects the topmost active run and waits for it", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_BETA, RUN_ALPHA] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    view.quit();
+    await pending;
+
+    expect(clientOptions.methods).toEqual(["health", "status", "list", "wait:run-alpha", "close"]);
+    expect(view.monitorStates[0]?.selectedRunId).toBe("run-alpha");
+  });
+
+  test("all-terminal launch list selects the first terminal row", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_BETA, RUN_GAMMA] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    view.quit();
+    await pending;
+
+    expect(clientOptions.methods).toEqual(["health", "status", "list", "wait:run-beta", "close"]);
+    expect(view.monitorStates[0]?.selectedRunId).toBe("run-beta");
+  });
+
+  test("active-to-terminal transition keeps selection anchored on the same runId", async () => {
+    const view = createViewHost();
+    const refresh = createRefreshScheduler();
+    const { deps } = entryDeps(
+      {
+        listResponses: [{ runs: [RUN_ALPHA] }, { runs: [{ ...RUN_ALPHA, status: "completed", isLive: false }] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host, refreshScheduler: refresh.scheduler },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    refresh.tick();
+    await flush();
+
+    const final = lastMonitorState(view.monitorStates);
+    expect(final.selectedRunId).toBe("run-alpha");
+    const lines = monitorTextLines(final);
+    const alphaIndex = lines.findIndex((line) => line.includes("run-alpha"));
+    expect(lines[alphaIndex]?.startsWith(">")).toBe(true);
+
+    view.quit();
+    await pending;
+  });
+
   test("non-empty launch list selects the first row, waits for it, and exposes run fields", async () => {
     const view = createViewHost();
     const { deps, clientOptions } = entryDeps(

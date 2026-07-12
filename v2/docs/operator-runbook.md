@@ -39,18 +39,32 @@ Prioritization for seeds and ready intents (operator-maintained):
 
 ## When to dogfood v2
 
-From the scratch prioritization file (summarized):
+**Status 2026-07-12: v2 cannot implement its own specs.** All six presets were run
+against real work. Only the `intent` split path completes. Everything that drives
+the write loop fails:
 
-- **Cautious now:** implement and plan draft can run; expect manual recovery for
-  orphaned `list` rows, leaked worktrees, and limited stall diagnostics until P1
-  lands.
-- **Routine:** P0 complete (`write-loop-iteration-timeout-on-stall` still open as of
-  2026-07-12) plus `daemon-reconciles-orphaned-runs-on-start`.
-- **Comfortable:** add P1 logging intents (`daemon-process-log-read`,
+| Preset | State |
+| --- | --- |
+| `intent`, `intent-reviewed` | Split works. **The review step is a silent no-op** — empty log, no verdict, no commit, reports `completed`. Seed: `intent-reviewed-review-step-is-a-silent-no-op`. |
+| `plan`, `plan-reviewed`, `plan-reviewed-light` | **Fail `invalid_token`.** The draft is written correctly to disk, then discarded. Seed: `invalid-token-discards-completed-work`. |
+| `implement` | **Cannot start.** ENOENT reading the index in a worktree that doesn't exist yet, then a prompt-render failure before any agent. Seeds: `implement-linked-routing-reads-index-before-worktree-exists`, `implement-write-step-renders-prompt-without-placeholders`. |
+
+**Use `jarvis1` for all plan and implement work until those four P0 seeds land.**
+`jarvis1 plan --target-dir v2/spec <ready-intent>` and `jarvis1 run <spec>` are the
+working path for v2 specs. Cleanup: delete this table when the P0 seeds ship, and
+re-run every preset before trusting it.
+
+**Do not trust a `completed` status on a P0 without re-running the preset.** Two of
+them (`implement-preflight-validates-spec-in-missing-worktree` #1417,
+`plan-draft-write-loop-prompt`) were marked complete while the operator-visible
+failure survived — the fix landed one layer away from the bug.
+
+Prior gates, still valid once the above clears:
+
+- **Comfortable:** P1 logging intents (`daemon-process-log-read`,
   `run-invocation-session-log`, `run-async-path-terminal-log-event`).
-- **Primary harness:** after seed `workflow-composable-collapse` lands — freeze new
-  preset/review vertical slices until then; dogfood `intent`, `plan`, `implement`
-  base presets only.
+- **Primary harness:** after `workflow-composable-collapse` lands — freeze new
+  preset/review vertical slices until then.
 
 ## North star
 
@@ -201,6 +215,39 @@ v2 TUI tests can pass while ink rendering is broken — see seed
 
 Documented gaps and operator workarounds. Remove entries when seeds merge.
 
+### `invalid_token` — your work is on disk, go get it
+
+A `plan` / `plan-reviewed*` run that ends `invalid_token` **did the work**. The
+agent wrote a correct spec tree and then failed only to emit the terminal token, so
+the loop marked the run `failed` / `resumable: false` and left the output
+uncommitted in the worktree. Do not re-run and pay twice before you look:
+
+```sh
+jarvis run log <run-id>          # invalid_token_detail shows what the agent actually said
+git -C ~/.jarvis/worktrees/<project>/plan/<name> status --short
+```
+
+Untracked spec dirs there are the finished draft. Salvage them, or re-run through
+`jarvis1 plan` — but know the work exists before you discard it.
+
+Seed: `invalid-token-discards-completed-work`. Cleanup: delete this section when it
+ships.
+
+### v2 debris blocks the `jarvis1` fallback
+
+A failed v2 run leaks its worktree under `~/.jarvis/worktrees/<project>/<branch>/`
+and holds the branch name. `jarvis1 plan`/`run` for the same name then dies with
+`fatal: '<branch>' is already used by worktree at …`, so **the v2 failure breaks the
+v1 recovery path**. Clear it before falling back:
+
+```sh
+git worktree remove --force ~/.jarvis/worktrees/<project>/<branch>
+git branch -D <branch>
+git worktree prune
+```
+
+Seed: `v2-cleanup-command`. Cleanup: delete when it ships.
+
 ### Orphaned non-terminal runs after daemon restart
 
 Runs are in-process on the daemon. After restart, durable rows may stay
@@ -265,6 +312,21 @@ Do not merge to `main` blindly during long in-flight runs; see v1 runbook
 
 Operators add bullets here; delete when fixed.
 
+- **`run workflow` exits 0 on a failed run (2026-07-12):** the exit code means "the
+  daemon accepted the request", not "it worked". Every failed preset this session
+  looked like a success at the shell — a bare UUID and exit 0. Always confirm with
+  `jarvis run list` / `jarvis run log <id>`; never gate a script on the exit status.
+  Seed: `v2/spec/seeds/run-workflow-exits-zero-on-failed-run.md`. Cleanup: delete
+  when it ships.
+- **The daemon goes deaf while a run is active (2026-07-12):** `jarvis run list` and
+  `jarvis run log` both hung past 60s while an `intent-reviewed` run was publishing
+  — the daemon blocks on sync git in the publication path. You lose all
+  observability exactly when you need it. Wait it out; the calls return once the run
+  finishes. Seeds: the P4 responsive-daemon set + `nonblocking-ready-gate-and-guard`.
+- **A `completed` P0 may not be fixed (2026-07-12):** two P0 seeds were archived as
+  complete while the bug they named still reproduced on first launch — the fix
+  landed one layer away (CLI preflight, not the runner; prompt text, not the
+  contract). Re-run the preset before believing the status.
 - **List polls heavy (2026-07-12):** TUI refresh drives `list`; terminal retention
   caps at 50 newest terminal rows. See `daemon-terminal-run-retention` spec.
 - **No v2 cleanup (2026-07-12):** worktrees and completed specs accumulate. Seed:

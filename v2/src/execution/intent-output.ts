@@ -63,6 +63,10 @@ function failure(message: string): never {
   throw new Error(`${message}; rerun to retry pre-publication`);
 }
 
+export function intentPublicationSpecPath(worktreePath: string, durableDir: string): string {
+  return relative(worktreePath, resolve(worktreePath, durableDir)).replace(/\\/g, "/");
+}
+
 function worktreeRelativePath(worktreePath: string, absolutePath: string): string {
   return relative(worktreePath, absolutePath).replace(/\\/g, "/");
 }
@@ -85,6 +89,27 @@ function readOwnership(path: string): Record<string, string[]> {
   } catch {
     return {};
   }
+}
+
+/** Owned intent filenames for an invocation, else every `.md` in the landed durable dir. */
+export async function listLandedIntentFiles(
+  worktreePath: string,
+  durableDir: string,
+  invocationId?: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<string[]> {
+  const ownershipFile = await ownershipPath(worktreePath, runner);
+  const owned = invocationId === undefined ? [] : (readOwnership(ownershipFile)[invocationId] ?? []);
+  if (owned.length > 0) {
+    return [...owned].sort();
+  }
+  const resolved = resolve(worktreePath, durableDir);
+  if (!existsSync(resolved) || !statSync(resolved).isDirectory()) {
+    return [];
+  }
+  return readdirSync(resolved)
+    .filter((name) => name.endsWith(".md"))
+    .sort();
 }
 
 /** Validate and transactionally land an intent step's complete staged output. */

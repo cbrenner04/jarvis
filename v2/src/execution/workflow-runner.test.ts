@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,6 +16,7 @@ import {
   trackedTempRoots,
   withStateStore,
 } from "../testing/write-fixtures.ts";
+import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import {
   executeWorkflow,
@@ -82,6 +84,83 @@ function okTokenBindingFactory(stdout: string) {
 const errorBindingFactory = createBindingFactory(
   async () => ({ kind: "error", exitCode: 1, stderr: "error" }) as const,
 );
+
+function createIntentWorktreeHarness(branchName: string) {
+  const workspace = mkdtempSync(join(tmpdir(), `intent-workflow-${branchName}-`));
+  execFileSync("git", ["init", "-q"], { cwd: workspace });
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: workspace });
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: workspace });
+  writeFileSync(join(workspace, "base.txt"), "base\n", "utf8");
+  execFileSync("git", ["add", "."], { cwd: workspace });
+  execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+  return {
+    workspace,
+    withExternalWorktree: async <T>(
+      _args: { branchName: string; projectName: string },
+      run: (worktree: ExternalWorktree) => Promise<T> | T,
+    ): Promise<WithExternalWorktreeResult<T>> => ({
+      worktree: { path: workspace, reused: false },
+      lock: { kind: "acquired" },
+      value: await run({ path: workspace, reused: false }),
+    }),
+  };
+}
+
+function seedLandedIntentFiles(workspace: string, invocationId: string, files: readonly string[]): void {
+  const durableDir = join(workspace, "ready-intents");
+  mkdirSync(durableDir, { recursive: true });
+  for (const name of files) {
+    writeFileSync(
+      join(durableDir, name),
+      `---\nname: ${name.replace(/\.md$/, "")}\n---\n\n# ${name}\n\n## Prerequisites\n`,
+      "utf8",
+    );
+  }
+  mkdirSync(join(workspace, ".git"), { recursive: true });
+  writeFileSync(
+    join(workspace, ".git", "jarvis-intent-output.json"),
+    `${JSON.stringify({ [invocationId]: [...files] })}\n`,
+    "utf8",
+  );
+}
+
+function seedCompletedWriteRun(
+  store: ReturnType<typeof openStateStore>,
+  step: WriteWorkflowStep,
+  workspace: string,
+  invocationId: string,
+): string {
+  const runId = store.createRun({
+    project: step.worktree.projectName,
+    specRef: "",
+    worktreePath: workspace,
+    branch: step.worktree.branchName,
+    specPath: step.specPath,
+    stepId: step.stepId,
+    workflowSnapshot: {
+      invocationId,
+      steps: [
+        {
+          stepId: step.stepId,
+          role: step.role,
+          stepRules: step.stepRules,
+          expectedArtifactPath: step.expectedArtifactPath,
+          agents: step.agents,
+          agentModelConfig: step.agentModelConfig,
+        },
+      ],
+      ...(step.creationTitle !== undefined ? { creationTitle: step.creationTitle } : {}),
+    },
+  });
+  const attemptId = store.recordAttemptStart(runId);
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: "completed",
+    outcomeKind: "done",
+    completionAgent: "claude",
+  });
+  return runId;
+}
 
 function createStep(
   overrides: Partial<Omit<WriteWorkflowStep, "worktree" | "behavior">> & {
@@ -1260,6 +1339,189 @@ describe("executeWorkflow human steps", () => {
 
       expect(result.kind).toBe("complete");
       expect(titles).toEqual(["intent: reviewed-seed"]);
+    });
+  });
+
+  test("publishes intent-run body summary from the landed durable dir", async () => {
+    const invocationId = "intent-body-summary-inv";
+    const summaries: Array<string | undefined> = [];
+    const { workspace, withExternalWorktree } = createIntentWorktreeHarness("intent-body-summary");
+    const baseStep = createStep({
+      stepId: "intent",
+      role: "plan",
+      branchName: "intent-body-summary",
+      specPath: "ready-intents",
+      intentOutput: { durableDir: "ready-intents" },
+      creationTitle: "intent: seed-subject",
+      workflowInvocationId: invocationId,
+      withExternalWorktree,
+      agentModelConfig: {
+        claude: {
+          plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+        },
+      },
+    });
+    const step: WriteWorkflowStep = {
+      ...baseStep,
+      worktree: { ...baseStep.worktree, git: false, localPath: workspace },
+    };
+
+    await withStateStore(async (store) => {
+      seedLandedIntentFiles(workspace, invocationId, ["alpha.md", "beta.md"]);
+      seedCompletedWriteRun(store, step, workspace, invocationId);
+
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(summaries).toEqual(["intent: seed-subject\n- alpha.md\n- beta.md"]);
+    });
+  });
+
+  test("re-derives the same intent-run body summary on completion-publication retry", async () => {
+    const invocationId = "intent-body-summary-retry";
+    const summaries: Array<string | undefined> = [];
+    const { workspace, withExternalWorktree } = createIntentWorktreeHarness("intent-body-summary-retry");
+    const baseStep = createStep({
+      stepId: "intent",
+      role: "plan",
+      branchName: "intent-body-summary-retry",
+      specPath: "ready-intents",
+      intentOutput: { durableDir: "ready-intents" },
+      creationTitle: "intent: seed-subject",
+      workflowInvocationId: invocationId,
+      withExternalWorktree,
+      agentModelConfig: {
+        claude: {
+          plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+        },
+      },
+    });
+    const step: WriteWorkflowStep = {
+      ...baseStep,
+      worktree: { ...baseStep.worktree, git: false, localPath: workspace },
+    };
+
+    await withStateStore(async (store) => {
+      seedLandedIntentFiles(workspace, invocationId, ["one.md"]);
+      seedCompletedWriteRun(store, step, workspace, invocationId);
+
+      const failed = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          throw new Error("publish failed");
+        },
+      });
+      expect(failed.kind).toBe("completion_commit_failed");
+
+      const retried = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+      expect(retried.kind).toBe("complete");
+      expect(summaries).toEqual(["intent: seed-subject\n- one.md", "intent: seed-subject\n- one.md"]);
+    });
+  });
+
+  test("publishes reviewed-intent body summary after review-last landing", async () => {
+    const { workspace, withExternalWorktree } = createIntentWorktreeHarness("reviewed-intent-body-summary");
+    const invocationId = "reviewed-intent-body-summary";
+    const summaries: Array<string | undefined> = [];
+    const baseWriteStep = createStep({
+      stepId: "intent",
+      role: "plan",
+      branchName: "reviewed-intent-body-summary",
+      specPath: "ready-intents",
+      intentOutput: { durableDir: "ready-intents" },
+      creationTitle: "intent: reviewed-seed",
+      workflowInvocationId: invocationId,
+      withExternalWorktree,
+      agentModelConfig: {
+        claude: {
+          plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+        },
+      },
+    });
+    const writeStep: WriteWorkflowStep = {
+      ...baseWriteStep,
+      worktree: { ...baseWriteStep.worktree, git: false, localPath: workspace },
+    };
+    const reviewStep: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "review",
+      project: "demo",
+      branch: "reviewed-intent-body-summary",
+      cwd: workspace,
+      prompt: "review",
+      verdictPath: join(workspace, ".jarvis-intent-review-verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: {
+        claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
+        codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
+      },
+      deferredIntentOutput: {
+        config: { durableDir: "ready-intents" },
+        stagingDir: join(workspace, ".jarvis-intent-stage"),
+        invocationId,
+        baseRef: "HEAD",
+      },
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async () => ({ kind: "ok" as const, stdout: agentId === "claude" ? "apply" : "done", stderr: "" }),
+      }),
+    };
+
+    await withStateStore(async (store) => {
+      seedLandedIntentFiles(workspace, invocationId, ["reviewed.md"]);
+      seedCompletedWriteRun(store, writeStep, workspace, invocationId);
+      const reviewRunId = store.createRun({
+        project: "demo",
+        specRef: "",
+        worktreePath: workspace,
+        branch: "reviewed-intent-body-summary",
+        specPath: "",
+        stepId: "review",
+      });
+      const reviewAttemptId = store.recordAttemptStart(reviewRunId);
+      store.commitCompletionBoundary({
+        attemptId: reviewAttemptId,
+        runStatus: "completed",
+        outcomeKind: "done",
+        completionAgent: "codex",
+      });
+
+      const result = await executeWorkflow({
+        steps: [writeStep, reviewStep],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(summaries).toEqual(["intent: reviewed-seed\n- reviewed.md"]);
     });
   });
 

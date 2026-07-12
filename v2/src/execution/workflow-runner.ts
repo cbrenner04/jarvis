@@ -21,7 +21,13 @@ import {
 import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
 import type { CompletionPublisher } from "./completion-publisher.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
-import { type IntentOutputConfig, landIntentWorkflowOutput } from "./intent-output.ts";
+import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
+import {
+  type IntentOutputConfig,
+  intentPublicationSpecPath,
+  landIntentWorkflowOutput,
+  listLandedIntentFiles,
+} from "./intent-output.ts";
 import {
   advanceLinkedSubspecCheckbox,
   findModifiedLinkedCheckbox,
@@ -697,6 +703,23 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 boundaryTelemetryFailure = failure;
               }
             }
+            let bodySummary: string | undefined;
+            if (completionStep.intentOutput !== undefined) {
+              if (publicationSpecPath === undefined) {
+                publicationSpecPath = intentPublicationSpecPath(
+                  worktreePath,
+                  completionStep.intentOutput.durableDir,
+                );
+              }
+              bodySummary = deriveIntentRunBodySummary({
+                creationTitle: workflowSnapshot.creationTitle,
+                intentFiles: await listLandedIntentFiles(
+                  worktreePath,
+                  completionStep.intentOutput.durableDir,
+                  workflowSnapshot.invocationId,
+                ),
+              });
+            }
             const publishError = await publishCompletionArtifacts(
               {
                 ...(args.completionPublisher !== undefined ? { completionPublisher: args.completionPublisher } : {}),
@@ -708,6 +731,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 specPath: publicationSpecPath ?? completionStep.specPath,
                 branch: worktree.branchName,
                 creationTitle: workflowSnapshot.creationTitle,
+                ...(bodySummary !== undefined ? { bodySummary } : {}),
               },
             );
             if (publishError !== undefined) {

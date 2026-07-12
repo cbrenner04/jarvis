@@ -51,6 +51,13 @@ The summary sits after the `Spec:` line and before narrative markers or the foot
 separator; it is rebuilt on every refresh (not read from the existing body).
 Absent or blank summary ⇒ today's body shape (header, then narrative or footer
 only). Direct `jarvis2 write` and daemon completion paths supply no summary.
+Intent runs (`completionStep.intentOutput` set) re-derive a summary at every
+publish from the landed durable dir: the workflow creation title when it is not
+the generic `jarvis: complete run` fallback, then one `- <file>.md` bullet per
+owned intent file (invocation ownership when recorded, else every `.md` in the
+durable dir). Empty landed-file list ⇒ subject line only; generic fallback title
+⇒ bullets only. Review-last intent workflows land before this derivation; both
+intent branches use the same publish-site logic.
 Empty footer ⇒ header (+ summary and narrative when present) only, no `---`
 separator. v1's
 hash-verified generated-narrative path (`jarvis:narrative:generated-sha256:`) is

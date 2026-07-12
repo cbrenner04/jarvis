@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import {
   type AsyncSubprocessRunner,
   realAsyncSubprocessRunner,
@@ -7,13 +6,18 @@ import {
 } from "./subprocess.ts";
 
 /** Resolve GitHub's default branch, falling back to `main` when unavailable. */
-export function getBaseBranch(cwd?: string): string {
+export async function getBaseBranch(
+  cwd?: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<string> {
   try {
-    const branch = execFileSync("gh", ["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"], {
-      cwd,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
+    const branch = (
+      await runner.runAsync(
+        "gh",
+        ["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"],
+        cwd ?? "",
+      )
+    ).trim();
     return branch.length > 0 ? branch : "main";
   } catch {
     return "main";
@@ -62,9 +66,9 @@ export function isWorktreeDirty(cwd: string, runner: SubprocessRunner = realSubp
 }
 
 /** True when `cwd` is inside a git working tree; false for plain (git-disabled) directories. */
-export function isGitRepo(cwd: string): boolean {
+export function isGitRepo(cwd: string, runner: SubprocessRunner = realSubprocessRunner): boolean {
   try {
-    execFileSync("git", ["rev-parse", "--is-inside-work-tree"], { cwd, stdio: ["ignore", "pipe", "ignore"] });
+    runner.run("git", ["rev-parse", "--is-inside-work-tree"], cwd);
     return true;
   } catch {
     return false;

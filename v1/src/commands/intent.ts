@@ -414,18 +414,18 @@ function repairIntentFile(path: string, slug: string): void {
   }
 }
 
-function repairIntentStageContent(
+async function repairIntentStageContent(
   stagingDir: string,
   warn: (message: string) => void,
   harnessRootOverride?: string | null,
-): void {
+): Promise<void> {
   const files = listIntentStageMarkdownFiles(stagingDir);
   for (const path of files) {
     const slug = basename(path, ".md");
     repairIntentFile(path, slug);
   }
 
-  runMarkdownlintAutofix({
+  await runMarkdownlintAutofix({
     files: listIntentStageMarkdownFiles(stagingDir),
     warn,
     ...(harnessRootOverride !== undefined ? { harnessRootOverride } : {}),
@@ -526,23 +526,24 @@ function gateIntentStage(
   return validateIntentFilenames(files);
 }
 
-function _validateIntentStage(
+async function _validateIntentStage(
   stagingDir: string,
   modifiedPaths: string[],
   warn: (message: string) => void,
   harnessRootOverride?: string | null,
-):
+): Promise<
   | {
       ok: true;
       intents: { slug: string; path: string }[];
     }
-  | { ok: false; error: string } {
+  | { ok: false; error: string }
+> {
   const gating = gateIntentStage(stagingDir, modifiedPaths);
   if (!gating.ok) {
     return gating;
   }
 
-  repairIntentStageContent(stagingDir, warn, harnessRootOverride);
+  await repairIntentStageContent(stagingDir, warn, harnessRootOverride);
   return validateIntentStageContent(gating.intents);
 }
 
@@ -805,7 +806,7 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
         return 1;
       }
 
-      sharedRepairIntentStageContent(externalStageDir, opts.io.stderr, opts.markdownlintHarnessRoot);
+      await sharedRepairIntentStageContent(externalStageDir, opts.io.stderr, opts.markdownlintHarnessRoot);
 
       const validation = sharedValidateIntentStageContent(filenameValidation.intents);
       if (!validation.ok) {
@@ -887,7 +888,7 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
       return 1;
     }
 
-    const validation = sharedValidateIntentStage(
+    const validation = await sharedValidateIntentStage(
       stageDir,
       listModifiedPaths(worktreePath, runner),
       opts.io.stderr,

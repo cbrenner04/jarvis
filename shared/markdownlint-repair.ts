@@ -1,6 +1,6 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { AsyncSubprocessError, type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "./subprocess.ts";
 
 export function keepIssueReferencesOffLineStart(text: string): string {
   const lines = text.split("\n");
@@ -34,11 +34,12 @@ export function applyIssueReferenceGuard(path: string): void {
   if (guarded !== content) writeFileSync(path, guarded, "utf8");
 }
 
-export function runMarkdownlintAutofix(args: {
+export async function runMarkdownlintAutofix(args: {
   files: string[];
   warn: (message: string) => void;
   harnessRootOverride?: string | null;
-}): void {
+  runner?: AsyncSubprocessRunner;
+}): Promise<void> {
   if (args.files.length === 0) return;
   const harnessRoot = resolveHarnessRoot(args.harnessRootOverride);
   if (harnessRoot === null) {
@@ -56,15 +57,15 @@ export function runMarkdownlintAutofix(args: {
     return;
   }
   try {
-    execFileSync("bun", [binaryPath, "--fix", "--config", configPath, ...args.files], {
-      cwd: harnessRoot,
-      env: process.env,
-      stdio: "pipe",
-    });
+    await (args.runner ?? realAsyncSubprocessRunner).runAsync(
+      "bun",
+      [binaryPath, "--fix", "--config", configPath, ...args.files],
+      harnessRoot,
+    );
   } catch (err) {
     const spawnError = err as NodeJS.ErrnoException & { status?: number | null };
     if (typeof spawnError.status === "number") return;
-    if (spawnError.code === "ENOENT") {
+    if (spawnError.code === "ENOENT" || (err instanceof AsyncSubprocessError && err.code === "ENOENT")) {
       args.warn("warning: bun executable not found; skipping markdownlint autofix\n");
       return;
     }

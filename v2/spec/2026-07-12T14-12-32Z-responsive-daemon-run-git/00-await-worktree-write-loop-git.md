@@ -10,8 +10,8 @@ Make daemon-hosted worktree setup and write-loop Git yield to the event loop.
 
 ## Tasks
 
-- [ ] Replace synchronous Git execution in external worktree setup/reuse and write-loop Git helpers with awaited execution, propagating async contracts through daemon-hosted callers.
-- [ ] Preserve worktree setup, reuse, cleanup, changed-file, and error/fallback behavior.
+- [x] Replace synchronous Git execution in external worktree setup/reuse and write-loop Git helpers with awaited execution, propagating async contracts through daemon-hosted callers.
+- [x] Preserve worktree setup, reuse, cleanup, changed-file, and error/fallback behavior.
 
 ## Documentation updates
 
@@ -20,6 +20,6 @@ Make daemon-hosted worktree setup and write-loop Git yield to the event loop.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/external-worktree.test.ts` stays green for daemon-reachable worktree setup, reuse, and cleanup behavior.
-- [ ] `v2/src/execution/write-loop.test.ts` stays green for write-loop Git behavior.
-- [ ] `v2/docs/v2-architecture.md` and `v2/docs/v1-behaviors.md` document awaited daemon run worktree/write-loop Git.
+- [x] `v2/src/execution/external-worktree.test.ts` stays green for daemon-reachable worktree setup, reuse, and cleanup behavior.
+- [x] `v2/src/execution/write-loop.test.ts` stays green for write-loop Git behavior.
+- [x] `v2/docs/v2-architecture.md` and `v2/docs/v1-behaviors.md` document awaited daemon run worktree/write-loop Git.

@@ -1,6 +1,6 @@
 # Keep daemon IPC responsive during run Git work
 
-- [ ] [00 - Await worktree and write-loop Git](./00-await-worktree-write-loop-git.md)
+- [x] [00 - Await worktree and write-loop Git](./00-await-worktree-write-loop-git.md)
 - [ ] [01 - Await workflow and review Git](./01-await-workflow-review-git.md)
 - [ ] [02 - Await intent-output Git](./02-await-intent-output-git.md)
 - [ ] [03 - Await attribution and completion Git](./03-await-attribution-completion-git.md)

@@ -524,7 +524,7 @@ Items tagged **[v2-cleanup candidate]** are dead or vestigial code paths flagged
 
 ## v2 Parity: Async worktree and write-loop Git
 
-- **v2-ported with async contract change:** Worktree setup (`ensureExternalWorktree`), reuse, validation, and cleanup remain functionally identical to v1 semantics — same branch existence checks, same common-dir resolution, same error handling and fallbacks, same sequential ordering. **v2 implementation detail:** daemon-hosted runs use async Git execution (`AsyncSubprocessRunner` with `execFile` callback) to yield to the event loop, while CLI/one-shot runs use synchronous `execFileSync`. The async seam preserves output trimming, encoding, exception handling, and all error/retry behavior without changing user-observable behavior. Worktree paths, lock semantics, and concurrency guards are unchanged. Sources: `v2/src/execution/external-worktree.ts`, `shared/git.ts`, `shared/subprocess.ts`, `v2/src/execution/write-loop.ts`
+- **v2-ported with async contract change:** Worktree setup (`ensureExternalWorktree`), reuse, validation, and cleanup remain functionally identical to v1 semantics — same branch existence checks, same common-dir resolution, same error handling and fallbacks, same sequential ordering. **v2 implementation detail:** daemon-reachable write paths await Git through `AsyncSubprocessRunner` (`execFile` with UTF-8 stdout) so worktree setup yields to the event loop without changing user-observable behavior. Worktree paths, lock semantics, and concurrency guards are unchanged. Sources: `v2/src/execution/external-worktree.ts`, `v2/src/execution/write.ts`, `shared/git.ts`, `shared/subprocess.ts`
 
 ## Maintenance requirement for future v1 changes
 

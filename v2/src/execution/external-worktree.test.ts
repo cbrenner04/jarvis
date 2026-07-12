@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AsyncSubprocessRunner, SubprocessRunner } from "../../../shared/subprocess.ts";
+import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { trackedTempRoots } from "../testing/write-fixtures.ts";
 import {
   getExternalWorktreeLockPath,
@@ -41,9 +41,9 @@ function registerRepo(state: FakeGitState, projectRoot: string): void {
   });
 }
 
-function createWorktreeRunner(state: FakeGitState): SubprocessRunner {
+function createWorktreeRunner(state: FakeGitState): AsyncSubprocessRunner {
   return {
-    run(cmd, args, cwd) {
+    async runAsync(cmd, args, cwd) {
       if (cmd !== "git") throw new Error(`unexpected cmd ${cmd}`);
       const [subcmd, ...rest] = args;
 
@@ -117,16 +117,7 @@ function createWorktreeRunner(state: FakeGitState): SubprocessRunner {
   };
 }
 
-function createAsyncWorktreeRunner(state: FakeGitState): AsyncSubprocessRunner {
-  const syncRunner = createWorktreeRunner(state);
-  return {
-    async runAsync(cmd, args, cwd) {
-      return syncRunner.run(cmd, args, cwd);
-    },
-  };
-}
-
-function setupMockRepo(): { repoRoot: string; jarvisRoot: string; runner: SubprocessRunner; asyncRunner: AsyncSubprocessRunner } {
+function setupMockRepo(): { repoRoot: string; jarvisRoot: string; runner: AsyncSubprocessRunner } {
   const root = mkdtempSync(join(tmpdir(), "jarvis-v2-worktree-mock-"));
   roots.push(root);
   const repoRoot = join(root, "repo");
@@ -134,7 +125,7 @@ function setupMockRepo(): { repoRoot: string; jarvisRoot: string; runner: Subpro
   mkdirSync(repoRoot, { recursive: true });
   const state = createFakeGitState();
   registerRepo(state, repoRoot);
-  return { repoRoot, jarvisRoot, runner: createWorktreeRunner(state), asyncRunner: createAsyncWorktreeRunner(state) };
+  return { repoRoot, jarvisRoot, runner: createWorktreeRunner(state) };
 }
 
 function getLockRoot(jarvisRoot: string): string {
@@ -162,8 +153,8 @@ function makeInput(
 
 describe("external worktree helper", () => {
   test("creates a fresh external worktree and releases lock on success", async () => {
-    const { repoRoot, jarvisRoot, runner, asyncRunner } = setupMockRepo();
-    const result = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "ok", runner, asyncRunner);
+    const { repoRoot, jarvisRoot, runner } = setupMockRepo();
+    const result = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "ok", runner);
 
     expect(result.lock.kind).toBe("acquired");
     expect(result.worktree.reused).toBe(false);
@@ -175,9 +166,9 @@ describe("external worktree helper", () => {
   });
 
   test("recovers stale lock and reports recovered status", async () => {
-    const { repoRoot, jarvisRoot, runner, asyncRunner } = setupMockRepo();
+    const { repoRoot, jarvisRoot, runner } = setupMockRepo();
 
-    await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => undefined, runner, asyncRunner);
+    await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => undefined, runner);
 
     const lockPath = getExternalWorktreeLockPath(getLockRoot(jarvisRoot));
     writeFileSync(
@@ -190,7 +181,7 @@ describe("external worktree helper", () => {
       "utf8",
     );
 
-    const result = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "ok", runner, asyncRunner);
+    const result = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "ok", runner);
 
     expect(result.worktree.reused).toBe(true);
     expect(result.lock.kind).toBe("recovered");
@@ -208,30 +199,29 @@ describe("external worktree helper", () => {
     registerRepo(state, repoRoot);
     registerRepo(state, otherRepoRoot);
     const runner = createWorktreeRunner(state);
-    const asyncRunner = createAsyncWorktreeRunner(state);
 
-    await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => undefined, runner, asyncRunner);
+    await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => undefined, runner);
 
-    await expect(withExternalWorktree(makeInput(jarvisRoot, otherRepoRoot), () => "never", runner, asyncRunner)).rejects.toThrow(
+    await expect(withExternalWorktree(makeInput(jarvisRoot, otherRepoRoot), () => "never", runner)).rejects.toThrow(
       "belongs to a different repository",
     );
   });
 
   test("refuses to reuse a worktree on a different branch", async () => {
-    const { repoRoot, jarvisRoot, runner, asyncRunner } = setupMockRepo();
+    const { repoRoot, jarvisRoot, runner } = setupMockRepo();
 
-    const result = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => undefined, runner, asyncRunner);
-    runner.run("git", ["checkout", "-b", "other-branch"], result.worktree.path);
+    const result = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => undefined, runner);
+    await runner.runAsync("git", ["checkout", "-b", "other-branch"], result.worktree.path);
 
-    await expect(withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "never", runner, asyncRunner)).rejects.toThrow(
+    await expect(withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "never", runner)).rejects.toThrow(
       "is on branch other-branch, expected write-run",
     );
   });
 
   test("refuses busy lock with v1-compatible payload", async () => {
-    const { repoRoot, jarvisRoot, runner, asyncRunner } = setupMockRepo();
+    const { repoRoot, jarvisRoot, runner } = setupMockRepo();
 
-    await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => undefined, runner, asyncRunner);
+    await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => undefined, runner);
 
     const lockPath = getExternalWorktreeLockPath(getLockRoot(jarvisRoot));
     writeFileSync(
@@ -244,23 +234,23 @@ describe("external worktree helper", () => {
       "utf8",
     );
 
-    await expect(withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "never", runner, asyncRunner)).rejects.toBeInstanceOf(
+    await expect(withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "never", runner)).rejects.toBeInstanceOf(
       WorktreeBusyError,
     );
   });
 
   test("refuses reusing a non-worktree directory", async () => {
-    const { repoRoot, jarvisRoot, runner, asyncRunner } = setupMockRepo();
+    const { repoRoot, jarvisRoot, runner } = setupMockRepo();
     const path = getExternalWorktreePath(makeInput(jarvisRoot, repoRoot));
     mkdirSync(path, { recursive: true });
 
-    await expect(withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "never", runner, asyncRunner)).rejects.toThrow(
+    await expect(withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "never", runner)).rejects.toThrow(
       `existing path is not a git worktree: ${path}`,
     );
   });
 
   test("releases lock when callback fails", async () => {
-    const { repoRoot, jarvisRoot, runner, asyncRunner } = setupMockRepo();
+    const { repoRoot, jarvisRoot, runner } = setupMockRepo();
 
     await expect(
       withExternalWorktree(
@@ -269,7 +259,6 @@ describe("external worktree helper", () => {
           throw new Error("boom");
         },
         runner,
-        asyncRunner,
       ),
     ).rejects.toThrow("boom");
 
@@ -277,12 +266,12 @@ describe("external worktree helper", () => {
   });
 
   test("recreates a missing but still-registered worktree", async () => {
-    const { repoRoot, jarvisRoot, runner, asyncRunner } = setupMockRepo();
+    const { repoRoot, jarvisRoot, runner } = setupMockRepo();
 
-    const first = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => undefined, runner, asyncRunner);
+    const first = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => undefined, runner);
     rmSync(first.worktree.path, { recursive: true, force: true });
 
-    const second = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "ok", runner, asyncRunner);
+    const second = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "ok", runner);
 
     expect(second.worktree.reused).toBe(false);
     expect(existsSync(second.worktree.path)).toBe(true);

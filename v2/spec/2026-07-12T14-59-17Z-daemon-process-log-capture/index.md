@@ -1,3 +1,3 @@
 # Daemon process stdout/stderr are durably captured
 
-- [ ] [00 - Redirect daemon stdio to a rotating process log](./00-daemon-process-log.md)
+- [x] [00 - Redirect daemon stdio to a rotating process log](./00-daemon-process-log.md)

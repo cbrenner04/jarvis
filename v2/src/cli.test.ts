@@ -105,7 +105,8 @@ beforeAll(() => {
       stepId: "implement",
       role: "implement",
       promptId: "patch.prompt.body",
-      stepRules: "Return exactly one terminal token: done|no-work|blocked|progress.",
+      stepRules:
+        "The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.",
       agents: ["claude"],
       agentModelConfig: {},
       worktree: {
@@ -822,7 +823,8 @@ describe("v2 cli", () => {
             baseRef: "HEAD",
           },
           specPath: "spec.md",
-          stepRules: "Return exactly one terminal token: done|no-work|blocked|progress.",
+          stepRules:
+        "The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.",
           expectedArtifactPath: "proof.txt",
           maxIterations: 4,
           bindings: [],

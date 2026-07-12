@@ -26,11 +26,11 @@ Out of scope, named not fixed:
 
 ## Acceptance criteria
 
-- [ ] `DEFAULT_WRITE_STEP_RULES` states an output-format rule anchored on the response: its final line must be exactly one of `done`, `no-work`, `blocked`, `progress`, with nothing after it.
-- [ ] Call-site plumbing is unchanged — `write-loop-input.ts`, `plan-workflow-steps.ts`, and `intent-workflow-steps.ts` still pass `DEFAULT_WRITE_STEP_RULES` as `stepRules`: `v2/src/execution/write-loop-input.test.ts`, `v2/src/execution/plan-workflow-steps.test.ts`, and `v2/src/execution/intent-workflow-steps.test.ts` stay green.
-- [ ] `parseStepOutcomeToken` behavior is unchanged: `v2/src/execution/step-runner.test.ts` stays green.
-- [ ] Every site hardcoding the old sentence asserts the new wording instead: `v2/src/cli.test.ts` (2 sites), `v2/src/tui/tui-daemon-client.test.ts`, `v2/src/execution/write.test.ts`, `shared/prompts/plan-draft.test.ts`, `shared/prompts/intent-split.test.ts`.
-- [ ] `bun run typecheck`, `test:v1`, `test:v2`, and `test:integration:v2` pass (the change touches `shared/**`, so the repo scope rule unions all three suites).
+- [x] `DEFAULT_WRITE_STEP_RULES` states an output-format rule anchored on the response: its final line must be exactly one of `done`, `no-work`, `blocked`, `progress`, with nothing after it.
+- [x] Call-site plumbing is unchanged — `write-loop-input.ts`, `plan-workflow-steps.ts`, and `intent-workflow-steps.ts` still pass `DEFAULT_WRITE_STEP_RULES` as `stepRules`: `v2/src/execution/write-loop-input.test.ts`, `v2/src/execution/plan-workflow-steps.test.ts`, and `v2/src/execution/intent-workflow-steps.test.ts` stay green.
+- [x] `parseStepOutcomeToken` behavior is unchanged: `v2/src/execution/step-runner.test.ts` stays green.
+- [x] Every site hardcoding the old sentence asserts the new wording instead: `v2/src/cli.test.ts` (2 sites), `v2/src/tui/tui-daemon-client.test.ts`, `v2/src/execution/write.test.ts`, `shared/prompts/plan-draft.test.ts`, `shared/prompts/intent-split.test.ts`.
+- [x] `bun run typecheck`, `test:v1`, `test:v2`, and `test:integration:v2` pass (the change touches `shared/**`, so the repo scope rule unions all three suites).
 
 ## Documentation updates
 

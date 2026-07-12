@@ -8,14 +8,17 @@ describe("buildIntentSplitPrompt", () => {
       seedLabel: "inline",
       seedContent: "Split reporting",
       stagingDir: ".jarvis-intent-stage",
-      stepRules: "Return exactly one terminal token: done|no-work|blocked|progress.",
+      stepRules:
+        "The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.",
     });
 
     expect(prompt).toContain("Before editing code, read the relevant durable docs/specs");
     expect(prompt).toContain("Be terse in communication artifacts");
     expect(prompt).toContain("one prerequisite behavior per physical line as `- ...`");
     expect(prompt).toContain("Write the authored intents as markdown files under `.jarvis-intent-stage`");
-    expect(prompt).toContain("Return exactly one terminal token: done|no-work|blocked|progress.");
+    expect(prompt).toContain(
+      "The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.",
+    );
     expect(prompt).not.toContain("No planning labels in code.");
     expect(INTENT_SPLIT_PROMPT_ID).toBe("intent.prompt.split");
   });

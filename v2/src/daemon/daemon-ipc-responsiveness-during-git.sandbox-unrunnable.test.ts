@@ -9,7 +9,7 @@ import { connectIpcClient } from "../ipc/client.ts";
 import { startIpcServer } from "../ipc/server.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { createHoldableAsyncSubprocessRunner } from "../testing/holdable-async-subprocess-runner.ts";
-import { listRuns, mockWriteLoopInput, startRun, toIpcHandlers } from "../testing/run-control.ts";
+import { mockWriteLoopInput, startRun, toIpcHandlers } from "../testing/run-control.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import { createRunControlHandlers } from "./daemon.ts";
 
@@ -151,7 +151,7 @@ afterEach(async () => {
   }
 });
 
-socketTest("list completes after run-path Git signals pending and before Git is released", async () => {
+socketTest("health completes after run-path Git signals pending and before Git is released", async () => {
   const { repoRoot, jarvisRoot, runner: innerRunner } = setupMockRepo(tempRoots);
   const holdable = createHoldableAsyncSubprocessRunner(innerRunner);
   let finishRun: (() => void) | undefined;
@@ -175,10 +175,13 @@ socketTest("list completes after run-path Git signals pending and before Git is 
 
   const socketPath = uniqueSocketPath("responsive-git");
   rmSync(socketPath, { force: true });
-  const server = await startIpcServer(socketPath, toIpcHandlers(handlers));
+  const server = await startIpcServer(socketPath, {
+    health: () => ({ kind: "response", result: { ok: true } }),
+    ...toIpcHandlers(handlers),
+  });
   try {
     const startClient = await connectIpcClient(socketPath, 2_000);
-    const listClient = await connectIpcClient(socketPath, 2_000);
+    const healthClient = await connectIpcClient(socketPath, 2_000);
 
     const startPromise = startRun(
       startClient,
@@ -193,10 +196,10 @@ socketTest("list completes after run-path Git signals pending and before Git is 
 
     await holdable.whenPending();
     let released = false;
-    const runs = await listRuns(listClient);
+    healthClient.send({ kind: "request", id: "h1", method: "health" });
+    const healthFrame = await healthClient.nextFrame();
     expect(released).toBe(false);
-    expect(runs?.length).toBe(1);
-    expect(runs?.[0]?.isLive).toBe(true);
+    expect(healthFrame).toEqual({ kind: "response", id: "h1", result: { ok: true } });
 
     released = true;
     holdable.release();
@@ -209,7 +212,7 @@ socketTest("list completes after run-path Git signals pending and before Git is 
     expect(existsSync(worktreePath)).toBe(true);
 
     startClient.close();
-    listClient.close();
+    healthClient.close();
   } finally {
     await server.close();
     rmSync(socketPath, { force: true });

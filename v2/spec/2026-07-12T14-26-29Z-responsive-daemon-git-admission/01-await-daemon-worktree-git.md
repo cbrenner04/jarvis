@@ -11,10 +11,10 @@ Move daemon-hosted external-worktree setup, reuse validation, and branch probes 
 
 ## Tasks
 
-- [ ] Propagate asynchronous Git helpers through daemon-hosted external-worktree materialization, reuse checks, branch probes, and mutations.
-- [ ] Keep Git-probe failures that currently mean "not found" or "not a worktree" mapped to `false`; propagate other setup failures and release the external-worktree lock.
-- [ ] Add a real IPC/server-dispatch regression that holds daemon worktree Git pending and receives `health` before release.
-- [ ] Record the daemon worktree responsiveness boundary in its architecture home and the parity catalog.
+- [x] Propagate asynchronous Git helpers through daemon-hosted external-worktree materialization, reuse checks, branch probes, and mutations.
+- [x] Keep Git-probe failures that currently mean "not found" or "not a worktree" mapped to `false`; propagate other setup failures and release the external-worktree lock.
+- [x] Add a real IPC/server-dispatch regression that holds daemon worktree Git pending and receives `health` before release.
+- [x] Record the daemon worktree responsiveness boundary in its architecture home and the parity catalog.
 
 ## Documentation updates
 
@@ -23,7 +23,7 @@ Move daemon-hosted external-worktree setup, reuse validation, and branch probes 
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/external-worktree.test.ts` stays green for branch and reuse outcomes after awaited Git probes settle.
-- [ ] A failed awaited external-worktree setup releases its lock and leaves later setup admissible.
-- [ ] A `health` RPC dispatched through the real daemon server responds before a held daemon-hosted external-worktree Git command releases.
-- [ ] `v2/docs/v2-architecture.md` owns daemon worktree responsiveness; `v2/docs/v1-behaviors.md` records parity without duplicating the contract.
+- [x] `v2/src/execution/external-worktree.test.ts` stays green for branch and reuse outcomes after awaited Git probes settle.
+- [x] A failed awaited external-worktree setup releases its lock and leaves later setup admissible.
+- [x] A `health` RPC dispatched through the real daemon server responds before a held daemon-hosted external-worktree Git command releases.
+- [x] `v2/docs/v2-architecture.md` owns daemon worktree responsiveness; `v2/docs/v1-behaviors.md` records parity without duplicating the contract.

@@ -11,7 +11,7 @@ import type {
 } from "../execution/workflow-runner.ts";
 import { openLogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
+import { mockWriteLoopInput, startRunDirect, listRunsDirect } from "../testing/run-control.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers } from "./daemon.ts";
@@ -154,6 +154,18 @@ test("start rejects when neither input nor steps are supplied", async () => {
 test("start rejects an empty steps array", async () => {
   const response = await handlers.start(requestFrame("s1", "start", { steps: [] }), new AbortController().signal);
   expect(response).toEqual({ kind: "error", code: "invalid_params", message: expect.any(String) });
+});
+
+test("start with steps reports isLive on list while the workflow step is executing", async () => {
+  const steps: AnyWorkflowStep[] = [createWriteStep("step-1", "workflow-live-branch", neverResolvingBindingFactory)];
+  const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
+  expect(response.kind).toBe("response");
+  const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
+  expect(runId).toBeTruthy();
+
+  await flushBackgroundRuns();
+  const row = (await listRunsDirect(handlers))?.find((run) => run.runId === runId);
+  expect(row).toMatchObject({ status: "in-progress", isLive: true });
 });
 
 test("start with steps dispatches to executeWorkflow and returns step 0's runId", async () => {

@@ -1701,6 +1701,277 @@ describe("executeWorkflow human steps", () => {
       store.close();
     }
   });
+
+  test("publishes spec-run body summary from index.md H1 and checklist", async () => {
+    const summaries: Array<string | undefined> = [];
+    const step = createStep({
+      stepId: "plan",
+      role: "plan",
+      promptId: "plan.prompt.draft",
+      branchName: "plan-body-summary",
+      specPath: "spec/2026-01-01T00-00-00Z-plan-body",
+      agentModelConfig: {
+        claude: {
+          plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+        },
+      },
+    });
+    const jarvisRoot = step.worktree.jarvisRoot;
+    if (jarvisRoot === undefined) throw new Error("missing test jarvis root");
+    const worktreePath = join(jarvisRoot, "worktrees", "demo", "plan-body-summary");
+
+    const specDir = join(worktreePath, "spec", "2026-01-01T00-00-00Z-plan-body");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(
+      join(specDir, "index.md"),
+      "# Plan body summary\n\n- [ ] [00 - First](./00-first.md)\n- [x] [01 - Second](./01-second.md)\n",
+      "utf8",
+    );
+
+    await withStateStore(async (store) => {
+      seedCompletedWriteRun(store, step, worktreePath, "plan-body-summary-inv");
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(summaries).toEqual([
+        "# Plan body summary\n\n- [ ] [00 - First](./00-first.md)\n- [x] [01 - Second](./01-second.md)",
+      ]);
+    });
+  });
+
+  test("re-derives the same spec-run body summary on completion-publication retry", async () => {
+    const summaries: Array<string | undefined> = [];
+    const step = createStep({
+      stepId: "plan",
+      role: "plan",
+      promptId: "plan.prompt.draft",
+      branchName: "plan-body-summary-retry",
+      specPath: "spec/2026-01-01T00-00-00Z-plan-retry",
+      agentModelConfig: {
+        claude: {
+          plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+        },
+      },
+    });
+    const jarvisRoot = step.worktree.jarvisRoot;
+    if (jarvisRoot === undefined) throw new Error("missing test jarvis root");
+    const worktreePath = join(jarvisRoot, "worktrees", "demo", "plan-body-summary-retry");
+    const specDir = join(worktreePath, "spec", "2026-01-01T00-00-00Z-plan-retry");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(
+      join(specDir, "index.md"),
+      "# Retry plan\n\n- [ ] [00 - Only](./00-only.md)\n",
+      "utf8",
+    );
+
+    await withStateStore(async (store) => {
+      seedCompletedWriteRun(store, step, worktreePath, "plan-body-summary-retry-inv");
+
+      const failed = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          throw new Error("publish failed");
+        },
+      });
+      expect(failed.kind).toBe("completion_commit_failed");
+
+      const retried = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+      expect(retried.kind).toBe("complete");
+      expect(summaries).toEqual([
+        "# Retry plan\n\n- [ ] [00 - Only](./00-only.md)",
+        "# Retry plan\n\n- [ ] [00 - Only](./00-only.md)",
+      ]);
+    });
+  });
+
+  test("refreshes spec-run body summary when index checklist changes", async () => {
+    const summaries: Array<string | undefined> = [];
+    const step = createStep({
+      stepId: "plan",
+      role: "plan",
+      promptId: "plan.prompt.draft",
+      branchName: "plan-body-summary-refresh",
+      specPath: "spec/2026-01-01T00-00-00Z-plan-refresh",
+      agentModelConfig: {
+        claude: {
+          plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+        },
+      },
+    });
+    const jarvisRoot = step.worktree.jarvisRoot;
+    if (jarvisRoot === undefined) throw new Error("missing test jarvis root");
+    const worktreePath = join(jarvisRoot, "worktrees", "demo", "plan-body-summary-refresh");
+    const indexPath = join(worktreePath, "spec", "2026-01-01T00-00-00Z-plan-refresh", "index.md");
+    mkdirSync(join(worktreePath, "spec", "2026-01-01T00-00-00Z-plan-refresh"), { recursive: true });
+    writeFileSync(indexPath, "# Refresh plan\n\n- [ ] [00 - Alpha](./00-alpha.md)\n", "utf8");
+
+    await withStateStore(async (store) => {
+      seedCompletedWriteRun(store, step, worktreePath, "plan-body-summary-refresh-inv");
+
+      await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          throw new Error("publish failed");
+        },
+      });
+
+      writeFileSync(
+        indexPath,
+        "# Refresh plan\n\n- [ ] [00 - Alpha](./00-alpha.md)\n- [ ] [01 - Beta](./01-beta.md)\n",
+        "utf8",
+      );
+
+      const retried = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+      expect(retried.kind).toBe("complete");
+      expect(summaries).toEqual([
+        "# Refresh plan\n\n- [ ] [00 - Alpha](./00-alpha.md)",
+        "# Refresh plan\n\n- [ ] [00 - Alpha](./00-alpha.md)\n- [ ] [01 - Beta](./01-beta.md)",
+      ]);
+    });
+  });
+
+  test("publishes H1-only spec-run summary when index has no checklist items", async () => {
+    const summaries: Array<string | undefined> = [];
+    const step = createStep({
+      stepId: "plan",
+      role: "plan",
+      promptId: "plan.prompt.draft",
+      branchName: "plan-body-summary-h1-only",
+      specPath: "spec/2026-01-01T00-00-00Z-plan-h1",
+      agentModelConfig: {
+        claude: {
+          plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+        },
+      },
+    });
+    const jarvisRoot = step.worktree.jarvisRoot;
+    if (jarvisRoot === undefined) throw new Error("missing test jarvis root");
+    const worktreePath = join(jarvisRoot, "worktrees", "demo", "plan-body-summary-h1-only");
+    const specDir = join(worktreePath, "spec", "2026-01-01T00-00-00Z-plan-h1");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# H1 only plan\n\nDraft prose.\n", "utf8");
+
+    await withStateStore(async (store) => {
+      seedCompletedWriteRun(store, step, worktreePath, "plan-body-summary-h1-only-inv");
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+      expect(summaries).toEqual(["# H1 only plan"]);
+    });
+  });
+
+  test("publishes no spec-run summary when index.md is missing", async () => {
+    const summaries: Array<string | undefined> = [];
+    const step = createStep({
+      stepId: "plan",
+      role: "plan",
+      promptId: "plan.prompt.draft",
+      branchName: "plan-body-summary-missing",
+      specPath: "spec/2026-01-01T00-00-00Z-plan-missing",
+      agentModelConfig: {
+        claude: {
+          plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+        },
+      },
+    });
+    const jarvisRoot = step.worktree.jarvisRoot;
+    if (jarvisRoot === undefined) throw new Error("missing test jarvis root");
+    const worktreePath = join(jarvisRoot, "worktrees", "demo", "plan-body-summary-missing");
+
+    await withStateStore(async (store) => {
+      seedCompletedWriteRun(store, step, worktreePath, "plan-body-summary-missing-inv");
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+      expect(summaries).toEqual([undefined]);
+    });
+  });
+
+  test("implement runs publish no body summary", async () => {
+    const summaries: Array<string | undefined> = [];
+    const step = createStep({
+      stepId: "implement",
+      role: "implement",
+      promptId: "patch.prompt.body",
+      branchName: "implement-no-summary",
+      specPath: "spec/index.md",
+    });
+    const jarvisRoot = step.worktree.jarvisRoot;
+    if (jarvisRoot === undefined) throw new Error("missing test jarvis root");
+    const worktreePath = join(jarvisRoot, "worktrees", "demo", "implement-no-summary");
+    const specDir = join(worktreePath, "spec");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(
+      join(specDir, "index.md"),
+      "# Implement index\n\n- [ ] [01 - Sub](./01-sub.md)\n",
+      "utf8",
+    );
+
+    await withStateStore(async (store) => {
+      seedCompletedWriteRun(store, step, worktreePath, "implement-no-summary-inv");
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+      expect(summaries).toEqual([undefined]);
+    });
+  });
 });
 
 describe("executeWorkflow review-debate dispatch", () => {

@@ -22,6 +22,7 @@ import { type CompletionCommitter, createCompletionCommitter } from "./completio
 import type { CompletionPublisher } from "./completion-publisher.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
+import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
 import {
   type IntentOutputConfig,
   intentPublicationSpecPath,
@@ -719,7 +720,13 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                   workflowSnapshot.invocationId,
                 ),
               });
+            } else if (completionStep.promptId === "plan.prompt.draft") {
+              bodySummary = deriveSpecRunBodySummary({
+                worktreePath,
+                specPath: publicationSpecPath ?? completionStep.specPath,
+              });
             }
+            const publicationPath = publicationSpecPath ?? completionStep.specPath;
             const publishError = await publishCompletionArtifacts(
               {
                 ...(args.completionPublisher !== undefined ? { completionPublisher: args.completionPublisher } : {}),
@@ -728,7 +735,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               {
                 worktreePath,
                 baseRef: worktree.baseRef,
-                specPath: publicationSpecPath ?? completionStep.specPath,
+                specPath: publicationPath,
                 branch: worktree.branchName,
                 creationTitle: workflowSnapshot.creationTitle,
                 ...(bodySummary !== undefined ? { bodySummary } : {}),

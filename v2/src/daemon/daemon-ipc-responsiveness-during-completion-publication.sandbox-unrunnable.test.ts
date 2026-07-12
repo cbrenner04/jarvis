@@ -1,12 +1,12 @@
 // Proves daemon IPC stays responsive while a completion-publication command is pending.
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { connectIpcClient } from "../ipc/client.ts";
-import { startIpcServer } from "../ipc/server.ts";
 import { createCompletionPublisher } from "../execution/completion-publisher.ts";
 import { executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
+import { connectIpcClient } from "../ipc/client.ts";
+import { startIpcServer } from "../ipc/server.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import { listRuns, mockWriteLoopInput, startRun, toIpcHandlers } from "../testing/run-control.ts";
@@ -16,7 +16,9 @@ import { createRunControlHandlers } from "./daemon.ts";
 
 const socketTest = test.skipIf(!canUseUnixSockets());
 
-function createHoldableAsyncSeam<T extends (...args: never[]) => Promise<unknown>>(inner: T): {
+function createHoldableAsyncSeam<T extends (...args: never[]) => Promise<unknown>>(
+  inner: T,
+): {
   fn: T;
   whenPending: () => Promise<void>;
   release: () => void;
@@ -91,47 +93,96 @@ afterEach(async () => {
   }
 });
 
-socketTest(
-  "list completes after publication gh auth signals pending and before auth is released",
-  async () => {
-    const { jarvisRoot } = createJarvisHome();
-    tempRoots.push(join(jarvisRoot, ".."));
-    const branchName = "pub-responsive";
-    const holdableAuth = createHoldableAsyncSeam(async (_cwd: string) => true);
-    let publicationCompleted = false;
+socketTest("list completes after publication gh auth signals pending and before auth is released", async () => {
+  const { jarvisRoot } = createJarvisHome();
+  tempRoots.push(join(jarvisRoot, ".."));
+  const branchName = "pub-responsive";
+  const holdableAuth = createHoldableAsyncSeam(async (_cwd: string) => true);
+  let publicationCompleted = false;
 
-    const completionPublisher = createCompletionPublisher({
-      ghReady: holdableAuth.fn,
-      git: async (_cwd, args) => {
-        if (args[0] === "rev-parse" && args.includes(`${branchName}@{u}`)) {
-          throw new Error("no upstream");
-        }
-        if (args[0] === "rev-parse" && args[1] === "HEAD") {
-          return "abc123def456";
-        }
-        return "";
-      },
-      gh: async (_cwd, args) => {
-        if (args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([]);
-        }
-        if (args[0] === "pr" && args[1] === "create") {
-          return "#42";
-        }
-        return "";
-      },
-      delay: async () => {},
-      fetchPrBody: async () => "",
-      writePrBody: async () => {},
-      renderFooter: async () => "",
-    });
+  const completionPublisher = createCompletionPublisher({
+    ghReady: holdableAuth.fn,
+    git: async (_cwd, args) => {
+      if (args[0] === "rev-parse" && args.includes(`${branchName}@{u}`)) {
+        throw new Error("no upstream");
+      }
+      if (args[0] === "rev-parse" && args[1] === "HEAD") {
+        return "abc123def456";
+      }
+      return "";
+    },
+    gh: async (_cwd, args) => {
+      if (args[0] === "pr" && args[1] === "list") {
+        return JSON.stringify([]);
+      }
+      if (args[0] === "pr" && args[1] === "create") {
+        return "#42";
+      }
+      return "";
+    },
+    delay: async () => {},
+    fetchPrBody: async () => "",
+    writePrBody: async () => {},
+    renderFooter: async () => "",
+  });
 
-    let finishRun: (() => void) | undefined;
-    const runFinished = new Promise<void>((resolve) => {
-      finishRun = resolve;
-    });
+  let finishRun: (() => void) | undefined;
+  const runFinished = new Promise<void>((resolve) => {
+    finishRun = resolve;
+  });
 
-    const loopInput: WriteLoopInput = {
+  const loopInput: WriteLoopInput = {
+    ...mockWriteLoopInput({
+      projectName: "demo",
+      branchName,
+      projectRoot: "/fake",
+      jarvisRoot,
+    }),
+    specPath: "spec.md",
+    stepRules: "Return exactly one terminal token.",
+    expectedArtifactPath: "proof.txt",
+    bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+    completionCommitter: async () => ({ commitSha: "commit-1", filesChanged: 1 }),
+    completionPublisher: async (input) => {
+      const result = await completionPublisher(input);
+      publicationCompleted = true;
+      return result;
+    },
+    readyFinalizer: async () => {},
+  };
+
+  const handlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: async (input, signal, pauseSignal) => {
+      try {
+        await executeWriteLoop({
+          ...loopInput,
+          worktree: input.worktree,
+          specPath: input.specPath,
+          stepRules: input.stepRules,
+          expectedArtifactPath: input.expectedArtifactPath,
+          stateStore,
+          withExternalWorktree: createWorktreeWithGit(jarvisRoot),
+          signal,
+          pauseSignal,
+        });
+      } finally {
+        finishRun?.();
+      }
+    },
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+  });
+
+  const socketPath = uniqueSocketPath("responsive-publication");
+  rmSync(socketPath, { force: true });
+  const server = await startIpcServer(socketPath, toIpcHandlers(handlers));
+  try {
+    const startClient = await connectIpcClient(socketPath, 2_000);
+    const listClient = await connectIpcClient(socketPath, 2_000);
+
+    const startPromise = startRun(startClient, {
       ...mockWriteLoopInput({
         projectName: "demo",
         branchName,
@@ -141,83 +192,31 @@ socketTest(
       specPath: "spec.md",
       stepRules: "Return exactly one terminal token.",
       expectedArtifactPath: "proof.txt",
-      bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
-      completionCommitter: async () => ({ commitSha: "commit-1", filesChanged: 1 }),
-      completionPublisher: async (input) => {
-        const result = await completionPublisher(input);
-        publicationCompleted = true;
-        return result;
-      },
-      readyFinalizer: async () => {},
-    };
-
-    const handlers = createRunControlHandlers({
-      stateStore,
-      writeLoopExecutor: async (input, signal, pauseSignal) => {
-        try {
-          await executeWriteLoop({
-            ...loopInput,
-            worktree: input.worktree,
-            specPath: input.specPath,
-            stepRules: input.stepRules,
-            expectedArtifactPath: input.expectedArtifactPath,
-            stateStore,
-            withExternalWorktree: createWorktreeWithGit(jarvisRoot),
-            signal,
-            pauseSignal,
-          });
-        } finally {
-          finishRun?.();
-        }
-      },
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      settleDelayMs: 0,
+      bindings: [],
     });
 
-    const socketPath = uniqueSocketPath("responsive-publication");
+    await holdableAuth.whenPending();
+    let released = false;
+    const runs = await listRuns(listClient);
+    expect(released).toBe(false);
+    expect(runs?.length).toBe(1);
+
+    released = true;
+    holdableAuth.release();
+
+    const runId = await startPromise;
+    expect(typeof runId).toBe("string");
+    await runFinished;
+    expect(publicationCompleted).toBe(true);
+
+    const settled = await listRuns(listClient);
+    expect(settled?.[0]?.status).toBe("completed");
+    expect(settled?.[0]?.isLive).toBe(false);
+
+    startClient.close();
+    listClient.close();
+  } finally {
+    await server.close();
     rmSync(socketPath, { force: true });
-    const server = await startIpcServer(socketPath, toIpcHandlers(handlers));
-    try {
-      const startClient = await connectIpcClient(socketPath, 2_000);
-      const listClient = await connectIpcClient(socketPath, 2_000);
-
-      const startPromise = startRun(startClient, {
-        ...mockWriteLoopInput({
-          projectName: "demo",
-          branchName,
-          projectRoot: "/fake",
-          jarvisRoot,
-        }),
-        specPath: "spec.md",
-        stepRules: "Return exactly one terminal token.",
-        expectedArtifactPath: "proof.txt",
-        bindings: [],
-      });
-
-      await holdableAuth.whenPending();
-      let released = false;
-      const runs = await listRuns(listClient);
-      expect(released).toBe(false);
-      expect(runs?.length).toBe(1);
-
-      released = true;
-      holdableAuth.release();
-
-      const runId = await startPromise;
-      expect(typeof runId).toBe("string");
-      await runFinished;
-      expect(publicationCompleted).toBe(true);
-
-      const settled = await listRuns(listClient);
-      expect(settled?.[0]?.status).toBe("completed");
-      expect(settled?.[0]?.isLive).toBe(false);
-
-      startClient.close();
-      listClient.close();
-    } finally {
-      await server.close();
-      rmSync(socketPath, { force: true });
-    }
-  },
-);
+  }
+});

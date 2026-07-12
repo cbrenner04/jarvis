@@ -65,6 +65,10 @@ function failure(message: string): never {
   throw new Error(`${message}; rerun to retry pre-publication`);
 }
 
+function worktreeRelativePath(worktreePath: string, absolutePath: string): string {
+  return relative(worktreePath, absolutePath).replace(/\\/g, "/");
+}
+
 function ownershipPath(worktreePath: string): string {
   try {
     const gitDir = execFileSync("git", ["rev-parse", "--git-dir"], { cwd: worktreePath, encoding: "utf8" }).trim();
@@ -97,7 +101,7 @@ export function landIntentWorkflowOutput(input: {
   const ownership = readOwnership(ownershipFile);
   const ownedFiles = input.invocationId === undefined ? [] : (ownership[input.invocationId] ?? []);
   if (!existsSync(stageDir) && ownedFiles.length > 0) {
-    return { specPath: durableDir, files: ownedFiles };
+    return { specPath: worktreeRelativePath(input.worktreePath, durableDir), files: ownedFiles };
   }
   if (!existsSync(stageDir) || !statSync(stageDir).isDirectory()) {
     failure("intent: .jarvis-intent-stage is missing");
@@ -153,7 +157,7 @@ export function landIntentWorkflowOutput(input: {
     }
     rmSync(stageDir, { recursive: true, force: true });
     rmSync(backupDir, { recursive: true, force: true });
-    return { specPath: durableDir, files };
+    return { specPath: worktreeRelativePath(input.worktreePath, durableDir), files };
   } catch (error) {
     for (const destination of created) rmSync(destination, { force: true });
     for (const [destination, backup] of backups) {

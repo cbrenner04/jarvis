@@ -18,3 +18,7 @@ Terse: a few lines, no generated prose essays.
 ## Prerequisites
 
 - Completion publisher accepts PR metadata supplied by the workflow instead of hardcoding it
+
+## Blocker
+
+- Completion publisher metadata injection is unconfirmed: `v2/src/execution/completion-publisher.ts` still hardcodes PR title and body instead of accepting workflow-supplied metadata.

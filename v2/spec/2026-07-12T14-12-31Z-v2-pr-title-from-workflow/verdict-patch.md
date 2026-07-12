@@ -1,0 +1,5 @@
+**Verdict — one confirmed issue, must fix before merge:**
+
+- `resolveSpecCreationTitle` must correctly resolve `index.md` when `specPath` is a bare spec directory (the shape `plan-workflow-steps.ts` actually produces via `specDir`), not just when it's already a file path ending in `index.md` or a sibling file. Currently it looks one directory level too high, so real plan runs silently fall back to `jarvis: complete run` instead of the drafted spec's H1 — subspec 03's core acceptance criterion ("plan PR titled with its drafted `index.md` H1") is unmet in practice.
+- Fix by making the resolution logic handle the directory case (e.g., distinguish file vs. directory and look for `index.md` inside a directory `specPath`), or by having the plan workflow pass a `specPath` that already points at `index.md` — either way, the two must agree.
+- Add/adjust a plan-specific test that constructs `specPath` the way `plan-workflow-steps.ts` actually does (a bare spec directory, not a pre-corrected `.../index.md` path), so this regression is actually exercised and can't silently reappear.

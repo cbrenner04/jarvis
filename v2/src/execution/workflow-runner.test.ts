@@ -1305,6 +1305,57 @@ describe("executeWorkflow human steps", () => {
     });
   });
 
+  test("plan workflow with a bare spec-directory specPath publishes index.md H1 as title", async () => {
+    // plan-workflow-steps.ts sets specPath to the spec directory itself, not a path ending in index.md.
+    const step = createStep({
+      stepId: "plan",
+      role: "plan",
+      branchName: "plan-title-dir-test",
+      specPath: "spec/2026-01-01T00-00-00Z-test-plan-dir",
+      agentModelConfig: {
+        claude: {
+          plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+        },
+      },
+    });
+    const titles: unknown[] = [];
+    const jarvisRoot = step.worktree.jarvisRoot;
+    if (jarvisRoot === undefined) throw new Error("missing test jarvis root");
+
+    mkdirSync(join(jarvisRoot, "worktrees", "demo", "plan-title-dir-test", "spec", "2026-01-01T00-00-00Z-test-plan-dir"), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(
+        jarvisRoot,
+        "worktrees",
+        "demo",
+        "plan-title-dir-test",
+        "spec",
+        "2026-01-01T00-00-00Z-test-plan-dir",
+        "index.md",
+      ),
+      "# My directory-sourced plan\n\nContent here.",
+      "utf8",
+    );
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          titles.push(input.creationTitle);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(titles).toEqual(["My directory-sourced plan"]);
+    });
+  });
+
   test("plan workflow retry retains original index.md H1 title when index cannot be re-read", async () => {
     const stateDbPath = ":memory:";
     const firstStep = createStep({

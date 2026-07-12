@@ -1167,18 +1167,33 @@ describe("executeWorkflow human steps", () => {
       stepId: "intent",
       role: "implement",
       branchName: "intent-title-retry",
-      creationTitle: "intent: Seed Name",
+      specPath: "spec/index.md",
     });
-    const retryStep = createStep({ stepId: "intent", role: "implement", branchName: "intent-title-retry" });
+    const retryStep = createStep({
+      stepId: "intent",
+      role: "implement",
+      branchName: "intent-title-retry",
+      specPath: "spec/index.md",
+    });
     const titles: unknown[] = [];
     const store = openStateStore(stateDbPath);
+    const jarvisRoot = firstStep.worktree.jarvisRoot;
+    if (jarvisRoot === undefined) throw new Error("missing test jarvis root");
+
+    mkdirSync(join(jarvisRoot, "worktrees", "demo", "intent-title-retry", "spec"), { recursive: true });
+    writeFileSync(
+      join(jarvisRoot, "worktrees", "demo", "intent-title-retry", "spec", "index.md"),
+      "# Workflow title\n",
+      "utf8",
+    );
 
     try {
       const first = await executeWorkflow({
         steps: [firstStep],
         stateStore: store,
         completionCommitter: () => ({ commitSha: "commit-1" }),
-        completionPublisher: async () => {
+        completionPublisher: async (input) => {
+          titles.push(input.creationTitle);
           throw new Error("publish failed");
         },
       });
@@ -1196,7 +1211,7 @@ describe("executeWorkflow human steps", () => {
       });
 
       expect(retried.kind).toBe("complete");
-      expect(titles).toEqual(["intent: Seed Name"]);
+      expect(titles).toEqual(["Workflow title", "Workflow title"]);
     } finally {
       store.close();
     }

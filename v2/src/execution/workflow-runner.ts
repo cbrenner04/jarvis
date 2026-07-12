@@ -28,6 +28,7 @@ import {
   resolveActiveLinkedSubspec,
 } from "./linked-subspec-routing.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
+import { resolveSpecCreationTitle } from "./spec-creation-title.ts";
 import { executePlanReviewCycle, type PlanReviewCycleOutcome } from "./render-plan-review-prompts.ts";
 import {
   executeReviewCycle,
@@ -892,9 +893,12 @@ function buildWorkflowSnapshot(steps: readonly AnyWorkflowStep[], store: StateSt
 }
 
 function workflowCreationTitleField(steps: readonly AnyWorkflowStep[]): { creationTitle: string } | Record<string, never> {
-  const creationTitle = steps.find(
-    (step): step is WriteWorkflowStep => isWriteStep(step) && step.creationTitle !== undefined,
-  )?.creationTitle;
+  const writeStep = steps.find(isWriteStep);
+  const creationTitle =
+    writeStep?.creationTitle ??
+    (writeStep === undefined
+      ? undefined
+      : resolveSpecCreationTitle(getExternalWorktreePath(writeStep.worktree), writeStep.specPath));
   return creationTitle === undefined ? {} : { creationTitle };
 }
 
@@ -1079,6 +1083,7 @@ function prepareWorkflowStep(
       ...loopInput,
       stepId,
       workflowSnapshot,
+      ...(workflowSnapshot.creationTitle !== undefined ? { creationTitle: workflowSnapshot.creationTitle } : {}),
       bindings,
       bindingResolution: {
         role,

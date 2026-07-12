@@ -20,11 +20,11 @@ Direct write and spec workflows need the spec subject, not a fixed completion ti
 
 ## Acceptance criteria
 
-- [ ] A newly created direct-write or spec-workflow PR is titled with the trimmed H1 from its `index.md`.
-- [ ] A newly created non-index direct-write PR uses its sibling `index.md` H1.
-- [ ] A missing, unreadable, malformed, blank, or whitespace-only applicable index H1 creates `jarvis: complete run`.
-- [ ] Retrying completed direct-write or spec-workflow publication uses its original resolved title when the index can no longer be resolved.
-- [ ] Focused write-loop and workflow-runner automated tests cover index publication, non-index publication, fallback, and durable retry.
+- [x] A newly created direct-write or spec-workflow PR is titled with the trimmed H1 from its `index.md`.
+- [x] A newly created non-index direct-write PR uses its sibling `index.md` H1.
+- [x] A missing, unreadable, malformed, blank, or whitespace-only applicable index H1 creates `jarvis: complete run`.
+- [x] Retrying completed direct-write or spec-workflow publication uses its original resolved title when the index can no longer be resolved.
+- [x] Focused write-loop and workflow-runner automated tests cover index publication, non-index publication, fallback, and durable retry.
 
 ## Documentation updates
 

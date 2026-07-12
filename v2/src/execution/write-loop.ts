@@ -18,6 +18,7 @@ import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import { type BoundaryStamp, boundaryStampFromStoredRun, emitWorkBoundaryRecorded } from "./work-boundary-telemetry.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";
+import { resolveSpecCreationTitle } from "./spec-creation-title.ts";
 
 const WRITE_LOOP_OUTCOME_KINDS = [
   "complete",
@@ -79,6 +80,7 @@ export type WriteLoopInput = WriteExecuteInput & {
   completionPublisher?: CompletionPublisher;
   readyFinalizer?: ReadyFinalizer;
   publishCompletion?: boolean;
+  creationTitle?: string;
 };
 
 /**
@@ -94,8 +96,8 @@ export function applyOperatorSessionId(input: WriteLoopInput, operatorSessionId:
 const DEFAULT_MAX_ITERATIONS = 10;
 type StoredRun = NonNullable<ReturnType<StateStore["loadRun"]>>;
 type PreparedRun =
-  | { runId: string; worktreePath: string; resumedAttemptId: string | null }
-  | { result: WriteLoopResult };
+  | { runId: string; worktreePath: string; resumedAttemptId: string | null; creationTitle?: string }
+  | { result: WriteLoopResult; creationTitle?: string };
 
 /**
  * Execute a resumable write loop: repeatedly call executeWrite until work is
@@ -130,6 +132,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               baseRef: args.worktree.baseRef,
               specPath: args.specPath,
               branch: args.worktree.branchName,
+              creationTitle: prepared.creationTitle,
             });
             if (publishError !== undefined) {
               return publishError.kind === "completion_commit_failed"
@@ -295,6 +298,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             baseRef: args.worktree.baseRef,
             specPath: args.specPath,
             branch: args.worktree.branchName,
+            creationTitle: prepared.creationTitle,
           });
           if (publishError !== undefined) {
             return publishError.kind === "completion_commit_failed"
@@ -367,26 +371,35 @@ function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {
   });
 
   if (existingRun === null) {
+    const creationTitle = args.creationTitle ?? resolveSpecCreationTitle(worktreePath, args.specPath);
     const runId = store.createRun({
       project: args.worktree.projectName,
       specRef: args.worktree.baseRef,
       worktreePath,
       branch: args.worktree.branchName,
       specPath: args.specPath,
+      ...(creationTitle !== undefined ? { creationTitle } : {}),
       ...(args.stepId !== undefined ? { stepId: args.stepId } : {}),
       ...(args.workflowSnapshot !== undefined ? { workflowSnapshot: args.workflowSnapshot } : {}),
     });
-    return { runId, worktreePath, resumedAttemptId: null };
+    return { runId, worktreePath, resumedAttemptId: null, ...(creationTitle !== undefined ? { creationTitle } : {}) };
   }
 
   const lastAttempt = existingRun.attempts[existingRun.attempts.length - 1];
   if (lastAttempt?.status === "in-progress") {
     // Interrupted mid-step: re-run that iteration over the dirty worktree.
-    return { runId: existingRun.id, worktreePath, resumedAttemptId: lastAttempt.id };
+    return {
+      runId: existingRun.id,
+      worktreePath,
+      resumedAttemptId: lastAttempt.id,
+      ...(existingRun.creationTitle ? { creationTitle: existingRun.creationTitle } : {}),
+    };
   }
 
   const committed = committedResult(existingRun);
-  return committed === null ? { runId: existingRun.id, worktreePath, resumedAttemptId: null } : { result: committed };
+  return committed === null
+    ? { runId: existingRun.id, worktreePath, resumedAttemptId: null, ...(existingRun.creationTitle ? { creationTitle: existingRun.creationTitle } : {}) }
+    : { result: committed, ...(existingRun.creationTitle ? { creationTitle: existingRun.creationTitle } : {}) };
 }
 
 function buildWriteExecuteInput(args: WriteLoopInput, runId: string, attemptId: string): WriteExecuteInput {

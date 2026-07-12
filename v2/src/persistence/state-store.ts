@@ -86,6 +86,7 @@ export type Run = {
   worktreePath: string;
   branch: string;
   specPath: string;
+  creationTitle?: string | null;
   stepId?: string | null;
   workflowSnapshot?: WorkflowSnapshot | null;
   queuedInput?: WriteLoopInput | null;
@@ -112,6 +113,7 @@ export interface StateStore {
     worktreePath: string;
     branch: string;
     specPath: string;
+    creationTitle?: string;
     stepId?: string;
     workflowSnapshot?: WorkflowSnapshot;
     status?: RunStatus;
@@ -192,7 +194,7 @@ const SCHEMA = `
 
 const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, status,
   attempt_count AS attemptCount, worktree_path AS worktreePath, branch, spec_path AS specPath, step_id AS stepId,
-  workflow_snapshot AS workflowSnapshotJson, queued_input AS queuedInputJson`;
+  workflow_snapshot AS workflowSnapshotJson, queued_input AS queuedInputJson, creation_title AS creationTitle`;
 
 const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, started_at AS startedAt, status,
   outcome_kind AS outcomeKind, invocation_failure_detail AS invocationFailureDetailJson,
@@ -218,6 +220,10 @@ const SCHEMA_MIGRATIONS = [
   {
     id: "008-attempt-completion-agent",
     up: "ALTER TABLE attempts ADD COLUMN completion_agent TEXT",
+  },
+  {
+    id: "009-run-creation-title",
+    up: "ALTER TABLE runs ADD COLUMN creation_title TEXT",
   },
 ] as const;
 
@@ -274,6 +280,7 @@ class StateStoreImpl implements StateStore {
     worktreePath: string;
     branch: string;
     specPath: string;
+    creationTitle?: string;
     stepId?: string;
     workflowSnapshot?: WorkflowSnapshot;
     status?: RunStatus;
@@ -285,9 +292,9 @@ class StateStoreImpl implements StateStore {
     this.db
       .prepare(`
         INSERT INTO runs (
-          id, project, spec_ref, created_at, status, attempt_count, worktree_path, branch, spec_path, step_id, workflow_snapshot, queued_input
+          id, project, spec_ref, created_at, status, attempt_count, worktree_path, branch, spec_path, step_id, workflow_snapshot, queued_input, creation_title
         )
-        VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         id,
@@ -301,6 +308,7 @@ class StateStoreImpl implements StateStore {
         args.stepId ?? null,
         workflowSnapshotJson,
         queuedInputJson,
+        args.creationTitle ?? null,
       );
     return id;
   }

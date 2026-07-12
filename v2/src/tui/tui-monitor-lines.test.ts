@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
-import { monitorTextLines } from "./tui-monitor-lines.ts";
+import { RUN_STATUSES } from "../persistence/state-store.ts";
+import {
+  joinMonitorRow,
+  livenessTone,
+  monitorSegmentRows,
+  monitorTextLines,
+  RUN_STATUS_TONES,
+} from "./tui-monitor-lines.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
 
 const SINGLE_STEP_RUN: DaemonListRunRow = {
@@ -44,7 +51,59 @@ function monitorState(overrides: Partial<TuiMonitorState> = {}): TuiMonitorState
   };
 }
 
+const MONITOR_LINES_FIXTURE_STATE: TuiMonitorState = {
+  runs: [
+    { runId: "run-alpha", project: "demo", branch: "alpha", status: "in-progress", isLive: true },
+    { runId: "run-beta", project: "demo", branch: "beta", status: "completed", isLive: false },
+    { runId: "run-queued", project: "demo", branch: "queued", status: "queued", isLive: false },
+  ],
+  selectedRunId: "run-alpha",
+  waitState: { kind: "ready", runId: "run-alpha", result: { runStatus: "in-progress" } },
+  steeringFeedback: "daemon_error: paused",
+};
+
+const MONITOR_LINES_FIXTURE_PIN = [
+  "jarvis tui",
+  "runId project branch status liveness",
+  "> run-alpha demo alpha in-progress live",
+  "  run-beta demo beta completed not-live",
+  "Queue",
+  "  run-queued demo queued queued waiting: memory headroom",
+  "Outcome",
+  "runStatus: in-progress",
+  "daemon_error: paused",
+  "Press q or Ctrl-C to quit.",
+] as const;
+
+describe("RUN_STATUS_TONES", () => {
+  test("covers every RUN_STATUSES member", () => {
+    for (const status of RUN_STATUSES) {
+      expect(RUN_STATUS_TONES[status]).toBeDefined();
+    }
+  });
+});
+
+describe("livenessTone", () => {
+  test("live is active and not-live is untoned", () => {
+    expect(livenessTone(true)).toBe("active");
+    expect(livenessTone(false)).toBeUndefined();
+  });
+});
+
+describe("monitorSegmentRows", () => {
+  test("joined rows match monitorTextLines", () => {
+    const state = monitorState({ runs: [SINGLE_STEP_RUN], selectedRunId: "run-single" });
+    const lines = monitorTextLines(state);
+    const rows = monitorSegmentRows(state);
+    expect(rows.map(joinMonitorRow)).toEqual(lines);
+  });
+});
+
 describe("monitorTextLines", () => {
+  test("pins full output for fixture state", () => {
+    expect(monitorTextLines(MONITOR_LINES_FIXTURE_STATE)).toEqual([...MONITOR_LINES_FIXTURE_PIN]);
+  });
+
   test("workflow-backed selected run shows active step, prior outcomes, and attempt counts", () => {
     const lines = monitorTextLines(
       monitorState({

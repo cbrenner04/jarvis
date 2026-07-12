@@ -32,7 +32,6 @@ type Project = {
   updateSnapshotsCommand?: string; // optional update-snapshots command for the snapshot-churn blocker gate
   readyCommand?: string; // optional per-project ready command override
   fixCommand?: string; // optional per-project autofix command override
-  readyGateRetryBound?: number; // optional per-project completion ready-gate retry bound (default 2)
   installCommand?: string; // optional install command for dependency installation (default "bun install")
 };
 
@@ -83,7 +82,7 @@ type Config = {
 };
 ```
 
-**Project object keys are validated strictly:** only `root`, `origin`, `git`, `siblings`, `plan`, `updateSnapshotsCommand`, `readyCommand`, `fixCommand`, `readyGateRetryBound`, and `installCommand` are allowed. Unknown keys (including a flat `specTimestamp` or `commit` at the project level instead of nested under `plan`) cause `loadConfig` to throw with a descriptive error. This catches misconfigurations early.
+**Project object keys are validated strictly:** only `root`, `origin`, `git`, `siblings`, `plan`, `updateSnapshotsCommand`, `readyCommand`, `fixCommand`, and `installCommand` are supported. Unknown keys (including a flat `specTimestamp` or `commit` at the project level instead of nested under `plan`) cause `loadConfig` to throw with a descriptive error. This catches misconfigurations early.
 
 **`updateSnapshotsCommand`** (per-project, optional): the command the snapshot-churn blocker gate runs to refresh outdated snapshots before re-testing (e.g. `bun test --update-snapshots`, `vitest -u`, `jest -u`). Takes precedence over auto-detection from the target repo's root `package.json`; if neither is set, the gate fail-safes (the blocker stands). Used only by that gate.
 
@@ -91,7 +90,7 @@ type Config = {
 
 **`fixCommand`** (per-project, optional): overrides the **autofix** command on `full`-tier ready gates (completion transition, pre-shrink, review baseline and final, `maybeMarkReady`, triage `--mark-ready` / `--merge`, and plan-mode draft→ready). Tokenized on whitespace and run via `execFileSync` (no shell). Must be a non-empty, non-whitespace-only string; rejected at `loadConfig` otherwise. Autofix is bounded by `iterationTimeoutMs` (10 min default); timeout failures name the command and gate label. When unset, autofix falls back to `bun run fix`. For package-manager-shaped commands (`bun`/`npm`/`pnpm`/`yarn run <script>`), the harness skips autofix when root `package.json` is missing, unreadable, or lacks that script — verification and commit-if-dirty still run. Non-bun repos or repos without a `fix` script must set `fixCommand` (or accept absent-script skip on the default). Verification stays on `readyCommand` / `bun run ready`; do not fold autofix into `readyCommand`.
 
-**`readyGateRetryBound`** (per-project, optional): sets the completion ready gate's retry bound (number of retries before entering fix-up, not counting the initial attempt). A non-negative integer; default is 2 (meaning 3 total attempts). Value 0 runs once and enters fix-up immediately on retryable red. Applies only to the completion-transition ready gate (the only ready gate with a retry loop); other ready gates always run once. Absent the knob, behavior is unchanged (2 retries).
+**Legacy `readyGateRetryBound`:** a saved non-negative integer still loads with a deprecation warning and is ignored. It is not written back to config.
 
 **`installCommand`** (per-project, optional): the command the harness runs to install dependencies when `package.json` or `bun.lock` changes during an iteration (e.g. `bun install`, `npm ci`, `yarn install`). Defaults to `bun install` when unset. The command is run outside the agent sandbox with network access available, in the worktree directory. If the install fails, the failure is logged but does not halt the run. Value is tokenized on whitespace and run via shell (`sh -c`).
 

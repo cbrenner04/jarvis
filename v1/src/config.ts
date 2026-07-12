@@ -550,11 +550,12 @@ function validateConfig(input: unknown, file: string): Config {
     }
     const readyGateRetryBoundRaw = (value as Record<string, unknown>).readyGateRetryBound;
     if (readyGateRetryBoundRaw !== undefined) {
-      project.readyGateRetryBound = validateNonNegativeInteger(
+      validateNonNegativeInteger(
         readyGateRetryBoundRaw,
         `project ${JSON.stringify(name)} readyGateRetryBound`,
         (message) => fail(file, message),
       );
+      process.stderr.write(`warning: project ${JSON.stringify(name)} readyGateRetryBound is deprecated and ignored\n`);
     }
     // Strict keys validation for project object
     const allowedProjectKeys = new Set([
@@ -581,7 +582,7 @@ function validateConfig(input: unknown, file: string): Config {
         }
         fail(
           file,
-          `project ${JSON.stringify(name)}: unknown key ${JSON.stringify(key)} (allowed: root, origin, git, siblings, plan, updateSnapshotsCommand, readyCommand, fixCommand, readyGateRetryBound, installCommand)`,
+          `project ${JSON.stringify(name)}: unknown key ${JSON.stringify(key)} (allowed: root, origin, git, siblings, plan, updateSnapshotsCommand, readyCommand, fixCommand, installCommand)`,
         );
       }
     }
@@ -826,7 +827,13 @@ function validateExitCodeList(value: unknown, name: string, failWith: (message: 
 }
 
 function serialize(cfg: Config): string {
-  return `${JSON.stringify(cfg, null, 2)}\n`;
+  const projects = Object.fromEntries(
+    Object.entries(cfg.projects).map(([name, project]) => {
+      const { readyGateRetryBound: _legacyReadyGateRetryBound, ...supportedProject } = project;
+      return [name, supportedProject];
+    }),
+  );
+  return `${JSON.stringify({ ...cfg, projects }, null, 2)}\n`;
 }
 
 export function loadConfig(opts?: ConfigOptions): Config {

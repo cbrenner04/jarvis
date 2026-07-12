@@ -736,7 +736,7 @@ describe("runSummary", () => {
   }
 
   test.each([
-    ["ready-stuck-red (exit code 10)", "Recovery by exit reason"],
+    ["ready-gate-failed (exit code 10)", "Recovery by exit reason"],
     ["timeout (exit code 8)", "Resume-first guidance"],
     ["sigint (exit code 130)", "Resume-first guidance"],
     ["worktree-locked (exit code 9)", "Resume-first guidance"],

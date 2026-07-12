@@ -23,15 +23,15 @@ gate contract already enforced by `jarvis1 triage --merge`.
 
 ## Acceptance criteria
 
-- [ ] A completed, gated `git: true` patch run with red full-gate verification exits `10`; terminal telemetry and the run summary say `ready-gate-failed`, not `criteria-complete`.
-- [ ] A red verification result cannot invoke a completion fix-up agent, reset, force-push, discard recovery, `gh pr ready`, or exit `0`.
-- [ ] Gate operational failures retain their existing non-`ready-gate-failed` routing.
-- [ ] `git: false`, zero-iteration/rerun, checkbox-only, and human-only-only completion remain outside the completion gate.
-- [ ] `readyGateRetryBound` remains loadable only as a non-negative-integer legacy field, warns that it is ignored, and never causes retries; docs and config output no longer expose it as supported.
-- [ ] `v1/test/run.test.ts` `completion ready gate: green gate proceeds to shrink/review with check:fix committed`, `when tree is unchanged, shrink pre-gate runs fast tier`, and `common path with review: one full ready, review final skips on unchanged tree` stay green; `v1/test/modes/patch/pr.test.ts` `recorded green on unchanged tree runs fast tier before gh pr ready` stays green.
-- [ ] `v1/test/triage-command.test.ts` `--merge recovers on test flake when HEAD-sha CI green and serial probe passes` stays green.
-- [ ] `jarvis1 triage --merge` still refuses a red local ready gate without merging the PR.
-- [ ] `v1/docs/run-loop.md`, `v1/docs/config.md`, `v1/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` describe the one-pass shared completion gate and terminal red result.
+- [x] A completed, gated `git: true` patch run with red full-gate verification exits `10`; terminal telemetry and the run summary say `ready-gate-failed`, not `criteria-complete`.
+- [x] A red verification result cannot invoke a completion fix-up agent, reset, force-push, discard recovery, `gh pr ready`, or exit `0`.
+- [x] Gate operational failures retain their existing non-`ready-gate-failed` routing.
+- [x] `git: false`, zero-iteration/rerun, checkbox-only, and human-only-only completion remain outside the completion gate.
+- [x] `readyGateRetryBound` remains loadable only as a non-negative-integer legacy field, warns that it is ignored, and never causes retries; docs and config output no longer expose it as supported.
+- [x] `v1/test/run.test.ts` `completion ready gate: green gate proceeds to shrink/review with check:fix committed`, `when tree is unchanged, shrink pre-gate runs fast tier`, and `common path with review: one full ready, review final skips on unchanged tree` stay green; `v1/test/modes/patch/pr.test.ts` `recorded green on unchanged tree runs fast tier before gh pr ready` stays green.
+- [x] `v1/test/triage-command.test.ts` `--merge recovers on test flake when HEAD-sha CI green and serial probe passes` stays green.
+- [x] `jarvis1 triage --merge` still refuses a red local ready gate without merging the PR.
+- [x] `v1/docs/run-loop.md`, `v1/docs/config.md`, `v1/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` describe the one-pass shared completion gate and terminal red result.
 
 ## Documentation updates
 

@@ -134,6 +134,13 @@ export class ReadyCommandError extends Error {
   }
 }
 
+export class ReadyCommandTimeoutError extends ReadyCommandError {
+  constructor(message: string) {
+    super(message);
+    this.name = "ReadyCommandTimeoutError";
+  }
+}
+
 export class PreReadyFixCommitError extends Error {
   constructor(message: string) {
     super(message);
@@ -359,7 +366,7 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
       });
     } catch (err) {
       if (isExecTimeout(err)) {
-        throw new ReadyCommandError(commandTimeoutMessage(displayCmd, opts.timeoutMs, opts.agentLabel));
+        throw new ReadyCommandTimeoutError(commandTimeoutMessage(displayCmd, opts.timeoutMs, opts.agentLabel));
       }
       const out = err as NodeJS.ErrnoException & {
         stdout?: Buffer;

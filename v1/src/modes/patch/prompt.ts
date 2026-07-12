@@ -121,23 +121,6 @@ export function buildPrompt(specPath: string, siblings?: string[], extras?: Buil
   return rendered.replace("\n\nFollow these Jarvis rules:", "\nFollow these Jarvis rules:").trim();
 }
 
-export function buildFixupPrompt(specPath: string, failureText: string, siblings?: string[]): string {
-  const base = buildPrompt(specPath, siblings, {
-    repoGuidance: "",
-    activeSubspecPath: "",
-    activeSubspecBody: "",
-  });
-  const preamble = [
-    "The spec checklist is complete, but the completion `ready` gate failed:",
-    "",
-    failureText.trim(),
-    "",
-    "Fix the cause of this completion ready gate failure. Do not edit the spec checklist; all boxes are already ticked.",
-    "",
-  ].join("\n");
-  return `${preamble}\n${base}`;
-}
-
 export type ReviewPromptOpts = {
   specPath: string;
   cwd: string;

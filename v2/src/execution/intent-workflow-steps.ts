@@ -277,12 +277,12 @@ async function buildIntentWorkflowSourceStep(
         projectName: project.key,
         branchName: branch,
         baseRef: base,
+        jarvisRoot,
         ...(publish ? {} : { git: false, localPath }),
       },
       specPath: durableDir,
       expectedArtifactPath: STAGE_DIR,
       intentOutput: { durableDir },
-      jarvisRoot,
       workflowInvocationId: identity.invocationId,
       creationTitle: `intent: ${name}`,
       publishCompletion: publish,
@@ -318,10 +318,7 @@ export async function buildIntentWorkflowSteps(
 const REVIEW_VERDICT_PATH = ".jarvis-intent-review-verdict.md";
 
 function resolveReviewedIntentWorkspace(splitStep: WriteWorkflowSourceStep): string {
-  return getExternalWorktreePath({
-    ...splitStep.worktree,
-    ...(splitStep.jarvisRoot !== undefined ? { jarvisRoot: splitStep.jarvisRoot } : {}),
-  });
+  return getExternalWorktreePath(splitStep.worktree);
 }
 
 /** Build intent workflow with optional review step. */

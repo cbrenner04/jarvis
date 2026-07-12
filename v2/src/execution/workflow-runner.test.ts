@@ -1322,9 +1322,12 @@ describe("executeWorkflow human steps", () => {
     const jarvisRoot = step.worktree.jarvisRoot;
     if (jarvisRoot === undefined) throw new Error("missing test jarvis root");
 
-    mkdirSync(join(jarvisRoot, "worktrees", "demo", "plan-title-dir-test", "spec", "2026-01-01T00-00-00Z-test-plan-dir"), {
-      recursive: true,
-    });
+    mkdirSync(
+      join(jarvisRoot, "worktrees", "demo", "plan-title-dir-test", "spec", "2026-01-01T00-00-00Z-test-plan-dir"),
+      {
+        recursive: true,
+      },
+    );
     writeFileSync(
       join(
         jarvisRoot,

@@ -1,6 +1,6 @@
 import { assemblePromptForStep } from "./assemble.ts";
 import { loadPromptRegistry } from "./registry.ts";
-import { enforceDelimiterPolicy, PromptRenderingError, renderTemplateWithDeclarations } from "./render.ts";
+import { enforceDelimiterPolicy, renderTemplateWithDeclarations } from "./render.ts";
 
 export const PLAN_DRAFT_PROMPT_ID = "plan.prompt.draft";
 
@@ -46,19 +46,12 @@ export function buildPlanDraftPrompt(opts: {
     placeholderName: "SPEC_GUIDANCE",
   });
 
-  try {
-    template = renderTemplateWithDeclarations(template, artifact.metadata.placeholders, {
-      WORKDIR: workDir,
-      NAME: opts.name,
-      INTENT: opts.intent,
-      SPEC_GUIDANCE: opts.specGuidance,
-    });
-  } catch (err) {
-    if (err instanceof PromptRenderingError) {
-      throw err;
-    }
-    throw err;
-  }
+  template = renderTemplateWithDeclarations(template, artifact.metadata.placeholders, {
+    WORKDIR: workDir,
+    NAME: opts.name,
+    INTENT: opts.intent,
+    SPEC_GUIDANCE: opts.specGuidance,
+  });
 
   const sections = [template];
 

@@ -20,5 +20,5 @@ Make daemon-hosted intent-output Git yield without changing staged-output checks
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/intent-output.test.ts` stays green for intent-output validation and fallback behavior.
-- [ ] `v2/docs/v2-architecture.md` and `v2/docs/v1-behaviors.md` document awaited daemon run intent-output Git.
+- [x] `v2/src/execution/intent-output.test.ts` stays green for intent-output validation and fallback behavior.
+- [x] `v2/docs/v2-architecture.md` and `v2/docs/v1-behaviors.md` document awaited daemon run intent-output Git.

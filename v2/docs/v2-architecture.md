@@ -581,10 +581,11 @@ repos" principle change is smaller:
   Validation (branch existence, worktree checks, current branch), worktree
   creation, pruning, and common-dir resolution preserve output encoding, error
   handling, and sequential setup/cleanup order. Workflow shrink changed-file
-  discovery, patch-review diff rendering, and review-enforcement status/checkout/clean
-  are awaited on the same runner (including `maxBuffer` and ignored stdio where
-  applicable). Completion commits and publication remain on their own conversion
-  slices.
+  discovery, patch-review diff rendering, review-enforcement status/checkout/clean,
+  and intent-output change detection plus ownership lookup (`git status`, `git diff`,
+  `rev-parse --git-dir`) are awaited on the same runner (including `maxBuffer` and
+  ignored stdio where applicable). Completion commits and publication remain on their
+  own conversion slices.
 
 ## Interface & IPC
 

@@ -643,12 +643,14 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     if (publicationAgent !== undefined && completionStep?.intentOutput !== undefined && !isReviewLastStep) {
       const worktreePath = getExternalWorktreePath(completionStep.worktree);
       try {
-        publicationSpecPath = landIntentWorkflowOutput({
-          worktreePath,
-          baseRef: completionStep.worktree.baseRef,
-          output: completionStep.intentOutput,
-          invocationId: workflowSnapshot.invocationId,
-        }).specPath;
+        publicationSpecPath = (
+          await landIntentWorkflowOutput({
+            worktreePath,
+            baseRef: completionStep.worktree.baseRef,
+            output: completionStep.intentOutput,
+            invocationId: workflowSnapshot.invocationId,
+          })
+        ).specPath;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         store.setRunStatus(lastResult.runId, "failed");
@@ -1380,11 +1382,11 @@ function findReviewLandingCheckpoint(
  * Exclude the verdict file from staging, run final validation + transactional landing, then
  * remove the verdict. Returns an error message on failure, or undefined on success.
  */
-function landReviewedIntentOutput(
+async function landReviewedIntentOutput(
   worktreePath: string,
   deferred: NonNullable<ReviewWorkflowStep["deferredIntentOutput"]>,
   verdictPath: string,
-): string | undefined {
+): Promise<string | undefined> {
   const ownerPath = `${verdictPath}.owner`;
   const verdict = existsSync(verdictPath) ? readFileSync(verdictPath, "utf8") : undefined;
   const owner = existsSync(ownerPath) ? readFileSync(ownerPath, "utf8") : undefined;
@@ -1393,7 +1395,7 @@ function landReviewedIntentOutput(
     if (owner !== undefined) {
       rmSync(ownerPath, { force: true });
     }
-    landIntentWorkflowOutput({
+    await landIntentWorkflowOutput({
       worktreePath,
       baseRef: deferred.baseRef,
       output: deferred.config,
@@ -1416,15 +1418,15 @@ function reviewCompletionAgent(run: NonNullable<ReturnType<StateStore["findRunBy
   return undefined;
 }
 
-function finishReviewedIntentLanding(
+async function finishReviewedIntentLanding(
   step: ReviewWorkflowStep,
   deferred: NonNullable<ReviewWorkflowStep["deferredIntentOutput"]>,
   runId: string,
   store: StateStore,
   completionAgent: string | undefined,
-): ReviewStepOutcome {
+): Promise<ReviewStepOutcome> {
   const attemptId = store.recordAttemptStart(runId);
-  const landingError = landReviewedIntentOutput(step.cwd, deferred, step.verdictPath);
+  const landingError = await landReviewedIntentOutput(step.cwd, deferred, step.verdictPath);
   if (landingError !== undefined) {
     store.commitCompletionBoundary({
       attemptId,
@@ -1707,7 +1709,7 @@ async function runStandardReviewStep(
     outcomeKind: "done",
     ...(completionAgent ? { completionAgent } : {}),
   });
-  const landing = finishReviewedIntentLanding(step, deferredIntentOutput, ids.runId, store, completionAgent);
+  const landing = await finishReviewedIntentLanding(step, deferredIntentOutput, ids.runId, store, completionAgent);
   return { ...landing, iterationsConsumed: result.cycles.length };
 }
 
@@ -1728,7 +1730,7 @@ async function runReviewStep(
     const checkpoint = findReviewLandingCheckpoint(store, step);
     if (checkpoint !== undefined) {
       onStepRunCreated?.(stepIndex, checkpoint.id);
-      return finishReviewedIntentLanding(
+      return await finishReviewedIntentLanding(
         step,
         deferredIntentOutput,
         checkpoint.id,

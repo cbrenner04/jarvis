@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import {
   copyFileSync,
   existsSync,
@@ -12,6 +11,7 @@ import {
 import { basename, join, relative, resolve } from "node:path";
 import { isGitRepo } from "../../../shared/git.ts";
 import { validateIntentStage } from "../../../shared/intent-stage.ts";
+import { realAsyncSubprocessRunner, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 
 export type IntentOutputConfig = {
   durableDir: string;
@@ -33,13 +33,14 @@ function listFiles(worktreePath: string, dir: string = worktreePath, out: string
   return out;
 }
 
-function changedPaths(worktreePath: string, baseRef: string): string[] {
+async function changedPaths(
+  worktreePath: string,
+  baseRef: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<string[]> {
   if (isGitRepo(worktreePath)) {
     try {
-      const status = execFileSync("git", ["status", "--short", "--untracked-files=all"], {
-        cwd: worktreePath,
-        encoding: "utf8",
-      });
+      const status = await runner.runAsync("git", ["status", "--short", "--untracked-files=all"], worktreePath);
       return status
         .split("\n")
         .filter(Boolean)
@@ -47,10 +48,7 @@ function changedPaths(worktreePath: string, baseRef: string): string[] {
         .filter(Boolean);
     } catch {
       try {
-        return execFileSync("git", ["diff", "--name-only", baseRef, "--"], {
-          cwd: worktreePath,
-          encoding: "utf8",
-        })
+        return (await runner.runAsync("git", ["diff", "--name-only", baseRef, "--"], worktreePath))
           .split("\n")
           .filter(Boolean);
       } catch {
@@ -69,9 +67,12 @@ function worktreeRelativePath(worktreePath: string, absolutePath: string): strin
   return relative(worktreePath, absolutePath).replace(/\\/g, "/");
 }
 
-function ownershipPath(worktreePath: string): string {
+async function ownershipPath(
+  worktreePath: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<string> {
   try {
-    const gitDir = execFileSync("git", ["rev-parse", "--git-dir"], { cwd: worktreePath, encoding: "utf8" }).trim();
+    const gitDir = (await runner.runAsync("git", ["rev-parse", "--git-dir"], worktreePath)).trim();
     return join(resolve(worktreePath, gitDir), "jarvis-intent-output.json");
   } catch {
     return join(worktreePath, ".jarvis-intent-output.json");
@@ -88,16 +89,18 @@ function readOwnership(path: string): Record<string, string[]> {
 
 /** Validate and transactionally land an intent step's complete staged output. */
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: validation and rollback are one filesystem boundary.
-export function landIntentWorkflowOutput(input: {
+export async function landIntentWorkflowOutput(input: {
   worktreePath: string;
   baseRef: string;
   output: IntentOutputConfig;
   warn?: (message: string) => void;
   invocationId?: string;
-}): IntentOutputResult {
+  runner?: AsyncSubprocessRunner;
+}): Promise<IntentOutputResult> {
+  const runner = input.runner ?? realAsyncSubprocessRunner;
   const stageDir = join(input.worktreePath, ".jarvis-intent-stage");
   const durableDir = resolve(input.worktreePath, input.output.durableDir);
-  const ownershipFile = ownershipPath(input.worktreePath);
+  const ownershipFile = await ownershipPath(input.worktreePath, runner);
   const ownership = readOwnership(ownershipFile);
   const ownedFiles = input.invocationId === undefined ? [] : (ownership[input.invocationId] ?? []);
   if (!existsSync(stageDir) && ownedFiles.length > 0) {
@@ -112,7 +115,7 @@ export function landIntentWorkflowOutput(input: {
     .map((entry) => entry.name);
   const durablePrefix = `${relative(input.worktreePath, durableDir).replace(/\\/g, "/").replace(/\/$/, "")}/`;
   const ownershipRelPath = relative(input.worktreePath, ownershipFile).replace(/\\/g, "/");
-  const allPaths = changedPaths(input.worktreePath, input.baseRef);
+  const allPaths = await changedPaths(input.worktreePath, input.baseRef, runner);
   const rogue = allPaths.filter((path) => {
     if (path === ".jarvis-intent-stage" || path.startsWith(".jarvis-intent-stage/")) return false;
     if (path === ownershipRelPath) return false;

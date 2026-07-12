@@ -46,14 +46,14 @@ describe("intent stage contract", () => {
     expect(validateIntentFilenames([one, one]).ok).toBe(false);
   });
 
-  test("repairs names, heading, prerequisites, issue references, and spacing", () => {
+  test("repairs names, heading, prerequisites, issue references, and spacing", async () => {
     const dir = stage();
     const path = writeIntent(
       dir,
       "one-thing",
       "---\ndescription: x\n---\n\nname: wrong\n\n#123\n\n## Prerequisites\n\n\n",
     );
-    repairIntentStageContent(dir, () => {}, null);
+    await repairIntentStageContent(dir, () => {}, null);
     const content = readFileSync(path, "utf8");
     expect(content).toContain("name: one-thing");
     expect(content).toContain("# One Thing");

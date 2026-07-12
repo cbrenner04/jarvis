@@ -1017,7 +1017,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           );
         }
         const planFixCommand = rawCfg.projects[project.key]?.fixCommand;
-        safeMarkPlanPrReady({
+        await safeMarkPlanPrReady({
           io: opts.io,
           branch,
           worktreePath: resume.worktreePath,
@@ -1595,7 +1595,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         }
 
         const planFixCommand = rawCfg.projects[project.key]?.fixCommand;
-        safeMarkPlanPrReady({
+        await safeMarkPlanPrReady({
           io: opts.io,
           branch: planBranch,
           worktreePath: worktreePath as string,
@@ -1733,7 +1733,7 @@ async function safeUpdatePrBody(args: {
 /**
  * Wrap `maybeMarkPlanPrReady` with the warn-and-continue pattern.
  */
-function safeMarkPlanPrReady(args: {
+async function safeMarkPlanPrReady(args: {
   io: PlanIo;
   branch: string;
   worktreePath: string;
@@ -1743,10 +1743,10 @@ function safeMarkPlanPrReady(args: {
   timeoutMs: number;
   markReady?: (branch: string, cwd: string) => void;
   getOpenPrState?: (branch: string, cwd: string) => OpenPrInfo;
-}): void {
+}): Promise<void> {
   try {
     if (args.commit === true && args.specDirPath !== undefined) {
-      repairPlanSpecMarkdown({
+      await repairPlanSpecMarkdown({
         specDirPath: args.specDirPath,
         commit: true,
         warn: (message) => args.io.stderr(message),

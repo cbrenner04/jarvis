@@ -17,11 +17,11 @@ Two blocking subprocess sites remain on daemon-hosted paths, and the guard in su
 
 ## Acceptance criteria
 
-- [ ] No daemon-hosted intent or plan step blocks the event loop on a child process: base-branch resolution and intent-stage markdownlint repair are awaited async subprocess calls.
-- [ ] Intent-stage repair still runs before stage-content validation, so validation reads the repaired files.
-- [ ] `shared/intent-stage.test.ts` and the v1 intent tests stay green (behavior unchanged by the conversion), including markdownlint autofix warnings and the issue-reference guard.
-- [ ] `v1/test/plan-markdown-repair.test.ts` stays green (v1 plan markdown repair unchanged by the async cascade).
-- [ ] `bun run typecheck` passes with no synchronous `getBaseBranch` / `validateIntentStage` / `runMarkdownlintAutofix` callers left in `v1/**` or `v2/**`.
+- [x] No daemon-hosted intent or plan step blocks the event loop on a child process: base-branch resolution and intent-stage markdownlint repair are awaited async subprocess calls.
+- [x] Intent-stage repair still runs before stage-content validation, so validation reads the repaired files.
+- [x] `shared/intent-stage.test.ts` and the v1 intent tests stay green (behavior unchanged by the conversion), including markdownlint autofix warnings and the issue-reference guard.
+- [x] `v1/test/plan-markdown-repair.test.ts` stays green (v1 plan markdown repair unchanged by the async cascade).
+- [x] `bun run typecheck` passes with no synchronous `getBaseBranch` / `validateIntentStage` / `runMarkdownlintAutofix` callers left in `v1/**` or `v2/**`.
 
 ## Documentation updates
 

@@ -9,6 +9,7 @@ import {
   isWorktreeDirtyAsync,
 } from "./git.ts";
 import {
+  AsyncSubprocessError,
   type AsyncSubprocessRunner,
   realAsyncSubprocessRunner,
   realSubprocessRunner,
@@ -77,8 +78,26 @@ describe("realAsyncSubprocessRunner", () => {
     expect(stdout).toBe(utf8Payload);
   });
 
-  test("rejects on non-zero exit", async () => {
-    await expect(realAsyncSubprocessRunner.runAsync("node", ["-e", "process.exit(2)"], cwd)).rejects.toThrow();
+  test("rejects with exit status and captured output on non-zero exit", async () => {
+    const result = realAsyncSubprocessRunner.runAsync(
+      "node",
+      ["-e", "process.stdout.write('out'); process.stderr.write('err'); process.exit(2)"],
+      cwd,
+    );
+
+    await expect(result).rejects.toBeInstanceOf(AsyncSubprocessError);
+    await expect(result).rejects.toMatchObject({ status: 2, stdout: "out", stderr: "err" });
+  });
+
+  test("accepts output beyond Node's default maxBuffer when configured", async () => {
+    const stdout = await realAsyncSubprocessRunner.runAsync(
+      "node",
+      ["-e", "process.stdout.write('x'.repeat(2 * 1024 * 1024))"],
+      cwd,
+      { maxBuffer: 3 * 1024 * 1024 },
+    );
+
+    expect(stdout).toHaveLength(2 * 1024 * 1024);
   });
 
   test("stdio ignore resolves to empty string", async () => {

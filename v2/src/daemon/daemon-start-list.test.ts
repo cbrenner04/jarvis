@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { executeWriteLoop } from "../execution/write-loop.ts";
-import { openLogReader, openLogSink, type LogReader } from "../persistence/log-stream.ts";
+import { type LogReader, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import type { Attempt, Run } from "../persistence/state-store.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
@@ -297,7 +297,10 @@ test("direct timeout releases liveness and worktree ownership", async () => {
   const row = (await listRunsDirect(localHandlers))?.find((candidate) => candidate.runId === runId);
   expect(row).toMatchObject({ status: "failed", isLive: false });
   const waited = await waitDirect(localHandlers, runId as string);
-  expect(waited).toMatchObject({ kind: "response", result: { runStatus: "failed", loopOutcomeKind: "iteration_timeout" } });
+  expect(waited).toMatchObject({
+    kind: "response",
+    result: { runStatus: "failed", loopOutcomeKind: "iteration_timeout" },
+  });
 
   const restarted = await startRunDirect(localHandlers, input);
   expect(restarted).toBeTruthy();

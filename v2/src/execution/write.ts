@@ -300,20 +300,25 @@ async function executeDefaultWrite(
 export async function executeWrite(args: WriteExecuteInput): Promise<WriteExecuteResult> {
   throwIfAborted(args.signal);
   const withExternalWorktree = args.withExternalWorktree ?? realWithExternalWorktree;
-  const wrapped = await withExternalWorktree(args.worktree, async (worktree) => {
-    throwIfAborted(args.signal);
-    const specPath = resolveInWorktree(worktree.path, args.specPath);
-    const expectedArtifactPath = resolveInWorktree(worktree.path, args.expectedArtifactPath);
-    const promptId = args.promptId ?? DEFAULT_PROMPT_ID;
+  const wrapped = await withExternalWorktree(
+    args.worktree,
+    async (worktree) => {
+      throwIfAborted(args.signal);
+      const specPath = resolveInWorktree(worktree.path, args.specPath);
+      const expectedArtifactPath = resolveInWorktree(worktree.path, args.expectedArtifactPath);
+      const promptId = args.promptId ?? DEFAULT_PROMPT_ID;
 
-    if (promptId === "plan.prompt.draft" && args.intentSeed !== undefined) {
-      return executePlanDraftWrite(args, worktree.path, specPath);
-    }
-    if (promptId === INTENT_SPLIT_PROMPT_ID) {
-      return executeIntentSplitWrite(args, worktree.path, expectedArtifactPath);
-    }
-    return executeDefaultWrite(args, worktree.path, specPath, expectedArtifactPath, promptId);
-  }, undefined, args.signal);
+      if (promptId === "plan.prompt.draft" && args.intentSeed !== undefined) {
+        return executePlanDraftWrite(args, worktree.path, specPath);
+      }
+      if (promptId === INTENT_SPLIT_PROMPT_ID) {
+        return executeIntentSplitWrite(args, worktree.path, expectedArtifactPath);
+      }
+      return executeDefaultWrite(args, worktree.path, specPath, expectedArtifactPath, promptId);
+    },
+    undefined,
+    args.signal,
+  );
 
   return {
     worktreePath: wrapped.worktree.path,

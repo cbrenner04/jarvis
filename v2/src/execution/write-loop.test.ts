@@ -1627,7 +1627,13 @@ describe("write loop", () => {
 
     try {
       const result = await executeWriteLoop({
-        worktree: { projectRoot: "/fake", projectName: "demo", branchName: "fenced-timeout", baseRef: "HEAD", jarvisRoot },
+        worktree: {
+          projectRoot: "/fake",
+          projectName: "demo",
+          branchName: "fenced-timeout",
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
         specPath: "spec.md",
         stepRules: "Return exactly one terminal token.",
         expectedArtifactPath: "proof.txt",

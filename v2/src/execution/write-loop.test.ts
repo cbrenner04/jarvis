@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { AsyncSubprocessError } from "../../../shared/subprocess.ts";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
 import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
 import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
@@ -9,6 +10,7 @@ import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } fr
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./write.ts";
+import { createReadyFinalizer } from "./ready-finalize.ts";
 import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "./write-loop.ts";
 
 const { roots } = trackedTempRoots();
@@ -630,6 +632,28 @@ describe("write loop", () => {
 
       expect(result.kind).toBe("ready_finalize_failed");
       expect(result.readyFinalizeError).toContain("gh pr ready failed");
+    });
+
+    test("persists terminal gh pr ready diagnostics", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        ...completionHooks,
+        readyFinalizer: createReadyFinalizer({
+          runReadyGate: async () => {},
+          ghReadyFlip: async () => {
+            throw new AsyncSubprocessError(1, "stdout detail", "stderr detail");
+          },
+          delay: async () => {},
+        }),
+      });
+
+      expect(result.kind).toBe("ready_finalize_failed");
+      expect(result.readyFinalizeError).toContain("exit 1");
+      expect(result.readyFinalizeError).toContain("stdout detail");
+      expect(result.readyFinalizeError).toContain("stderr detail");
     });
 
     test("completed-run resume replays publication after a prior publication failure", async () => {

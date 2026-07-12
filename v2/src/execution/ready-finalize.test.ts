@@ -153,4 +153,18 @@ describe("createReadyFinalizer", () => {
 
     await expect(finalizer(input)).rejects.toThrow("Connection timeout");
   });
+
+  it("keeps terminal gh pr ready diagnostics", async () => {
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {},
+      ghReadyFlip: async () => {
+        throw new AsyncSubprocessError(1, "stdout detail", "stderr detail");
+      },
+      delay: noopDelay,
+    });
+
+    await expect(finalizer(input)).rejects.toThrow(
+      "gh pr ready failed (exit 1): stdout: stdout detail\nstderr: stderr detail",
+    );
+  });
 });

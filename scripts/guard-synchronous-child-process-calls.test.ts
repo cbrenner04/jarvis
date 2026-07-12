@@ -5,6 +5,9 @@ const fixtures = {
   staticImport: 'import { execSync } from "node:child_process";\nexecSync("git status");',
   require: 'const { execFileSync } = require("child_process");\nexecFileSync("git", []);',
   dynamicImport: 'const result = (await import("node:child_process")).spawnSync("git", []);',
+  namespaceImport: 'import * as childProcess from "node:child_process";\nchildProcess.execSync("git status");',
+  requireModule: 'const childProcess = require("child_process");\nchildProcess.execFileSync("git", []);',
+  dynamicModule: 'const childProcess = await import("node:child_process");\nchildProcess.spawnSync("git", []);',
   bun: 'Bun.spawnSync(["git", "status"]);',
   syncSeam: 'import { realSubprocessRunner } from "../../shared/subprocess.ts";',
   gitHelper: 'import { isGitRepo } from "../../shared/git.ts";',
@@ -14,12 +17,15 @@ const fixtures = {
 
 describe("synchronous child-process guard", () => {
   test.each([
-    ["static import", fixtures.staticImport, "execSync from child_process"],
-    ["require", fixtures.require, "execFileSync from child_process"],
-    ["dynamic import", fixtures.dynamicImport, "spawnSync from child_process"],
-  ])("rejects %s fixtures", (_name, source, construct) => {
+    ["static import", fixtures.staticImport, "execSync from child_process", 1],
+    ["require", fixtures.require, "execFileSync from child_process", 1],
+    ["dynamic import", fixtures.dynamicImport, "spawnSync from child_process", 1],
+    ["namespace import", fixtures.namespaceImport, "execSync from child_process", 2],
+    ["require module binding", fixtures.requireModule, "execFileSync from child_process", 2],
+    ["dynamic import module binding", fixtures.dynamicModule, "spawnSync from child_process", 2],
+  ])("rejects %s fixtures", (_name, source, construct, line) => {
     expect(findSynchronousChildProcessViolations("v2/src/fixture.ts", source)).toEqual([
-      { file: "v2/src/fixture.ts", line: 1, construct },
+      { file: "v2/src/fixture.ts", line, construct },
     ]);
   });
 

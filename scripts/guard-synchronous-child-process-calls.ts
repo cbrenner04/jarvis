@@ -48,6 +48,29 @@ function findNamedImports(
   return matches;
 }
 
+function findChildProcessModuleBindings(source: string): Array<{ index: number; name: string }> {
+  const childProcessModule = "(?:node:)?child_process";
+  const expressions = [
+    new RegExp(`import\\s*\\*\\s*as\\s*(\\w+)\\s*from\\s*["']${childProcessModule}["']`, "g"),
+    new RegExp(
+      `(?:const|let|var)\\s+(\\w+)\\s*=\\s*require\\(\\s*["']${childProcessModule}["']\\s*\\)`,
+      "g",
+    ),
+    new RegExp(
+      `(?:const|let|var)\\s+(\\w+)\\s*=\\s*await\\s+import\\(\\s*["']${childProcessModule}["']\\s*\\)`,
+      "g",
+    ),
+  ];
+  const bindings: Array<{ index: number; name: string }> = [];
+  for (const expression of expressions) {
+    for (const match of source.matchAll(expression)) {
+      const name = match[1];
+      if (name !== undefined) bindings.push({ index: match.index ?? 0, name });
+    }
+  }
+  return bindings;
+}
+
 /** Finds synchronous child-process APIs and v2 imports of synchronous seams. */
 export function findSynchronousChildProcessViolations(file: string, source: string): GuardViolation[] {
   if (isExcluded(file) || ALLOWLISTED_FILES.has(file)) return [];
@@ -57,6 +80,7 @@ export function findSynchronousChildProcessViolations(file: string, source: stri
     violations.push({ file, line: lineNumber(source, index), construct });
   };
   const childProcessModule = "(?:node:)?child_process";
+  const childProcessBindings = findChildProcessModuleBindings(source);
 
   for (const name of SYNC_CHILD_PROCESS_NAMES) {
     const staticImport = new RegExp(
@@ -78,6 +102,10 @@ export function findSynchronousChildProcessViolations(file: string, source: stri
     );
     for (const expression of [staticImport, requireDestructure, requireMember, dynamicMember, dynamicDestructure]) {
       for (const match of source.matchAll(expression)) add(match.index ?? 0, `${name} from child_process`);
+    }
+    for (const binding of childProcessBindings) {
+      const memberAccess = new RegExp(`\\b${binding.name}\\s*\\.\\s*${name}\\b`, "g");
+      for (const match of source.matchAll(memberAccess)) add(match.index ?? 0, `${name} from child_process`);
     }
   }
 

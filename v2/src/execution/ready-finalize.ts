@@ -60,6 +60,15 @@ function isPrReadySuccessGuard(message: string): boolean {
   return /\balready ready\b/i.test(message) || /\bnot a draft\b/i.test(message);
 }
 
+function ghFlipTerminalError(error: unknown): Error {
+  if (error instanceof AsyncSubprocessError) {
+    return new Error(
+      `gh pr ready failed (exit ${error.status ?? "unknown"}): stdout: ${error.stdout.trim()}\nstderr: ${error.stderr.trim()}`,
+    );
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
 async function flipWithRetry(flip: () => Promise<void>, delay: Delay, retryNotice: RetryNotice): Promise<void> {
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
@@ -71,7 +80,7 @@ async function flipWithRetry(flip: () => Promise<void>, delay: Delay, retryNotic
         return;
       }
       if (attempt === MAX_ATTEMPTS) {
-        throw error instanceof Error ? error : new Error(String(error));
+        throw ghFlipTerminalError(error);
       }
       retryNotice(`gh pr ready: transient network error; retrying (attempt ${attempt + 1}/3)`);
       await delay(BACKOFF_MS);

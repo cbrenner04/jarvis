@@ -110,7 +110,7 @@ describe("createResolvedAgentBinding", () => {
 
     const result = await binding.invoke({ prompt: "implement it", cwd: "/repo" });
 
-    expect(result).toEqual({ kind: "ok", stdout: '{"result":"done"}\n', stderr: "warn" });
+    expect(result).toEqual({ kind: "ok", stdout: "done", stderr: "warn" });
     expect(fake.calls[0]?.binary).toBe("claude");
     expect(fake.calls[0]?.argv).toEqual([
       "-p",
@@ -125,6 +125,43 @@ describe("createResolvedAgentBinding", () => {
     expect(fake.calls[0]?.opts.detached).toBe(true);
     expect(fake.calls[0]?.opts.stdio).toEqual(["pipe", "pipe", "pipe"]);
     expect(fake.calls[0]?.child?.stdinChunks.join("")).toBe("implement it");
+  });
+
+  test("claude binding unwraps JSON stdout into display text with usage and cost", async () => {
+    const envelope = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      result: "Split the seed into four intents.\n\ndone",
+      total_cost_usd: 0.12,
+      usage: {
+        input_tokens: 10,
+        output_tokens: 20,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 100,
+      },
+    });
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: envelope, stderr: "" }]);
+    const binding = createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      { spawn: fake.spawn },
+    );
+
+    const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toEqual({
+      kind: "ok",
+      stdout: "Split the seed into four intents.\n\ndone",
+      stderr: "",
+      usage_source: "agent",
+      usage: {
+        input_tokens: 10,
+        output_tokens: 20,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 100,
+      },
+      cost_usd: 0.12,
+      cost_source: "agent",
+    });
   });
 
   test("claude binding classifies quota, model config, and generic errors", async () => {

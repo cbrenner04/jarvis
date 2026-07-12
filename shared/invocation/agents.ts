@@ -4,7 +4,8 @@ import { randomUUID } from "node:crypto";
 import { type Dirent, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { InvocationBinding, InvocationResult } from "./execute.ts";
+import { isClaudeZeroExitQuotaEnvelope, parseClaudeJsonOutput } from "./claude-json.ts";
+import type { InvocationBinding, InvocationOk, InvocationResult } from "./execute.ts";
 
 export type ResolvedAgentBinding = {
   agentId: string;
@@ -44,32 +45,13 @@ export function createResolvedAgentBinding(
       id,
       metadata,
       invoke: ({ prompt, cwd, signal }) =>
-        runAgent(
-          {
-            name: "claude",
-            binary: "claude",
-            cwd,
-            buildArgv: () => [
-              "-p",
-              "--permission-mode",
-              "acceptEdits",
-              "--model",
-              adapterModel,
-              "--output-format",
-              "json",
-            ],
-            stdio: ["pipe", "pipe", "pipe"],
-            writeStdin: (stdin, text) => {
-              stdin.write(text);
-              stdin.end();
-            },
-            streamErrorPrefix: "claude:",
-            classifier: "claude",
-            ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
-          },
+        runClaudeBinding({
           prompt,
-          signal === undefined ? {} : { signal },
-        ),
+          cwd,
+          adapterModel,
+          ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
+          ...(signal !== undefined ? { signal } : {}),
+        }),
     };
   }
 
@@ -396,6 +378,70 @@ async function runAgent(config: SpawnConfig, prompt: string, opts: AgentRunOptio
   throw new Error("Unexpected: retry loop should always return");
 }
 
+function finalizeClaudeInvocationResult(result: InvocationResult): InvocationResult {
+  if (result.kind !== "ok") {
+    return result;
+  }
+  if (isClaudeZeroExitQuotaEnvelope(result.stdout)) {
+    return { kind: "quota", stderr: result.stdout };
+  }
+
+  const parsed = parseClaudeJsonOutput(result.stdout);
+  const output: InvocationOk = {
+    kind: "ok",
+    stdout: parsed.displayText,
+    stderr: result.stderr,
+  };
+  if (parsed.usage !== null) {
+    output.usage = parsed.usage;
+    output.usage_source = "agent";
+  }
+  if (parsed.cost_usd !== null) {
+    output.cost_usd = parsed.cost_usd;
+    output.cost_source = "agent";
+  }
+  if (parsed.warnings.length > 0) {
+    output.warnings = parsed.warnings;
+  }
+  return output;
+}
+
+async function runClaudeBinding(args: {
+  prompt: string;
+  cwd: string;
+  adapterModel: string;
+  signal?: AbortSignal;
+  spawn?: SpawnFn;
+}): Promise<InvocationResult> {
+  const result = await runAgent(
+    {
+      name: "claude",
+      binary: "claude",
+      cwd: args.cwd,
+      buildArgv: () => [
+        "-p",
+        "--permission-mode",
+        "acceptEdits",
+        "--model",
+        args.adapterModel,
+        "--output-format",
+        "json",
+      ],
+      stdio: ["pipe", "pipe", "pipe"],
+      writeStdin: (stdin, text) => {
+        stdin.write(text);
+        stdin.end();
+      },
+      streamErrorPrefix: "claude:",
+      classifier: "claude",
+      ...(args.spawn !== undefined ? { spawn: args.spawn } : {}),
+    },
+    args.prompt,
+    args.signal === undefined ? {} : { signal: args.signal },
+  );
+  return finalizeClaudeInvocationResult(result);
+}
+
 async function runCodexBinding(args: {
   prompt: string;
   cwd: string;
@@ -556,23 +602,6 @@ function isModelConfigurationSignal(_name: AgentName, stderr: string): boolean {
 
 function isTransientSignal(_name: AgentName, exitCode: number, stderr: string): boolean {
   return exitCode !== 0 && transientPatterns.some((pattern) => pattern.test(stderr));
-}
-
-function isClaudeZeroExitQuotaEnvelope(stdout: string): boolean {
-  try {
-    const envelope: unknown = JSON.parse(stdout);
-    if (envelope === null || typeof envelope !== "object" || Array.isArray(envelope)) {
-      return false;
-    }
-    const obj = envelope as Record<string, unknown>;
-    return obj.is_error === true && obj.api_error_status === 429 && isClaudeQuotaMessageText(obj.result);
-  } catch {
-    return false;
-  }
-}
-
-function isClaudeQuotaMessageText(value: unknown): boolean {
-  return typeof value === "string" && claudeQuotaPatterns.some((pattern) => pattern.test(value));
 }
 
 const cursorCliModels: Record<string, string> = {

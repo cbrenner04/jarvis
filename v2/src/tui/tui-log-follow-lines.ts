@@ -22,6 +22,10 @@ export function formatLogFollowLine(record: PersistedRecord): string {
     case "run_execution_failed":
       if (event.message !== undefined) parts.push(`message=${JSON.stringify(event.message)}`);
       break;
+    case "run_reconciled":
+      parts.push(`runStatus=${event.runStatus}`);
+      parts.push(`reason=${event.reason}`);
+      break;
     case "invalid_token_detail":
       if (event.attemptId !== undefined) parts.push(`attemptId=${event.attemptId}`);
       if (event.tokenText.length > 0) parts.push(`tokenText=${JSON.stringify(event.tokenText)}`);

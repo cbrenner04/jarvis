@@ -240,11 +240,17 @@ function assertLineShape(line: string, record: PersistedRecord): void {
 
 describe("formatLogFollowLine", () => {
   test("projects per-kind fields from decisions", () => {
-    const records = [
+    const records: PersistedRecord[] = [
       logRecord(1, "iteration_started"),
       logRecord(2, "boundary_committed"),
       logRecord(3, "loop_finished"),
       logRecord(4, "run_execution_failed"),
+      {
+        runId: "run-123",
+        seq: 5,
+        ts: "2026-06-28T03:27:05.000Z",
+        event: { kind: "run_reconciled", runStatus: "killed", reason: "daemon_restart" },
+      },
     ];
     for (const record of records) {
       assertLineShape(formatLogFollowLine(record), record);

@@ -15,6 +15,7 @@ import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from ".
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
 import {
   type LogReader,
+  type LogSink,
   type LoopFinishedEvent,
   openLogReader,
   openLogSink,
@@ -72,6 +73,23 @@ function worktreeClaimedMessage(key: OwnershipKey): string {
 const LIST_TERMINAL_RUN_LIMIT = 50;
 
 const TERMINAL_LIST_STATUSES: ReadonlySet<RunStatus> = new Set(["completed", "failed", "blocked", "killed"]);
+const ORPHANED_RUN_STATUSES: ReadonlySet<RunStatus> = new Set([
+  "queued",
+  "in-progress",
+  "paused",
+  "budget-soft-stopped",
+  "awaiting-human",
+  "revising",
+]);
+
+/** Marks runs left without an owning daemon as killed before IPC is exposed. */
+export function reconcileOrphanedRuns(stateStore: StateStore, logSink: LogSink): void {
+  for (const run of stateStore.listRuns()) {
+    if (!ORPHANED_RUN_STATUSES.has(run.status)) continue;
+    stateStore.setRunStatus(run.id, "killed");
+    logSink.append(run.id, { kind: "run_reconciled", runStatus: "killed", reason: "daemon_restart" });
+  }
+}
 
 function isTerminalListStatus(status: RunStatus): boolean {
   return TERMINAL_LIST_STATUSES.has(status);
@@ -1061,6 +1079,12 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
   const store = stateStore ?? openStateStore();
   const logsPath = join(homedir(), ".jarvis", "state", "logs.jsonl");
   const logReaderInstance = logReader ?? openLogReader(logsPath);
+  const reconciliationLogSink = openLogSink(logsPath);
+  try {
+    reconcileOrphanedRuns(store, reconciliationLogSink);
+  } finally {
+    reconciliationLogSink.close();
+  }
   let shutdownRequested = false;
   const operatorSessionId = crypto.randomUUID();
 

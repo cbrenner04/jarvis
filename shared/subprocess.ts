@@ -24,6 +24,7 @@ export class AsyncSubprocessError extends Error {
     public readonly status: number | undefined,
     public readonly stdout: string,
     public readonly stderr: string,
+    public readonly code?: string,
   ) {
     super(`subprocess failed (exit ${status ?? "unknown"})`);
   }
@@ -56,6 +57,7 @@ export const realAsyncSubprocessRunner: AsyncSubprocessRunner = {
                 status,
                 stdio === "ignore" ? "" : (stdout?.toString() ?? ""),
                 stderr?.toString() ?? "",
+                typeof error.code === "string" ? error.code : undefined,
               ),
             );
           } else {

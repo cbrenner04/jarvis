@@ -566,6 +566,8 @@ Items tagged **[v2-cleanup candidate]** are dead or vestigial code paths flagged
 
 ## v2 Parity: Daemon-run IPC during pending Git
 
+- V2 daemon paths resolve the default base branch and repair staged intent markdown through awaited `AsyncSubprocessRunner` calls, so these subprocesses do not block daemon IPC; intent-stage validation runs only after markdownlint repair completes. Sources: `shared/git.ts`, `shared/markdownlint-repair.ts`, `shared/intent-stage.ts`, `v2/src/execution/intent-output.ts`
+
 - **v2 behavior change:** Unrelated daemon IPC (`list`, `health`, steering, `wait`, `tail`, …) completes while a run-path Git subprocess is pending. Run-path Git on daemon-hosted runs is awaited (`AsyncSubprocessRunner` / `execFile`), so the event loop stays available for other RPCs. Guarded by `v2/src/daemon/daemon-ipc-responsiveness-during-git.sandbox-unrunnable.test.ts`. Sources: `v2/docs/v2-architecture.md`, `shared/subprocess.ts`, `v2/src/execution/external-worktree.ts`
 
 ## v2 Parity: Revise dirty-worktree admission responsiveness

@@ -7,13 +7,18 @@ import {
 } from "./subprocess.ts";
 
 /** Resolve GitHub's default branch, falling back to `main` when unavailable. */
-export function getBaseBranch(cwd?: string): string {
+export async function getBaseBranch(
+  cwd?: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<string> {
   try {
-    const branch = execFileSync("gh", ["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"], {
-      cwd,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
+    const branch = (
+      await runner.runAsync(
+        "gh",
+        ["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"],
+        cwd ?? process.cwd(),
+      )
+    ).trim();
     return branch.length > 0 ? branch : "main";
   } catch {
     return "main";

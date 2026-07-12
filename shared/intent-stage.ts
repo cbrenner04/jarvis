@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { keepIssueReferencesOffLineStart, runMarkdownlintAutofix } from "./markdownlint-repair.ts";
+import type { AsyncSubprocessRunner } from "./subprocess.ts";
 
 export type IntentStageFile = { slug: string; path: string };
 type Result = { ok: true; intents: IntentStageFile[] } | { ok: false; error: string };
@@ -172,16 +173,18 @@ function repairIntentFile(path: string, slug: string): void {
   if (modified) writeFileSync(path, text, "utf8");
 }
 
-export function repairIntentStageContent(
+export async function repairIntentStageContent(
   stagingDir: string,
   warn: (message: string) => void,
   harnessRootOverride?: string | null,
-): void {
+  runner?: AsyncSubprocessRunner,
+): Promise<void> {
   for (const path of listIntentStageMarkdownFiles(stagingDir)) repairIntentFile(path, basename(path, ".md"));
-  runMarkdownlintAutofix({
+  await runMarkdownlintAutofix({
     files: listIntentStageMarkdownFiles(stagingDir),
     warn,
     ...(harnessRootOverride !== undefined ? { harnessRootOverride } : {}),
+    ...(runner !== undefined ? { runner } : {}),
   });
 }
 
@@ -218,12 +221,13 @@ export function validateIntentStageContent(intents: IntentStageFile[]): Result {
   return { ok: true, intents };
 }
 
-export function validateIntentStage(
+export async function validateIntentStage(
   stagingDir: string,
   modifiedPaths: string[],
   warn: (message: string) => void,
   harnessRootOverride?: string | null,
-): Result {
+  runner?: AsyncSubprocessRunner,
+): Promise<Result> {
   const allowedPrefix = ".jarvis-intent-stage/";
   const rogue = modifiedPaths.filter((path) => path !== ".jarvis-intent-stage" && !path.startsWith(allowedPrefix));
   if (rogue.length > 0)
@@ -234,7 +238,7 @@ export function validateIntentStage(
       return { ok: false, error: `intent: invalid splitter output ${entry.name}; expected only markdown files` };
   const filenames = validateIntentFilenames(listIntentStageMarkdownFiles(stagingDir));
   if (!filenames.ok) return filenames;
-  repairIntentStageContent(stagingDir, warn, harnessRootOverride);
+  await repairIntentStageContent(stagingDir, warn, harnessRootOverride, runner);
   return validateIntentStageContent(filenames.intents);
 }
 

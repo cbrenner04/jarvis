@@ -23,22 +23,22 @@ With 00 landed, the parser reads the terminal result event, so the invocation ca
 
 ## Task checklist
 
-- [ ] Swap `--output-format json` for `--output-format stream-json --verbose` in
+- [x] Swap `--output-format json` for `--output-format stream-json --verbose` in
       `claude.ts`'s `buildArgv`.
-- [ ] Update argv assertions in `v1/test/claude-agent.test.ts`; cover a streamed transcript
+- [x] Update argv assertions in `v1/test/claude-agent.test.ts`; cover a streamed transcript
       end-to-end (final text, usage, cost, quota classification).
-- [ ] Cover that a claude run emitting events over time advances `lastOutputAtMs`.
-- [ ] Docs.
+- [x] Cover that a claude run emitting events over time advances `lastOutputAtMs`.
+- [x] Docs.
 
 ## Acceptance criteria
 
-- [ ] A claude iteration that emits stream events over time advances the spawn layer's
+- [x] A claude iteration that emits stream events over time advances the spawn layer's
       last-output clock more than once, so a completed claude patch iteration records a
       non-null `last_output_age_ms` in `~/.jarvis/runs.jsonl` the way codex and opencode do.
-- [ ] A claude patch iteration that emits no output for `idleOutputTimeoutMs` trips the
+- [x] A claude patch iteration that emits no output for `idleOutputTimeoutMs` trips the
       idle-output watchdog and escalates to the next configured agent, instead of running out
       the `iterationTimeoutMs` wall clock.
-- [ ] Existing claude behavior is preserved: `v1/test/claude-agent.test.ts`,
+- [x] Existing claude behavior is preserved: `v1/test/claude-agent.test.ts`,
       `v1/test/claude-json.test.ts`, and `v1/test/run-cost-claude.test.ts` stay green
       (final text, quota classification, token/cost accounting unchanged).
 

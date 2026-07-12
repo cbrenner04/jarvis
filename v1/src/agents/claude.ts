@@ -2,8 +2,9 @@
 // Permission flags: --permission-mode acceptEdits (see spec/2026-05-11-permissions/01-claude-flags.md).
 // Invokes the `claude` CLI in non-interactive print mode: `claude -p` with the
 // prompt piped on stdin. Stdin is used (instead of an argv positional) so the
-// prompt size is not bounded by the OS argv limit. JSON output is always used so
-// Claude-reported token usage and cost can be extracted.
+// prompt size is not bounded by the OS argv limit. Stream-json output is always
+// used so events arrive during the iteration (idle-watchdog liveness) and
+// Claude-reported token usage and cost can be extracted from the terminal result.
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { isClaudeZeroExitQuotaEnvelope, parseClaudeJsonOutput } from "./claude-json.ts";
 import { runAgent } from "./spawn.ts";
@@ -64,7 +65,7 @@ export class ClaudeAgent implements Agent {
         if (this.#model !== undefined) {
           argv.push("--model", this.#model);
         }
-        argv.push("--output-format", "json");
+        argv.push("--output-format", "stream-json", "--verbose");
         return argv;
       },
       stdio: ["pipe", "pipe", "pipe"],

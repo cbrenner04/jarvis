@@ -67,13 +67,20 @@ completion-ready-gate-rides-watchdog, plan-subspec-overbuild-still-open.
 ## Cost
 
 Jarvis per-run cost is **not persisted in this repo's `runs.jsonl`** (no cost
-field; only telemetry). Figures below are from observed run summaries; several
-impl runs ran on **cursor (≈free, subscription)** and are not itemized.
+field). The figures below were reconstructed from the saved run/plan summaries
+and reconciled into the four cost CSVs + `efficiency.csv`.
 
-Observed Jarvis spend (subset, USD): drafting impl 3.41, resplit impl 5.61,
-linked-subspec impl 2.56, debate-steps plan 2.98, plan drafts 0.67–1.11, fix
-plan 0.85, seed-08 wasted plan 1.09. Paid-tier (codex/claude) Jarvis subtotal is
-roughly **$35–45**; cursor impl runs add negligible metered cost.
+- **Jarvis (12 completed specs, plan+run): $66.08.** Plus **$10.02 wasted** on
+  three abandoned plans blocked by the split-gate regression (#1331 $5.15,
+  #1332 $3.78, #1346 $1.09). Jarvis total **≈ $76** (intent-split costs not
+  captured — no summary emitted — so a few $ more).
+- **Correction to an earlier estimate:** "cursor impl runs ≈ free" was **wrong**.
+  The `--agent cursor` runs still ran their *review* phase on claude/codex
+  (sub-role orders), so those runs carried real paid cost (e.g. light-review
+  impl $2.52, optional-debate impl $5.17). Cursor only made the *implementation*
+  phase cheap, not the run.
+- **Operator (this Claude Code session): $101.35** — see the operator row below.
+- **Observed total (Jarvis completed + wasted + operator): ≈ $177.45.**
 
 **Operator (this Claude Code session): $101.35** (Opus 4.8) — 37.7k input /
 256.2k output / 167.7M cache-read / 1.1M cache-write tokens; API time 1h 18m,
@@ -82,6 +89,8 @@ paid-tier Jarvis run cost — as expected for a long serial-drive session with m
 poll / merge / review turns (the exact pattern the runbook's feedback-cadence
 guidance targets).
 
-Full 4-CSV reconciliation deferred — cost source gap (no per-run cost in
-`runs.jsonl`) makes exact per-spec attribution unreliable this session; see the
-seeded gaps and this markdown for the durable record.
+The four cost CSVs (`session-costs`, `operator-costs`, `session-outcomes`,
+`operator-outcomes`) and `efficiency.csv` carry the reconciled rows — 12
+session-cost rows (one per completed spec), one operator row, matching outcome
+rows, and a session efficiency snapshot. Per-spec costs came from the saved run
+summaries, not `runs.jsonl` (which lacks a cost field this session).

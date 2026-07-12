@@ -92,6 +92,7 @@ describe("Test slice boundaries", () => {
 
     expect([...agent, ...integration].sort()).toEqual(onDisk);
     expect(integration).toEqual([
+      "v2/src/daemon/daemon-ipc-responsiveness-during-completion-publication.sandbox-unrunnable.test.ts",
       "v2/src/daemon/daemon-ipc-responsiveness-during-git.sandbox-unrunnable.test.ts",
       "v2/src/daemon/daemon-ipc-responsiveness-during-revise-dirty.sandbox-unrunnable.test.ts",
       "v2/src/daemon/daemon-start-list.sandbox-unrunnable.test.ts",

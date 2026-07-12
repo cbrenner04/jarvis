@@ -1625,7 +1625,7 @@ async function runStandardReviewStep(
   telemetry: WorkflowTelemetryContext | undefined,
   store: StateStore,
 ): Promise<ReviewStepOutcome> {
-  const { stepId, project, branch } = step;
+  const { stepId } = step;
   const reviewCycleInput: ReviewCycleInput = {
     ...reviewInput,
     bindings,

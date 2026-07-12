@@ -62,6 +62,7 @@ function defaultWritePrBody(branch: string, body: string, cwd: string): Promise<
       env: process.env,
       stdio: ["pipe", "pipe", "pipe"],
     });
+    child.stdin?.on("error", () => {});
     child.stdin?.write(body);
     child.stdin?.end();
     let stderr = "";

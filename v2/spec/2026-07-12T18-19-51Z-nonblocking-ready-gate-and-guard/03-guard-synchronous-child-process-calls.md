@@ -5,7 +5,7 @@ With every daemon-reachable subprocess awaited, make regression impossible: a st
 ## Decisions
 
 - Implement as a repo script (`scripts/`) with a unit test, not a Biome rule; Biome cannot see `Bun.spawnSync` (a global member expression) and cannot express the CLI-only allowlist. Rules out `noRestrictedImports`.
-- Wire it into `bun run ready` (a step in `scripts/ready.ts`'s command list) and into the CI lint job; rules out a review-only or test-only check that never fails the gate an agent's run must pass.
+- Compose it into the existing `check` script (`package.json`: `bun biome check . && bun run scripts/guard-…ts`) and into the CI lint job. `check` is already a `bun run ready` step, so the guard fails the gate an agent's run must pass. **Do not add a new step to `scripts/ready.ts`'s command list** — that list is shared with v1 and every insertion invalidates ~11 v1 ready-step expectations (`v1/test/ready-script.sandbox-unrunnable.test.ts`, `FULL_TIER_STEP_NAMES`), which is pure churn for no coverage. `scripts/ready.ts` and `v1/test/**` must be untouched by this subspec. Rules out a review-only or test-only check that never fails the gate.
 - Scope: all of `v2/**` and `shared/**`, excluding `*.test.ts` and `v2/src/testing/**` (test support). Rules out excluding whole source directories, which would hide daemon-reachable code.
 - The only allowlisted module is `shared/subprocess.ts`, the single sanctioned home of the synchronous runner, whose consumers are v1 CLI only. Each allowlist entry carries a reason comment; rules out a growable, unexplained ignore list.
 - Rejected constructs: `execSync`, `execFileSync`, and `spawnSync` from `node:child_process` (or `child_process`), and `Bun.spawnSync` — reached by static ESM import, `require(...)`, or dynamic `await import(...)`. Rules out a contract that only names static imports and lets `require`/dynamic import through; regex-vs-AST is the implementer's call.
@@ -19,7 +19,8 @@ With every daemon-reachable subprocess awaited, make regression impossible: a st
 - [ ] The guard exits non-zero when `v2/**` non-test code imports the synchronous `SubprocessRunner` seam or any sync-runner-backed `shared/git.ts` helper.
 - [ ] The guard does not flag `*.test.ts`, `v2/src/testing/**`, or the allowlisted `shared/subprocess.ts`.
 - [ ] The guard exits zero on the tree as of this subspec (with 00 and 02 landed).
-- [ ] The guard runs as a step of `bun run ready` and of CI, so a violating branch fails the gate before the draft PR flips to ready.
+- [ ] The guard runs as part of `bun run check` (and therefore of `bun run ready`) and of CI, so a violating branch fails the gate before the draft PR flips to ready.
+- [ ] `scripts/ready.ts` and `v1/test/**` are unchanged by this subspec: `getReadyCommands` returns the same step list as before, and the v1 ready-pipeline tests pass untouched.
 - [ ] A unit test for the guard covers a violating fixture per reach form, a v2 sync-seam-import fixture, an allowlisted fixture, and a test-file fixture.
 
 ## Documentation updates

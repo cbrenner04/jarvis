@@ -3,7 +3,7 @@ import type { InkRender } from "./tui-ink-feedback.tsx";
 
 type InkUi = {
   renderFn: InkRender;
-  Text: (props: { children?: ReactNode }) => ReactElement;
+  Text: (props: { children?: ReactNode; color?: string }) => ReactElement;
   Box?: (props: { children?: ReactNode; flexDirection?: "column" | "row" }) => ReactElement;
   useInput?: (
     inputHandler: (
@@ -27,7 +27,8 @@ export async function loadInkUi(inkRender?: InkRender): Promise<InkUi> {
   return {
     renderFn: ink.render,
     Box,
-    Text: ({ children }) => createElement(ink.Text, null, children),
+    // Forward props, not just children: dropping them here silently discards `color`.
+    Text: ({ children, ...props }) => createElement(ink.Text, props, children),
     useInput: ink.useInput,
   };
 }

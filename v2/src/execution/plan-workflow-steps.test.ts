@@ -83,7 +83,9 @@ async function executeBuiltDraftStep(
     withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
     ...(draftStep.promptId !== undefined ? { promptId: draftStep.promptId } : {}),
     ...(draftStep.promptPlaceholders !== undefined ? { promptPlaceholders: draftStep.promptPlaceholders } : {}),
-    ...(draftStep.intentSeed !== undefined ? { intentSeed: draftStep.intentSeed, intentBefore: draftStep.intentSeed } : {}),
+    ...(draftStep.intentSeed !== undefined
+      ? { intentSeed: draftStep.intentSeed, intentBefore: draftStep.intentSeed }
+      : {}),
   });
   return { bindingInvoked, capturedPrompt, resultKind: result.result.kind };
 }
@@ -96,9 +98,7 @@ describe("plan preset draft write step", () => {
     ["plan-reviewed", buildReviewedPlanWorkflowSteps],
     ["plan-reviewed-light", buildReviewedPlanLightWorkflowSteps],
   ] as const)("`%s` invokes its binding through the production step-builder", async (_name, build) => {
-    const { bindingInvoked, capturedPrompt, resultKind } = await executeBuiltDraftStep((deps) =>
-      build(input, deps),
-    );
+    const { bindingInvoked, capturedPrompt, resultKind } = await executeBuiltDraftStep((deps) => build(input, deps));
     expect(bindingInvoked).toBe(true);
     expect(resultKind).toBe("complete");
     expect(capturedPrompt).toContain(specGuidance.slice(0, 80));

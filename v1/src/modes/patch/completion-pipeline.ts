@@ -18,7 +18,7 @@ import {
   ReadyVerificationDirtyError,
   runReadyAndCommit,
 } from "../../ready-gate.ts";
-import { hasUpstream, pushCurrent, worktreeCompletionBlocker } from "../../worktree.ts";
+import { pushCurrent, worktreeCompletionBlocker } from "../../worktree.ts";
 import { countUnchecked } from "./completion.ts";
 import { GIT_SUBPROCESS_OPTS } from "./git-subprocess.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";

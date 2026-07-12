@@ -27,11 +27,7 @@ import {
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 import { hasUpstream, pushCurrent, worktreeCompletionBlocker } from "../../worktree.ts";
 import { releaseWorktreeLock } from "../../worktree-lock.ts";
-import {
-  countUnchecked,
-  getActiveLinkedSubspecPath,
-  getFirstUncheckedTask,
-} from "./completion.ts";
+import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "./completion.ts";
 import {
   diffAcceptanceCriteria,
   generatePrBody,
@@ -593,11 +589,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
   // For no-commit runs, load and apply any prior-attempt delta before the blocker check
   // This resets any stale AC ticks and blockers from a prior incomplete run
   // Only apply reset once per run (iteration 1), never on subsequent iterations
-  if (
-    activeSubspecPath !== undefined &&
-    hasUntrackedMutations &&
-    !state.noCommitResetAppliedThisRun
-  ) {
+  if (activeSubspecPath !== undefined && hasUntrackedMutations && !state.noCommitResetAppliedThisRun) {
     const priorDelta = loadDelta(activeSubspecPath);
     if (priorDelta !== null) {
       applyReset(activeSubspecPath, priorDelta);

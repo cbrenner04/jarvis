@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { realSubprocessRunner, type SubprocessRunner } from "./subprocess.ts";
+import { realAsyncSubprocessRunner, realSubprocessRunner, type AsyncSubprocessRunner, type SubprocessRunner } from "./subprocess.ts";
 
 /** Resolve GitHub's default branch, falling back to `main` when unavailable. */
 export function getBaseBranch(cwd?: string): string {
@@ -64,4 +64,48 @@ export function isGitRepo(cwd: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** Async version: True when `branchName` resolves to a local ref in `projectRoot`. */
+export async function branchExistsLocalAsync(
+  projectRoot: string,
+  branchName: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<boolean> {
+  try {
+    await runner.runAsync("git", ["rev-parse", "--verify", branchName], projectRoot);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Async version: True when `origin/<branchName>` resolves in `projectRoot`. */
+export async function branchExistsOnOriginAsync(
+  projectRoot: string,
+  branchName: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<boolean> {
+  try {
+    await runner.runAsync("git", ["rev-parse", "--verify", `origin/${branchName}`], projectRoot);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Async version: The checked-out branch name at `cwd`. */
+export async function getCurrentBranchAsync(
+  cwd: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<string> {
+  return (await runner.runAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], cwd)).trim();
+}
+
+/** Async version: True when `git status --porcelain` at `cwd` reports any uncommitted changes. */
+export async function isWorktreeDirtyAsync(
+  cwd: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<boolean> {
+  return (await runner.runAsync("git", ["status", "--porcelain"], cwd)).trim().length > 0;
 }

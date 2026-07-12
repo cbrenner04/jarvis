@@ -522,6 +522,10 @@ Items tagged **[v2-cleanup candidate]** are dead or vestigial code paths flagged
 
 - v2 TUI ink surfaces (monitor, log-follow, feedback) load ink/Yoga through `loadInkUi()` in `tui-ink-runtime.ts` — single call site; no direct `ink` imports under `v2/src/tui/`. Injectable `inkRender` seam for tests. Sources: `v2/src/tui/tui-ink-runtime.ts`, `v2/src/tui/tui-ink-monitor.tsx`, `v2/src/tui/tui-ink-log-follow.tsx`, `v2/src/tui/tui-ink-feedback.tsx`
 
+## v2 Parity: Async worktree and write-loop Git
+
+- **v2-ported with async contract change:** Worktree setup (`ensureExternalWorktree`), reuse, validation, and cleanup remain functionally identical to v1 semantics — same branch existence checks, same common-dir resolution, same error handling and fallbacks, same sequential ordering. **v2 implementation detail:** daemon-hosted runs use async Git execution (`AsyncSubprocessRunner` with `execFile` callback) to yield to the event loop, while CLI/one-shot runs use synchronous `execFileSync`. The async seam preserves output trimming, encoding, exception handling, and all error/retry behavior without changing user-observable behavior. Worktree paths, lock semantics, and concurrency guards are unchanged. Sources: `v2/src/execution/external-worktree.ts`, `shared/git.ts`, `shared/subprocess.ts`, `v2/src/execution/write-loop.ts`
+
 ## Maintenance requirement for future v1 changes
 
 - Any v1 bug fix or user-observable behavior change that can affect v2 parity decisions must update this catalog in the same change window, so v2 design/review never relies on stale v1 behavior documentation. Sources: `v1/spec/completed/2026-05-22T04-09-01Z-v1-behavior-catalog/05-maintenance-reminder-and-final-verification.md`

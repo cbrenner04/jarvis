@@ -576,6 +576,13 @@ repos" principle change is smaller:
   same branch is not. And **git:false (loop-only) runs can't run concurrently on
   the same root** — no worktree means no isolation, so they'd clobber each other
   (v1 never hit this because it was one-shot).
+- **Async Git on daemon runs.** Worktree setup and write-loop Git operations are
+  made async to yield to the event loop on daemon-hosted runs. Validation (branch
+  existence, worktree checks, current branch), worktree creation, pruning, and
+  common-dir resolution are all awaited, preserving output encoding, error
+  handling, and sequential setup/cleanup order. The async runner is injected via
+  a seam (`AsyncSubprocessRunner`) so daemon runs use async `execFile` while
+  one-shot CLI runs remain synchronous.
 
 ## Interface & IPC
 

@@ -593,7 +593,7 @@ repos" principle change is smaller:
   Git/`gh` subprocesses above, unrelated RPCs (`list`, `health`, steering, `wait`, `tail`, …)
   still dispatch on the same event loop. `daemon-ipc-responsiveness-during-git.sandbox-unrunnable.test.ts`
   holds a representative `withExternalWorktree` Git command at a signaled pending state,
-  proves `list` resolves before that command is released, then releases Git and completes
+  proves `health` resolves before that command is released, then releases Git and completes
   the run.
 
 ## Interface & IPC

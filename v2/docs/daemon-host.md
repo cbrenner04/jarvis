@@ -113,9 +113,20 @@ the revision write loop via the same executor and per-key guard as `start`
 `blocked`), the next `executeWorkflow` call for the same workflow re-dispatches
 the human step by `stepId`, moving its run back to `awaiting-human` — a
 subsequent `resume` decision (`approve`/`revise`/`abort`) is then accepted
-again. Concurrent `resume` calls against the same run are serialized by the
-daemon's existing per-request RPC handling; no additional locking is added for
-`revise`.
+again. Same-run human-decision admission (`approve`/`revise`/`abort`) is
+serialized through the dirty-worktree probe, revision creation, and status
+transition so concurrent requests cannot create duplicate revisions or leave
+ownership inconsistent.
+
+**Revise dirty-worktree responsiveness:** only `resume` with
+`decision: "revise"` awaits `git status --porcelain` on the repeated step's
+worktree (`isWorktreeDirtyAsync` / injectable `isWorktreeDirty`). Ordinary
+paused-run `resume` and `approve`/`abort` do not run that probe. While the
+probe is pending, unrelated daemon IPC (`health`, `list`, steering, `wait`,
+`tail`, …) still dispatches on the same event loop. A probe failure returns
+`internal_error`, creates no revision, leaves the human step `awaiting-human`,
+and a later `revise` may retry. Guarded by
+`v2/src/daemon/daemon-ipc-responsiveness-during-revise-dirty.sandbox-unrunnable.test.ts`.
 
 ### Wait result contract
 

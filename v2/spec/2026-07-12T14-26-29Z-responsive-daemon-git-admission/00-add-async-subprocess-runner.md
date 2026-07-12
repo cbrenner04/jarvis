@@ -18,5 +18,5 @@ Expose a non-blocking subprocess seam for daemon consumers without changing v1's
 
 ## Acceptance criteria
 
-- [ ] `shared/subprocess.test.ts` proves the asynchronous runner returns UTF-8 stdout and preserves the synchronous runner's rejection and predicate behavior.
-- [ ] `v1/test/modes/plan/boundary.test.ts` stays green for synchronous `SubprocessRunner` callers.
+- [x] `shared/subprocess.test.ts` proves the asynchronous runner returns UTF-8 stdout and preserves the synchronous runner's rejection and predicate behavior.
+- [x] `v1/test/modes/plan/boundary.test.ts` stays green for synchronous `SubprocessRunner` callers.

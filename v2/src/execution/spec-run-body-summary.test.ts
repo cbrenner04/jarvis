@@ -25,10 +25,7 @@ describe("parseSpecIndex", () => {
 
     expect(parseSpecIndex(indexPath)).toEqual({
       title: "My plan",
-      checklistLines: [
-        "- [ ] [01 - First](./01-first.md)",
-        "- [x] [02 - Second](./02-second.md)",
-      ],
+      checklistLines: ["- [ ] [01 - First](./01-first.md)", "- [x] [02 - Second](./02-second.md)"],
     });
   });
 
@@ -70,9 +67,7 @@ describe("deriveSpecRunBodySummary", () => {
         worktreePath: tempDir,
         specPath: "v2/spec/demo-spec",
       }),
-    ).toBe(
-      "# Demo spec\n\n- [ ] [00 - Alpha](./00-alpha.md)\n- [ ] [01 - Beta](./01-beta.md)",
-    );
+    ).toBe("# Demo spec\n\n- [ ] [00 - Alpha](./00-alpha.md)\n- [ ] [01 - Beta](./01-beta.md)");
   });
 
   test("H1 with no checklist items yields H1 only", () => {

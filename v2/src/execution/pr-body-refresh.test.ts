@@ -139,13 +139,9 @@ describe("refreshPrBody", () => {
   test("renders summary between Spec line and narrative markers", async () => {
     const humanEditedNarrative = "Human edited narrative";
     const summary = "## Summary\n\nLanded intent and spec checklist.";
-    const currentBody = [
-      "Spec: stale",
-      "",
-      NARRATIVE_START_MARKER,
-      humanEditedNarrative,
-      NARRATIVE_END_MARKER,
-    ].join("\n");
+    const currentBody = ["Spec: stale", "", NARRATIVE_START_MARKER, humanEditedNarrative, NARRATIVE_END_MARKER].join(
+      "\n",
+    );
     let writtenBody = "";
     await refreshPrBody({
       specPath: "v2/spec/test/index.md",

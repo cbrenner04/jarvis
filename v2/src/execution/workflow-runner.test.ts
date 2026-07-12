@@ -1767,11 +1767,7 @@ describe("executeWorkflow human steps", () => {
     const worktreePath = join(jarvisRoot, "worktrees", "demo", "plan-body-summary-retry");
     const specDir = join(worktreePath, "spec", "2026-01-01T00-00-00Z-plan-retry");
     mkdirSync(specDir, { recursive: true });
-    writeFileSync(
-      join(specDir, "index.md"),
-      "# Retry plan\n\n- [ ] [00 - Only](./00-only.md)\n",
-      "utf8",
-    );
+    writeFileSync(join(specDir, "index.md"), "# Retry plan\n\n- [ ] [00 - Only](./00-only.md)\n", "utf8");
 
     await withStateStore(async (store) => {
       seedCompletedWriteRun(store, step, worktreePath, "plan-body-summary-retry-inv");
@@ -1950,11 +1946,7 @@ describe("executeWorkflow human steps", () => {
     const worktreePath = join(jarvisRoot, "worktrees", "demo", "implement-no-summary");
     const specDir = join(worktreePath, "spec");
     mkdirSync(specDir, { recursive: true });
-    writeFileSync(
-      join(specDir, "index.md"),
-      "# Implement index\n\n- [ ] [01 - Sub](./01-sub.md)\n",
-      "utf8",
-    );
+    writeFileSync(join(specDir, "index.md"), "# Implement index\n\n- [ ] [01 - Sub](./01-sub.md)\n", "utf8");
 
     await withStateStore(async (store) => {
       seedCompletedWriteRun(store, step, worktreePath, "implement-no-summary-inv");

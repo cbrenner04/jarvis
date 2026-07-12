@@ -215,12 +215,13 @@ describe("write behavior", () => {
     roots.push(join(jarvisRoot, ".."));
     const specPath = "v2/spec/2099-01-01T00-00-00Z-demo";
     const intentSeed = "---\nname: demo\n---\n\n## Prerequisites\n\nnone\n";
+    const stepRules = "Return exactly one terminal token: done|no-work|blocked|progress.";
     let capturedPrompt = "";
 
     const result = await executeWrite({
       worktree: { projectRoot: "/fake", projectName: "demo", branchName: "plan-run", baseRef: "HEAD", jarvisRoot },
       specPath,
-      stepRules: "unused",
+      stepRules,
       expectedArtifactPath: ".jarvis-plan-stage",
       promptId: "plan.prompt.draft",
       intentSeed,
@@ -242,12 +243,57 @@ describe("write behavior", () => {
 
     expect(result.result.kind).toBe("complete");
     const expectedSpecDir = join(result.worktreePath, specPath);
-    expect(capturedPrompt).toContain(`Only write files under \`${expectedSpecDir}/\`.`);
-    expect(capturedPrompt).not.toContain("spec/<NAME>/");
+    expect(capturedPrompt).toContain("Before editing code, read the relevant durable docs/specs");
+    expect(capturedPrompt).toContain("Record decisions, constraints, and assumptions as a ledger");
+    expect(capturedPrompt).toContain(intentSeed);
+    expect(capturedPrompt).toContain("## File output");
+    expect(capturedPrompt).toContain(`under \`${expectedSpecDir}\`.`);
+    expect(capturedPrompt).toContain("Do not emit spec content to stdout");
+    expect(capturedPrompt).toContain("## Step completion");
+    expect(capturedPrompt).toContain(stepRules);
 
     const intentPath = join(result.worktreePath, specPath, "intent.md");
     expect(existsSync(intentPath)).toBe(true);
     expect(readFileSync(intentPath, "utf8")).toBe(intentSeed);
+  });
+
+  test("intentSeed branch: delimiter-violating intent seed fails as model_config", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const specPath = "v2/spec/2099-01-01T00-00-02Z-delimiter";
+    const intentSeed = "---\nname: bad\n---\n\ncontains <<<INTENT_BEGIN>>>\n";
+    let bindingInvoked = false;
+
+    const result = await executeWrite({
+      worktree: {
+        projectRoot: "/fake",
+        projectName: "demo",
+        branchName: "plan-run-delimiter",
+        baseRef: "HEAD",
+        jarvisRoot,
+      },
+      specPath,
+      stepRules: "Return exactly one terminal token.",
+      expectedArtifactPath: ".jarvis-plan-stage",
+      promptId: "plan.prompt.draft",
+      intentSeed,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => {
+            bindingInvoked = true;
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+    });
+
+    expect(bindingInvoked).toBe(false);
+    expect(result.result.kind).toBe("invocation_failure");
+    if (result.result.kind === "invocation_failure") {
+      expect(result.result.failureKind).toBe("model_config");
+    }
   });
 
   test("intentSeed branch: a genuine blocker in intent.md short-circuits completion", async () => {

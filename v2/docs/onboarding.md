@@ -50,4 +50,5 @@ direction; keep using `jarvis1` to do work today.
 2. **First run** — register a repo and draft or run a spec via the
    [README Quickstart](../../README.md#quickstart).
 3. **Go deeper** — v1 operator reference in [`v1/docs/`](../../v1/docs/); v2
-   design reference in [`v2/docs/`](./).
+   design reference in [`v2/docs/`](./). v2 dogfooding operators:
+   [`operator-runbook.md`](./operator-runbook.md).

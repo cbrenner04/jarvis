@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
@@ -1324,16 +1324,21 @@ async function runReviewDebateStep(
 
 /**
  * A review step's own durable completion checkpoint, keyed like a write/human step's run row.
- * Retrying any later completion boundary (landing, commit, push, PR, finalization) re-enters
- * `runReviewStep` for this step; finding a completed checkpoint here resumes past review
- * without re-invoking critic or actuator.
+ * Retrying landing, commit, push, PR, or finalization re-enters `runReviewStep` for this step;
+ * its completed or landing-failed checkpoint resumes past review without re-invoking agents.
  */
-function findCompletedReviewRun(
+function findReviewLandingCheckpoint(
   store: StateStore,
   step: ReviewWorkflowStep,
 ): NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>> | undefined {
   const existing = store.findRunByProjectBranch({ project: step.project, branch: step.branch, stepId: step.stepId });
-  return existing?.status === "completed" ? existing : undefined;
+  const lastAttempt = existing?.attempts.at(-1);
+  return existing?.status === "completed" ||
+    (existing?.status === "failed" &&
+      lastAttempt?.outcomeKind === "invocation_failure" &&
+      lastAttempt.invocationFailureDetail?.failureKind === "landing")
+    ? existing
+    : undefined;
 }
 
 /**
@@ -1345,8 +1350,14 @@ function landReviewedIntentOutput(
   deferred: NonNullable<ReviewWorkflowStep["deferredIntentOutput"]>,
   verdictPath: string,
 ): string | undefined {
+  const ownerPath = `${verdictPath}.owner`;
+  const verdict = existsSync(verdictPath) ? readFileSync(verdictPath, "utf8") : undefined;
+  const owner = existsSync(ownerPath) ? readFileSync(ownerPath, "utf8") : undefined;
   try {
     excludeVerdictFromStaging(deferred.stagingDir, verdictPath);
+    if (owner !== undefined) {
+      rmSync(ownerPath, { force: true });
+    }
     landIntentWorkflowOutput({
       worktreePath,
       baseRef: deferred.baseRef,
@@ -1356,8 +1367,51 @@ function landReviewedIntentOutput(
     cleanupVerdictFile(verdictPath);
     return undefined;
   } catch (error) {
+    if (verdict !== undefined) writeFileSync(verdictPath, verdict, "utf8");
+    if (owner !== undefined) writeFileSync(ownerPath, owner, "utf8");
     return error instanceof Error ? error.message : String(error);
   }
+}
+
+function reviewCompletionAgent(run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>): string | undefined {
+  for (let index = run.attempts.length - 1; index >= 0; index -= 1) {
+    const agent = run.attempts[index]?.completionAgent?.trim();
+    if (agent) return agent;
+  }
+  return undefined;
+}
+
+function finishReviewedIntentLanding(
+  step: ReviewWorkflowStep,
+  deferred: NonNullable<ReviewWorkflowStep["deferredIntentOutput"]>,
+  runId: string,
+  store: StateStore,
+  completionAgent: string | undefined,
+): ReviewStepOutcome {
+  const attemptId = store.recordAttemptStart(runId);
+  const landingError = landReviewedIntentOutput(step.cwd, deferred, step.verdictPath);
+  if (landingError !== undefined) {
+    store.commitCompletionBoundary({
+      attemptId,
+      runStatus: "failed",
+      outcomeKind: "invocation_failure",
+      invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: landingError },
+    });
+    return { kind: "invocation_failure", runId, iterationsConsumed: 0, resumable: true };
+  }
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: "completed",
+    outcomeKind: "done",
+    ...(completionAgent ? { completionAgent } : {}),
+  });
+  return {
+    kind: "complete",
+    runId,
+    iterationsConsumed: 0,
+    resumable: false,
+    ...(completionAgent ? { completionAgent } : {}),
+  };
 }
 
 type ReviewStepExecutionIds = {
@@ -1565,6 +1619,14 @@ async function runStandardReviewStep(
   const { result, boundaryViolation: boundaryViolationMsg } = enforcementResult;
 
   if (boundaryViolationMsg !== undefined) {
+    if (deferredIntentOutput !== undefined) {
+      store.commitCompletionBoundary({
+        attemptId: ids.attemptId,
+        runStatus: "failed",
+        outcomeKind: "invocation_failure",
+        invocationFailureDetail: { failureKind: "error", bindingAttempts: [] },
+      });
+    }
     return {
       kind: "invocation_failure",
       runId: ids.runId,
@@ -1573,43 +1635,45 @@ async function runStandardReviewStep(
     };
   }
 
-  const landingError =
-    result.kind === "complete" && deferredIntentOutput !== undefined
-      ? landReviewedIntentOutput(step.cwd, deferredIntentOutput, reviewInput.verdictPath)
-      : undefined;
-
   onProgress?.(invocationId, stepId, {
-    status: result.kind === "complete" && landingError === undefined ? "completed" : "stopped",
+    status: result.kind === "complete" ? "completed" : "stopped",
     role: terminalRoleFromReviewCycles(result.cycles),
     terminalOutcome: result.kind,
   });
 
-  const isFailure = landingError !== undefined || result.kind === "invocation_failure";
-  if (!isFailure && deferredIntentOutput !== undefined) {
-    store.createRun({
-      project,
-      specRef: "",
-      worktreePath: step.cwd,
-      branch,
-      specPath: "",
-      stepId,
-      status: "completed",
-    });
+  if (result.kind === "invocation_failure") {
+    if (deferredIntentOutput !== undefined) {
+      store.commitCompletionBoundary({
+        attemptId: ids.attemptId,
+        runStatus: "failed",
+        outcomeKind: "invocation_failure",
+        invocationFailureDetail: { failureKind: result.failureKind, bindingAttempts: [] },
+      });
+    }
+    return { kind: "invocation_failure", runId: ids.runId, iterationsConsumed: result.cycles.length, resumable: false };
   }
 
-  return isFailure
-    ? {
-        kind: "invocation_failure",
-        runId: ids.runId,
-        iterationsConsumed: result.cycles.length,
-        resumable: landingError !== undefined,
-      }
-    : {
-        kind: "complete",
-        runId: ids.runId,
-        iterationsConsumed: result.cycles.length,
-        resumable: false,
-      };
+  const completionAgent =
+    result.cycles.at(-1)?.kind === "completed"
+      ? result.cycles.at(-1)?.roleResults.actuator?.final?.binding.metadata?.agent?.trim()
+      : undefined;
+  if (deferredIntentOutput === undefined) {
+    return {
+      kind: "complete",
+      runId: ids.runId,
+      iterationsConsumed: result.cycles.length,
+      resumable: false,
+      ...(completionAgent ? { completionAgent } : {}),
+    };
+  }
+  store.commitCompletionBoundary({
+    attemptId: ids.attemptId,
+    runStatus: "completed",
+    outcomeKind: "done",
+    ...(completionAgent ? { completionAgent } : {}),
+  });
+  const landing = finishReviewedIntentLanding(step, deferredIntentOutput, ids.runId, store, completionAgent);
+  return { ...landing, iterationsConsumed: result.cycles.length };
 }
 
 async function runReviewStep(
@@ -1626,15 +1690,35 @@ async function runReviewStep(
   // Only reviewed-intent workflows carry a durable post-review checkpoint; generic review
   // steps stay non-durable (no run row, fresh synthesized run ID each dispatch).
   if (deferredIntentOutput !== undefined) {
-    const completedRun = findCompletedReviewRun(store, step);
-    if (completedRun !== undefined) {
-      onStepRunCreated?.(stepIndex, completedRun.id);
-      return { kind: "complete", runId: completedRun.id, iterationsConsumed: 0, resumable: false };
+    const checkpoint = findReviewLandingCheckpoint(store, step);
+    if (checkpoint !== undefined) {
+      onStepRunCreated?.(stepIndex, checkpoint.id);
+      return finishReviewedIntentLanding(
+        step,
+        deferredIntentOutput,
+        checkpoint.id,
+        store,
+        reviewCompletionAgent(checkpoint),
+      );
     }
   }
 
   const bindings = resolveReviewStepBindings(step);
-  const ids: ReviewStepExecutionIds = { runId: crypto.randomUUID(), attemptId: crypto.randomUUID() };
+  const runId =
+    deferredIntentOutput !== undefined
+      ? store.createRun({
+          project: step.project,
+          specRef: "",
+          worktreePath: step.cwd,
+          branch: step.branch,
+          specPath: "",
+          stepId: step.stepId,
+        })
+      : crypto.randomUUID();
+  const ids: ReviewStepExecutionIds = {
+    runId,
+    attemptId: deferredIntentOutput !== undefined ? store.recordAttemptStart(runId) : crypto.randomUUID(),
+  };
   onStepRunCreated?.(stepIndex, ids.runId);
 
   if (patchReviewContext !== undefined) {

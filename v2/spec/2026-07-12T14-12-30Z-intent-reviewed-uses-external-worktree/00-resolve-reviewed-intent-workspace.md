@@ -14,8 +14,8 @@ Derive every reviewed-intent path from the split write step's workspace result.
 
 ## Acceptance criteria
 
-- [ ] `buildReviewedIntentWorkflowSteps` obtains the review `cwd`, verdict path, staging path, and deferred landing workspace from one split-step resolution result for git-enabled projects, using the configured Jarvis-root worktree.
-- [ ] Git-disabled reviewed-intent runs obtain those paths from that one resolution result's local intent-work path.
+- [x] `buildReviewedIntentWorkflowSteps` obtains the review `cwd`, verdict path, staging path, and deferred landing workspace from one split-step resolution result for git-enabled projects, using the configured Jarvis-root worktree.
+- [x] Git-disabled reviewed-intent runs obtain those paths from that one resolution result's local intent-work path.
 
 ## Documentation updates
 

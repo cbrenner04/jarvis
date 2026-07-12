@@ -12,6 +12,7 @@ const RUN_OPERATOR_ERROR_REASONS = [
   "quota_exhausted",
   "model_config",
   "no_binding",
+  "landing_failed",
   "invocation_error",
   "harness_failure",
   "not_implemented",
@@ -73,6 +74,7 @@ const INVOCATION_BY_FAILURE_KIND: Record<string, RunOperatorError> = {
   quota: op("quota_exhausted", "retry_later"),
   model_config: op("model_config", "fix_config"),
   no_binding: op("no_binding", "fix_config"),
+  landing: op("landing_failed", "resume", true),
   error: op("invocation_error", "stop"),
 };
 

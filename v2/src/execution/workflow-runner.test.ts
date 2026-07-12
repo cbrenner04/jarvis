@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -1689,6 +1689,168 @@ describe("executeWorkflow review dispatch", () => {
         ]),
       );
     });
+  });
+
+  test("runs reviewed-intent review and landing only in the split workspace", async () => {
+    const operatorCheckout = mkdtempSync(join(tmpdir(), "reviewed-intent-operator-"));
+    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-workspace-"));
+    const durableDir = join(workspace, "ready-intents");
+    const verdictPath = join(workspace, ".jarvis-intent-review-verdict.md");
+    const observedCwds: string[] = [];
+    writeFileSync(join(operatorCheckout, "unrelated-dirty.txt"), "keep\n", "utf8");
+
+    const step: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "review",
+      project: "demo",
+      branch: "intent/example",
+      cwd: workspace,
+      prompt: "inspect",
+      verdictPath,
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: config,
+      deferredIntentOutput: {
+        config: { durableDir },
+        stagingDir: join(workspace, ".jarvis-intent-stage"),
+        invocationId: "invocation-1",
+        baseRef: "none",
+      },
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async ({ cwd }) => {
+          observedCwds.push(cwd);
+          if (agentId === "codex") {
+            const stage = join(cwd, ".jarvis-intent-stage");
+            mkdirSync(stage, { recursive: true });
+            writeFileSync(
+              join(stage, "example.md"),
+              "---\nname: example\n---\n\n# Example\n\n## Prerequisites\n",
+              "utf8",
+            );
+            return { kind: "ok" as const, stdout: "applied", stderr: "" };
+          }
+          return { kind: "ok" as const, stdout: "apply", stderr: "" };
+        },
+      }),
+    };
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store });
+      expect(result).toMatchObject({ kind: "complete", iterationsConsumed: 1 });
+    });
+
+    expect(observedCwds).toEqual([workspace, workspace]);
+    expect(readFileSync(join(operatorCheckout, "unrelated-dirty.txt"), "utf8")).toBe("keep\n");
+    expect(readFileSync(join(durableDir, "example.md"), "utf8")).toContain("# Example");
+    expect(existsSync(verdictPath)).toBe(false);
+  });
+
+  test("restores a reviewed-intent boundary violation in the split workspace", async () => {
+    const operatorCheckout = mkdtempSync(join(tmpdir(), "reviewed-intent-operator-"));
+    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-workspace-"));
+    writeFileSync(join(operatorCheckout, "unrelated-dirty.txt"), "keep\n", "utf8");
+
+    const step: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "review",
+      project: "demo",
+      branch: "intent/example",
+      cwd: workspace,
+      prompt: "inspect",
+      verdictPath: join(workspace, ".jarvis-intent-review-verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: config,
+      deferredIntentOutput: {
+        config: { durableDir: join(workspace, "ready-intents") },
+        stagingDir: join(workspace, ".jarvis-intent-stage"),
+        invocationId: "invocation-1",
+        baseRef: "none",
+      },
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async ({ cwd }) => {
+          if (agentId === "claude") writeFileSync(join(cwd, "rogue.txt"), "no\n", "utf8");
+          return { kind: "ok" as const, stdout: agentId === "claude" ? "apply" : "done", stderr: "" };
+        },
+      }),
+    };
+
+    let result!: Awaited<ReturnType<typeof executeWorkflow>>;
+    await withStateStore(async (store) => {
+      result = await executeWorkflow({ steps: [step], stateStore: store });
+    });
+
+    expect(result).toMatchObject({ kind: "invocation_failure", iterationsConsumed: 1 });
+    expect(existsSync(join(workspace, "rogue.txt"))).toBe(false);
+    expect(readFileSync(join(operatorCheckout, "unrelated-dirty.txt"), "utf8")).toBe("keep\n");
+  });
+
+  test("retries reviewed-intent landing without rerunning review and persists its cause", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-retry-"));
+    const durableDir = join(workspace, "ready-intents");
+    const staged = "---\nname: example\n---\n\n# Example\n\n## Prerequisites\n";
+    mkdirSync(durableDir, { recursive: true });
+    writeFileSync(join(durableDir, "example.md"), "different\n", "utf8");
+    let criticCalls = 0;
+    let actuatorCalls = 0;
+    const step: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "review",
+      project: "demo",
+      branch: "intent/example",
+      cwd: workspace,
+      prompt: "inspect",
+      verdictPath: join(workspace, ".jarvis-intent-review-verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: config,
+      deferredIntentOutput: {
+        config: { durableDir },
+        stagingDir: join(workspace, ".jarvis-intent-stage"),
+        invocationId: "invocation-1",
+        baseRef: "none",
+      },
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async ({ cwd }) => {
+          if (agentId === "claude") criticCalls += 1;
+          if (agentId === "codex") {
+            actuatorCalls += 1;
+            const stage = join(cwd, ".jarvis-intent-stage");
+            mkdirSync(stage, { recursive: true });
+            writeFileSync(join(stage, "example.md"), staged, "utf8");
+          }
+          return { kind: "ok" as const, stdout: agentId === "claude" ? "apply" : "done", stderr: "" };
+        },
+      }),
+    };
+
+    await withStateStore(async (store) => {
+      const failed = await executeWorkflow({ steps: [step], stateStore: store });
+      expect(failed).toMatchObject({ kind: "invocation_failure", resumable: true });
+      const checkpoint = store.findRunByProjectBranch({ project: "demo", branch: "intent/example", stepId: "review" });
+      expect(checkpoint?.attempts.at(-1)?.invocationFailureDetail).toEqual({
+        failureKind: "landing",
+        message:
+          "intent: ready-intents/example.md already exists with different contents; rerun to retry pre-publication",
+        bindingAttempts: [],
+      });
+
+      rmSync(join(durableDir, "example.md"));
+      const retried = await executeWorkflow({ steps: [step], stateStore: store });
+      expect(retried).toMatchObject({ kind: "complete", iterationsConsumed: 0 });
+      expect(
+        store.findRunByProjectBranch({ project: "demo", branch: "intent/example", stepId: "review" })?.status,
+      ).toBe("completed");
+    });
+
+    expect(criticCalls).toBe(1);
+    expect(actuatorCalls).toBe(1);
   });
 
   test("aggregates missing critic and actuator bindings before durable state", async () => {

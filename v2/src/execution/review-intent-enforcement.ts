@@ -244,7 +244,8 @@ export async function executeReviewCycleEnforced(args: {
     const afterReview = getChangedPaths(cwd, beforeReview);
 
     // Filter out the verdict file, its owner marker, and the staging directory.
-    const stagingPrefix = stagingDir.endsWith("/") ? stagingDir : `${stagingDir}/`;
+    const stagingPath = relative(cwd, stagingDir).replace(/\\/g, "/");
+    const stagingPrefix = stagingPath.endsWith("/") ? stagingPath : `${stagingPath}/`;
     const verdictFileName = verdictPath.split("/").pop() || VERDICT_FILE;
     const ownerMarkerName = `${verdictFileName}.owner`;
 

@@ -1724,7 +1724,11 @@ describe("executeWorkflow review dispatch", () => {
           if (agentId === "codex") {
             const stage = join(cwd, ".jarvis-intent-stage");
             mkdirSync(stage, { recursive: true });
-            writeFileSync(join(stage, "example.md"), "---\nname: example\n---\n\n# Example\n\n## Prerequisites\n", "utf8");
+            writeFileSync(
+              join(stage, "example.md"),
+              "---\nname: example\n---\n\n# Example\n\n## Prerequisites\n",
+              "utf8",
+            );
             return { kind: "ok" as const, stdout: "applied", stderr: "" };
           }
           return { kind: "ok" as const, stdout: "apply", stderr: "" };
@@ -1838,9 +1842,9 @@ describe("executeWorkflow review dispatch", () => {
       rmSync(join(durableDir, "example.md"));
       const retried = await executeWorkflow({ steps: [step], stateStore: store });
       expect(retried).toMatchObject({ kind: "complete", iterationsConsumed: 0 });
-      expect(store.findRunByProjectBranch({ project: "demo", branch: "intent/example", stepId: "review" })?.status).toBe(
-        "completed",
-      );
+      expect(
+        store.findRunByProjectBranch({ project: "demo", branch: "intent/example", stepId: "review" })?.status,
+      ).toBe("completed");
     });
 
     expect(criticCalls).toBe(1);

@@ -7,13 +7,13 @@ import type { createResolvedAgentBinding, ResolvedAgentBinding } from "../../../
 import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import type { MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
+import { getExternalWorktreePath } from "./external-worktree.ts";
 import {
   type LoadedWorkflowStep,
   loadWorkflowSteps as realLoadWorkflowSteps,
   type WorkflowSourceStep,
   type WriteWorkflowSourceStep,
 } from "./workflow-loader.ts";
-import { getExternalWorktreePath } from "./external-worktree.ts";
 import {
   type AnyWorkflowStep,
   type ReviewWorkflowStep,

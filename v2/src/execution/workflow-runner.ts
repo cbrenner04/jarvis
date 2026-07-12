@@ -1373,9 +1373,7 @@ function landReviewedIntentOutput(
   }
 }
 
-function reviewCompletionAgent(
-  run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
-): string | undefined {
+function reviewCompletionAgent(run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>): string | undefined {
   for (let index = run.attempts.length - 1; index >= 0; index -= 1) {
     const agent = run.attempts[index]?.completionAgent?.trim();
     if (agent) return agent;
@@ -1407,7 +1405,13 @@ function finishReviewedIntentLanding(
     outcomeKind: "done",
     ...(completionAgent ? { completionAgent } : {}),
   });
-  return { kind: "complete", runId, iterationsConsumed: 0, resumable: false, ...(completionAgent ? { completionAgent } : {}) };
+  return {
+    kind: "complete",
+    runId,
+    iterationsConsumed: 0,
+    resumable: false,
+    ...(completionAgent ? { completionAgent } : {}),
+  };
 }
 
 type ReviewStepExecutionIds = {
@@ -1649,11 +1653,18 @@ async function runStandardReviewStep(
     return { kind: "invocation_failure", runId: ids.runId, iterationsConsumed: result.cycles.length, resumable: false };
   }
 
-  const completionAgent = result.cycles.at(-1)?.kind === "completed"
-    ? result.cycles.at(-1)?.roleResults.actuator?.final?.binding.metadata?.agent?.trim()
-    : undefined;
+  const completionAgent =
+    result.cycles.at(-1)?.kind === "completed"
+      ? result.cycles.at(-1)?.roleResults.actuator?.final?.binding.metadata?.agent?.trim()
+      : undefined;
   if (deferredIntentOutput === undefined) {
-    return { kind: "complete", runId: ids.runId, iterationsConsumed: result.cycles.length, resumable: false, ...(completionAgent ? { completionAgent } : {}) };
+    return {
+      kind: "complete",
+      runId: ids.runId,
+      iterationsConsumed: result.cycles.length,
+      resumable: false,
+      ...(completionAgent ? { completionAgent } : {}),
+    };
   }
   store.commitCompletionBoundary({
     attemptId: ids.attemptId,
@@ -1682,7 +1693,13 @@ async function runReviewStep(
     const checkpoint = findReviewLandingCheckpoint(store, step);
     if (checkpoint !== undefined) {
       onStepRunCreated?.(stepIndex, checkpoint.id);
-      return finishReviewedIntentLanding(step, deferredIntentOutput, checkpoint.id, store, reviewCompletionAgent(checkpoint));
+      return finishReviewedIntentLanding(
+        step,
+        deferredIntentOutput,
+        checkpoint.id,
+        store,
+        reviewCompletionAgent(checkpoint),
+      );
     }
   }
 

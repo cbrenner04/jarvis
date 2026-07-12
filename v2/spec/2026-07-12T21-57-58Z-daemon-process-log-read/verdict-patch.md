@@ -1,0 +1,9 @@
+Both findings are legitimate correctness/documentation defects, not spec disputes.
+
+## Required outcomes
+
+1. **`sleep()` must not leak `abort` listeners on `signal` during `--follow` polling.** Currently the timer's normal (non-abort) resolution path leaves the `abort` listener attached — since polling recurs every `FOLLOW_POLL_MS`, listeners accumulate continuously for the life of the follow process. Once the count exceeds Node's default max, a `MaxListenersExceededWarning` is emitted directly on stderr — the same stream the spec's acceptance criteria reserve exclusively for genuine read/watch/reopen failures ("Read, watch, and reopen failures report stderr errors and exit nonzero"). An operator relying on stderr to detect real failures must not see spurious noise there. Fix so the listener is always removed once the timer settles, regardless of which path (timeout vs. abort) resolves it.
+
+2. **`v2/docs/daemon-host.md`'s poll-interval claim must be accurate.** The doc states the daemon-log follow loop's poll interval matches `log-stream.ts`, but the two constants differ (`daemon-process-log.ts` uses 200ms, `log-stream.ts` uses 250ms). Docs describing implementation behavior must not assert false equivalence — an operator or future maintainer trusting this claim could misdiagnose timing behavior. Either state the actual interval without the (false) equivalence claim, or remove the comparison entirely.
+
+3. **The `log-stream.ts` reference link in `v2/docs/daemon-host.md` must resolve to the actual file**, not back to `daemon-host.md` itself. A self-referencing link makes the citation unverifiable and undermines the documentation's credibility as a source of truth.

@@ -217,9 +217,7 @@ describe("monitorTextLines", () => {
       isLive: true,
     };
 
-    const lines = monitorTextLines(
-      monitorState({ runs: [terminalFirst, activeSecond], selectedRunId: "run-alpha" }),
-    );
+    const lines = monitorTextLines(monitorState({ runs: [terminalFirst, activeSecond], selectedRunId: "run-alpha" }));
 
     const headerIndex = lines.indexOf("runId project branch status liveness");
     const alphaIndex = lines.findIndex((line) => line.includes("run-alpha"));

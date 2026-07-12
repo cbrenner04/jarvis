@@ -37,7 +37,7 @@ import {
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import { RpcError } from "./ipc/rpc-errors.ts";
 import { createRpcTransport } from "./ipc/rpc-transport.ts";
-import { DAEMON_PID_PATH, DAEMON_SOCKET_PATH, MACHINE_CONFIG_PATH } from "./paths.ts";
+import { DAEMON_LOG_PATH, DAEMON_PID_PATH, DAEMON_SOCKET_PATH, MACHINE_CONFIG_PATH } from "./paths.ts";
 import { runTuiEntry } from "./tui/tui-entry.tsx";
 import { runTuiLogFollow } from "./tui/tui-log-follow-entry.tsx";
 import type { RunTuiLogFollowDeps } from "./tui/tui-log-follow-types.ts";
@@ -62,6 +62,7 @@ type CliDeps = {
   cwd: () => string;
   socketPath: string;
   pidPath: string;
+  logPath: string;
   machineConfigPath: string;
 };
 
@@ -106,6 +107,7 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     cwd: () => process.cwd(),
     socketPath: DAEMON_SOCKET_PATH,
     pidPath: DAEMON_PID_PATH,
+    logPath: DAEMON_LOG_PATH,
     machineConfigPath: MACHINE_CONFIG_PATH,
     ...deps,
     workflowPresetBuilders: deps?.workflowPresetBuilders ?? WORKFLOW_PRESET_BUILDERS,
@@ -164,7 +166,7 @@ async function runDaemonCommand(argv: readonly string[], io: Io, deps: CliDeps):
 
   if (subcommand === "start" && argv.length === 1) {
     try {
-      const result = await deps.startDaemon(deps.socketPath, { pidPath: deps.pidPath });
+      const result = await deps.startDaemon(deps.socketPath, { pidPath: deps.pidPath, logPath: deps.logPath });
       io.stdout(`${JSON.stringify(result)}\n`);
       return 0;
     } catch (error) {

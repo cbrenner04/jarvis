@@ -436,9 +436,10 @@ running. Operator-facing CLI contract:
 
 Implementation: `v2/src/daemon/daemon-process-log.ts`
 (`readDaemonProcessLog` / `followDaemonProcessLog`). `--follow` replays
-retained bytes then polls (`FOLLOW_POLL_MS`, matching the
-[`log-stream.ts`](./daemon-host.md) structured-log follow poll model) for
-appends, tracking file identity by inode: a shrink or inode change resumes
+retained bytes then polls (`FOLLOW_POLL_MS`, 200ms — separate from the 250ms
+poll interval in
+[`log-stream.ts`](../src/persistence/log-stream.ts)'s structured-log follow)
+for appends, tracking file identity by inode: a shrink or inode change resumes
 from the current file at the configured path; a missing path reports on
 stderr and stops with a nonzero exit.
 

@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
+import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 
 export type CompletionCommitInput = { worktreePath: string; baseRef: string; specPath: string; agent: string };
 export type CompletionCommitResult = { commitSha?: string; filesChanged?: number };
@@ -62,7 +63,7 @@ export function createCompletionCommitter(runGit: Git = git): CompletionCommitte
           baseHead: head,
           tree,
           branchRef: runGit(input.worktreePath, ["symbolic-ref", "HEAD"]),
-          message: `jarvis: complete run\n\nSpec: ${input.specPath}\n\nJarvis-Agent: ${agent}`,
+          message: `jarvis: complete run\n\nSpec: ${normalizePublicationSpecPath(input.worktreePath, input.specPath)}\n\nJarvis-Agent: ${agent}`,
           agent,
           timestamp: new Date().toISOString(),
         };

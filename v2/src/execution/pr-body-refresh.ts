@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { renderAttribution } from "./pr-attribution.ts";
+import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 
 export const NARRATIVE_START_MARKER = "<!-- jarvis:narrative:start -->";
 export const NARRATIVE_END_MARKER = "<!-- jarvis:narrative:end -->";
@@ -30,8 +31,8 @@ export function extractNarrative(prBody: string): string | null {
   return prBody.slice(afterStart, endIdx).trim();
 }
 
-function buildSpecHeader(specPath: string): string {
-  return `Spec: ${specPath}`;
+function buildSpecHeader(specPath: string, worktreePath: string): string {
+  return `Spec: ${normalizePublicationSpecPath(worktreePath, specPath)}`;
 }
 
 function defaultFetchPrBody(branch: string, cwd: string): string {
@@ -60,7 +61,7 @@ export function refreshPrBody(input: RefreshPrBodyInput): void {
 
   const currentBody = fetchPrBody(input.branch, input.cwd);
   const narrative = extractNarrative(currentBody);
-  const header = buildSpecHeader(input.specPath);
+  const header = buildSpecHeader(input.specPath, input.cwd);
   let headerAndNarrative = header;
   if (narrative !== null) {
     headerAndNarrative += `\n\n${NARRATIVE_START_MARKER}\n${narrative}\n${NARRATIVE_END_MARKER}`;

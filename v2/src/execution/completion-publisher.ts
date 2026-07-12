@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { type RefreshPrBodyInput, refreshPrBody } from "./pr-body-refresh.ts";
+import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 
 export type CompletionPublisherInput = {
   worktreePath: string;
@@ -70,6 +71,8 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
   const retryNotice = seams?.retryNotice ?? defaultRetryNotice;
 
   return async (input) => {
+    const specPath = normalizePublicationSpecPath(input.worktreePath, input.specPath);
+
     // Single gh readiness probe gates all GitHub operations
     if (!ghReady(input.worktreePath)) {
       throw new Error("GitHub auth unavailable; cannot publish PR");
@@ -99,7 +102,7 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
 
     // PR lookup/creation with retry
     const prNumber = await publishWithRetry(
-      () => findOrCreatePr(gh, input.worktreePath, input.baseRef, input.branch, input.specPath),
+      () => findOrCreatePr(gh, input.worktreePath, input.baseRef, input.branch, specPath),
       "pr",
       delay,
       retryNotice,
@@ -112,7 +115,7 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
     await publishWithRetry(
       () => {
         refreshPrBody({
-          specPath: input.specPath,
+          specPath,
           branch: input.branch,
           base: input.baseRef,
           cwd: input.worktreePath,

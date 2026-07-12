@@ -11,6 +11,7 @@ function runWrite(args: {
   jarvisRoot: string;
   bindings: readonly InvocationBinding[];
   artifactPath?: string;
+  stepRules?: string;
   invocationTelemetry?: Parameters<typeof executeWrite>[0]["invocationTelemetry"];
   promptId?: string;
   promptPlaceholders?: Record<string, string>;
@@ -29,6 +30,7 @@ function runWrite(args: {
     stepRules: "Return exactly one terminal token.",
     expectedArtifactPath: args.artifactPath ?? "proof.txt",
     bindings: args.bindings,
+    ...(args.stepRules !== undefined ? { stepRules: args.stepRules } : {}),
     ...(args.invocationTelemetry !== undefined ? { invocationTelemetry: args.invocationTelemetry } : {}),
     ...(args.promptId !== undefined ? { promptId: args.promptId } : {}),
     ...(args.promptPlaceholders !== undefined ? { promptPlaceholders: args.promptPlaceholders } : {}),
@@ -169,6 +171,43 @@ describe("write behavior", () => {
     expect(capturedPrompt).toContain("`/tmp/work`");
     expect(capturedPrompt).toContain("`example-spec`");
     expect(capturedPrompt).not.toContain("Read the spec at");
+  });
+
+  test("intent split prompt wires staging output and step rules", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    let capturedPrompt = "";
+    const result = await runWrite({
+      jarvisRoot,
+      artifactPath: ".jarvis-intent-stage",
+      promptId: "intent.prompt.split",
+      stepRules: "Return exactly one terminal token: done|no-work|blocked|progress.",
+      promptPlaceholders: {
+        WORKDIR: "/tmp/worktree",
+        SEED_LABEL: "inline",
+        SEED_CONTENT: "Rename the plan flag",
+      },
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ prompt, cwd }) => {
+            capturedPrompt = prompt;
+            const stageDir = join(cwd, ".jarvis-intent-stage");
+            mkdirSync(stageDir, { recursive: true });
+            writeFileSync(
+              join(stageDir, "plan-intent-flag.md"),
+              "---\nname: plan-intent-flag\n---\n\n# Title\n\n## Prerequisites\n\n",
+              "utf8",
+            );
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(capturedPrompt).toContain("Write the authored intents as markdown files under `.jarvis-intent-stage`");
+    expect(capturedPrompt).toContain("Return exactly one terminal token: done|no-work|blocked|progress.");
+    expect(result.result.kind).toBe("complete");
+    expect(existsSync(join(result.worktreePath, ".jarvis-intent-stage", "plan-intent-flag.md"))).toBe(true);
   });
 
   test("intentSeed branch: agent-instructed write path matches the seeded/validated spec directory", async () => {

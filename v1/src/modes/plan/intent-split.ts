@@ -1,67 +1,14 @@
-import { mkdirSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
-import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
-import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
-import {
-  enforceDelimiterPolicy,
-  PromptRenderingError,
-  renderTemplateWithDeclarations,
-} from "../../../../shared/prompts/render.ts";
+import { buildIntentSplitPrompt, listIntentStageMarkdownFiles } from "../../../../shared/prompts/intent-split.ts";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { createPlanInvocationBinding } from "./plan-invocation-binding.ts";
 
-export function buildIntentSplitPrompt(opts: {
-  workdir: string;
-  seedLabel: string;
-  seedContent: string;
-  stagingDir: string;
-}): string {
-  const registry = loadPromptRegistry();
-  const artifact = registry.getById("intent.prompt.split");
-  let template = assemblePromptForStep({
-    registry,
-    stepPromptId: artifact.metadata.id,
-  });
-
-  enforceDelimiterPolicy({
-    value: opts.seedContent,
-    begin: "<<<SEED_BEGIN>>>",
-    end: "<<<SEED_END>>>",
-    placeholderName: "SEED_CONTENT",
-  });
-
-  try {
-    template = renderTemplateWithDeclarations(template, artifact.metadata.placeholders, {
-      WORKDIR: opts.workdir,
-      SEED_LABEL: opts.seedLabel,
-      SEED_CONTENT: opts.seedContent,
-    });
-  } catch (err) {
-    if (err instanceof PromptRenderingError) {
-      throw new Error(`intent-split prompt configuration error: ${err.details}`);
-    }
-    throw err;
-  }
-
-  return `${template}
-
-## File output
-
-- Write the authored intents as markdown files under \`${opts.stagingDir}\`.
-- Write one file per intent.
-- Filename must be \`<name>.md\`, where \`name:\` is the frontmatter slug in that file.
-- Include a \`## Prerequisites\` section in every emitted intent.
-- If there are prerequisites, write one prerequisite behavior per physical line as \`- ...\`; do not use prose, numbered lists, nested bullets, or wrapped continuation lines.
-- Leave the \`## Prerequisites\` body empty when there are no prerequisites.
-- Do not create subdirectories.
-- Do not edit any files outside \`${opts.stagingDir}\`.
-- Do not write spec \`index.md\` files or numbered subspec files.
-`;
-}
+export { buildIntentSplitPrompt } from "../../../../shared/prompts/intent-split.ts";
 
 export async function runIntentSplitTurn(opts: {
   worktreePath: string;
@@ -162,8 +109,5 @@ export async function runIntentSplitTurn(opts: {
 }
 
 export function listStageMarkdownFiles(stagingDir: string): string[] {
-  return readdirSync(stagingDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-    .map((entry) => join(stagingDir, entry.name))
-    .sort();
+  return listIntentStageMarkdownFiles(stagingDir);
 }

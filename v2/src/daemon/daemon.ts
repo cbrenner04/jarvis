@@ -20,7 +20,7 @@ import {
   openLogSink,
   type PersistedRecord,
 } from "../persistence/log-stream.ts";
-import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
+import { openStateStore, type Run, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { type ReviseReconvergeDeps, reconvergeRevisingRun, reviseAwaitingHuman } from "./daemon-revise.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
 import {
@@ -67,6 +67,46 @@ function ownershipKeyString(key: OwnershipKey): string {
 
 function worktreeClaimedMessage(key: OwnershipKey): string {
   return `Worktree already claimed for project=${key.project}, branch=${key.branch}`;
+}
+
+const LIST_TERMINAL_RUN_LIMIT = 50;
+
+const TERMINAL_LIST_STATUSES: ReadonlySet<RunStatus> = new Set(["completed", "failed", "blocked", "killed"]);
+
+function isTerminalListStatus(status: RunStatus): boolean {
+  return TERMINAL_LIST_STATUSES.has(status);
+}
+
+/** Filter durable rows before list pays per-row loadRun/tail cost. Durable store is unchanged. */
+function retainListedRuns(runs: Run[]): Run[] {
+  const keptIds = new Set<string>();
+  const keptInvocationIds = new Set<string>();
+  let terminalKept = 0;
+
+  for (const run of runs) {
+    const invocationId = run.workflowSnapshot?.invocationId;
+    if (!isTerminalListStatus(run.status)) {
+      keptIds.add(run.id);
+      if (invocationId !== undefined) keptInvocationIds.add(invocationId);
+      continue;
+    }
+    if (terminalKept < LIST_TERMINAL_RUN_LIMIT) {
+      keptIds.add(run.id);
+      terminalKept++;
+      if (invocationId !== undefined) keptInvocationIds.add(invocationId);
+    }
+  }
+
+  for (const run of runs) {
+    if (keptIds.has(run.id)) continue;
+    if (!isTerminalListStatus(run.status)) continue;
+    const invocationId = run.workflowSnapshot?.invocationId;
+    if (invocationId !== undefined && keptInvocationIds.has(invocationId)) {
+      keptIds.add(run.id);
+    }
+  }
+
+  return runs.filter((run) => keptIds.has(run.id));
 }
 
 export class WorktreeOwnershipRegistry {
@@ -557,7 +597,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   };
 
   const listHandler: RpcHandler = () => {
-    const durableRuns = store.listRuns();
+    const durableRuns = retainListedRuns(store.listRuns());
     const fullRuns = new Map<string, LoadedRun>();
     const workflowRuns = new Map<string, Map<string, LoadedRun>>();
     const liveRunIds = new Set<string>();

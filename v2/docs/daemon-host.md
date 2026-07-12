@@ -10,6 +10,9 @@ placement; this doc pins the transport contract only.
 Operator-facing `jarvis daemon ...` and `jarvis run ...` behavior lives in
 [`write-behavior.md`](./write-behavior.md).
 
+Finalization (the ready gate and draft-to-ready flip) runs in daemon-hosted
+write loops without blocking unrelated IPC such as `list` and `tail`.
+
 ## Socket path
 
 Callers supply `socketPath` explicitly. There is no production default,

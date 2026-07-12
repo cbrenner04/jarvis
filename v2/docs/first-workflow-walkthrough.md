@@ -273,6 +273,9 @@ jarvis run workflow intent-reviewed --seed-text "Add a safer checkout flow" --re
 The `--review-passes` flag (optional, defaults to `1`) controls the critic-actuator review cycle count.
 Passing `--review-passes 0` is equivalent to the split-only preset (skips review).
 
+Review runs entirely in the split workspace: critic and actuator invocations,
+verdict handling, boundary restoration, and landing never modify the operator checkout.
+
 **Outputs and failure boundary:**
 
 - **Successful review → published intents:** After the critic validates and

@@ -443,6 +443,8 @@ configuration: the write step's `intentOutput`, a staging directory path, and
 an `invocationId` for landing after review completes. Patch context
 (`patchReviewContext`), plan context (`planReviewContext`), and
 `deferredIntentOutput` are mutually exclusive; dispatch branches over all three.
+For reviewed intents, `cwd`, verdict handling, boundary enforcement, and landing
+all use the split step's resolved external workspace, never the operator checkout.
 
 **Patch-context light review:** A `review` step with `patchReviewContext`
 (`specPath`, `baseBranch`) runs bounded critic-actuator cycles in the implement

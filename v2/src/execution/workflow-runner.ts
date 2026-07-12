@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
@@ -1345,8 +1345,14 @@ function landReviewedIntentOutput(
   deferred: NonNullable<ReviewWorkflowStep["deferredIntentOutput"]>,
   verdictPath: string,
 ): string | undefined {
+  const ownerPath = `${verdictPath}.owner`;
+  const verdict = existsSync(verdictPath) ? readFileSync(verdictPath, "utf8") : undefined;
+  const owner = existsSync(ownerPath) ? readFileSync(ownerPath, "utf8") : undefined;
   try {
     excludeVerdictFromStaging(deferred.stagingDir, verdictPath);
+    if (owner !== undefined) {
+      rmSync(ownerPath, { force: true });
+    }
     landIntentWorkflowOutput({
       worktreePath,
       baseRef: deferred.baseRef,
@@ -1356,6 +1362,8 @@ function landReviewedIntentOutput(
     cleanupVerdictFile(verdictPath);
     return undefined;
   } catch (error) {
+    if (verdict !== undefined) writeFileSync(verdictPath, verdict, "utf8");
+    if (owner !== undefined) writeFileSync(ownerPath, owner, "utf8");
     return error instanceof Error ? error.message : String(error);
   }
 }

@@ -824,7 +824,7 @@ describe("v2 cli", () => {
           },
           specPath: "spec.md",
           stepRules:
-        "The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.",
+            "The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.",
           expectedArtifactPath: "proof.txt",
           maxIterations: 4,
           bindings: [],

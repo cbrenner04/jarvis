@@ -96,8 +96,11 @@ Full-screen ink monitor after connect + liveness proof. Layout (not a fixed
 transcript — values refresh every second):
 
 - **Run table** — columns `runId`, `project`, `branch`, `status`, `liveness`
-  (`live` / `not-live`). The selected row is marked with `>`. On entry the
-  first selectable row is selected and a daemon `wait` is issued for it.
+  (`live` / `not-live`). `status` and `liveness` are colored by run-state
+  semantics (active cyan, completed green, terminal failure red; `not-live`
+  uncolored); text labels remain the primary signal. The selected row is marked
+  with `>`. On entry the first selectable row is selected and a daemon `wait` is
+  issued for it.
 - **Queue** (when present) — FIFO rows waiting for memory headroom.
 - **Outcome** — from daemon `wait` for the selected run: `runStatus` plus
   optional `loopOutcomeKind`, `iterationsConsumed`, and `resumable`. Shows

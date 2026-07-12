@@ -475,6 +475,11 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
 - [v2 additive] TUI workflow-step view: workflow-backed `list` rows render
   per-step status from the daemon snapshot; single-step rows unchanged.
   Sources: `v2/src/tui/tui-monitor-lines.ts`, `v2/docs/write-behavior.md`
+- [v2 additive] TUI run-monitor state cells: run-table and queue `status` plus
+  run-table `liveness` render as separate ink cells colored by semantic tone
+  (active cyan, completed green, terminal failure red; `not-live` uncolored);
+  text labels unchanged. Sources: `v2/src/tui/tui-monitor-lines.ts`,
+  `v2/src/tui/tui-ink-monitor.tsx`, `v2/docs/first-workflow-walkthrough.md`
 - [v2 additive] IPC client `nextFrame()`/`records()` reads parked on the socket
   (unbounded or timed) reject with `"connection closed"` when the socket
   closes, instead of hanging or leaving a stale timer. Sources:

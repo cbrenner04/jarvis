@@ -9,7 +9,7 @@ import type {
   ReviewDebateWorkflowStep,
   WriteWorkflowStep,
 } from "../execution/workflow-runner.ts";
-import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
+import { openLogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";

@@ -5,10 +5,21 @@ import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts
 import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
 import { resolveMachineProfile } from "../config/machine-config-loader.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
-import { type AnyWorkflowStep, executeWorkflow, type ReviewProgress, workflowTelemetryLabel } from "../execution/workflow-runner.ts";
+import {
+  type AnyWorkflowStep,
+  executeWorkflow,
+  type ReviewProgress,
+  workflowTelemetryLabel,
+} from "../execution/workflow-runner.ts";
 import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
-import { type LogReader, type LoopFinishedEvent, openLogReader, openLogSink } from "../persistence/log-stream.ts";
+import {
+  type LogReader,
+  type LoopFinishedEvent,
+  openLogReader,
+  openLogSink,
+  type PersistedRecord,
+} from "../persistence/log-stream.ts";
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { type ReviseReconvergeDeps, reconvergeRevisingRun, reviseAwaitingHuman } from "./daemon-revise.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
@@ -383,9 +394,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return new Promise((resolve) => {
       const logSink = logsPath !== undefined ? openLogSink(logsPath) : undefined;
       const telemetry =
-        operatorSessionId !== undefined
-          ? { operatorSessionId, workflow: workflowTelemetryLabel(steps) }
-          : undefined;
+        operatorSessionId !== undefined ? { operatorSessionId, workflow: workflowTelemetryLabel(steps) } : undefined;
       executeWorkflow({
         steps,
         stateStore: store,
@@ -910,6 +919,38 @@ export type TailStreamHandlerDeps = {
   logReader: LogReader;
 };
 
+function parseTailStreamRunId(payload: unknown): string | undefined {
+  const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
+  if (typeof params !== "object" || params === null) return undefined;
+  const runId = (params as { runId?: unknown }).runId;
+  return typeof runId === "string" ? runId : undefined;
+}
+
+async function streamRunLogRecords(
+  deps: TailStreamHandlerDeps,
+  runId: string,
+  onData: (record: PersistedRecord) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  const run = deps.stateStore.loadRun(runId);
+  if (!run) return;
+
+  const replay = deps.logReader.tail(runId);
+  for (const record of replay) {
+    if (signal.aborted) return;
+    onData(record);
+  }
+
+  if (run.status !== "in-progress") return;
+
+  const subscribeSeq = replay.at(-1)?.seq ?? 0;
+  for await (const record of deps.logReader.follow(runId, signal)) {
+    if (signal.aborted) break;
+    if (record.seq <= subscribeSeq) continue;
+    onData(record);
+  }
+}
+
 /**
  * Tail-log stream handler factory for IPC `stream-open` on run logs.
  *
@@ -919,36 +960,14 @@ export type TailStreamHandlerDeps = {
  */
 export function createTailStreamHandler(deps: TailStreamHandlerDeps): StreamHandler {
   return async (_streamId, payload, onData, onClose, signal) => {
-    const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
-    if (!params?.runId || typeof params.runId !== "string") {
-      onClose();
-      return;
-    }
-
-    const runId = params.runId;
-    const run = deps.stateStore.loadRun(runId);
-    if (!run) {
+    const runId = parseTailStreamRunId(payload);
+    if (!runId || !deps.stateStore.loadRun(runId)) {
       onClose();
       return;
     }
 
     try {
-      const replay = deps.logReader.tail(runId);
-      for (const record of replay) {
-        if (signal.aborted) return;
-        onData(record);
-      }
-
-      if (run.status !== "in-progress") {
-        return;
-      }
-
-      const subscribeSeq = replay.at(-1)?.seq ?? 0;
-      for await (const record of deps.logReader.follow(runId, signal)) {
-        if (signal.aborted) break;
-        if (record.seq <= subscribeSeq) continue;
-        onData(record);
-      }
+      await streamRunLogRecords(deps, runId, onData, signal);
     } finally {
       onClose();
     }

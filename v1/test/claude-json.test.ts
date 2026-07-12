@@ -88,9 +88,7 @@ describe("parseClaudeJsonOutput", () => {
 
   test("parses stream-json transcript matching batch envelope", () => {
     const batch = parseClaudeJsonOutput(readFileSync(join(fixturesDir, "2.1.142-simple-prose.json"), "utf8"));
-    const stream = parseClaudeJsonOutput(
-      readFileSync(join(fixturesDir, "2.1.142-simple-prose-stream.ndjson"), "utf8"),
-    );
+    const stream = parseClaudeJsonOutput(readFileSync(join(fixturesDir, "2.1.142-simple-prose-stream.ndjson"), "utf8"));
 
     expect(stream.warnings).toEqual([]);
     expect(stream.displayText).toBe(batch.displayText);

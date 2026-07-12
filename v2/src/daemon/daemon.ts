@@ -701,7 +701,23 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     checkWorktreeClaimed,
   };
 
-  async function resumeAwaitingHuman(
+  const humanDecisionAdmission = new Map<string, Promise<unknown>>();
+
+  function withHumanDecisionAdmission<T>(runId: string, work: () => Promise<T>): Promise<T> {
+    const prev = humanDecisionAdmission.get(runId) ?? Promise.resolve();
+    const next = prev.catch(() => {}).then(work);
+    humanDecisionAdmission.set(runId, next);
+    next
+      .catch(() => {})
+      .finally(() => {
+        if (humanDecisionAdmission.get(runId) === next) {
+          humanDecisionAdmission.delete(runId);
+        }
+      });
+    return next;
+  }
+
+  async function resumeAwaitingHumanDecision(
     run: LoadedRun,
     decision: string | undefined,
     prompt: string | undefined,
@@ -730,6 +746,34 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
 
     return { kind: "error", code: "invalid_params", message: `Unknown decision: ${decision}` };
+  }
+
+  async function resumeAwaitingHuman(
+    run: LoadedRun,
+    decision: string | undefined,
+    prompt: string | undefined,
+  ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> {
+    return withHumanDecisionAdmission(run.id, async () => {
+      const current = store.loadRun(run.id);
+      if (!current) {
+        return { kind: "error", code: "unknown_run", message: `Run ${run.id} not found` };
+      }
+      if (current.status !== "awaiting-human") {
+        if (current.status === "revising") {
+          return {
+            kind: "error",
+            code: "revise_in_progress",
+            message: `Run ${run.id} is revising; wait for it to re-converge to awaiting-human`,
+          };
+        }
+        return {
+          kind: "error",
+          code: "invalid_params",
+          message: `Run ${run.id} is not awaiting a human decision`,
+        };
+      }
+      return resumeAwaitingHumanDecision(current, decision, prompt);
+    });
   }
 
   const resumePausedRun = (

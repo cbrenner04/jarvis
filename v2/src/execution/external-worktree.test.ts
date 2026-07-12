@@ -265,6 +265,27 @@ describe("external worktree helper", () => {
     expect(existsSync(getExternalWorktreeLockPath(getLockRoot(jarvisRoot)))).toBe(false);
   });
 
+  test("releases lock when setup fails and leaves later setup admissible", async () => {
+    const { repoRoot, jarvisRoot, runner: innerRunner } = setupMockRepo();
+    const failingRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, cwd, options) {
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "add") {
+          throw new Error("worktree add failed");
+        }
+        return innerRunner.runAsync(cmd, args, cwd, options);
+      },
+    };
+
+    await expect(withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "never", failingRunner)).rejects.toThrow(
+      "worktree add failed",
+    );
+    expect(existsSync(getExternalWorktreeLockPath(getLockRoot(jarvisRoot)))).toBe(false);
+
+    const result = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "ok", innerRunner);
+    expect(result.value).toBe("ok");
+    expect(existsSync(getExternalWorktreeLockPath(getLockRoot(jarvisRoot)))).toBe(false);
+  });
+
   test("recreates a missing but still-registered worktree", async () => {
     const { repoRoot, jarvisRoot, runner } = setupMockRepo();
 

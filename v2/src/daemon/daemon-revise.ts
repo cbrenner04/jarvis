@@ -139,7 +139,18 @@ export async function reviseAwaitingHuman(
     };
   }
 
-  if (!(await checkWorktreeDirty(repeatedRun.worktreePath)) && !prompt) {
+  let isDirty: boolean;
+  try {
+    isDirty = await checkWorktreeDirty(repeatedRun.worktreePath);
+  } catch (err) {
+    return {
+      kind: "error",
+      code: "internal_error",
+      message: `Unable to probe worktree dirty state: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  if (!isDirty && !prompt) {
     return {
       kind: "error",
       code: "revise_requires_input",

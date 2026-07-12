@@ -466,6 +466,16 @@ but resolves model rungs with `role: "shrink"` and records telemetry with
 `contract_miss`, and `invocation_failure`. If shrink stops non-`complete`,
 `wait` reports that outcome at the implement workflow step.
 
+**Implement launch path preflight:** Before daemon contact or worktree creation,
+the CLI resolves the registered project root and effective spec/artifact paths
+through symlinks. The spec must exist and resolve inside that root. An `index.md`
+launch uses that resolved spec as its artifact and ignores `--artifact`; a
+non-index launch requires an existing explicit artifact resolving inside the same
+root. Missing or escaping paths fail locally with a spec or artifact error. The
+workflow stores both validated paths relative to the resolved source root, then
+uses them inside the branch worktree; a first launch never reads the not-yet-made
+worktree.
+
 **Implement routing to linked subspecs:** When `jarvis run workflow implement`
 is launched with a multi-subspec `index.md`, the harness routes each write-loop
 iteration to the first unchecked linked subspec in the index. The active linked

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProjectMatch } from "../../../shared/project-registry.ts";
@@ -305,6 +305,40 @@ describe("buildImplementWorkflowSteps", () => {
       branchName: "implement-run",
       baseRef: "main",
     });
+  });
+
+  test("builds a project-relative write step from the source checkout before its worktree exists", () => {
+    const root = mkdtempSync(join(tmpdir(), "implement-workflow-steps-project-"));
+    mkdirSync(join(root, "spec"));
+    writeFileSync(join(root, "spec", "index.md"), "- [ ] [Sub](./sub.md)\n", "utf8");
+    writeFileSync(join(root, "spec", "sub.md"), "# Sub\n", "utf8");
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
+    const machineProfile = writeValidProfile();
+
+    const result = buildImplementWorkflowSteps(
+      {
+        cwd: root,
+        branchName: "new-branch",
+        baseRef: "main",
+        specPath: "spec/index.md",
+        artifactPath: "spec/index.md",
+        projectRoot: root,
+        projectName: "proj",
+        reviewPasses: 0,
+      },
+      {
+        loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const step = result.steps[0];
+    expect(step?.behavior).toBe("write");
+    if (step?.behavior !== "write") return;
+    expect(step.specPath).toBe("spec/index.md");
+    expect(step.expectedArtifactPath).toBe("spec/index.md");
+    expect(step.worktree.branchName).toBe("new-branch");
   });
 
   test("returns an error result naming the unresolved cwd instead of throwing", () => {

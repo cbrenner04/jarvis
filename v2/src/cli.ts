@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, dirname, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
@@ -725,9 +725,18 @@ function resolveImplementWorkflowInput(
     return { ok: false, error: "Invalid arguments" };
   }
 
-  const resolvedSpecPath = resolve(cwd, parsed.specPath);
+  const requestedSpecPath = resolve(cwd, parsed.specPath);
+  const resolvedSpecPath = resolveExistingImplementPath("Spec", requestedSpecPath);
+  if (typeof resolvedSpecPath === "object") return resolvedSpecPath;
+
   const registry = readProjectRegistry();
-  const match = findProjectMatch(resolvedSpecPath, registry);
+  const resolvedRegistry: Record<string, { root: string; origin?: string }> = {};
+  for (const [key, project] of Object.entries(registry)) {
+    const root = resolveExistingImplementPath("Registered project root", project.root);
+    if (typeof root === "object") return root;
+    resolvedRegistry[key] = { root, ...(project.origin !== undefined ? { origin: project.origin } : {}) };
+  }
+  const match = findProjectMatch(resolvedSpecPath, resolvedRegistry);
 
   if (match === undefined) {
     return { ok: false, error: `Spec path outside registered project roots: ${resolvedSpecPath}` };
@@ -737,14 +746,23 @@ function resolveImplementWorkflowInput(
   const isIndexSpec = specFilename === "index.md";
   const artifactPath = isIndexSpec ? resolvedSpecPath : parsed.artifactPath;
 
-  if (!isIndexSpec && artifactPath === undefined) {
+  if (artifactPath === undefined) {
     return { ok: false, error: "Non-index spec requires --artifact" };
+  }
+
+  const resolvedArtifactPath =
+    isIndexSpec
+      ? resolvedSpecPath
+      : resolveExistingImplementPath("Artifact", resolve(cwd, artifactPath));
+  if (typeof resolvedArtifactPath === "object") return resolvedArtifactPath;
+  if (findProjectMatch(resolvedArtifactPath, { [match.key]: { root: match.root } }) === undefined) {
+    return { ok: false, error: `Artifact path outside registered project root: ${resolvedArtifactPath}` };
   }
 
   const branchName = parsed.branchName ?? basename(dirname(resolvedSpecPath));
 
   const worktreeRelativeSpec = relative(match.root, resolvedSpecPath);
-  const worktreeRelativeArtifact = artifactPath ? relative(match.root, artifactPath) : undefined;
+  const worktreeRelativeArtifact = relative(match.root, resolvedArtifactPath);
 
   const reviewPasses =
     parsed.reviewPasses !== undefined
@@ -773,6 +791,14 @@ function resolveImplementWorkflowInput(
     reviewPasses: reviewPasses.reviewPasses,
     reviewBehavior: reviewBehavior.reviewBehavior,
   };
+}
+
+function resolveExistingImplementPath(label: string, path: string): string | { ok: false; error: string } {
+  try {
+    return realpathSync(path);
+  } catch {
+    return { ok: false, error: `${label} path does not exist: ${path}` };
+  }
 }
 
 type IntentWorkflowCliInput =

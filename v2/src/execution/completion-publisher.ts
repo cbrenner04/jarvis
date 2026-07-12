@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 import { type RefreshPrBodyInput, refreshPrBody } from "./pr-body-refresh.ts";
+import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 
 export type CompletionPublisherInput = {
   worktreePath: string;

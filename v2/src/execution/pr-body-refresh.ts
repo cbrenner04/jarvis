@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 import { renderAttribution } from "./pr-attribution.ts";
+import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 
 export const NARRATIVE_START_MARKER = "<!-- jarvis:narrative:start -->";
 export const NARRATIVE_END_MARKER = "<!-- jarvis:narrative:end -->";

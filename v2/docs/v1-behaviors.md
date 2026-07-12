@@ -469,6 +469,17 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   outcome panel from invocation-boundary `wait`, preserve selection by `runId`,
   and quit with `q` or Ctrl-C. Sources: `v2/src/tui/tui-entry.tsx`,
   `v2/docs/write-behavior.md`
+- [v2 additive] TUI run-table ordering: non-queued rows render active statuses
+  (`in-progress`, `awaiting-human`, `revising`, `paused`, `budget-soft-stopped`)
+  before terminal statuses (`completed`, `failed`, `killed`, `blocked`), newest
+  first within each group; `not-live` does not move an active-status row into
+  terminal history. Queued rows stay in the FIFO `Queue` section. Sources:
+  `v2/src/tui/tui-monitor-lines.ts`, `v2/docs/first-workflow-walkthrough.md`
+- [v2 additive] TUI selection default: on entry, select the topmost active run
+  and issue `wait` for it; when every selectable run is terminal, select the
+  first terminal row. Mid-session selection stays anchored by `runId` (a run
+  that transitions active→terminal keeps `>` and moves with its row). Sources:
+  `v2/src/tui/tui-entry.tsx`, `v2/src/tui/tui-monitor-lines.ts`
 - [v2 additive] TUI run-monitor steering: `pauseSelected` / `resumeSelected` /
   `killSelected` on the selected run; inline errors (`<code>: <message>`,
   `daemon_error: <message>`, `no run selected`); successful `resume` re-issues

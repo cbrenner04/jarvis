@@ -98,9 +98,11 @@ transcript — values refresh every second):
 - **Run table** — columns `runId`, `project`, `branch`, `status`, `liveness`
   (`live` / `not-live`). `status` and `liveness` are colored by run-state
   semantics (active cyan, completed green, terminal failure red; `not-live`
-  uncolored); text labels remain the primary signal. The selected row is marked
-  with `>`. On entry the first selectable row is selected and a daemon `wait` is
-  issued for it.
+  uncolored); text labels remain the primary signal. Rows list active runs first
+  (newest first), then terminal history (newest first); daemon order is
+  preserved within each group. The selected row is marked with `>`. On entry
+  the topmost active run is selected and a daemon `wait` is issued for it; when
+  every run is terminal, selection falls to the first terminal row.
 - **Queue** (when present) — FIFO rows waiting for memory headroom.
 - **Outcome** — from daemon `wait` for the selected run: `runStatus` plus
   optional `loopOutcomeKind`, `iterationsConsumed`, and `resumable`. Shows

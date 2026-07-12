@@ -2,10 +2,12 @@ import { describe, expect, test } from "bun:test";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { RUN_STATUSES } from "../persistence/state-store.ts";
 import {
+  firstSelectableRunId,
   joinMonitorRow,
   livenessTone,
   monitorSegmentRows,
   monitorTextLines,
+  orderSelectableRuns,
   RUN_STATUS_TONES,
 } from "./tui-monitor-lines.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
@@ -75,6 +77,105 @@ const MONITOR_LINES_FIXTURE_PIN = [
   "Press q or Ctrl-C to quit.",
 ] as const;
 
+describe("orderSelectableRuns", () => {
+  test("lists active runs before terminal runs while preserving daemon order within each group", () => {
+    const completedOlder: DaemonListRunRow = {
+      runId: "run-completed-older",
+      project: "demo",
+      branch: "old",
+      status: "completed",
+      isLive: false,
+    };
+    const activeNewer: DaemonListRunRow = {
+      runId: "run-active-newer",
+      project: "demo",
+      branch: "new",
+      status: "in-progress",
+      isLive: true,
+    };
+    const activeOlder: DaemonListRunRow = {
+      runId: "run-active-older",
+      project: "demo",
+      branch: "active-old",
+      status: "paused",
+      isLive: false,
+    };
+
+    expect(orderSelectableRuns([completedOlder, activeNewer, activeOlder]).map((run) => run.runId)).toEqual([
+      "run-active-newer",
+      "run-active-older",
+      "run-completed-older",
+    ]);
+  });
+
+  test("keeps not-live active runs in the active group", () => {
+    const notLiveActive: DaemonListRunRow = {
+      runId: "run-awaiting",
+      project: "demo",
+      branch: "await",
+      status: "awaiting-human",
+      isLive: false,
+    };
+    const terminal: DaemonListRunRow = {
+      runId: "run-failed",
+      project: "demo",
+      branch: "fail",
+      status: "failed",
+      isLive: false,
+    };
+
+    expect(orderSelectableRuns([terminal, notLiveActive]).map((run) => run.runId)).toEqual([
+      "run-awaiting",
+      "run-failed",
+    ]);
+  });
+
+  test("excludes queued runs from selectable ordering", () => {
+    const queued: DaemonListRunRow = {
+      runId: "run-queued",
+      project: "demo",
+      branch: "q",
+      status: "queued",
+      isLive: false,
+    };
+
+    expect(orderSelectableRuns([queued, SINGLE_STEP_RUN]).map((run) => run.runId)).toEqual(["run-single"]);
+  });
+});
+
+describe("firstSelectableRunId", () => {
+  test("returns the topmost active run when terminal rows precede it in daemon order", () => {
+    const terminal: DaemonListRunRow = {
+      runId: "run-beta",
+      project: "demo",
+      branch: "beta",
+      status: "completed",
+      isLive: false,
+    };
+
+    expect(firstSelectableRunId([terminal, SINGLE_STEP_RUN])).toBe("run-single");
+  });
+
+  test("falls back to the first terminal row when every selectable run is terminal", () => {
+    const newer: DaemonListRunRow = {
+      runId: "run-newer",
+      project: "demo",
+      branch: "new",
+      status: "killed",
+      isLive: false,
+    };
+    const older: DaemonListRunRow = {
+      runId: "run-older",
+      project: "demo",
+      branch: "old",
+      status: "blocked",
+      isLive: false,
+    };
+
+    expect(firstSelectableRunId([newer, older])).toBe("run-newer");
+  });
+});
+
 describe("RUN_STATUS_TONES", () => {
   test("covers every RUN_STATUSES member", () => {
     for (const status of RUN_STATUSES) {
@@ -100,6 +201,32 @@ describe("monitorSegmentRows", () => {
 });
 
 describe("monitorTextLines", () => {
+  test("renders active runs before terminal runs in the run table", () => {
+    const terminalFirst: DaemonListRunRow = {
+      runId: "run-beta",
+      project: "demo",
+      branch: "beta",
+      status: "completed",
+      isLive: false,
+    };
+    const activeSecond: DaemonListRunRow = {
+      runId: "run-alpha",
+      project: "demo",
+      branch: "alpha",
+      status: "in-progress",
+      isLive: true,
+    };
+
+    const lines = monitorTextLines(monitorState({ runs: [terminalFirst, activeSecond], selectedRunId: "run-alpha" }));
+
+    const headerIndex = lines.indexOf("runId project branch status liveness");
+    const alphaIndex = lines.findIndex((line) => line.includes("run-alpha"));
+    const betaIndex = lines.findIndex((line) => line.includes("run-beta"));
+
+    expect(alphaIndex).toBeGreaterThan(headerIndex);
+    expect(betaIndex).toBeGreaterThan(alphaIndex);
+  });
+
   test("pins full output for fixture state", () => {
     expect(monitorTextLines(MONITOR_LINES_FIXTURE_STATE)).toEqual([...MONITOR_LINES_FIXTURE_PIN]);
   });

@@ -14,6 +14,17 @@ Daemon-hosted work, including finalization (the ready gate and draft-to-ready
 flip), must not block unrelated IPC. No daemon-hosted path may use a synchronous
 child process; `bun run check` guards `v2/**` and `shared/**` against it.
 
+## Restart reconciliation
+
+Before opening its IPC listener, a daemon marks durable `queued`, `in-progress`,
+`paused`, `budget-soft-stopped`, `awaiting-human`, and `revising` runs from a
+prior process as `killed`. Each transition appends `run_reconciled` with
+`runStatus: "killed"` and `reason: "daemon_restart"`; `jarvis run log <run-id>`
+replays that event. `completed`, `blocked`, `failed`, and `killed` rows are
+unchanged. State or log reconciliation failure aborts startup before IPC serves.
+Reconciliation retains worktrees, branches, attempts, checkpoints, queued input,
+and workflow snapshots; it does not reclaim worktrees.
+
 ## Socket path
 
 Callers supply `socketPath` explicitly. There is no production default,

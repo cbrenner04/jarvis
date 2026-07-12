@@ -1847,6 +1847,12 @@ describe("v2 cli", () => {
       logRecord(1, "iteration_started"),
       logRecord(2, "boundary_committed"),
       logRecord(3, "loop_finished"),
+      {
+        runId: "run-123",
+        seq: 4,
+        ts: "2026-01-01T00:00:04.000Z",
+        event: { kind: "run_reconciled", runStatus: "killed", reason: "daemon_restart" },
+      },
     ];
 
     const originalRandomUuid = crypto.randomUUID;
@@ -1860,6 +1866,7 @@ describe("v2 cli", () => {
               { kind: "stream-data", streamId, payload: JSON.stringify(records[0]) },
               { kind: "stream-data", streamId, payload: JSON.stringify(records[1]) },
               { kind: "stream-data", streamId, payload: JSON.stringify(records[2]) },
+              { kind: "stream-data", streamId, payload: JSON.stringify(records[3]) },
               { kind: "stream-end", streamId },
             ],
             { sent },
@@ -1873,7 +1880,7 @@ describe("v2 cli", () => {
 
     expect(sent).toEqual([{ kind: "stream-open", streamId, payload: { runId: "run-123" } }]);
     expect(cap.read()).toEqual({
-      stdout: `${JSON.stringify(records[0])}\n${JSON.stringify(records[1])}\n${JSON.stringify(records[2])}\n`,
+      stdout: `${JSON.stringify(records[0])}\n${JSON.stringify(records[1])}\n${JSON.stringify(records[2])}\n${JSON.stringify(records[3])}\n`,
       stderr: "",
     });
   });

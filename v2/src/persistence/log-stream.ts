@@ -27,6 +27,12 @@ export type RunExecutionFailedEvent = {
   message?: string;
 };
 
+export type RunReconciledEvent = {
+  kind: "run_reconciled";
+  runStatus: "killed";
+  reason: "daemon_restart";
+};
+
 /** Agent stdout excerpt when token parsing fails; truncated at append time. */
 export type InvalidTokenDetailEvent = {
   kind: "invalid_token_detail";
@@ -39,6 +45,7 @@ export type LogEvent =
   | BoundaryCommittedEvent
   | LoopFinishedEvent
   | RunExecutionFailedEvent
+  | RunReconciledEvent
   | InvalidTokenDetailEvent;
 
 /** Max chars persisted for {@link InvalidTokenDetailEvent.tokenText}. */

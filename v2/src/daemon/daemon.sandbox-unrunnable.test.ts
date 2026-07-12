@@ -109,7 +109,16 @@ describe("daemon (real process)", () => {
 
     const parsed = parseListRuns((listFrame as ResponseFrame).result);
     expect(parsed).toBeDefined();
-    expect(parsed?.runs).toEqual([{ runId, project: "p", branch: "b", status: "in-progress", isLive: false }]);
+    expect(parsed?.runs).toEqual([
+      {
+        runId,
+        project: "p",
+        branch: "b",
+        status: "killed",
+        isLive: false,
+        error: { reason: "resumable_kill", retryable: true, nextAction: "resume" },
+      },
+    ]);
     client.close();
 
     const shutdownClient = await connectIpcClient(LIST_SOCKET_PATH);

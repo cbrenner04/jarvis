@@ -41,10 +41,10 @@ terminal state before clients can connect.
 
 ## Acceptance criteria
 
-- [ ] Before accepting IPC, daemon startup changes every durable `queued`, `in-progress`, `paused`, `budget-soft-stopped`, `awaiting-human`, and `revising` run to `killed`.
-- [ ] Startup leaves durable `completed`, `blocked`, `failed`, and `killed` runs unchanged.
-- [ ] Each transitioned run receives exactly one terminal `run_reconciled` log event with `runStatus: "killed"` and `reason: "daemon_restart"`; unchanged terminal runs receive no reconciliation event.
-- [ ] `jarvis run log <run-id>` renders the `run_reconciled` event including `daemon_restart`.
-- [ ] Reconciliation completes before the IPC listener opens, and a state or log reconciliation error prevents the daemon from serving IPC.
-- [ ] Reconciliation preserves each run's worktree, branch, attempt/checkpoint, queued input, and workflow snapshot data.
-- [ ] `v2/docs/daemon-host.md` and `v2/docs/v1-behaviors.md` describe the shipped restart behavior and retained worktrees/branches.
+- [x] Before accepting IPC, daemon startup changes every durable `queued`, `in-progress`, `paused`, `budget-soft-stopped`, `awaiting-human`, and `revising` run to `killed`.
+- [x] Startup leaves durable `completed`, `blocked`, `failed`, and `killed` runs unchanged.
+- [x] Each transitioned run receives exactly one terminal `run_reconciled` log event with `runStatus: "killed"` and `reason: "daemon_restart"`; unchanged terminal runs receive no reconciliation event.
+- [x] `jarvis run log <run-id>` renders the `run_reconciled` event including `daemon_restart`.
+- [x] Reconciliation completes before the IPC listener opens, and a state or log reconciliation error prevents the daemon from serving IPC.
+- [x] Reconciliation preserves each run's worktree, branch, attempt/checkpoint, queued input, and workflow snapshot data.
+- [x] `v2/docs/daemon-host.md` and `v2/docs/v1-behaviors.md` describe the shipped restart behavior and retained worktrees/branches.

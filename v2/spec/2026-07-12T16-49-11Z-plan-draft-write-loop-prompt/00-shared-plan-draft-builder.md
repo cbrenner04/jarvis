@@ -14,17 +14,17 @@ Suffix assembly for `plan.prompt.draft` lives only in v1 (`v1/src/modes/plan/dra
 
 ## Task checklist
 
-- [ ] Add `shared/prompts/plan-draft.ts` exporting `PLAN_DRAFT_PROMPT_ID` and `buildPlanDraftPrompt({ name, intent, specGuidance, workDirLabel?, targetDir?, flatSpecLayout?, specDir?, stepRules? })`.
-- [ ] Move fragment/registry assembly, delimiter enforcement, layout rewrite, and rendering out of `v1/src/modes/plan/draft.ts` into the builder; `buildDraftPrompt` delegates and preserves its throw contract.
-- [ ] Co-locate `shared/prompts/plan-draft.test.ts`.
+- [x] Add `shared/prompts/plan-draft.ts` exporting `PLAN_DRAFT_PROMPT_ID` and `buildPlanDraftPrompt({ name, intent, specGuidance, workDirLabel?, targetDir?, flatSpecLayout?, specDir?, stepRules? })`.
+- [x] Move fragment/registry assembly, delimiter enforcement, layout rewrite, and rendering out of `v1/src/modes/plan/draft.ts` into the builder; `buildDraftPrompt` delegates and preserves its throw contract.
+- [x] Co-locate `shared/prompts/plan-draft.test.ts`.
 
 ## Acceptance criteria
 
-- [ ] `v1/test/prompts/rendered-snapshots.test.ts` and `v1/test/modes/plan/prompts.test.ts` stay green with no snapshot edits (v1 rendered prompt unchanged by the extraction).
-- [ ] `v1/test/plan-draft-hard-error-continue.test.ts`, `v1/test/plan-draft-additional-read-dirs.test.ts`, and `v1/test/modes/plan/spec-dir.test.ts` stay green (flat-layout and target-dir rewrites unchanged).
-- [ ] A delimiter-violating `intent` or `specGuidance` still surfaces from v1 `buildDraftPrompt` as an error whose message starts `draft prompt configuration error:` and still yields the `model_config` draft result.
-- [ ] `shared/prompts/plan-draft.test.ts` asserts: omitting `specDir` and `stepRules` yields no `## File output` / `## Step completion` sections; supplying them appends those sections; a delimiter-violating `intent` or `specGuidance` throws.
-- [ ] `shared/**` still imports nothing from `v1/**` or `v2/**`.
+- [x] `v1/test/prompts/rendered-snapshots.test.ts` and `v1/test/modes/plan/prompts.test.ts` stay green with no snapshot edits (v1 rendered prompt unchanged by the extraction).
+- [x] `v1/test/plan-draft-hard-error-continue.test.ts`, `v1/test/plan-draft-additional-read-dirs.test.ts`, and `v1/test/modes/plan/spec-dir.test.ts` stay green (flat-layout and target-dir rewrites unchanged).
+- [x] A delimiter-violating `intent` or `specGuidance` still surfaces from v1 `buildDraftPrompt` as an error whose message starts `draft prompt configuration error:` and still yields the `model_config` draft result.
+- [x] `shared/prompts/plan-draft.test.ts` asserts: omitting `specDir` and `stepRules` yields no `## File output` / `## Step completion` sections; supplying them appends those sections; a delimiter-violating `intent` or `specGuidance` throws.
+- [x] `shared/**` still imports nothing from `v1/**` or `v2/**`.
 
 ## Documentation updates
 

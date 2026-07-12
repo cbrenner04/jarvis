@@ -13,4 +13,6 @@ export type BindingAttemptSummary = {
 export type InvocationFailureDetail = {
   failureKind: InvocationFailureKind;
   bindingAttempts: BindingAttemptSummary[];
+  /** Underlying error text, when the failure carries one (e.g. `landing`). */
+  message?: string;
 };

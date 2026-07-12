@@ -1395,7 +1395,7 @@ function finishReviewedIntentLanding(
       attemptId,
       runStatus: "failed",
       outcomeKind: "invocation_failure",
-      invocationFailureDetail: { failureKind: "landing", bindingAttempts: [] },
+      invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: landingError },
     });
     return { kind: "invocation_failure", runId, iterationsConsumed: 0, resumable: true };
   }

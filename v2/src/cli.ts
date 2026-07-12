@@ -18,6 +18,7 @@ import {
 import { loadMachineProfileModels } from "./config/machine-profile-loader.ts";
 import { resolveWriteLoopBindings, type WaitRunCompletionResult } from "./daemon/daemon.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon/daemon-lifecycle.ts";
+import { followDaemonProcessLog, readDaemonProcessLog } from "./daemon/daemon-process-log.ts";
 import { parseListRuns, parseStartResult, parseWaitCompletion } from "./daemon/daemon-wire.ts";
 import {
   WORKFLOW_PRESET_BUILDERS,
@@ -56,6 +57,9 @@ type CliDeps = {
   startDaemon: typeof startDaemon;
   stopDaemon: typeof stopDaemon;
   getDaemonStatus: typeof getDaemonStatus;
+  readDaemonProcessLog: typeof readDaemonProcessLog;
+  followDaemonProcessLog: typeof followDaemonProcessLog;
+  onSigint: (handler: () => void) => () => void;
   runTuiEntry: (deps?: RunTuiEntryDeps) => Promise<number>;
   runTuiLogFollow: (runId: string, deps?: RunTuiLogFollowDeps) => Promise<number>;
   workflowPresetBuilders: Readonly<Record<string, WorkflowPresetBuilder>>;
@@ -69,7 +73,8 @@ type CliDeps = {
 
 type WriteCliInput = { ok: true; input: WriteLoopInput } | { ok: false; message?: string };
 
-const DAEMON_USAGE = "usage: jarvis daemon <start|stop|status>\n";
+const DAEMON_USAGE = "usage: jarvis daemon <start|stop|status|log>\n";
+const DAEMON_LOG_USAGE = "usage: jarvis daemon log [--follow]\n";
 const CONFIG_USAGE = "usage: jarvis config <show|path|set-agents> [args]\n";
 const RUN_USAGE = "usage: jarvis run <start|list|log|pause|resume|kill|wait> [args]\n";
 const TUI_USAGE = "usage: jarvis tui\n";
@@ -102,6 +107,12 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     startDaemon,
     stopDaemon,
     getDaemonStatus,
+    readDaemonProcessLog,
+    followDaemonProcessLog,
+    onSigint: (handler) => {
+      process.on("SIGINT", handler);
+      return () => process.off("SIGINT", handler);
+    },
     runTuiEntry,
     runTuiLogFollow,
     readProjectRegistry,
@@ -192,6 +203,27 @@ async function runDaemonCommand(argv: readonly string[], io: Io, deps: CliDeps):
     const status = await deps.getDaemonStatus(pid, deps.socketPath);
     io.stdout(`${status}\n`);
     return status === "running" ? 0 : 1;
+  }
+
+  if (subcommand === "log") {
+    if (argv.length === 1) {
+      return deps.readDaemonProcessLog(deps.logPath, { writeOut: io.stdout, writeErr: io.stderr });
+    }
+    if (argv.length === 2 && argv[1] === "--follow") {
+      const controller = new AbortController();
+      const unregister = deps.onSigint(() => controller.abort());
+      try {
+        return await deps.followDaemonProcessLog(
+          deps.logPath,
+          { writeOut: io.stdout, writeErr: io.stderr },
+          controller.signal,
+        );
+      } finally {
+        unregister();
+      }
+    }
+    io.stderr(DAEMON_LOG_USAGE);
+    return 1;
   }
 
   io.stderr(DAEMON_USAGE);

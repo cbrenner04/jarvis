@@ -426,6 +426,22 @@ failure.
 **Probe order:** Process liveness first (no socket I/O if dead). Prevents false
 "running" states from stale sockets.
 
+### `jarvis daemon log [--follow]`
+
+Reads `<logPath>` (the process-level log from `startDaemon`'s
+[Log path](#startdaemonsocketpath-options) above) directly off disk — no PID,
+socket, or IPC-status check, so it works whether or not the daemon is
+running. Operator-facing CLI contract:
+[`write-behavior.md` § Daemon CLI](./write-behavior.md#daemon-cli).
+
+Implementation: `v2/src/daemon/daemon-process-log.ts`
+(`readDaemonProcessLog` / `followDaemonProcessLog`). `--follow` replays
+retained bytes then polls (`FOLLOW_POLL_MS`, matching the
+[`log-stream.ts`](./daemon-host.md) structured-log follow poll model) for
+appends, tracking file identity by inode: a shrink or inode change resumes
+from the current file at the configured path; a missing path reports on
+stderr and stops with a nonzero exit.
+
 ## In-memory worktree ownership
 
 The daemon holds a registry keyed by `{ project: string, branch: string }`.

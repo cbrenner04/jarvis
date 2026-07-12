@@ -714,6 +714,71 @@ describe("v2 cli", () => {
     expect(cap.read()).toEqual({ stdout: "stopped\n", stderr: "" });
   });
 
+  test("daemon log writes retained bytes to stdout and exits 0", async () => {
+    const cap = captureIo();
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-cli-daemon-log-"));
+    const logPath = join(dir, "daemon.log");
+    writeFileSync(logPath, "line one\nline two\n");
+
+    const code = await main(["daemon", "log"], cap.io, { logPath });
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "line one\nline two\n", stderr: "" });
+  });
+
+  test("daemon log reports the missing configured path on stderr and exits nonzero", async () => {
+    const cap = captureIo();
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-cli-daemon-log-"));
+    const logPath = join(dir, "absent.log");
+
+    const code = await main(["daemon", "log"], cap.io, { logPath });
+
+    expect(code).not.toBe(0);
+    expect(cap.read().stdout).toBe("");
+    expect(cap.read().stderr).toContain(logPath);
+  });
+
+  test("daemon log --follow replays retained content then stops on SIGINT with exit 130", async () => {
+    const cap = captureIo();
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-cli-daemon-log-"));
+    const logPath = join(dir, "daemon.log");
+    writeFileSync(logPath, "retained\n");
+    let sigintHandler: (() => void) | undefined;
+
+    const code = await main(["daemon", "log", "--follow"], cap.io, {
+      logPath,
+      onSigint: (handler) => {
+        sigintHandler = handler;
+        queueMicrotask(() => sigintHandler?.());
+        return () => {
+          sigintHandler = undefined;
+        };
+      },
+    });
+
+    expect(code).toBe(130);
+    expect(cap.read().stdout).toBe("retained\n");
+  });
+
+  test("daemon log rejects unknown flags and other forms with usage and exit 1", async () => {
+    const cap = captureIo();
+
+    const code = await main(["daemon", "log", "--bogus"], cap.io, {});
+
+    expect(code).toBe(1);
+    expect(cap.read().stdout).toBe("");
+    expect(cap.read().stderr).toContain("usage: jarvis daemon log");
+  });
+
+  test("daemon rejects unknown subcommands with usage and exit 1", async () => {
+    const cap = captureIo();
+
+    const code = await main(["daemon", "bogus"], cap.io, {});
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain("usage: jarvis daemon");
+  });
+
   test("run start sends one IPC start request carrying write-loop input and prints run ID", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];

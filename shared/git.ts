@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import {
   type AsyncSubprocessRunner,
   realAsyncSubprocessRunner,
@@ -67,9 +66,9 @@ export function isWorktreeDirty(cwd: string, runner: SubprocessRunner = realSubp
 }
 
 /** True when `cwd` is inside a git working tree; false for plain (git-disabled) directories. */
-export function isGitRepo(cwd: string): boolean {
+export function isGitRepo(cwd: string, runner: SubprocessRunner = realSubprocessRunner): boolean {
   try {
-    execFileSync("git", ["rev-parse", "--is-inside-work-tree"], { cwd, stdio: ["ignore", "pipe", "ignore"] });
+    runner.run("git", ["rev-parse", "--is-inside-work-tree"], cwd);
     return true;
   } catch {
     return false;

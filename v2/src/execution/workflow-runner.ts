@@ -670,7 +670,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         const worktree = completionStep.worktree;
         const worktreePath = getExternalWorktreePath(worktree);
         try {
-          const published = (args.completionCommitter ?? createCompletionCommitter())({
+          const published = await (args.completionCommitter ?? createCompletionCommitter())({
             worktreePath,
             baseRef: worktree.baseRef,
             specPath: publicationSpecPath ?? completionStep.specPath,

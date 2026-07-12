@@ -120,7 +120,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         existsSync(join(getExternalWorktreePath(args.worktree), ".git"))
       ) {
         try {
-          const published = (args.completionCommitter ?? createCompletionCommitter())({
+          const published = await (args.completionCommitter ?? createCompletionCommitter())({
             worktreePath: getExternalWorktreePath(args.worktree),
             baseRef: args.worktree.baseRef,
             specPath: args.specPath,
@@ -286,7 +286,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       }
       if (!agent) return completionCommitFailed(args, attributed);
       try {
-        const published = (args.completionCommitter ?? createCompletionCommitter())({
+        const published = await (args.completionCommitter ?? createCompletionCommitter())({
           worktreePath,
           baseRef: args.worktree.baseRef,
           specPath: args.specPath,

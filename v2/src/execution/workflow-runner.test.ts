@@ -1146,7 +1146,7 @@ describe("executeWorkflow human steps", () => {
       const result = await executeWorkflow({
         steps: [writeStep, humanStep],
         stateStore: store,
-        completionCommitter: (input) => {
+        completionCommitter: async (input) => {
           published.push({ specPath: input.specPath, agent: input.agent });
           return { commitSha: "commit-1" };
         },
@@ -1191,7 +1191,7 @@ describe("executeWorkflow human steps", () => {
       const first = await executeWorkflow({
         steps: [firstStep],
         stateStore: store,
-        completionCommitter: () => ({ commitSha: "commit-1" }),
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
         completionPublisher: async (input) => {
           titles.push(input.creationTitle);
           throw new Error("publish failed");
@@ -1202,7 +1202,7 @@ describe("executeWorkflow human steps", () => {
       const retried = await executeWorkflow({
         steps: [retryStep],
         stateStore: store,
-        completionCommitter: () => ({ commitSha: "commit-1" }),
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
         completionPublisher: async (input) => {
           titles.push(input.creationTitle);
           return {};
@@ -1250,7 +1250,7 @@ describe("executeWorkflow human steps", () => {
       const result = await executeWorkflow({
         steps: [writeStep, reviewStep],
         stateStore: store,
-        completionCommitter: () => ({ commitSha: "commit-1" }),
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
         completionPublisher: async (input) => {
           titles.push(input.creationTitle);
           return {};
@@ -1292,7 +1292,7 @@ describe("executeWorkflow human steps", () => {
       const result = await executeWorkflow({
         steps: [step],
         stateStore: store,
-        completionCommitter: () => ({ commitSha: "commit-1" }),
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
         completionPublisher: async (input) => {
           titles.push(input.creationTitle);
           return {};
@@ -1346,7 +1346,7 @@ describe("executeWorkflow human steps", () => {
       const result = await executeWorkflow({
         steps: [step],
         stateStore: store,
-        completionCommitter: () => ({ commitSha: "commit-1" }),
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
         completionPublisher: async (input) => {
           titles.push(input.creationTitle);
           return {};
@@ -1401,7 +1401,7 @@ describe("executeWorkflow human steps", () => {
       const first = await executeWorkflow({
         steps: [firstStep],
         stateStore: store,
-        completionCommitter: () => ({ commitSha: "commit-1" }),
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
         completionPublisher: async (input) => {
           titles.push(input.creationTitle);
           throw new Error("publish failed");
@@ -1425,7 +1425,7 @@ describe("executeWorkflow human steps", () => {
       const retried = await executeWorkflow({
         steps: [retryStep],
         stateStore: store,
-        completionCommitter: () => ({ commitSha: "commit-1" }),
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
         completionPublisher: async (input) => {
           titles.push(input.creationTitle);
           return {};
@@ -1716,7 +1716,7 @@ describe("executeWorkflow implement patch review", () => {
       const result = await executeWorkflow({
         steps: [implementStep, reviewStep],
         stateStore: store,
-        completionCommitter: (input) => {
+        completionCommitter: async (input) => {
           published.push({ specPath: input.specPath, agent: input.agent });
           return { commitSha: "review-commit", filesChanged: 1 };
         },
@@ -2708,7 +2708,7 @@ describe("executeWorkflow telemetry", () => {
         steps: [writeStep],
         stateStore: store,
         telemetry: { operatorSessionId: "session-1", workflow: "demo-workflow", sinkPath: telemetryPath },
-        completionCommitter: () => ({ commitSha: "wf-commit", filesChanged: 4 }),
+        completionCommitter: async () => ({ commitSha: "wf-commit", filesChanged: 4 }),
         completionPublisher: async () => ({}),
         readyFinalizer: async () => {},
       });

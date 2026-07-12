@@ -26,6 +26,7 @@ type RetryNotice = (message: string) => void;
 type FetchPrBody = RefreshPrBodyInput["fetchPrBody"];
 type WritePrBody = RefreshPrBodyInput["writePrBody"];
 type RenderFooter = NonNullable<RefreshPrBodyInput["renderFooter"]>;
+type AttributionGit = NonNullable<RefreshPrBodyInput["git"]>;
 
 type PublisherSeams = {
   git: Git;
@@ -114,13 +115,13 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
     }
 
     await publishWithRetry(
-      () => {
-        refreshPrBody({
+      async () => {
+        await refreshPrBody({
           specPath,
           branch: input.branch,
           base: input.baseRef,
           cwd: input.worktreePath,
-          git,
+          git: syncGitToAttributionGit(git),
           ...(seams?.fetchPrBody !== undefined ? { fetchPrBody: seams.fetchPrBody } : {}),
           ...(seams?.writePrBody !== undefined ? { writePrBody: seams.writePrBody } : {}),
           ...(seams?.renderFooter !== undefined ? { renderFooter: seams.renderFooter } : {}),
@@ -136,6 +137,10 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
   };
 }
 
+function syncGitToAttributionGit(git: Git): AttributionGit {
+  return async (cwd, args) => git(cwd, args);
+}
+
 function checkHasUpstream(git: Git, worktreePath: string, branch: string): boolean {
   try {
     git(worktreePath, ["rev-parse", `${branch}@{u}`]);
@@ -148,7 +153,7 @@ function checkHasUpstream(git: Git, worktreePath: string, branch: string): boole
 type PublishResult<T> = T | null;
 
 async function publishWithRetry<T>(
-  operation: () => T,
+  operation: () => T | Promise<T>,
   operationName: string,
   delay: Delay,
   retryNotice: RetryNotice,
@@ -158,7 +163,7 @@ async function publishWithRetry<T>(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return operation();
+      return await operation();
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       const msg = err.message;

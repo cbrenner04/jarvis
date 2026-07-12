@@ -5,7 +5,7 @@ import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 export const NARRATIVE_START_MARKER = "<!-- jarvis:narrative:start -->";
 export const NARRATIVE_END_MARKER = "<!-- jarvis:narrative:end -->";
 
-type Git = (cwd: string, args: readonly string[]) => string;
+type Git = (cwd: string, args: readonly string[]) => Promise<string>;
 
 export type RefreshPrBodyInput = {
   specPath: string;
@@ -14,7 +14,7 @@ export type RefreshPrBodyInput = {
   cwd: string;
   fetchPrBody?: (branch: string, cwd: string) => string;
   writePrBody?: (branch: string, body: string, cwd: string) => void;
-  renderFooter?: (opts: { cwd: string; base: string; git?: Git }) => string;
+  renderFooter?: (opts: { cwd: string; base: string; git?: Git }) => Promise<string>;
   git?: Git;
 };
 
@@ -54,7 +54,7 @@ function defaultWritePrBody(branch: string, body: string, cwd: string): void {
 }
 
 /** Rewrite the ensured PR body: regenerated `Spec:` header, preserved narrative markers, attribution footer. */
-export function refreshPrBody(input: RefreshPrBodyInput): void {
+export async function refreshPrBody(input: RefreshPrBodyInput): Promise<void> {
   const fetchPrBody = input.fetchPrBody ?? defaultFetchPrBody;
   const writePrBody = input.writePrBody ?? defaultWritePrBody;
   const renderFooter = input.renderFooter ?? renderAttribution;
@@ -66,7 +66,7 @@ export function refreshPrBody(input: RefreshPrBodyInput): void {
   if (narrative !== null) {
     headerAndNarrative += `\n\n${NARRATIVE_START_MARKER}\n${narrative}\n${NARRATIVE_END_MARKER}`;
   }
-  const footer = renderFooter(
+  const footer = await renderFooter(
     input.git !== undefined
       ? { cwd: input.cwd, base: input.base, git: input.git }
       : { cwd: input.cwd, base: input.base },

@@ -583,9 +583,10 @@ repos" principle change is smaller:
   handling, and sequential setup/cleanup order. Workflow shrink changed-file
   discovery, patch-review diff rendering, review-enforcement status/checkout/clean,
   and intent-output change detection plus ownership lookup (`git status`, `git diff`,
-  `rev-parse --git-dir`) are awaited on the same runner (including `maxBuffer` and
-  ignored stdio where applicable). Completion commits and publication remain on their
-  own conversion slices.
+  `rev-parse --git-dir`), plus completion-commit Git and PR-attribution footer rendering
+  (`git log`, index staging via `GIT_INDEX_FILE`, `commit-tree`, `update-ref`), are awaited
+  (including `maxBuffer` and ignored stdio where applicable). Push, draft PR ensure, and
+  ready finalization remain synchronous on their own conversion slices.
 
 ## Interface & IPC
 

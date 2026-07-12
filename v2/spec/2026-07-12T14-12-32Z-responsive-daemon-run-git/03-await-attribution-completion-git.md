@@ -11,8 +11,8 @@ Make daemon-hosted completion commits and attribution rendering yield to the eve
 
 ## Tasks
 
-- [ ] Replace synchronous Git execution in completion commits and PR-attribution rendering with awaited execution, propagating async contracts through their callers.
-- [ ] Preserve completion commit, attribution output, failure/fallback, and cleanup/order behavior.
+- [x] Replace synchronous Git execution in completion commits and PR-attribution rendering with awaited execution, propagating async contracts through their callers.
+- [x] Preserve completion commit, attribution output, failure/fallback, and cleanup/order behavior.
 
 ## Documentation updates
 
@@ -21,6 +21,6 @@ Make daemon-hosted completion commits and attribution rendering yield to the eve
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/completion-commit.test.ts` stays green for completion-commit behavior.
-- [ ] `v2/src/execution/pr-attribution.test.ts` stays green for attribution rendering behavior.
-- [ ] `v2/docs/v2-architecture.md` and `v2/docs/v1-behaviors.md` document awaited daemon run attribution/completion-commit Git.
+- [x] `v2/src/execution/completion-commit.test.ts` stays green for completion-commit behavior.
+- [x] `v2/src/execution/pr-attribution.test.ts` stays green for attribution rendering behavior.
+- [x] `v2/docs/v2-architecture.md` and `v2/docs/v1-behaviors.md` document awaited daemon run attribution/completion-commit Git.

@@ -18,11 +18,11 @@ function setupWorktree(): { worktreePath: string; gitDir: string } {
 type GitCall = { args: readonly string[]; env: Record<string, string> | undefined };
 
 describe("createCompletionCommitter", () => {
-  test("commits and returns a sha when the working tree has changes", () => {
+  test("commits and returns a sha when the working tree has changes", async () => {
     const { worktreePath, gitDir } = setupWorktree();
     const calls: GitCall[] = [];
 
-    const runGit = (_cwd: string, args: readonly string[], env?: Record<string, string>): string => {
+    const runGit = async (_cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> => {
       calls.push({ args, env });
       if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
       if (args[0] === "rev-parse" && args[1] === "HEAD") return "base-head";
@@ -35,7 +35,7 @@ describe("createCompletionCommitter", () => {
     };
 
     const committer = createCompletionCommitter(runGit);
-    const result = committer({
+    const result = await committer({
       worktreePath,
       baseRef: "main",
       specPath: "v2/spec/test/index.md",
@@ -47,10 +47,10 @@ describe("createCompletionCommitter", () => {
     expect(calls.some((c) => c.args[0] === "diff-tree" && c.args.includes("--no-renames"))).toBe(true);
   });
 
-  test("resuming after a successful commit reports the existing completion commit sha, not a no-op", () => {
+  test("resuming after a successful commit reports the existing completion commit sha, not a no-op", async () => {
     const { worktreePath, gitDir } = setupWorktree();
 
-    const runGit = (_cwd: string, args: readonly string[]): string => {
+    const runGit = async (_cwd: string, args: readonly string[]): Promise<string> => {
       if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
       if (args[0] === "rev-parse" && args[1] === "HEAD") return "completion-commit";
       if (args[0] === "read-tree") return "";
@@ -63,7 +63,7 @@ describe("createCompletionCommitter", () => {
     };
 
     const committer = createCompletionCommitter(runGit);
-    const result = committer({
+    const result = await committer({
       worktreePath,
       baseRef: "main",
       specPath: "v2/spec/test/index.md",
@@ -75,10 +75,10 @@ describe("createCompletionCommitter", () => {
     expect(result).toEqual({ commitSha: "completion-commit", filesChanged: 1 });
   });
 
-  test("truly nothing to commit when HEAD is not a completion commit", () => {
+  test("truly nothing to commit when HEAD is not a completion commit", async () => {
     const { worktreePath, gitDir } = setupWorktree();
 
-    const runGit = (_cwd: string, args: readonly string[]): string => {
+    const runGit = async (_cwd: string, args: readonly string[]): Promise<string> => {
       if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
       if (args[0] === "rev-parse" && args[1] === "HEAD") return "unrelated-commit";
       if (args[0] === "read-tree") return "";
@@ -90,7 +90,7 @@ describe("createCompletionCommitter", () => {
     };
 
     const committer = createCompletionCommitter(runGit);
-    const result = committer({
+    const result = await committer({
       worktreePath,
       baseRef: "main",
       specPath: "v2/spec/test/index.md",
@@ -100,14 +100,14 @@ describe("createCompletionCommitter", () => {
     expect(result).toEqual({});
   });
 
-  test("returns empty result when the worktree is not git-backed", () => {
+  test("returns empty result when the worktree is not git-backed", async () => {
     const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-v2-completion-commit-"));
     roots.push(worktreePath);
     expect(existsSync(join(worktreePath, ".git"))).toBe(false);
 
-    const runGit = (): string => "";
+    const runGit = async (): Promise<string> => "";
     const committer = createCompletionCommitter(runGit);
-    const result = committer({
+    const result = await committer({
       worktreePath,
       baseRef: "main",
       specPath: "v2/spec/test/index.md",
@@ -117,12 +117,12 @@ describe("createCompletionCommitter", () => {
     expect(result).toEqual({});
   });
 
-  test("filesChanged matches tree diff on commit and is absent when no commit is produced", () => {
+  test("filesChanged matches tree diff on commit and is absent when no commit is produced", async () => {
     const { worktreePath, gitDir } = setupWorktree();
     const diffOutput = "a.ts\nb.ts\nc.ts";
     const calls: GitCall[] = [];
 
-    const runGit = (_cwd: string, args: readonly string[], env?: Record<string, string>): string => {
+    const runGit = async (_cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> => {
       calls.push({ args, env });
       if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
       if (args[0] === "rev-parse" && args[1] === "HEAD") return "base-head";
@@ -135,7 +135,7 @@ describe("createCompletionCommitter", () => {
     };
 
     const committer = createCompletionCommitter(runGit);
-    const result = committer({
+    const result = await committer({
       worktreePath,
       baseRef: "main",
       specPath: "v2/spec/test/index.md",
@@ -146,7 +146,7 @@ describe("createCompletionCommitter", () => {
     const diffCall = calls.find((c) => c.args[0] === "diff-tree");
     expect(diffCall?.args).toEqual(["diff-tree", "--no-renames", "--name-only", "base-head^{tree}", "new-tree"]);
 
-    const noChangeGit = (_cwd: string, args: readonly string[]): string => {
+    const noChangeGit = async (_cwd: string, args: readonly string[]): Promise<string> => {
       if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
       if (args[0] === "rev-parse" && args[1] === "HEAD") return "same-head";
       if (args[0] === "read-tree") return "";
@@ -157,7 +157,7 @@ describe("createCompletionCommitter", () => {
       return "";
     };
 
-    const noCommit = createCompletionCommitter(noChangeGit)({
+    const noCommit = await createCompletionCommitter(noChangeGit)({
       worktreePath,
       baseRef: "main",
       specPath: "v2/spec/test/index.md",
@@ -167,7 +167,7 @@ describe("createCompletionCommitter", () => {
     expect(noCommit.filesChanged).toBeUndefined();
   });
 
-  test("republishing a pending completion commit yields the same filesChanged", () => {
+  test("republishing a pending completion commit yields the same filesChanged", async () => {
     const { worktreePath, gitDir } = setupWorktree();
     const pendingPath = join(gitDir, "jarvis-completion-pending.json");
     writeFileSync(
@@ -185,14 +185,14 @@ describe("createCompletionCommitter", () => {
     );
 
     const diffOutput = "only-one.ts";
-    const runGit = (_cwd: string, args: readonly string[]): string => {
+    const runGit = async (_cwd: string, args: readonly string[]): Promise<string> => {
       if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
       if (args[0] === "rev-parse" && args[1] === "HEAD") return "existing-commit";
       if (args[0] === "diff-tree") return diffOutput;
       return "";
     };
 
-    const result = createCompletionCommitter(runGit)({
+    const result = await createCompletionCommitter(runGit)({
       worktreePath,
       baseRef: "main",
       specPath: "v2/spec/test/index.md",

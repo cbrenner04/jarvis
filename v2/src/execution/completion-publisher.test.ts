@@ -14,7 +14,7 @@ describe("createCompletionPublisher", () => {
   const noopRefreshSeams = {
     fetchPrBody: () => "",
     writePrBody: () => {},
-    renderFooter: () => "",
+    renderFooter: async () => "",
   };
 
   it("publishes push with new upstream and creates draft PR", async () => {
@@ -422,7 +422,7 @@ describe("createCompletionPublisher", () => {
       writePrBody: (_branch, body) => {
         writtenBody = body;
       },
-      renderFooter: () =>
+      renderFooter: async () =>
         "- abc123 jarvis: complete run \u2014 Claude Opus 4.8\n\nWritten by Claude Opus 4.8 through Jarvis.",
     });
 
@@ -456,7 +456,7 @@ describe("createCompletionPublisher", () => {
       writePrBody: (_branch, body) => {
         writtenBody = body;
       },
-      renderFooter: () => "",
+      renderFooter: async () => "",
     });
 
     const result = await publisher(baseInput);
@@ -496,7 +496,7 @@ describe("createCompletionPublisher", () => {
           throw new Error("Connection reset by peer");
         }
       },
-      renderFooter: () => "",
+      renderFooter: async () => "",
     });
 
     await publisher(baseInput);
@@ -527,7 +527,7 @@ describe("createCompletionPublisher", () => {
       writePrBody: () => {
         throw new Error("gh pr edit failed");
       },
-      renderFooter: () => "",
+      renderFooter: async () => "",
     });
 
     await expect(publisher(baseInput)).rejects.toThrow("gh pr edit failed");

@@ -10,6 +10,7 @@ import {
 } from "./git.ts";
 import {
   type AsyncSubprocessRunner,
+  AsyncSubprocessError,
   realAsyncSubprocessRunner,
   realSubprocessRunner,
   type SubprocessRunner,
@@ -77,8 +78,17 @@ describe("realAsyncSubprocessRunner", () => {
     expect(stdout).toBe(utf8Payload);
   });
 
-  test("rejects on non-zero exit", async () => {
-    await expect(realAsyncSubprocessRunner.runAsync("node", ["-e", "process.exit(2)"], cwd)).rejects.toThrow();
+  test("rejects with exit status and captured output on non-zero exit", async () => {
+    const result = realAsyncSubprocessRunner.runAsync(
+      "node",
+      ["-e", 'process.stdout.write("out"); process.stderr.write("err"); process.exit(2)'],
+      cwd,
+    );
+
+    await expect(result).rejects.toBeInstanceOf(AsyncSubprocessError);
+    await result.catch((error: unknown) => {
+      expect(error).toMatchObject({ status: 2, stdout: "out", stderr: "err" });
+    });
   });
 
   test("stdio ignore resolves to empty string", async () => {
@@ -89,6 +99,18 @@ describe("realAsyncSubprocessRunner", () => {
       { stdio: "ignore" },
     );
     expect(stdout).toBe("");
+  });
+
+  test("accepts output larger than Node's default maxBuffer when configured", async () => {
+    const outputBytes = 1024 * 1024 + 1;
+    const stdout = await realAsyncSubprocessRunner.runAsync(
+      "node",
+      ["-e", `process.stdout.write("x".repeat(${outputBytes}))`],
+      cwd,
+      { maxBuffer: 2 * 1024 * 1024 },
+    );
+
+    expect(stdout).toHaveLength(outputBytes);
   });
 });
 

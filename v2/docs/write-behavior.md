@@ -75,12 +75,13 @@ re-edits the same PR. Post-completion ordering: push+PR → body refresh → rea
 gate → draft→ready flip (gate/flip in a separate finalization boundary).
 
 **Ready finalization:** after publication (including body refresh) succeeds, a
-separate retryable boundary runs while the PR remains draft: (1) the ready gate
-in the completed run's worktree, then (2) `gh pr ready <branch>`. The default
-gate command is `bun run ready`; any non-zero exit is a gate failure (missing
-and red gate scripts are not distinguished). The gate runs unbounded. On green,
-the flip calls `gh pr ready <branch>` through the same bounded transient-retry
-seam as publication (3 total attempts, flat 1000 ms backoff). Before the
+separate retryable boundary runs while the PR remains draft: (1) the awaited
+ready gate in the completed run's worktree, then (2) awaited `gh pr ready
+<branch>`. The default gate command is `bun run ready`; any non-zero exit is a
+gate failure (missing and red gate scripts are not distinguished), reported as
+`ready gate failed (exit N): <stderr>`. The gate runs unbounded. On green, the
+flip calls `gh pr ready <branch>` through the same bounded transient-retry seam
+as publication (3 total attempts, flat 1000 ms backoff). Before the
 transient classifier, the flip treats exit-0 (including empty output), and any
 thrown `gh` error whose combined stdout+stderr contains (case-insensitive)
 `already ready` or `not a draft`, as success without retry. Any other thrown
@@ -89,7 +90,7 @@ error is handed to the transient classifier unchanged. Gate or flip failure
 run `completed`, and returns retryable `ready_finalize_failed` (`nextAction:
 resume`), distinct from publication's `completion_commit_failed`. Resume
 replays publication first (idempotent), then re-runs the gate and re-attempts
-the flip. Gate and `gh` are injectable seams so tests require no live
+the flip. Gate and `gh` are awaited injectable seams so tests require no live
 verification or GitHub credentials.
 
 Publication failures (commit, push, PR, or body refresh) leave the durable run `completed`, expose

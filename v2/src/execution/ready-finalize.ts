@@ -1,12 +1,12 @@
-import { execFileSync } from "node:child_process";
+import { AsyncSubprocessError, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 
 export type ReadyFinalizeInput = {
   worktreePath: string;
   branch: string;
 };
 
-export type ReadyGate = (worktreePath: string) => void;
-export type GhReadyFlip = (branch: string, worktreePath: string) => void;
+export type ReadyGate = (worktreePath: string) => Promise<void>;
+export type GhReadyFlip = (branch: string, worktreePath: string) => Promise<void>;
 type Delay = (ms: number) => Promise<void>;
 type RetryNotice = (message: string) => void;
 
@@ -21,6 +21,7 @@ export type ReadyFinalizer = (input: ReadyFinalizeInput) => Promise<void>;
 
 const MAX_ATTEMPTS = 3;
 const BACKOFF_MS = 1000;
+const READY_GATE_MAX_BUFFER = 10 * 1024 * 1024;
 
 function defaultDelay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -30,36 +31,26 @@ function defaultRetryNotice(message: string): void {
   console.error(message);
 }
 
-function defaultRunReadyGate(worktreePath: string): void {
+async function defaultRunReadyGate(worktreePath: string): Promise<void> {
   try {
-    execFileSync("bun", ["run", "ready"], { cwd: worktreePath, encoding: "utf8", stdio: "pipe" });
+    await realAsyncSubprocessRunner.runAsync("bun", ["run", "ready"], worktreePath, {
+      maxBuffer: READY_GATE_MAX_BUFFER,
+    });
   } catch (error) {
-    const err = error as NodeJS.ErrnoException & { status?: number; stderr?: Buffer };
-    const detail = err.stderr?.toString("utf8") ?? (error instanceof Error ? error.message : String(error));
-    throw new Error(`ready gate failed (exit ${err.status ?? "unknown"}): ${detail.trim()}`);
+    const detail = error instanceof AsyncSubprocessError ? error.stderr : error instanceof Error ? error.message : String(error);
+    const status = error instanceof AsyncSubprocessError ? error.status : undefined;
+    throw new Error(`ready gate failed (exit ${status ?? "unknown"}): ${detail.trim()}`);
   }
 }
 
-function defaultGhReadyFlip(branch: string, worktreePath: string): void {
-  try {
-    execFileSync("gh", ["pr", "ready", branch], { cwd: worktreePath, encoding: "utf8", stdio: "pipe" });
-  } catch (error) {
-    const err = error as NodeJS.ErrnoException & { status?: number; stdout?: Buffer; stderr?: Buffer };
-    const combined = [
-      err.stdout?.toString("utf8"),
-      err.stderr?.toString("utf8"),
-      error instanceof Error ? error.message : String(error),
-    ]
-      .filter(Boolean)
-      .join("\n");
-    throw new Error(combined);
-  }
+async function defaultGhReadyFlip(branch: string, worktreePath: string): Promise<void> {
+  await realAsyncSubprocessRunner.runAsync("gh", ["pr", "ready", branch], worktreePath);
 }
 
 function ghFlipCombinedOutput(error: unknown): string {
   if (error instanceof Error) {
-    const withBuffers = error as Error & { stdout?: Buffer; stderr?: Buffer };
-    return [withBuffers.stdout?.toString("utf8"), withBuffers.stderr?.toString("utf8"), error.message]
+    const output = error as Error & { stdout?: string; stderr?: string };
+    return [output.stdout, output.stderr, error.message]
       .filter(Boolean)
       .join("\n");
   }
@@ -70,10 +61,10 @@ function isPrReadySuccessGuard(message: string): boolean {
   return /\balready ready\b/i.test(message) || /\bnot a draft\b/i.test(message);
 }
 
-async function flipWithRetry(flip: () => void, delay: Delay, retryNotice: RetryNotice): Promise<void> {
+async function flipWithRetry(flip: () => Promise<void>, delay: Delay, retryNotice: RetryNotice): Promise<void> {
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      flip();
+      await flip();
       return;
     } catch (error) {
       const combined = ghFlipCombinedOutput(error);
@@ -97,7 +88,7 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
   const retryNotice = seams?.retryNotice ?? defaultRetryNotice;
 
   return async (input) => {
-    runReadyGate(input.worktreePath);
+    await runReadyGate(input.worktreePath);
     await flipWithRetry(() => ghReadyFlip(input.branch, input.worktreePath), delay, retryNotice);
   };
 }

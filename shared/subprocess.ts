@@ -18,6 +18,17 @@ export interface AsyncSubprocessRunner {
   runAsync(cmd: string, args: string[], cwd: string, options?: AsyncSubprocessOptions): Promise<string>;
 }
 
+/** Captures a completed async subprocess failure without relying on Node's error shape. */
+export class AsyncSubprocessError extends Error {
+  constructor(
+    public readonly status: number | undefined,
+    public readonly stdout: string,
+    public readonly stderr: string,
+  ) {
+    super(`subprocess failed (exit ${status ?? "unknown"})`);
+  }
+}
+
 export const realSubprocessRunner: SubprocessRunner = {
   run(cmd, args, cwd) {
     return execFileSync(cmd, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
@@ -37,9 +48,19 @@ export const realAsyncSubprocessRunner: AsyncSubprocessRunner = {
           ...(options?.maxBuffer !== undefined ? { maxBuffer: options.maxBuffer } : {}),
           ...(stdio === "ignore" ? { stdio: "ignore" } : {}),
         },
-        (error, stdout) => {
-          if (error) reject(error);
-          else resolve(stdio === "ignore" ? "" : (stdout ?? ""));
+        (error, stdout, stderr) => {
+          if (error) {
+            const status = typeof error.code === "number" ? error.code : undefined;
+            reject(
+              new AsyncSubprocessError(
+                status,
+                stdio === "ignore" ? "" : (stdout?.toString() ?? ""),
+                stderr?.toString() ?? "",
+              ),
+            );
+          } else {
+            resolve(stdio === "ignore" ? "" : (stdout ?? ""));
+          }
         },
       );
     });

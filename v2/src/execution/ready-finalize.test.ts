@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { AsyncSubprocessError } from "../../../shared/subprocess.ts";
 import { createReadyFinalizer } from "./ready-finalize.ts";
 
 describe("createReadyFinalizer", () => {
@@ -8,10 +9,10 @@ describe("createReadyFinalizer", () => {
   it("runs the ready gate then flips the draft PR on green", async () => {
     const calls: string[] = [];
     const finalizer = createReadyFinalizer({
-      runReadyGate: (worktreePath) => {
+      runReadyGate: async (worktreePath) => {
         calls.push(`gate:${worktreePath}`);
       },
-      ghReadyFlip: (branch, worktreePath) => {
+      ghReadyFlip: async (branch, worktreePath) => {
         calls.push(`flip:${branch}@${worktreePath}`);
       },
     });
@@ -21,13 +22,35 @@ describe("createReadyFinalizer", () => {
     expect(calls).toEqual(["gate:/tmp/worktree", "flip:feature-branch@/tmp/worktree"]);
   });
 
+  it("awaits the ready gate before the first flip", async () => {
+    let releaseGate: (() => void) | undefined;
+    let flipCalls = 0;
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {
+        await new Promise<void>((resolve) => {
+          releaseGate = resolve;
+        });
+      },
+      ghReadyFlip: async () => {
+        flipCalls += 1;
+      },
+    });
+
+    const result = finalizer(input);
+    await Promise.resolve();
+    expect(flipCalls).toBe(0);
+    releaseGate?.();
+    await result;
+    expect(flipCalls).toBe(1);
+  });
+
   it("leaves the PR draft and does not flip when the ready gate fails", async () => {
     let flipCalls = 0;
     const finalizer = createReadyFinalizer({
-      runReadyGate: () => {
+      runReadyGate: async () => {
         throw new Error("ready gate failed (exit 1): tests failed");
       },
-      ghReadyFlip: () => {
+      ghReadyFlip: async () => {
         flipCalls += 1;
       },
     });
@@ -42,8 +65,8 @@ describe("createReadyFinalizer", () => {
     const notices: string[] = [];
 
     const finalizer = createReadyFinalizer({
-      runReadyGate: () => {},
-      ghReadyFlip: () => {
+      runReadyGate: async () => {},
+      ghReadyFlip: async () => {
         attempts += 1;
         if (attempts < 3) {
           throw new Error("Connection reset by peer");
@@ -67,13 +90,13 @@ describe("createReadyFinalizer", () => {
     ]);
   });
 
-  it("treats already ready stderr as success without retry", async () => {
+  it("treats already ready subprocess stderr as success without retry", async () => {
     let attempts = 0;
     const finalizer = createReadyFinalizer({
-      runReadyGate: () => {},
-      ghReadyFlip: () => {
+      runReadyGate: async () => {},
+      ghReadyFlip: async () => {
         attempts += 1;
-        throw new Error("error: pull request is already ready for review");
+        throw new AsyncSubprocessError(1, "", "error: pull request is already ready for review");
       },
       delay: noopDelay,
       retryNotice: () => {
@@ -86,13 +109,13 @@ describe("createReadyFinalizer", () => {
     expect(attempts).toBe(1);
   });
 
-  it("treats not a draft stderr as success without retry", async () => {
+  it("treats not a draft subprocess stderr as success without retry", async () => {
     let attempts = 0;
     const finalizer = createReadyFinalizer({
-      runReadyGate: () => {},
-      ghReadyFlip: () => {
+      runReadyGate: async () => {},
+      ghReadyFlip: async () => {
         attempts += 1;
-        throw new Error("error: this pull request is not a draft");
+        throw new AsyncSubprocessError(1, "", "error: this pull request is not a draft");
       },
       delay: noopDelay,
       retryNotice: () => {
@@ -108,8 +131,8 @@ describe("createReadyFinalizer", () => {
   it("treats an empty exit-0 gh pr ready response as success", async () => {
     let attempts = 0;
     const finalizer = createReadyFinalizer({
-      runReadyGate: () => {},
-      ghReadyFlip: () => {
+      runReadyGate: async () => {},
+      ghReadyFlip: async () => {
         attempts += 1;
       },
     });
@@ -121,8 +144,8 @@ describe("createReadyFinalizer", () => {
 
   it("throws after 3 failed gh pr ready attempts", async () => {
     const finalizer = createReadyFinalizer({
-      runReadyGate: () => {},
-      ghReadyFlip: () => {
+      runReadyGate: async () => {},
+      ghReadyFlip: async () => {
         throw new Error("Connection timeout");
       },
       delay: noopDelay,

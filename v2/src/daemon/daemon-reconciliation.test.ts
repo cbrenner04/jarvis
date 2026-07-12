@@ -2,9 +2,10 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
+import type { LogEvent, LogReader, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
+import type { IpcServer } from "../ipc/server.ts";
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
-import { reconcileOrphanedRuns } from "./daemon.ts";
+import { reconcileOrphanedRuns, startDaemon } from "./daemon.ts";
 
 const dbPath = join(tmpdir(), `jarvis-reconciliation-${process.pid}.sqlite`);
 const orphanedStatuses: readonly RunStatus[] = [
@@ -103,11 +104,89 @@ test("propagates reconciliation errors", () => {
 
 test("propagates durable-state reconciliation errors", () => {
   const failingStore = {
-    listRuns: () => {
+    beginRunReconciliation: () => {
       throw new Error("state unavailable");
     },
   } as unknown as StateStore;
   const sink: LogSink = { append: () => undefined, close: () => undefined };
 
   expect(() => reconcileOrphanedRuns(failingStore, sink)).toThrow("state unavailable");
+});
+
+test("retries an event left pending by a failed log append exactly once", () => {
+  const runId = createRun("in-progress");
+  const records: PersistedRecord[] = [];
+  const reader: LogReader = {
+    tail: () => records,
+    async *follow() {},
+  };
+
+  expect(() =>
+    reconcileOrphanedRuns(
+      store,
+      { append: () => { throw new Error("log unavailable"); }, close: () => undefined },
+      reader,
+    ),
+  ).toThrow("log unavailable");
+  expect(store.loadRun(runId)?.status).toBe("killed");
+
+  reconcileOrphanedRuns(
+    store,
+    {
+      append: (id, event) => records.push({ runId: id, seq: records.length + 1, ts: "now", event }),
+      close: () => undefined,
+    },
+    reader,
+  );
+  reconcileOrphanedRuns(store, { append: () => { throw new Error("duplicate append"); }, close: () => undefined }, reader);
+
+  expect(records).toEqual([
+    { runId, seq: 1, ts: "now", event: { kind: "run_reconciled", runStatus: "killed", reason: "daemon_restart" } },
+  ]);
+});
+
+test("startup reconciles before opening IPC and reconciliation failures prevent it", async () => {
+  const order: string[] = [];
+  const reader: LogReader = { tail: () => [], async *follow() {} };
+  const sink: LogSink = { append: () => order.push("log"), close: () => undefined };
+  const server = { close: async () => undefined } as IpcServer;
+  const startIpcServer = async () => {
+    order.push("ipc");
+    return server;
+  };
+  const reconciledStore = {
+    beginRunReconciliation: () => {
+      order.push("state");
+      return ["run-1"];
+    },
+    finishRunReconciliation: () => order.push("finished"),
+  } as unknown as StateStore;
+
+  await startDaemon("/fake/socket", reconciledStore, reader, { openLogSink: () => sink, startIpcServer });
+  expect(order).toEqual(["state", "log", "finished", "ipc"]);
+
+  for (const failure of [
+    {
+      store: { beginRunReconciliation: () => { throw new Error("state unavailable"); } } as unknown as StateStore,
+      sink,
+      message: "state unavailable",
+    },
+    {
+      store: { beginRunReconciliation: () => ["run-1"], finishRunReconciliation: () => undefined } as unknown as StateStore,
+      sink: { append: () => { throw new Error("log unavailable"); }, close: () => undefined } as LogSink,
+      message: "log unavailable",
+    },
+  ]) {
+    let opened = false;
+    await expect(
+      startDaemon("/fake/socket", failure.store, reader, {
+        openLogSink: () => failure.sink,
+        startIpcServer: async () => {
+          opened = true;
+          return server;
+        },
+      }),
+    ).rejects.toThrow(failure.message);
+    expect(opened).toBe(false);
+  }
 });

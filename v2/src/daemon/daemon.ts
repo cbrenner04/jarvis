@@ -73,21 +73,21 @@ function worktreeClaimedMessage(key: OwnershipKey): string {
 const LIST_TERMINAL_RUN_LIMIT = 50;
 
 const TERMINAL_LIST_STATUSES: ReadonlySet<RunStatus> = new Set(["completed", "failed", "blocked", "killed"]);
-const ORPHANED_RUN_STATUSES: ReadonlySet<RunStatus> = new Set([
-  "queued",
-  "in-progress",
-  "paused",
-  "budget-soft-stopped",
-  "awaiting-human",
-  "revising",
-]);
-
 /** Marks runs left without an owning daemon as killed before IPC is exposed. */
-export function reconcileOrphanedRuns(stateStore: StateStore, logSink: LogSink): void {
-  for (const run of stateStore.listRuns()) {
-    if (!ORPHANED_RUN_STATUSES.has(run.status)) continue;
-    stateStore.setRunStatus(run.id, "killed");
-    logSink.append(run.id, { kind: "run_reconciled", runStatus: "killed", reason: "daemon_restart" });
+export function reconcileOrphanedRuns(stateStore: StateStore, logSink: LogSink, logReader?: LogReader): void {
+  for (const runId of stateStore.beginRunReconciliation()) {
+    const eventPersisted = logReader
+      ?.tail(runId)
+      .some(
+        (record) =>
+          record.event.kind === "run_reconciled" &&
+          record.event.runStatus === "killed" &&
+          record.event.reason === "daemon_restart",
+      );
+    if (!eventPersisted) {
+      logSink.append(runId, { kind: "run_reconciled", runStatus: "killed", reason: "daemon_restart" });
+    }
+    stateStore.finishRunReconciliation(runId);
   }
 }
 
@@ -1075,13 +1075,25 @@ export function createTailStreamHandler(deps: TailStreamHandlerDeps): StreamHand
   };
 }
 
-export async function startDaemon(socketPath: string, stateStore?: StateStore, logReader?: LogReader): Promise<void> {
+export type DaemonStartupDeps = {
+  logsPath?: string;
+  openLogSink?: typeof openLogSink;
+  startIpcServer?: typeof startIpcServer;
+};
+
+export async function startDaemon(
+  socketPath: string,
+  stateStore?: StateStore,
+  logReader?: LogReader,
+  startupDeps: DaemonStartupDeps = {},
+): Promise<void> {
   const store = stateStore ?? openStateStore();
-  const logsPath = join(homedir(), ".jarvis", "state", "logs.jsonl");
+  const logsPath = startupDeps.logsPath ?? join(homedir(), ".jarvis", "state", "logs.jsonl");
   const logReaderInstance = logReader ?? openLogReader(logsPath);
-  const reconciliationLogSink = openLogSink(logsPath);
+  const createLogSink = startupDeps.openLogSink ?? openLogSink;
+  const reconciliationLogSink = createLogSink(logsPath);
   try {
-    reconcileOrphanedRuns(store, reconciliationLogSink);
+    reconcileOrphanedRuns(store, reconciliationLogSink, logReaderInstance);
   } finally {
     reconciliationLogSink.close();
   }
@@ -1141,7 +1153,7 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
   let server: IpcServer;
 
   try {
-    server = await startIpcServer(socketPath, handlers, tailStreamHandler);
+    server = await (startupDeps.startIpcServer ?? startIpcServer)(socketPath, handlers, tailStreamHandler);
   } catch (err) {
     console.error(`Failed to start IPC server on ${socketPath}:`, err);
     process.exit(1);

@@ -160,6 +160,12 @@ export interface StateStore {
   /** Persist a run status update outside a completion boundary. */
   setRunStatus(runId: string, status: RunStatus): void;
 
+  /** Mark orphaned runs as killed and return reconciliation events still owed. */
+  beginRunReconciliation(): string[];
+
+  /** Mark a persisted reconciliation event as complete. */
+  finishRunReconciliation(runId: string): void;
+
   /** List all runs (durable rows only, no in-memory liveness). */
   listRuns(): Run[];
 
@@ -224,6 +230,10 @@ const SCHEMA_MIGRATIONS = [
   {
     id: "009-run-creation-title",
     up: "ALTER TABLE runs ADD COLUMN creation_title TEXT",
+  },
+  {
+    id: "010-run-reconciliation-pending",
+    up: "ALTER TABLE runs ADD COLUMN reconciliation_pending INTEGER NOT NULL DEFAULT 0",
   },
 ] as const;
 
@@ -410,6 +420,25 @@ class StateStoreImpl implements StateStore {
 
   setRunStatus(runId: string, status: RunStatus): void {
     this.db.prepare("UPDATE runs SET status = ? WHERE id = ?").run(status, runId);
+  }
+
+  beginRunReconciliation(): string[] {
+    return this.db.transaction(() => {
+      this.db
+        .prepare(
+          "UPDATE runs SET status = 'killed', reconciliation_pending = 1 WHERE status IN ('queued', 'in-progress', 'paused', 'budget-soft-stopped', 'awaiting-human', 'revising')",
+        )
+        .run();
+      return (
+        this.db.prepare("SELECT id FROM runs WHERE reconciliation_pending = 1 ORDER BY created_at DESC, rowid DESC").all() as Array<{
+          id: string;
+        }>
+      ).map((run) => run.id);
+    })();
+  }
+
+  finishRunReconciliation(runId: string): void {
+    this.db.prepare("UPDATE runs SET reconciliation_pending = 0 WHERE id = ?").run(runId);
   }
 
   listRuns(): Run[] {

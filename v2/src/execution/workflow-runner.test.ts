@@ -2719,10 +2719,12 @@ describe("executeWorkflow review dispatch", () => {
       }),
     };
 
-    const result = await executeWorkflow({ steps: [step] });
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store });
 
-    expect(result).toMatchObject({ kind: "complete", iterationsConsumed: 1, resumable: false });
-    expect(calls).toEqual(["critic-1", "critic-2", "critic-3", "actuator-1", "actuator-2"]);
+      expect(result).toMatchObject({ kind: "complete", iterationsConsumed: 1, resumable: false });
+      expect(calls).toEqual(["critic-1", "critic-2", "critic-3", "actuator-1", "actuator-2"]);
+    });
   });
 
   test("accounts for failed critic cycles and suppresses later steps", async () => {
@@ -2782,20 +2784,23 @@ describe("executeWorkflow review dispatch", () => {
 
     const runIds: string[] = [];
     const calls: string[] = [];
-    const first = await executeWorkflow({
-      steps: [step("review-only", calls)],
-      onStepRunCreated: (_index, runId) => {
-        runIds.push(runId);
-        expect(calls).toHaveLength(0);
-      },
-    });
-    const second = await executeWorkflow({ steps: [step("review-only", calls)] });
+    await withStateStore(async (store) => {
+      const first = await executeWorkflow({
+        steps: [step("review-only", calls)],
+        stateStore: store,
+        onStepRunCreated: (_index, runId) => {
+          runIds.push(runId);
+          expect(calls).toHaveLength(0);
+        },
+      });
+      const second = await executeWorkflow({ steps: [step("review-only", calls)], stateStore: store });
 
-    expect(first.kind).toBe("complete");
-    expect(first.resumable).toBe(false);
-    expect(second.runId).not.toBe(first.runId);
-    expect(runIds[0]).toBe(first.runId);
-    expect(calls).toEqual(["claude:inspect", "claude:inspect"]);
+      expect(first.kind).toBe("complete");
+      expect(first.resumable).toBe(false);
+      expect(second.runId).not.toBe(first.runId);
+      expect(runIds[0]).toBe(first.runId);
+      expect(calls).toEqual(["claude:inspect", "claude:inspect"]);
+    });
   });
 
   test("reuses a matching mixed-workflow snapshot while retaining the review entry", async () => {
@@ -2892,16 +2897,18 @@ describe("executeWorkflow plan review dispatch", () => {
       }),
     };
 
-    const result = await executeWorkflow({ steps: [step] });
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store });
 
-    expect(result).toMatchObject({ kind: "complete", iterationsConsumed: 1, resumable: false });
-    expect(readFileSync(verdictPath, "utf8")).toBe("Clarify acceptance criteria");
-    expect(readFileSync(subspecPath, "utf8")).toBe("# After review");
-    expect(criticPrompts[0]).toContain("Intent body");
-    expect(criticPrompts[0]).toContain("# Index");
-    expect(criticPrompts[0]).not.toContain("builder-time");
-    expect(actuatorPrompts[0]).toContain("Clarify acceptance criteria");
-    expect(actuatorPrompts[0]).toContain("Intent body");
+      expect(result).toMatchObject({ kind: "complete", iterationsConsumed: 1, resumable: false });
+      expect(readFileSync(verdictPath, "utf8")).toBe("Clarify acceptance criteria");
+      expect(readFileSync(subspecPath, "utf8")).toBe("# After review");
+      expect(criticPrompts[0]).toContain("Intent body");
+      expect(criticPrompts[0]).toContain("# Index");
+      expect(criticPrompts[0]).not.toContain("builder-time");
+      expect(actuatorPrompts[0]).toContain("Clarify acceptance criteria");
+      expect(actuatorPrompts[0]).toContain("Intent body");
+    });
   });
 });
 

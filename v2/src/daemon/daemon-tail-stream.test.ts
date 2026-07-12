@@ -80,7 +80,7 @@ beforeEach(() => {
 
   const baseReader = openLogReader(LOGS_PATH);
   const logReader = {
-    ...baseReader,
+    tail: (runId: string) => baseReader.tail(runId),
     follow(runId: string, signal?: AbortSignal) {
       followCalled = true;
       onFollow?.(signal);
@@ -137,6 +137,18 @@ test("tail stream closes without stream-data for unknown runId", async () => {
   logSink.close();
 
   await expectTailClosesWithoutData("tail-unknown", { runId: orphanRunId });
+});
+
+test("tail stream closes after replay for a terminal run without entering follow", async () => {
+  const runId = createRunWithLogs();
+  stateStore.setRunStatus(runId, "failed");
+
+  const { onData, closes, handlerPromise } = callTailHandler("tail-terminal", { runId }, new AbortController().signal);
+  await handlerPromise;
+
+  expect(onData).toHaveLength(2);
+  expect(closes.count).toBe(1);
+  expect(followCalled).toBe(false);
 });
 
 test("tail stream aborts follow signal on client stream-end", async () => {

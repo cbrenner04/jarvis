@@ -26,7 +26,22 @@ export type RunExecutionFailedEvent = {
   kind: "run_execution_failed";
 };
 
-export type LogEvent = IterationStartedEvent | BoundaryCommittedEvent | LoopFinishedEvent | RunExecutionFailedEvent;
+/** Agent stdout excerpt when token parsing fails; truncated at append time. */
+export type InvalidTokenDetailEvent = {
+  kind: "invalid_token_detail";
+  attemptId: string;
+  tokenText: string;
+};
+
+export type LogEvent =
+  | IterationStartedEvent
+  | BoundaryCommittedEvent
+  | LoopFinishedEvent
+  | RunExecutionFailedEvent
+  | InvalidTokenDetailEvent;
+
+/** Max chars persisted for {@link InvalidTokenDetailEvent.tokenText}. */
+export const INVALID_TOKEN_LOG_MAX_CHARS = 500;
 
 export type PersistedRecord = {
   runId: string;

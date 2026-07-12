@@ -5,10 +5,21 @@ import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts
 import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
 import { resolveMachineProfile } from "../config/machine-config-loader.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
-import { type AnyWorkflowStep, executeWorkflow, type ReviewProgress } from "../execution/workflow-runner.ts";
+import {
+  type AnyWorkflowStep,
+  executeWorkflow,
+  type ReviewProgress,
+  workflowTelemetryLabel,
+} from "../execution/workflow-runner.ts";
 import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
-import { type LogReader, type LoopFinishedEvent, openLogReader, openLogSink } from "../persistence/log-stream.ts";
+import {
+  type LogReader,
+  type LoopFinishedEvent,
+  openLogReader,
+  openLogSink,
+  type PersistedRecord,
+} from "../persistence/log-stream.ts";
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { type ReviseReconvergeDeps, reconvergeRevisingRun, reviseAwaitingHuman } from "./daemon-revise.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
@@ -192,6 +203,10 @@ export function resolveWriteLoopBindings(input: WriteLoopInput): ResolvedWriteLo
 export type RunControlHandlerDeps = {
   stateStore: StateStore;
   logReader?: LogReader;
+  /** When set, workflow `start` passes a log sink into `executeWorkflow`. */
+  logsPath?: string;
+  /** Daemon session id stamped on workflow telemetry; required when `logsPath` is set. */
+  operatorSessionId?: string;
   writeLoopExecutor: (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => Promise<void>;
   failureReporter: (runId: string, reason: unknown) => void | Promise<void>;
   /** `revise`'s dirty-worktree gate; defaults to a real `git status --porcelain` check. */
@@ -300,7 +315,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
     steps.set(stepId, progress);
   };
-  const { stateStore: store, logReader, writeLoopExecutor, failureReporter } = deps;
+  const { stateStore: store, logReader, writeLoopExecutor, failureReporter, logsPath, operatorSessionId } = deps;
   const checkWorktreeDirty = deps.isWorktreeDirty ?? isWorktreeDirty;
   const checkMemoryHeadroom = deps.hasMemoryHeadroom ?? (() => hasMemoryHeadroom(resolveMachineProfile()));
   const injectedSettleDelayMs = deps.settleDelayMs;
@@ -377,9 +392,14 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     workflowKey: OwnershipKey,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     return new Promise((resolve) => {
+      const logSink = logsPath !== undefined ? openLogSink(logsPath) : undefined;
+      const telemetry =
+        operatorSessionId !== undefined ? { operatorSessionId, workflow: workflowTelemetryLabel(steps) } : undefined;
       executeWorkflow({
         steps,
         stateStore: store,
+        ...(logSink !== undefined ? { logSink } : {}),
+        ...(telemetry !== undefined ? { telemetry } : {}),
         onReviewDebateProgress: reportReviewProgress,
         onStepRunCreated: (stepIndex, runId) => {
           activeRuns.set(runId, { kind: "workflow", runId });
@@ -396,6 +416,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
           });
         })
         .finally(() => {
+          logSink?.close();
           _registry.release(workflowKey);
         });
     });
@@ -898,6 +919,38 @@ export type TailStreamHandlerDeps = {
   logReader: LogReader;
 };
 
+function parseTailStreamRunId(payload: unknown): string | undefined {
+  const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
+  if (typeof params !== "object" || params === null) return undefined;
+  const runId = (params as { runId?: unknown }).runId;
+  return typeof runId === "string" ? runId : undefined;
+}
+
+async function streamRunLogRecords(
+  deps: TailStreamHandlerDeps,
+  runId: string,
+  onData: (record: PersistedRecord) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  const run = deps.stateStore.loadRun(runId);
+  if (!run) return;
+
+  const replay = deps.logReader.tail(runId);
+  for (const record of replay) {
+    if (signal.aborted) return;
+    onData(record);
+  }
+
+  if (run.status !== "in-progress") return;
+
+  const subscribeSeq = replay.at(-1)?.seq ?? 0;
+  for await (const record of deps.logReader.follow(runId, signal)) {
+    if (signal.aborted) break;
+    if (record.seq <= subscribeSeq) continue;
+    onData(record);
+  }
+}
+
 /**
  * Tail-log stream handler factory for IPC `stream-open` on run logs.
  *
@@ -907,23 +960,14 @@ export type TailStreamHandlerDeps = {
  */
 export function createTailStreamHandler(deps: TailStreamHandlerDeps): StreamHandler {
   return async (_streamId, payload, onData, onClose, signal) => {
-    const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
-    if (!params?.runId || typeof params.runId !== "string") {
-      onClose();
-      return;
-    }
-
-    const runId = params.runId;
-    if (!deps.stateStore.loadRun(runId)) {
+    const runId = parseTailStreamRunId(payload);
+    if (!runId || !deps.stateStore.loadRun(runId)) {
       onClose();
       return;
     }
 
     try {
-      for await (const record of deps.logReader.follow(runId, signal)) {
-        if (signal.aborted) break;
-        onData(record);
-      }
+      await streamRunLogRecords(deps, runId, onData, signal);
     } finally {
       onClose();
     }
@@ -974,6 +1018,8 @@ export async function startDaemon(socketPath: string, stateStore?: StateStore, l
   } = createRunControlHandlers({
     stateStore: store,
     logReader: logReaderInstance,
+    logsPath,
+    operatorSessionId,
     writeLoopExecutor,
     failureReporter: createRunExecutionFailureReporter(logsPath),
   });

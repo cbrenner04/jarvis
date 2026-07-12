@@ -21,6 +21,10 @@ export function formatLogFollowLine(record: PersistedRecord): string {
       break;
     case "run_execution_failed":
       break;
+    case "invalid_token_detail":
+      if (event.attemptId !== undefined) parts.push(`attemptId=${event.attemptId}`);
+      if (event.tokenText.length > 0) parts.push(`tokenText=${JSON.stringify(event.tokenText)}`);
+      break;
   }
 
   return parts.join(" ");

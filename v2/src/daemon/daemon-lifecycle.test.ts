@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   DaemonAlreadyRunningError,
@@ -113,6 +113,244 @@ describe("daemon-lifecycle", () => {
         }),
       ).rejects.toThrow("PID file directory does not exist");
     });
+
+    test("writes to logPath when provided", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        const logPath = join(tmpDir, "daemon.log");
+        const socketProber: SocketProber = {
+          probe: async () => false,
+        };
+
+        const processProber: ProcessProber = {
+          isAlive: () => true,
+        };
+
+        await expect(
+          startDaemon("/fake/socket", {
+            socketProber,
+            processProber,
+            readinessTimeoutMs: 100,
+            daemonScript: "/fake/script",
+            logPath,
+          }),
+        ).rejects.toThrow("Daemon failed to become ready");
+
+        // Verify the log file was created
+        expect(existsSync(logPath)).toBe(true);
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("throws when logPath directory does not exist", async () => {
+      const logPath = "/nonexistent/dir/daemon.log";
+
+      const socketProber: SocketProber = {
+        probe: async () => false,
+      };
+
+      const processProber: ProcessProber = {
+        isAlive: () => true,
+      };
+
+      await expect(
+        startDaemon("/fake/socket", {
+          socketProber,
+          processProber,
+          readinessTimeoutMs: 100,
+          daemonScript: "/fake/script",
+          logPath,
+        }),
+      ).rejects.toThrow("Log file directory does not exist");
+    });
+
+    test("throws when logPath cannot be opened for writing", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        // A directory at logPath cannot be opened for writing as a file
+        const logPath = join(tmpDir, "daemon.log");
+        mkdirSync(logPath);
+
+        const socketProber: SocketProber = {
+          probe: async () => false,
+        };
+
+        const processProber: ProcessProber = {
+          isAlive: () => true,
+        };
+
+        await expect(
+          startDaemon("/fake/socket", {
+            socketProber,
+            processProber,
+            readinessTimeoutMs: 100,
+            daemonScript: "/fake/script",
+            logPath,
+          }),
+        ).rejects.toThrow("Failed to open log file for writing");
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("rotates log file when at capacity", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        const logPath = join(tmpDir, "daemon.log");
+        const capBytes = 50;
+
+        // Create initial log file with content that exceeds cap
+        writeFileSync(logPath, "x".repeat(100));
+
+        const socketProber: SocketProber = {
+          probe: async () => false,
+        };
+
+        const processProber: ProcessProber = {
+          isAlive: () => true,
+        };
+
+        await expect(
+          startDaemon("/fake/socket", {
+            socketProber,
+            processProber,
+            readinessTimeoutMs: 100,
+            daemonScript: "/fake/script",
+            logPath,
+            logCapBytes: capBytes,
+          }),
+        ).rejects.toThrow("Daemon failed to become ready");
+
+        // Verify rotation happened
+        expect(existsSync(`${logPath}.1`)).toBe(true);
+        const rotatedContent = readFileSync(`${logPath}.1`, "utf-8");
+        expect(rotatedContent).toBe("x".repeat(100));
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("does not create log file when logPath not provided", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        const logPath = join(tmpDir, "should-not-exist.log");
+
+        const socketProber: SocketProber = {
+          probe: async () => false,
+        };
+
+        const processProber: ProcessProber = {
+          isAlive: () => true,
+        };
+
+        await expect(
+          startDaemon("/fake/socket", {
+            socketProber,
+            processProber,
+            readinessTimeoutMs: 100,
+            daemonScript: "/fake/script",
+            // logPath omitted
+          }),
+        ).rejects.toThrow("Daemon failed to become ready");
+
+        // Verify no log file was created
+        expect(existsSync(logPath)).toBe(false);
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("captures a real child's stdout into logPath", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        const logPath = join(tmpDir, "daemon.log");
+        const daemonScript = join(tmpDir, "fake-daemon.ts");
+        writeFileSync(daemonScript, `console.log("child-output-marker");\n`);
+
+        const socketProber: SocketProber = {
+          probe: async () => false,
+        };
+
+        const processProber: ProcessProber = {
+          isAlive: () => true,
+        };
+
+        await expect(
+          startDaemon("/fake/socket", {
+            socketProber,
+            processProber,
+            readinessTimeoutMs: 500,
+            daemonScript,
+            logPath,
+          }),
+        ).rejects.toThrow("Daemon failed to become ready");
+
+        const content = readFileSync(logPath, "utf-8");
+        expect(content).toContain("child-output-marker");
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("appends the new daemon's output alongside a prior daemon's after restart", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        const logPath = join(tmpDir, "daemon.log");
+
+        const socketProber: SocketProber = {
+          probe: async () => false,
+        };
+
+        const processProber: ProcessProber = {
+          isAlive: () => true,
+        };
+
+        const firstScript = join(tmpDir, "fake-daemon-1.ts");
+        writeFileSync(firstScript, `console.log("first-daemon-marker");\n`);
+
+        await expect(
+          startDaemon("/fake/socket", {
+            socketProber,
+            processProber,
+            readinessTimeoutMs: 500,
+            daemonScript: firstScript,
+            logPath,
+          }),
+        ).rejects.toThrow("Daemon failed to become ready");
+
+        const secondScript = join(tmpDir, "fake-daemon-2.ts");
+        writeFileSync(secondScript, `console.log("second-daemon-marker");\n`);
+
+        await expect(
+          startDaemon("/fake/socket", {
+            socketProber,
+            processProber,
+            readinessTimeoutMs: 500,
+            daemonScript: secondScript,
+            logPath,
+          }),
+        ).rejects.toThrow("Daemon failed to become ready");
+
+        const content = readFileSync(logPath, "utf-8");
+        expect(content).toContain("first-daemon-marker");
+        expect(content).toContain("second-daemon-marker");
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
   });
 
   describe("stopDaemon", () => {
@@ -187,174 +425,6 @@ describe("daemon-lifecycle", () => {
         socketProber,
       });
       expect(status).toBe("running");
-    });
-
-    test("writes to logPath when provided", async () => {
-      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
-      mkdirSync(tmpDir, { recursive: true });
-
-      try {
-        const logPath = join(tmpDir, "daemon.log");
-        const socketProber: SocketProber = {
-          probe: async () => false,
-        };
-
-        const processProber: ProcessProber = {
-          isAlive: () => true,
-        };
-
-        await expect(
-          startDaemon("/fake/socket", {
-            socketProber,
-            processProber,
-            readinessTimeoutMs: 100,
-            daemonScript: "/fake/script",
-            logPath,
-          }),
-        ).rejects.toThrow("Daemon failed to become ready");
-
-        // Verify the log file was created
-        expect(require("node:fs").existsSync(logPath)).toBe(true);
-      } finally {
-        rmSync(tmpDir, { recursive: true, force: true });
-      }
-    });
-
-    test("throws when logPath directory does not exist", async () => {
-      const logPath = "/nonexistent/dir/daemon.log";
-
-      const socketProber: SocketProber = {
-        probe: async () => false,
-      };
-
-      const processProber: ProcessProber = {
-        isAlive: () => true,
-      };
-
-      await expect(
-        startDaemon("/fake/socket", {
-          socketProber,
-          processProber,
-          readinessTimeoutMs: 100,
-          daemonScript: "/fake/script",
-          logPath,
-        }),
-      ).rejects.toThrow("Log file directory does not exist");
-    });
-
-    test("rotates log file when at capacity", async () => {
-      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
-      mkdirSync(tmpDir, { recursive: true });
-
-      try {
-        const logPath = join(tmpDir, "daemon.log");
-        const capBytes = 50;
-
-        // Create initial log file with content that exceeds cap
-        writeFileSync(logPath, "x".repeat(100));
-
-        const socketProber: SocketProber = {
-          probe: async () => false,
-        };
-
-        const processProber: ProcessProber = {
-          isAlive: () => true,
-        };
-
-        await expect(
-          startDaemon("/fake/socket", {
-            socketProber,
-            processProber,
-            readinessTimeoutMs: 100,
-            daemonScript: "/fake/script",
-            logPath,
-            logCapBytes: capBytes,
-          }),
-        ).rejects.toThrow("Daemon failed to become ready");
-
-        // Verify rotation happened
-        const fs = require("node:fs");
-        expect(fs.existsSync(`${logPath}.1`)).toBe(true);
-        const rotatedContent = readFileSync(`${logPath}.1`, "utf-8");
-        expect(rotatedContent).toBe("x".repeat(100));
-      } finally {
-        rmSync(tmpDir, { recursive: true, force: true });
-      }
-    });
-
-    test("appends to log file when under capacity", async () => {
-      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
-      mkdirSync(tmpDir, { recursive: true });
-
-      try {
-        const logPath = join(tmpDir, "daemon.log");
-        const capBytes = 1000;
-
-        // Create initial log file with small content
-        writeFileSync(logPath, "small content\n");
-
-        const socketProber: SocketProber = {
-          probe: async () => false,
-        };
-
-        const processProber: ProcessProber = {
-          isAlive: () => true,
-        };
-
-        await expect(
-          startDaemon("/fake/socket", {
-            socketProber,
-            processProber,
-            readinessTimeoutMs: 100,
-            daemonScript: "/fake/script",
-            logPath,
-            logCapBytes: capBytes,
-          }),
-        ).rejects.toThrow("Daemon failed to become ready");
-
-        // Verify file was appended to (fd was opened in append mode)
-        // Note: we can't easily verify fd append behavior without actually spawning,
-        // but we can verify the file still exists
-        const fs = require("node:fs");
-        expect(fs.existsSync(logPath)).toBe(true);
-        const content = readFileSync(logPath, "utf-8");
-        expect(content).toContain("small content");
-      } finally {
-        rmSync(tmpDir, { recursive: true, force: true });
-      }
-    });
-
-    test("does not create log file when logPath not provided", async () => {
-      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
-      mkdirSync(tmpDir, { recursive: true });
-
-      try {
-        const logPath = join(tmpDir, "should-not-exist.log");
-
-        const socketProber: SocketProber = {
-          probe: async () => false,
-        };
-
-        const processProber: ProcessProber = {
-          isAlive: () => true,
-        };
-
-        await expect(
-          startDaemon("/fake/socket", {
-            socketProber,
-            processProber,
-            readinessTimeoutMs: 100,
-            daemonScript: "/fake/script",
-            // logPath omitted
-          }),
-        ).rejects.toThrow("Daemon failed to become ready");
-
-        // Verify no log file was created
-        const fs = require("node:fs");
-        expect(fs.existsSync(logPath)).toBe(false);
-      } finally {
-        rmSync(tmpDir, { recursive: true, force: true });
-      }
     });
   });
 });

@@ -20,7 +20,7 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Lint and format (Biome)
+      - name: Lint, format, and guard blocking child processes
         run: bun run check
 
       - name: Lint markdown

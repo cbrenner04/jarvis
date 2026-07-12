@@ -143,7 +143,7 @@ export async function landIntentWorkflowOutput(input: {
   });
   if (rogue.length > 0) failure(`intent: splitter wrote outside .jarvis-intent-stage/: ${rogue.join(", ")}`);
   const paths = allPaths.filter((path) => path === ".jarvis-intent-stage" || path.startsWith(".jarvis-intent-stage/"));
-  const validation = validateIntentStage(stageDir, paths, input.warn ?? (() => undefined));
+  const validation = await validateIntentStage(stageDir, paths, input.warn ?? (() => undefined));
   if (!validation.ok) failure(validation.error);
 
   const files = validation.intents.map((intent) => basename(intent.path));

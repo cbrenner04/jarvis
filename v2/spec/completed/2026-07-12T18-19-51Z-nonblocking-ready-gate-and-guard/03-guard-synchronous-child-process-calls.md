@@ -15,13 +15,13 @@ With every daemon-reachable subprocess awaited, make regression impossible: a st
 
 ## Acceptance criteria
 
-- [ ] The guard exits non-zero and names file, line, and construct when a synchronous child-process call is added to a non-test `v2/**` or `shared/**` module, for each of the three reach forms (static import, `require`, dynamic `import`).
-- [ ] The guard exits non-zero when `v2/**` non-test code imports the synchronous `SubprocessRunner` seam or any sync-runner-backed `shared/git.ts` helper.
-- [ ] The guard does not flag `*.test.ts`, `v2/src/testing/**`, or the allowlisted `shared/subprocess.ts`.
-- [ ] The guard exits zero on the tree as of this subspec (with 00 and 02 landed).
-- [ ] The guard runs as part of `bun run check` (and therefore of `bun run ready`) and of CI, so a violating branch fails the gate before the draft PR flips to ready.
-- [ ] `scripts/ready.ts` and `v1/test/**` are unchanged by this subspec: `getReadyCommands` returns the same step list as before, and the v1 ready-pipeline tests pass untouched.
-- [ ] A unit test for the guard covers a violating fixture per reach form, a v2 sync-seam-import fixture, an allowlisted fixture, and a test-file fixture.
+- [x] The guard exits non-zero and names file, line, and construct when a synchronous child-process call is added to a non-test `v2/**` or `shared/**` module, for each of the three reach forms (static import, `require`, dynamic `import`).
+- [x] The guard exits non-zero when `v2/**` non-test code imports the synchronous `SubprocessRunner` seam or any sync-runner-backed `shared/git.ts` helper.
+- [x] The guard does not flag `*.test.ts`, `v2/src/testing/**`, or the allowlisted `shared/subprocess.ts`.
+- [x] The guard exits zero on the tree as of this subspec (with 00 and 02 landed).
+- [x] The guard runs as part of `bun run check` (and therefore of `bun run ready`) and of CI, so a violating branch fails the gate before the draft PR flips to ready.
+- [x] `scripts/ready.ts` and `v1/test/**` are unchanged by this subspec: `getReadyCommands` returns the same step list as before, and the v1 ready-pipeline tests pass untouched.
+- [x] A unit test for the guard covers a violating fixture per reach form, a v2 sync-seam-import fixture, an allowlisted fixture, and a test-file fixture.
 
 ## Documentation updates
 

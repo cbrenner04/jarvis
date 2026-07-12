@@ -11,9 +11,9 @@ Prove the invariant the previous subspec makes possible: with the ready gate pen
 
 ## Acceptance criteria
 
-- [ ] A new `v2/src/daemon/daemon-ipc-responsiveness-during-ready-gate.sandbox-unrunnable.test.ts` starts an IPC server, drives a write loop to completion with the ready-gate seam held pending, and proves `list` resolves before the seam is released.
-- [ ] The same test proves `tail` for a live run resolves before the seam is released.
-- [ ] Releasing the held seam lets finalization complete and the run reach its terminal state.
+- [x] A new `v2/src/daemon/daemon-ipc-responsiveness-during-ready-gate.sandbox-unrunnable.test.ts` starts an IPC server, drives a write loop to completion with the ready-gate seam held pending, and proves `list` resolves before the seam is released.
+- [x] The same test proves `tail` for a live run resolves before the seam is released.
+- [x] Releasing the held seam lets finalization complete and the run reach its terminal state.
 
 ## Documentation updates
 

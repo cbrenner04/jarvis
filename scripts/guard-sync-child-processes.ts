@@ -57,13 +57,16 @@ function moduleViolations(
   }
 
   const directCall = new RegExp(
-    `(?:require|import)\\(\\s*["']${moduleSource}["']\\s*\\)\\s*\\.\\s*(${namePattern})\\s*\\(`,
+    `(?:require|import)\\(\\s*["']${moduleSource}["']\\s*\\)\\s*(?:\\.\\s*(${namePattern})|\\[\\s*["'](${namePattern})["']\\s*\\])\\s*\\(`,
     "g",
   );
-  for (const match of source.matchAll(directCall)) add(match.index, `${match[1]} from module import`);
+  for (const match of source.matchAll(directCall)) {
+    add(match.index, `${match[1] ?? match[2]} from module import`);
+  }
 
   const bindings = [
     new RegExp(`\\bimport\\s+\\*\\s+as\\s+(\\w+)\\s+from\\s*["']${moduleSource}["']`, "g"),
+    new RegExp(`\\bimport\\s+(\\w+)\\s+from\\s*["']${moduleSource}["']`, "g"),
     new RegExp(`\\b(?:const|let|var)\\s+(\\w+)\\s*=\\s*require\\(\\s*["']${moduleSource}["']\\s*\\)`, "g"),
     new RegExp(`\\b(?:const|let|var)\\s+(\\w+)\\s*=\\s*await\\s+import\\(\\s*["']${moduleSource}["']\\s*\\)`, "g"),
   ];
@@ -71,8 +74,10 @@ function moduleViolations(
     for (const match of source.matchAll(pattern)) {
       const binding = match[1];
       if (!binding) continue;
-      const call = new RegExp(`\\b${binding}\\s*\\.\\s*(${namePattern})\\s*\\(`).exec(source.slice(match.index));
-      if (call) add((match.index ?? 0) + (call.index ?? 0), `${call[1]} from module binding`);
+      const call = new RegExp(
+        `\\b${binding}\\s*(?:\\.\\s*(${namePattern})|\\[\\s*["'](${namePattern})["']\\s*\\])\\s*\\(`,
+      ).exec(source.slice(match.index));
+      if (call) add((match.index ?? 0) + (call.index ?? 0), `${call[1] ?? call[2]} from module binding`);
     }
   }
   return violations;
@@ -90,7 +95,7 @@ export function findSyncChildProcessViolations(files: readonly GuardFile[]): Gua
       ]),
       ...moduleViolations(source, file, "(?:.*\\/)?shared\\/git\\.ts", SYNC_GIT_HELPERS),
     ];
-    for (const match of source.matchAll(/\bBun\s*\.\s*spawnSync\s*\(/g)) {
+    for (const match of source.matchAll(/\bBun\s*(?:\.\s*spawnSync|\[\s*["']spawnSync\s*["']\s*\])\s*\(/g)) {
       violations.push({ file, line: lineAt(source, match.index), construct: "Bun.spawnSync" });
     }
     return violations;
@@ -102,7 +107,7 @@ function collectFiles(root: string, cwd: string): GuardFile[] {
     const path = join(root, entry.name);
     if (entry.isDirectory()) return collectFiles(path, cwd);
     const file = relative(cwd, path);
-    return entry.isFile() && file.endsWith(".ts") ? [{ file, source: readFileSync(path, "utf8") }] : [];
+    return entry.isFile() && /\.tsx?$/.test(file) ? [{ file, source: readFileSync(path, "utf8") }] : [];
   });
 }
 

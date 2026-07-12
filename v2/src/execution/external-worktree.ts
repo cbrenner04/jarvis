@@ -62,7 +62,9 @@ export async function withExternalWorktree<T>(
   args: ExternalWorktreeInput,
   run: (worktree: ExternalWorktree) => Promise<T> | T,
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  signal?: AbortSignal,
 ): Promise<WithExternalWorktreeResult<T>> {
+  throwIfAborted(signal);
   if (args.git === false && args.localPath !== undefined) {
     mkdirSync(args.localPath, { recursive: true });
     return {
@@ -74,12 +76,17 @@ export async function withExternalWorktree<T>(
   const lockRoot = ensureExternalWorktreeLockRoot(args);
   const lock = acquireExternalWorktreeLock(lockRoot);
   try {
-    const worktree = await ensureExternalWorktree(args, runner);
+    const worktree = await ensureExternalWorktree(args, runner, signal);
+    throwIfAborted(signal);
     const value = await run(worktree);
     return { worktree, lock, value };
   } finally {
     releaseExternalWorktreeLock(lockRoot);
   }
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw new Error("write execution aborted");
 }
 
 /** Acquire the lock; a live holder throws {@link WorktreeBusyError} (refuse, don't queue). */
@@ -106,32 +113,43 @@ function ensureExternalWorktreeLockRoot(args: ExternalWorktreeInput): string {
 async function ensureExternalWorktree(
   args: ExternalWorktreeInput,
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  signal?: AbortSignal,
 ): Promise<ExternalWorktree> {
   const worktreePath = getExternalWorktreePath(args);
   if (await isValidGitWorktree(worktreePath, runner)) {
+    throwIfAborted(signal);
     await assertReusableWorktreeMatches(args, worktreePath, runner);
+    throwIfAborted(signal);
     return { path: worktreePath, reused: true };
   }
+  throwIfAborted(signal);
   if (existsSync(worktreePath)) {
     throw new Error(`existing path is not a git worktree: ${worktreePath}`);
   }
 
   mkdirSync(dirname(worktreePath), { recursive: true });
   await pruneMissingWorktrees(args.projectRoot, runner);
+  throwIfAborted(signal);
 
   const branchExists = await branchExistsLocalAsync(args.projectRoot, args.branchName, runner);
+  throwIfAborted(signal);
   const branchExistsRemote = await branchExistsOnOriginAsync(args.projectRoot, args.branchName, runner);
+  throwIfAborted(signal);
 
   if (branchExists || branchExistsRemote) {
     if (!branchExists && branchExistsRemote) {
       await runner.runAsync("git", ["branch", args.branchName, `origin/${args.branchName}`], args.projectRoot);
+      throwIfAborted(signal);
     }
     await runner.runAsync("git", ["worktree", "add", "--checkout", worktreePath, args.branchName], args.projectRoot);
+    throwIfAborted(signal);
     return { path: worktreePath, reused: false };
   }
 
   await runner.runAsync("git", ["branch", args.branchName, args.baseRef], args.projectRoot);
+  throwIfAborted(signal);
   await runner.runAsync("git", ["worktree", "add", worktreePath, args.branchName], args.projectRoot);
+  throwIfAborted(signal);
   return { path: worktreePath, reused: false };
 }
 

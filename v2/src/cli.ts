@@ -7,6 +7,7 @@ import type { AgentModelConfig, LoadError } from "./config/agent-model-config.ts
 import {
   type ImplementReviewBehavior,
   loadMachineConfig,
+  readIterationTimeoutMs,
   readMachineConfigDocument,
   readProjectImplementReviewBehavior,
   readProjectImplementReviewPasses,
@@ -512,10 +513,19 @@ async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps
     return 1;
   }
 
+  let iterationTimeoutMs: number;
+  try {
+    iterationTimeoutMs = readIterationTimeoutMs(deps.machineConfigPath);
+  } catch (error) {
+    io.stderr(`${error instanceof Error ? error.message : String(error)}\n`);
+    return 1;
+  }
+  const steps = built.steps.map((step) => (step.behavior === "write" ? { ...step, iterationTimeoutMs } : step));
+
   return withRunClient(io, deps, async (client) => {
     let result: unknown;
     try {
-      result = await request(client, "start", { steps: built.steps });
+      result = await request(client, "start", { steps });
     } catch (error) {
       if (error instanceof RpcError) {
         io.stderr(formatRpcError(error));
@@ -634,7 +644,12 @@ function parseWriteCliInput(argv: readonly string[], deps: CliDeps): WriteCliInp
   if (!built.ok) {
     return { ok: false };
   }
-  return { ok: true, input: built.input };
+  try {
+    return { ok: true, input: { ...built.input, iterationTimeoutMs: readIterationTimeoutMs(deps.machineConfigPath) } };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, message: `${message}\n` };
+  }
 }
 
 type ImplementWorkflowCliInput =

@@ -888,6 +888,7 @@ function buildWorkflowSnapshot(steps: readonly AnyWorkflowStep[], store: StateSt
           expectedArtifactPath: step.expectedArtifactPath,
           agents: step.agents,
           agentModelConfig: step.agentModelConfig,
+          iterationTimeoutMs: step.iterationTimeoutMs,
         }
       : {}),
   }));
@@ -1116,6 +1117,7 @@ function prepareWorkflowStep(
         agents,
         agentModelConfig,
       },
+      ...(step.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: step.iterationTimeoutMs } : {}),
       stateStore: store,
       ...(logSink !== undefined ? { logSink } : {}),
       ...(telemetry !== undefined

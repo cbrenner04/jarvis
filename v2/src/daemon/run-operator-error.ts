@@ -18,6 +18,7 @@ const RUN_OPERATOR_ERROR_REASONS = [
   "not_implemented",
   "completion_commit_failed",
   "ready_finalize_failed",
+  "iteration_timeout",
 ] as const;
 
 export type RunOperatorErrorReason = (typeof RUN_OPERATOR_ERROR_REASONS)[number];
@@ -134,6 +135,8 @@ function mapFromLoopFinished(
       return op("contract_miss", "inspect_spec");
     case "invocation_failure":
       return (lastAttempt && mapInvocationFromAttempt(lastAttempt)) ?? op("invocation_error", "stop");
+    case "iteration_timeout":
+      return op("iteration_timeout", "stop");
     default:
       return undefined;
   }

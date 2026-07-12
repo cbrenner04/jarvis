@@ -432,6 +432,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     workflowKey: OwnershipKey,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     return new Promise((resolve) => {
+      const workflowRunIds = new Set<string>();
       const logSink = logsPath !== undefined ? openLogSink(logsPath) : undefined;
       const telemetry =
         operatorSessionId !== undefined ? { operatorSessionId, workflow: workflowTelemetryLabel(steps) } : undefined;
@@ -442,6 +443,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         ...(telemetry !== undefined ? { telemetry } : {}),
         onReviewDebateProgress: reportReviewProgress,
         onStepRunCreated: (stepIndex, runId) => {
+          workflowRunIds.add(runId);
           activeRuns.set(runId, { kind: "workflow", runId });
           if (stepIndex === 0) {
             resolve({ kind: "response", result: { runId } });
@@ -457,6 +459,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         })
         .finally(() => {
           logSink?.close();
+          for (const runId of workflowRunIds) activeRuns.delete(runId);
           _registry.release(workflowKey);
         });
     });
@@ -835,6 +838,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       },
       stepId: run.stepId,
       workflowSnapshot: run.workflowSnapshot,
+      ...(snapshotStep.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: snapshotStep.iterationTimeoutMs } : {}),
     };
 
     spawnWriteLoop(key, runId, run.worktreePath, input);

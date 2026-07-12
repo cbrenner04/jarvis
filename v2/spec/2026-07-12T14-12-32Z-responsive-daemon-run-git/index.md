@@ -4,4 +4,4 @@
 - [x] [01 - Await workflow and review Git](./01-await-workflow-review-git.md)
 - [x] [02 - Await intent-output Git](./02-await-intent-output-git.md)
 - [x] [03 - Await attribution and completion Git](./03-await-attribution-completion-git.md)
-- [ ] [04 - Prove IPC responsiveness during Git](./04-prove-ipc-responsiveness-during-git.md)
+- [x] [04 - Prove IPC responsiveness during Git](./04-prove-ipc-responsiveness-during-git.md)

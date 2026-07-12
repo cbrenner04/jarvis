@@ -546,6 +546,10 @@ Items tagged **[v2-cleanup candidate]** are dead or vestigial code paths flagged
 
 - **v2-ported with async contract change:** Completion-commit staging (`read-tree`, `add`, `write-tree`, `commit-tree`, `update-ref`, `reset`, `diff-tree`) and PR-attribution footer rendering (`git log` for `Jarvis-Agent` trailers) preserve UTF-8 output, trimming, failure fallbacks, pending-commit resume, and sequential commit/index cleanup order. **v2 implementation detail:** daemon-reachable completion commit and attribution paths await Git through `execFile` so IPC stays responsive during completion boundaries. User-observable completion durability, attribution bullets, and footer semantics are unchanged. Sources: `v2/src/execution/completion-commit.ts`, `v2/src/execution/pr-attribution.ts`, `v2/src/execution/pr-body-refresh.ts`, `v2/src/execution/write-loop.ts`, `v2/src/execution/workflow-runner.ts`
 
+## v2 Parity: Daemon-run IPC during pending Git
+
+- **v2 behavior change:** Unrelated daemon IPC (`list`, `health`, steering, `wait`, `tail`, …) completes while a run-path Git subprocess is pending. Run-path Git on daemon-hosted runs is awaited (`AsyncSubprocessRunner` / `execFile`), so the event loop stays available for other RPCs. Guarded by `v2/src/daemon/daemon-ipc-responsiveness-during-git.sandbox-unrunnable.test.ts`. Sources: `v2/docs/v2-architecture.md`, `shared/subprocess.ts`, `v2/src/execution/external-worktree.ts`
+
 ## v2 Parity: Completion publication (push and draft PR)
 
 - **v2-ported:** push, draft PR ensure, post-PR body refresh with attribution footer, ready gate (`bun run ready`), and draft→ready flip (`gh pr ready`). v2 collapses work into one completion commit (v1 uses per-subspec commits for attribution). Attribution footer Git is awaited; push/`gh` publication and ready finalization remain synchronous. Gate+flip failures surface as retryable `ready_finalize_failed`. Sources: `v2/docs/write-behavior.md`, `v2/src/execution/completion-publisher.ts`, `v2/src/execution/pr-attribution.ts`, `v2/src/execution/pr-body-refresh.ts`, `v2/src/execution/ready-finalize.ts`.

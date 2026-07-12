@@ -587,6 +587,12 @@ repos" principle change is smaller:
   (`git log`, index staging via `GIT_INDEX_FILE`, `commit-tree`, `update-ref`), are awaited
   (including `maxBuffer` and ignored stdio where applicable). Push, draft PR ensure, and
   ready finalization remain synchronous on their own conversion slices.
+- **Unrelated IPC during pending run Git.** While a daemon-hosted run awaits any of the
+  Git subprocesses above, unrelated RPCs (`list`, `health`, steering, `wait`, `tail`, …)
+  still dispatch on the same event loop. `daemon-ipc-responsiveness-during-git.sandbox-unrunnable.test.ts`
+  holds a representative `withExternalWorktree` Git command at a signaled pending state,
+  proves `list` resolves before that command is released, then releases Git and completes
+  the run.
 
 ## Interface & IPC
 

@@ -1312,13 +1312,17 @@ describe("v2 cli", () => {
     writeFileSync(join(root, "spec.md"), "# Spec\n", "utf8");
     const specCap = captureIo();
 
-    const specCode = await main(["run", "workflow", "implement", "--base", "main", "--spec", "escaped.md"], specCap.io, {
-      cwd: () => root,
-      readProjectRegistry: () => ({ project: { root } }),
-      connectIpcClient: async () => {
-        throw new Error("should not contact daemon");
+    const specCode = await main(
+      ["run", "workflow", "implement", "--base", "main", "--spec", "escaped.md"],
+      specCap.io,
+      {
+        cwd: () => root,
+        readProjectRegistry: () => ({ project: { root } }),
+        connectIpcClient: async () => {
+          throw new Error("should not contact daemon");
+        },
       },
-    });
+    );
     expect(specCode).toBe(1);
     expect(specCap.read().stderr).toContain("Spec path outside registered project roots");
 
@@ -1363,13 +1367,19 @@ describe("v2 cli", () => {
             },
           },
           connectIpcClient: async () =>
-            makeIpcClient([{ kind: "response", id: "00000000-0000-4000-8000-000000000020", result: { runId: "run-1" } }]),
+            makeIpcClient([
+              { kind: "response", id: "00000000-0000-4000-8000-000000000020", result: { runId: "run-1" } },
+            ]),
         },
       ),
     );
 
     expect(code).toBe(0);
-    expect(builtInput).toMatchObject({ projectRoot: realpathSync(root), specPath: "specs/spec.md", artifactPath: "specs/artifact.md" });
+    expect(builtInput).toMatchObject({
+      projectRoot: realpathSync(root),
+      specPath: "specs/spec.md",
+      artifactPath: "specs/artifact.md",
+    });
   });
 
   test("run workflow implement ignores --artifact for index specs", async () => {
@@ -1392,7 +1402,9 @@ describe("v2 cli", () => {
             },
           },
           connectIpcClient: async () =>
-            makeIpcClient([{ kind: "response", id: "00000000-0000-4000-8000-000000000021", result: { runId: "run-1" } }]),
+            makeIpcClient([
+              { kind: "response", id: "00000000-0000-4000-8000-000000000021", result: { runId: "run-1" } },
+            ]),
         },
       ),
     );

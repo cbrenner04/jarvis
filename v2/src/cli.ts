@@ -750,10 +750,9 @@ function resolveImplementWorkflowInput(
     return { ok: false, error: "Non-index spec requires --artifact" };
   }
 
-  const resolvedArtifactPath =
-    isIndexSpec
-      ? resolvedSpecPath
-      : resolveExistingImplementPath("Artifact", resolve(cwd, artifactPath));
+  const resolvedArtifactPath = isIndexSpec
+    ? resolvedSpecPath
+    : resolveExistingImplementPath("Artifact", resolve(cwd, artifactPath));
   if (typeof resolvedArtifactPath === "object") return resolvedArtifactPath;
   if (findProjectMatch(resolvedArtifactPath, { [match.key]: { root: match.root } }) === undefined) {
     return { ok: false, error: `Artifact path outside registered project root: ${resolvedArtifactPath}` };

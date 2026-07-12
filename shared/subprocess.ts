@@ -39,7 +39,7 @@ export const realAsyncSubprocessRunner: AsyncSubprocessRunner = {
         },
         (error, stdout) => {
           if (error) reject(error);
-          else resolve(stdout ?? "");
+          else resolve(stdio === "ignore" ? "" : (stdout ?? ""));
         },
       );
     });

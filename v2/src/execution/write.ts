@@ -1,6 +1,11 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
+import {
+  buildIntentSplitPrompt,
+  INTENT_SPLIT_PROMPT_ID,
+  listIntentStageMarkdownFiles,
+} from "../../../shared/prompts/intent-split.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import {
@@ -122,6 +127,167 @@ type WriteExecuteResult = {
   result: StepRunResult;
 };
 
+type WriteStepContext = {
+  worktreePath: string;
+  bindings: readonly InvocationBinding[];
+  signal?: AbortSignal;
+  invocationTelemetry?: Omit<InvocationTelemetryContext, "worktreePath">;
+};
+
+function runWriteStep(
+  args: WriteStepContext & {
+    prompt: string;
+    contracts: Array<{ id: string; reason?: string; check: () => boolean | Promise<boolean> }>;
+  },
+): Promise<StepRunResult> {
+  return runStep({
+    prompt: args.prompt,
+    cwd: args.worktreePath,
+    bindings: args.bindings,
+    contracts: args.contracts,
+    ...(args.signal !== undefined ? { signal: args.signal } : {}),
+    ...(args.invocationTelemetry !== undefined
+      ? {
+          telemetry: {
+            ...args.invocationTelemetry,
+            worktreePath: args.worktreePath,
+          },
+        }
+      : {}),
+  });
+}
+
+async function executePlanDraftWrite(
+  args: WriteExecuteInput,
+  worktreePath: string,
+  specPath: string,
+): Promise<StepRunResult> {
+  const specDir = specPath;
+  mkdirSync(specDir, { recursive: true });
+  const intentPath = join(specDir, "intent.md");
+  writeFileSync(intentPath, args.intentSeed ?? "", "utf8");
+
+  const name = getSpecDirName(specPath);
+  const targetDir = getTargetDir(specPath);
+  const specGuidance = readFileSync(getSpecGuidancePath(args.jarvisRoot), "utf8");
+  const placeholders = {
+    WORKDIR: args.promptPlaceholders?.WORKDIR ?? worktreePath,
+    NAME: name,
+    INTENT: args.intentSeed ?? "",
+    SPEC_GUIDANCE: specGuidance,
+  };
+
+  const registry = loadPromptRegistry();
+  const artifact = registry.getById("plan.prompt.draft");
+  const rewrittenArtifact = {
+    ...artifact,
+    body: artifact.body.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`),
+  };
+  const prompt = renderArtifactTemplate(rewrittenArtifact, placeholders).trim();
+
+  const validator = args.completionValidator ?? validatePlanDraftShape;
+  const intentBefore = args.intentBefore ?? args.intentSeed;
+  const contracts: Array<{ id: string; reason?: string; check: () => boolean | Promise<boolean> }> = [];
+
+  if (intentBefore !== undefined) {
+    contracts.push({
+      id: "plan.draft.blocker",
+      reason: "plan.draft.blocker",
+      check: async () => {
+        if (!existsSync(intentPath)) {
+          return true;
+        }
+        const intentAfter = readFileSync(intentPath, "utf8");
+        return !hasGenuineBlocker(intentBefore, intentAfter);
+      },
+    });
+  }
+
+  contracts.push({
+    id: "artifact.exists",
+    reason: "plan.draft.shape",
+    check: () => validator(specDir).valid,
+  });
+
+  return runWriteStep({
+    worktreePath,
+    bindings: args.bindings,
+    prompt,
+    contracts,
+    ...(args.signal !== undefined ? { signal: args.signal } : {}),
+    ...(args.invocationTelemetry !== undefined ? { invocationTelemetry: args.invocationTelemetry } : {}),
+  });
+}
+
+async function executeIntentSplitWrite(
+  args: WriteExecuteInput,
+  worktreePath: string,
+  expectedArtifactPath: string,
+): Promise<StepRunResult> {
+  const seedLabel = args.promptPlaceholders?.SEED_LABEL;
+  const seedContent = args.promptPlaceholders?.SEED_CONTENT;
+  if (seedLabel === undefined || seedContent === undefined) {
+    throw new Error("intent split write requires SEED_LABEL and SEED_CONTENT placeholders");
+  }
+
+  rmSync(expectedArtifactPath, { recursive: true, force: true });
+  mkdirSync(expectedArtifactPath, { recursive: true });
+
+  const prompt = buildIntentSplitPrompt({
+    workdir: args.promptPlaceholders?.WORKDIR ?? worktreePath,
+    seedLabel,
+    seedContent,
+    stagingDir: args.expectedArtifactPath,
+    stepRules: args.stepRules,
+  });
+
+  return runWriteStep({
+    worktreePath,
+    bindings: args.bindings,
+    prompt,
+    contracts: [
+      {
+        id: "artifact.exists",
+        check: () => listIntentStageMarkdownFiles(expectedArtifactPath).length > 0,
+      },
+    ],
+    ...(args.signal !== undefined ? { signal: args.signal } : {}),
+    ...(args.invocationTelemetry !== undefined ? { invocationTelemetry: args.invocationTelemetry } : {}),
+  });
+}
+
+async function executeDefaultWrite(
+  args: WriteExecuteInput,
+  worktreePath: string,
+  specPath: string,
+  expectedArtifactPath: string,
+  promptId: string,
+): Promise<StepRunResult> {
+  const placeholders =
+    promptId === DEFAULT_PROMPT_ID
+      ? {
+          SPEC_PATH: specPath,
+          STEP_RULES: args.stepRules,
+          PRINCIPLES: loadPromptRegistry().getById("write.principles").body,
+        }
+      : (args.promptPlaceholders ?? {});
+  const prompt = renderStepPrompt(promptId, placeholders);
+
+  return runWriteStep({
+    worktreePath,
+    bindings: args.bindings,
+    prompt,
+    contracts: [
+      {
+        id: "artifact.exists",
+        check: () => existsSync(expectedArtifactPath),
+      },
+    ],
+    ...(args.signal !== undefined ? { signal: args.signal } : {}),
+    ...(args.invocationTelemetry !== undefined ? { invocationTelemetry: args.invocationTelemetry } : {}),
+  });
+}
+
 /** Run one write behavior execution over shared invocation, runner, and worktree seams. */
 export async function executeWrite(args: WriteExecuteInput): Promise<WriteExecuteResult> {
   const withExternalWorktree = args.withExternalWorktree ?? realWithExternalWorktree;
@@ -131,116 +297,12 @@ export async function executeWrite(args: WriteExecuteInput): Promise<WriteExecut
     const promptId = args.promptId ?? DEFAULT_PROMPT_ID;
 
     if (promptId === "plan.prompt.draft" && args.intentSeed !== undefined) {
-      // Plan preset: seed intent.md and supply all four required placeholders
-      const specDir = specPath;
-      mkdirSync(specDir, { recursive: true });
-      const intentPath = join(specDir, "intent.md");
-      writeFileSync(intentPath, args.intentSeed, "utf8");
-
-      // Extract NAME (basename of spec directory) and targetDir from specPath
-      const name = getSpecDirName(specPath);
-      const targetDir = getTargetDir(specPath);
-
-      // Read spec guidance from jarvis root
-      const specGuidancePath = getSpecGuidancePath(args.jarvisRoot);
-      const specGuidance = readFileSync(specGuidancePath, "utf8");
-
-      // Supply all four required placeholders
-      const placeholders = {
-        WORKDIR: args.promptPlaceholders?.WORKDIR ?? worktree.path,
-        NAME: name,
-        INTENT: args.intentSeed,
-        SPEC_GUIDANCE: specGuidance,
-      };
-
-      // Rewrite spec/<NAME>/ to <targetDir>/<NAME>/ in the template source, before
-      // <NAME> is substituted, so the literal token still matches at render time.
-      const registry = loadPromptRegistry();
-      const artifact = registry.getById("plan.prompt.draft");
-      const rewrittenArtifact = {
-        ...artifact,
-        body: artifact.body.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`),
-      };
-      const prompt = renderArtifactTemplate(rewrittenArtifact, placeholders).trim();
-
-      const validator = args.completionValidator ?? validatePlanDraftShape;
-      const intentBefore = args.intentBefore ?? args.intentSeed;
-
-      const contracts: Array<{ id: string; reason?: string; check: () => boolean | Promise<boolean> }> = [];
-
-      // Blocker detection runs before shape check (if intentBefore is available)
-      if (intentBefore !== undefined) {
-        contracts.push({
-          id: "plan.draft.blocker",
-          reason: "plan.draft.blocker",
-          check: async () => {
-            const intentPath = join(specDir, "intent.md");
-            if (!existsSync(intentPath)) {
-              return true; // No blocker if intent.md doesn't exist
-            }
-            const intentAfter = readFileSync(intentPath, "utf8");
-            return !hasGenuineBlocker(intentBefore, intentAfter);
-          },
-        });
-      }
-
-      // Shape validation contract
-      contracts.push({
-        id: "artifact.exists",
-        reason: "plan.draft.shape",
-        check: () => {
-          const validation = validator(specDir);
-          return validation.valid;
-        },
-      });
-
-      return runStep({
-        prompt,
-        cwd: worktree.path,
-        bindings: args.bindings,
-        contracts,
-        ...(args.signal !== undefined ? { signal: args.signal } : {}),
-        ...(args.invocationTelemetry !== undefined
-          ? {
-              telemetry: {
-                ...args.invocationTelemetry,
-                worktreePath: worktree.path,
-              },
-            }
-          : {}),
-      });
+      return executePlanDraftWrite(args, worktree.path, specPath);
     }
-
-    const placeholders =
-      promptId === DEFAULT_PROMPT_ID
-        ? {
-            SPEC_PATH: specPath,
-            STEP_RULES: args.stepRules,
-            PRINCIPLES: loadPromptRegistry().getById("write.principles").body,
-          }
-        : (args.promptPlaceholders ?? {});
-    const prompt = renderStepPrompt(promptId, placeholders);
-
-    return runStep({
-      prompt,
-      cwd: worktree.path,
-      bindings: args.bindings,
-      contracts: [
-        {
-          id: "artifact.exists",
-          check: () => existsSync(expectedArtifactPath),
-        },
-      ],
-      ...(args.signal !== undefined ? { signal: args.signal } : {}),
-      ...(args.invocationTelemetry !== undefined
-        ? {
-            telemetry: {
-              ...args.invocationTelemetry,
-              worktreePath: worktree.path,
-            },
-          }
-        : {}),
-    });
+    if (promptId === INTENT_SPLIT_PROMPT_ID) {
+      return executeIntentSplitWrite(args, worktree.path, expectedArtifactPath);
+    }
+    return executeDefaultWrite(args, worktree.path, specPath, expectedArtifactPath, promptId);
   });
 
   return {

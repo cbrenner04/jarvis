@@ -126,7 +126,8 @@ does not publish Git or GitHub state. The project-safe ID is a path-safe form
 of the registered project key.
 
 The builder emits one `write` step with role `plan`, prompt
-`intent.prompt.split`, the shared split prompt, and `.jarvis-intent-stage/` as
+`intent.prompt.split`, the shared split prompt (plus v1-parity file-output and
+write-loop step-rules suffixes at execution time), and `.jarvis-intent-stage/` as
 the artifact boundary. Branch, worktree, active-workflow, and seed-identity
 collisions are named failures unless the recorded invocation ID matches the
 resumable invocation. The seed mapping is fingerprinted so a distinct seed

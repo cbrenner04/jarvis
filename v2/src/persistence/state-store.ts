@@ -57,6 +57,8 @@ export type WorkflowSnapshot = {
   steps: WorkflowSnapshotStep[];
   /** Resolved implement review count; present only on implement workflow snapshots. */
   reviewPasses?: number;
+  /** Resolved implement review behavior; present only on implement workflow snapshots. */
+  reviewBehavior?: "debate" | "light";
 };
 
 export type AttemptStatus = "in-progress" | "completed";

@@ -18,6 +18,7 @@ patch/review.md
 patch/review-adversary.md
 patch/review-advocate.md
 patch/review-adjudicator.md
+patch/review-critic.md
 patch/rules.md
 patch/shrink.md
 write/execute.md

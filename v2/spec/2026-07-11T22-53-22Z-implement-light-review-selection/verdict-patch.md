@@ -1,0 +1,1 @@
+No changes required. Empty verdict — the four flagged behaviors are either explicitly mandated by the spec's acceptance criteria (no-restore-on-write for the light critic) or exact parity with the already-shipped `review-debate` path this branch intentionally mirrors, with no AC requiring a fix, and the mutual-exclusion type gap is unreachable through any actual code path.

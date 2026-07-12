@@ -26,6 +26,8 @@ export type DaemonListRunRow = {
   error?: RunOperatorError;
   /** Retained implement review count; absent on non-implement workflow rows. */
   reviewPasses?: number;
+  /** Retained implement review behavior; absent on non-implement workflow rows. */
+  reviewBehavior?: "debate" | "light";
   workflow?: DaemonWorkflowSnapshot;
 };
 

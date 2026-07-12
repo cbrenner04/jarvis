@@ -14,17 +14,17 @@ per project.
 
 ## Task checklist
 
-- [ ] Parse and validate `--review-behavior` for implement.
-- [ ] Read and validate the project review-behavior default.
-- [ ] Select the loaded light or debate review step in the implement step builder.
+- [x] Parse and validate `--review-behavior` for implement.
+- [x] Read and validate the project review-behavior default.
+- [x] Select the loaded light or debate review step in the implement step builder.
 
 ## Acceptance criteria
 
-- [ ] `jarvis run workflow implement --review-behavior light` with positive review passes runs a critic-actuator review of the branch after the linked subspec completes, writing its verdict to `verdict-patch.md`.
-- [ ] `--review-behavior debate` and an omitted flag with no project default both run the existing debate review — same step id and verdict path as before this change.
-- [ ] `projects.<key>.implement.reviewBehavior: "light"` makes light the default for that project's implement runs, and an explicit `--review-behavior debate` on such a run still runs debate.
-- [ ] An unknown `--review-behavior` value exits non-zero with the implement workflow usage, and a project `implement.reviewBehavior` that is not `debate` or `light` exits non-zero with a named error naming the offending config key — both before the daemon is contacted.
-- [ ] Zero resolved review passes launch a review-free implement workflow under either behavior.
+- [x] `jarvis run workflow implement --review-behavior light` with positive review passes runs a critic-actuator review of the branch after the linked subspec completes, writing its verdict to `verdict-patch.md`.
+- [x] `--review-behavior debate` and an omitted flag with no project default both run the existing debate review — same step id and verdict path as before this change.
+- [x] `projects.<key>.implement.reviewBehavior: "light"` makes light the default for that project's implement runs, and an explicit `--review-behavior debate` on such a run still runs debate.
+- [x] An unknown `--review-behavior` value exits non-zero with the implement workflow usage, and a project `implement.reviewBehavior` that is not `debate` or `light` exits non-zero with a named error naming the offending config key — both before the daemon is contacted.
+- [x] Zero resolved review passes launch a review-free implement workflow under either behavior.
 
 ## Documentation updates
 

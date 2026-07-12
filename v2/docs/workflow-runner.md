@@ -203,7 +203,8 @@ discriminated union on `behavior`, the closed vocabulary from
 - `behavior: "review"` — `{ stepId, project, branch, cwd, prompt, agents,
   agentModelConfig, verdictPath, maxCycles }`, with separate `critic` and
   `actuator` agent orders. It has no actuator prompt; the non-empty critic
-  verdict is the actuator prompt.
+  verdict is the actuator prompt unless the step carries patch or plan review
+  context (see [Review dispatch](#review-dispatch)).
 
 `behavior` is kept on the returned runtime step (not stripped) — the runner
 dispatches on it. The helper passes loop-control fields through unchanged.
@@ -434,11 +435,29 @@ object literal `satisfies WorkflowStepInput`.
 A programmatic `review` step is an object literal `satisfies WorkflowStepInput`.
 It declares `project`, `branch`, `cwd`, `prompt`, `verdictPath`, `maxCycles`,
 shared `agentModelConfig`, and separate `agents.critic` and `agents.actuator`
-orders. The non-empty critic verdict is the actuator prompt; there is no
-actuator prompt field. When part of a reviewed intent workflow, the step also
-carries `deferredIntentOutput` configuration: the write step's `intentOutput`,
-a staging directory path, and an `invocationId` for landing after review
-completes.
+orders. The non-empty critic verdict is the actuator prompt unless the step
+carries patch or plan review context; there is no actuator prompt field. When
+part of a reviewed intent workflow, the step also carries `deferredIntentOutput`
+configuration: the write step's `intentOutput`, a staging directory path, and
+an `invocationId` for landing after review completes. Patch context
+(`patchReviewContext`), plan context (`planReviewContext`), and
+`deferredIntentOutput` are mutually exclusive; dispatch branches over all three.
+
+**Patch-context light review:** A `review` step with `patchReviewContext`
+(`specPath`, `baseBranch`) runs bounded critic-actuator cycles in the implement
+worktree via `executePatchReviewCycle` (`v2/src/execution/review-debate-render.ts`).
+Each cycle renders `patch.prompt.review.critic` with the current pass number and
+prior verdict, writes the critic's stdout to `verdictPath`, and invokes the
+actuator only on a non-empty verdict. The actuator receives the same rendered
+patch actuator prompt as patch debate review (`renderReviewDebateActuatorPrompt`
+— patch body guidance plus review-actuator rules plus the verdict). The patch
+critic is read-only by prompt only; critic file edits do not fail the role or
+trigger a working-tree restore. An empty critic verdict ends the review with
+`kind: "complete"` without running the actuator. The same implement-review
+eligibility gate that skips appended `review-debate` steps when implement did
+not route through a terminal linked subspec also skips patch-context `review`
+steps. Review-pass derivation on implement workflow snapshots reports
+`maxCycles` from either appended patch-context step kind.
 
 The runner validates every `(agent, role)` entry for both orders before it
 creates a snapshot or durable state. When reached, it resolves the roles

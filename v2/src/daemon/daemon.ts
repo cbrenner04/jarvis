@@ -576,6 +576,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         ...(fullRun?.workflowSnapshot?.reviewPasses !== undefined
           ? { reviewPasses: fullRun.workflowSnapshot.reviewPasses }
           : {}),
+        ...(fullRun?.workflowSnapshot?.reviewBehavior !== undefined
+          ? { reviewBehavior: fullRun.workflowSnapshot.reviewBehavior }
+          : {}),
         ...(fullRun?.workflowSnapshot !== undefined && fullRun?.workflowSnapshot !== null
           ? { workflow: workflowRowSnapshot(fullRun, workflowRuns, liveRunIds, reviewDebateProgressByInvocation) }
           : {}),

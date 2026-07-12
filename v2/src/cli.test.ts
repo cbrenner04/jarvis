@@ -906,7 +906,7 @@ describe("v2 cli", () => {
     expect(cap.read()).toEqual({
       stdout: "",
       stderr:
-        "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>] [--review-passes <n>]\n",
+        "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>] [--review-passes <n>] [--review-behavior debate|light]\n",
     });
   });
 
@@ -963,7 +963,7 @@ describe("v2 cli", () => {
     expect(cap.read()).toEqual({
       stdout: "",
       stderr:
-        "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>] [--review-passes <n>]\n",
+        "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>] [--review-passes <n>] [--review-behavior debate|light]\n",
     });
   });
 
@@ -1066,6 +1066,121 @@ describe("v2 cli", () => {
     expect(cap.read().stderr).toBe("projects.test-project.implement.reviewPasses must be a non-negative integer\n");
   });
 
+  test("run workflow implement rejects unknown review-behavior before daemon contact", async () => {
+    const cap = captureIo();
+    const code = await main([...RUN_WORKFLOW_IMPLEMENT_ARGS, "--review-behavior", "heavy"], cap.io, {
+      connectIpcClient: async () => {
+        throw new Error("should not contact daemon");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr:
+        "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>] [--review-passes <n>] [--review-behavior debate|light]\n",
+    });
+  });
+
+  test("run workflow implement uses project implement.reviewBehavior when flag is omitted", async () => {
+    const cap = captureIo();
+    const configPath = writeMachineConfig({
+      projects: { "test-project": { root: "/tmp/repo", implement: { reviewBehavior: "light" } } },
+    });
+    const requestId = "00000000-0000-4000-8000-000000000012";
+    const originalRandomUuid = crypto.randomUUID;
+    crypto.randomUUID = () => requestId;
+
+    let builtInput: BuildImplementWorkflowStepsInput | undefined;
+
+    let code = NaN;
+    try {
+      code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
+        cwd: () => "/tmp/repo/sub",
+        machineConfigPath: configPath,
+        readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
+        workflowPresetBuilders: {
+          implement: (input) => {
+            builtInput = input;
+            return { ok: true, steps: FAKE_IMPLEMENT_STEPS };
+          },
+        },
+        connectIpcClient: async () =>
+          makeIpcClient([
+            {
+              kind: "response",
+              id: requestId,
+              result: { runId: "run-project-review-behavior" },
+            },
+          ]),
+      });
+    } finally {
+      crypto.randomUUID = originalRandomUuid;
+    }
+
+    expect(code).toBe(0);
+    expect(builtInput).toMatchObject({ reviewBehavior: "light" });
+  });
+
+  test("run workflow implement --review-behavior debate overrides project implement.reviewBehavior", async () => {
+    const cap = captureIo();
+    const configPath = writeMachineConfig({
+      projects: { "test-project": { root: "/tmp/repo", implement: { reviewBehavior: "light" } } },
+    });
+    const requestId = "00000000-0000-4000-8000-000000000013";
+    const originalRandomUuid = crypto.randomUUID;
+    crypto.randomUUID = () => requestId;
+
+    let builtInput: BuildImplementWorkflowStepsInput | undefined;
+
+    let code = NaN;
+    try {
+      code = await main([...RUN_WORKFLOW_IMPLEMENT_ARGS, "--review-behavior", "debate"], cap.io, {
+        cwd: () => "/tmp/repo/sub",
+        machineConfigPath: configPath,
+        readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
+        workflowPresetBuilders: {
+          implement: (input) => {
+            builtInput = input;
+            return { ok: true, steps: FAKE_IMPLEMENT_STEPS };
+          },
+        },
+        connectIpcClient: async () =>
+          makeIpcClient([
+            {
+              kind: "response",
+              id: requestId,
+              result: { runId: "run-review-behavior-override" },
+            },
+          ]),
+      });
+    } finally {
+      crypto.randomUUID = originalRandomUuid;
+    }
+
+    expect(code).toBe(0);
+    expect(builtInput).toMatchObject({ reviewBehavior: "debate" });
+  });
+
+  test("run workflow implement rejects invalid project implement.reviewBehavior before daemon contact", async () => {
+    const cap = captureIo();
+    const configPath = writeMachineConfig({
+      projects: { "test-project": { root: "/tmp/repo", implement: { reviewBehavior: "heavy" } } },
+    });
+
+    const code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
+      cwd: () => "/tmp/repo/sub",
+      machineConfigPath: configPath,
+      readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
+      connectIpcClient: async () => {
+        throw new Error("should not contact daemon");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toBe('projects.test-project.implement.reviewBehavior must be "debate" or "light"\n');
+  });
+
   test("run workflow implement derives branch from spec parent dirname when branch is omitted", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
@@ -1115,6 +1230,7 @@ describe("v2 cli", () => {
       specPath: "v2/spec/my-spec/index.md",
       projectRoot: "/tmp/repo",
       reviewPasses: 0,
+      reviewBehavior: "debate",
     });
   });
 

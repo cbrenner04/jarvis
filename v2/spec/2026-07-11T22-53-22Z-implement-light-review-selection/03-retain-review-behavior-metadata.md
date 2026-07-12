@@ -13,16 +13,16 @@ now.
 
 ## Task checklist
 
-- [ ] Carry the resolved behavior from the implement workflow input onto the durable workflow snapshot as an explicit field.
-- [ ] Surface it on `list` rows and in TUI run data.
+- [x] Carry the resolved behavior from the implement workflow input onto the durable workflow snapshot as an explicit field.
+- [x] Surface it on `list` rows and in TUI run data.
 
 ## Acceptance criteria
 
-- [ ] `list` rows for an implement workflow run carry `reviewBehavior` (`"debate"` or `"light"`) matching the behavior resolved at launch, sourced from the durable workflow snapshot rather than live project configuration or the emitted step list.
-- [ ] A review-free implement launch (zero resolved passes, no review step emitted) still carries the resolved `reviewBehavior` on its `list` rows.
-- [ ] Non-implement workflow rows omit `reviewBehavior` entirely.
-- [ ] TUI run data exposes the same field on each `list` row.
-- [ ] `tui-monitor-lines.test.ts` implement `reviewPasses` retention coverage stays green (behavior unchanged for the existing field).
+- [x] `list` rows for an implement workflow run carry `reviewBehavior` (`"debate"` or `"light"`) matching the behavior resolved at launch, sourced from the durable workflow snapshot rather than live project configuration or the emitted step list.
+- [x] A review-free implement launch (zero resolved passes, no review step emitted) still carries the resolved `reviewBehavior` on its `list` rows.
+- [x] Non-implement workflow rows omit `reviewBehavior` entirely.
+- [x] TUI run data exposes the same field on each `list` row.
+- [x] `tui-monitor-lines.test.ts` implement `reviewPasses` retention coverage stays green (behavior unchanged for the existing field).
 
 ## Documentation updates
 

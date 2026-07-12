@@ -946,6 +946,35 @@ describe("executeWorkflow", () => {
     });
   });
 
+  test("retains implement reviewBehavior on the workflow snapshot from the stamped write step", async () => {
+    const steps = resolveWorkflowPreset("implement", [
+      {
+        ...createStep({
+          stepId: "implement",
+          role: "placeholder",
+          promptPlaceholders: {
+            SPEC_PATH: "spec.md",
+            SIBLINGS_BLOCK: "",
+            REPO_GUIDANCE: "",
+            ACTIVE_SUBSPEC_PATH: "spec.md",
+            ACTIVE_SUBSPEC_BODY: "",
+            PATCH_RULES: "",
+            TIMEOUT_CHECKPOINT_CONTEXT: "",
+          },
+        }),
+        implementReviewBehavior: "light",
+      },
+    ]);
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps, stateStore: store });
+
+      expect(result.kind).toBe("complete");
+      const run = store.findRunByProjectBranch({ project: "demo", branch: "workflow-run", stepId: "implement" });
+      expect(run?.workflowSnapshot?.reviewBehavior).toBe("light");
+    });
+  });
+
   test("workflow-step execution with empty agents returns no_binding", async () => {
     const step = createStep({
       stepId: "step-1",
@@ -1418,6 +1447,180 @@ describe("executeWorkflow implement patch review", () => {
 
       expect(result).toMatchObject({ kind: "complete", commitSha: "review-commit" });
       expect(published.at(-1)).toEqual({ specPath: "spec.md", agent: "claude" });
+    });
+  });
+});
+
+describe("executeWorkflow implement patch light review", () => {
+  const LIGHT_REVIEW_AGENT_MODEL_CONFIG: AgentModelConfig = {
+    claude: {
+      critic: { rungs: [{ adapterModel: "CRIT", priceKey: "p-crit" }] },
+      actuator: { rungs: [{ adapterModel: "ACT", priceKey: "p-act" }] },
+    },
+  };
+
+  function createLightReviewBindingFactory(
+    invoke: (binding: {
+      agentId: string;
+      adapterModel: string;
+      prompt: string;
+      cwd: string;
+    }) => Promise<InvocationResult>,
+  ): NonNullable<ReviewWorkflowStep["createBinding"]> {
+    return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) => ({
+      id: `${agentId}/${adapterModel}`,
+      invoke: ({ prompt, cwd }) => invoke({ agentId, adapterModel, prompt, cwd }),
+      metadata: { agent: agentId, model: adapterModel },
+    });
+  }
+
+  function createPatchLightReviewStep(args: {
+    branchName: string;
+    verdictPath: string;
+    cwd: string;
+    createBinding?: ReviewWorkflowStep["createBinding"];
+    maxCycles?: number;
+  }): ReviewWorkflowStep {
+    return {
+      behavior: "review",
+      stepId: "implement-review",
+      project: "demo",
+      branch: args.branchName,
+      cwd: args.cwd,
+      prompt: "patch.prompt.review.critic",
+      verdictPath: args.verdictPath,
+      maxCycles: args.maxCycles ?? 1,
+      agents: { critic: ["claude"], actuator: ["claude"] },
+      agentModelConfig: LIGHT_REVIEW_AGENT_MODEL_CONFIG,
+      patchReviewContext: { specPath: "index.md", baseBranch: "HEAD" },
+      ...(args.createBinding !== undefined ? { createBinding: args.createBinding } : {}),
+    };
+  }
+
+  test("runs critic-actuator cycles with rendered patch prompts and retains reviewPasses", async () => {
+    const prompts: string[] = [];
+    const implementStep = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "implement-patch-light-review",
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        invoke: async ({ prompt, cwd }) => {
+          prompts.push(prompt.includes("Post-completion Shrink") ? "shrink" : "implement");
+          writeFileSync(`${cwd}/proof.txt`, "ok\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        },
+        metadata: { agent: agentId, model: adapterModel },
+      }),
+    });
+    const worktreePath = join(
+      implementStep.worktree.jarvisRoot ?? "",
+      "worktrees",
+      implementStep.worktree.projectName,
+      implementStep.worktree.branchName,
+    );
+    const verdictPath = join(worktreePath, "verdict-patch.md");
+    const actuatorPrompts: string[] = [];
+    const reviewStep = createPatchLightReviewStep({
+      branchName: implementStep.worktree.branchName,
+      verdictPath,
+      cwd: worktreePath,
+      maxCycles: 2,
+      createBinding: createLightReviewBindingFactory(async ({ adapterModel, prompt, cwd }) => {
+        if (adapterModel === "CRIT") {
+          prompts.push("critic");
+          if (prompts.filter((entry) => entry === "critic").length === 1) {
+            writeFileSync(join(cwd, "critic-edit.txt"), "oops\n");
+            return { kind: "ok", stdout: "fix it", stderr: "" } as const;
+          }
+          return { kind: "ok", stdout: "", stderr: "" } as const;
+        }
+        actuatorPrompts.push(prompt);
+        return { kind: "ok", stdout: "done", stderr: "" } as const;
+      }),
+    });
+    reviewStep.patchReviewContext = { specPath: "spec.md", baseBranch: "HEAD" };
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [implementStep, reviewStep], stateStore: store });
+
+      expect(result.kind).toBe("complete");
+      expect(prompts.indexOf("implement")).toBeLessThan(prompts.indexOf("shrink"));
+      expect(prompts.some((entry) => entry === "critic")).toBe(true);
+      expect(actuatorPrompts[0]).toContain("Review Actuator Rules");
+      expect(actuatorPrompts[0]).toContain("fix it");
+      expect(readFileSync(join(worktreePath, "critic-edit.txt"), "utf8")).toBe("oops\n");
+      expect(readFileSync(verdictPath, "utf8")).toBe("");
+      const run = store.findRunByProjectBranch({
+        project: "demo",
+        branch: implementStep.worktree.branchName,
+        stepId: "implement",
+      });
+      expect(run?.workflowSnapshot?.reviewPasses).toBe(2);
+    });
+  });
+
+  test("skips patch light review when linked index is already complete", async () => {
+    const reviewCalls: string[] = [];
+    const branchName = "implement-light-review-skip";
+    const implementStep = {
+      ...createStep({
+        stepId: "implement",
+        role: "implement",
+        branchName,
+        specPath: "index.md",
+        expectedArtifactPath: "index.md",
+      }),
+      linkedIndexRouting: true,
+    };
+    const worktreePath = join(
+      implementStep.worktree.jarvisRoot ?? "",
+      "worktrees",
+      implementStep.worktree.projectName,
+      branchName,
+    );
+    mkdirSync(worktreePath, { recursive: true });
+    writeFileSync(join(worktreePath, "index.md"), "- [x] [Sub](./sub.md)\n", "utf8");
+    writeFileSync(join(worktreePath, "sub.md"), "# Sub\n", "utf8");
+
+    const reviewStep = createPatchLightReviewStep({
+      branchName,
+      verdictPath: join(worktreePath, "verdict-patch.md"),
+      cwd: worktreePath,
+      createBinding: createLightReviewBindingFactory(async () => {
+        reviewCalls.push("review");
+        return { kind: "ok", stdout: "ok", stderr: "" } as const;
+      }),
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [implementStep, reviewStep], stateStore: store });
+
+      expect(result.kind).toBe("complete");
+      expect(reviewCalls).toEqual([]);
+    });
+  });
+
+  test("fails role validation before invocation when critic or actuator bindings are missing", async () => {
+    const step: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "implement-review",
+      project: "demo",
+      branch: "implement-light-review-invalid",
+      cwd: "/fake",
+      prompt: "patch.prompt.review.critic",
+      verdictPath: "/fake/verdict.md",
+      maxCycles: 1,
+      agents: { critic: ["codex"], actuator: ["codex"] },
+      agentModelConfig: { codex: {} },
+      patchReviewContext: { specPath: "spec.md", baseBranch: "HEAD" },
+    };
+
+    await withStateStore(async (store) => {
+      await expect(executeWorkflow({ steps: [step], stateStore: store })).rejects.toThrow(
+        "(implement-review, critic, codex), (implement-review, actuator, codex)",
+      );
+      expect(store.listRuns()).toHaveLength(0);
     });
   });
 });

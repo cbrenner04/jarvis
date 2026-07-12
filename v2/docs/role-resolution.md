@@ -17,7 +17,7 @@ union:
 | `implement` | Implementation authoring — write-loop code changes. |
 | `shrink` | Hidden post-`implement` completion cleanup model resolution. |
 | `adversary` | Read-only critique in a review debate — surfaces findings against the artifact. |
-| `critic` | Read-only critique in a review — evaluates the artifact independently. |
+| `critic` | Read-only critique in a review — evaluates the artifact independently (plan and implement patch review). |
 | `advocate` | Read-only defense in a review debate — responds to adversary findings. |
 | `adjudicator` | Read-only verdict synthesis — emits the outcome-altitude instruction the actuator applies. |
 | `actuator` | Verdict application — the only writer after either review primitive produces a non-empty verdict. |
@@ -49,7 +49,7 @@ Inner rung detail (consumption modes, flattening, terminal outcomes):
 | `implement` | `write` | Implement-mode write-loop steps. |
 | `shrink` | `write` | Hidden write-loop pass run by `executeWorkflow` after an `implement` write step returns `complete`. |
 | `adversary` | `review-debate` | Read-only; first reviewer in each debate cycle. |
-| `critic` | `review` | Read-only; independent critic for review workflows. |
+| `critic` | `review` | Read-only; independent critic for review workflows (plan and implement patch review). |
 | `advocate` | `review-debate` | Read-only; second reviewer. |
 | `adjudicator` | `review-debate` | Read-only; emits verdict. |
 | `actuator` | `review`, `review-debate` | Verdict application only — not shrink. Plan vs implement context comes from step metadata, not split resolution keys. |

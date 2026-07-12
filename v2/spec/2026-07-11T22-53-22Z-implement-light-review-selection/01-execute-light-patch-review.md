@@ -22,13 +22,13 @@ context and eligibility rules the debate step already has.
 
 ## Acceptance criteria
 
-- [ ] A `review` step carrying patch review context runs bounded critic-actuator cycles against the implement worktree: each cycle renders `patch.prompt.review.critic` with the current pass number and prior verdict, writes the critic's verdict to the step's verdict path, and runs the actuator only on a non-empty verdict.
-- [ ] The light actuator is invoked with the same rendered patch actuator prompt as the debate actuator — patch body guidance plus review-actuator rules plus the verdict — not the bare verdict text.
-- [ ] An empty critic verdict ends the review with a complete outcome without running the actuator.
-- [ ] A critic that edits files does not fail the role and does not trigger a working-tree restore; the light review proceeds on the critic's verdict.
-- [ ] A patch-context `review` step is skipped for the same reason a `review-debate` step is: the linked subspec did not complete.
-- [ ] Review-pass derivation for implement runs reports the step's cycle count for patch-context `review` steps as it already does for `review-debate` steps.
-- [ ] Critic and actuator roles resolve their own machine bindings for the step, and a missing (agent, role) binding fails role validation before any invocation.
+- [x] A `review` step carrying patch review context runs bounded critic-actuator cycles against the implement worktree: each cycle renders `patch.prompt.review.critic` with the current pass number and prior verdict, writes the critic's verdict to the step's verdict path, and runs the actuator only on a non-empty verdict.
+- [x] The light actuator is invoked with the same rendered patch actuator prompt as the debate actuator — patch body guidance plus review-actuator rules plus the verdict — not the bare verdict text.
+- [x] An empty critic verdict ends the review with a complete outcome without running the actuator.
+- [x] A critic that edits files does not fail the role and does not trigger a working-tree restore; the light review proceeds on the critic's verdict.
+- [x] A patch-context `review` step is skipped for the same reason a `review-debate` step is: the linked subspec did not complete.
+- [x] Review-pass derivation for implement runs reports the step's cycle count for patch-context `review` steps as it already does for `review-debate` steps.
+- [x] Critic and actuator roles resolve their own machine bindings for the step, and a missing (agent, role) binding fails role validation before any invocation.
 
 ## Documentation updates
 

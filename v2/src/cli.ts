@@ -5,8 +5,10 @@ import packageJson from "../../package.json";
 import { findProjectMatch } from "../../shared/project-registry.ts";
 import type { AgentModelConfig, LoadError } from "./config/agent-model-config.ts";
 import {
+  type ImplementReviewBehavior,
   loadMachineConfig,
   readMachineConfigDocument,
+  readProjectImplementReviewBehavior,
   readProjectImplementReviewPasses,
   readProjectRegistry,
   resolveMachineProfile,
@@ -73,7 +75,7 @@ const TUI_LOG_USAGE = "usage: jarvis tui log <run-id>\n";
 const WRITE_USAGE =
   "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--max-iterations <n>]\n";
 const WORKFLOW_IMPLEMENT_USAGE =
-  "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>] [--review-passes <n>]\n";
+  "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>] [--review-passes <n>] [--review-behavior debate|light]\n";
 const WORKFLOW_INTENT_USAGE =
   "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>]\n";
 const WORKFLOW_INTENT_REVIEWED_USAGE =
@@ -450,6 +452,7 @@ async function buildWorkflowBuilderInput(
         projectName: resolved.projectName,
         ...(resolved.artifactPath !== undefined ? { artifactPath: resolved.artifactPath } : {}),
         reviewPasses: resolved.reviewPasses,
+        reviewBehavior: resolved.reviewBehavior,
       },
     };
   }
@@ -640,6 +643,7 @@ type ImplementWorkflowCliInput =
       specPath: string;
       artifactPath?: string;
       reviewPasses?: number;
+      reviewBehavior?: ImplementReviewBehavior;
     }
   | { ok: false };
 
@@ -656,6 +660,7 @@ function parseImplementWorkflowArgs(argv: readonly string[]): ImplementWorkflowC
         spec: { type: "string" },
         artifact: { type: "string" },
         "review-passes": { type: "string" },
+        "review-behavior": { type: "string" },
       },
     }).values;
   } catch {
@@ -672,6 +677,12 @@ function parseImplementWorkflowArgs(argv: readonly string[]): ImplementWorkflowC
     if (!/^\d+$/u.test(raw)) return { ok: false };
     reviewPasses = Number(raw);
   }
+  let reviewBehavior: ImplementReviewBehavior | undefined;
+  if (typeof values["review-behavior"] === "string") {
+    const raw = values["review-behavior"];
+    if (raw !== "debate" && raw !== "light") return { ok: false };
+    reviewBehavior = raw;
+  }
 
   if (baseRef === undefined || specPath === undefined) {
     return { ok: false };
@@ -684,6 +695,7 @@ function parseImplementWorkflowArgs(argv: readonly string[]): ImplementWorkflowC
     specPath,
     ...(artifactPath !== undefined ? { artifactPath } : {}),
     ...(reviewPasses !== undefined ? { reviewPasses } : {}),
+    ...(reviewBehavior !== undefined ? { reviewBehavior } : {}),
   };
 }
 
@@ -697,6 +709,7 @@ type ResolvedImplementWorkflowInput =
       projectName: string;
       artifactPath?: string;
       reviewPasses: number;
+      reviewBehavior: ImplementReviewBehavior;
     }
   | { ok: false; error: string };
 
@@ -739,6 +752,14 @@ function resolveImplementWorkflowInput(
     return { ok: false, error: reviewPasses.error };
   }
 
+  const reviewBehavior =
+    parsed.reviewBehavior !== undefined
+      ? { ok: true as const, reviewBehavior: parsed.reviewBehavior }
+      : readProjectImplementReviewBehavior(match.key, configPath);
+  if (!reviewBehavior.ok) {
+    return { ok: false, error: reviewBehavior.error };
+  }
+
   return {
     ok: true,
     branchName,
@@ -748,6 +769,7 @@ function resolveImplementWorkflowInput(
     projectName: match.key,
     ...(worktreeRelativeArtifact !== undefined ? { artifactPath: worktreeRelativeArtifact } : {}),
     reviewPasses: reviewPasses.reviewPasses,
+    reviewBehavior: reviewBehavior.reviewBehavior,
   };
 }
 

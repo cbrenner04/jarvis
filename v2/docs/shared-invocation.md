@@ -33,8 +33,10 @@ Bindings:
 - `createResolvedAgentBinding({ agentId, adapterModel, priceKey })` in
   `shared/invocation/agents.ts` builds one binding from one resolved rung.
   Resolved `claude` bindings spawn `claude -p --permission-mode acceptEdits
-  --model <adapterModel> --output-format json`, pipe the prompt on stdin, and
-  settle into `ok | quota | model_config | error` before fallback continues.
+  --model <adapterModel> --output-format json`, pipe the prompt on stdin,
+  unwrap the JSON envelope into display text (plus agent usage/cost when present),
+  reclassify verified exit-0 quota envelopes to `quota`, and settle into
+  `ok | quota | model_config | error` before fallback continues.
   Resolved `codex` bindings spawn `codex exec --color never --sandbox
   workspace-write -c approval_policy="on-request" --model <adapterModel>`,
   pipe the marker-augmented prompt on stdin, correlate Codex session usage

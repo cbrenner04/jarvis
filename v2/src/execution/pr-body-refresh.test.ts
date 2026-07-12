@@ -151,4 +151,103 @@ describe("refreshPrBody", () => {
       }),
     ).rejects.toThrow("git log failed");
   });
+
+  test("renders summary between Spec line and narrative markers", async () => {
+    const humanEditedNarrative = "Human edited narrative";
+    const summary = "## Summary\n\nLanded intent and spec checklist.";
+    const currentBody = ["Spec: stale", "", NARRATIVE_START_MARKER, humanEditedNarrative, NARRATIVE_END_MARKER].join(
+      "\n",
+    );
+    let writtenBody = "";
+    await refreshPrBody({
+      specPath: "v2/spec/test/index.md",
+      branch: "feature",
+      base: "main",
+      cwd: "/tmp/worktree",
+      bodySummary: summary,
+      fetchPrBody: async () => currentBody,
+      writePrBody: async (_branch, body) => {
+        writtenBody = body;
+      },
+      renderFooter: async () => "",
+    });
+
+    expect(writtenBody).toBe(
+      [
+        "Spec: v2/spec/test/index.md",
+        "",
+        summary,
+        "",
+        NARRATIVE_START_MARKER,
+        humanEditedNarrative,
+        NARRATIVE_END_MARKER,
+      ].join("\n"),
+    );
+  });
+
+  test("re-refresh with the same summary is byte-identical", async () => {
+    const summary = "## Summary\n\nWhat landed.";
+    const baseInput = {
+      specPath: "v2/spec/test/index.md",
+      branch: "feature",
+      base: "main",
+      cwd: "/tmp/worktree",
+      bodySummary: summary,
+      renderFooter: async () => "- abc Foo \u2014 Agent A\n\nWritten by Agent A through Jarvis.",
+    };
+    let storedBody = "";
+    await refreshPrBody({
+      ...baseInput,
+      fetchPrBody: async () => "",
+      writePrBody: async (_branch, body) => {
+        storedBody = body;
+      },
+    });
+
+    let secondWrittenBody = "";
+    await refreshPrBody({
+      ...baseInput,
+      fetchPrBody: async () => storedBody,
+      writePrBody: async (_branch, body) => {
+        secondWrittenBody = body;
+      },
+    });
+
+    expect(secondWrittenBody).toBe(storedBody);
+  });
+
+  test("refresh with a different summary replaces the prior block", async () => {
+    const firstSummary = "## Summary\n\nFirst version.";
+    const secondSummary = "## Summary\n\nSecond version.";
+    const baseInput = {
+      specPath: "v2/spec/test/index.md",
+      branch: "feature",
+      base: "main",
+      cwd: "/tmp/worktree",
+      renderFooter: async () => "",
+    };
+    let storedBody = "";
+    await refreshPrBody({
+      ...baseInput,
+      bodySummary: firstSummary,
+      fetchPrBody: async () => "",
+      writePrBody: async (_branch, body) => {
+        storedBody = body;
+      },
+    });
+
+    let secondWrittenBody = "";
+    await refreshPrBody({
+      ...baseInput,
+      bodySummary: secondSummary,
+      fetchPrBody: async () => storedBody,
+      writePrBody: async (_branch, body) => {
+        secondWrittenBody = body;
+      },
+    });
+
+    expect(secondWrittenBody).toContain(secondSummary);
+    expect(secondWrittenBody).not.toContain(firstSummary);
+    expect(secondWrittenBody).toBe(`Spec: v2/spec/test/index.md\n\n${secondSummary}`);
+  });
 });

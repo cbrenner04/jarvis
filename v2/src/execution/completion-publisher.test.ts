@@ -433,6 +433,36 @@ describe("createCompletionPublisher", () => {
     expect(writtenBody).toContain("---");
   });
 
+  it("passes bodySummary through to PR body refresh", async () => {
+    const summary = "## Summary\n\nWhat landed.";
+    const mockGit = async (_cwd: string, args: readonly string[]) => {
+      if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+      return "";
+    };
+
+    let writtenBody = "";
+    const publisher = createCompletionPublisher({
+      git: mockGit,
+      gh: async (_cwd, args) => {
+        if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+        if (args[0] === "pr" && args[1] === "create") return "https://github.com/user/repo/pull/42";
+        return "";
+      },
+      ghReady: readyGh,
+      delay: noopDelay,
+      fetchPrBody: async () => "",
+      writePrBody: async (_branch, body) => {
+        writtenBody = body;
+      },
+      renderFooter: async () => "",
+    });
+
+    await publisher({ ...baseInput, bodySummary: summary });
+
+    expect(writtenBody).toBe(`Spec: ${baseInput.specPath}\n\n${summary}`);
+  });
+
   it("reuses existing PR and refreshes its body without creating a second PR", async () => {
     const ghCalls: string[] = [];
     let writtenBody = "";

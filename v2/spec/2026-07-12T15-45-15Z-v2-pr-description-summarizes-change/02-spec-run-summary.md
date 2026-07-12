@@ -14,13 +14,13 @@ A plan/write (spec-authoring) PR body says `Spec: <dir>` only. Supply a summary:
 
 ## Acceptance criteria
 
-- [ ] A plan/spec run's PR body contains the spec H1 and its subspec checklist above the narrative markers and footer.
-- [ ] The `Spec:` pointer and attribution footer are still present and unchanged in shape.
-- [ ] Republishing the same spec run leaves the body identical (regenerated, not appended); a later refresh after the index changes reflects the new checklist.
-- [ ] Every checklist item in the index appears in the body — none dropped or truncated.
-- [ ] An index with an H1 and no checklist items yields an H1-only summary.
-- [ ] A publication spec path with no readable `index.md` publishes successfully with the pre-existing body shape.
-- [ ] Implement/patch runs' PR bodies are unchanged (no summary rendered).
+- [x] A plan/spec run's PR body contains the spec H1 and its subspec checklist above the narrative markers and footer.
+- [x] The `Spec:` pointer and attribution footer are still present and unchanged in shape.
+- [x] Republishing the same spec run leaves the body identical (regenerated, not appended); a later refresh after the index changes reflects the new checklist.
+- [x] Every checklist item in the index appears in the body — none dropped or truncated.
+- [x] An index with an H1 and no checklist items yields an H1-only summary.
+- [x] A publication spec path with no readable `index.md` publishes successfully with the pre-existing body shape.
+- [x] Implement/patch runs' PR bodies are unchanged (no summary rendered).
 
 ## Documentation updates
 

@@ -39,15 +39,34 @@ subprocess (`gh auth status`, upstream detection, `git push`, `git rev-parse HEA
 `gh pr list`/`create`) is awaited in that order before body refresh begins.
 
 **PR body refresh:** after the draft PR is ensured, the publisher rewrites its
-body: regenerated `Spec: <specPath>` header, preserved content between plain
-`<!-- jarvis:narrative:start -->` / `<!-- jarvis:narrative:end -->` markers when
-present, and an attribution footer from `Jarvis-Agent` trailer(s) on commits in
+body: regenerated `Spec: <specPath>` header, an optional caller-supplied summary
+block (pre-rendered markdown; omitted when absent or blank), preserved content
+between plain `<!-- jarvis:narrative:start -->` / `<!-- jarvis:narrative:end -->`
+markers when present, and an attribution footer from `Jarvis-Agent` trailer(s) on
+commits in
 `baseRef..HEAD` whose first body line begins with `Spec:`. Under v2's single
 completion commit, that selects the `jarvis: complete run` meta-commit. Footer
 shape: one bullet per qualifying commit (`- <shortSha> <subject> — <label>`,
 labels joined per commit; `unknown` when no trailer; excluded from summary),
 blank line, then `Written by <labels> through Jarvis.` with first-seen dedup.
-Empty footer ⇒ header (+ narrative if present) only, no `---` separator. v1's
+The summary sits after the `Spec:` line and before narrative markers or the footer
+separator; it is rebuilt on every refresh (not read from the existing body).
+Absent or blank summary ⇒ today's body shape (header, then narrative or footer
+only). Direct `jarvis2 write` and daemon completion paths supply no summary.
+Intent runs (`completionStep.intentOutput` set) re-derive a summary at every
+publish from the landed durable dir: the workflow creation title when it is not
+the generic `jarvis: complete run` fallback, then one `- <file>.md` bullet per
+owned intent file (invocation ownership when recorded, else every `.md` in the
+durable dir). Empty landed-file list ⇒ subject line only; generic fallback title
+⇒ bullets only. Review-last intent workflows land before this derivation; both
+intent branches use the same publish-site logic.
+Spec-authoring runs (`completionStep.promptId === "plan.prompt.draft"`) re-derive
+a summary at every publish from `<publication spec path>/index.md`: the H1 as a
+`# …` line, then every subspec checklist line verbatim in index order (full list,
+no truncation). H1 with no checklist items ⇒ H1 only; missing or H1-less
+`index.md` ⇒ no summary (today's body shape).
+Empty footer ⇒ header (+ summary and narrative when present) only, no `---`
+separator. v1's
 hash-verified generated-narrative path (`jarvis:narrative:generated-sha256:`) is
 not ported. `gh pr view`/`edit` and attribution `git log` reads are awaited;
 rejected attribution Git reads fail refresh (only intentional missing qualifying

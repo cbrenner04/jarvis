@@ -14,11 +14,11 @@ An intent PR body says `Spec: <dir>` only. Supply a summary: the seed subject pl
 
 ## Acceptance criteria
 
-- [ ] An intent run's PR body contains the seed subject and one line per authored intent file, above the narrative markers and footer.
-- [ ] The `Spec:` pointer and attribution footer are still present and unchanged in shape.
-- [ ] Republishing the same intent run (retry/resume) leaves the body identical — the summary is re-derived from the landed dir, not appended.
-- [ ] Reviewed-intent workflows (review step last) publish the same summary — the review-last landing sets the publication spec path the derivation reads.
-- [ ] A generic-fallback creation title publishes bullets with no subject line.
+- [x] An intent run's PR body contains the seed subject and one line per authored intent file, above the narrative markers and footer.
+- [x] The `Spec:` pointer and attribution footer are still present and unchanged in shape.
+- [x] Republishing the same intent run (retry/resume) leaves the body identical — the summary is re-derived from the landed dir, not appended.
+- [x] Reviewed-intent workflows (review step last) publish the same summary — the review-last landing sets the publication spec path the derivation reads.
+- [x] A generic-fallback creation title publishes bullets with no subject line.
 
 ## Documentation updates
 

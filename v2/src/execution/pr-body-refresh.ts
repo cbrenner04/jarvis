@@ -14,6 +14,7 @@ export type RefreshPrBodyInput = {
   branch: string;
   base: string;
   cwd: string;
+  bodySummary?: string;
   fetchPrBody?: FetchPrBody;
   writePrBody?: WritePrBody;
   renderFooter?: (opts: { cwd: string; base: string; git?: Git }) => Promise<string>;
@@ -35,6 +36,12 @@ export function extractNarrative(prBody: string): string | null {
 
 function buildSpecHeader(specPath: string, worktreePath: string): string {
   return `Spec: ${normalizePublicationSpecPath(worktreePath, specPath)}`;
+}
+
+function buildHeaderBlock(specPath: string, worktreePath: string, bodySummary?: string): string {
+  const header = buildSpecHeader(specPath, worktreePath);
+  const summary = bodySummary?.trim();
+  return summary ? `${header}\n\n${summary}` : header;
 }
 
 function defaultFetchPrBody(branch: string, cwd: string): Promise<string> {
@@ -85,7 +92,7 @@ export async function refreshPrBody(input: RefreshPrBodyInput): Promise<void> {
 
   const currentBody = await fetchPrBody(input.branch, input.cwd);
   const narrative = extractNarrative(currentBody);
-  const header = buildSpecHeader(input.specPath, input.cwd);
+  const header = buildHeaderBlock(input.specPath, input.cwd, input.bodySummary);
   let headerAndNarrative = header;
   if (narrative !== null) {
     headerAndNarrative += `\n\n${NARRATIVE_START_MARKER}\n${narrative}\n${NARRATIVE_END_MARKER}`;

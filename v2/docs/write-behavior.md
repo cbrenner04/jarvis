@@ -34,7 +34,9 @@ the resolved title is retained durably so re-publication uses the original title
 when the spec's `index.md` cannot be re-read. Multiple open PRs on the same branch are
 disambiguated by `baseRef` match; when multiple match the same base, the first is
 reused; when none match, a new PR is created. When the branch has no origin or
-push/PR operations are disabled, this phase is skipped.
+push/PR operations are disabled, this phase is skipped. Every publication
+subprocess (`gh auth status`, upstream detection, `git push`, `git rev-parse HEAD`,
+`gh pr list`/`create`) is awaited in that order before body refresh begins.
 
 **PR body refresh:** after the draft PR is ensured, the publisher rewrites its
 body: regenerated `Spec: <specPath>` header, preserved content between plain
@@ -47,7 +49,9 @@ labels joined per commit; `unknown` when no trailer; excluded from summary),
 blank line, then `Written by <labels> through Jarvis.` with first-seen dedup.
 Empty footer ⇒ header (+ narrative if present) only, no `---` separator. v1's
 hash-verified generated-narrative path (`jarvis:narrative:generated-sha256:`) is
-not ported. Refresh failures reuse retryable `completion_commit_failed`; resume
+not ported. `gh pr view`/`edit` and attribution `git log` reads are awaited;
+rejected attribution Git reads fail refresh (only intentional missing qualifying
+commits yield an empty footer). Refresh failures reuse retryable `completion_commit_failed`; resume
 re-edits the same PR. Post-completion ordering: push+PR → body refresh → ready
 gate → draft→ready flip (gate/flip in a separate finalization boundary).
 
@@ -75,9 +79,9 @@ may retry without creating a duplicate commit or PR. Non-fast-forward push rejec
 is permanent (no retry). Transient network failures (push, PR lookup, PR creation, body refresh) retry
 to 3 total attempts with flat 1000 ms backoff between re-attempts and emit
 `<op>: transient network error; retrying (attempt <n>/3)` to stderr. Subprocess, backoff
-delay, retry-notice, and `gh`-readiness are each independently injectable seams, so
+delay, retry-notice, and `gh`-readiness are each independently injectable async seams, so
 publication tests exercise retries and failures without live git/`gh` calls or wall-clock
-delay. Missing binding attribution fails before git mutation. This boundary operates
+delay; every retry attempt is awaited. Missing binding attribution fails before git mutation. This boundary operates
 directly in the existing external worktree and does not create locks.
 
 Workflows suppress per-step commits and publish once after every step and hidden shrink

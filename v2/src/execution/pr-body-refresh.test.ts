@@ -31,8 +31,8 @@ describe("refreshPrBody", () => {
       branch: "feature",
       base: "main",
       cwd: "/tmp/worktree",
-      fetchPrBody: () => currentBody,
-      writePrBody: (_branch, body) => {
+      fetchPrBody: async () => currentBody,
+      writePrBody: async (_branch, body) => {
         writtenBody = body;
       },
       renderFooter: async () => "- abc Foo \u2014 Agent X\n\nWritten by Agent X through Jarvis.",
@@ -62,8 +62,8 @@ describe("refreshPrBody", () => {
       branch: "feature",
       base: "main",
       cwd: "/tmp/worktree",
-      fetchPrBody: () => "",
-      writePrBody: (_branch, body) => {
+      fetchPrBody: async () => "",
+      writePrBody: async (_branch, body) => {
         writtenBody = body;
       },
       renderFooter: async () => "",
@@ -80,8 +80,8 @@ describe("refreshPrBody", () => {
       branch: "feature",
       base: "main",
       cwd: "/tmp/worktree",
-      fetchPrBody: () => "Spec: old path",
-      writePrBody: (_branch, body) => {
+      fetchPrBody: async () => "Spec: old path",
+      writePrBody: async (_branch, body) => {
         writtenBody = body;
       },
       renderFooter: async () => "- abc Foo \u2014 Agent A\n\nWritten by Agent A through Jarvis.",
@@ -108,8 +108,8 @@ describe("refreshPrBody", () => {
       branch: "feature-x",
       base: "main",
       cwd: "/tmp/worktree",
-      fetchPrBody: () => "",
-      writePrBody: (branch, _body, cwd) => {
+      fetchPrBody: async () => "",
+      writePrBody: async (branch, _body, cwd) => {
         seenBranch = branch;
         seenCwd = cwd;
       },
@@ -127,12 +127,28 @@ describe("refreshPrBody", () => {
         branch: "feature",
         base: "main",
         cwd: "/tmp/worktree",
-        fetchPrBody: () => "",
-        writePrBody: () => {
+        fetchPrBody: async () => "",
+        writePrBody: async () => {
           throw new Error("gh pr edit failed");
         },
         renderFooter: async () => "",
       }),
     ).rejects.toThrow("gh pr edit failed");
+  });
+
+  test("surfaces rejected attribution git read as thrown error", async () => {
+    await expect(
+      refreshPrBody({
+        specPath: "v2/spec/test/index.md",
+        branch: "feature",
+        base: "main",
+        cwd: "/tmp/worktree",
+        fetchPrBody: async () => "",
+        writePrBody: async () => {},
+        git: async () => {
+          throw new Error("git log failed");
+        },
+      }),
+    ).rejects.toThrow("git log failed");
   });
 });

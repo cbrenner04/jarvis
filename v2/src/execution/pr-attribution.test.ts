@@ -134,15 +134,15 @@ describe("readBranchCommits with injected git", () => {
     expect(commits[0]?.jarvisAgentTrailers).toEqual(["Claude Opus 4.8"]);
   });
 
-  test("returns empty array when injected git throws", async () => {
-    expect(
-      await readBranchCommits({
+  test("propagates rejected git read", async () => {
+    await expect(
+      readBranchCommits({
         cwd: "/tmp",
         base: "main",
         git: async () => {
           throw new Error("git failed");
         },
       }),
-    ).toEqual([]);
+    ).rejects.toThrow("git failed");
   });
 });

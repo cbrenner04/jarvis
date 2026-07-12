@@ -1584,6 +1584,139 @@ describe("write loop", () => {
     }
   });
 
+  test("stalled executeWrite terminates the started attempt as iteration_timeout", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const store = openStateStore(stateDbPath);
+    const sink = new TestLogSink();
+    mock.module("./write.ts", () => ({ executeWrite: () => new Promise<never>(() => undefined) }));
+
+    try {
+      const result = await executeWriteLoop({
+        worktree: { projectRoot: "/fake", projectName: "demo", branchName: "timeout-run", baseRef: "HEAD", jarvisRoot },
+        specPath: "spec.md",
+        stepRules: "Return exactly one terminal token.",
+        expectedArtifactPath: "proof.txt",
+        bindings: simulatedBindings(["done"]),
+        stateStore: store,
+        withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        logSink: sink,
+        iterationTimeoutMs: 10,
+      });
+
+      expect(result).toMatchObject({ kind: "iteration_timeout", iterationsConsumed: 1, resumable: false });
+      const run = loadRunOnce(stateDbPath, result.runId);
+      expect(run?.status).toBe("failed");
+      expect(run?.attempts[0]?.outcomeKind).toBe("iteration_timeout");
+      expect(sink.getEventsForRun(result.runId).map((event) => event.kind)).toEqual([
+        "iteration_started",
+        "boundary_committed",
+        "loop_finished",
+      ]);
+    } finally {
+      store.close();
+      mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+    }
+  });
+
+  test("gives each iteration a fresh timeout and ignores a late execution failure", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const store = openStateStore(stateDbPath);
+    const sink = new TestLogSink();
+    let calls = 0;
+    let rejectLate!: (error: Error) => void;
+    mock.module("./write.ts", () => ({
+      executeWrite: (input: WriteExecuteInput) => {
+        calls += 1;
+        if (calls === 1) {
+          return Promise.resolve({
+            worktreePath: input.worktree.projectRoot,
+            worktreeReused: false,
+            lock: { kind: "acquired" as const },
+            result: {
+              kind: "progress" as const,
+              token: "progress" as const,
+              invocation: { attempts: [], final: null, telemetryFailures: [] },
+            },
+          });
+        }
+        return new Promise<never>((_resolve, reject) => {
+          rejectLate = reject;
+        });
+      },
+    }));
+
+    try {
+      const result = await executeWriteLoop({
+        worktree: { projectRoot: "/fake", projectName: "demo", branchName: "fresh-timeout", baseRef: "HEAD", jarvisRoot },
+        specPath: "spec.md",
+        stepRules: "Return exactly one terminal token.",
+        expectedArtifactPath: "proof.txt",
+        bindings: simulatedBindings(["progress"]),
+        stateStore: store,
+        withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        logSink: sink,
+        iterationTimeoutMs: 25,
+      });
+
+      expect(result).toMatchObject({ kind: "iteration_timeout", iterationsConsumed: 2, resumable: false });
+      expect(calls).toBe(2);
+      rejectLate(new Error("late failure"));
+      await Promise.resolve();
+      expect(sink.getEventsForRun(result.runId).filter((event) => event.kind === "loop_finished")).toHaveLength(1);
+      expect(loadRunOnce(stateDbPath, result.runId)?.attempts.map((attempt) => attempt.outcomeKind)).toEqual([
+        "progress",
+        "iteration_timeout",
+      ]);
+    } finally {
+      store.close();
+      mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+    }
+  });
+
+  test("lets an observed abort win before the watchdog, but not after it", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const store = openStateStore(stateDbPath);
+    mock.module("./write.ts", () => ({ executeWrite: () => new Promise<never>(() => undefined) }));
+
+    try {
+      const earlyAbort = new AbortController();
+      setTimeout(() => earlyAbort.abort(), 5);
+      const early = await executeWriteLoop({
+        worktree: { projectRoot: "/fake", projectName: "demo", branchName: "abort-first", baseRef: "HEAD", jarvisRoot },
+        specPath: "spec.md",
+        stepRules: "Return exactly one terminal token.",
+        expectedArtifactPath: "proof.txt",
+        bindings: simulatedBindings(["done"]),
+        stateStore: store,
+        withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        signal: earlyAbort.signal,
+        iterationTimeoutMs: 40,
+      });
+      expect(early).toMatchObject({ kind: "progress", resumable: true });
+
+      const lateAbort = new AbortController();
+      setTimeout(() => lateAbort.abort(), 40);
+      const late = await executeWriteLoop({
+        worktree: { projectRoot: "/fake", projectName: "demo", branchName: "timeout-first", baseRef: "HEAD", jarvisRoot },
+        specPath: "spec.md",
+        stepRules: "Return exactly one terminal token.",
+        expectedArtifactPath: "proof.txt",
+        bindings: simulatedBindings(["done"]),
+        stateStore: store,
+        withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        signal: lateAbort.signal,
+        iterationTimeoutMs: 5,
+      });
+      expect(late).toMatchObject({ kind: "iteration_timeout", resumable: false });
+    } finally {
+      store.close();
+      mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+    }
+  });
+
   test("executeWrite throw while aborted terminates as progress", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));

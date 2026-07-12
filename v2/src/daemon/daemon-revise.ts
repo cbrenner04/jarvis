@@ -73,6 +73,9 @@ export function buildRevisionWriteLoopInput(
       },
       stepId,
       ...(repeatedRun.workflowSnapshot ? { workflowSnapshot: repeatedRun.workflowSnapshot } : {}),
+      ...(repeatedStepConfig.iterationTimeoutMs !== undefined
+        ? { iterationTimeoutMs: repeatedStepConfig.iterationTimeoutMs }
+        : {}),
     },
   };
 }

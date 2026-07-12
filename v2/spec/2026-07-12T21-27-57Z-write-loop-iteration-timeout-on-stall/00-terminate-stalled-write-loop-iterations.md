@@ -27,14 +27,14 @@ the durable run and daemon liveness stay active without a terminal log record.
 
 ## Acceptance criteria
 
-- [ ] A write-loop attempt that emits `iteration_started` and then stalls past an injected short `iterationTimeoutMs` resolves despite non-settling execution as `iteration_timeout`; it closes the started or resumed attempt, persists the run `failed`, and appends exactly one terminal `loop_finished` record.
-- [ ] The timeout also terminates a stalled path that never invokes an agent subprocess; the loop does not depend on subprocess liveness to enforce its wall-clock budget.
-- [ ] Normal settlement clears its watchdog, each later iteration receives a fresh full budget, and completion or failure arriving after timeout cannot emit another boundary or terminal effect.
-- [ ] Abort before watchdog fire returns the existing abort outcome; watchdog fire before abort, completion, or failure returns `iteration_timeout`.
-- [ ] Direct and workflow launches resolve `~/.jarvis/config.json` `iterationTimeoutMs`, default it to 600,000 ms, and preserve the resolved value through persisted workflow snapshot resume and revise reconstruction.
-- [ ] `iteration_timeout` is accepted and surfaced as a failed terminal outcome by durable attempt/run state, workflow results, daemon `list`/`wait` and workflow snapshots, CLI output, and operator-error mapping; `run_execution_failed` remains the distinct harness-failure terminal.
-- [ ] Timed-out direct and workflow-started daemon loops are no longer live and release their worktree claims after the terminal result.
-- [ ] `bun test v2/src/execution/write-loop.test.ts v2/src/execution/workflow-runner.test.ts v2/src/daemon/daemon-start-list.test.ts v2/src/daemon/daemon-wait-run-completion.test.ts v2/src/daemon/daemon-resume.test.ts v2/src/daemon/daemon-revise.test.ts v2/src/daemon/run-operator-error.test.ts v2/src/cli.test.ts` passes with short injected timeout coverage.
+- [x] A write-loop attempt that emits `iteration_started` and then stalls past an injected short `iterationTimeoutMs` resolves despite non-settling execution as `iteration_timeout`; it closes the started or resumed attempt, persists the run `failed`, and appends exactly one terminal `loop_finished` record.
+- [x] The timeout also terminates a stalled path that never invokes an agent subprocess; the loop does not depend on subprocess liveness to enforce its wall-clock budget.
+- [x] Normal settlement clears its watchdog, each later iteration receives a fresh full budget, and completion or failure arriving after timeout cannot emit another boundary or terminal effect.
+- [x] Abort before watchdog fire returns the existing abort outcome; watchdog fire before abort, completion, or failure returns `iteration_timeout`.
+- [x] Direct and workflow launches resolve `~/.jarvis/config.json` `iterationTimeoutMs`, default it to 600,000 ms, and preserve the resolved value through persisted workflow snapshot resume and revise reconstruction.
+- [x] `iteration_timeout` is accepted and surfaced as a failed terminal outcome by durable attempt/run state, workflow results, daemon `list`/`wait` and workflow snapshots, CLI output, and operator-error mapping; `run_execution_failed` remains the distinct harness-failure terminal.
+- [x] Timed-out direct and workflow-started daemon loops are no longer live and release their worktree claims after the terminal result.
+- [x] `bun test v2/src/execution/write-loop.test.ts v2/src/execution/workflow-runner.test.ts v2/src/daemon/daemon-start-list.test.ts v2/src/daemon/daemon-wait-run-completion.test.ts v2/src/daemon/daemon-resume.test.ts v2/src/daemon/daemon-revise.test.ts v2/src/daemon/run-operator-error.test.ts v2/src/cli.test.ts` passes with short injected timeout coverage.
 
 ## Documentation updates
 

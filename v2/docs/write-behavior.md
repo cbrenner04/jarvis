@@ -352,6 +352,10 @@ Flow: connect → IPC `health` → IPC `status` → daemon `list` → interactiv
 monitor. `jarvis tui` does not call `executeWriteLoop` locally and does not send
 `start` or log-stream frames.
 
+`jarvis run wait` renders a timed-out loop as `loopOutcomeKind:
+"iteration_timeout"` with failed run status; it is not rendered as
+`run_execution_failed`.
+
 | Command | Output | Exit |
 | --- | --- | --- |
 | `jarvis tui` | Interactive ink run monitor; entry-time guard/RPC failure: ink `<code>: <message>`; connect-time unavailable: message naming `~/.jarvis/daemon.sock` and `jarvis daemon start` | `0` operator quit; `1` connect-time unavailable or entry-time guard/RPC failure before the monitor opens |

@@ -2,6 +2,18 @@ import { readFileSync } from "node:fs";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { MACHINE_CONFIG_PATH } from "../paths.ts";
 
+export const DEFAULT_ITERATION_TIMEOUT_MS = 600_000;
+
+/** Resolves the machine-wide write iteration budget. */
+export function readIterationTimeoutMs(configPath: string = MACHINE_CONFIG_PATH): number {
+  const value = readMachineConfigDocument(configPath)?.iterationTimeoutMs;
+  if (value === undefined) return DEFAULT_ITERATION_TIMEOUT_MS;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    throw new Error("Machine config 'iterationTimeoutMs' must be a positive number");
+  }
+  return value;
+}
+
 export function readMachineConfigDocument(
   configPath: string = MACHINE_CONFIG_PATH,
 ): Record<string, unknown> | undefined {

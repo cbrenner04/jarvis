@@ -835,6 +835,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       },
       stepId: run.stepId,
       workflowSnapshot: run.workflowSnapshot,
+      ...(snapshotStep.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: snapshotStep.iterationTimeoutMs } : {}),
     };
 
     spawnWriteLoop(key, runId, run.worktreePath, input);

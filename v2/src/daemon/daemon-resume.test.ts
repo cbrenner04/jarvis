@@ -114,6 +114,7 @@ test("resume on a workflow paused run respawns with resolved bindings", async ()
           expectedArtifactPath: "/tmp/test-project/artifact",
           agents: ["codex", "cursor"],
           agentModelConfig: AGENT_MODEL_CONFIG,
+          iterationTimeoutMs: 123,
         },
       ],
     },
@@ -131,6 +132,7 @@ test("resume on a workflow paused run respawns with resolved bindings", async ()
   ]);
   expect(starts[0]?.stepRules).toBe("resume rules");
   expect(starts[0]?.stepId).toBe("step-1");
+  expect(starts[0]?.iterationTimeoutMs).toBe(123);
 });
 
 test("resume on a workflow paused run with an empty agents list returns not_implemented", async () => {

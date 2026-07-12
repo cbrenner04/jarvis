@@ -328,8 +328,29 @@ socketPath}` or throws on startup failure.
 
 **Injected paths:** Callers must supply an explicit `socketPath`; the daemon
 environment variable is `DAEMON_SOCKET_PATH`. Tests may inject `pidPath` (for
-cleanup); `daemonScript` (test override); and `readinessTimeoutMs` (default
-5s).
+cleanup); `daemonScript` (test override); `readinessTimeoutMs` (default 5s);
+`logPath` (process-level stdio capture); and `logCapBytes` (rotation cap,
+default 5 MiB).
+
+**Log path:** When `logPath` is provided, child stdout and stderr are opened
+in append mode before spawn and inherited by the child. Missing or unwritable
+log directory throws before spawn. Caller closes its fd copy after spawn.
+When `logPath` is omitted, stdio remains discarded (existing behavior).
+
+**Log rotation:** At spawn time, if the existing log file is at or over
+`logCapBytes`, it is rotated to `<logPath>.1`, replacing any prior `.1`.
+Rotation is checked once at spawn; a long-lived daemon may exceed the cap,
+and the bound holds across restarts.
+
+**Process-log boundary:** `<logPath>` carries process-level output (uncaught
+exceptions, spawn failures, stray harness stderr). Run and agent output flows
+through the persisted log store and log-server stream path, not `<logPath>`.
+Concurrent daemons sharing one `logPath` are unsupported; double-start
+protection covers the real case.
+
+**CLI default:** The CLI pins `~/.jarvis/daemon.log` alongside `daemon.sock`
+and `daemon.pid`; other callers supply `logPath` explicitly or omit it to
+discard.
 
 **Double-start protection:** If the socket already responds to `health`, throws
 `DaemonAlreadyRunningError` (no second child spawned).

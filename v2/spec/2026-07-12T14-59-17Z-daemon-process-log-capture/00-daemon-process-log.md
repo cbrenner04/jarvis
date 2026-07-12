@@ -26,14 +26,14 @@ file so post-mortem evidence survives.
 
 ## Acceptance criteria
 
-- [ ] A daemon started with `logPath` writes its child stdout and stderr to that file; output written by the child after detach is readable in the file.
-- [ ] Restarting a daemon whose `logPath` is under the byte cap appends: the prior daemon's output is still present alongside the new daemon's.
-- [ ] Starting a daemon whose `logPath` is at or over the byte cap renames the existing file to `<logPath>.1` — replacing any prior `.1` — and starts a fresh log.
-- [ ] `startDaemon` without `logPath` keeps the existing discard behavior (no file created).
-- [ ] `startDaemon` with a `logPath` whose directory does not exist, or which cannot be opened for writing, throws and spawns no daemon.
-- [ ] The CLI daemon deps struct exposes `logPath` defaulting to `DAEMON_LOG_PATH` (`~/.jarvis/daemon.log`), and `daemon start` passes it to `startDaemon`.
-- [ ] Existing `daemon-lifecycle.test.ts` double-start, readiness, stop, and status tests stay green (capture is additive).
+- [x] A daemon started with `logPath` writes its child stdout and stderr to that file; output written by the child after detach is readable in the file.
+- [x] Restarting a daemon whose `logPath` is under the byte cap appends: the prior daemon's output is still present alongside the new daemon's.
+- [x] Starting a daemon whose `logPath` is at or over the byte cap renames the existing file to `<logPath>.1` — replacing any prior `.1` — and starts a fresh log.
+- [x] `startDaemon` without `logPath` keeps the existing discard behavior (no file created).
+- [x] `startDaemon` with a `logPath` whose directory does not exist, or which cannot be opened for writing, throws and spawns no daemon.
+- [x] The CLI daemon deps struct exposes `logPath` defaulting to `DAEMON_LOG_PATH` (`~/.jarvis/daemon.log`), and `daemon start` passes it to `startDaemon`.
+- [x] Existing `daemon-lifecycle.test.ts` double-start, readiness, stop, and status tests stay green (capture is additive).
 
 ## Documentation updates
 
-- [ ] `v2/docs/daemon-host.md` — `startDaemon` section documents `logPath`, the `~/.jarvis/daemon.log` consumer-layer path, the boundary between `daemon.log` (process-level stdio) and run/agent logs (log store + log-server stream), the spawn-time rotation contract (cap, single `.1`) with the "one long run may exceed the cap" consequence, and the caveat that concurrent daemons sharing one `logPath` are unsupported (double-start protection covers the real case).
+- [x] `v2/docs/daemon-host.md` — `startDaemon` section documents `logPath`, the `~/.jarvis/daemon.log` consumer-layer path, the boundary between `daemon.log` (process-level stdio) and run/agent logs (log store + log-server stream), the spawn-time rotation contract (cap, single `.1`) with the "one long run may exceed the cap" consequence, and the caveat that concurrent daemons sharing one `logPath` are unsupported (double-start protection covers the real case).

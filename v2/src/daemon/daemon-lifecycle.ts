@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { connectIpcClient } from "../ipc/client";
 import { createRpcTransport } from "../ipc/rpc-transport";
@@ -61,11 +61,14 @@ export async function startDaemon(
     daemonScript?: string;
     readinessTimeoutMs?: number;
     pidPath?: string;
+    logPath?: string;
+    logCapBytes?: number;
     processProber?: ProcessProber;
     socketProber?: SocketProber;
   },
 ): Promise<DaemonMetadata> {
   const readinessTimeoutMs = options?.readinessTimeoutMs ?? 5_000;
+  const logCapBytes = options?.logCapBytes ?? 5 * 1024 * 1024;
   const processProber = options?.processProber ?? { isAlive: isProcessAlive };
   const socketProber = options?.socketProber ?? { probe: probeSocket };
 
@@ -76,11 +79,43 @@ export async function startDaemon(
 
   const daemonScript = options?.daemonScript ?? resolve(import.meta.dir, "../daemon-entrypoint.ts");
 
+  let logFd: number | undefined;
+  if (options?.logPath) {
+    const logDir = dirname(options.logPath);
+    if (!existsSync(logDir)) {
+      throw new Error(`Log file directory does not exist: ${logDir}`);
+    }
+
+    // Rotate log if it exists and is at or over the cap
+    if (existsSync(options.logPath)) {
+      const stat = statSync(options.logPath);
+      if (stat.size >= logCapBytes) {
+        renameSync(options.logPath, `${options.logPath}.1`);
+      }
+    }
+
+    // Open log file in append mode
+    try {
+      logFd = openSync(options.logPath, "a");
+    } catch (error) {
+      throw new Error(`Failed to open log file for writing: ${options.logPath}`);
+    }
+  }
+
   const proc = spawn("bun", [daemonScript], {
     detached: true,
-    stdio: "ignore",
+    stdio: logFd !== undefined ? ["ignore", logFd, logFd] : "ignore",
     env: { ...process.env, DAEMON_SOCKET_PATH: socketPath },
   });
+
+  // Close parent's copy of the log fd
+  if (logFd !== undefined) {
+    try {
+      closeSync(logFd);
+    } catch {
+      // Ignore close errors
+    }
+  }
 
   if (proc.pid === undefined) {
     throw new Error("Failed to spawn daemon process: pid is undefined");

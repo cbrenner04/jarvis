@@ -137,7 +137,7 @@ function projectSafeId(project: string): string {
   return safe.length > 0 ? safe : "project";
 }
 
-type SeedDetails = { label: string; content: string; slug: string };
+type SeedDetails = { label: string; content: string; slug: string; name: string };
 
 function resolveFileSeed(
   input: IntentWorkflowInput,
@@ -162,6 +162,7 @@ function resolveFileSeed(
   return {
     label: relative(canonicalRoot, canonicalSeed),
     content: readSeed(canonicalSeed),
+    name: basename(canonicalSeed).replace(/\.[^.]*$/u, ""),
     slug: slugify(basename(canonicalSeed).replace(/\.[^.]*$/u, "")),
   };
 }
@@ -173,7 +174,8 @@ function resolveSeed(
 ): SeedDetails | { error: string } {
   if (input.seed !== undefined) return resolveFileSeed(input, project, input.seed, readSeed);
   const content = input.seedText ?? "";
-  return { label: "inline seed", content, slug: slugify(content.split(/\s+/u).slice(0, 6).join(" ")) };
+  const slug = slugify(content.split(/\s+/u).slice(0, 6).join(" "));
+  return { label: "inline seed", content, slug, name: slug };
 }
 
 function resolveOutput(
@@ -233,7 +235,7 @@ async function buildIntentWorkflowSourceStep(
   const config = projectConfig(input.configPath, project);
   const seed = resolveSeed(input, project, deps.readSeed ?? ((path: string) => readFileSync(path, "utf8")));
   if ("error" in seed) return { ok: false, error: seed.error };
-  const { label: seedLabel, content: seedContent, slug } = seed;
+  const { label: seedLabel, content: seedContent, slug, name } = seed;
   if (slug.length === 0) return { ok: false, error: "intent: seed does not produce a slug" };
   if (RESERVED_SLUGS.has(slug)) return { ok: false, error: `intent: reserved slug: ${slug}` };
 
@@ -282,6 +284,7 @@ async function buildIntentWorkflowSourceStep(
       intentOutput: { durableDir },
       jarvisRoot,
       workflowInvocationId: identity.invocationId,
+      creationTitle: `intent: ${name}`,
       publishCompletion: publish,
     },
     identity,

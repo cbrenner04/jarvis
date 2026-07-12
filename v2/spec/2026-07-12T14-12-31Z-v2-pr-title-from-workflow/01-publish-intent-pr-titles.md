@@ -19,11 +19,11 @@ Intent and reviewed-intent runs need a stable title through landing and retry.
 
 ## Acceptance criteria
 
-- [ ] A newly created file-seed intent PR is titled `intent: <seed filename stem>`.
-- [ ] A newly created inline-seed intent PR is titled `intent: <workflow identity slug>`.
-- [ ] A newly created reviewed-intent PR keeps its intent title after reviewed output lands.
-- [ ] Retrying completed intent or reviewed-intent publication uses its original intent title when the original staged subject is no longer available.
-- [ ] Focused workflow-runner and intent-workflow automated tests cover file seed, inline seed, reviewed landing, and durable retry.
+- [x] A newly created file-seed intent PR is titled `intent: <seed filename stem>`.
+- [x] A newly created inline-seed intent PR is titled `intent: <workflow identity slug>`.
+- [x] A newly created reviewed-intent PR keeps its intent title after reviewed output lands.
+- [x] Retrying completed intent or reviewed-intent publication uses its original intent title when the original staged subject is no longer available.
+- [x] Focused workflow-runner and intent-workflow automated tests cover file seed, inline seed, reviewed landing, and durable retry.
 
 ## Documentation updates
 

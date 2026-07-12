@@ -18,10 +18,10 @@ The publisher creates every new PR as `jarvis: complete run`.
 
 ## Acceptance criteria
 
-- [ ] A new draft PR uses the supplied creation title.
-- [ ] A new draft PR uses `jarvis: complete run` when its supplied subject is missing, unreadable, malformed, blank, or whitespace-only.
-- [ ] Reusing matching open draft or ready PRs leaves each existing title unchanged.
-- [ ] Focused `completion-publisher` automated tests cover supplied title, fallback, and draft/ready reuse.
+- [x] A new draft PR uses the supplied creation title.
+- [x] A new draft PR uses `jarvis: complete run` when its supplied subject is missing, unreadable, malformed, blank, or whitespace-only.
+- [x] Reusing matching open draft or ready PRs leaves each existing title unchanged.
+- [x] Focused `completion-publisher` automated tests cover supplied title, fallback, and draft/ready reuse.
 
 ## Documentation updates
 

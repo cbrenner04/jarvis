@@ -206,7 +206,8 @@ Jarvis-Agent: claude
 
 `Jarvis-Agent` names the binding that produced the final successful iteration.
 
-**Draft PR** — `gh pr create --draft` with title `jarvis: complete run` and body:
+**Draft PR** — `gh pr create --draft` with title extracted from the spec's `index.md`
+H1 heading (falling back to `jarvis: complete run` when unresolvable) and body:
 
 ```
 Spec: v2/spec/your-spec/index.md

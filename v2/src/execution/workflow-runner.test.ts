@@ -1160,6 +1160,285 @@ describe("executeWorkflow human steps", () => {
       expect(published).toEqual([{ specPath: "spec.md", agent: "claude" }]);
     });
   });
+
+  test("retains a supplied title for completion-publication retry", async () => {
+    const stateDbPath = ":memory:";
+    const firstStep = createStep({
+      stepId: "intent",
+      role: "implement",
+      branchName: "intent-title-retry",
+      specPath: "spec/index.md",
+    });
+    const retryStep = createStep({
+      stepId: "intent",
+      role: "implement",
+      branchName: "intent-title-retry",
+      specPath: "spec/index.md",
+    });
+    const titles: unknown[] = [];
+    const store = openStateStore(stateDbPath);
+    const jarvisRoot = firstStep.worktree.jarvisRoot;
+    if (jarvisRoot === undefined) throw new Error("missing test jarvis root");
+
+    mkdirSync(join(jarvisRoot, "worktrees", "demo", "intent-title-retry", "spec"), { recursive: true });
+    writeFileSync(
+      join(jarvisRoot, "worktrees", "demo", "intent-title-retry", "spec", "index.md"),
+      "# Workflow title\n",
+      "utf8",
+    );
+
+    try {
+      const first = await executeWorkflow({
+        steps: [firstStep],
+        stateStore: store,
+        completionCommitter: () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          titles.push(input.creationTitle);
+          throw new Error("publish failed");
+        },
+      });
+      expect(first.kind).toBe("completion_commit_failed");
+
+      const retried = await executeWorkflow({
+        steps: [retryStep],
+        stateStore: store,
+        completionCommitter: () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          titles.push(input.creationTitle);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+
+      expect(retried.kind).toBe("complete");
+      expect(titles).toEqual(["Workflow title", "Workflow title"]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("publishes a supplied title after a reviewed workflow completes", async () => {
+    const writeStep = createStep({
+      stepId: "intent",
+      role: "implement",
+      branchName: "reviewed-intent-title",
+      creationTitle: "intent: reviewed-seed",
+    });
+    const reviewStep: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "review",
+      project: "demo",
+      branch: "reviewed-intent-title",
+      cwd: "/fake",
+      prompt: "review",
+      verdictPath: join(mkdtempSync(join(tmpdir(), "workflow-review-title-")), "verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: {
+        claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
+        codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
+      },
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async () => ({ kind: "ok" as const, stdout: agentId === "claude" ? "apply" : "done", stderr: "" }),
+      }),
+    };
+    const titles: unknown[] = [];
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [writeStep, reviewStep],
+        stateStore: store,
+        completionCommitter: () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          titles.push(input.creationTitle);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(titles).toEqual(["intent: reviewed-seed"]);
+    });
+  });
+
+  test("plan workflow publishes draft PR with index.md H1 as title", async () => {
+    const step = createStep({
+      stepId: "plan",
+      role: "plan",
+      branchName: "plan-title-test",
+      specPath: "spec/2026-01-01T00-00-00Z-test-plan/index.md",
+      agentModelConfig: {
+        claude: {
+          plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+        },
+      },
+    });
+    const titles: unknown[] = [];
+    const jarvisRoot = step.worktree.jarvisRoot;
+    if (jarvisRoot === undefined) throw new Error("missing test jarvis root");
+
+    mkdirSync(join(jarvisRoot, "worktrees", "demo", "plan-title-test", "spec", "2026-01-01T00-00-00Z-test-plan"), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(jarvisRoot, "worktrees", "demo", "plan-title-test", "spec", "2026-01-01T00-00-00Z-test-plan", "index.md"),
+      "# My feature plan\n\nContent here.",
+      "utf8",
+    );
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          titles.push(input.creationTitle);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(titles).toEqual(["My feature plan"]);
+    });
+  });
+
+  test("plan workflow with a bare spec-directory specPath publishes index.md H1 as title", async () => {
+    // plan-workflow-steps.ts sets specPath to the spec directory itself, not a path ending in index.md.
+    const step = createStep({
+      stepId: "plan",
+      role: "plan",
+      branchName: "plan-title-dir-test",
+      specPath: "spec/2026-01-01T00-00-00Z-test-plan-dir",
+      agentModelConfig: {
+        claude: {
+          plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+        },
+      },
+    });
+    const titles: unknown[] = [];
+    const jarvisRoot = step.worktree.jarvisRoot;
+    if (jarvisRoot === undefined) throw new Error("missing test jarvis root");
+
+    mkdirSync(
+      join(jarvisRoot, "worktrees", "demo", "plan-title-dir-test", "spec", "2026-01-01T00-00-00Z-test-plan-dir"),
+      {
+        recursive: true,
+      },
+    );
+    writeFileSync(
+      join(
+        jarvisRoot,
+        "worktrees",
+        "demo",
+        "plan-title-dir-test",
+        "spec",
+        "2026-01-01T00-00-00Z-test-plan-dir",
+        "index.md",
+      ),
+      "# My directory-sourced plan\n\nContent here.",
+      "utf8",
+    );
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          titles.push(input.creationTitle);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(titles).toEqual(["My directory-sourced plan"]);
+    });
+  });
+
+  test("plan workflow retry retains original index.md H1 title when index cannot be re-read", async () => {
+    const stateDbPath = ":memory:";
+    const firstStep = createStep({
+      stepId: "plan",
+      role: "plan",
+      branchName: "plan-title-retry",
+      specPath: "spec/2026-01-01T00-00-00Z-test-retry/index.md",
+      agentModelConfig: {
+        claude: {
+          plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+        },
+      },
+    });
+    const retryStep = createStep({
+      stepId: "plan",
+      role: "plan",
+      branchName: "plan-title-retry",
+      specPath: "spec/2026-01-01T00-00-00Z-test-retry/index.md",
+      agentModelConfig: {
+        claude: {
+          plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+        },
+      },
+    });
+    const titles: unknown[] = [];
+    const store = openStateStore(stateDbPath);
+    const jarvisRoot = firstStep.worktree.jarvisRoot;
+    if (jarvisRoot === undefined) throw new Error("missing test jarvis root");
+
+    mkdirSync(join(jarvisRoot, "worktrees", "demo", "plan-title-retry", "spec", "2026-01-01T00-00-00Z-test-retry"), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(jarvisRoot, "worktrees", "demo", "plan-title-retry", "spec", "2026-01-01T00-00-00Z-test-retry", "index.md"),
+      "# Plan for retry test\n\nContent.",
+      "utf8",
+    );
+
+    try {
+      const first = await executeWorkflow({
+        steps: [firstStep],
+        stateStore: store,
+        completionCommitter: () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          titles.push(input.creationTitle);
+          throw new Error("publish failed");
+        },
+      });
+      expect(first.kind).toBe("completion_commit_failed");
+
+      // Delete the index.md so it cannot be re-read on retry
+      const indexPath = join(
+        jarvisRoot,
+        "worktrees",
+        "demo",
+        "plan-title-retry",
+        "spec",
+        "2026-01-01T00-00-00Z-test-retry",
+        "index.md",
+      );
+      const fs = await import("node:fs");
+      fs.unlinkSync(indexPath);
+
+      const retried = await executeWorkflow({
+        steps: [retryStep],
+        stateStore: store,
+        completionCommitter: () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          titles.push(input.creationTitle);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+
+      expect(retried.kind).toBe("complete");
+      expect(titles).toEqual(["Plan for retry test", "Plan for retry test"]);
+    } finally {
+      store.close();
+    }
+  });
 });
 
 describe("executeWorkflow review-debate dispatch", () => {

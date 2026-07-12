@@ -92,6 +92,12 @@ async function runLoop(args: {
   }
 }
 
+function writeSpecIndex(jarvisRoot: string, branchName: string, content: string): void {
+  const specDir = join(jarvisRoot, "worktrees", "demo", branchName, "spec");
+  mkdirSync(specDir, { recursive: true });
+  writeFileSync(join(specDir, "index.md"), content, "utf8");
+}
+
 async function runLoopWithPause(args: {
   jarvisRoot: string;
   stateDbPath: string;
@@ -668,6 +674,87 @@ describe("write loop", () => {
       expect(retry.runId).toBe(first.runId);
       expect(publishCalls).toBe(2);
     });
+  });
+
+  test("publishes index and sibling-index titles, with fallback for unusable indexes", async () => {
+    const cases = [
+      { branchName: "index-title", specPath: "spec/index.md", index: "#  Index title  \n", title: "Index title" },
+      { branchName: "sibling-title", specPath: "spec/01-write.md", index: "# Sibling title\n", title: "Sibling title" },
+      { branchName: "missing-title", specPath: "spec/index.md", index: undefined, title: undefined },
+      {
+        branchName: "unreadable-title",
+        specPath: "spec/index.md",
+        index: undefined,
+        unreadable: true,
+        title: undefined,
+      },
+      { branchName: "malformed-title", specPath: "spec/index.md", index: "#\n", title: undefined },
+      { branchName: "blank-title", specPath: "spec/index.md", index: "# \n", title: undefined },
+      { branchName: "whitespace-title", specPath: "spec/index.md", index: "# \t \n", title: undefined },
+    ];
+
+    for (const testCase of cases) {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      if (testCase.index !== undefined) writeSpecIndex(jarvisRoot, testCase.branchName, testCase.index);
+      if (testCase.unreadable)
+        mkdirSync(join(jarvisRoot, "worktrees", "demo", testCase.branchName, "spec", "index.md"), { recursive: true });
+      const titles: unknown[] = [];
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName: testCase.branchName,
+        specPath: testCase.specPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        completionCommitter: () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          titles.push(input.creationTitle);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(titles).toEqual([testCase.title]);
+    }
+  });
+
+  test("retains a resolved direct-write title when completed publication retries", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const branchName = "write-title-retry";
+    writeSpecIndex(jarvisRoot, branchName, "# Durable title\n");
+
+    const first = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName,
+      specPath: "spec/index.md",
+      bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+      completionCommitter: () => ({ commitSha: "commit-1" }),
+      completionPublisher: async () => {
+        throw new Error("publish failed");
+      },
+    });
+    expect(first.kind).toBe("completion_commit_failed");
+
+    rmSync(join(jarvisRoot, "worktrees", "demo", branchName, "spec", "index.md"));
+    mkdirSync(join(jarvisRoot, "worktrees", "demo", branchName, ".git"), { recursive: true });
+    const titles: unknown[] = [];
+    const retried = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName,
+      specPath: "spec/index.md",
+      bindings: [],
+      completionCommitter: () => ({ commitSha: "commit-1" }),
+      completionPublisher: async (input) => {
+        titles.push(input.creationTitle);
+        return {};
+      },
+      readyFinalizer: async () => {},
+    });
+
+    expect(retried.kind).toBe("complete");
+    expect(titles).toEqual(["Durable title"]);
   });
 
   test("persists the final completion binding for a completed-run retry", async () => {

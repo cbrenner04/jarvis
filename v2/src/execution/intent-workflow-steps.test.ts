@@ -27,9 +27,9 @@ const load = (steps: readonly WorkflowSourceStep[]): LoadedWorkflowStep[] =>
   );
 
 describe("buildIntentWorkflowSteps", () => {
-  test("builds file and inline seeds as one plan step", async () => {
+  test("builds file and inline seeds with stable PR titles", async () => {
     const root = mkdtempSync(join(tmpdir(), "intent-builder-"));
-    const seed = join(root, "Improve API.md");
+    const seed = join(root, "Seed Name.md");
     writeFileSync(seed, "seed", "utf8");
     const common = { cwd: root, targetDir: "specs" };
     const deps = {
@@ -49,9 +49,14 @@ describe("buildIntentWorkflowSteps", () => {
       promptId: "intent.prompt.split",
       expectedArtifactPath: ".jarvis-intent-stage",
       specPath: "specs/ready-intents",
-      worktree: { branchName: "intent/improve-api", baseRef: "trunk" },
+      worktree: { branchName: "intent/seed-name", baseRef: "trunk" },
+      creationTitle: "intent: Seed Name",
     });
-    expect(inline.steps[0]).toMatchObject({ role: "plan", promptId: "intent.prompt.split" });
+    expect(inline.steps[0]).toMatchObject({
+      role: "plan",
+      promptId: "intent.prompt.split",
+      creationTitle: "intent: improve-api",
+    });
   });
 
   test("rejects dual seeds, traversal, and reserved slugs before loading steps", async () => {
@@ -201,6 +206,7 @@ describe("buildReviewedIntentWorkflowSteps", () => {
     });
     expect(result.steps).toHaveLength(2);
     expect(result.steps[0]).toMatchObject({ behavior: "write", role: "plan", stepId: "intent" });
+    expect(result.steps[0]).toMatchObject({ creationTitle: "intent: test" });
 
     const reviewStep = result.steps[1] as ReviewWorkflowStep;
     expect(reviewStep).toMatchObject({

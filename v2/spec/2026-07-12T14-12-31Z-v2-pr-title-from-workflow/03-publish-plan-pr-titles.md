@@ -17,12 +17,12 @@ Plan PRs should identify the drafted spec they contain.
 
 ## Acceptance criteria
 
-- [ ] A newly created plan, reviewed-plan, or reviewed-light plan PR is titled with its drafted `index.md` H1.
-- [ ] Retrying completed plan publication uses its original resolved title when the index can no longer be resolved.
-- [ ] Focused plan-workflow and workflow-runner automated tests cover plan publication and durable retry.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] A newly created plan, reviewed-plan, or reviewed-light plan PR is titled with its drafted `index.md` H1.
+- [x] Retrying completed plan publication uses its original resolved title when the index can no longer be resolved.
+- [x] Focused plan-workflow and workflow-runner automated tests cover plan publication and durable retry.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

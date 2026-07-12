@@ -55,6 +55,8 @@ export type WorkflowSnapshotStep = {
 export type WorkflowSnapshot = {
   invocationId: string;
   steps: WorkflowSnapshotStep[];
+  /** Caller-supplied title retained for completion publication retries. */
+  creationTitle?: string;
   /** Resolved implement review count; present only on implement workflow snapshots. */
   reviewPasses?: number;
   /** Resolved implement review behavior; present only on implement workflow snapshots. */

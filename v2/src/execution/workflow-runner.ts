@@ -105,6 +105,8 @@ export type WriteWorkflowStep = Omit<WriteLoopInput, "bindings"> & {
   intentOutput?: IntentOutputConfig;
   /** Caller-recorded identity for an intent invocation. */
   workflowInvocationId?: string;
+  /** Caller-supplied title for a newly created completion PR. */
+  creationTitle?: string;
   /** Raw ready-intent content threaded from the plan builder; consumed by write-step seeding. */
   intentSeed?: string;
   /** Jarvis root directory for plan workflow. */
@@ -704,6 +706,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 baseRef: worktree.baseRef,
                 specPath: publicationSpecPath ?? completionStep.specPath,
                 branch: worktree.branchName,
+                creationTitle: workflowSnapshot.creationTitle,
               },
             );
             if (publishError !== undefined) {
@@ -882,9 +885,17 @@ function buildWorkflowSnapshot(steps: readonly AnyWorkflowStep[], store: StateSt
   return {
     invocationId: requestedInvocationId ?? crypto.randomUUID(),
     steps: authoredSteps,
+    ...workflowCreationTitleField(steps),
     ...implementReviewPassesField(steps),
     ...implementReviewBehaviorField(steps),
   };
+}
+
+function workflowCreationTitleField(steps: readonly AnyWorkflowStep[]): { creationTitle: string } | Record<string, never> {
+  const creationTitle = steps.find(
+    (step): step is WriteWorkflowStep => isWriteStep(step) && step.creationTitle !== undefined,
+  )?.creationTitle;
+  return creationTitle === undefined ? {} : { creationTitle };
 }
 
 /** Retains the resolved implement review count on the workflow snapshot when applicable. */

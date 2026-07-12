@@ -1160,6 +1160,93 @@ describe("executeWorkflow human steps", () => {
       expect(published).toEqual([{ specPath: "spec.md", agent: "claude" }]);
     });
   });
+
+  test("retains a supplied title for completion-publication retry", async () => {
+    const stateDbPath = ":memory:";
+    const firstStep = createStep({
+      stepId: "intent",
+      role: "implement",
+      branchName: "intent-title-retry",
+      creationTitle: "intent: Seed Name",
+    });
+    const retryStep = createStep({ stepId: "intent", role: "implement", branchName: "intent-title-retry" });
+    const titles: unknown[] = [];
+    const store = openStateStore(stateDbPath);
+
+    try {
+      const first = await executeWorkflow({
+        steps: [firstStep],
+        stateStore: store,
+        completionCommitter: () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => {
+          throw new Error("publish failed");
+        },
+      });
+      expect(first.kind).toBe("completion_commit_failed");
+
+      const retried = await executeWorkflow({
+        steps: [retryStep],
+        stateStore: store,
+        completionCommitter: () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          titles.push(input.creationTitle);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+
+      expect(retried.kind).toBe("complete");
+      expect(titles).toEqual(["intent: Seed Name"]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("publishes a supplied title after a reviewed workflow completes", async () => {
+    const writeStep = createStep({
+      stepId: "intent",
+      role: "implement",
+      branchName: "reviewed-intent-title",
+      creationTitle: "intent: reviewed-seed",
+    });
+    const reviewStep: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "review",
+      project: "demo",
+      branch: "reviewed-intent-title",
+      cwd: "/fake",
+      prompt: "review",
+      verdictPath: join(mkdtempSync(join(tmpdir(), "workflow-review-title-")), "verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: {
+        claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
+        codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
+      },
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async () => ({ kind: "ok" as const, stdout: agentId === "claude" ? "apply" : "done", stderr: "" }),
+      }),
+    };
+    const titles: unknown[] = [];
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [writeStep, reviewStep],
+        stateStore: store,
+        completionCommitter: () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          titles.push(input.creationTitle);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(titles).toEqual(["intent: reviewed-seed"]);
+    });
+  });
 });
 
 describe("executeWorkflow review-debate dispatch", () => {

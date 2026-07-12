@@ -530,7 +530,7 @@ export type CompletionPublishFailure = {
 
 export async function publishCompletionArtifacts(
   seams: CompletionPublicationSeams,
-  input: { worktreePath: string; baseRef: string; specPath: string; branch: string },
+  input: { worktreePath: string; baseRef: string; specPath: string; branch: string; creationTitle?: unknown },
 ): Promise<CompletionPublishFailure | undefined> {
   try {
     await (seams.completionPublisher ?? createCompletionPublisher())(input);

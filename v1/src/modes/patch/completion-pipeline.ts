@@ -15,6 +15,7 @@ import {
   PreReadyFixCommitError,
   PreReadyFixPushError,
   ReadyCommandError,
+  ReadyCommandTimeoutError,
   ReadyVerificationDirtyError,
   runReadyAndCommit,
 } from "../../ready-gate.ts";
@@ -215,6 +216,9 @@ async function runCompletionReadyGate(
     return { kind: "green" };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    if (err instanceof ReadyCommandTimeoutError) {
+      return { kind: "red", failureText: message, verificationRed: false };
+    }
     if (err instanceof ReadyCommandError) {
       logging.fanout("harness", `completion: ready gate failed: ${message}\n`, "stderr");
       return { kind: "red", failureText: message, verificationRed: true };

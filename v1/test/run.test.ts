@@ -1210,6 +1210,39 @@ describe("runCommand", () => {
     expect(cap.out()).not.toContain("fix-up:");
   });
 
+  test("completion ready gate: operational failure exits 6 without successful telemetry", async () => {
+    const spec = initCompletionGateRepo();
+    const cap = captureIo();
+    const claude = createCompletionAgent(spec);
+    const cfg = loadConfig({ dir: cfgDir });
+    const project = cfg.projects.project;
+    if (project === undefined) throw new Error("missing registered project");
+    cfg.iterationTimeoutMs = 10;
+    project.readyCommand = "/bin/sleep 1";
+    writeConfig(cfg, { dir: cfgDir });
+
+    const code = await runCommand({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+      reviewPasses: 0,
+      skipGhCheck: true,
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+    });
+
+    expect(code).toBe(6);
+    expect(cap.err()).toContain("/bin/sleep 1 exceeded 10ms budget (gate: completion-ready)");
+    const records = readFileSync(join(cfgDir, "runs.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(records.some((record) => record.exit_reason === "criteria-complete")).toBeFalse();
+    expect(records.some((record) => record.exit_reason === "completed-spec")).toBeFalse();
+    expect(records.find((record) => record.record_role === "run_terminal")?.exit_reason).toBe("dirty-worktree");
+  });
+
   test.skip("completion: fix-up iteration counts against maxIterations; exhausted budget stops with exit 5", async () => {
     const spec = initCompletionGateRepo();
 
@@ -2483,6 +2516,54 @@ exit 0
       expect(code).toBe(0);
       expect(cap.out()).toContain("spec complete");
     });
+  });
+
+  test("legacy readyGateRetryBound loads with warning, is omitted, and cannot retry", async () => {
+    const spec = initCompletionGateRepo();
+    const configPath = join(cfgDir, "config.json");
+    const saved = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
+    const projects = saved.projects as Record<string, Record<string, unknown>>;
+    const project = projects.project;
+    if (project === undefined) throw new Error("missing registered project");
+    project.readyGateRetryBound = 2;
+    writeFileSync(configPath, JSON.stringify(saved));
+
+    let warning = "";
+    const originalWrite = process.stderr.write;
+    process.stderr.write = ((chunk: unknown) => {
+      warning += String(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+    let loaded: ReturnType<typeof loadConfig>;
+    try {
+      loaded = loadConfig({ dir: cfgDir });
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+
+    expect(warning).toContain('project "project" readyGateRetryBound is deprecated and ignored');
+    expect(loaded.projects.project?.readyGateRetryBound).toBeUndefined();
+    writeConfig(loaded, { dir: cfgDir });
+    expect(readFileSync(configPath, "utf8")).not.toContain("readyGateRetryBound");
+
+    const cap = captureIo();
+    const claude = createCompletionAgent(spec);
+    let gateCalls = 0;
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+      reviewPasses: 0,
+      runCompletionReadyGate: () => {
+        gateCalls += 1;
+        return { kind: "red", failureText: "bun run ready failed", verificationRed: true };
+      },
+    });
+
+    expect(code).toBe(10);
+    expect(gateCalls).toBe(1);
   });
 
   describe("post-completion gate tier matrix", () => {

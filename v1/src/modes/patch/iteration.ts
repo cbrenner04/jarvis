@@ -704,15 +704,17 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         if (done === null) {
           return { kind: "continue" };
         }
-        writeTelemetry({
-          agent: agent.name,
-          iteration,
-          durationMs: iterationDurationMs(),
-          kind: "ok",
-          exitReason: "completed-spec",
-          record_role: "run_terminal",
-          ...telemetryMeta,
-        });
+        if (done === 0) {
+          writeTelemetry({
+            agent: agent.name,
+            iteration,
+            durationMs: iterationDurationMs(),
+            kind: "ok",
+            exitReason: "completed-spec",
+            record_role: "run_terminal",
+            ...telemetryMeta,
+          });
+        }
         return { kind: "return", exitCode: done };
       }
 
@@ -1555,7 +1557,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         // we just observed after === 0 so it returns 0 (spec complete) or 6
         // (worktree blocker). Default to 0 if it ever races to null.
         const done = (await tryFinishSpecIfDone(ctx)) ?? 0;
-        if (done !== 10) {
+        if (done === 0) {
           writeTelemetry({
             agent: agent.name,
             iteration,
@@ -1572,7 +1574,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           iteration,
           durationMs: iterationDurationMs(),
           kind: "ok",
-          exitReason: done === 10 ? "ready-gate-failed" : "completed-spec",
+          exitReason: done === 0 ? "completed-spec" : done === 10 ? "ready-gate-failed" : "dirty-worktree",
           record_role: "run_terminal",
           ...telemetryMeta,
         });

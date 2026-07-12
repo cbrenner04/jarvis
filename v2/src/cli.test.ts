@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { beforeAll, describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { main } from "./cli.ts";
@@ -89,25 +89,36 @@ const RUN_WORKFLOW_IMPLEMENT_ARGS = [
   "index.md",
 ];
 
-const FAKE_IMPLEMENT_STEPS: AnyWorkflowStep[] = [
-  {
-    behavior: "write",
-    stepId: "implement",
-    role: "implement",
-    promptId: "patch.prompt.body",
-    stepRules: "Return exactly one terminal token: done|no-work|blocked|progress.",
-    agents: ["claude"],
-    agentModelConfig: {},
-    worktree: {
-      projectRoot: "/tmp/repo",
-      projectName: "demo",
-      branchName: "implement-run",
-      baseRef: "HEAD",
+let FAKE_IMPLEMENT_STEPS: AnyWorkflowStep[];
+
+beforeAll(() => {
+  mkdirSync("/tmp/repo/sub", { recursive: true });
+  mkdirSync("/tmp/repo/v2/spec/my-spec", { recursive: true });
+  mkdirSync("/tmp/unregistered", { recursive: true });
+  writeFileSync("/tmp/repo/sub/index.md", "# Index\n", "utf8");
+  writeFileSync("/tmp/repo/spec.md", "# Spec\n", "utf8");
+  writeFileSync("/tmp/repo/v2/spec/my-spec/index.md", "# Index\n", "utf8");
+  writeFileSync("/tmp/unregistered/index.md", "# Index\n", "utf8");
+  FAKE_IMPLEMENT_STEPS = [
+    {
+      behavior: "write",
+      stepId: "implement",
+      role: "implement",
+      promptId: "patch.prompt.body",
+      stepRules: "Return exactly one terminal token: done|no-work|blocked|progress.",
+      agents: ["claude"],
+      agentModelConfig: {},
+      worktree: {
+        projectRoot: realpathSync("/tmp/repo"),
+        projectName: "demo",
+        branchName: "implement-run",
+        baseRef: "HEAD",
+      },
+      specPath: "spec.md",
+      expectedArtifactPath: "proof.txt",
     },
-    specPath: "spec.md",
-    expectedArtifactPath: "proof.txt",
-  },
-];
+  ];
+});
 
 const RUN_START_ARGS = [
   "run",
@@ -815,7 +826,7 @@ describe("v2 cli", () => {
       baseRef: "HEAD",
       specPath: "sub/index.md",
       artifactPath: "sub/index.md",
-      projectRoot: "/tmp/repo",
+      projectRoot: realpathSync("/tmp/repo"),
       projectName: "test-project",
       reviewPasses: 0,
     });
@@ -1228,7 +1239,7 @@ describe("v2 cli", () => {
       branchName: "my-spec",
       baseRef: "main",
       specPath: "v2/spec/my-spec/index.md",
-      projectRoot: "/tmp/repo",
+      projectRoot: realpathSync("/tmp/repo"),
       reviewPasses: 0,
       reviewBehavior: "debate",
     });
@@ -1247,6 +1258,179 @@ describe("v2 cli", () => {
 
     expect(code).toBe(1);
     expect(cap.read().stderr).toContain("Non-index spec requires --artifact");
+  });
+
+  test("run workflow implement rejects a missing spec before builder or daemon contact", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
+    const cap = captureIo();
+    let built = false;
+
+    const code = await main(["run", "workflow", "implement", "--base", "main", "--spec", "missing.md"], cap.io, {
+      cwd: () => root,
+      readProjectRegistry: () => ({ project: { root } }),
+      workflowPresetBuilders: {
+        implement: () => {
+          built = true;
+          return { ok: true, steps: FAKE_IMPLEMENT_STEPS };
+        },
+      },
+      connectIpcClient: async () => {
+        throw new Error("should not contact daemon");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(built).toBe(false);
+    expect(cap.read().stderr).toContain(`Spec path does not exist: ${join(root, "missing.md")}`);
+  });
+
+  test("run workflow implement rejects a missing non-index artifact before daemon contact", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
+    writeFileSync(join(root, "spec.md"), "# Spec\n", "utf8");
+    const cap = captureIo();
+
+    const code = await main(
+      ["run", "workflow", "implement", "--base", "main", "--spec", "spec.md", "--artifact", "missing.md"],
+      cap.io,
+      {
+        cwd: () => root,
+        readProjectRegistry: () => ({ project: { root } }),
+        connectIpcClient: async () => {
+          throw new Error("should not contact daemon");
+        },
+      },
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain(`Artifact path does not exist: ${join(root, "missing.md")}`);
+  });
+
+  test("run workflow implement rejects escaping spec and artifact symlinks before builder or daemon contact", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
+    const outside = mkdtempSync(join(tmpdir(), "jarvis-cli-implement-outside-"));
+    writeFileSync(join(outside, "outside.md"), "# Outside\n", "utf8");
+    symlinkSync(join(outside, "outside.md"), join(root, "escaped.md"));
+    writeFileSync(join(root, "spec.md"), "# Spec\n", "utf8");
+    const specCap = captureIo();
+
+    const specCode = await main(
+      ["run", "workflow", "implement", "--base", "main", "--spec", "escaped.md"],
+      specCap.io,
+      {
+        cwd: () => root,
+        readProjectRegistry: () => ({ project: { root } }),
+        connectIpcClient: async () => {
+          throw new Error("should not contact daemon");
+        },
+      },
+    );
+    expect(specCode).toBe(1);
+    expect(specCap.read().stderr).toContain("Spec path outside registered project roots");
+
+    symlinkSync(join(outside, "outside.md"), join(root, "escaped-artifact.md"));
+    const artifactCap = captureIo();
+    const artifactCode = await main(
+      ["run", "workflow", "implement", "--base", "main", "--spec", "spec.md", "--artifact", "escaped-artifact.md"],
+      artifactCap.io,
+      {
+        cwd: () => root,
+        readProjectRegistry: () => ({ project: { root } }),
+        connectIpcClient: async () => {
+          throw new Error("should not contact daemon");
+        },
+      },
+    );
+    expect(artifactCode).toBe(1);
+    expect(artifactCap.read().stderr).toContain("Artifact path outside registered project root");
+  });
+
+  test("run workflow implement accepts contained symlinks and passes relative paths to the builder", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
+    mkdirSync(join(root, "specs"));
+    writeFileSync(join(root, "specs", "spec.md"), "# Spec\n", "utf8");
+    writeFileSync(join(root, "specs", "artifact.md"), "# Artifact\n", "utf8");
+    symlinkSync(join(root, "specs", "spec.md"), join(root, "spec-link.md"));
+    symlinkSync(join(root, "specs", "artifact.md"), join(root, "artifact-link.md"));
+    const cap = captureIo();
+    let builtInput: BuildImplementWorkflowStepsInput | undefined;
+
+    const code = await withFixedUuid("00000000-0000-4000-8000-000000000020", () =>
+      main(
+        ["run", "workflow", "implement", "--base", "main", "--spec", "spec-link.md", "--artifact", "artifact-link.md"],
+        cap.io,
+        {
+          cwd: () => root,
+          readProjectRegistry: () => ({ project: { root } }),
+          workflowPresetBuilders: {
+            implement: (input) => {
+              builtInput = input;
+              return { ok: true, steps: FAKE_IMPLEMENT_STEPS };
+            },
+          },
+          connectIpcClient: async () =>
+            makeIpcClient([
+              { kind: "response", id: "00000000-0000-4000-8000-000000000020", result: { runId: "run-1" } },
+            ]),
+        },
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(builtInput).toMatchObject({
+      projectRoot: realpathSync(root),
+      specPath: "specs/spec.md",
+      artifactPath: "specs/artifact.md",
+    });
+  });
+
+  test("run workflow implement ignores an unresolved registry root unrelated to the spec", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
+    writeFileSync(join(root, "index.md"), "# Index\n", "utf8");
+    const cap = captureIo();
+
+    const code = await withFixedUuid("00000000-0000-4000-8000-000000000022", () =>
+      main(["run", "workflow", "implement", "--base", "main", "--spec", "index.md"], cap.io, {
+        cwd: () => root,
+        readProjectRegistry: () => ({ stale: { root: join(root, "missing") }, project: { root } }),
+        workflowPresetBuilders: { implement: () => ({ ok: true, steps: FAKE_IMPLEMENT_STEPS }) },
+        connectIpcClient: async () =>
+          makeIpcClient([{ kind: "response", id: "00000000-0000-4000-8000-000000000022", result: { runId: "run-1" } }]),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "run-1\n", stderr: "" });
+  });
+
+  test("run workflow implement ignores --artifact for index specs", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
+    writeFileSync(join(root, "index.md"), "# Index\n", "utf8");
+    const cap = captureIo();
+    let builtInput: BuildImplementWorkflowStepsInput | undefined;
+
+    const code = await withFixedUuid("00000000-0000-4000-8000-000000000021", () =>
+      main(
+        ["run", "workflow", "implement", "--base", "main", "--spec", "index.md", "--artifact", "missing.md"],
+        cap.io,
+        {
+          cwd: () => root,
+          readProjectRegistry: () => ({ project: { root } }),
+          workflowPresetBuilders: {
+            implement: (input) => {
+              builtInput = input;
+              return { ok: true, steps: FAKE_IMPLEMENT_STEPS };
+            },
+          },
+          connectIpcClient: async () =>
+            makeIpcClient([
+              { kind: "response", id: "00000000-0000-4000-8000-000000000021", result: { runId: "run-1" } },
+            ]),
+        },
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(builtInput).toMatchObject({ specPath: "index.md", artifactPath: "index.md" });
   });
 
   test("run workflow implement surfaces a builder error without contacting the daemon", async () => {

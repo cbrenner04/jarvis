@@ -19,14 +19,14 @@ Validate implement workflow inputs in the registered project checkout before dae
 
 ## Acceptance criteria
 
-- [ ] `jarvis run workflow implement` rejects a missing `--spec` before daemon contact or worktree creation and identifies the spec path in the error.
-- [ ] A spec whose resolved target escapes the resolved registered project root is rejected before daemon contact or worktree creation, including when its lexical path is inside that root.
-- [ ] A non-index launch rejects a missing explicit `--artifact` and an artifact whose resolved target escapes the same resolved project root before daemon contact or worktree creation.
-- [ ] Valid spec and effective artifact paths reached through symlinks remain accepted when their resolved targets are contained by the resolved registered project root.
-- [ ] An index launch continues to use the resolved spec as its artifact and ignores a supplied `--artifact`.
-- [ ] A first launch with the spec present in the registered project root reaches the implement write step when its branch worktree does not yet exist; the step receives project-relative spec and artifact paths.
-- [ ] `v2/src/cli.test.ts` and focused implement workflow execution tests cover path preflight ordering and write-step path consumption.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `jarvis run workflow implement` rejects a missing `--spec` before daemon contact or worktree creation and identifies the spec path in the error.
+- [x] A spec whose resolved target escapes the resolved registered project root is rejected before daemon contact or worktree creation, including when its lexical path is inside that root.
+- [x] A non-index launch rejects a missing explicit `--artifact` and an artifact whose resolved target escapes the same resolved project root before daemon contact or worktree creation.
+- [x] Valid spec and effective artifact paths reached through symlinks remain accepted when their resolved targets are contained by the resolved registered project root.
+- [x] An index launch continues to use the resolved spec as its artifact and ignores a supplied `--artifact`.
+- [x] A first launch with the spec present in the registered project root reaches the implement write step when its branch worktree does not yet exist; the step receives project-relative spec and artifact paths.
+- [x] `v2/src/cli.test.ts` and focused implement workflow execution tests cover path preflight ordering and write-step path consumption.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

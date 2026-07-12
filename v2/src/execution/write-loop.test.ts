@@ -681,7 +681,13 @@ describe("write loop", () => {
       { branchName: "index-title", specPath: "spec/index.md", index: "#  Index title  \n", title: "Index title" },
       { branchName: "sibling-title", specPath: "spec/01-write.md", index: "# Sibling title\n", title: "Sibling title" },
       { branchName: "missing-title", specPath: "spec/index.md", index: undefined, title: undefined },
-      { branchName: "unreadable-title", specPath: "spec/index.md", index: undefined, unreadable: true, title: undefined },
+      {
+        branchName: "unreadable-title",
+        specPath: "spec/index.md",
+        index: undefined,
+        unreadable: true,
+        title: undefined,
+      },
       { branchName: "malformed-title", specPath: "spec/index.md", index: "#\n", title: undefined },
       { branchName: "blank-title", specPath: "spec/index.md", index: "# \n", title: undefined },
       { branchName: "whitespace-title", specPath: "spec/index.md", index: "# \t \n", title: undefined },
@@ -690,7 +696,8 @@ describe("write loop", () => {
     for (const testCase of cases) {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       if (testCase.index !== undefined) writeSpecIndex(jarvisRoot, testCase.branchName, testCase.index);
-      if (testCase.unreadable) mkdirSync(join(jarvisRoot, "worktrees", "demo", testCase.branchName, "spec", "index.md"), { recursive: true });
+      if (testCase.unreadable)
+        mkdirSync(join(jarvisRoot, "worktrees", "demo", testCase.branchName, "spec", "index.md"), { recursive: true });
       const titles: unknown[] = [];
       const result = await runLoop({
         jarvisRoot,

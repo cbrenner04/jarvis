@@ -86,34 +86,38 @@ describe("createCompletionPublisher", () => {
     expect(createArgs).toContain("intent: add titles");
   });
 
-  it.each([undefined, null, 42, {}, "", " \t\n "]) (
-    "uses the fallback title for an unusable supplied subject",
-    async (creationTitle) => {
-      let createArgs: readonly string[] | undefined;
-      const publisher = createCompletionPublisher({
-        git: (_cwd, args) => {
-          if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
-          if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
-          return "";
-        },
-        gh: (_cwd, args) => {
-          if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
-          if (args[0] === "pr" && args[1] === "create") {
-            createArgs = args;
-            return "#42";
-          }
-          return "";
-        },
-        ghReady: readyGh,
-        delay: noopDelay,
-        ...noopRefreshSeams,
-      });
+  it.each([
+    undefined,
+    null,
+    42,
+    {},
+    "",
+    " \t\n ",
+  ])("uses the fallback title for an unusable supplied subject", async (creationTitle) => {
+    let createArgs: readonly string[] | undefined;
+    const publisher = createCompletionPublisher({
+      git: (_cwd, args) => {
+        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+        return "";
+      },
+      gh: (_cwd, args) => {
+        if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+        if (args[0] === "pr" && args[1] === "create") {
+          createArgs = args;
+          return "#42";
+        }
+        return "";
+      },
+      ghReady: readyGh,
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
 
-      await publisher({ ...baseInput, creationTitle });
+    await publisher({ ...baseInput, creationTitle });
 
-      expect(createArgs).toContain("jarvis: complete run");
-    },
-  );
+    expect(createArgs).toContain("jarvis: complete run");
+  });
 
   it("runs all gh commands in the completed run worktree context", async () => {
     const ghCwds: string[] = [];

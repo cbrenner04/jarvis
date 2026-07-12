@@ -14,11 +14,11 @@ import { type CompletionPublisher, createCompletionPublisher } from "./completio
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import { createReadyFinalizer, type ReadyFinalizer } from "./ready-finalize.ts";
+import { resolveSpecCreationTitle } from "./spec-creation-title.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import { type BoundaryStamp, boundaryStampFromStoredRun, emitWorkBoundaryRecorded } from "./work-boundary-telemetry.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";
-import { resolveSpecCreationTitle } from "./spec-creation-title.ts";
 
 const WRITE_LOOP_OUTCOME_KINDS = [
   "complete",
@@ -398,7 +398,12 @@ function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {
 
   const committed = committedResult(existingRun);
   return committed === null
-    ? { runId: existingRun.id, worktreePath, resumedAttemptId: null, ...(existingRun.creationTitle ? { creationTitle: existingRun.creationTitle } : {}) }
+    ? {
+        runId: existingRun.id,
+        worktreePath,
+        resumedAttemptId: null,
+        ...(existingRun.creationTitle ? { creationTitle: existingRun.creationTitle } : {}),
+      }
     : { result: committed, ...(existingRun.creationTitle ? { creationTitle: existingRun.creationTitle } : {}) };
 }
 

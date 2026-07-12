@@ -28,7 +28,6 @@ import {
   resolveActiveLinkedSubspec,
 } from "./linked-subspec-routing.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
-import { resolveSpecCreationTitle } from "./spec-creation-title.ts";
 import { executePlanReviewCycle, type PlanReviewCycleOutcome } from "./render-plan-review-prompts.ts";
 import {
   executeReviewCycle,
@@ -49,6 +48,7 @@ import {
   executeReviewCycleEnforced,
 } from "./review-intent-enforcement.ts";
 import { parseRevisionNumber } from "./revision-step-id.ts";
+import { resolveSpecCreationTitle } from "./spec-creation-title.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import {
   boundaryStampFromStoredRun,
@@ -892,7 +892,9 @@ function buildWorkflowSnapshot(steps: readonly AnyWorkflowStep[], store: StateSt
   };
 }
 
-function workflowCreationTitleField(steps: readonly AnyWorkflowStep[]): { creationTitle: string } | Record<string, never> {
+function workflowCreationTitleField(
+  steps: readonly AnyWorkflowStep[],
+): { creationTitle: string } | Record<string, never> {
   const writeStep = steps.find(isWriteStep);
   const creationTitle =
     writeStep?.creationTitle ??

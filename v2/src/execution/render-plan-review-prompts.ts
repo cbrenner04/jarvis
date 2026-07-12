@@ -138,7 +138,10 @@ async function invokePlanReviewRole(
   });
 }
 
-async function criticWroteFiles(cwd: string, beforeCritic: ReturnType<typeof snapshotWorkingTree>): Promise<boolean> {
+async function criticWroteFiles(
+  cwd: string,
+  beforeCritic: Awaited<ReturnType<typeof snapshotWorkingTree>>,
+): Promise<boolean> {
   return (await getChangedPaths(cwd, beforeCritic)).size > 0;
 }
 
@@ -157,7 +160,7 @@ export async function executePlanReviewCycle(args: PlanReviewCycleInput): Promis
       break;
     }
 
-    const beforeCritic = snapshotWorkingTree(args.cwd);
+    const beforeCritic = await snapshotWorkingTree(args.cwd);
     const criticPrompt = renderCriticPrompt(args.context);
     const critic = await invokePlanReviewRole(args, "critic", criticPrompt, args.bindings.critic);
 

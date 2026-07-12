@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
-import { isGitRepo } from "../../../shared/git.ts";
+import { isGitRepoAsync } from "../../../shared/git.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { ReviewCycleInput, ReviewCycleResult } from "./review-cycle.ts";
 import { executeReviewCycle } from "./review-cycle.ts";
@@ -82,8 +82,8 @@ export type TreeSnapshot = { kind: "git" } | { kind: "fs"; backupDir: string; fi
 /**
  * Snapshot the working tree so later changes can be detected and, if unauthorized, undone.
  */
-export function snapshotWorkingTree(cwd: string): TreeSnapshot {
-  if (isGitRepo(cwd)) return { kind: "git" };
+export async function snapshotWorkingTree(cwd: string): Promise<TreeSnapshot> {
+  if (await isGitRepoAsync(cwd)) return { kind: "git" };
   const backupDir = mkdtempSync(join(tmpdir(), "jarvis-review-backup-"));
   copyTree(cwd, backupDir);
   return { kind: "fs", backupDir, files: new Set(listFiles(cwd)) };
@@ -241,7 +241,7 @@ export async function executeReviewCycleEnforced(args: {
   }
 
   // Snapshot before any review cycle.
-  const beforeReview = snapshotWorkingTree(cwd);
+  const beforeReview = await snapshotWorkingTree(cwd);
 
   // Run the review cycle.
   const result = await executeReviewCycle(input);

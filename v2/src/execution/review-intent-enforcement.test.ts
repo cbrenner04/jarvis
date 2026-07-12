@@ -70,7 +70,7 @@ describe("review-intent-enforcement", () => {
     execFileSync("git", ["add", "."], { cwd: repo });
     execFileSync("git", ["commit", "-qm", "base"], { cwd: repo });
 
-    const before = snapshotWorkingTree(repo);
+    const before = await snapshotWorkingTree(repo);
     writeFileSync(join(repo, "rogue.txt"), "unauthorized\n", "utf8");
     const changed = await getChangedPaths(repo, before);
     expect(changed.has("rogue.txt")).toBe(true);
@@ -81,7 +81,7 @@ describe("review-intent-enforcement", () => {
     const plain = dir();
     writeFileSync(join(plain, "tracked.txt"), "base\n", "utf8");
 
-    const before = snapshotWorkingTree(plain);
+    const before = await snapshotWorkingTree(plain);
     expect(before.kind).toBe("fs");
     writeFileSync(join(plain, "rogue.txt"), "unauthorized\n", "utf8");
     const changed = await getChangedPaths(plain, before);
@@ -93,7 +93,7 @@ describe("review-intent-enforcement", () => {
     const plain = dir();
     writeFileSync(join(plain, "tracked.txt"), "base\n", "utf8");
 
-    const before = snapshotWorkingTree(plain);
+    const before = await snapshotWorkingTree(plain);
     writeFileSync(join(plain, "tracked.txt"), "modified\n", "utf8");
     const changed = await getChangedPaths(plain, before);
     expect(changed.has("tracked.txt")).toBe(true);
@@ -104,7 +104,7 @@ describe("review-intent-enforcement", () => {
     const plain = dir();
     writeFileSync(join(plain, "tracked.txt"), "base\n", "utf8");
 
-    const before = snapshotWorkingTree(plain);
+    const before = await snapshotWorkingTree(plain);
     writeFileSync(join(plain, "tracked.txt"), "modified\n", "utf8");
     writeFileSync(join(plain, "rogue.txt"), "unauthorized\n", "utf8");
     await restoreWorkingTree(plain, before);
@@ -119,7 +119,7 @@ describe("review-intent-enforcement", () => {
     const stagingDir = join(plain, ".jarvis-intent-stage");
     mkdirSync(stagingDir, { recursive: true });
 
-    const before = snapshotWorkingTree(plain);
+    const before = await snapshotWorkingTree(plain);
     writeFileSync(join(stagingDir, "one.md"), "content\n", "utf8");
     const changed = await getChangedPaths(plain, before);
     expect(Array.from(changed)).toEqual([".jarvis-intent-stage/one.md"]);

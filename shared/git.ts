@@ -114,3 +114,16 @@ export async function isWorktreeDirtyAsync(
 ): Promise<boolean> {
   return (await runner.runAsync("git", ["status", "--porcelain"], cwd)).trim().length > 0;
 }
+
+/** Async version: True when `cwd` is inside a git working tree; false for plain (git-disabled) directories. */
+export async function isGitRepoAsync(
+  cwd: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<boolean> {
+  try {
+    await runner.runAsync("git", ["rev-parse", "--is-inside-work-tree"], cwd, { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}

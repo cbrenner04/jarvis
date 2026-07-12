@@ -84,7 +84,7 @@ beforeEach(() => {
       // Otherwise settle immediately: tests only assert on spawn-time state.
     },
     failureReporter: () => {},
-    isWorktreeDirty: () => dirty,
+    isWorktreeDirty: async () => dirty,
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
   });

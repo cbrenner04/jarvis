@@ -80,7 +80,7 @@ export function buildRevisionWriteLoopInput(
 export type ReviseReconvergeDeps = {
   store: StateStore;
   registry: WorktreeOwnershipRegistry;
-  checkWorktreeDirty: (worktreePath: string) => boolean;
+  checkWorktreeDirty: (worktreePath: string) => Promise<boolean>;
   spawnWriteLoop: (key: OwnershipKey, runId: string, worktreePath: string, input: WriteLoopInput) => void;
   checkWorktreeClaimed: (
     registry: WorktreeOwnershipRegistry,
@@ -88,11 +88,11 @@ export type ReviseReconvergeDeps = {
   ) => { kind: "error"; code: "worktree_claimed"; message: string } | undefined;
 };
 
-export function reviseAwaitingHuman(
+export async function reviseAwaitingHuman(
   deps: ReviseReconvergeDeps,
   run: LoadedRun,
   prompt: string | undefined,
-): { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string } {
+): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> {
   const { store, registry, checkWorktreeDirty, spawnWriteLoop } = deps;
 
   const onRevise = run.workflowSnapshot?.steps.find((step) => step.stepId === run.stepId)?.onRevise;
@@ -139,7 +139,7 @@ export function reviseAwaitingHuman(
     };
   }
 
-  if (!checkWorktreeDirty(repeatedRun.worktreePath) && !prompt) {
+  if (!(await checkWorktreeDirty(repeatedRun.worktreePath)) && !prompt) {
     return {
       kind: "error",
       code: "revise_requires_input",

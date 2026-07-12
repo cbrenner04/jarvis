@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
-import { isGitRepo } from "../../../shared/git.ts";
+import { isGitRepoAsync } from "../../../shared/git.ts";
 import { validateIntentStage } from "../../../shared/intent-stage.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 
@@ -38,7 +38,7 @@ async function changedPaths(
   baseRef: string,
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): Promise<string[]> {
-  if (isGitRepo(worktreePath)) {
+  if (await isGitRepoAsync(worktreePath)) {
     try {
       const status = await runner.runAsync("git", ["status", "--short", "--untracked-files=all"], worktreePath);
       return status

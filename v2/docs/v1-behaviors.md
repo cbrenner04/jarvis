@@ -552,6 +552,8 @@ Items tagged **[v2-cleanup candidate]** are dead or vestigial code paths flagged
 
 - **v2-ported with async contract change:** Intent-output rogue-file detection (`git status --short`, `git diff --name-only` fallback, filesystem listing fallback) and ownership-path resolution (`rev-parse --git-dir`) preserve UTF-8 output, trimming, status-before-diff ordering, and staged-output validation semantics. **v2 implementation detail:** daemon-reachable intent-output landing awaits Git through `AsyncSubprocessRunner` so IPC stays responsive during pre-publication checks. Transactional landing, collision rejection, and ownership bookkeeping are unchanged. Sources: `v2/src/execution/intent-output.ts`, `v2/src/execution/workflow-runner.ts`, `shared/subprocess.ts`
 
+- **v2-ported with async contract change:** Default-base resolution and intent-stage markdown repair await `AsyncSubprocessRunner` on daemon-reachable workflow paths. Repair completes before stage validation reads the files; fallback branches and markdownlint warnings are unchanged. Sources: `shared/git.ts`, `shared/intent-stage.ts`, `shared/markdownlint-repair.ts`, `v2/src/execution/intent-output.ts`
+
 ## Maintenance requirement for future v1 changes
 
 - Any v1 bug fix or user-observable behavior change that can affect v2 parity decisions must update this catalog in the same change window, so v2 design/review never relies on stale v1 behavior documentation. Sources: `v1/spec/completed/2026-05-22T04-09-01Z-v1-behavior-catalog/05-maintenance-reminder-and-final-verification.md`

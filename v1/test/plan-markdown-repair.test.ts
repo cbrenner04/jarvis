@@ -53,7 +53,7 @@ describe("listPlanSpecMarkdownPaths", () => {
 });
 
 describe("repairPlanSpecMarkdown", () => {
-  test("cleans seeded violations so lint:md passes; skips when binary absent", () => {
+  test("cleans seeded violations so lint:md passes; skips when binary absent", async () => {
     const harness = getHarnessMarkdownlintPaths();
     if (harness === null || !existsSync(harness.binary)) {
       process.stderr.write("skip: repair lint check; pinned markdownlint binary not installed in this worktree\n");
@@ -69,7 +69,7 @@ describe("repairPlanSpecMarkdown", () => {
       writeFileSync(join(dir, "intent.md"), "# Intent\n\nSee https://example.com/docs\n");
       writeFileSync(join(dir, "00-task.md"), "# Task\n\nVisit https://example.com/task for details.\n");
 
-      repairPlanSpecMarkdown({
+      await repairPlanSpecMarkdown({
         specDirPath: dir,
         commit: true,
         warn: () => {},
@@ -84,7 +84,7 @@ describe("repairPlanSpecMarkdown", () => {
     }
   });
 
-  test("residual non-autofixable violations do not throw", () => {
+  test("residual non-autofixable violations do not throw", async () => {
     const harness = getHarnessMarkdownlintPaths();
     if (harness === null || !existsSync(harness.binary)) {
       process.stderr.write("skip: repair residual check; pinned markdownlint binary not installed in this worktree\n");
@@ -96,13 +96,13 @@ describe("repairPlanSpecMarkdown", () => {
       writeFileSync(join(dir, "index.md"), "# Spec\n\n- [ ] [00 - Task](./00-task.md)\n");
       writeFileSync(join(dir, "00-task.md"), "# Task\n\n<!-- deliberate unfixable if any -->\n");
 
-      expect(() =>
+      await expect(
         repairPlanSpecMarkdown({
           specDirPath: dir,
           commit: false,
           warn: () => {},
         }),
-      ).not.toThrow();
+      ).resolves.toBeUndefined();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

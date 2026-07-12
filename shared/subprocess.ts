@@ -18,6 +18,7 @@ export class AsyncSubprocessError extends Error {
     readonly status: number | undefined,
     readonly stdout: string,
     readonly stderr: string,
+    readonly code: string | undefined,
   ) {
     super(message);
     this.name = "AsyncSubprocessError";
@@ -52,9 +53,16 @@ export const realAsyncSubprocessRunner: AsyncSubprocessRunner = {
         (error, stdout, stderr) => {
           if (error) {
             const status = typeof error.code === "number" ? error.code : undefined;
-            reject(new AsyncSubprocessError(error.message, status, stdout ?? "", stderr ?? ""));
-          }
-          else resolve(stdio === "ignore" ? "" : (stdout ?? ""));
+            reject(
+              new AsyncSubprocessError(
+                error.message,
+                status,
+                stdout ?? "",
+                stderr ?? "",
+                typeof error.code === "string" ? error.code : undefined,
+              ),
+            );
+          } else resolve(stdio === "ignore" ? "" : (stdout ?? ""));
         },
       );
     });

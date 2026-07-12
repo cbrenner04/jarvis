@@ -707,11 +707,13 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     const prev = humanDecisionAdmission.get(runId) ?? Promise.resolve();
     const next = prev.catch(() => {}).then(work);
     humanDecisionAdmission.set(runId, next);
-    void next.finally(() => {
-      if (humanDecisionAdmission.get(runId) === next) {
-        humanDecisionAdmission.delete(runId);
-      }
-    });
+    next
+      .catch(() => {})
+      .finally(() => {
+        if (humanDecisionAdmission.get(runId) === next) {
+          humanDecisionAdmission.delete(runId);
+        }
+      });
     return next;
   }
 

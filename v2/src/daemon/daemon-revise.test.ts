@@ -339,3 +339,41 @@ test("a dirty-probe failure creates no revision and a later revise can proceed",
   expect(starts).toHaveLength(1);
   expect(stateStore.loadRun(humanRunId)?.status).toBe("revising");
 });
+
+test("a store failure after the dirty-worktree probe succeeds does not crash the process and clears admission", async () => {
+  const { humanRunId } = seedRepeatedAndHumanRuns(2);
+  dirty = true;
+
+  const originalCreateRun = stateStore.createRun.bind(stateStore);
+  let throwOnCreate = true;
+  stateStore.createRun = ((...args: Parameters<StateStore["createRun"]>) => {
+    if (throwOnCreate) {
+      throwOnCreate = false;
+      throw new Error("simulated store failure");
+    }
+    return originalCreateRun(...args);
+  }) as StateStore["createRun"];
+
+  const unhandledRejections: unknown[] = [];
+  const onUnhandledRejection = (reason: unknown): void => {
+    unhandledRejections.push(reason);
+  };
+  process.on("unhandledRejection", onUnhandledRejection);
+
+  await expect(resumeDirect(handlers, "r1", { runId: humanRunId, decision: "revise" })).rejects.toThrow(
+    "simulated store failure",
+  );
+
+  // Give the unobserved internal cleanup chain a chance to surface as an unhandled rejection.
+  await flushBackgroundRuns();
+  await flushBackgroundRuns();
+  process.off("unhandledRejection", onUnhandledRejection);
+  expect(unhandledRejections).toHaveLength(0);
+
+  expect(stateStore.loadRun(humanRunId)?.status).toBe("awaiting-human");
+
+  // Admission for this run was cleared: a follow-up revise proceeds rather than being stuck.
+  const retry = await resumeDirect(handlers, "r2", { runId: humanRunId, decision: "revise" });
+  expect(retry.kind).toBe("response");
+  expect(stateStore.loadRun(humanRunId)?.status).toBe("revising");
+});

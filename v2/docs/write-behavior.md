@@ -37,15 +37,22 @@ reused; when none match, a new PR is created. When the branch has no origin or
 push/PR operations are disabled, this phase is skipped.
 
 **PR body refresh:** after the draft PR is ensured, the publisher rewrites its
-body: regenerated `Spec: <specPath>` header, preserved content between plain
-`<!-- jarvis:narrative:start -->` / `<!-- jarvis:narrative:end -->` markers when
-present, and an attribution footer from `Jarvis-Agent` trailer(s) on commits in
+body: regenerated `Spec: <specPath>` header, an optional caller-supplied summary
+block (pre-rendered markdown; omitted when absent or blank), preserved content
+between plain `<!-- jarvis:narrative:start -->` / `<!-- jarvis:narrative:end -->`
+markers when present, and an attribution footer from `Jarvis-Agent` trailer(s) on
+commits in
 `baseRef..HEAD` whose first body line begins with `Spec:`. Under v2's single
 completion commit, that selects the `jarvis: complete run` meta-commit. Footer
 shape: one bullet per qualifying commit (`- <shortSha> <subject> — <label>`,
 labels joined per commit; `unknown` when no trailer; excluded from summary),
 blank line, then `Written by <labels> through Jarvis.` with first-seen dedup.
-Empty footer ⇒ header (+ narrative if present) only, no `---` separator. v1's
+The summary sits after the `Spec:` line and before narrative markers or the footer
+separator; it is rebuilt on every refresh (not read from the existing body).
+Absent or blank summary ⇒ today's body shape (header, then narrative or footer
+only). Direct `jarvis2 write` and daemon completion paths supply no summary.
+Empty footer ⇒ header (+ summary and narrative when present) only, no `---`
+separator. v1's
 hash-verified generated-narrative path (`jarvis:narrative:generated-sha256:`) is
 not ported. Refresh failures reuse retryable `completion_commit_failed`; resume
 re-edits the same PR. Post-completion ordering: push+PR → body refresh → ready

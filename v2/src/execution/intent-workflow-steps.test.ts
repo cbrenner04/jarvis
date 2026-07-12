@@ -173,7 +173,7 @@ describe("buildReviewedIntentWorkflowSteps", () => {
     });
 
     const result = await buildReviewedIntentWorkflowSteps(
-      { cwd: root, seed: "test.md", targetDir: "specs", reviewPasses: 3 },
+      { cwd: root, seed: "test.md", targetDir: "specs", reviewPasses: 3, jarvisRoot: "/jarvis" },
       {
         resolveProjectMatch: () => ({ ...match, root }),
         loadWorkflowSteps: (steps, options) => {
@@ -207,16 +207,39 @@ describe("buildReviewedIntentWorkflowSteps", () => {
       behavior: "review",
       stepId: "review",
       maxCycles: 3,
-      verdictPath: join(root, ".jarvis-intent-review-verdict.md"),
+      cwd: "/jarvis/worktrees/demo/intent/test",
+      verdictPath: "/jarvis/worktrees/demo/intent/test/.jarvis-intent-review-verdict.md",
       agents: {
         critic: ["claude"],
         actuator: ["claude"],
       },
       createBinding,
       deferredIntentOutput: {
-        stagingDir: join(root, ".jarvis-intent-stage"),
+        stagingDir: "/jarvis/worktrees/demo/intent/test/.jarvis-intent-stage",
         baseRef: "trunk",
       },
+    });
+  });
+
+  test("uses the split step local workspace for every reviewed intent path when git is disabled", async () => {
+    const root = mkdtempSync(join(tmpdir(), "reviewed-intent-"));
+    const config = join(root, "config.json");
+    writeFileSync(config, JSON.stringify({ projects: { demo: { root, git: false } } }));
+
+    const result = await buildReviewedIntentWorkflowSteps(
+      { cwd: root, seedText: "one thing", configPath: config, jarvisRoot: "/jarvis" },
+      { loadWorkflowSteps: load },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const workspace = "/jarvis/intent-work/demo/one-thing";
+    const reviewStep = result.steps[1];
+    if (reviewStep?.behavior !== "review") throw new Error("expected review step");
+    expect(reviewStep).toMatchObject({
+      cwd: workspace,
+      verdictPath: `${workspace}/.jarvis-intent-review-verdict.md`,
+      deferredIntentOutput: { stagingDir: `${workspace}/.jarvis-intent-stage`, baseRef: "none" },
     });
   });
 

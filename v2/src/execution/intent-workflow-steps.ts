@@ -13,6 +13,7 @@ import {
   type WorkflowSourceStep,
   type WriteWorkflowSourceStep,
 } from "./workflow-loader.ts";
+import { getExternalWorktreePath } from "./external-worktree.ts";
 import {
   type AnyWorkflowStep,
   type ReviewWorkflowStep,
@@ -186,6 +187,7 @@ function resolveOutput(
       worktree: string;
       localPath: string;
       durableDir: string;
+      jarvisRoot: string;
     }
   | { error: string } {
   const global = readMachineConfigDocument(input.configPath) ?? {};
@@ -206,7 +208,7 @@ function resolveOutput(
   const durableDir = publish
     ? join(targetDir, "ready-intents")
     : join(jarvisRoot, "specs", projectSafeId(project.key), "ready-intents");
-  return { targetDir, publish, worktree, localPath, durableDir };
+  return { targetDir, publish, worktree, localPath, durableDir, jarvisRoot };
 }
 
 type IntentWorkflowSourceResult =
@@ -257,7 +259,7 @@ async function buildIntentWorkflowSourceStep(
 
   const output = resolveOutput(input, config, slug);
   if ("error" in output) return { ok: false, error: output.error };
-  const { publish, worktree, localPath, durableDir } = output;
+  const { publish, worktree, localPath, durableDir, jarvisRoot } = output;
   const base = publish ? await (deps.resolveBaseBranch ?? getBaseBranch)(project.root) : "none";
   return {
     ok: true,
@@ -278,6 +280,7 @@ async function buildIntentWorkflowSourceStep(
       specPath: durableDir,
       expectedArtifactPath: STAGE_DIR,
       intentOutput: { durableDir },
+      jarvisRoot,
       workflowInvocationId: identity.invocationId,
       publishCompletion: publish,
     },
@@ -311,6 +314,13 @@ export async function buildIntentWorkflowSteps(
 
 const REVIEW_VERDICT_PATH = ".jarvis-intent-review-verdict.md";
 
+function resolveReviewedIntentWorkspace(splitStep: WriteWorkflowSourceStep): string {
+  return getExternalWorktreePath({
+    ...splitStep.worktree,
+    ...(splitStep.jarvisRoot !== undefined ? { jarvisRoot: splitStep.jarvisRoot } : {}),
+  });
+}
+
 /** Build intent workflow with optional review step. */
 export async function buildReviewedIntentWorkflowSteps(
   input: IntentWorkflowInput,
@@ -333,10 +343,7 @@ export async function buildReviewedIntentWorkflowSteps(
 
   const splitStep = splitResult.step;
 
-  const worktree = splitStep.worktree?.projectRoot;
-  if (!worktree) {
-    return { ok: false, error: "intent: unable to determine worktree for review step" };
-  }
+  const workspace = resolveReviewedIntentWorkspace(splitStep);
 
   const branch = splitStep.worktree?.branchName;
   if (!branch) {
@@ -354,9 +361,9 @@ export async function buildReviewedIntentWorkflowSteps(
       stepId: "review",
       project,
       branch,
-      cwd: worktree,
+      cwd: workspace,
       prompt: "intent.prompt.review",
-      verdictPath: join(worktree, REVIEW_VERDICT_PATH),
+      verdictPath: join(workspace, REVIEW_VERDICT_PATH),
       maxCycles: reviewPasses,
       ...(deps.createBinding !== undefined ? { createBinding: deps.createBinding } : {}),
     };
@@ -367,7 +374,7 @@ export async function buildReviewedIntentWorkflowSteps(
             ...reviewStepBase,
             deferredIntentOutput: {
               config: splitStep.intentOutput,
-              stagingDir: join(worktree, STAGE_DIR),
+              stagingDir: join(workspace, STAGE_DIR),
               invocationId: splitResult.identity.invocationId,
               baseRef: splitStep.worktree.baseRef,
             },

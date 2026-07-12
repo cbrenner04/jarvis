@@ -33,6 +33,13 @@ binding (`executeWrite` → `runStep`). Plan-draft and plan-review prompt inputs
 such as `SPEC_GUIDANCE` resolve from the jarvis install root (module-relative to
 the shipped tree), not from `~/.jarvis` or any other data-directory path.
 
+A write step that fails before invoking its agent (`executeWrite` throws, e.g.
+missing install-root prompt input) ends the run `failed` with
+`invocation_failure` (`failureKind: "error"`, non-resumable). The structured log
+records `iteration_started`, then `boundary_committed`, then
+`run_execution_failed` with the error message — not `loop_finished`. Concurrent
+abort wins over the throw and terminates as resumable `progress`.
+
 For each `write` step in order:
 1. Run its write loop (via `executeWriteLoop`) to a terminal outcome.
 2. If the outcome is `complete` and the step role is `implement`, run one

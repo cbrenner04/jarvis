@@ -173,13 +173,23 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       args.logSink?.append(runId, { kind: "iteration_started", attemptId });
 
-      const { result } = await executeWrite(buildWriteExecuteInput(args, runId, attemptId));
+      let stepResult: Awaited<ReturnType<typeof executeWrite>>;
+      try {
+        stepResult = await executeWrite(buildWriteExecuteInput(args, runId, attemptId));
+      } catch (error) {
+        if (args.signal?.aborted) {
+          return finishLoop(args, runId, "progress", iterationsConsumed, true);
+        }
+        return finishExecuteWriteThrow(args, store, runId, attemptId, iterationsConsumed + 1, error);
+      }
       iterationsConsumed += 1;
 
       // If the abort signal was triggered while the step was running, skip boundary commit
       if (args.signal?.aborted) {
         return finishLoop(args, runId, "progress", iterationsConsumed, true);
       }
+
+      const { result } = stepResult;
 
       if (result.kind === "progress") {
         store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
@@ -334,6 +344,41 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       store.close();
     }
   }
+}
+
+function finishExecuteWriteThrow(
+  args: WriteLoopInput,
+  store: StateStore,
+  runId: string,
+  attemptId: string,
+  iterationsConsumed: number,
+  error: unknown,
+): WriteLoopResult {
+  const detail: InvocationFailureDetail = { failureKind: "error", bindingAttempts: [] };
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "invocation_failure",
+    invocationFailureDetail: detail,
+  });
+  args.logSink?.append(runId, {
+    kind: "boundary_committed",
+    attemptId,
+    outcomeKind: "invocation_failure",
+    runStatus: "failed",
+  });
+  const message = error instanceof Error ? error.message : String(error);
+  args.logSink?.append(runId, { kind: "run_execution_failed", message });
+  return {
+    kind: "invocation_failure",
+    runId,
+    iterationsConsumed,
+    resumable: false,
+    ...detail,
+    attemptId,
+    outcomeKind: "invocation_failure",
+    runStatus: "failed",
+  };
 }
 
 function finishLoop(

@@ -20,6 +20,7 @@ export function formatLogFollowLine(record: PersistedRecord): string {
       if (event.resumable !== undefined) parts.push(`resumable=${event.resumable}`);
       break;
     case "run_execution_failed":
+      if (event.message !== undefined) parts.push(`message=${JSON.stringify(event.message)}`);
       break;
     case "invalid_token_detail":
       if (event.attemptId !== undefined) parts.push(`attemptId=${event.attemptId}`);

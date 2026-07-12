@@ -142,21 +142,22 @@ socketTest("list and tail answer before the held ready gate releases", async () 
   });
 
   const socketPath = uniqueSocketPath();
-  const server = await startIpcServer(socketPath, toIpcHandlers(handlers), createTailStreamHandler({ stateStore, logReader }));
+  const server = await startIpcServer(
+    socketPath,
+    toIpcHandlers(handlers),
+    createTailStreamHandler({ stateStore, logReader }),
+  );
   try {
     const startClient = await connectIpcClient(socketPath, 2_000);
     const listClient = await connectIpcClient(socketPath, 2_000);
     const tailClient = await connectIpcClient(socketPath, 2_000);
-    const startPromise = startRun(
-      startClient,
-      {
-        ...mockWriteLoopInput({ projectName: "demo", branchName, projectRoot: "/fake", jarvisRoot }),
-        specPath: "spec.md",
-        stepRules: "Return exactly one terminal token.",
-        expectedArtifactPath: "proof.txt",
-        bindings: [],
-      },
-    );
+    const startPromise = startRun(startClient, {
+      ...mockWriteLoopInput({ projectName: "demo", branchName, projectRoot: "/fake", jarvisRoot }),
+      specPath: "spec.md",
+      stepRules: "Return exactly one terminal token.",
+      expectedArtifactPath: "proof.txt",
+      bindings: [],
+    });
 
     await heldGate.whenPending();
     const runId = await startPromise;

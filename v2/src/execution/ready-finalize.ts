@@ -50,9 +50,7 @@ async function defaultGhReadyFlip(branch: string, worktreePath: string): Promise
 function ghFlipCombinedOutput(error: unknown): string {
   if (error instanceof Error) {
     const withOutput = error as Error & { stdout?: string | Buffer; stderr?: string | Buffer };
-    return [withOutput.stdout?.toString(), withOutput.stderr?.toString(), error.message]
-      .filter(Boolean)
-      .join("\n");
+    return [withOutput.stdout?.toString(), withOutput.stderr?.toString(), error.message].filter(Boolean).join("\n");
   }
   return String(error);
 }

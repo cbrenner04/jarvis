@@ -27,11 +27,14 @@ with upstream detection: a branch without upstream tracking uses
 `git push -u origin <branch>`; a tracked branch uses plain `git push`. PR lookup
 follows: scans for open PRs on the current branch, filters by matching base ref
 (the run's `baseRef`), and reuses the first match without mutating its title or
-body; when no matching open PR exists, creates a new draft PR with title
-`jarvis: complete run` and body `Spec: <specPath>` against `baseRef`. Multiple
-open PRs on the same branch are disambiguated by `baseRef` match; when multiple
-match the same base, the first is reused; when none match, a new PR is created.
-When the branch has no origin or push/PR operations are disabled, this phase is skipped.
+body; when no matching open PR exists, creates a new draft PR with title resolved
+from the spec's `index.md` H1 heading (falling back to `jarvis: complete run` when
+unresolvable) and body `Spec: <specPath>` against `baseRef`. For completion-publication retry,
+the resolved title is retained durably so re-publication uses the original title even
+when the spec's `index.md` cannot be re-read. Multiple open PRs on the same branch are
+disambiguated by `baseRef` match; when multiple match the same base, the first is
+reused; when none match, a new PR is created. When the branch has no origin or
+push/PR operations are disabled, this phase is skipped.
 
 **PR body refresh:** after the draft PR is ensured, the publisher rewrites its
 body: regenerated `Spec: <specPath>` header, preserved content between plain

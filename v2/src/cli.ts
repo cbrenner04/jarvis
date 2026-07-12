@@ -7,8 +7,8 @@ import type { AgentModelConfig, LoadError } from "./config/agent-model-config.ts
 import {
   type ImplementReviewBehavior,
   loadMachineConfig,
-  readMachineConfigDocument,
   readIterationTimeoutMs,
+  readMachineConfigDocument,
   readProjectImplementReviewBehavior,
   readProjectImplementReviewPasses,
   readProjectRegistry,

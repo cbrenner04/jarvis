@@ -87,9 +87,9 @@ test("composeRunOperatorError returns agent_blocked and contract_miss from loop_
 });
 
 test("composeRunOperatorError maps iteration_timeout as a failed terminal", () => {
-  expect(composeRunOperatorError(runWith("failed", [attempt("iteration_timeout")]), loopFinished("iteration_timeout"))).toEqual(
-    err("iteration_timeout", "stop"),
-  );
+  expect(
+    composeRunOperatorError(runWith("failed", [attempt("iteration_timeout")]), loopFinished("iteration_timeout")),
+  ).toEqual(err("iteration_timeout", "stop"));
 });
 
 test("composeRunOperatorError returns agent_blocked and contract_miss from store-only blocked status and outcome_kind", () => {

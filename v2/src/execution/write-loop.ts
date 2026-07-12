@@ -178,7 +178,8 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       const settled = await awaitIteration(args, runId, attemptId);
       if (settled.kind === "aborted") return finishLoop(args, runId, "progress", iterationsConsumed + 1, true);
-      if (settled.kind === "timed_out") return finishIterationTimeout(args, store, runId, attemptId, iterationsConsumed + 1);
+      if (settled.kind === "timed_out")
+        return finishIterationTimeout(args, store, runId, attemptId, iterationsConsumed + 1);
       if (settled.kind === "threw") {
         if (args.signal?.aborted) return finishLoop(args, runId, "progress", iterationsConsumed, true);
         return finishExecuteWriteThrow(args, store, runId, attemptId, iterationsConsumed + 1, settled.error);

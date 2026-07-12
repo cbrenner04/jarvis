@@ -703,8 +703,18 @@ describe("executeWorkflow", () => {
   });
 
   test("tracks per-step attempt history independently", async () => {
-    const step1 = createStep({ stepId: "step-1", role: "implement", branchName: "history-test", iterationTimeoutMs: 123 });
-    const step2 = createStep({ stepId: "step-2", role: "implement", branchName: "history-test", iterationTimeoutMs: 123 });
+    const step1 = createStep({
+      stepId: "step-1",
+      role: "implement",
+      branchName: "history-test",
+      iterationTimeoutMs: 123,
+    });
+    const step2 = createStep({
+      stepId: "step-2",
+      role: "implement",
+      branchName: "history-test",
+      iterationTimeoutMs: 123,
+    });
 
     await withStateStore(async (store) => {
       await executeWorkflow({

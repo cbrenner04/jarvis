@@ -1649,7 +1649,13 @@ describe("write loop", () => {
 
     try {
       const result = await executeWriteLoop({
-        worktree: { projectRoot: "/fake", projectName: "demo", branchName: "fresh-timeout", baseRef: "HEAD", jarvisRoot },
+        worktree: {
+          projectRoot: "/fake",
+          projectName: "demo",
+          branchName: "fresh-timeout",
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
         specPath: "spec.md",
         stepRules: "Return exactly one terminal token.",
         expectedArtifactPath: "proof.txt",
@@ -1700,7 +1706,13 @@ describe("write loop", () => {
       const lateAbort = new AbortController();
       setTimeout(() => lateAbort.abort(), 40);
       const late = await executeWriteLoop({
-        worktree: { projectRoot: "/fake", projectName: "demo", branchName: "timeout-first", baseRef: "HEAD", jarvisRoot },
+        worktree: {
+          projectRoot: "/fake",
+          projectName: "demo",
+          branchName: "timeout-first",
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
         specPath: "spec.md",
         stepRules: "Return exactly one terminal token.",
         expectedArtifactPath: "proof.txt",

@@ -711,11 +711,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               }
               bodySummary = deriveIntentRunBodySummary({
                 creationTitle: workflowSnapshot.creationTitle,
-                intentFiles: await listLandedIntentFiles(
-                  worktreePath,
-                  completionStep.intentOutput.durableDir,
-                  workflowSnapshot.invocationId,
-                ),
+                intentFiles: await listLandedIntentFiles(worktreePath, workflowSnapshot.invocationId),
               });
             } else if (completionStep.promptId === "plan.prompt.draft") {
               bodySummary = deriveSpecRunBodySummary({

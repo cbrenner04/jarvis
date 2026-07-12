@@ -91,25 +91,16 @@ function readOwnership(path: string): Record<string, string[]> {
   }
 }
 
-/** Owned intent filenames for an invocation, else every `.md` in the landed durable dir. */
+/** Owned intent filenames for an invocation; empty when ownership is unresolved. */
 export async function listLandedIntentFiles(
   worktreePath: string,
-  durableDir: string,
   invocationId?: string,
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): Promise<string[]> {
+  if (invocationId === undefined) return [];
   const ownershipFile = await ownershipPath(worktreePath, runner);
-  const owned = invocationId === undefined ? [] : (readOwnership(ownershipFile)[invocationId] ?? []);
-  if (owned.length > 0) {
-    return [...owned].sort();
-  }
-  const resolved = resolve(worktreePath, durableDir);
-  if (!existsSync(resolved) || !statSync(resolved).isDirectory()) {
-    return [];
-  }
-  return readdirSync(resolved)
-    .filter((name) => name.endsWith(".md"))
-    .sort();
+  const owned = readOwnership(ownershipFile)[invocationId] ?? [];
+  return [...owned].sort();
 }
 
 /** Validate and transactionally land an intent step's complete staged output. */

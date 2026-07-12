@@ -54,6 +54,16 @@ describe("listLandedIntentFiles", () => {
     writeFileSync(join(durableDir, "other.md"), "other\n", "utf8");
     writeFileSync(join(root, ".git", "jarvis-intent-output.json"), '{"inv-1":["owned.md"]}\n', "utf8");
 
-    await expect(listLandedIntentFiles(root, "ready-intents", "inv-1")).resolves.toEqual(["owned.md"]);
+    await expect(listLandedIntentFiles(root, "inv-1")).resolves.toEqual(["owned.md"]);
+  });
+
+  test("fails closed instead of listing the durable dir when ownership is missing", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-intent-owned-files-"));
+    execFileSync("git", ["init", "-q"], { cwd: root });
+    const durableDir = join(root, "ready-intents");
+    mkdirSync(durableDir, { recursive: true });
+    writeFileSync(join(durableDir, "unrelated.md"), "unrelated\n", "utf8");
+
+    await expect(listLandedIntentFiles(root, "inv-1")).resolves.toEqual([]);
   });
 });

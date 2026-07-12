@@ -94,6 +94,7 @@ the preset.*
 | [#1437](https://github.com/cbrenner04/jarvis/pull/1437) | intent: implement-linked-routing (P0) | open |
 | [#1438](https://github.com/cbrenner04/jarvis/pull/1438) | intent: invalid-token-discards-completed-work (P0) | open |
 | [#1439](https://github.com/cbrenner04/jarvis/pull/1439) | intent: implement-write-step-placeholders (P0) | open |
+| [#1440](https://github.com/cbrenner04/jarvis/pull/1440) | **impl: `daemon-process-log-read` (P1)** — `criteria-complete`, gate green, ready | ready |
 | [#1441](https://github.com/cbrenner04/jarvis/pull/1441) | intent: intent-reviewed review no-op (P0) | open |
 
 PR #1434's plan independently diagnosed the `startWorkflowRun` catch-after-resolve
@@ -137,13 +138,19 @@ no cost field, so tokens are the honest unit):
 
 | Namespace | Model | Tokens in | Tokens out | Min | Exit |
 | --- | --- | ---: | ---: | ---: | --- |
-| `2026-07-12T21-57-58Z-daemon-process-log-read` | claude-sonnet-5 | 293,919 | 1,837 | 10.6 | watchdog-iteration-timeout |
+| `daemon-process-log-read` (attempt 1) | claude-sonnet-5 | 293,919 | 1,837 | 10.6 | watchdog-iteration-timeout |
+| `daemon-process-log-read` (resume) | codex + claude review | 2,322,737 | 22,738 | 8.7 | **criteria-complete** |
 | `plan:run-async-path-terminal-log-event` | claude-opus-4-8 | 1,407,190 | 22,075 | 5.8 | plan-review-ok |
 | `plan:run-invocation-session-log` | claude-opus-4-8 | 1,490,808 | 22,199 | 6.0 | plan-review-ok |
 
-The sonnet-5 timeout row is pure waste: 294k tokens in, 1.8k out, zero iterations
-completed. Operator (orchestration) cost is the dominant line as always and is
-recorded in the cumulative CSVs at close-out.
+The completed `daemon-process-log-read` run cost **$2.17** — but the split is the
+story: **codex did the entire implementation for $0.41** (1 iteration), while the
+claude-sonnet-5 share was **$1.75** across 5 iterations, most of it review. The
+earlier sonnet-5 attempt is pure waste on top: 294k tokens in, 1.8k out, **zero
+iterations completed** against the 10-minute wall.
+
+Operator (orchestration) cost is the dominant line as always and is recorded in the
+cumulative CSVs at close-out.
 
 ## Next
 

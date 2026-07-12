@@ -29,7 +29,6 @@ import { hasUpstream, pushCurrent, worktreeCompletionBlocker } from "../../workt
 import { releaseWorktreeLock } from "../../worktree-lock.ts";
 import {
   countUnchecked,
-  findBlockerInLinkedSubspecs,
   getActiveLinkedSubspecPath,
   getFirstUncheckedTask,
 } from "./completion.ts";
@@ -53,7 +52,7 @@ import {
 } from "./no-commit-delta.ts";
 import { createPatchInvocationBinding } from "./patch-invocation-binding.ts";
 import { findRelocatedSpecFile, refreshActiveSpecPath } from "./preflight.ts";
-import { buildFixupPrompt, buildPrompt, readRepoGuidance } from "./prompt.ts";
+import { buildPrompt, readRepoGuidance } from "./prompt.ts";
 import { collectSubtree, DESCENDANT_POLL_INTERVAL_MS, listProcesses } from "./reap.ts";
 import type {
   IterationContext,
@@ -524,33 +523,15 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
   state.latestIterationStdout = [];
   state.latestIterationStderr = [];
   const before = countUnchecked(specPath);
-  let isFixupIteration = false;
   if (before === 0) {
-    if (state.completionLoopbackSignal === null) {
-      // Normal completion flow: tryFinishSpecIfDone returns null only when countUnchecked !== 0; since
-      // we just observed before === 0 it returns either 0 (spec complete) or 6
-      // (worktree blocker). Default to 0 if it ever races to null.
-      const done = (await tryFinishSpecIfDone(ctx)) ?? 0;
-      if (state.completionLoopbackSignal !== null) {
-        // Red completion gate set a loop-back signal: run a fix-up iteration in
-        // this same iteration (fall through to build the fix-up prompt below).
-        isFixupIteration = true;
-      } else {
-        // Clear no-commit delta on clean completion
-        if (done === 0 && hasUntrackedMutations) {
-          const activeSubspecToClean = getActiveLinkedSubspecPath(specPath);
-          if (activeSubspecToClean !== undefined) {
-            clearDelta(activeSubspecToClean);
-          }
-        }
-        return { kind: "return", exitCode: done };
+    const done = (await tryFinishSpecIfDone(ctx)) ?? 0;
+    if (done === 0 && hasUntrackedMutations) {
+      const activeSubspecToClean = getActiveLinkedSubspecPath(specPath);
+      if (activeSubspecToClean !== undefined) {
+        clearDelta(activeSubspecToClean);
       }
-    } else {
-      // A loop-back signal carried over from a prior iteration's red completion
-      // gate: run another fix-up iteration. The post-fix-up gate re-check (and
-      // any completion) happens in the after === 0 block once the agent returns.
-      isFixupIteration = true;
     }
+    return { kind: "return", exitCode: done };
   }
 
   const agent = activeAgents[0];
@@ -570,12 +551,11 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
   const configuredPatchModel = configuredPatchModelEntry?.model;
   const telemetryMeta = configuredPatchModel !== undefined ? { configured_model: configuredPatchModel } : {};
 
-  // For fix-up iterations, we don't get a task from the spec; instead we use the captured failure text
-  const task = isFixupIteration ? null : getFirstUncheckedTask(specPath);
-  const taskExcerpt = isFixupIteration ? "ready: fix bun run ready failure" : task?.line.slice(0, 140);
-  const activeSubspecPath = isFixupIteration ? undefined : getActiveLinkedSubspecPath(specPath);
+  const task = getFirstUncheckedTask(specPath);
+  const taskExcerpt = task?.line.slice(0, 140);
+  const activeSubspecPath = getActiveLinkedSubspecPath(specPath);
   let timeoutCheckpointContext: string | undefined;
-  if (!isFixupIteration && activeSubspecPath !== undefined && gitEnabled) {
+  if (activeSubspecPath !== undefined && gitEnabled) {
     try {
       const receipt = consumeTimeoutCheckpointReceipt(agentWorkingDir, activeSubspecPath, (message) => {
         fanout("harness", `warning: ${message}\n`, "stderr");
@@ -614,7 +594,6 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
   // This resets any stale AC ticks and blockers from a prior incomplete run
   // Only apply reset once per run (iteration 1), never on subsequent iterations
   if (
-    !isFixupIteration &&
     activeSubspecPath !== undefined &&
     hasUntrackedMutations &&
     !state.noCommitResetAppliedThisRun
@@ -627,13 +606,12 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     state.noCommitDelta = createFreshDelta(activeSubspecPath);
     state.noCommitResetAppliedThisRun = true;
   } else if (hasUntrackedMutations && activeSubspecPath !== undefined && state.noCommitDelta === null) {
-    // Subsequent iterations or fixup iterations: create delta if needed
+    // Subsequent iterations: create delta if needed
     state.noCommitDelta = createFreshDelta(activeSubspecPath);
   }
 
-  // Check if the active subspec already has a blocker at the start
-  // Skip for fix-up iterations since there's no active unchecked subspec
-  if (!isFixupIteration && activeSubspecPath !== undefined) {
+  // Check if the active subspec already has a blocker at the start.
+  if (activeSubspecPath !== undefined) {
     const parsedSubspec = parseSpec(readFileSync(activeSubspecPath, "utf8"));
     if (parsedSubspec.blocker !== undefined) {
       if (onlyHumanOnlyRemain(parsedSubspec.acceptanceCriteria)) {
@@ -662,7 +640,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
   // Handle uncommitted ticks at iteration start: if acceptance criteria are ticked
   // in the working tree but absent from committed HEAD, commit them as progress
   // and loop back without spawning the agent
-  if (!isFixupIteration && activeSubspecPath !== undefined && gitEnabled) {
+  if (activeSubspecPath !== undefined && gitEnabled) {
     const workingTreeCriteria = snapshotAcceptanceCriteria(activeSubspecPath);
     const committedCriteria = snapshotCommittedAcceptanceCriteria(activeSubspecPath, {
       cwd: agentWorkingDir,
@@ -734,9 +712,6 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         if (done === null) {
           return { kind: "continue" };
         }
-        if (state.completionLoopbackSignal !== null) {
-          return { kind: "continue" };
-        }
         writeTelemetry({
           agent: agent.name,
           iteration,
@@ -756,7 +731,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
 
   let beforeCriteria: AcceptanceCriterion[] = [];
   let hasBlockerBefore = false;
-  if (!isFixupIteration && activeSubspecPath !== undefined) {
+  if (activeSubspecPath !== undefined) {
     const beforeParse = parseSpec(readFileSync(activeSubspecPath, "utf8"));
     hasBlockerBefore = beforeParse.blocker !== undefined;
     beforeCriteria = snapshotAcceptanceCriteria(activeSubspecPath);
@@ -773,39 +748,31 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
       return { kind: "return", exitCode: 1 };
     }
   }
-  const banner = isFixupIteration
-    ? `project: ${preflight.project.key} | spec: ${specDisplayName} | iteration: ${iteration} | fix-up: ready failure | agent: ${agent.name}\n`
-    : `project: ${preflight.project.key} | spec: ${specDisplayName} | iteration: ${iteration} | current-task: ${task?.ordinal}/${task?.total} ${taskExcerpt} | agent: ${agent.name}\n`;
+  const banner = `project: ${preflight.project.key} | spec: ${specDisplayName} | iteration: ${iteration} | current-task: ${task?.ordinal}/${task?.total} ${taskExcerpt} | agent: ${agent.name}\n`;
   const bannerAnnotations: LogAnnotations = {
     project: preflight.project.key,
     spec: specDisplayName,
     iteration,
     agent: agent.name,
   };
-  if (!isFixupIteration) {
-    if (taskExcerpt !== undefined) {
-      bannerAnnotations.currentTask = taskExcerpt;
-    }
-    if (task?.ordinal !== undefined) {
-      bannerAnnotations.currentTaskOrdinal = task.ordinal;
-    }
-    if (task?.total !== undefined) {
-      bannerAnnotations.currentTaskTotal = task.total;
-    }
+  if (taskExcerpt !== undefined) {
+    bannerAnnotations.currentTask = taskExcerpt;
+  }
+  if (task?.ordinal !== undefined) {
+    bannerAnnotations.currentTaskOrdinal = task.ordinal;
+  }
+  if (task?.total !== undefined) {
+    bannerAnnotations.currentTaskTotal = task.total;
   }
   fanout("harness", banner, "stdout", bannerAnnotations);
   const projectSiblings = preflight.cfg.projects[preflight.project.key]?.siblings;
-  const prompt = isFixupIteration
-    ? buildFixupPrompt(specPath, state.completionLoopbackSignal?.failureText ?? "", projectSiblings)
-    : buildPrompt(specPath, projectSiblings, {
-        repoGuidance: readRepoGuidance(preflight.project.root),
-        activeSubspecPath: activeSubspecPath ?? "",
-        activeSubspecBody:
-          activeSubspecPath !== undefined && existsSync(activeSubspecPath)
-            ? readFileSync(activeSubspecPath, "utf8")
-            : "",
-        ...(timeoutCheckpointContext === undefined ? {} : { timeoutCheckpointContext }),
-      });
+  const prompt = buildPrompt(specPath, projectSiblings, {
+    repoGuidance: readRepoGuidance(preflight.project.root),
+    activeSubspecPath: activeSubspecPath ?? "",
+    activeSubspecBody:
+      activeSubspecPath !== undefined && existsSync(activeSubspecPath) ? readFileSync(activeSubspecPath, "utf8") : "",
+    ...(timeoutCheckpointContext === undefined ? {} : { timeoutCheckpointContext }),
+  });
   fanout("outbound", prompt, null, {
     iteration,
     agent: agent.name,
@@ -975,7 +942,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         idleTelemetryRecord.watchdog_descendants_alive = idleWatchdogDescendantsAlive;
       }
 
-      if (!isFixupIteration && activeAgents.length > 1) {
+      if (activeAgents.length > 1) {
         activeAgents.shift();
         fanout("harness", `${agent.name}: ${HARNESS_IDLE_TIMEOUT_FALLBACK}\n`, "stderr");
         idleTelemetryRecord.exitReason = "watchdog-idle-timeout-fallback";
@@ -1541,13 +1508,12 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
             // Try to install deps if they changed
             maybeInstallDeps(agent.attributionLabel());
           }
-          ctx.state.acProgressSinceLastGate = true;
         } else {
           if (gitEnabled) {
             const blocker = worktreeCompletionBlocker(agentWorkingDir);
             if (blocker !== undefined) {
               const EDITED_UNTICKED_BOUND = 2;
-              if (!isFixupIteration && activeSubspecPath !== undefined) {
+              if (activeSubspecPath !== undefined) {
                 if (activeSubspecPath !== state.consecutiveEditedUntickedSubspecPath) {
                   state.consecutiveEditedUnticked = 0;
                   state.consecutiveEditedUntickedSubspecPath = activeSubspecPath;
@@ -1576,63 +1542,6 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         }
       }
 
-      // For fix-up iterations, check for a blocker added during the iteration
-      // without depending on an unchecked linked subspec (which doesn't exist at full completion).
-      // The blocker check takes precedence over other completion processing.
-      if (isFixupIteration) {
-        const blockerInfo = findBlockerInLinkedSubspecs(afterSpecPath);
-        if (blockerInfo !== undefined) {
-          if (gitEnabled) {
-            try {
-              // For fix-up iterations, we don't have granular before/after criteria,
-              // so we commit with empty checkedTotal
-              commitWipProgressWithBlocker(blockerInfo.path, {
-                cwd: agentWorkingDir,
-                newlyChecked: [],
-                checkedTotal: 0,
-                total: 0,
-                blockerBody: blockerInfo.body,
-                agentLabel: agent.attributionLabel(),
-              });
-            } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              fanout("harness", `failed to commit blocker for ${blockerInfo.path}: ${message}\n`, "stderr");
-              return { kind: "return", exitCode: 1 };
-            }
-
-            if (!opts.skipGhCheck) {
-              try {
-                const firstPush = !hasUpstream(agentWorkingDir);
-                pushCurrent({ cwd: agentWorkingDir, firstPush });
-              } catch (err) {
-                const message = err instanceof Error ? err.message : String(err);
-                fanout("harness", `failed to push blocker commit for ${blockerInfo.path}: ${message}\n`, "stderr");
-                return { kind: "return", exitCode: 1 };
-              }
-
-              // Try to install deps if they changed
-              maybeInstallDeps(agent.attributionLabel());
-            }
-          }
-
-          const blockerText = `${blockerInfo.path}\n\n${blockerInfo.body}`;
-          fanout("harness", `${blockerText}\n`, "stderr");
-          writeTelemetry({
-            agent: agent.name,
-            iteration,
-            durationMs: iterationDurationMs(),
-            kind: "blocked",
-            exitReason: "blocker-detected",
-            ...telemetryMeta,
-          });
-          // Record this run's delta on incomplete exit (fix-up iterations)
-          if (state.noCommitDelta !== null && state.noCommitDelta.activeSubspecPath !== undefined) {
-            saveDelta(state.noCommitDelta);
-          }
-          return { kind: "return", exitCode: 7 };
-        }
-      }
-
       if (preIterationHead !== null) {
         accumulateImplementationTouchedFiles(
           agentWorkingDir,
@@ -1643,33 +1552,28 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
       }
       const after = countUnchecked(afterSpecPath);
       if (after === 0) {
-        writeTelemetry({
-          agent: agent.name,
-          iteration,
-          durationMs: iterationDurationMs(),
-          kind: "ok",
-          exitReason: "criteria-complete",
-          ...telemetryMeta,
-          ...usageCost,
-          ...(iterationWarnings !== undefined ? { warnings: iterationWarnings } : {}),
-        });
         // tryFinishSpecIfDone returns null only when countUnchecked !== 0;
         // we just observed after === 0 so it returns 0 (spec complete) or 6
         // (worktree blocker). Default to 0 if it ever races to null.
         const done = (await tryFinishSpecIfDone(ctx)) ?? 0;
-        // Check if a loop-back signal was set (red completion gate)
-        if (state.completionLoopbackSignal !== null) {
-          // Loop back for fix-up iteration: don't write the completion telemetry,
-          // just continue to the next iteration
-          state.iteration += 1;
-          return { kind: "continue" };
+        if (done !== 10) {
+          writeTelemetry({
+            agent: agent.name,
+            iteration,
+            durationMs: iterationDurationMs(),
+            kind: "ok",
+            exitReason: "criteria-complete",
+            ...telemetryMeta,
+            ...usageCost,
+            ...(iterationWarnings !== undefined ? { warnings: iterationWarnings } : {}),
+          });
         }
         writeTelemetry({
           agent: agent.name,
           iteration,
           durationMs: iterationDurationMs(),
           kind: "ok",
-          exitReason: "completed-spec",
+          exitReason: done === 10 ? "ready-gate-failed" : "completed-spec",
           record_role: "run_terminal",
           ...telemetryMeta,
         });
@@ -1679,9 +1583,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         }
         return { kind: "return", exitCode: done };
       }
-      // For fix-up iterations, we don't check no-progress since all boxes are already checked;
-      // instead we re-check ready at the start of the next iteration
-      if (!isFixupIteration && after === before && !subspecCompleted && !subspecProgressed) {
+      if (after === before && !subspecCompleted && !subspecProgressed) {
         activeAgents.shift();
         if (activeAgents.length > 0) {
           fanout("harness", `${agent.name}: ${HARNESS_NO_PROGRESS_FALLBACK}\n`, "stderr");
@@ -1862,20 +1764,6 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
             `failed to commit agent-error WIP progress for ${afterSubspecPath}: ${message}\n`,
             "stderr",
           );
-          return { kind: "return", exitCode: 1 };
-        }
-      } else if (isFixupIteration && editedTrackedFiles) {
-        // Fix-up iteration with tracked edits: commit WIP with generic label
-        try {
-          execFileSync("git", ["add", "-A"], { cwd: agentWorkingDir, stdio: "pipe" });
-          const commitMessage = `WIP: fix-up\n\nJarvis-Agent: ${agent.attributionLabel()}`;
-          execFileSync("git", ["commit", "-m", commitMessage], {
-            cwd: agentWorkingDir,
-            stdio: "pipe",
-          });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          fanout("harness", `failed to commit agent-error WIP for fix-up iteration: ${message}\n`, "stderr");
           return { kind: "return", exitCode: 1 };
         }
       }

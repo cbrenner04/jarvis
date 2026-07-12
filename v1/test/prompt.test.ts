@@ -2,12 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadPromptRegistry } from "../../shared/prompts/registry.ts";
-import {
-  buildFixupPrompt,
-  buildPrompt,
-  buildVerdictActuatorPrompt,
-  readRepoGuidance,
-} from "../src/modes/patch/prompt.ts";
+import { buildPrompt, buildVerdictActuatorPrompt, readRepoGuidance } from "../src/modes/patch/prompt.ts";
 
 function withTempRepo(run: (root: string) => void): void {
   const root = join(import.meta.dir, ".tmp-prompt-test", String(Date.now()));
@@ -143,18 +138,5 @@ describe("buildVerdictActuatorPrompt", () => {
     expect(prompt).not.toContain("Inspect the target repo for guidance");
     expect(prompt).toContain("## Review Verdict");
     expect(prompt).toContain("fix tests");
-  });
-});
-
-describe("buildFixupPrompt", () => {
-  test("prepends ready failure and omits repo guidance and active subspec", () => {
-    const prompt = buildFixupPrompt("spec/feature/index.md", "typecheck failed", ["../sibling"]);
-
-    expect(prompt.startsWith("The spec checklist is complete, but the completion `ready` gate failed:")).toBe(true);
-    expect(prompt).toContain("typecheck failed");
-    expect(prompt).not.toContain("<<<REPO_GUIDANCE_BEGIN>>>");
-    expect(prompt).not.toContain("<<<ACTIVE_SUBSPEC_BEGIN>>>");
-    expect(prompt).not.toContain("first unchecked");
-    expect(prompt).toContain("- ../sibling");
   });
 });

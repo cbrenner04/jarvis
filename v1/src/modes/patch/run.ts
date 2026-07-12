@@ -46,7 +46,7 @@ export type PreflightOk = {
 
 export type CompletionReadyGateResult =
   | { kind: "green" }
-  | { kind: "red"; failureText: string; retryable?: boolean; verificationRed?: boolean };
+  | { kind: "red"; failureText: string; verificationRed?: boolean };
 
 type LogTag = "harness" | "outbound" | "inbound_stdout" | "inbound_stderr";
 type LogStream = "stdout" | "stderr" | null;
@@ -115,11 +115,6 @@ export type IterationContext = {
     opencodeUnavailableNoted: boolean;
     cursorUnavailableNoted: boolean;
     currentController: AbortController | null;
-    completionLoopbackSignal: { failureText: string } | null;
-    previousCompletionFailureText: string | null;
-    consecutiveRedFixups: number;
-    acProgressSinceLastGate: boolean;
-    firstRedBaselineSha?: string;
     completionTransitionReadyResult?: {
       headSha: string;
     };
@@ -192,14 +187,7 @@ export type RunCommandOptions = {
   tierOverride?: PatchTier;
   /** One-run patch implementation ladder from repeatable `jarvis1 run --agent`. */
   agentOrderOverride?: AgentEntry[];
-  /**
-   * Test seam for the completion `ready` gate. Replaces the real fix → commit-if-dirty →
-   * `bun run ready` sequence in `runCompletionReadyGate`. Return
-   * `{ kind: "green" }` to proceed into the post-completion phases, or
-   * `{ kind: "red", failureText }` to drive the loop-back fix-up iteration if
-   * every bounded retry stays red. The seam may be invoked up to the retry
-   * bound per completion-gate check. Production callers must not set this.
-   */
+  /** Test seam for the single full completion gate. Production callers must not set this. */
   runCompletionReadyGate?: (cwd: string) => CompletionReadyGateResult;
   /**
    * Test/production seam for base-ref blocker-claim validation.
@@ -331,10 +319,6 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     opencodeUnavailableNoted: false,
     cursorUnavailableNoted: false,
     currentController: null,
-    completionLoopbackSignal: null,
-    previousCompletionFailureText: null,
-    consecutiveRedFixups: 0,
-    acProgressSinceLastGate: false,
     consecutiveEditedUnticked: 0,
     consecutiveEditedUntickedSubspecPath: null,
     consecutiveBlockerClaimRejections: 0,
@@ -452,7 +436,7 @@ function mapExitCodeToReason(exitCode: number): string {
     case 9:
       return "worktree-locked";
     case 10:
-      return "ready-stuck-red";
+      return "ready-gate-failed";
     case 11:
       return "review-incomplete";
     case 130:

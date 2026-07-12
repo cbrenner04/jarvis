@@ -318,19 +318,11 @@ completion-ready)`.
 This completion-transition gate always runs the **`full`** tier through
 `runReadyAndCommit` and consumes zero agent tokens.
 
-If verification fails, the harness re-runs the same whole completion gate
-unchanged — the full fix → commit-if-dirty → verify → post-verification
-commit-if-dirty sequence — up to a fixed bound of 2 retries (3 total
-attempts). No agent runs between attempts. A successful fix-commit
-**persists** across verification reds; there is no implicit rollback between
-attempts. A non-zero `bun run fix` is retryable; a fix-commit failure, push
-failure, post-commit-still-dirty after pre-ready fix commit,
-post-verification commit failure, post-verification push failure, or residual
-still-dirty porcelain after post-verification commit are non-retryable and
-exit `6`. If any retry turns green over a clean tree, the gate records the
-same green result as a first-try pass. Commit/push failures are not retried:
-the run stays non-green and stops for operator intervention instead of
-entering fix-up or reaching PR readiness with the remote behind HEAD.
+Verification runs once. A red verification exits `10` with
+`ready-gate-failed`; it does not invoke an agent, reset or force-push, discard
+work, run post-completion phases, promote the PR, or report
+`criteria-complete`. Fix, commit, push, timeout, and residual-dirty failures
+remain operational failures (exit `6`).
 
 On success (strict verification green over a clean porcelain after the
 post-verification commit when applicable), the harness records a green result
@@ -340,10 +332,6 @@ keyed to:
   ran.
 - **Clean worktree**: A green result is recorded only with a clean porcelain,
   not after a fix commit alone.
-
-The verification-red baseline (`firstRedBaselineSha`) is captured on the first
-verification red, at post-fix-commit HEAD; stuck-red/changing-failure discard
-resets to that baseline and cannot reset below persisted harness fix commits.
 
 This recorded result is available to post-completion phases (shrink and review
 gates, plus `maybeMarkReady` at `patch-complete` when shrink and review are
@@ -1012,7 +1000,7 @@ jarvis1 log-server
 | `7` | `blocked` | The run is blocked. The active subspec gained a `## Blocker` section (or already had one at the start). Any work from the iteration is committed and pushed. The blocker body is printed to stderr. Fix the underlying issue or remove the blocker section from the spec, then rerun. |
 | `8` | `timeout` | An iteration or global run timeout was exceeded, or patch implementation or shrink idle-output watchdog fired on the final configured rung. Configure `iterationTimeoutMs` (default 10 minutes) and optional `runTimeoutMs` in config. Per-iteration wall-clock timeout (`iterationTimeoutMs` / `runTimeoutMs`) is always terminal — no agent cascade. Three consecutive per-iteration wall-clock timeouts for the same active subspec append a `## Blocker` recommending that the subspec be split; the timeout run still exits `8`, and the next run exits `7` until the blocker is resolved. The first terminal row for another subspec or any non-iteration-timeout terminal result resets the streak. Telemetry-disabled runs cannot track this signal. Patch implementation and shrink idle stalls escalate through their respective ladders when later rungs remain (see idle-output watchdog below). Shrink terminal idle exits `8` and skips review. On the `aborted: iteration-timeout` path specifically (not idle- or run-timeout), a `git: true`, non-external-spec run first commits a `WIP: checkpoint (iteration-timeout)` snapshot of any uncommitted worktree changes (tracked edits and new untracked files) before returning; a failed checkpoint commit is logged to stderr and does not change the exit code. |
 | `9` | `worktree-locked` | The worktree is in use by another process. A process with a higher `pid` is currently operating on this worktree. Wait for that process to finish or use `jarvis1 triage <worktree-name>` to inspect the lock state. |
-| `10` | `ready-stuck-red` | The run is stuck on a red `bun run ready` failure after fix-up iteration(s). Two scenarios: (1) **identical-failure stop**: The captured failure text is unchanged after normalization (for noise like timings and paths), and no new work was ticked and no new blocker was added. (2) **changing-failure bound**: The ready gate has returned red for N (3) consecutive fix-up iterations with no acceptance-criteria progress, and the failure text differs between iterations. Both are recoverable stops: the issue persists and manual intervention may be needed. The fix-up commits (chase edits) are discarded before exit: the PR branch is reset to the first-red baseline (the state before the first fix-up iteration) and force-pushed with `--force-with-lease`, leaving the PR at the original completed work without the chase edits. The discarded commits remain accessible via git reflog. The error message includes the captured failure text and a pointer to `jarvis1 triage <worktree-name>` to inspect state and see suggested next moves. Fix the underlying issue (e.g., a linting rule, a missing import, a flaky or non-deterministic failure) and rerun to retry the fix-up iteration. |
+| `10` | `ready-gate-failed` | The one full completion verification gate was red. No retry, agent invocation, reset, force-push, discard, PR promotion, or successful completion telemetry occurs. Fix the failure, then rerun or use `jarvis1 triage <worktree-name> --mark-ready`. |
 | `11` | `review-incomplete` | The post-completion review phase did not complete. This covers review agents quota-exhausted, review idle-timeout, model configuration error, or review/actuator infrastructure failures (spec/code revert failure, blocker commit failure, actuator unavailability, non-ff actuator push without convergence, etc). When an actuator push is rejected non-fast-forward with a tree-equal condition, the worktree converges to the PR head and proceeds to auto-ready (step 6, below); this exit reason becomes `actuator-push-converged`. Implementation commits are intact. If the tree is unchanged since the completion gate green, the PR is auto-marked ready before exit (the completion `ready` gate passed, so readiness is determined by that gate's result). If the tree moved during review (review made commits, e.g., actuator fixes then push failed, or push converged), the `ready` gate is re-run with the **`full`** tier on exit; if it passes, the PR is marked ready; if it fails, the PR is left draft with a warning. Either way, the run exits `11` (or `actuator-push-converged` if convergence occurred). Recover with `jarvis1 run --resume-review` to re-enter the review phase, or manually finalize the PR. |
 | `130` | `sigint` | Interrupted with Ctrl-C. |
 

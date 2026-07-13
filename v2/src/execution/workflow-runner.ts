@@ -34,11 +34,8 @@ import {
   resolveActiveLinkedSubspec,
 } from "./linked-subspec-routing.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
+import { renderIntentReviewActuatorPrompt, renderIntentReviewCriticPrompt } from "./render-intent-review-prompts.ts";
 import { executePlanReviewCycle, type PlanReviewCycleOutcome } from "./render-plan-review-prompts.ts";
-import {
-  renderIntentReviewActuatorPrompt,
-  renderIntentReviewCriticPrompt,
-} from "./render-intent-review-prompts.ts";
 import {
   executeReviewCycle,
   type ReviewCycleInput,

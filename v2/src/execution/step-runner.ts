@@ -99,14 +99,9 @@ type StepTokenResolution =
   | { token: StepOutcomeToken; tokenText?: undefined; reprompt?: StepReprompt }
   | { token: null; tokenText: string; reprompt?: StepReprompt };
 
-type ContractEvalResult =
-  | { ok: true }
-  | { ok: false; failedContractId: string; failureReason?: string };
+type ContractEvalResult = { ok: true } | { ok: false; failedContractId: string; failureReason?: string };
 
-async function evaluateContracts(
-  contracts: readonly StepContract[],
-  cwd: string,
-): Promise<ContractEvalResult> {
+async function evaluateContracts(contracts: readonly StepContract[], cwd: string): Promise<ContractEvalResult> {
   for (const contract of contracts) {
     if (!(await contract.check({ cwd }))) {
       return {

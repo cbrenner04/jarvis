@@ -193,6 +193,11 @@ event follows the `token_reprompt` event in the log. A second miss whose
 contracts all pass records `complete` (token `done`) and the write loop
 commits and publishes as for a token-emitting completion. A re-prompted
 `done`/`no-work` runs contract checks exactly as a first-response token would.
+When a `blocked` token misses the blocker-text contract after one
+`blocker_reprompt`, the write loop appends `missing_blocker_detail` (attempt id
++ the re-prompt response text, truncated to `INVALID_TOKEN_LOG_MAX_CHARS`) after
+`blocker_reprompt` — same truncation and ellipsis as `token_reprompt` /
+`invalid_token_detail`.
 
 ## Review cycle
 

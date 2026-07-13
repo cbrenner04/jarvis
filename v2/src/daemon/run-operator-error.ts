@@ -9,6 +9,7 @@ const RUN_OPERATOR_ERROR_REASONS = [
   "agent_blocked",
   "contract_miss",
   "invalid_token",
+  "missing_blocker",
   "quota_exhausted",
   "model_config",
   "no_binding",
@@ -102,6 +103,8 @@ function mapInvocationFromAttempt(attempt: Attempt): RunOperatorError | undefine
   switch (attempt.outcomeKind) {
     case "invalid_token":
       return op("invalid_token", "resume", true);
+    case "missing_blocker":
+      return op("missing_blocker", "resume", true);
     case "blocked":
       return op("agent_blocked", "inspect_spec");
     case "contract_miss":
@@ -158,6 +161,9 @@ export function composeRunOperatorError(
   const lastAttempt = lastCommittedAttempt(run.attempts);
   if (lastAttempt?.outcomeKind === "invalid_token") {
     return op("invalid_token", "resume", true);
+  }
+  if (lastAttempt?.outcomeKind === "missing_blocker") {
+    return op("missing_blocker", "resume", true);
   }
 
   const resumable = RESUMABLE_TERMINALS[run.status];

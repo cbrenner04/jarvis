@@ -253,9 +253,17 @@ const ORPHAN_STATUSES = "'queued', 'in-progress', 'paused', 'budget-soft-stopped
 /** Probes whether the process recorded as a run's owner is still alive. */
 export type OwnerLivenessProbe = (identity: string) => Promise<boolean>;
 
+/** Bounds the `ps` probe so a hung or missing `ps` can't block module init indefinitely. */
+const PS_PROBE_TIMEOUT_MS = 2000;
+
 async function readProcessStartEpoch(pid: number): Promise<number | null> {
   try {
-    const stdout = await realAsyncSubprocessRunner.runAsync("ps", ["-o", "lstart=", "-p", String(pid)], process.cwd());
+    const stdout = await realAsyncSubprocessRunner.runAsync(
+      "ps",
+      ["-o", "lstart=", "-p", String(pid)],
+      process.cwd(),
+      { timeoutMs: PS_PROBE_TIMEOUT_MS },
+    );
     const trimmed = stdout.trim();
     if (!trimmed) return null;
     const epoch = Date.parse(trimmed);
@@ -287,8 +295,11 @@ export async function isOwnerAlive(
   if (!Number.isFinite(pid)) return false;
   try {
     process.kill(pid, 0);
-  } catch {
-    return false;
+  } catch (err) {
+    // ESRCH confirms the pid doesn't exist. Any other failure (e.g. EPERM, meaning the pid
+    // exists but we can't signal it) is not confirmation of death, so treat as alive.
+    if ((err as NodeJS.ErrnoException).code === "ESRCH") return false;
+    return true;
   }
   const currentEpoch = await readStartEpoch(pid);
   if (currentEpoch === null) return true;

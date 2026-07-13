@@ -77,6 +77,7 @@ async function runLoop(args: {
     bindings: args.bindings,
     stateStore: store,
     withExternalWorktree: createFakeWithExternalWorktree(args.jarvisRoot),
+    sessionsDir: join(args.jarvisRoot, "sessions"),
     ...(args.maxIterations !== undefined ? { maxIterations: args.maxIterations } : {}),
     ...(args.signal !== undefined ? { signal: args.signal } : {}),
     ...(args.logSink !== undefined ? { logSink: args.logSink } : {}),
@@ -137,6 +138,7 @@ async function runLoopWithPause(args: {
     stateStore: store,
     pauseSignal: pauseController.signal,
     withExternalWorktree: createFakeWithExternalWorktree(args.jarvisRoot),
+    sessionsDir: join(args.jarvisRoot, "sessions"),
   };
   if (args.maxIterations !== undefined) {
     loopInput.maxIterations = args.maxIterations;
@@ -1605,6 +1607,7 @@ describe("write loop", () => {
         bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
         stateStore: store,
         withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
         logSink: sink,
       });
 
@@ -1649,6 +1652,7 @@ describe("write loop", () => {
         bindings: simulatedBindings(["done"]),
         stateStore: store,
         withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
         logSink: sink,
         iterationTimeoutMs: 10,
       });
@@ -1688,6 +1692,7 @@ describe("write loop", () => {
         expectedArtifactPath: "proof.txt",
         bindings: simulatedBindings(["done"]),
         stateStore: store,
+        sessionsDir: join(jarvisRoot, "sessions"),
         iterationTimeoutMs: 5,
         withExternalWorktree: async (_worktree, run) => {
           await new Promise((resolve) => setTimeout(resolve, 20));
@@ -1751,6 +1756,7 @@ describe("write loop", () => {
         bindings: simulatedBindings(["progress"]),
         stateStore: store,
         withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
         logSink: sink,
         iterationTimeoutMs: 25,
       });
@@ -1787,6 +1793,7 @@ describe("write loop", () => {
         bindings: simulatedBindings(["done"]),
         stateStore: store,
         withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
         signal: earlyAbort.signal,
         iterationTimeoutMs: 40,
       });
@@ -1808,6 +1815,7 @@ describe("write loop", () => {
         bindings: simulatedBindings(["done"]),
         stateStore: store,
         withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
         signal: lateAbort.signal,
         iterationTimeoutMs: 5,
       });
@@ -1845,6 +1853,7 @@ describe("write loop", () => {
         bindings: simulatedBindings(["progress"]),
         stateStore: store,
         withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
         signal: controller.signal,
       });
 
@@ -1893,6 +1902,7 @@ describe("write loop", () => {
         bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
         stateStore: store,
         withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
         promptId: "custom.prompt",
         promptPlaceholders: { FOO: "bar" },
       };

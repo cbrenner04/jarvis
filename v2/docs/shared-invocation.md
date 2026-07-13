@@ -74,8 +74,9 @@ synchronous write-through, so a line is readable from another handle
 immediately after `append` returns. Appends after `close()` are dropped
 silently; `close()` is idempotent. Open, mkdir, and append failures are
 swallowed — the writer degrades to a no-op sink rather than blocking the
-invocation it observes. No v2 caller wires this in yet; the writer is invoked
-directly in tests until a real caller opens a file.
+invocation it observes. `v2/src/execution/write-loop.ts` is the caller: it
+opens a session log per iteration. See `v2/docs/daemon-host.md` for the
+write-loop-level contract.
 
 ## Terminal `failureKind` (binding-chain stop)
 

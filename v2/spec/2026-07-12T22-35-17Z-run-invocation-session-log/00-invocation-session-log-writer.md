@@ -39,26 +39,26 @@ Within one log, each binding attempt in the fallback chain appends its own
 
 ## Acceptance criteria
 
-- [ ] Opening a session log for namespace + timestamp creates
+- [x] Opening a session log for namespace + timestamp creates
       `<sessionsDir>/<namespace>-<timestamp>.log`, creating the directory when absent.
-- [ ] Each written line is `<ISO-8601 ts> [<tag>] <text>` with multi-line text split into
+- [x] Each written line is `<ISO-8601 ts> [<tag>] <text>` with multi-line text split into
       one stamped line per source line, and is readable from another process/handle
       immediately after the append returns.
-- [ ] Appends after `close()` are dropped (no throw, no file growth); a second `close()`
+- [x] Appends after `close()` are dropped (no throw, no file growth); a second `close()`
       is a no-op.
-- [ ] An unwritable sessions dir (open or mkdir fails) yields a writer whose writes are
+- [x] An unwritable sessions dir (open or mkdir fails) yields a writer whose writes are
       no-ops; `executeWithQuotaFallback` returns its normal result.
-- [ ] With a session log attached, `executeWithQuotaFallback` writes the binding's
+- [x] With a session log attached, `executeWithQuotaFallback` writes the binding's
       `harness` line and the `outbound` prompt before the binding is invoked (observable
       from inside a binding stub that reads the log mid-invoke).
-- [ ] With a session log attached, a settled `ok` binding writes its stdout under
+- [x] With a session log attached, a settled `ok` binding writes its stdout under
       `inbound_stdout` and its stderr under `inbound_stderr`.
-- [ ] A `quota`, `model_config`, or `error` binding result writes its diagnostics under
+- [x] A `quota`, `model_config`, or `error` binding result writes its diagnostics under
       `inbound_stderr`, and a subsequent fallback binding attempt writes its own `harness`
       + `outbound` lines to the same log.
-- [ ] A writer whose append throws does not fail the invocation; the invocation result is
+- [x] A writer whose append throws does not fail the invocation; the invocation result is
       unchanged.
-- [ ] `executeWithQuotaFallback` and `runStep` with no `sessionLog` behave exactly as
+- [x] `executeWithQuotaFallback` and `runStep` with no `sessionLog` behave exactly as
       before: `execute.test.ts` and `step-runner.test.ts` stay green.
 
 ## Documentation updates

@@ -1,4 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   executeWithQuotaFallback,
   type InvocationBinding,
@@ -6,7 +9,17 @@ import {
   type InvocationResult,
   type InvocationTelemetrySink,
 } from "./execute.ts";
-import type { SessionLog, SessionLogTag } from "./session-log.ts";
+import { openSessionLog, type SessionLog, type SessionLogTag } from "./session-log.ts";
+
+let scratchDir: string;
+
+beforeEach(() => {
+  scratchDir = mkdtempSync(join(tmpdir(), "jarvis-execute-session-log-"));
+});
+
+afterEach(() => {
+  rmSync(scratchDir, { recursive: true, force: true });
+});
 
 function fakeSessionLog(): { log: SessionLog; lines: { tag: SessionLogTag; text: string }[] } {
   const lines: { tag: SessionLogTag; text: string }[] = [];
@@ -273,5 +286,42 @@ describe("shared invocation fallback", () => {
     });
 
     expect(result.final?.result.kind).toBe("ok");
+  });
+
+  test("an unwritable sessions dir does not change the invocation result", async () => {
+    const blockerPath = join(scratchDir, "blocker");
+    writeFileSync(blockerPath, "not a directory");
+    const sessionsDir = join(blockerPath, "sessions");
+    const log = openSessionLog("write", "unwritable", { sessionsDir });
+
+    const result = await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      sessionLog: log,
+      bindings: [binding("only", { kind: "ok", stdout: "done", stderr: "" })],
+    });
+
+    expect(result.final?.result.kind).toBe("ok");
+    log.close();
+  });
+
+  test("model_config and error results write stderr under inbound_stderr", async () => {
+    const modelLog = fakeSessionLog();
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      sessionLog: modelLog.log,
+      bindings: [binding("model", { kind: "model_config", stderr: "bad model" })],
+    });
+    expect(modelLog.lines.filter((l) => l.tag === "inbound_stderr").map((l) => l.text)).toEqual(["bad model"]);
+
+    const errorLog = fakeSessionLog();
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      sessionLog: errorLog.log,
+      bindings: [binding("err", { kind: "error", exitCode: 1, stderr: "spawn failed" })],
+    });
+    expect(errorLog.lines.filter((l) => l.tag === "inbound_stderr").map((l) => l.text)).toEqual(["spawn failed"]);
   });
 });

@@ -32,20 +32,20 @@ result.
 
 ## Acceptance criteria
 
-- [ ] A completed write-loop iteration leaves exactly one session log file under the
+- [x] A completed write-loop iteration leaves exactly one session log file under the
       injected sessions dir containing the harness line, the outbound prompt, the agent's
       stdout/stderr, and a settle `harness` line naming the `completed` outcome.
-- [ ] The session log file exists and contains the harness + outbound lines before the
+- [x] The session log file exists and contains the harness + outbound lines before the
       agent binding settles (observable from a binding stub that stats/reads the file
       during `invoke`).
-- [ ] A second iteration of the same run writes a second, distinct session log file (no
+- [x] A second iteration of the same run writes a second, distinct session log file (no
       filename collision when both iterations land in the same second).
-- [ ] An iteration that times out leaves a closed session log containing its harness +
+- [x] An iteration that times out leaves a closed session log containing its harness +
       outbound lines and a settle `harness` line naming the `timeout` outcome.
-- [ ] An iteration whose `executeWrite` throws, and an aborted (paused/killed) iteration,
+- [x] An iteration whose `executeWrite` throws, and an aborted (paused/killed) iteration,
       each leave a closed session log whose settle `harness` line names the `error` /
       `abort` outcome.
-- [ ] Existing `write-loop.test.ts` and `write.test.ts` stay green (session logging is
+- [x] Existing `write-loop.test.ts` and `write.test.ts` stay green (session logging is
       additive to loop outcomes).
 
 ## Documentation updates

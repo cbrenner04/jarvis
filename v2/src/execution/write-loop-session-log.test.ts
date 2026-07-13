@@ -5,12 +5,13 @@ import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
+import { executeWrite as realExecuteWrite } from "./write.ts";
+import { executeWriteLoop } from "./write-loop.ts";
 
 const { roots } = trackedTempRoots();
 
-async function restoreExecuteWrite(): Promise<void> {
-  const { executeWrite } = await import("./write.ts");
-  mock.module("./write.ts", () => ({ executeWrite }));
+function restoreExecuteWrite(): void {
+  mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
 }
 
 async function runLoop(args: {
@@ -26,7 +27,7 @@ async function runLoop(args: {
 }) {
   roots.push(join(args.jarvisRoot, ".."));
   const store = openStateStore(args.stateDbPath);
-  const { executeWriteLoop } = await import("./write-loop.ts");
+  restoreExecuteWrite();
   try {
     return await executeWriteLoop({
       worktree: {
@@ -82,13 +83,13 @@ function hangingBindings(): InvocationBinding[] {
   ];
 }
 
-describe("write loop session logs", () => {
-  beforeEach(async () => {
-    await restoreExecuteWrite();
+describe.serial("write loop session logs", () => {
+  beforeEach(() => {
+    restoreExecuteWrite();
   });
 
-  afterEach(async () => {
-    await restoreExecuteWrite();
+  afterEach(() => {
+    restoreExecuteWrite();
   });
 
   test("a completed iteration writes harness, outbound, inbound, and outcome=completed", async () => {
@@ -232,7 +233,6 @@ describe("write loop session logs", () => {
     }));
 
     try {
-      const { executeWriteLoop } = await import("./write-loop.ts");
       const result = await executeWriteLoop({
         worktree: { projectRoot: "/fake", projectName: "demo", branchName: "session-throw", baseRef: "HEAD", jarvisRoot },
         specPath: "spec.md",
@@ -250,7 +250,7 @@ describe("write loop session logs", () => {
       expect(content).toContain("outcome=error");
     } finally {
       store.close();
-      await restoreExecuteWrite();
+      restoreExecuteWrite();
     }
   });
 });

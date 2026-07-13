@@ -265,6 +265,14 @@ git worktree prune
 
 Seed: `v2-cleanup-command`. Cleanup: delete when it ships.
 
+### Blocked run: inspect and resume
+
+A `blocked` run (agent appended `## Blocker` to the spec) keeps its worktree,
+branch, and `git worktree list` registration — `blocked` is inspect-and-resume,
+not terminal. `jarvis run list` and `jarvis run wait <run-id>` report
+`worktreePath` for blocked rows; inspect the spec/uncommitted work there, resolve
+the blocker, then resume.
+
 ### Orphaned non-terminal runs after daemon restart
 
 Reconciled automatically at daemon start (#1430, race fixed by #1476–#1478): durable

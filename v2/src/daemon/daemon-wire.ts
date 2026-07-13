@@ -29,6 +29,8 @@ export type DaemonListRunRow = {
   /** Retained implement review behavior; absent on non-implement workflow rows. */
   reviewBehavior?: "debate" | "light";
   workflow?: DaemonWorkflowSnapshot;
+  /** Surviving worktree path; present on `blocked` rows so the operator can locate resumable work. */
+  worktreePath?: string;
 };
 
 /** Successful daemon `list` wire payload. */

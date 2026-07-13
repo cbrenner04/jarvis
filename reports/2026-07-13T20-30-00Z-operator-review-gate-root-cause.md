@@ -85,9 +85,18 @@ not a regression — it only ever wired the *intent* path; `plan` and `implement
 
 ## Cost
 
-Jarvis spend is **unattributable**: 139 invocations recorded since 18:00Z, all with
-`cost_usd: null` / `usage_source: unavailable`. Seed
-`runs-jsonl-cannot-measure-agent-invocation-duration` is adjacent but does not cover cost
-attribution — worth its own seed if this matters.
+Jarvis spend for v2 is **unattributable**: all **16** real v2 invocations this session carry
+`cost_usd: null` / `usage_source: unavailable`. The one v1 run recorded **$6.84** normally.
+
+**Correction.** This report originally said "139 invocations". That count was wrong: 93% of
+`~/.jarvis/telemetry.jsonl` was **test-fixture data** — the suite wrote `project: demo` rows
+into the operator's real home on every `bun run test`. Filtering them leaves 16 real
+invocations. The cost finding is unchanged (16 of 16 carry no cost); only the count was
+inflated. Seed `tests-write-telemetry-to-the-operator-home`; fixed by #1496; the file and
+`v2.sqlite` have been purged with backups.
+
+**`runs.jsonl` is clean** (0 of 6,173 rows polluted), so no prior session's cost sheets are
+affected. It simply has no v2 rows at all — v2 writes only `telemetry.jsonl`. That, not the
+pollution, is why v2 cost is dark: seed `shared-invocation-loses-cost-and-claude-output`.
 
 Operator cost: pending `/cost`.

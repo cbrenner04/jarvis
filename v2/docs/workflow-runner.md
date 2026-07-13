@@ -552,6 +552,16 @@ durable write or human step; matching includes each review entry's
 projection, with critic/actuator start and terminal completed/stopped progress,
 while durable run lookup considers only write and human steps.
 
+**Log events:** Only a review step with `deferredIntentOutput` (a durable run row)
+appends to that run's log — plain review steps have no run row and stay silent.
+It appends `iteration_started` (the step's `attemptId`) before critic/actuator
+execution, then a terminal `loop_finished` (outcome kind, cycles consumed,
+`resumable`) once the step's outcome — including any landing that runs inline —
+is known, on both the completed and `invocation_failure` paths. A step re-entered
+at its landing checkpoint (resumed after a recorded landing failure) emits its
+own `iteration_started`/`loop_finished` pair around that landing retry, on the
+same run row.
+
 Workflow loading accepts `review` source steps; presets and YAML/config authoring
 do not accept them in this slice.
 

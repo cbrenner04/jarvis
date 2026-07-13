@@ -18,12 +18,12 @@ run (reviewed-intent workflows, where `deferredIntentOutput` is set and
 
 ## Acceptance criteria
 
-- [ ] `runReviewStep` receives the step's `logSink` from `runWorkflowStep`.
-- [ ] A review step with a durable run row appends `iteration_started` (with its `attemptId`) to that run's log before critic/actuator execution.
-- [ ] The same step appends a terminal `loop_finished` carrying its outcome kind, cycles consumed, and `resumable` flag, on both the completed and the `invocation_failure` path.
-- [ ] A review step re-entered at its landing checkpoint emits the same start and terminal events on the existing run row.
-- [ ] Review steps without a durable run row append nothing.
-- [ ] `v2/src/execution/workflow-runner.test.ts` covers the above by reading the review run's log records (not run status).
+- [x] `runReviewStep` receives the step's `logSink` from `runWorkflowStep`.
+- [x] A review step with a durable run row appends `iteration_started` (with its `attemptId`) to that run's log before critic/actuator execution.
+- [x] The same step appends a terminal `loop_finished` carrying its outcome kind, cycles consumed, and `resumable` flag, on both the completed and the `invocation_failure` path.
+- [x] A review step re-entered at its landing checkpoint emits the same start and terminal events on the existing run row.
+- [x] Review steps without a durable run row append nothing.
+- [x] `v2/src/execution/workflow-runner.test.ts` covers the above by reading the review run's log records (not run status).
 
 ## Documentation updates
 

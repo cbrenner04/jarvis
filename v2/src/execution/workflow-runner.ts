@@ -338,6 +338,7 @@ async function runWorkflowStep(
       telemetry,
       onStepRunCreated,
       store,
+      logSink,
     );
   }
 
@@ -1462,8 +1463,10 @@ async function finishReviewedIntentLanding(
   runId: string,
   store: StateStore,
   completionAgent: string | undefined,
+  logSink?: LogSink,
 ): Promise<ReviewStepOutcome> {
   const attemptId = store.recordAttemptStart(runId);
+  logSink?.append(runId, { kind: "iteration_started", attemptId });
   const landingError = await landReviewedIntentOutput(step.cwd, deferred, step.verdictPath);
   if (landingError !== undefined) {
     store.commitCompletionBoundary({
@@ -1472,7 +1475,14 @@ async function finishReviewedIntentLanding(
       outcomeKind: "invocation_failure",
       invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: landingError },
     });
-    return { kind: "invocation_failure", runId, iterationsConsumed: 0, resumable: true };
+    const outcome: ReviewStepOutcome = { kind: "invocation_failure", runId, iterationsConsumed: 0, resumable: true };
+    logSink?.append(runId, {
+      kind: "loop_finished",
+      loopOutcomeKind: outcome.kind,
+      iterationsConsumed: outcome.iterationsConsumed,
+      resumable: outcome.resumable,
+    });
+    return outcome;
   }
   store.commitCompletionBoundary({
     attemptId,
@@ -1480,13 +1490,20 @@ async function finishReviewedIntentLanding(
     outcomeKind: "done",
     ...(completionAgent ? { completionAgent } : {}),
   });
-  return {
+  const outcome: ReviewStepOutcome = {
     kind: "complete",
     runId,
     iterationsConsumed: 0,
     resumable: false,
     ...(completionAgent ? { completionAgent } : {}),
   };
+  logSink?.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: outcome.kind,
+    iterationsConsumed: outcome.iterationsConsumed,
+    resumable: outcome.resumable,
+  });
+  return outcome;
 }
 
 type ReviewStepExecutionIds = {
@@ -1759,6 +1776,7 @@ async function runReviewStep(
   telemetry: WorkflowTelemetryContext | undefined,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
   store: StateStore,
+  logSink: LogSink | undefined,
 ): Promise<ReviewStepOutcome> {
   const { deferredIntentOutput, planReviewContext, patchReviewContext, ...reviewInput } = step;
 
@@ -1774,6 +1792,7 @@ async function runReviewStep(
         checkpoint.id,
         store,
         reviewCompletionAgent(checkpoint),
+        logSink,
       );
     }
   }
@@ -1796,32 +1815,34 @@ async function runReviewStep(
   };
   onStepRunCreated?.(stepIndex, ids.runId);
 
-  if (patchReviewContext !== undefined) {
-    return runPatchReviewStep(
-      step,
-      reviewInput,
-      patchReviewContext,
-      ids,
-      bindings,
-      invocationId,
-      onProgress,
-      telemetry,
-    );
+  if (deferredIntentOutput !== undefined) {
+    logSink?.append(ids.runId, { kind: "iteration_started", attemptId: ids.attemptId });
   }
 
-  if (planReviewContext !== undefined) {
-    return runPlanReviewStep(step, reviewInput, planReviewContext, ids, bindings, invocationId, onProgress, telemetry);
+  const outcome = await (patchReviewContext !== undefined
+    ? runPatchReviewStep(step, reviewInput, patchReviewContext, ids, bindings, invocationId, onProgress, telemetry)
+    : planReviewContext !== undefined
+      ? runPlanReviewStep(step, reviewInput, planReviewContext, ids, bindings, invocationId, onProgress, telemetry)
+      : runStandardReviewStep(
+          step,
+          reviewInput,
+          deferredIntentOutput,
+          ids,
+          bindings,
+          invocationId,
+          onProgress,
+          telemetry,
+          store,
+        ));
+
+  if (deferredIntentOutput !== undefined) {
+    logSink?.append(ids.runId, {
+      kind: "loop_finished",
+      loopOutcomeKind: outcome.kind,
+      iterationsConsumed: outcome.iterationsConsumed,
+      resumable: outcome.resumable,
+    });
   }
 
-  return runStandardReviewStep(
-    step,
-    reviewInput,
-    deferredIntentOutput,
-    ids,
-    bindings,
-    invocationId,
-    onProgress,
-    telemetry,
-    store,
-  );
+  return outcome;
 }

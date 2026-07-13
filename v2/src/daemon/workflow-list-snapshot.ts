@@ -11,6 +11,7 @@ export type WorkflowStepTerminalOutcome =
   | "iteration_timeout"
   | "budget-exhausted"
   | "paused"
+  | "invalid_token"
   | "killed"
   | "awaiting-human";
 
@@ -107,7 +108,9 @@ export function stoppedOutcomeForRun(run: LoadedRun): Exclude<WorkflowStepTermin
     return run.attempts[run.attempts.length - 1]?.outcomeKind === "contract_miss" ? "contract_miss" : "blocked";
   }
   if (run.status === "budget-soft-stopped") return "budget-exhausted";
-  if (run.status === "paused") return "paused";
+  if (run.status === "paused") {
+    return run.attempts[run.attempts.length - 1]?.outcomeKind === "invalid_token" ? "invalid_token" : "paused";
+  }
   if (run.status === "killed") return "killed";
   if (run.status === "awaiting-human") return "awaiting-human";
   if (run.attempts[run.attempts.length - 1]?.outcomeKind === "iteration_timeout") return "iteration_timeout";

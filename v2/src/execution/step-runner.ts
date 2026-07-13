@@ -135,7 +135,12 @@ function requestBlockerReprompt(args: StepRunInput): Promise<InvocationExecution
 }
 
 function blockerTextContractSatisfied(contract: BlockerTextContract): boolean {
-  const specAfter = readFileSync(contract.specPath, "utf8");
+  let specAfter: string;
+  try {
+    specAfter = readFileSync(contract.specPath, "utf8");
+  } catch {
+    return false;
+  }
   return hasGenuineBlocker(contract.specBefore, specAfter);
 }
 

@@ -1,0 +1,7 @@
+## Verdict
+
+**Required outcome:** The blocker-text contract check must not throw an unhandled exception if the resolved spec file is unreadable (deleted, moved, or otherwise inaccessible) at the moment either the pre-reprompt or post-reprompt check runs. A read failure at check time must be treated the same as a missing/empty `## Blocker` — i.e., routed into the existing miss path (re-prompt, then `missing_blocker` on a second miss) — not allowed to propagate as a raw exception out of `runStep`.
+
+**Rationale:** The spec's entire purpose is to replace a silent, non-diagnosable `blocked` outcome with a controlled, resumable one (`blocked` / `missing_blocker`). An unguarded read that crashes `runStep` on a vanished/moved spec file produces an outcome strictly worse than the bug being fixed — a hard crash instead of any of the defined terminal outcomes. This is a robustness gap in the mechanism the acceptance criteria depend on, not a new design decision: "unreadable spec file at check time is a miss, not a crash" follows directly from the spec's existing miss/reprompt/reject shape and requires no new decision or outcome surface.
+
+**Not required:** The construction-time guard where the contract is silently skipped if the spec file doesn't exist at invocation start is lower severity (fails open to pre-spec behavior, not a crash) and is outside what the spec's decisions commit to. No change required here; may be addressed opportunistically using the same treat-as-miss pattern if convenient, but it does not block this spec.

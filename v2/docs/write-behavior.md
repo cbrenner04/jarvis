@@ -193,6 +193,11 @@ event follows the `token_reprompt` event in the log. A second miss whose
 contracts all pass records `complete` (token `done`) and the write loop
 commits and publishes as for a token-emitting completion. A re-prompted
 `done`/`no-work` runs contract checks exactly as a first-response token would.
+When a `blocked` token misses the blocker-text contract after one
+`blocker_reprompt`, the write loop appends `missing_blocker_detail` (attempt id
++ the re-prompt response text, truncated to `INVALID_TOKEN_LOG_MAX_CHARS`) after
+`blocker_reprompt` — same truncation and ellipsis as `token_reprompt` /
+`invalid_token_detail`.
 
 ## Review cycle
 
@@ -585,15 +590,28 @@ The loop classifies and routes results:
   to the spec and stop (`contract_miss`). A missing terminal token after the
   one re-prompt uses the same contract checks: all pass → `complete` (token
   `done`); any fail → `invalid_token` (no `## Blocker` append).
-- **`blocked`**: agent is blocked. Loop stops immediately (terminal `blocked`,
-  distinct from `contract_miss`).
+- **`blocked`**: agent is blocked. Default write steps declare a
+  `write.blocker-text` contract: the resolved spec file must gain a new non-empty
+  `## Blocker` section during the invocation (before/after against content
+  captured before spawn — presence-only is insufficient because harness-appended
+  or stale blockers would pass). Satisfied → loop stops as terminal `blocked`
+  (distinct from `contract_miss`). Miss → one `write.blocker-reprompt`
+  (`prompts/write/blocker-reprompt.md`) over the same bindings; the write loop
+  appends `blocker_reprompt` (not `token_reprompt`) with the first response text.
+  Re-prompt satisfied → terminal `blocked`. Second miss → `missing_blocker`:
+  loop `kind: "invocation_failure"`, `runStatus: "paused"`,
+  `outcomeKind: "missing_blocker"`, `resumable: true`, exit code `2`, with
+  `missing_blocker_detail` carrying the re-prompt response text. Intent-split and
+  plan-draft steps omit the contract and keep today's short-circuit.
 - **Budget exhausted** while still `progress`: loop exits with a soft-stop outcome
   (distinct from `blocked`, marked resumable). Re-invoking the same run resumes
   remaining spec work with a fresh per-invocation budget.
 - **`invocation_failure`**: binding chain stopped without usable agent output, or
-  token parse failed after a successful invocation (`invalid_token`). Foreground
-  `jarvis write` stdout JSON uses `kind: "invocation_failure"` for both cases;
-  see below. `invalid_token` finishes `resumable: true` with durable
+  token parse failed after a successful invocation (`invalid_token`), or a
+  `blocked` token missed the blocker-text contract after re-prompt
+  (`missing_blocker`). Foreground
+  `jarvis write` stdout JSON uses `kind: "invocation_failure"` for all three cases;
+  see below. `invalid_token` and `missing_blocker` finish `resumable: true` with durable
   `runStatus: "paused"` so re-invoking the same run resumes over the existing
   worktree.
 
@@ -608,7 +626,9 @@ When the step result is binding-chain `invocation_failure`, stdout JSON includes
   production rung bindings use `agentId/adapterModel/priceKey`
 
 `invalid_token` also maps to loop `kind: "invocation_failure"` but **omits**
-`failureKind` and `bindingAttempts`, and finishes `resumable: true`. Other
+`failureKind` and `bindingAttempts`, and finishes `resumable: true`. `missing_blocker`
+mirrors `invalid_token` exactly (same loop kind, paused status, resumable, no binding
+detail) and adds `missing_blocker_detail` to the run log. Other
 terminal outcomes (`complete`, `blocked`, `contract_miss`, `budget-exhausted`)
 omit them too. Idempotent re-entry returns persisted binding-chain detail only
 when the terminal attempt row has `invocation_failure_detail` stored; legacy

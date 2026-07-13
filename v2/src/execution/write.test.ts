@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
@@ -107,14 +107,17 @@ describe("write behavior", () => {
     expect(result.result.kind).toBe("contract_miss");
   });
 
-  test("blocked token returns blocked without contract pass", async () => {
+  test("blocked token with blocker text returns blocked", async () => {
     const { jarvisRoot } = createJarvisHome();
     const result = await runWrite({
       jarvisRoot,
       bindings: [
         {
           id: "agent",
-          invoke: async () => ({ kind: "ok", stdout: "blocked", stderr: "" }),
+          invoke: async ({ cwd }) => {
+            appendFileSync(join(cwd, "spec.md"), "\n## Blocker\n\nstuck\n", "utf8");
+            return { kind: "ok", stdout: "blocked", stderr: "" };
+          },
         },
       ],
     });
@@ -375,6 +378,36 @@ describe("write behavior", () => {
     if (result.result.kind === "invocation_failure") {
       expect(result.result.failureKind).toBe("model_config");
     }
+  });
+
+  test("plan-draft blocked token without blocker text stays blocked", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const specPath = "v2/spec/2099-01-01T00-00-02Z-plan-blocked";
+
+    const result = await executeWrite({
+      worktree: {
+        projectRoot: "/fake",
+        projectName: "demo",
+        branchName: "plan-blocked-token",
+        baseRef: "HEAD",
+        jarvisRoot,
+      },
+      specPath,
+      stepRules: "unused",
+      expectedArtifactPath: ".jarvis-plan-stage",
+      promptId: "plan.prompt.draft",
+      intentSeed: "---\nname: blocked\n---\n\n## Prerequisites\n\nnone\n",
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => ({ kind: "ok", stdout: "blocked", stderr: "" }),
+        },
+      ],
+      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+    });
+
+    expect(result.result.kind).toBe("blocked");
   });
 
   test("intentSeed branch: a genuine blocker in intent.md short-circuits completion", async () => {

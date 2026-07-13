@@ -107,7 +107,7 @@ export function parseRunnableIndexTier(content: string): { tier: PatchTier | und
 }
 
 /** Extract blocker body from content, returning undefined if empty or absent. */
-function extractBlockerBody(content: string): { index: number; body: string | undefined } | undefined {
+export function extractBlockerBody(content: string): { index: number; body: string | undefined } | undefined {
   const lines = content.replace(/\r\n/g, "\n").split("\n");
 
   let exactBlockerHeaderIndex: number | undefined;
@@ -142,6 +142,36 @@ function extractBlockerBody(content: string): { index: number; body: string | un
     index: exactBlockerHeaderIndex,
     body: body.length > 0 ? body : undefined,
   };
+}
+
+function readFrontmatter(text: string): string | null {
+  const normalized = text.replace(/\r\n/g, "\n");
+  if (!normalized.startsWith("---\n")) {
+    return null;
+  }
+  const end = normalized.indexOf("\n---\n", 4);
+  if (end === -1) {
+    return null;
+  }
+  return normalized.slice(0, end + 5);
+}
+
+/** True when `after` is `before` plus a newly appended non-empty `## Blocker` section. */
+export function hasGenuineBlocker(before: string, after: string): boolean {
+  const blocker = extractBlockerBody(after);
+
+  if (blocker === undefined || blocker.body === undefined) {
+    return false;
+  }
+
+  if (readFrontmatter(before) !== readFrontmatter(after)) {
+    return false;
+  }
+
+  const afterLines = after.replace(/\r\n/g, "\n").split("\n");
+  const beforeBlocker = afterLines.slice(0, blocker.index).join("\n").trim();
+
+  return beforeBlocker === before.trim();
 }
 
 /** Extract h1 heading from content. */

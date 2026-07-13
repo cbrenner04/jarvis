@@ -123,6 +123,17 @@ test("composeRunOperatorError returns invalid_token from log and store-only last
   expect(composeRunOperatorError(storeRun)).toEqual(expected);
 });
 
+test("composeRunOperatorError returns missing_blocker from log and store-only last-attempt missing_blocker", () => {
+  const storeRun = runWith("paused", [attempt("missing_blocker")]);
+  const expected = err("missing_blocker", "resume", true);
+
+  expect(composeRunOperatorError(storeRun, loopFinished("invocation_failure"))).toEqual(expected);
+  expect(composeRunOperatorError(storeRun)).toEqual(expected);
+  expect(composeRunOperatorError(runWith("paused", [attempt("missing_blocker")]), loopFinished("paused"))).toEqual(
+    expected,
+  );
+});
+
 test("composeRunOperatorError returns invocation_error for legacy detail-free binding-chain invocation_failure", () => {
   const storeRun = runWith("failed", [attempt("invocation_failure", null)]);
   const expected = err("invocation_error", "stop");

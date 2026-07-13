@@ -64,23 +64,23 @@ the operator gets a non-resumable run with nothing to inspect.
 
 ## Acceptance criteria
 
-- [ ] A `blocked` token from a default write whose invocation added a `## Blocker` with a non-empty
+- [x] A `blocked` token from a default write whose invocation added a `## Blocker` with a non-empty
       body to the resolved spec file terminates the run as `blocked` exactly as today
       (`write-loop.test.ts` blocked cases stay green).
-- [ ] A `blocked` token with no new `## Blocker` triggers exactly one `write.blocker-reprompt`
+- [x] A `blocked` token with no new `## Blocker` triggers exactly one `write.blocker-reprompt`
       invocation before any terminal outcome is recorded.
-- [ ] A `blocked` token whose spec file already carried a `## Blocker` before the invocation (e.g.
+- [x] A `blocked` token whose spec file already carried a `## Blocker` before the invocation (e.g.
       appended by an earlier `contract_miss`) and gained none during it is treated as a miss, not a
       pass.
-- [ ] If the re-prompt writes a `## Blocker` with a non-empty body, the run terminates as ordinary
+- [x] If the re-prompt writes a `## Blocker` with a non-empty body, the run terminates as ordinary
       `blocked` (`runStatus: "blocked"`, `outcomeKind: "blocked"`).
-- [ ] If the blocker is still missing after the re-prompt, the run terminates with loop
+- [x] If the blocker is still missing after the re-prompt, the run terminates with loop
       `kind: "invocation_failure"`, `runStatus: "paused"`, `outcomeKind: "missing_blocker"`,
       `resumable: true`, and exit code 2 — not `blocked`, not `contract_miss`.
-- [ ] The rejected result carries the re-prompted invocation's response text for the operator
+- [x] The rejected result carries the re-prompted invocation's response text for the operator
       surface to log.
-- [ ] The blocker re-prompt does not emit a `token_reprompt` log event.
-- [ ] Steps that do not declare the blocker-text contract (intent-split, plan-draft) return
+- [x] The blocker re-prompt does not emit a `token_reprompt` log event.
+- [x] Steps that do not declare the blocker-text contract (intent-split, plan-draft) return
       `blocked` unchanged, and plan-draft's `plan.draft.blocker` gate is untouched.
 
 ## Documentation updates

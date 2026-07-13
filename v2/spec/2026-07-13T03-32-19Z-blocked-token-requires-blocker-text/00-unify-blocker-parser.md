@@ -20,11 +20,11 @@ its copy. No caller's observable behavior changes.
 
 ## Acceptance criteria
 
-- [ ] A single exported `## Blocker` parser lives in `shared/spec-parser.ts`; `v2/src/execution/write.ts`
+- [x] A single exported `## Blocker` parser lives in `shared/spec-parser.ts`; `v2/src/execution/write.ts`
       has no local copy and imports it (`hasGenuineBlocker` and `parseSpec`/`detectBlocker`/
       `stripBlockerSection` all resolve to that one definition).
-- [ ] `spec-parser` and `write` test suites stay green (behavior unchanged by the extraction).
-- [ ] Plan-draft's `plan.draft.blocker` gate stays green (behavior unchanged by the extraction).
+- [x] `spec-parser` and `write` test suites stay green (behavior unchanged by the extraction).
+- [x] Plan-draft's `plan.draft.blocker` gate stays green (behavior unchanged by the extraction).
 
 ## Documentation updates
 

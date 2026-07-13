@@ -2,7 +2,7 @@ import { appendFileSync, existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { openSessionLog, type SessionLog } from "../../../shared/invocation/session-log.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
-import { INVALID_TOKEN_LOG_MAX_CHARS, type LogSink } from "../persistence/log-stream.ts";
+import { type LogSink, truncateLogText } from "../persistence/log-stream.ts";
 import {
   type OutcomeKind,
   openStateStore,
@@ -219,10 +219,15 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         args.logSink?.append(runId, {
           kind: "token_reprompt",
           attemptId,
-          responseText:
-            responseText.length <= INVALID_TOKEN_LOG_MAX_CHARS
-              ? responseText
-              : `${responseText.slice(0, INVALID_TOKEN_LOG_MAX_CHARS)}…`,
+          responseText: truncateLogText(responseText),
+        });
+      }
+
+      if (result.blockerReprompt !== undefined) {
+        args.logSink?.append(runId, {
+          kind: "blocker_reprompt",
+          attemptId,
+          responseText: truncateLogText(result.blockerReprompt.responseText),
         });
       }
 
@@ -276,14 +281,17 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         runStatus: terminal.runStatus,
       });
       if (result.kind === "invalid_token") {
-        const tokenText = result.tokenText;
         args.logSink?.append(runId, {
           kind: "invalid_token_detail",
           attemptId,
-          tokenText:
-            tokenText.length <= INVALID_TOKEN_LOG_MAX_CHARS
-              ? tokenText
-              : `${tokenText.slice(0, INVALID_TOKEN_LOG_MAX_CHARS)}…`,
+          tokenText: truncateLogText(result.tokenText),
+        });
+      }
+      if (result.kind === "missing_blocker") {
+        args.logSink?.append(runId, {
+          kind: "missing_blocker_detail",
+          attemptId,
+          responseText: truncateLogText(result.responseText),
         });
       }
 
@@ -298,7 +306,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         runId,
         terminal.kind,
         iterationsConsumed,
-        result.kind === "invalid_token",
+        result.kind === "invalid_token" || result.kind === "missing_blocker",
         detail,
         terminal.kind !== "complete",
       );
@@ -633,6 +641,9 @@ function terminalMapping(result: Exclude<StepRunResult, { kind: "progress" }>): 
   }
   if (result.kind === "invalid_token") {
     return { kind: "invocation_failure", runStatus: "paused", outcomeKind: "invalid_token" };
+  }
+  if (result.kind === "missing_blocker") {
+    return { kind: "invocation_failure", runStatus: "paused", outcomeKind: "missing_blocker" };
   }
   return { kind: "invocation_failure", runStatus: "failed", outcomeKind: "invocation_failure" };
 }

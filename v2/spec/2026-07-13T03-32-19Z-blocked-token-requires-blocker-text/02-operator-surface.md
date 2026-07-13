@@ -32,14 +32,14 @@ cannot see what the agent actually said.
 
 ## Acceptance criteria
 
-- [ ] A run terminated by a rejected `blocked` token reports `reason: "missing_blocker"`,
+- [x] A run terminated by a rejected `blocked` token reports `reason: "missing_blocker"`,
       `retryable: true`, `nextAction: "resume"` on `list` and on `wait` — not `resumable_pause`.
-- [ ] `nextAction` for that run is never `inspect_spec`.
-- [ ] An ordinary `blocked` run still reports `agent_blocked` / `retryable: false` / `inspect_spec`
+- [x] `nextAction` for that run is never `inspect_spec`.
+- [x] An ordinary `blocked` run still reports `agent_blocked` / `retryable: false` / `inspect_spec`
       (`run-operator-error.test.ts` existing blocked cases stay green).
-- [ ] The run log contains a `missing_blocker_detail` event carrying the agent's response text,
+- [x] The run log contains a `missing_blocker_detail` event carrying the agent's response text,
       truncated to `INVALID_TOKEN_LOG_MAX_CHARS` with the same ellipsis as `invalid_token_detail`.
-- [ ] `invalid_token_detail` and `token_reprompt` truncation behavior is unchanged.
+- [x] `invalid_token_detail` and `token_reprompt` truncation behavior is unchanged.
 
 ## Documentation updates
 

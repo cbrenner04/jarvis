@@ -47,6 +47,14 @@ export function formatLogFollowLine(record: PersistedRecord): string {
       add("attemptId", event.attemptId);
       addText("responseText", event.responseText);
       break;
+    case "blocker_reprompt":
+      add("attemptId", event.attemptId);
+      addText("responseText", event.responseText);
+      break;
+    case "missing_blocker_detail":
+      add("attemptId", event.attemptId);
+      addText("responseText", event.responseText);
+      break;
   }
 
   return parts.join(" ");

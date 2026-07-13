@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -78,7 +78,15 @@ const doneBindingFactory = createBindingFactory(async ({ cwd }) => {
 });
 
 function okTokenBindingFactory(stdout: string) {
-  return createBindingFactory(async () => ({ kind: "ok", stdout, stderr: "" }) as const);
+  return createBindingFactory(async ({ cwd }) => {
+    if (stdout === "blocked") {
+      const specPath = join(cwd, "spec.md");
+      if (existsSync(specPath)) {
+        appendFileSync(specPath, "\n## Blocker\n\nblocked\n", "utf8");
+      }
+    }
+    return { kind: "ok", stdout, stderr: "" } as const;
+  });
 }
 
 const errorBindingFactory = createBindingFactory(

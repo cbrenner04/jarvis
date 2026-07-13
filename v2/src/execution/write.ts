@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
 import type { SessionLog } from "../../../shared/invocation/session-log.ts";
@@ -10,13 +10,13 @@ import {
 import { buildPlanDraftPrompt } from "../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { PromptRenderingError } from "../../../shared/prompts/render.ts";
-import { extractBlockerBody } from "../../../shared/spec-parser.ts";
+import { hasGenuineBlocker } from "../../../shared/spec-parser.ts";
 import {
   type ExternalWorktreeInput,
   type LockStatus,
   withExternalWorktree as realWithExternalWorktree,
 } from "./external-worktree.ts";
-import { runStep, type StepRunResult } from "./step-runner.ts";
+import { runStep, type BlockerTextContract, type StepRunResult } from "./step-runner.ts";
 import { renderStepPrompt } from "./write-prompt.ts";
 
 const DEFAULT_PROMPT_ID = "write.execute";
@@ -86,37 +86,6 @@ function assembleWriteStepPlaceholders(
   return { ...resolved, ...(callerPlaceholders ?? {}) };
 }
 
-function readFrontmatter(text: string): string | null {
-  const normalized = text.replace(/\r\n/g, "\n");
-  if (!normalized.startsWith("---\n")) {
-    return null;
-  }
-  const end = normalized.indexOf("\n---\n", 4);
-  if (end === -1) {
-    return null;
-  }
-  return normalized.slice(0, end + 5);
-}
-
-function hasGenuineBlocker(intentBefore: string, intentAfter: string): boolean {
-  const blocker = extractBlockerBody(intentAfter);
-
-  if (blocker === undefined || blocker.body === undefined) {
-    return false;
-  }
-
-  // Frontmatter must be identical
-  if (readFrontmatter(intentBefore) !== readFrontmatter(intentAfter)) {
-    return false;
-  }
-
-  // Everything before the blocker section must match intentBefore
-  const afterLines = intentAfter.replace(/\r\n/g, "\n").split("\n");
-  const beforeBlocker = afterLines.slice(0, blocker.index).join("\n").trim();
-
-  return beforeBlocker === intentBefore.trim();
-}
-
 function validatePlanDraftShape(specDir: string): { valid: boolean; reason?: string } {
   if (!existsSync(specDir)) {
     return { valid: false, reason: "plan.draft.shape" };
@@ -173,6 +142,7 @@ function runWriteStep(
   args: WriteStepContext & {
     prompt: string;
     contracts: Array<{ id: string; reason?: string; check: () => boolean | Promise<boolean> }>;
+    blockerTextContract?: BlockerTextContract;
   },
 ): Promise<StepRunResult> {
   return runStep({
@@ -180,6 +150,7 @@ function runWriteStep(
     cwd: args.worktreePath,
     bindings: args.bindings,
     contracts: args.contracts,
+    ...(args.blockerTextContract !== undefined ? { blockerTextContract: args.blockerTextContract } : {}),
     ...(args.signal !== undefined ? { signal: args.signal } : {}),
     ...(args.invocationTelemetry !== undefined
       ? {
@@ -338,6 +309,15 @@ async function executeDefaultWrite(
         check: () => existsSync(expectedArtifactPath),
       },
     ],
+    ...(promptId === DEFAULT_PROMPT_ID && existsSync(specPath) && statSync(specPath).isFile()
+      ? {
+          blockerTextContract: {
+            id: "write.blocker-text",
+            specPath,
+            specBefore: readFileSync(specPath, "utf8"),
+          },
+        }
+      : {}),
     ...(args.signal !== undefined ? { signal: args.signal } : {}),
     ...(args.invocationTelemetry !== undefined ? { invocationTelemetry: args.invocationTelemetry } : {}),
     ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),

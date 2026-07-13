@@ -47,6 +47,20 @@ export type TokenRepromptEvent = {
   responseText: string;
 };
 
+/** Emitted when a `blocked` token misses the blocker-text contract and triggers `write.blocker-reprompt`. */
+export type BlockerRepromptEvent = {
+  kind: "blocker_reprompt";
+  attemptId: string;
+  responseText: string;
+};
+
+/** Agent stdout excerpt when a rejected `blocked` token still has no blocker text; truncated at append time. */
+export type MissingBlockerDetailEvent = {
+  kind: "missing_blocker_detail";
+  attemptId: string;
+  responseText: string;
+};
+
 export type LogEvent =
   | IterationStartedEvent
   | BoundaryCommittedEvent
@@ -54,10 +68,16 @@ export type LogEvent =
   | RunExecutionFailedEvent
   | RunReconciledEvent
   | InvalidTokenDetailEvent
-  | TokenRepromptEvent;
+  | TokenRepromptEvent
+  | BlockerRepromptEvent
+  | MissingBlockerDetailEvent;
 
-/** Max chars persisted for {@link InvalidTokenDetailEvent.tokenText} and {@link TokenRepromptEvent.responseText}. */
+/** Max chars persisted for operator-facing response excerpts in run logs. */
 export const INVALID_TOKEN_LOG_MAX_CHARS = 500;
+
+export function truncateLogText(text: string, maxChars = INVALID_TOKEN_LOG_MAX_CHARS): string {
+  return text.length <= maxChars ? text : `${text.slice(0, maxChars)}…`;
+}
 
 export type PersistedRecord = {
   runId: string;

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import {
   executeWithQuotaFallback,
   type InvocationBinding,
@@ -8,10 +9,12 @@ import {
 import type { SessionLog } from "../../../shared/invocation/session-log.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
+import { hasGenuineBlocker } from "../../../shared/spec-parser.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
 
 const TERMINAL_TOKENS = ["done", "no-work", "blocked", "progress"] as const;
 const TOKEN_REPROMPT_PROMPT_ID = "write.token-reprompt";
+const BLOCKER_REPROMPT_PROMPT_ID = "write.blocker-reprompt";
 
 type StepOutcomeToken = (typeof TERMINAL_TOKENS)[number];
 
@@ -22,11 +25,19 @@ export type StepContract = {
   check: (args: { cwd: string }) => boolean | Promise<boolean>;
 };
 
+/** Before/after check that a blocked token appended a new non-empty `## Blocker` to the spec file. */
+export type BlockerTextContract = {
+  id: string;
+  specPath: string;
+  specBefore: string;
+};
+
 type StepRunInput = {
   prompt: string;
   cwd: string;
   bindings: readonly InvocationBinding[];
   contracts: readonly StepContract[];
+  blockerTextContract?: BlockerTextContract;
   signal?: AbortSignal;
   telemetry?: InvocationTelemetryContext;
   sessionLog?: SessionLog;
@@ -35,8 +46,11 @@ type StepRunInput = {
 /** The first (token-less) response plus the token-only re-prompt's own invocation. */
 export type StepReprompt = { responseText: string; invocation: InvocationExecution };
 
+/** The blocker-text re-prompt's own invocation when a `blocked` token missed the blocker contract. */
+export type BlockerReprompt = { responseText: string; invocation: InvocationExecution };
+
 /** Classified result for one shared step-runner invocation. */
-export type StepRunResult = { invocation: InvocationExecution; reprompt?: StepReprompt } & (
+export type StepRunResult = { invocation: InvocationExecution; reprompt?: StepReprompt; blockerReprompt?: BlockerReprompt } & (
   | { kind: "complete"; token: "done" | "no-work" }
   | { kind: "progress"; token: "progress" }
   | { kind: "blocked"; token: "blocked" }
@@ -47,6 +61,7 @@ export type StepRunResult = { invocation: InvocationExecution; reprompt?: StepRe
       failureReason?: string;
     }
   | { kind: "invalid_token"; tokenText: string }
+  | { kind: "missing_blocker"; token: "blocked"; responseText: string }
   | {
       kind: "invocation_failure";
       failureKind: InvocationFailureKind;
@@ -98,6 +113,28 @@ function requestTokenReprompt(args: StepRunInput, responseText: string): Promise
   });
 }
 
+function buildBlockerRepromptPrompt(): string {
+  return loadPromptRegistry().getById(BLOCKER_REPROMPT_PROMPT_ID).body.trim();
+}
+
+function requestBlockerReprompt(args: StepRunInput): Promise<InvocationExecution> {
+  return executeWithQuotaFallback({
+    prompt: buildBlockerRepromptPrompt(),
+    cwd: args.cwd,
+    bindings: args.bindings,
+    ...(args.signal !== undefined ? { signal: args.signal } : {}),
+    ...(args.telemetry !== undefined
+      ? { telemetry: { ...args.telemetry, invocationIds: args.bindings.map(() => crypto.randomUUID()) } }
+      : {}),
+    ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),
+  });
+}
+
+function blockerTextContractSatisfied(contract: BlockerTextContract): boolean {
+  const specAfter = readFileSync(contract.specPath, "utf8");
+  return hasGenuineBlocker(contract.specBefore, specAfter);
+}
+
 type StepTokenResolution =
   | { token: StepOutcomeToken; tokenText?: undefined; reprompt?: StepReprompt }
   | { token: null; tokenText: string; reprompt?: StepReprompt };
@@ -137,6 +174,55 @@ async function resolveStepToken(args: StepRunInput, stdout: string): Promise<Ste
   return { token: repromptToken, reprompt };
 }
 
+async function resolveBlockedResult(
+  args: StepRunInput,
+  invocation: InvocationExecution,
+  repromptField: { reprompt?: StepReprompt },
+): Promise<StepRunResult> {
+  const contract = args.blockerTextContract;
+  if (contract === undefined) {
+    return {
+      kind: "blocked",
+      token: "blocked",
+      invocation,
+      ...repromptField,
+    };
+  }
+
+  if (blockerTextContractSatisfied(contract)) {
+    return {
+      kind: "blocked",
+      token: "blocked",
+      invocation,
+      ...repromptField,
+    };
+  }
+
+  const blockerRepromptInvocation = await requestBlockerReprompt(args);
+  const repromptResult = blockerRepromptInvocation.final?.result;
+  const responseText = repromptResult?.kind === "ok" ? repromptResult.stdout.trim() : "";
+  const blockerReprompt: BlockerReprompt = { responseText, invocation: blockerRepromptInvocation };
+
+  if (blockerTextContractSatisfied(contract)) {
+    return {
+      kind: "blocked",
+      token: "blocked",
+      invocation,
+      ...repromptField,
+      blockerReprompt,
+    };
+  }
+
+  return {
+    kind: "missing_blocker",
+    token: "blocked",
+    responseText,
+    invocation,
+    ...repromptField,
+    blockerReprompt,
+  };
+}
+
 /** One invocation pass through the ordered bindings, then classify; no hidden retries. */
 export async function runStep(args: StepRunInput): Promise<StepRunResult> {
   const invocation = await executeWithQuotaFallback({
@@ -171,12 +257,7 @@ export async function runStep(args: StepRunInput): Promise<StepRunResult> {
   const token = resolved.token;
 
   if (token === "blocked") {
-    return {
-      kind: "blocked",
-      token,
-      invocation,
-      ...repromptField,
-    };
+    return resolveBlockedResult(args, invocation, repromptField);
   }
 
   if (token === "progress") {

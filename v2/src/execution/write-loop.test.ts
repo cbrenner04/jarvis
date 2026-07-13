@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
 import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
@@ -308,14 +308,121 @@ describe("write loop", () => {
     expect(spec).toContain("artifact.exists");
   });
 
-  test("blocked stops immediately with distinct outcome", async () => {
+  test("blocked with blocker text stops immediately with distinct outcome", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
 
-    const result = await runLoop({ jarvisRoot, stateDbPath, bindings: simulatedBindings(["blocked"]) });
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings: [
+        {
+          id: "sim.1",
+          invoke: async ({ cwd }) => {
+            appendFileSync(join(cwd, "spec.md"), "\n## Blocker\n\nstuck\n", "utf8");
+            return { kind: "ok", stdout: "blocked", stderr: "" };
+          },
+        },
+      ],
+    });
 
     expect(result.kind).toBe("blocked");
     expect(result.iterationsConsumed).toBe(1);
     expect(result.resumable).toBe(false);
+  });
+
+  test("blocked without blocker text triggers blocker re-prompt then missing_blocker", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
+    let invocations = 0;
+
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings: [
+        {
+          id: "sim.1",
+          invoke: async () => {
+            invocations += 1;
+            return {
+              kind: "ok",
+              stdout: invocations === 1 ? "blocked" : "still no blocker file",
+              stderr: "",
+            };
+          },
+        },
+      ],
+      logSink: sink,
+    });
+
+    expect(invocations).toBe(2);
+    expect(result.kind).toBe("invocation_failure");
+    expect(result.resumable).toBe(true);
+    expect(result.runStatus).toBe("paused");
+    expect(result.outcomeKind).toBe("missing_blocker");
+    const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+    expect(events).toContain("blocker_reprompt");
+    expect(events).not.toContain("token_reprompt");
+    expect(events).toContain("missing_blocker_detail");
+    const detail = sink.getEventsForRun(result.runId).find((event) => event.kind === "missing_blocker_detail");
+    expect(detail).toMatchObject({
+      kind: "missing_blocker_detail",
+      responseText: "still no blocker file",
+    });
+  });
+
+  test("blocked reprompt that writes blocker text terminates as blocked", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    let invocations = 0;
+
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings: [
+        {
+          id: "sim.1",
+          invoke: async ({ cwd }) => {
+            invocations += 1;
+            if (invocations === 1) {
+              return { kind: "ok", stdout: "blocked", stderr: "" };
+            }
+            appendFileSync(join(cwd, "spec.md"), "\n## Blocker\n\nexplained\n", "utf8");
+            return { kind: "ok", stdout: "wrote blocker", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(invocations).toBe(2);
+    expect(result.kind).toBe("blocked");
+    expect(result.runStatus).toBe("blocked");
+    expect(result.outcomeKind).toBe("blocked");
+  });
+
+  test("blocked with pre-existing harness blocker and no new text is rejected", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const worktreePath = join(jarvisRoot, "worktrees", "demo", "stale-blocker-run");
+    mkdirSync(worktreePath, { recursive: true });
+    writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n\n## Blocker\n\nfrom contract_miss\n", "utf8");
+    let invocations = 0;
+
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName: "stale-blocker-run",
+      bindings: [
+        {
+          id: "sim.1",
+          invoke: async () => {
+            invocations += 1;
+            return { kind: "ok", stdout: "blocked", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(invocations).toBe(2);
+    expect(result.kind).toBe("invocation_failure");
+    expect(result.outcomeKind).toBe("missing_blocker");
   });
 
   test("budget exhausted while progress yields soft-stop outcome", async () => {
@@ -865,7 +972,7 @@ describe("write loop", () => {
       jarvisRoot,
       stateDbPath,
       branchName: "blocked-run",
-      bindings: simulatedBindings(["blocked"]),
+      bindings: simulatedBindings(["blocked"], { emitBlocker: true }),
     });
     expect(blocked.failureKind).toBeUndefined();
 
@@ -1265,7 +1372,7 @@ describe("write loop", () => {
     }> = [
       {
         label: "blocked",
-        bindings: simulatedBindings(["blocked"]),
+        bindings: simulatedBindings(["blocked"], { emitBlocker: true }),
         expectedResultKind: "blocked",
         expectedBoundaryOutcomeKind: "blocked",
         expectedBoundaryRunStatus: "blocked",

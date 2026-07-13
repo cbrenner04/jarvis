@@ -24,6 +24,7 @@ patch/shrink.md
 write/execute.md
 write/principles.md
 write/token-reprompt.md
+write/blocker-reprompt.md
 prompt/instructions.md
 prompt/rules.md
 intent/split.md

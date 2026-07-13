@@ -12,7 +12,17 @@ Contract:
   last line that is itself a bare token, else a lenient last-word scan.
 - `done` and `no-work` run contract checks in order.
 - `progress` skips contract checks and returns a typed non-complete result.
-- `blocked` returns a typed blocked result and never runs contracts.
+- `blocked` with no `blockerTextContract` returns a typed blocked result and skips
+  artifact contracts.
+- When `blockerTextContract` is set and the token is `blocked`, the runner checks
+  that the spec file gained a new non-empty `## Blocker` section (before/after
+  against `specBefore`, same shape as `hasGenuineBlocker` in
+  `shared/spec-parser.ts`). Pass → ordinary `blocked`. Miss → exactly one
+  blocker-text re-prompt (`write.blocker-reprompt`) over the same bindings, then
+  re-check. Second miss → `missing_blocker` with the re-prompt response text
+  (not `blocked`, not `contract_miss`). The re-prompt carries
+  `StepRunResult.blockerReprompt`, not `reprompt`, so callers can log it without
+  emitting `token_reprompt`.
 - Contract miss after `done`/`no-work` returns a hard non-success result distinct
   from agent-declared `blocked`.
 - After the token-only re-prompt, a still-missing token runs the same contract

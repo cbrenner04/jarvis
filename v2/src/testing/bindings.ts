@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 
@@ -14,7 +14,7 @@ type SimulatedOutcome = "quota" | "model_config" | "error" | "done" | "no-work" 
  */
 export function simulatedBindings(
   outcomes: readonly SimulatedOutcome[],
-  opts: { artifactPath?: string; emitArtifact?: boolean } = {},
+  opts: { artifactPath?: string; emitArtifact?: boolean; emitBlocker?: boolean; blockerSpecPath?: string } = {},
 ): readonly InvocationBinding[] {
   return outcomes.map((outcome, index) => ({
     id: `sim.${index + 1}`,
@@ -32,6 +32,15 @@ export function simulatedBindings(
       }
       if (opts.emitArtifact && opts.artifactPath !== undefined && (outcome === "done" || outcome === "no-work")) {
         writeFileSync(join(cwd, opts.artifactPath), "ok\n", "utf8");
+      }
+      if (outcome === "blocked" && opts.emitBlocker) {
+        const specPath = opts.blockerSpecPath ?? "spec.md";
+        const target = join(cwd, specPath);
+        if (existsSync(target)) {
+          appendFileSync(target, "\n## Blocker\n\nblocked\n", "utf8");
+        } else {
+          writeFileSync(target, "- [ ] work\n\n## Blocker\n\nblocked\n", "utf8");
+        }
       }
       return { kind: "ok", stdout: outcome, stderr: "" };
     },

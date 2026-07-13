@@ -75,7 +75,8 @@ export type OutcomeKind =
   | "contract_miss"
   | "invocation_failure"
   | "iteration_timeout"
-  | "invalid_token";
+  | "invalid_token"
+  | "missing_blocker";
 
 /** A durable run record. */
 export type Run = {

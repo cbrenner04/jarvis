@@ -1,0 +1,1 @@
+Verdict: empty — no required changes. All acceptance criteria for both subspecs are satisfied as implemented; the raised concern about landing's separate store attempt is a pre-existing store-level property outside this spec's scope, and the apparent doc "deletions" are from an unrelated later commit on `main`, not this branch.

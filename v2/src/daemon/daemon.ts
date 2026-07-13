@@ -438,6 +438,26 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     );
 
   /**
+   * Demote one non-terminal workflow run to `failed` and record why. Both steps are
+   * best-effort and independent: a persist fault must not skip the log append, and an
+   * append fault must not roll back the demote.
+   */
+  const settleFailedWorkflowRun = (runId: string, message: string, logSink: LogSink | undefined): void => {
+    const run = store.loadRun(runId);
+    if (run && isTerminalRunStatus(run.status)) return;
+    try {
+      store.setRunStatus(runId, "failed");
+    } catch {
+      // best-effort persist; append still runs
+    }
+    try {
+      logSink?.append(runId, { kind: "run_execution_failed", message });
+    } catch {
+      // append failure does not roll back the demote
+    }
+  };
+
+  /**
    * Start a multi-step workflow: dispatch to `executeWorkflow` and resolve once step 0's
    * run row is durably created, letting the workflow continue running in the background.
    * A failure before that row exists (e.g. invalid step shape) settles the promise with
@@ -469,11 +489,13 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         },
       })
         .catch((err) => {
-          resolve({
-            kind: "error",
-            code: "invalid_params",
-            message: err instanceof Error ? err.message : String(err),
-          });
+          const message = err instanceof Error ? err.message : String(err);
+          if (workflowRunIds.size === 0) {
+            resolve({ kind: "error", code: "invalid_params", message });
+          }
+          for (const runId of workflowRunIds) {
+            settleFailedWorkflowRun(runId, message, logSink);
+          }
         })
         .finally(() => {
           logSink?.close();

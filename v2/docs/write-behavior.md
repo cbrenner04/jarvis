@@ -153,6 +153,28 @@ append the same text under `## Step completion` (see
 [`prompts.md`](./prompts.md)); `write.execute` interpolates it via
 `<STEP_RULES>`.
 
+## Write-step prompt placeholders
+
+Default write steps (`executeDefaultWrite`) resolve placeholders from the
+registry's declared requirements for the step's `promptId`, then overlay
+caller-supplied `promptPlaceholders` (caller values win). Unresolved required
+names fail the step as `model_config` before any binding runs.
+
+| Placeholder | Source |
+| --- | --- |
+| `SPEC_PATH` | Worktree-resolved `specPath` |
+| `STEP_RULES` | Step `stepRules` |
+| `PRINCIPLES` | `write.principles` registry body |
+| `REPO_GUIDANCE` | `AGENTS.md` and `CLAUDE.md` at the worktree root (same as v1 `readRepoGuidance`) |
+| `ACTIVE_SUBSPEC_PATH` | Worktree-resolved `expectedArtifactPath`, with trailing newline when non-empty |
+| `ACTIVE_SUBSPEC_BODY` | File contents at `expectedArtifactPath` (empty when missing) |
+| `PATCH_RULES` | `patch.rules` registry body |
+| `SIBLINGS_BLOCK`, `TIMEOUT_CHECKPOINT_CONTEXT` | Empty string (no v2 consumer yet) |
+
+Git-derived shrink placeholders (`ALLOWLIST`, `BRANCH_DIFF`, `RUN_SCOPED_DIFF`,
+`SPEC_TREE`) and plan-draft placeholders are supplied by the caller —
+`workflow-runner.ts` for shrink, `buildPlanDraftPrompt` for plan draft.
+
 The step runner's parser is more lenient than the prompt — see
 [`shared-step-runner.md`](./shared-step-runner.md): exact match, then last
 bare-token line, then last token word anywhere in stdout. When no token word

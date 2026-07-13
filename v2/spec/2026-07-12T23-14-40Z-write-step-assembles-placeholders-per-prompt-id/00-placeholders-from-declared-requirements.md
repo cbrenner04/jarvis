@@ -45,18 +45,18 @@ value` — before any agent is spawned. `patch.prompt.body` declares seven requi
 
 ## Acceptance criteria
 
-- [ ] A write step with `promptId: "patch.prompt.body"` and no caller placeholders renders its
+- [x] A write step with `promptId: "patch.prompt.body"` and no caller placeholders renders its
       prompt and reaches agent invocation; the invoked prompt carries the spec path, the active
       subspec body, and the repo guidance read from the worktree root.
-- [ ] `v2/src/execution/write.ts` contains no equality check against a specific prompt id for
+- [x] `v2/src/execution/write.ts` contains no equality check against a specific prompt id for
       placeholder assembly; a prompt id with unresolved required placeholders fails the step as a
       `model_config` invocation failure naming the prompt id and the missing placeholder names,
       rather than spawning an agent.
-- [ ] The shrink step (`patch.prompt.shrink`) still renders from the `promptPlaceholders`
+- [x] The shrink step (`patch.prompt.shrink`) still renders from the `promptPlaceholders`
       `workflow-runner.ts` supplies: `workflow-runner.test.ts` shrink tests stay green.
-- [ ] `write.test.ts` plan-draft and intent-split write paths stay green (unchanged by the
+- [x] `write.test.ts` plan-draft and intent-split write paths stay green (unchanged by the
       refactor).
-- [ ] The regression test exercises the run through prompt rendering to agent invocation, not
+- [x] The regression test exercises the run through prompt rendering to agent invocation, not
       step construction alone.
 
 ## Documentation updates

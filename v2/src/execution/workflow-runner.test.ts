@@ -26,8 +26,8 @@ import {
   trackedTempRoots,
   withStateStore,
 } from "../testing/write-fixtures.ts";
-import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
+import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import {
   executeWorkflow,

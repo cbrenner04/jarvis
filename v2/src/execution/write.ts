@@ -16,7 +16,7 @@ import {
   type LockStatus,
   withExternalWorktree as realWithExternalWorktree,
 } from "./external-worktree.ts";
-import { runStep, type BlockerTextContract, type StepRunResult } from "./step-runner.ts";
+import { type BlockerTextContract, runStep, type StepRunResult } from "./step-runner.ts";
 import { renderStepPrompt } from "./write-prompt.ts";
 
 const DEFAULT_PROMPT_ID = "write.execute";

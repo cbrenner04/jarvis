@@ -50,7 +50,11 @@ export type StepReprompt = { responseText: string; invocation: InvocationExecuti
 export type BlockerReprompt = { responseText: string; invocation: InvocationExecution };
 
 /** Classified result for one shared step-runner invocation. */
-export type StepRunResult = { invocation: InvocationExecution; reprompt?: StepReprompt; blockerReprompt?: BlockerReprompt } & (
+export type StepRunResult = {
+  invocation: InvocationExecution;
+  reprompt?: StepReprompt;
+  blockerReprompt?: BlockerReprompt;
+} & (
   | { kind: "complete"; token: "done" | "no-work" }
   | { kind: "progress"; token: "progress" }
   | { kind: "blocked"; token: "blocked" }

@@ -22,10 +22,10 @@ This subspec makes the record carry what the binding reported.
 
 ## Acceptance criteria
 
-- [ ] An `ok` result carrying `usage`/`cost_usd` with `"agent"` sources records those exact values and sources on its `invocation_completed` row.
-- [ ] An `ok` result with no usage/cost, and every non-`ok` result, still records null usage, null `cost_usd`, and `"unavailable"` sources.
-- [ ] A v2 write step whose claude binding returns a stream-json result event lands an `invocation_completed` row with non-null `cost_usd` and `cost_source: "agent"` (end-to-end over the subspec 00 binding, stubbed spawn).
-- [ ] Existing `shared/invocation/execute.test.ts` fallback, session-log, and telemetry-failure tests stay green (fallback and sink-failure behavior unchanged).
+- [x] An `ok` result carrying `usage`/`cost_usd` with `"agent"` sources records those exact values and sources on its `invocation_completed` row.
+- [x] An `ok` result with no usage/cost, and every non-`ok` result, still records null usage, null `cost_usd`, and `"unavailable"` sources.
+- [x] A v2 write step whose claude binding returns a stream-json result event lands an `invocation_completed` row with non-null `cost_usd` and `cost_source: "agent"` (end-to-end over the subspec 00 binding, stubbed spawn).
+- [x] Existing `shared/invocation/execute.test.ts` fallback, session-log, and telemetry-failure tests stay green (fallback and sink-failure behavior unchanged).
 
 ## Documentation updates
 

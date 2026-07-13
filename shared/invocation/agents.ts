@@ -425,7 +425,8 @@ async function runClaudeBinding(args: {
         "--model",
         args.adapterModel,
         "--output-format",
-        "json",
+        "stream-json",
+        "--verbose",
       ],
       stdio: ["pipe", "pipe", "pipe"],
       writeStdin: (stdin, text) => {

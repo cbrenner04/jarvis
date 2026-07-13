@@ -29,17 +29,17 @@ describe("parseClaudeJsonOutput", () => {
     expect(result.usage).toBeNull();
     expect(result.cost_usd).toBeNull();
     expect(result.warnings.length).toBeGreaterThan(0);
-    expect(result.warnings[0]).toContain("JSON parse error");
+    expect(result.warnings[0]).toContain("no terminal result event found");
   });
 
   test("handles malformed envelope", () => {
     const fixture = readFileSync(join(fixturesDir, "2.1.142-malformed.json"), "utf8");
     const result = parseClaudeJsonOutput(fixture);
 
-    expect(result.displayText).toBe("");
+    expect(result.displayText).toBe(fixture);
     expect(result.usage).toBeNull();
     expect(result.cost_usd).toBeNull();
-    expect(result.warnings).toEqual([]);
+    expect(result.warnings).toContain("no terminal result event found");
   });
 });
 

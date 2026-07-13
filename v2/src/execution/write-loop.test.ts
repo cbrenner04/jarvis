@@ -586,6 +586,54 @@ describe("write loop", () => {
     expect(rows.every((row) => row.step_id === null)).toBe(true);
   });
 
+  test("telemetry row records usage and cost from ok result", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const telemetryPath = join(jarvisRoot, "telemetry.jsonl");
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings: [
+        {
+          id: "claude-with-cost",
+          metadata: { agent: "claude", model: "sonnet" },
+          invoke: async ({ cwd }) => {
+            writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+            return {
+              kind: "ok" as const,
+              stdout: "done",
+              stderr: "",
+              usage_source: "agent" as const,
+              usage: {
+                input_tokens: 100,
+                output_tokens: 50,
+                cache_read_input_tokens: 0,
+                cache_creation_input_tokens: 25000,
+              },
+              cost_usd: 0.15,
+              cost_source: "agent" as const,
+            };
+          },
+        },
+      ],
+      telemetry: loopTelemetry(telemetryPath),
+    });
+
+    expect(result.kind).toBe("complete");
+    const rows = loadTelemetryRows(telemetryPath);
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    expect(row?.exit_kind).toBe("ok");
+    expect(row?.usage).toEqual({
+      input_tokens: 100,
+      output_tokens: 50,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 25000,
+    });
+    expect(row?.usage_source).toBe("agent");
+    expect(row?.cost_usd).toBe(0.15);
+    expect(row?.cost_source).toBe("agent");
+  });
+
   test("operator-session-only telemetry (no sinkPath/workflow/role) completes a real run without emitting telemetry", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const result = await runLoop({

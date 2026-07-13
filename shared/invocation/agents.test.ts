@@ -98,7 +98,9 @@ describe("createResolvedAgentBinding", () => {
   });
 
   test("claude binding invokes the CLI shape with cwd and stdin prompt", async () => {
-    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: '{"result":"done"}\n', stderr: "warn" }]);
+    const fake = fakeSpawn([
+      { kind: "settle", code: 0, stdout: '{"type":"result","result":"done"}\n', stderr: "warn" },
+    ]);
     const binding = createResolvedAgentBinding(
       {
         agentId: "claude",
@@ -119,7 +121,8 @@ describe("createResolvedAgentBinding", () => {
       "--model",
       "claude-sonnet-4-6",
       "--output-format",
-      "json",
+      "stream-json",
+      "--verbose",
     ]);
     expect(fake.calls[0]?.opts.cwd).toBe("/repo");
     expect(fake.calls[0]?.opts.detached).toBe(true);
@@ -194,7 +197,7 @@ describe("createResolvedAgentBinding", () => {
       {
         kind: "settle",
         code: 0,
-        stdout: JSON.stringify({ is_error: true, api_error_status: 429, result: "quota exceeded" }),
+        stdout: JSON.stringify({ type: "result", is_error: true, api_error_status: 429, result: "quota exceeded" }),
       },
     ]);
 

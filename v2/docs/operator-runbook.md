@@ -339,6 +339,17 @@ existence and measures no contention. Ready-intent:
 [Shared model pool contention warning](../../v1/docs/operator-runbook.md#shared-model-pool-contention-warning)
 section when it ships.
 
+**v2's claude output now streams (shared adapter change, 2026-07-13).** `shared/invocation/`
+now spawns claude with `--output-format stream-json --verbose`, making claude output
+visible mid-invocation (not buffered until exit). However, **v2 still has no idle-output
+watchdog** — only a wall-clock `iterationTimeoutMs` in `v2/src/execution/write-loop.ts`.
+Stream-json output availability does not change v2's stall detection: a silent claude
+mid-invocation still rides `iterationTimeoutMs` wall-clock to terminate, not an
+idle-output escalation. The "claude is safe as primary" claim from v1 rests
+partly on v1's idle watchdog infrastructure; v2 lacks that layer. Operator discipline
+and CI guardrails replace it. Consider a future idle-output watchdog for v2 if
+claude primary stalls become a concern.
+
 Per-run overrides, rather than churning config:
 
 ```sh

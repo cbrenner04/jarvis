@@ -10,9 +10,12 @@ Observed 2026-07-13. In one session:
 
 - **`runs.jsonl`** (v1) carried cost normally: the single `jarvis1 run` this session recorded
   **$6.84** across 8 records.
-- **`telemetry.jsonl`** (v2) carried **133 claude invocations with `cost_usd: null`,
+- **`telemetry.jsonl`** (v2) carried **every one of the session's 16 real invocations with `cost_usd: null`,
   `cost_source: unavailable`, `usage_source: unavailable`, and every `usage.*_tokens: null`** —
   the plan, the implement, both intent splits, and the debate. Not one dollar attributable.
+  (An earlier draft of this seed said "133 invocations"; that count was inflated by test-fixture
+  rows written into the live telemetry file — see `tests-write-telemetry-to-the-operator-home`.
+  The cost finding is unchanged: 16 of 16 real invocations carry no cost.)
 
 Prior sessions reported cost fine because the work was v1-driven. **As dogfooding shifts to
 v2, the cost sheets stop working** — `reports/session-costs.csv` cannot be filled from

@@ -374,7 +374,10 @@ values — plus `stepRules: DEFAULT_WRITE_STEP_RULES` and the per-run
 `worktree`/`specPath`/`expectedArtifactPath`), then runs it through
 `loadWorkflowSteps` to attach `agents`/`agentModelConfig` from machine config,
 then through `resolveWorkflowPreset("implement", ...)` as a step-count/pinned-field
-re-affirmation. When `reviewPasses > 0`, the builder also loads one
+re-affirmation. The implement write step supplies no `promptPlaceholders`;
+`executeWrite` resolves `patch.prompt.body`'s required placeholders from the
+step (`SPEC_PATH`, `REPO_GUIDANCE` from the worktree root, active subspec from
+`expectedArtifactPath`, `PATCH_RULES` from the registry). When `reviewPasses > 0`, the builder also loads one
 `review-debate` source step (`stepId: "implement-review"`) in the same
 `loadWorkflowSteps` call, then appends the loaded debate step after the resolved
 implement write step. The debate step runs in the implement worktree, writes

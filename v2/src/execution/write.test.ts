@@ -173,6 +173,83 @@ describe("write behavior", () => {
     expect(capturedPrompt).not.toContain("Read the spec at");
   });
 
+  test("patch.prompt.body resolves step placeholders and invokes binding", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const specPath = "v2/spec/demo/index.md";
+    const subspecPath = "v2/spec/demo/00-task.md";
+    const repoGuidance = "# Repo rules\n";
+    const subspecBody = "## Acceptance criteria\n\n- [ ] task\n";
+    let capturedPrompt = "";
+    let bindingInvoked = false;
+
+    const result = await executeWrite({
+      worktree: {
+        projectRoot: "/fake",
+        projectName: "demo",
+        branchName: "implement-run",
+        baseRef: "HEAD",
+        jarvisRoot,
+      },
+      specPath,
+      stepRules: "Return exactly one terminal token.",
+      expectedArtifactPath: subspecPath,
+      promptId: "patch.prompt.body",
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ prompt }) => {
+            bindingInvoked = true;
+            capturedPrompt = prompt;
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      withExternalWorktree: async (args, run) => {
+        const worktreePath = join(jarvisRoot, "worktrees", args.projectName, args.branchName);
+        mkdirSync(join(worktreePath, "v2/spec/demo"), { recursive: true });
+        writeFileSync(join(worktreePath, "AGENTS.md"), repoGuidance, "utf8");
+        writeFileSync(join(worktreePath, specPath), "# Index\n", "utf8");
+        writeFileSync(join(worktreePath, subspecPath), subspecBody, "utf8");
+        const value = await run({ path: worktreePath, reused: false });
+        return { worktree: { path: worktreePath, reused: false }, lock: { kind: "acquired" }, value };
+      },
+    });
+
+    const resolvedSubspecPath = join(result.worktreePath, subspecPath);
+    expect(bindingInvoked).toBe(true);
+    expect(result.result.kind).toBe("complete");
+    expect(capturedPrompt).toContain(join(result.worktreePath, specPath));
+    expect(capturedPrompt).toContain(resolvedSubspecPath);
+    expect(capturedPrompt).toContain(subspecBody);
+    expect(capturedPrompt).toContain(repoGuidance);
+  });
+
+  test("unresolved required placeholders fail as model_config without invoking binding", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    let bindingInvoked = false;
+
+    const result = await runWrite({
+      jarvisRoot,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => {
+            bindingInvoked = true;
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      promptId: "plan.prompt.draft",
+    });
+
+    expect(bindingInvoked).toBe(false);
+    expect(result.result.kind).toBe("invocation_failure");
+    if (result.result.kind === "invocation_failure") {
+      expect(result.result.failureKind).toBe("model_config");
+    }
+  });
+
   test("intent split prompt wires staging output and step rules", async () => {
     const { jarvisRoot } = createJarvisHome();
     let capturedPrompt = "";

@@ -19,6 +19,71 @@ import { renderStepPrompt } from "./write-prompt.ts";
 
 const DEFAULT_PROMPT_ID = "write.execute";
 
+function readRepoGuidance(worktreePath: string): string {
+  const parts: string[] = [];
+  for (const name of ["AGENTS.md", "CLAUDE.md"]) {
+    const path = join(worktreePath, name);
+    if (existsSync(path)) {
+      parts.push(readFileSync(path, "utf8"));
+    }
+  }
+  return parts.join(parts.length > 1 ? "\n\n" : "");
+}
+
+function readActiveSubspecBody(artifactPath: string): string {
+  if (!existsSync(artifactPath)) {
+    return "";
+  }
+  return readFileSync(artifactPath, "utf8");
+}
+
+type WriteStepPlaceholderContext = {
+  specPath: string;
+  stepRules: string;
+  worktreePath: string;
+  expectedArtifactPath: string;
+};
+
+function resolveWriteStepPlaceholder(name: string, ctx: WriteStepPlaceholderContext): string | undefined {
+  switch (name) {
+    case "SPEC_PATH":
+      return ctx.specPath;
+    case "STEP_RULES":
+      return ctx.stepRules;
+    case "PRINCIPLES":
+      return loadPromptRegistry().getById("write.principles").body;
+    case "SIBLINGS_BLOCK":
+    case "TIMEOUT_CHECKPOINT_CONTEXT":
+      return "";
+    case "REPO_GUIDANCE":
+      return readRepoGuidance(ctx.worktreePath);
+    case "ACTIVE_SUBSPEC_PATH":
+      return ctx.expectedArtifactPath.length > 0 ? `${ctx.expectedArtifactPath}\n` : "";
+    case "ACTIVE_SUBSPEC_BODY":
+      return readActiveSubspecBody(ctx.expectedArtifactPath);
+    case "PATCH_RULES":
+      return loadPromptRegistry().getById("patch.rules").body.trim();
+    default:
+      return undefined;
+  }
+}
+
+function assembleWriteStepPlaceholders(
+  promptId: string,
+  ctx: WriteStepPlaceholderContext,
+  callerPlaceholders: Record<string, string> | undefined,
+): Record<string, string> {
+  const declarations = loadPromptRegistry().getById(promptId).metadata.placeholders;
+  const resolved: Record<string, string> = {};
+  for (const decl of declarations) {
+    const derived = resolveWriteStepPlaceholder(decl.name, ctx);
+    if (derived !== undefined) {
+      resolved[decl.name] = derived;
+    }
+  }
+  return { ...resolved, ...(callerPlaceholders ?? {}) };
+}
+
 function readFrontmatter(text: string): string | null {
   const normalized = text.replace(/\r\n/g, "\n");
   if (!normalized.startsWith("---\n")) {
@@ -271,15 +336,24 @@ async function executeDefaultWrite(
   expectedArtifactPath: string,
   promptId: string,
 ): Promise<StepRunResult> {
-  const placeholders =
-    promptId === DEFAULT_PROMPT_ID
-      ? {
-          SPEC_PATH: specPath,
-          STEP_RULES: args.stepRules,
-          PRINCIPLES: loadPromptRegistry().getById("write.principles").body,
-        }
-      : (args.promptPlaceholders ?? {});
-  const prompt = renderStepPrompt(promptId, placeholders);
+  let prompt: string;
+  try {
+    const placeholders = assembleWriteStepPlaceholders(
+      promptId,
+      { specPath, stepRules: args.stepRules, worktreePath, expectedArtifactPath },
+      args.promptPlaceholders,
+    );
+    prompt = renderStepPrompt(promptId, placeholders);
+  } catch (err) {
+    if (err instanceof PromptRenderingError) {
+      return {
+        kind: "invocation_failure",
+        failureKind: "model_config",
+        invocation: { attempts: [], final: null, telemetryFailures: [] },
+      };
+    }
+    throw err;
+  }
 
   return runWriteStep({
     worktreePath,

@@ -2,6 +2,10 @@
 
 Backlog audit, review-gate root-cause, and the first exercise of the debate path.
 
+```sh
+claude --resume 45a21366-c88b-49e1-8147-bb922f2e8bf9
+```
+
 ## What shipped
 
 | PR | What | Harness | Agent |

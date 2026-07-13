@@ -39,24 +39,41 @@ Prioritization for seeds and ready intents (operator-maintained):
 
 ## When to dogfood v2
 
-**Status 2026-07-12: v2 cannot implement its own specs.** All six presets were run
-against real work. Only the `intent` split path completes. Everything that drives
-the write loop fails:
+**Status 2026-07-13: v2 can plan and implement.** The launch-blocking P0s shipped
+(#1450, #1451, #1456, #1458, #1459, #1460, #1474, #1476–#1479). `intent`, `plan`, and
+`implement` all launch, invoke an agent, and do real work.
 
 | Preset | State |
 | --- | --- |
-| `intent`, `intent-reviewed` | Split works. **The review step is a silent no-op** — empty log, no verdict, no commit, reports `completed`. Seed: `intent-reviewed-review-step-is-a-silent-no-op`. |
-| `implement` | **Cannot start.** ENOENT reading the index in a worktree that doesn't exist yet, then a prompt-render failure before any agent. Seeds: `implement-linked-routing-reads-index-before-worktree-exists`, `implement-write-step-renders-prompt-without-placeholders`. |
+| `intent`, `plan`, `implement` | Work. Re-run before trusting any of them. |
+| `intent-reviewed`, `plan-reviewed`, `plan-reviewed-light` | Split/draft works; **the review step cannot be trusted** — see below. |
 
-**Use `jarvis1` for all plan and implement work until those four P0 seeds land.**
-`jarvis1 plan --target-dir v2/spec <ready-intent>` and `jarvis1 run <spec>` are the
-working path for v2 specs. Cleanup: delete this table when the P0 seeds ship, and
-re-run every preset before trusting it.
+**The review gate is untrustworthy and its mechanism is unresolved.** Established: the
+review step's prompt is the literal string `"intent.prompt.review"`
+(`intent-workflow-steps.ts:365`), and nothing resolves it through the prompt registry,
+so `prompts/intent/review*.md` are dead files and the critic reviews from a
+meaningless one-liner. Ready-intent: `intent-review-prompts-render`.
+
+**Two diagnoses of this have already been wrong — do not cut a spec against a third
+without observing a run.** "The review step never invokes an agent" is refuted:
+telemetry shows real critic *and* actuator invocations (21–83s, `exit_kind: ok`). But
+the store holds 19 `intent` step runs against only 4 `review` step runs, so most
+intent workflows produce no review row at all, which is consistent with the
+operator-observed instant `completed`. Candidate: the
+`findReviewLandingCheckpoint` short-circuit (`workflow-runner.ts:1409`). Unproven.
+
+Note an empty review log proves nothing either way: `runReviewStep` gets no `logSink`,
+so it logs nothing whether or not an agent ran. Both wrong diagnoses read that silence
+as evidence. Ready-intent: `review-step-emits-log-events`.
 
 **Do not trust a `completed` status on a P0 without re-running the preset.** Two of
 them (`implement-preflight-validates-spec-in-missing-worktree` #1417,
 `plan-draft-write-loop-prompt`) were marked complete while the operator-visible
 failure survived — the fix landed one layer away from the bug.
+
+**Bounce the daemon after merging any v2 change.** It runs a code snapshot from when
+it started, so a merged fix looks broken until `jarvis daemon stop && jarvis daemon start`.
+Seed: `daemon-runs-stale-code-until-restarted`.
 
 Prior gates, still valid once the above clears:
 
@@ -249,10 +266,9 @@ Seed: `v2-cleanup-command`. Cleanup: delete when it ships.
 
 ### Orphaned non-terminal runs after daemon restart
 
-Runs are in-process on the daemon. After restart, durable rows may stay
-`in-progress` with `isLive: false`; `jarvis run kill` returns `run_not_active`.
-Seed: `daemon-reconciles-orphaned-runs-on-start`. Until it lands: manual state
-edit or wait for reconciliation PR.
+Reconciled automatically at daemon start (#1430, race fixed by #1476–#1478): durable
+non-terminal rows from a prior daemon transition to `killed` with reason
+`daemon_restart` before IPC opens. Worktrees and branches survive.
 
 ### Wedged run, no agent activity
 
@@ -291,34 +307,35 @@ Responsive-daemon specs and seed `nonblocking-ready-gate-and-guard` address sync
 subprocess on the daemon event loop. Symptom: `jarvis run list` hangs while a run
 finalizes. Check for `bun run ready` or `git` children on the daemon PID.
 
-## Choosing an actuator (2026-07-12)
+## Choosing an actuator
 
-**Do not lead patch/implement with claude until `claude-streams-output-to-watchdog`
-ships.** Jarvis spawns claude with `--output-format json` (`v1/src/agents/claude.ts:67`)
-— a batch envelope emitted once at exit — so `spawn.ts`'s `stdout.on("data")`
-activity bump never fires mid-iteration. Result: **33 of 33** claude patch records
-carry `last_output_age_ms: null`. The idle-output watchdog is structurally blind to
-claude, cannot escalate down `agentOrder`, and a live-but-slow claude run rides
-`iterationTimeoutMs` to exit 8.
+**Claude is usable as patch/implement primary again (2026-07-13).**
+`claude-streams-output-to-watchdog` shipped: claude is now spawned with
+`--output-format stream-json --verbose` (`v1/src/agents/claude.ts:68`), so the
+idle-output watchdog observes it mid-iteration and can escalate down `agentOrder`.
 
-Use a per-run override rather than churning config:
+Before that fix, **33 of 33** claude patch records carried `last_output_age_ms: null`
+— the watchdog was structurally blind to claude, and a live claude run rode
+`iterationTimeoutMs` to exit 8. That produced two misdiagnoses now known to be false:
+"claude-haiku stalls to a zero-output iteration-timeout" and "claude-sonnet-5 is too
+slow to be patch primary." **Neither was about the model.** Zero output was a missing
+measurement, not a starved or slow agent.
+
+**The v1 runbook's "shared Claude pool contention" guidance rests on that same
+folklore and is contradicted** — two concurrent `claude-opus-4-8` *plan* runs
+completed cleanly during the very claude *patch* run that "stalled", same pool, same
+Claude operator session. `v1/src/modes/patch/pool-contention.ts` fires on process
+existence and measures no contention. Ready-intent:
+`retire-claude-pool-contention-folklore`. Cleanup: delete the v1 runbook's
+[Shared model pool contention warning](../../v1/docs/operator-runbook.md#shared-model-pool-contention-warning)
+section when it ships.
+
+Per-run overrides, rather than churning config:
 
 ```sh
 jarvis1 run --agent cursor:"Composer 2.5" <spec>   # free; verify `cursor-agent status` first
 jarvis1 run --agent codex <spec>                   # paid, fast
 ```
-
-Claude remains fine for `plan` / `review` — those observe output normally.
-
-**This supersedes the "claude shares the Claude pool with the operator session"
-guidance in the v1 runbook.** That theory is contradicted: two concurrent
-`claude-opus-4-8` *plan* runs completed cleanly during the very claude *patch* run
-that "stalled", same pool, same Claude operator session. Zero output is a missing
-measurement, not a starved agent.
-
-Cleanup: delete this section when `claude-streams-output-to-watchdog` ships (seed:
-`v1/spec/seeds/patch-watchdog-blind-to-claude-output.md`), and retire the folklore
-via `retire-claude-pool-contention-folklore`.
 
 ## Concurrency
 

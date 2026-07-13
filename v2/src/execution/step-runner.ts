@@ -5,9 +5,12 @@ import {
   type InvocationResult,
   type InvocationTelemetryContext,
 } from "../../../shared/invocation/execute.ts";
+import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
+import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
 
 const TERMINAL_TOKENS = ["done", "no-work", "blocked", "progress"] as const;
+const TOKEN_REPROMPT_PROMPT_ID = "write.token-reprompt";
 
 type StepOutcomeToken = (typeof TERMINAL_TOKENS)[number];
 
@@ -27,8 +30,11 @@ type StepRunInput = {
   telemetry?: InvocationTelemetryContext;
 };
 
+/** The first (token-less) response plus the token-only re-prompt's own invocation. */
+export type StepReprompt = { responseText: string; invocation: InvocationExecution };
+
 /** Classified result for one shared step-runner invocation. */
-export type StepRunResult = { invocation: InvocationExecution } & (
+export type StepRunResult = { invocation: InvocationExecution; reprompt?: StepReprompt } & (
   | { kind: "complete"; token: "done" | "no-work" }
   | { kind: "progress"; token: "progress" }
   | { kind: "blocked"; token: "blocked" }
@@ -71,6 +77,48 @@ export function parseStepOutcomeToken(stdout: string): StepOutcomeToken | null {
   return last === undefined ? null : (last as StepOutcomeToken);
 }
 
+function buildTokenRepromptPrompt(responseText: string): string {
+  const artifact = loadPromptRegistry().getById(TOKEN_REPROMPT_PROMPT_ID);
+  const text = responseText.length > 0 ? responseText : "(the previous response was empty)";
+  return renderArtifactTemplate(artifact, { RESPONSE_TEXT: text }).trim();
+}
+
+function requestTokenReprompt(args: StepRunInput, responseText: string): Promise<InvocationExecution> {
+  return executeWithQuotaFallback({
+    prompt: buildTokenRepromptPrompt(responseText),
+    cwd: args.cwd,
+    bindings: args.bindings,
+    ...(args.signal !== undefined ? { signal: args.signal } : {}),
+    ...(args.telemetry !== undefined
+      ? { telemetry: { ...args.telemetry, invocationIds: args.bindings.map(() => crypto.randomUUID()) } }
+      : {}),
+  });
+}
+
+type StepTokenResolution =
+  | { token: StepOutcomeToken; tokenText?: undefined; reprompt?: StepReprompt }
+  | { token: null; tokenText: string; reprompt?: StepReprompt };
+
+/** Resolves the terminal token, re-prompting once (token-only) when the first response carries none. */
+async function resolveStepToken(args: StepRunInput, stdout: string): Promise<StepTokenResolution> {
+  const firstToken = parseStepOutcomeToken(stdout);
+  if (firstToken !== null) {
+    return { token: firstToken };
+  }
+
+  const responseText = stdout.trim();
+  const repromptInvocation = await requestTokenReprompt(args, responseText);
+  const reprompt: StepReprompt = { responseText, invocation: repromptInvocation };
+  const repromptResult = repromptInvocation.final?.result;
+  const repromptToken =
+    repromptResult !== undefined && repromptResult.kind === "ok" ? asToken(repromptResult.stdout.trim()) : null;
+
+  if (repromptToken === null) {
+    return { token: null, tokenText: responseText, reprompt };
+  }
+  return { token: repromptToken, reprompt };
+}
+
 /** One invocation pass through the ordered bindings, then classify; no hidden retries. */
 export async function runStep(args: StepRunInput): Promise<StepRunResult> {
   const invocation = await executeWithQuotaFallback({
@@ -99,20 +147,25 @@ export async function runStep(args: StepRunInput): Promise<StepRunResult> {
     };
   }
 
-  const token = parseStepOutcomeToken(result.stdout);
-  if (token === null) {
+  const resolved = await resolveStepToken(args, result.stdout);
+  const repromptField = resolved.reprompt !== undefined ? { reprompt: resolved.reprompt } : {};
+
+  if (resolved.token === null) {
     return {
       kind: "invalid_token",
-      tokenText: result.stdout.trim(),
+      tokenText: resolved.tokenText,
       invocation,
+      ...repromptField,
     };
   }
+  const token = resolved.token;
 
   if (token === "blocked") {
     return {
       kind: "blocked",
       token,
       invocation,
+      ...repromptField,
     };
   }
 
@@ -121,6 +174,7 @@ export async function runStep(args: StepRunInput): Promise<StepRunResult> {
       kind: "progress",
       token,
       invocation,
+      ...repromptField,
     };
   }
 
@@ -132,6 +186,7 @@ export async function runStep(args: StepRunInput): Promise<StepRunResult> {
         failedContractId: contract.id,
         ...(contract.reason !== undefined ? { failureReason: contract.reason } : {}),
         invocation,
+        ...repromptField,
       };
     }
   }
@@ -140,5 +195,6 @@ export async function runStep(args: StepRunInput): Promise<StepRunResult> {
     kind: "complete",
     token,
     invocation,
+    ...repromptField,
   };
 }

@@ -89,6 +89,18 @@ and surfaces the append failure separately on the invocation result. Later
 runner classification (`contract_miss`, `invalid_token`, etc.) does not suppress
 the already-settled row.
 
+A step whose first response carries no terminal token triggers the runner's
+one token-only re-prompt (`write.token-reprompt`); the re-prompt runs through
+the same `executeWithQuotaFallback` seam and emits its own `invocation_completed`
+row(s) — one per binding attempted, keyed by a fresh `invocation_id` per
+binding (same length/order as `bindings`, distinct from the step's own IDs).
+The step's `attempt_id`, `run_id`, and other context are shared with the
+re-prompt rows. The re-prompt's cost/usage is **not** folded into the attempt
+record's binding attempts (`StepRunResult.invocation.attempts`, derived from
+the step's own — not the re-prompt's — invocation); it is visible only in
+telemetry (its own rows) and in the write-loop run log (`token_reprompt`
+event). A re-prompt binding never becomes the run's `completionAgent`.
+
 Same shape for write, review-debate, and plan steps — only `workflow`, `step_id`,
 `role`, and optional `phase` differ. No patch-only fork.
 

@@ -410,6 +410,40 @@ describe("write loop", () => {
     });
   });
 
+  test("token_reprompt precedes invalid_token_detail on a second miss", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
+
+    const result = await runLoop({ jarvisRoot, stateDbPath, bindings: invalidTokenBindings, logSink: sink });
+    const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+    const repromptIndex = events.indexOf("token_reprompt");
+    const detailIndex = events.indexOf("invalid_token_detail");
+    expect(repromptIndex).toBeGreaterThanOrEqual(0);
+    expect(detailIndex).toBeGreaterThan(repromptIndex);
+
+    const reprompt = sink.getEventsForRun(result.runId).find((event) => event.kind === "token_reprompt");
+    expect(reprompt).toMatchObject({
+      kind: "token_reprompt",
+      responseText: "not a terminal token",
+    });
+  });
+
+  test("no token_reprompt event when the first response carries a token", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
+
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+      logSink: sink,
+    });
+
+    expect(result.kind).toBe("complete");
+    const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+    expect(events).not.toContain("token_reprompt");
+  });
+
   test("write-loop telemetry appends one row per binding attempt with shared run and attempt context", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const telemetryPath = join(jarvisRoot, "telemetry.jsonl");

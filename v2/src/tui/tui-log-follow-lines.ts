@@ -30,6 +30,10 @@ export function formatLogFollowLine(record: PersistedRecord): string {
       if (event.attemptId !== undefined) parts.push(`attemptId=${event.attemptId}`);
       if (event.tokenText.length > 0) parts.push(`tokenText=${JSON.stringify(event.tokenText)}`);
       break;
+    case "token_reprompt":
+      if (event.attemptId !== undefined) parts.push(`attemptId=${event.attemptId}`);
+      if (event.responseText.length > 0) parts.push(`responseText=${JSON.stringify(event.responseText)}`);
+      break;
   }
 
   return parts.join(" ");

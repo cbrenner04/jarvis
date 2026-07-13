@@ -273,7 +273,187 @@ describe("step runner classification", () => {
 
     expect(contractMiss.kind).toBe("contract_miss");
     expect(invalidToken.kind).toBe("invalid_token");
-    expect(rows.map((row) => row.invocation_id)).toEqual(["inv-1", "inv-2"]);
-    expect(rows.map((row) => row.exit_kind)).toEqual(["ok", "ok"]);
+    // The token-less response also fires the runner's one token-only re-prompt, which
+    // emits its own row keyed by a freshly minted invocation id.
+    expect(rows.map((row) => row.invocation_id).slice(0, 2)).toEqual(["inv-1", "inv-2"]);
+    expect(rows).toHaveLength(3);
+    expect(rows.map((row) => row.exit_kind)).toEqual(["ok", "ok", "ok"]);
+  });
+});
+
+describe("step runner token re-prompt", () => {
+  function sequencedBinding(replies: readonly string[]): InvocationBinding {
+    let call = 0;
+    return {
+      id: "agent",
+      metadata: { agent: "claude", model: "m1" },
+      invoke: async () => {
+        const reply = replies[call] ?? replies[replies.length - 1] ?? "";
+        call += 1;
+        return { kind: "ok", stdout: reply, stderr: "" };
+      },
+    };
+  }
+
+  test("token-less response triggers exactly one re-prompt whose token classifies normally", async () => {
+    let invocations = 0;
+    const bindings: InvocationBinding[] = [
+      {
+        id: "agent",
+        invoke: async () => {
+          invocations += 1;
+          return { kind: "ok", stdout: invocations === 1 ? "I did some work." : "done", stderr: "" };
+        },
+      },
+    ];
+
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings,
+      contracts: [{ id: "pass", check: () => true }],
+    });
+
+    expect(invocations).toBe(2);
+    expect(result.kind).toBe("complete");
+    if (result.kind === "complete") expect(result.token).toBe("done");
+    expect(result.reprompt?.responseText).toBe("I did some work.");
+  });
+
+  test("empty first response triggers the re-prompt", async () => {
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [sequencedBinding(["", "progress"])],
+      contracts: [],
+    });
+
+    expect(result.kind).toBe("progress");
+    expect(result.reprompt?.responseText).toBe("");
+  });
+
+  test("second miss classifies as invalid_token with the first response's text", async () => {
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [sequencedBinding(["not a token", "still not a token"])],
+      contracts: [],
+    });
+
+    expect(result.kind).toBe("invalid_token");
+    if (result.kind === "invalid_token") expect(result.tokenText).toBe("not a token");
+  });
+
+  test("hedging re-prompt reply is a second miss, not progress", async () => {
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [sequencedBinding(["", "done, no-work, blocked, or progress?"])],
+      contracts: [],
+    });
+
+    expect(result.kind).toBe("invalid_token");
+  });
+
+  test("first response carrying a token triggers no re-prompt", async () => {
+    let invocations = 0;
+    const bindings: InvocationBinding[] = [
+      {
+        id: "agent",
+        invoke: async () => {
+          invocations += 1;
+          return { kind: "ok", stdout: "done", stderr: "" };
+        },
+      },
+    ];
+
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings,
+      contracts: [{ id: "pass", check: () => true }],
+    });
+
+    expect(invocations).toBe(1);
+    expect(result.kind).toBe("complete");
+    expect(result.reprompt).toBeUndefined();
+  });
+
+  test("re-prompt fires at most once: a token-less re-prompt reply does not trigger a third invocation", async () => {
+    let invocations = 0;
+    const bindings: InvocationBinding[] = [
+      {
+        id: "agent",
+        invoke: async () => {
+          invocations += 1;
+          return { kind: "ok", stdout: "not a token", stderr: "" };
+        },
+      },
+    ];
+
+    const result = await runStep({ prompt: "p", cwd: "/tmp", bindings, contracts: [] });
+
+    expect(invocations).toBe(2);
+    expect(result.kind).toBe("invalid_token");
+  });
+
+  test("a failed re-prompt invocation classifies the step as invalid_token, not invocation_failure", async () => {
+    let invocations = 0;
+    const bindings: InvocationBinding[] = [
+      {
+        id: "agent",
+        invoke: async () => {
+          invocations += 1;
+          if (invocations === 1) return { kind: "ok", stdout: "not a token", stderr: "" };
+          return { kind: "quota", stderr: "quota" };
+        },
+      },
+    ];
+
+    const result = await runStep({ prompt: "p", cwd: "/tmp", bindings, contracts: [] });
+
+    expect(result.kind).toBe("invalid_token");
+    if (result.kind === "invalid_token") expect(result.tokenText).toBe("not a token");
+  });
+
+  test("a re-prompted done whose expected artifact is absent classifies as contract_miss", async () => {
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [sequencedBinding(["", "done"])],
+      contracts: [{ id: "artifact", check: () => false }],
+    });
+
+    expect(result.kind).toBe("contract_miss");
+    if (result.kind === "contract_miss") expect(result.failedContractId).toBe("artifact");
+  });
+
+  test("returned invocation stays the original step invocation, not the re-prompt's", async () => {
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [sequencedBinding(["not a token", "done"])],
+      contracts: [{ id: "pass", check: () => true }],
+    });
+
+    expect(result.kind).toBe("complete");
+    expect(result.invocation.final?.result).toEqual({ kind: "ok", stdout: "not a token", stderr: "" });
+    expect(result.reprompt?.invocation.final?.result).toEqual({ kind: "ok", stdout: "done", stderr: "" });
+  });
+
+  test("re-prompt mints one fresh invocation id per binding, distinct from the step's", async () => {
+    const rows: InvocationCompletedRecord[] = [];
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [sequencedBinding(["not a token", "done"])],
+      contracts: [{ id: "pass", check: () => true }],
+      telemetry: writeStepTelemetry(rows, ["step-inv-1"]),
+    });
+
+    expect(result.kind).toBe("complete");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.invocation_id).toBe("step-inv-1");
+    expect(rows[1]?.invocation_id).not.toBe("step-inv-1");
   });
 });

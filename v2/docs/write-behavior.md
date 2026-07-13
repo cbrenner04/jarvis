@@ -156,7 +156,17 @@ append the same text under `## Step completion` (see
 The step runner's parser is more lenient than the prompt — see
 [`shared-step-runner.md`](./shared-step-runner.md): exact match, then last
 bare-token line, then last token word anywhere in stdout. When no token word
-appears at all, the step records `invalid_token`.
+appears at all (including an empty response), the runner fires one token-only
+re-prompt (`write.token-reprompt`) asking for exactly one of the four tokens
+before giving up; the write loop appends a `token_reprompt` run-log event
+(attempt id + the first, token-less response text, truncated to
+`INVALID_TOKEN_LOG_MAX_CHARS`) whenever this fires, visible via `jarvis2 tui`
+log-follow. The re-prompt reply is accepted only as an exact token — a
+hedging reply that merely names the tokens in prose is a second miss. A
+second miss records `invalid_token`, with the *first* response's text as
+`tokenText`, and the existing `invalid_token_detail` event follows the
+`token_reprompt` event in the log. A re-prompted `done`/`no-work` runs
+contract checks exactly as a first-response token would.
 
 ## Review cycle
 

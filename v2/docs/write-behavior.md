@@ -138,7 +138,9 @@ resumes mid-step. Resume branches from durable state at the last committed bound
 Worktree reconstruction stays on the existing
 [`withExternalWorktree`](../src/execution/external-worktree.ts) path: if the stored
 worktree directory is gone, the next iteration materializes it again from the
-durable branch pointer before running.
+durable branch pointer before running. For linked-index implement, the runner's
+first routing read happens before that materialization; the write loop creates
+the worktree on its first `executeWrite` call.
 
 The write prompt injects the v2 restraint principles (`write.principles`) at
 every iteration; see [`coding-standards.md`](./coding-standards.md) for the
@@ -541,9 +543,12 @@ worktree.
 
 **Implement routing to linked subspecs:** When `jarvis run workflow implement`
 is launched with a multi-subspec `index.md`, the harness routes each write-loop
-iteration to the first unchecked linked subspec in the index. The active linked
-subspec's path and body are injected into the prompt; agent iterations execute
-that subspec rather than the index. Routing state is protected: agent-authored
+iteration to the first unchecked linked subspec in the index. The routing base
+is the external worktree when present, otherwise the registered project root on
+first launch. The active linked subspec's path and body are injected into the
+prompt; agent iterations execute that subspec rather than the index. After the
+write loop creates the worktree, harness advancement reads and writes the
+worktree's index and subspec copies only. Routing state is protected: agent-authored
 changes to index checkboxes are detected, restored, and reported as
 `implement.index_routing_mutated` without advancing routing; agent edits to the
 active subspec's acceptance criteria remain allowed. Harness-only advancement

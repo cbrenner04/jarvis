@@ -174,8 +174,10 @@ jarvis run workflow plan --ready-intent v2/spec/ready-intents/my-intent.md
 jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md
 ```
 
-`--spec` for implement is resolved against the **registered project root**, not the
-future worktree (see seed `implement-preflight-validates-spec-in-missing-worktree`).
+`--spec` for implement is resolved against the **registered project root** for
+both CLI preflight and the runner's first linked-index routing read when no
+external worktree exists yet (see seed
+`implement-preflight-validates-spec-in-missing-worktree`).
 
 ### Ad-hoc write loop (live pause/kill)
 

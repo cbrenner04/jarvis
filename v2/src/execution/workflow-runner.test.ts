@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -2053,6 +2053,68 @@ describe("executeWorkflow review-debate dispatch", () => {
       const result = await executeWorkflow({ steps: [step], stateStore: store });
 
       expect(result).toMatchObject({ kind: "invocation_failure", stepIndex: 0, stepId: "debate-1", resumable: false });
+    });
+  });
+});
+
+describe("executeWorkflow linked implement routing", () => {
+  test("reads index from project root when worktree is absent and advances checkbox in worktree only", async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "linked-routing-project-"));
+    roots.push(projectRoot);
+    const specDir = join(projectRoot, "spec");
+    mkdirSync(specDir, { recursive: true });
+    const projectRootIndexContent = "- [ ] [Sub](./sub.md)\n";
+    writeFileSync(join(specDir, "index.md"), projectRootIndexContent, "utf8");
+    writeFileSync(join(specDir, "sub.md"), "# Sub\n\n## Acceptance criteria\n\n- [ ] criterion\n", "utf8");
+
+    const home = createJarvisHome();
+    roots.push(home.jarvisRoot);
+    const branchName = "linked-routing-first-launch";
+    const worktreePath = join(home.jarvisRoot, "worktrees", "demo", branchName);
+    expect(existsSync(worktreePath)).toBe(false);
+
+    const implementStep: WriteWorkflowStep = {
+      ...createStep({
+        stepId: "implement",
+        role: "implement",
+        branchName,
+        specPath: "spec/index.md",
+        expectedArtifactPath: "spec/index.md",
+        createBinding: createBindingFactory(async ({ cwd }) => {
+          writeFileSync(join(cwd, "spec", "sub.md"), "# Sub\n\n## Acceptance criteria\n\n- [x] criterion\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        }),
+      }),
+      worktree: {
+        projectRoot,
+        projectName: "demo",
+        branchName,
+        baseRef: "HEAD",
+        jarvisRoot: home.jarvisRoot,
+      },
+      withExternalWorktree: async <T>(
+        args: { branchName: string; projectName: string },
+        run: (worktree: ExternalWorktree) => Promise<T> | T,
+      ): Promise<WithExternalWorktreeResult<T>> => {
+        const wtPath = join(home.jarvisRoot, "worktrees", args.projectName, args.branchName);
+        const existed = existsSync(wtPath);
+        mkdirSync(wtPath, { recursive: true });
+        if (!existed) {
+          cpSync(specDir, join(wtPath, "spec"), { recursive: true });
+        }
+        const value = await run({ path: wtPath, reused: existed });
+        return { worktree: { path: wtPath, reused: existed }, lock: { kind: "acquired" }, value };
+      },
+      linkedIndexRouting: true,
+    };
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [implementStep], stateStore: store });
+
+      expect(result.kind).toBe("complete");
+      expect(existsSync(worktreePath)).toBe(true);
+      expect(readFileSync(join(specDir, "index.md"), "utf8")).toBe(projectRootIndexContent);
+      expect(readFileSync(join(worktreePath, "spec", "index.md"), "utf8")).toContain("- [x]");
     });
   });
 });

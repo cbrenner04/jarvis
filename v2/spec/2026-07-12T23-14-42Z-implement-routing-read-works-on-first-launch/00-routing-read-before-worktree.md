@@ -27,20 +27,20 @@ so the preset cannot start at all.
 
 ## Acceptance criteria
 
-- [ ] `jarvis run workflow implement --spec <project-root>/…/index.md` reaches
+- [x] `jarvis run workflow implement --spec <project-root>/…/index.md` reaches
   the write step with no external worktree on disk — the first routing read
   resolves the index against the registered project root instead of failing
   `ENOENT`.
-- [ ] After the write loop creates the worktree, acceptance-criteria
+- [x] After the write loop creates the worktree, acceptance-criteria
   verification, the index-mutation guard, and the checkbox advance all read and
   write the worktree's copy of the index and subspec, not the project root's.
-- [ ] The project-root copy of the index is unmodified after a linked implement
+- [x] The project-root copy of the index is unmodified after a linked implement
   step advances a checkbox.
-- [ ] A new `workflow-runner.test.ts` case starts from **no worktree directory
+- [x] A new `workflow-runner.test.ts` case starts from **no worktree directory
   on disk** with the spec tree only at the project root, drives
   `runLinkedImplementStep` through the write step, and fails on the current
   code.
-- [ ] Existing `workflow-runner.test.ts` linked-index cases stay green
+- [x] Existing `workflow-runner.test.ts` linked-index cases stay green
   (worktree-present behavior unchanged by the fallback).
 
 ## Documentation updates

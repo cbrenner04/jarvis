@@ -23,6 +23,8 @@ const SOCKET_PATH = join(tmpdir(), `jarvis-daemon-test-${process.pid}-${Date.now
 const PID_PATH = join(tmpdir(), `jarvis-daemon-test-${process.pid}-${Date.now()}.pid`);
 const LIST_SOCKET_PATH = join(tmpdir(), `jarvis-daemon-list-test-${process.pid}-${Date.now()}.sock`);
 const STATE_DB_PATH = join(tmpdir(), `jarvis-daemon-list-test-${process.pid}-${Date.now()}.sqlite`);
+const PRIOR_OWNER_IDENTITY = "11111:1000000";
+const SWEEP_OWNER_IDENTITY = "22222:2000000";
 const socketTest = test.skipIf(!canUseUnixSockets());
 
 beforeEach(() => {
@@ -91,13 +93,19 @@ describe("daemon (real process)", () => {
   // seeding a run row requires a direct reference to the state store, which only the
   // in-process launcher exposes. The detached spawn has no seam for this.
   socketTest("list runs over IPC against a genuine daemon response frame", async () => {
-    const stateStore = openStateStore(STATE_DB_PATH);
-    const runId = stateStore.createRun({
+    const seedStore = openStateStore(STATE_DB_PATH, { currentIdentity: PRIOR_OWNER_IDENTITY });
+    const runId = seedStore.createRun({
       project: "p",
       specRef: "spec-ref",
       worktreePath: "/tmp/worktree",
       branch: "b",
       specPath: "/tmp/worktree/spec.md",
+    });
+    seedStore.close();
+
+    const stateStore = openStateStore(STATE_DB_PATH, {
+      currentIdentity: SWEEP_OWNER_IDENTITY,
+      isOwnerAlive: async (identity) => identity !== PRIOR_OWNER_IDENTITY,
     });
 
     await startInProcessDaemon(LIST_SOCKET_PATH, stateStore);

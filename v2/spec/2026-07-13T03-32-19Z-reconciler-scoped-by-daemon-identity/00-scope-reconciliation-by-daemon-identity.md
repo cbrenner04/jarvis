@@ -64,21 +64,21 @@ probe reporting `X` alive.
 
 ## Acceptance criteria
 
-- [ ] A run whose recorded owner is the current process is never reconciled by that process's sweep, whenever
+- [x] A run whose recorded owner is the current process is never reconciled by that process's sweep, whenever
       the sweep runs.
-- [ ] A non-terminal run whose recorded owner is a different but **live** process keeps its status and gets no
+- [x] A non-terminal run whose recorded owner is a different but **live** process keeps its status and gets no
       `run_reconciled` event.
-- [ ] A non-terminal run whose recorded owner is a different and **dead** process is killed with
+- [x] A non-terminal run whose recorded owner is a different and **dead** process is killed with
       `run_reconciled / killed / daemon_restart`, as before.
-- [ ] A non-terminal run with no recorded owner (pre-migration row) is killed, as before.
-- [ ] The liveness check classifies a recorded owner with the same pid but a different start epoch as dead, the
+- [x] A non-terminal run with no recorded owner (pre-migration row) is killed, as before.
+- [x] The liveness check classifies a recorded owner with the same pid but a different start epoch as dead, the
       same pid with the same start epoch as alive, and a live pid whose start epoch cannot be read as alive.
-- [ ] `v2/src/daemon/daemon-reconciliation.test.ts` is reworked to seed rows with a prior-incarnation identity
+- [x] `v2/src/daemon/daemon-reconciliation.test.ts` is reworked to seed rows with a prior-incarnation identity
       (per the test mechanic above) instead of the sweeping process's own, and stays green — including the
       pending-append retry case (a `reconciliation_pending` row owned by a dead prior incarnation retries
       exactly once) and the startup-ordering case (reconciliation completes before IPC opens; a reconciliation
       failure prevents IPC from opening).
-- [ ] Opening a state store on a database written before this change succeeds and reconciles as above
+- [x] Opening a state store on a database written before this change succeeds and reconciles as above
       (migration applies without backfill).
 
 ## Documentation updates

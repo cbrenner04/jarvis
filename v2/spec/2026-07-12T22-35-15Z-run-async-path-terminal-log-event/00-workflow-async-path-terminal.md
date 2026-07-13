@@ -37,14 +37,14 @@ structured-log record, durable row left non-terminal (`list` keeps reporting it)
 
 ## Acceptance criteria
 
-- [ ] A workflow whose async path throws after `iteration_started` records a `run_execution_failed` event carrying the error's message in that run's structured log, and the run is no longer reported live by `list`.
-- [ ] The durable run row ends `failed` when `isTerminalRunStatus` was false; an already-terminal row (including `paused`) is left as-is with no terminal record.
-- [ ] The status commit is observable before the terminal record: `wait` on a run ended by a workflow async-path failure resolves with `runStatus: "failed"` and a `harness_failure` operator error rather than hanging or reporting a pre-demotion status.
-- [ ] A killed workflow produces no `run_execution_failed` record.
-- [ ] With no log sink configured, the durable row still ends `failed`.
-- [ ] The workflow's worktree ownership key is released even when durable demotion or the log append throws.
-- [ ] A workflow rejection before step 0's run row exists still resolves `start` with an `invalid_params` error (`daemon-workflow-start.test.ts` stays green).
-- [ ] Existing spawn-boundary capture is unchanged (`daemon-run-failure-capture.test.ts` stays green).
+- [x] A workflow whose async path throws after `iteration_started` records a `run_execution_failed` event carrying the error's message in that run's structured log, and the run is no longer reported live by `list`.
+- [x] The durable run row ends `failed` when `isTerminalRunStatus` was false; an already-terminal row (including `paused`) is left as-is with no terminal record.
+- [x] The status commit is observable before the terminal record: `wait` on a run ended by a workflow async-path failure resolves with `runStatus: "failed"` and a `harness_failure` operator error rather than hanging or reporting a pre-demotion status.
+- [x] A killed workflow produces no `run_execution_failed` record.
+- [x] With no log sink configured, the durable row still ends `failed`.
+- [x] The workflow's worktree ownership key is released even when durable demotion or the log append throws.
+- [x] A workflow rejection before step 0's run row exists still resolves `start` with an `invalid_params` error (`daemon-workflow-start.test.ts` stays green).
+- [x] Existing spawn-boundary capture is unchanged (`daemon-run-failure-capture.test.ts` stays green).
 
 ## Documentation updates
 

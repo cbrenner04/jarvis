@@ -470,11 +470,13 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       })
         .catch((err) => {
           const message = err instanceof Error ? err.message : String(err);
-          resolve({
-            kind: "error",
-            code: "invalid_params",
-            message,
-          });
+          if (workflowRunIds.size === 0) {
+            resolve({
+              kind: "error",
+              code: "invalid_params",
+              message,
+            });
+          }
           for (const runId of workflowRunIds) {
             const run = store.loadRun(runId);
             if (run && isTerminalRunStatus(run.status)) {

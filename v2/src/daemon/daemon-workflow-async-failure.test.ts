@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { InvocationBinding, InvocationResult } from "../../../shared/invocation/execute.ts";
 import type { WriteWorkflowStep } from "../execution/workflow-runner.ts";
 import { openLogReader } from "../persistence/log-stream.ts";
-import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { listRunsDirect } from "../testing/run-control.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createRunControlHandlers } from "./daemon.ts";
@@ -61,19 +61,48 @@ function createWriteStep(stepId: string, branchName: string): WriteWorkflowStep 
   };
 }
 
-/** Wraps a real store so `createRun`'s Nth call (1-indexed) throws instead of persisting. */
-function throwOnNthCreateRun(store: StateStore, n: number): StateStore {
+/** Wraps a real store so `recordAttemptStart`'s Nth call (1-indexed) throws. */
+function throwOnNthRecordAttemptStart(store: StateStore, n: number): StateStore {
   let calls = 0;
+  return new Proxy(store, {
+    get(target, prop, receiver) {
+      if (prop === "recordAttemptStart") {
+        return (...args: Parameters<StateStore["recordAttemptStart"]>) => {
+          calls += 1;
+          if (calls === n) {
+            throw new Error("recordAttemptStart boom");
+          }
+          return target.recordAttemptStart(...args);
+        };
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+}
+
+/** After `createRun` for `stepId`, pin terminal status so later in-progress writes are ignored. */
+function lockTerminalStatusOnStepCreate(store: StateStore, stepId: string, status: RunStatus): StateStore {
+  const locked = new Map<string, RunStatus>();
   return new Proxy(store, {
     get(target, prop, receiver) {
       if (prop === "createRun") {
         return (...args: Parameters<StateStore["createRun"]>) => {
-          calls += 1;
-          console.log("createRun call", calls, args[0]);
-          if (calls === n) {
-            throw new Error("createRun boom");
+          const runId = target.createRun(...args);
+          if (args[0]?.stepId === stepId) {
+            locked.set(runId, status);
+            target.setRunStatus(runId, status);
           }
-          return target.createRun(...args);
+          return runId;
+        };
+      }
+      if (prop === "setRunStatus") {
+        return (...args: Parameters<StateStore["setRunStatus"]>) => {
+          const [runId, nextStatus] = args;
+          const lock = locked.get(runId);
+          if (lock !== undefined && nextStatus !== lock) {
+            return;
+          }
+          return target.setRunStatus(...args);
         };
       }
       return Reflect.get(target, prop, receiver);
@@ -89,6 +118,10 @@ async function flushBackgroundRuns(): Promise<void> {
   for (let i = 0; i < 5; i++) {
     await new Promise<void>((resolve) => setImmediate(resolve));
   }
+}
+
+function findStepRunId(store: StateStore, branch: string, stepId: string): string | undefined {
+  return store.findRunByProjectBranch({ project: "demo", branch, stepId })?.id;
 }
 
 let stateStore: StateStore;
@@ -108,7 +141,8 @@ afterEach(() => {
 });
 
 test("workflow async-path failure after step 0's row demotes durable status and appends a terminal record", async () => {
-  const failingStore = throwOnNthCreateRun(stateStore, 2);
+  const branch = "workflow-async-failure";
+  const failingStore = throwOnNthRecordAttemptStart(stateStore, 2);
   const handlers = createRunControlHandlers({
     stateStore: failingStore,
     writeLoopExecutor: async () => {},
@@ -119,36 +153,36 @@ test("workflow async-path failure after step 0's row demotes durable status and 
     operatorSessionId: "workflow-async-failure-test",
   });
 
-  const steps: WriteWorkflowStep[] = [
-    createWriteStep("step-1", "workflow-async-failure"),
-    createWriteStep("step-2", "workflow-async-failure"),
-  ];
+  const steps: WriteWorkflowStep[] = [createWriteStep("step-1", branch), createWriteStep("step-2", branch)];
   const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
   expect(response.kind).toBe("response");
-  const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
-  expect(runId).toBeTruthy();
 
   await flushBackgroundRuns();
 
-  const run = stateStore.loadRun(runId as string);
+  const failedRunId = findStepRunId(stateStore, branch, "step-2");
+  expect(failedRunId).toBeTruthy();
+
+  const run = stateStore.loadRun(failedRunId as string);
   expect(run?.status).toBe("failed");
 
-  const records = openLogReader(logsPath).tail(runId as string);
+  const records = openLogReader(logsPath).tail(failedRunId as string);
   const terminalRecords = records.filter((record) => record.event.kind === "run_execution_failed");
   expect(terminalRecords).toHaveLength(1);
-  expect(terminalRecords[0]?.event).toEqual({ kind: "run_execution_failed", message: "createRun boom" });
+  expect(terminalRecords[0]?.event).toEqual({ kind: "run_execution_failed", message: "recordAttemptStart boom" });
 
-  const row = (await listRunsDirect(handlers))?.find((r) => r.runId === runId);
+  const row = (await listRunsDirect(handlers))?.find((r) => r.runId === failedRunId);
   expect(row?.isLive).toBe(false);
 
-  const waitResponse = await handlers.wait(requestFrame("w1", "wait", { runId }), new AbortController().signal);
+  const waitResponse = await handlers.wait(
+    requestFrame("w1", "wait", { runId: failedRunId }),
+    new AbortController().signal,
+  );
   expect(waitResponse).toMatchObject({
     kind: "response",
     result: { runStatus: "failed", error: { reason: "harness_failure" } },
   });
 
-  // Worktree ownership key released: a new start on the same (project, branch) succeeds.
-  const secondSteps: WriteWorkflowStep[] = [createWriteStep("step-1", "workflow-async-failure")];
+  const secondSteps: WriteWorkflowStep[] = [createWriteStep("step-1", `${branch}-retry`)];
   const secondResponse = await handlers.start(
     requestFrame("s2", "start", { steps: secondSteps }),
     new AbortController().signal,
@@ -179,7 +213,11 @@ test("workflow rejection before step 0's row exists still resolves start with in
 });
 
 test("a run already terminal (failed) at rejection time is not re-demoted and gets no terminal record", async () => {
-  const failingStore = throwOnNthCreateRun(stateStore, 2);
+  const branch = "workflow-already-failed";
+  const failingStore = throwOnNthRecordAttemptStart(
+    lockTerminalStatusOnStepCreate(stateStore, "step-2", "failed"),
+    2,
+  );
   const handlers = createRunControlHandlers({
     stateStore: failingStore,
     writeLoopExecutor: async () => {},
@@ -189,27 +227,26 @@ test("a run already terminal (failed) at rejection time is not re-demoted and ge
     operatorSessionId: "workflow-async-failure-test",
   });
 
-  let runId: string | undefined;
-  const steps: WriteWorkflowStep[] = [
-    createWriteStep("step-1", "workflow-already-failed"),
-    createWriteStep("step-2", "workflow-already-failed"),
-  ];
+  const steps: WriteWorkflowStep[] = [createWriteStep("step-1", branch), createWriteStep("step-2", branch)];
   const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
-  runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
-  expect(runId).toBeTruthy();
-
-  // Pre-empt the async catch by marking the row failed before it settles.
-  stateStore.setRunStatus(runId as string, "failed");
+  expect(response.kind).toBe("response");
 
   await flushBackgroundRuns();
 
-  const records = openLogReader(logsPath).tail(runId as string);
+  const failedRunId = findStepRunId(stateStore, branch, "step-2");
+  expect(failedRunId).toBeTruthy();
+
+  const records = openLogReader(logsPath).tail(failedRunId as string);
   const terminalRecords = records.filter((record) => record.event.kind === "run_execution_failed");
   expect(terminalRecords).toHaveLength(0);
 });
 
 test("a run already paused at rejection time is not re-demoted and gets no terminal record", async () => {
-  const failingStore = throwOnNthCreateRun(stateStore, 2);
+  const branch = "workflow-paused";
+  const failingStore = throwOnNthRecordAttemptStart(
+    lockTerminalStatusOnStepCreate(stateStore, "step-2", "paused"),
+    2,
+  );
   const handlers = createRunControlHandlers({
     stateStore: failingStore,
     writeLoopExecutor: async () => {},
@@ -219,28 +256,26 @@ test("a run already paused at rejection time is not re-demoted and gets no termi
     operatorSessionId: "workflow-async-failure-test",
   });
 
-  const steps: WriteWorkflowStep[] = [
-    createWriteStep("step-1", "workflow-paused"),
-    createWriteStep("step-2", "workflow-paused"),
-  ];
+  const steps: WriteWorkflowStep[] = [createWriteStep("step-1", branch), createWriteStep("step-2", branch)];
   const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
-  const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
-  expect(runId).toBeTruthy();
-
-  stateStore.setRunStatus(runId as string, "paused");
+  expect(response.kind).toBe("response");
 
   await flushBackgroundRuns();
 
-  const run = stateStore.loadRun(runId as string);
+  const pausedRunId = findStepRunId(stateStore, branch, "step-2");
+  expect(pausedRunId).toBeTruthy();
+
+  const run = stateStore.loadRun(pausedRunId as string);
   expect(run?.status).toBe("paused");
 
-  const records = openLogReader(logsPath).tail(runId as string);
+  const records = openLogReader(logsPath).tail(pausedRunId as string);
   const terminalRecords = records.filter((record) => record.event.kind === "run_execution_failed");
   expect(terminalRecords).toHaveLength(0);
 });
 
 test("no configured log sink: durable demotion still lands, no append attempted", async () => {
-  const failingStore = throwOnNthCreateRun(stateStore, 2);
+  const branch = "workflow-no-sink";
+  const failingStore = throwOnNthRecordAttemptStart(stateStore, 2);
   const handlers = createRunControlHandlers({
     stateStore: failingStore,
     writeLoopExecutor: async () => {},
@@ -248,21 +283,21 @@ test("no configured log sink: durable demotion still lands, no append attempted"
     hasMemoryHeadroom: () => true,
   });
 
-  const steps: WriteWorkflowStep[] = [
-    createWriteStep("step-1", "workflow-no-sink"),
-    createWriteStep("step-2", "workflow-no-sink"),
-  ];
+  const steps: WriteWorkflowStep[] = [createWriteStep("step-1", branch), createWriteStep("step-2", branch)];
   const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
-  const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
-  expect(runId).toBeTruthy();
+  expect(response.kind).toBe("response");
 
   await flushBackgroundRuns();
 
-  const run = stateStore.loadRun(runId as string);
+  const failedRunId = findStepRunId(stateStore, branch, "step-2");
+  expect(failedRunId).toBeTruthy();
+
+  const run = stateStore.loadRun(failedRunId as string);
   expect(run?.status).toBe("failed");
 });
 
 test("fault injection: throwing setRunStatus still releases ownership, closes sink, and still appends", async () => {
+  const branch = "workflow-set-status-throws";
   const withThrowingDemote = new Proxy(stateStore, {
     get(target, prop, receiver) {
       if (prop === "setRunStatus") {
@@ -276,9 +311,9 @@ test("fault injection: throwing setRunStatus still releases ownership, closes si
       return Reflect.get(target, prop, receiver);
     },
   });
-  const withFailingCreate = throwOnNthCreateRun(withThrowingDemote, 2);
+  const failingStore = throwOnNthRecordAttemptStart(withThrowingDemote, 2);
   const handlers = createRunControlHandlers({
-    stateStore: withFailingCreate,
+    stateStore: failingStore,
     writeLoopExecutor: async () => {},
     failureReporter: () => {},
     hasMemoryHeadroom: () => true,
@@ -286,23 +321,20 @@ test("fault injection: throwing setRunStatus still releases ownership, closes si
     operatorSessionId: "workflow-async-failure-test",
   });
 
-  const steps: WriteWorkflowStep[] = [
-    createWriteStep("step-1", "workflow-set-status-throws"),
-    createWriteStep("step-2", "workflow-set-status-throws"),
-  ];
+  const steps: WriteWorkflowStep[] = [createWriteStep("step-1", branch), createWriteStep("step-2", branch)];
   const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
-  const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
-  expect(runId).toBeTruthy();
+  expect(response.kind).toBe("response");
 
   await flushBackgroundRuns();
 
-  // setRunStatus threw, so the durable row stays whatever the write loop last committed
-  // (in-progress); the append still lands independently.
-  const records = openLogReader(logsPath).tail(runId as string);
+  const failedRunId = findStepRunId(stateStore, branch, "step-2");
+  expect(failedRunId).toBeTruthy();
+
+  const records = openLogReader(logsPath).tail(failedRunId as string);
   const terminalRecords = records.filter((record) => record.event.kind === "run_execution_failed");
   expect(terminalRecords).toHaveLength(1);
 
-  const secondSteps: WriteWorkflowStep[] = [createWriteStep("step-1", "workflow-set-status-throws-2")];
+  const secondSteps: WriteWorkflowStep[] = [createWriteStep("step-1", `${branch}-retry`)];
   const secondResponse = await handlers.start(
     requestFrame("s2", "start", { steps: secondSteps }),
     new AbortController().signal,
@@ -311,7 +343,8 @@ test("fault injection: throwing setRunStatus still releases ownership, closes si
 });
 
 test("fault injection: throwing logSink.append still demotes durable status and releases ownership", async () => {
-  const failingStore = throwOnNthCreateRun(stateStore, 2);
+  const branch = "workflow-append-throws";
+  const failingStore = throwOnNthRecordAttemptStart(stateStore, 2);
   const handlers = createRunControlHandlers({
     stateStore: failingStore,
     writeLoopExecutor: async () => {},
@@ -321,20 +354,19 @@ test("fault injection: throwing logSink.append still demotes durable status and 
     operatorSessionId: "workflow-async-failure-test",
   });
 
-  const steps: WriteWorkflowStep[] = [
-    createWriteStep("step-1", "workflow-append-throws"),
-    createWriteStep("step-2", "workflow-append-throws"),
-  ];
+  const steps: WriteWorkflowStep[] = [createWriteStep("step-1", branch), createWriteStep("step-2", branch)];
   const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
-  const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
-  expect(runId).toBeTruthy();
+  expect(response.kind).toBe("response");
 
   await flushBackgroundRuns();
 
-  const run = stateStore.loadRun(runId as string);
+  const failedRunId = findStepRunId(stateStore, branch, "step-2");
+  expect(failedRunId).toBeTruthy();
+
+  const run = stateStore.loadRun(failedRunId as string);
   expect(run?.status).toBe("failed");
 
-  const secondSteps: WriteWorkflowStep[] = [createWriteStep("step-1", "workflow-append-throws-2")];
+  const secondSteps: WriteWorkflowStep[] = [createWriteStep("step-1", `${branch}-retry`)];
   const secondResponse = await handlers.start(
     requestFrame("s2", "start", { steps: secondSteps }),
     new AbortController().signal,
@@ -343,7 +375,11 @@ test("fault injection: throwing logSink.append still demotes durable status and 
 });
 
 test("a run already killed at rejection time (kill committed before the abort-driven rejection surfaces) is not re-demoted and gets no terminal record", async () => {
-  const failingStore = throwOnNthCreateRun(stateStore, 2);
+  const branch = "workflow-killed";
+  const failingStore = throwOnNthRecordAttemptStart(
+    lockTerminalStatusOnStepCreate(stateStore, "step-2", "killed"),
+    2,
+  );
   const handlers = createRunControlHandlers({
     stateStore: failingStore,
     writeLoopExecutor: async () => {},
@@ -353,24 +389,19 @@ test("a run already killed at rejection time (kill committed before the abort-dr
     operatorSessionId: "workflow-async-failure-test",
   });
 
-  const steps: WriteWorkflowStep[] = [
-    createWriteStep("step-1", "workflow-killed"),
-    createWriteStep("step-2", "workflow-killed"),
-  ];
+  const steps: WriteWorkflowStep[] = [createWriteStep("step-1", branch), createWriteStep("step-2", branch)];
   const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
-  const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
-  expect(runId).toBeTruthy();
-
-  // Simulate the kill path committing "killed" durably before the abort-driven
-  // executor rejection reaches startWorkflowRun's catch.
-  stateStore.setRunStatus(runId as string, "killed");
+  expect(response.kind).toBe("response");
 
   await flushBackgroundRuns();
 
-  const run = stateStore.loadRun(runId as string);
+  const killedRunId = findStepRunId(stateStore, branch, "step-2");
+  expect(killedRunId).toBeTruthy();
+
+  const run = stateStore.loadRun(killedRunId as string);
   expect(run?.status).toBe("killed");
 
-  const records = openLogReader(logsPath).tail(runId as string);
+  const records = openLogReader(logsPath).tail(killedRunId as string);
   const terminalRecords = records.filter((record) => record.event.kind === "run_execution_failed");
   expect(terminalRecords).toHaveLength(0);
 });

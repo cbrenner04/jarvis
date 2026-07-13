@@ -73,9 +73,13 @@ function worktreeClaimedMessage(key: OwnershipKey): string {
 const LIST_TERMINAL_RUN_LIMIT = 50;
 
 const TERMINAL_LIST_STATUSES: ReadonlySet<RunStatus> = new Set(["completed", "failed", "blocked", "killed"]);
-/** Marks runs left without an owning daemon as killed before IPC is exposed. */
-export function reconcileOrphanedRuns(stateStore: StateStore, logSink: LogSink, logReader?: LogReader): void {
-  for (const runId of stateStore.beginRunReconciliation()) {
+/** Marks runs whose recorded owner is gone as killed before IPC is exposed. */
+export async function reconcileOrphanedRuns(
+  stateStore: StateStore,
+  logSink: LogSink,
+  logReader?: LogReader,
+): Promise<void> {
+  for (const runId of await stateStore.beginRunReconciliation()) {
     const eventPersisted = logReader
       ?.tail(runId)
       .some(
@@ -1119,7 +1123,7 @@ export async function startDaemon(
   const createLogSink = startupDeps.openLogSink ?? openLogSink;
   const reconciliationLogSink = createLogSink(logsPath);
   try {
-    reconcileOrphanedRuns(store, reconciliationLogSink, logReaderInstance);
+    await reconcileOrphanedRuns(store, reconciliationLogSink, logReaderInstance);
   } finally {
     reconciliationLogSink.close();
   }

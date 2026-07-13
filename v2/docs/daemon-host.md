@@ -17,8 +17,17 @@ child process; `bun run check` guards `v2/**` and `shared/**` against it.
 ## Restart reconciliation
 
 Before opening its IPC listener, a daemon marks durable `queued`, `in-progress`,
-`paused`, `budget-soft-stopped`, `awaiting-human`, and `revising` runs from a
-prior process as `killed`. Each transition appends `run_reconciled` with
+`paused`, `budget-soft-stopped`, `awaiting-human`, and `revising` runs whose
+**admitting process is gone** as `killed`. Every run row records `owner_identity`
+(`<pid>:<process-start-epoch>`, stamped by `createRun` — daemon admission,
+`jarvis write`, and the workflow runner all stamp their own process's identity,
+not a daemon-specific one). A row is a candidate only if it has no recorded
+owner (pre-migration row) or its owner differs from the sweeping process *and*
+that owner is no longer alive (pid gone, or pid reused — different start epoch).
+A row owned by the sweeping process itself, or by any other still-live process
+(a live foreground `jarvis write` or workflow runner, or another daemon),
+is left untouched — reconciliation is scoped to dead incarnations, not merely
+non-terminal status. Each killed transition appends `run_reconciled` with
 `runStatus: "killed"` and `reason: "daemon_restart"`; `jarvis run log <run-id>`
 replays that event. `completed`, `blocked`, `failed`, and `killed` rows are
 unchanged. State or log reconciliation failure aborts startup before IPC serves.

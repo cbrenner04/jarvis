@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { InvocationFailureDetail } from "../execution/invocation-failure.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
@@ -162,8 +163,12 @@ export interface StateStore {
   /** Persist a run status update outside a completion boundary. */
   setRunStatus(runId: string, status: RunStatus): void;
 
-  /** Mark orphaned runs as killed and return reconciliation events still owed. */
-  beginRunReconciliation(): string[];
+  /**
+   * Mark runs whose recorded owner is gone (no owner, or a dead non-current
+   * owner) as killed; return reconciliation events still owed. A run owned by
+   * a live process — this one or another — is left untouched.
+   */
+  beginRunReconciliation(): Promise<string[]>;
 
   /** Mark a persisted reconciliation event as complete. */
   finishRunReconciliation(runId: string): void;
@@ -237,7 +242,62 @@ const SCHEMA_MIGRATIONS = [
     id: "010-run-reconciliation-pending",
     up: "ALTER TABLE runs ADD COLUMN reconciliation_pending INTEGER NOT NULL DEFAULT 0",
   },
+  {
+    id: "011-run-owner-identity",
+    up: "ALTER TABLE runs ADD COLUMN owner_identity TEXT",
+  },
 ] as const;
+
+const ORPHAN_STATUSES = "'queued', 'in-progress', 'paused', 'budget-soft-stopped', 'awaiting-human', 'revising'";
+
+/** Probes whether the process recorded as a run's owner is still alive. */
+export type OwnerLivenessProbe = (identity: string) => Promise<boolean>;
+
+async function readProcessStartEpoch(pid: number): Promise<number | null> {
+  try {
+    const stdout = await realAsyncSubprocessRunner.runAsync(
+      "ps",
+      ["-o", "lstart=", "-p", String(pid)],
+      process.cwd(),
+    );
+    const trimmed = stdout.trim();
+    if (!trimmed) return null;
+    const epoch = Date.parse(trimmed);
+    return Number.isNaN(epoch) ? null : epoch;
+  } catch {
+    return null;
+  }
+}
+
+async function computeCurrentOwnerIdentity(): Promise<string> {
+  const epoch = await readProcessStartEpoch(process.pid);
+  return `${process.pid}:${epoch ?? 0}`;
+}
+
+/** This process's `<pid>:<start-epoch>` identity, captured once at module init. */
+export const CURRENT_OWNER_IDENTITY = await computeCurrentOwnerIdentity();
+
+/**
+ * Default liveness probe: a recorded owner is alive iff its pid exists and that
+ * pid's start epoch matches the recorded one. An existing pid whose epoch can't
+ * be read is treated as alive (skip the row rather than risk killing a live run).
+ */
+export async function isOwnerAlive(
+  identity: string,
+  readStartEpoch: (pid: number) => Promise<number | null> = readProcessStartEpoch,
+): Promise<boolean> {
+  const [pidPart, epochPart] = identity.split(":");
+  const pid = Number(pidPart);
+  if (!Number.isFinite(pid)) return false;
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+  const currentEpoch = await readStartEpoch(pid);
+  if (currentEpoch === null) return true;
+  return currentEpoch === Number(epochPart);
+}
 
 function applySchemaMigrations(db: Database): void {
   db.exec(`
@@ -278,12 +338,16 @@ function mapRunRow(row: RunRow): Run {
 
 class StateStoreImpl implements StateStore {
   private db: Database;
+  private currentIdentity: string;
+  private isOwnerAliveProbe: OwnerLivenessProbe;
 
-  constructor(dbPath: string) {
+  constructor(dbPath: string, overrides?: { currentIdentity?: string; isOwnerAlive?: OwnerLivenessProbe }) {
     mkdirSync(dirname(dbPath), { recursive: true });
     this.db = new Database(dbPath);
     this.db.exec(SCHEMA);
     applySchemaMigrations(this.db);
+    this.currentIdentity = overrides?.currentIdentity ?? CURRENT_OWNER_IDENTITY;
+    this.isOwnerAliveProbe = overrides?.isOwnerAlive ?? isOwnerAlive;
   }
 
   createRun(args: {
@@ -304,9 +368,9 @@ class StateStoreImpl implements StateStore {
     this.db
       .prepare(`
         INSERT INTO runs (
-          id, project, spec_ref, created_at, status, attempt_count, worktree_path, branch, spec_path, step_id, workflow_snapshot, queued_input, creation_title
+          id, project, spec_ref, created_at, status, attempt_count, worktree_path, branch, spec_path, step_id, workflow_snapshot, queued_input, creation_title, owner_identity
         )
-        VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         id,
@@ -321,6 +385,7 @@ class StateStoreImpl implements StateStore {
         workflowSnapshotJson,
         queuedInputJson,
         args.creationTitle ?? null,
+        this.currentIdentity,
       );
     return id;
   }
@@ -424,13 +489,36 @@ class StateStoreImpl implements StateStore {
     this.db.prepare("UPDATE runs SET status = ? WHERE id = ?").run(status, runId);
   }
 
-  beginRunReconciliation(): string[] {
+  async beginRunReconciliation(): Promise<string[]> {
+    const candidates = this.db
+      .prepare(`SELECT id, owner_identity AS ownerIdentity FROM runs WHERE status IN (${ORPHAN_STATUSES})`)
+      .all() as Array<{ id: string; ownerIdentity: string | null }>;
+
+    const killIds: string[] = [];
+    const aliveByIdentity = new Map<string, boolean>();
+    for (const candidate of candidates) {
+      if (candidate.ownerIdentity === null) {
+        killIds.push(candidate.id);
+        continue;
+      }
+      if (candidate.ownerIdentity === this.currentIdentity) continue;
+      let alive = aliveByIdentity.get(candidate.ownerIdentity);
+      if (alive === undefined) {
+        alive = await this.isOwnerAliveProbe(candidate.ownerIdentity);
+        aliveByIdentity.set(candidate.ownerIdentity, alive);
+      }
+      if (!alive) killIds.push(candidate.id);
+    }
+
     return this.db.transaction(() => {
-      this.db
-        .prepare(
-          "UPDATE runs SET status = 'killed', reconciliation_pending = 1 WHERE status IN ('queued', 'in-progress', 'paused', 'budget-soft-stopped', 'awaiting-human', 'revising')",
-        )
-        .run();
+      if (killIds.length > 0) {
+        const placeholders = killIds.map(() => "?").join(", ");
+        this.db
+          .prepare(
+            `UPDATE runs SET status = 'killed', reconciliation_pending = 1 WHERE id IN (${placeholders}) AND status IN (${ORPHAN_STATUSES})`,
+          )
+          .run(...killIds);
+      }
       return (
         this.db
           .prepare("SELECT id FROM runs WHERE reconciliation_pending = 1 ORDER BY created_at DESC, rowid DESC")
@@ -472,6 +560,9 @@ class StateStoreImpl implements StateStore {
 }
 
 /** Open or create the state store; default path `~/.jarvis/state/v2.sqlite`. */
-export function openStateStore(storePath?: string): StateStore {
-  return new StateStoreImpl(storePath ?? join(homedir(), ".jarvis", "state", "v2.sqlite"));
+export function openStateStore(
+  storePath?: string,
+  overrides?: { currentIdentity?: string; isOwnerAlive?: OwnerLivenessProbe },
+): StateStore {
+  return new StateStoreImpl(storePath ?? join(homedir(), ".jarvis", "state", "v2.sqlite"), overrides);
 }

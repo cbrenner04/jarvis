@@ -1,10 +1,16 @@
+import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { IpcServer } from "../ipc/server.ts";
 import type { LogEvent, LogReader, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
-import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
+import {
+  openStateStore,
+  type OwnerLivenessProbe,
+  type RunStatus,
+  type StateStore,
+} from "../persistence/state-store.ts";
 import { reconcileOrphanedRuns, startDaemon } from "./daemon.ts";
 
 const dbPath = join(tmpdir(), `jarvis-reconciliation-${process.pid}.sqlite`);
@@ -18,9 +24,18 @@ const orphanedStatuses: readonly RunStatus[] = [
 ];
 const terminalStatuses: readonly RunStatus[] = ["completed", "blocked", "failed", "killed"];
 
-let store: StateStore;
+// Simulated identity of a prior daemon incarnation that admitted the seeded runs.
+const PRIOR_IDENTITY = "11111:1000000";
+// Identity of the process performing the sweep.
+const CURRENT_IDENTITY = "22222:2000000";
 
-function createRun(status: RunStatus): string {
+let seedStore: StateStore;
+
+function openSweepStore(isOwnerAlive: OwnerLivenessProbe): StateStore {
+  return openStateStore(dbPath, { currentIdentity: CURRENT_IDENTITY, isOwnerAlive });
+}
+
+function createRun(store: StateStore, status: RunStatus): string {
   return store.createRun({
     project: "project",
     specRef: "main",
@@ -45,24 +60,25 @@ function createRun(status: RunStatus): string {
 
 beforeEach(() => {
   rmSync(dbPath, { force: true });
-  store = openStateStore(dbPath);
+  seedStore = openStateStore(dbPath, { currentIdentity: PRIOR_IDENTITY });
 });
 
 afterEach(() => {
-  store.close();
+  seedStore.close();
   rmSync(dbPath, { force: true });
 });
 
-test("reconciles every orphaned status, retaining durable run metadata", () => {
-  const runIds = orphanedStatuses.map(createRun);
-  const attemptIds = runIds.map((runId) => store.recordAttemptStart(runId));
+test("reconciles every orphaned status owned by a dead prior incarnation, retaining durable run metadata", async () => {
+  const runIds = orphanedStatuses.map((status) => createRun(seedStore, status));
+  const attemptIds = runIds.map((runId) => seedStore.recordAttemptStart(runId));
   const events: Array<{ runId: string; event: LogEvent }> = [];
   const sink: LogSink = { append: (runId, event) => events.push({ runId, event }), close: () => undefined };
 
-  reconcileOrphanedRuns(store, sink);
+  const sweepStore = openSweepStore(async (identity) => identity !== PRIOR_IDENTITY);
+  await reconcileOrphanedRuns(sweepStore, sink);
 
   for (const runId of runIds) {
-    const run = store.loadRun(runId);
+    const run = sweepStore.loadRun(runId);
     expect(run?.status).toBe("killed");
     expect(run?.worktreePath).toBe(`/tmp/worktree-${orphanedStatuses[runIds.indexOf(runId)]}`);
     expect(run?.branch).toBe(`branch-${orphanedStatuses[runIds.indexOf(runId)]}`);
@@ -77,21 +93,84 @@ test("reconciles every orphaned status, retaining durable run metadata", () => {
       }))
       .sort((a, b) => a.runId.localeCompare(b.runId)),
   );
-  expect(store.loadRun(runIds[0] as string)?.queuedInput?.worktree.projectRoot).toBe("/tmp/queued");
+  expect(sweepStore.loadRun(runIds[0] as string)?.queuedInput?.worktree.projectRoot).toBe("/tmp/queued");
+  sweepStore.close();
 });
 
-test("leaves terminal statuses unchanged without reconciliation events", () => {
-  const runIds = terminalStatuses.map(createRun);
+test("leaves terminal statuses unchanged without reconciliation events", async () => {
+  const runIds = terminalStatuses.map((status) => createRun(seedStore, status));
   const events: Array<{ runId: string; event: LogEvent }> = [];
 
-  reconcileOrphanedRuns(store, { append: (runId, event) => events.push({ runId, event }), close: () => undefined });
+  const sweepStore = openSweepStore(async () => false);
+  await reconcileOrphanedRuns(sweepStore, {
+    append: (runId, event) => events.push({ runId, event }),
+    close: () => undefined,
+  });
 
-  expect(runIds.map((runId) => store.loadRun(runId)?.status)).toEqual([...terminalStatuses]);
+  expect(runIds.map((runId) => sweepStore.loadRun(runId)?.status)).toEqual([...terminalStatuses]);
   expect(events).toEqual([]);
+  sweepStore.close();
 });
 
-test("propagates reconciliation errors", () => {
-  createRun("in-progress");
+test("leaves a non-terminal run owned by a live different process untouched, with no reconciliation event", async () => {
+  const runId = createRun(seedStore, "in-progress");
+  const events: Array<{ runId: string; event: LogEvent }> = [];
+
+  const sweepStore = openSweepStore(async (identity) => identity === PRIOR_IDENTITY);
+  await reconcileOrphanedRuns(sweepStore, {
+    append: (id, event) => events.push({ runId: id, event }),
+    close: () => undefined,
+  });
+
+  expect(sweepStore.loadRun(runId)?.status).toBe("in-progress");
+  expect(events).toEqual([]);
+  sweepStore.close();
+});
+
+test("never reconciles a run owned by the current process's own sweep", async () => {
+  const ownStore = openStateStore(dbPath, { currentIdentity: CURRENT_IDENTITY });
+  const runId = createRun(ownStore, "in-progress");
+  ownStore.close();
+  const events: Array<{ runId: string; event: LogEvent }> = [];
+
+  const sweepStore = openSweepStore(async () => false);
+  await reconcileOrphanedRuns(sweepStore, {
+    append: (id, event) => events.push({ runId: id, event }),
+    close: () => undefined,
+  });
+
+  expect(sweepStore.loadRun(runId)?.status).toBe("in-progress");
+  expect(events).toEqual([]);
+  sweepStore.close();
+});
+
+test("a non-terminal run with no recorded owner (pre-migration row) is killed", async () => {
+  const raw = new Database(dbPath);
+  const runId = crypto.randomUUID();
+  raw
+    .prepare(
+      `INSERT INTO runs (id, project, spec_ref, created_at, status, attempt_count, worktree_path, branch, spec_path)
+       VALUES (?, 'project', 'main', ?, 'in-progress', 0, '/tmp/worktree-legacy', 'branch-legacy', '/tmp/spec-legacy.md')`,
+    )
+    .run(runId, Date.now());
+  raw.close();
+  const events: Array<{ runId: string; event: LogEvent }> = [];
+
+  const sweepStore = openSweepStore(async () => true);
+  await reconcileOrphanedRuns(sweepStore, {
+    append: (id, event) => events.push({ runId: id, event }),
+    close: () => undefined,
+  });
+
+  expect(sweepStore.loadRun(runId)?.status).toBe("killed");
+  expect(events).toEqual([
+    { runId, event: { kind: "run_reconciled", runStatus: "killed", reason: "daemon_restart" } },
+  ]);
+  sweepStore.close();
+});
+
+test("propagates reconciliation errors", async () => {
+  createRun(seedStore, "in-progress");
   const sink: LogSink = {
     append: () => {
       throw new Error("log unavailable");
@@ -99,10 +178,12 @@ test("propagates reconciliation errors", () => {
     close: () => undefined,
   };
 
-  expect(() => reconcileOrphanedRuns(store, sink)).toThrow("log unavailable");
+  const sweepStore = openSweepStore(async () => false);
+  await expect(reconcileOrphanedRuns(sweepStore, sink)).rejects.toThrow("log unavailable");
+  sweepStore.close();
 });
 
-test("propagates durable-state reconciliation errors", () => {
+test("propagates durable-state reconciliation errors", async () => {
   const failingStore = {
     beginRunReconciliation: () => {
       throw new Error("state unavailable");
@@ -110,20 +191,22 @@ test("propagates durable-state reconciliation errors", () => {
   } as unknown as StateStore;
   const sink: LogSink = { append: () => undefined, close: () => undefined };
 
-  expect(() => reconcileOrphanedRuns(failingStore, sink)).toThrow("state unavailable");
+  await expect(reconcileOrphanedRuns(failingStore, sink)).rejects.toThrow("state unavailable");
 });
 
-test("retries an event left pending by a failed log append exactly once", () => {
-  const runId = createRun("in-progress");
+test("retries an event left pending by a failed log append exactly once", async () => {
+  const runId = createRun(seedStore, "in-progress");
   const records: PersistedRecord[] = [];
   const reader: LogReader = {
     tail: () => records,
     async *follow() {},
   };
 
-  expect(() =>
+  const sweepStore = openSweepStore(async () => false);
+
+  await expect(
     reconcileOrphanedRuns(
-      store,
+      sweepStore,
       {
         append: () => {
           throw new Error("log unavailable");
@@ -132,31 +215,34 @@ test("retries an event left pending by a failed log append exactly once", () => 
       },
       reader,
     ),
-  ).toThrow("log unavailable");
-  expect(store.loadRun(runId)?.status).toBe("killed");
+  ).rejects.toThrow("log unavailable");
+  expect(sweepStore.loadRun(runId)?.status).toBe("killed");
 
-  reconcileOrphanedRuns(
-    store,
+  await reconcileOrphanedRuns(
+    sweepStore,
     {
       append: (id, event) => records.push({ runId: id, seq: records.length + 1, ts: "now", event }),
       close: () => undefined,
     },
     reader,
   );
-  reconcileOrphanedRuns(
-    store,
-    {
-      append: () => {
-        throw new Error("duplicate append");
+  await expect(
+    reconcileOrphanedRuns(
+      sweepStore,
+      {
+        append: () => {
+          throw new Error("duplicate append");
+        },
+        close: () => undefined,
       },
-      close: () => undefined,
-    },
-    reader,
-  );
+      reader,
+    ),
+  ).resolves.toBeUndefined();
 
   expect(records).toEqual([
     { runId, seq: 1, ts: "now", event: { kind: "run_reconciled", runStatus: "killed", reason: "daemon_restart" } },
   ]);
+  sweepStore.close();
 });
 
 test("startup reconciles before opening IPC and reconciliation failures prevent it", async () => {
@@ -169,7 +255,7 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
     return server;
   };
   const reconciledStore = {
-    beginRunReconciliation: () => {
+    beginRunReconciliation: async () => {
       order.push("state");
       return ["run-1"];
     },
@@ -191,7 +277,7 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
     },
     {
       store: {
-        beginRunReconciliation: () => ["run-1"],
+        beginRunReconciliation: async () => ["run-1"],
         finishRunReconciliation: () => undefined,
       } as unknown as StateStore,
       sink: {

@@ -1050,6 +1050,8 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     if (result.kind === "ok") {
       // Extract usage and cost data from the agent result
       const usageCost = extractUsageAndCost(result, agent.name, configuredPatchModel);
+      const lastOutputAgeMs =
+        lastOutputAtMs.current === null ? null : patchWatchdogTiming.nowMs() - lastOutputAtMs.current;
       const iterationWarnings =
         result.warnings !== undefined && result.warnings.length > 0 ? result.warnings : undefined;
       if (agent.name === "opencode" && usageCost.usage_source === "unavailable" && !state.opencodeUnavailableNoted) {
@@ -1564,6 +1566,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
             durationMs: iterationDurationMs(),
             kind: "ok",
             exitReason: "criteria-complete",
+            last_output_age_ms: lastOutputAgeMs,
             ...telemetryMeta,
             ...usageCost,
             ...(iterationWarnings !== undefined ? { warnings: iterationWarnings } : {}),
@@ -1576,6 +1579,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           kind: "ok",
           exitReason: done === 0 ? "completed-spec" : done === 10 ? "ready-gate-failed" : "dirty-worktree",
           record_role: "run_terminal",
+          last_output_age_ms: lastOutputAgeMs,
           ...telemetryMeta,
         });
         // Clear no-commit delta on clean completion
@@ -1594,6 +1598,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
             durationMs: iterationDurationMs(),
             kind: "ok",
             exitReason: "no-progress-fallback",
+            last_output_age_ms: lastOutputAgeMs,
             ...telemetryMeta,
             ...usageCost,
             ...(iterationWarnings !== undefined ? { warnings: iterationWarnings } : {}),
@@ -1623,6 +1628,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           durationMs: iterationDurationMs(),
           kind: "ok",
           exitReason: "no-progress",
+          last_output_age_ms: lastOutputAgeMs,
           ...telemetryMeta,
           ...usageCost,
           ...(iterationWarnings !== undefined ? { warnings: iterationWarnings } : {}),
@@ -1639,6 +1645,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         durationMs: iterationDurationMs(),
         kind: "ok",
         exitReason: "criteria-progress",
+        last_output_age_ms: lastOutputAgeMs,
         ...telemetryMeta,
         ...usageCost,
         ...(iterationWarnings !== undefined ? { warnings: iterationWarnings } : {}),

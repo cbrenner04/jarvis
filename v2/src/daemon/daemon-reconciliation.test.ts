@@ -243,6 +243,28 @@ test("retries an event left pending by a failed log append exactly once", async 
   sweepStore.close();
 });
 
+test("clears pending on a boundary-terminal row without appending run_reconciled", async () => {
+  const runId = createRun(seedStore, "in-progress");
+  const raw = new Database(dbPath);
+  raw.prepare("UPDATE runs SET status = 'blocked', reconciliation_pending = 1 WHERE id = ?").run(runId);
+  raw.close();
+  const events: Array<{ runId: string; event: LogEvent }> = [];
+
+  const sweepStore = openSweepStore(async () => false);
+  await reconcileOrphanedRuns(sweepStore, {
+    append: (id, event) => events.push({ runId: id, event }),
+    close: () => undefined,
+  });
+
+  expect(sweepStore.loadRun(runId)?.status).toBe("blocked");
+  const pending = new Database(dbPath)
+    .prepare("SELECT reconciliation_pending AS pending FROM runs WHERE id = ?")
+    .get(runId) as { pending: number };
+  expect(pending.pending).toBe(0);
+  expect(events).toEqual([]);
+  sweepStore.close();
+});
+
 test("startup reconciles before opening IPC and reconciliation failures prevent it", async () => {
   const order: string[] = [];
   const reader: LogReader = { tail: () => [], async *follow() {} };
@@ -257,6 +279,21 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
       order.push("state");
       return ["run-1"];
     },
+    loadRun: (runId: string) =>
+      runId === "run-1"
+        ? {
+            id: runId,
+            project: "p",
+            specRef: "main",
+            createdAt: 0,
+            status: "killed" as const,
+            attemptCount: 0,
+            worktreePath: "/tmp",
+            branch: "b",
+            specPath: "spec.md",
+            attempts: [],
+          }
+        : null,
     finishRunReconciliation: () => order.push("finished"),
   } as unknown as StateStore;
 
@@ -276,6 +313,18 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
     {
       store: {
         beginRunReconciliation: async () => ["run-1"],
+        loadRun: () => ({
+          id: "run-1",
+          project: "p",
+          specRef: "main",
+          createdAt: 0,
+          status: "killed" as const,
+          attemptCount: 0,
+          worktreePath: "/tmp",
+          branch: "b",
+          specPath: "spec.md",
+          attempts: [],
+        }),
         finishRunReconciliation: () => undefined,
       } as unknown as StateStore,
       sink: {

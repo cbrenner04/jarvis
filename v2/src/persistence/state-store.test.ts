@@ -390,6 +390,46 @@ describe("StateStore", () => {
   });
 });
 
+describe("commitGuardedKill", () => {
+  let store: StateStore;
+
+  beforeEach(() => {
+    rmSync(TEST_DB_PATH, { force: true });
+    store = openStateStore(TEST_DB_PATH);
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(TEST_DB_PATH, { force: true });
+  });
+
+  test("sets killed for non-boundary-terminal statuses", () => {
+    for (const status of ["in-progress", "paused", "awaiting-human", "queued"] as const) {
+      const runId = seedRun(store, { status, branch: `branch-${status}` });
+      store.commitGuardedKill(runId);
+      expect(loadRunOrThrow(store, runId).status).toBe("killed");
+    }
+  });
+
+  test("preserves boundary-terminal statuses", () => {
+    for (const status of ["completed", "blocked", "failed"] as const) {
+      const runId = seedRun(store, { status, branch: `branch-${status}` });
+      store.commitGuardedKill(runId);
+      expect(loadRunOrThrow(store, runId).status).toBe(status);
+    }
+  });
+
+  test("a completion boundary committed after kill wins over the kill write", () => {
+    const runId = seedRun(store);
+    const attemptId = store.recordAttemptStart(runId);
+    store.commitGuardedKill(runId);
+    expect(loadRunOrThrow(store, runId).status).toBe("killed");
+
+    store.commitCompletionBoundary({ attemptId, runStatus: "blocked", outcomeKind: "blocked" });
+    expect(loadRunOrThrow(store, runId).status).toBe("blocked");
+  });
+});
+
 describe("isOwnerAlive", () => {
   test("same pid with a matching start epoch is alive", async () => {
     expect(await isOwnerAlive(`${process.pid}:1000`, async () => 1000)).toBe(true);

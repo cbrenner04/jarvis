@@ -372,6 +372,11 @@ function resolveInWorktree(worktreePath: string, path: string): string {
   return isAbsolute(path) ? path : join(worktreePath, path);
 }
 
+/** Linked-index routing base: external worktree when present, else registered project root. */
+function resolveLinkedImplementRoutingBase(worktreePath: string, projectRoot: string): string {
+  return existsSync(worktreePath) ? worktreePath : projectRoot;
+}
+
 function linkedImplementRoutingFailureOutcome(
   routing: Extract<ReturnType<typeof resolveActiveLinkedSubspec>, { ok: false }>,
   totalIterationsConsumed: number,
@@ -482,13 +487,16 @@ async function runLinkedImplementStep(
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
 ): Promise<WorkflowStepOutcome> {
   const worktreePath = getExternalWorktreePath(step.worktree);
-  const indexPath = resolveInWorktree(worktreePath, step.specPath);
+  const projectRoot = step.worktree.projectRoot;
 
   let totalIterationsConsumed = 0;
 
   for (;;) {
+    const routingBase = resolveLinkedImplementRoutingBase(worktreePath, projectRoot);
+    const indexPath = resolveInWorktree(routingBase, step.specPath);
+
     const beforeIndexContent = readFileSync(indexPath, "utf8");
-    const routing = resolveActiveLinkedSubspec(indexPath, worktreePath);
+    const routing = resolveActiveLinkedSubspec(indexPath, routingBase);
     if (!routing.ok) {
       return linkedImplementRoutingFailureOutcome(routing, totalIterationsConsumed, stepIndex, onStepRunCreated);
     }
@@ -496,7 +504,7 @@ async function runLinkedImplementStep(
     const linkStep: WriteWorkflowStep = {
       ...step,
       stepId: `${step.stepId}~link-${routing.active.index}`,
-      expectedArtifactPath: routing.active.path,
+      expectedArtifactPath: relative(routingBase, routing.active.path),
     };
 
     const outcome = await runPreparedLinkedWriteStep(
@@ -516,7 +524,18 @@ async function runLinkedImplementStep(
       return stepped;
     }
 
-    const finalized = finalizeLinkedImplementPass(stepped, routing, beforeIndexContent, indexPath);
+    const worktreeIndexPath = resolveInWorktree(worktreePath, step.specPath);
+    const worktreeRouting = resolveActiveLinkedSubspec(worktreeIndexPath, worktreePath);
+    if (!worktreeRouting.ok) {
+      return linkedImplementRoutingFailureOutcome(
+        worktreeRouting,
+        totalIterationsConsumed,
+        stepIndex,
+        onStepRunCreated,
+      );
+    }
+
+    const finalized = finalizeLinkedImplementPass(stepped, worktreeRouting, beforeIndexContent, worktreeIndexPath);
     if (finalized !== undefined) {
       return finalized;
     }

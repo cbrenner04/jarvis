@@ -32,6 +32,10 @@ function setEnv(key: string, value: string): void {
 }
 
 const binDir = mkdtempSync(join(tmpdir(), "jarvis-test-fake-agents-"));
+
+// Isolate the jarvis home: without this the suite writes fixture rows into the operator's real
+// ~/.jarvis. Must precede any import that reads it.
+process.env.JARVIS_HOME = mkdtempSync(join(tmpdir(), "jarvis-test-home-"));
 for (const name of ["claude", "codex", "cursor", "opencode"]) {
   const bin = join(binDir, name);
   writeFileSync(bin, "#!/usr/bin/env bash\nexit 0\n");

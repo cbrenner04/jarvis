@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { branchExistsLocalAsync, branchExistsOnOriginAsync, getCurrentBranchAsync } from "../../../shared/git.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { acquireLock, releaseLock, type WorktreeLock } from "../../../shared/worktree-lock.ts";
+import { jarvisHome } from "../paths.ts";
 
 /** Naming and git inputs for materialization. */
 export type ExternalWorktreeInput = {
@@ -44,7 +44,7 @@ export type WithExternalWorktreeResult<T> = {
 /** Resolve the external worktree path under `~/.jarvis/worktrees/<project>/<branch>/`. */
 export function getExternalWorktreePath(args: ExternalWorktreeInput): string {
   if (args.git === false && args.localPath !== undefined) return args.localPath;
-  const jarvisRoot = args.jarvisRoot ?? join(homedir(), ".jarvis");
+  const jarvisRoot = args.jarvisRoot ?? jarvisHome();
   return join(jarvisRoot, "worktrees", args.projectName, args.branchName);
 }
 
@@ -104,7 +104,7 @@ function releaseExternalWorktreeLock(lockDir: string): void {
 }
 
 function ensureExternalWorktreeLockRoot(args: ExternalWorktreeInput): string {
-  const jarvisRoot = args.jarvisRoot ?? join(homedir(), ".jarvis");
+  const jarvisRoot = args.jarvisRoot ?? jarvisHome();
   const lockRoot = join(jarvisRoot, "worktree-locks", args.projectName, args.branchName);
   mkdirSync(lockRoot, { recursive: true });
   return lockRoot;

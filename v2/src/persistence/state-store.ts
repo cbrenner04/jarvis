@@ -1,11 +1,11 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { InvocationFailureDetail } from "../execution/invocation-failure.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
+import { jarvisHome } from "../paths.ts";
 
 export const RUN_STATUSES = [
   "in-progress",
@@ -588,5 +588,5 @@ export function openStateStore(
   storePath?: string,
   overrides?: { currentIdentity?: string; isOwnerAlive?: OwnerLivenessProbe },
 ): StateStore {
-  return new StateStoreImpl(storePath ?? join(homedir(), ".jarvis", "state", "v2.sqlite"), overrides);
+  return new StateStoreImpl(storePath ?? join(jarvisHome(), "state", "v2.sqlite"), overrides);
 }

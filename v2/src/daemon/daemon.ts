@@ -1,4 +1,3 @@
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { isWorktreeDirtyAsync } from "../../../shared/git.ts";
 import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
@@ -13,6 +12,7 @@ import {
 } from "../execution/workflow-runner.ts";
 import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
+import { jarvisHome } from "../paths.ts";
 import {
   type LogReader,
   type LogSink,
@@ -1119,7 +1119,7 @@ export async function startDaemon(
   startupDeps: DaemonStartupDeps = {},
 ): Promise<void> {
   const store = stateStore ?? openStateStore();
-  const logsPath = startupDeps.logsPath ?? join(homedir(), ".jarvis", "state", "logs.jsonl");
+  const logsPath = startupDeps.logsPath ?? join(jarvisHome(), "state", "logs.jsonl");
   const logReaderInstance = logReader ?? openLogReader(logsPath);
   const createLogSink = startupDeps.openLogSink ?? openLogSink;
   const reconciliationLogSink = createLogSink(logsPath);

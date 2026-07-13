@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 import { readFileSync, realpathSync, statSync } from "node:fs";
-import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative } from "node:path";
 import { getBaseBranch } from "../../../shared/git.ts";
 import type { createResolvedAgentBinding, ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import type { MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
+import { jarvisHome } from "../paths.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import {
   type LoadedWorkflowStep,
@@ -203,7 +203,7 @@ function resolveOutput(
   if (!validTargetDir(targetDir)) return { error: "intent: configured targetDir is invalid" };
   const publish =
     project.git !== false && (project.plan?.commit ?? (typeof plan.commit === "boolean" ? plan.commit : true));
-  const jarvisRoot = input.jarvisRoot ?? join(homedir(), ".jarvis");
+  const jarvisRoot = input.jarvisRoot ?? jarvisHome();
   const branch = `intent/${slug}`;
   const worktree = join(jarvisRoot, "worktrees", project.key, branch);
   const localPath = join(jarvisRoot, "intent-work", projectSafeId(project.key), slug);

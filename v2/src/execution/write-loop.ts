@@ -388,7 +388,11 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         if (published.commitSha === undefined) {
           const uncommitted = await getUncommittedPaths(worktreePath);
           if (uncommitted.length > 0) {
-            return completionCommitFailed(args, attributed, new Error(`Uncommitted changes: ${uncommitted.join(", ")}`));
+            return completionCommitFailed(
+              args,
+              attributed,
+              new Error(`Uncommitted changes: ${uncommitted.join(", ")}`),
+            );
           }
         }
         args.logSink?.append(runId, {

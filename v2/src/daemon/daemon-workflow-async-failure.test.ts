@@ -128,7 +128,9 @@ let stateStore: StateStore;
 let logsPath: string;
 
 beforeEach(() => {
-  stateStore = openStateStore(join(tmpdir(), `jarvis-workflow-async-failure-${process.pid}-${Date.now()}-${Math.random()}.db`));
+  stateStore = openStateStore(
+    join(tmpdir(), `jarvis-workflow-async-failure-${process.pid}-${Date.now()}-${Math.random()}.db`),
+  );
   logsPath = join(tmpdir(), `jarvis-workflow-async-failure-${process.pid}-${Date.now()}-${Math.random()}.jsonl`);
 });
 
@@ -201,10 +203,7 @@ test("workflow rejection before step 0's row exists still resolves start with in
   });
 
   const duplicateStepId = "dup";
-  const steps: WriteWorkflowStep[] = [
-    createWriteStep(duplicateStepId, "b1"),
-    createWriteStep(duplicateStepId, "b2"),
-  ];
+  const steps: WriteWorkflowStep[] = [createWriteStep(duplicateStepId, "b1"), createWriteStep(duplicateStepId, "b2")];
   const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
   expect(response.kind).toBe("error");
   if (response.kind === "error") {
@@ -214,10 +213,7 @@ test("workflow rejection before step 0's row exists still resolves start with in
 
 test("a run already terminal (failed) at rejection time is not re-demoted and gets no terminal record", async () => {
   const branch = "workflow-already-failed";
-  const failingStore = throwOnNthRecordAttemptStart(
-    lockTerminalStatusOnStepCreate(stateStore, "step-2", "failed"),
-    2,
-  );
+  const failingStore = throwOnNthRecordAttemptStart(lockTerminalStatusOnStepCreate(stateStore, "step-2", "failed"), 2);
   const handlers = createRunControlHandlers({
     stateStore: failingStore,
     writeLoopExecutor: async () => {},
@@ -243,10 +239,7 @@ test("a run already terminal (failed) at rejection time is not re-demoted and ge
 
 test("a run already paused at rejection time is not re-demoted and gets no terminal record", async () => {
   const branch = "workflow-paused";
-  const failingStore = throwOnNthRecordAttemptStart(
-    lockTerminalStatusOnStepCreate(stateStore, "step-2", "paused"),
-    2,
-  );
+  const failingStore = throwOnNthRecordAttemptStart(lockTerminalStatusOnStepCreate(stateStore, "step-2", "paused"), 2);
   const handlers = createRunControlHandlers({
     stateStore: failingStore,
     writeLoopExecutor: async () => {},
@@ -376,10 +369,7 @@ test("fault injection: throwing logSink.append still demotes durable status and 
 
 test("a run already killed at rejection time (kill committed before the abort-driven rejection surfaces) is not re-demoted and gets no terminal record", async () => {
   const branch = "workflow-killed";
-  const failingStore = throwOnNthRecordAttemptStart(
-    lockTerminalStatusOnStepCreate(stateStore, "step-2", "killed"),
-    2,
-  );
+  const failingStore = throwOnNthRecordAttemptStart(lockTerminalStatusOnStepCreate(stateStore, "step-2", "killed"), 2);
   const handlers = createRunControlHandlers({
     stateStore: failingStore,
     writeLoopExecutor: async () => {},

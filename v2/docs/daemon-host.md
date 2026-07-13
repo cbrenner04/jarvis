@@ -484,6 +484,40 @@ unreachable on failure, no orphan repair is attempted.
 false`; a new `start` for the same `(project, branch)` is accepted once capture
 settles.
 
+### Workflow async-path failure capture
+
+When `executeWorkflow` rejects after step 0's run row exists (harness fault
+outside normal per-step `loop_finished` settlement), `startWorkflowRun` settles
+every non-terminal run id tracked for the workflow:
+
+1. If durable status is not already terminal (`completed`, `blocked`, `killed`,
+   `paused`, `failed`), best-effort `setRunStatus("failed")`. Persist errors do
+   not block the append.
+2. Append one `run_execution_failed` event with `message` through the workflow's
+   open log sink (`logSink.append(runId, { kind: "run_execution_failed", message
+   })`). Append errors do not roll back the demote. Skipped when `logsPath` is
+   unset (`logSink === undefined`).
+3. Release workflow worktree ownership, active-run entries, and close the sink
+   (`finally`).
+
+Ordering is fixed per run id: demote → append → `finally`. `wait` wakes on the
+terminal log record and then reads durable status, so the status commit must
+land before the append.
+
+`paused` and `killed` rows are left as-is with no terminal record — resumability
+and kill semantics outrank failure reporting. A rejection before step 0's run row
+exists still resolves the `start` RPC with `invalid_params` instead of settling
+background runs.
+
+Does not use `failureReporter` (spawn-boundary reporter is message-less). Does not
+call `commitCompletionBoundary`; latest attempt may stay `in-progress`. Does not
+rethrow to RPC callers once step 0 has resolved.
+
+**Post-failure operator shape:** non-terminal workflow runs report `status:
+"failed"`, `isLive: false`, and `wait`/`list` surface `harness_failure` from the
+terminal `run_execution_failed` record; worktree ownership is released so a new
+`start` on the same `(project, branch)` is accepted once settlement finishes.
+
 ## Memory watermark
 
 `memory.minFreeGb` in the active machine profile (`config/machines/<profile>.json`,

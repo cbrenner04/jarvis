@@ -136,6 +136,11 @@ jarvis run log 7f3a9c2e-4b1d-4e8a-9f0c-1a2b3c4d5e6f
 
 One compact JSON object per line per persisted record.
 
+A harness failure mid-workflow (uncaught `executeWorkflow` rejection after a
+step's run row exists) ends the affected run with a terminal `run_execution_failed`
+record carrying the error `message`, durable `failed`, and `not-live` on `list` —
+not a run stuck `in-progress` with no terminal signal.
+
 ### Invocation session logs
 
 When a run stalls or fails before structured records accrue, read the on-disk

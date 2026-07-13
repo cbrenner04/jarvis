@@ -355,6 +355,26 @@ describe("step runner token re-prompt", () => {
     expect(result.kind).toBe("invalid_token");
   });
 
+  test("first invocation failure classifies as invocation_failure and triggers no re-prompt", async () => {
+    let invocations = 0;
+    const bindings: InvocationBinding[] = [
+      {
+        id: "agent",
+        invoke: async () => {
+          invocations += 1;
+          return { kind: "quota", stderr: "quota" };
+        },
+      },
+    ];
+
+    const result = await runStep({ prompt: "p", cwd: "/tmp", bindings, contracts: [] });
+
+    expect(result.kind).toBe("invocation_failure");
+    if (result.kind === "invocation_failure") expect(result.failureKind).toBe("quota");
+    expect(invocations).toBe(1);
+    expect(result.reprompt).toBeUndefined();
+  });
+
   test("first response carrying a token triggers no re-prompt", async () => {
     let invocations = 0;
     const bindings: InvocationBinding[] = [

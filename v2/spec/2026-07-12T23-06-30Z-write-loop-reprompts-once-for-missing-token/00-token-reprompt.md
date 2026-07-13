@@ -28,17 +28,17 @@ cheap chance to name the token before classifying.
 
 ## Acceptance criteria
 
-- [ ] A step whose agent output carries no terminal token triggers exactly one additional invocation that asks only for the token; the token it returns classifies the step normally (`complete` runs contracts, `progress`/`blocked` classify as such).
-- [ ] An empty first response triggers the re-prompt like any other token-less response.
-- [ ] A second miss — the re-prompt reply carries no exact token — classifies as `invalid_token`, with the first response's text reported as `tokenText`.
-- [ ] A hedging re-prompt reply that names tokens in prose ("done, no-work, blocked, or progress?") is a second miss, not `progress`; the step-response parser's lenient scan is unchanged.
-- [ ] A step whose first response carries a token triggers no re-prompt (one invocation total).
-- [ ] A step whose *first* invocation fails (quota / error / no binding) classifies as `invocation_failure` and triggers no re-prompt.
-- [ ] The re-prompt fires at most once per step: a token-less re-prompt reply does not trigger a third invocation.
-- [ ] A failed re-prompt invocation (quota exhausted / error / no binding) classifies the step as `invalid_token`, not `invocation_failure`.
-- [ ] A re-prompt reply of `done` whose expected artifact is absent classifies as `contract_miss` — contracts run against a re-prompted token exactly as against a first-response token.
-- [ ] When a re-prompt happens, the write loop appends a `token_reprompt` run-log event naming the attempt and the first (token-less) response text, truncated to `INVALID_TOKEN_LOG_MAX_CHARS`, and `jarvis2 tui` log-follow renders it. On a second miss the operator sees that event followed by the existing `invalid_token_detail` event.
-- [ ] Completion attribution (`completionAgent`) and the attempt record's binding attempts reflect the step's own invocation; the re-prompt emits its own `invocation_completed` row with one distinct invocation id per binding and never becomes the completion binding.
+- [x] A step whose agent output carries no terminal token triggers exactly one additional invocation that asks only for the token; the token it returns classifies the step normally (`complete` runs contracts, `progress`/`blocked` classify as such).
+- [x] An empty first response triggers the re-prompt like any other token-less response.
+- [x] A second miss — the re-prompt reply carries no exact token — classifies as `invalid_token`, with the first response's text reported as `tokenText`.
+- [x] A hedging re-prompt reply that names tokens in prose ("done, no-work, blocked, or progress?") is a second miss, not `progress`; the step-response parser's lenient scan is unchanged.
+- [x] A step whose first response carries a token triggers no re-prompt (one invocation total).
+- [x] A step whose *first* invocation fails (quota / error / no binding) classifies as `invocation_failure` and triggers no re-prompt.
+- [x] The re-prompt fires at most once per step: a token-less re-prompt reply does not trigger a third invocation.
+- [x] A failed re-prompt invocation (quota exhausted / error / no binding) classifies the step as `invalid_token`, not `invocation_failure`.
+- [x] A re-prompt reply of `done` whose expected artifact is absent classifies as `contract_miss` — contracts run against a re-prompted token exactly as against a first-response token.
+- [x] When a re-prompt happens, the write loop appends a `token_reprompt` run-log event naming the attempt and the first (token-less) response text, truncated to `INVALID_TOKEN_LOG_MAX_CHARS`, and `jarvis2 tui` log-follow renders it. On a second miss the operator sees that event followed by the existing `invalid_token_detail` event.
+- [x] Completion attribution (`completionAgent`) and the attempt record's binding attempts reflect the step's own invocation; the re-prompt emits its own `invocation_completed` row with one distinct invocation id per binding and never becomes the completion binding.
 
 ## Documentation updates
 

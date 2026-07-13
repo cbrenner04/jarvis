@@ -251,7 +251,11 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       if (result.kind === "contract_miss") {
         const reason = result.failureReason ?? result.failedContractId;
-        appendBlockerToSpec(resolveSpecPath(worktreePath, args.specPath), reason);
+        const targetSpecPath =
+          result.failedContractId === "spec.criteria-ticked"
+            ? resolveSpecPath(worktreePath, args.expectedArtifactPath)
+            : resolveSpecPath(worktreePath, args.specPath);
+        appendBlockerToSpec(targetSpecPath, reason);
       }
 
       const terminal = terminalMapping(result);

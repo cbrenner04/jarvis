@@ -28,12 +28,12 @@ outcome and stops the loop before publish.
 
 ## Acceptance criteria
 
-- [ ] An implement iteration whose agent returns `done` (or `no-work`) while the active subspec has ≥1 unticked non-human-only acceptance criterion records `outcomeKind: "contract_miss"` / `runStatus: "blocked"` — never `done` / `completed` — and no completion commit, draft PR, or ready-finalize runs for that boundary.
-- [ ] The verdict is taken from the subspec re-read from the run's worktree at the boundary, using `parseSpec` / `humanOnly` from `shared/spec-parser.ts`.
-- [ ] A `done` iteration whose subspec has every non-human-only criterion ticked completes as before, even with unticked human-only criteria.
-- [ ] The `## Blocker` written on a `spec.criteria-ticked` miss lands in the active subspec (not `index.md`) and names each unticked criterion.
-- [ ] The contract does not fire on plan-draft, intent-split, or review-revision write steps.
-- [ ] `v2/src/execution/workflow-runner.test.ts` and `v2/src/execution/write-loop.test.ts` stay green (linked-index routing and boundary ordering unchanged).
+- [x] An implement iteration whose agent returns `done` (or `no-work`) while the active subspec has ≥1 unticked non-human-only acceptance criterion records `outcomeKind: "contract_miss"` / `runStatus: "blocked"` — never `done` / `completed` — and no completion commit, draft PR, or ready-finalize runs for that boundary.
+- [x] The verdict is taken from the subspec re-read from the run's worktree at the boundary, using `parseSpec` / `humanOnly` from `shared/spec-parser.ts`.
+- [x] A `done` iteration whose subspec has every non-human-only criterion ticked completes as before, even with unticked human-only criteria.
+- [x] The `## Blocker` written on a `spec.criteria-ticked` miss lands in the active subspec (not `index.md`) and names each unticked criterion.
+- [x] The contract does not fire on plan-draft, intent-split, or review-revision write steps.
+- [x] `v2/src/execution/workflow-runner.test.ts` and `v2/src/execution/write-loop.test.ts` stay green (linked-index routing and boundary ordering unchanged).
 
 ## Documentation updates
 

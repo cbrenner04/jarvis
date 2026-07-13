@@ -591,11 +591,18 @@ The loop classifies and routes results:
 
 - **`progress`**: agent did useful work, not finished. Loop continues, consuming
   one of `N`. Contract is **not** checked mid-loop.
-- **`done` / `no-work`**: agent claims finished. Loop checks `--artifact`
-  existence (contract); pass → success (`complete`), fail → append `## Blocker`
-  to the spec and stop (`contract_miss`). A missing terminal token after the
-  one re-prompt uses the same contract checks: all pass → `complete` (token
-  `done`); any fail → `invalid_token` (no `## Blocker` append).
+- **`done` / `no-work`**: agent claims finished. Loop checks two contracts:
+  1. **`artifact.exists`**: the `--artifact` file (spec or subspec) must exist.
+  2. **`spec.criteria-ticked`** (implement writes only): the active subspec's
+     non-human-only acceptance criteria must all be ticked; re-reads the spec
+     from the worktree to catch agent edits.
+  
+  All contracts pass → success (`complete`). Any fail → append `## Blocker`
+  to the artifact (spec.criteria-ticked → active subspec; artifact.exists →
+  routing index for linked runs) and stop (`contract_miss`). A missing terminal
+  token after the one re-prompt uses the same contract checks: all pass →
+  `complete` (token `done`); any fail → `invalid_token` (no `## Blocker`
+  append).
 - **`blocked`**: agent is blocked. Default write steps declare a
   `write.blocker-text` contract: the resolved spec file must gain a new non-empty
   `## Blocker` section during the invocation (before/after against content

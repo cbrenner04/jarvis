@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Reconcile done token against unticked criteria](./00-reconcile-done-token-against-unticked-criteria.md)
+- [x] [00 - Reconcile done token against unticked criteria](./00-reconcile-done-token-against-unticked-criteria.md)

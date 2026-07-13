@@ -293,9 +293,11 @@ a server/runner world (pause + route to a human loop vs. process exit).
 - **Observability log stream.** Structured event log (`iteration_started`,
   `boundary_committed`, `loop_finished`) keyed by run ID, queryable by sink +
   reader interfaces. Appended directly by the write loop; not part of the
-  orchestration store. Consumers query via `tail` (snapshot of persisted events)
-  or `follow` (replay from seq 1, then stream new events until aborted). See
-  `persistence/log-stream.ts` for inline contracts.
+  orchestration store. Each run's `seq` is unique and monotonic across
+  concurrent writers on the same log file; allocation reads the durable log at
+  append time (synchronous read → next seq → write). Consumers query via `tail`
+  (snapshot of persisted events) or `follow` (replay from seq 1, then stream new
+  events until aborted). See `persistence/log-stream.ts` for inline contracts.
 - **Entry is explicit workflow selection.** A run starts by naming a workflow +
   target over the API/CLI. A natural-language prompt router — `jarvis "<intent>"`
   that classifies free text and routes to a workflow (new run) or an existing run

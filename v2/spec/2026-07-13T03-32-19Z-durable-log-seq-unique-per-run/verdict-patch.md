@@ -1,0 +1,9 @@
+## Verdict — refine
+
+**1. `tail()` must not throw on unparseable trailing lines.**
+
+`nextSeqForRun()` already guards its `JSON.parse` with try/catch and skips bad lines, per the spec's decision that "unparseable lines encountered by the read are skipped, not thrown on." That decision is general to reading the log, not scoped to seq allocation — but `tail()` (in the same file) parses every line with an unguarded `JSON.parse` and has no such protection. Since `follow()` polls `tail()` every 250ms for every `wait`/IPC/reconciliation consumer, a transient truncated trailing line — the exact scenario the spec calls routine — will throw there even though `append()` is now hardened against it. Fix: apply the same skip-on-unparseable behavior to `tail()`'s read (factoring into a shared parse helper is a reasonable approach, not a requirement), and add a test exercising `tail()` (or `follow()`) against a file with a truncated trailing line, mirroring the existing `append()`/truncation test.
+
+**2. AC4's "daemon level" claim needs test coverage that actually exercises the daemon's wait path.**
+
+AC4 states a run whose terminal event is appended by a second sink is observed by an in-flight `wait`, parenthetically framed as a daemon-level guarantee. The only test covering this scenario calls `reader.follow()` directly — it does not exercise `daemon.ts`'s `waitHandler`, which layers subscribe-cursor filtering, an event-kind allow-list, and a run-status re-check on top of raw `follow()` output. None of that daemon-specific logic is currently proven against the two-sink scenario the AC claims to cover. Fix: add a test that drives the actual daemon `waitHandler` (or equivalent RPC-level entry point) with two sinks appending to the same run, confirming the in-flight wait resolves on the second sink's terminal write.

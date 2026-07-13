@@ -107,7 +107,7 @@ export function parseRunnableIndexTier(content: string): { tier: PatchTier | und
 }
 
 /** Extract blocker body from content, returning undefined if empty or absent. */
-function extractBlockerBody(content: string): { index: number; body: string | undefined } | undefined {
+export function extractBlockerBody(content: string): { index: number; body: string | undefined } | undefined {
   const lines = content.replace(/\r\n/g, "\n").split("\n");
 
   let exactBlockerHeaderIndex: number | undefined;

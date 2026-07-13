@@ -10,6 +10,7 @@ import {
 import { buildPlanDraftPrompt } from "../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { PromptRenderingError } from "../../../shared/prompts/render.ts";
+import { extractBlockerBody } from "../../../shared/spec-parser.ts";
 import {
   type ExternalWorktreeInput,
   type LockStatus,
@@ -97,42 +98,8 @@ function readFrontmatter(text: string): string | null {
   return normalized.slice(0, end + 5);
 }
 
-function extractBlockerSection(text: string): { index: number; body: string | undefined } | undefined {
-  const lines = text.replace(/\r\n/g, "\n").split("\n");
-
-  let exactBlockerHeaderIndex: number | undefined;
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i] ?? "";
-    if (line === "## Blocker") {
-      exactBlockerHeaderIndex = i;
-      break;
-    }
-  }
-
-  if (exactBlockerHeaderIndex === undefined) {
-    return undefined;
-  }
-
-  const headingPattern = /^(#{1,6})\s+(.+)$/;
-  const bodyLines: string[] = [];
-  for (let i = exactBlockerHeaderIndex + 1; i < lines.length; i += 1) {
-    const line = lines[i] ?? "";
-    const headingMatch = line.match(headingPattern);
-    if (headingMatch?.[1] === "##") {
-      break;
-    }
-    bodyLines.push(line);
-  }
-
-  const body = bodyLines.join("\n").trim();
-  return {
-    index: exactBlockerHeaderIndex,
-    body: body.length > 0 ? body : undefined,
-  };
-}
-
 function hasGenuineBlocker(intentBefore: string, intentAfter: string): boolean {
-  const blocker = extractBlockerSection(intentAfter);
+  const blocker = extractBlockerBody(intentAfter);
 
   if (blocker === undefined || blocker.body === undefined) {
     return false;

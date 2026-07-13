@@ -10,7 +10,7 @@ import {
 import { buildPlanDraftPrompt } from "../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { PromptRenderingError } from "../../../shared/prompts/render.ts";
-import { hasGenuineBlocker } from "../../../shared/spec-parser.ts";
+import { hasGenuineBlocker, parseSpec } from "../../../shared/spec-parser.ts";
 import {
   type ExternalWorktreeInput,
   type LockStatus,
@@ -273,6 +273,22 @@ async function executeIntentSplitWrite(
   });
 }
 
+function buildCriteriaTickedReason(unticked: string[]): string {
+  const lines = unticked.map((text) => `- ${text}`).join("\n");
+  return `Unticked non-human-only acceptance criteria:\n${lines}`;
+}
+
+function getUntickedNonHumanOnlyCriteria(artifactPath: string): string[] {
+  if (!existsSync(artifactPath)) {
+    return [];
+  }
+  const content = readFileSync(artifactPath, "utf8");
+  const parsed = parseSpec(content);
+  return parsed.acceptanceCriteria
+    .filter((criterion) => !criterion.humanOnly && !criterion.checked)
+    .map((criterion) => criterion.text);
+}
+
 async function executeDefaultWrite(
   args: WriteExecuteInput,
   worktreePath: string,
@@ -299,16 +315,34 @@ async function executeDefaultWrite(
     throw err;
   }
 
+  const contracts: Array<{ id: string; reason?: string; check: () => boolean | Promise<boolean> }> = [
+    {
+      id: "artifact.exists",
+      check: () => existsSync(expectedArtifactPath),
+    },
+  ];
+
+  // Add criteria-ticked contract for implement writes (patch.prompt.body)
+  // Check the active subspec for unticked non-human-only acceptance criteria
+  if (promptId === "patch.prompt.body" && expectedArtifactPath.length > 0) {
+    const unticked = getUntickedNonHumanOnlyCriteria(expectedArtifactPath);
+    if (unticked.length > 0) {
+      contracts.push({
+        id: "spec.criteria-ticked",
+        reason: buildCriteriaTickedReason(unticked),
+        check: () => {
+          const current = getUntickedNonHumanOnlyCriteria(expectedArtifactPath);
+          return current.length === 0;
+        },
+      });
+    }
+  }
+
   return runWriteStep({
     worktreePath,
     bindings: args.bindings,
     prompt,
-    contracts: [
-      {
-        id: "artifact.exists",
-        check: () => existsSync(expectedArtifactPath),
-      },
-    ],
+    contracts,
     ...(promptId === DEFAULT_PROMPT_ID && existsSync(specPath) && statSync(specPath).isFile()
       ? {
           blockerTextContract: {

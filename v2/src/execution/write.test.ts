@@ -39,6 +39,15 @@ function runWrite(args: {
   });
 }
 
+/** Writes a subspec into the fake worktree runWrite resolves, returning its absolute path. */
+function writeImplementSubspec(jarvisRoot: string, criteria: string): string {
+  const worktreePath = join(jarvisRoot, "worktrees", "demo", "write-run");
+  mkdirSync(worktreePath, { recursive: true });
+  const subspec = join(worktreePath, "00-subspec.md");
+  writeFileSync(subspec, `## Acceptance criteria\n\n${criteria}`, "utf8");
+  return subspec;
+}
+
 function capturingBinding(onPrompt: (prompt: string) => void): InvocationBinding {
   return {
     id: "agent",
@@ -106,6 +115,53 @@ describe("write behavior", () => {
     });
 
     expect(result.result.kind).toBe("contract_miss");
+  });
+
+  test("done token on a subspec with unticked criteria is a contract miss", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const subspec = writeImplementSubspec(jarvisRoot, "- [ ] the harness records a commit\n");
+
+    const result = await runWrite({
+      jarvisRoot,
+      artifactPath: subspec,
+      promptId: "patch.prompt.body",
+      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failedContractId).toBe("spec.criteria-ticked");
+      expect(result.result.failureReason).toContain("the harness records a commit");
+    }
+  });
+
+  test("done token completes once every non-human-only criterion is ticked", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const subspec = writeImplementSubspec(
+      jarvisRoot,
+      "- [ ] the harness records a commit\n- [ ] the banner looks right (manual)\n",
+    );
+
+    const result = await runWrite({
+      jarvisRoot,
+      artifactPath: subspec,
+      promptId: "patch.prompt.body",
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => {
+            writeFileSync(
+              subspec,
+              "## Acceptance criteria\n\n- [x] the harness records a commit\n- [ ] the banner looks right (manual)\n",
+              "utf8",
+            );
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(result.result.kind).toBe("complete");
   });
 
   test("blocked token with blocker text returns blocked", async () => {
@@ -183,7 +239,7 @@ describe("write behavior", () => {
     const specPath = "v2/spec/demo/index.md";
     const subspecPath = "v2/spec/demo/00-task.md";
     const repoGuidance = "# Repo rules\n";
-    const subspecBody = "## Acceptance criteria\n\n- [ ] task\n";
+    const subspecBody = "## Acceptance criteria\n\n- [x] task\n";
     let capturedPrompt = "";
     let bindingInvoked = false;
 

@@ -1,6 +1,3 @@
-nvm is not compatible with the npm config "prefix" option: currently set to "/opt/homebrew"
-Run `npm config delete prefix` or `nvm use --delete-prefix v24.13.0 --silent` to unset it.
-/Users/christopherbrenner/.rvm/scripts/rvm: line 29: /bin/ps: Operation not permitted
 Before editing code, read the relevant durable docs/specs for the behavior you are changing.
 When behavior, architecture, workflow, prompt, or operator-facing semantics change, update docs/specs in the same subspec in the durable home required by `v2/docs/documentation-standard.md`; do not defer doc alignment to a follow-up.
 If the active subspec explicitly says docs are not required for a purely internal change, do not create speculative doc churn.
@@ -52,3 +49,6 @@ Execute active spec only.
 - Repeated failure (after edits complete): record failure in spec; stop.
 - No TODOs. Put follow-up in spec.
 - New dependency? Edit `package.json`/lockfile, record the decision in spec, and continue. Dependency installs are harness-managed and run outside the sandbox after the iteration. In-sandbox install failures are expected and not grounds for a `## Blocker`.
+
+The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.
+done and no-work end the step. Use progress when work remains and you are not stuck. Use blocked when stuck; record the blocker where your mode's rules require.

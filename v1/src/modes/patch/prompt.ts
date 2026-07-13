@@ -4,6 +4,7 @@ import { dirname, join, relative } from "node:path";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { renderTemplateWithDeclarations } from "../../../../shared/prompts/render.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "../../../../v2/src/execution/write-loop-input.ts";
 
 export type BuildPromptExtras = {
   repoGuidance?: string;
@@ -90,7 +91,7 @@ export function buildPrompt(specPath: string, siblings?: string[], extras?: Buil
       ACTIVE_SUBSPEC_BODY: activeSubspecBody,
       PATCH_RULES: registry.getById("patch.rules").body.trim(),
       TIMEOUT_CHECKPOINT_CONTEXT: timeoutCheckpointContext,
-      STEP_RULES: "",
+      STEP_RULES: DEFAULT_WRITE_STEP_RULES,
     },
   );
 
@@ -332,7 +333,7 @@ export function buildShrinkPrompt(opts: ShrinkPromptOpts): string {
       ALLOWLIST: allowlistBlock || "(empty)",
       BRANCH_DIFF: branchSummary,
       RUN_SCOPED_DIFF: runScopedDiff,
-      STEP_RULES: "",
+      STEP_RULES: DEFAULT_WRITE_STEP_RULES,
     },
   ).trim();
 }

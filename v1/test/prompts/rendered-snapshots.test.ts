@@ -10,6 +10,7 @@ import { buildDraftPrompt } from "../../src/modes/plan/draft.ts";
 import { buildPrDescriptionPrompt as buildPlanPrDescriptionPrompt } from "../../src/modes/plan/pr-description-prompt.ts";
 import { buildReviewPrompt } from "../../src/modes/plan/review.ts";
 import { buildVerdictActuatorPrompt } from "../../src/modes/plan/verdict-actuator.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "../../../v2/src/execution/write-loop-input.ts";
 
 type WrapperVariant = "codex.exec.stdin+marker";
 
@@ -134,6 +135,8 @@ describe("rendered prompt snapshots", () => {
     });
 
     expect(patch).toBe(readFixture(patchKey));
+    expect(patch).toContain(DEFAULT_WRITE_STEP_RULES);
+    expect(patch.endsWith(DEFAULT_WRITE_STEP_RULES)).toBe(true);
     expect(draft).toBe(readFixture(draftKey));
     expect(reviewPass1).toBe(readFixture(reviewStepOneKey));
     expect(reviewPass2).toBe(readFixture(reviewStepTwoKey));

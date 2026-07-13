@@ -26,12 +26,12 @@ until abort — the bug is operator-visible, not just a cosmetic log defect.
 
 ## Acceptance criteria
 
-- [ ] Two live sink instances on the same storage path — the second constructed *before* the first wrote (the daemon's reconciliation sink coexisting with a write-loop sink) — alternating `append()` calls for the same run produce distinct, monotonically increasing `seq` values (1, 2, 3, …) with no duplicates.
-- [ ] `seq` remains per-run: interleaved appends for two different runs each start at 1 and advance independently.
-- [ ] A log file whose trailing line is truncated/unparseable does not make `append()` throw; the appended record gets the next `seq` after the last parseable record for that run.
-- [ ] A run whose terminal event is appended by a second sink is observed by an in-flight `wait` (daemon level — the duplicate-`seq` swallow no longer hangs the waiter).
-- [ ] Existing `log-stream.test.ts` tests stay green (tail ordering, follow replay-then-stream, close/abort behavior unchanged).
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] Two live sink instances on the same storage path — the second constructed *before* the first wrote (the daemon's reconciliation sink coexisting with a write-loop sink) — alternating `append()` calls for the same run produce distinct, monotonically increasing `seq` values (1, 2, 3, …) with no duplicates.
+- [x] `seq` remains per-run: interleaved appends for two different runs each start at 1 and advance independently.
+- [x] A log file whose trailing line is truncated/unparseable does not make `append()` throw; the appended record gets the next `seq` after the last parseable record for that run.
+- [x] A run whose terminal event is appended by a second sink is observed by an in-flight `wait` (daemon level — the duplicate-`seq` swallow no longer hangs the waiter).
+- [x] Existing `log-stream.test.ts` tests stay green (tail ordering, follow replay-then-stream, close/abort behavior unchanged).
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

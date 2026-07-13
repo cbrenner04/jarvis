@@ -80,6 +80,7 @@ export async function reconcileOrphanedRuns(
   logReader?: LogReader,
 ): Promise<void> {
   for (const runId of await stateStore.beginRunReconciliation()) {
+    const run = stateStore.loadRun(runId);
     const eventPersisted = logReader
       ?.tail(runId)
       .some(
@@ -88,7 +89,7 @@ export async function reconcileOrphanedRuns(
           record.event.runStatus === "killed" &&
           record.event.reason === "daemon_restart",
       );
-    if (!eventPersisted) {
+    if (run?.status === "killed" && !eventPersisted) {
       logSink.append(runId, { kind: "run_reconciled", runStatus: "killed", reason: "daemon_restart" });
     }
     stateStore.finishRunReconciliation(runId);
@@ -733,7 +734,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     const activeRun = activeRuns.get(ks) ?? activeRuns.get(runId);
     if (activeRun && activeRun.runId === runId && activeRun.kind === "write-loop") {
       activeRun.abortController.abort();
-      store.setRunStatus(runId, "killed");
+      store.commitGuardedKill(runId);
       return { kind: "response", result: { ok: true } };
     }
 
@@ -784,7 +785,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       if (activeRun && activeRun.runId === run.id && activeRun.kind === "write-loop") {
         activeRun.abortController.abort();
       }
-      store.setRunStatus(run.id, "killed");
+      store.commitGuardedKill(run.id);
       return { kind: "response", result: { ok: true } };
     }
 

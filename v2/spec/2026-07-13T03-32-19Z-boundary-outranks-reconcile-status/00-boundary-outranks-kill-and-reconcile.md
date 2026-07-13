@@ -58,21 +58,21 @@ reconcile regardless of arrival order; the boundary-after-kill direction already
 
 ## Acceptance criteria
 
-- [ ] Killing a run whose committed boundary carries a boundary-terminal `runStatus` (`blocked`,
+- [x] Killing a run whose committed boundary carries a boundary-terminal `runStatus` (`blocked`,
       `completed`, or `failed`) leaves that status on the row — `jarvis run list` never reports
       `killed` for such a run. Progress boundaries (`runStatus: "in-progress"`) do not block a kill.
-- [ ] Killing a run whose committed boundary carries `paused` still sets the row to `killed`.
-- [ ] Killing a run with no boundary-terminal status still sets the row to `killed` and aborts the
+- [x] Killing a run whose committed boundary carries `paused` still sets the row to `killed`.
+- [x] Killing a run with no boundary-terminal status still sets the row to `killed` and aborts the
       in-flight invocation.
-- [ ] Killing a non-active run still returns `run_not_active` and writes no status.
-- [ ] The awaiting-human `abort` decision follows the same guard (defense-in-depth; admission control
+- [x] Killing a non-active run still returns `run_not_active` and writes no status.
+- [x] The awaiting-human `abort` decision follows the same guard (defense-in-depth; admission control
       already gates it on `status === "awaiting-human"`).
-- [ ] A boundary that commits after a kill still wins: the row ends at the boundary's status.
-- [ ] Daemon restart appends `run_reconciled` (`runStatus: "killed"`, `reason: "daemon_restart"`) only
+- [x] A boundary that commits after a kill still wins: the row ends at the boundary's status.
+- [x] Daemon restart appends `run_reconciled` (`runStatus: "killed"`, `reason: "daemon_restart"`) only
       for pending rows whose current status is `killed`, including a row left `killed` + pending by a
       crash before the event append; a pending row whose status is boundary-terminal gets its pending
       flag cleared and no reconcile event.
-- [ ] `bun run typecheck` passes; `bun run test:v2` and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck` passes; `bun run test:v2` and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

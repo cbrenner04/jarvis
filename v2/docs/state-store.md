@@ -28,8 +28,12 @@ Repository-style named ops keyed by durable IDs — no public SQL surface. Signa
 - `recordAttemptStart` — insert an `in-progress` attempt row.
 - `commitCompletionBoundary` — the one transactional write: attempt completion, outcome classification, and run checkpoint (`attempt_count` + status) commit or roll back together. Idempotent: re-committing a finished boundary is a no-op, so recovery can never double-advance the checkpoint or duplicate an outcome.
 - `setRunStatus` — status update outside a boundary. Current use: marking `budget-soft-stopped` when an invocation exits on budget after its last committed `progress` boundary.
+- `commitGuardedKill` — set `killed` unless the row is already boundary-terminal (`completed`, `blocked`, `failed`); `paused` is not boundary-terminal. Used by daemon `kill` and awaiting-human `abort`.
+- `beginRunReconciliation` / `finishRunReconciliation` — restart sweep: mark orphan runs whose owner is gone as `killed` + `reconciliation_pending`, return pending run ids, then clear pending after the owed `run_reconciled` event is persisted (or skipped when the row is no longer `killed`). See [`daemon-host.md`](daemon-host.md#restart-reconciliation).
 
 ## Semantics
+
+- A run's durable `status` must agree with its terminal log signal; harness guesses (`killed`, reconcile) never overwrite a boundary-terminal status committed by `commitCompletionBoundary`.
 
 - Outcomes are deterministic classifications, not free-form payloads; the runner branches on them. No transcripts or cost streams — the store carries only what resume reads. Token/cost and per-invocation usage belong in the telemetry JSONL substrate, not here — see [`telemetry-capture.md`](telemetry-capture.md).
 - Recovery derives from durable state only: the `(project, branch, stepId)` lookup, run status, and attempt/outcome history. An attempt still `in-progress` is the interrupted-state read ("re-run that dirty iteration"); `interrupted` is never stored. `budget-soft-stopped` resumes with a fresh per-invocation budget; a terminal run status returns its stored result idempotently.

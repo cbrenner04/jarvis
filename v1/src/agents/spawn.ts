@@ -193,6 +193,11 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
     }
 
     if (config.writeStdin && stdin) {
+      // A child that exits before consuming stdin (crash, early error) closes its
+      // end of the pipe; writing after that raises EPIPE on the stream. Without a
+      // listener, Node treats that as an unhandled 'error' and crashes the process.
+      // Exit-code handling above already settles the result, so just swallow it.
+      stdin.on("error", () => {});
       config.writeStdin(stdin, prompt);
     }
   });

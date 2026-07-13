@@ -120,23 +120,31 @@ class FileLogStream implements LogSink, LogReader {
     this.pollMs = pollMs ?? FOLLOW_POLL_MS;
   }
 
-  /** Synchronous read of the durable log; unparseable lines are skipped. */
-  private nextSeqForRun(runId: string): number {
-    let maxSeq = 0;
+  /** Reads all durable-log records; unparseable lines (e.g. a truncated trailing write) are skipped. */
+  private readAllRecords(): PersistedRecord[] {
     if (!existsSync(this.storagePath)) {
-      return 1;
+      return [];
     }
 
     const content = readFileSync(this.storagePath, "utf-8");
     const lines = content.split("\n").filter((line) => line.trim());
+    const records: PersistedRecord[] = [];
     for (const line of lines) {
       try {
-        const record: PersistedRecord = JSON.parse(line);
-        if (record.runId === runId && record.seq > maxSeq) {
-          maxSeq = record.seq;
-        }
+        records.push(JSON.parse(line));
       } catch {
         // Truncated or partial trailing lines are transient; skip.
+      }
+    }
+
+    return records;
+  }
+
+  private nextSeqForRun(runId: string): number {
+    let maxSeq = 0;
+    for (const record of this.readAllRecords()) {
+      if (record.runId === runId && record.seq > maxSeq) {
+        maxSeq = record.seq;
       }
     }
 
@@ -157,21 +165,7 @@ class FileLogStream implements LogSink, LogReader {
   }
 
   tail(runId: string): PersistedRecord[] {
-    if (!existsSync(this.storagePath)) {
-      return [];
-    }
-
-    const content = readFileSync(this.storagePath, "utf-8");
-    const lines = content.split("\n").filter((line) => line.trim());
-    const records: PersistedRecord[] = [];
-
-    for (const line of lines) {
-      const record: PersistedRecord = JSON.parse(line);
-      if (record.runId === runId) {
-        records.push(record);
-      }
-    }
-
+    const records = this.readAllRecords().filter((record) => record.runId === runId);
     records.sort((a, b) => a.seq - b.seq);
     return records;
   }

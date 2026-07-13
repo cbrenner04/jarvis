@@ -374,6 +374,20 @@ describe("log-stream", () => {
     expect(record.seq).toBe(2);
   });
 
+  it("tail skips a truncated trailing line instead of throwing", () => {
+    const valid = JSON.stringify({
+      runId: "run-1",
+      seq: 1,
+      ts: "2026-01-01T00:00:00.000Z",
+      event: { kind: "iteration_started", attemptId: "a1" },
+    });
+    writeFileSync(storagePath, `${valid}\n{"runId":"run-1","seq":\n`, "utf-8");
+
+    const reader = openLogReader(storagePath);
+    expect(() => reader.tail("run-1")).not.toThrow();
+    expect(reader.tail("run-1").map((record) => record.seq)).toEqual([1]);
+  });
+
   it("follow waiter observes loop_finished appended by a second sink", async () => {
     const sinkA = openLogSink(storagePath);
     const reader = openLogReader(storagePath, TEST_POLL_MS);

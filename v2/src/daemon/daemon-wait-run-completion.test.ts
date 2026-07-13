@@ -270,6 +270,30 @@ test("normal wait completions leave nothing for close() to abort", async () => {
   }
 });
 
+test("wait resolves when a second sink appends the terminal event to the same run", async () => {
+  const runId = createRun();
+  const pending = waitDirect("wait", runId);
+
+  await sleep(25);
+  const secondSink = openLogSink(logsPath);
+  stateStore.setRunStatus(runId, "completed");
+  secondSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "complete",
+    iterationsConsumed: 2,
+    resumable: false,
+  });
+  secondSink.close();
+
+  const result = await expectResponse(await pending);
+  expect(result).toEqual({
+    runStatus: "completed",
+    loopOutcomeKind: "complete",
+    iterationsConsumed: 2,
+    resumable: false,
+  });
+});
+
 test("existing start/list behavior stays unchanged", async () => {
   const start = await handlers.start(
     { kind: "request", id: "start", method: "start", params: { input: input() } },

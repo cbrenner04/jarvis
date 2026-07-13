@@ -278,7 +278,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         runId,
         terminal.kind,
         iterationsConsumed,
-        false,
+        result.kind === "invalid_token",
         detail,
         terminal.kind !== "complete",
       );
@@ -592,7 +592,7 @@ function terminalMapping(result: Exclude<StepRunResult, { kind: "progress" }>): 
     return { kind: "contract_miss", runStatus: "blocked", outcomeKind: "contract_miss" };
   }
   if (result.kind === "invalid_token") {
-    return { kind: "invocation_failure", runStatus: "failed", outcomeKind: "invalid_token" };
+    return { kind: "invocation_failure", runStatus: "paused", outcomeKind: "invalid_token" };
   }
   return { kind: "invocation_failure", runStatus: "failed", outcomeKind: "invocation_failure" };
 }

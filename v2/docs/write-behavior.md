@@ -586,8 +586,11 @@ The loop classifies and routes results:
   (distinct from `blocked`, marked resumable). Re-invoking the same run resumes
   remaining spec work with a fresh per-invocation budget.
 - **`invocation_failure`**: binding chain stopped without usable agent output, or
-  token parse failed after a successful invocation. Foreground `jarvis write`
-  stdout JSON uses `kind: "invocation_failure"` for both cases; see below.
+  token parse failed after a successful invocation (`invalid_token`). Foreground
+  `jarvis write` stdout JSON uses `kind: "invocation_failure"` for both cases;
+  see below. `invalid_token` finishes `resumable: true` with durable
+  `runStatus: "paused"` so re-invoking the same run resumes over the existing
+  worktree.
 
 ### Binding-chain `invocation_failure` JSON
 
@@ -600,10 +603,12 @@ When the step result is binding-chain `invocation_failure`, stdout JSON includes
   production rung bindings use `agentId/adapterModel/priceKey`
 
 `invalid_token` also maps to loop `kind: "invocation_failure"` but **omits**
-`failureKind` and `bindingAttempts`. Other terminal outcomes (`complete`,
-`blocked`, `contract_miss`, `budget-exhausted`) omit them too. Idempotent
-re-entry returns persisted detail only when the terminal attempt row has
-`invocation_failure_detail` stored; legacy rows without it resume detail-free.
+`failureKind` and `bindingAttempts`, and finishes `resumable: true`. Other
+terminal outcomes (`complete`, `blocked`, `contract_miss`, `budget-exhausted`)
+omit them too. Idempotent re-entry returns persisted binding-chain detail only
+when the terminal attempt row has `invocation_failure_detail` stored; legacy
+rows without it resume detail-free. `invalid_token` rows resume with a fresh
+attempt instead of replaying the prior terminal failure.
 
 Resume identity is `(project, branch, stepId)`. For single-step workflows (default, stepId omitted), resume identity is `(project, branch)` only: re-invoking the same project and
 branch resumes the most recent durable run even if `--base`, `--spec`, or the

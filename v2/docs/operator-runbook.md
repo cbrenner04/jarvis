@@ -46,7 +46,6 @@ the write loop fails:
 | Preset | State |
 | --- | --- |
 | `intent`, `intent-reviewed` | Split works. **The review step is a silent no-op** — empty log, no verdict, no commit, reports `completed`. Seed: `intent-reviewed-review-step-is-a-silent-no-op`. |
-| `plan`, `plan-reviewed`, `plan-reviewed-light` | **Fail `invalid_token`.** The draft is written correctly to disk, then discarded. Seed: `invalid-token-discards-completed-work`. |
 | `implement` | **Cannot start.** ENOENT reading the index in a worktree that doesn't exist yet, then a prompt-render failure before any agent. Seeds: `implement-linked-routing-reads-index-before-worktree-exists`, `implement-write-step-renders-prompt-without-placeholders`. |
 
 **Use `jarvis1` for all plan and implement work until those four P0 seeds land.**
@@ -230,24 +229,6 @@ v2 TUI tests can pass while ink rendering is broken — see seed
 ## Recovery
 
 Documented gaps and operator workarounds. Remove entries when seeds merge.
-
-### `invalid_token` — your work is on disk, go get it
-
-A `plan` / `plan-reviewed*` run that ends `invalid_token` **did the work**. The
-agent wrote a correct spec tree and then failed only to emit the terminal token, so
-the loop marked the run `failed` / `resumable: false` and left the output
-uncommitted in the worktree. Do not re-run and pay twice before you look:
-
-```sh
-jarvis run log <run-id>          # invalid_token_detail shows what the agent actually said
-git -C ~/.jarvis/worktrees/<project>/plan/<name> status --short
-```
-
-Untracked spec dirs there are the finished draft. Salvage them, or re-run through
-`jarvis1 plan` — but know the work exists before you discard it.
-
-Seed: `invalid-token-discards-completed-work`. Cleanup: delete this section when it
-ships.
 
 ### v2 debris blocks the `jarvis1` fallback
 

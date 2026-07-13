@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { writeFileSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -316,5 +317,98 @@ describe("log-stream", () => {
     const reader = openLogReader(storagePath);
     const records = reader.tail("run-1");
     expect(records.length).toBe(1);
+  });
+
+  it("concurrent sinks on the same path allocate distinct monotonic seq for one run", () => {
+    const sinkA = openLogSink(storagePath);
+    const sinkB = openLogSink(storagePath);
+
+    sinkA.append("run-1", { kind: "iteration_started", attemptId: "a1" });
+    sinkB.append("run-1", { kind: "iteration_started", attemptId: "a2" });
+    sinkA.append("run-1", { kind: "iteration_started", attemptId: "a3" });
+    sinkB.append("run-1", { kind: "iteration_started", attemptId: "a4" });
+
+    sinkA.close();
+    sinkB.close();
+
+    const reader = openLogReader(storagePath);
+    const records = reader.tail("run-1");
+    expect(records.map((record) => record.seq)).toEqual([1, 2, 3, 4]);
+  });
+
+  it("concurrent sinks keep per-run seq independent when runs are interleaved", () => {
+    const sinkA = openLogSink(storagePath);
+    const sinkB = openLogSink(storagePath);
+
+    sinkA.append("run-1", { kind: "iteration_started", attemptId: "a1" });
+    sinkB.append("run-2", { kind: "iteration_started", attemptId: "b1" });
+    sinkA.append("run-1", { kind: "iteration_started", attemptId: "a2" });
+    sinkB.append("run-2", { kind: "iteration_started", attemptId: "b2" });
+
+    sinkA.close();
+    sinkB.close();
+
+    const reader = openLogReader(storagePath);
+    expect(reader.tail("run-1").map((record) => record.seq)).toEqual([1, 2]);
+    expect(reader.tail("run-2").map((record) => record.seq)).toEqual([1, 2]);
+  });
+
+  it("append succeeds when the trailing line is truncated", () => {
+    const valid = JSON.stringify({
+      runId: "run-1",
+      seq: 1,
+      ts: "2026-01-01T00:00:00.000Z",
+      event: { kind: "iteration_started", attemptId: "a1" },
+    });
+    writeFileSync(storagePath, `${valid}\n{"runId":"run-1","seq":\n`, "utf-8");
+
+    const sink = openLogSink(storagePath);
+    expect(() => {
+      sink.append("run-1", { kind: "iteration_started", attemptId: "a2" });
+    }).not.toThrow();
+    sink.close();
+
+    const lastLine = readFileSync(storagePath, "utf-8").trim().split("\n").at(-1);
+    expect(lastLine).toBeDefined();
+    const record = JSON.parse(lastLine as string) as PersistedRecord;
+    expect(record.seq).toBe(2);
+  });
+
+  it("follow waiter observes loop_finished appended by a second sink", async () => {
+    const sinkA = openLogSink(storagePath);
+    const reader = openLogReader(storagePath, TEST_POLL_MS);
+
+    sinkA.append("run-1", { kind: "iteration_started", attemptId: "a1" });
+
+    const subscribeSeq = reader.tail("run-1").at(-1)?.seq ?? 0;
+    const controller = new AbortController();
+    let terminal: PersistedRecord | undefined;
+
+    const waitPromise = (async () => {
+      for await (const record of reader.follow("run-1", controller.signal)) {
+        if (record.seq <= subscribeSeq) continue;
+        if (record.event.kind === "loop_finished" || record.event.kind === "run_execution_failed") {
+          terminal = record;
+          return;
+        }
+      }
+    })();
+
+    await delay(TEST_POLL_MS * 2);
+
+    const sinkB = openLogSink(storagePath);
+    sinkB.append("run-1", {
+      kind: "loop_finished",
+      loopOutcomeKind: "complete",
+      iterationsConsumed: 1,
+      resumable: false,
+    });
+    sinkB.close();
+    sinkA.close();
+
+    await waitPromise;
+
+    expect(terminal?.seq).toBe(2);
+    expect(terminal?.event.kind).toBe("loop_finished");
   });
 });

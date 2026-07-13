@@ -87,7 +87,10 @@ export type PersistedRecord = {
 };
 
 export interface LogSink {
-  /** Per-run sequence number and timestamp are assigned. */
+  /**
+   * Assigns per-run `seq` (unique and monotonic across concurrent writers on the same log)
+   * and timestamp; allocation reads the durable log at append time.
+   */
   append(runId: string, event: LogEvent): void;
 
   /** Idempotent. */
@@ -109,30 +112,35 @@ export const FOLLOW_POLL_MS = 250;
 
 class FileLogStream implements LogSink, LogReader {
   private storagePath: string;
-  private sequences: Map<string, number> = new Map();
   private closed = false;
   private readonly pollMs: number;
 
   constructor(storagePath: string, pollMs?: number) {
     this.storagePath = storagePath;
     this.pollMs = pollMs ?? FOLLOW_POLL_MS;
-    this.loadSequences();
   }
 
-  private loadSequences(): void {
+  /** Synchronous read of the durable log; unparseable lines are skipped. */
+  private nextSeqForRun(runId: string): number {
+    let maxSeq = 0;
     if (!existsSync(this.storagePath)) {
-      return;
+      return 1;
     }
 
     const content = readFileSync(this.storagePath, "utf-8");
     const lines = content.split("\n").filter((line) => line.trim());
     for (const line of lines) {
-      const record: PersistedRecord = JSON.parse(line);
-      const current = this.sequences.get(record.runId) ?? 0;
-      if (record.seq > current) {
-        this.sequences.set(record.runId, record.seq);
+      try {
+        const record: PersistedRecord = JSON.parse(line);
+        if (record.runId === runId && record.seq > maxSeq) {
+          maxSeq = record.seq;
+        }
+      } catch {
+        // Truncated or partial trailing lines are transient; skip.
       }
     }
+
+    return maxSeq + 1;
   }
 
   append(runId: string, event: LogEvent): void {
@@ -140,13 +148,12 @@ class FileLogStream implements LogSink, LogReader {
       throw new Error("Cannot append to closed log sink");
     }
 
-    const seq = (this.sequences.get(runId) ?? 0) + 1;
+    const seq = this.nextSeqForRun(runId);
     const ts = new Date().toISOString();
     const record: PersistedRecord = { runId, seq, ts, event };
 
     mkdirSync(dirname(this.storagePath), { recursive: true });
     appendFileSync(this.storagePath, `${JSON.stringify(record)}\n`, "utf-8");
-    this.sequences.set(runId, seq);
   }
 
   tail(runId: string): PersistedRecord[] {

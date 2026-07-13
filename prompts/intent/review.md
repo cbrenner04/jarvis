@@ -2,15 +2,15 @@
 id: intent.prompt.review
 behavior: intent
 kind: step
-revision: 1
-placeholders: [STAGED_INTENT:string!, SPEC_GUIDANCE:string!]
+revision: 2
+placeholders: [STAGED_INTENT:string!, SPEC_GUIDANCE:string!, VERDICT_PATH:string!]
 remove: [global.naming]
 ---
 # Intent Review Phase
 
 You are reviewing a staged ready-intent artifact. This is a **read-only** review pass: read the intent file, critique it against spec guidance and intent conventions, and emit a verdict.
 
-**Review boundary:** read-only. Do not edit the staged intent or write files to the worktree.
+**Review boundary:** read-only. Do not edit the staged intent or write files to the worktree. Runtime persists your stdout unchanged at `<VERDICT_PATH>`; do not write that file yourself.
 
 ## Staged Intent
 
@@ -36,6 +36,8 @@ The text between `<<<SPEC_GUIDANCE_BEGIN>>>` and `<<<SPEC_GUIDANCE_END>>>` is re
 - Emit a concise verdict at the end of your response.
 - Keep the verdict terse: identify missing decisions, unclear acceptance criteria, or confusing language.
 - Empty verdict signals the intent is ready for actuator application.
+
+The runtime persists your stdout unchanged at `<VERDICT_PATH>` and uses it as the actuator input.
 
 ## Instructions
 

@@ -18,7 +18,7 @@ export type ReviewCycleRoleBindings = {
 
 export type ReviewCycleInput = {
   cwd: string;
-  prompt: string;
+  prompt: string | (() => string);
   bindings: ReviewCycleRoleBindings;
   verdictPath: string;
   maxCycles: number;
@@ -72,7 +72,8 @@ export async function executeReviewCycle(args: ReviewCycleInput): Promise<Review
     }
 
     const roleResults: Partial<Record<ReviewCycleRole, InvocationExecution>> = {};
-    const critic = await invokeRole(args, "critic", args.prompt, args.bindings.critic);
+    const criticPrompt = typeof args.prompt === "function" ? args.prompt() : args.prompt;
+    const critic = await invokeRole(args, "critic", criticPrompt, args.bindings.critic);
     roleResults.critic = critic;
     const criticFailure = failureKind(critic);
     if (criticFailure !== null) {

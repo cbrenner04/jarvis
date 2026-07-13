@@ -187,10 +187,12 @@ before giving up; the write loop appends a `token_reprompt` run-log event
 `INVALID_TOKEN_LOG_MAX_CHARS`) whenever this fires, visible via `jarvis2 tui`
 log-follow. The re-prompt reply is accepted only as an exact token — a
 hedging reply that merely names the tokens in prose is a second miss. A
-second miss records `invalid_token`, with the *first* response's text as
-`tokenText`, and the existing `invalid_token_detail` event follows the
-`token_reprompt` event in the log. A re-prompted `done`/`no-work` runs
-contract checks exactly as a first-response token would.
+second miss with unsatisfied contracts records `invalid_token`, with the
+*first* response's text as `tokenText`, and the existing `invalid_token_detail`
+event follows the `token_reprompt` event in the log. A second miss whose
+contracts all pass records `complete` (token `done`) and the write loop
+commits and publishes as for a token-emitting completion. A re-prompted
+`done`/`no-work` runs contract checks exactly as a first-response token would.
 
 ## Review cycle
 
@@ -580,15 +582,20 @@ The loop classifies and routes results:
   one of `N`. Contract is **not** checked mid-loop.
 - **`done` / `no-work`**: agent claims finished. Loop checks `--artifact`
   existence (contract); pass → success (`complete`), fail → append `## Blocker`
-  to the spec and stop (`contract_miss`).
+  to the spec and stop (`contract_miss`). A missing terminal token after the
+  one re-prompt uses the same contract checks: all pass → `complete` (token
+  `done`); any fail → `invalid_token` (no `## Blocker` append).
 - **`blocked`**: agent is blocked. Loop stops immediately (terminal `blocked`,
   distinct from `contract_miss`).
 - **Budget exhausted** while still `progress`: loop exits with a soft-stop outcome
   (distinct from `blocked`, marked resumable). Re-invoking the same run resumes
   remaining spec work with a fresh per-invocation budget.
 - **`invocation_failure`**: binding chain stopped without usable agent output, or
-  token parse failed after a successful invocation. Foreground `jarvis write`
-  stdout JSON uses `kind: "invocation_failure"` for both cases; see below.
+  token parse failed after a successful invocation (`invalid_token`). Foreground
+  `jarvis write` stdout JSON uses `kind: "invocation_failure"` for both cases;
+  see below. `invalid_token` finishes `resumable: true` with durable
+  `runStatus: "paused"` so re-invoking the same run resumes over the existing
+  worktree.
 
 ### Binding-chain `invocation_failure` JSON
 
@@ -601,10 +608,12 @@ When the step result is binding-chain `invocation_failure`, stdout JSON includes
   production rung bindings use `agentId/adapterModel/priceKey`
 
 `invalid_token` also maps to loop `kind: "invocation_failure"` but **omits**
-`failureKind` and `bindingAttempts`. Other terminal outcomes (`complete`,
-`blocked`, `contract_miss`, `budget-exhausted`) omit them too. Idempotent
-re-entry returns persisted detail only when the terminal attempt row has
-`invocation_failure_detail` stored; legacy rows without it resume detail-free.
+`failureKind` and `bindingAttempts`, and finishes `resumable: true`. Other
+terminal outcomes (`complete`, `blocked`, `contract_miss`, `budget-exhausted`)
+omit them too. Idempotent re-entry returns persisted binding-chain detail only
+when the terminal attempt row has `invocation_failure_detail` stored; legacy
+rows without it resume detail-free. `invalid_token` rows resume with a fresh
+attempt instead of replaying the prior terminal failure.
 
 Resume identity is `(project, branch, stepId)`. For single-step workflows (default, stepId omitted), resume identity is `(project, branch)` only: re-invoking the same project and
 branch resumes the most recent durable run even if `--base`, `--spec`, or the

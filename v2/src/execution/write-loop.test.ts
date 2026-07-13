@@ -391,9 +391,12 @@ describe("write loop", () => {
     const result = await runLoop({ jarvisRoot, stateDbPath, bindings: invalidTokenBindings });
 
     expect(result.kind).toBe("invocation_failure");
+    expect(result.resumable).toBe(true);
     expect(result.failureKind).toBeUndefined();
     expect(result.bindingAttempts).toBeUndefined();
-    expect(loadRunOnce(stateDbPath, result.runId)?.attempts[0]?.outcomeKind).toBe("invalid_token");
+    const run = loadRunOnce(stateDbPath, result.runId);
+    expect(run?.status).toBe("paused");
+    expect(run?.attempts[0]?.outcomeKind).toBe("invalid_token");
   });
 
   test("invalid_token appends invalid_token_detail to the observability log", async () => {
@@ -926,7 +929,7 @@ describe("write loop", () => {
     expect(result.bindingAttempts).toBeUndefined();
   });
 
-  test("invalid_token idempotent re-entry omits failure detail", async () => {
+  test("invalid_token resume starts a fresh attempt over the existing worktree", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
 
     const first = await runLoop({
@@ -935,6 +938,8 @@ describe("write loop", () => {
       bindings: invalidTokenBindings,
       branchName: "invalid-token-run",
     });
+    expect(first.resumable).toBe(true);
+
     const second = await runLoop({
       jarvisRoot,
       stateDbPath,
@@ -942,10 +947,10 @@ describe("write loop", () => {
       bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
     });
 
-    expect(second.kind).toBe("invocation_failure");
-    expect(second.failureKind).toBeUndefined();
-    expect(second.bindingAttempts).toBeUndefined();
+    expect(second.kind).toBe("complete");
+    expect(second.resumable).toBe(false);
     expect(second.runId).toBe(first.runId);
+    expect(loadRunOnce(stateDbPath, second.runId)?.attempts).toHaveLength(2);
   });
 
   test("max iterations per-invocation with default constant", async () => {

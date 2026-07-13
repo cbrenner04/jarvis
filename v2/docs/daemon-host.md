@@ -189,7 +189,7 @@ No stderr, exit codes, or attempt transcripts appear in this contract.
 | `resumable_kill` | `runStatus: "killed"` (wins over conflicting `loop_finished`) | `true` | `resume` |
 | `agent_blocked` | `loopOutcomeKind: "blocked"` or store `blocked` + attempt `outcome_kind: "blocked"` | `false` | `inspect_spec` |
 | `contract_miss` | `loopOutcomeKind: "contract_miss"` or attempt `outcome_kind: "contract_miss"` | `false` | `inspect_spec` |
-| `invalid_token` | attempt `outcome_kind: "invalid_token"` | `false` | `stop` |
+| `invalid_token` | attempt `outcome_kind: "invalid_token"` | `true` | `resume` |
 | `quota_exhausted` | binding-chain `invocation_failure` + `failureKind: "quota"` | `false` | `retry_later` |
 | `model_config` | binding-chain `invocation_failure` + `failureKind: "model_config"` | `false` | `fix_config` |
 | `no_binding` | binding-chain `invocation_failure` + `failureKind: "no_binding"` | `false` | `fix_config` |
@@ -207,7 +207,8 @@ the current quiescent state). `list` replays persisted logs per row via injected
 store-only and does not fail the RPC. `wait` and `list` share one composer and one
 terminal-selection rule.
 
-**Tie-break:** Durable `runStatus` wins for resumable terminals (`killed`, `paused`,
+**Tie-break:** Attempt `outcome_kind: "invalid_token"` wins over generic
+`resumable_pause` when `runStatus: "paused"`. Durable `runStatus` wins for resumable terminals (`killed`, `paused`,
 `budget-soft-stopped`). For `failed` / `blocked`, last-attempt store detail wins over
 conflicting `loop_finished` (e.g. `runStatus: "failed"` + `loopOutcomeKind: "complete"`
 resolves from attempt detail). When `runStatus` is `failed` or `blocked` with no

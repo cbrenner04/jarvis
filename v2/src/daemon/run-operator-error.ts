@@ -101,7 +101,7 @@ function lastCommittedAttempt(attempts: Attempt[]): Attempt | undefined {
 function mapInvocationFromAttempt(attempt: Attempt): RunOperatorError | undefined {
   switch (attempt.outcomeKind) {
     case "invalid_token":
-      return op("invalid_token", "stop");
+      return op("invalid_token", "resume", true);
     case "blocked":
       return op("agent_blocked", "inspect_spec");
     case "contract_miss":
@@ -155,10 +155,13 @@ export function composeRunOperatorError(
   if (run.status === "in-progress") return undefined;
   if (run.status === "completed" && terminalRecord?.event.kind !== "loop_finished") return undefined;
 
+  const lastAttempt = lastCommittedAttempt(run.attempts);
+  if (lastAttempt?.outcomeKind === "invalid_token") {
+    return op("invalid_token", "resume", true);
+  }
+
   const resumable = RESUMABLE_TERMINALS[run.status];
   if (resumable) return resumable;
-
-  const lastAttempt = lastCommittedAttempt(run.attempts);
   const allowResumableLogOutcomes = run.status !== "failed" && run.status !== "blocked";
 
   if (terminalRecord?.event.kind === "run_execution_failed") return op("harness_failure", "stop");

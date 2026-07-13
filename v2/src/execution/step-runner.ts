@@ -99,6 +99,21 @@ type StepTokenResolution =
   | { token: StepOutcomeToken; tokenText?: undefined; reprompt?: StepReprompt }
   | { token: null; tokenText: string; reprompt?: StepReprompt };
 
+type ContractEvalResult = { ok: true } | { ok: false; failedContractId: string; failureReason?: string };
+
+async function evaluateContracts(contracts: readonly StepContract[], cwd: string): Promise<ContractEvalResult> {
+  for (const contract of contracts) {
+    if (!(await contract.check({ cwd }))) {
+      return {
+        ok: false,
+        failedContractId: contract.id,
+        ...(contract.reason !== undefined ? { failureReason: contract.reason } : {}),
+      };
+    }
+  }
+  return { ok: true };
+}
+
 /** Resolves the terminal token, re-prompting once (token-only) when the first response carries none. */
 async function resolveStepToken(args: StepRunInput, stdout: string): Promise<StepTokenResolution> {
   const firstToken = parseStepOutcomeToken(stdout);
@@ -149,15 +164,6 @@ export async function runStep(args: StepRunInput): Promise<StepRunResult> {
 
   const resolved = await resolveStepToken(args, result.stdout);
   const repromptField = resolved.reprompt !== undefined ? { reprompt: resolved.reprompt } : {};
-
-  if (resolved.token === null) {
-    return {
-      kind: "invalid_token",
-      tokenText: resolved.tokenText,
-      invocation,
-      ...repromptField,
-    };
-  }
   const token = resolved.token;
 
   if (token === "blocked") {
@@ -178,17 +184,34 @@ export async function runStep(args: StepRunInput): Promise<StepRunResult> {
     };
   }
 
-  for (const contract of args.contracts) {
-    if (!(await contract.check({ cwd: args.cwd }))) {
+  const contractResult = await evaluateContracts(args.contracts, args.cwd);
+
+  if (token === null) {
+    if (contractResult.ok) {
       return {
-        kind: "contract_miss",
-        token,
-        failedContractId: contract.id,
-        ...(contract.reason !== undefined ? { failureReason: contract.reason } : {}),
+        kind: "complete",
+        token: "done",
         invocation,
         ...repromptField,
       };
     }
+    return {
+      kind: "invalid_token",
+      tokenText: resolved.tokenText,
+      invocation,
+      ...repromptField,
+    };
+  }
+
+  if (!contractResult.ok) {
+    return {
+      kind: "contract_miss",
+      token,
+      failedContractId: contractResult.failedContractId,
+      ...(contractResult.failureReason !== undefined ? { failureReason: contractResult.failureReason } : {}),
+      invocation,
+      ...repromptField,
+    };
   }
 
   return {

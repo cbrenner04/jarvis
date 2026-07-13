@@ -18,9 +18,9 @@ the worktree; recording the run `failed` strands it and forces a paid redraft.
 
 ## Acceptance criteria
 
-- [ ] A write-loop iteration ending `invalid_token` finishes `resumable: true` and leaves the run in a resumable status (not `failed`); the worktree artifacts are untouched.
-- [ ] Re-invoking that run resumes it with a fresh attempt over the existing worktree instead of returning the previously recorded terminal failure.
-- [ ] `jarvis run` operator error for an `invalid_token` run reports `retryable: true` / `nextAction: "resume"`.
+- [x] A write-loop iteration ending `invalid_token` finishes `resumable: true` and leaves the run in a resumable status (not `failed`); the worktree artifacts are untouched.
+- [x] Re-invoking that run resumes it with a fresh attempt over the existing worktree instead of returning the previously recorded terminal failure.
+- [x] `jarvis run` operator error for an `invalid_token` run reports `retryable: true` / `nextAction: "resume"`.
 - [ ] A reproduced `plan` / `plan-reviewed-light` run whose spec tree exists on disk ends `complete` (subspec 00) — and, if the contract is unsatisfied, `resumable: true` rather than `failed`. (Manual)
 
 ## Documentation updates

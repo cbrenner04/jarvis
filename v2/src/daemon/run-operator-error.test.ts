@@ -116,8 +116,8 @@ test.each([
 });
 
 test("composeRunOperatorError returns invalid_token from log and store-only last-attempt invalid_token", () => {
-  const storeRun = runWith("failed", [attempt("invalid_token")]);
-  const expected = err("invalid_token", "stop");
+  const storeRun = runWith("paused", [attempt("invalid_token")]);
+  const expected = err("invalid_token", "resume", true);
 
   expect(composeRunOperatorError(storeRun, loopFinished("invocation_failure"))).toEqual(expected);
   expect(composeRunOperatorError(storeRun)).toEqual(expected);

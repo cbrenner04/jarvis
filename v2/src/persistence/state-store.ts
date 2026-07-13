@@ -258,12 +258,9 @@ const PS_PROBE_TIMEOUT_MS = 2000;
 
 async function readProcessStartEpoch(pid: number): Promise<number | null> {
   try {
-    const stdout = await realAsyncSubprocessRunner.runAsync(
-      "ps",
-      ["-o", "lstart=", "-p", String(pid)],
-      process.cwd(),
-      { timeoutMs: PS_PROBE_TIMEOUT_MS },
-    );
+    const stdout = await realAsyncSubprocessRunner.runAsync("ps", ["-o", "lstart=", "-p", String(pid)], process.cwd(), {
+      timeoutMs: PS_PROBE_TIMEOUT_MS,
+    });
     const trimmed = stdout.trim();
     if (!trimmed) return null;
     const epoch = Date.parse(trimmed);

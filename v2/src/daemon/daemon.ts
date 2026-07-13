@@ -469,11 +469,28 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         },
       })
         .catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
           resolve({
             kind: "error",
             code: "invalid_params",
-            message: err instanceof Error ? err.message : String(err),
+            message,
           });
+          for (const runId of workflowRunIds) {
+            const run = store.loadRun(runId);
+            if (run && isTerminalRunStatus(run.status)) {
+              continue;
+            }
+            try {
+              store.setRunStatus(runId, "failed");
+            } catch {
+              // best-effort persist; append still runs
+            }
+            try {
+              logSink?.append(runId, { kind: "run_execution_failed", message });
+            } catch {
+              // append failure does not roll back the demote
+            }
+          }
         })
         .finally(() => {
           logSink?.close();

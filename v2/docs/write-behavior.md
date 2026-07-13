@@ -345,9 +345,11 @@ returns failure with `resumable: true`. The verdict file remains. Resume retries
 landing without re-running critic or actuator, preserving the reviewed output.
 
 Unlike generic review's reusable verdict-only actuator, intent review's composed
-actuator prompt carries the stage-boundary contract inline, rules out worktree-wide
-mutation, and passes the unchanged verdict byte-for-byte via a delimited data
-zone — enabling the enforcement mechanisms in this section.
+critic and actuator prompts are rendered at dispatch from the registered layered
+artifacts. They carry the stage-boundary contract inline, include the current
+filename-ordered staged Markdown and spec guidance, and pass the unchanged verdict
+byte-for-byte via a delimited data zone — enabling the enforcement mechanisms in
+this section.
 
 ## Plan light review cycle
 

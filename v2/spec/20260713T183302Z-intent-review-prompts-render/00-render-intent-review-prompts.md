@@ -32,9 +32,9 @@ the staged intents.
 
 ## Acceptance criteria
 
-- [ ] An `intent-reviewed` critic receives the registered, layered critic prompt containing every staged intent, spec guidance, and the verdict destination; it does not receive the prompt ID as its prompt.
-- [ ] A non-empty critic verdict is persisted unchanged and invokes the actuator with the registered, layered actuator prompt containing every current staged intent, spec guidance, and that unchanged verdict.
-- [ ] An empty critic verdict still completes the review without invoking the actuator.
-- [ ] Generic review plus existing patch and plan review prompt behavior stays green in `v2/src/execution/review-cycle.test.ts`, `v2/src/execution/review-debate-render.test.ts`, and `v2/src/execution/render-plan-review-prompts.test.ts`.
-- [ ] `v2/docs/workflow-runner.md`, `v2/docs/prompts.md`, `v2/docs/operator-runbook.md`, `v2/docs/write-behavior.md`, and `v2/docs/v1-behaviors.md` describe the implemented intent-review prompt path without the deferred/dead-artifact caveat.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] An `intent-reviewed` critic receives the registered, layered critic prompt containing every staged intent, spec guidance, and the verdict destination; it does not receive the prompt ID as its prompt.
+- [x] A non-empty critic verdict is persisted unchanged and invokes the actuator with the registered, layered actuator prompt containing every current staged intent, spec guidance, and that unchanged verdict.
+- [x] An empty critic verdict still completes the review without invoking the actuator.
+- [x] Generic review plus existing patch and plan review prompt behavior stays green in `v2/src/execution/review-cycle.test.ts`, `v2/src/execution/review-debate-render.test.ts`, and `v2/src/execution/render-plan-review-prompts.test.ts`.
+- [x] `v2/docs/workflow-runner.md`, `v2/docs/prompts.md`, `v2/docs/operator-runbook.md`, `v2/docs/write-behavior.md`, and `v2/docs/v1-behaviors.md` describe the implemented intent-review prompt path without the deferred/dead-artifact caveat.
+- [x] `bun run typecheck` and `bun run test:v2` pass.

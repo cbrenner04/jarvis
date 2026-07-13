@@ -46,13 +46,14 @@ Prioritization for seeds and ready intents (operator-maintained):
 | Preset | State |
 | --- | --- |
 | `intent`, `plan`, `implement` | Work. Re-run before trusting any of them. |
-| `intent-reviewed`, `plan-reviewed`, `plan-reviewed-light` | Split/draft works; **the review step cannot be trusted** — see below. |
+| `intent-reviewed` | Split plus rendered staged-intent review; re-run before relying on its result. |
+| `plan-reviewed`, `plan-reviewed-light` | Split/draft works; review behavior remains separately documented below. |
 
-**The review gate is untrustworthy and its mechanism is unresolved.** Established: the
-review step's prompt is the literal string `"intent.prompt.review"`
-(`intent-workflow-steps.ts:365`), and nothing resolves it through the prompt registry,
-so `prompts/intent/review*.md` are dead files and the critic reviews from a
-meaningless one-liner. Ready-intent: `intent-review-prompts-render`.
+Intent-reviewed dispatch now resolves the registered layered critic and actuator
+artifacts at runtime, reading every staged Markdown file and spec guidance. The
+critic's stdout remains the verdict channel and is persisted at the reserved verdict
+path; empty verdicts skip the actuator. Other review reliability issues remain
+separate concerns and are not implied fixed here.
 
 **Two diagnoses of this have already been wrong — do not cut a spec against a third
 without observing a run.** "The review step never invokes an agent" is refuted:

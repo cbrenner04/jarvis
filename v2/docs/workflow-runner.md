@@ -165,8 +165,11 @@ bindings. Preset resolution receives only the loaded write step. Loader failures
 return `{ ok: false, error }` with unchanged loader text before daemon contact.
 The review step targets `.jarvis-intent-review-verdict.md`
 (a sibling of `.jarvis-intent-stage/`) for the critic's verdict, and uses the
-`intent.prompt.review` prompt for the critic role. Runtime enforcement of prompt
-composition, verdict injection, and role isolation is deferred to subspec 02.
+registered, layered `intent.prompt.review` prompt for the critic role. At dispatch,
+runtime reads every staged Markdown file in filename order, adds explicit file
+boundaries and `v1/docs/spec-guidance.md`, and names the verdict destination.
+The actuator receives the likewise-rendered `intent.prompt.review-actuator` with
+the unchanged verdict in its delimited data slot. Empty verdicts skip actuation.
 
 **CLI usage (split + review):** `jarvis run workflow intent-reviewed (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>]` — defaults to one review pass.
 
@@ -470,6 +473,8 @@ configuration: the write step's `intentOutput`, a staging directory path, and
 an `invocationId` for landing after review completes. Patch context
 (`patchReviewContext`), plan context (`planReviewContext`), and
 `deferredIntentOutput` are mutually exclusive; dispatch branches over all three.
+For deferred intent output, dispatch renders both registered intent prompts from
+the current staging directory; generic review keeps its verdict-only behavior.
 For reviewed intents, `cwd`, verdict handling, boundary enforcement, staging,
 landing, and any enabled commit, push, and draft-PR publication all use the split
 step's resolved external workspace, never the operator checkout.

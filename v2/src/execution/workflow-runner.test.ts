@@ -18,6 +18,7 @@ import type {
   InvocationResult,
 } from "../../../shared/invocation/execute.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
+import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import {
   createFakeWithExternalWorktree,
@@ -38,6 +39,23 @@ import {
 } from "./workflow-runner.ts";
 
 const { roots } = trackedTempRoots();
+
+/** Test log sink that captures all events. */
+class TestLogSink implements LogSink {
+  events: Array<{ runId: string; event: LogEvent }> = [];
+
+  append(runId: string, event: LogEvent): void {
+    this.events.push({ runId, event });
+  }
+
+  close(): void {
+    // no-op
+  }
+
+  getEventsForRun(runId: string): LogEvent[] {
+    return this.events.filter((e) => e.runId === runId).map((e) => e.event);
+  }
+}
 const DEFAULT_AGENT_MODEL_CONFIG = {
   claude: {
     implement: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
@@ -2633,12 +2651,72 @@ describe("executeWorkflow review dispatch", () => {
     await withStateStore(async (store) => {
       const result = await executeWorkflow({ steps: [step], stateStore: store });
       expect(result).toMatchObject({ kind: "complete", iterationsConsumed: 1 });
+
+      const runRow = store.loadRun(result.runId);
+      expect(runRow).toMatchObject({
+        specRef: "none",
+        specPath: join(workspace, ".jarvis-intent-stage"),
+      });
     });
 
     expect(observedCwds).toEqual([workspace, workspace]);
     expect(readFileSync(join(operatorCheckout, "unrelated-dirty.txt"), "utf8")).toBe("keep\n");
     expect(readFileSync(join(durableDir, "example.md"), "utf8")).toContain("# Example");
     expect(existsSync(verdictPath)).toBe(false);
+  });
+
+  test("emits iteration_started and loop_finished around a durable reviewed-intent review", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-log-"));
+    const durableDir = join(workspace, "ready-intents");
+    const step: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "review",
+      project: "demo",
+      branch: "intent/example",
+      cwd: workspace,
+      prompt: "inspect",
+      verdictPath: join(workspace, ".jarvis-intent-review-verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: config,
+      deferredIntentOutput: {
+        config: { durableDir },
+        stagingDir: join(workspace, ".jarvis-intent-stage"),
+        invocationId: "invocation-1",
+        baseRef: "none",
+      },
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async ({ cwd }) => {
+          if (agentId === "codex") {
+            const stage = join(cwd, ".jarvis-intent-stage");
+            mkdirSync(stage, { recursive: true });
+            writeFileSync(
+              join(stage, "example.md"),
+              "---\nname: example\n---\n\n# Example\n\n## Prerequisites\n",
+              "utf8",
+            );
+            return { kind: "ok" as const, stdout: "applied", stderr: "" };
+          }
+          return { kind: "ok" as const, stdout: "apply", stderr: "" };
+        },
+      }),
+    };
+
+    const logSink = new TestLogSink();
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store, logSink });
+      expect(result).toMatchObject({ kind: "complete", iterationsConsumed: 1 });
+
+      const events = logSink.getEventsForRun(result.runId);
+      expect(events[0]).toMatchObject({ kind: "iteration_started" });
+      expect(events.at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "complete",
+        resumable: false,
+      });
+    });
   });
 
   test("restores a reviewed-intent boundary violation in the split workspace", async () => {
@@ -2681,6 +2759,51 @@ describe("executeWorkflow review dispatch", () => {
     expect(result).toMatchObject({ kind: "invocation_failure", iterationsConsumed: 1 });
     expect(existsSync(join(workspace, "rogue.txt"))).toBe(false);
     expect(readFileSync(join(operatorCheckout, "unrelated-dirty.txt"), "utf8")).toBe("keep\n");
+  });
+
+  test("emits iteration_started and loop_finished on a durable reviewed-intent invocation_failure", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-log-fail-"));
+    const step: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "review",
+      project: "demo",
+      branch: "intent/example",
+      cwd: workspace,
+      prompt: "inspect",
+      verdictPath: join(workspace, ".jarvis-intent-review-verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: config,
+      deferredIntentOutput: {
+        config: { durableDir: join(workspace, "ready-intents") },
+        stagingDir: join(workspace, ".jarvis-intent-stage"),
+        invocationId: "invocation-1",
+        baseRef: "none",
+      },
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async ({ cwd }) => {
+          if (agentId === "claude") writeFileSync(join(cwd, "rogue.txt"), "no\n", "utf8");
+          return { kind: "ok" as const, stdout: agentId === "claude" ? "apply" : "done", stderr: "" };
+        },
+      }),
+    };
+
+    const logSink = new TestLogSink();
+    let result!: Awaited<ReturnType<typeof executeWorkflow>>;
+    await withStateStore(async (store) => {
+      result = await executeWorkflow({ steps: [step], stateStore: store, logSink });
+    });
+
+    expect(result).toMatchObject({ kind: "invocation_failure", iterationsConsumed: 1 });
+    const events = logSink.getEventsForRun(result.runId);
+    expect(events[0]).toMatchObject({ kind: "iteration_started" });
+    expect(events.at(-1)).toMatchObject({
+      kind: "loop_finished",
+      loopOutcomeKind: "invocation_failure",
+      resumable: true,
+    });
   });
 
   test("retries reviewed-intent landing without rerunning review and persists its cause", async () => {
@@ -2745,6 +2868,63 @@ describe("executeWorkflow review dispatch", () => {
 
     expect(criticCalls).toBe(1);
     expect(actuatorCalls).toBe(1);
+  });
+
+  test("re-entering a reviewed-intent landing checkpoint emits its own start and terminal log events", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-log-resume-"));
+    const durableDir = join(workspace, "ready-intents");
+    const staged = "---\nname: example\n---\n\n# Example\n\n## Prerequisites\n";
+    mkdirSync(durableDir, { recursive: true });
+    writeFileSync(join(durableDir, "example.md"), "different\n", "utf8");
+    const step: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "review",
+      project: "demo",
+      branch: "intent/example",
+      cwd: workspace,
+      prompt: "inspect",
+      verdictPath: join(workspace, ".jarvis-intent-review-verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: config,
+      deferredIntentOutput: {
+        config: { durableDir },
+        stagingDir: join(workspace, ".jarvis-intent-stage"),
+        invocationId: "invocation-1",
+        baseRef: "none",
+      },
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async ({ cwd }) => {
+          if (agentId === "codex") {
+            const stage = join(cwd, ".jarvis-intent-stage");
+            mkdirSync(stage, { recursive: true });
+            writeFileSync(join(stage, "example.md"), staged, "utf8");
+          }
+          return { kind: "ok" as const, stdout: agentId === "claude" ? "apply" : "done", stderr: "" };
+        },
+      }),
+    };
+
+    const firstLogSink = new TestLogSink();
+    const resumeLogSink = new TestLogSink();
+    await withStateStore(async (store) => {
+      const failed = await executeWorkflow({ steps: [step], stateStore: store, logSink: firstLogSink });
+      expect(failed).toMatchObject({ kind: "invocation_failure", resumable: true });
+
+      rmSync(join(durableDir, "example.md"));
+      const retried = await executeWorkflow({ steps: [step], stateStore: store, logSink: resumeLogSink });
+      expect(retried).toMatchObject({ kind: "complete", iterationsConsumed: 0 });
+
+      const resumeEvents = resumeLogSink.getEventsForRun(retried.runId);
+      expect(resumeEvents[0]).toMatchObject({ kind: "iteration_started" });
+      expect(resumeEvents.at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "complete",
+        resumable: false,
+      });
+    });
   });
 
   test("aggregates missing critic and actuator bindings before durable state", async () => {
@@ -2890,6 +3070,33 @@ describe("executeWorkflow review dispatch", () => {
       expect(second.runId).not.toBe(first.runId);
       expect(runIds[0]).toBe(first.runId);
       expect(calls).toEqual(["claude:inspect", "claude:inspect"]);
+    });
+  });
+
+  test("a review step without a durable run row appends no log events", async () => {
+    const step: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "review-only",
+      project: "demo",
+      branch: "review-no-log",
+      cwd: "/fake",
+      prompt: "inspect",
+      verdictPath: join(mkdtempSync(join(tmpdir(), "workflow-review-")), "verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: config,
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async () => ({ kind: "ok" as const, stdout: agentId === "claude" ? "" : "done", stderr: "" }),
+      }),
+    };
+
+    const logSink = new TestLogSink();
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store, logSink });
+      expect(result.kind).toBe("complete");
+      expect(logSink.events).toHaveLength(0);
     });
   });
 

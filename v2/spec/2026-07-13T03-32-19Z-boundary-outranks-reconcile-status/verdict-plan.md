@@ -1,0 +1,21 @@
+## Verdict — refinement required (single subspec, no split)
+
+The core thesis holds: a committed boundary outranks a harness-guessed kill/reconcile, and the guard belongs inside the state-store transaction rather than as a pre-check at each daemon call site. Sizing is fine — one guarded write plus one reconcile-emission predicate is a single reviewable change. The following defects must be fixed before implementation.
+
+1. **AC #1 tests the wrong thing.** Every *progress* iteration commits a boundary (`runStatus: "in-progress"`) and appends `boundary_committed`, so "the durable log ends in a `boundary_committed` event" describes most runs a kill should still work on. An implementer guarding on the event's presence or recency makes `killed` unreachable. Restate the invariant over the **committed boundary's `runStatus` being boundary-terminal**, never over the event. The intent carries the same wording defect; fix it there too.
+
+2. **`paused` must be explicitly non-terminal.** The stated reason for the `{completed, blocked, failed}` list — "the statuses `terminalMapping` can commit" — is false: `terminalMapping` also commits `paused` (`invalid_token`). The list is right, the justification isn't. Add a decision that a `paused` boundary is **not** boundary-terminal and remains freely overwritable by kill and reconcile (reconcile deliberately flips `paused` rows to `killed`), plus an acceptance criterion pinning that killing a paused run still works. Without it, a later implementer "corrects" the list to match `terminalMapping` and silently breaks paused handling.
+
+3. **Decision 4 ("emit only for rows this UPDATE flipped") regresses crash recovery.** Reconcile commits the status update first, appends the event second, clears the pending flag third. A crash in that window leaves a row `killed` + `pending = 1`; on the next restart the `UPDATE` no longer matches it, so under "rows I flipped" its reconcile event is lost forever — which is exactly what the pending flag exists to prevent. The emission predicate must key off the row's **current status** (pending *and* status is `killed`), not off what the transaction touched. State this as the outcome; the row's status is the discriminator.
+
+4. **The existing duplicate-event guard must be named and preserved.** Reconcile already skips a duplicate append when the run's tail already carries a reconcile event. The Problem section overstates the bug by ignoring it: the real defect is narrower — rows that have since reached a boundary-terminal status, plus the crash-before-append case. Correct the Problem statement and say the guard stays.
+
+5. **The new predicate needs its own name, distinct from the two existing "terminal" sets.** `isTerminalRunStatus` includes `killed` and `paused`; `TERMINAL_LIST_STATUSES` includes `killed` and excludes `paused`. Reusing either in the guard makes kill a no-op on already-killed or paused runs. Introduce a separately named boundary-terminal predicate and state explicitly that neither existing set may be reused for it.
+
+6. **Scope the kill-overwrite window and pin the non-active answer.** The kill handler only writes the row when the run is live in `activeRuns`; otherwise it returns `run_not_active` with no write. Say so, and pin that `run_not_active` stays unchanged for non-active runs — an operator-visible API change with no bug behind it is out of scope. Likewise, the awaiting-human `abort` path already gates on `status === "awaiting-human"` under admission control, so AC #2 is **defense-in-depth**, not a live-bug fix; label it as such rather than implying it repairs an observed contradiction.
+
+7. **Backfill is a non-goal.** Rows already corrupted to `killed` by this bug are not repaired. Say so explicitly rather than leaving it unaddressed.
+
+8. **Fix file paths.** The `write-loop.ts` citations should be `v2/src/execution/write-loop.ts`.
+
+Rationale: items 1–3 each independently produce a wrong implementation — an unreachable `killed` status, a broken paused-run kill, or permanent loss of a reconcile event after a mid-reconcile crash. Items 4–8 are precision defects that the spec's own decision-ledger standard requires: each decision must name the wrong alternative it rules out, and several here currently rule out the wrong one or none at all.

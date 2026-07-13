@@ -28,6 +28,13 @@ export function isRunStatus(value: unknown): value is RunStatus {
   return typeof value === "string" && runStatusSet.has(value);
 }
 
+const BOUNDARY_TERMINAL_STATUSES: ReadonlySet<RunStatus> = new Set(["completed", "blocked", "failed"]);
+
+/** Statuses a committed completion boundary can leave permanently; `paused` and `killed` are excluded. */
+export function isBoundaryTerminalRunStatus(status: RunStatus): boolean {
+  return BOUNDARY_TERMINAL_STATUSES.has(status);
+}
+
 /** A human step's configured repeat-and-revise target. */
 export type OnReviseConfig = {
   repeatStepId: string;
@@ -162,6 +169,9 @@ export interface StateStore {
 
   /** Persist a run status update outside a completion boundary. */
   setRunStatus(runId: string, status: RunStatus): void;
+
+  /** Set `killed` unless the row is already boundary-terminal (`completed`, `blocked`, `failed`). */
+  commitGuardedKill(runId: string): void;
 
   /**
    * Mark runs whose recorded owner is gone (no owner, or a dead non-current
@@ -491,6 +501,15 @@ class StateStoreImpl implements StateStore {
 
   setRunStatus(runId: string, status: RunStatus): void {
     this.db.prepare("UPDATE runs SET status = ? WHERE id = ?").run(status, runId);
+  }
+
+  commitGuardedKill(runId: string): void {
+    this.db.transaction(() => {
+      const row = this.db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: RunStatus } | null;
+      if (!row) throw new Error(`Run ${runId} not found`);
+      if (isBoundaryTerminalRunStatus(row.status)) return;
+      this.db.prepare("UPDATE runs SET status = 'killed' WHERE id = ?").run(runId);
+    })();
   }
 
   async beginRunReconciliation(): Promise<string[]> {

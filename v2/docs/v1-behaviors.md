@@ -9,7 +9,7 @@ This document inventories user-observable v1 behavior so v2 can explicitly prese
 - Source files under `v1/src/` are treated as authority for behavior; docs are used to cross-check operator workflow expectations and terminology. Sources: `v1/src/cli.ts`, `v1/docs/run-loop.md`, `v1/docs/spec-guidance.md`
 - Behavior entries in this catalog stay as short bullets ending with `Sources:` citations; `[uncertain]` is reserved for cases where source evidence cannot support a stronger claim. Sources: `v1/spec/completed/2026-05-22T04-09-01Z-v1-behavior-catalog/00-skeleton-commands-and-project-resolution.md`
 
-- v2 daemon restart reconciliation kills orphaned non-terminal runs before IPC, preserving their worktrees and branches. Sources: `v2/src/daemon/daemon.ts`
+- v2 daemon restart reconciliation kills orphaned non-terminal runs before IPC, preserving their worktrees and branches; kill and reconcile never overwrite boundary-terminal status (`completed`, `blocked`, `failed`), and `run_reconciled` events emit only for pending rows currently `killed`. Sources: `v2/src/daemon/daemon.ts`, `v2/src/persistence/state-store.ts`
 
 ## Commands and modes
 

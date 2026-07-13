@@ -99,4 +99,10 @@ inflated. Seed `tests-write-telemetry-to-the-operator-home`; fixed by #1496; the
 affected. It simply has no v2 rows at all — v2 writes only `telemetry.jsonl`. That, not the
 pollution, is why v2 cost is dark: seed `shared-invocation-loses-cost-and-claude-output`.
 
-Operator cost: pending `/cost`.
+Operator cost: **$27.09** (opus $27.08 + haiku $0.0017); api 0:33:54, wall 4:22:33.
+Observed total: **$33.93**.
+
+`efficiency.csv`'s `tokens_per_completed_spec` is **blank** for this row on purpose:
+`session_active_tokens` covers only the v1 run, because v2 records no tokens at all. Dividing
+partial tokens across both completed specs would publish a trend point that is simply wrong.
+Blank until `shared-invocation-loses-cost-and-claude-output` ships.

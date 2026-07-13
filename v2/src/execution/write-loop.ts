@@ -194,6 +194,18 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       const { result } = stepResult;
 
+      if (result.reprompt !== undefined) {
+        const responseText = result.reprompt.responseText;
+        args.logSink?.append(runId, {
+          kind: "token_reprompt",
+          attemptId,
+          responseText:
+            responseText.length <= INVALID_TOKEN_LOG_MAX_CHARS
+              ? responseText
+              : `${responseText.slice(0, INVALID_TOKEN_LOG_MAX_CHARS)}…`,
+        });
+      }
+
       if (result.kind === "progress") {
         store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
         args.logSink?.append(runId, {

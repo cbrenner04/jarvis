@@ -30,7 +30,19 @@ function logRecord(
               iterationsConsumed: 1,
               resumable: false,
             }
-          : { kind: "run_execution_failed" as const };
+          : eventKind === "token_reprompt"
+            ? {
+                kind: "token_reprompt" as const,
+                attemptId: `attempt-${seq}`,
+                responseText: "prose without a token",
+              }
+            : eventKind === "invalid_token_detail"
+              ? {
+                  kind: "invalid_token_detail" as const,
+                  attemptId: `attempt-${seq}`,
+                  tokenText: "prose without a token",
+                }
+              : { kind: "run_execution_failed" as const };
 
   return {
     runId: "run-123",
@@ -236,6 +248,14 @@ function assertLineShape(line: string, record: PersistedRecord): void {
     expect(line).toContain(`iterationsConsumed=${event.iterationsConsumed}`);
     expect(line).toContain(`resumable=${event.resumable}`);
   }
+  if (event.kind === "token_reprompt") {
+    expect(line).toContain(`attemptId=${event.attemptId}`);
+    expect(line).toContain(`responseText=${JSON.stringify(event.responseText)}`);
+  }
+  if (event.kind === "invalid_token_detail") {
+    expect(line).toContain(`attemptId=${event.attemptId}`);
+    expect(line).toContain(`tokenText=${JSON.stringify(event.tokenText)}`);
+  }
 }
 
 describe("formatLogFollowLine", () => {
@@ -245,10 +265,12 @@ describe("formatLogFollowLine", () => {
       logRecord(2, "boundary_committed"),
       logRecord(3, "loop_finished"),
       logRecord(4, "run_execution_failed"),
+      logRecord(5, "token_reprompt"),
+      logRecord(6, "invalid_token_detail"),
       {
         runId: "run-123",
-        seq: 5,
-        ts: "2026-06-28T03:27:05.000Z",
+        seq: 7,
+        ts: "2026-06-28T03:27:07.000Z",
         event: { kind: "run_reconciled", runStatus: "killed", reason: "daemon_restart" },
       },
     ];

@@ -239,6 +239,7 @@ test("start with steps appends observability log events when logsPath is configu
   const records = openLogReader(logsPath).tail(runId as string);
   expect(records.map((record) => record.event.kind)).toEqual([
     "iteration_started",
+    "token_reprompt",
     "boundary_committed",
     "invalid_token_detail",
     "loop_finished",

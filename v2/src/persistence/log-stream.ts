@@ -40,15 +40,23 @@ export type InvalidTokenDetailEvent = {
   tokenText: string;
 };
 
+/** Emitted when a token-less step response triggers the runner's one token-only re-prompt. */
+export type TokenRepromptEvent = {
+  kind: "token_reprompt";
+  attemptId: string;
+  responseText: string;
+};
+
 export type LogEvent =
   | IterationStartedEvent
   | BoundaryCommittedEvent
   | LoopFinishedEvent
   | RunExecutionFailedEvent
   | RunReconciledEvent
-  | InvalidTokenDetailEvent;
+  | InvalidTokenDetailEvent
+  | TokenRepromptEvent;
 
-/** Max chars persisted for {@link InvalidTokenDetailEvent.tokenText}. */
+/** Max chars persisted for {@link InvalidTokenDetailEvent.tokenText} and {@link TokenRepromptEvent.responseText}. */
 export const INVALID_TOKEN_LOG_MAX_CHARS = 500;
 
 export type PersistedRecord = {

@@ -23,6 +23,7 @@ patch/rules.md
 patch/shrink.md
 write/execute.md
 write/principles.md
+write/token-reprompt.md
 prompt/instructions.md
 prompt/rules.md
 intent/split.md

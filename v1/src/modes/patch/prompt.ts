@@ -4,6 +4,7 @@ import { dirname, join, relative } from "node:path";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { renderTemplateWithDeclarations } from "../../../../shared/prompts/render.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "../../../../shared/prompts/step-rules.ts";
 
 export type BuildPromptExtras = {
   repoGuidance?: string;
@@ -80,6 +81,7 @@ export function buildPrompt(specPath: string, siblings?: string[], extras?: Buil
       { name: "ACTIVE_SUBSPEC_BODY", type: "string", required: true },
       { name: "PATCH_RULES", type: "string", required: true },
       { name: "TIMEOUT_CHECKPOINT_CONTEXT", type: "string", required: true },
+      { name: "STEP_RULES", type: "string", required: true },
     ],
     {
       SPEC_PATH: specPath,
@@ -89,6 +91,7 @@ export function buildPrompt(specPath: string, siblings?: string[], extras?: Buil
       ACTIVE_SUBSPEC_BODY: activeSubspecBody,
       PATCH_RULES: registry.getById("patch.rules").body.trim(),
       TIMEOUT_CHECKPOINT_CONTEXT: timeoutCheckpointContext,
+      STEP_RULES: DEFAULT_WRITE_STEP_RULES,
     },
   );
 
@@ -322,6 +325,7 @@ export function buildShrinkPrompt(opts: ShrinkPromptOpts): string {
       { name: "ALLOWLIST", type: "string", required: true },
       { name: "BRANCH_DIFF", type: "string", required: true },
       { name: "RUN_SCOPED_DIFF", type: "string", required: true },
+      { name: "STEP_RULES", type: "string", required: true },
     ],
     {
       SPEC_PATH: opts.specPath,
@@ -329,6 +333,7 @@ export function buildShrinkPrompt(opts: ShrinkPromptOpts): string {
       ALLOWLIST: allowlistBlock || "(empty)",
       BRANCH_DIFF: branchSummary,
       RUN_SCOPED_DIFF: runScopedDiff,
+      STEP_RULES: DEFAULT_WRITE_STEP_RULES,
     },
   ).trim();
 }

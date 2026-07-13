@@ -8,6 +8,7 @@ import type { BuildImplementWorkflowStepsInput } from "./execution/implement-wor
 import type { AnyWorkflowStep } from "./execution/workflow-runner.ts";
 import type { WriteLoopInput, WriteLoopResult } from "./execution/write-loop.ts";
 import { applyOperatorSessionId } from "./execution/write-loop.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "./execution/write-loop-input.ts";
 import type { PersistedRecord } from "./persistence/log-stream.ts";
 import { withFixedUuid } from "./testing/fixed-uuid.ts";
 import { makeIpcClient } from "./testing/ipc-client-fake.ts";
@@ -105,8 +106,7 @@ beforeAll(() => {
       stepId: "implement",
       role: "implement",
       promptId: "patch.prompt.body",
-      stepRules:
-        "The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.",
+      stepRules: DEFAULT_WRITE_STEP_RULES,
       agents: ["claude"],
       agentModelConfig: {},
       worktree: {
@@ -823,8 +823,7 @@ describe("v2 cli", () => {
             baseRef: "HEAD",
           },
           specPath: "spec.md",
-          stepRules:
-            "The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.",
+          stepRules: DEFAULT_WRITE_STEP_RULES,
           expectedArtifactPath: "proof.txt",
           maxIterations: 4,
           bindings: [],

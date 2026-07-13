@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { executeWrite } from "./write.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 const { roots } = trackedTempRoots();
 
@@ -195,7 +196,7 @@ describe("write behavior", () => {
         jarvisRoot,
       },
       specPath,
-      stepRules: "Return exactly one terminal token.",
+      stepRules: DEFAULT_WRITE_STEP_RULES,
       expectedArtifactPath: subspecPath,
       promptId: "patch.prompt.body",
       bindings: [
@@ -226,6 +227,47 @@ describe("write behavior", () => {
     expect(capturedPrompt).toContain(resolvedSubspecPath);
     expect(capturedPrompt).toContain(subspecBody);
     expect(capturedPrompt).toContain(repoGuidance);
+    expect(capturedPrompt).toContain(DEFAULT_WRITE_STEP_RULES);
+    expect(capturedPrompt.trimEnd().endsWith(DEFAULT_WRITE_STEP_RULES)).toBe(true);
+  });
+
+  test("patch.prompt.shrink renders DEFAULT_WRITE_STEP_RULES as final block", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    let capturedPrompt = "";
+
+    await executeWrite({
+      worktree: {
+        projectRoot: "/fake",
+        projectName: "demo",
+        branchName: "shrink-run",
+        baseRef: "HEAD",
+        jarvisRoot,
+      },
+      specPath: "spec.md",
+      stepRules: DEFAULT_WRITE_STEP_RULES,
+      expectedArtifactPath: "proof.txt",
+      promptId: "patch.prompt.shrink",
+      promptPlaceholders: {
+        SPEC_TREE: "# Spec\n",
+        ALLOWLIST: "- proof.txt",
+        BRANCH_DIFF: "(no changes)",
+        RUN_SCOPED_DIFF: "(no changes)",
+      },
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ prompt }) => {
+            capturedPrompt = prompt;
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+    });
+
+    expect(capturedPrompt).toContain("Post-completion Shrink");
+    expect(capturedPrompt).toContain(DEFAULT_WRITE_STEP_RULES);
+    expect(capturedPrompt.trimEnd().endsWith(DEFAULT_WRITE_STEP_RULES)).toBe(true);
   });
 
   test("unresolved required placeholders fail as model_config without invoking binding", async () => {
@@ -260,8 +302,7 @@ describe("write behavior", () => {
       jarvisRoot,
       artifactPath: ".jarvis-intent-stage",
       promptId: "intent.prompt.split",
-      stepRules:
-        "The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.",
+      stepRules: DEFAULT_WRITE_STEP_RULES,
       promptPlaceholders: {
         WORKDIR: "/tmp/worktree",
         SEED_LABEL: "inline",
@@ -286,9 +327,7 @@ describe("write behavior", () => {
     });
 
     expect(capturedPrompt).toContain("Write the authored intents as markdown files under `.jarvis-intent-stage`");
-    expect(capturedPrompt).toContain(
-      "The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.",
-    );
+    expect(capturedPrompt).toContain(DEFAULT_WRITE_STEP_RULES);
     expect(result.result.kind).toBe("complete");
     expect(existsSync(join(result.worktreePath, ".jarvis-intent-stage", "plan-intent-flag.md"))).toBe(true);
   });
@@ -298,14 +337,12 @@ describe("write behavior", () => {
     roots.push(join(jarvisRoot, ".."));
     const specPath = "v2/spec/2099-01-01T00-00-00Z-demo";
     const intentSeed = "---\nname: demo\n---\n\n## Prerequisites\n\nnone\n";
-    const stepRules =
-      "The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.";
     let capturedPrompt = "";
 
     const result = await executeWrite({
       worktree: { projectRoot: "/fake", projectName: "demo", branchName: "plan-run", baseRef: "HEAD", jarvisRoot },
       specPath,
-      stepRules,
+      stepRules: DEFAULT_WRITE_STEP_RULES,
       expectedArtifactPath: ".jarvis-plan-stage",
       promptId: "plan.prompt.draft",
       intentSeed,
@@ -334,7 +371,7 @@ describe("write behavior", () => {
     expect(capturedPrompt).toContain(`under \`${expectedSpecDir}\`.`);
     expect(capturedPrompt).toContain("Do not emit spec content to stdout");
     expect(capturedPrompt).toContain("## Step completion");
-    expect(capturedPrompt).toContain(stepRules);
+    expect(capturedPrompt).toContain(DEFAULT_WRITE_STEP_RULES);
 
     const intentPath = join(result.worktreePath, specPath, "intent.md");
     expect(existsSync(intentPath)).toBe(true);

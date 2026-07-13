@@ -150,10 +150,14 @@ canonical principle text and rationale.
 
 Write-step prompts carry `stepRules` from `DEFAULT_WRITE_STEP_RULES`: the
 agent's final response line must be exactly one of `done`, `no-work`, `blocked`,
-or `progress`, with nothing after it. Plan-draft and intent-split builders
-append the same text under `## Step completion` (see
-[`prompts.md`](./prompts.md)); `write.execute` interpolates it via
-`<STEP_RULES>`.
+or `progress`, with nothing after it. `done` and `no-work` end the step; use
+`progress` when work remains and the agent is not stuck; use `blocked` when
+stuck and record the blocker where the mode's rules require (mode-neutral — no
+spec path in the shared text). Patch mode binds appending `## Blocker` to
+`blocked` in `prompts/patch/rules.md` §Stop. Plan-draft and intent-split
+builders append the same text under `## Step completion` (see
+[`prompts.md`](./prompts.md)); `write.execute`, `patch.prompt.body`, and
+`patch.prompt.shrink` interpolate it via `<STEP_RULES>` as the final block.
 
 ## Write-step prompt placeholders
 
@@ -165,7 +169,7 @@ names fail the step as `model_config` before any binding runs.
 | Placeholder | Source |
 | --- | --- |
 | `SPEC_PATH` | Worktree-resolved `specPath` |
-| `STEP_RULES` | Step `stepRules` |
+| `STEP_RULES` | Step `stepRules` (`patch.prompt.body`, `patch.prompt.shrink`, `write.execute`) |
 | `PRINCIPLES` | `write.principles` registry body |
 | `REPO_GUIDANCE` | `AGENTS.md` and `CLAUDE.md` at the worktree root (same as v1 `readRepoGuidance`) |
 | `ACTIVE_SUBSPEC_PATH` | Worktree-resolved `expectedArtifactPath`, with trailing newline when non-empty |

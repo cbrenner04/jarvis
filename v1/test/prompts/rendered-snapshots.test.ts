@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "../../../shared/prompts/step-rules.ts";
 import { buildPrDescriptionPrompt as buildPatchPrDescriptionPrompt } from "../../src/modes/patch/pr-description-prompt.ts";
 import { buildReviewPrompt as buildPatchReviewPrompt, buildPrompt } from "../../src/modes/patch/prompt.ts";
 import { buildDraftPrompt } from "../../src/modes/plan/draft.ts";
@@ -62,7 +63,7 @@ describe("rendered prompt snapshots", () => {
   const registry = loadPromptRegistry();
 
   test("shared snapshots are keyed by id and revision", () => {
-    expect(registry.getById("patch.prompt.body").metadata.revision).toBe("8");
+    expect(registry.getById("patch.prompt.body").metadata.revision).toBe("9");
     expect(registry.getById("plan.prompt.draft").metadata.revision).toBe("9");
     expect(registry.getById("plan.prompt.review").metadata.revision).toBe("6");
     expect(registry.getById("plan.prompt.review.adversary").metadata.revision).toBe("3");
@@ -134,6 +135,8 @@ describe("rendered prompt snapshots", () => {
     });
 
     expect(patch).toBe(readFixture(patchKey));
+    expect(patch).toContain(DEFAULT_WRITE_STEP_RULES);
+    expect(patch.endsWith(DEFAULT_WRITE_STEP_RULES)).toBe(true);
     expect(draft).toBe(readFixture(draftKey));
     expect(reviewPass1).toBe(readFixture(reviewStepOneKey));
     expect(reviewPass2).toBe(readFixture(reviewStepTwoKey));

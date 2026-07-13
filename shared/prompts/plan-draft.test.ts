@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { DEFAULT_WRITE_STEP_RULES } from "../../v2/src/execution/write-loop-input.ts";
 import { buildPlanDraftPrompt, PLAN_DRAFT_PROMPT_ID } from "./plan-draft.ts";
 import { PromptRenderingError } from "./render.ts";
 
@@ -21,8 +22,7 @@ describe("buildPlanDraftPrompt", () => {
       intent: "do thing",
       specGuidance: "guidance",
       specDir: "/tmp/worktree/spec/2026-plan",
-      stepRules:
-        "The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.",
+      stepRules: DEFAULT_WRITE_STEP_RULES,
     });
 
     expect(prompt).toContain("## File output");
@@ -30,9 +30,7 @@ describe("buildPlanDraftPrompt", () => {
     expect(prompt).toContain("/tmp/worktree/spec/2026-plan");
     expect(prompt).toContain("Do not emit spec content to stdout");
     expect(prompt).toContain("## Step completion");
-    expect(prompt).toContain(
-      "The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.",
-    );
+    expect(prompt).toContain(DEFAULT_WRITE_STEP_RULES);
   });
 
   test("throws on delimiter-violating intent or specGuidance", () => {

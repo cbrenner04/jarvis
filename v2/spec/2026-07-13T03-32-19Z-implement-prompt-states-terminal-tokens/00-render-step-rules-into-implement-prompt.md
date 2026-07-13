@@ -60,20 +60,20 @@ Only `write.execute` declares `STEP_RULES` today; the resolver switch in
 
 ## Acceptance criteria
 
-- [ ] The rendered `patch.prompt.body` and `patch.prompt.shrink` prompts contain
+- [x] The rendered `patch.prompt.body` and `patch.prompt.shrink` prompts contain
       the step rules text as their final block, and tests in
       `v2/src/execution/write.test.ts` pin that by referencing
       `DEFAULT_WRITE_STEP_RULES` (not a copied string literal).
-- [ ] The step rules text names exactly `done`, `no-work`, `blocked`, `progress`
+- [x] The step rules text names exactly `done`, `no-work`, `blocked`, `progress`
       as the required final line and defines each: `done` / `no-work` end the step,
       `progress` when work remains and the agent is not stuck, `blocked` when stuck.
-- [ ] The step rules text is mode-neutral — its blocker clause names no spec file —
+- [x] The step rules text is mode-neutral — its blocker clause names no spec file —
       and `prompts/patch/rules.md` §Stop states that appending `## Blocker` means
       the final line is `blocked`.
-- [ ] `prompts/patch/instructions.md` and `prompts/patch/shrink.md` each declare
+- [x] `prompts/patch/instructions.md` and `prompts/patch/shrink.md` each declare
       `STEP_RULES:string!` and carry `<STEP_RULES>` as the last block, with
       `revision` bumped; `prompts/patch/rules.md` `revision` bumped.
-- [ ] `bun run typecheck` and `bun run test` pass (`prompts/**` is root-level and
+- [x] `bun run typecheck` and `bun run test` pass (`prompts/**` is root-level and
       consumed through the `shared/prompts` registry, so the full suite is the gate).
 
 ## Documentation updates

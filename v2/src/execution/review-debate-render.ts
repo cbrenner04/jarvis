@@ -75,6 +75,7 @@ function buildPatchBodyPrompt(specPath: string): string {
       { name: "ACTIVE_SUBSPEC_BODY", type: "string", required: true },
       { name: "PATCH_RULES", type: "string", required: true },
       { name: "TIMEOUT_CHECKPOINT_CONTEXT", type: "string", required: true },
+      { name: "STEP_RULES", type: "string", required: true },
     ],
     {
       SPEC_PATH: specPath,
@@ -84,6 +85,7 @@ function buildPatchBodyPrompt(specPath: string): string {
       ACTIVE_SUBSPEC_BODY: "",
       PATCH_RULES: registry.getById("patch.rules").body.trim(),
       TIMEOUT_CHECKPOINT_CONTEXT: "",
+      STEP_RULES: "",
     },
   );
 

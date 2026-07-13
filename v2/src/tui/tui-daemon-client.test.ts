@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { connectIpcClient } from "../ipc/client.ts";
 import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
@@ -21,8 +22,7 @@ const START_INPUT: WriteLoopInput = {
     baseRef: "HEAD",
   },
   specPath: "spec.md",
-  stepRules:
-    "The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.",
+  stepRules: DEFAULT_WRITE_STEP_RULES,
   expectedArtifactPath: "proof.txt",
   bindings: simulatedBindings(["done"]),
 };

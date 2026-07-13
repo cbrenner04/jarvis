@@ -32,6 +32,12 @@ function setEnv(key: string, value: string): void {
 }
 
 const binDir = mkdtempSync(join(tmpdir(), "jarvis-test-fake-agents-"));
+
+// Isolate the jarvis home. Every jarvis-home path resolves through `jarvisHome()`
+// (v2/src/paths.ts), which honors JARVIS_HOME. Without this, tests append fixture rows to the
+// operator's real ~/.jarvis/telemetry.jsonl -- 93% of that file was test data before this
+// existed. Set before any module reads it at import time.
+process.env.JARVIS_HOME = mkdtempSync(join(tmpdir(), "jarvis-test-home-"));
 for (const name of ["claude", "codex", "cursor", "opencode"]) {
   const bin = join(binDir, name);
   writeFileSync(bin, "#!/usr/bin/env bash\nexit 0\n");

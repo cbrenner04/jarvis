@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { jarvisHome } from "../paths.ts";
 import type { Attempt, OutcomeKind, Run, RunStatus } from "../persistence/state-store.ts";
 
 export type WorkBoundaryRecordedRecord = {
@@ -15,7 +15,10 @@ export type WorkBoundaryRecordedRecord = {
   files_changed: number;
 };
 
-export const DEFAULT_TELEMETRY_SINK_PATH = join(homedir(), ".jarvis", "telemetry.jsonl");
+/** Resolved per-call so the test preload's `JARVIS_HOME` is honored. */
+export function defaultTelemetrySinkPath(): string {
+  return join(jarvisHome(), "telemetry.jsonl");
+}
 
 export type BoundaryTelemetryContext = {
   sinkPath?: string;
@@ -44,7 +47,7 @@ export function appendWorkBoundaryRecorded(
 }
 
 export function resolveTelemetrySinkPath(sinkPath?: string): string {
-  return sinkPath ?? DEFAULT_TELEMETRY_SINK_PATH;
+  return sinkPath ?? defaultTelemetrySinkPath();
 }
 
 /** Join keys from the last committed attempt on a stored run. */

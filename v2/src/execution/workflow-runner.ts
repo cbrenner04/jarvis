@@ -60,7 +60,7 @@ import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import {
   boundaryStampFromStoredRun,
-  DEFAULT_TELEMETRY_SINK_PATH,
+  defaultTelemetrySinkPath,
   emitWorkBoundaryRecorded,
 } from "./work-boundary-telemetry.ts";
 import {
@@ -1144,7 +1144,7 @@ function prepareWorkflowStep(
       ...(telemetry !== undefined
         ? {
             telemetry: {
-              sinkPath: telemetry.sinkPath ?? DEFAULT_TELEMETRY_SINK_PATH,
+              sinkPath: telemetry.sinkPath ?? defaultTelemetrySinkPath(),
               operatorSessionId: telemetry.operatorSessionId,
               workflow: telemetry.workflow,
               role,
@@ -1330,7 +1330,7 @@ async function runReviewDebateStep(
     telemetry !== undefined
       ? {
           telemetry: {
-            sink: buildJsonlSink(telemetry.sinkPath ?? DEFAULT_TELEMETRY_SINK_PATH),
+            sink: buildJsonlSink(telemetry.sinkPath ?? defaultTelemetrySinkPath()),
             operatorSessionId: telemetry.operatorSessionId,
             runId,
             attemptId,
@@ -1530,7 +1530,7 @@ function buildReviewStepTelemetryFields(
   }
   return {
     telemetry: {
-      sink: buildJsonlSink(telemetry.sinkPath ?? DEFAULT_TELEMETRY_SINK_PATH),
+      sink: buildJsonlSink(telemetry.sinkPath ?? defaultTelemetrySinkPath()),
       operatorSessionId: telemetry.operatorSessionId,
       runId: ids.runId,
       attemptId: ids.attemptId,

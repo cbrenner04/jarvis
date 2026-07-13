@@ -1,10 +1,10 @@
 import { readFileSync, statSync } from "node:fs";
-import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { getBaseBranch } from "../../../shared/git.ts";
 import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import type { MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
+import { jarvisHome } from "../paths.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import {
   type LoadedWorkflowStep,
@@ -243,7 +243,7 @@ async function buildPlanWorkflowSourceStep(
   const targetDir = targetDirResult;
 
   const publish = config.git !== false && (config.plan?.commit ?? true);
-  const jarvisRoot = join(homedir(), ".jarvis");
+  const jarvisRoot = jarvisHome();
   const branch = `plan/${name}`;
   const worktree = join(jarvisRoot, "worktrees", project.key, branch);
   const specDir = join(targetDir, `${specTimestamp}-${name}`);

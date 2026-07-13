@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { openSessionLog, type SessionLog } from "../../../shared/invocation/session-log.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { INVALID_TOKEN_LOG_MAX_CHARS, type LogSink } from "../persistence/log-stream.ts";
 import {
@@ -83,6 +84,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   readyFinalizer?: ReadyFinalizer;
   publishCompletion?: boolean;
   creationTitle?: string;
+  sessionsDir?: string;
+  clock?: () => Date;
 };
 
 /**
@@ -176,14 +179,31 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       args.logSink?.append(runId, { kind: "iteration_started", attemptId });
 
-      const settled = await awaitIteration(args, runId, attemptId);
-      if (settled.kind === "aborted") return finishLoop(args, runId, "progress", iterationsConsumed + 1, true);
-      if (settled.kind === "timed_out")
+      const clock = args.clock ?? (() => new Date());
+      const sessionLog = openSessionLog(runId, formatSessionLogTimestamp(clock()), {
+        ...(args.sessionsDir !== undefined ? { sessionsDir: args.sessionsDir } : {}),
+        clock,
+      });
+      sessionLog.append("harness", `run=${runId} spec=${args.specPath} iteration=${iterationsConsumed + 1}`);
+
+      const settled = await awaitIteration(args, runId, attemptId, sessionLog);
+      if (settled.kind === "aborted") {
+        closeSessionLog(sessionLog, "abort");
+        return finishLoop(args, runId, "progress", iterationsConsumed + 1, true);
+      }
+      if (settled.kind === "timed_out") {
+        closeSessionLog(sessionLog, "timeout");
         return finishIterationTimeout(args, store, runId, attemptId, iterationsConsumed + 1);
+      }
       if (settled.kind === "threw") {
-        if (args.signal?.aborted) return finishLoop(args, runId, "progress", iterationsConsumed, true);
+        if (args.signal?.aborted) {
+          closeSessionLog(sessionLog, "abort");
+          return finishLoop(args, runId, "progress", iterationsConsumed, true);
+        }
+        closeSessionLog(sessionLog, "error");
         return finishExecuteWriteThrow(args, store, runId, attemptId, iterationsConsumed + 1, settled.error);
       }
+      closeSessionLog(sessionLog, "completed");
       const stepResult = settled.result;
       iterationsConsumed += 1;
 
@@ -368,12 +388,19 @@ type IterationSettlement =
   | { kind: "aborted" };
 
 /** Starts after `iteration_started`, so pre-spawn stalls are fenced too. */
-function awaitIteration(args: WriteLoopInput, runId: string, attemptId: string): Promise<IterationSettlement> {
+function awaitIteration(
+  args: WriteLoopInput,
+  runId: string,
+  attemptId: string,
+  sessionLog: SessionLog,
+): Promise<IterationSettlement> {
   const executionController = new AbortController();
   const abortExecution = () => executionController.abort();
   if (args.signal?.aborted) abortExecution();
   args.signal?.addEventListener("abort", abortExecution, { once: true });
-  const execution = executeWrite(buildWriteExecuteInput(args, runId, attemptId, executionController.signal)).then(
+  const execution = executeWrite(
+    buildWriteExecuteInput(args, runId, attemptId, executionController.signal, sessionLog),
+  ).then(
     (result): IterationSettlement => ({ kind: "settled", result }),
     (error): IterationSettlement => ({ kind: "threw", error }),
   );
@@ -533,6 +560,7 @@ function buildWriteExecuteInput(
   runId: string,
   attemptId: string,
   signal: AbortSignal,
+  sessionLog: SessionLog,
 ): WriteExecuteInput {
   const telemetry = args.telemetry;
   // An operator-session-only telemetry attachment (no sinkPath/workflow/role) is a
@@ -577,8 +605,20 @@ function buildWriteExecuteInput(
         }
       : {}),
     signal,
+    sessionLog,
     ...(args.withExternalWorktree && { withExternalWorktree: args.withExternalWorktree }),
   };
+}
+
+type SessionLogSettleOutcome = "completed" | "timeout" | "abort" | "error";
+
+function formatSessionLogTimestamp(date: Date): string {
+  return date.toISOString().replace(/:/g, "-");
+}
+
+function closeSessionLog(sessionLog: SessionLog, outcome: SessionLogSettleOutcome): void {
+  sessionLog.append("harness", `outcome=${outcome}`);
+  sessionLog.close();
 }
 
 function terminalMapping(result: Exclude<StepRunResult, { kind: "progress" }>): {

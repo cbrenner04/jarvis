@@ -1,7 +1,22 @@
 import { describe, expect, test } from "bun:test";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
+import type { SessionLog, SessionLogTag } from "../../../shared/invocation/session-log.ts";
 import { resolveInvocationBindings } from "../config/agent-model-config.ts";
 import { parseStepOutcomeToken, runStep, type StepContract } from "./step-runner.ts";
+
+function fakeSessionLog(): { log: SessionLog; lines: { tag: SessionLogTag; text: string }[] } {
+  const lines: { tag: SessionLogTag; text: string }[] = [];
+  return {
+    lines,
+    log: {
+      append(tag, text) {
+        if (text === "") return;
+        lines.push({ tag, text });
+      },
+      close() {},
+    },
+  };
+}
 
 function okBinding(stdout: string): InvocationBinding {
   return {
@@ -330,6 +345,22 @@ describe("step runner token re-prompt", () => {
 
     expect(result.kind).toBe("progress");
     expect(result.reprompt?.responseText).toBe("");
+  });
+
+  test("session log gets harness/outbound for the first invocation and the re-prompt", async () => {
+    const { log, lines } = fakeSessionLog();
+
+    await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [sequencedBinding(["", "progress"])],
+      contracts: [],
+      sessionLog: log,
+    });
+
+    expect(lines.filter((l) => l.tag === "harness")).toHaveLength(2);
+    expect(lines.filter((l) => l.tag === "outbound").map((l) => l.text)).toEqual(["p", expect.any(String)]);
+    expect(lines.filter((l) => l.tag === "inbound_stdout").map((l) => l.text)).toEqual(["progress"]);
   });
 
   test("missing token with passing contracts returns complete with done", async () => {

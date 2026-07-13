@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
@@ -77,6 +77,7 @@ async function runLoop(args: {
     bindings: args.bindings,
     stateStore: store,
     withExternalWorktree: createFakeWithExternalWorktree(args.jarvisRoot),
+    sessionsDir: join(args.jarvisRoot, "sessions"),
     ...(args.maxIterations !== undefined ? { maxIterations: args.maxIterations } : {}),
     ...(args.signal !== undefined ? { signal: args.signal } : {}),
     ...(args.logSink !== undefined ? { logSink: args.logSink } : {}),
@@ -137,6 +138,7 @@ async function runLoopWithPause(args: {
     stateStore: store,
     pauseSignal: pauseController.signal,
     withExternalWorktree: createFakeWithExternalWorktree(args.jarvisRoot),
+    sessionsDir: join(args.jarvisRoot, "sessions"),
   };
   if (args.maxIterations !== undefined) {
     loopInput.maxIterations = args.maxIterations;
@@ -229,6 +231,14 @@ function progressThenDone(n: number): InvocationBinding[] {
 }
 
 describe("write loop", () => {
+  beforeEach(() => {
+    mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+  });
+
+  afterEach(() => {
+    mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+  });
+
   test("calls executeWrite repeatedly until terminal", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
 
@@ -1597,6 +1607,7 @@ describe("write loop", () => {
         bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
         stateStore: store,
         withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
         logSink: sink,
       });
 
@@ -1641,6 +1652,7 @@ describe("write loop", () => {
         bindings: simulatedBindings(["done"]),
         stateStore: store,
         withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
         logSink: sink,
         iterationTimeoutMs: 10,
       });
@@ -1680,6 +1692,7 @@ describe("write loop", () => {
         expectedArtifactPath: "proof.txt",
         bindings: simulatedBindings(["done"]),
         stateStore: store,
+        sessionsDir: join(jarvisRoot, "sessions"),
         iterationTimeoutMs: 5,
         withExternalWorktree: async (_worktree, run) => {
           await new Promise((resolve) => setTimeout(resolve, 20));
@@ -1743,6 +1756,7 @@ describe("write loop", () => {
         bindings: simulatedBindings(["progress"]),
         stateStore: store,
         withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
         logSink: sink,
         iterationTimeoutMs: 25,
       });
@@ -1779,6 +1793,7 @@ describe("write loop", () => {
         bindings: simulatedBindings(["done"]),
         stateStore: store,
         withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
         signal: earlyAbort.signal,
         iterationTimeoutMs: 40,
       });
@@ -1800,6 +1815,7 @@ describe("write loop", () => {
         bindings: simulatedBindings(["done"]),
         stateStore: store,
         withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
         signal: lateAbort.signal,
         iterationTimeoutMs: 5,
       });
@@ -1837,6 +1853,7 @@ describe("write loop", () => {
         bindings: simulatedBindings(["progress"]),
         stateStore: store,
         withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
         signal: controller.signal,
       });
 
@@ -1885,6 +1902,7 @@ describe("write loop", () => {
         bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
         stateStore: store,
         withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
         promptId: "custom.prompt",
         promptPlaceholders: { FOO: "bar" },
       };

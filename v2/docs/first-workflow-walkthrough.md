@@ -141,6 +141,23 @@ step's run row exists) ends the affected run with a terminal `run_execution_fail
 record carrying the error `message`, durable `failed`, and `not-live` on `list` —
 not a run stuck `in-progress` with no terminal signal.
 
+### Invocation session logs
+
+When a run stalls or fails before structured records accrue, read the on-disk
+invocation session log for the active iteration:
+
+```bash
+ls -t ~/.jarvis/sessions/<run-id>-*.log | head -1 | xargs cat
+```
+
+Each write-loop iteration opens `~/.jarvis/sessions/<run-id>-<timestamp>.log`
+(millisecond, filesystem-safe timestamp). Lines use the same `[tag]` transcript
+format as v1 (`harness`, `outbound`, `inbound_stdout`, `inbound_stderr`). The
+loop stamps run/spec/iteration before spawn and `outcome=…` at settle. A stalled
+invocation may have harness + outbound only — no `inbound_*` until the binding
+settles. Structured `jarvis run log` records remain the durable run timeline once
+they exist.
+
 ### Nothing is happening
 
 Read the detached daemon's stdout/stderr separately from a run's structured

@@ -1,3 +1,5 @@
+import type { SessionLog } from "./session-log.ts";
+
 export type InvocationOk = {
   kind: "ok";
   stdout: string;
@@ -123,17 +125,37 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
   bindings: readonly InvocationBinding<T>[];
   signal?: AbortSignal;
   telemetry?: InvocationTelemetryContext;
+  sessionLog?: SessionLog;
 }): Promise<InvocationExecution<T>> {
   const attempts: InvocationAttempt<T>[] = [];
   const telemetryFailures: InvocationTelemetryFailure[] = [];
+  const logAppend = (tag: "harness" | "outbound" | "inbound_stdout" | "inbound_stderr", text: string): void => {
+    try {
+      args.sessionLog?.append(tag, text);
+    } catch {
+      // A session log is observability only; it must never fail the invocation.
+    }
+  };
 
   for (const [bindingIndex, binding] of args.bindings.entries()) {
     const startedAt = Date.now();
+    const metadataForLog = binding.metadata;
+    logAppend(
+      "harness",
+      `binding=${binding.id} agent=${metadataForLog?.agent ?? "unknown"} model=${metadataForLog?.model ?? "unknown"}`,
+    );
+    logAppend("outbound", args.prompt);
     const result = await binding.invoke({
       prompt: args.prompt,
       cwd: args.cwd,
       ...(args.signal !== undefined ? { signal: args.signal } : {}),
     });
+    if (result.kind === "ok") {
+      logAppend("inbound_stdout", result.stdout);
+      logAppend("inbound_stderr", result.stderr);
+    } else {
+      logAppend("inbound_stderr", result.stderr);
+    }
     const invocationId = args.telemetry?.invocationIds[bindingIndex];
     const attempt = { binding, result, ...(invocationId !== undefined ? { invocationId } : {}) };
     attempts.push(attempt);

@@ -571,6 +571,29 @@ case where memory has already recovered by the time the row is persisted —
 without it, a queued run with no other run active has no further promotion
 trigger until the next `start`/exit event.
 
+## Invocation session logs
+
+Each write-loop iteration opens an on-disk transcript at
+`~/.jarvis/sessions/<run-id>-<timestamp>.log` (default sessions dir; timestamp
+is millisecond-granularity ISO with `:` replaced for filesystem safety). One file
+per iteration — not one per run and not one per binding attempt in the fallback
+chain.
+
+Lines mirror v1: `<ISO ts> [<tag>] <text>` with tags `harness`, `outbound`,
+`inbound_stdout`, `inbound_stderr`. Before the agent subprocess spawns, the loop
+writes a `harness` line naming run id, spec path, and iteration number; the
+invocation layer appends binding `harness`/`outbound` and post-settle `inbound_*`
+into the same file. When the iteration settles (including timeout, abort, and
+thrown-error paths), the loop appends a final `harness` line
+(`outcome=completed|timeout|abort|error`) and closes the file.
+
+These files are orthogonal to the structured log stream (`jarvis run log`,
+persisted under the daemon logs path): session logs are the first artifact when
+a run hangs before `iteration_started`/`boundary_committed` rows accrue; the
+structured stream is the durable run timeline once records exist. See
+[`invocation-liveness.md`](./invocation-liveness.md) and
+[`first-workflow-walkthrough.md`](./first-workflow-walkthrough.md).
+
 ## Library surface
 
 `startIpcServer(socketPath, handlers?)` binds a Unix listener in-process (tests

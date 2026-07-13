@@ -177,13 +177,39 @@ One-time prerequisite (once per repo): `gh label create harness-suggestion --rep
 gh issue list --repo cbrenner04/jarvis --label harness-suggestion --state open
 ```
 
-If the label is absent, fall back to searching the open-issue list manually. For each suggestion:
+If the label is absent, fall back to searching the open-issue list manually.
 
-1. **Review** and assess whether it's worth a seed.
-2. **Seed it** in the configured seeds dir (see [Where seeds and intents live](#where-seeds-and-intents-live)), using the issue content for the problem statement and decisions.
-3. **Leave the issue open** and comment referencing the seed (e.g. "Seeded as `<seeds-dir>/<name>.md`"). It stays open until the fix is implemented and merged — the implementation PR closes it via `Closes #N`. A seed is capture, not completion.
-4. **Close at triage only when not seeding** — not actionable, duplicate, or out-of-scope — with an explanation.
-5. **Operator-error / project-setup is not a harness gap.** If the issue is really an operator mistake or the *target project's* setup (misconfig, missing dep, environment), **respond on the issue** with the cause/fix, **don't seed or change the harness**, and **flag it to the operator**.
+**Always read the comments — you will not get them by default.** `gh issue list`
+returns titles only, and `gh issue view <n>` omits comments unless you ask. The owner
+routinely adds decisive context as a comment *after* an issue is filed, and triaging
+from the body alone will get it wrong:
+
+```sh
+gh issue view <n> --repo cbrenner04/jarvis --comments      # body + comments
+gh issue list --repo cbrenner04/jarvis --state open --json number,title,comments \
+  --jq '.[] | "#\(.number) \(.title) — comments: \(.comments|length)"'   # which have comments
+```
+
+Observed 2026-07-12: intake #1453's body proposed a whole sandbox-policy architecture;
+the owner's comment said *"written with no familiarity with the harness — confirm
+assumptions prior to creating a seed."* Three of the issue's core assumptions then
+failed against the code (the "missing" execution abstraction already existed as
+`spawn.ts`; the CLI command shapes didn't exist; the role taxonomy was invented). The
+comment changed the seed from "build the proposed architecture" to "make the existing
+chokepoint's policy uniform." Triaging from the body alone would have produced the
+wrong spec.
+
+For each suggestion:
+
+1. **Review the body *and* the comments**, and assess whether it's worth a seed.
+2. **Verify the issue's claims against the code before seeding.** A suggestion from
+   another repo's operator is a report of friction, not a diagnosis. Confirm each
+   load-bearing assumption; seed what verifies, and say plainly in the seed and on the
+   issue what didn't.
+3. **Seed it** in the configured seeds dir (see [Where seeds and intents live](#where-seeds-and-intents-live)), using the issue content for the problem statement and decisions.
+4. **Leave the issue open** and comment referencing the seed (e.g. "Seeded as `<seeds-dir>/<name>.md`"). It stays open until the fix is implemented and merged — the implementation PR closes it via `Closes #N`. A seed is capture, not completion.
+5. **Close at triage only when not seeding** — not actionable, duplicate, or out-of-scope — with an explanation.
+6. **Operator-error / project-setup is not a harness gap.** If the issue is really an operator mistake or the *target project's* setup (misconfig, missing dep, environment), **respond on the issue** with the cause/fix, **don't seed or change the harness**, and **flag it to the operator**.
 
 **Standing won't-fix:** making `jarvis1 cleanup` archive `commit:false` specs from the external home (intake #566) is **operator-usage, not a harness gap** — the other-repo operator must place specs in jarvis's expected directories. Do not re-seed, re-plan, or re-run it; close any resurfaced copy citing #566.
 
@@ -334,8 +360,17 @@ Every session starts the same way: feed incoming friction into the system **befo
 2. **Sweep open intake issues** and triage each into a seed (see [Triage](#triage-jarvis-on-jarvis-operator)):
 
    ```sh
-   gh issue list --repo cbrenner04/jarvis --state open
+   # titles only — does NOT show comments
+   gh issue list --repo cbrenner04/jarvis --state open --json number,title,comments \
+     --jq '.[] | "#\(.number) \(.title) — comments: \(.comments|length)"'
+
+   # then read each one's body AND comments
+   gh issue view <n> --repo cbrenner04/jarvis --comments
    ```
+
+   **Read the comments, always.** They are not returned by default and the owner uses
+   them to steer triage after filing — an issue's decisive context is frequently *not*
+   in its body.
 
    Match each issue against existing seeds/ready-intents first so you only seed what isn't captured. In-scope friction can be queued into this session (the issue stays open until its fix merges). Re-check at close-out for issues filed mid-session.
 3. **Create ready-intents for all open seeds.** Run `jarvis1 intent <seed-file>` on every seed (seeds must be committed to `main` first), review + merge each draft PR. This drains the seed backlog.

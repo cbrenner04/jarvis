@@ -255,11 +255,7 @@ export type OwnerLivenessProbe = (identity: string) => Promise<boolean>;
 
 async function readProcessStartEpoch(pid: number): Promise<number | null> {
   try {
-    const stdout = await realAsyncSubprocessRunner.runAsync(
-      "ps",
-      ["-o", "lstart=", "-p", String(pid)],
-      process.cwd(),
-    );
+    const stdout = await realAsyncSubprocessRunner.runAsync("ps", ["-o", "lstart=", "-p", String(pid)], process.cwd());
     const trimmed = stdout.trim();
     if (!trimmed) return null;
     const epoch = Date.parse(trimmed);

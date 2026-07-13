@@ -6,8 +6,8 @@ import { join } from "node:path";
 import type { IpcServer } from "../ipc/server.ts";
 import type { LogEvent, LogReader, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
 import {
-  openStateStore,
   type OwnerLivenessProbe,
+  openStateStore,
   type RunStatus,
   type StateStore,
 } from "../persistence/state-store.ts";
@@ -163,9 +163,7 @@ test("a non-terminal run with no recorded owner (pre-migration row) is killed", 
   });
 
   expect(sweepStore.loadRun(runId)?.status).toBe("killed");
-  expect(events).toEqual([
-    { runId, event: { kind: "run_reconciled", runStatus: "killed", reason: "daemon_restart" } },
-  ]);
+  expect(events).toEqual([{ runId, event: { kind: "run_reconciled", runStatus: "killed", reason: "daemon_restart" } }]);
   sweepStore.close();
 });
 

@@ -1,8 +1,9 @@
+import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openStateStore, type StateStore } from "./state-store";
+import { isOwnerAlive, openStateStore, type StateStore } from "./state-store";
 
 const TEST_DB_PATH = join(tmpdir(), "jarvis-test-state.sqlite");
 
@@ -312,5 +313,97 @@ describe("StateStore", () => {
     const runs = store.findRevisionRuns({ project: "test-project", branch: "test-branch", repeatStepId: "implement" });
 
     expect(runs).toEqual([]);
+  });
+
+  test("migration adds owner_identity to a pre-migration database without backfilling existing rows", () => {
+    const legacyDbPath = join(tmpdir(), "jarvis-test-state-legacy-migration.sqlite");
+    rmSync(legacyDbPath, { force: true });
+    try {
+      const raw = new Database(legacyDbPath);
+      raw.exec(`
+        CREATE TABLE runs (
+          id TEXT PRIMARY KEY,
+          project TEXT NOT NULL,
+          spec_ref TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          worktree_path TEXT NOT NULL,
+          branch TEXT NOT NULL,
+          spec_path TEXT NOT NULL,
+          step_id TEXT,
+          workflow_snapshot TEXT,
+          queued_input TEXT,
+          creation_title TEXT,
+          reconciliation_pending INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE attempts (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL,
+          attempt_number INTEGER NOT NULL,
+          started_at INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          outcome_kind TEXT,
+          completed_at INTEGER,
+          invocation_failure_detail TEXT,
+          completion_agent TEXT,
+          FOREIGN KEY (run_id) REFERENCES runs(id)
+        );
+        CREATE TABLE _migrations (
+          id TEXT PRIMARY KEY,
+          applied_at INTEGER NOT NULL
+        );
+      `);
+      for (const id of [
+        "004-invocation-failure-detail",
+        "005-run-step-id",
+        "006-run-workflow-snapshot",
+        "007-run-queued-input",
+        "008-attempt-completion-agent",
+        "009-run-creation-title",
+        "010-run-reconciliation-pending",
+      ]) {
+        raw.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(id, Date.now());
+      }
+      const runId = "legacy-run";
+      raw
+        .prepare(
+          `INSERT INTO runs (id, project, spec_ref, created_at, status, attempt_count, worktree_path, branch, spec_path)
+           VALUES (?, 'legacy-project', 'main', ?, 'in-progress', 0, '/tmp/legacy', 'legacy-branch', 'spec.md')`,
+        )
+        .run(runId, Date.now());
+      raw.close();
+
+      const migrated = openStateStore(legacyDbPath);
+      expect(loadRunOrThrow(migrated, runId).project).toBe("legacy-project");
+
+      const verify = new Database(legacyDbPath);
+      const row = verify.prepare("SELECT owner_identity AS ownerIdentity FROM runs WHERE id = ?").get(runId) as {
+        ownerIdentity: string | null;
+      };
+      expect(row.ownerIdentity).toBeNull();
+      verify.close();
+      migrated.close();
+    } finally {
+      rmSync(legacyDbPath, { force: true });
+    }
+  });
+});
+
+describe("isOwnerAlive", () => {
+  test("same pid with a matching start epoch is alive", async () => {
+    expect(await isOwnerAlive(`${process.pid}:1000`, async () => 1000)).toBe(true);
+  });
+
+  test("same pid with a different start epoch is dead", async () => {
+    expect(await isOwnerAlive(`${process.pid}:1000`, async () => 2000)).toBe(false);
+  });
+
+  test("a live pid whose start epoch cannot be read is treated as alive", async () => {
+    expect(await isOwnerAlive(`${process.pid}:1000`, async () => null)).toBe(true);
+  });
+
+  test("a dead pid is dead regardless of epoch readability", async () => {
+    expect(await isOwnerAlive("999999999:1000", async () => 1000)).toBe(false);
   });
 });

@@ -10,6 +10,8 @@ export type AsyncSubprocessOptions = {
   maxBuffer?: number;
   /** When `ignore`, stdout is not captured and resolves to `""`. Default `pipe`. */
   stdio?: "pipe" | "ignore";
+  /** Kills the subprocess and rejects if it hasn't exited within this many ms. */
+  timeoutMs?: number;
 };
 
 export class AsyncSubprocessError extends Error {
@@ -49,6 +51,7 @@ export const realAsyncSubprocessRunner: AsyncSubprocessRunner = {
           encoding: "utf8",
           ...(options?.maxBuffer !== undefined ? { maxBuffer: options.maxBuffer } : {}),
           ...(stdio === "ignore" ? { stdio: "ignore" } : {}),
+          ...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
         },
         (error, stdout, stderr) => {
           if (error) {

@@ -286,6 +286,8 @@ export type WaitRunCompletionResult = {
   iterationsConsumed?: number;
   resumable?: boolean;
   error?: RunOperatorError;
+  /** Surviving worktree path; present when `runStatus` is `blocked`. */
+  worktreePath?: string;
 };
 
 export type LoadedRun = NonNullable<ReturnType<StateStore["loadRun"]>>;
@@ -400,7 +402,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
             resumable: record.event.resumable,
           }
         : { runStatus };
-    return error === undefined ? base : { ...base, error };
+    const withError = error === undefined ? base : { ...base, error };
+    return runStatus === "blocked" && run ? { ...withError, worktreePath: run.worktreePath } : withError;
   };
 
   const spawnWriteLoop = (key: OwnershipKey, runId: string, worktreePath: string, input: WriteLoopInput): void => {
@@ -690,6 +693,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         ...(fullRun?.workflowSnapshot !== undefined && fullRun?.workflowSnapshot !== null
           ? { workflow: workflowRowSnapshot(fullRun, workflowRuns, liveRunIds, reviewDebateProgressByInvocation) }
           : {}),
+        ...(run.status === "blocked" ? { worktreePath: run.worktreePath } : {}),
       };
     });
 

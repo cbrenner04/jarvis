@@ -334,7 +334,7 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
       for (const run of list.runs) {
         const e = run.error;
         io.stdout(
-          `${run.runId}\t${run.project}\t${run.branch}\t${run.status}\t${run.isLive ? "live" : "not-live"}\t${e?.reason ?? "-"}\t${e ? String(e.retryable) : "-"}\t${e?.nextAction ?? "-"}\n`,
+          `${run.runId}\t${run.project}\t${run.branch}\t${run.status}\t${run.isLive ? "live" : "not-live"}\t${e?.reason ?? "-"}\t${e ? String(e.retryable) : "-"}\t${e?.nextAction ?? "-"}\t${run.worktreePath ?? "-"}\n`,
         );
       }
       return 0;
@@ -406,6 +406,7 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
       if (result.iterationsConsumed !== undefined) payload.iterationsConsumed = result.iterationsConsumed;
       if (result.resumable !== undefined) payload.resumable = result.resumable;
       if (result.error !== undefined) payload.error = result.error;
+      if (result.worktreePath !== undefined) payload.worktreePath = result.worktreePath;
       io.stdout(`${JSON.stringify(payload)}\n`);
       return exitCodeForWaitResult(result);
     });

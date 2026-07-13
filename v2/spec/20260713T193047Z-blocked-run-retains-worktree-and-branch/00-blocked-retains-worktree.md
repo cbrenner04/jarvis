@@ -29,11 +29,32 @@ what you ran and what survived — do not invent a fix for a defect you cannot r
 
 ## Acceptance criteria
 
-- [ ] A `jarvis run workflow implement` run whose agent returns `blocked` leaves its worktree directory on disk, its branch present in the project's `git branch`, and the worktree registered in the project's `git worktree list`.
-- [ ] The uncommitted work the agent produced before blocking is still present in that worktree (nothing is reset, cleaned, or checked out on the blocked path).
-- [ ] The blocked run's row reports the surviving worktree path, and the operator-facing run output for a blocked run names that path.
+- [x] A `jarvis run workflow implement` run whose agent returns `blocked` leaves its worktree directory on disk, its branch present in the project's `git branch`, and the worktree registered in the project's `git worktree list`.
+- [x] The uncommitted work the agent produced before blocking is still present in that worktree (nothing is reset, cleaned, or checked out on the blocked path).
+- [x] The blocked run's row reports the surviving worktree path, and the operator-facing run output for a blocked run names that path.
 - [ ] A regression test drives the implement workflow to a `blocked` outcome against a real git fixture and asserts worktree, branch, registration, and uncommitted work survive; it fails against the pre-fix code.
-- [ ] Non-blocked outcomes are unchanged: existing `write-loop.test.ts` and `workflow-runner.test.ts` stay green.
+- [x] Non-blocked outcomes are unchanged: existing `write-loop.test.ts` and `workflow-runner.test.ts` stay green.
+
+## Blocker
+
+Reproduced per the instrument above: `v2/src/execution/workflow-runner.test.ts` gained
+`"blocked outcome retains the real git worktree, branch, registration, and uncommitted work"`,
+using a real git project repo, the real (non-fake) `withExternalWorktree`, and `executeWorkflow`
+(not `executeWriteLoop` in isolation) with a binding returning `blocked`. It asserts the worktree
+directory, `uncommitted.txt`, the branch in `git branch --list`, and the entry in `git worktree
+list` — all pass on unmodified `HEAD`.
+
+No layer destroys the worktree/branch: confirms the "Root cause first" finding — no
+`git worktree remove`/`branch -D`/`rmSync` call exists on the blocked path anywhere in `v2/src`.
+The regression test therefore cannot "fail against the pre-fix code" as worded — there is no
+destructive pre-fix behavior to catch. The reported run (`e93a8429-...`) is not reproducible from
+`v2/src` alone; likely causes outside this subspec's scope: an external/operator-side action
+(manual cleanup, a v1 `cleanup`/`triage` pass scanning `~/.jarvis/worktrees` without v2-run
+awareness) or an environment difference not captured by a real-git in-process test. Implemented
+and verified the independently-decided, unambiguous gap instead: `worktreePath` is now surfaced
+on `jarvis run list` (9th column) and `jarvis run wait` (`worktreePath` JSON key) for `blocked`
+rows, so the operator no longer has to guess the path even where a worktree is later found
+missing for reasons outside `v2/src`.
 
 ## Documentation updates
 

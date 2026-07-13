@@ -26,6 +26,7 @@ import {
   trackedTempRoots,
   withStateStore,
 } from "../testing/write-fixtures.ts";
+import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import {
@@ -633,6 +634,65 @@ describe("executeWorkflow", () => {
         stepId: "step-2",
       });
       expect(run2?.status).toBe("blocked");
+    });
+  });
+
+  test("blocked outcome retains the real git worktree, branch, registration, and uncommitted work", async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "blocked-retain-project-"));
+    roots.push(projectRoot);
+    execFileSync("git", ["init", "-q"], { cwd: projectRoot });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: projectRoot });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: projectRoot });
+    writeFileSync(join(projectRoot, "spec.md"), "- [ ] work\n", "utf8");
+    execFileSync("git", ["add", "."], { cwd: projectRoot });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: projectRoot });
+
+    const branchName = "blocked-real-run";
+
+    const step = createStep({
+      stepId: "step-1",
+      role: "implement",
+      branchName,
+      createBinding: createBindingFactory(async ({ cwd }) => {
+        writeFileSync(join(cwd, "uncommitted.txt"), "wip\n", "utf8");
+        appendFileSync(join(cwd, "spec.md"), "\n## Blocker\n\nstuck\n", "utf8");
+        return { kind: "ok", stdout: "blocked", stderr: "" } as const;
+      }),
+    });
+    step.worktree = { ...step.worktree, projectRoot };
+    const jarvisRoot = step.worktree.jarvisRoot;
+    if (jarvisRoot === undefined) throw new Error("expected jarvisRoot to be set by createStep");
+    roots.push(jarvisRoot);
+    delete step.withExternalWorktree;
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+      });
+
+      expect(result.kind).toBe("blocked");
+
+      const worktreePath = getExternalWorktreePath({
+        projectRoot,
+        projectName: "demo",
+        branchName,
+        baseRef: "HEAD",
+        jarvisRoot,
+      });
+
+      expect(existsSync(worktreePath)).toBe(true);
+      expect(existsSync(join(worktreePath, "uncommitted.txt"))).toBe(true);
+
+      const branchList = execFileSync("git", ["branch", "--list", branchName], { cwd: projectRoot }).toString();
+      expect(branchList).toContain(branchName);
+
+      const worktreeList = execFileSync("git", ["worktree", "list"], { cwd: projectRoot }).toString();
+      expect(worktreeList).toContain(worktreePath);
+
+      const run = store.findRunByProjectBranch({ project: "demo", branch: branchName, stepId: "step-1" });
+      expect(run?.status).toBe("blocked");
+      expect(run?.worktreePath).toBe(worktreePath);
     });
   });
 

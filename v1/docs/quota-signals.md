@@ -216,9 +216,9 @@ Doc-only workflow is intentional: low friction beats extra tooling here.
 
 ## Claude
 
-Claude runs with `--output-format json`. On exit `0`, the shared spawn layer
-returns `kind: "ok"` with raw stdout. The Claude adapter then checks for a
-verified quota error envelope before parsing success fields: `is_error: true`,
+Claude runs with `--output-format stream-json --verbose`. On exit `0`, the shared
+spawn layer returns `kind: "ok"` with raw stdout. The Claude adapter then checks
+for a verified quota error envelope before parsing success fields: `is_error: true`,
 `api_error_status: 429`, and a quota message in `result` (matched by
 `isClaudeQuotaMessageText` / `claudeQuotaPatterns`). When all three hold, the
 adapter returns `kind: "quota"` and preserves the full stdout JSON in `stderr`
@@ -226,6 +226,12 @@ diagnostics. Other zero-exit envelopes (successful JSON or structured errors
 missing any predicate) stay non-quota. Classification is adapter-boundary only;
 patch/plan/prompt modes rotate through the existing quota fallback path with no
 mode-specific exception. Sources: `src/agents/claude.ts`, `src/agents/claude-json.ts`.
+
+For timeout telemetry, `last_output_age_ms: null` on a Claude patch run now means
+the agent produced no observed stdout/stderr during that iteration — not that the
+harness could not see Claude output. Before stream-json, Claude's batch JSON
+arrived only at exit, so the idle watchdog was structurally blind to Claude even
+when the agent was active.
 
 ### Observed quota samples (real samples)
 

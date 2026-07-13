@@ -46,6 +46,7 @@ import { getWorktreeLockPath } from "../src/worktree-lock.ts";
 import {
   beginHangFixtureTracking,
   reapActiveHangFixtures,
+  trackHangFixtureScript,
   withHangFixtureSpawned,
   writeIdleHangScript,
 } from "./idle-hang-fixtures.ts";
@@ -4967,8 +4968,114 @@ exit 0
 
     expect(code).toBe(4);
     expect(readFileSync(join(dir, "argv"), "utf8")).toBe(
-      "-p\0--permission-mode\0acceptEdits\0--model\0haiku\0--output-format\0json\0",
+      "-p\0--permission-mode\0acceptEdits\0--model\0haiku\0--output-format\0stream-json\0--verbose\0",
     );
+  });
+
+  test("ClaudeAgent stream-json output records non-null last_output_age_ms on iteration timeout", async () => {
+    const iterationTimeoutMs = 2000;
+    const spec = writeSpec("- [ ] todo\n");
+    const cap = captureIo();
+    const streamThenHang = join(dir, "claude-stream-then-hang.sh");
+    writeFileSync(
+      streamThenHang,
+      `#!/usr/bin/env bash
+set -euo pipefail
+echo '{"type":"system","subtype":"init"}'
+sleep 0.2
+echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hello"}]}}'
+sleep 0.2
+echo '{"type":"result","result":"hello","total_cost_usd":0,"usage":{"input_tokens":1,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}'
+exec tail -f /dev/null
+`,
+    );
+    chmodSync(streamThenHang, 0o755);
+    trackHangFixtureScript(streamThenHang);
+    const claude = new ClaudeAgent({ binary: streamThenHang });
+    writeConfig(
+      {
+        version: 2,
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY] },
+          prompt: { agentOrder: [CLAUDE_ENTRY] },
+          review: { passes: 2 },
+        },
+        quotaFallback: "lenient",
+        weakQuotaExitCodes: [],
+        maxIterations: 1,
+        iterationTimeoutMs,
+        git: false,
+        projects: { project: { root: projectRoot } },
+      },
+      { dir: cfgDir },
+    );
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+      __testKillGraceMs: 200,
+    });
+
+    expect(code).toBe(8);
+    const rows = readFileSync(join(cfgDir, "runs.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const timeoutRow = rows.find((row) => row.exit_reason === "watchdog-iteration-timeout");
+    expect(timeoutRow).toBeDefined();
+    expect(typeof timeoutRow?.last_output_age_ms).toBe("number");
+  });
+
+  test("silent ClaudeAgent idle-escalates through agentOrder", async () => {
+    const idleTimeoutMs = 1000;
+    const spec = writeSpec("- [ ] todo\n");
+    const cap = captureIo();
+    const hangScript = writeIdleHangScript(join(dir, "claude-agent-idle.sh"));
+    const claude = new ClaudeAgent({ binary: hangScript });
+    const codex = new FakeAgent("codex", () => ({ kind: "ok", stdout: "", stderr: "" }));
+    writeConfig(
+      {
+        version: 2,
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY] },
+          prompt: { agentOrder: [CLAUDE_ENTRY] },
+          review: { passes: 2 },
+        },
+        quotaFallback: "lenient",
+        weakQuotaExitCodes: [],
+        maxIterations: 3,
+        iterationTimeoutMs: 30 * 60_000,
+        idleOutputTimeoutMs: idleTimeoutMs,
+        git: false,
+        projects: { project: { root: projectRoot } },
+      },
+      { dir: cfgDir },
+    );
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude, codex },
+      handleSignals: false,
+      __testKillGraceMs: 200,
+    });
+
+    expect(code).toBe(4);
+    expect(cap.err()).toContain(`claude: ${HARNESS_IDLE_TIMEOUT_FALLBACK}`);
+    expect(codex.calls).toHaveLength(1);
+    const rows = readFileSync(join(cfgDir, "runs.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const fallbackRow = rows.find((row) => row.exit_reason === "watchdog-idle-timeout-fallback");
+    expect(fallbackRow).toBeDefined();
+    expect(fallbackRow?.agent).toBe("claude");
   });
 
   test("CLI maxIterations overrides config maxIterations", async () => {

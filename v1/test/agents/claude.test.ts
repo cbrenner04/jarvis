@@ -33,7 +33,14 @@ describe("ClaudeAgent", () => {
     expect(recorder.records).toHaveLength(1);
     const record = recorder.only();
     expect(record.binary).toBe("claude");
-    expect(record.argv).toEqual(["-p", "--permission-mode", "acceptEdits", "--output-format", "json"]);
+    expect(record.argv).toEqual([
+      "-p",
+      "--permission-mode",
+      "acceptEdits",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+    ]);
     expect(record.opts.cwd).toBe(cwd);
   });
 
@@ -58,7 +65,8 @@ describe("ClaudeAgent", () => {
       "--model",
       "haiku",
       "--output-format",
-      "json",
+      "stream-json",
+      "--verbose",
     ]);
   });
 
@@ -186,7 +194,8 @@ describe("ClaudeAgent", () => {
       "--add-dir",
       "/abs/specs/bar",
       "--output-format",
-      "json",
+      "stream-json",
+      "--verbose",
     ]);
   });
 

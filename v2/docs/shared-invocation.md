@@ -19,6 +19,15 @@ Contract:
   settled binding subprocess appends one `invocation_completed` JSONL row before
   fallback classification continues. Callers that omit that pair stay telemetry
   no-op.
+- When the caller also passes a `sessionLog` (opened via
+  `shared/invocation/session-log.ts`'s `openSessionLog`), every binding attempt
+  in the fallback chain writes `harness` (binding id, agent, model) and
+  `outbound` (prompt) lines before `binding.invoke` runs, then
+  `inbound_stdout`/`inbound_stderr` after it settles: an `ok` result writes
+  stdout under `inbound_stdout` and stderr under `inbound_stderr`; a
+  `quota`/`model_config`/`error` result writes only its `stderr`, under
+  `inbound_stderr`. A throwing `sessionLog.append` is swallowed and never fails
+  the invocation. Callers that omit `sessionLog` stay unaffected.
 
 Fallback default is quota-only: `model_config` and other `error` kinds are
 terminal unless a binding's `shouldAdvance` opts in (review actuator adds
@@ -51,6 +60,22 @@ Bindings:
   share the same adapter model string.
 - `createAgentBindings(agentIds)` remains the older bare-agent helper for paths
   that still inject prebuilt bindings directly.
+
+## Session log writer
+
+`shared/invocation/session-log.ts`'s `openSessionLog(namespace, timestamp,
+opts?)` opens a file-backed, unbuffered writer at
+`<sessionsDir>/<namespace>-<timestamp>.log` (sessions dir and clock are
+injectable; default sessions dir is `~/.jarvis/sessions/`, default clock is
+the system clock), mirroring v1's `<ISO ts> [<tag>] <line>` transcript format
+and tag set (`harness`, `outbound`, `inbound_stdout`, `inbound_stderr`).
+Multi-line text is split into one stamped line per source line. Appends are
+synchronous write-through, so a line is readable from another handle
+immediately after `append` returns. Appends after `close()` are dropped
+silently; `close()` is idempotent. Open, mkdir, and append failures are
+swallowed — the writer degrades to a no-op sink rather than blocking the
+invocation it observes. No v2 caller wires this in yet; the writer is invoked
+directly in tests until a real caller opens a file.
 
 ## Terminal `failureKind` (binding-chain stop)
 

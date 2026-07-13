@@ -32,6 +32,12 @@ Contract:
   a `reprompt` field (the first response text plus the re-prompt's own
   `InvocationExecution`) for the caller to log — the runner itself does not
   log it.
+- `runStep`'s input takes an optional `sessionLog` (see
+  [`shared-invocation.md`](./shared-invocation.md#session-log-writer)), passed
+  straight through to both the initial `executeWithQuotaFallback` call and the
+  token-only re-prompt's `executeWithQuotaFallback` call, so both invocations'
+  binding attempts land in the same log. Omitting it is a no-op, matching
+  callers that predate this field.
 
 Boundary:
 

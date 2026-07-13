@@ -5,6 +5,7 @@ import {
   type InvocationResult,
   type InvocationTelemetryContext,
 } from "../../../shared/invocation/execute.ts";
+import type { SessionLog } from "../../../shared/invocation/session-log.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
@@ -28,6 +29,7 @@ type StepRunInput = {
   contracts: readonly StepContract[];
   signal?: AbortSignal;
   telemetry?: InvocationTelemetryContext;
+  sessionLog?: SessionLog;
 };
 
 /** The first (token-less) response plus the token-only re-prompt's own invocation. */
@@ -92,6 +94,7 @@ function requestTokenReprompt(args: StepRunInput, responseText: string): Promise
     ...(args.telemetry !== undefined
       ? { telemetry: { ...args.telemetry, invocationIds: args.bindings.map(() => crypto.randomUUID()) } }
       : {}),
+    ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),
   });
 }
 
@@ -142,6 +145,7 @@ export async function runStep(args: StepRunInput): Promise<StepRunResult> {
     bindings: args.bindings,
     ...(args.signal !== undefined ? { signal: args.signal } : {}),
     ...(args.telemetry !== undefined ? { telemetry: args.telemetry } : {}),
+    ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),
   });
 
   const final = invocation.final;

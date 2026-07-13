@@ -6,6 +6,21 @@ import {
   type InvocationResult,
   type InvocationTelemetrySink,
 } from "./execute.ts";
+import type { SessionLog, SessionLogTag } from "./session-log.ts";
+
+function fakeSessionLog(): { log: SessionLog; lines: { tag: SessionLogTag; text: string }[] } {
+  const lines: { tag: SessionLogTag; text: string }[] = [];
+  return {
+    lines,
+    log: {
+      append(tag, text) {
+        if (text === "") return;
+        lines.push({ tag, text });
+      },
+      close() {},
+    },
+  };
+}
 
 function binding(id: string, result: InvocationResult): InvocationBinding {
   return {
@@ -193,5 +208,70 @@ describe("shared invocation fallback", () => {
     expect(result.final?.result.kind).toBe("quota");
     expect(rows.map((row) => row.binding_id)).toEqual(["first", "second"]);
     expect(rows.map((row) => row.invocation_id)).toEqual(["inv-1", "inv-2"]);
+  });
+
+  test("writes harness and outbound before invoke, then inbound_stdout/inbound_stderr on ok", async () => {
+    const { log, lines } = fakeSessionLog();
+    const seenAtInvoke: { tag: SessionLogTag; text: string }[] = [];
+
+    await executeWithQuotaFallback({
+      prompt: "the prompt",
+      cwd: "/tmp",
+      sessionLog: log,
+      bindings: [
+        {
+          id: "only",
+          metadata: { agent: "claude", model: "sonnet" },
+          invoke: async () => {
+            seenAtInvoke.push(...lines);
+            return { kind: "ok", stdout: "out-line", stderr: "err-line" };
+          },
+        },
+      ],
+    });
+
+    expect(seenAtInvoke.map((l) => l.tag)).toEqual(["harness", "outbound"]);
+    expect(seenAtInvoke.some((l) => l.text.includes("only") && l.text.includes("claude") && l.text.includes("sonnet"))).toBe(
+      true,
+    );
+    expect(seenAtInvoke.some((l) => l.text === "the prompt")).toBe(true);
+    expect(lines.filter((l) => l.tag === "inbound_stdout").map((l) => l.text)).toEqual(["out-line"]);
+    expect(lines.filter((l) => l.tag === "inbound_stderr").map((l) => l.text)).toEqual(["err-line"]);
+  });
+
+  test("writes non-ok stderr under inbound_stderr and logs each fallback binding attempt", async () => {
+    const { log, lines } = fakeSessionLog();
+
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      sessionLog: log,
+      bindings: [
+        binding("first", { kind: "quota", stderr: "quota-diagnostic" }),
+        binding("second", { kind: "ok", stdout: "done", stderr: "" }),
+      ],
+    });
+
+    expect(lines.filter((l) => l.tag === "harness")).toHaveLength(2);
+    expect(lines.filter((l) => l.tag === "outbound")).toHaveLength(2);
+    expect(lines.filter((l) => l.tag === "inbound_stderr").map((l) => l.text)).toEqual(["quota-diagnostic"]);
+  });
+
+  test("a throwing session log does not fail the invocation", async () => {
+    const throwingLog: SessionLog = {
+      append() {
+        throw new Error("disk full");
+      },
+      close() {},
+    };
+
+    const result = await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      sessionLog: throwingLog,
+      bindings: [binding("only", { kind: "ok", stdout: "done", stderr: "" })],
+    });
+
+    expect(result.final?.result.kind).toBe("ok");
   });
 });

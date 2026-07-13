@@ -2,8 +2,8 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Shared claude binding spawns stream-json and parses the terminal result event](./00-claude-stream-json.md)
-- [ ] [01 - `invocation_completed` records agent-reported usage and cost](./01-record-usage-and-cost.md)
+- [x] [00 - Shared claude binding spawns stream-json and parses the terminal result event](./00-claude-stream-json.md)
+- [x] [01 - `invocation_completed` records agent-reported usage and cost](./01-record-usage-and-cost.md)
 
 ## Notes
 

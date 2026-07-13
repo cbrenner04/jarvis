@@ -17,8 +17,10 @@ Contract:
   bindings are configured).
 - When the caller also passes write-step telemetry context plus a sink, each
   settled binding subprocess appends one `invocation_completed` JSONL row before
-  fallback classification continues. Callers that omit that pair stay telemetry
-  no-op.
+  fallback classification continues. An `ok` result carrying `usage`/`cost_usd`
+  with source metadata records those exact values on the row; results without
+  them or non-`ok` results default to null usage and "unavailable" sources.
+  Callers that omit that pair stay telemetry no-op.
 - When the caller also passes a `sessionLog` (opened via
   `shared/invocation/session-log.ts`'s `openSessionLog`), every binding attempt
   in the fallback chain writes `harness` (binding id, agent, model) and
@@ -42,8 +44,8 @@ Bindings:
 - `createResolvedAgentBinding({ agentId, adapterModel, priceKey })` in
   `shared/invocation/agents.ts` builds one binding from one resolved rung.
   Resolved `claude` bindings spawn `claude -p --permission-mode acceptEdits
-  --model <adapterModel> --output-format json`, pipe the prompt on stdin,
-  unwrap the JSON envelope into display text (plus agent usage/cost when present),
+  --model <adapterModel> --output-format stream-json --verbose`, pipe the prompt on stdin,
+  parse the terminal `type: "result"` event from the NDJSON stream, unwrap it into display text (plus agent usage/cost when present),
   reclassify verified exit-0 quota envelopes to `quota`, and settle into
   `ok | quota | model_config | error` before fallback continues.
   Resolved `codex` bindings spawn `codex exec --color never --sandbox

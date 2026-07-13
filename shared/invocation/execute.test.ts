@@ -305,6 +305,51 @@ describe("shared invocation fallback", () => {
     log.close();
   });
 
+  test("ok result with usage and cost records those exact values and sources", async () => {
+    const rows: InvocationCompletedRecord[] = [];
+    const _result = await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [
+        {
+          id: "claude-binding",
+          metadata: { agent: "claude", model: "sonnet" },
+          invoke: async () => ({
+            kind: "ok" as const,
+            stdout: "response",
+            stderr: "",
+            usage_source: "agent" as const,
+            usage: {
+              input_tokens: 100,
+              output_tokens: 50,
+              cache_read_input_tokens: 0,
+              cache_creation_input_tokens: 25000,
+            },
+            cost_usd: 0.15,
+            cost_source: "agent" as const,
+          }),
+        },
+      ],
+      telemetry: telemetryArgs({
+        append(record) {
+          rows.push(record);
+        },
+      }),
+    });
+
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    expect(row?.usage).toEqual({
+      input_tokens: 100,
+      output_tokens: 50,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 25000,
+    });
+    expect(row?.usage_source).toBe("agent");
+    expect(row?.cost_usd).toBe(0.15);
+    expect(row?.cost_source).toBe("agent");
+  });
+
   test("model_config and error results write stderr under inbound_stderr", async () => {
     const modelLog = fakeSessionLog();
     await executeWithQuotaFallback({

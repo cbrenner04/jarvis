@@ -27,11 +27,11 @@ subspec 01 gets it into telemetry.
 
 ## Acceptance criteria
 
-- [ ] A resolved `claude` binding spawns the CLI with `--output-format stream-json --verbose`.
-- [ ] A stream-json stdout (assistant events followed by a terminal `type: "result"` event) yields `kind: "ok"` with the result event's text as `stdout`, and non-null `usage` (`usage_source: "agent"`) and `cost_usd` (`cost_source: "agent"`).
-- [ ] Stdout carrying no `result` event yields `kind: "ok"` with raw stdout as display text, null usage/cost, and a warning naming the missing terminal result event.
-- [ ] A stream-json run whose terminal `result` event is a verified quota envelope (`is_error: true`, `api_error_status: 429`, quota message) settles `kind: "quota"` with the stdout preserved in `stderr`, not `ok`.
-- [ ] Existing `shared/invocation/agents.test.ts` and `claude-json.test.ts` cases for codex, cursor, quota/model_config/transient classification stay green (classification is unchanged by this port).
+- [x] A resolved `claude` binding spawns the CLI with `--output-format stream-json --verbose`.
+- [x] A stream-json stdout (assistant events followed by a terminal `type: "result"` event) yields `kind: "ok"` with the result event's text as `stdout`, and non-null `usage` (`usage_source: "agent"`) and `cost_usd` (`cost_source: "agent"`).
+- [x] Stdout carrying no `result` event yields `kind: "ok"` with raw stdout as display text, null usage/cost, and a warning naming the missing terminal result event.
+- [x] A stream-json run whose terminal `result` event is a verified quota envelope (`is_error: true`, `api_error_status: 429`, quota message) settles `kind: "quota"` with the stdout preserved in `stderr`, not `ok`.
+- [x] Existing `shared/invocation/agents.test.ts` and `claude-json.test.ts` cases for codex, cursor, quota/model_config/transient classification stay green (classification is unchanged by this port).
 
 ## Documentation updates
 

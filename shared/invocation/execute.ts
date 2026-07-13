@@ -75,14 +75,14 @@ export type InvocationCompletedRecord = {
   branch: string;
   spec_ref: string;
   usage: {
-    input_tokens: null;
-    output_tokens: null;
-    cache_read_input_tokens: null;
-    cache_creation_input_tokens: null;
+    input_tokens: number | null;
+    output_tokens: number | null;
+    cache_read_input_tokens: number | null;
+    cache_creation_input_tokens: number | null;
   };
-  usage_source: null | "unavailable";
-  cost_usd: null;
-  cost_source: null | "unavailable";
+  usage_source: "agent" | "estimated" | "unavailable";
+  cost_usd: number | null;
+  cost_source: "agent" | "computed" | "estimated" | "no-price" | "no-usage" | "unavailable";
   exit_kind: InvocationResult["kind"];
   exit_reason: string | null;
 };
@@ -204,6 +204,9 @@ function createInvocationCompletedRecord<T extends InvocationResult>(args: {
   result: T;
   durationMs: number;
 }): InvocationCompletedRecord {
+  const isOk = args.result.kind === "ok";
+  const okResult = isOk ? (args.result as InvocationOk) : null;
+
   return {
     schema_version: 1,
     record_kind: "invocation_completed",
@@ -224,15 +227,15 @@ function createInvocationCompletedRecord<T extends InvocationResult>(args: {
     worktree_path: args.telemetry.worktreePath,
     branch: args.telemetry.branch,
     spec_ref: args.telemetry.specRef,
-    usage: {
+    usage: okResult?.usage ?? {
       input_tokens: null,
       output_tokens: null,
       cache_read_input_tokens: null,
       cache_creation_input_tokens: null,
     },
-    usage_source: "unavailable",
-    cost_usd: null,
-    cost_source: "unavailable",
+    usage_source: okResult?.usage_source ?? "unavailable",
+    cost_usd: okResult?.cost_usd ?? null,
+    cost_source: okResult?.cost_source ?? "unavailable",
     exit_kind: args.result.kind,
     exit_reason:
       args.result.kind === "ok"

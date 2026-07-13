@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, cpSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -2065,11 +2065,7 @@ describe("executeWorkflow linked implement routing", () => {
     mkdirSync(specDir, { recursive: true });
     const projectRootIndexContent = "- [ ] [Sub](./sub.md)\n";
     writeFileSync(join(specDir, "index.md"), projectRootIndexContent, "utf8");
-    writeFileSync(
-      join(specDir, "sub.md"),
-      "# Sub\n\n## Acceptance criteria\n\n- [ ] criterion\n",
-      "utf8",
-    );
+    writeFileSync(join(specDir, "sub.md"), "# Sub\n\n## Acceptance criteria\n\n- [ ] criterion\n", "utf8");
 
     const home = createJarvisHome();
     roots.push(home.jarvisRoot);
@@ -2085,11 +2081,7 @@ describe("executeWorkflow linked implement routing", () => {
         specPath: "spec/index.md",
         expectedArtifactPath: "spec/index.md",
         createBinding: createBindingFactory(async ({ cwd }) => {
-          writeFileSync(
-            join(cwd, "spec", "sub.md"),
-            "# Sub\n\n## Acceptance criteria\n\n- [x] criterion\n",
-            "utf8",
-          );
+          writeFileSync(join(cwd, "spec", "sub.md"), "# Sub\n\n## Acceptance criteria\n\n- [x] criterion\n", "utf8");
           return { kind: "ok", stdout: "done", stderr: "" } as const;
         }),
       }),

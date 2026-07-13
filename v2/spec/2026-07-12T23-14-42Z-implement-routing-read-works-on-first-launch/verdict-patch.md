@@ -1,0 +1,1 @@
+No issues require action — verdict is empty. All adversary findings are either explicitly accepted deferrals stated in the spec (index-freshness assumption, relative-path safety) or a pre-existing gap (resume-after-worktree-deletion crash) that predates this diff and is outside its stated scope.

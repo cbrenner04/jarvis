@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Fail the completion boundary on no-commit + dirty worktree](./00-fail-completion-on-dirty-no-commit.md)
+- [x] [00 - Fail the completion boundary on no-commit + dirty worktree](./00-fail-completion-on-dirty-no-commit.md)

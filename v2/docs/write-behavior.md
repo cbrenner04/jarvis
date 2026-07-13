@@ -20,6 +20,12 @@ on a prior attempt but publication never confirmed success — reports that
 existing `commitSha` again rather than no-op'ing, so resume re-attempts
 publication instead of masking a failed publish as success.
 
+When the committer returns no `commitSha` (a true no-op), the completion boundary
+checks the worktree for uncommitted changes (`git status --porcelain`). If dirty, the
+run records `completion_commit_failed` (resumable) and names the uncommitted paths in
+`completionCommitError`; a clean worktree still records `complete`. This guarantees a
+reported `complete` always implies a commit exists.
+
 **Push+PR phase:** (when commit succeeds, or resume finds an already-committed
 HEAD) gates on a single injectable `gh` readiness probe (`gh auth status`;
 nonzero exit, including a missing binary, is not-ready) before pushing to origin

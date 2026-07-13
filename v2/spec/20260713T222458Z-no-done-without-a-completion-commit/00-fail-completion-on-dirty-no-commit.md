@@ -24,15 +24,15 @@ modified files still dirty in the worktree, no PR — reported to the operator a
 
 ## Acceptance criteria
 
-- [ ] A completion boundary where the committer returns no commit sha and the worktree still has
+- [x] A completion boundary where the committer returns no commit sha and the worktree still has
       uncommitted changes records `completion_commit_failed` (resumable), not `complete` — in
       `executeWriteLoop`'s fresh-completion path, its already-complete republish path, and
       `runWorkflow`'s completion step.
-- [ ] `completionCommitError` on that outcome names the uncommitted paths.
-- [ ] The `loop_finished` record emitted at that boundary carries
+- [x] `completionCommitError` on that outcome names the uncommitted paths.
+- [x] The `loop_finished` record emitted at that boundary carries
       `loopOutcomeKind: "completion_commit_failed"`.
-- [ ] A completion boundary with no commit sha and a clean worktree still records `complete`.
-- [ ] Existing `write-loop.test.ts` / `workflow-runner.test.ts` completion-boundary tests and
+- [x] A completion boundary with no commit sha and a clean worktree still records `complete`.
+- [x] Existing `write-loop.test.ts` / `workflow-runner.test.ts` completion-boundary tests and
       `completion-commit.test.ts` stay green (no-op and republish paths unchanged for clean
       worktrees).
 

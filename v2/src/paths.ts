@@ -1,13 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-/**
- * Root of the jarvis home directory. `JARVIS_HOME` overrides the real `~/.jarvis`.
- *
- * Resolve every jarvis-home path through this — never call `homedir()` directly. The test
- * preload points `JARVIS_HOME` at a temp dir so the suite cannot write into the operator's
- * home; before that, fixture rows were appended to the real `telemetry.jsonl`.
- */
+/** The only jarvis-home resolver: `homedir()` elsewhere escapes the tests' isolated home. */
 export function jarvisHome(): string {
   return process.env.JARVIS_HOME ?? join(homedir(), ".jarvis");
 }

@@ -56,9 +56,7 @@ describe("jarvis home isolation", () => {
   });
 
   test("no v2 source resolves a jarvis-home path via homedir() directly", () => {
-    // `jarvisHome()` is the single seam. A new `homedir()` call site silently reintroduces the
-    // pollution that made 93% of the operator's telemetry.jsonl fixture rows, so fail here
-    // rather than in their home directory.
+    // Fail here rather than silently in the operator's home directory.
     const offenders: string[] = [];
     const walk = (dir: string): void => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {

@@ -36,6 +36,10 @@ import {
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import { executePlanReviewCycle, type PlanReviewCycleOutcome } from "./render-plan-review-prompts.ts";
 import {
+  renderIntentReviewActuatorPrompt,
+  renderIntentReviewCriticPrompt,
+} from "./render-intent-review-prompts.ts";
+import {
   executeReviewCycle,
   type ReviewCycleInput,
   type ReviewCycleResult,
@@ -1671,6 +1675,15 @@ async function runStandardReviewStep(
   const { stepId } = step;
   const reviewCycleInput: ReviewCycleInput = {
     ...reviewInput,
+    ...(deferredIntentOutput !== undefined
+      ? {
+          prompt: () =>
+            renderIntentReviewCriticPrompt({
+              stagingDir: deferredIntentOutput.stagingDir,
+              verdictPath: step.verdictPath,
+            }),
+        }
+      : {}),
     bindings,
     ...buildReviewStepTelemetryFields(step, ids, telemetry),
     ...buildReviewStepOnRoleStart(invocationId, stepId, onProgress),
@@ -1679,7 +1692,14 @@ async function runStandardReviewStep(
   const enforcementResult =
     deferredIntentOutput !== undefined
       ? await executeReviewCycleEnforced({
-          input: reviewCycleInput,
+          input: {
+            ...reviewCycleInput,
+            actuatorPromptRenderer: (verdict) =>
+              renderIntentReviewActuatorPrompt(
+                { stagingDir: deferredIntentOutput.stagingDir, verdictPath: step.verdictPath },
+                verdict,
+              ),
+          },
           invocationId: deferredIntentOutput.invocationId,
           stagingDir: deferredIntentOutput.stagingDir,
           cwd: step.cwd,

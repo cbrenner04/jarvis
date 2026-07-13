@@ -4,13 +4,13 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "../../../shared/prompts/step-rules.ts";
 import { buildPrDescriptionPrompt as buildPatchPrDescriptionPrompt } from "../../src/modes/patch/pr-description-prompt.ts";
 import { buildReviewPrompt as buildPatchReviewPrompt, buildPrompt } from "../../src/modes/patch/prompt.ts";
 import { buildDraftPrompt } from "../../src/modes/plan/draft.ts";
 import { buildPrDescriptionPrompt as buildPlanPrDescriptionPrompt } from "../../src/modes/plan/pr-description-prompt.ts";
 import { buildReviewPrompt } from "../../src/modes/plan/review.ts";
 import { buildVerdictActuatorPrompt } from "../../src/modes/plan/verdict-actuator.ts";
-import { DEFAULT_WRITE_STEP_RULES } from "../../../v2/src/execution/write-loop-input.ts";
 
 type WrapperVariant = "codex.exec.stdin+marker";
 

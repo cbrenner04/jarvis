@@ -4,7 +4,7 @@ import { dirname, join, relative } from "node:path";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { renderTemplateWithDeclarations } from "../../../../shared/prompts/render.ts";
-import { DEFAULT_WRITE_STEP_RULES } from "../../../../v2/src/execution/write-loop-input.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "../../../../shared/prompts/step-rules.ts";
 
 export type BuildPromptExtras = {
   repoGuidance?: string;

@@ -546,6 +546,10 @@ including a role-failed cycle, but not pre-critic failures or landing attempts.
 Each ordinary review step receives a fresh synthesized run ID and invokes
 `onStepRunCreated` before role execution. Reviewed-intent review instead records
 a durable run and uses it to resume landing after a recorded landing failure.
+That run row's `specRef` and `specPath` identify what it reviewed: `specRef` is
+`deferredIntentOutput.baseRef` (the base ref reviewed against) and `specPath` is
+`deferredIntentOutput.stagingDir` (the staged intent tree under review, not the
+verdict path).
 A review-only invocation gets a fresh snapshot and starts at cycle zero. A mixed workflow may reuse a matching snapshot found through a
 durable write or human step; matching includes each review entry's
 `(stepId, behavior)`. Review entries remain in authored order in daemon/TUI

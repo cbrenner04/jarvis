@@ -1802,10 +1802,10 @@ async function runReviewStep(
     deferredIntentOutput !== undefined
       ? store.createRun({
           project: step.project,
-          specRef: "",
+          specRef: deferredIntentOutput.baseRef,
           worktreePath: step.cwd,
           branch: step.branch,
-          specPath: "",
+          specPath: deferredIntentOutput.stagingDir,
           stepId: step.stepId,
         })
       : crypto.randomUUID();

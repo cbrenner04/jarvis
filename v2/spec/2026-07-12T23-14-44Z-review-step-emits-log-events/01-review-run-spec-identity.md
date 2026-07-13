@@ -13,8 +13,8 @@ or tails does not say what was reviewed.
 
 ## Acceptance criteria
 
-- [ ] A reviewed-intent review step's run row carries the base ref it reviewed against in `specRef` and the staged intent tree path in `specPath`.
-- [ ] `v2/src/execution/workflow-runner.test.ts` asserts both fields on the loaded review run row.
+- [x] A reviewed-intent review step's run row carries the base ref it reviewed against in `specRef` and the staged intent tree path in `specPath`.
+- [x] `v2/src/execution/workflow-runner.test.ts` asserts both fields on the loaded review run row.
 
 ## Documentation updates
 

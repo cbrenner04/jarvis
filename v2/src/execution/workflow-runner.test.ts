@@ -2651,6 +2651,12 @@ describe("executeWorkflow review dispatch", () => {
     await withStateStore(async (store) => {
       const result = await executeWorkflow({ steps: [step], stateStore: store });
       expect(result).toMatchObject({ kind: "complete", iterationsConsumed: 1 });
+
+      const runRow = store.loadRun(result.runId);
+      expect(runRow).toMatchObject({
+        specRef: "none",
+        specPath: join(workspace, ".jarvis-intent-stage"),
+      });
     });
 
     expect(observedCwds).toEqual([workspace, workspace]);

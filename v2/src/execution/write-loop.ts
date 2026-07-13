@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { openSessionLog, type SessionLog } from "../../../shared/invocation/session-log.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { INVALID_TOKEN_LOG_MAX_CHARS, type LogSink } from "../persistence/log-stream.ts";
 import {
@@ -9,7 +10,6 @@ import {
   type StateStore,
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
-import { openSessionLog, type SessionLog } from "../../../shared/invocation/session-log.ts";
 import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
 import { type CompletionPublisher, createCompletionPublisher } from "./completion-publisher.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";

@@ -234,7 +234,13 @@ describe.serial("write loop session logs", () => {
 
     try {
       const result = await executeWriteLoop({
-        worktree: { projectRoot: "/fake", projectName: "demo", branchName: "session-throw", baseRef: "HEAD", jarvisRoot },
+        worktree: {
+          projectRoot: "/fake",
+          projectName: "demo",
+          branchName: "session-throw",
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
         specPath: "spec.md",
         stepRules: "Return exactly one terminal token.",
         expectedArtifactPath: "proof.txt",

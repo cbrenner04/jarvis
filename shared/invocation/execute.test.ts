@@ -244,9 +244,9 @@ describe("shared invocation fallback", () => {
     });
 
     expect(seenAtInvoke.map((l) => l.tag)).toEqual(["harness", "outbound"]);
-    expect(seenAtInvoke.some((l) => l.text.includes("only") && l.text.includes("claude") && l.text.includes("sonnet"))).toBe(
-      true,
-    );
+    expect(
+      seenAtInvoke.some((l) => l.text.includes("only") && l.text.includes("claude") && l.text.includes("sonnet")),
+    ).toBe(true);
     expect(seenAtInvoke.some((l) => l.text === "the prompt")).toBe(true);
     expect(lines.filter((l) => l.tag === "inbound_stdout").map((l) => l.text)).toEqual(["out-line"]);
     expect(lines.filter((l) => l.tag === "inbound_stderr").map((l) => l.text)).toEqual(["err-line"]);

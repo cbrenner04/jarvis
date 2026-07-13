@@ -121,7 +121,23 @@ Template for a new gotcha:
 3. `gh auth status` — required for completion publish paths.
 4. Register the jarvis repo if needed: `jarvis1 init` from the project root.
 5. Read `.scratch/v2-seeds-ready-intents-prioritization.md` for current gates.
-6. Sweep open [harness-suggestion issues](https://github.com/cbrenner04/jarvis/issues?q=label%3Aharness-suggestion+is%3Aopen).
+6. Sweep open [harness-suggestion issues](https://github.com/cbrenner04/jarvis/issues?q=label%3Aharness-suggestion+is%3Aopen)
+   — **and read their comments.**
+
+**Issue comments are not returned by default.** `gh issue list` gives titles only, and
+`gh issue view <n>` omits comments unless you ask for them. The owner routinely adds
+decisive context as a comment after filing, so triaging from the body alone will get
+it wrong:
+
+```sh
+gh issue view <n> --repo cbrenner04/jarvis --comments
+```
+
+Observed 2026-07-12 on intake #1453: the body proposed a full sandbox-policy
+architecture; the owner's comment said *"written with no familiarity with the harness
+— confirm assumptions prior to creating a seed."* Three core assumptions then failed
+against the code, and the resulting seed was a fraction of what the body asked for.
+See [v1 runbook § Triage](../../v1/docs/operator-runbook.md#triage-jarvis-on-jarvis-operator).
 
 ## Core operator paths
 
@@ -291,6 +307,35 @@ If review dirties the primary checkout, treat as a harness bug; seed
 Responsive-daemon specs and seed `nonblocking-ready-gate-and-guard` address sync
 subprocess on the daemon event loop. Symptom: `jarvis run list` hangs while a run
 finalizes. Check for `bun run ready` or `git` children on the daemon PID.
+
+## Choosing an actuator (2026-07-12)
+
+**Do not lead patch/implement with claude until `claude-streams-output-to-watchdog`
+ships.** Jarvis spawns claude with `--output-format json` (`v1/src/agents/claude.ts:67`)
+— a batch envelope emitted once at exit — so `spawn.ts`'s `stdout.on("data")`
+activity bump never fires mid-iteration. Result: **33 of 33** claude patch records
+carry `last_output_age_ms: null`. The idle-output watchdog is structurally blind to
+claude, cannot escalate down `agentOrder`, and a live-but-slow claude run rides
+`iterationTimeoutMs` to exit 8.
+
+Use a per-run override rather than churning config:
+
+```sh
+jarvis1 run --agent cursor:"Composer 2.5" <spec>   # free; verify `cursor-agent status` first
+jarvis1 run --agent codex <spec>                   # paid, fast
+```
+
+Claude remains fine for `plan` / `review` — those observe output normally.
+
+**This supersedes the "claude shares the Claude pool with the operator session"
+guidance in the v1 runbook.** That theory is contradicted: two concurrent
+`claude-opus-4-8` *plan* runs completed cleanly during the very claude *patch* run
+that "stalled", same pool, same Claude operator session. Zero output is a missing
+measurement, not a starved agent.
+
+Cleanup: delete this section when `claude-streams-output-to-watchdog` ships (seed:
+`v1/spec/seeds/patch-watchdog-blind-to-claude-output.md`), and retire the folklore
+via `retire-claude-pool-contention-folklore`.
 
 ## Concurrency
 

@@ -5,34 +5,47 @@ export function formatLogFollowLine(record: PersistedRecord): string {
   const parts = [`seq=${record.seq}`, `kind=${record.event.kind}`];
   const event = record.event;
 
+  /** Append `key=value`, skipping absent values. */
+  const add = (key: string, value: string | number | boolean | undefined): void => {
+    if (value !== undefined) parts.push(`${key}=${value}`);
+  };
+  /** Append `key="quoted"`, skipping absent values. */
+  const addQuoted = (key: string, value: string | undefined): void => {
+    if (value !== undefined) parts.push(`${key}=${JSON.stringify(value)}`);
+  };
+  /** Append `key="quoted"`, skipping empty text. */
+  const addText = (key: string, text: string): void => {
+    if (text.length > 0) parts.push(`${key}=${JSON.stringify(text)}`);
+  };
+
   switch (event.kind) {
     case "iteration_started":
-      if (event.attemptId !== undefined) parts.push(`attemptId=${event.attemptId}`);
+      add("attemptId", event.attemptId);
       break;
     case "boundary_committed":
-      if (event.attemptId !== undefined) parts.push(`attemptId=${event.attemptId}`);
-      if (event.outcomeKind !== undefined) parts.push(`outcomeKind=${event.outcomeKind}`);
-      if (event.runStatus !== undefined) parts.push(`runStatus=${event.runStatus}`);
+      add("attemptId", event.attemptId);
+      add("outcomeKind", event.outcomeKind);
+      add("runStatus", event.runStatus);
       break;
     case "loop_finished":
-      if (event.loopOutcomeKind !== undefined) parts.push(`loopOutcomeKind=${event.loopOutcomeKind}`);
-      if (event.iterationsConsumed !== undefined) parts.push(`iterationsConsumed=${event.iterationsConsumed}`);
-      if (event.resumable !== undefined) parts.push(`resumable=${event.resumable}`);
+      add("loopOutcomeKind", event.loopOutcomeKind);
+      add("iterationsConsumed", event.iterationsConsumed);
+      add("resumable", event.resumable);
       break;
     case "run_execution_failed":
-      if (event.message !== undefined) parts.push(`message=${JSON.stringify(event.message)}`);
+      addQuoted("message", event.message);
       break;
     case "run_reconciled":
-      parts.push(`runStatus=${event.runStatus}`);
-      parts.push(`reason=${event.reason}`);
+      add("runStatus", event.runStatus);
+      add("reason", event.reason);
       break;
     case "invalid_token_detail":
-      if (event.attemptId !== undefined) parts.push(`attemptId=${event.attemptId}`);
-      if (event.tokenText.length > 0) parts.push(`tokenText=${JSON.stringify(event.tokenText)}`);
+      add("attemptId", event.attemptId);
+      addText("tokenText", event.tokenText);
       break;
     case "token_reprompt":
-      if (event.attemptId !== undefined) parts.push(`attemptId=${event.attemptId}`);
-      if (event.responseText.length > 0) parts.push(`responseText=${JSON.stringify(event.responseText)}`);
+      add("attemptId", event.attemptId);
+      addText("responseText", event.responseText);
       break;
   }
 

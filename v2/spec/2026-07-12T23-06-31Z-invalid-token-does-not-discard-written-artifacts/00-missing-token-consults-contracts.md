@@ -18,10 +18,10 @@ are exactly the evidence that would settle the outcome.
 
 ## Acceptance criteria
 
-- [ ] A write step whose agent emits no terminal token but whose artifact contract is satisfied returns `complete` (token `done`), and the loop commits and publishes the artifacts as it does for a token-emitting completion.
-- [ ] A plan-draft step with no terminal token whose spec tree is valid returns `complete`; the same step whose agent appended a genuine `## Blocker` to `intent.md` does not complete.
-- [ ] A write step with no terminal token and an unsatisfied artifact contract still returns `invalid_token` (with `tokenText`), and no `## Blocker` is appended to the spec.
-- [ ] `step-runner.test.ts` token-parsing and `contract_miss` tests stay green (contract dispatch for token-emitting steps is unchanged).
+- [x] A write step whose agent emits no terminal token but whose artifact contract is satisfied returns `complete` (token `done`), and the loop commits and publishes the artifacts as it does for a token-emitting completion.
+- [x] A plan-draft step with no terminal token whose spec tree is valid returns `complete`; the same step whose agent appended a genuine `## Blocker` to `intent.md` does not complete.
+- [x] A write step with no terminal token and an unsatisfied artifact contract still returns `invalid_token` (with `tokenText`), and no `## Blocker` is appended to the spec.
+- [x] `step-runner.test.ts` token-parsing and `contract_miss` tests stay green (contract dispatch for token-emitting steps is unchanged).
 
 ## Documentation updates
 

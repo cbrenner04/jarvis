@@ -267,7 +267,7 @@ describe("step runner classification", () => {
       prompt: "p",
       cwd: "/tmp",
       bindings: [okBinding("not-a-token")],
-      contracts: [],
+      contracts: [{ id: "artifact", check: () => false }],
       telemetry: writeStepTelemetry(rows, ["inv-2"]),
     });
 
@@ -332,12 +332,70 @@ describe("step runner token re-prompt", () => {
     expect(result.reprompt?.responseText).toBe("");
   });
 
+  test("missing token with passing contracts returns complete with done", async () => {
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [sequencedBinding(["wrote the artifact", "still no token"])],
+      contracts: [{ id: "artifact.exists", check: () => true }],
+    });
+
+    expect(result.kind).toBe("complete");
+    if (result.kind === "complete") expect(result.token).toBe("done");
+  });
+
+  test("missing token with failing contract returns invalid_token not contract_miss", async () => {
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [sequencedBinding(["wrote the artifact", "still no token"])],
+      contracts: [{ id: "artifact.exists", check: () => false }],
+    });
+
+    expect(result.kind).toBe("invalid_token");
+    if (result.kind === "invalid_token") expect(result.tokenText).toBe("wrote the artifact");
+  });
+
+  test("missing token with plan draft contracts passes when shape is valid", async () => {
+    const contracts: StepContract[] = [
+      { id: "plan.draft.blocker", check: () => true },
+      { id: "artifact.exists", check: () => true },
+    ];
+
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [sequencedBinding(["created index.md and 00-subspec.md", "no token here"])],
+      contracts,
+    });
+
+    expect(result.kind).toBe("complete");
+    if (result.kind === "complete") expect(result.token).toBe("done");
+  });
+
+  test("missing token with plan draft blocker contract does not complete", async () => {
+    const contracts: StepContract[] = [
+      { id: "plan.draft.blocker", check: () => false },
+      { id: "artifact.exists", check: () => true },
+    ];
+
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [sequencedBinding(["appended blocker to intent.md", "no token here"])],
+      contracts,
+    });
+
+    expect(result.kind).toBe("invalid_token");
+    if (result.kind === "invalid_token") expect(result.tokenText).toBe("appended blocker to intent.md");
+  });
+
   test("second miss classifies as invalid_token with the first response's text", async () => {
     const result = await runStep({
       prompt: "p",
       cwd: "/tmp",
       bindings: [sequencedBinding(["not a token", "still not a token"])],
-      contracts: [],
+      contracts: [{ id: "artifact.exists", check: () => false }],
     });
 
     expect(result.kind).toBe("invalid_token");
@@ -349,7 +407,7 @@ describe("step runner token re-prompt", () => {
       prompt: "p",
       cwd: "/tmp",
       bindings: [sequencedBinding(["", "done, no-work, blocked, or progress?"])],
-      contracts: [],
+      contracts: [{ id: "artifact.exists", check: () => false }],
     });
 
     expect(result.kind).toBe("invalid_token");
@@ -411,13 +469,18 @@ describe("step runner token re-prompt", () => {
       },
     ];
 
-    const result = await runStep({ prompt: "p", cwd: "/tmp", bindings, contracts: [] });
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings,
+      contracts: [{ id: "artifact.exists", check: () => false }],
+    });
 
     expect(invocations).toBe(2);
     expect(result.kind).toBe("invalid_token");
   });
 
-  test("a failed re-prompt invocation classifies the step as invalid_token, not invocation_failure", async () => {
+  test("a failed re-prompt invocation classifies as invalid_token when contracts fail", async () => {
     let invocations = 0;
     const bindings: InvocationBinding[] = [
       {
@@ -430,10 +493,39 @@ describe("step runner token re-prompt", () => {
       },
     ];
 
-    const result = await runStep({ prompt: "p", cwd: "/tmp", bindings, contracts: [] });
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings,
+      contracts: [{ id: "artifact.exists", check: () => false }],
+    });
 
     expect(result.kind).toBe("invalid_token");
     if (result.kind === "invalid_token") expect(result.tokenText).toBe("not a token");
+  });
+
+  test("a failed re-prompt invocation classifies as complete when contracts pass", async () => {
+    let invocations = 0;
+    const bindings: InvocationBinding[] = [
+      {
+        id: "agent",
+        invoke: async () => {
+          invocations += 1;
+          if (invocations === 1) return { kind: "ok", stdout: "wrote files", stderr: "" };
+          return { kind: "quota", stderr: "quota" };
+        },
+      },
+    ];
+
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings,
+      contracts: [{ id: "artifact.exists", check: () => true }],
+    });
+
+    expect(result.kind).toBe("complete");
+    if (result.kind === "complete") expect(result.token).toBe("done");
   });
 
   test("a re-prompted done whose expected artifact is absent classifies as contract_miss", async () => {

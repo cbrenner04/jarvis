@@ -15,14 +15,19 @@ Contract:
 - `blocked` returns a typed blocked result and never runs contracts.
 - Contract miss after `done`/`no-work` returns a hard non-success result distinct
   from agent-declared `blocked`.
+- After the token-only re-prompt, a still-missing token runs the same contract
+  checks as `done`/`no-work`: all pass → `complete` (token `done`); any fail →
+  `invalid_token` with the first response's text (not `contract_miss` — the
+  agent made no terminal claim to contradict).
 - Runner does not hide retries and does not trigger a second invocation on
   contract miss. One bounded exception: a first response carrying no terminal
   token (including an empty response) triggers exactly one token-only
   re-prompt (`write.token-reprompt`) over the same ordered bindings before
   classification; a second miss — no exact token in the re-prompt reply —
-  classifies as `invalid_token` with the *first* response's text. The
-  re-prompt reply is accepted only as an exact token, not the lenient scan
-  used for the first response. `StepRunResult.invocation` stays the original
+  runs contract checks: all pass → `complete` (token `done`); any fail →
+  `invalid_token` with the *first* response's text. The re-prompt reply is
+  accepted only as an exact token, not the lenient scan used for the first
+  response. `StepRunResult.invocation` stays the original
   step invocation regardless; when a re-prompt fired, the result also carries
   a `reprompt` field (the first response text plus the re-prompt's own
   `InvocationExecution`) for the caller to log — the runner itself does not

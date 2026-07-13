@@ -1,5 +1,9 @@
 # Operator session — v2 preset sweep, P0 recovery, P1 complete (2026-07-12T22:15Z → 2026-07-13T07:00Z)
 
+```sh
+claude --resume ad5446e1-052b-4455-8705-237e3637bd63
+```
+
 ## Summary
 
 Dogfooded all six v2 workflow presets against real work. **Every preset that drives

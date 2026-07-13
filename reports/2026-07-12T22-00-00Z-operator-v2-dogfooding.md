@@ -4,6 +4,10 @@ Session driven from an owner brief of four loosely-specified complaints about v2
 All four are addressed; three blockers *not* in the brief were found by trying to
 use v2 to fix v2, and two of those had to be fixed before the brief could proceed.
 
+```sh
+claude --resume 0d00675c-b4eb-4d19-98b5-7bee310f926c
+```
+
 - **Specs driven:** 14 (13 completed, 1 blocked)
 - **Seeds authored:** 8
 - **Jarvis spend:** $89.06 (operator-driven) · **Operator session:** $120.90 · **Total: $209.96**
@@ -160,7 +164,7 @@ taken `run-cannot-report-complete-over-red-gate`.
 ## Cost
 
 | | Amount |
-|---|---|
+| --- | --- |
 | Jarvis (14 specs: plan $36.66 + run $52.40) | **$89.06** |
 | Operator session (opus-4.8 1M) | **$120.90** |
 | **Total** | **$209.96** |

@@ -8,6 +8,10 @@ details are deferred — see [Deferred](#deferred-to-first-enforcement-consumer)
 Related: [`shared-invocation.md`](./shared-invocation.md), [`role-resolution.md`](./role-resolution.md),
 [`v1-behaviors.md`](./v1-behaviors.md).
 
+When a run hangs before structured log records accrue, read the invocation session
+log first: `~/.jarvis/sessions/<run-id>-<timestamp>.log` (one file per write-loop
+iteration; see [`daemon-host.md`](./daemon-host.md#invocation-session-logs)).
+
 ## Terminology
 
 | Term | Meaning |

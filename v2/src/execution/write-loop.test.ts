@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
@@ -229,6 +229,10 @@ function progressThenDone(n: number): InvocationBinding[] {
 }
 
 describe("write loop", () => {
+  afterEach(() => {
+    mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+  });
+
   test("calls executeWrite repeatedly until terminal", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
 

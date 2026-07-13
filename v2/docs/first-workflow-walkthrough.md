@@ -136,6 +136,23 @@ jarvis run log 7f3a9c2e-4b1d-4e8a-9f0c-1a2b3c4d5e6f
 
 One compact JSON object per line per persisted record.
 
+### Invocation session logs
+
+When a run stalls or fails before structured records accrue, read the on-disk
+invocation session log for the active iteration:
+
+```bash
+ls -t ~/.jarvis/sessions/<run-id>-*.log | head -1 | xargs cat
+```
+
+Each write-loop iteration opens `~/.jarvis/sessions/<run-id>-<timestamp>.log`
+(millisecond, filesystem-safe timestamp). Lines use the same `[tag]` transcript
+format as v1 (`harness`, `outbound`, `inbound_stdout`, `inbound_stderr`). The
+loop stamps run/spec/iteration before spawn and `outcome=…` at settle. A stalled
+invocation may have harness + outbound only — no `inbound_*` until the binding
+settles. Structured `jarvis run log` records remain the durable run timeline once
+they exist.
+
 ### Nothing is happening
 
 Read the detached daemon's stdout/stderr separately from a run's structured

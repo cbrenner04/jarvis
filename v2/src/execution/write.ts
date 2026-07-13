@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
+import type { SessionLog } from "../../../shared/invocation/session-log.ts";
 import {
   buildIntentSplitPrompt,
   INTENT_SPLIT_PROMPT_ID,
@@ -183,6 +184,7 @@ export type WriteExecuteInput = {
   intentSeed?: string;
   intentBefore?: string;
   completionValidator?: (specDir: string) => { valid: boolean; reason?: string };
+  sessionLog?: SessionLog;
 };
 
 type WriteExecuteResult = {
@@ -197,6 +199,7 @@ type WriteStepContext = {
   bindings: readonly InvocationBinding[];
   signal?: AbortSignal;
   invocationTelemetry?: Omit<InvocationTelemetryContext, "worktreePath">;
+  sessionLog?: SessionLog;
 };
 
 function runWriteStep(
@@ -219,6 +222,7 @@ function runWriteStep(
           },
         }
       : {}),
+    ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),
   });
 }
 
@@ -289,6 +293,7 @@ async function executePlanDraftWrite(
     contracts,
     ...(args.signal !== undefined ? { signal: args.signal } : {}),
     ...(args.invocationTelemetry !== undefined ? { invocationTelemetry: args.invocationTelemetry } : {}),
+    ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),
   });
 }
 
@@ -326,6 +331,7 @@ async function executeIntentSplitWrite(
     ],
     ...(args.signal !== undefined ? { signal: args.signal } : {}),
     ...(args.invocationTelemetry !== undefined ? { invocationTelemetry: args.invocationTelemetry } : {}),
+    ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),
   });
 }
 
@@ -367,6 +373,7 @@ async function executeDefaultWrite(
     ],
     ...(args.signal !== undefined ? { signal: args.signal } : {}),
     ...(args.invocationTelemetry !== undefined ? { invocationTelemetry: args.invocationTelemetry } : {}),
+    ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),
   });
 }
 

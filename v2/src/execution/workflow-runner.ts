@@ -544,6 +544,13 @@ async function runLinkedImplementStep(
   }
 }
 
+async function getUncommittedPaths(worktreePath: string): Promise<string[]> {
+  return (await gitOutput(worktreePath, ["status", "--porcelain"]))
+    .split("\n")
+    .map((line) => line.slice(3).trim())
+    .filter(Boolean);
+}
+
 /**
  * Execute a multi-step workflow: run each step's behavior to completion before
  * advancing. A non-complete outcome stops at that step.
@@ -702,6 +709,26 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             specPath: publicationSpecPath ?? completionStep.specPath,
             agent: publicationAgent,
           });
+          if (published.commitSha === undefined) {
+            const uncommitted = await getUncommittedPaths(worktreePath);
+            if (uncommitted.length > 0) {
+              args.logSink?.append(lastResult.runId, {
+                kind: "loop_finished",
+                loopOutcomeKind: "completion_commit_failed",
+                iterationsConsumed: totalIterationsConsumed,
+                resumable: true,
+              });
+              return {
+                kind: "completion_commit_failed",
+                stepIndex: args.steps.length - 1,
+                stepId: lastStepId,
+                runId: lastResult.runId,
+                iterationsConsumed: totalIterationsConsumed,
+                resumable: true,
+                completionCommitError: `Uncommitted changes: ${uncommitted.join(", ")}`,
+              };
+            }
+          }
           if (published.commitSha !== undefined) {
             const stamped = lastResult as WriteLoopResult;
             stamped.commitSha = published.commitSha;

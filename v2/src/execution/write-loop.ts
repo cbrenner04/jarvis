@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { openSessionLog, type SessionLog } from "../../../shared/invocation/session-log.ts";
+import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { type LogSink, truncateLogText } from "../persistence/log-stream.ts";
 import {
@@ -100,6 +101,17 @@ export function applyOperatorSessionId(input: WriteLoopInput, operatorSessionId:
 
 const DEFAULT_MAX_ITERATIONS = 10;
 export const DEFAULT_ITERATION_TIMEOUT_MS = 600_000;
+
+async function getUncommittedPaths(worktreePath: string): Promise<string[]> {
+  try {
+    return (await realAsyncSubprocessRunner.runAsync("git", ["status", "--porcelain"], worktreePath))
+      .split("\n")
+      .map((line) => line.slice(3).trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
 type StoredRun = NonNullable<ReturnType<StateStore["loadRun"]>>;
 type PreparedRun =
   | { runId: string; worktreePath: string; resumedAttemptId: string | null; creationTitle?: string }
@@ -144,6 +156,16 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               return publishError.kind === "completion_commit_failed"
                 ? completionCommitFailed(args, prepared.result, publishError.error)
                 : readyFinalizeFailed(args, prepared.result, publishError.error);
+            }
+          }
+          if (published.commitSha === undefined) {
+            const uncommitted = await getUncommittedPaths(getExternalWorktreePath(args.worktree));
+            if (uncommitted.length > 0) {
+              return completionCommitFailed(
+                args,
+                prepared.result,
+                new Error(`Uncommitted changes: ${uncommitted.join(", ")}`),
+              );
             }
           }
           args.logSink?.append(prepared.result.runId, {
@@ -361,6 +383,16 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             return publishError.kind === "completion_commit_failed"
               ? completionCommitFailed(args, attributed, publishError.error)
               : readyFinalizeFailed(args, attributed, publishError.error);
+          }
+        }
+        if (published.commitSha === undefined) {
+          const uncommitted = await getUncommittedPaths(worktreePath);
+          if (uncommitted.length > 0) {
+            return completionCommitFailed(
+              args,
+              attributed,
+              new Error(`Uncommitted changes: ${uncommitted.join(", ")}`),
+            );
           }
         }
         args.logSink?.append(runId, {

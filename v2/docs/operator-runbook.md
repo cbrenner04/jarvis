@@ -243,11 +243,13 @@ Do not assume parity between them. After a v2 implement run, run
 `run-cannot-report-complete-over-red-gate`). Treat `criteria-complete` exit 0 as
 insufficient without a green gate on the branch head.
 
-A v2 implement run reporting `runStatus: "completed"` implies the active subspec's
-non-human-only acceptance criteria are all ticked at the boundary. The spec.criteria-ticked
-contract prevents `done` / `no-work` completions when unticked non-human-only criteria exist,
-re-reading the subspec from the run's worktree and blocking before any completion commit or
-PR publication. This enforces v1's completion contract at the write-step boundary in v2.
+A v2 implement run reporting `runStatus: "completed"` implies both (1) the active subspec's
+non-human-only acceptance criteria are all ticked at the boundary, and (2) a completion commit
+exists. The spec.criteria-ticked contract prevents `done` / `no-work` completions when unticked
+non-human-only criteria exist, re-reading the subspec from the run's worktree and blocking
+before any completion commit or PR publication. The completion boundary enforces (2): when the
+committer returns no new commit and the worktree is dirty, the run records
+`completion_commit_failed` and names the uncommitted paths instead of masking them as `complete`.
 
 v2 TUI tests can pass while ink rendering is broken — see seed
 `tui-tests-bypass-the-render-path` and [`test-writing.md`](./test-writing.md).

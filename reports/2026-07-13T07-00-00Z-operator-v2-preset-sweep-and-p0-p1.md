@@ -244,9 +244,50 @@ Note the plan rows: every one is `plan-review-ok` on claude, and plan output tok
 (20k–38k each) dwarf plan input. Plans are cheap and reliable; implementation is where
 the cost and the failure both live.
 
+### Per-spec cost
+
+| Spec | Plan | Run | Total |
+| --- | ---: | ---: | ---: |
+| `daemon-process-log-read` | — | $2.17 | $2.17 |
+| `run-async-path-terminal-log-event` | $3.03 | $0.00 | $3.03 |
+| `run-invocation-session-log` | $3.14 | $4.79 | $7.93 |
+| `write-step-rules-state-terminal-token-as-output-format` | $3.52 | $2.98 | $6.50 |
+| `write-loop-reprompts-once-for-missing-token` | $3.44 | $0.00 | $3.44 |
+| `invalid-token-does-not-discard-written-artifacts` | $4.07 | $3.65 | $7.72 |
+| `claude-streams-output-to-watchdog` | $3.89 | $1.97 | $5.86 |
+| `write-step-assembles-placeholders-per-prompt-id` | $3.96 | $2.74 | $6.70 |
+| `implement-routing-read-works-on-first-launch` | $2.79 | $2.30 | $5.09 |
+| `blocked-token-requires-blocker-text` | $8.59 | $2.94 | $11.53 |
+| `boundary-outranks-reconcile-status` | $5.28 | $3.01 | $8.29 |
+| `durable-log-seq-unique-per-run` | $5.73 | $2.70 | $8.43 |
+| `implement-prompt-states-terminal-tokens` | $9.05 | $4.96 | $14.01 |
+| `reconciler-scoped-by-daemon-identity` | $8.38 | $2.47 | $10.85 |
+| `review-step-emits-log-events` (plan-only) | $4.16 | — | $4.16 |
+| **Jarvis total** | | | **$105.71** |
+
 ### Operator (orchestration) cost
 
-Pending — operator session stats to be supplied. The four cumulative CSVs
-(`session-costs`, `operator-costs`, `session-outcomes`, `operator-outcomes`) and the
-derived `efficiency.csv` will be updated on receipt, per the
+| | |
+| --- | --- |
+| Model | `claude-opus-4-8[1m]` |
+| Total | **$102.57** (+ $0.0014 haiku) |
+| API time | 1:11:08 |
+| Wall time | 16:15:43 |
+| Tokens in / out | 4,600 / 272,030 |
+| Cache read / write | 169.7M / 1.1M |
+| Cost per spec | $6.84 (15 specs driven) |
+| Cost per 1k tokens | $0.3708 |
+| Code changes | 1,973 added / 137 removed, 183 files |
+
+**Session total: $208.28** (Jarvis $105.71 + operator $102.57). The split is almost
+exactly even — orchestration cost as much as all the agent work it directed.
+
+Recorded in `session-costs.csv`, `operator-costs.csv`, `session-outcomes.csv`,
+`operator-outcomes.csv`, and `efficiency.csv` per the
 [cost-reporting standard](../v1/docs/operator-runbook.md#cost-reporting-standard).
+
+The two most expensive specs are the two that fought the harness hardest:
+`implement-prompt-states-terminal-tokens` ($14.01 — cursor burned ~85 min at zero
+iterations, codex finished in one, then a CI-only EPIPE bug) and
+`blocked-token-requires-blocker-text` ($11.53 — two claude runs died on E2BIG before
+the worktree prune).

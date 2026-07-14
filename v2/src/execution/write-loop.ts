@@ -15,7 +15,7 @@ import { type CompletionCommitter, createCompletionCommitter } from "./completio
 import { type CompletionPublisher, createCompletionPublisher } from "./completion-publisher.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
-import { createReadyFinalizer, ReadyGateError, type ReadyFinalizer } from "./ready-finalize.ts";
+import { createReadyFinalizer, type ReadyFinalizer, ReadyGateError } from "./ready-finalize.ts";
 import { resolveSpecCreationTitle } from "./spec-creation-title.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
@@ -767,6 +767,62 @@ export type CompletionPublishFailure = {
 
 type CompletionPublishInput = Parameters<typeof publishCompletionArtifacts>[1];
 
+/** `unsettled` consumed no iteration; `blocked` and `continue` each consumed one. */
+type ReadyRepairIterationOutcome = "unsettled" | "blocked" | "continue";
+
+/** One repair iteration: reprompt the agent with the gate failure, then record its boundary. */
+async function runReadyRepairIteration(
+  args: WriteLoopInput,
+  store: StateStore,
+  result: WriteLoopResult,
+  gateError: ReadyGateError,
+  iterationNumber: number,
+): Promise<ReadyRepairIterationOutcome> {
+  const attemptId = store.recordAttemptStart(result.runId);
+  args.logSink?.append(result.runId, { kind: "iteration_started", attemptId });
+  const clock = args.clock ?? (() => new Date());
+  const sessionLog = openSessionLog(result.runId, formatSessionLogTimestamp(clock()), {
+    ...(args.sessionsDir !== undefined ? { sessionsDir: args.sessionsDir } : {}),
+    clock,
+  });
+  sessionLog.append("harness", `run=${result.runId} spec=${args.specPath} iteration=${iterationNumber}`);
+
+  const repairArgs: WriteLoopInput = {
+    ...args,
+    promptId: "write.ready-repair",
+    promptPlaceholders: {
+      GATE_COMMAND: gateError.command,
+      GATE_EXIT_CODE: String(gateError.exitCode ?? "unknown"),
+      GATE_OUTPUT: gateError.output.slice(-READY_GATE_OUTPUT_MAX_CHARS),
+    },
+  };
+  const settled = await awaitIteration(repairArgs, result.runId, attemptId, sessionLog);
+  if (settled.kind !== "settled") {
+    closeSessionLog(
+      sessionLog,
+      settled.kind === "timed_out" ? "timeout" : settled.kind === "aborted" ? "abort" : "error",
+    );
+    return "unsettled";
+  }
+  closeSessionLog(sessionLog, "completed");
+
+  const stepResult = settled.result.result;
+  const terminal = stepResult.kind === "progress" ? undefined : terminalMapping(stepResult);
+  const boundary = terminal ?? { runStatus: "in-progress" as const, outcomeKind: "progress" as const };
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: boundary.runStatus,
+    outcomeKind: boundary.outcomeKind,
+  });
+  args.logSink?.append(result.runId, {
+    kind: "boundary_committed",
+    attemptId,
+    outcomeKind: boundary.outcomeKind,
+    runStatus: boundary.runStatus,
+  });
+  return stepResult.kind === "blocked" ? "blocked" : "continue";
+}
+
 async function publishWithReadyRepair(
   args: WriteLoopInput,
   store: StateStore,
@@ -786,40 +842,10 @@ async function publishWithReadyRepair(
       gateExitCode: failure.error.exitCode,
     });
 
-    const attemptId = store.recordAttemptStart(result.runId);
-    args.logSink?.append(result.runId, { kind: "iteration_started", attemptId });
-    const clock = args.clock ?? (() => new Date());
-    const sessionLog = openSessionLog(result.runId, formatSessionLogTimestamp(clock()), {
-      ...(args.sessionsDir !== undefined ? { sessionsDir: args.sessionsDir } : {}),
-      clock,
-    });
-    sessionLog.append("harness", `run=${result.runId} spec=${args.specPath} iteration=${iterationsConsumed + 1}`);
-    const repairArgs: WriteLoopInput = {
-      ...args,
-      promptId: "write.ready-repair",
-      promptPlaceholders: {
-        GATE_COMMAND: failure.error.command,
-        GATE_EXIT_CODE: String(failure.error.exitCode ?? "unknown"),
-        GATE_OUTPUT: failure.error.output.slice(-READY_GATE_OUTPUT_MAX_CHARS),
-      },
-    };
-    const settled = await awaitIteration(repairArgs, result.runId, attemptId, sessionLog);
-    if (settled.kind !== "settled") {
-      closeSessionLog(sessionLog, settled.kind === "timed_out" ? "timeout" : settled.kind === "aborted" ? "abort" : "error");
-      return { failure, iterationsConsumed };
-    }
-    closeSessionLog(sessionLog, "completed");
+    const outcome = await runReadyRepairIteration(args, store, result, failure.error, iterationsConsumed + 1);
+    if (outcome === "unsettled") return { failure, iterationsConsumed };
     iterationsConsumed += 1;
-    const stepResult = settled.result.result;
-    const terminal = stepResult.kind === "progress" ? undefined : terminalMapping(stepResult);
-    if (terminal === undefined) {
-      store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
-      args.logSink?.append(result.runId, { kind: "boundary_committed", attemptId, outcomeKind: "progress", runStatus: "in-progress" });
-    } else {
-      store.commitCompletionBoundary({ attemptId, runStatus: terminal.runStatus, outcomeKind: terminal.outcomeKind });
-      args.logSink?.append(result.runId, { kind: "boundary_committed", attemptId, outcomeKind: terminal.outcomeKind, runStatus: terminal.runStatus });
-      if (stepResult.kind === "blocked") return { failure, iterationsConsumed };
-    }
+    if (outcome === "blocked") return { failure, iterationsConsumed };
     try {
       await (args.completionCommitter ?? createCompletionCommitter())({
         worktreePath: input.worktreePath,

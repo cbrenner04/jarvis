@@ -141,7 +141,9 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
   // Arm idle watchdog if configured
   const draftArmedAt = Date.now();
   const draftIdleOutputTimeoutMs =
-    opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? DEFAULT_IDLE_OUTPUT_TIMEOUT_MS);
+    opts.idleOutputTimeoutMs !== undefined
+      ? opts.idleOutputTimeoutMs
+      : (opts.config.idleOutputTimeoutMs ?? DEFAULT_IDLE_OUTPUT_TIMEOUT_MS);
   const draftWorktreeDir = opts.planWorktreeDir ?? opts.worktreePath;
   if (draftIdleOutputTimeoutMs > 0) {
     const scheduleDraftIdleCheck = () => {

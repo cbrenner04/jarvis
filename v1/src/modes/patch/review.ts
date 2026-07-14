@@ -7,7 +7,12 @@ import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.
 import { createAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../agents/types.ts";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
-import { DEFAULT_IDLE_OUTPUT_TIMEOUT_MS, type AgentEntry, type Config, resolveSubRoleAgentOrder } from "../../config.ts";
+import {
+  type AgentEntry,
+  type Config,
+  DEFAULT_IDLE_OUTPUT_TIMEOUT_MS,
+  resolveSubRoleAgentOrder,
+} from "../../config.ts";
 import { getBaseBranch, postPrComment, withSyncTransientRetry } from "../../gh.ts";
 import { tryAutoIntegrateBase } from "../../git/auto-integrate-base.ts";
 import { checkBaseCurrent } from "../../git/base-current.ts";
@@ -836,7 +841,9 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       ? opts.__testDescendantPollIntervalMs
       : undefined;
   const idleOutputTimeoutMs =
-    opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? DEFAULT_IDLE_OUTPUT_TIMEOUT_MS);
+    opts.idleOutputTimeoutMs !== undefined
+      ? opts.idleOutputTimeoutMs
+      : (opts.config.idleOutputTimeoutMs ?? DEFAULT_IDLE_OUTPUT_TIMEOUT_MS);
   const reviewPassTimeoutOpts = {
     timeoutMs: opts.iterationTimeoutMs,
     killGraceMs,
@@ -874,7 +881,9 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       const prompt = buildVerdictActuatorPrompt(verdict, opts.specPath);
 
       const actuatorIdleOutputTimeoutMs =
-        opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? DEFAULT_IDLE_OUTPUT_TIMEOUT_MS);
+        opts.idleOutputTimeoutMs !== undefined
+          ? opts.idleOutputTimeoutMs
+          : (opts.config.idleOutputTimeoutMs ?? DEFAULT_IDLE_OUTPUT_TIMEOUT_MS);
       const actuatorWorktreeDir = opts.patchWorktreeDir ?? opts.cwd;
       if (actuatorOrder.length === 0) {
         opts.fanout("harness", "review: actuator no agents available\n", "stderr");

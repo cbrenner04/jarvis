@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Io } from "../src/cli.ts";
@@ -60,13 +60,22 @@ describe("config show", () => {
     expect(parsed.telemetryPath).toBe(join(cfgDir, "runs.jsonl"));
     expect(parsed.git).toBe(true);
     expect(parsed.projects).toEqual({});
-    // idleOutputTimeoutMs should not be in the written config when it equals the default
-    expect(parsed.idleOutputTimeoutMs).toBeUndefined();
+    expect(parsed.idleOutputTimeoutMs).toBe(DEFAULT_IDLE_OUTPUT_TIMEOUT_MS);
   });
 
   test("default idle output timeout is 90000ms", () => {
     expect(DEFAULT_IDLE_OUTPUT_TIMEOUT_MS).toBe(90_000);
     expect(DEFAULT_CONFIG.idleOutputTimeoutMs).toBe(DEFAULT_IDLE_OUTPUT_TIMEOUT_MS);
+  });
+
+  test("a config without idleOutputTimeoutMs does not gain one through normalization", () => {
+    const cfgDir = mkdtempSync(join(tmpdir(), "jarvis-cfg-"));
+    const { idleOutputTimeoutMs: _omitted, ...withoutIdle } = structuredClone(DEFAULT_CONFIG);
+    writeFileSync(join(cfgDir, "config.json"), JSON.stringify(withoutIdle));
+
+    const loaded = loadConfig({ dir: cfgDir }) as Record<string, unknown>;
+
+    expect(loaded.idleOutputTimeoutMs).toBeUndefined();
   });
 });
 

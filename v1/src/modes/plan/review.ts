@@ -738,7 +738,9 @@ function withPlanReviewIdleWatchdog(
       // Arm idle watchdog if configured
       const armedAt = Date.now();
       const idleOutputTimeoutMs =
-        opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? DEFAULT_IDLE_OUTPUT_TIMEOUT_MS);
+        opts.idleOutputTimeoutMs !== undefined
+          ? opts.idleOutputTimeoutMs
+          : (opts.config.idleOutputTimeoutMs ?? DEFAULT_IDLE_OUTPUT_TIMEOUT_MS);
       const worktreeDir = opts.planWorktreeDir ?? (typeof runOpts.cwd === "string" ? runOpts.cwd : process.cwd());
       if (idleOutputTimeoutMs > 0) {
         const scheduleIdleCheck = () => {

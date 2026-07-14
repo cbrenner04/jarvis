@@ -175,7 +175,9 @@ export async function runVerdictActuator(opts: VerdictActuatorOptions): Promise<
   // Arm idle watchdog if configured
   const verdictArmedAt = Date.now();
   const verdictIdleOutputTimeoutMs =
-    opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? DEFAULT_IDLE_OUTPUT_TIMEOUT_MS);
+    opts.idleOutputTimeoutMs !== undefined
+      ? opts.idleOutputTimeoutMs
+      : (opts.config.idleOutputTimeoutMs ?? DEFAULT_IDLE_OUTPUT_TIMEOUT_MS);
   const verdictWorktreeDir = opts.planWorktreeDir ?? opts.worktreePath;
   if (verdictIdleOutputTimeoutMs > 0) {
     const scheduleVerdictIdleCheck = () => {

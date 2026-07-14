@@ -1689,7 +1689,11 @@ async function runProfileReviewStep(
   const lastCycle = result.cycles[result.cycles.length - 1];
   const kind = lastCycle?.kind === "role_failed" ? "invocation_failure" : "complete";
   const terminalRole: ReviewCycleRole =
-    lastCycle?.kind === "role_failed" ? lastCycle.failedRole : lastCycle?.kind === "completed" && lastCycle.actuatorRan ? "actuator" : "critic";
+    lastCycle?.kind === "role_failed"
+      ? lastCycle.failedRole
+      : lastCycle?.kind === "completed" && lastCycle.actuatorRan
+        ? "actuator"
+        : "critic";
 
   onProgress?.(invocationId, stepId, {
     status: kind === "complete" ? "completed" : "stopped",
@@ -1820,14 +1824,7 @@ async function runReviewDispatch(
   logSink: LogSink | undefined,
 ): Promise<ReviewDebateStepOutcome | ReviewStepOutcome> {
   if (step.behavior === "review-debate") {
-    return runReviewDebateStep(
-      step,
-      stepIndex,
-      invocationId,
-      onProgress,
-      telemetry,
-      onStepRunCreated,
-    );
+    return runReviewDebateStep(step, stepIndex, invocationId, onProgress, telemetry, onStepRunCreated);
   }
 
   const { landing, ...reviewInput } = step;

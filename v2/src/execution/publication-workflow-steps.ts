@@ -10,6 +10,8 @@ import type { MachineProfileLoadOptions } from "../config/machine-profile-loader
 import { jarvisHome } from "../paths.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { PublicationLanding } from "./publication-landing.ts";
+import { intentReviewPromptProfile } from "./render-intent-review-prompts.ts";
+import { planReviewPromptProfile } from "./render-plan-review-prompts.ts";
 import {
   type LoadedWorkflowStep,
   type ReviewDebateWorkflowSourceStep,
@@ -26,8 +28,6 @@ import {
   type WriteWorkflowStep,
 } from "./workflow-runner.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
-import { planReviewPromptProfile } from "./render-plan-review-prompts.ts";
-import { intentReviewPromptProfile } from "./render-intent-review-prompts.ts";
 
 const INTENT_STAGE = ".jarvis-intent-stage";
 const PLAN_STAGE = ".jarvis-plan-stage";

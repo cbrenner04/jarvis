@@ -28,10 +28,10 @@ import {
 } from "../testing/write-fixtures.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
-import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import { intentReviewPromptProfile } from "./render-intent-review-prompts.ts";
 import { planReviewPromptProfile } from "./render-plan-review-prompts.ts";
 import { implementReviewPromptProfile } from "./review-debate-render.ts";
+import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import {
   executeWorkflow,
   type HumanWorkflowStep,
@@ -2613,7 +2613,13 @@ describe("executeWorkflow implement patch review", () => {
         return { kind: "ok", stdout: adapterModel === "ADJ" ? "fix it" : "ok", stderr: "" } as const;
       }),
     });
-    reviewStep.profileContext = { specPath: "spec.md", cwd: reviewStep.cwd, baseBranch: "HEAD", passNumber: 1, totalPasses: 1 };
+    reviewStep.profileContext = {
+      specPath: "spec.md",
+      cwd: reviewStep.cwd,
+      baseBranch: "HEAD",
+      passNumber: 1,
+      totalPasses: 1,
+    };
 
     await withStateStore(async (store) => {
       const result = await executeWorkflow({ steps: [implementStep, reviewStep], stateStore: store });
@@ -2740,7 +2746,13 @@ describe("executeWorkflow implement patch review", () => {
         } as const;
       }),
     });
-    reviewStep.profileContext = { specPath: "spec.md", cwd: reviewStep.cwd, baseBranch: "HEAD", passNumber: 1, totalPasses: 1 };
+    reviewStep.profileContext = {
+      specPath: "spec.md",
+      cwd: reviewStep.cwd,
+      baseBranch: "HEAD",
+      passNumber: 1,
+      totalPasses: 1,
+    };
 
     await withStateStore(async (store) => {
       const result = await executeWorkflow({
@@ -2849,7 +2861,13 @@ describe("executeWorkflow implement patch light review", () => {
         return { kind: "ok", stdout: "done", stderr: "" } as const;
       }),
     });
-    reviewStep.profileContext = { specPath: "spec.md", cwd: reviewStep.cwd, baseBranch: "HEAD", passNumber: 1, totalPasses: 1 };
+    reviewStep.profileContext = {
+      specPath: "spec.md",
+      cwd: reviewStep.cwd,
+      baseBranch: "HEAD",
+      passNumber: 1,
+      totalPasses: 1,
+    };
 
     await withStateStore(async (store) => {
       const result = await executeWorkflow({ steps: [implementStep, reviewStep], stateStore: store });

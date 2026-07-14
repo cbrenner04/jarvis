@@ -14,7 +14,11 @@ describe("ReviewPromptProfile", () => {
     for (const profile of profiles) {
       expect(profile.promptIds.critic).toBeString();
       expect(profile.promptIds.actuator).toBeString();
-      expect(profile.verdict).toEqual({ source: profile.domain === "implement" ? "adjudicator" : "critic", empty: "stop", persist: "stdout" });
+      expect(profile.verdict).toEqual({
+        source: profile.domain === "implement" ? "adjudicator" : "critic",
+        empty: "stop",
+        persist: "stdout",
+      });
       expect(profile.boundaries.light).toEqual({ critic: "read-only", actuator: "write" });
       expect(profile.boundaries.debate).toEqual({ critic: "read-only", actuator: "write" });
     }

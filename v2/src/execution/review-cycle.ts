@@ -6,8 +6,8 @@ import {
   type InvocationOk,
   type InvocationTelemetryContext,
 } from "../../../shared/invocation/execute.ts";
-import type { InvocationFailureKind } from "./invocation-failure.ts";
 import type { ReviewPromptProfile } from "../../../shared/prompts/review-profile.ts";
+import type { InvocationFailureKind } from "./invocation-failure.ts";
 
 export type ReviewCycleRole = "critic" | "actuator";
 
@@ -61,6 +61,15 @@ export type ReviewCycleResult =
       cycles: ReviewCycleOutcome[];
     };
 
+/** Critic prompt for one cycle: the review profile's renderer, else the caller's literal prompt. */
+async function resolveCriticPrompt(
+  args: ReviewCycleInput,
+  profileContext: Parameters<NonNullable<ReviewCycleInput["profile"]>["render"]["critic"]>[0],
+): Promise<string> {
+  if (args.profile) return await args.profile.render.critic(profileContext);
+  return typeof args.prompt === "function" ? args.prompt() : (args.prompt ?? "");
+}
+
 export async function executeReviewCycle(args: ReviewCycleInput): Promise<ReviewCycleResult> {
   if (!Number.isFinite(args.maxCycles) || !Number.isInteger(args.maxCycles) || args.maxCycles < 0) {
     throw new RangeError("maxCycles must be a finite non-negative integer");
@@ -75,12 +84,11 @@ export async function executeReviewCycle(args: ReviewCycleInput): Promise<Review
     }
 
     const roleResults: Partial<Record<ReviewCycleRole, InvocationExecution>> = {};
-    const profileContext = typeof args.profileContext === "function" ? args.profileContext(cycle + 1, cycles.at(-1)?.verdict) : args.profileContext;
-    const criticPrompt = args.profile
-      ? await args.profile.render.critic(profileContext)
-      : typeof args.prompt === "function"
-        ? args.prompt()
-        : args.prompt ?? "";
+    const profileContext =
+      typeof args.profileContext === "function"
+        ? args.profileContext(cycle + 1, cycles.at(-1)?.verdict ?? undefined)
+        : args.profileContext;
+    const criticPrompt = await resolveCriticPrompt(args, profileContext);
     const critic = await invokeRole(args, "critic", criticPrompt, args.bindings.critic);
     roleResults.critic = critic;
     const criticFailure = failureKind(critic);

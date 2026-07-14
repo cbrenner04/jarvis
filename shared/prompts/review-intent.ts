@@ -14,23 +14,34 @@ function specGuidance(): string {
 
 function stagedIntents(stagingDir: string): string {
   if (!existsSync(stagingDir)) return "";
-  return listIntentStageMarkdownFiles(stagingDir).map((path) => {
-    const name = path.split(/[\\/]/u).at(-1) ?? path;
-    return `<<<FILE name="${name}" BEGIN>>>\n${readFileSync(path, "utf8")}\n<<<FILE END>>>`;
-  }).join("\n\n");
+  return listIntentStageMarkdownFiles(stagingDir)
+    .map((path) => {
+      const name = path.split(/[\\/]/u).at(-1) ?? path;
+      return `<<<FILE name="${name}" BEGIN>>>\n${readFileSync(path, "utf8")}\n<<<FILE END>>>`;
+    })
+    .join("\n\n");
 }
 
 function renderIntentReviewPrompt(promptId: string, context: IntentReviewPromptContext, verdict = ""): string {
   const registry = loadPromptRegistry();
   const artifact = registry.getById(promptId);
   const staged = stagedIntents(context.stagingDir);
-  enforceDelimiterPolicy({ value: staged, begin: "<<<STAGED_INTENT_BEGIN>>>", end: "<<<STAGED_INTENT_END>>>", placeholderName: "STAGED_INTENT" });
-  return renderTemplateWithDeclarations(assemblePromptForStep({ registry, stepPromptId: promptId }), artifact.metadata.placeholders, {
-    STAGED_INTENT: staged,
-    SPEC_GUIDANCE: specGuidance(),
-    VERDICT: verdict,
-    VERDICT_PATH: context.verdictPath,
-  }).trim();
+  enforceDelimiterPolicy({
+    value: staged,
+    begin: "<<<STAGED_INTENT_BEGIN>>>",
+    end: "<<<STAGED_INTENT_END>>>",
+    placeholderName: "STAGED_INTENT",
+  });
+  return renderTemplateWithDeclarations(
+    assemblePromptForStep({ registry, stepPromptId: promptId }),
+    artifact.metadata.placeholders,
+    {
+      STAGED_INTENT: staged,
+      SPEC_GUIDANCE: specGuidance(),
+      VERDICT: verdict,
+      VERDICT_PATH: context.verdictPath,
+    },
+  ).trim();
 }
 
 export function renderIntentReviewCriticPrompt(context: IntentReviewPromptContext): string {

@@ -8,12 +8,19 @@ export type PlanReviewPromptContext = { worktreePath: string; specPath: string }
 
 function readSpecFiles(specPath: string): string {
   if (!existsSync(specPath)) return "";
-  const entries = readdirSync(specPath, { withFileTypes: true }).filter((entry) => entry.isFile() && entry.name.endsWith(".md")).sort((a, b) => {
-    if (a.name === "index.md") return -1;
-    if (b.name === "index.md") return 1;
-    return a.name.localeCompare(b.name);
-  });
-  return entries.map((file) => `<<<FILE name="${file.name}" BEGIN>>>\n${readFileSync(join(specPath, file.name), "utf8")}\n<<<FILE END>>>`).join("\n\n");
+  const entries = readdirSync(specPath, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+    .sort((a, b) => {
+      if (a.name === "index.md") return -1;
+      if (b.name === "index.md") return 1;
+      return a.name.localeCompare(b.name);
+    });
+  return entries
+    .map(
+      (file) =>
+        `<<<FILE name="${file.name}" BEGIN>>>\n${readFileSync(join(specPath, file.name), "utf8")}\n<<<FILE END>>>`,
+    )
+    .join("\n\n");
 }
 
 function renderPlanReviewPrompt(promptId: string, context: PlanReviewPromptContext, verdict = ""): string {
@@ -21,7 +28,9 @@ function renderPlanReviewPrompt(promptId: string, context: PlanReviewPromptConte
   return renderArtifactTemplate(artifact, {
     WORKDIR: context.worktreePath,
     NAME: basename(context.specPath.replace(/\\/g, "/")),
-    INTENT: existsSync(join(context.specPath, "intent.md")) ? readFileSync(join(context.specPath, "intent.md"), "utf8") : "",
+    INTENT: existsSync(join(context.specPath, "intent.md"))
+      ? readFileSync(join(context.specPath, "intent.md"), "utf8")
+      : "",
     CURRENT_SPEC: readSpecFiles(context.specPath),
     SPEC_GUIDANCE: readFileSync(join(import.meta.dir, "..", "..", "v1", "docs", "spec-guidance.md"), "utf8"),
     REVIEW_PASS_CONTEXT: "",

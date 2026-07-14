@@ -4,7 +4,11 @@ import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts
 import { readProjectRegistry } from "../config/machine-config-loader.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { resolveActiveLinkedSubspec as realResolveActiveLinkedSubspec } from "./linked-subspec-routing.ts";
-import { PATCH_REVIEW_CRITIC_PROMPT_ID, PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS } from "./review-debate-render.ts";
+import {
+  implementReviewPromptProfile,
+  PATCH_REVIEW_CRITIC_PROMPT_ID,
+  PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS,
+} from "./review-debate-render.ts";
 import {
   type ReviewDebateWorkflowSourceStep,
   type ReviewWorkflowSourceStep,
@@ -19,7 +23,6 @@ import {
   resolveWorkflowPreset,
   type WriteWorkflowStep,
 } from "./workflow-runner.ts";
-import { implementReviewPromptProfile } from "./review-debate-render.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 /** Per-run inputs the operator supplies alongside cwd project resolution. */

@@ -6,8 +6,8 @@ import {
   type InvocationOk,
   type InvocationTelemetryContext,
 } from "../../../shared/invocation/execute.ts";
-import type { InvocationFailureKind } from "./invocation-failure.ts";
 import type { ReviewPromptProfile } from "../../../shared/prompts/review-profile.ts";
+import type { InvocationFailureKind } from "./invocation-failure.ts";
 
 /** Fixed debate role order: adversary -> advocate -> adjudicator -> actuator. */
 export type ReviewDebateRole = "adversary" | "advocate" | "adjudicator" | "actuator";
@@ -51,6 +51,21 @@ export type ReviewDebateInput = {
 };
 
 /**
+ * Prompt for one debate role: the profile's renderer, else the caller's literal prompt for
+ * that role. `priorStdout` carries the preceding role's output to the renderer.
+ */
+async function debateRolePrompt(
+  args: ReviewDebateInput,
+  role: "adversary" | "advocate" | "adjudicator",
+  profileContext: Parameters<NonNullable<NonNullable<ReviewDebateInput["profile"]>["render"]["debateRole"]>>[1],
+  priorStdout?: string,
+): Promise<string> {
+  const render = args.profile?.render.debateRole;
+  if (render) return await render(role, profileContext, priorStdout);
+  return args.prompts?.[role] ?? "";
+}
+
+/**
  * Run up to `maxCycles` review-debate cycles: adversary -> advocate ->
  * adjudicator -> actuator. Each cycle writes the adjudicator's verdict to
  * `verdictPath`; an empty verdict skips the actuator and stops the loop.
@@ -64,14 +79,15 @@ export async function executeReviewDebate(args: ReviewDebateInput): Promise<Revi
 
   for (let cycle = 0; cycle < args.maxCycles; cycle += 1) {
     const roleResults: Partial<Record<ReviewDebateRole, InvocationExecution>> = {};
-    const profileContext = typeof args.profileContext === "function" ? args.profileContext(cycle + 1, cycles.at(-1)?.verdict) : args.profileContext;
+    const profileContext =
+      typeof args.profileContext === "function"
+        ? args.profileContext(cycle + 1, cycles.at(-1)?.verdict)
+        : args.profileContext;
 
     const adversary = await invokeRole(
       args,
       "adversary",
-      args.profile?.render.debateRole
-        ? await args.profile.render.debateRole("adversary", profileContext)
-        : args.prompts?.adversary ?? "",
+      await debateRolePrompt(args, "adversary", profileContext),
       args.bindings.adversary,
     );
     roleResults.adversary = adversary;
@@ -84,9 +100,7 @@ export async function executeReviewDebate(args: ReviewDebateInput): Promise<Revi
     const advocate = await invokeRole(
       args,
       "advocate",
-      args.profile?.render.debateRole
-        ? await args.profile.render.debateRole("advocate", profileContext, (adversary.final?.result as InvocationOk).stdout)
-        : args.prompts?.advocate ?? "",
+      await debateRolePrompt(args, "advocate", profileContext, (adversary.final?.result as InvocationOk).stdout),
       args.bindings.advocate,
     );
     roleResults.advocate = advocate;
@@ -99,9 +113,7 @@ export async function executeReviewDebate(args: ReviewDebateInput): Promise<Revi
     const adjudicator = await invokeRole(
       args,
       "adjudicator",
-      args.profile?.render.debateRole
-        ? await args.profile.render.debateRole("adjudicator", profileContext, (advocate.final?.result as InvocationOk).stdout)
-        : args.prompts?.adjudicator ?? "",
+      await debateRolePrompt(args, "adjudicator", profileContext, (advocate.final?.result as InvocationOk).stdout),
       args.bindings.adjudicator,
     );
     roleResults.adjudicator = adjudicator;

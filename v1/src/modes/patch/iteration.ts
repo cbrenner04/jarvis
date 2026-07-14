@@ -1066,6 +1066,11 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         lastOutputAtMs.current === null ? null : patchWatchdogTiming.nowMs() - lastOutputAtMs.current;
       const iterationWarnings =
         result.warnings !== undefined && result.warnings.length > 0 ? result.warnings : undefined;
+      const usageTelemetry = {
+        ...usageCost,
+        last_output_age_ms: lastOutputAgeMs,
+        ...(iterationWarnings !== undefined ? { warnings: iterationWarnings } : {}),
+      };
       if (agent.name === "opencode" && usageCost.usage_source === "unavailable" && !state.opencodeUnavailableNoted) {
         fanout(
           "harness",
@@ -1237,6 +1242,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
                   kind: "blocker-rejected",
                   exitReason: "base-ref-green",
                   ...telemetryMeta,
+                  ...usageTelemetry,
                 });
 
                 // Continue the loop (do not exit 7, do not commit blocker)
@@ -1278,6 +1284,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
                       kind: "blocker-rejected",
                       exitReason: "snapshot-churn",
                       ...telemetryMeta,
+                      ...usageTelemetry,
                     });
 
                     // Continue the loop (do not exit 7, do not commit blocker)
@@ -1332,6 +1339,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
               kind: "blocked",
               exitReason: "blocker-detected",
               ...telemetryMeta,
+              ...usageTelemetry,
               ...(hadZeroAgentOutput ? { zero_agent_output: true } : {}),
             });
             // Record this run's delta on incomplete exit to overwrite any prior delta
@@ -1537,6 +1545,16 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
                 }
                 state.consecutiveEditedUnticked += 1;
                 if (state.consecutiveEditedUnticked < EDITED_UNTICKED_BOUND) {
+                  writeTelemetry({
+                    agent: agent.name,
+                    iteration,
+                    durationMs: iterationDurationMs(),
+                    kind: "ok",
+                    exitReason: "edited-unticked",
+                    ...telemetryMeta,
+                    ...usageTelemetry,
+                    ...(hadZeroAgentOutput ? { zero_agent_output: true } : {}),
+                  });
                   state.iteration += 1;
                   return { kind: "continue" };
                 }
@@ -1549,6 +1567,16 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
                 `iteration ${iteration} edited files but checked no new acceptance criteria for ${afterSubspecPath}; ${blocker}\n\nUnmet acceptance criteria:\n${unmetList}\n\nInspect the dirty worktree, then tick satisfied acceptance criteria, fix, or revert before rerunning. Worktree: ${agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
                 "stderr",
               );
+              writeTelemetry({
+                agent: agent.name,
+                iteration,
+                durationMs: iterationDurationMs(),
+                kind: "ok",
+                exitReason: "dirty-worktree",
+                ...telemetryMeta,
+                ...usageTelemetry,
+                ...(hadZeroAgentOutput ? { zero_agent_output: true } : {}),
+              });
               // Record this run's delta on incomplete exit to overwrite any prior delta
               if (state.noCommitDelta !== null && afterSubspecPath !== undefined) {
                 saveDelta(state.noCommitDelta);

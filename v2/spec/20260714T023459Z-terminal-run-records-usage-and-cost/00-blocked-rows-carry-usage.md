@@ -25,15 +25,15 @@ systematically under-report the runs where an agent worked longest.
 
 ## Acceptance criteria
 
-- [ ] A patch iteration whose agent result carries usage and ends `blocked` / `blocker-detected`
+- [x] A patch iteration whose agent result carries usage and ends `blocked` / `blocker-detected`
       writes a `runs.jsonl` row carrying `usage`, `usage_source`, `cost_usd`, `cost_source`, and
       `last_output_age_ms`, on the same `namespace` the completion path uses.
-- [ ] Agent `warnings` from that result appear on the blocked row, as they do on `criteria-progress`.
-- [ ] `blocker-rejected` rows (`base-ref-green` and `snapshot-churn`) carry the same usage/cost
+- [x] Agent `warnings` from that result appear on the blocked row, as they do on `criteria-progress`.
+- [x] `blocker-rejected` rows (`base-ref-green` and `snapshot-churn`) carry the same usage/cost
       fields.
-- [ ] The blocked row is counted once in run-summary cost totals (it is not a `run_terminal` row and
+- [x] The blocked row is counted once in run-summary cost totals (it is not a `run_terminal` row and
       is not duplicated by one).
-- [ ] Existing patch telemetry tests (`v1/test/run.test.ts`, `v1/test/run-cost-claude.test.ts`) stay
+- [x] Existing patch telemetry tests (`v1/test/run.test.ts`, `v1/test/run-cost-claude.test.ts`) stay
       green.
 
 ## Documentation updates

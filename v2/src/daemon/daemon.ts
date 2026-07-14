@@ -7,6 +7,7 @@ import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import {
   type AnyWorkflowStep,
   executeWorkflow,
+  LinkedIndexReadError,
   type ReviewProgress,
   workflowTelemetryLabel,
 } from "../execution/workflow-runner.ts";
@@ -523,7 +524,11 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         .catch((err) => {
           const message = err instanceof Error ? err.message : String(err);
           if (workflowRunIds.size === 0) {
-            resolve({ kind: "error", code: "invalid_params", message });
+            resolve({
+              kind: "error",
+              code: err instanceof LinkedIndexReadError ? "routing_read_failed" : "invalid_params",
+              message,
+            });
           }
           for (const runId of workflowRunIds) {
             settleFailedWorkflowRun(runId, message, logSink);

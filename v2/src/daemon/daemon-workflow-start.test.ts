@@ -160,6 +160,21 @@ test("start rejects an empty steps array", async () => {
   expect(response).toEqual({ kind: "error", code: "invalid_params", message: expect.any(String) });
 });
 
+test("start reports routing_read_failed for an unreadable linked index", async () => {
+  const step = createWriteStep("step-1", "routing-read-failed");
+  step.specPath = "missing-index.md";
+  step.linkedIndexRouting = true;
+  const response = await handlers.start(requestFrame("s1", "start", { steps: [step] }), new AbortController().signal);
+
+  expect(response.kind).toBe("error");
+  if (response.kind === "error") {
+    expect(response.code).toBe("routing_read_failed");
+    expect(typeof response.message).toBe("string");
+    expect(response.message.includes("/fake/missing-index.md")).toBe(true);
+    expect(response.message.includes("ENOENT")).toBe(true);
+  }
+});
+
 test("start with steps reports isLive on list while the workflow step is executing", async () => {
   const steps: AnyWorkflowStep[] = [createWriteStep("step-1", "workflow-live-branch", neverResolvingBindingFactory)];
   const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);

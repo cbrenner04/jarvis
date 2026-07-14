@@ -196,6 +196,10 @@ both CLI preflight and the runner's first linked-index routing read when no
 external worktree exists yet (see seed
 `implement-preflight-validates-spec-in-missing-worktree`).
 
+If that first routing index read fails, the daemon returns `routing_read_failed`.
+The operator message names the resolved index path and the underlying read
+reason; use both to diagnose missing or unreadable spec state.
+
 ### Ad-hoc write loop (live pause/kill)
 
 `jarvis run start` with explicit worktree fields — supports `pause` / `kill` /

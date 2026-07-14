@@ -98,6 +98,19 @@ const WORKFLOW_PRESET_PINNED_FIELDS: Partial<Record<WorkflowPresetName, { role: 
 
 export type WorkflowPresetName = keyof typeof WORKFLOW_PRESET_LENGTHS;
 
+export class LinkedIndexReadError extends Error {
+  readonly indexPath: string;
+  override readonly cause: unknown;
+
+  constructor(indexPath: string, cause: unknown) {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    super(`Failed to read linked routing index ${indexPath}: ${reason}`);
+    this.name = "LinkedIndexReadError";
+    this.indexPath = indexPath;
+    this.cause = cause;
+  }
+}
+
 const REVIEW_DEBATE_ROLES: readonly ReviewDebateRole[] = ["adversary", "advocate", "adjudicator", "actuator"];
 const SHRINK_ROLE = "shrink";
 const SHRINK_PROMPT_ID = "patch.prompt.shrink";
@@ -535,7 +548,12 @@ async function runLinkedImplementStep(
     const routingBase = resolveLinkedImplementRoutingBase(worktreePath, projectRoot);
     const indexPath = resolveInWorktree(routingBase, step.specPath);
 
-    const beforeIndexContent = readFileSync(indexPath, "utf8");
+    let beforeIndexContent: string;
+    try {
+      beforeIndexContent = readFileSync(indexPath, "utf8");
+    } catch (error) {
+      throw new LinkedIndexReadError(indexPath, error);
+    }
     const routing = resolveActiveLinkedSubspec(indexPath, routingBase);
     if (!routing.ok) {
       return linkedImplementRoutingFailureOutcome(routing, totalIterationsConsumed, stepIndex, onStepRunCreated);

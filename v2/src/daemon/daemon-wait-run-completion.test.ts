@@ -321,7 +321,7 @@ test("workflow list reports rollup status reflecting all steps, not just entry r
     workflowSnapshot: {
       invocationId,
       steps: [
-        { stepId: writeStepId, role: "implement", behavior: "write" },
+        { stepId: writeStepId, role: "implement" },
         { stepId: reviewStepId, role: "review", behavior: "review" },
       ],
     },
@@ -338,7 +338,7 @@ test("workflow list reports rollup status reflecting all steps, not just entry r
     workflowSnapshot: {
       invocationId,
       steps: [
-        { stepId: writeStepId, role: "implement", behavior: "write" },
+        { stepId: writeStepId, role: "implement" },
         { stepId: reviewStepId, role: "review", behavior: "review" },
       ],
     },
@@ -377,7 +377,7 @@ test("workflow wait returns killed when review step never runs and workflow is n
     workflowSnapshot: {
       invocationId,
       steps: [
-        { stepId: writeStepId, role: "implement", behavior: "write" },
+        { stepId: writeStepId, role: "implement" },
         { stepId: reviewStepId, role: "review", behavior: "review" },
       ],
     },

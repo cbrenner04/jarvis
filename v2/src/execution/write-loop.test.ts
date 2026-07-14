@@ -193,6 +193,7 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     loadRun: (runId) => inner.loadRun(runId),
     findRunByProjectBranch: (args) => inner.findRunByProjectBranch(args),
     findRevisionRuns: (args) => inner.findRevisionRuns(args),
+    findRunsByInvocationId: (invocationId) => inner.findRunsByInvocationId(invocationId),
     recordAttemptStart: (runId) => inner.recordAttemptStart(runId),
     setRunStatus: (runId, status) => inner.setRunStatus(runId, status),
     commitGuardedKill: (runId) => inner.commitGuardedKill(runId),

@@ -21,7 +21,7 @@ function createSnapshot(overrides: Partial<WorkflowSnapshot> = {}): WorkflowSnap
   return {
     invocationId: "inv-123",
     steps: [
-      { stepId: "step-0", role: "implement", behavior: "write" },
+      { stepId: "step-0", role: "implement" },
       { stepId: "step-1", role: "review", behavior: "review" },
     ],
     ...overrides,
@@ -48,7 +48,7 @@ describe("rollupWorkflowRunStatus", () => {
     const entryRun = createRun({ stepId: "step-0", status: "completed" });
     const snapshot = createSnapshot({
       steps: [
-        { stepId: "step-0", role: "implement", behavior: "write" },
+        { stepId: "step-0", role: "implement" },
         { stepId: "step-1", role: "review", behavior: "review" },
       ],
     });
@@ -71,7 +71,7 @@ describe("rollupWorkflowRunStatus", () => {
     const entryRun = createRun({ stepId: "step-0", status: "completed" });
     const snapshot = createSnapshot({
       steps: [
-        { stepId: "step-0", role: "implement", behavior: "write" },
+        { stepId: "step-0", role: "implement" },
         { stepId: "step-1", role: "review", behavior: "review" },
       ],
     });
@@ -94,7 +94,7 @@ describe("rollupWorkflowRunStatus", () => {
     const entryRun = createRun({ stepId: "step-0", status: "completed" });
     const snapshot = createSnapshot({
       steps: [
-        { stepId: "step-0", role: "implement", behavior: "write" },
+        { stepId: "step-0", role: "implement" },
         { stepId: "step-1", role: "review", behavior: "review" },
       ],
     });
@@ -114,7 +114,7 @@ describe("rollupWorkflowRunStatus", () => {
     const entryRun = createRun({ stepId: "step-0", status: "completed" });
     const snapshot = createSnapshot({
       steps: [
-        { stepId: "step-0", role: "implement", behavior: "write" },
+        { stepId: "step-0", role: "implement" },
         { stepId: "step-debate", role: "debate", behavior: "review-debate" },
         { stepId: "step-1", role: "review", behavior: "review" },
       ],
@@ -138,7 +138,7 @@ describe("rollupWorkflowRunStatus", () => {
     const entryRun = createRun({ stepId: "step-0", status: "in-progress" });
     const snapshot = createSnapshot({
       steps: [
-        { stepId: "step-0", role: "implement", behavior: "write" },
+        { stepId: "step-0", role: "implement" },
         { stepId: "step-1", role: "review", behavior: "review" },
       ],
     });
@@ -161,7 +161,7 @@ describe("rollupWorkflowRunStatus", () => {
     const entryRun = createRun({ stepId: "step-0", status: "completed" });
     const snapshot = createSnapshot({
       steps: [
-        { stepId: "step-0", role: "implement", behavior: "write" },
+        { stepId: "step-0", role: "implement" },
         { stepId: "step-1", role: "review", behavior: "review" },
       ],
     });
@@ -183,7 +183,7 @@ describe("rollupWorkflowRunStatus", () => {
   test("handles single-step workflow", () => {
     const entryRun = createRun({ stepId: "step-0", status: "completed" });
     const snapshot = createSnapshot({
-      steps: [{ stepId: "step-0", role: "implement", behavior: "write" }],
+      steps: [{ stepId: "step-0", role: "implement" }],
     });
     const siblingRuns = [createRun({ id: "run-0", stepId: "step-0", status: "completed" })];
 
@@ -201,7 +201,7 @@ describe("rollupWorkflowRunStatus", () => {
     const entryRun = createRun({ stepId: "step-0", status: "completed" });
     const snapshot = createSnapshot({
       steps: [
-        { stepId: "step-0", role: "implement", behavior: "write" },
+        { stepId: "step-0", role: "implement" },
         { stepId: "step-debate", role: "debate", behavior: "review-debate" },
       ],
     });
@@ -231,13 +231,12 @@ describe("rollupWorkflowRunStatus", () => {
     expect(status).toBe("blocked");
   });
 
-  test("returns entry run status when workflowSnapshot is undefined", () => {
+  test("returns entry run status when workflowSnapshot is absent", () => {
     const entryRun = createRun({ status: "failed" });
     const siblingRuns: Run[] = [];
 
     const status = rollupWorkflowRunStatus({
       entryRun,
-      workflowSnapshot: undefined,
       siblingRuns,
       isLive: false,
     });

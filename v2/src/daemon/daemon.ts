@@ -21,7 +21,13 @@ import {
   openLogSink,
   type PersistedRecord,
 } from "../persistence/log-stream.ts";
-import { openStateStore, type Run, type RunStatus, type StateStore } from "../persistence/state-store.ts";
+import {
+  openStateStore,
+  type Run,
+  type RunStatus,
+  type StateStore,
+  type WorkflowSnapshot,
+} from "../persistence/state-store.ts";
 import { type ReviseReconvergeDeps, reconvergeRevisingRun, reviseAwaitingHuman } from "./daemon-revise.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
 import {
@@ -293,6 +299,13 @@ export type WaitRunCompletionResult = {
 
 export type LoadedRun = NonNullable<ReturnType<StateStore["loadRun"]>>;
 
+/** A workflow's step-0 row — the one whose reported status rolls up the whole workflow. */
+function workflowEntrySnapshot(run: LoadedRun | undefined): WorkflowSnapshot | undefined {
+  const snapshot = run?.workflowSnapshot;
+  if (snapshot === null || snapshot === undefined) return undefined;
+  return run?.stepId === snapshot.steps[0]?.stepId ? snapshot : undefined;
+}
+
 export type { WorkflowStepListStatus } from "./workflow-list-snapshot.ts";
 export { stoppedOutcomeForRun } from "./workflow-list-snapshot.ts";
 
@@ -483,9 +496,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return new Promise((resolve) => {
       const workflowRunIds = new Set<string>();
       let entryRunId: string | undefined;
-      let trackPromiseResolve: ((value: void) => void) | undefined;
+      let trackPromiseResolve: (() => void) | undefined;
       const trackPromise = new Promise<void>((res) => {
-        trackPromiseResolve = res;
+        trackPromiseResolve = () => res();
       });
       const logSink = logsPath !== undefined ? openLogSink(logsPath) : undefined;
       const telemetry =
@@ -663,15 +676,12 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       : handleWriteLoopStart(params?.input as WriteLoopInput);
   };
 
-  const listHandler: RpcHandler = () => {
-    const durableRuns = retainListedRuns(store.listRuns());
+  /** Index every durable run's full row, grouping workflow step rows by invocation. */
+  const indexListedRuns = (
+    durableRuns: Run[],
+  ): { fullRuns: Map<string, LoadedRun>; workflowRuns: Map<string, Map<string, LoadedRun>> } => {
     const fullRuns = new Map<string, LoadedRun>();
     const workflowRuns = new Map<string, Map<string, LoadedRun>>();
-    const liveRunIds = new Set<string>();
-
-    for (const activeRun of activeRuns.values()) {
-      liveRunIds.add(activeRun.runId);
-    }
 
     for (const durableRun of durableRuns) {
       const fullRun = store.loadRun(durableRun.id);
@@ -688,23 +698,38 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       steps.set(stepId, fullRun);
     }
 
+    return { fullRuns, workflowRuns };
+  };
+
+  /** Status reported for a listed row: workflow entry rows roll up, everything else is durable. */
+  const reportedRunStatus = (run: Run, fullRun: LoadedRun | undefined): RunStatus => {
+    const entrySnapshot = workflowEntrySnapshot(fullRun);
+    if (entrySnapshot === undefined) return run.status;
+    return rollupWorkflowRunStatus({
+      entryRun: run,
+      workflowSnapshot: entrySnapshot,
+      siblingRuns: store.findRunsByInvocationId(entrySnapshot.invocationId),
+      isLive: workflowPromisesByEntryRunId.has(run.id),
+    });
+  };
+
+  const listHandler: RpcHandler = () => {
+    const durableRuns = retainListedRuns(store.listRuns());
+    const liveRunIds = new Set<string>();
+
+    for (const activeRun of activeRuns.values()) {
+      liveRunIds.add(activeRun.runId);
+    }
+
+    const { fullRuns, workflowRuns } = indexListedRuns(durableRuns);
+
     const runList = durableRuns.map((run) => {
       const fullRun = fullRuns.get(run.id);
       const isLive = run.status === "in-progress" && liveRunIds.has(run.id);
       const records = logReader?.tail(run.id) ?? [];
       const error = fullRun ? composeRunOperatorError(fullRun, findTerminalLogRecord(records)) : undefined;
-
-      // For workflow entry rows, compute rollup status instead of using durable status
-      const snapshot = fullRun?.workflowSnapshot;
-      const isEntryRow = snapshot !== null && snapshot !== undefined && fullRun?.stepId === snapshot.steps[0]?.stepId;
-      const reportedStatus = isEntryRow
-        ? rollupWorkflowRunStatus({
-            entryRun: run,
-            workflowSnapshot: snapshot,
-            siblingRuns: store.findRunsByInvocationId(snapshot.invocationId),
-            isLive: workflowPromisesByEntryRunId.has(run.id),
-          })
-        : run.status;
+      const reportedStatus = reportedRunStatus(run, fullRun);
+      const snapshot = fullRun?.workflowSnapshot ?? undefined;
 
       return {
         runId: run.id,
@@ -713,13 +738,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         status: reportedStatus,
         isLive,
         ...(error !== undefined ? { error } : {}),
-        ...(fullRun?.workflowSnapshot?.reviewPasses !== undefined
-          ? { reviewPasses: fullRun.workflowSnapshot.reviewPasses }
-          : {}),
-        ...(fullRun?.workflowSnapshot?.reviewBehavior !== undefined
-          ? { reviewBehavior: fullRun.workflowSnapshot.reviewBehavior }
-          : {}),
-        ...(fullRun?.workflowSnapshot !== undefined && fullRun?.workflowSnapshot !== null
+        ...(snapshot?.reviewPasses !== undefined ? { reviewPasses: snapshot.reviewPasses } : {}),
+        ...(snapshot?.reviewBehavior !== undefined ? { reviewBehavior: snapshot.reviewBehavior } : {}),
+        ...(fullRun !== undefined && snapshot !== undefined
           ? { workflow: workflowRowSnapshot(fullRun, workflowRuns, liveRunIds, reviewDebateProgressByInvocation) }
           : {}),
         ...(reportedStatus === "blocked" ? { worktreePath: run.worktreePath } : {}),
@@ -1011,6 +1032,65 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return { kind: "response", result: { ok: true } };
   };
 
+  /**
+   * Wait on a workflow entry run: await the in-flight workflow promise if the workflow is still
+   * live, then report the rollup status over its sibling step rows.
+   */
+  const waitForWorkflowEntryRun = async (
+    reader: LogReader,
+    run: LoadedRun,
+    snapshot: WorkflowSnapshot,
+  ): Promise<{ kind: "response"; result: unknown }> => {
+    const workflowPromise = workflowPromisesByEntryRunId.get(run.id);
+    if (workflowPromise !== undefined) {
+      await workflowPromise;
+    }
+    const rollupStatus = rollupWorkflowRunStatus({
+      entryRun: run,
+      workflowSnapshot: snapshot,
+      siblingRuns: store.findRunsByInvocationId(snapshot.invocationId),
+      isLive: false,
+    });
+    const terminalRecord = findTerminalLogRecord(reader.tail(run.id));
+    return { kind: "response", result: resultFrom(run.id, rollupStatus, terminalRecord) };
+  };
+
+  /** Wait on a non-entry run: settle from the durable status, else follow the log to its terminal record. */
+  const waitForLogTerminalRecord = async (
+    reader: LogReader,
+    run: LoadedRun,
+    signal: AbortSignal,
+  ): Promise<{ kind: "response"; result: unknown }> => {
+    const runId = run.id;
+    const records = reader.tail(runId);
+    const subscribeSeq = records.at(-1)?.seq ?? 0;
+    if (run.status !== "in-progress") {
+      return { kind: "response", result: resultFrom(runId, run.status, findTerminalLogRecord(records)) };
+    }
+
+    const followController = new AbortController();
+    waitAbortControllers.add(followController);
+    const onExternalAbort = () => followController.abort();
+    signal.addEventListener("abort", onExternalAbort, { once: true });
+
+    try {
+      if (signal.aborted) {
+        throw new Error("wait aborted");
+      }
+      for await (const record of reader.follow(runId, followController.signal)) {
+        if (record.seq <= subscribeSeq) continue;
+        if (record.event.kind !== "loop_finished" && record.event.kind !== "run_execution_failed") continue;
+        const terminalRecord = record as TerminalLogRecord;
+        const runStatus = store.loadRun(runId)?.status ?? "failed";
+        return { kind: "response", result: resultFrom(runId, runStatus, terminalRecord) };
+      }
+      throw new Error("wait aborted");
+    } finally {
+      signal.removeEventListener("abort", onExternalAbort);
+      waitAbortControllers.delete(followController);
+    }
+  };
+
   const waitHandler: RpcHandler = async (frame, signal) => {
     if (!logReader) {
       return { kind: "error", code: "internal_error", message: "wait requires logReader" };
@@ -1026,52 +1106,10 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       return { kind: "error", code: "unknown_run", message: `Run ${runId} not found` };
     }
 
-    // Workflow entry runs resolve via the rollup, awaiting the in-flight workflow promise if live
-    if (run.workflowSnapshot !== null && run.workflowSnapshot !== undefined && run.stepId === run.workflowSnapshot.steps[0]?.stepId) {
-      const workflowPromise = workflowPromisesByEntryRunId.get(runId);
-      if (workflowPromise !== undefined) {
-        await workflowPromise;
-      }
-      const siblingRuns = store.findRunsByInvocationId(run.workflowSnapshot.invocationId);
-      const rollupStatus = rollupWorkflowRunStatus({
-        entryRun: run,
-        workflowSnapshot: run.workflowSnapshot,
-        siblingRuns,
-        isLive: false,
-      });
-      const records = logReader.tail(runId);
-      const terminalRecord = findTerminalLogRecord(records);
-      return { kind: "response", result: resultFrom(runId, rollupStatus, terminalRecord) };
-    }
-
-    // Non-workflow run or non-entry workflow run: use log-driven path
-    const records = logReader.tail(runId);
-    const subscribeSeq = records.at(-1)?.seq ?? 0;
-    if (run.status !== "in-progress") {
-      return { kind: "response", result: resultFrom(runId, run.status, findTerminalLogRecord(records)) };
-    }
-
-    const followController = new AbortController();
-    waitAbortControllers.add(followController);
-    const onExternalAbort = () => followController.abort();
-    signal.addEventListener("abort", onExternalAbort, { once: true });
-
-    try {
-      if (signal.aborted) {
-        throw new Error("wait aborted");
-      }
-      for await (const record of logReader.follow(runId, followController.signal)) {
-        if (record.seq <= subscribeSeq) continue;
-        if (record.event.kind !== "loop_finished" && record.event.kind !== "run_execution_failed") continue;
-        const terminalRecord = record as TerminalLogRecord;
-        const runStatus = store.loadRun(runId)?.status ?? "failed";
-        return { kind: "response", result: resultFrom(runId, runStatus, terminalRecord) };
-      }
-      throw new Error("wait aborted");
-    } finally {
-      signal.removeEventListener("abort", onExternalAbort);
-      waitAbortControllers.delete(followController);
-    }
+    const entrySnapshot = workflowEntrySnapshot(run);
+    return entrySnapshot !== undefined
+      ? waitForWorkflowEntryRun(logReader, run, entrySnapshot)
+      : waitForLogTerminalRecord(logReader, run, signal);
   };
 
   return {

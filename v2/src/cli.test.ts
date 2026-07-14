@@ -170,13 +170,32 @@ function workflowFrames(startRequestId: string, waitRequestId: string, runId: st
   ];
 }
 
+/** `main()` consumes one uuid for its operator session id before any RPC id is minted, so a
+ * workflow's id sequence is: session, then the `start` request, then the `wait` request. */
+const SESSION_UUID = "00000000-0000-4000-8000-0000000000ff";
+
 function makeWorkflowUuidManager(startId: string, waitId: string): () => string {
   let callCount = 0;
   return () => {
-    const ids: readonly string[] = [startId, waitId];
-    return ids[callCount++] ?? startId;
+    const ids: readonly string[] = [SESSION_UUID, startId, waitId];
+    return ids[callCount++] ?? waitId;
   };
 }
+
+/** Stubs the session/start/wait uuid sequence for a `run workflow` invocation. */
+function withWorkflowUuids<T>(startId: string, waitId: string, fn: () => Promise<T>): Promise<T> {
+  return withFixedUuid([SESSION_UUID, startId, waitId], fn);
+}
+
+const COMPLETED_WAIT_RESULT = {
+  runStatus: "completed",
+  loopOutcomeKind: "complete",
+  iterationsConsumed: 1,
+  resumable: false,
+} as const;
+
+const COMPLETED_WAIT_JSON =
+  '{"runStatus":"completed","loopOutcomeKind":"complete","iterationsConsumed":1,"resumable":false}';
 
 async function runWait(
   cap: ReturnType<typeof captureIo>,
@@ -888,7 +907,7 @@ describe("v2 cli", () => {
     const startRequestId = "00000000-0000-4000-8000-000000000004" as const;
     const waitRequestId = "00000000-0000-4000-8000-000000000040" as const;
     const originalRandomUuid = crypto.randomUUID;
-    crypto.randomUUID = (makeWorkflowUuidManager(startRequestId, waitRequestId)) as typeof crypto.randomUUID;
+    crypto.randomUUID = makeWorkflowUuidManager(startRequestId, waitRequestId) as typeof crypto.randomUUID;
 
     let builtInput: BuildImplementWorkflowStepsInput | undefined;
 
@@ -931,7 +950,8 @@ describe("v2 cli", () => {
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({
-      stdout: 'run-888\n{"runStatus":"completed","loopOutcomeKind":"complete","iterationsConsumed":1,"resumable":false}\n',
+      stdout:
+        'run-888\n{"runStatus":"completed","loopOutcomeKind":"complete","iterationsConsumed":1,"resumable":false}\n',
       stderr: "",
     });
     expect(builtInput).toMatchObject({
@@ -963,7 +983,7 @@ describe("v2 cli", () => {
     const startRequestId = "00000000-0000-4000-8000-000000000041" as const;
     const waitRequestId = "00000000-0000-4000-8000-000000000410" as const;
     const originalRandomUuid = crypto.randomUUID;
-    crypto.randomUUID = (makeWorkflowUuidManager(startRequestId, waitRequestId)) as typeof crypto.randomUUID;
+    crypto.randomUUID = makeWorkflowUuidManager(startRequestId, waitRequestId) as typeof crypto.randomUUID;
 
     let code = NaN;
     try {
@@ -1080,7 +1100,7 @@ describe("v2 cli", () => {
     const startRequestId = "00000000-0000-4000-8000-000000000009" as const;
     const waitRequestId = "00000000-0000-4000-8000-000000000090" as const;
     const originalRandomUuid = crypto.randomUUID;
-    crypto.randomUUID = (makeWorkflowUuidManager(startRequestId, waitRequestId)) as typeof crypto.randomUUID;
+    crypto.randomUUID = makeWorkflowUuidManager(startRequestId, waitRequestId) as typeof crypto.randomUUID;
 
     let builtInput: BuildImplementWorkflowStepsInput | undefined;
 
@@ -1139,7 +1159,7 @@ describe("v2 cli", () => {
     const startRequestId = "00000000-0000-4000-8000-000000000010" as const;
     const waitRequestId = "00000000-0000-4000-8000-000000000100" as const;
     const originalRandomUuid = crypto.randomUUID;
-    crypto.randomUUID = (makeWorkflowUuidManager(startRequestId, waitRequestId)) as typeof crypto.randomUUID;
+    crypto.randomUUID = makeWorkflowUuidManager(startRequestId, waitRequestId) as typeof crypto.randomUUID;
 
     let builtInput: BuildImplementWorkflowStepsInput | undefined;
 
@@ -1181,7 +1201,7 @@ describe("v2 cli", () => {
     const startRequestId = "00000000-0000-4000-8000-000000000011" as const;
     const waitRequestId = "00000000-0000-4000-8000-000000000110" as const;
     const originalRandomUuid = crypto.randomUUID;
-    crypto.randomUUID = (makeWorkflowUuidManager(startRequestId, waitRequestId)) as typeof crypto.randomUUID;
+    crypto.randomUUID = makeWorkflowUuidManager(startRequestId, waitRequestId) as typeof crypto.randomUUID;
 
     let builtInput: BuildImplementWorkflowStepsInput | undefined;
 
@@ -1258,7 +1278,7 @@ describe("v2 cli", () => {
     const startRequestId = "00000000-0000-4000-8000-000000000012" as const;
     const waitRequestId = "00000000-0000-4000-8000-000000000120" as const;
     const originalRandomUuid = crypto.randomUUID;
-    crypto.randomUUID = (makeWorkflowUuidManager(startRequestId, waitRequestId)) as typeof crypto.randomUUID;
+    crypto.randomUUID = makeWorkflowUuidManager(startRequestId, waitRequestId) as typeof crypto.randomUUID;
 
     let builtInput: BuildImplementWorkflowStepsInput | undefined;
 
@@ -1300,7 +1320,7 @@ describe("v2 cli", () => {
     const startRequestId = "00000000-0000-4000-8000-000000000013" as const;
     const waitRequestId = "00000000-0000-4000-8000-000000000130" as const;
     const originalRandomUuid = crypto.randomUUID;
-    crypto.randomUUID = (makeWorkflowUuidManager(startRequestId, waitRequestId)) as typeof crypto.randomUUID;
+    crypto.randomUUID = makeWorkflowUuidManager(startRequestId, waitRequestId) as typeof crypto.randomUUID;
 
     let builtInput: BuildImplementWorkflowStepsInput | undefined;
 
@@ -1359,7 +1379,7 @@ describe("v2 cli", () => {
     const startRequestId = "00000000-0000-4000-8000-000000000008" as const;
     const waitRequestId = "00000000-0000-4000-8000-000000000080" as const;
     const originalRandomUuid = crypto.randomUUID;
-    crypto.randomUUID = (makeWorkflowUuidManager(startRequestId, waitRequestId)) as typeof crypto.randomUUID;
+    crypto.randomUUID = makeWorkflowUuidManager(startRequestId, waitRequestId) as typeof crypto.randomUUID;
 
     let builtInput: BuildImplementWorkflowStepsInput | undefined;
 
@@ -1518,7 +1538,7 @@ describe("v2 cli", () => {
     const startId = "00000000-0000-4000-8000-000000000020";
     const waitId = "00000000-0000-4000-8000-000000000200";
 
-    const code = await withFixedUuid([startId, waitId], () =>
+    const code = await withWorkflowUuids(startId, waitId, () =>
       main(
         ["run", "workflow", "implement", "--base", "main", "--spec", "spec-link.md", "--artifact", "artifact-link.md"],
         cap.io,
@@ -1559,7 +1579,7 @@ describe("v2 cli", () => {
     const startId = "00000000-0000-4000-8000-000000000022";
     const waitId = "00000000-0000-4000-8000-000000000220";
 
-    const code = await withFixedUuid([startId, waitId], () =>
+    const code = await withWorkflowUuids(startId, waitId, () =>
       main(["run", "workflow", "implement", "--base", "main", "--spec", "index.md"], cap.io, {
         cwd: () => root,
         readProjectRegistry: () => ({ stale: { root: join(root, "missing") }, project: { root } }),
@@ -1589,7 +1609,7 @@ describe("v2 cli", () => {
     const startId = "00000000-0000-4000-8000-000000000021";
     const waitId = "00000000-0000-4000-8000-000000000210";
 
-    const code = await withFixedUuid([startId, waitId], () =>
+    const code = await withWorkflowUuids(startId, waitId, () =>
       main(
         ["run", "workflow", "implement", "--base", "main", "--spec", "index.md", "--artifact", "missing.md"],
         cap.io,
@@ -1646,7 +1666,7 @@ describe("v2 cli", () => {
     const startRequestId = "00000000-0000-4000-8000-000000000007" as const;
     const waitRequestId = "00000000-0000-4000-8000-000000000070" as const;
     const originalRandomUuid = crypto.randomUUID;
-    crypto.randomUUID = (makeWorkflowUuidManager(startRequestId, waitRequestId)) as typeof crypto.randomUUID;
+    crypto.randomUUID = makeWorkflowUuidManager(startRequestId, waitRequestId) as typeof crypto.randomUUID;
     let received: unknown;
     try {
       const code = await main(["run", "workflow", "intent", "--seed-text", "Improve API"], cap.io, {
@@ -1700,7 +1720,7 @@ describe("v2 cli", () => {
     const startRequestId = "00000000-0000-4000-8000-000000000008" as const;
     const waitRequestId = "00000000-0000-4000-8000-000000000080" as const;
     const originalRandomUuid = crypto.randomUUID;
-    crypto.randomUUID = (makeWorkflowUuidManager(startRequestId, waitRequestId)) as typeof crypto.randomUUID;
+    crypto.randomUUID = makeWorkflowUuidManager(startRequestId, waitRequestId) as typeof crypto.randomUUID;
     let received: unknown;
     try {
       const code = await main(["run", "workflow", "intent-reviewed", "--seed-text", "Improve API"], cap.io, {
@@ -1754,7 +1774,13 @@ describe("v2 cli", () => {
             },
           },
           connectIpcClient: async () =>
-            makeIpcClient([{ kind: "response", id: requestId, result: { runId: "intent-reviewed-2" } }], { sent }),
+            makeIpcClient(
+              [
+                { kind: "response", id: requestId, result: { runId: "intent-reviewed-2" } },
+                { kind: "response", id: requestId, result: COMPLETED_WAIT_RESULT },
+              ],
+              { sent },
+            ),
         },
       );
       expect(code).toBe(0);
@@ -1762,9 +1788,10 @@ describe("v2 cli", () => {
       crypto.randomUUID = originalRandomUuid;
     }
     expect(received).toMatchObject({ cwd: "/tmp/repo", seedText: "Improve API", reviewPasses: 2 });
-    expect(sent).toHaveLength(1);
+    expect(sent).toHaveLength(2);
     expect(sent[0]).toMatchObject({ kind: "request", method: "start", params: { steps: FAKE_IMPLEMENT_STEPS } });
-    expect(cap.read()).toEqual({ stdout: "intent-reviewed-2\n", stderr: "" });
+    expect(sent[1]).toMatchObject({ kind: "request", method: "wait", params: { runId: "intent-reviewed-2" } });
+    expect(cap.read()).toEqual({ stdout: `intent-reviewed-2\n${COMPLETED_WAIT_JSON}\n`, stderr: "" });
   });
 
   test("run workflow intent-reviewed rejects invalid review-passes before daemon contact", async () => {
@@ -1824,7 +1851,13 @@ describe("v2 cli", () => {
             },
           },
           connectIpcClient: async () =>
-            makeIpcClient([{ kind: "response", id: requestId, result: { runId: "plan-reviewed-2" } }], { sent }),
+            makeIpcClient(
+              [
+                { kind: "response", id: requestId, result: { runId: "plan-reviewed-2" } },
+                { kind: "response", id: requestId, result: COMPLETED_WAIT_RESULT },
+              ],
+              { sent },
+            ),
         },
       );
       expect(code).toBe(0);
@@ -1836,8 +1869,10 @@ describe("v2 cli", () => {
       readyIntent: "spec/ready-intents/demo.md",
       reviewPasses: 2,
     });
-    expect(sent).toHaveLength(1);
-    expect(cap.read()).toEqual({ stdout: "plan-reviewed-2\n", stderr: "" });
+    expect(sent).toHaveLength(2);
+    expect(sent[0]).toMatchObject({ kind: "request", method: "start" });
+    expect(sent[1]).toMatchObject({ kind: "request", method: "wait", params: { runId: "plan-reviewed-2" } });
+    expect(cap.read()).toEqual({ stdout: `plan-reviewed-2\n${COMPLETED_WAIT_JSON}\n`, stderr: "" });
   });
 
   test("run workflow plan-reviewed rejects invalid review passes before daemon contact", async () => {
@@ -1887,7 +1922,13 @@ describe("v2 cli", () => {
             },
           },
           connectIpcClient: async () =>
-            makeIpcClient([{ kind: "response", id: requestId, result: { runId: "plan-reviewed-light-2" } }], { sent }),
+            makeIpcClient(
+              [
+                { kind: "response", id: requestId, result: { runId: "plan-reviewed-light-2" } },
+                { kind: "response", id: requestId, result: COMPLETED_WAIT_RESULT },
+              ],
+              { sent },
+            ),
         },
       );
       expect(code).toBe(0);
@@ -1899,8 +1940,10 @@ describe("v2 cli", () => {
       readyIntent: "spec/ready-intents/demo.md",
       reviewPasses: 2,
     });
-    expect(sent).toHaveLength(1);
-    expect(cap.read()).toEqual({ stdout: "plan-reviewed-light-2\n", stderr: "" });
+    expect(sent).toHaveLength(2);
+    expect(sent[0]).toMatchObject({ kind: "request", method: "start" });
+    expect(sent[1]).toMatchObject({ kind: "request", method: "wait", params: { runId: "plan-reviewed-light-2" } });
+    expect(cap.read()).toEqual({ stdout: `plan-reviewed-light-2\n${COMPLETED_WAIT_JSON}\n`, stderr: "" });
   });
 
   test("run workflow plan-reviewed-light rejects invalid review passes before daemon contact", async () => {

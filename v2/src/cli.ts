@@ -385,8 +385,13 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
   }
 
   if (subcommand === "wait" && argv.length === 2) {
+    const runId = argv[1];
+    if (runId === undefined) {
+      io.stderr(RUN_USAGE);
+      return 1;
+    }
     return withRunClient(io, deps, async (client) => {
-      return waitForRunCompletion(client, argv[1]!, io);
+      return waitForRunCompletion(client, runId, io);
     });
   }
 
@@ -607,13 +612,18 @@ async function withRunClient(io: Io, deps: CliDeps, fn: (client: IpcClient) => P
   }
 }
 
+/** One transport per client: a client may carry several correlated requests (e.g. `run workflow`
+ * issues `start` then `wait`), and closing the transport destroys the underlying socket. The
+ * transport is torn down with the client by `withRunClient`. */
+const clientTransports = new WeakMap<IpcClient, ReturnType<typeof createRpcTransport>>();
+
 async function request(client: IpcClient, method: string, params?: unknown): Promise<unknown> {
-  const transport = createRpcTransport(client);
-  try {
-    return await transport.request(method, params);
-  } finally {
-    transport.close();
+  let transport = clientTransports.get(client);
+  if (transport === undefined) {
+    transport = createRpcTransport(client);
+    clientTransports.set(client, transport);
   }
+  return await transport.request(method, params);
 }
 
 function formatLifecycleError(error: unknown): string {

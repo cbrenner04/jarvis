@@ -13,9 +13,9 @@ could run the ready gate and merge under a live v2 run.
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 triage <target> --merge` on a v2-home worktree whose live lock is held under `~/.jarvis/worktree-locks/<project>/<branch>/.jarvis.lock` refuses (non-zero, no ready gate, no merge) naming the holding pid.
-- [ ] The same v2 worktree with a stale (dead-pid) lock merges normally.
-- [ ] v1-home lock behavior is unchanged: existing `triage-command.test.ts` lock tests stay green.
+- [x] `jarvis1 triage <target> --merge` on a v2-home worktree whose live lock is held under `~/.jarvis/worktree-locks/<project>/<branch>/.jarvis.lock` refuses (non-zero, no ready gate, no merge) naming the holding pid.
+- [x] The same v2 worktree with a stale (dead-pid) lock merges normally.
+- [x] v1-home lock behavior is unchanged: existing `triage-command.test.ts` lock tests stay green.
 
 ## Documentation updates
 

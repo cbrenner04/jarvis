@@ -584,3 +584,12 @@ Items tagged **[v2-cleanup candidate]** are dead or vestigial code paths flagged
 ## v2 Additive: Fresh dispatch for new run rows
 
 - **v2 additive behavior:** `WorkflowRunnerInput.freshDispatch` is an optional boolean field (default `false`/absent). When set to `true`, the workflow runner suppresses reuse of completed runs from prior invocations and mints a new `invocationId` for the workflow snapshot, forcing new run rows for each step on the first touch in that execution. Within a single execution, subsequent touches of the same `stepId` (e.g., in a linked-implement loop or shrink step) reuse the run row created during that execution, avoiding duplicate rows. This enables operators to request a fresh execution of an already-completed workflow without manually managing prior-run state. When `freshDispatch` is absent or `false`, the normal resume-step-idempotence contract applies: prior `completed` runs are reused idempotently and invocationId is inherited from the prior run's snapshot. The fresh-dispatch decision reaches `prepareRun` in `write-loop.ts` (not just `prepareWorkflowStep` in the runner), so the enforcement is comprehensive across both layers. Non-terminal prior runs (`in-progress`, `paused`, `budget-soft-stopped`, `awaiting-human`, `revising`) are untouched. Sources: `v2/src/execution/workflow-runner.ts`, `v2/src/execution/write-loop.ts`, `v2/docs/workflow-runner.md`.
+
+## v2 Parity: Publication landing
+
+- **v2 composed behavior:** Intent and plan publication validate staged output and
+  land it transactionally after writing and review, before Git/GitHub completion
+  or durable no-Git completion. Landing failures retain retryable staging;
+  successful landing removes transient staging. `none` preserves non-publication
+  workflows. Sources: `v2/src/execution/publication-landing.ts`,
+  `v2/src/execution/workflow-runner.ts`.

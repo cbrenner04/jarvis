@@ -414,6 +414,12 @@ workflow-started implement runs.
 See [`write-behavior.md`](./write-behavior.md#run-control-cli) for the full CLI
 contract and [`workflow-runner.md`](./workflow-runner.md) for workflow composition.
 
+Publication writes first use `.jarvis-intent-stage` or `.jarvis-plan-stage`.
+After writing (and review, when configured), the selected landing hook validates
+and atomically moves durable output. Collisions and filesystem failures leave
+staging for retry; durable destinations are ready-intents for intents and the
+precomputed spec tree for plans. Completion publication runs only after landing.
+
 ## Related docs
 
 - [`daemon-host.md`](./daemon-host.md) — IPC methods, `list`/`wait` error shape, resume semantics

@@ -1,4 +1,13 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
 import type { SessionLog } from "../../../shared/invocation/session-log.ts";
@@ -167,15 +176,15 @@ function runWriteStep(
 async function executePlanDraftWrite(
   args: WriteExecuteInput,
   worktreePath: string,
-  specPath: string,
+  stagingPath: string,
 ): Promise<StepRunResult> {
-  const specDir = specPath;
+  const specDir = stagingPath;
   mkdirSync(specDir, { recursive: true });
   const intentPath = join(specDir, "intent.md");
   writeFileSync(intentPath, args.intentSeed ?? "", "utf8");
 
-  const name = getSpecDirName(specPath);
-  const targetDir = getTargetDir(specPath);
+  const name = getSpecDirName(args.specPath);
+  const targetDir = getTargetDir(args.specPath);
   const specGuidance = readFileSync(getSpecGuidancePath(), "utf8");
 
   let prompt: string;
@@ -221,10 +230,10 @@ async function executePlanDraftWrite(
   contracts.push({
     id: "artifact.exists",
     reason: "plan.draft.shape",
-    check: () => validator(specDir).valid,
+    check: () => validator(specDir).valid || validator(resolveInWorktree(worktreePath, args.specPath)).valid,
   });
 
-  return runWriteStep({
+  const result = await runWriteStep({
     worktreePath,
     bindings: args.bindings,
     prompt,
@@ -233,6 +242,12 @@ async function executePlanDraftWrite(
     ...(args.invocationTelemetry !== undefined ? { invocationTelemetry: args.invocationTelemetry } : {}),
     ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),
   });
+  const durable = resolveInWorktree(worktreePath, args.specPath);
+  if (result.kind === "complete" && !validator(specDir).valid && validator(durable).valid) {
+    for (const file of readdirSync(durable)) copyFileSync(join(durable, file), join(specDir, file));
+    rmSync(durable, { recursive: true, force: true });
+  }
+  return result;
 }
 
 async function executeIntentSplitWrite(
@@ -371,7 +386,7 @@ export async function executeWrite(args: WriteExecuteInput): Promise<WriteExecut
       const promptId = args.promptId ?? DEFAULT_PROMPT_ID;
 
       if (promptId === "plan.prompt.draft" && args.intentSeed !== undefined) {
-        return executePlanDraftWrite(args, worktree.path, specPath);
+        return executePlanDraftWrite(args, worktree.path, expectedArtifactPath);
       }
       if (promptId === INTENT_SPLIT_PROMPT_ID) {
         return executeIntentSplitWrite(args, worktree.path, expectedArtifactPath);

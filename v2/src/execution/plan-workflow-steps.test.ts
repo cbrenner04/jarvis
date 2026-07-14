@@ -12,7 +12,7 @@ import {
   buildReviewedPlanWorkflowSteps,
   type PlanWorkflowDeps,
   type PlanWorkflowResult,
-} from "./plan-workflow-steps.ts";
+} from "./publication-workflow-steps.ts";
 import type { LoadedWorkflowStep, WorkflowSourceStep } from "./workflow-loader.ts";
 import type { WriteWorkflowStep } from "./workflow-runner.ts";
 import { executeWrite } from "./write.ts";

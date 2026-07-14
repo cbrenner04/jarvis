@@ -18,12 +18,12 @@ Replace the duplicate intent and plan construction paths with one publication bu
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/publication-workflow-steps.test.ts` fails against the baseline and proves the `intent` and `plan` rows select their existing prompt, staging directory, output contract, and landing kind.
-- [ ] File/inline intent inputs and ready-intent plan inputs retain their validation, target precedence, identity, collision, base, branch, Git publication, and Git-disabled durable-output contracts.
-- [ ] Reviewed and unreviewed variants source their publication step from the same named row, with current review ordering, pass-count behavior, workspace, and verdict paths preserved.
-- [ ] `v2/src/cli.test.ts` intent/plan workflow-launch cases stay green (operator names, arguments, pre-daemon failures, and one daemon start are unchanged).
-- [ ] `intent-workflow-steps.ts` and `plan-workflow-steps.ts` are deleted, their callers use one smaller replacement, and no preset-specific publication-builder wrapper remains.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/publication-workflow-steps.test.ts` fails against the baseline and proves the `intent` and `plan` rows select their existing prompt, staging directory, output contract, and landing kind.
+- [x] File/inline intent inputs and ready-intent plan inputs retain their validation, target precedence, identity, collision, base, branch, Git publication, and Git-disabled durable-output contracts.
+- [x] Reviewed and unreviewed variants source their publication step from the same named row, with current review ordering, pass-count behavior, workspace, and verdict paths preserved.
+- [x] `v2/src/cli.test.ts` intent/plan workflow-launch cases stay green (operator names, arguments, pre-daemon failures, and one daemon start are unchanged).
+- [x] `intent-workflow-steps.ts` and `plan-workflow-steps.ts` are deleted, their callers use one smaller replacement, and no preset-specific publication-builder wrapper remains.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

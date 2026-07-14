@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { parseSpec } from "../../../shared/spec-parser.ts";
@@ -21,18 +21,14 @@ import {
 import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
 import type { CompletionPublisher } from "./completion-publisher.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
-import {
-  type IntentOutputConfig,
-  intentPublicationSpecPath,
-  landIntentWorkflowOutput,
-  listLandedIntentFiles,
-} from "./intent-output.ts";
+import { listLandedIntentFiles } from "./intent-output.ts";
 import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
 import {
   advanceLinkedSubspecCheckbox,
   findModifiedLinkedCheckbox,
   resolveActiveLinkedSubspec,
 } from "./linked-subspec-routing.ts";
+import { landPublication, type PublicationLanding } from "./publication-landing.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import { renderIntentReviewActuatorPrompt, renderIntentReviewCriticPrompt } from "./render-intent-review-prompts.ts";
 import { executePlanReviewCycle, type PlanReviewCycleOutcome } from "./render-plan-review-prompts.ts";
@@ -124,7 +120,7 @@ export type WriteWorkflowStep = Omit<WriteLoopInput, "bindings"> & {
   agents: readonly string[];
   agentModelConfig: AgentModelConfig;
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
-  intentOutput?: IntentOutputConfig;
+  landing?: PublicationLanding;
   /** Caller-recorded identity for an intent invocation. */
   workflowInvocationId?: string;
   /** Caller-supplied title for a newly created completion PR. */
@@ -186,7 +182,7 @@ export type ReviewWorkflowStep = Omit<ReviewCycleInput, "bindings" | "onRoleStar
   agentModelConfig: AgentModelConfig;
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
   /** When configured, landing is deferred until after successful review. */
-  deferredIntentOutput?: { config: IntentOutputConfig; stagingDir: string; invocationId: string; baseRef: string };
+  landing?: PublicationLanding;
   /** For plan review steps, context for rendering prompts from templates. */
   planReviewContext?: { specPath: string };
   /** When set, critic/actuator prompts render from patch review templates per cycle. */
@@ -736,17 +732,15 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
 
     // For reviewed intent workflows, landing is deferred until after review completes.
     // Skip landing if the last step is a review step; it will be handled after review.
-    if (publicationAgent !== undefined && completionStep?.intentOutput !== undefined && !isReviewLastStep) {
+    if (
+      publicationAgent !== undefined &&
+      completionStep?.landing !== undefined &&
+      completionStep.landing.kind !== "none" &&
+      !isReviewLastStep
+    ) {
       const worktreePath = getExternalWorktreePath(completionStep.worktree);
       try {
-        publicationSpecPath = (
-          await landIntentWorkflowOutput({
-            worktreePath,
-            baseRef: completionStep.worktree.baseRef,
-            output: completionStep.intentOutput,
-            invocationId: workflowSnapshot.invocationId,
-          })
-        ).specPath;
+        publicationSpecPath = (await landPublication(completionStep.landing, worktreePath)).specPath;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         store.setRunStatus(lastResult.runId, "failed");
@@ -816,15 +810,15 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               }
             }
             let bodySummary: string | undefined;
-            if (completionStep.intentOutput !== undefined) {
-              if (publicationSpecPath === undefined) {
-                publicationSpecPath = intentPublicationSpecPath(worktreePath, completionStep.intentOutput.durableDir);
-              }
+            if (completionStep.landing?.kind === "intent-stage") {
               bodySummary = deriveIntentRunBodySummary({
                 creationTitle: workflowSnapshot.creationTitle,
                 intentFiles: await listLandedIntentFiles(worktreePath, workflowSnapshot.invocationId),
               });
-            } else if (completionStep.promptId === "plan.prompt.draft") {
+            } else if (
+              completionStep.landing?.kind === "plan-tree" ||
+              completionStep.promptId === "plan.prompt.draft"
+            ) {
               bodySummary = deriveSpecRunBodySummary({
                 worktreePath,
                 specPath: publicationSpecPath ?? completionStep.specPath,
@@ -1208,7 +1202,8 @@ function prepareWorkflowStep(
 
   if (
     !shouldSkipReuse &&
-    (existingRun?.status === "completed" || (step.intentOutput !== undefined && existingRun?.status === "failed"))
+    (existingRun?.status === "completed" ||
+      (step.landing !== undefined && step.landing.kind !== "none" && existingRun?.status === "failed"))
   ) {
     const completionAgent = existingRun.attempts.at(-1)?.completionAgent?.trim();
     return { kind: "completed", runId: existingRun.id, ...(completionAgent ? { completionAgent } : {}) };
@@ -1545,23 +1540,18 @@ function findReviewLandingCheckpoint(
  */
 async function landReviewedIntentOutput(
   worktreePath: string,
-  deferred: NonNullable<ReviewWorkflowStep["deferredIntentOutput"]>,
+  deferred: Extract<PublicationLanding, { kind: "intent-stage" }>,
   verdictPath: string,
 ): Promise<string | undefined> {
   const ownerPath = `${verdictPath}.owner`;
   const verdict = existsSync(verdictPath) ? readFileSync(verdictPath, "utf8") : undefined;
   const owner = existsSync(ownerPath) ? readFileSync(ownerPath, "utf8") : undefined;
   try {
-    excludeVerdictFromStaging(deferred.stagingDir, verdictPath);
+    excludeVerdictFromStaging(resolve(worktreePath, deferred.stagingDir), verdictPath);
     if (owner !== undefined) {
       rmSync(ownerPath, { force: true });
     }
-    await landIntentWorkflowOutput({
-      worktreePath,
-      baseRef: deferred.baseRef,
-      output: deferred.config,
-      invocationId: deferred.invocationId,
-    });
+    await landPublication(deferred, worktreePath);
     cleanupVerdictFile(verdictPath);
     return undefined;
   } catch (error) {
@@ -1581,7 +1571,7 @@ function reviewCompletionAgent(run: NonNullable<ReturnType<StateStore["findRunBy
 
 async function finishReviewedIntentLanding(
   step: ReviewWorkflowStep,
-  deferred: NonNullable<ReviewWorkflowStep["deferredIntentOutput"]>,
+  deferred: Extract<PublicationLanding, { kind: "intent-stage" }>,
   runId: string,
   store: StateStore,
   completionAgent: string | undefined,
@@ -1700,7 +1690,7 @@ type ReviewWorkflowCycleInput = Omit<
   | "agents"
   | "agentModelConfig"
   | "createBinding"
-  | "deferredIntentOutput"
+  | "landing"
   | "planReviewContext"
   | "patchReviewContext"
 >;
@@ -1799,7 +1789,7 @@ async function runPlanReviewStep(
 async function runStandardReviewStep(
   step: ReviewWorkflowStep,
   reviewInput: ReviewWorkflowCycleInput,
-  deferredIntentOutput: ReviewWorkflowStep["deferredIntentOutput"],
+  landing: ReviewWorkflowStep["landing"],
   ids: ReviewStepExecutionIds,
   bindings: ReturnType<typeof resolveReviewStepBindings>,
   invocationId: string,
@@ -1810,11 +1800,11 @@ async function runStandardReviewStep(
   const { stepId } = step;
   const reviewCycleInput: ReviewCycleInput = {
     ...reviewInput,
-    ...(deferredIntentOutput !== undefined
+    ...(landing?.kind === "intent-stage"
       ? {
           prompt: () =>
             renderIntentReviewCriticPrompt({
-              stagingDir: deferredIntentOutput.stagingDir,
+              stagingDir: resolve(step.cwd, landing.stagingDir),
               verdictPath: step.verdictPath,
             }),
         }
@@ -1825,18 +1815,18 @@ async function runStandardReviewStep(
   };
 
   const enforcementResult =
-    deferredIntentOutput !== undefined
+    landing?.kind === "intent-stage"
       ? await executeReviewCycleEnforced({
           input: {
             ...reviewCycleInput,
             actuatorPromptRenderer: (verdict) =>
               renderIntentReviewActuatorPrompt(
-                { stagingDir: deferredIntentOutput.stagingDir, verdictPath: step.verdictPath },
+                { stagingDir: resolve(step.cwd, landing.stagingDir), verdictPath: step.verdictPath },
                 verdict,
               ),
           },
-          invocationId: deferredIntentOutput.invocationId,
-          stagingDir: deferredIntentOutput.stagingDir,
+          invocationId: landing.invocationId,
+          stagingDir: resolve(step.cwd, landing.stagingDir),
           cwd: step.cwd,
           verdictPath: reviewInput.verdictPath,
         })
@@ -1849,7 +1839,7 @@ async function runStandardReviewStep(
   const { result, boundaryViolation: boundaryViolationMsg } = enforcementResult;
 
   if (boundaryViolationMsg !== undefined) {
-    if (deferredIntentOutput !== undefined) {
+    if (landing?.kind === "intent-stage") {
       store.commitCompletionBoundary({
         attemptId: ids.attemptId,
         runStatus: "failed",
@@ -1872,7 +1862,7 @@ async function runStandardReviewStep(
   });
 
   if (result.kind === "invocation_failure") {
-    if (deferredIntentOutput !== undefined) {
+    if (landing?.kind === "intent-stage") {
       store.commitCompletionBoundary({
         attemptId: ids.attemptId,
         runStatus: "failed",
@@ -1887,7 +1877,7 @@ async function runStandardReviewStep(
     result.cycles.at(-1)?.kind === "completed"
       ? result.cycles.at(-1)?.roleResults.actuator?.final?.binding.metadata?.agent?.trim()
       : undefined;
-  if (deferredIntentOutput === undefined) {
+  if (landing?.kind !== "intent-stage") {
     return {
       kind: "complete",
       runId: ids.runId,
@@ -1902,8 +1892,8 @@ async function runStandardReviewStep(
     outcomeKind: "done",
     ...(completionAgent ? { completionAgent } : {}),
   });
-  const landing = await finishReviewedIntentLanding(step, deferredIntentOutput, ids.runId, store, completionAgent);
-  return { ...landing, iterationsConsumed: result.cycles.length };
+  const landed = await finishReviewedIntentLanding(step, landing, ids.runId, store, completionAgent);
+  return { ...landed, iterationsConsumed: result.cycles.length };
 }
 
 async function runReviewStep(
@@ -1916,17 +1906,17 @@ async function runReviewStep(
   store: StateStore,
   logSink: LogSink | undefined,
 ): Promise<ReviewStepOutcome> {
-  const { deferredIntentOutput, planReviewContext, patchReviewContext, ...reviewInput } = step;
+  const { landing, planReviewContext, patchReviewContext, ...reviewInput } = step;
 
   // Only reviewed-intent workflows carry a durable post-review checkpoint; generic review
   // steps stay non-durable (no run row, fresh synthesized run ID each dispatch).
-  if (deferredIntentOutput !== undefined) {
+  if (landing?.kind === "intent-stage") {
     const checkpoint = findReviewLandingCheckpoint(store, step);
     if (checkpoint !== undefined) {
       onStepRunCreated?.(stepIndex, checkpoint.id);
       return await finishReviewedIntentLanding(
         step,
-        deferredIntentOutput,
+        landing,
         checkpoint.id,
         store,
         reviewCompletionAgent(checkpoint),
@@ -1937,23 +1927,23 @@ async function runReviewStep(
 
   const bindings = resolveReviewStepBindings(step);
   const runId =
-    deferredIntentOutput !== undefined
+    landing?.kind === "intent-stage"
       ? store.createRun({
           project: step.project,
-          specRef: deferredIntentOutput.baseRef,
+          specRef: landing.baseRef,
           worktreePath: step.cwd,
           branch: step.branch,
-          specPath: deferredIntentOutput.stagingDir,
+          specPath: landing.stagingDir,
           stepId: step.stepId,
         })
       : crypto.randomUUID();
   const ids: ReviewStepExecutionIds = {
     runId,
-    attemptId: deferredIntentOutput !== undefined ? store.recordAttemptStart(runId) : crypto.randomUUID(),
+    attemptId: landing?.kind === "intent-stage" ? store.recordAttemptStart(runId) : crypto.randomUUID(),
   };
   onStepRunCreated?.(stepIndex, ids.runId);
 
-  if (deferredIntentOutput !== undefined) {
+  if (landing?.kind === "intent-stage") {
     logSink?.append(ids.runId, { kind: "iteration_started", attemptId: ids.attemptId });
   }
 
@@ -1961,19 +1951,9 @@ async function runReviewStep(
     ? runPatchReviewStep(step, reviewInput, patchReviewContext, ids, bindings, invocationId, onProgress, telemetry)
     : planReviewContext !== undefined
       ? runPlanReviewStep(step, reviewInput, planReviewContext, ids, bindings, invocationId, onProgress, telemetry)
-      : runStandardReviewStep(
-          step,
-          reviewInput,
-          deferredIntentOutput,
-          ids,
-          bindings,
-          invocationId,
-          onProgress,
-          telemetry,
-          store,
-        ));
+      : runStandardReviewStep(step, reviewInput, landing, ids, bindings, invocationId, onProgress, telemetry, store));
 
-  if (deferredIntentOutput !== undefined) {
+  if (landing?.kind === "intent-stage") {
     logSink?.append(ids.runId, {
       kind: "loop_finished",
       loopOutcomeKind: outcome.kind,

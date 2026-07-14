@@ -588,10 +588,10 @@ async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps
       const intentStep = built.steps[0];
       if (
         intentStep?.behavior === "write" &&
-        intentStep.intentOutput !== undefined &&
+        intentStep.landing?.kind === "intent-stage" &&
         intentStep.publishCompletion === false
       ) {
-        io.stderr(`intent paths: ${intentStep.intentOutput.durableDir}\n`);
+        io.stderr(`intent paths: ${intentStep.landing.output.durableDir}\n`);
       }
     }
     io.stdout(`${start.runId}\n`);

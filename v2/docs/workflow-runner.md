@@ -127,6 +127,8 @@ daemon/TUI rows stay aligned to the authored workflow.
 
 ## Authoring helper and presets
 
+`publication-workflow-steps.ts` owns named `intent` and `plan` publication rows. Each row selects its prompt, staging directory, output contract, and landing kind; shared project, target, Git, worktree, loading, and publication assembly is composed once. Input resolvers remain row-owned so intent seed and plan ready-intent validation retain their distinct contracts.
+
 `buildIntentWorkflowSteps` (preset: `intent`) accepts exactly one file `seed` or inline `seedText` and
 an optional relative, non-traversing `targetDir`. It resolves the seed and
 registered project before daemon contact; file seeds must be relative and remain
@@ -599,3 +601,17 @@ Cycle semantics are defined in [`write-behavior.md`](./write-behavior.md#review-
 ## Budget and abort
 
 No new workflow-level budget, pause, or abort concept — each step inherits its own `maxIterations`, `signal` (abort), and `pauseSignal` (pause). Values are per-step-configurable; there is no single shared workflow-level cap.
+
+## Publication landing
+
+Publication rows select one closed landing hook: `intent-stage`, `plan-tree`, or
+`none`. The hook runs after the final write or review boundary and before
+completion commit, push, PR, or durable no-Git completion. Successful work and
+pending landing are durable checkpoints; retries resume at landing or later
+publication without rerunning agents.
+
+`intent-stage` validates ownership and boundaries, then transactionally lands
+validated Markdown into ready-intents. `plan-tree` validates `index.md` plus
+numbered subspecs and transactionally lands them at the precomputed spec path.
+Control files remain staged and successful landing removes transient staging.
+Failures retain staging and diagnostics. `none` performs no filesystem landing.

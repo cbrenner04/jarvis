@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProjectMatch } from "../../../shared/project-registry.ts";
-import { buildIntentWorkflowSteps, buildReviewedIntentWorkflowSteps } from "./intent-workflow-steps.ts";
+import { buildIntentWorkflowSteps, buildReviewedIntentWorkflowSteps } from "./publication-workflow-steps.ts";
 import type { LoadedWorkflowStep, WorkflowSourceStep } from "./workflow-loader.ts";
 import type { ReviewWorkflowStep } from "./workflow-runner.ts";
 
@@ -220,8 +220,11 @@ describe("buildReviewedIntentWorkflowSteps", () => {
         actuator: ["claude"],
       },
       createBinding,
-      deferredIntentOutput: {
-        stagingDir: "/jarvis/worktrees/demo/intent/test/.jarvis-intent-stage",
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "specs/ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId: expect.any(String),
         baseRef: "trunk",
       },
     });
@@ -245,7 +248,13 @@ describe("buildReviewedIntentWorkflowSteps", () => {
     expect(reviewStep).toMatchObject({
       cwd: workspace,
       verdictPath: `${workspace}/.jarvis-intent-review-verdict.md`,
-      deferredIntentOutput: { stagingDir: `${workspace}/.jarvis-intent-stage`, baseRef: "none" },
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "/jarvis/specs/demo/ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId: expect.any(String),
+        baseRef: "none",
+      },
     });
   });
 

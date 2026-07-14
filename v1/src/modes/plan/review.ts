@@ -8,6 +8,7 @@ import { realSubprocessRunner, type SubprocessRunner } from "../../../../shared/
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName } from "../../agents/types.ts";
 import type { AgentEntry, Config } from "../../config.ts";
+import { DEFAULT_IDLE_OUTPUT_TIMEOUT_MS } from "../../config.ts";
 import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "../patch/idle-watchdog.ts";
 import { recoverImmutableCopyOverreach } from "../review/immutable-copy-overreach.ts";
 import { runReview } from "../review/run.ts";
@@ -737,7 +738,7 @@ function withPlanReviewIdleWatchdog(
       // Arm idle watchdog if configured
       const armedAt = Date.now();
       const idleOutputTimeoutMs =
-        opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? 600000);
+        opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? DEFAULT_IDLE_OUTPUT_TIMEOUT_MS);
       const worktreeDir = opts.planWorktreeDir ?? (typeof runOpts.cwd === "string" ? runOpts.cwd : process.cwd());
       if (idleOutputTimeoutMs > 0) {
         const scheduleIdleCheck = () => {

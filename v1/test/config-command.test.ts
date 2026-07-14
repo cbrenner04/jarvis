@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Io } from "../src/cli.ts";
 import { configCommand } from "../src/commands/config.ts";
-import { DEFAULT_CONFIG, loadConfig, registerProject } from "../src/config.ts";
+import { DEFAULT_CONFIG, DEFAULT_IDLE_OUTPUT_TIMEOUT_MS, loadConfig, registerProject } from "../src/config.ts";
 
 function captureIo(): { io: Io; out: () => string; err: () => string } {
   let out = "";
@@ -60,6 +60,13 @@ describe("config show", () => {
     expect(parsed.telemetryPath).toBe(join(cfgDir, "runs.jsonl"));
     expect(parsed.git).toBe(true);
     expect(parsed.projects).toEqual({});
+    // idleOutputTimeoutMs should not be in the written config when it equals the default
+    expect(parsed.idleOutputTimeoutMs).toBeUndefined();
+  });
+
+  test("default idle output timeout is 90000ms", () => {
+    expect(DEFAULT_IDLE_OUTPUT_TIMEOUT_MS).toBe(90_000);
+    expect(DEFAULT_CONFIG.idleOutputTimeoutMs).toBe(DEFAULT_IDLE_OUTPUT_TIMEOUT_MS);
   });
 });
 

@@ -26,11 +26,11 @@ constant, so the default cannot be changed in one place.
 
 ## Acceptance criteria
 
-- [ ] With no `idleOutputTimeoutMs` in config, a patch implementation agent that goes silent past the idle threshold — while the iteration wall still has time left — escalates to the next `modes.patch.agentOrder` rung rather than riding the wall to a terminal timeout. Covered by a new test that supplies default config (not an explicit low threshold, as existing watchdog tests do).
-- [ ] The effective default idle threshold is `90000`ms and is defined once; no source file outside that definition hardcodes `600000` as an idle fallback.
-- [ ] A config file with no `idleOutputTimeoutMs` key round-trips through `jarvis config` normalization without gaining one (the default is still omitted from the written config).
-- [ ] `idleOutputTimeoutMs: 0` still disables the watchdog.
-- [ ] Existing idle-escalation tests in `v1/test/run.test.ts`, `v1/test/modes/patch/review.test.ts`, and `v1/test/modes/patch/shrink.test.ts` stay green (explicit-threshold behavior unchanged).
+- [x] With no `idleOutputTimeoutMs` in config, a patch implementation agent that goes silent past the idle threshold — while the iteration wall still has time left — escalates to the next `modes.patch.agentOrder` rung rather than riding the wall to a terminal timeout. Covered by a new test that supplies default config (not an explicit low threshold, as existing watchdog tests do).
+- [x] The effective default idle threshold is `90000`ms and is defined once; no source file outside that definition hardcodes `600000` as an idle fallback.
+- [x] A config file with no `idleOutputTimeoutMs` key round-trips through `jarvis config` normalization without gaining one (the default is still omitted from the written config).
+- [x] `idleOutputTimeoutMs: 0` still disables the watchdog.
+- [x] Existing idle-escalation tests in `v1/test/run.test.ts`, `v1/test/modes/patch/review.test.ts`, and `v1/test/modes/patch/shrink.test.ts` stay green (explicit-threshold behavior unchanged).
 
 ## Documentation updates
 

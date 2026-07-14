@@ -134,6 +134,8 @@ export type ConfigOptions = {
   maxIterations?: number;
 };
 
+export const DEFAULT_IDLE_OUTPUT_TIMEOUT_MS = 90_000;
+
 export const DEFAULT_AGENT_MODELS: Record<AgentName, string> = {
   claude: "haiku",
   codex: "gpt-5.4",
@@ -167,7 +169,7 @@ export const DEFAULT_CONFIG: Config = {
   weakQuotaExitCodes: [],
   maxIterations: 10,
   iterationTimeoutMs: 600_000,
-  idleOutputTimeoutMs: 600000,
+  idleOutputTimeoutMs: DEFAULT_IDLE_OUTPUT_TIMEOUT_MS,
   logServerUrl: "http://127.0.0.1:4310/logs",
   logServerBind: "127.0.0.1:4310",
   telemetryPath: TELEMETRY_PATH,
@@ -336,7 +338,7 @@ function validateConfig(input: unknown, file: string): Config {
   );
 
   const idleOutputTimeoutMs = validateNonNegativeIntegerWithZeroDisable(
-    obj.idleOutputTimeoutMs ?? 600000,
+    obj.idleOutputTimeoutMs ?? DEFAULT_IDLE_OUTPUT_TIMEOUT_MS,
     "idleOutputTimeoutMs",
     (message) => fail(file, message),
   );
@@ -616,7 +618,7 @@ function validateConfig(input: unknown, file: string): Config {
     weakQuotaExitCodes,
     maxIterations,
     iterationTimeoutMs,
-    ...(idleOutputTimeoutMs !== 600000 ? { idleOutputTimeoutMs } : {}),
+    ...(idleOutputTimeoutMs !== DEFAULT_IDLE_OUTPUT_TIMEOUT_MS ? { idleOutputTimeoutMs } : {}),
     ...(runTimeoutMs !== undefined ? { runTimeoutMs } : {}),
     logServerUrl,
     logServerBind,

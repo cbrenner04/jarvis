@@ -71,7 +71,7 @@ type Config = {
   weakQuotaExitCodes: number[]; // exit codes treated as probable-quota under lenient mode; default []
   maxIterations: number; // positive integer, default 10
   iterationTimeoutMs: number; // per-iteration timeout in milliseconds, default 10 minutes (600_000)
-  idleOutputTimeoutMs?: number; // optional idle-output timeout in milliseconds; unset by default (disabled)
+  idleOutputTimeoutMs?: number; // idle-output timeout in milliseconds; default 90_000 (90s). Both timeouts arm together; whichever fires first aborts. Idle threshold is a stall heuristic based on inter-output gaps, not a performance budget. Set to 0 to disable.
   runTimeoutMs?: number; // optional global run timeout in milliseconds; unset by default
   logServerUrl: string; // POST endpoint used by jarvis run
   logServerBind: string; // host:port used by jarvis log-server
@@ -225,7 +225,7 @@ Default contents on first bootstrap:
   "telemetryPath": "~/.jarvis/runs.jsonl",
   "maxIterations": 10,
   "iterationTimeoutMs": 600000,
-  // "idleOutputTimeoutMs": 60000,  // optional: abort iteration if no output for 60 seconds
+  // "idleOutputTimeoutMs": 90000,  // idle-output stall timeout in milliseconds; default 90_000. Set to 0 to disable.
   "git": true,
   "projects": {}
 }

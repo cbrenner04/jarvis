@@ -7,7 +7,7 @@ import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.
 import { createAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../agents/types.ts";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
-import { type AgentEntry, type Config, resolveSubRoleAgentOrder } from "../../config.ts";
+import { DEFAULT_IDLE_OUTPUT_TIMEOUT_MS, type AgentEntry, type Config, resolveSubRoleAgentOrder } from "../../config.ts";
 import { getBaseBranch, postPrComment, withSyncTransientRetry } from "../../gh.ts";
 import { tryAutoIntegrateBase } from "../../git/auto-integrate-base.ts";
 import { checkBaseCurrent } from "../../git/base-current.ts";
@@ -425,7 +425,7 @@ function withReviewPassTimeout(
 
       // Arm idle watchdog if configured
       const armedAt = Date.now();
-      const idleOutputTimeoutMs = opts.idleOutputTimeoutMs ?? 600000;
+      const idleOutputTimeoutMs = opts.idleOutputTimeoutMs ?? DEFAULT_IDLE_OUTPUT_TIMEOUT_MS;
       const worktreeDir = opts.patchWorktreeDir ?? (typeof runOpts.cwd === "string" ? runOpts.cwd : process.cwd());
       if (idleOutputTimeoutMs > 0) {
         const scheduleIdleCheck = () => {
@@ -836,7 +836,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       ? opts.__testDescendantPollIntervalMs
       : undefined;
   const idleOutputTimeoutMs =
-    opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? 600000);
+    opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? DEFAULT_IDLE_OUTPUT_TIMEOUT_MS);
   const reviewPassTimeoutOpts = {
     timeoutMs: opts.iterationTimeoutMs,
     killGraceMs,
@@ -874,7 +874,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       const prompt = buildVerdictActuatorPrompt(verdict, opts.specPath);
 
       const actuatorIdleOutputTimeoutMs =
-        opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? 600000);
+        opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? DEFAULT_IDLE_OUTPUT_TIMEOUT_MS);
       const actuatorWorktreeDir = opts.patchWorktreeDir ?? opts.cwd;
       if (actuatorOrder.length === 0) {
         opts.fanout("harness", "review: actuator no agents available\n", "stderr");

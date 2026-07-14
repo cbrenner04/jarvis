@@ -7,6 +7,7 @@ import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
 import { createAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
+import { DEFAULT_IDLE_OUTPUT_TIMEOUT_MS } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "../patch/idle-watchdog.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
@@ -174,7 +175,7 @@ export async function runVerdictActuator(opts: VerdictActuatorOptions): Promise<
   // Arm idle watchdog if configured
   const verdictArmedAt = Date.now();
   const verdictIdleOutputTimeoutMs =
-    opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? 600000);
+    opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? DEFAULT_IDLE_OUTPUT_TIMEOUT_MS);
   const verdictWorktreeDir = opts.planWorktreeDir ?? opts.worktreePath;
   if (verdictIdleOutputTimeoutMs > 0) {
     const scheduleVerdictIdleCheck = () => {

@@ -6,7 +6,7 @@ import { parseSpec } from "../../../../shared/spec-parser.ts";
 import { createAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName, AgentResult } from "../../agents/types.ts";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
-import { type Config, resolveSubRoleAgentOrder } from "../../config.ts";
+import { DEFAULT_IDLE_OUTPUT_TIMEOUT_MS, type Config, resolveSubRoleAgentOrder } from "../../config.ts";
 import { getBaseBranch } from "../../gh.ts";
 import {
   HARNESS_IDLE_TIMEOUT_FALLBACK,
@@ -463,7 +463,7 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
 
   const reviewActuatorOrder = resolveSubRoleAgentOrder(opts.config, "reviewActuator");
   const shrinkIdleOutputTimeoutMs =
-    opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? 600000);
+    opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? DEFAULT_IDLE_OUTPUT_TIMEOUT_MS);
   const shrinkWorktreeDir = opts.patchWorktreeDir ?? opts.cwd;
 
   let result: AgentResult | undefined;

@@ -129,7 +129,9 @@ describe("buildPrompt", () => {
 
   test("includes rule requiring hermetic config tests", () => {
     const prompt = buildPrompt("spec/example/index.md");
-    expect(prompt).toContain("Tests reaching machine/user-config resolution must inject an explicit config fixture/path and mocked profile; never read the ambient machine config.");
+    expect(prompt).toContain(
+      "Tests reaching machine/user-config resolution must inject an explicit config fixture/path and mocked profile; never read the ambient machine config.",
+    );
   });
 });
 

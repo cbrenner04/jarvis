@@ -20,13 +20,13 @@ step is terminal.
 
 ## Acceptance criteria
 
-- [ ] `wait` on the run id returned by a two-step (`write` then `review`) workflow does not resolve when the write step's loop finishes; it resolves only once the review step is terminal, reporting the review step's outcome.
-- [ ] A workflow that stops early (`blocked`, `contract_miss`, `invocation_failure`, `awaiting-human`, soft-stop) resolves `wait` on the returned id with that stopping outcome at that step, not `completed`.
-- [ ] `wait` on a returned id whose workflow is no longer live and whose later step never ran resolves `killed` instead of hanging.
-- [ ] Daemon `list` reports the rollup status for the entry row of a workflow invocation; other step rows report their own durable status.
-- [ ] Single-step and patch-run behavior is unchanged: `daemon-wait-run-completion.test.ts` and `daemon-workflow-async-failure.test.ts` stay green.
-- [ ] A regression test drives the observed defect: an `intent-reviewed`-shaped workflow whose review step lands after the write step returns `completed` from `wait` only after the review step's row is terminal.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `wait` on the run id returned by a two-step (`write` then `review`) workflow does not resolve when the write step's loop finishes; it resolves only once the review step is terminal, reporting the review step's outcome.
+- [x] A workflow that stops early (`blocked`, `contract_miss`, `invocation_failure`, `awaiting-human`, soft-stop) resolves `wait` on the returned id with that stopping outcome at that step, not `completed`.
+- [x] `wait` on a returned id whose workflow is no longer live and whose later step never ran resolves `killed` instead of hanging.
+- [x] Daemon `list` reports the rollup status for the entry row of a workflow invocation; other step rows report their own durable status.
+- [x] Single-step and patch-run behavior is unchanged: `daemon-wait-run-completion.test.ts` and `daemon-workflow-async-failure.test.ts` stay green.
+- [x] A regression test drives the observed defect: an `intent-reviewed`-shaped workflow whose review step lands after the write step returns `completed` from `wait` only after the review step's row is terminal.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

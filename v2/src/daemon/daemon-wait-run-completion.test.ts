@@ -304,3 +304,89 @@ test("existing start/list behavior stays unchanged", async () => {
   const list = await listDirect();
   expect(list.kind).toBe("response");
 });
+
+test("workflow list reports rollup status reflecting all steps, not just entry row status", async () => {
+  const writeStepId = "write-step";
+  const reviewStepId = "review-step";
+  const invocationId = "inv-workflow-123";
+
+  // Create entry run (write step) with workflow snapshot
+  const entryRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "test-branch-workflow",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: writeStepId,
+    workflowSnapshot: {
+      invocationId,
+      steps: [
+        { stepId: writeStepId, role: "implement", behavior: "write" },
+        { stepId: reviewStepId, role: "review", behavior: "review" },
+      ],
+    },
+  });
+
+  // Create review run
+  const reviewRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "test-branch-workflow",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: reviewStepId,
+    workflowSnapshot: {
+      invocationId,
+      steps: [
+        { stepId: writeStepId, role: "implement", behavior: "write" },
+        { stepId: reviewStepId, role: "review", behavior: "review" },
+      ],
+    },
+  });
+
+  // Complete write step
+  finishLoop(entryRunId, "completed", 1);
+
+  // List should report entry run as in-progress (rolled up), not completed, because review is in-progress
+  let list = await expectResponse(await listDirect("list-before"));
+  let entryRow = (list.runs as Array<{ runId: string; status: string }>).find((r) => r.runId === entryRunId);
+  expect(entryRow?.status).toBe("in-progress");
+
+  // Complete review step
+  finishLoop(reviewRunId, "completed", 2);
+
+  // Now list should show completed (all steps done)
+  list = await expectResponse(await listDirect("list-after"));
+  entryRow = (list.runs as Array<{ runId: string; status: string }>).find((r) => r.runId === entryRunId);
+  expect(entryRow?.status).toBe("completed");
+});
+
+test("workflow wait returns killed when review step never runs and workflow is not live", async () => {
+  const writeStepId = "write-step-killed";
+  const reviewStepId = "review-step-killed";
+  const invocationId = "inv-workflow-killed";
+
+  // Create entry run with workflow snapshot
+  const entryRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "test-branch-workflow-killed",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: writeStepId,
+    workflowSnapshot: {
+      invocationId,
+      steps: [
+        { stepId: writeStepId, role: "implement", behavior: "write" },
+        { stepId: reviewStepId, role: "review", behavior: "review" },
+      ],
+    },
+  });
+
+  // Complete write step but don't create review step
+  finishLoop(entryRunId, "completed", 1);
+
+  // Wait should resolve with killed status (review step never ran and workflow not live)
+  const result = await expectResponse(await waitDirect("wait-killed", entryRunId));
+  expect(result.runStatus).toBe("killed");
+});

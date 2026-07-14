@@ -21,12 +21,12 @@ flag. Wiring it into daemon reads is `01`.
 
 ## Acceptance criteria
 
-- [ ] `StateStore` exposes an invocation-scoped lookup returning every run row whose `workflowSnapshot.invocationId` equals a given id.
-- [ ] A rollup function maps (entry run row, its workflow snapshot, that invocation's sibling rows, live flag) to an exposed `RunStatus`: live → `in-progress`; first authored durable step whose row is terminal-but-not-`completed` → that status; an authored durable step with no row while not live → `killed`; all authored durable steps `completed` → `completed`.
-- [ ] `review-debate` steps are skipped by the durable walk (they carry no run row) and do not force `killed`.
-- [ ] A run row with no workflow snapshot rolls up to its own status unchanged.
-- [ ] Unit tests cover, for an `intent-reviewed`-shaped two-step snapshot: split `completed` + review row absent while live → `in-progress`; split `completed` + review `failed` → `failed`; split `blocked` → `blocked`; both `completed` → `completed`; split `completed` + review row absent while not live → `killed`.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `StateStore` exposes an invocation-scoped lookup returning every run row whose `workflowSnapshot.invocationId` equals a given id.
+- [x] A rollup function maps (entry run row, its workflow snapshot, that invocation's sibling rows, live flag) to an exposed `RunStatus`: live → `in-progress`; first authored durable step whose row is terminal-but-not-`completed` → that status; an authored durable step with no row while not live → `killed`; all authored durable steps `completed` → `completed`.
+- [x] `review-debate` steps are skipped by the durable walk (they carry no run row) and do not force `killed`.
+- [x] A run row with no workflow snapshot rolls up to its own status unchanged.
+- [x] Unit tests cover, for an `intent-reviewed`-shaped two-step snapshot: split `completed` + review row absent while live → `in-progress`; split `completed` + review `failed` → `failed`; split `blocked` → `blocked`; both `completed` → `completed`; split `completed` + review row absent while not live → `killed`.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

@@ -31,6 +31,7 @@ import {
   type TerminalLogRecord,
 } from "./run-operator-error.ts";
 import { workflowRowSnapshot } from "./workflow-list-snapshot.ts";
+import { rollupWorkflowRunStatus } from "./workflow-run-status-rollup.ts";
 
 type WorktreeOwnership = {
   runId: string;
@@ -380,6 +381,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
     steps.set(stepId, progress);
   };
+  // Tracks `executeWorkflow` promises by entry run id (step 0), allowing wait to await the full workflow
+  const workflowPromisesByEntryRunId = new Map<string, Promise<void>>();
   const { stateStore: store, logReader, writeLoopExecutor, failureReporter, logsPath, operatorSessionId } = deps;
   const checkWorktreeDirty = deps.isWorktreeDirty ?? isWorktreeDirtyAsync;
   const checkMemoryHeadroom = deps.hasMemoryHeadroom ?? (() => hasMemoryHeadroom(resolveMachineProfile()));
@@ -479,6 +482,11 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     return new Promise((resolve) => {
       const workflowRunIds = new Set<string>();
+      let entryRunId: string | undefined;
+      let trackPromiseResolve: ((value: void) => void) | undefined;
+      const trackPromise = new Promise<void>((res) => {
+        trackPromiseResolve = res;
+      });
       const logSink = logsPath !== undefined ? openLogSink(logsPath) : undefined;
       const telemetry =
         operatorSessionId !== undefined ? { operatorSessionId, workflow: workflowTelemetryLabel(steps) } : undefined;
@@ -493,6 +501,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
           workflowRunIds.add(runId);
           activeRuns.set(runId, { kind: "workflow", runId });
           if (stepIndex === 0) {
+            entryRunId = runId;
+            workflowPromisesByEntryRunId.set(runId, trackPromise);
             resolve({ kind: "response", result: { runId } });
           }
         },
@@ -509,7 +519,11 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         .finally(() => {
           logSink?.close();
           for (const runId of workflowRunIds) activeRuns.delete(runId);
+          if (entryRunId !== undefined) {
+            workflowPromisesByEntryRunId.delete(entryRunId);
+          }
           _registry.release(workflowKey);
+          trackPromiseResolve?.();
         });
     });
   };
@@ -675,15 +689,28 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
 
     const runList = durableRuns.map((run) => {
-      const isLive = run.status === "in-progress" && liveRunIds.has(run.id);
       const fullRun = fullRuns.get(run.id);
+      const isLive = run.status === "in-progress" && liveRunIds.has(run.id);
       const records = logReader?.tail(run.id) ?? [];
       const error = fullRun ? composeRunOperatorError(fullRun, findTerminalLogRecord(records)) : undefined;
+
+      // For workflow entry rows, compute rollup status instead of using durable status
+      const snapshot = fullRun?.workflowSnapshot;
+      const isEntryRow = snapshot !== null && snapshot !== undefined && fullRun?.stepId === snapshot.steps[0]?.stepId;
+      const reportedStatus = isEntryRow
+        ? rollupWorkflowRunStatus({
+            entryRun: run,
+            workflowSnapshot: snapshot,
+            siblingRuns: store.findRunsByInvocationId(snapshot.invocationId),
+            isLive: workflowPromisesByEntryRunId.has(run.id),
+          })
+        : run.status;
+
       return {
         runId: run.id,
         project: run.project,
         branch: run.branch,
-        status: run.status,
+        status: reportedStatus,
         isLive,
         ...(error !== undefined ? { error } : {}),
         ...(fullRun?.workflowSnapshot?.reviewPasses !== undefined
@@ -695,7 +722,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         ...(fullRun?.workflowSnapshot !== undefined && fullRun?.workflowSnapshot !== null
           ? { workflow: workflowRowSnapshot(fullRun, workflowRuns, liveRunIds, reviewDebateProgressByInvocation) }
           : {}),
-        ...(run.status === "blocked" ? { worktreePath: run.worktreePath } : {}),
+        ...(reportedStatus === "blocked" ? { worktreePath: run.worktreePath } : {}),
       };
     });
 
@@ -999,6 +1026,25 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       return { kind: "error", code: "unknown_run", message: `Run ${runId} not found` };
     }
 
+    // Workflow entry runs resolve via the rollup, awaiting the in-flight workflow promise if live
+    if (run.workflowSnapshot !== null && run.workflowSnapshot !== undefined && run.stepId === run.workflowSnapshot.steps[0]?.stepId) {
+      const workflowPromise = workflowPromisesByEntryRunId.get(runId);
+      if (workflowPromise !== undefined) {
+        await workflowPromise;
+      }
+      const siblingRuns = store.findRunsByInvocationId(run.workflowSnapshot.invocationId);
+      const rollupStatus = rollupWorkflowRunStatus({
+        entryRun: run,
+        workflowSnapshot: run.workflowSnapshot,
+        siblingRuns,
+        isLive: false,
+      });
+      const records = logReader.tail(runId);
+      const terminalRecord = findTerminalLogRecord(records);
+      return { kind: "response", result: resultFrom(runId, rollupStatus, terminalRecord) };
+    }
+
+    // Non-workflow run or non-entry workflow run: use log-driven path
     const records = logReader.tail(runId);
     const subscribeSeq = records.at(-1)?.seq ?? 0;
     if (run.status !== "in-progress") {

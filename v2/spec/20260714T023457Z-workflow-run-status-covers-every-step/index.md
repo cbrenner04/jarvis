@@ -2,5 +2,5 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Workflow rollup status](./00-workflow-rollup-status.md)
-- [ ] [01 - Daemon reports the rollup on wait and list](./01-daemon-wait-list-rollup.md)
+- [x] [00 - Workflow rollup status](./00-workflow-rollup-status.md)
+- [x] [01 - Daemon reports the rollup on wait and list](./01-daemon-wait-list-rollup.md)

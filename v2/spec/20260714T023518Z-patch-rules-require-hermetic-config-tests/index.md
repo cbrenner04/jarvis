@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Hermetic-config test rule in patch rules](./00-hermetic-config-test-rule.md)
+- [x] [00 - Hermetic-config test rule in patch rules](./00-hermetic-config-test-rule.md)

@@ -6,17 +6,14 @@ import {
 import {
   buildIntentWorkflowSteps,
   buildReviewedIntentWorkflowSteps,
-  type IntentWorkflowInput,
-  type IntentWorkflowResult,
-} from "./intent-workflow-steps.ts";
-import {
   buildPlanWorkflowSteps,
   buildReviewedPlanLightWorkflowSteps,
   buildReviewedPlanWorkflowSteps,
+  type IntentWorkflowInput,
+  type IntentWorkflowResult,
   type PlanWorkflowInput,
   type PlanWorkflowResult,
-} from "./plan-workflow-steps.ts";
-
+} from "./publication-workflow-steps.ts";
 export type WorkflowPresetBuilderInput = BuildImplementWorkflowStepsInput | IntentWorkflowInput | PlanWorkflowInput;
 export type WorkflowPresetBuilderResult = BuildImplementWorkflowStepsResult | IntentWorkflowResult | PlanWorkflowResult;
 export type WorkflowPresetBuilder = (

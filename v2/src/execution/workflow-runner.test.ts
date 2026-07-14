@@ -1745,7 +1745,7 @@ describe("executeWorkflow human steps", () => {
       role: "plan",
       branchName: "intent-body-summary",
       specPath: "ready-intents",
-      intentOutput: { durableDir: "ready-intents" },
+      landing: { kind: "intent-stage", output: { durableDir: "ready-intents" }, stagingDir: ".jarvis-intent-stage", invocationId, baseRef: "none" },
       creationTitle: "intent: seed-subject",
       workflowInvocationId: invocationId,
       withExternalWorktree,
@@ -1789,7 +1789,7 @@ describe("executeWorkflow human steps", () => {
       role: "plan",
       branchName: "intent-body-summary-retry",
       specPath: "ready-intents",
-      intentOutput: { durableDir: "ready-intents" },
+      landing: { kind: "intent-stage", output: { durableDir: "ready-intents" }, stagingDir: ".jarvis-intent-stage", invocationId, baseRef: "none" },
       creationTitle: "intent: seed-subject",
       workflowInvocationId: invocationId,
       withExternalWorktree,
@@ -1843,7 +1843,7 @@ describe("executeWorkflow human steps", () => {
       role: "plan",
       branchName: "reviewed-intent-body-summary",
       specPath: "ready-intents",
-      intentOutput: { durableDir: "ready-intents" },
+      landing: { kind: "intent-stage", output: { durableDir: "ready-intents" }, stagingDir: ".jarvis-intent-stage", invocationId, baseRef: "none" },
       creationTitle: "intent: reviewed-seed",
       workflowInvocationId: invocationId,
       withExternalWorktree,
@@ -1871,8 +1871,9 @@ describe("executeWorkflow human steps", () => {
         claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
         codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
       },
-      deferredIntentOutput: {
-        config: { durableDir: "ready-intents" },
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
         stagingDir: join(workspace, ".jarvis-intent-stage"),
         invocationId,
         baseRef: "HEAD",
@@ -2994,8 +2995,9 @@ describe("executeWorkflow review dispatch", () => {
       maxCycles: 1,
       agents: { critic: ["claude"], actuator: ["codex"] },
       agentModelConfig: config,
-      deferredIntentOutput: {
-        config: { durableDir },
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir },
         stagingDir: join(workspace, ".jarvis-intent-stage"),
         invocationId: "invocation-1",
         baseRef: "none",
@@ -3051,8 +3053,9 @@ describe("executeWorkflow review dispatch", () => {
       maxCycles: 1,
       agents: { critic: ["claude"], actuator: ["codex"] },
       agentModelConfig: config,
-      deferredIntentOutput: {
-        config: { durableDir },
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
         stagingDir: join(workspace, ".jarvis-intent-stage"),
         invocationId: "invocation-1",
         baseRef: "none",
@@ -3107,8 +3110,9 @@ describe("executeWorkflow review dispatch", () => {
       maxCycles: 1,
       agents: { critic: ["claude"], actuator: ["codex"] },
       agentModelConfig: config,
-      deferredIntentOutput: {
-        config: { durableDir: join(workspace, "ready-intents") },
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
         stagingDir: join(workspace, ".jarvis-intent-stage"),
         invocationId: "invocation-1",
         baseRef: "none",
@@ -3146,8 +3150,9 @@ describe("executeWorkflow review dispatch", () => {
       maxCycles: 1,
       agents: { critic: ["claude"], actuator: ["codex"] },
       agentModelConfig: config,
-      deferredIntentOutput: {
-        config: { durableDir: join(workspace, "ready-intents") },
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
         stagingDir: join(workspace, ".jarvis-intent-stage"),
         invocationId: "invocation-1",
         baseRef: "none",
@@ -3197,8 +3202,9 @@ describe("executeWorkflow review dispatch", () => {
       maxCycles: 1,
       agents: { critic: ["claude"], actuator: ["codex"] },
       agentModelConfig: config,
-      deferredIntentOutput: {
-        config: { durableDir },
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
         stagingDir: join(workspace, ".jarvis-intent-stage"),
         invocationId: "invocation-1",
         baseRef: "none",
@@ -3259,8 +3265,9 @@ describe("executeWorkflow review dispatch", () => {
       maxCycles: 1,
       agents: { critic: ["claude"], actuator: ["codex"] },
       agentModelConfig: config,
-      deferredIntentOutput: {
-        config: { durableDir },
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
         stagingDir: join(workspace, ".jarvis-intent-stage"),
         invocationId: "invocation-1",
         baseRef: "none",

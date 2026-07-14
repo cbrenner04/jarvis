@@ -22,16 +22,16 @@ Make post-write landing a closed hook contract and remove intent-specific output
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/publication-landing.test.ts` fails against the baseline and covers `intent-stage`, `plan-tree`, and `none`, including validation, atomic landing, collision, and returned durable publication path.
-- [ ] Updated `v2/src/execution/workflow-runner.test.ts` hook-driven completion cases fail against the baseline and prove landing precedes commit/push/PR or no-Git completion.
-- [ ] Intent split and plan draft publish the same durable outputs as before; staged control files are excluded and successful landing removes transient staging.
-- [ ] Reviewed intent lands only after review; a landing or later publication retry resumes from the durable post-work checkpoint without invoking split, draft, critic, or actuator again.
-- [ ] Intent boundary violations, differing collisions, and filesystem failures retain retryable staging and diagnostics without overwrite or partial durable output.
-- [ ] Plan draft shape failures and landing collisions retain retryable staging and never publish an incomplete spec tree.
-- [ ] `v2/src/execution/intent-output.test.ts` and the reviewed-intent landing/resume cases in `v2/src/execution/workflow-runner.test.ts` stay green (validation, ownership, collision, workspace, and resume behavior are unchanged).
-- [ ] Production code contains no `intentOutput` or `deferredIntentOutput`; replaced builder/deferred-landing production deletions exceed their replacement additions, and `workflow-runner.ts` plus `write.ts` remain intact.
-- [ ] `v2/docs/workflow-runner.md`, `v2/docs/first-workflow-walkthrough.md`, and `v2/docs/v1-behaviors.md` describe publication rows, hook ordering, ownership, durable output, failure, and resume semantics.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/publication-landing.test.ts` fails against the baseline and covers `intent-stage`, `plan-tree`, and `none`, including validation, atomic landing, collision, and returned durable publication path.
+- [x] Updated `v2/src/execution/workflow-runner.test.ts` hook-driven completion cases fail against the baseline and prove landing precedes commit/push/PR or no-Git completion.
+- [x] Intent split and plan draft publish the same durable outputs as before; staged control files are excluded and successful landing removes transient staging.
+- [x] Reviewed intent lands only after review; a landing or later publication retry resumes from the durable post-work checkpoint without invoking split, draft, critic, or actuator again.
+- [x] Intent boundary violations, differing collisions, and filesystem failures retain retryable staging and diagnostics without overwrite or partial durable output.
+- [x] Plan draft shape failures and landing collisions retain retryable staging and never publish an incomplete spec tree.
+- [x] `v2/src/execution/intent-output.test.ts` and the reviewed-intent landing/resume cases in `v2/src/execution/workflow-runner.test.ts` stay green (validation, ownership, collision, workspace, and resume behavior are unchanged).
+- [x] Production code contains no `intentOutput` or `deferredIntentOutput`; replaced builder/deferred-landing production deletions exceed their replacement additions, and `workflow-runner.ts` plus `write.ts` remain intact.
+- [x] `v2/docs/workflow-runner.md`, `v2/docs/first-workflow-walkthrough.md`, and `v2/docs/v1-behaviors.md` describe publication rows, hook ordering, ownership, durable output, failure, and resume semantics.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

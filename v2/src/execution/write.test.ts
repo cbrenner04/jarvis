@@ -424,12 +424,12 @@ describe("write behavior", () => {
     expect(capturedPrompt).toContain("Record decisions, constraints, and assumptions as a ledger");
     expect(capturedPrompt).toContain(intentSeed);
     expect(capturedPrompt).toContain("## File output");
-    expect(capturedPrompt).toContain(`under \`${expectedSpecDir}\`.`);
+    expect(capturedPrompt).toContain(`under \`${join(result.worktreePath, ".jarvis-plan-stage")}\`.`);
     expect(capturedPrompt).toContain("Do not emit spec content to stdout");
     expect(capturedPrompt).toContain("## Step completion");
     expect(capturedPrompt).toContain(DEFAULT_WRITE_STEP_RULES);
 
-    const intentPath = join(result.worktreePath, specPath, "intent.md");
+    const intentPath = join(result.worktreePath, ".jarvis-plan-stage", "intent.md");
     expect(existsSync(intentPath)).toBe(true);
     expect(readFileSync(intentPath, "utf8")).toBe(intentSeed);
   });

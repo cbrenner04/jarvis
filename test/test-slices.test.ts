@@ -98,6 +98,7 @@ describe("Test slice boundaries", () => {
       "v2/src/daemon/daemon-ipc-responsiveness-during-revise-dirty.sandbox-unrunnable.test.ts",
       "v2/src/daemon/daemon-start-list.sandbox-unrunnable.test.ts",
       "v2/src/daemon/daemon.sandbox-unrunnable.test.ts",
+      "v2/src/execution/write-loop-dirty-completion.sandbox-unrunnable.test.ts",
       "v2/src/ipc/ipc.sandbox-unrunnable.test.ts",
       "v2/src/testing/preload.sandbox-unrunnable.test.ts",
       "v2/src/tui/tui-log-tail-client.sandbox-unrunnable.test.ts",

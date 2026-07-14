@@ -384,7 +384,10 @@ test("intent request against a non-terminal prior run of another invocation is r
   const firstInvocationId = crypto.randomUUID();
   const firstStep = createWriteStep("step-1", "intent-branch", neverResolvingBindingFactory);
   firstStep.workflowInvocationId = firstInvocationId;
-  const firstResponse = await handlers.start(requestFrame("s1", "start", { steps: [firstStep] }), new AbortController().signal);
+  const firstResponse = await handlers.start(
+    requestFrame("s1", "start", { steps: [firstStep] }),
+    new AbortController().signal,
+  );
   expect(firstResponse.kind).toBe("response");
   await flushBackgroundRuns();
 
@@ -392,10 +395,13 @@ test("intent request against a non-terminal prior run of another invocation is r
   const secondInvocationId = crypto.randomUUID();
   const secondStep = createWriteStep("step-1", "intent-branch", doneBindingFactory);
   secondStep.workflowInvocationId = secondInvocationId;
-  const secondResponse = await handlers.start(requestFrame("s2", "start", { steps: [secondStep] }), new AbortController().signal);
+  const secondResponse = await handlers.start(
+    requestFrame("s2", "start", { steps: [secondStep] }),
+    new AbortController().signal,
+  );
   expect(secondResponse.kind).toBe("error");
-  expect((secondResponse as any).code).toBe("worktree_claimed");
-  expect((secondResponse as any).message).toContain("owned by another invocation");
+  expect((secondResponse as { code?: string }).code).toBe("worktree_claimed");
+  expect((secondResponse as { message?: string }).message).toContain("owned by another invocation");
 });
 
 test("intent request against a terminal prior run of another invocation creates a new run", async () => {
@@ -403,18 +409,24 @@ test("intent request against a terminal prior run of another invocation creates 
   const firstInvocationId = crypto.randomUUID();
   const firstStep = createWriteStep("step-1", "terminal-intent-branch", doneBindingFactory);
   firstStep.workflowInvocationId = firstInvocationId;
-  const firstResponse = await handlers.start(requestFrame("s1", "start", { steps: [firstStep] }), new AbortController().signal);
+  const firstResponse = await handlers.start(
+    requestFrame("s1", "start", { steps: [firstStep] }),
+    new AbortController().signal,
+  );
   expect(firstResponse.kind).toBe("response");
-  const firstRunId = (firstResponse as any).result.runId;
+  const firstRunId = (firstResponse as { result: { runId: string } }).result.runId;
   await flushBackgroundRuns();
 
   // Now try to start the same step with a different invocation ID; should succeed (creates new run)
   const secondInvocationId = crypto.randomUUID();
   const secondStep = createWriteStep("step-1", "terminal-intent-branch", doneBindingFactory);
   secondStep.workflowInvocationId = secondInvocationId;
-  const secondResponse = await handlers.start(requestFrame("s2", "start", { steps: [secondStep] }), new AbortController().signal);
+  const secondResponse = await handlers.start(
+    requestFrame("s2", "start", { steps: [secondStep] }),
+    new AbortController().signal,
+  );
   expect(secondResponse.kind).toBe("response");
-  const secondRunId = (secondResponse as any).result.runId;
+  const secondRunId = (secondResponse as { result: { runId: string } }).result.runId;
 
   // Verify the new run ID is different from the first
   expect(secondRunId).not.toBe(firstRunId);

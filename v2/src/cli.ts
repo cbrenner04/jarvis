@@ -385,29 +385,38 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
   }
 
   if (subcommand === "wait" && argv.length === 2) {
+    const runId = argv[1];
+    if (runId === undefined) {
+      io.stderr(RUN_USAGE);
+      return 1;
+    }
     return withRunClient(io, deps, async (client) => {
-      let response: unknown;
-      try {
-        response = await request(client, "wait", { runId: argv[1] });
-      } catch (error) {
-        if (error instanceof RpcError) {
-          io.stderr(formatRpcError(error));
-          return 1;
-        }
-        throw error;
-      }
-      const result = parseWaitCompletion(response);
-      if (result === undefined) {
-        io.stderr("invalid daemon response\n");
-        return 1;
-      }
-      io.stdout(`${JSON.stringify(buildWaitPayload(result))}\n`);
-      return exitCodeForWaitResult(result);
+      return waitForRunCompletion(client, runId, io);
     });
   }
 
   io.stderr(subcommand === "start" ? WRITE_USAGE : RUN_USAGE);
   return 1;
+}
+
+async function waitForRunCompletion(client: IpcClient, runId: string, io: Io): Promise<number> {
+  let response: unknown;
+  try {
+    response = await request(client, "wait", { runId });
+  } catch (error) {
+    if (error instanceof RpcError) {
+      io.stderr(formatRpcError(error));
+      return 1;
+    }
+    throw error;
+  }
+  const result = parseWaitCompletion(response);
+  if (result === undefined) {
+    io.stderr("invalid daemon response\n");
+    return 1;
+  }
+  io.stdout(`${JSON.stringify(buildWaitPayload(result))}\n`);
+  return exitCodeForWaitResult(result);
 }
 
 function buildWaitPayload(result: WaitRunCompletionResult): Record<string, unknown> {
@@ -586,7 +595,7 @@ async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps
       }
     }
     io.stdout(`${start.runId}\n`);
-    return 0;
+    return waitForRunCompletion(client, start.runId, io);
   });
 }
 
@@ -603,13 +612,18 @@ async function withRunClient(io: Io, deps: CliDeps, fn: (client: IpcClient) => P
   }
 }
 
+/** One transport per client: a client may carry several correlated requests (e.g. `run workflow`
+ * issues `start` then `wait`), and closing the transport destroys the underlying socket. The
+ * transport is torn down with the client by `withRunClient`. */
+const clientTransports = new WeakMap<IpcClient, ReturnType<typeof createRpcTransport>>();
+
 async function request(client: IpcClient, method: string, params?: unknown): Promise<unknown> {
-  const transport = createRpcTransport(client);
-  try {
-    return await transport.request(method, params);
-  } finally {
-    transport.close();
+  let transport = clientTransports.get(client);
+  if (transport === undefined) {
+    transport = createRpcTransport(client);
+    clientTransports.set(client, transport);
   }
+  return await transport.request(method, params);
 }
 
 function formatLifecycleError(error: unknown): string {

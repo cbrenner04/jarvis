@@ -276,17 +276,36 @@ Seed: `v2-cleanup-command`. Cleanup: delete when it ships.
 
 ### Blocked run: inspect and resume
 
-A `blocked` run (agent appended `## Blocker` to the spec) keeps its worktree,
-branch, and `git worktree list` registration — `blocked` is inspect-and-resume,
-not terminal. `jarvis run list` and `jarvis run wait <run-id>` report
-`worktreePath` for blocked rows; inspect the spec/uncommitted work there, resolve
-the blocker, then resume.
+A `blocked` run (agent appended `## Blocker` to the spec) keeps its worktree, branch, and
+`git worktree list` registration. `jarvis run list` and `jarvis run wait <run-id>` report
+`worktreePath` for blocked rows; inspect the spec and uncommitted work there and resolve the
+blocker.
+
+**`jarvis run resume` does not work on a blocked run** — it refuses with
+`terminal_run: Cannot resume a blocked run`, and `run list` correctly reports the row as
+`resumable: false` with remediation `inspect_spec`. (This section previously said "`blocked` is
+inspect-and-resume, not terminal" and told you to resume. That was wrong; the harness never
+supported it.) To continue the work, resolve the blocker and **re-run the spec** — the worktree
+persists, so a fresh `jarvis run workflow implement` on the same branch picks up the uncommitted
+work.
 
 ### Orphaned non-terminal runs after daemon restart
 
-Reconciled automatically at daemon start (#1430, race fixed by #1476–#1478): durable
-non-terminal rows from a prior daemon transition to `killed` with reason
-`daemon_restart` before IPC opens. Worktrees and branches survive.
+Durable non-terminal rows from a prior daemon are reconciled to `killed` with reason
+`daemon_restart` before IPC opens (#1430, race fixed by #1476–#1478). Worktrees and branches
+survive, but the killed iteration's agent work does **not** — it is left uncommitted in the
+worktree, and its token spend is lost.
+
+**Two traps here, both seeded, both observed live on 2026-07-14:**
+
+- The restart itself kills every in-flight run, and the harness *requires* a restart after merging
+  any v2 change (stale code snapshot). So landing a v2 fix destroys concurrent work. Seed:
+  `daemon-restart-kills-in-flight-runs`. Cleanup: delete when it ships.
+- `jarvis run resume <id>` on such a run **cannot work**. `resumeHandler` passes `bindings: []`,
+  so the run dies `no_binding` in ~32 ms having invoked no agent — while the CLI prints
+  `resumed <id>` and the remediation says `fix_config`, pointing at a config that is fine. Seed:
+  `resume-of-a-killed-run-has-no-bindings`. Until it ships, re-run the spec instead of resuming.
+  Cleanup: delete when it ships.
 
 ### Wedged run, no agent activity
 
@@ -359,7 +378,19 @@ partly on v1's idle watchdog infrastructure; v2 lacks that layer. Operator disci
 and CI guardrails replace it. Consider a future idle-output watchdog for v2 if
 claude primary stalls become a concern.
 
-Per-run overrides, rather than churning config:
+### v2 takes its agent order from a different config key than v1
+
+**v1** reads `modes.<mode>.agentOrder` (ordered `{agent, model}` objects, per mode). **v2** reads
+the flat top-level **`agents`** array of bare names (`v2/src/cli.ts:236` → `loadMachineConfig`). It
+never reads `modes.*.agentOrder`.
+
+So reordering `modes.*.agentOrder` — the lever `agents.md` and the v1 runbook document — changes v1
+and **nothing about v2**, silently. Observed 2026-07-14: codex was moved to the front of every
+`modes.*.agentOrder` and every subsequent v2 run still invoked claude. To change v2's order today
+you must also edit the top-level `agents` array. Seed:
+`v1-and-v2-read-agent-order-from-different-config-keys`. Cleanup: delete when it ships.
+
+Per-run overrides, rather than churning config — **v1 only**; v2 has no `--agent` flag:
 
 ```sh
 jarvis1 run --agent cursor:"Composer 2.5" <spec>   # free; verify `cursor-agent status` first
@@ -385,6 +416,23 @@ Do not merge to `main` blindly during long in-flight runs; see v1 runbook
 ## Known gotchas
 
 Operators add bullets here; delete when fixed.
+
+- **Launch `jarvis run workflow` from the project root (2026-07-14):** `--spec` resolves against
+  your shell's cwd, and the resulting repo-relative path is re-resolved *inside the run's own
+  worktree*. A cwd inside another git worktree (e.g. `.worktree/<x>/`) yields a path that passes
+  preflight — it really exists from the project root — and then fails `harness_failure` at the
+  routing read, **after a full agent write step**. Cost one run 7m52s and its tokens. Seed:
+  `spec-path-is-not-validated-in-the-run-worktree`. Cleanup: delete when it ships.
+- **Every implement run has committed a red gate (2026-07-14):** four for four this session, all
+  trivially auto-fixable (import ordering, a formatter violation, one fabricated test assertion).
+  The full-tier gate catches them, but a red gate is terminal: the run publishes a draft PR over
+  the broken commit and stops. Until `red-gate-feeds-back-to-the-agent` ships, expect to run
+  `bun run fix` and re-gate by hand on every implement PR before merging. Seed:
+  `red-gate-does-not-feed-back-to-the-agent`. Cleanup: delete when it ships.
+- **`lint:md` lints one file in all of v2 (2026-07-14):** the globs cover `v2/docs/onboarding.md`
+  and nothing else under v2 — not `v2/docs/**`, not `v2/spec/**`. The full-tier ready gate runs
+  `lint:md` over a surface it does not cover, so v2 markdown is effectively unlinted. Seed:
+  `lint-md-does-not-cover-the-v2-surface`. Cleanup: delete when it ships.
 
 - **A terminal run id does not mean the workflow is done (2026-07-14):** `jarvis run wait <id>`
   returns when *that run* goes terminal, but the workflow continues under a **new run id** (the

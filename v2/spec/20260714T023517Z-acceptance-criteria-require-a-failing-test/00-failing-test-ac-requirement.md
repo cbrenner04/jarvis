@@ -20,16 +20,16 @@ behavior with zero tests and a green gate. Make the failing-test criterion a dra
 
 ## Acceptance criteria
 
-- [ ] The rendered plan-draft prompt (`buildDraftPrompt`) instructs the drafting agent that every
+- [x] The rendered plan-draft prompt (`buildDraftPrompt`) instructs the drafting agent that every
       subspec changing runtime behavior must carry an acceptance criterion naming a test that fails
       against the pre-fix code and passes after the change, that "existing tests stay green" does not
       satisfy it, and that docs-only/spec-only subspecs are exempt.
-- [ ] A new assertion in `v1/test/modes/plan/prompts.test.ts` fails against the pre-change prompt and
+- [x] A new assertion in `v1/test/modes/plan/prompts.test.ts` fails against the pre-change prompt and
       passes after it, covering the requirement above.
-- [ ] `v1/docs/spec-guidance.md` § Behavioral acceptance criteria states the failing-test requirement
+- [x] `v1/docs/spec-guidance.md` § Behavioral acceptance criteria states the failing-test requirement
       with the `blocked-run-retains-worktree-and-branch` regression criterion as the worked example,
       and is reachable by plan review and verdict-actuator passes (they inject the same doc).
-- [ ] `plan.prompt.draft` revision is bumped and the rendered-snapshot suite
+- [x] `plan.prompt.draft` revision is bumped and the rendered-snapshot suite
       (`v1/test/prompts/rendered-snapshots.test.ts`) is green against the new fixture.
 
 ## Documentation updates

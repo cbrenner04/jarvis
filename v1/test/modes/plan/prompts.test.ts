@@ -195,6 +195,17 @@ describe("draft/review prompts", () => {
     expect(prompt).toContain("quota classification lives in a dedicated module");
   });
 
+  test("draft prompt instructs that every runtime-behavior subspec must carry a failing-test AC", () => {
+    const prompt = buildDraftPrompt({
+      name: "test-name",
+      intent: "intent",
+      specGuidance: "guidance",
+    });
+    expect(prompt).toContain("Every subspec that changes runtime behavior must carry an acceptance criterion naming a test that fails against the pre-fix code and passes after the change");
+    expect(prompt).toContain("Docs-only and spec-only subspecs are exempt");
+    expect(prompt).toContain("Existing tests stay green");
+  });
+
   test("review adversary prompt flags structural product acceptance criteria", () => {
     const prompt = buildReviewPrompt({
       name: "x",

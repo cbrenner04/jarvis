@@ -2,8 +2,14 @@
 
 `jarvis run workflow intent --seed v1/spec/seeds/<x>.md` writes its ready-intents to
 **`v2/spec/ready-intents/`**. So does `plan`, for its spec tree. The output dir comes from
-`~/.jarvis/config.json` `plan.targetDir` alone; the seed's own location is ignored, and v2 has no
-`--target-dir` flag (`grep -rn "target-dir" v2/src` → no hits; v1's `plan`/`intent` both have one).
+`~/.jarvis/config.json` `plan.targetDir` alone; the seed's own location is ignored.
+
+**Correction (2026-07-14):** this seed originally claimed v2 has no `--target-dir` flag, citing
+`grep -rn "target-dir" v2/src` → no hits. **That is false.** `--target-dir` is fully wired for
+`intent`, `intent-reviewed`, `plan`, `plan-reviewed`, and `plan-reviewed-light` (`v2/src/cli.ts`
+lines 87–94 usage, 865/919 parse, 895/903/949 dispatch). The misrouted artifacts below came from
+the operator not passing the flag, not from the flag being absent. The seed's decision still holds
+— the *default* must derive from the input path — but do not implement a flag that already exists.
 
 ## Problem
 
@@ -28,8 +34,8 @@ Compounding: `lint:md` globs `v1/spec/**`, `v1/docs/**`, `reports/**`, `v2/docs/
 - **A workflow's output surface is derived from its input, not from a global default.** A seed or
   ready-intent under `v1/spec/` produces artifacts under `v1/spec/`. Rules out "the operator flips
   `plan.targetDir` between runs".
-- An explicit override (`--target-dir`) may exist, but it is not the fix — the default must be
-  right without it.
+- The explicit override (`--target-dir`) **already exists** and is not the fix — the default must
+  be right without it. Do not re-add it.
 - Do not fix by changing the live config's `plan.targetDir`; that just inverts which surface is
   broken.
 

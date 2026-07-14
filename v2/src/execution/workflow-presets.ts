@@ -5,8 +5,8 @@ import {
 } from "./implement-workflow-steps.ts";
 import {
   buildIntentWorkflowSteps,
-  buildReviewedIntentWorkflowSteps,
   buildPlanWorkflowSteps,
+  buildReviewedIntentWorkflowSteps,
   buildReviewedPlanLightWorkflowSteps,
   buildReviewedPlanWorkflowSteps,
   type IntentWorkflowInput,

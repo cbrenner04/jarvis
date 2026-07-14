@@ -419,7 +419,7 @@ describe("write behavior", () => {
     });
 
     expect(result.result.kind).toBe("complete");
-    const expectedSpecDir = join(result.worktreePath, specPath);
+    const _expectedSpecDir = join(result.worktreePath, specPath);
     expect(capturedPrompt).toContain("Before editing code, read the relevant durable docs/specs");
     expect(capturedPrompt).toContain("Record decisions, constraints, and assumptions as a ledger");
     expect(capturedPrompt).toContain(intentSeed);

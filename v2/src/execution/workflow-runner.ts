@@ -22,13 +22,13 @@ import { type CompletionCommitter, createCompletionCommitter } from "./completio
 import type { CompletionPublisher } from "./completion-publisher.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { listLandedIntentFiles } from "./intent-output.ts";
-import { landPublication, type PublicationLanding } from "./publication-landing.ts";
 import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
 import {
   advanceLinkedSubspecCheckbox,
   findModifiedLinkedCheckbox,
   resolveActiveLinkedSubspec,
 } from "./linked-subspec-routing.ts";
+import { landPublication, type PublicationLanding } from "./publication-landing.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import { renderIntentReviewActuatorPrompt, renderIntentReviewCriticPrompt } from "./render-intent-review-prompts.ts";
 import { executePlanReviewCycle, type PlanReviewCycleOutcome } from "./render-plan-review-prompts.ts";
@@ -732,7 +732,12 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
 
     // For reviewed intent workflows, landing is deferred until after review completes.
     // Skip landing if the last step is a review step; it will be handled after review.
-    if (publicationAgent !== undefined && completionStep?.landing !== undefined && completionStep.landing.kind !== "none" && !isReviewLastStep) {
+    if (
+      publicationAgent !== undefined &&
+      completionStep?.landing !== undefined &&
+      completionStep.landing.kind !== "none" &&
+      !isReviewLastStep
+    ) {
       const worktreePath = getExternalWorktreePath(completionStep.worktree);
       try {
         publicationSpecPath = (await landPublication(completionStep.landing, worktreePath)).specPath;
@@ -810,7 +815,10 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 creationTitle: workflowSnapshot.creationTitle,
                 intentFiles: await listLandedIntentFiles(worktreePath, workflowSnapshot.invocationId),
               });
-            } else if (completionStep.landing?.kind === "plan-tree" || completionStep.promptId === "plan.prompt.draft") {
+            } else if (
+              completionStep.landing?.kind === "plan-tree" ||
+              completionStep.promptId === "plan.prompt.draft"
+            ) {
               bodySummary = deriveSpecRunBodySummary({
                 worktreePath,
                 specPath: publicationSpecPath ?? completionStep.specPath,
@@ -1194,7 +1202,8 @@ function prepareWorkflowStep(
 
   if (
     !shouldSkipReuse &&
-    (existingRun?.status === "completed" || (step.landing !== undefined && step.landing.kind !== "none" && existingRun?.status === "failed"))
+    (existingRun?.status === "completed" ||
+      (step.landing !== undefined && step.landing.kind !== "none" && existingRun?.status === "failed"))
   ) {
     const completionAgent = existingRun.attempts.at(-1)?.completionAgent?.trim();
     return { kind: "completed", runId: existingRun.id, ...(completionAgent ? { completionAgent } : {}) };
@@ -1942,17 +1951,7 @@ async function runReviewStep(
     ? runPatchReviewStep(step, reviewInput, patchReviewContext, ids, bindings, invocationId, onProgress, telemetry)
     : planReviewContext !== undefined
       ? runPlanReviewStep(step, reviewInput, planReviewContext, ids, bindings, invocationId, onProgress, telemetry)
-      : runStandardReviewStep(
-          step,
-          reviewInput,
-          landing,
-          ids,
-          bindings,
-          invocationId,
-          onProgress,
-          telemetry,
-          store,
-        ));
+      : runStandardReviewStep(step, reviewInput, landing, ids, bindings, invocationId, onProgress, telemetry, store));
 
   if (landing?.kind === "intent-stage") {
     logSink?.append(ids.runId, {

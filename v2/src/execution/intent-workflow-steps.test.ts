@@ -248,7 +248,13 @@ describe("buildReviewedIntentWorkflowSteps", () => {
     expect(reviewStep).toMatchObject({
       cwd: workspace,
       verdictPath: `${workspace}/.jarvis-intent-review-verdict.md`,
-      landing: { kind: "intent-stage", output: { durableDir: "/jarvis/specs/demo/ready-intents" }, stagingDir: ".jarvis-intent-stage", invocationId: expect.any(String), baseRef: "none" },
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "/jarvis/specs/demo/ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId: expect.any(String),
+        baseRef: "none",
+      },
     });
   });
 

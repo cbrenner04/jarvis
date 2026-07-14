@@ -1051,7 +1051,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
     const terminalRecord = logReader ? findTerminalLogRecord(logReader.tail(runId)) : undefined;
     const reconstructed = resumeContextForTerminalRecord(run, terminalRecord);
-    if (!reconstructed || !reconstructed.ok) {
+    if (!reconstructed?.ok) {
       return {
         kind: "error",
         code: "resume_unsupported",

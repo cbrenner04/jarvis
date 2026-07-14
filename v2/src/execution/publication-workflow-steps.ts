@@ -9,6 +9,7 @@ import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import type { MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
 import { jarvisHome } from "../paths.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
+import type { PublicationLanding } from "./publication-landing.ts";
 import {
   type LoadedWorkflowStep,
   type ReviewDebateWorkflowSourceStep,
@@ -25,7 +26,6 @@ import {
   type WriteWorkflowStep,
 } from "./workflow-runner.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
-import type { PublicationLanding } from "./publication-landing.ts";
 
 const INTENT_STAGE = ".jarvis-intent-stage";
 const PLAN_STAGE = ".jarvis-plan-stage";
@@ -195,6 +195,53 @@ function resolveSeed(
   const slug = slugify(content.split(/\s+/u).slice(0, 6).join(" "));
   return { label: "inline seed", content, slug, name: slug };
 }
+/**
+ * Machine-config `modes.plan` block, normalized. Shared by every publication row's
+ * input resolver so target-dir and commit defaults resolve identically.
+ */
+function machineModePlan(configPath: string | undefined): Record<string, unknown> {
+  const document = readMachineConfigDocument(configPath) ?? {};
+  const modes = document.modes && typeof document.modes === "object" ? (document.modes as Record<string, unknown>) : {};
+  return modes.plan && typeof modes.plan === "object" ? (modes.plan as Record<string, unknown>) : {};
+}
+
+/** Target dir precedence: explicit flag, then project config, then machine `modes.plan`, then `spec`. */
+function resolveTargetDir(
+  explicit: string | undefined,
+  config: ReturnType<typeof projectConfig>,
+  modePlan: Record<string, unknown>,
+): string {
+  return (
+    explicit ??
+    config.plan?.targetDir ??
+    (typeof modePlan.targetDir === "string" ? modePlan.targetDir : undefined) ??
+    "spec"
+  );
+}
+
+/** The intent row's input contract: exactly-one-seed, target-dir shape, project match, seed slug. */
+function resolveIntentInput(
+  input: IntentWorkflowInput,
+  deps: IntentWorkflowDeps,
+):
+  | {
+      project: NonNullable<ReturnType<typeof findProjectMatch>>;
+      seed: Exclude<ReturnType<typeof resolveSeed>, { error: string }>;
+    }
+  | { error: string } {
+  if ((input.seed === undefined) === (input.seedText === undefined))
+    return { error: "intent: provide exactly one of --seed <path> or --seed-text <text>" };
+  if (input.targetDir !== undefined && !validTargetDir(input.targetDir))
+    return { error: "intent: --target-dir must be a relative non-traversing path" };
+  const project = (deps.resolveProjectMatch ?? ((p) => findProjectMatch(p, registry(input.configPath))))(input.cwd);
+  if (!project) return { error: `intent: no registered project matches ${input.cwd}` };
+  const seed = resolveSeed(input, project, deps.readSeed ?? ((p) => readFileSync(p, "utf8")));
+  if ("error" in seed) return seed;
+  if (!seed.slug) return { error: "intent: seed does not produce a slug" };
+  if (RESERVED_SLUGS.has(seed.slug)) return { error: `intent: reserved slug: ${seed.slug}` };
+  return { project, seed };
+}
+
 function intentSource(
   input: IntentWorkflowInput,
   deps: IntentWorkflowDeps,
@@ -203,25 +250,12 @@ function intentSource(
   | { error: string }
   | Promise<{ source: WriteWorkflowSourceStep; identity: IntentWorkflowIdentity } | { error: string }> {
   return (async () => {
-    if ((input.seed === undefined) === (input.seedText === undefined))
-      return { error: "intent: provide exactly one of --seed <path> or --seed-text <text>" };
-    if (input.targetDir !== undefined && !validTargetDir(input.targetDir))
-      return { error: "intent: --target-dir must be a relative non-traversing path" };
-    const project = (deps.resolveProjectMatch ?? ((p) => findProjectMatch(p, registry(input.configPath))))(input.cwd);
-    if (!project) return { error: `intent: no registered project matches ${input.cwd}` };
-    const seed = resolveSeed(input, project, deps.readSeed ?? ((p) => readFileSync(p, "utf8")));
-    if ("error" in seed) return seed;
-    if (!seed.slug) return { error: "intent: seed does not produce a slug" };
-    if (RESERVED_SLUGS.has(seed.slug)) return { error: `intent: reserved slug: ${seed.slug}` };
+    const resolved = resolveIntentInput(input, deps);
+    if ("error" in resolved) return resolved;
+    const { project, seed } = resolved;
     const config = projectConfig(input.configPath, project);
-    const d = readMachineConfigDocument(input.configPath) ?? {};
-    const modes = d.modes && typeof d.modes === "object" ? (d.modes as Record<string, unknown>) : {};
-    const plan = modes.plan && typeof modes.plan === "object" ? (modes.plan as Record<string, unknown>) : {};
-    const targetDir =
-      input.targetDir ??
-      config.plan?.targetDir ??
-      (typeof plan.targetDir === "string" ? plan.targetDir : undefined) ??
-      "spec";
+    const plan = machineModePlan(input.configPath);
+    const targetDir = resolveTargetDir(input.targetDir, config, plan);
     if (!validTargetDir(targetDir)) return { error: "intent: configured targetDir is invalid" };
     const publishGit =
       config.git !== false && (config.plan?.commit ?? (typeof plan.commit === "boolean" ? plan.commit : true));
@@ -260,7 +294,13 @@ function intentSource(
       },
       specPath: durableDir,
       expectedArtifactPath: INTENT_STAGE,
-      landing: { kind: "intent-stage", output: { durableDir }, stagingDir: INTENT_STAGE, invocationId: identity.invocationId, baseRef } satisfies PublicationLanding,
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir },
+        stagingDir: INTENT_STAGE,
+        invocationId: identity.invocationId,
+        baseRef,
+      } satisfies PublicationLanding,
       workflowInvocationId: identity.invocationId,
       creationTitle: `intent: ${seed.name}`,
       publishCompletion: publishGit,
@@ -380,14 +420,8 @@ function planSource(
       validateReadyIntent(join(input.cwd, input.readyIntent));
     if (!ready.ok) return { error: ready.message };
     const config = projectConfig(input.configPath, project);
-    const d = readMachineConfigDocument(input.configPath) ?? {};
-    const modes = d.modes && typeof d.modes === "object" ? (d.modes as Record<string, unknown>) : {};
-    const modePlan = modes.plan && typeof modes.plan === "object" ? (modes.plan as Record<string, unknown>) : {};
-    const target =
-      input.targetDir ??
-      config.plan?.targetDir ??
-      (typeof modePlan.targetDir === "string" ? modePlan.targetDir : undefined) ??
-      "spec";
+    const modePlan = machineModePlan(input.configPath);
+    const target = resolveTargetDir(input.targetDir, config, modePlan);
     if (!validTargetDir(target)) return { error: "plan: configured targetDir is invalid" };
     const git = config.git !== false && (config.plan?.commit ?? true);
     const root = jarvisHome();

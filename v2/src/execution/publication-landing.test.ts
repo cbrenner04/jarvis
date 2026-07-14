@@ -22,7 +22,13 @@ describe("publication landing hooks", () => {
     mkdirSync(join(root, ".jarvis-intent-stage"));
     writeFileSync(join(root, ".jarvis-intent-stage", "one.md"), "---\nname: one\n---\n\n## Prerequisites\n");
     const result = await landPublication(
-      { kind: "intent-stage", output: { durableDir: "ready-intents" }, stagingDir: ".jarvis-intent-stage", invocationId: "i", baseRef: "HEAD" },
+      {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId: "i",
+        baseRef: "HEAD",
+      },
       root,
     );
     expect(result.specPath).toBe("ready-intents");
@@ -34,7 +40,10 @@ describe("publication landing hooks", () => {
     mkdirSync(join(root, ".jarvis-plan-stage"));
     writeFileSync(join(root, ".jarvis-plan-stage", "index.md"), "# Plan\n");
     writeFileSync(join(root, ".jarvis-plan-stage", "00-first.md"), "# First\n");
-    const result = await landPublication({ kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: "v2/spec/tree" }, root);
+    const result = await landPublication(
+      { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: "v2/spec/tree" },
+      root,
+    );
     expect(result.specPath).toBe("v2/spec/tree");
     expect(readFileSync(join(root, "v2/spec/tree/index.md"), "utf8")).toContain("Plan");
   });

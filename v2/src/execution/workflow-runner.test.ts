@@ -1745,7 +1745,13 @@ describe("executeWorkflow human steps", () => {
       role: "plan",
       branchName: "intent-body-summary",
       specPath: "ready-intents",
-      landing: { kind: "intent-stage", output: { durableDir: "ready-intents" }, stagingDir: ".jarvis-intent-stage", invocationId, baseRef: "none" },
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId,
+        baseRef: "none",
+      },
       creationTitle: "intent: seed-subject",
       workflowInvocationId: invocationId,
       withExternalWorktree,
@@ -1789,7 +1795,13 @@ describe("executeWorkflow human steps", () => {
       role: "plan",
       branchName: "intent-body-summary-retry",
       specPath: "ready-intents",
-      landing: { kind: "intent-stage", output: { durableDir: "ready-intents" }, stagingDir: ".jarvis-intent-stage", invocationId, baseRef: "none" },
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId,
+        baseRef: "none",
+      },
       creationTitle: "intent: seed-subject",
       workflowInvocationId: invocationId,
       withExternalWorktree,
@@ -1843,7 +1855,13 @@ describe("executeWorkflow human steps", () => {
       role: "plan",
       branchName: "reviewed-intent-body-summary",
       specPath: "ready-intents",
-      landing: { kind: "intent-stage", output: { durableDir: "ready-intents" }, stagingDir: ".jarvis-intent-stage", invocationId, baseRef: "none" },
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId,
+        baseRef: "none",
+      },
       creationTitle: "intent: reviewed-seed",
       workflowInvocationId: invocationId,
       withExternalWorktree,
@@ -3041,7 +3059,7 @@ describe("executeWorkflow review dispatch", () => {
 
   test("emits iteration_started and loop_finished around a durable reviewed-intent review", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-log-"));
-    const durableDir = join(workspace, "ready-intents");
+    const _durableDir = join(workspace, "ready-intents");
     const step: ReviewWorkflowStep = {
       behavior: "review",
       stepId: "review",

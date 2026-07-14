@@ -1,6 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
-import { landIntentWorkflowOutput, type IntentOutputConfig } from "./intent-output.ts";
+import { type IntentOutputConfig, landIntentWorkflowOutput } from "./intent-output.ts";
 
 export type PublicationLanding =
   | { kind: "intent-stage"; output: IntentOutputConfig; stagingDir: string; invocationId: string; baseRef: string }
@@ -66,7 +66,10 @@ function landPlanTree(landing: Extract<PublicationLanding, { kind: "plan-tree" }
   }
 }
 
-export async function landPublication(landing: PublicationLanding, worktreePath: string): Promise<PublicationLandingResult> {
+export async function landPublication(
+  landing: PublicationLanding,
+  worktreePath: string,
+): Promise<PublicationLandingResult> {
   if (landing.kind === "none") return { specPath: "", files: [] };
   if (landing.kind === "intent-stage") {
     return landIntentWorkflowOutput({

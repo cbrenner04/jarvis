@@ -201,7 +201,9 @@ describe("draft/review prompts", () => {
       intent: "intent",
       specGuidance: "guidance",
     });
-    expect(prompt).toContain("Every subspec that changes runtime behavior must carry an acceptance criterion naming a test that fails against the pre-fix code and passes after the change");
+    expect(prompt).toContain(
+      "Every subspec that changes runtime behavior must carry an acceptance criterion naming a test that fails against the pre-fix code and passes after the change",
+    );
     expect(prompt).toContain("Docs-only and spec-only subspecs are exempt");
     expect(prompt).toContain("Existing tests stay green");
   });

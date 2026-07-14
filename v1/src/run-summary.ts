@@ -294,6 +294,7 @@ function renderSummaryFromRecords(args: {
 
   const quotaExcludedByAgent = new Map<string, number>();
   const errorWithoutUsageByAgent = new Map<string, number>();
+  const zeroAgentOutputByAgent = new Map<string, number>();
 
   for (const record of args.runRecords) {
     if (record.kind === "quota") {
@@ -308,6 +309,10 @@ function renderSummaryFromRecords(args: {
       record.usage_source !== "agent"
     ) {
       errorWithoutUsageByAgent.set(record.agent, (errorWithoutUsageByAgent.get(record.agent) ?? 0) + 1);
+    }
+    if (record.zero_agent_output === true && record.agent !== "harness") {
+      const cli = record.agent;
+      zeroAgentOutputByAgent.set(cli, (zeroAgentOutputByAgent.get(cli) ?? 0) + 1);
     }
   }
 
@@ -457,6 +462,16 @@ function renderSummaryFromRecords(args: {
   }
 
   const nu = args.labels.noteUnitNoun;
+
+  const zeroOutputAgents = [...zeroAgentOutputByAgent.keys()].sort((a, b) => a.localeCompare(b));
+  for (const za of zeroOutputAgents) {
+    const n = zeroAgentOutputByAgent.get(za) ?? 0;
+    if (n > 0) {
+      notes.push(
+        `${n} ${nu}(s) under ${za} produced zero observed output (stdout + stderr); check agent binding and environment.`,
+      );
+    }
+  }
   for (const row of rows) {
     if (row.unavailableUsageCount > 0) {
       notes.push(

@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Flag zero-output patch iterations](./00-zero-output-guard.md)
+- [x] [00 - Flag zero-output patch iterations](./00-zero-output-guard.md)

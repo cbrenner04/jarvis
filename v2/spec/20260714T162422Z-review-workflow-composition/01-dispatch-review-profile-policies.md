@@ -23,14 +23,14 @@ The workflow runner has domain-specific context branches and duplicated enforcem
 
 ## Acceptance criteria
 
-- [ ] New profile-dispatch cases in `workflow-runner.test.ts` fail against the baseline and pass when intent, plan, and implement light/debate steps enter one runner dispatch; reviewed intent uses its existing external worktree cwd.
-- [ ] Assertions from `review-intent-enforcement.test.ts` and reviewed-intent cases in `workflow-runner.test.ts` stay green after migration for verdict ownership/collision rejection, boundary restoration, diagnostic retention, validation/landing exclusion, cleanup only after successful landing, and landing-only resume without role reinvocation.
-- [ ] Plan review assertions in `workflow-runner.test.ts` and `render-plan-review-prompts.test.ts` stay green after migration for durable `verdict-plan.md`, critic read-only enforcement, actuator edits, retry, and landing behavior.
-- [ ] Implement light/debate assertions in `workflow-runner.test.ts`, `review-debate-render.test.ts`, and `implement-workflow-steps.test.ts` stay green after migration for immutable specs, implementation edits, verdict placement, eligibility, cycle limits, role order, telemetry, completion attribution, and implement-worktree execution.
-- [ ] `deferredIntentOutput`, `planReviewContext`, and `patchReviewContext` are absent from runtime step contracts and dispatch; light and debate remain the only review cycle behaviors.
-- [ ] Replaced runner, render, and enforcement production surfaces show net deletion, with no parallel legacy dispatch or enforcement path retained.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/workflow-runner.md` documents unified dispatch, profile-selected enforcement, resume/landing, and cwd; `v2/docs/first-workflow-walkthrough.md` describes common light/debate semantics.
+- [x] New profile-dispatch cases in `workflow-runner.test.ts` fail against the baseline and pass when intent, plan, and implement light/debate steps enter one runner dispatch; reviewed intent uses its existing external worktree cwd.
+- [x] Assertions from `review-intent-enforcement.test.ts` and reviewed-intent cases in `workflow-runner.test.ts` stay green after migration for verdict ownership/collision rejection, boundary restoration, diagnostic retention, validation/landing exclusion, cleanup only after successful landing, and landing-only resume without role reinvocation.
+- [x] Plan review assertions in `workflow-runner.test.ts` and `render-plan-review-prompts.test.ts` stay green after migration for durable `verdict-plan.md`, critic read-only enforcement, actuator edits, retry, and landing behavior.
+- [x] Implement light/debate assertions in `workflow-runner.test.ts`, `review-debate-render.test.ts`, and `implement-workflow-steps.test.ts` stay green after migration for immutable specs, implementation edits, verdict placement, eligibility, cycle limits, role order, telemetry, completion attribution, and implement-worktree execution.
+- [x] `deferredIntentOutput`, `planReviewContext`, and `patchReviewContext` are absent from runtime step contracts and dispatch; light and debate remain the only review cycle behaviors.
+- [x] Replaced runner, render, and enforcement production surfaces show net deletion, with no parallel legacy dispatch or enforcement path retained.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/workflow-runner.md` documents unified dispatch, profile-selected enforcement, resume/landing, and cwd; `v2/docs/first-workflow-walkthrough.md` describes common light/debate semantics.
 
 ## Documentation updates
 

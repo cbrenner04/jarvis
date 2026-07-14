@@ -4,7 +4,11 @@ import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts
 import { readProjectRegistry } from "../config/machine-config-loader.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { resolveActiveLinkedSubspec as realResolveActiveLinkedSubspec } from "./linked-subspec-routing.ts";
-import { PATCH_REVIEW_CRITIC_PROMPT_ID, PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS } from "./review-debate-render.ts";
+import {
+  implementReviewPromptProfile,
+  PATCH_REVIEW_CRITIC_PROMPT_ID,
+  PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS,
+} from "./review-debate-render.ts";
 import {
   type ReviewDebateWorkflowSourceStep,
   type ReviewWorkflowSourceStep,
@@ -203,10 +207,14 @@ export function buildImplementWorkflowSteps(
 
   const cwd = getExternalWorktreePath(sourceStep.worktree);
   const verdictPath = join(cwd, dirname(input.specPath), "verdict-patch.md");
-  const patchReviewContext = {
+  const profileContext = (passNumber: number, priorCycleVerdict?: string) => ({
     specPath: input.specPath,
+    cwd,
     baseBranch: input.baseRef,
-  };
+    passNumber,
+    totalPasses: reviewPasses,
+    ...(priorCycleVerdict !== undefined ? { priorCycleVerdict } : {}),
+  });
 
   if (reviewBehavior === "light") {
     const reviewStep: ReviewWorkflowSourceStep = {
@@ -218,7 +226,8 @@ export function buildImplementWorkflowSteps(
       prompt: PATCH_REVIEW_CRITIC_PROMPT_ID,
       verdictPath,
       maxCycles: reviewPasses,
-      patchReviewContext,
+      profile: implementReviewPromptProfile,
+      profileContext,
     };
     return loadImplementWorkflowSteps(loadSteps, [sourceStep, reviewStep], reviewPasses, reviewBehavior);
   }
@@ -236,7 +245,8 @@ export function buildImplementWorkflowSteps(
     },
     verdictPath,
     maxCycles: reviewPasses,
-    patchReviewContext,
+    profile: implementReviewPromptProfile,
+    profileContext,
   };
 
   return loadImplementWorkflowSteps(loadSteps, [sourceStep, reviewStep], reviewPasses, reviewBehavior);

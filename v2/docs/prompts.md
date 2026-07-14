@@ -2,6 +2,18 @@
 
 This document is the durable prompt-layering contract.
 
+## Review profiles
+
+`shared/prompts/review-profile.ts` is the single contract for intent, plan, and
+implement review domains. A `ReviewPromptProfile` owns prompt/context renderers,
+the verdict lifecycle, and the critic/actuator write boundary. It does not own
+whether the authored step runs light or debate review.
+
+The light renderer supplies one critic and one actuator. The debate renderer
+supplies adversary, advocate, and adjudicator callbacks, then uses the same
+profile actuator. Both renderers refresh context per cycle; `review-cycle.ts`
+and `review-debate.ts` own execution order, retries, termination, and failures.
+
 For shipped v1 runtime details and tests, see [v1/docs/prompt-governance.md](../../v1/docs/prompt-governance.md).
 
 ## Scope and authority

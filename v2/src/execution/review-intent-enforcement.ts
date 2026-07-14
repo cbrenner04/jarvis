@@ -268,7 +268,11 @@ export async function executeReviewCycleEnforced(args: {
 
     if (unauthorizedChanges.length > 0) {
       // Unauthorized changes detected. Restore and fail.
+      const verdict = readFileSafely(verdictPath);
+      const owner = readFileSafely(ownerMarkerPath(verdictPath));
       await restoreWorkingTree(cwd, beforeReview);
+      if (verdict !== undefined) writeFileSync(verdictPath, verdict);
+      if (owner !== undefined) writeFileSync(ownerMarkerPath(verdictPath), owner);
       discardSnapshot(beforeReview);
       return {
         result,

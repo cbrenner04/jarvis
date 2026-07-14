@@ -241,7 +241,7 @@ describe("buildReviewedPlanLightWorkflowSteps", () => {
       verdictPath: expect.stringMatching(
         /worktrees\/demo\/plan\/reviewed-plan\/spec\/\d{8}T\d{6}Z-reviewed-plan\/verdict-plan\.md$/,
       ),
-      planReviewContext: expect.objectContaining({
+      profileContext: expect.objectContaining({
         specPath: expect.stringMatching(/\/spec\/\d{8}T\d{6}Z-reviewed-plan$/),
       }),
     });

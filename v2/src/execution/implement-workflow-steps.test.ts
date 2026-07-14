@@ -204,8 +204,9 @@ describe("buildImplementWorkflowSteps", () => {
     if (review?.behavior !== "review-debate") return;
     expect(review.maxCycles).toBe(2);
     expect(review.verdictPath).toContain("verdict-patch.md");
-    expect(review.patchReviewContext).toEqual({ specPath: "index.md", baseBranch: "main" });
-    expect(review.prompts.adversary).toBe("patch.prompt.review.adversary");
+    expect(review.profile?.domain).toBe("implement");
+    expect(review.profileContext).toBeInstanceOf(Function);
+    expect(review.prompts?.adversary).toBe("patch.prompt.review.adversary");
   });
 
   test("positive reviewPasses with light reviewBehavior appends one review step", () => {
@@ -242,7 +243,8 @@ describe("buildImplementWorkflowSteps", () => {
     expect(review.stepId).toBe("implement-review");
     expect(review.maxCycles).toBe(2);
     expect(review.verdictPath).toContain("verdict-patch.md");
-    expect(review.patchReviewContext).toEqual({ specPath: "index.md", baseBranch: "main" });
+    expect(review.profile?.domain).toBe("implement");
+    expect(review.profileContext).toBeInstanceOf(Function);
     expect(review.prompt).toBe("patch.prompt.review.critic");
   });
 

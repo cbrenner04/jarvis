@@ -28,6 +28,9 @@ import {
 } from "../testing/write-fixtures.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
+import { intentReviewPromptProfile } from "./render-intent-review-prompts.ts";
+import { planReviewPromptProfile } from "./render-plan-review-prompts.ts";
+import { implementReviewPromptProfile } from "./review-debate-render.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import {
   executeWorkflow,
@@ -1238,6 +1241,8 @@ function createDebateStep(
     maxCycles: 1,
     agents: { adversary: ["claude"], advocate: ["claude"], adjudicator: ["claude"], actuator: ["claude"] },
     agentModelConfig: DEBATE_AGENT_MODEL_CONFIG,
+    profile: implementReviewPromptProfile,
+    profileContext: { specPath: "index.md", cwd: "/fake", baseBranch: "HEAD", passNumber: 1, totalPasses: 1 },
     ...overrides,
   };
 }
@@ -2568,7 +2573,8 @@ describe("executeWorkflow implement patch review", () => {
       maxCycles: 1,
       agents: { adversary: ["claude"], advocate: ["claude"], adjudicator: ["claude"], actuator: ["claude"] },
       agentModelConfig: DEBATE_AGENT_MODEL_CONFIG,
-      patchReviewContext: { specPath: "index.md", baseBranch: "HEAD" },
+      profile: implementReviewPromptProfile,
+      profileContext: { specPath: "index.md", cwd: args.cwd, baseBranch: "HEAD", passNumber: 1, totalPasses: 1 },
       ...(args.createBinding !== undefined ? { createBinding: args.createBinding } : {}),
     };
   }
@@ -2607,7 +2613,13 @@ describe("executeWorkflow implement patch review", () => {
         return { kind: "ok", stdout: adapterModel === "ADJ" ? "fix it" : "ok", stderr: "" } as const;
       }),
     });
-    reviewStep.patchReviewContext = { specPath: "spec.md", baseBranch: "HEAD" };
+    reviewStep.profileContext = {
+      specPath: "spec.md",
+      cwd: reviewStep.cwd,
+      baseBranch: "HEAD",
+      passNumber: 1,
+      totalPasses: 1,
+    };
 
     await withStateStore(async (store) => {
       const result = await executeWorkflow({ steps: [implementStep, reviewStep], stateStore: store });
@@ -2734,7 +2746,13 @@ describe("executeWorkflow implement patch review", () => {
         } as const;
       }),
     });
-    reviewStep.patchReviewContext = { specPath: "spec.md", baseBranch: "HEAD" };
+    reviewStep.profileContext = {
+      specPath: "spec.md",
+      cwd: reviewStep.cwd,
+      baseBranch: "HEAD",
+      passNumber: 1,
+      totalPasses: 1,
+    };
 
     await withStateStore(async (store) => {
       const result = await executeWorkflow({
@@ -2795,7 +2813,8 @@ describe("executeWorkflow implement patch light review", () => {
       maxCycles: args.maxCycles ?? 1,
       agents: { critic: ["claude"], actuator: ["claude"] },
       agentModelConfig: LIGHT_REVIEW_AGENT_MODEL_CONFIG,
-      patchReviewContext: { specPath: "index.md", baseBranch: "HEAD" },
+      profile: implementReviewPromptProfile,
+      profileContext: { specPath: "index.md", cwd: "/fake", baseBranch: "HEAD", passNumber: 1, totalPasses: 1 },
       ...(args.createBinding !== undefined ? { createBinding: args.createBinding } : {}),
     };
   }
@@ -2842,7 +2861,13 @@ describe("executeWorkflow implement patch light review", () => {
         return { kind: "ok", stdout: "done", stderr: "" } as const;
       }),
     });
-    reviewStep.patchReviewContext = { specPath: "spec.md", baseBranch: "HEAD" };
+    reviewStep.profileContext = {
+      specPath: "spec.md",
+      cwd: reviewStep.cwd,
+      baseBranch: "HEAD",
+      passNumber: 1,
+      totalPasses: 1,
+    };
 
     await withStateStore(async (store) => {
       const result = await executeWorkflow({ steps: [implementStep, reviewStep], stateStore: store });
@@ -2916,7 +2941,8 @@ describe("executeWorkflow implement patch light review", () => {
       maxCycles: 1,
       agents: { critic: ["codex"], actuator: ["codex"] },
       agentModelConfig: { codex: {} },
-      patchReviewContext: { specPath: "spec.md", baseBranch: "HEAD" },
+      profile: implementReviewPromptProfile,
+      profileContext: { specPath: "spec.md", cwd: "/fake", baseBranch: "HEAD", passNumber: 1, totalPasses: 1 },
     };
 
     await withStateStore(async (store) => {
@@ -3000,6 +3026,7 @@ describe("executeWorkflow review dispatch", () => {
     const durableDir = join(workspace, "ready-intents");
     const verdictPath = join(workspace, ".jarvis-intent-review-verdict.md");
     const observedCwds: string[] = [];
+    const observedPrompts: string[] = [];
     writeFileSync(join(operatorCheckout, "unrelated-dirty.txt"), "keep\n", "utf8");
 
     const step: ReviewWorkflowStep = {
@@ -3013,6 +3040,8 @@ describe("executeWorkflow review dispatch", () => {
       maxCycles: 1,
       agents: { critic: ["claude"], actuator: ["codex"] },
       agentModelConfig: config,
+      profile: intentReviewPromptProfile,
+      profileContext: { stagingDir: join(workspace, ".jarvis-intent-stage"), verdictPath },
       landing: {
         kind: "intent-stage",
         output: { durableDir },
@@ -3023,8 +3052,9 @@ describe("executeWorkflow review dispatch", () => {
       createBinding: ({ agentId }) => ({
         id: agentId,
         metadata: { agent: agentId, model: agentId },
-        invoke: async ({ cwd }) => {
+        invoke: async ({ cwd, prompt }) => {
           observedCwds.push(cwd);
+          observedPrompts.push(prompt);
           if (agentId === "codex") {
             const stage = join(cwd, ".jarvis-intent-stage");
             mkdirSync(stage, { recursive: true });
@@ -3052,6 +3082,8 @@ describe("executeWorkflow review dispatch", () => {
     });
 
     expect(observedCwds).toEqual([workspace, workspace]);
+    expect(observedPrompts[0]).toContain("<<<STAGED_INTENT_BEGIN>>>");
+    expect(observedPrompts[1]).toContain("apply");
     expect(readFileSync(join(operatorCheckout, "unrelated-dirty.txt"), "utf8")).toBe("keep\n");
     expect(readFileSync(join(durableDir, "example.md"), "utf8")).toContain("# Example");
     expect(existsSync(verdictPath)).toBe(false);
@@ -3575,7 +3607,8 @@ describe("executeWorkflow plan review dispatch", () => {
       maxCycles: 1,
       agents: { critic: ["claude"], actuator: ["codex"] },
       agentModelConfig: config,
-      planReviewContext: { specPath: specDir },
+      profile: planReviewPromptProfile,
+      profileContext: { specPath: specDir, worktreePath: root },
       createBinding: ({ agentId }) => ({
         id: agentId,
         metadata: { agent: agentId, model: agentId },

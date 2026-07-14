@@ -299,3 +299,10 @@ report,session_id,report_date,cost,completed_work_units,success_status,failure_r
 2026-07-14T00-30-00Z-operator-p0-complete,no-done-without-a-completion-commit,2026-07-13,$2.4857,1,completed,,patch,1,14.50,$0.1714,7,$0.3551,First v2 run to commit and publish its own PR. Operator added the missing test.
 2026-07-14T00-30-00Z-operator-p0-complete,cli-workflow-request-always-starts-a-run,2026-07-14,$4.0479,2,completed,,patch,1,23.67,$0.1710,11,$0.3680,Harness-driven end to end; 7 tests.
 2026-07-14T00-30-00Z-operator-p0-complete,blocked-run-retains-worktree-and-branch,2026-07-13,,0,partial,blocker-detected: seed not reproducible; 4/5 AC,patch,1,13.58,,7,,v1 path. Blocked runs record no cost -- seed blocked-run-records-no-cost.
+2026-07-14T05-30-00Z-operator-p1,v2-ready-gate-runs-full-tier,2026-07-14,$1.65,1,completed,"",workflow,1,26.0,$0.0635,6,$0.275,v2 implement preset.
+2026-07-14T05-30-00Z-operator-p1,zero-output-iteration-is-a-harness-defect,2026-07-14,$2.73,1,completed,"",workflow,1,28.0,$0.0975,8,$0.3412,v2 implement preset.
+2026-07-14T05-30-00Z-operator-p1,quota-detection-matches-typographic-apostrophe,2026-07-14,$2.51,1,completed,"",workflow,1,22.0,$0.1141,5,$0.502,v2 implement preset.
+2026-07-14T05-30-00Z-operator-p1,acceptance-criteria-require-a-failing-test,2026-07-14,$2.72,1,completed,"",workflow,1,41.0,$0.0663,7,$0.3886,v2 implement preset.
+2026-07-14T05-30-00Z-operator-p1,workflow-run-status-covers-every-step,2026-07-14,$4.18,0,partial,"red gate: 14 type errors + biome complexity; parked as draft #1544",workflow,1,65.0,$0.0643,9,$0.4644,v2 implement preset.
+2026-07-14T05-30-00Z-operator-p1,run-workflow-exit-status-tracks-run-outcome,2026-07-14,$3.58,0,partial,"blocked/contract_miss; first attempt broke 17 tests; parked as draft #1542",workflow,1,70.0,$0.0511,4,$0.895,v2 implement preset.
+2026-07-14T05-30-00Z-operator-p1,triage-merge-resolves-v2-worktrees,2026-07-14,$1.12,0,failed,"blocked/contract_miss; no commit; 2 type + 2 biome errors",workflow,1,35.0,$0.032,0,,v2 implement preset.

@@ -32,6 +32,7 @@ import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import {
   executeWorkflow,
   type HumanWorkflowStep,
+  LinkedIndexReadError,
   type ReviewDebateWorkflowStep,
   type ReviewWorkflowStep,
   resolveWorkflowPreset,
@@ -2440,6 +2441,30 @@ describe("executeWorkflow review-debate dispatch", () => {
 });
 
 describe("executeWorkflow linked implement routing", () => {
+  test("throws a typed error when the routing index cannot be read", async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "linked-routing-unreadable-"));
+    roots.push(projectRoot);
+    const step = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "linked-routing-unreadable",
+      specPath: "spec/index.md",
+      linkedIndexRouting: true,
+    });
+    step.worktree = { ...step.worktree, projectRoot };
+
+    await withStateStore(async (store) => {
+      try {
+        await executeWorkflow({ steps: [step], stateStore: store });
+        expect.unreachable("Should have thrown");
+      } catch (error) {
+        expect(error).toBeInstanceOf(LinkedIndexReadError);
+        expect(error).toMatchObject({ indexPath: join(projectRoot, "spec/index.md") });
+        expect((error as Error).message).toContain("ENOENT");
+      }
+    });
+  });
+
   test("reads index from project root when worktree is absent and advances checkbox in worktree only", async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), "linked-routing-project-"));
     roots.push(projectRoot);

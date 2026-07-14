@@ -162,7 +162,10 @@ and a later `revise` may retry. Guarded by
 ### Wait result contract
 
 `wait` validates `params.runId` before reading logs. Missing or empty `runId`
-returns `invalid_params`; unknown runs return `unknown_run`.
+returns `invalid_params`; unknown runs return `unknown_run`. A linked implement
+routing-index read before step 0's row exists returns `routing_read_failed`,
+with the resolved index path and underlying read reason; other pre-row
+rejections remain `invalid_params`.
 
 The response is deferred on the same request `id` while a run is in progress.
 Other RPCs on that connection continue to receive normal correlated responses

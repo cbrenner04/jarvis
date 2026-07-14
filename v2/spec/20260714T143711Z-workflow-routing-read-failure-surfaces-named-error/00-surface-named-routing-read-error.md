@@ -19,13 +19,14 @@ is mislabeled `invalid_params`, obscuring the failing path and state problem.
 
 ## Acceptance criteria
 
-- [ ] A linked implement workflow whose routing index cannot be read returns `routing_read_failed`, not `invalid_params`, and names the resolved index path and underlying read reason.
-- [ ] New cases in `v2/src/execution/workflow-runner.test.ts` and `v2/src/daemon/daemon-workflow-start.test.ts` assert the typed source error and daemon response; they fail against the pre-fix code and pass after the change.
-- [ ] Existing non-routing pre-row rejection coverage in `v2/src/daemon/daemon-workflow-async-failure.test.ts` stays green with `invalid_params`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A linked implement workflow whose routing index cannot be read returns `routing_read_failed`, not `invalid_params`, and names the resolved index path and underlying read reason.
+- [x] New cases in `v2/src/execution/workflow-runner.test.ts` and `v2/src/daemon/daemon-workflow-start.test.ts` assert the typed source error and daemon response; they fail against the pre-fix code and pass after the change.
+- [x] Existing non-routing pre-row rejection coverage in `v2/src/daemon/daemon-workflow-async-failure.test.ts` stays green with `invalid_params`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
 - Update `v2/docs/operator-runbook.md` with the `routing_read_failed` meaning and failing-path diagnostic.
 - Update `v2/docs/daemon-host.md` with the typed pre-row routing failure alongside the unchanged catch-all behavior.
 - Update `v2/docs/v1-behaviors.md` to replace the blanket pre-row `invalid_params` statement with the routing-read exception.
+

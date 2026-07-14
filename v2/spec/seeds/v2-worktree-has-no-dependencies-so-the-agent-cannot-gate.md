@@ -1,18 +1,20 @@
-# A v2 run's agent cannot run any gate inside its own worktree
+# A v2 worktree is created without dependencies, so gating is left to the agent's initiative
 
-A v2 worktree lives at `~/.jarvis/worktrees/<project>/<branch>/`, outside the repo. Bun's
-`node_modules` up-walk from there never reaches the project's, so **every** verification command the
-agent is told to run before ticking acceptance criteria fails on missing dependencies — not on the
-code.
+The harness creates a v2 worktree at `~/.jarvis/worktrees/<project>/<branch>/` and never provisions
+its dependencies. The worktree is outside the repo, so bun's `node_modules` up-walk does not reach
+the project's. Whether the agent can run the verification commands it is *told* to run before ticking
+acceptance criteria therefore depends on whether that particular agent thinks to run `bun install`
+first.
 
-The agent is instructed to verify before ticking. It cannot. So it either blocks on an acceptance
-criterion it can never satisfy, or it ticks the criterion untested. Both have been observed.
+Most do. When one doesn't, it blocks on a criterion it cannot satisfy — after doing all the work
+correctly.
 
 ## Problem
 
-Observed 2026-07-14 on `main` at `d7b36f5e`. Implement run
-`ee539293` (spec `20260714T143711Z-workflow-routing-read-failure-surfaces-named-error`) wrote correct
-code, correct tests, and correct docs, ticked 3 of 4 acceptance criteria, then appended:
+Observed 2026-07-14 on `main` at `d7b36f5e`, across two implement runs in one session.
+
+**Run `ee539293`** (`20260714T143711Z-workflow-routing-read-failure-surfaces-named-error`) wrote
+correct code, correct tests, and correct docs, ticked 3 of 4 acceptance criteria, then appended:
 
 ```
 ## Blocker
@@ -21,53 +23,56 @@ Required verification cannot run in this checkout: `tsc` is unavailable, and
 the test suite cannot resolve installed packages `react` and `js-tiktoken`.
 ```
 
-The unticked criterion was the gate one — *"`bun run typecheck`, `bun run test:v2`, and
-`bun run test:integration:v2` pass."* The run consumed 3 iterations and ended `blocked` /
-`agent_blocked` with the work uncommitted in the worktree.
+The unticked criterion was the gate one. The run ended `blocked` / `agent_blocked` after 3
+iterations with the work uncommitted. Linking the project's `node_modules` in and re-gating by hand:
+typecheck green, `bun run ready` red on 3 mechanical biome errors, `bun run fix` cleared all 3, gate
+green. **The work was correct. The agent could not see that.**
 
-The work was fine. Symlinking the project's `node_modules` into the worktree and re-running the
-gate by hand: typecheck green, `bun run ready` red on **3 mechanical biome errors**, `bun run fix`
-cleared all 3, gate green. The agent was never able to see any of that.
+**Run `31b49a89`** (`20260714T145402Z-resume-stopped-write-run-from-snapshot`), same session, same
+harness: its worktree contains a real `node_modules` and a `bun.lock` timestamped *during the run*.
+That agent installed dependencies itself and gated fine.
 
-## Why this is worse than one blocked run
+A survey of the 14 v2 worktrees on this machine: 13 have `node_modules`, 1 does not. The harness
+provisions none of them — the agents do, when they think of it. So the gate is not a harness
+guarantee; it is a coin flip on agent initiative.
 
-- **The failing criterion is the only one that proves the others.** An agent that ticks
-  "tests pass" from inside a dependency-less worktree is asserting something it could not have run.
-  This is the mechanism behind agents ticking untested criteria, and it is a gate-trust bug of the
-  same family as `run-cannot-report-complete-over-red-gate`.
-- **The red gate is never handed to the agent.** `red-gate-feeds-back-to-the-agent` shipped a bounded
-  repair loop, but it only arms when a gate *runs and comes back red*. Here the gate cannot run at
-  all, so the run blocks upstream of the repair loop and the repair loop stays unexercised — which is
-  consistent with `ready_gate_repair` never having been observed.
-- It interacts with `acceptance-criteria-must-be-satisfiable-by-the-agent`: a gate criterion is
-  satisfiable in principle, just not from where the agent stands.
+## Why this matters beyond one blocked run
+
+- **The gate criterion is the one that substantiates the others.** An agent that ticks
+  "`bun run typecheck` and `bun run test:v2` pass" from a worktree where neither can run is asserting
+  something it did not do. Same family as `run-cannot-report-complete-over-red-gate`. Whether that
+  happens currently depends on agent initiative, which is not a gate.
+- **The red-gate repair loop cannot arm.** `red-gate-feeds-back-to-the-agent` shipped a bounded
+  repair loop, but it only engages when a gate *runs and returns red*. When the gate cannot run, the
+  run blocks upstream of it — consistent with `ready_gate_repair` never having been observed.
+- Every agent that self-installs pays a full dependency resolution per worktree, per run.
 
 ## Scope
 
-- An agent invoked in a v2 worktree can run the project's verification commands.
-- Resolve dependencies for the worktree — link/mount the project's `node_modules` into
-  `~/.jarvis/worktrees/<project>/<branch>/` at worktree creation, or create v2 worktrees somewhere
-  the up-walk resolves.
-- Whatever the mechanism, `bun run typecheck` and the test scripts must exit non-127 inside a fresh
-  v2 worktree, and a red gate must reach the agent's repair loop rather than blocking the run.
+- The harness provisions dependencies when it creates a v2 worktree, so verification commands work
+  before the agent's first iteration. Link/mount the project's `node_modules`, or create the worktree
+  somewhere the up-walk resolves.
+- `bun run typecheck` and the test scripts exit non-127 in a fresh v2 worktree, with no agent action.
+- A red gate then reaches the agent's repair loop instead of blocking the run.
 
 ## Decisions
 
-- Fix it at worktree creation, not by weakening the acceptance criteria. Rules out telling agents to
-  skip verification, which would convert a blocked run into a silently-unverified one.
-- Do not relocate v2 worktrees into `<repo>/.worktree/` as the fix. Rules out reversing the external
-  worktree home that `triage-merge-resolves-v2-worktrees` and the v2 runbook already build on.
-- Symlinking the project `node_modules` is the cheap candidate; the spec picks the mechanism. Rules
-  out a per-worktree `bun install` (slow, and duplicates the store on every run).
+- Provision at worktree creation, not by instructing agents to `bun install`. Rules out depending on
+  agent initiative for a harness guarantee — that is exactly today's nondeterministic behavior.
+- Do not weaken the gate acceptance criteria. Rules out converting a blocked run into a silently
+  unverified one.
+- Do not relocate v2 worktrees into `<repo>/.worktree/`. Rules out reversing the external worktree
+  home that `triage-merge-resolves-v2-worktrees` and the v2 runbook build on.
+- Prefer linking the project's `node_modules` over a per-worktree `bun install` — the latter is slow
+  and duplicates the store on every run, which is the cost agents are already paying by hand.
 
 ## Out of scope
 
-- The `check`/biome failures themselves — those are `red-gate-feeds-back-to-the-agent`'s job once the
-  gate can actually run.
+- The biome/`check` failures themselves — `red-gate-feeds-back-to-the-agent`'s job, once the gate can run.
 - v1 worktrees, which live inside the repo and resolve dependencies normally.
 
 ## Documentation updates
 
-- `v2/docs/operator-runbook.md` — delete the "No v2 run can gate its own work" gotcha, which
-  currently names a seed (`v2-worktrees-have-no-dependencies-so-no-gate-can-run`) that does not exist.
-- `v2/docs/workflow-runner.md` — state that a v2 worktree resolves project dependencies.
+- `v2/docs/operator-runbook.md` — delete the "No v2 run can gate its own work" gotcha, which names a
+  seed (`v2-worktrees-have-no-dependencies-so-no-gate-can-run`) that does not exist.
+- `v2/docs/workflow-runner.md` — state that a v2 worktree resolves project dependencies on creation.

@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getCurrentBranch } from "../../../shared/git.ts";
+import { CONFIG_DIR, type ConfigOptions, findProjectMatchForPath } from "../config.ts";
 import { stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
 import { findMatchingOpenPrs, type MatchingOpenPr } from "../pr.ts";
 import type { TriageIo } from "./triage.ts";
@@ -24,12 +25,12 @@ export type MergeTargetResolutionSeams = {
   findMatchingOpenPrs?: (branch: string, cwd?: string) => MatchingOpenPr[];
 };
 
-export type MergeTargetResolution = { ok: true; worktreeName: string } | { ok: false };
+export type MergeTargetResolution = { ok: true; worktreePath: string } | { ok: false };
 
 /**
- * Resolve a `triage --merge` positional target to a local worktree name.
- * Order: (1) `.worktree/<arg>`, (2) PR reference, (3) spec-path via basename,
- * plan-slug (`plan-<timestamp-stripped-dir>`), and marker scan (unioned).
+ * Resolve a `triage --merge` positional target to a local worktree path.
+ * Order: (1) direct worktree directories in either home, (2) PR reference,
+ * (3) spec-path via basename, plan-slug, and marker scan (unioned).
  * Bare `.md` filenames: marker scan only.
  */
 export function resolveMergeTarget(
@@ -38,16 +39,28 @@ export function resolveMergeTarget(
   cwd: string,
   io: TriageIo,
   seams?: MergeTargetResolutionSeams,
+  config?: ConfigOptions,
 ): MergeTargetResolution {
-  const worktreeDir = join(projectRoot, ".worktree");
+  const homes = [join(projectRoot, ".worktree")];
+  const project = findProjectMatchForPath(projectRoot, config);
+  if (project !== undefined) {
+    homes.push(join(config?.dir ?? CONFIG_DIR, "worktrees", project.key));
+  }
   const listNames = seams?.listWorktreeNames ?? defaultListWorktreeNames;
   const readMarker = seams?.readActiveSpecPath ?? defaultReadActiveSpecPath;
   const getBranch = seams?.getWorktreeBranch ?? defaultGetWorktreeBranch;
   const lookupPr = seams?.lookupPrHeadRef ?? defaultLookupPrHeadRef;
   const findOpenPrs = seams?.findMatchingOpenPrs ?? findMatchingOpenPrs;
 
-  if (existsSync(join(worktreeDir, arg))) {
-    return { ok: true, worktreeName: arg };
+  const directMatches = homes.filter((home) => isDirectory(join(home, arg)));
+  const [onlyDirectMatch, ...extraDirectMatches] = directMatches;
+  if (extraDirectMatches.length > 0) {
+    emitMergeRefusal(io, "unknown worktree", "multiple worktrees match worktree:");
+    for (const path of directMatches.sort()) io.stderr(`  ${path}\n`);
+    return { ok: false };
+  }
+  if (onlyDirectMatch !== undefined) {
+    return { ok: true, worktreePath: join(onlyDirectMatch, arg) };
   }
 
   const prNumber = parsePrReference(arg);
@@ -56,7 +69,7 @@ export function resolveMergeTarget(
       prNumber,
       prRef: arg,
       projectRoot,
-      worktreeDir,
+      homes,
       listNames,
       getBranch,
       lookupPr,
@@ -69,7 +82,7 @@ export function resolveMergeTarget(
     return resolveWorktreeFromSpecPath({
       arg,
       cwd,
-      worktreeDir,
+      homes,
       listNames,
       readMarker,
       io,
@@ -88,7 +101,7 @@ function resolveWorktreeFromPrRef(args: {
   prNumber: number;
   prRef: string;
   projectRoot: string;
-  worktreeDir: string;
+  homes: string[];
   listNames: (worktreeDir: string) => string[];
   getBranch: (worktreePath: string) => string | null;
   lookupPr: (prNumber: number, projectRoot: string) => PrHeadLookupResult;
@@ -113,35 +126,32 @@ function resolveWorktreeFromPrRef(args: {
   }
 
   const matches: string[] = [];
-  for (const name of args.listNames(args.worktreeDir)) {
-    const branch = args.getBranch(join(args.worktreeDir, name));
-    if (branch === lookup.headRef) {
-      matches.push(name);
+  for (const home of args.homes) {
+    const names = args.listNames(home);
+    for (const name of names) {
+      const path = join(home, name);
+      const branch = args.getBranch(path);
+      if (branch === lookup.headRef) matches.push(path);
     }
   }
 
-  if (matches.length === 0) {
+  const [onlyMatch, ...extraMatches] = matches;
+  if (onlyMatch === undefined) {
     return fail(args.io, `no local worktree for PR reference ${args.prRef} (branch ${lookup.headRef})`);
   }
-  if (matches.length > 1) {
+  if (extraMatches.length > 0) {
     emitMergeRefusal(args.io, "unknown worktree", `multiple worktrees match PR reference ${args.prRef}:`);
-    for (const name of matches) {
-      args.io.stderr(`  ${name}\n`);
-    }
+    for (const path of matches) args.io.stderr(`  ${path}\n`);
     return { ok: false };
   }
 
-  const [worktreeName] = matches;
-  if (worktreeName === undefined) {
-    return fail(args.io, `no local worktree for PR reference ${args.prRef} (branch ${lookup.headRef})`);
-  }
-  return { ok: true, worktreeName };
+  return { ok: true, worktreePath: onlyMatch };
 }
 
 function resolveWorktreeFromSpecPath(args: {
   arg: string;
   cwd: string;
-  worktreeDir: string;
+  homes: string[];
   listNames: (worktreeDir: string) => string[];
   readMarker: (worktreePath: string) => string | null;
   io: TriageIo;
@@ -151,42 +161,38 @@ function resolveWorktreeFromSpecPath(args: {
 
   if (args.arg.includes("/") || args.arg.includes("\\")) {
     const specDirBasename = basename(dirname(normalizedSpecPath));
-    const basenameWorktree = join(args.worktreeDir, specDirBasename);
-    if (existsSync(basenameWorktree)) {
-      candidates.add(basenameWorktree);
-    }
-    const planWorktree = join(args.worktreeDir, `plan-${stripPlanSpecTimestampPrefix(specDirBasename)}`);
-    if (existsSync(planWorktree)) {
-      candidates.add(planWorktree);
-    }
-  }
-
-  for (const name of args.listNames(args.worktreeDir)) {
-    const worktreePath = join(args.worktreeDir, name);
-    const markerPath = args.readMarker(worktreePath);
-    if (markerPath !== null && normalizeSpecInput(markerPath, args.cwd) === normalizedSpecPath) {
-      candidates.add(worktreePath);
+    for (const home of args.homes) {
+      const basenameWorktree = join(home, specDirBasename);
+      if (isDirectory(basenameWorktree)) candidates.add(basenameWorktree);
+      const planWorktree = join(home, `plan-${stripPlanSpecTimestampPrefix(specDirBasename)}`);
+      if (isDirectory(planWorktree)) candidates.add(planWorktree);
+      const nestedPlanWorktree = join(home, "plan", stripPlanSpecTimestampPrefix(specDirBasename));
+      if (isDirectory(nestedPlanWorktree)) candidates.add(nestedPlanWorktree);
     }
   }
 
-  if (candidates.size === 0) {
-    return fail(args.io, `no worktree found for spec path: ${normalizedSpecPath}`);
+  for (const home of args.homes) {
+    for (const name of args.listNames(home)) {
+      const worktreePath = join(home, name);
+      const markerPath = args.readMarker(worktreePath);
+      if (markerPath !== null && normalizeSpecInput(markerPath, args.cwd) === normalizedSpecPath) {
+        candidates.add(worktreePath);
+      }
+    }
   }
 
   const worktreePaths = [...candidates].sort();
-  if (worktreePaths.length > 1) {
+  const [onlyWorktreePath, ...extraWorktreePaths] = worktreePaths;
+  if (onlyWorktreePath === undefined) {
+    return fail(args.io, `no worktree found for spec path: ${normalizedSpecPath}`);
+  }
+  if (extraWorktreePaths.length > 0) {
     emitMergeRefusal(args.io, "unknown worktree", `multiple worktrees match spec path ${normalizedSpecPath}:`);
-    for (const worktreePath of worktreePaths) {
-      args.io.stderr(`  ${basename(worktreePath)}\n`);
-    }
+    for (const worktreePath of worktreePaths) args.io.stderr(`  ${worktreePath}\n`);
     return { ok: false };
   }
 
-  const [worktreePath] = worktreePaths;
-  if (worktreePath === undefined) {
-    return fail(args.io, `no worktree found for spec path: ${normalizedSpecPath}`);
-  }
-  return { ok: true, worktreeName: basename(worktreePath) };
+  return { ok: true, worktreePath: onlyWorktreePath };
 }
 
 function normalizeSpecInput(specPath: string, cwd: string): string {
@@ -209,10 +215,33 @@ function parsePrReference(arg: string): number | null {
 }
 
 function defaultListWorktreeNames(worktreeDir: string): string[] {
+  const names: string[] = [];
+  const walk = (dir: string, relative: string): void => {
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const name of entries) {
+      if (name === ".keep") continue;
+      const path = join(dir, name);
+      if (existsSync(join(path, ".git"))) {
+        names.push(join(relative, name));
+      } else if (isDirectory(path)) {
+        walk(path, join(relative, name));
+      }
+    }
+  };
+  walk(worktreeDir, "");
+  return names;
+}
+
+function isDirectory(path: string): boolean {
   try {
-    return readdirSync(worktreeDir).filter((name) => name !== ".keep");
+    return statSync(path).isDirectory();
   } catch {
-    return [];
+    return false;
   }
 }
 

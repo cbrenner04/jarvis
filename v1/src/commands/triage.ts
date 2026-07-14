@@ -1,11 +1,11 @@
 import { execFileSync, execSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { parseSpec } from "../../../shared/spec-parser.ts";
 import { type CiCheckState, classifyCiChecks, fetchCommitChecksForSha } from "../ci-checks.ts";
 import { appendAgentTrailer } from "../commit-trailer.ts";
 import type { ConfigOptions } from "../config.ts";
-import { DEFAULT_CONFIG, loadConfig, resolvePlanFlags } from "../config.ts";
+import { CONFIG_DIR, DEFAULT_CONFIG, findProjectMatchForPath, loadConfig, resolvePlanFlags } from "../config.ts";
 import { getBaseBranch, withSyncTransientRetry } from "../gh.ts";
 import { type BaseCurrentCheckResult, checkBaseCurrentForFinalize } from "../git/base-current.ts";
 import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "../modes/patch/completion.ts";
@@ -44,6 +44,7 @@ export type TriageCommandOptions = {
   config?: ConfigOptions;
   cwd?: string;
   worktreeName?: string;
+  worktreePath?: string;
   markReady?: boolean;
   merge?: boolean;
   ghRunner?: TriageGhRunner;
@@ -102,11 +103,12 @@ export function triageCommand(opts: TriageCommandOptions): number | Promise<numb
         opts.cwd ?? process.cwd(),
         opts.io,
         opts.mergeTargetSeams,
+        opts.config,
       );
       if (!resolution.ok) {
         return 1;
       }
-      return triageMerge({ ...opts, worktreeName: resolution.worktreeName });
+      return triageMerge({ ...opts, worktreePath: resolution.worktreePath });
     }
     return triageDrillDown(opts.projectRoot, worktreeDir, opts.worktreeName, opts.io);
   }
@@ -1278,14 +1280,15 @@ function resolveTriageNamedWorktree(opts: TriageCommandOptions, label: string): 
   };
 
   const worktreeName = opts.worktreeName;
-  if (!worktreeName) {
+  const worktreePath =
+    opts.worktreePath ?? (worktreeName === undefined ? undefined : join(opts.projectRoot, ".worktree", worktreeName));
+  if (!worktreePath) {
     refuse("internal error - no worktree name", isMerge ? "unknown worktree" : undefined);
     return { ok: false, code: 1 };
   }
 
-  const worktreePath = join(opts.projectRoot, ".worktree", worktreeName);
   if (!existsSync(worktreePath)) {
-    refuse(`unknown worktree: ${worktreeName}`, isMerge ? "unknown worktree" : undefined);
+    refuse(`unknown worktree: ${worktreeName ?? worktreePath}`, isMerge ? "unknown worktree" : undefined);
     return { ok: false, code: 1 };
   }
 
@@ -1351,7 +1354,7 @@ function resolveTriageNamedWorktree(opts: TriageCommandOptions, label: string): 
     specPath = existsSync(relocatedPath) ? relocatedPath : derived.specPath;
   }
 
-  const lockPath = getWorktreeLockPath(worktreePath);
+  const lockPath = resolveTriageLockPath(opts, worktreePath, branch);
   if (existsSync(lockPath)) {
     try {
       const lock: WorktreeLock = JSON.parse(readFileSync(lockPath, "utf8"));
@@ -1365,6 +1368,19 @@ function resolveTriageNamedWorktree(opts: TriageCommandOptions, label: string): 
   }
 
   return { ok: true, worktreePath, branch, specPath };
+}
+
+function resolveTriageLockPath(opts: TriageCommandOptions, worktreePath: string, branch: string): string {
+  const project = findProjectMatchForPath(opts.projectRoot, opts.config);
+  if (project !== undefined) {
+    const configDir = opts.config?.dir ?? CONFIG_DIR;
+    const externalHome = resolve(configDir, "worktrees", project.key);
+    const relativePath = relative(externalHome, resolve(worktreePath));
+    if (relativePath !== "" && relativePath !== ".." && !relativePath.startsWith("../")) {
+      return join(configDir, "worktree-locks", project.key, branch, ".jarvis.lock");
+    }
+  }
+  return getWorktreeLockPath(worktreePath);
 }
 
 function resolveReadyCommand(opts: TriageCommandOptions): string | undefined {

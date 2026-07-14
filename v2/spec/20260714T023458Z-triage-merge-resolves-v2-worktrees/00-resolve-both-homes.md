@@ -26,11 +26,11 @@ v2 workflows put worktrees at `~/.jarvis/worktrees/<project-key>/<branch>/`, so 
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 triage <worktree-or-branch-name> --merge` resolves a worktree living at `~/.jarvis/worktrees/<project>/<branch>/` and runs the gated merge flow against it (local ready gate incl. `lint:md`, draft→ready, CI poll, admin squash) instead of refusing `unknown worktree`.
-- [ ] The same v2 worktree resolves from a PR reference (`#N`, URL, bare `N`) and from a spec path (`.active-spec-path` marker / spec-dir basename / plan-slug), matching the v1-home forms.
-- [ ] v1-home resolution (all three forms) is unchanged: `triage-command.test.ts` merge-resolution tests stay green.
-- [ ] A name or branch that matches a worktree in both homes exits non-zero with a `triage --merge (unknown worktree):` refusal listing both worktree paths, and does not merge.
-- [ ] When the project root is not a registered project, resolution searches the v1 home only and refuses as it does today.
+- [x] `jarvis1 triage <worktree-or-branch-name> --merge` resolves a worktree living at `~/.jarvis/worktrees/<project>/<branch>/` and runs the gated merge flow against it (local ready gate incl. `lint:md`, draft→ready, CI poll, admin squash) instead of refusing `unknown worktree`.
+- [x] The same v2 worktree resolves from a PR reference (`#N`, URL, bare `N`) and from a spec path (`.active-spec-path` marker / spec-dir basename / plan-slug), matching the v1-home forms.
+- [x] v1-home resolution (all three forms) is unchanged: `triage-command.test.ts` merge-resolution tests stay green.
+- [x] A name or branch that matches a worktree in both homes exits non-zero with a `triage --merge (unknown worktree):` refusal listing both worktree paths, and does not merge.
+- [x] When the project root is not a registered project, resolution searches the v1 home only and refuses as it does today.
 
 ## Documentation updates
 

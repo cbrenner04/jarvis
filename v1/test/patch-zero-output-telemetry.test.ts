@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { TelemetryRecord } from "../src/telemetry.ts";
 import { runSummary } from "../src/run-summary.ts";
+import type { TelemetryRecord } from "../src/telemetry.ts";
 
 function writeTelemetry(records: TelemetryRecord[]): string {
   const dir = mkdtempSync(join(tmpdir(), "jarvis-zero-output-"));

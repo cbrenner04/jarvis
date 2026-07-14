@@ -993,7 +993,8 @@ function buildWorkflowSnapshot(
   // When freshDispatch is set, skip reusing prior invocation's snapshot and mint a new invocationId
   if (!freshDispatch) {
     const identifiableSteps = steps.filter(
-      (step): step is WorkflowStep | HumanWorkflowStep => step.behavior !== "review-debate" && step.behavior !== "review",
+      (step): step is WorkflowStep | HumanWorkflowStep =>
+        step.behavior !== "review-debate" && step.behavior !== "review",
     );
     for (const step of identifiableSteps) {
       const { project, branch } = stepIdentity(step);

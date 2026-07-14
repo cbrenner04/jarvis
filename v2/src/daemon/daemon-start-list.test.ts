@@ -116,6 +116,30 @@ const AGENT_MODEL_CONFIG: AgentModelConfig = {
   },
 };
 
+function createPublicationRetryRun(): string {
+  return stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "test-branch",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "step-1",
+    workflowSnapshot: {
+      invocationId: "publication-retry",
+      steps: [
+        {
+          stepId: "step-1",
+          role: "implement",
+          stepRules: "retry rules",
+          expectedArtifactPath: "/tmp/test-project/artifact",
+          agents: ["codex"],
+          agentModelConfig: AGENT_MODEL_CONFIG,
+        },
+      ],
+    },
+  });
+}
+
 function loadRunOrThrow(store: StateStore, runId: string) {
   const run = store.loadRun(runId);
   if (!run) throw new Error(`missing run ${runId}`);
@@ -794,9 +818,9 @@ test("list includes error on terminal rows and omits it on in-progress and compl
   runs = await listRunsDirect(handlers);
   const killed = runs?.find((candidate) => candidate.runId === runId);
   expect(killed?.error).toEqual({
-    reason: "resumable_kill",
-    retryable: true,
-    nextAction: "resume",
+    reason: "unsupported_resume_context",
+    retryable: false,
+    nextAction: "stop",
   });
 
   fakeExecutor.settleAll();
@@ -858,13 +882,7 @@ test("resume rejects terminal run status", async () => {
 });
 
 test("resume retries a completed run after completion publication failed", async () => {
-  const runId = stateStore.createRun({
-    project: "test-project",
-    specRef: "main",
-    worktreePath: "/tmp/test-project",
-    branch: "test-branch",
-    specPath: "/tmp/test-project/spec.md",
-  });
+  const runId = createPublicationRetryRun();
   stateStore.setRunStatus(runId, "completed");
   const logReader: LogReader = {
     tail: () => [
@@ -896,13 +914,7 @@ test("resume retries a completed run after completion publication failed", async
 });
 
 test("resume retries a completed run after ready finalization failed", async () => {
-  const runId = stateStore.createRun({
-    project: "test-project",
-    specRef: "main",
-    worktreePath: "/tmp/test-project",
-    branch: "test-branch",
-    specPath: "/tmp/test-project/spec.md",
-  });
+  const runId = createPublicationRetryRun();
   stateStore.setRunStatus(runId, "completed");
   const logReader: LogReader = {
     tail: () => [
@@ -1028,7 +1040,7 @@ test("resume with a decision param on a non-awaiting-human run is rejected", asy
   }
 });
 
-test("resume rejects a paused run while another run is in-flight with not_implemented", async () => {
+test("resume rejects an unsupported paused run before checking another in-flight run", async () => {
   await startRunDirect(handlers);
 
   const pausedRunId = stateStore.createRun({
@@ -1043,7 +1055,7 @@ test("resume rejects a paused run while another run is in-flight with not_implem
   const resumeResponse = await resumeDirect(handlers, { runId: pausedRunId });
   expect(resumeResponse.kind).toBe("error");
   if (resumeResponse.kind === "error") {
-    expect(resumeResponse.code).toBe("not_implemented");
+    expect(resumeResponse.code).toBe("resume_unsupported");
   }
 });
 
@@ -1056,6 +1068,20 @@ test("resume rejects worktree_claimed when the (project, branch) is already live
     worktreePath: "/tmp/test-project",
     branch: "test-branch",
     specPath: "/tmp/test-project/spec.md",
+    stepId: "step-1",
+    workflowSnapshot: {
+      invocationId: "claimed-resume",
+      steps: [
+        {
+          stepId: "step-1",
+          role: "implement",
+          stepRules: "resume rules",
+          expectedArtifactPath: "/tmp/test-project/artifact",
+          agents: ["codex"],
+          agentModelConfig: AGENT_MODEL_CONFIG,
+        },
+      ],
+    },
   });
   stateStore.setRunStatus(pausedRunId, "paused");
 

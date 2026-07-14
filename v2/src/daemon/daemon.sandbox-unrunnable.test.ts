@@ -124,7 +124,7 @@ describe("daemon (real process)", () => {
         branch: "b",
         status: "killed",
         isLive: false,
-        error: { reason: "resumable_kill", retryable: true, nextAction: "resume" },
+        error: { reason: "unsupported_resume_context", retryable: false, nextAction: "stop" },
       },
     ]);
     client.close();

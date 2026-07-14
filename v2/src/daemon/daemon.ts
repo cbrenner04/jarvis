@@ -260,6 +260,69 @@ export function resolveWriteLoopBindings(input: WriteLoopInput): ResolvedWriteLo
   return { ok: true, input };
 }
 
+function reconstructWriteResume(run: Run): ResolvedWriteLoopInput {
+  const snapshot = run.workflowSnapshot;
+  const stepId = run.stepId;
+  const step = snapshot?.steps.find((candidate) => candidate.stepId === stepId);
+
+  if (!snapshot || !stepId || !step) return { ok: false, message: "run has no matching workflow snapshot step" };
+  if (step.behavior === "review" || step.behavior === "review-debate") {
+    return { ok: false, message: `step "${step.stepId}" is not an executable write step` };
+  }
+  if (step.stepRules?.trim() === "") return { ok: false, message: "snapshot step has empty rules" };
+  if (step.expectedArtifactPath?.trim() === "") return { ok: false, message: "snapshot step has empty artifact path" };
+  if (!step.stepRules || !step.expectedArtifactPath || !step.agents?.length || !step.agentModelConfig) {
+    return { ok: false, message: "snapshot step is missing write resume context" };
+  }
+
+  return resolveWriteLoopBindings({
+    worktree: {
+      projectRoot: run.worktreePath,
+      projectName: run.project,
+      branchName: run.branch,
+      baseRef: run.specRef,
+    },
+    specPath: run.specPath,
+    stepRules: step.stepRules,
+    expectedArtifactPath: step.expectedArtifactPath,
+    bindings: [],
+    bindingResolution: { role: step.role, agents: step.agents, agentModelConfig: step.agentModelConfig },
+    stepId,
+    workflowSnapshot: snapshot,
+    ...(step.iterationTimeoutMs === undefined ? {} : { iterationTimeoutMs: step.iterationTimeoutMs }),
+  });
+}
+
+function resumeContextForRun(run: Run, loopOutcomeKind?: string): ResolvedWriteLoopInput | undefined {
+  const resumableStatus = run.status === "paused" || run.status === "budget-soft-stopped" || run.status === "killed";
+  const publicationRetry =
+    run.status === "completed" &&
+    (loopOutcomeKind === "completion_commit_failed" || loopOutcomeKind === "ready_finalize_failed");
+  return resumableStatus || publicationRetry ? reconstructWriteResume(run) : undefined;
+}
+
+function resumeContextForTerminalRecord(
+  run: Run | undefined,
+  terminalRecord: TerminalLogRecord | undefined,
+): ResolvedWriteLoopInput | undefined {
+  if (!run) return undefined;
+  const loopOutcomeKind =
+    terminalRecord?.event.kind === "loop_finished" ? terminalRecord.event.loopOutcomeKind : undefined;
+  return resumeContextForRun(run, loopOutcomeKind);
+}
+
+function runListRowError(
+  run: Parameters<typeof composeRunOperatorError>[0] | undefined,
+  resumeContext: ResolvedWriteLoopInput | undefined,
+  terminalRecord: TerminalLogRecord | undefined,
+) {
+  if (!run) return undefined;
+  if (resumeContext?.ok === false) {
+    return { reason: "unsupported_resume_context" as const, retryable: false, nextAction: "stop" as const };
+  }
+  return composeRunOperatorError(run, terminalRecord);
+}
+
 /**
  * Injectable dependencies for {@link createRunControlHandlers}.
  *
@@ -409,14 +472,23 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
   const resultFrom = (runId: string, runStatus: RunStatus, record?: TerminalLogRecord): WaitRunCompletionResult => {
     const run = store.loadRun(runId);
-    const error = run ? composeRunOperatorError(run, record) : undefined;
+    const resumeContext = run
+      ? resumeContextForRun(run, record?.event.kind === "loop_finished" ? record.event.loopOutcomeKind : undefined)
+      : undefined;
+    const error =
+      run && resumeContext?.ok === false
+        ? { reason: "unsupported_resume_context" as const, retryable: false, nextAction: "stop" as const }
+        : run
+          ? composeRunOperatorError(run, record)
+          : undefined;
+    const unsupportedResume = resumeContext?.ok === false;
     const base: WaitRunCompletionResult =
       record?.event.kind === "loop_finished"
         ? {
             runStatus,
             loopOutcomeKind: record.event.loopOutcomeKind,
             iterationsConsumed: record.event.iterationsConsumed,
-            resumable: record.event.resumable,
+            resumable: unsupportedResume ? false : record.event.resumable,
           }
         : { runStatus };
     const withError = error === undefined ? base : { ...base, error };
@@ -732,7 +804,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       const fullRun = fullRuns.get(run.id);
       const isLive = run.status === "in-progress" && liveRunIds.has(run.id);
       const records = logReader?.tail(run.id) ?? [];
-      const error = fullRun ? composeRunOperatorError(fullRun, findTerminalLogRecord(records)) : undefined;
+      const terminalRecord = findTerminalLogRecord(records);
+      const resumeContext = resumeContextForTerminalRecord(fullRun, terminalRecord);
+      const error = runListRowError(fullRun, resumeContext, terminalRecord);
       const reportedStatus = reportedRunStatus(run, fullRun);
       const snapshot = fullRun?.workflowSnapshot ?? undefined;
 
@@ -888,64 +962,17 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     key: OwnershipKey,
     runId: string,
   ): { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string } => {
-    const snapshotStep = run.workflowSnapshot?.steps.find((step) => step.stepId === run.stepId);
-    if (
-      run.workflowSnapshot === null ||
-      run.workflowSnapshot === undefined ||
-      run.stepId === null ||
-      run.stepId === undefined ||
-      snapshotStep === undefined ||
-      snapshotStep.agents === undefined ||
-      snapshotStep.agents.length === 0 ||
-      snapshotStep.agentModelConfig === undefined
-    ) {
-      return {
-        kind: "error",
-        code: "not_implemented",
-        message: "Paused run resume is not yet implemented",
-      };
-    }
-
-    let bindings: WriteLoopInput["bindings"];
-    try {
-      bindings = resolveInvocationBindings(
-        resolveExecutableRole(snapshotStep.role),
-        snapshotStep.agents,
-        snapshotStep.agentModelConfig,
-        createResolvedAgentBinding,
-      );
-    } catch (err) {
+    const reconstructed = reconstructWriteResume(run);
+    if (!reconstructed.ok) {
       return {
         kind: "error",
         code: "resume_unsupported",
-        message: `Unable to resolve bindings for step "${snapshotStep.stepId}": ${
-          err instanceof Error ? err.message : String(err)
-        }`,
+        message: reconstructed.message,
       };
     }
-
-    const input: WriteLoopInput = {
-      worktree: {
-        projectRoot: run.worktreePath,
-        projectName: run.project,
-        branchName: run.branch,
-        baseRef: run.specRef,
-      },
-      specPath: run.specPath,
-      stepRules: snapshotStep.stepRules ?? "",
-      expectedArtifactPath: snapshotStep.expectedArtifactPath ?? "",
-      bindings,
-      bindingResolution: {
-        role: snapshotStep.role,
-        agents: snapshotStep.agents,
-        agentModelConfig: snapshotStep.agentModelConfig,
-      },
-      stepId: run.stepId,
-      workflowSnapshot: run.workflowSnapshot,
-      ...(snapshotStep.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: snapshotStep.iterationTimeoutMs } : {}),
-    };
-
-    spawnWriteLoop(key, runId, run.worktreePath, input);
+    const claimError = checkWorktreeClaimed(_registry, key);
+    if (claimError) return claimError;
+    spawnWriteLoop(key, runId, run.worktreePath, reconstructed.input);
     return { kind: "response", result: { ok: true } };
   };
 
@@ -971,6 +998,28 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return undefined;
   }
 
+  /** Human-loop resume dispatch. Returns undefined when `run` is not in a human-loop status. */
+  async function resumeHumanLoopRun(
+    run: Parameters<typeof resumeAwaitingHuman>[0],
+    runId: string,
+    params: { decision?: string; prompt?: string },
+  ): Promise<Awaited<ReturnType<typeof resumeAwaitingHuman>> | undefined> {
+    if (run.status === "awaiting-human") {
+      return await resumeAwaitingHuman(run, params.decision, params.prompt);
+    }
+    if (run.status !== "revising") return undefined;
+
+    const reconverged = reconvergeRevisingRun(reviseReconvergeDeps, run);
+    if (!reconverged) {
+      return {
+        kind: "error",
+        code: "revise_in_progress",
+        message: `Run ${runId} is revising; wait for it to re-converge to awaiting-human`,
+      };
+    }
+    return await resumeAwaitingHuman(reconverged, params.decision, params.prompt);
+  }
+
   const resumeHandler: RpcHandler = async (frame) => {
     const params = frame.params as { runId?: string; decision?: string; prompt?: string } | undefined;
     if (!params?.runId) {
@@ -983,21 +1032,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       return { kind: "error", code: "unknown_run", message: `Run ${runId} not found` };
     }
 
-    if (run.status === "awaiting-human") {
-      return await resumeAwaitingHuman(run, params.decision, params.prompt);
-    }
-
-    if (run.status === "revising") {
-      const reconverged = reconvergeRevisingRun(reviseReconvergeDeps, run);
-      if (!reconverged) {
-        return {
-          kind: "error",
-          code: "revise_in_progress",
-          message: `Run ${runId} is revising; wait for it to re-converge to awaiting-human`,
-        };
-      }
-      return await resumeAwaitingHuman(reconverged, params.decision, params.prompt);
-    }
+    const humanResume = await resumeHumanLoopRun(run, runId, params);
+    if (humanResume) return humanResume;
 
     if (params.decision !== undefined) {
       return { kind: "error", code: "invalid_params", message: "decision is only valid for awaiting-human runs" };
@@ -1008,31 +1044,24 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       return terminalError;
     }
 
-    const key: OwnershipKey = { project: run.project, branch: run.branch };
-
-    const claimError = checkWorktreeClaimed(_registry, key);
-    if (claimError) {
-      return claimError;
-    }
-
     if (run.status === "paused") {
+      const key: OwnershipKey = { project: run.project, branch: run.branch };
       return resumePausedRun(run, key, runId);
     }
 
-    const input: WriteLoopInput = {
-      worktree: {
-        projectRoot: run.worktreePath,
-        projectName: run.project,
-        branchName: run.branch,
-        baseRef: run.specRef,
-      },
-      specPath: run.specPath,
-      stepRules: "", // These should be reconstructed from the calling context
-      expectedArtifactPath: "", // These should be reconstructed from the calling context
-      bindings: [],
-    };
-
-    spawnWriteLoop(key, runId, run.worktreePath, input);
+    const terminalRecord = logReader ? findTerminalLogRecord(logReader.tail(runId)) : undefined;
+    const reconstructed = resumeContextForTerminalRecord(run, terminalRecord);
+    if (!reconstructed || !reconstructed.ok) {
+      return {
+        kind: "error",
+        code: "resume_unsupported",
+        message: reconstructed?.message ?? `Cannot resume a ${run.status} run`,
+      };
+    }
+    const key: OwnershipKey = { project: run.project, branch: run.branch };
+    const claimError = checkWorktreeClaimed(_registry, key);
+    if (claimError) return claimError;
+    spawnWriteLoop(key, runId, run.worktreePath, reconstructed.input);
 
     return { kind: "response", result: { ok: true } };
   };

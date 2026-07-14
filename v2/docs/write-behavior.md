@@ -526,7 +526,9 @@ five-column layout must migrate. Wait stdout includes `error` only when the daem
 result carries it (no `null` placeholder). Wait exit codes follow
 `loopOutcomeKind` / `runStatus` only; `error` is informational stdout (e.g.
 `retryable: true` with exit `4` on `killed`). TUI run views are unchanged in
-this slice.
+this slice. Unreconstructible stopped write rows report
+`unsupported_resume_context`, `retryable: false`, and `nextAction: stop`, and
+are not resumable.
 
 Run-control transport failures print the connection error to stderr and exit `1`.
 Daemon RPC failures print `<code>: <message>` to stderr and exit `1`. The CLI

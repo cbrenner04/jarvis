@@ -385,6 +385,18 @@ Do not merge to `main` blindly during long in-flight runs; see v1 runbook
 
 Operators add bullets here; delete when fixed.
 
+- **A terminal run id does not mean the workflow is done (2026-07-14):** `jarvis run wait <id>`
+  returns when *that run* goes terminal, but the workflow continues under a **new run id** (the
+  shrink step, then publication). Twice in one session this made a working run look like it had
+  dropped its work, and cost an unnecessary hand-recovery. Before concluding a run committed
+  nothing, check `jarvis run list` for a **live row on the same branch**. Seed:
+  `workflow-completes-before-its-review-step` (#1488). Cleanup: delete when it ships.
+- **No v2 run can gate its own work (2026-07-14):** v2 worktrees live at
+  `~/.jarvis/worktrees/`, outside the repo, so bun's `node_modules` up-walk never reaches the
+  project's. `bun run typecheck` exits **127** inside one, and so does every other gate. Re-gate
+  by hand from the repo root (or symlink `node_modules` into the worktree) before trusting any
+  v2 run's completion. Seed: `v2-worktrees-have-no-dependencies-so-no-gate-can-run`. Cleanup:
+  delete when it ships.
 - **`run workflow` exits 0 on a failed run (2026-07-12):** the exit code means "the
   daemon accepted the request", not "it worked". Every failed preset this session
   looked like a success at the shell — a bare UUID and exit 0. Always confirm with

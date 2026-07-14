@@ -30,8 +30,6 @@ import {
 } from "./linked-subspec-routing.ts";
 import { landPublication, type PublicationLanding } from "./publication-landing.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
-import { renderIntentReviewActuatorPrompt, renderIntentReviewCriticPrompt } from "./render-intent-review-prompts.ts";
-import { executePlanReviewCycle, type PlanReviewCycleOutcome } from "./render-plan-review-prompts.ts";
 import {
   executeReviewCycle,
   type ReviewCycleInput,
@@ -44,7 +42,6 @@ import {
   type ReviewDebateRole,
   type ReviewDebateRoleBindings,
 } from "./review-debate.ts";
-import { executePatchReviewCycle, executePatchReviewDebate } from "./review-debate-render.ts";
 import {
   cleanupVerdictFile,
   excludeVerdictFromStaging,
@@ -168,8 +165,6 @@ export type ReviewDebateWorkflowStep = Omit<ReviewDebateInput, "bindings" | "onR
   agents: ReviewDebateStepAgents;
   agentModelConfig: AgentModelConfig;
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
-  /** When set, prompts are rendered per cycle from patch review templates at execution. */
-  patchReviewContext?: { specPath: string; baseBranch: string };
 };
 
 /** Per-step critic/actuator review input; bindings are derived at execution. */
@@ -183,10 +178,6 @@ export type ReviewWorkflowStep = Omit<ReviewCycleInput, "bindings" | "onRoleStar
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
   /** When configured, landing is deferred until after successful review. */
   landing?: PublicationLanding;
-  /** For plan review steps, context for rendering prompts from templates. */
-  planReviewContext?: { specPath: string };
-  /** When set, critic/actuator prompts render from patch review templates per cycle. */
-  patchReviewContext?: { specPath: string; baseBranch: string };
 };
 
 /** Live/terminal progress for a review step's daemon-visible row, tracked in-memory only. */
@@ -332,19 +323,8 @@ async function runWorkflowStep(
     };
   }
 
-  if (step.behavior === "review-debate") {
-    return runReviewDebateStep(
-      step,
-      stepIndex,
-      workflowSnapshot.invocationId,
-      onReviewDebateProgress,
-      telemetry,
-      onStepRunCreated,
-    );
-  }
-
-  if (step.behavior === "review") {
-    return runReviewStep(
+  if (step.behavior === "review-debate" || step.behavior === "review") {
+    return runReviewDispatch(
       step,
       stepIndex,
       workflowSnapshot.invocationId,
@@ -647,7 +627,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
 
       if (
         (step.behavior === "review-debate" || step.behavior === "review") &&
-        step.patchReviewContext !== undefined &&
+        step.profile?.domain === "implement" &&
+        args.steps.some((candidate) => candidate.behavior === "write" && candidate.role === "implement") &&
         !implementReviewEligible
       ) {
         continue;
@@ -1076,7 +1057,7 @@ function implementReviewPassesFromSteps(steps: readonly AnyWorkflowStep[]): numb
 
   const patchReviewStep = steps.find(
     (step): step is ReviewDebateWorkflowStep | ReviewWorkflowStep =>
-      (step.behavior === "review-debate" || step.behavior === "review") && step.patchReviewContext !== undefined,
+      (step.behavior === "review-debate" || step.behavior === "review") && step.profile?.domain === "implement",
   );
   return patchReviewStep?.maxCycles ?? 0;
 }
@@ -1429,7 +1410,7 @@ async function runReviewDebateStep(
   telemetry: WorkflowTelemetryContext | undefined,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
 ): Promise<ReviewDebateStepOutcome> {
-  const { stepId, project, branch, agents, agentModelConfig, createBinding, patchReviewContext, ...debateInput } = step;
+  const { stepId, project, branch, agents, agentModelConfig, createBinding, ...debateInput } = step;
   const resolveBindings = createBinding ?? createResolvedAgentBinding;
   const runId = crypto.randomUUID();
   const attemptId = crypto.randomUUID();
@@ -1465,28 +1446,12 @@ async function runReviewDebateStep(
       ? { onRoleStart: (role: ReviewDebateRole) => onProgress(invocationId, stepId, { status: "in_progress", role }) }
       : {};
 
-  const result =
-    patchReviewContext !== undefined
-      ? await executePatchReviewDebate({
-          cwd: debateInput.cwd,
-          bindings,
-          verdictPath: debateInput.verdictPath,
-          maxCycles: debateInput.maxCycles,
-          context: {
-            specPath: patchReviewContext.specPath,
-            cwd: debateInput.cwd,
-            baseBranch: patchReviewContext.baseBranch,
-          },
-          ...(debateInput.signal !== undefined ? { signal: debateInput.signal } : {}),
-          ...telemetryFields,
-          ...onRoleStart,
-        })
-      : await executeReviewDebate({
-          ...debateInput,
-          bindings,
-          ...telemetryFields,
-          ...onRoleStart,
-        });
+  const result = await executeReviewDebate({
+    ...debateInput,
+    bindings,
+    ...telemetryFields,
+    ...onRoleStart,
+  });
 
   const lastCycle = result.cycles[result.cycles.length - 1];
   const kind = lastCycle?.kind === "role_failed" ? "invocation_failure" : "complete";
@@ -1691,14 +1656,13 @@ type ReviewWorkflowCycleInput = Omit<
   | "agentModelConfig"
   | "createBinding"
   | "landing"
-  | "planReviewContext"
-  | "patchReviewContext"
+  | "profile"
+  | "profileContext"
 >;
 
-async function runPatchReviewStep(
+async function runProfileReviewStep(
   step: ReviewWorkflowStep,
   reviewInput: ReviewWorkflowCycleInput,
-  patchReviewContext: NonNullable<ReviewWorkflowStep["patchReviewContext"]>,
   ids: ReviewStepExecutionIds,
   bindings: ReturnType<typeof resolveReviewStepBindings>,
   invocationId: string,
@@ -1706,13 +1670,14 @@ async function runPatchReviewStep(
   telemetry: WorkflowTelemetryContext | undefined,
 ): Promise<ReviewStepOutcome> {
   const { stepId } = step;
-  const result = await executePatchReviewCycle({
+  const result = await executeReviewCycle({
     cwd: step.cwd,
-    context: {
-      specPath: patchReviewContext.specPath,
-      cwd: step.cwd,
-      baseBranch: patchReviewContext.baseBranch,
-    },
+    ...(step.profile !== undefined ? { profile: step.profile } : {}),
+    ...(step.profileContext !== undefined ? { profileContext: step.profileContext } : {}),
+    ...(reviewInput.prompt !== undefined ? { prompt: reviewInput.prompt } : {}),
+    ...(reviewInput.actuatorPromptRenderer !== undefined
+      ? { actuatorPromptRenderer: reviewInput.actuatorPromptRenderer }
+      : {}),
     bindings,
     verdictPath: reviewInput.verdictPath,
     maxCycles: reviewInput.maxCycles,
@@ -1724,7 +1689,7 @@ async function runPatchReviewStep(
   const lastCycle = result.cycles[result.cycles.length - 1];
   const kind = lastCycle?.kind === "role_failed" ? "invocation_failure" : "complete";
   const terminalRole: ReviewCycleRole =
-    lastCycle?.kind === "role_failed" ? lastCycle.failedRole : lastCycle?.actuatorRan ? "actuator" : "critic";
+    lastCycle?.kind === "role_failed" ? lastCycle.failedRole : lastCycle?.kind === "completed" && lastCycle.actuatorRan ? "actuator" : "critic";
 
   onProgress?.(invocationId, stepId, {
     status: kind === "complete" ? "completed" : "stopped",
@@ -1748,44 +1713,6 @@ async function runPatchReviewStep(
   };
 }
 
-async function runPlanReviewStep(
-  step: ReviewWorkflowStep,
-  reviewInput: ReviewWorkflowCycleInput,
-  planReviewContext: NonNullable<ReviewWorkflowStep["planReviewContext"]>,
-  ids: ReviewStepExecutionIds,
-  bindings: ReturnType<typeof resolveReviewStepBindings>,
-  invocationId: string,
-  onProgress: ((invocationId: string, stepId: string, progress: ReviewProgress) => void) | undefined,
-  telemetry: WorkflowTelemetryContext | undefined,
-): Promise<ReviewStepOutcome> {
-  const { stepId } = step;
-  const planReviewCycleInput = {
-    context: { ...planReviewContext, worktreePath: step.cwd },
-    cwd: step.cwd,
-    bindings,
-    verdictPath: reviewInput.verdictPath,
-    maxCycles: reviewInput.maxCycles,
-    ...(reviewInput.signal !== undefined ? { signal: reviewInput.signal } : {}),
-    ...buildReviewStepTelemetryFields(step, ids, telemetry),
-    ...buildReviewStepOnRoleStart(invocationId, stepId, onProgress),
-  };
-
-  const result = await executePlanReviewCycle(planReviewCycleInput);
-  const lastCycle = result.cycles[result.cycles.length - 1];
-  const terminalRole: ReviewCycleRole = lastCycle?.kind === "role_failed" ? lastCycle.failedRole : "actuator";
-  const isComplete = result.cycles.every((cycle: PlanReviewCycleOutcome) => cycle.kind !== "role_failed");
-
-  onProgress?.(invocationId, stepId, {
-    status: isComplete ? "completed" : "stopped",
-    role: terminalRole,
-    terminalOutcome: isComplete ? "complete" : "invocation_failure",
-  });
-
-  return isComplete
-    ? { kind: "complete", runId: ids.runId, iterationsConsumed: result.cycles.length, resumable: false }
-    : { kind: "invocation_failure", runId: ids.runId, iterationsConsumed: result.cycles.length, resumable: true };
-}
-
 async function runStandardReviewStep(
   step: ReviewWorkflowStep,
   reviewInput: ReviewWorkflowCycleInput,
@@ -1800,15 +1727,8 @@ async function runStandardReviewStep(
   const { stepId } = step;
   const reviewCycleInput: ReviewCycleInput = {
     ...reviewInput,
-    ...(landing?.kind === "intent-stage"
-      ? {
-          prompt: () =>
-            renderIntentReviewCriticPrompt({
-              stagingDir: resolve(step.cwd, landing.stagingDir),
-              verdictPath: step.verdictPath,
-            }),
-        }
-      : {}),
+    ...(step.profile !== undefined ? { profile: step.profile } : {}),
+    ...(step.profileContext !== undefined ? { profileContext: step.profileContext } : {}),
     bindings,
     ...buildReviewStepTelemetryFields(step, ids, telemetry),
     ...buildReviewStepOnRoleStart(invocationId, stepId, onProgress),
@@ -1817,14 +1737,7 @@ async function runStandardReviewStep(
   const enforcementResult =
     landing?.kind === "intent-stage"
       ? await executeReviewCycleEnforced({
-          input: {
-            ...reviewCycleInput,
-            actuatorPromptRenderer: (verdict) =>
-              renderIntentReviewActuatorPrompt(
-                { stagingDir: resolve(step.cwd, landing.stagingDir), verdictPath: step.verdictPath },
-                verdict,
-              ),
-          },
+          input: reviewCycleInput,
           invocationId: landing.invocationId,
           stagingDir: resolve(step.cwd, landing.stagingDir),
           cwd: step.cwd,
@@ -1896,8 +1809,8 @@ async function runStandardReviewStep(
   return { ...landed, iterationsConsumed: result.cycles.length };
 }
 
-async function runReviewStep(
-  step: ReviewWorkflowStep,
+async function runReviewDispatch(
+  step: ReviewDebateWorkflowStep | ReviewWorkflowStep,
   stepIndex: number,
   invocationId: string,
   onProgress: ((invocationId: string, stepId: string, progress: ReviewProgress) => void) | undefined,
@@ -1905,8 +1818,19 @@ async function runReviewStep(
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
   store: StateStore,
   logSink: LogSink | undefined,
-): Promise<ReviewStepOutcome> {
-  const { landing, planReviewContext, patchReviewContext, ...reviewInput } = step;
+): Promise<ReviewDebateStepOutcome | ReviewStepOutcome> {
+  if (step.behavior === "review-debate") {
+    return runReviewDebateStep(
+      step,
+      stepIndex,
+      invocationId,
+      onProgress,
+      telemetry,
+      onStepRunCreated,
+    );
+  }
+
+  const { landing, ...reviewInput } = step;
 
   // Only reviewed-intent workflows carry a durable post-review checkpoint; generic review
   // steps stay non-durable (no run row, fresh synthesized run ID each dispatch).
@@ -1947,11 +1871,9 @@ async function runReviewStep(
     logSink?.append(ids.runId, { kind: "iteration_started", attemptId: ids.attemptId });
   }
 
-  const outcome = await (patchReviewContext !== undefined
-    ? runPatchReviewStep(step, reviewInput, patchReviewContext, ids, bindings, invocationId, onProgress, telemetry)
-    : planReviewContext !== undefined
-      ? runPlanReviewStep(step, reviewInput, planReviewContext, ids, bindings, invocationId, onProgress, telemetry)
-      : runStandardReviewStep(step, reviewInput, landing, ids, bindings, invocationId, onProgress, telemetry, store));
+  const outcome = await (landing?.kind === "intent-stage"
+    ? runStandardReviewStep(step, reviewInput, landing, ids, bindings, invocationId, onProgress, telemetry, store)
+    : runProfileReviewStep(step, reviewInput, ids, bindings, invocationId, onProgress, telemetry));
 
   if (landing?.kind === "intent-stage") {
     logSink?.append(ids.runId, {

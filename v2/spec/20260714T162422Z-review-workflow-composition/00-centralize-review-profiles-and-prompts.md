@@ -19,11 +19,11 @@ Review domains currently select context and assemble prompts in v2 render module
 
 ## Acceptance criteria
 
-- [ ] `shared/prompts/review-profile.test.ts` fails against the baseline and passes with one profile contract covering intent, plan, and implement prompt/context, verdict lifecycle, and write-boundary selections for light and debate execution.
-- [ ] `render-intent-review-prompts.test.ts`, `render-plan-review-prompts.test.ts`, and `review-debate-render.test.ts` stay green after their assertions move to shared prompt tests (rendered prompt behavior unchanged).
-- [ ] `review-cycle.test.ts` and `review-debate.test.ts` stay green with cycle order, empty-verdict termination, actuator invocation, retries, and role failures unchanged.
-- [ ] Review render modules under `shared/prompts/` contain prompt/context assembly only; `review-cycle.ts` and `review-debate.ts` remain the executor boundaries.
-- [ ] `v2/docs/prompts.md` documents `ReviewPromptProfile`, shared review assembly ownership, and light/debate renderer selection without duplicating workflow policy.
+- [x] `shared/prompts/review-profile.test.ts` fails against the baseline and passes with one profile contract covering intent, plan, and implement prompt/context, verdict lifecycle, and write-boundary selections for light and debate execution.
+- [x] `render-intent-review-prompts.test.ts`, `render-plan-review-prompts.test.ts`, and `review-debate-render.test.ts` stay green after their assertions move to shared prompt tests (rendered prompt behavior unchanged).
+- [x] `review-cycle.test.ts` and `review-debate.test.ts` stay green with cycle order, empty-verdict termination, actuator invocation, retries, and role failures unchanged.
+- [x] Review render modules under `shared/prompts/` contain prompt/context assembly only; `review-cycle.ts` and `review-debate.ts` remain the executor boundaries.
+- [x] `v2/docs/prompts.md` documents `ReviewPromptProfile`, shared review assembly ownership, and light/debate renderer selection without duplicating workflow policy.
 
 ## Documentation updates
 

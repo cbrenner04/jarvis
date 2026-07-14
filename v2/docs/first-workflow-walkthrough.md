@@ -5,6 +5,15 @@ This is not a command reference — see [`write-behavior.md`](./write-behavior.m
 CLI contracts and [`daemon-host.md`](./daemon-host.md) / [`workflow-runner.md`](./workflow-runner.md)
 for IPC and workflow internals.
 
+## Common review semantics
+
+Intent, plan, and implement reviews use the same light or debate cycle. A light
+review runs critic then actuator for a non-empty verdict; debate runs adversary,
+advocate, adjudicator, then actuator. The selected profile supplies prompts,
+verdict handling, boundaries, and the existing workflow-worktree cwd. Reviewed
+intent retains diagnostics and resumes landing without rerunning roles; plan
+keeps its in-tree verdict, while implement protects the completed spec tree.
+
 The walkthrough uses an ad-hoc `jarvis run start` run (direct write mode) rather
 than `jarvis run workflow implement` so live `pause` and `kill` work on the active run.
 See [Workflow-started implement](#workflow-started-implement) for launching

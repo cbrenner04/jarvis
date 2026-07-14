@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync, realpathSync, statSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { getBaseBranch } from "../../../shared/git.ts";
 import type { ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
@@ -26,6 +26,8 @@ import {
   type WriteWorkflowStep,
 } from "./workflow-runner.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
+import { planReviewPromptProfile } from "./render-plan-review-prompts.ts";
+import { intentReviewPromptProfile } from "./render-intent-review-prompts.ts";
 
 const INTENT_STAGE = ".jarvis-intent-stage";
 const PLAN_STAGE = ".jarvis-plan-stage";
@@ -355,6 +357,11 @@ export async function buildReviewedIntentWorkflowSteps(
     prompt: "intent.prompt.review",
     verdictPath: join(cwd, intentReview),
     maxCycles: passes,
+    profile: intentReviewPromptProfile,
+    profileContext: {
+      stagingDir: resolve(cwd, landing.stagingDir),
+      verdictPath: join(cwd, intentReview),
+    },
     ...(deps.createBinding ? { createBinding: deps.createBinding } : {}),
     landing,
   };
@@ -481,6 +488,8 @@ export async function buildReviewedPlanWorkflowSteps(
     },
     verdictPath: join(cwd, r.source.specPath, "verdict-plan.md"),
     maxCycles: n,
+    profile: planReviewPromptProfile,
+    profileContext: { specPath: join(cwd, r.source.specPath), worktreePath: cwd },
   };
   try {
     const loaded = (deps.loadWorkflowSteps ?? realLoadWorkflowSteps)([r.source, review], loadOptions(deps));
@@ -510,7 +519,8 @@ export async function buildReviewedPlanLightWorkflowSteps(
     prompt: "",
     verdictPath: join(cwd, r.source.specPath, "verdict-plan.md"),
     maxCycles: n,
-    planReviewContext: { specPath: join(cwd, r.source.specPath) },
+    profile: planReviewPromptProfile,
+    profileContext: { specPath: join(cwd, r.source.specPath), worktreePath: cwd },
   };
   try {
     const loaded = (deps.loadWorkflowSteps ?? realLoadWorkflowSteps)([r.source, review], loadOptions(deps));

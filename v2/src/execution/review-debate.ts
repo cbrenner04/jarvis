@@ -7,6 +7,7 @@ import {
   type InvocationTelemetryContext,
 } from "../../../shared/invocation/execute.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
+import type { ReviewPromptProfile } from "../../../shared/prompts/review-profile.ts";
 
 /** Fixed debate role order: adversary -> advocate -> adjudicator -> actuator. */
 export type ReviewDebateRole = "adversary" | "advocate" | "adjudicator" | "actuator";
@@ -37,7 +38,9 @@ type ReviewDebateResult = {
 /** Input for one review-debate run. Actuator's prompt is the settled verdict text, not caller-supplied. */
 export type ReviewDebateInput = {
   cwd: string;
-  prompts: { adversary: string; advocate: string; adjudicator: string };
+  prompts?: { adversary: string; advocate: string; adjudicator: string };
+  profile?: ReviewPromptProfile<any, any>;
+  profileContext?: unknown;
   bindings: ReviewDebateRoleBindings;
   verdictPath: string;
   maxCycles: number;
@@ -53,12 +56,24 @@ export type ReviewDebateInput = {
  * `verdictPath`; an empty verdict skips the actuator and stops the loop.
  */
 export async function executeReviewDebate(args: ReviewDebateInput): Promise<ReviewDebateResult> {
+  if (!Number.isFinite(args.maxCycles) || !Number.isInteger(args.maxCycles) || args.maxCycles < 0) {
+    throw new RangeError("maxCycles must be a finite non-negative integer");
+  }
+
   const cycles: ReviewDebateCycleOutcome[] = [];
 
   for (let cycle = 0; cycle < args.maxCycles; cycle += 1) {
     const roleResults: Partial<Record<ReviewDebateRole, InvocationExecution>> = {};
+    const profileContext = typeof args.profileContext === "function" ? args.profileContext(cycle + 1, cycles.at(-1)?.verdict) : args.profileContext;
 
-    const adversary = await invokeRole(args, "adversary", args.prompts.adversary, args.bindings.adversary);
+    const adversary = await invokeRole(
+      args,
+      "adversary",
+      args.profile?.render.debateRole
+        ? await args.profile.render.debateRole("adversary", profileContext)
+        : args.prompts?.adversary ?? "",
+      args.bindings.adversary,
+    );
     roleResults.adversary = adversary;
     const adversaryFailure = failureKind(adversary);
     if (adversaryFailure !== null) {
@@ -66,7 +81,14 @@ export async function executeReviewDebate(args: ReviewDebateInput): Promise<Revi
       break;
     }
 
-    const advocate = await invokeRole(args, "advocate", args.prompts.advocate, args.bindings.advocate);
+    const advocate = await invokeRole(
+      args,
+      "advocate",
+      args.profile?.render.debateRole
+        ? await args.profile.render.debateRole("advocate", profileContext, (adversary.final?.result as InvocationOk).stdout)
+        : args.prompts?.advocate ?? "",
+      args.bindings.advocate,
+    );
     roleResults.advocate = advocate;
     const advocateFailure = failureKind(advocate);
     if (advocateFailure !== null) {
@@ -74,7 +96,14 @@ export async function executeReviewDebate(args: ReviewDebateInput): Promise<Revi
       break;
     }
 
-    const adjudicator = await invokeRole(args, "adjudicator", args.prompts.adjudicator, args.bindings.adjudicator);
+    const adjudicator = await invokeRole(
+      args,
+      "adjudicator",
+      args.profile?.render.debateRole
+        ? await args.profile.render.debateRole("adjudicator", profileContext, (advocate.final?.result as InvocationOk).stdout)
+        : args.prompts?.adjudicator ?? "",
+      args.bindings.adjudicator,
+    );
     roleResults.adjudicator = adjudicator;
     const adjudicatorFailure = failureKind(adjudicator);
     if (adjudicatorFailure !== null) {
@@ -92,7 +121,12 @@ export async function executeReviewDebate(args: ReviewDebateInput): Promise<Revi
       break;
     }
 
-    const actuator = await invokeRole(args, "actuator", verdict, args.bindings.actuator);
+    const actuator = await invokeRole(
+      args,
+      "actuator",
+      args.profile?.render.actuator ? await args.profile.render.actuator(profileContext, verdict) : verdict,
+      args.bindings.actuator,
+    );
     roleResults.actuator = actuator;
     const actuatorFailure = failureKind(actuator);
     if (actuatorFailure !== null) {

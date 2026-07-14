@@ -19,6 +19,7 @@ import {
   resolveWorkflowPreset,
   type WriteWorkflowStep,
 } from "./workflow-runner.ts";
+import { implementReviewPromptProfile } from "./review-debate-render.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 /** Per-run inputs the operator supplies alongside cwd project resolution. */
@@ -203,10 +204,14 @@ export function buildImplementWorkflowSteps(
 
   const cwd = getExternalWorktreePath(sourceStep.worktree);
   const verdictPath = join(cwd, dirname(input.specPath), "verdict-patch.md");
-  const patchReviewContext = {
+  const profileContext = (passNumber: number, priorCycleVerdict?: string) => ({
     specPath: input.specPath,
+    cwd,
     baseBranch: input.baseRef,
-  };
+    passNumber,
+    totalPasses: reviewPasses,
+    ...(priorCycleVerdict !== undefined ? { priorCycleVerdict } : {}),
+  });
 
   if (reviewBehavior === "light") {
     const reviewStep: ReviewWorkflowSourceStep = {
@@ -218,7 +223,8 @@ export function buildImplementWorkflowSteps(
       prompt: PATCH_REVIEW_CRITIC_PROMPT_ID,
       verdictPath,
       maxCycles: reviewPasses,
-      patchReviewContext,
+      profile: implementReviewPromptProfile,
+      profileContext,
     };
     return loadImplementWorkflowSteps(loadSteps, [sourceStep, reviewStep], reviewPasses, reviewBehavior);
   }
@@ -236,7 +242,8 @@ export function buildImplementWorkflowSteps(
     },
     verdictPath,
     maxCycles: reviewPasses,
-    patchReviewContext,
+    profile: implementReviewPromptProfile,
+    profileContext,
   };
 
   return loadImplementWorkflowSteps(loadSteps, [sourceStep, reviewStep], reviewPasses, reviewBehavior);

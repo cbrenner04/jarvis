@@ -382,7 +382,7 @@ occurred; unauthorized edits are restored before the actuator runs. The actuator
 is the sole mutator of the spec tree. Actuator prompts carry the unchanged verdict
 plus the same materialized draft context as the critic.
 
-Workflow dispatch for the `plan-reviewed-light` preset supplies `planReviewContext` on the
+Workflow dispatch for the `plan-reviewed-light` preset supplies the plan review profile on the
 loaded review step; see [`workflow-runner.md`](./workflow-runner.md#review-dispatch).
 
 ## Command

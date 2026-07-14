@@ -224,11 +224,10 @@ discriminated union on `behavior`, the closed vocabulary from
   [Execution contract](#execution-contract) above.
 - `behavior: "review-debate"` — see
   [Review-debate dispatch](#review-debate-dispatch) below.
-- `behavior: "review"` — `{ stepId, project, branch, cwd, prompt, agents,
-  agentModelConfig, verdictPath, maxCycles }`, with separate `critic` and
-  `actuator` agent orders. It has no actuator prompt; the non-empty critic
-  verdict is the actuator prompt unless the step carries patch or plan review
-  context (see [Review dispatch](#review-dispatch)).
+- `behavior: "review"` — `{ stepId, project, branch, cwd, profile,
+  profileContext, agents, agentModelConfig, verdictPath, maxCycles }`, with
+  separate `critic` and `actuator` agent orders. The profile owns prompt
+  assembly and domain policies.
 
 `behavior` is kept on the returned runtime step (not stripped) — the runner
 dispatches on it. The helper passes loop-control fields through unchanged.
@@ -413,7 +412,7 @@ step (`SPEC_PATH`, `REPO_GUIDANCE` from the worktree root, active subspec from
 `loadWorkflowSteps` call, then appends the loaded debate step after the resolved
 implement write step. The debate step runs in the implement worktree, writes
 `verdict-patch.md` beside the executed `specPath` (overwritten each cycle), and
-carries `patchReviewContext` so `executeWorkflow` renders
+ carries the implement review profile so `executeWorkflow` renders
 `patch.prompt.review.*` per cycle at execution. Runtime order is implement write
 → terminal shrink (when routing completed work) → optional debate review. The
 appended review is skipped — without hard-fail — when implement did not route
@@ -485,44 +484,39 @@ object literal `satisfies WorkflowStepInput`.
 
 ## Review dispatch
 
-A programmatic `review` step is an object literal `satisfies WorkflowStepInput`.
-It declares `project`, `branch`, `cwd`, `prompt`, `verdictPath`, `maxCycles`,
-shared `agentModelConfig`, and separate `agents.critic` and `agents.actuator`
-orders. The non-empty critic verdict is the actuator prompt unless the step
-carries patch or plan review context; there is no actuator prompt field. When
-part of a reviewed intent workflow, the step also carries `deferredIntentOutput`
-configuration: the write step's `intentOutput`, a staging directory path, and
-an `invocationId` for landing after review completes. Patch context
-(`patchReviewContext`), plan context (`planReviewContext`), and
-`deferredIntentOutput` are mutually exclusive; dispatch branches over all three.
-For deferred intent output, dispatch renders both registered intent prompts from
-the current staging directory; generic review keeps its verdict-only behavior.
+All `review` and `review-debate` steps use the same profile-bearing dispatch.
+Builders for intent, plan, and implement select a `ReviewPromptProfile` and
+its context; the runner selects only the light critic/actuator cycle or the
+debate cycle. The profile selects verdict ownership and write boundaries, so
+domain-specific enforcement is applied in one path without a generic
+least-restrictive policy.
+
+The review `cwd` is always the existing workflow worktree. This includes the
+external split worktree for reviewed intent and the materialized plan or
+implement worktree; the operator checkout is never substituted.
+
+Reviewed intent reserves its verdict for the owning invocation, excludes it
+from validation and landing, and retains it on review or landing failure.
+Successful landing removes it. A completed-review or landing-failed checkpoint
+resumes at landing without reinvoking review roles. Plan keeps its durable
+`verdict-plan.md` and permits actuator spec edits. Implement keeps the
+completed spec tree immutable while permitting implementation edits.
+
 For reviewed intents, `cwd`, verdict handling, boundary enforcement, staging,
 landing, and any enabled commit, push, and draft-PR publication all use the split
 step's resolved external workspace, never the operator checkout.
 
-**Patch-context light review:** A `review` step with `patchReviewContext`
-(`specPath`, `baseBranch`) runs bounded critic-actuator cycles in the implement
-worktree via `executePatchReviewCycle` (`v2/src/execution/review-debate-render.ts`).
-Each cycle renders `patch.prompt.review.critic` with the current pass number and
-prior verdict, writes the critic's stdout to `verdictPath`, and invokes the
-actuator only on a non-empty verdict. The actuator receives the same rendered
-patch actuator prompt as patch debate review (`renderReviewDebateActuatorPrompt`
-— patch body guidance plus review-actuator rules plus the verdict). The patch
-critic is read-only by prompt only; critic file edits do not fail the role or
-trigger a working-tree restore. An empty critic verdict ends the review with
-`kind: "complete"` without running the actuator. The same implement-review
-eligibility gate that skips appended `review-debate` steps when implement did
-not route through a terminal linked subspec also skips patch-context `review`
-steps. Review-pass derivation on implement workflow snapshots reports
-`maxCycles` from either appended patch-context step kind.
+**Implement light review:** The implement profile renders bounded
+critic-actuator cycles in the implement worktree. It shares the same dispatch
+and cycle semantics as plan and intent light review while retaining immutable
+spec enforcement and implementation-only actuator edits.
 
 The runner validates every `(agent, role)` entry for both orders before it
 creates a snapshot or durable state. When reached, it resolves the roles
 independently through the normal agent/rung fallback, then runs the review
 cycle with enforcement (for intent workflows).
 
-**Enforcement and isolation:** When `deferredIntentOutput` is configured,
+**Enforcement and isolation:** When the intent profile is configured,
 the review step enforces role filesystem boundaries. Before and after each
 review cycle, the working tree is checked:
 - **Critic read-only:** After the critic runs, the working tree must remain
@@ -544,7 +538,7 @@ review step and managed by enforcement:
 - On successful landing (see below), the verdict file is deleted. On failed
   landing, it remains for diagnostics and can be inspected or removed manually.
 
-**Landing and convergence:** When `deferredIntentOutput` is configured and
+**Landing and convergence:** When the intent profile is configured and
 review completes successfully (all bounded cycles complete with `kind: "complete"`),
 the enforcement layer immediately runs final intent validation and landing:
 - The verdict file is excluded from the staged output before validation.
@@ -565,7 +559,7 @@ land local files and perform no Git or GitHub operation.
 
 An empty verdict (trimmed) or all bounded cycles without actuator invocation
 converges to `complete` without landing (landing only occurs when
-`deferredIntentOutput` is configured and cycles complete). Critic, actuator,
+the reviewed-intent landing policy is configured and cycles complete). Critic, actuator,
 abort, verdict-I/O failures, and landing failures return `invocation_failure`
 and stop later steps. `iterationsConsumed` counts cycles whose critic started,
 including a role-failed cycle, but not pre-critic failures or landing attempts.
@@ -574,8 +568,8 @@ Each ordinary review step receives a fresh synthesized run ID and invokes
 `onStepRunCreated` before role execution. Reviewed-intent review instead records
 a durable run and uses it to resume landing after a recorded landing failure.
 That run row's `specRef` and `specPath` identify what it reviewed: `specRef` is
-`deferredIntentOutput.baseRef` (the base ref reviewed against) and `specPath` is
-`deferredIntentOutput.stagingDir` (the staged intent tree under review, not the
+the landing base ref (the base ref reviewed against) and `stagingDir` is
+the staged intent tree under review, not the
 verdict path).
 A review-only invocation gets a fresh snapshot and starts at cycle zero. A mixed workflow may reuse a matching snapshot found through a
 durable write or human step; matching includes each review entry's
@@ -583,7 +577,7 @@ durable write or human step; matching includes each review entry's
 projection, with critic/actuator start and terminal completed/stopped progress,
 while durable run lookup considers only write and human steps.
 
-**Log events:** Only a review step with `deferredIntentOutput` (a durable run row)
+**Log events:** Only a reviewed-intent review step (a durable run row)
 appends to that run's log — plain review steps have no run row and stay silent.
 It appends `iteration_started` (the step's `attemptId`) before critic/actuator
 execution, then a terminal `loop_finished` (outcome kind, cycles consumed,

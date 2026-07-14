@@ -7,6 +7,7 @@ import {
   type InvocationTelemetryContext,
 } from "../../../shared/invocation/execute.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
+import type { ReviewPromptProfile } from "../../../shared/prompts/review-profile.ts";
 
 export type ReviewCycleRole = "critic" | "actuator";
 
@@ -18,7 +19,9 @@ export type ReviewCycleRoleBindings = {
 
 export type ReviewCycleInput = {
   cwd: string;
-  prompt: string | (() => string);
+  prompt?: string | (() => string);
+  profile?: ReviewPromptProfile<any, any>;
+  profileContext?: unknown;
   bindings: ReviewCycleRoleBindings;
   verdictPath: string;
   maxCycles: number;
@@ -72,7 +75,12 @@ export async function executeReviewCycle(args: ReviewCycleInput): Promise<Review
     }
 
     const roleResults: Partial<Record<ReviewCycleRole, InvocationExecution>> = {};
-    const criticPrompt = typeof args.prompt === "function" ? args.prompt() : args.prompt;
+    const profileContext = typeof args.profileContext === "function" ? args.profileContext(cycle + 1, cycles.at(-1)?.verdict) : args.profileContext;
+    const criticPrompt = args.profile
+      ? await args.profile.render.critic(profileContext)
+      : typeof args.prompt === "function"
+        ? args.prompt()
+        : args.prompt ?? "";
     const critic = await invokeRole(args, "critic", criticPrompt, args.bindings.critic);
     roleResults.critic = critic;
     const criticFailure = failureKind(critic);
@@ -96,7 +104,11 @@ export async function executeReviewCycle(args: ReviewCycleInput): Promise<Review
       return { kind: "complete", cycles };
     }
 
-    const actuatorPrompt = args.actuatorPromptRenderer ? args.actuatorPromptRenderer(verdict) : verdict;
+    const actuatorPrompt = args.profile
+      ? await args.profile.render.actuator(profileContext, verdict)
+      : args.actuatorPromptRenderer
+        ? args.actuatorPromptRenderer(verdict)
+        : verdict;
     const actuator = await invokeRole(args, "actuator", actuatorPrompt, args.bindings.actuator);
     roleResults.actuator = actuator;
     const actuatorFailure = failureKind(actuator);

@@ -32,19 +32,19 @@ completion result to an exit code (`exitCodeForWaitResult` / `buildWaitPayload`,
 
 ## Acceptance criteria
 
-- [ ] `jarvis run workflow <name>` blocks after the daemon accepts the start request and exits
+- [x] `jarvis run workflow <name>` blocks after the daemon accepts the start request and exits
       only once the run reaches its terminal boundary.
-- [ ] A workflow run that ends `runStatus: failed` exits `3`; a killed run exits `4`; a
+- [x] A workflow run that ends `runStatus: failed` exits `3`; a killed run exits `4`; a
       successful run exits `0` — same mapping `jarvis run wait` produces for the same run.
-- [ ] Stdout carries the run id line followed by the `run wait` JSON line
+- [x] Stdout carries the run id line followed by the `run wait` JSON line
       (`{runStatus, loopOutcomeKind?, ...}`); the intent-preset `intent paths:` stderr line is
       unchanged.
-- [ ] Pre-daemon failures (unknown preset, bad flags, spec outside registered projects,
+- [x] Pre-daemon failures (unknown preset, bad flags, spec outside registered projects,
       machine-config failure) still exit `1` without connecting to the daemon — existing
       `v2/src/cli.ts` workflow tests stay green.
-- [ ] `jarvis run wait <run-id>` output and exit codes are unchanged by the extraction
+- [x] `jarvis run wait <run-id>` output and exit codes are unchanged by the extraction
       (`v2/src/cli.test.ts` wait tests stay green).
-- [ ] `bun test v2/src/cli.test.ts` covers a workflow run whose wait result is `failed`
+- [x] `bun test v2/src/cli.test.ts` covers a workflow run whose wait result is `failed`
       (exit `3`) and one that completes (exit `0`).
 
 ## Documentation updates

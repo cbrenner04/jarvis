@@ -398,12 +398,6 @@ Operators add bullets here; delete when fixed.
   by hand from the repo root (or symlink `node_modules` into the worktree) before trusting any
   v2 run's completion. Seed: `v2-worktrees-have-no-dependencies-so-no-gate-can-run`. Cleanup:
   delete when it ships.
-- **`run workflow` exits 0 on a failed run (2026-07-12):** the exit code means "the
-  daemon accepted the request", not "it worked". Every failed preset this session
-  looked like a success at the shell — a bare UUID and exit 0. Always confirm with
-  `jarvis run list` / `jarvis run log <id>`; never gate a script on the exit status.
-  Seed: `v2/spec/seeds/run-workflow-exits-zero-on-failed-run.md`. Cleanup: delete
-  when it ships.
 - **The daemon goes deaf while a run is active (2026-07-12):** `jarvis run list` and
   `jarvis run log` both hung past 60s while an `intent-reviewed` run was publishing
   — the daemon blocks on sync git in the publication path. You lose all

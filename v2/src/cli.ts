@@ -386,28 +386,32 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
 
   if (subcommand === "wait" && argv.length === 2) {
     return withRunClient(io, deps, async (client) => {
-      let response: unknown;
-      try {
-        response = await request(client, "wait", { runId: argv[1] });
-      } catch (error) {
-        if (error instanceof RpcError) {
-          io.stderr(formatRpcError(error));
-          return 1;
-        }
-        throw error;
-      }
-      const result = parseWaitCompletion(response);
-      if (result === undefined) {
-        io.stderr("invalid daemon response\n");
-        return 1;
-      }
-      io.stdout(`${JSON.stringify(buildWaitPayload(result))}\n`);
-      return exitCodeForWaitResult(result);
+      return waitForRunCompletion(client, argv[1]!, io);
     });
   }
 
   io.stderr(subcommand === "start" ? WRITE_USAGE : RUN_USAGE);
   return 1;
+}
+
+async function waitForRunCompletion(client: IpcClient, runId: string, io: Io): Promise<number> {
+  let response: unknown;
+  try {
+    response = await request(client, "wait", { runId });
+  } catch (error) {
+    if (error instanceof RpcError) {
+      io.stderr(formatRpcError(error));
+      return 1;
+    }
+    throw error;
+  }
+  const result = parseWaitCompletion(response);
+  if (result === undefined) {
+    io.stderr("invalid daemon response\n");
+    return 1;
+  }
+  io.stdout(`${JSON.stringify(buildWaitPayload(result))}\n`);
+  return exitCodeForWaitResult(result);
 }
 
 function buildWaitPayload(result: WaitRunCompletionResult): Record<string, unknown> {
@@ -586,7 +590,7 @@ async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps
       }
     }
     io.stdout(`${start.runId}\n`);
-    return 0;
+    return waitForRunCompletion(client, start.runId, io);
   });
 }
 

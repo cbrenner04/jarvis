@@ -19,15 +19,15 @@ and left a dirty worktree; the cost sheets see no run.
 
 ## Acceptance criteria
 
-- [ ] A patch iteration that edits files, ticks no criteria, and exits 6 writes one `runs.jsonl`
+- [x] A patch iteration that edits files, ticks no criteria, and exits 6 writes one `runs.jsonl`
       invocation row with `exit_reason: "dirty-worktree"` carrying `usage`, `usage_source`,
       `cost_usd`, `cost_source`, and `last_output_age_ms`.
-- [ ] A patch iteration that edits files, ticks no criteria, and loops back (below the
+- [x] A patch iteration that edits files, ticks no criteria, and loops back (below the
       edited-unticked bound) writes one such row with `exit_reason: "edited-unticked"`.
-- [ ] A run whose only iteration exits 6 leaves a non-empty `runs.jsonl` for its namespace, including
+- [x] A run whose only iteration exits 6 leaves a non-empty `runs.jsonl` for its namespace, including
       the harness `run_terminal` row.
-- [ ] No `ok`-result iteration writes more than one invocation row.
-- [ ] Existing patch telemetry and run-summary tests (`v1/test/run.test.ts`,
+- [x] No `ok`-result iteration writes more than one invocation row.
+- [x] Existing patch telemetry and run-summary tests (`v1/test/run.test.ts`,
       `v1/test/run-summary.test.ts`) stay green.
 
 ## Documentation updates

@@ -89,10 +89,9 @@ Every session closes four cumulative CSVs (spec rows separate from operator rows
 
 **Which file is authoritative (2026-07-14).** `~/.jarvis/runs.jsonl` is the source of record for **v1** — a v2-driven run writes nothing to it. **v2 cost lives in `~/.jarvis/telemetry.jsonl`**, on `record_kind: invocation_completed` rows (`cost_usd`, `cost_source`, `usage.*`), and works as of #1509. Sum a session's rows by `ts` window or by `branch`.
 
-Two cost holes remain, both real findings to state rather than estimate around:
+One cost hole remains, a real finding to state rather than estimate around:
 
 - **Invocations recorded before #1509 are permanently `cost_usd: null`.** Nothing recovers them.
-- **A `blocked` v1 run records no cost at all** — `runs.jsonl` writes no `cost_usd`/`usage` on that path, so an agent that worked for minutes and stopped honestly is unattributable (seed `blocked-run-records-no-cost`).
 
 Leave such cells blank with a note, per the missing-binding rule below.
 

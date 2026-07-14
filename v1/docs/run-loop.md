@@ -741,7 +741,7 @@ purposes:
   session log is the authoritative record.
 - **Run telemetry file**: append-only JSONL at `~/.jarvis/runs.jsonl` (or
   `telemetryPath` from config). Patch mode emits one invocation line per agent outcome
-  (for example each `criteria-progress`, `criteria-complete`, or `quota`). Plan mode
+  (for example each `criteria-progress`, `criteria-complete`, `edited-unticked`, or `quota`). Every `ok`-result iteration writes exactly one invocation row with usage and cost information; exit reasons include `criteria-progress` (unchecked count decreased), `criteria-complete` (zero unchecked), `dirty-worktree` (exit 6 after editing with no criteria ticked), `edited-unticked` (loop-back after editing with no criteria ticked, below the retry bound), and others. Plan mode
   emits analogous rows with **`mode: "plan"`** and **`plan_phase`** (`intent`,
   `refine`, `name-only`, `draft`, or `review`). Intent and refine rows may
   include **`outcome`** (`success`, `refined`, `skip`, `blocker`) after harness

@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getCurrentBranch } from "../../../shared/git.ts";
-import { CONFIG_DIR, findProjectMatchForPath, type ConfigOptions } from "../config.ts";
+import { CONFIG_DIR, type ConfigOptions, findProjectMatchForPath } from "../config.ts";
 import { stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
 import { findMatchingOpenPrs, type MatchingOpenPr } from "../pr.ts";
 import type { TriageIo } from "./triage.ts";
@@ -53,13 +53,14 @@ export function resolveMergeTarget(
   const findOpenPrs = seams?.findMatchingOpenPrs ?? findMatchingOpenPrs;
 
   const directMatches = homes.filter((home) => isDirectory(join(home, arg)));
-  if (directMatches.length === 1) {
-    return { ok: true, worktreePath: join(directMatches[0]!, arg) };
-  }
-  if (directMatches.length > 1) {
+  const [onlyDirectMatch, ...extraDirectMatches] = directMatches;
+  if (extraDirectMatches.length > 0) {
     emitMergeRefusal(io, "unknown worktree", "multiple worktrees match worktree:");
     for (const path of directMatches.sort()) io.stderr(`  ${path}\n`);
     return { ok: false };
+  }
+  if (onlyDirectMatch !== undefined) {
+    return { ok: true, worktreePath: join(onlyDirectMatch, arg) };
   }
 
   const prNumber = parsePrReference(arg);
@@ -134,16 +135,17 @@ function resolveWorktreeFromPrRef(args: {
     }
   }
 
-  if (matches.length !== 1) {
-    if (matches.length === 0) {
-      return fail(args.io, `no local worktree for PR reference ${args.prRef} (branch ${lookup.headRef})`);
-    }
+  const [onlyMatch, ...extraMatches] = matches;
+  if (onlyMatch === undefined) {
+    return fail(args.io, `no local worktree for PR reference ${args.prRef} (branch ${lookup.headRef})`);
+  }
+  if (extraMatches.length > 0) {
     emitMergeRefusal(args.io, "unknown worktree", `multiple worktrees match PR reference ${args.prRef}:`);
     for (const path of matches) args.io.stderr(`  ${path}\n`);
     return { ok: false };
   }
 
-  return { ok: true, worktreePath: matches[0]! };
+  return { ok: true, worktreePath: onlyMatch };
 }
 
 function resolveWorktreeFromSpecPath(args: {
@@ -180,16 +182,17 @@ function resolveWorktreeFromSpecPath(args: {
   }
 
   const worktreePaths = [...candidates].sort();
-  if (worktreePaths.length !== 1) {
-    if (worktreePaths.length === 0) {
-      return fail(args.io, `no worktree found for spec path: ${normalizedSpecPath}`);
-    }
+  const [onlyWorktreePath, ...extraWorktreePaths] = worktreePaths;
+  if (onlyWorktreePath === undefined) {
+    return fail(args.io, `no worktree found for spec path: ${normalizedSpecPath}`);
+  }
+  if (extraWorktreePaths.length > 0) {
     emitMergeRefusal(args.io, "unknown worktree", `multiple worktrees match spec path ${normalizedSpecPath}:`);
     for (const worktreePath of worktreePaths) args.io.stderr(`  ${worktreePath}\n`);
     return { ok: false };
   }
 
-  return { ok: true, worktreePath: worktreePaths[0]! };
+  return { ok: true, worktreePath: onlyWorktreePath };
 }
 
 function normalizeSpecInput(specPath: string, cwd: string): string {

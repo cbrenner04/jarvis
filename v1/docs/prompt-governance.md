@@ -141,10 +141,10 @@ and reviewed separately from shared prompt body snapshots.
 Current snapshot coverage lives under `v1/test/fixtures/prompts/rendered/` and
 is asserted by `v1/test/prompts/rendered-snapshots.test.ts`, including:
 
-- patch prompt body (`patch.prompt.body`, currently `@r3`)
-- plan draft/review prompts (draft `@r7`, review `@r6`; review
+- patch prompt body (`patch.prompt.body`, currently `@r9`)
+- plan draft/review prompts (draft `@r10`, review `@r6`; review
   includes multiple pass contexts)
-- plan review actuator prompt (`plan.prompt.review-actuator`, currently `@r3`)
+- plan review actuator prompt (`plan.prompt.review-actuator`, currently `@r4`)
 - codex transport wrapper variant (`codex.exec.stdin+marker`)
 
 Coverage remains assembled-output focused: tests assert final rendered prompt

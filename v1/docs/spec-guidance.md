@@ -254,6 +254,30 @@ Bad (refactor — paraphrases behavior the author didn't verify):
 
 This is **refactor-only** and must not be read as "every AC cites a test." New-behavior ACs are explicitly exempt — they keep the prose form above, backed by *new* tests; requiring them to cite a pre-existing test is nonsensical because the behavior is new. The plan-draft validator enforces this automatically: a preservation/continuation AC (verbs like `preserved`, `unchanged`, `stays`, `stops`, `continues`) that carries no path-like test/source anchor produces a non-blocking `missing-anchor-behavioral-ac` warning at draft time.
 
+#### Failing-test requirement for runtime-behavior subspecs
+
+Every subspec that changes runtime behavior must carry an acceptance criterion naming a test that fails against the pre-fix code and passes after the change. This ensures every behavior change lands with a failing-test surface that motivates and validates the work. The test may be newly written or an existing test that was updated to expect new behavior; either way, the AC must name a test that would fail against the baseline and pass against the implementation. "Existing tests stay green" does not satisfy this requirement; that is a preservation criterion (cite it using the refactor AC pattern above), not evidence of new behavior. Docs-only and spec-only subspecs are exempt — only runtime-behavior changes require the failing-test AC.
+
+Good (new behavior):
+
+```md
+- [ ] A regression test drives the implement workflow to a `blocked` outcome against a real git fixture and asserts worktree, branch, registration, and uncommitted work survive; it fails against the pre-fix code.
+```
+
+Bad (does not name the test):
+
+```md
+- [ ] Tests pass.
+```
+
+Bad (preservation AC written as new behavior):
+
+```md
+- [ ] Quota exhaustion falls through to the next configured agent.
+```
+
+The good example is from the `blocked-run-retains-worktree-and-branch` spec.
+
 #### Human-only acceptance criteria
 
 An acceptance criterion is classified as **human-only** if its text ends with (after trimming trailing whitespace and a single trailing period) one of these markers: `(Manual)`, `visual inspection only`, or `no automated guard` (case-insensitive, whole-phrase match). Human-only criteria describe verification that the harness cannot automate — manual inspection, live testing, or external approval.

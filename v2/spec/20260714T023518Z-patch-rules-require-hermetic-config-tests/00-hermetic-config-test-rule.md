@@ -25,10 +25,10 @@ equivalent test injected a profile and passed.
 
 ## Acceptance criteria
 
-- [ ] `prompts/patch/rules.md` carries one terse rule requiring that a test reaching machine/user-config resolution inject an explicit profile and config path/fixture, never reading the ambient machine config.
-- [ ] The rendered patch-mode prompt an agent receives contains that rule sentence, asserted in `v1/test/prompt.test.ts` (deleting the rule from `rules.md` fails the suite).
-- [ ] `v1/test/prompts/rendered-snapshots.test.ts` passes against fixtures keyed at the bumped `patch.prompt.body` revision.
-- [ ] `bun run typecheck` and `bun run test:v1` pass.
+- [x] `prompts/patch/rules.md` carries one terse rule requiring that a test reaching machine/user-config resolution inject an explicit profile and config path/fixture, never reading the ambient machine config.
+- [x] The rendered patch-mode prompt an agent receives contains that rule sentence, asserted in `v1/test/prompt.test.ts` (deleting the rule from `rules.md` fails the suite).
+- [x] `v1/test/prompts/rendered-snapshots.test.ts` passes against fixtures keyed at the bumped `patch.prompt.body` revision.
+- [x] `bun run typecheck` and `bun run test:v1` pass.
 
 ## Documentation updates
 

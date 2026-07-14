@@ -1,0 +1,44 @@
+import type { Run, RunStatus, WorkflowSnapshot } from "../persistence/state-store.ts";
+
+/**
+ * Computes the workflow-level status from a workflow invocation's durable rows.
+ * The rollup applies only to the invocation's entry row; sibling rows keep their own status.
+ *
+ * Liveness is an input, not inferred from rows, because a live invocation's review step
+ * may carry no run row yet, and we must not report `completed` mid-review.
+ *
+ * An authored step with no row in a non-live invocation rolls up to `killed`, capturing
+ * runs interrupted mid-workflow between step creation and step invocation.
+ *
+ * A run with no workflow snapshot uses its own status unchanged.
+ */
+export function rollupWorkflowRunStatus(args: {
+  entryRun: Run;
+  workflowSnapshot?: WorkflowSnapshot | null;
+  siblingRuns: Run[];
+  isLive: boolean;
+}): RunStatus {
+  const { entryRun, workflowSnapshot, siblingRuns, isLive } = args;
+
+  if (workflowSnapshot === null || workflowSnapshot === undefined) {
+    return entryRun.status;
+  }
+
+  if (isLive) return "in-progress";
+
+  const runById = new Map(siblingRuns.map((run) => [run.stepId, run]));
+  for (const step of workflowSnapshot.steps) {
+    if (step.behavior === "review-debate") continue;
+
+    const stepRun = runById.get(step.stepId);
+    if (stepRun !== undefined) {
+      if (stepRun.status !== "completed") {
+        return stepRun.status;
+      }
+    } else {
+      return "killed";
+    }
+  }
+
+  return "completed";
+}

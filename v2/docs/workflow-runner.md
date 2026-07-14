@@ -295,6 +295,16 @@ Each step maintains its own durable `(project, branch, stepId)` run independentl
 
 A one-step workflow runs identically to a single-step `executeWriteLoop` invocation (same terminal outcomes, same resume behavior).
 
+## Workflow run id status
+
+`startWorkflowRun` returns the first step's run id. That step's row reaches `completed` when the step finishes, but later steps may still be running. A caller reading the returned run's status via `loadRun` gets a durable row status, not the workflow status.
+
+To answer "is the workflow terminal?", the daemon computes a rollup: given the entry step's run, its workflow snapshot, and all sibling runs for that invocation, the rollup reports the first authored durable step whose status is terminal-but-not-`completed`, or `killed` if an authored durable step has no row in a non-live invocation, or `completed` if all authored steps are `completed`. When the invocation is still live (`executeWorkflow` running), the rollup reports `in-progress` regardless of row state. `review-debate` steps carry no run row and are skipped during the walk.
+
+This rollup is computed at read time, never overwriting a step row's status in place — resume logic skips a completed step on-row, so a stale entry-row status would cause resume to re-run step 0.
+
+The returned run id's status reported by daemon `wait` and `list` operations reflects this rollup for workflow entry runs: `wait` awaits the full workflow completion and returns the rollup status; `list` reports the rollup status for the entry row, while other step rows report their own durable statuses. This ensures callers reading the workflow's entry run ID get accurate workflow-level terminal status including later steps.
+
 ## Validation
 
 Before running any step, `executeWorkflow` validates:

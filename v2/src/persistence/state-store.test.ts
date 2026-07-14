@@ -388,6 +388,46 @@ describe("StateStore", () => {
       rmSync(legacyDbPath, { force: true });
     }
   });
+
+  test("findRunsByInvocationId returns all runs with matching invocationId", () => {
+    const snapshot = { invocationId: "inv-123", steps: [{ stepId: "step-1", role: "implement" }] };
+    const run1Id = seedRun(store, { stepId: "step-1", workflowSnapshot: snapshot });
+    const run2Id = seedRun(store, { stepId: "step-2", workflowSnapshot: snapshot, branch: "branch-2" });
+    seedRun(store, { stepId: "step-3", workflowSnapshot: { invocationId: "inv-456", steps: [] } });
+
+    const runs = store.findRunsByInvocationId("inv-123");
+
+    expect(runs.map((r) => r.id).sort()).toEqual([run1Id, run2Id].sort());
+  });
+
+  test("findRunsByInvocationId returns empty when no runs have that invocationId", () => {
+    seedRun(store, { stepId: "step-1", workflowSnapshot: { invocationId: "inv-123", steps: [] } });
+
+    const runs = store.findRunsByInvocationId("inv-999");
+
+    expect(runs).toEqual([]);
+  });
+
+  test("findRunsByInvocationId excludes runs without a workflowSnapshot", () => {
+    const snapshot = { invocationId: "inv-123", steps: [{ stepId: "step-1", role: "implement" }] };
+    const run1Id = seedRun(store, { stepId: "step-1", workflowSnapshot: snapshot });
+    seedRun(store, { stepId: "step-2", branch: "branch-2" });
+
+    const runs = store.findRunsByInvocationId("inv-123");
+
+    expect(runs.map((r) => r.id)).toEqual([run1Id]);
+  });
+
+  test("findRunsByInvocationId returns runs in creation order", () => {
+    const snapshot = { invocationId: "inv-123", steps: [] };
+    const run1Id = seedRun(store, { stepId: "step-1", workflowSnapshot: snapshot });
+    const run2Id = seedRun(store, { stepId: "step-2", workflowSnapshot: snapshot, branch: "branch-2" });
+    const run3Id = seedRun(store, { stepId: "step-3", workflowSnapshot: snapshot, branch: "branch-3" });
+
+    const runs = store.findRunsByInvocationId("inv-123");
+
+    expect(runs.map((r) => r.id)).toEqual([run1Id, run2Id, run3Id]);
+  });
 });
 
 describe("commitGuardedKill", () => {

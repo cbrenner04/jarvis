@@ -147,6 +147,9 @@ export interface StateStore {
     stepId?: string;
   }): (Run & { attempts: Attempt[] }) | null;
 
+  /** All runs whose `workflowSnapshot.invocationId` matches the given id. */
+  findRunsByInvocationId(invocationId: string): Run[];
+
   /** Runs for `(project, branch)` whose `stepId` is a `${repeatStepId}~r<n>` revision of `repeatStepId`. */
   findRevisionRuns(args: { project: string; branch: string; repeatStepId: string }): Run[];
 
@@ -439,6 +442,16 @@ class StateStoreImpl implements StateStore {
 
     const row = this.db.prepare(query).get(...params) as { id: string } | null;
     return row === null ? null : this.loadRun(row.id);
+  }
+
+  findRunsByInvocationId(invocationId: string): Run[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT ${RUN_COLUMNS} FROM runs WHERE workflow_snapshot IS NOT NULL AND json_extract(workflow_snapshot, '$.invocationId') = ? ORDER BY created_at ASC`,
+        )
+        .all(invocationId) as RunRow[]
+    ).map(mapRunRow);
   }
 
   findRevisionRuns(args: { project: string; branch: string; repeatStepId: string }): Run[] {

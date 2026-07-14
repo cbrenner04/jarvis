@@ -216,9 +216,9 @@ test("wait resolve payload includes the same error object as list for the same r
   const waitResult = await expectResponse(await waitDirect("wait", runId));
   expect(waitResult.error).toEqual(listError);
   expect(waitResult.error).toEqual({
-    reason: "resumable_kill",
-    retryable: true,
-    nextAction: "resume",
+    reason: "unsupported_resume_context",
+    retryable: false,
+    nextAction: "stop",
   });
 });
 
@@ -230,7 +230,7 @@ test("wait returns durable terminal status only when no terminal log signal exis
 
   expect(result).toEqual({
     runStatus: "killed",
-    error: { reason: "resumable_kill", retryable: true, nextAction: "resume" },
+    error: { reason: "unsupported_resume_context", retryable: false, nextAction: "stop" },
   });
 });
 

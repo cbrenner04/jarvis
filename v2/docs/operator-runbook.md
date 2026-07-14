@@ -305,11 +305,10 @@ worktree, and its token spend is lost.
 - The restart itself kills every in-flight run, and the harness *requires* a restart after merging
   any v2 change (stale code snapshot). So landing a v2 fix destroys concurrent work. Seed:
   `daemon-restart-kills-in-flight-runs`. Cleanup: delete when it ships.
-- `jarvis run resume <id>` on such a run **cannot work**. `resumeHandler` passes `bindings: []`,
-  so the run dies `no_binding` in ~32 ms having invoked no agent — while the CLI prints
-  `resumed <id>` and the remediation says `fix_config`, pointing at a config that is fine. Seed:
-  `resume-of-a-killed-run-has-no-bindings`. Until it ships, re-run the spec instead of resuming.
-  Cleanup: delete when it ships.
+- Killed workflow write runs resume from their persisted snapshot. If the snapshot is missing or
+  cannot resolve its write step, `resume` returns `resume_unsupported` before spawn; `list` / `wait`
+  report `unsupported_resume_context` with `retryable: false` and `nextAction: "stop"`. Fix the
+  persisted context or re-run the spec rather than treating that row as a config-binding failure.
 
 ### Wedged run, no agent activity
 
@@ -333,8 +332,10 @@ branch if safe. Seed: `v2-cleanup-command`.
 
 ### Publication / completion failures
 
-Retryable `completion_commit_failed` on `list` / `wait`: fix `gh` / `origin`, then
-`jarvis run resume <run-id>` per [`first-workflow-walkthrough.md`](./first-workflow-walkthrough.md#completion).
+Retryable `completion_commit_failed` or `ready_finalize_failed` on `list` / `wait`: verify the
+completion commit/PR state, fix `git`/`gh`/`origin` access, then
+`jarvis run resume <run-id>`. Resume reuses the persisted write snapshot before replaying
+publication; do not delete the worktree or substitute current config.
 
 ### Intent-reviewed operator checkout
 

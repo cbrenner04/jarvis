@@ -26,13 +26,13 @@
 
 ## Acceptance criteria
 
-- [ ] A killed workflow write run resumes with its persisted rules, artifact path, step identity, timeout, agents, and model config, invokes the configured binding, and does not fail `no_binding`.
-- [ ] A retryable `completion_commit_failed` or `ready_finalize_failed` workflow write run uses the same snapshot reconstruction before publication/finalization replay.
-- [ ] Resume rejects a missing snapshot, missing matching step, non-write role, empty rules, empty artifact path, empty agents, missing model config, or unresolvable binding with `resume_unsupported` before executor spawn.
-- [ ] `list` and `wait` report unreconstructible stopped write runs as `unsupported_resume_context`, `retryable: false`, `nextAction: "stop"`, and do not expose them as resumable; CLI output preserves that guidance.
-- [ ] `awaiting-human` and `revising` resume tests stay green in `v2/src/daemon/daemon-revise.test.ts` (behavior unchanged).
-- [ ] Regression coverage in `v2/src/daemon/daemon-resume.test.ts` kills a snapshot-backed workflow write run, resumes it, and asserts the configured binding receives the persisted contract; the test fails against pre-fix code.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] A killed workflow write run resumes with its persisted rules, artifact path, step identity, timeout, agents, and model config, invokes the configured binding, and does not fail `no_binding`.
+- [x] A retryable `completion_commit_failed` or `ready_finalize_failed` workflow write run uses the same snapshot reconstruction before publication/finalization replay.
+- [x] Resume rejects a missing snapshot, missing matching step, non-write role, empty rules, empty artifact path, empty agents, missing model config, or unresolvable binding with `resume_unsupported` before executor spawn.
+- [x] `list` and `wait` report unreconstructible stopped write runs as `unsupported_resume_context`, `retryable: false`, `nextAction: "stop"`, and do not expose them as resumable; CLI output preserves that guidance.
+- [x] `awaiting-human` and `revising` resume tests stay green in `v2/src/daemon/daemon-revise.test.ts` (behavior unchanged).
+- [x] Regression coverage in `v2/src/daemon/daemon-resume.test.ts` kills a snapshot-backed workflow write run, resumes it, and asserts the configured binding receives the persisted contract; the test fails against pre-fix code.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

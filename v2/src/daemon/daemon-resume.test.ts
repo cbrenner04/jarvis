@@ -52,7 +52,7 @@ function resumeFrame(runId: string): IpcFrame & { kind: "request" } {
   };
 }
 
-test("resume on an ad-hoc paused run returns not_implemented without invoking the executor", async () => {
+test("resume on an ad-hoc paused run returns resume_unsupported without invoking the executor", async () => {
   const handlers = createRunControlHandlers({
     stateStore,
     writeLoopExecutor: async (input) => {
@@ -77,8 +77,7 @@ test("resume on an ad-hoc paused run returns not_implemented without invoking th
 
   expect(response.kind).toBe("error");
   if (response.kind === "error") {
-    expect(response.code).toBe("not_implemented");
-    expect(response.message).toBe("Paused run resume is not yet implemented");
+    expect(response.code).toBe("resume_unsupported");
   }
 
   expect(starts).toHaveLength(0);
@@ -135,7 +134,58 @@ test("resume on a workflow paused run respawns with resolved bindings", async ()
   expect(starts[0]?.iterationTimeoutMs).toBe(123);
 });
 
-test("resume on a workflow paused run with an empty agents list returns not_implemented", async () => {
+test("resume on a killed workflow write run uses the persisted step contract", async () => {
+  const handlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: async (input) => {
+      starts.push(input);
+    },
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+  });
+
+  const runId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project-worktree",
+    branch: "test-branch",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "step-1",
+    workflowSnapshot: {
+      invocationId: "workflow-killed",
+      steps: [
+        {
+          stepId: "step-1",
+          role: "implement",
+          stepRules: "persisted rules",
+          expectedArtifactPath: "/tmp/test-project/artifact",
+          agents: ["codex"],
+          agentModelConfig: AGENT_MODEL_CONFIG,
+          iterationTimeoutMs: 456,
+        },
+      ],
+    },
+  });
+  stateStore.setRunStatus(runId, "killed");
+
+  const response = await handlers.resume(resumeFrame(runId), new AbortController().signal);
+
+  expect(response).toEqual({ kind: "response", result: { ok: true } });
+  expect(starts).toHaveLength(1);
+  expect(starts[0]).toMatchObject({
+    stepRules: "persisted rules",
+    expectedArtifactPath: "/tmp/test-project/artifact",
+    stepId: "step-1",
+    iterationTimeoutMs: 456,
+    workflowSnapshot: {
+      invocationId: "workflow-killed",
+    },
+  });
+  expect(starts[0]?.bindings.map((binding) => binding.id)).toEqual(["codex/codex-fast/codex-fast", "codex/codex-deep/codex-deep"]);
+});
+
+test("resume on a workflow paused run with an empty agents list returns resume_unsupported", async () => {
   const handlers = createRunControlHandlers({
     stateStore,
     writeLoopExecutor: async (input) => {
@@ -174,7 +224,7 @@ test("resume on a workflow paused run with an empty agents list returns not_impl
 
   expect(response.kind).toBe("error");
   if (response.kind === "error") {
-    expect(response.code).toBe("not_implemented");
+    expect(response.code).toBe("resume_unsupported");
   }
   expect(starts).toHaveLength(0);
 });

@@ -20,6 +20,7 @@ const RUN_OPERATOR_ERROR_REASONS = [
   "completion_commit_failed",
   "ready_finalize_failed",
   "iteration_timeout",
+  "unsupported_resume_context",
 ] as const;
 
 export type RunOperatorErrorReason = (typeof RUN_OPERATOR_ERROR_REASONS)[number];

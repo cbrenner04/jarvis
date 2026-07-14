@@ -167,8 +167,11 @@ describe("createResolvedAgentBinding", () => {
     });
   });
 
-  test("claude binding classifies quota, model config, and generic errors", async () => {
+  test("claude binding classifies quota (ASCII and U+2019), model config, and generic errors", async () => {
     const quota = fakeSpawn([{ kind: "settle", code: 1, stderr: "You've hit your weekly limit" }]);
+    const sessionLimit = fakeSpawn([{ kind: "settle", code: 1, stderr: "you’ve hit your session limit" }]);
+    const spendLimit = fakeSpawn([{ kind: "settle", code: 1, stderr: "you’ve hit your monthly spend limit" }]);
+    const orgLimit = fakeSpawn([{ kind: "settle", code: 1, stderr: "you’ve hit your org’s monthly usage limit" }]);
     const model = fakeSpawn([{ kind: "settle", code: 1, stderr: "unknown model: nope" }]);
     const generic = fakeSpawn([{ kind: "settle", code: 2, stderr: "boom" }]);
 
@@ -178,6 +181,24 @@ describe("createResolvedAgentBinding", () => {
         { spawn: quota.spawn },
       ).invoke({ prompt: "p", cwd: "/repo" }),
     ).resolves.toEqual({ kind: "quota", stderr: "You've hit your weekly limit" });
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+        { spawn: sessionLimit.spawn },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "quota", stderr: "you’ve hit your session limit" });
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+        { spawn: spendLimit.spawn },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "quota", stderr: "you’ve hit your monthly spend limit" });
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+        { spawn: orgLimit.spawn },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "quota", stderr: "you’ve hit your org’s monthly usage limit" });
     await expect(
       createResolvedAgentBinding(
         { agentId: "claude", adapterModel: "bad", priceKey: "bad" },
@@ -317,8 +338,10 @@ describe("createResolvedAgentBinding", () => {
     expect(fake.calls[0]?.child?.killedWith).toContain("SIGTERM");
   });
 
-  test("codex binding classifies quota, model config, and generic errors", async () => {
+  test("codex binding classifies quota (ASCII and U+2019), model config, and generic errors", async () => {
     const quota = fakeSpawn([{ kind: "settle", code: 1, stderr: "You've reached your usage limit" }]);
+    const hitLimit = fakeSpawn([{ kind: "settle", code: 1, stderr: "you’ve hit your usage limit" }]);
+    const reachedLimit = fakeSpawn([{ kind: "settle", code: 1, stderr: "you’ve reached your usage limit" }]);
     const authQuota = fakeSpawn([{ kind: "settle", code: 1, stderr: "please log out and sign in" }]);
     const model = fakeSpawn([{ kind: "settle", code: 1, stderr: "unknown model: nope" }]);
     const generic = fakeSpawn([{ kind: "settle", code: 2, stderr: "boom" }]);
@@ -329,6 +352,18 @@ describe("createResolvedAgentBinding", () => {
         { spawn: quota.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
       ).invoke({ prompt: "p", cwd: "/repo" }),
     ).resolves.toEqual({ kind: "quota", stderr: "You've reached your usage limit" });
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+        { spawn: hitLimit.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "quota", stderr: "you’ve hit your usage limit" });
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+        { spawn: reachedLimit.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "quota", stderr: "you’ve reached your usage limit" });
     await expect(
       createResolvedAgentBinding(
         { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
@@ -468,8 +503,10 @@ describe("createResolvedAgentBinding", () => {
     expect(fake.calls[0]?.argv).toContain("custom-cursor-model");
   });
 
-  test("cursor binding classifies quota, model config, generic errors, and zero-exit ok", async () => {
+  test("cursor binding classifies quota (ASCII and U+2019), model config, generic errors, and zero-exit ok", async () => {
     const quota = fakeSpawn([{ kind: "settle", code: 1, stderr: "monthly cursor usage limit reached" }]);
+    const usageLimit = fakeSpawn([{ kind: "settle", code: 1, stderr: "you’ve hit your usage limit" }]);
+    const freeLimit = fakeSpawn([{ kind: "settle", code: 1, stderr: "you’ve hit your free requests limit" }]);
     const model = fakeSpawn([{ kind: "settle", code: 1, stderr: "unknown model: nope" }]);
     const generic = fakeSpawn([{ kind: "settle", code: 2, stderr: "boom" }]);
     const zeroExit = fakeSpawn([{ kind: "settle", code: 0, stdout: "quota exceeded", stderr: "" }]);
@@ -480,6 +517,18 @@ describe("createResolvedAgentBinding", () => {
         { spawn: quota.spawn },
       ).invoke({ prompt: "p", cwd: "/repo" }),
     ).resolves.toEqual({ kind: "quota", stderr: "monthly cursor usage limit reached" });
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "cursor", adapterModel: "GPT-5.4", priceKey: "GPT-5.4" },
+        { spawn: usageLimit.spawn },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "quota", stderr: "you’ve hit your usage limit" });
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "cursor", adapterModel: "GPT-5.4", priceKey: "GPT-5.4" },
+        { spawn: freeLimit.spawn },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "quota", stderr: "you’ve hit your free requests limit" });
     await expect(
       createResolvedAgentBinding(
         { agentId: "cursor", adapterModel: "bad", priceKey: "bad" },

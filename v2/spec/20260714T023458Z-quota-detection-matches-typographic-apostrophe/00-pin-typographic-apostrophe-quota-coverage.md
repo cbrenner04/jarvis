@@ -25,17 +25,17 @@ Patterns carrying a `['’]` class:
 
 ## Acceptance criteria
 
-- [ ] A claude stderr/envelope string using U+2019 for each of the three claude quota phrases
-      (session/weekly/opus limit, monthly spend limit, org's monthly usage limit) classifies as quota
+- [x] A claude stderr/envelope string using U+2019 for each of the three claude quota phrases
+      (session/weekly/opus limit, monthly spend limit, org’s monthly usage limit) classifies as quota
       in `shared/invocation/claude-json.test.ts` and `shared/invocation/agents.test.ts`.
-- [ ] A codex stderr string using U+2019 in `you’ve hit your usage limit` (and the `reached`
+- [x] A codex stderr string using U+2019 in `you’ve hit your usage limit` (and the `reached`
       alternation) classifies as quota in `shared/invocation/agents.test.ts`.
-- [ ] A cursor stderr string using U+2019 in `you’ve hit your usage limit` and `you’ve hit your free
+- [x] A cursor stderr string using U+2019 in `you’ve hit your usage limit` and `you’ve hit your free
       requests limit` classifies as quota in `shared/invocation/agents.test.ts`.
-- [ ] The same six claude/codex/cursor U+2019 phrases classify as quota in `v1/test/quota.test.ts`.
-- [ ] Rewriting any one `['’]` class in `shared/invocation/claude-json.ts`,
-      `shared/invocation/agents.ts`, or `v1/src/agents/quota.ts` to `'` alone fails at least one test.
-- [ ] `bun run typecheck`, `bun run test:v1`, and `bun run test:v2` pass.
+- [x] The same six claude/codex/cursor U+2019 phrases classify as quota in `v1/test/quota.test.ts`.
+- [x] Rewriting any one `[‘’]` class in `shared/invocation/claude-json.ts`,
+      `shared/invocation/agents.ts`, or `v1/src/agents/quota.ts` to `’` alone fails at least one test.
+- [x] `bun run typecheck`, `bun run test:v1`, and `bun run test:v2` pass.
 
 ## Documentation updates
 

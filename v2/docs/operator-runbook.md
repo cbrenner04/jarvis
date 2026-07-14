@@ -233,11 +233,12 @@ Two valid paths today:
 2. **`jarvis run workflow implement`** — v2 workflow preset; no live kill; verify
    preflight and gates independently.
 
-Do not assume parity between them. After a v2 implement run, run
-`bun run ready` (or `jarvis1 triage --merge`) before trusting completion — see
-[Gate trust](#gate-trust).
+Do not assume parity between them — see [Gate trust](#gate-trust) for what the v2 gate covers.
 
 ## Gate trust
+
+The v2 ready gate runs the `full` tier (`check`, `typecheck`, tests, `lint:md`) unconditionally,
+overriding any `JARVIS_READY_TIER` in the parent environment.
 
 `jarvis1 run` must not report success when the ready gate is red (seed
 `run-cannot-report-complete-over-red-gate`). Treat `criteria-complete` exit 0 as

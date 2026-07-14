@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { createReadyFinalizer } from "./ready-finalize.ts";
 
 describe("createReadyFinalizer", () => {
@@ -129,5 +130,36 @@ describe("createReadyFinalizer", () => {
     });
 
     await expect(finalizer(input)).rejects.toThrow("Connection timeout");
+  });
+
+  it("overrides inherited JARVIS_READY_TIER=fast with full in the gate's child env", async () => {
+    const originalEnv = process.env.JARVIS_READY_TIER;
+    try {
+      process.env.JARVIS_READY_TIER = "fast";
+
+      const calls: Array<{ env: NodeJS.ProcessEnv | undefined }> = [];
+      const mockRunner: AsyncSubprocessRunner = {
+        async runAsync(cmd, args, cwd, options) {
+          calls.push({ env: options?.env });
+          return "";
+        },
+      };
+
+      const finalizer = createReadyFinalizer({
+        asyncSubprocessRunner: mockRunner,
+        ghReadyFlip: async () => {},
+      });
+
+      await finalizer(input);
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.env?.JARVIS_READY_TIER).toBe("full");
+    } finally {
+      if (originalEnv === undefined) {
+        delete process.env.JARVIS_READY_TIER;
+      } else {
+        process.env.JARVIS_READY_TIER = originalEnv;
+      }
+    }
   });
 });

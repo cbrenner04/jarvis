@@ -1,3 +1,4 @@
+import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 
 export type ReadyFinalizeInput = {
@@ -15,6 +16,7 @@ export type ReadyFinalizerSeams = {
   ghReadyFlip?: GhReadyFlip;
   delay?: Delay;
   retryNotice?: RetryNotice;
+  asyncSubprocessRunner?: AsyncSubprocessRunner;
 };
 
 export type ReadyFinalizer = (input: ReadyFinalizeInput) => Promise<void>;
@@ -31,16 +33,19 @@ function defaultRetryNotice(message: string): void {
   console.error(message);
 }
 
-async function defaultRunReadyGate(worktreePath: string): Promise<void> {
-  try {
-    await realAsyncSubprocessRunner.runAsync("bun", ["run", "ready"], worktreePath, {
-      maxBuffer: READY_GATE_MAX_BUFFER,
-    });
-  } catch (error) {
-    const err = error as { status?: number; stderr?: string };
-    const detail = err.stderr ?? (error instanceof Error ? error.message : String(error));
-    throw new Error(`ready gate failed (exit ${err.status ?? "unknown"}): ${detail.trim()}`);
-  }
+function createDefaultRunReadyGate(runner: AsyncSubprocessRunner): ReadyGate {
+  return async (worktreePath: string): Promise<void> => {
+    try {
+      await runner.runAsync("bun", ["run", "ready"], worktreePath, {
+        maxBuffer: READY_GATE_MAX_BUFFER,
+        env: { ...process.env, JARVIS_READY_TIER: "full" },
+      });
+    } catch (error) {
+      const err = error as { status?: number; stderr?: string };
+      const detail = err.stderr ?? (error instanceof Error ? error.message : String(error));
+      throw new Error(`ready gate failed (exit ${err.status ?? "unknown"}): ${detail.trim()}`);
+    }
+  };
 }
 
 async function defaultGhReadyFlip(branch: string, worktreePath: string): Promise<void> {
@@ -80,7 +85,8 @@ async function flipWithRetry(flip: () => Promise<void>, delay: Delay, retryNotic
 
 /** Runs the ready gate in the worktree, then flips the draft PR to ready on green. */
 export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalizer {
-  const runReadyGate = seams?.runReadyGate ?? defaultRunReadyGate;
+  const asyncSubprocessRunner = seams?.asyncSubprocessRunner ?? realAsyncSubprocessRunner;
+  const runReadyGate = seams?.runReadyGate ?? createDefaultRunReadyGate(asyncSubprocessRunner);
   const ghReadyFlip = seams?.ghReadyFlip ?? defaultGhReadyFlip;
   const delay = seams?.delay ?? defaultDelay;
   const retryNotice = seams?.retryNotice ?? defaultRetryNotice;

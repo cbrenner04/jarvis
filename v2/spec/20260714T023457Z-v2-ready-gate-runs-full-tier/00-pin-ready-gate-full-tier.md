@@ -26,10 +26,10 @@ report `completed`, and the draft PR stays draft.
 
 ## Acceptance criteria
 
-- [ ] A v2 implement run whose commit introduces a format or markdown-lint regression fails the ready gate (`ready_finalize_failed`), does not report `completed`, and leaves the draft PR draft — even when the invoking process has `JARVIS_READY_TIER=fast` in its environment.
-- [ ] `shared/subprocess.ts`'s `runAsync` accepts an `env` option and passes it to the child process; omitting it preserves today's inherited-env behavior.
-- [ ] `v2/src/execution/ready-finalize.test.ts` covers the override: with `JARVIS_READY_TIER=fast` in `process.env`, the gate spawn's child env carries `JARVIS_READY_TIER=full`.
-- [ ] `bun run ready` invoked from a v2 run runs `check`, `typecheck`, tests, and `lint:md`.
+- [x] A v2 implement run whose commit introduces a format or markdown-lint regression fails the ready gate (`ready_finalize_failed`), does not report `completed`, and leaves the draft PR draft — even when the invoking process has `JARVIS_READY_TIER=fast` in its environment.
+- [x] `shared/subprocess.ts`'s `runAsync` accepts an `env` option and passes it to the child process; omitting it preserves today's inherited-env behavior.
+- [x] `v2/src/execution/ready-finalize.test.ts` covers the override: with `JARVIS_READY_TIER=fast` in `process.env`, the gate spawn's child env carries `JARVIS_READY_TIER=full`.
+- [x] `bun run ready` invoked from a v2 run runs `check`, `typecheck`, tests, and `lint:md`.
 
 ## Documentation updates
 

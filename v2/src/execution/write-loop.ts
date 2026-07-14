@@ -15,7 +15,7 @@ import { type CompletionCommitter, createCompletionCommitter } from "./completio
 import { type CompletionPublisher, createCompletionPublisher } from "./completion-publisher.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
-import { createReadyFinalizer, type ReadyFinalizer } from "./ready-finalize.ts";
+import { createReadyFinalizer, type ReadyFinalizer, ReadyGateError } from "./ready-finalize.ts";
 import { resolveSpecCreationTitle } from "./spec-creation-title.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
@@ -102,6 +102,8 @@ export function applyOperatorSessionId(input: WriteLoopInput, operatorSessionId:
 }
 
 const DEFAULT_MAX_ITERATIONS = 10;
+const MAX_READY_GATE_REPAIRS = 3;
+const READY_GATE_OUTPUT_MAX_CHARS = 16 * 1024;
 export const DEFAULT_ITERATION_TIMEOUT_MS = 600_000;
 
 async function getUncommittedPaths(worktreePath: string): Promise<string[]> {
@@ -147,17 +149,18 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             agent: prepared.result.completionAgent ?? "",
           });
           if (published.commitSha !== undefined) {
-            const publishError = await publishCompletionArtifacts(args, {
+            const publication = await publishWithReadyRepair(args, store, prepared.result, 0, {
               worktreePath: getExternalWorktreePath(args.worktree),
               baseRef: args.worktree.baseRef,
               specPath: args.specPath,
               branch: args.worktree.branchName,
               creationTitle: prepared.creationTitle,
             });
-            if (publishError !== undefined) {
-              return publishError.kind === "completion_commit_failed"
-                ? completionCommitFailed(args, prepared.result, publishError.error)
-                : readyFinalizeFailed(args, prepared.result, publishError.error);
+            if (publication.failure !== undefined) {
+              const publishedResult = { ...prepared.result, iterationsConsumed: publication.iterationsConsumed };
+              return publication.failure.kind === "completion_commit_failed"
+                ? completionCommitFailed(args, publishedResult, publication.failure.error)
+                : readyFinalizeFailed(args, publishedResult, publication.failure.error);
             }
           }
           if (published.commitSha === undefined) {
@@ -374,17 +377,18 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           agent,
         });
         if (published.commitSha !== undefined) {
-          const publishError = await publishCompletionArtifacts(args, {
+          const publication = await publishWithReadyRepair(args, store, attributed, iterationsConsumed, {
             worktreePath,
             baseRef: args.worktree.baseRef,
             specPath: args.specPath,
             branch: args.worktree.branchName,
             creationTitle: prepared.creationTitle,
           });
-          if (publishError !== undefined) {
-            return publishError.kind === "completion_commit_failed"
-              ? completionCommitFailed(args, attributed, publishError.error)
-              : readyFinalizeFailed(args, attributed, publishError.error);
+          if (publication.failure !== undefined) {
+            const publishedResult = { ...attributed, iterationsConsumed: publication.iterationsConsumed };
+            return publication.failure.kind === "completion_commit_failed"
+              ? completionCommitFailed(args, publishedResult, publication.failure.error)
+              : readyFinalizeFailed(args, publishedResult, publication.failure.error);
           }
         }
         if (published.commitSha === undefined) {
@@ -760,6 +764,106 @@ export type CompletionPublishFailure = {
   kind: "completion_commit_failed" | "ready_finalize_failed";
   error?: Error;
 };
+
+type CompletionPublishInput = Parameters<typeof publishCompletionArtifacts>[1];
+
+/** `unsettled` consumed no iteration; `blocked` and `continue` each consumed one. */
+type ReadyRepairIterationOutcome = "unsettled" | "blocked" | "continue";
+
+/** One repair iteration: reprompt the agent with the gate failure, then record its boundary. */
+async function runReadyRepairIteration(
+  args: WriteLoopInput,
+  store: StateStore,
+  result: WriteLoopResult,
+  gateError: ReadyGateError,
+  iterationNumber: number,
+): Promise<ReadyRepairIterationOutcome> {
+  const attemptId = store.recordAttemptStart(result.runId);
+  args.logSink?.append(result.runId, { kind: "iteration_started", attemptId });
+  const clock = args.clock ?? (() => new Date());
+  const sessionLog = openSessionLog(result.runId, formatSessionLogTimestamp(clock()), {
+    ...(args.sessionsDir !== undefined ? { sessionsDir: args.sessionsDir } : {}),
+    clock,
+  });
+  sessionLog.append("harness", `run=${result.runId} spec=${args.specPath} iteration=${iterationNumber}`);
+
+  const repairArgs: WriteLoopInput = {
+    ...args,
+    promptId: "write.ready-repair",
+    promptPlaceholders: {
+      GATE_COMMAND: gateError.command,
+      GATE_EXIT_CODE: String(gateError.exitCode ?? "unknown"),
+      GATE_OUTPUT: gateError.output.slice(-READY_GATE_OUTPUT_MAX_CHARS),
+    },
+  };
+  const settled = await awaitIteration(repairArgs, result.runId, attemptId, sessionLog);
+  if (settled.kind !== "settled") {
+    closeSessionLog(
+      sessionLog,
+      settled.kind === "timed_out" ? "timeout" : settled.kind === "aborted" ? "abort" : "error",
+    );
+    return "unsettled";
+  }
+  closeSessionLog(sessionLog, "completed");
+
+  const stepResult = settled.result.result;
+  const terminal = stepResult.kind === "progress" ? undefined : terminalMapping(stepResult);
+  const boundary = terminal ?? { runStatus: "in-progress" as const, outcomeKind: "progress" as const };
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: boundary.runStatus,
+    outcomeKind: boundary.outcomeKind,
+  });
+  args.logSink?.append(result.runId, {
+    kind: "boundary_committed",
+    attemptId,
+    outcomeKind: boundary.outcomeKind,
+    runStatus: boundary.runStatus,
+  });
+  return stepResult.kind === "blocked" ? "blocked" : "continue";
+}
+
+async function publishWithReadyRepair(
+  args: WriteLoopInput,
+  store: StateStore,
+  result: WriteLoopResult,
+  iterationsConsumed: number,
+  input: CompletionPublishInput,
+): Promise<{ failure?: CompletionPublishFailure; iterationsConsumed: number }> {
+  let failure = await publishCompletionArtifacts(args, input);
+  let repairAttempt = 0;
+  while (failure?.kind === "ready_finalize_failed" && failure.error instanceof ReadyGateError) {
+    repairAttempt += 1;
+    if (repairAttempt > MAX_READY_GATE_REPAIRS) return { failure, iterationsConsumed };
+    if (iterationsConsumed >= (args.maxIterations ?? DEFAULT_MAX_ITERATIONS)) return { failure, iterationsConsumed };
+    args.logSink?.append(result.runId, {
+      kind: "ready_gate_repair",
+      attempt: repairAttempt,
+      gateExitCode: failure.error.exitCode,
+    });
+
+    const outcome = await runReadyRepairIteration(args, store, result, failure.error, iterationsConsumed + 1);
+    if (outcome === "unsettled") return { failure, iterationsConsumed };
+    iterationsConsumed += 1;
+    if (outcome === "blocked") return { failure, iterationsConsumed };
+    try {
+      await (args.completionCommitter ?? createCompletionCommitter())({
+        worktreePath: input.worktreePath,
+        baseRef: input.baseRef,
+        specPath: input.specPath,
+        agent: result.completionAgent ?? "",
+      });
+      failure = await publishCompletionArtifacts(args, input);
+    } catch (error) {
+      return {
+        failure: { kind: "completion_commit_failed", error: error instanceof Error ? error : new Error(String(error)) },
+        iterationsConsumed,
+      };
+    }
+    if (failure === undefined) return { iterationsConsumed };
+  }
+  return { ...(failure !== undefined ? { failure } : {}), iterationsConsumed };
+}
 
 export async function publishCompletionArtifacts(
   seams: CompletionPublicationSeams,

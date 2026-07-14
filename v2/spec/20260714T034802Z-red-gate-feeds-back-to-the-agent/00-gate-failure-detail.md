@@ -19,9 +19,9 @@ code, and full output as data, not prose.
 
 ## Acceptance criteria
 
-- [ ] A red `bun run ready` surfaces an error carrying the gate command, its exit code, and its combined stdout+stderr output as separate fields; a new `ready-finalize.test.ts` case asserts this and fails against the pre-fix code.
-- [ ] The failure message still reads `ready gate failed (exit N): …`; existing `ready-finalize.test.ts` cases stay green.
-- [ ] A `gh pr ready` failure is not reported as a gate failure (existing flip-retry tests stay green).
+- [x] A red `bun run ready` surfaces an error carrying the gate command, its exit code, and its combined stdout+stderr output as separate fields; a new `ready-finalize.test.ts` case asserts this and fails against the pre-fix code.
+- [x] The failure message still reads `ready gate failed (exit N): …`; existing `ready-finalize.test.ts` cases stay green.
+- [x] A `gh pr ready` failure is not reported as a gate failure (existing flip-retry tests stay green).
 
 ## Documentation updates
 

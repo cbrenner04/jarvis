@@ -244,6 +244,10 @@ overriding any `JARVIS_READY_TIER` in the parent environment.
 `run-cannot-report-complete-over-red-gate`). Treat `criteria-complete` exit 0 as
 insufficient without a green gate on the branch head.
 
+A red ready gate is handed back to the agent for up to three bounded repair iterations. Each repair
+consumes the iteration budget and republishes before the gate is rerun. Flip failures are not repaired;
+resume a `ready_finalize_failed` run after checking the PR state.
+
 A v2 implement run reporting `runStatus: "completed"` implies both (1) the active subspec's
 non-human-only acceptance criteria are all ticked at the boundary, and (2) a completion commit
 exists. The spec.criteria-ticked contract prevents `done` / `no-work` completions when unticked

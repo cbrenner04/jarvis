@@ -1,5 +1,8 @@
-import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import {
+  AsyncSubprocessError,
+  type AsyncSubprocessRunner,
+  realAsyncSubprocessRunner,
+} from "../../../shared/subprocess.ts";
 
 export type ReadyFinalizeInput = {
   worktreePath: string;
@@ -21,6 +24,17 @@ export type ReadyFinalizerSeams = {
 
 export type ReadyFinalizer = (input: ReadyFinalizeInput) => Promise<void>;
 
+export class ReadyGateError extends Error {
+  constructor(
+    readonly command: string,
+    readonly exitCode: number | undefined,
+    readonly output: string,
+  ) {
+    super(`ready gate failed (exit ${exitCode ?? "unknown"}): ${output.trim()}`);
+    this.name = "ReadyGateError";
+  }
+}
+
 const MAX_ATTEMPTS = 3;
 const BACKOFF_MS = 1000;
 const READY_GATE_MAX_BUFFER = 16 * 1024 * 1024;
@@ -41,9 +55,11 @@ function createDefaultRunReadyGate(runner: AsyncSubprocessRunner): ReadyGate {
         env: { ...process.env, JARVIS_READY_TIER: "full" },
       });
     } catch (error) {
-      const err = error as { status?: number; stderr?: string };
-      const detail = err.stderr ?? (error instanceof Error ? error.message : String(error));
-      throw new Error(`ready gate failed (exit ${err.status ?? "unknown"}): ${detail.trim()}`);
+      if (error instanceof AsyncSubprocessError) {
+        throw new ReadyGateError("bun run ready", error.status, `${error.stdout}${error.stderr}`);
+      }
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new ReadyGateError("bun run ready", undefined, detail);
     }
   };
 }

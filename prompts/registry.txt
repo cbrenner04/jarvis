@@ -25,6 +25,7 @@ write/execute.md
 write/principles.md
 write/token-reprompt.md
 write/blocker-reprompt.md
+write/ready-repair.md
 prompt/instructions.md
 prompt/rules.md
 intent/split.md

@@ -53,4 +53,21 @@ describe("isClaudeZeroExitQuotaEnvelope", () => {
     const fixture = readFileSync(join(fixturesDir, "2.1.142-simple-prose.json"), "utf8");
     expect(isClaudeZeroExitQuotaEnvelope(fixture)).toBe(false);
   });
+
+  test("classifies claude U+2019 quota phrases (session, spend, org's usage limit)", () => {
+    const phrases = [
+      "you’ve hit your session limit",
+      "you’ve hit your monthly spend limit",
+      "you’ve hit your org’s monthly usage limit",
+    ];
+    for (const phrase of phrases) {
+      const envelope = JSON.stringify({
+        type: "result",
+        is_error: true,
+        api_error_status: 429,
+        result: phrase,
+      });
+      expect(isClaudeZeroExitQuotaEnvelope(envelope)).toBe(true);
+    }
+  });
 });

@@ -275,6 +275,16 @@ returns its stored result idempotently.
 
 Resume assumes the caller re-supplies the identical `steps` array the killed run used (same length, order, and `stepId`s). A divergent array on resume is undefined behavior and out of scope.
 
+**Fresh dispatch:** When `WorkflowRunnerInput.freshDispatch` is set to `true`,
+the resume step-idempotence rules are suppressed for the targeted steps: a new
+workflow invocation is created with a fresh `invocationId`, and any prior
+`completed` or `failed` runs are replaced by new rows. Within a single
+execution with `freshDispatch` set, a step touched multiple times (e.g., in a
+linked-implement loop or after a shrink step) reuses the run row created during
+that execution, avoiding duplicate rows per step. Without `freshDispatch` set,
+the normal resume contract applies: prior `completed` runs are reused idempotently
+and invocationId is inherited from the prior run's snapshot.
+
 ## Per-step attempt history
 
 Each step maintains its own durable `(project, branch, stepId)` run independently:

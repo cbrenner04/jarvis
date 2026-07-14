@@ -485,6 +485,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       executeWorkflow({
         steps,
         stateStore: store,
+        freshDispatch: true,
         ...(logSink !== undefined ? { logSink } : {}),
         ...(telemetry !== undefined ? { telemetry } : {}),
         onReviewDebateProgress: reportReviewProgress,
@@ -538,7 +539,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       });
       if (
         existing?.workflowSnapshot?.invocationId !== undefined &&
-        existing.workflowSnapshot.invocationId !== firstStep.workflowInvocationId
+        existing.workflowSnapshot.invocationId !== firstStep.workflowInvocationId &&
+        !TERMINAL_LIST_STATUSES.has(existing.status)
       ) {
         return {
           kind: "error",

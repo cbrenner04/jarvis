@@ -227,6 +227,8 @@ export type WorkflowRunnerInput = {
   completionCommitter?: CompletionCommitter;
   completionPublisher?: CompletionPublisher;
   readyFinalizer?: ReadyFinalizer;
+  /** When set, suppresses reuse of completed runs from prior invocations, forcing new run rows. */
+  freshDispatch?: boolean;
 };
 
 function isWriteStep(step: AnyWorkflowStep): step is WriteWorkflowStep {
@@ -307,6 +309,8 @@ async function runWorkflowStep(
   onReviewDebateProgress: ((invocationId: string, stepId: string, progress: ReviewDebateProgress) => void) | undefined,
   telemetry: WorkflowTelemetryContext | undefined,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+  freshDispatch: boolean | undefined,
+  touchedStepsInExecution: Set<string>,
 ): Promise<WorkflowStepOutcome> {
   if (step.behavior === "human") {
     const humanStep = prepareHumanWorkflowStep(step, workflowSnapshot, store);
@@ -344,10 +348,28 @@ async function runWorkflowStep(
   }
 
   if (step.role === "implement" && step.linkedIndexRouting) {
-    return runLinkedImplementStep(step, stepIndex, workflowSnapshot, store, logSink, telemetry, onStepRunCreated);
+    return runLinkedImplementStep(
+      step,
+      stepIndex,
+      workflowSnapshot,
+      store,
+      logSink,
+      telemetry,
+      onStepRunCreated,
+      freshDispatch,
+      touchedStepsInExecution,
+    );
   }
 
-  const preparedStep = prepareWorkflowStep(step, workflowSnapshot, store, logSink, telemetry);
+  const preparedStep = prepareWorkflowStep(
+    step,
+    workflowSnapshot,
+    store,
+    logSink,
+    telemetry,
+    freshDispatch,
+    touchedStepsInExecution,
+  );
   if (preparedStep.kind === "completed") {
     onStepRunCreated?.(stepIndex, preparedStep.runId);
     const stored = store.loadRun(preparedStep.runId);
@@ -361,6 +383,8 @@ async function runWorkflowStep(
       ...(stamp !== undefined ? stamp : {}),
     };
   }
+
+  touchedStepsInExecution.add(step.stepId);
 
   return executeWriteLoop(
     onStepRunCreated
@@ -414,8 +438,18 @@ async function runPreparedLinkedWriteStep(
   logSink: LogSink | undefined,
   telemetry: WorkflowTelemetryContext | undefined,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+  freshDispatch: boolean | undefined,
+  touchedStepsInExecution: Set<string>,
 ): Promise<WorkflowStepOutcome> {
-  const preparedLink = prepareWorkflowStep(linkStep, workflowSnapshot, store, logSink, telemetry);
+  const preparedLink = prepareWorkflowStep(
+    linkStep,
+    workflowSnapshot,
+    store,
+    logSink,
+    telemetry,
+    freshDispatch,
+    touchedStepsInExecution,
+  );
   if (preparedLink.kind === "completed") {
     onStepRunCreated?.(stepIndex, preparedLink.runId);
     const stored = store.loadRun(preparedLink.runId);
@@ -429,6 +463,8 @@ async function runPreparedLinkedWriteStep(
       ...(stamp !== undefined ? stamp : {}),
     };
   }
+
+  touchedStepsInExecution.add(linkStep.stepId);
 
   return executeWriteLoop(
     onStepRunCreated
@@ -487,6 +523,8 @@ async function runLinkedImplementStep(
   logSink: LogSink | undefined,
   telemetry: WorkflowTelemetryContext | undefined,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+  freshDispatch: boolean | undefined,
+  touchedStepsInExecution: Set<string>,
 ): Promise<WorkflowStepOutcome> {
   const worktreePath = getExternalWorktreePath(step.worktree);
   const projectRoot = step.worktree.projectRoot;
@@ -517,6 +555,8 @@ async function runLinkedImplementStep(
       logSink,
       telemetry,
       onStepRunCreated,
+      freshDispatch,
+      touchedStepsInExecution,
     );
 
     totalIterationsConsumed += outcome.iterationsConsumed;
@@ -584,7 +624,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     let completionAgent: string | undefined;
     let boundaryTelemetryFailure: string | undefined;
     let implementReviewEligible = false;
-    const workflowSnapshot = buildWorkflowSnapshot(args.steps, store);
+    const touchedStepsInExecution = new Set<string>();
+    const workflowSnapshot = buildWorkflowSnapshot(args.steps, store, args.freshDispatch);
 
     for (let stepIndex = 0; stepIndex < args.steps.length; stepIndex++) {
       const step = args.steps[stepIndex];
@@ -607,6 +648,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         args.onReviewDebateProgress,
         args.telemetry,
         args.onStepRunCreated,
+        args.freshDispatch,
+        touchedStepsInExecution,
       );
       totalIterationsConsumed += stepResult.iterationsConsumed;
       lastResult = stepResult;
@@ -643,6 +686,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           args.logSink,
           args.telemetry,
           args.onStepRunCreated,
+          args.freshDispatch,
+          touchedStepsInExecution,
         );
         totalIterationsConsumed += shrinkResult.iterationsConsumed;
         lastResult = shrinkResult;
@@ -921,7 +966,11 @@ function stepIdentity(step: WorkflowStep): { project: string; branch: string } {
  * run/resume in this slice (deferred to first consumer), so it is excluded from the
  * existing-run lookup that resumes a prior invocation's snapshot.
  */
-function buildWorkflowSnapshot(steps: readonly AnyWorkflowStep[], store: StateStore): WorkflowSnapshot {
+function buildWorkflowSnapshot(
+  steps: readonly AnyWorkflowStep[],
+  store: StateStore,
+  freshDispatch?: boolean,
+): WorkflowSnapshot {
   const requestedInvocationId = steps.find(isWriteStep)?.workflowInvocationId;
   const authoredSteps = steps.map((step) => ({
     stepId: step.stepId,
@@ -941,18 +990,21 @@ function buildWorkflowSnapshot(steps: readonly AnyWorkflowStep[], store: StateSt
       : {}),
   }));
 
-  const identifiableSteps = steps.filter(
-    (step): step is WorkflowStep | HumanWorkflowStep => step.behavior !== "review-debate" && step.behavior !== "review",
-  );
-  for (const step of identifiableSteps) {
-    const { project, branch } = stepIdentity(step);
-    const existingRun = store.findRunByProjectBranch({ project, branch, stepId: step.stepId });
-    const candidate = existingRun?.workflowSnapshot;
-    if (candidate !== null && candidate !== undefined && snapshotMatchesAuthoredSteps(candidate, authoredSteps)) {
-      if (requestedInvocationId !== undefined && candidate.invocationId !== requestedInvocationId) {
-        throw new Error("intent: existing workflow is owned by another invocation; resume the recorded invocation");
+  // When freshDispatch is set, skip reusing prior invocation's snapshot and mint a new invocationId
+  if (!freshDispatch) {
+    const identifiableSteps = steps.filter(
+      (step): step is WorkflowStep | HumanWorkflowStep => step.behavior !== "review-debate" && step.behavior !== "review",
+    );
+    for (const step of identifiableSteps) {
+      const { project, branch } = stepIdentity(step);
+      const existingRun = store.findRunByProjectBranch({ project, branch, stepId: step.stepId });
+      const candidate = existingRun?.workflowSnapshot;
+      if (candidate !== null && candidate !== undefined && snapshotMatchesAuthoredSteps(candidate, authoredSteps)) {
+        if (requestedInvocationId !== undefined && candidate.invocationId !== requestedInvocationId) {
+          throw new Error("intent: existing workflow is owned by another invocation; resume the recorded invocation");
+        }
+        return candidate;
       }
-      return candidate;
     }
   }
 
@@ -1123,13 +1175,22 @@ function prepareWorkflowStep(
   store: StateStore,
   logSink: LogSink | undefined,
   telemetry: WorkflowTelemetryContext | undefined,
+  freshDispatch: boolean | undefined,
+  touchedStepsInExecution: Set<string>,
 ): PreparedWorkflowStep {
   const existingRun = store.findRunByProjectBranch({
     project: step.worktree.projectName,
     branch: step.worktree.branchName,
     stepId: step.stepId,
   });
-  if (existingRun?.status === "completed" || (step.intentOutput !== undefined && existingRun?.status === "failed")) {
+
+  // A fresh dispatch reuses a prior run only within this execution's own touched steps.
+  const shouldSkipReuse = freshDispatch === true && !touchedStepsInExecution.has(step.stepId);
+
+  if (
+    !shouldSkipReuse &&
+    (existingRun?.status === "completed" || (step.intentOutput !== undefined && existingRun?.status === "failed"))
+  ) {
     const completionAgent = existingRun.attempts.at(-1)?.completionAgent?.trim();
     return { kind: "completed", runId: existingRun.id, ...(completionAgent ? { completionAgent } : {}) };
   }
@@ -1178,6 +1239,7 @@ function prepareWorkflowStep(
             },
           }
         : {}),
+      ...(freshDispatch !== undefined ? { freshDispatch } : {}),
       publishCompletion: false,
     },
   };
@@ -1191,6 +1253,8 @@ async function runShrinkAfterImplementComplete(
   logSink: LogSink | undefined,
   telemetry: WorkflowTelemetryContext | undefined,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+  freshDispatch: boolean | undefined,
+  touchedStepsInExecution: Set<string>,
 ): Promise<WriteLoopResult> {
   const shrinkStep = {
     ...step,
@@ -1199,7 +1263,15 @@ async function runShrinkAfterImplementComplete(
     promptId: SHRINK_PROMPT_ID,
     promptPlaceholders: await shrinkPromptPlaceholders(step),
   };
-  const preparedStep = prepareWorkflowStep(shrinkStep, workflowSnapshot, store, logSink, telemetry);
+  const preparedStep = prepareWorkflowStep(
+    shrinkStep,
+    workflowSnapshot,
+    store,
+    logSink,
+    telemetry,
+    freshDispatch,
+    touchedStepsInExecution,
+  );
   if (preparedStep.kind === "completed") {
     onStepRunCreated?.(stepIndex, preparedStep.runId);
     const stored = store.loadRun(preparedStep.runId);
@@ -1213,6 +1285,9 @@ async function runShrinkAfterImplementComplete(
       ...(stamp !== undefined ? stamp : {}),
     };
   }
+
+  touchedStepsInExecution.add(shrinkStep.stepId);
+
   return executeWriteLoop(
     onStepRunCreated
       ? { ...preparedStep.input, onRunCreated: (runId) => onStepRunCreated(stepIndex, runId) }

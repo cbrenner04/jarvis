@@ -33,18 +33,18 @@ absent.
 
 ## Acceptance criteria
 
-- [ ] `executeWorkflow` called with fresh dispatch set, against a project/branch/step whose prior
+- [x] `executeWorkflow` called with fresh dispatch set, against a project/branch/step whose prior
       run is `completed`, creates a new run row, invokes the agent, and returns the new run id.
-- [ ] With fresh dispatch set on a two-step preset, both steps get new run rows even when both had
+- [x] With fresh dispatch set on a two-step preset, both steps get new run rows even when both had
       `completed` rows from a prior invocation.
-- [ ] With fresh dispatch set, an `implement` step's post-completion shrink step and a linked-index
+- [x] With fresh dispatch set, an `implement` step's post-completion shrink step and a linked-index
       implement's re-entry still reuse the run row created during the same execution (no duplicate
       rows per step per execution).
-- [ ] With fresh dispatch set, the workflow snapshot recorded on the new rows carries a new
+- [x] With fresh dispatch set, the workflow snapshot recorded on the new rows carries a new
       `invocationId`, and no "owned by another invocation" error is raised.
-- [ ] With fresh dispatch absent, existing resume behavior is unchanged: `workflow-runner` resume /
+- [x] With fresh dispatch absent, existing resume behavior is unchanged: `workflow-runner` resume /
       step-idempotence tests in `v2/src/execution/workflow-runner*.test.ts` stay green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

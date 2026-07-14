@@ -1258,6 +1258,293 @@ function loadWorkBoundaryRows(path: string): WorkBoundaryRecordedRecord[] {
     .filter((row) => row.record_kind === "work_boundary_recorded");
 }
 
+describe("executeWorkflow fresh dispatch", () => {
+  test("creates a new run row for a completed step when freshDispatch is set", async () => {
+    const stateDbPath = ":memory:";
+    const store = openStateStore(stateDbPath);
+
+    try {
+      // First invocation: complete step 1
+      const step1First = createStep({ stepId: "step-1", role: "implement", branchName: "fresh-dispatch-test" });
+
+      const result1 = await executeWorkflow({
+        steps: [step1First],
+        stateStore: store,
+      });
+
+      expect(result1.kind).toBe("complete");
+      expect(result1.stepId).toBe("step-1");
+
+      const run1First = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "fresh-dispatch-test",
+        stepId: "step-1",
+      });
+      const runId1First = run1First?.id;
+
+      // Second invocation without freshDispatch: should reuse the completed run
+      const step1Second = createStep({ stepId: "step-1", role: "implement", branchName: "fresh-dispatch-test" });
+
+      const result2 = await executeWorkflow({
+        steps: [step1Second],
+        stateStore: store,
+      });
+
+      expect(result2.kind).toBe("complete");
+      const run1Second = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "fresh-dispatch-test",
+        stepId: "step-1",
+      });
+      expect(run1Second?.id).toBe(runId1First); // Same run
+
+      // Third invocation with freshDispatch: should create a new run
+      const step1Third = createStep({ stepId: "step-1", role: "implement", branchName: "fresh-dispatch-test" });
+
+      const result3 = await executeWorkflow({
+        steps: [step1Third],
+        stateStore: store,
+        freshDispatch: true,
+      });
+
+      expect(result3.kind).toBe("complete");
+      const run1Third = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "fresh-dispatch-test",
+        stepId: "step-1",
+      });
+      expect(run1Third?.id).not.toBe(runId1First); // Different run
+      expect(run1Third?.attempts).toHaveLength(1); // One attempt in the new run
+    } finally {
+      store.close();
+    }
+  });
+
+  test("creates new run rows for both steps in a two-step preset when freshDispatch is set", async () => {
+    const stateDbPath = ":memory:";
+    const store = openStateStore(stateDbPath);
+
+    try {
+      // First invocation: complete both steps
+      const step1First = createStep({ stepId: "step-1", role: "implement", branchName: "fresh-dispatch-preset" });
+      const step2First = createStep({ stepId: "step-2", role: "implement", branchName: "fresh-dispatch-preset" });
+
+      const result1 = await executeWorkflow({
+        steps: [step1First, step2First],
+        stateStore: store,
+      });
+
+      expect(result1.kind).toBe("complete");
+
+      const run1First = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "fresh-dispatch-preset",
+        stepId: "step-1",
+      });
+      const run2First = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "fresh-dispatch-preset",
+        stepId: "step-2",
+      });
+      const runId1First = run1First?.id;
+      const runId2First = run2First?.id;
+      const invocationId1First = run1First?.workflowSnapshot?.invocationId;
+
+      // Second invocation with freshDispatch: should create new runs for both steps
+      const step1Second = createStep({ stepId: "step-1", role: "implement", branchName: "fresh-dispatch-preset" });
+      const step2Second = createStep({ stepId: "step-2", role: "implement", branchName: "fresh-dispatch-preset" });
+
+      const result2 = await executeWorkflow({
+        steps: [step1Second, step2Second],
+        stateStore: store,
+        freshDispatch: true,
+      });
+
+      expect(result2.kind).toBe("complete");
+
+      const run1Second = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "fresh-dispatch-preset",
+        stepId: "step-1",
+      });
+      const run2Second = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "fresh-dispatch-preset",
+        stepId: "step-2",
+      });
+      expect(run1Second?.id).not.toBe(runId1First); // Step 1 new run
+      expect(run2Second?.id).not.toBe(runId2First); // Step 2 new run
+      expect(run1Second?.workflowSnapshot?.invocationId).not.toBe(invocationId1First); // New invocationId
+      expect(run1Second?.workflowSnapshot?.invocationId).toBe(run2Second?.workflowSnapshot?.invocationId); // Same invocationId for both
+    } finally {
+      store.close();
+    }
+  });
+
+  test("reuses run rows within the same execution when freshDispatch is set (shrink step)", async () => {
+    const stateDbPath = ":memory:";
+    const store = openStateStore(stateDbPath);
+
+    try {
+      // First invocation: complete implement step with shrink
+      const step1First = createStep({
+        stepId: "step-1",
+        role: "implement",
+        branchName: "fresh-dispatch-shrink",
+        suppressShrink: false,
+      });
+
+      const result1 = await executeWorkflow({
+        steps: [step1First],
+        stateStore: store,
+      });
+
+      expect(result1.kind).toBe("complete");
+
+      const run1First = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "fresh-dispatch-shrink",
+        stepId: "step-1",
+      });
+      const runShrinkFirst = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "fresh-dispatch-shrink",
+        stepId: "step-1~shrink",
+      });
+      const runId1First = run1First?.id;
+      const runIdShrinkFirst = runShrinkFirst?.id;
+
+      // Second invocation with freshDispatch: should create new run but reuse shrink run within this execution
+      const step1Second = createStep({
+        stepId: "step-1",
+        role: "implement",
+        branchName: "fresh-dispatch-shrink",
+        suppressShrink: false,
+      });
+
+      const result2 = await executeWorkflow({
+        steps: [step1Second],
+        stateStore: store,
+        freshDispatch: true,
+      });
+
+      expect(result2.kind).toBe("complete");
+
+      const run1Second = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "fresh-dispatch-shrink",
+        stepId: "step-1",
+      });
+      const runShrinkSecond = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "fresh-dispatch-shrink",
+        stepId: "step-1~shrink",
+      });
+      expect(run1Second?.id).not.toBe(runId1First); // Implement step has new run
+      expect(runShrinkSecond?.id).not.toBe(runIdShrinkFirst); // Shrink step also has new run (created within same execution)
+    } finally {
+      store.close();
+    }
+  });
+
+  test("mints a new invocationId when freshDispatch is set", async () => {
+    const stateDbPath = ":memory:";
+    const store = openStateStore(stateDbPath);
+
+    try {
+      // First invocation
+      const step1First = createStep({ stepId: "step-1", role: "implement", branchName: "fresh-dispatch-invocation" });
+
+      await executeWorkflow({
+        steps: [step1First],
+        stateStore: store,
+      });
+
+      const run1First = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "fresh-dispatch-invocation",
+        stepId: "step-1",
+      });
+      const invocationId1First = run1First?.workflowSnapshot?.invocationId;
+
+      // Second invocation with freshDispatch
+      const step1Second = createStep({ stepId: "step-1", role: "implement", branchName: "fresh-dispatch-invocation" });
+
+      await executeWorkflow({
+        steps: [step1Second],
+        stateStore: store,
+        freshDispatch: true,
+      });
+
+      const run1Second = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "fresh-dispatch-invocation",
+        stepId: "step-1",
+      });
+      const invocationId1Second = run1Second?.workflowSnapshot?.invocationId;
+
+      expect(invocationId1Second).not.toBe(invocationId1First);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("preserves resume behavior when freshDispatch is absent", async () => {
+    const stateDbPath = ":memory:";
+    const store = openStateStore(stateDbPath);
+
+    try {
+      // First invocation: complete step 1, progress on step 2
+      const step1First = createStep({ stepId: "step-1", role: "implement", branchName: "resume-preserved" });
+      const step2First = createStep({
+        stepId: "step-2",
+        role: "implement",
+        branchName: "resume-preserved",
+        createBinding: okTokenBindingFactory("progress"),
+        maxIterations: 1,
+      });
+
+      const result1 = await executeWorkflow({
+        steps: [step1First, step2First],
+        stateStore: store,
+      });
+
+      expect(result1.kind).toBe("budget-exhausted");
+      expect(result1.stepIndex).toBe(1);
+
+      const run1First = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "resume-preserved",
+        stepId: "step-1",
+      });
+      const invocationId1First = run1First?.workflowSnapshot?.invocationId;
+
+      // Second invocation without freshDispatch: should resume at step 2
+      const step1Second = createStep({ stepId: "step-1", role: "implement", branchName: "resume-preserved" });
+      const step2Second = createStep({ stepId: "step-2", role: "implement", branchName: "resume-preserved" });
+
+      const result2 = await executeWorkflow({
+        steps: [step1Second, step2Second],
+        stateStore: store,
+        // freshDispatch is NOT set
+      });
+
+      expect(result2.kind).toBe("complete");
+      expect(result2.stepIndex).toBe(1);
+
+      const run1Second = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "resume-preserved",
+        stepId: "step-1",
+      });
+      expect(run1Second?.workflowSnapshot?.invocationId).toBe(invocationId1First); // Same invocationId
+      expect(run1Second?.attempts).toHaveLength(1); // Only one attempt (from first invocation)
+    } finally {
+      store.close();
+    }
+  });
+});
+
 describe("executeWorkflow human steps", () => {
   test("converges to awaiting-human without running a write loop", async () => {
     const writeStep = createStep({ stepId: "step-1", role: "implement", branchName: "human-workflow" });

@@ -87,6 +87,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   creationTitle?: string;
   sessionsDir?: string;
   clock?: () => Date;
+  /** When set, suppresses reuse of completed runs from prior invocations. */
+  freshDispatch?: boolean;
 };
 
 /**
@@ -562,7 +564,7 @@ function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {
     ...(args.stepId !== undefined ? { stepId: args.stepId } : {}),
   });
 
-  if (existingRun === null) {
+  if (existingRun === null || args.freshDispatch === true) {
     const creationTitle = args.creationTitle ?? resolveSpecCreationTitle(worktreePath, args.specPath);
     const runId = store.createRun({
       project: args.worktree.projectName,

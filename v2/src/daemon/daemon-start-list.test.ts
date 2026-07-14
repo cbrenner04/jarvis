@@ -126,14 +126,16 @@ function createPublicationRetryRun(): string {
     stepId: "step-1",
     workflowSnapshot: {
       invocationId: "publication-retry",
-      steps: [{
-        stepId: "step-1",
-        role: "implement",
-        stepRules: "retry rules",
-        expectedArtifactPath: "/tmp/test-project/artifact",
-        agents: ["codex"],
-        agentModelConfig: AGENT_MODEL_CONFIG,
-      }],
+      steps: [
+        {
+          stepId: "step-1",
+          role: "implement",
+          stepRules: "retry rules",
+          expectedArtifactPath: "/tmp/test-project/artifact",
+          agents: ["codex"],
+          agentModelConfig: AGENT_MODEL_CONFIG,
+        },
+      ],
     },
   });
 }
@@ -1069,14 +1071,16 @@ test("resume rejects worktree_claimed when the (project, branch) is already live
     stepId: "step-1",
     workflowSnapshot: {
       invocationId: "claimed-resume",
-      steps: [{
-        stepId: "step-1",
-        role: "implement",
-        stepRules: "resume rules",
-        expectedArtifactPath: "/tmp/test-project/artifact",
-        agents: ["codex"],
-        agentModelConfig: AGENT_MODEL_CONFIG,
-      }],
+      steps: [
+        {
+          stepId: "step-1",
+          role: "implement",
+          stepRules: "resume rules",
+          expectedArtifactPath: "/tmp/test-project/artifact",
+          agents: ["codex"],
+          agentModelConfig: AGENT_MODEL_CONFIG,
+        },
+      ],
     },
   });
   stateStore.setRunStatus(pausedRunId, "paused");

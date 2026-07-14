@@ -300,6 +300,28 @@ function resumeContextForRun(run: Run, loopOutcomeKind?: string): ResolvedWriteL
   return resumableStatus || publicationRetry ? reconstructWriteResume(run) : undefined;
 }
 
+function resumeContextForTerminalRecord(
+  run: Run | undefined,
+  terminalRecord: TerminalLogRecord | undefined,
+): ResolvedWriteLoopInput | undefined {
+  if (!run) return undefined;
+  const loopOutcomeKind =
+    terminalRecord?.event.kind === "loop_finished" ? terminalRecord.event.loopOutcomeKind : undefined;
+  return resumeContextForRun(run, loopOutcomeKind);
+}
+
+function runListRowError(
+  run: Parameters<typeof composeRunOperatorError>[0] | undefined,
+  resumeContext: ResolvedWriteLoopInput | undefined,
+  terminalRecord: TerminalLogRecord | undefined,
+) {
+  if (!run) return undefined;
+  if (resumeContext?.ok === false) {
+    return { reason: "unsupported_resume_context" as const, retryable: false, nextAction: "stop" as const };
+  }
+  return composeRunOperatorError(run, terminalRecord);
+}
+
 /**
  * Injectable dependencies for {@link createRunControlHandlers}.
  *
@@ -778,15 +800,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       const isLive = run.status === "in-progress" && liveRunIds.has(run.id);
       const records = logReader?.tail(run.id) ?? [];
       const terminalRecord = findTerminalLogRecord(records);
-      const resumeContext = fullRun
-        ? resumeContextForRun(fullRun, terminalRecord?.event.kind === "loop_finished" ? terminalRecord.event.loopOutcomeKind : undefined)
-        : undefined;
-      const error =
-        fullRun && resumeContext?.ok === false
-          ? { reason: "unsupported_resume_context" as const, retryable: false, nextAction: "stop" as const }
-          : fullRun
-            ? composeRunOperatorError(fullRun, terminalRecord)
-            : undefined;
+      const resumeContext = resumeContextForTerminalRecord(fullRun, terminalRecord);
+      const error = runListRowError(fullRun, resumeContext, terminalRecord);
       const reportedStatus = reportedRunStatus(run, fullRun);
       const snapshot = fullRun?.workflowSnapshot ?? undefined;
 
@@ -978,6 +993,28 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return undefined;
   }
 
+  /** Human-loop resume dispatch. Returns undefined when `run` is not in a human-loop status. */
+  async function resumeHumanLoopRun(
+    run: Parameters<typeof resumeAwaitingHuman>[0],
+    runId: string,
+    params: { decision?: string; prompt?: string },
+  ): Promise<Awaited<ReturnType<typeof resumeAwaitingHuman>> | undefined> {
+    if (run.status === "awaiting-human") {
+      return await resumeAwaitingHuman(run, params.decision, params.prompt);
+    }
+    if (run.status !== "revising") return undefined;
+
+    const reconverged = reconvergeRevisingRun(reviseReconvergeDeps, run);
+    if (!reconverged) {
+      return {
+        kind: "error",
+        code: "revise_in_progress",
+        message: `Run ${runId} is revising; wait for it to re-converge to awaiting-human`,
+      };
+    }
+    return await resumeAwaitingHuman(reconverged, params.decision, params.prompt);
+  }
+
   const resumeHandler: RpcHandler = async (frame) => {
     const params = frame.params as { runId?: string; decision?: string; prompt?: string } | undefined;
     if (!params?.runId) {
@@ -990,21 +1027,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       return { kind: "error", code: "unknown_run", message: `Run ${runId} not found` };
     }
 
-    if (run.status === "awaiting-human") {
-      return await resumeAwaitingHuman(run, params.decision, params.prompt);
-    }
-
-    if (run.status === "revising") {
-      const reconverged = reconvergeRevisingRun(reviseReconvergeDeps, run);
-      if (!reconverged) {
-        return {
-          kind: "error",
-          code: "revise_in_progress",
-          message: `Run ${runId} is revising; wait for it to re-converge to awaiting-human`,
-        };
-      }
-      return await resumeAwaitingHuman(reconverged, params.decision, params.prompt);
-    }
+    const humanResume = await resumeHumanLoopRun(run, runId, params);
+    if (humanResume) return humanResume;
 
     if (params.decision !== undefined) {
       return { kind: "error", code: "invalid_params", message: "decision is only valid for awaiting-human runs" };
@@ -1021,10 +1045,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
 
     const terminalRecord = logReader ? findTerminalLogRecord(logReader.tail(runId)) : undefined;
-    const reconstructed = resumeContextForRun(
-      run,
-      terminalRecord?.event.kind === "loop_finished" ? terminalRecord.event.loopOutcomeKind : undefined,
-    );
+    const reconstructed = resumeContextForTerminalRecord(run, terminalRecord);
     if (!reconstructed || !reconstructed.ok) {
       return {
         kind: "error",

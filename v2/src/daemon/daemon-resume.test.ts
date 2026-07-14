@@ -182,7 +182,10 @@ test("resume on a killed workflow write run uses the persisted step contract", a
       invocationId: "workflow-killed",
     },
   });
-  expect(starts[0]?.bindings.map((binding) => binding.id)).toEqual(["codex/codex-fast/codex-fast", "codex/codex-deep/codex-deep"]);
+  expect(starts[0]?.bindings.map((binding) => binding.id)).toEqual([
+    "codex/codex-fast/codex-fast",
+    "codex/codex-deep/codex-deep",
+  ]);
 });
 
 test("resume on a workflow paused run with an empty agents list returns resume_unsupported", async () => {

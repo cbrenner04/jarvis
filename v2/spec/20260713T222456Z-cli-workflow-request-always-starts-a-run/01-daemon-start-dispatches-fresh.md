@@ -25,16 +25,16 @@ is terminal.
 
 ## Acceptance criteria
 
-- [ ] `jarvis run workflow implement` on a project/branch whose step run is `completed` prints a new
+- [x] `jarvis run workflow implement` on a project/branch whose step run is `completed` prints a new
       run id (not the prior run's) and invokes the agent; `run log <new-id>` carries events for this
       invocation.
-- [ ] The same holds for the `intent` and `plan` presets: a request whose prior run is terminal
+- [x] The same holds for the `intent` and `plan` presets: a request whose prior run is terminal
       starts a new run rather than returning the prior run id or the "owned by another invocation"
       error.
-- [ ] A `start { steps }` request while a run for the same `(project, branch)` is live is still
+- [x] A `start { steps }` request while a run for the same `(project, branch)` is live is still
       rejected `worktree_claimed`, and an intent request against a non-terminal prior run of another
       invocation is still rejected with the ownership error.
-- [ ] `bun run typecheck` and `bun run test:v2` + `bun run test:integration:v2` pass.
+- [x] `bun run typecheck` and `bun run test:v2` + `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

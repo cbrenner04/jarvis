@@ -139,7 +139,7 @@ describe("createReadyFinalizer", () => {
 
       const calls: Array<{ env: NodeJS.ProcessEnv | undefined }> = [];
       const mockRunner: AsyncSubprocessRunner = {
-        async runAsync(cmd, args, cwd, options) {
+        async runAsync(_cmd, _args, _cwd, options) {
           calls.push({ env: options?.env });
           return "";
         },

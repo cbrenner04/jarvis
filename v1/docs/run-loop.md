@@ -970,7 +970,7 @@ An optional idle-output watchdog bounds agent phases by liveness: absence of bot
 agent output activity *and* file-system activity in the working tree.
 Configure `idleOutputTimeoutMs` (in milliseconds) to abort if the
 agent produces no stdout/stderr *and* makes no file edits for that span. Default
-is 600000 (10 minutes); set to `0` to disable. The idle watchdog applies uniformly
+is 90000 (90 seconds); set to `0` to disable. The idle watchdog applies uniformly
 to patch iteration, review (debate and actuator), shrink, and plan (draft, review, verdict-actuator) phases. It composes with
 the wall-clock `iterationTimeoutMs`: whichever fires first aborts the phase;
 both are armed concurrently.

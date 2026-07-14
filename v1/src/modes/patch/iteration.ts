@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, closeSync, existsSync, readFileSync, writeFileSync, writeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { detectBlockerClaim, parseSpec, stripBlockerSection } from "../../../../shared/spec-parser.ts";
-import { openSessionLog } from "../../config.ts";
+import { DEFAULT_IDLE_OUTPUT_TIMEOUT_MS, openSessionLog } from "../../config.ts";
 import { getBaseBranch } from "../../gh.ts";
 import type { LogClient } from "../../logging.ts";
 import { ensureDraftPr, renderAttributionSummary } from "../../pr.ts";
@@ -818,9 +818,9 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     state.currentController?.abort("iteration-timeout");
   }, cfg.iterationTimeoutMs);
 
-  // Arm idle watchdog if configured (default 600000 when unset)
+  // Arm idle watchdog if configured (default 90000ms when unset)
   const armedAt = Date.now();
-  const idleOutputTimeoutMs = cfg.idleOutputTimeoutMs ?? 600000;
+  const idleOutputTimeoutMs = cfg.idleOutputTimeoutMs ?? DEFAULT_IDLE_OUTPUT_TIMEOUT_MS;
   if (idleOutputTimeoutMs > 0) {
     const scheduleIdleCheck = () => {
       idleTimeoutHandle = setTimeout(() => {

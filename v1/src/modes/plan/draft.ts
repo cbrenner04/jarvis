@@ -7,6 +7,7 @@ import { detectBlocker, isStructuralAc, parseSpec } from "../../../../shared/spe
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
+import { DEFAULT_IDLE_OUTPUT_TIMEOUT_MS } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "../patch/idle-watchdog.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
@@ -140,7 +141,9 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
   // Arm idle watchdog if configured
   const draftArmedAt = Date.now();
   const draftIdleOutputTimeoutMs =
-    opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? 600000);
+    opts.idleOutputTimeoutMs !== undefined
+      ? opts.idleOutputTimeoutMs
+      : (opts.config.idleOutputTimeoutMs ?? DEFAULT_IDLE_OUTPUT_TIMEOUT_MS);
   const draftWorktreeDir = opts.planWorktreeDir ?? opts.worktreePath;
   if (draftIdleOutputTimeoutMs > 0) {
     const scheduleDraftIdleCheck = () => {

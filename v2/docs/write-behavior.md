@@ -84,7 +84,8 @@ gate → draft→ready flip (gate/flip in a separate finalization boundary).
 separate retryable boundary awaits (1) the ready gate in the completed run's
 worktree, then (2) `gh pr ready <branch>`. The default gate command is `bun run
 ready`; any non-zero exit is a gate failure (missing and red gate scripts are
-not distinguished), reported as `ready gate failed (exit N): <stderr>`. The
+not distinguished), reported as `ready gate failed (exit N): <output>`. The thrown gate error
+also carries the `bun run ready` command, exit code, and combined stdout+stderr output as fields. The
 gate runs the `full` tier (format, lint, typecheck, tests) unconditionally,
 overriding any `JARVIS_READY_TIER` in the parent environment.
 The gate runs unbounded. On green, the awaited flip calls `gh pr ready <branch>`
@@ -149,6 +150,8 @@ worktree directory is gone, the next iteration materializes it again from the
 durable branch pointer before running. For linked-index implement, the runner's
 first routing read happens before that materialization; the write loop creates
 the worktree on its first `executeWrite` call.
+
+When completion publication's ready gate fails with a `ReadyGateError`, the write loop invokes the agent again with the gate command, exit code, and the last 16 KiB of gate output. It commits and republishes after each repair, for at most three repair attempts. Repair iterations consume the normal iteration budget; a blocked repair, exhausted budget, or still-red gate returns retryable `ready_finalize_failed`. Flip failures do not trigger repair.
 
 The write prompt injects the v2 restraint principles (`write.principles`) at
 every iteration; see [`coding-standards.md`](./coding-standards.md) for the

@@ -2,5 +2,5 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Gate failure carries command, exit code, and output](./00-gate-failure-detail.md)
-- [ ] [01 - Write loop repairs a red gate, capped at 3 attempts](./01-bounded-gate-repair.md)
+- [x] [00 - Gate failure carries command, exit code, and output](./00-gate-failure-detail.md)
+- [x] [01 - Write loop repairs a red gate, capped at 3 attempts](./01-bounded-gate-repair.md)

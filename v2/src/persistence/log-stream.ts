@@ -15,6 +15,12 @@ type BoundaryCommittedEvent = {
   runStatus: RunStatus;
 };
 
+type ReadyGateRepairEvent = {
+  kind: "ready_gate_repair";
+  attempt: number;
+  gateExitCode: number | undefined;
+};
+
 export type LoopFinishedEvent = {
   kind: "loop_finished";
   loopOutcomeKind: WriteLoopOutcomeKind;
@@ -64,6 +70,7 @@ export type MissingBlockerDetailEvent = {
 export type LogEvent =
   | IterationStartedEvent
   | BoundaryCommittedEvent
+  | ReadyGateRepairEvent
   | LoopFinishedEvent
   | RunExecutionFailedEvent
   | RunReconciledEvent

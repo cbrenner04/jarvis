@@ -8,6 +8,7 @@ import { simulatedBindings } from "../testing/bindings.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
+import { ReadyGateError } from "./ready-finalize.ts";
 import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./write.ts";
 import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "./write-loop.ts";
 
@@ -820,6 +821,146 @@ describe("write loop", () => {
         loopOutcomeKind: "ready_finalize_failed",
         resumable: true,
       });
+    });
+
+    test("repairs a red ready gate through a write iteration", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      let gateCalls = 0;
+      const prompts: string[] = [];
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: [
+          {
+            id: "sim.1",
+            metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+            invoke: async ({ prompt, cwd }) => {
+              prompts.push(prompt);
+              writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+              return { kind: "ok", stdout: "done", stderr: "" } as const;
+            },
+          },
+        ],
+        logSink,
+        ...completionHooks,
+        readyFinalizer: async () => {
+          gateCalls += 1;
+          if (gateCalls === 1) throw new ReadyGateError("bun run ready", 1, "tests failed");
+        },
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(gateCalls).toBe(2);
+      expect(prompts).toHaveLength(2);
+      expect(prompts[1]).toContain("Command: bun run ready");
+      expect(prompts[1]).toContain("Exit code: 1");
+      expect(prompts[1]).toContain("tests failed");
+      expect(logSink.getEventsForRun(result.runId)).toContainEqual({
+        kind: "ready_gate_repair",
+        attempt: 1,
+        gateExitCode: 1,
+      });
+    });
+
+    test("caps red-gate repairs at three attempts", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      let gateCalls = 0;
+      let invocations = 0;
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: [
+          {
+            id: "sim.1",
+            metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+            invoke: async ({ cwd }) => {
+              invocations += 1;
+              writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+              return { kind: "ok", stdout: "done", stderr: "" } as const;
+            },
+          },
+        ],
+        logSink,
+        ...completionHooks,
+        readyFinalizer: async () => {
+          gateCalls += 1;
+          throw new ReadyGateError("bun run ready", 2, `failure ${gateCalls}`);
+        },
+      });
+
+      expect(result.kind).toBe("ready_finalize_failed");
+      expect(result.resumable).toBe(true);
+      expect(invocations).toBe(4);
+      expect(gateCalls).toBe(4);
+      const events = logSink.getEventsForRun(result.runId);
+      expect(events.filter((event) => event.kind === "iteration_started")).toHaveLength(4);
+      expect(events.filter((event) => event.kind === "ready_gate_repair")).toHaveLength(3);
+    });
+
+    test("returns ready_finalize_failed when the repair budget is exhausted", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      let invocations = 0;
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        maxIterations: 2,
+        bindings: [
+          {
+            id: "sim.1",
+            metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+            invoke: async ({ cwd }) => {
+              invocations += 1;
+              writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+              return { kind: "ok", stdout: "done", stderr: "" } as const;
+            },
+          },
+        ],
+        ...completionHooks,
+        readyFinalizer: async () => {
+          throw new ReadyGateError("bun run ready", 1, "still red");
+        },
+      });
+
+      expect(result.kind).toBe("ready_finalize_failed");
+      expect(result.iterationsConsumed).toBe(2);
+      expect(invocations).toBe(2);
+    });
+
+    test("stops repair when the agent returns blocked", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      let gateCalls = 0;
+      let invocations = 0;
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: [
+          {
+            id: "sim.1",
+            metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+            invoke: async ({ cwd }) => {
+              invocations += 1;
+              writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+              if (invocations === 2) {
+                appendFileSync(join(cwd, "spec.md"), "\n## Blocker\n\nstuck\n", "utf8");
+                return { kind: "ok", stdout: "blocked", stderr: "" } as const;
+              }
+              return { kind: "ok", stdout: "done", stderr: "" } as const;
+            },
+          },
+        ],
+        ...completionHooks,
+        readyFinalizer: async () => {
+          gateCalls += 1;
+          throw new ReadyGateError("bun run ready", 1, "red");
+        },
+      });
+
+      expect(result.kind).toBe("ready_finalize_failed");
+      expect(result.iterationsConsumed).toBe(2);
+      expect(gateCalls).toBe(1);
+      expect(invocations).toBe(2);
     });
 
     test("returns retryable ready_finalize_failed when publication succeeded but flip fails", async () => {

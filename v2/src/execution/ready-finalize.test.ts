@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import { createReadyFinalizer } from "./ready-finalize.ts";
+import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { createReadyFinalizer, ReadyGateError } from "./ready-finalize.ts";
 
 describe("createReadyFinalizer", () => {
   const input = { worktreePath: "/tmp/worktree", branch: "feature-branch" };
@@ -35,6 +35,20 @@ describe("createReadyFinalizer", () => {
 
     await expect(finalizer(input)).rejects.toThrow("ready gate failed");
     expect(flipCalls).toBe(0);
+  });
+
+  it("carries the ready gate command, exit code, and combined output", async () => {
+    const finalizer = createReadyFinalizer({
+      asyncSubprocessRunner: {
+        async runAsync() {
+          throw new AsyncSubprocessError("ready failed", 1, "stdout failure\n", "stderr failure\n", undefined);
+        },
+      },
+    });
+
+    await expect(finalizer(input)).rejects.toEqual(
+      new ReadyGateError("bun run ready", 1, "stdout failure\nstderr failure\n"),
+    );
   });
 
   it("retries transient gh pr ready errors up to 3 attempts", async () => {

@@ -25,12 +25,12 @@ back to the agent and re-run the gate.
 
 ## Acceptance criteria
 
-- [ ] A red ready gate re-invokes the agent with the gate command, exit code, and output, then re-runs the gate; on a green re-run the PR flips to ready and the run outcome is `complete`. A new `write-loop.test.ts` case asserts this and fails against the pre-fix code.
-- [ ] A gate that stays red is retried at most 3 times, then returns retryable `ready_finalize_failed` with the PR left draft (test asserts the invocation count and the outcome).
-- [ ] Repair iterations count against `maxIterations`; a run that exhausts its budget mid-repair returns `ready_finalize_failed` (test).
-- [ ] A repair iteration returning `blocked` stops repair immediately with `ready_finalize_failed` (test).
-- [ ] A `gh pr ready` flip failure returns `ready_finalize_failed` with no repair invocation (test).
-- [ ] Each repair attempt is visible in the run log as an iteration plus a `ready_gate_repair` entry naming the attempt number and gate exit code.
+- [x] A red ready gate re-invokes the agent with the gate command, exit code, and output, then re-runs the gate; on a green re-run the PR flips to ready and the run outcome is `complete`. A new `write-loop.test.ts` case asserts this and fails against the pre-fix code.
+- [x] A gate that stays red is retried at most 3 times, then returns retryable `ready_finalize_failed` with the PR left draft (test asserts the invocation count and the outcome).
+- [x] Repair iterations count against `maxIterations`; a run that exhausts its budget mid-repair returns `ready_finalize_failed` (test).
+- [x] A repair iteration returning `blocked` stops repair immediately with `ready_finalize_failed` (test).
+- [x] A `gh pr ready` flip failure returns `ready_finalize_failed` with no repair invocation (test).
+- [x] Each repair attempt is visible in the run log as an iteration plus a `ready_gate_repair` entry naming the attempt number and gate exit code.
 
 ## Documentation updates
 

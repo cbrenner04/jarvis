@@ -14,6 +14,7 @@ import {
   harnessAuthRotateLine,
   harnessQuotaFallbackLenientLine,
   harnessTransientRetryLine,
+  harnessZeroAgentOutputLine,
 } from "../../quota-harness-messages.ts";
 import { runSummary } from "../../run-summary.ts";
 import {
@@ -105,6 +106,7 @@ type TelemetryRecord = {
   last_file_activity_age_ms?: number | null;
   watchdog_descendants_alive?: boolean;
   active_subspec_path?: string;
+  zero_agent_output?: true;
 };
 
 type WriteTelemetry = (record: TelemetryRecord) => void;
@@ -271,6 +273,7 @@ export function setupLogging(opts: RunCommandOptions, preflight: PreflightOk, lo
           ? { watchdog_descendants_alive: record.watchdog_descendants_alive }
           : {}),
         ...(record.active_subspec_path !== undefined ? { active_subspec_path: record.active_subspec_path } : {}),
+        ...(record.zero_agent_output !== undefined ? { zero_agent_output: record.zero_agent_output } : {}),
       });
       telemetryWrites = true;
       if (record.record_role === "run_terminal") {
@@ -911,6 +914,12 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
       },
     });
 
+    // Detect zero agent output: when the agent process spawned but produced no stdout/stderr
+    const hadZeroAgentOutput = watchdogPgid !== null && lastOutputAtMs.current === null;
+    if (hadZeroAgentOutput) {
+      fanout("harness", `${harnessZeroAgentOutputLine(agent.name)}\n`, "stderr");
+    }
+
     if (
       result.kind === "ok" &&
       (beforeCriteria.length === 0 || beforeCriteria.some((criterion) => !criterion.humanOnly))
@@ -935,6 +944,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         last_output_age_ms: idleWatchdogLastOutputAgeMs,
         last_file_activity_age_ms: idleWatchdogLastFileActivityAgeMs,
         ...telemetryMeta,
+        ...(hadZeroAgentOutput ? { zero_agent_output: true } : {}),
       };
       if (watchdogPgid !== null) {
         idleTelemetryRecord.watchdog_pgid = watchdogPgid;
@@ -991,6 +1001,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         durationMs: iterationDurationMs(),
         kind: "timeout",
         exitReason: watchdogFired ? "watchdog-iteration-timeout" : "iteration-timeout",
+        ...(hadZeroAgentOutput ? { zero_agent_output: true } : {}),
       };
       if (configuredPatchModelEntry?.model !== undefined) {
         iterationTelemetryRecord.configured_model = configuredPatchModelEntry.model;
@@ -1033,6 +1044,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         kind: "timeout",
         exitReason: "run-timeout",
         ...telemetryMeta,
+        ...(hadZeroAgentOutput ? { zero_agent_output: true } : {}),
       });
       return { kind: "return", exitCode: 8 };
     }
@@ -1138,6 +1150,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
               ...telemetryMeta,
               ...usageCost,
               ...(iterationWarnings !== undefined ? { warnings: iterationWarnings } : {}),
+              ...(hadZeroAgentOutput ? { zero_agent_output: true } : {}),
             });
             // Continue processing: treat as no blocker and check for completion
           } else {
@@ -1319,6 +1332,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
               kind: "blocked",
               exitReason: "blocker-detected",
               ...telemetryMeta,
+              ...(hadZeroAgentOutput ? { zero_agent_output: true } : {}),
             });
             // Record this run's delta on incomplete exit to overwrite any prior delta
             if (state.noCommitDelta !== null && afterSubspecPath !== undefined) {
@@ -1570,6 +1584,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
             ...telemetryMeta,
             ...usageCost,
             ...(iterationWarnings !== undefined ? { warnings: iterationWarnings } : {}),
+            ...(hadZeroAgentOutput ? { zero_agent_output: true } : {}),
           });
         }
         writeTelemetry({
@@ -1581,6 +1596,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           record_role: "run_terminal",
           last_output_age_ms: lastOutputAgeMs,
           ...telemetryMeta,
+          ...(hadZeroAgentOutput ? { zero_agent_output: true } : {}),
         });
         // Clear no-commit delta on clean completion
         if (done === 0 && hasUntrackedMutations && afterSubspecPath !== undefined) {
@@ -1602,6 +1618,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
             ...telemetryMeta,
             ...usageCost,
             ...(iterationWarnings !== undefined ? { warnings: iterationWarnings } : {}),
+            ...(hadZeroAgentOutput ? { zero_agent_output: true } : {}),
           });
           state.iteration += 1;
           return { kind: "continue" };
@@ -1632,6 +1649,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           ...telemetryMeta,
           ...usageCost,
           ...(iterationWarnings !== undefined ? { warnings: iterationWarnings } : {}),
+          ...(hadZeroAgentOutput ? { zero_agent_output: true } : {}),
         });
         // Record this run's delta on incomplete exit to overwrite any prior delta
         if (state.noCommitDelta !== null && activeSubspecPath !== undefined) {
@@ -1649,6 +1667,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         ...telemetryMeta,
         ...usageCost,
         ...(iterationWarnings !== undefined ? { warnings: iterationWarnings } : {}),
+        ...(hadZeroAgentOutput ? { zero_agent_output: true } : {}),
       });
       // Record this run's delta on incomplete loopback to overwrite any prior delta
       if (state.noCommitDelta !== null && activeSubspecPath !== undefined) {
@@ -1673,6 +1692,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           kind: "quota",
           exitReason: "quota-exhausted",
           ...telemetryMeta,
+          ...(hadZeroAgentOutput ? { zero_agent_output: true } : {}),
         });
         return { kind: "return", exitCode: 2 };
       }
@@ -1683,6 +1703,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         kind: "quota",
         exitReason: "quota-fallback",
         ...telemetryMeta,
+        ...(hadZeroAgentOutput ? { zero_agent_output: true } : {}),
       });
       state.iteration += 1;
       return { kind: "continue" };
@@ -1702,6 +1723,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         kind: "model_config",
         exitReason: "model-config",
         ...telemetryMeta,
+        ...(hadZeroAgentOutput ? { zero_agent_output: true } : {}),
       });
       return { kind: "return", exitCode: 3 };
     }
@@ -1732,6 +1754,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           kind: "quota",
           exitReason: "quota-exhausted",
           ...telemetryMeta,
+          ...(hadZeroAgentOutput ? { zero_agent_output: true } : {}),
         });
         return { kind: "return", exitCode: 2 };
       }
@@ -1742,6 +1765,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         kind: "quota",
         exitReason: "probable-quota-fallback",
         ...telemetryMeta,
+        ...(hadZeroAgentOutput ? { zero_agent_output: true } : {}),
       });
       state.iteration += 1;
       return { kind: "continue" };
@@ -1783,6 +1807,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
       kind: "error",
       exitReason: "agent-error",
       ...telemetryMeta,
+      ...(hadZeroAgentOutput ? { zero_agent_output: true } : {}),
     });
     return { kind: "return", exitCode: 3 };
   } finally {

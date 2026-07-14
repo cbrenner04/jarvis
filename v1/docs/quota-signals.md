@@ -156,6 +156,14 @@ lines are emitted from `src/modes/plan/emit-plan-quota-stderr.ts`.
 
 **Idle-timeout escalation (patch implementation, review actuator, and shrink):** When the idle-output watchdog fires and at least one later rung remains, the harness advances before any terminal stop. Patch implementation uses `modes.patch.agentOrder`; review actuator and shrink use `subRoleAgentOrder.reviewActuator` (falling back to `agentOrder`). The per-agent advance line is `<agent>: idle timeout; escalating to next agent` (review actuator: `review: <agent>: …`; shrink: `shrink: <agent>: …`). Patch terminal exit `8` with `watchdog-idle-timeout` is returned only after the final implementation rung stalls. Review actuator terminal idle exits `11`. Shrink terminal idle exits `8`. Fix-up iterations do not escalate on idle abort.
 
+### Zero-output detection (patch implementation)
+
+**Harness blindness guard:** When an implementation-phase agent invocation completes and the harness observed **zero stdout and zero stderr bytes**, the patch iteration emits `zero agent output observed from <agent>; check agent binding` on stderr. This signals a harness measurement defect (the agent likely ran but output was not captured) rather than agent idleness or quota exhaustion. The iteration continues with normal fallback logic and telemetry recording; zero-output does not change exit codes or escalation. However, it surfaces in telemetry and the end-of-run summary for operator investigation.
+
+**Telemetry:** Telemetry rows written during a zero-output iteration include `zero_agent_output: true` (omitted if output was observed). Non-zero-output rows never carry this field. **Summary:** The end-of-run summary notes zero-output occurrences per agent: `N iteration(s) under <agent> produced zero observed output (stdout + stderr); check agent binding and environment.` This row appears in the "notes" section, separate from usage aggregates.
+
+**Coverage:** Zero-output is a harness-only measurement — the detector fires regardless of iteration outcome (`ok`, `error`, `quota`, `timeout`). It is not classified as quota or failure (same iteration may be ok or not), so operators read the zero-output flag to distinguish "no output" from "idle" or "quota" in timeout records where `last_output_age_ms: null`. The guard does not fire when the agent process never spawned (missing binary, spawn-layer error); those already carry named error diagnostics.
+
 ### Patch telemetry (`~/.jarvis/runs.jsonl`)
 
 Only **`jarvis1 run`** (patch mode) appends JSONL via `writeTelemetry` today.
@@ -183,6 +191,8 @@ can tie the timeout to the exact killed process group. They may also include
 `last_output_age_ms` (ms since last stdout/stderr chunk at watchdog fire; `null`
 when no output arrived) and `watchdog_descendants_alive` (whether ≥1 descendant
 of the agent root pid was live at snapshot; omitted when pgid was unavailable).
+
+**Zero-output detection:** Implementation-phase iterations that observed zero stdout/stderr include `zero_agent_output: true` on all telemetry records written during that iteration (invocation + terminal rows). This field is omitted (not `false`) when output was observed. The harness emits a distinct `zero agent output observed from <agent>; check agent binding` line on stderr when this condition occurs, distinct from timeout/idle diagnostics.
 
 Plan phases do not emit matching JSONL rows for per-phase agent outcomes.
 

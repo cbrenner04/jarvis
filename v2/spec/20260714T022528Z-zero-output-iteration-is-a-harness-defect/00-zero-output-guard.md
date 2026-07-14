@@ -23,21 +23,21 @@ Zero observed output from a spawned agent is a harness measurement defect. Surfa
 
 ## Task checklist
 
-- [ ] Add `HARNESS_ZERO_AGENT_OUTPUT` to `v1/src/quota-harness-messages.ts`.
-- [ ] Add `zero_agent_output?: true` to `TelemetryRecord` (`v1/src/telemetry.ts`) and to the patch iteration record type in `v1/src/modes/patch/iteration.ts` / `run.ts`.
-- [ ] In `v1/src/modes/patch/iteration.ts`, after the implementation-phase agent invocation returns, detect `lastOutputAtMs.current === null` with a spawned pgid; emit the named harness line on stderr and stamp `zero_agent_output: true` on every telemetry record that iteration writes.
-- [ ] Surface the condition in `v1/src/run-summary.ts` so the end-of-run summary distinguishes it from an ordinary idle/iteration timeout.
-- [ ] Tests in `v1/test/` covering: zero-output ok iteration, zero-output timeout iteration, an iteration with output (guard silent), and exit code unchanged in both zero-output cases.
-- [ ] Docs.
+- [x] Add `HARNESS_ZERO_AGENT_OUTPUT` to `v1/src/quota-harness-messages.ts`.
+- [x] Add `zero_agent_output?: true` to `TelemetryRecord` (`v1/src/telemetry.ts`) and to the patch iteration record type in `v1/src/modes/patch/iteration.ts` / `run.ts`.
+- [x] In `v1/src/modes/patch/iteration.ts`, after the implementation-phase agent invocation returns, detect `lastOutputAtMs.current === null` with a spawned pgid; emit the named harness line on stderr and stamp `zero_agent_output: true` on every telemetry record that iteration writes.
+- [x] Surface the condition in `v1/src/run-summary.ts` so the end-of-run summary distinguishes it from an ordinary idle/iteration timeout.
+- [x] Tests in `v1/test/` covering: zero-output ok iteration, zero-output timeout iteration, an iteration with output (guard silent), and exit code unchanged in both zero-output cases.
+- [x] Docs.
 
 ## Acceptance criteria
 
-- [ ] A patch implementation iteration whose agent produced no stdout and no stderr emits a distinct named harness line on stderr naming the agent (`HARNESS_ZERO_AGENT_OUTPUT`), instead of only the ordinary idle/iteration-timeout line.
-- [ ] Every `~/.jarvis/runs.jsonl` record written by that iteration carries `zero_agent_output: true`; records for an iteration that observed output omit the field entirely.
-- [ ] The guard fires for any configured agent binding (test drives it through a non-claude binding).
-- [ ] The guard does not change the iteration's exit code or the agent-escalation ladder: a zero-output idle timeout still exits 8 / escalates exactly as before.
-- [ ] The guard does not fire when the agent process never spawned.
-- [ ] The end-of-run summary reports the zero-output condition distinctly from an ordinary idle/iteration timeout.
+- [x] A patch implementation iteration whose agent produced no stdout and no stderr emits a distinct named harness line on stderr naming the agent (`HARNESS_ZERO_AGENT_OUTPUT`), instead of only the ordinary idle/iteration-timeout line.
+- [x] Every `~/.jarvis/runs.jsonl` record written by that iteration carries `zero_agent_output: true`; records for an iteration that observed output omit the field entirely.
+- [x] The guard fires for any configured agent binding (test drives it through a non-claude binding).
+- [x] The guard does not change the iteration's exit code or the agent-escalation ladder: a zero-output idle timeout still exits 8 / escalates exactly as before.
+- [x] The guard does not fire when the agent process never spawned.
+- [x] The end-of-run summary reports the zero-output condition distinctly from an ordinary idle/iteration timeout.
 
 ## Documentation updates
 

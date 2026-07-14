@@ -32,3 +32,8 @@ export const HARNESS_MODEL_CONFIG_FALLBACK = "model configuration error; falling
 export function harnessAuthRotateLine(agent: string): string {
   return `${agent} auth failed; re-authenticate and rerun`;
 }
+
+/** Emitted on stderr when an implementation-phase agent invocation produces zero observed output (no trailing newline). */
+export function harnessZeroAgentOutputLine(agent: string): string {
+  return `zero agent output observed from ${agent}; check agent binding`;
+}

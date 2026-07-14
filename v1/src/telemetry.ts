@@ -53,6 +53,8 @@ export type TelemetryRecord = {
   /** Whether ≥1 descendant of the agent root pid was live at watchdog snapshot.*/
   watchdog_descendants_alive?: boolean;
   active_subspec_path?: string;
+  /** Set to true when the agent process spawned but produced zero stdout and zero stderr bytes (harness blindness signal).*/
+  zero_agent_output?: true;
 };
 
 export function appendTelemetryLine(telemetryPath: string | null, record: TelemetryRecord): void {

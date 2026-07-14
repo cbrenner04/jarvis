@@ -85,7 +85,9 @@ separate retryable boundary awaits (1) the ready gate in the completed run's
 worktree, then (2) `gh pr ready <branch>`. The default gate command is `bun run
 ready`; any non-zero exit is a gate failure (missing and red gate scripts are
 not distinguished), reported as `ready gate failed (exit N): <stderr>`. The
-gate runs unbounded. On green, the awaited flip calls `gh pr ready <branch>`
+gate runs the `full` tier (format, lint, typecheck, tests) unconditionally,
+overriding any `JARVIS_READY_TIER` in the parent environment.
+The gate runs unbounded. On green, the awaited flip calls `gh pr ready <branch>`
 through the same bounded transient-retry
 seam as publication (3 total attempts, flat 1000 ms backoff). Before the
 transient classifier, the flip treats exit-0 (including empty output), and any

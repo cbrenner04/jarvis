@@ -109,6 +109,20 @@ describe("realAsyncSubprocessRunner", () => {
     );
     expect(stdout).toBe("");
   });
+
+  test("env option overrides child process environment", async () => {
+    const stdout = await realAsyncSubprocessRunner.runAsync("sh", ["-c", "echo $TEST_VAR"], cwd, {
+      env: { TEST_VAR: "override" },
+    });
+    expect(stdout.trim()).toBe("override");
+  });
+
+  test("omitting env preserves inherited environment", async () => {
+    process.env.TEST_INHERITED = "present";
+    const stdout = await realAsyncSubprocessRunner.runAsync("sh", ["-c", "echo $TEST_INHERITED"], cwd);
+    expect(stdout.trim()).toBe("present");
+    delete process.env.TEST_INHERITED;
+  });
 });
 
 describe("predicate parity", () => {

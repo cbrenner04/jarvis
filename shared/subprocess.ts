@@ -12,6 +12,8 @@ export type AsyncSubprocessOptions = {
   stdio?: "pipe" | "ignore";
   /** Kills the subprocess and rejects if it hasn't exited within this many ms. */
   timeoutMs?: number;
+  /** Environment variables for the child process; unset preserves inherited env. */
+  env?: NodeJS.ProcessEnv;
 };
 
 export class AsyncSubprocessError extends Error {
@@ -52,6 +54,7 @@ export const realAsyncSubprocessRunner: AsyncSubprocessRunner = {
           ...(options?.maxBuffer !== undefined ? { maxBuffer: options.maxBuffer } : {}),
           ...(stdio === "ignore" ? { stdio: "ignore" } : {}),
           ...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
+          ...(options?.env !== undefined ? { env: options.env } : {}),
         },
         (error, stdout, stderr) => {
           if (error) {

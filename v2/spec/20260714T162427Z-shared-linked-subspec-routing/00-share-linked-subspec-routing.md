@@ -19,11 +19,11 @@ Linked-index routing is split between `v2/src/execution/linked-subspec-routing.t
 
 ## Acceptance criteria
 
-- [ ] `shared/**/linked-subspec-routing*.test.ts` covers direct subspec, empty index, completed index, malformed or unreadable links, active selection, advancement, terminal detection, and multiple subspecs through the shared contract.
-- [ ] `v2/src/execution/implement-workflow-steps.test.ts` stays green with builder preflight consuming the shared contract.
-- [ ] `v2/src/execution/workflow-runner.test.ts` linked-implement routing tests stay green with selection, advancement, terminal detection, and failure classification removed from runner ownership.
-- [ ] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/workflow-runner.md` identifies `shared/` as linked-subspec routing owner and limits `workflow-runner.ts` to coordination.
+- [x] `shared/**/linked-subspec-routing*.test.ts` covers direct subspec, empty index, completed index, malformed or unreadable links, active selection, advancement, terminal detection, and multiple subspecs through the shared contract.
+- [x] `v2/src/execution/implement-workflow-steps.test.ts` stays green with builder preflight consuming the shared contract.
+- [x] `v2/src/execution/workflow-runner.test.ts` linked-implement routing tests stay green with selection, advancement, terminal detection, and failure classification removed from runner ownership.
+- [x] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/workflow-runner.md` identifies `shared/` as linked-subspec routing owner and limits `workflow-runner.ts` to coordination.
 
 ## Documentation updates
 

@@ -372,7 +372,8 @@ integer; `0` emits only the implement write step, while a positive value loads
 one appended `review-debate` step with `maxCycles` equal to that count.
 
 **Linked-subspec routing:** When `specPath` points to a multi-subspec
-`index.md`, the builder resolves the first unchecked linked subspec via
+`index.md`, the builder and runner use the shared linked-subspec routing contract
+to resolve the first unchecked linked subspec via
 `resolveActiveLinkedSubspec`. The active subspec's path relative to the routing
 base is set as `expectedArtifactPath`, and that subspec's body is injected into
 the prompt during iteration. The routing base is the external worktree when it
@@ -393,6 +394,10 @@ implement or shrink invocation. Invalid linked paths fail before agent
 invocation: `implement.malformed_link` (empty/invalid path syntax),
 `implement.link_missing` (file not found), `implement.link_unreadable` (I/O
 error), `implement.link_out_of_tree` (resolved path outside project).
+
+`shared/linked-subspec-routing.ts` owns linked-subspec selection, advancement,
+terminal detection, and named failure classification. `workflow-runner.ts` only
+coordinates worktree reads, write-loop execution, and applying the shared result.
 
 **Non-linked routing:** When `specPath` is a direct subspec or an index with no
 linked subspecs but tasks, routing behavior is unchanged (direct file routing).

@@ -49,7 +49,7 @@ export function resolveActiveLinkedSubspec(specPath: string, projectRoot: string
     return { ok: false, error: "All linked subspecs are complete", errorKind: "already_complete" };
   }
   const activeLink = linkedSubspecs[uncheckedIndex];
-  if (!activeLink || !activeLink.path.trim()) {
+  if (!activeLink?.path.trim()) {
     return { ok: false, error: `Malformed link path: "${activeLink?.path ?? ""}"`, errorKind: "malformed_link" };
   }
 

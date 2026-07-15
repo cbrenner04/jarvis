@@ -10,7 +10,10 @@ import {
 } from "./linked-subspec-routing.ts";
 
 let root: string | undefined;
-afterEach(() => { if (root) rmSync(root, { recursive: true, force: true }); root = undefined; });
+afterEach(() => {
+  if (root) rmSync(root, { recursive: true, force: true });
+  root = undefined;
+});
 function setup(index: string, files: Record<string, string> = {}): string {
   root = mkdtempSync(join(tmpdir(), "shared-linked-routing-"));
   writeFileSync(join(root, "index.md"), index);
@@ -31,7 +34,9 @@ describe("shared linked-subspec routing", () => {
     dir = setup("# Missing\n\n- [ ] [One](one.md)\n");
     expect(resolveActiveLinkedSubspec(join(dir, "index.md"), dir)).toMatchObject({ errorKind: "link_unreadable" });
     dir = setup("# Many\n\n- [x] [One](one.md)\n- [ ] [Two](two.md)\n- [ ] [Three](three.md)\n", {
-      "one.md": "# One", "two.md": "# Two", "three.md": "# Three",
+      "one.md": "# One",
+      "two.md": "# Two",
+      "three.md": "# Three",
     });
     const active = resolveActiveLinkedSubspec(join(dir, "index.md"), dir);
     expect(active).toMatchObject({ ok: true, isTerminal: false, active: { index: 1 } });
@@ -40,9 +45,14 @@ describe("shared linked-subspec routing", () => {
   test("classifies completion, detects routing mutation, and advances", () => {
     const before = "# Index\n\n- [ ] [One](one.md)\n- [ ] [Two](two.md)\n";
     const active = { index: 0, isTerminal: false } as const;
-    expect(completeLinkedSubspec(before, before, active, "# One\n\n## Acceptance criteria\n\n- [ ] Required\n")).toEqual({ ok: false, errorKind: "link_incomplete" });
+    expect(
+      completeLinkedSubspec(before, before, active, "# One\n\n## Acceptance criteria\n\n- [ ] Required\n"),
+    ).toEqual({ ok: false, errorKind: "link_incomplete" });
     const mutated = before.replace("- [ ] [One]", "- [x] [One]");
-    expect(completeLinkedSubspec(before, mutated, active, "# One\n")).toEqual({ ok: false, errorKind: "index_routing_mutated" });
+    expect(completeLinkedSubspec(before, mutated, active, "# One\n")).toEqual({
+      ok: false,
+      errorKind: "index_routing_mutated",
+    });
     const result = completeLinkedSubspec(before, before, active, "# One\n");
     expect(result).toMatchObject({ ok: true, isTerminal: false, indexContent: expect.stringContaining("- [x] [One]") });
     expect(findModifiedLinkedCheckbox(before, mutated)?.modifiedIndex).toBe(0);

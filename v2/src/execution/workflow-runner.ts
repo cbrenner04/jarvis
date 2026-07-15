@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "no
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
-import { parseSpec } from "../../../shared/spec-parser.ts";
+import { completeLinkedSubspec, resolveActiveLinkedSubspec } from "../../../shared/linked-subspec-routing.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import {
   type AgentModelConfig,
@@ -23,11 +23,6 @@ import type { CompletionPublisher } from "./completion-publisher.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { listLandedIntentFiles } from "./intent-output.ts";
 import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
-import {
-  advanceLinkedSubspecCheckbox,
-  findModifiedLinkedCheckbox,
-  resolveActiveLinkedSubspec,
-} from "./linked-subspec-routing.ts";
 import { landPublication, type PublicationLanding } from "./publication-landing.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import {
@@ -468,27 +463,23 @@ function finalizeLinkedImplementPass(
   beforeIndexContent: string,
   indexPath: string,
 ): WorkflowStepOutcome | undefined {
-  const subspecContent = readFileSync(routing.active.path, "utf8");
-  const incompleteRequiredCriteria = parseSpec(subspecContent).acceptanceCriteria.some(
-    (criterion) => !criterion.humanOnly && !criterion.checked,
-  );
-  if (incompleteRequiredCriteria) {
-    return { ...stepped, kind: "contract_miss", routingFailure: "implement.link_incomplete" };
-  }
-
   const afterIndexContent = readFileSync(indexPath, "utf8");
-  const mutatedLink = findModifiedLinkedCheckbox(beforeIndexContent, afterIndexContent);
-  if (mutatedLink !== undefined) {
+  const finalized = completeLinkedSubspec(
+    beforeIndexContent,
+    afterIndexContent,
+    { index: routing.active.index, isTerminal: routing.isTerminal },
+    routing.active.body,
+  );
+  if (!finalized.ok) {
     writeFileSync(indexPath, beforeIndexContent, "utf8");
-    return { ...stepped, kind: "blocked", routingFailure: "implement.index_routing_mutated" };
+    return {
+      ...stepped,
+      kind: finalized.errorKind === "link_incomplete" ? "contract_miss" : "blocked",
+      routingFailure: `implement.${finalized.errorKind}`,
+    };
   }
-
-  const advancedIndexContent = advanceLinkedSubspecCheckbox(beforeIndexContent, routing.active.index);
-  if (advancedIndexContent !== undefined) {
-    writeFileSync(indexPath, advancedIndexContent, "utf8");
-  }
-
-  if (routing.isTerminal) {
+  writeFileSync(indexPath, finalized.indexContent, "utf8");
+  if (finalized.isTerminal) {
     return { ...stepped, implementReviewEligible: true };
   }
   return undefined;

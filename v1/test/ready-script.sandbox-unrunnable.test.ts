@@ -2,7 +2,7 @@
 // inherently require real subprocess semantics and cannot be mocked. The worktree digest test uses real git
 // solely for test environment setup. All other subprocess interactions go through the `runCommandFn` seam.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -255,6 +255,53 @@ describe("ready tier parsing and step lists", () => {
   test("getReadyCommands runs no test step when the resolved test scope is empty", () => {
     const commands = getReadyCommands("full", { runInstall: false, testScope: [] });
     expect(commands.some((command) => command.args[1]?.startsWith("test"))).toBe(false);
+  });
+
+  test("runReady fails when the resolved test scope is empty", async () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-empty-scope-"));
+    let exitCode: number | undefined;
+    const originalExit = process.exit;
+    process.exit = ((code: number) => {
+      exitCode = code;
+      throw new Error(`process.exit(${code})`);
+    }) as never;
+
+    try {
+      await withEnvAsync("JARVIS_READY_TIER", "fast", async () => {
+        await withEnvAsync("JARVIS_READY_TEST_SCOPE", "", async () => {
+          await expect(runReady({ repoRoot })).rejects.toThrow("process.exit(1)");
+        });
+      });
+      expect(exitCode).toBe(1);
+    } finally {
+      process.exit = originalExit;
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("a red test in the resolved suite makes the real ready gate fail", () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-red-suite-"));
+    try {
+      writeFileSync(
+        join(repoRoot, "package.json"),
+        JSON.stringify({ scripts: { typecheck: "true", test: "bun test red.custom.ts" } }),
+        "utf8",
+      );
+      writeFileSync(
+        join(repoRoot, "red.custom.ts"),
+        'import { expect, test } from "bun:test"; test("red", () => expect(1).toBe(2));\n',
+      );
+
+      const result = spawnSync("bun", [join(process.cwd(), "scripts/ready.ts")], {
+        cwd: repoRoot,
+        env: { ...process.env, JARVIS_READY_TIER: "fast" },
+        encoding: "utf8",
+      });
+
+      expect(result.status).not.toBe(0);
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
   });
 
   test("parseReadyTestScope: unset means unscoped (undefined), distinct from an explicit empty scope", () => {
@@ -566,7 +613,7 @@ function withSignalOrTimeoutTest(testName: string, exitCode: number, expectedCom
 }
 
 describe("ready serial-retry on test failure", () => {
-  test("serial-green recovers: parallel test fails, serial test passes, remaining commands run", async () => {
+  test("serial retry re-runs the exact failed command and can recover", async () => {
     const repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-serial-green-"));
     const executed: string[] = [];
     const stderrLines: string[] = [];
@@ -593,13 +640,9 @@ describe("ready serial-retry on test failure", () => {
             runCommandFn: async (_name, args) => {
               const step = args.join(" ");
               executed.push(step);
-              // Parallel test fails with genuine failure code
+              // First test invocation fails with a genuine failure code.
               if (step === "run test") {
-                return 1; // First (parallel) test fails
-              }
-              // Serial test passes
-              if (step === "test" && executed.filter((s) => s === "test").length === 1) {
-                return 0; // Serial test passes
+                return executed.filter((s) => s === "run test").length === 1 ? 1 : 0;
               }
               // All other commands succeed
               return 0;
@@ -610,14 +653,13 @@ describe("ready serial-retry on test failure", () => {
         process.stderr.write = origWrite;
       }
 
-      // Verify execution order: check, typecheck, parallel test (fails), serial test (passes), lint:md
-      expect(executed).toEqual(["run check", "run typecheck", "run test", "test", "run lint:md"]);
+      expect(executed).toEqual(["run check", "run typecheck", "run test", "run test", "run lint:md"]);
 
       // Verify the recovery signal is logged
       const stderr = stderrLines.join("");
-      expect(stderr).toContain("parallel test failed");
-      expect(stderr).toContain("retrying serially");
-      expect(stderr).toContain("parallel-load flake recovered");
+      expect(stderr).toContain("test step failed");
+      expect(stderr).toContain("retrying");
+      expect(stderr).toContain("test flake recovered");
     } finally {
       rmSync(repoRoot, { recursive: true, force: true });
     }
@@ -651,8 +693,7 @@ describe("ready serial-retry on test failure", () => {
               runCommandFn: async (_name, args) => {
                 const step = args.join(" ");
                 executed.push(step);
-                // Both parallel and serial tests fail
-                if (step === "run test" || step === "test") {
+                if (step === "run test") {
                   return 2; // Genuine failure, not timeout/signal
                 }
                 return 0;
@@ -674,9 +715,7 @@ describe("ready serial-retry on test failure", () => {
       rmSync(repoRoot, { recursive: true, force: true });
     }
 
-    // Verify both parallel and serial tests ran before failing
-    expect(executed).toContain("run test");
-    expect(executed).toContain("test");
+    expect(executed).toEqual(["run check", "run typecheck", "run test", "run test"]);
     expect(capturedExitCode).toBe(2);
   });
 

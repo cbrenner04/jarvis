@@ -174,6 +174,24 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
   return 0;
 }
 
+async function runDaemonStatusCommand(io: Io, deps: CliDeps): Promise<number> {
+  const pid = readPid(deps.pidPath);
+  if (pid === null) {
+    io.stdout("stopped\n");
+    return 1;
+  }
+
+  const status = await deps.getDaemonStatus(pid, deps.socketPath);
+  if (status.state === "stopped") {
+    io.stdout("stopped\n");
+    return 1;
+  }
+  const currentRevision = deps.resolveSourceRevision();
+  const state = status.loadedRevision === currentRevision ? "running" : "stale";
+  io.stdout(`${state} loaded=${status.loadedRevision} current=${currentRevision}\n`);
+  return state === "running" ? 0 : 1;
+}
+
 async function runDaemonCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
   const subcommand = argv[0];
 
@@ -200,21 +218,7 @@ async function runDaemonCommand(argv: readonly string[], io: Io, deps: CliDeps):
   }
 
   if (subcommand === "status" && argv.length === 1) {
-    const pid = readPid(deps.pidPath);
-    if (pid === null) {
-      io.stdout("stopped\n");
-      return 1;
-    }
-
-    const status = await deps.getDaemonStatus(pid, deps.socketPath);
-    if (status.state === "stopped") {
-      io.stdout("stopped\n");
-      return 1;
-    }
-    const currentRevision = deps.resolveSourceRevision();
-    const state = status.loadedRevision === currentRevision ? "running" : "stale";
-    io.stdout(`${state} loaded=${status.loadedRevision} current=${currentRevision}\n`);
-    return state === "running" ? 0 : 1;
+    return runDaemonStatusCommand(io, deps);
   }
 
   if (subcommand === "log") {

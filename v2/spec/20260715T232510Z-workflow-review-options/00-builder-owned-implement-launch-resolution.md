@@ -20,10 +20,10 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/implement-workflow-steps.test.ts` directly verifies that unresolved launch input is resolved and rejected by the builder before workflow steps are returned.
-- [ ] The implement launch, path-containment, config-default, and pre-daemon cases in `v2/src/cli.test.ts` stay green (behavior unchanged by the ownership move).
-- [ ] `v2/src/execution/implement-workflow-steps.test.ts` existing review composition cases stay green (behavior unchanged by the ownership move).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/implement-workflow-steps.test.ts` directly verifies that unresolved launch input is resolved and rejected by the builder before workflow steps are returned.
+- [x] The implement launch, path-containment, config-default, and pre-daemon cases in `v2/src/cli.test.ts` stay green (behavior unchanged by the ownership move).
+- [x] `v2/src/execution/implement-workflow-steps.test.ts` existing review composition cases stay green (behavior unchanged by the ownership move).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

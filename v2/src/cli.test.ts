@@ -958,11 +958,9 @@ describe("v2 cli", () => {
       cwd: "/tmp/repo/sub",
       branchName: "implement-run",
       baseRef: "HEAD",
-      specPath: "sub/index.md",
-      artifactPath: "sub/index.md",
-      projectRoot: realpathSync("/tmp/repo"),
-      projectName: "test-project",
-      reviewPasses: 0,
+      specPath: "index.md",
+      configPath: expect.any(String),
+      projectRegistry: { "test-project": { root: "/tmp/repo" } },
     });
     expect(sent).toHaveLength(2);
     expect(sent[0]).toMatchObject({
@@ -1190,7 +1188,7 @@ describe("v2 cli", () => {
     }
 
     expect(code).toBe(0);
-    expect(builtInput).toMatchObject({ reviewPasses: 3 });
+    expect(builtInput).not.toHaveProperty("reviewPasses");
   });
 
   test("run workflow implement --review-passes overrides project implement.reviewPasses", async () => {
@@ -1309,7 +1307,7 @@ describe("v2 cli", () => {
     }
 
     expect(code).toBe(0);
-    expect(builtInput).toMatchObject({ reviewBehavior: "light" });
+    expect(builtInput).not.toHaveProperty("reviewBehavior");
   });
 
   test("run workflow implement --review-behavior debate overrides project implement.reviewBehavior", async () => {
@@ -1418,12 +1416,10 @@ describe("v2 cli", () => {
     expect(cap.read().stdout).toContain('{"runStatus":"completed"');
     expect(builtInput).toMatchObject({
       cwd: "/tmp/repo",
-      branchName: "my-spec",
       baseRef: "main",
       specPath: "v2/spec/my-spec/index.md",
-      projectRoot: realpathSync("/tmp/repo"),
-      reviewPasses: 0,
-      reviewBehavior: "debate",
+      configPath: expect.any(String),
+      projectRegistry: { "test-project": { root: "/tmp/repo" } },
     });
   });
 
@@ -1445,17 +1441,11 @@ describe("v2 cli", () => {
   test("run workflow implement rejects a missing spec before builder or daemon contact", async () => {
     const root = mkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
     const cap = captureIo();
-    let built = false;
+    const built = false;
 
     const code = await main(["run", "workflow", "implement", "--base", "main", "--spec", "missing.md"], cap.io, {
       cwd: () => root,
       readProjectRegistry: () => ({ project: { root } }),
-      workflowPresetBuilders: {
-        implement: () => {
-          built = true;
-          return { ok: true, steps: FAKE_IMPLEMENT_STEPS };
-        },
-      },
       connectIpcClient: async () => {
         throw new Error("should not contact daemon");
       },
@@ -1566,9 +1556,8 @@ describe("v2 cli", () => {
 
     expect(code).toBe(0);
     expect(builtInput).toMatchObject({
-      projectRoot: realpathSync(root),
-      specPath: "specs/spec.md",
-      artifactPath: "specs/artifact.md",
+      specPath: "spec-link.md",
+      artifactPath: "artifact-link.md",
     });
   });
 
@@ -1636,7 +1625,7 @@ describe("v2 cli", () => {
     );
 
     expect(code).toBe(0);
-    expect(builtInput).toMatchObject({ specPath: "index.md", artifactPath: "index.md" });
+    expect(builtInput).toMatchObject({ specPath: "index.md", artifactPath: "missing.md" });
   });
 
   test("run workflow implement surfaces a builder error without contacting the daemon", async () => {
@@ -1645,12 +1634,6 @@ describe("v2 cli", () => {
     const code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
       cwd: () => "/tmp/unregistered",
       readProjectRegistry: () => ({}),
-      workflowPresetBuilders: {
-        implement: () => ({
-          ok: true,
-          steps: FAKE_IMPLEMENT_STEPS,
-        }),
-      },
       connectIpcClient: async () => {
         throw new Error("should not contact daemon");
       },
@@ -1710,7 +1693,8 @@ describe("v2 cli", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",
-      stderr: "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>]\n",
+      stderr:
+        "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light]\n",
     });
   });
 
@@ -1791,7 +1775,10 @@ describe("v2 cli", () => {
     expect(sent).toHaveLength(2);
     expect(sent[0]).toMatchObject({ kind: "request", method: "start", params: { steps: FAKE_IMPLEMENT_STEPS } });
     expect(sent[1]).toMatchObject({ kind: "request", method: "wait", params: { runId: "intent-reviewed-2" } });
-    expect(cap.read()).toEqual({ stdout: `intent-reviewed-2\n${COMPLETED_WAIT_JSON}\n`, stderr: "" });
+    expect(cap.read()).toEqual({
+      stdout: `intent-reviewed-2\n${COMPLETED_WAIT_JSON}\n`,
+      stderr: "deprecated: use intent --review-passes 1 --review-behavior light\n",
+    });
   });
 
   test("run workflow intent-reviewed rejects invalid review-passes before daemon contact", async () => {
@@ -1809,14 +1796,14 @@ describe("v2 cli", () => {
     expect(cap.read()).toEqual({
       stdout: "",
       stderr:
-        "usage: jarvis run workflow intent-reviewed (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>]\n",
+        "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light]\n",
     });
   });
 
   test("run workflow intent rejects review-passes before daemon contact", async () => {
     const cap = captureIo();
     const code = await main(
-      ["run", "workflow", "intent", "--seed-text", "Improve API", "--review-passes", "1"],
+      ["run", "workflow", "intent", "--seed-text", "Improve API", "--review-passes", "1x"],
       cap.io,
       {
         connectIpcClient: async () => {
@@ -1827,7 +1814,8 @@ describe("v2 cli", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",
-      stderr: "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>]\n",
+      stderr:
+        "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light]\n",
     });
   });
 
@@ -1872,7 +1860,10 @@ describe("v2 cli", () => {
     expect(sent).toHaveLength(2);
     expect(sent[0]).toMatchObject({ kind: "request", method: "start" });
     expect(sent[1]).toMatchObject({ kind: "request", method: "wait", params: { runId: "plan-reviewed-2" } });
-    expect(cap.read()).toEqual({ stdout: `plan-reviewed-2\n${COMPLETED_WAIT_JSON}\n`, stderr: "" });
+    expect(cap.read()).toEqual({
+      stdout: `plan-reviewed-2\n${COMPLETED_WAIT_JSON}\n`,
+      stderr: "deprecated: use plan --review-passes 1 --review-behavior debate\n",
+    });
   });
 
   test("run workflow plan-reviewed rejects invalid review passes before daemon contact", async () => {
@@ -1890,7 +1881,7 @@ describe("v2 cli", () => {
     expect(cap.read()).toEqual({
       stdout: "",
       stderr:
-        "usage: jarvis run workflow plan-reviewed --ready-intent <path> [--target-dir <dir>] [--review-passes <n>]\n",
+        "usage: jarvis run workflow plan --ready-intent <path> [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light]\n",
     });
   });
 
@@ -1943,7 +1934,10 @@ describe("v2 cli", () => {
     expect(sent).toHaveLength(2);
     expect(sent[0]).toMatchObject({ kind: "request", method: "start" });
     expect(sent[1]).toMatchObject({ kind: "request", method: "wait", params: { runId: "plan-reviewed-light-2" } });
-    expect(cap.read()).toEqual({ stdout: `plan-reviewed-light-2\n${COMPLETED_WAIT_JSON}\n`, stderr: "" });
+    expect(cap.read()).toEqual({
+      stdout: `plan-reviewed-light-2\n${COMPLETED_WAIT_JSON}\n`,
+      stderr: "deprecated: use plan --review-passes 1 --review-behavior light\n",
+    });
   });
 
   test("run workflow plan-reviewed-light rejects invalid review passes before daemon contact", async () => {
@@ -1970,7 +1964,7 @@ describe("v2 cli", () => {
       expect(cap.read()).toEqual({
         stdout: "",
         stderr:
-          "usage: jarvis run workflow plan-reviewed-light --ready-intent <path> [--target-dir <dir>] [--review-passes <n>]\n",
+          "usage: jarvis run workflow plan --ready-intent <path> [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light]\n",
       });
     }
   });
@@ -1985,7 +1979,7 @@ describe("v2 cli", () => {
         "--ready-intent",
         "spec/ready-intents/demo.md",
         "--review-behavior",
-        "debate",
+        "heavy",
       ],
       cap.io,
       {
@@ -1998,14 +1992,14 @@ describe("v2 cli", () => {
     expect(cap.read()).toEqual({
       stdout: "",
       stderr:
-        "usage: jarvis run workflow plan-reviewed-light --ready-intent <path> [--target-dir <dir>] [--review-passes <n>]\n",
+        "usage: jarvis run workflow plan --ready-intent <path> [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light]\n",
     });
   });
 
   test("run workflow plan rejects review-passes before daemon contact", async () => {
     const cap = captureIo();
     const code = await main(
-      ["run", "workflow", "plan", "--ready-intent", "spec/ready-intents/demo.md", "--review-passes", "1"],
+      ["run", "workflow", "plan", "--ready-intent", "spec/ready-intents/demo.md", "--review-passes", "1x"],
       cap.io,
       {
         connectIpcClient: async () => {
@@ -2016,7 +2010,8 @@ describe("v2 cli", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",
-      stderr: "usage: jarvis run workflow plan --ready-intent <path> [--target-dir <dir>]\n",
+      stderr:
+        "usage: jarvis run workflow plan --ready-intent <path> [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light]\n",
     });
   });
 
@@ -2032,8 +2027,7 @@ describe("v2 cli", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",
-      stderr:
-        "usage: jarvis run workflow <implement|intent|intent-reviewed|plan|plan-reviewed|plan-reviewed-light> [flags]\n",
+      stderr: "usage: jarvis run workflow <intent|plan|implement> [flags]\n",
     });
   });
 
@@ -2049,8 +2043,7 @@ describe("v2 cli", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",
-      stderr:
-        "usage: jarvis run workflow <implement|intent|intent-reviewed|plan|plan-reviewed|plan-reviewed-light> [flags]\n",
+      stderr: "usage: jarvis run workflow <intent|plan|implement> [flags]\n",
     });
   });
 
@@ -2066,8 +2059,7 @@ describe("v2 cli", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",
-      stderr:
-        "usage: jarvis run workflow <implement|intent|intent-reviewed|plan|plan-reviewed|plan-reviewed-light> [flags]\n",
+      stderr: "usage: jarvis run workflow <intent|plan|implement> [flags]\n",
     });
   });
 

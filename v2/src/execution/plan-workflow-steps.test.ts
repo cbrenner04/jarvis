@@ -105,6 +105,57 @@ describe("plan preset draft write step", () => {
   });
 });
 
+describe("buildPlanWorkflowSteps review composition", () => {
+  const input = { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md" };
+
+  test.each([undefined, 0])("omits review for reviewPasses=%s", async (reviewPasses) => {
+    const result = await buildPlanWorkflowSteps(
+      { ...input, ...(reviewPasses === undefined ? {} : { reviewPasses }) },
+      builderDeps,
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.steps).toHaveLength(1);
+  });
+
+  test.each([
+    ["debate", "review-debate"],
+    ["light", "review"],
+  ] as const)("appends the selected %s review", async (reviewBehavior, behavior) => {
+    const result = await buildPlanWorkflowSteps({ ...input, reviewPasses: 2, reviewBehavior }, builderDeps);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.steps[1]).toMatchObject({ behavior, maxCycles: 2 });
+  });
+
+  test("validates review options before loading", async () => {
+    let loaded = false;
+    const result = await buildPlanWorkflowSteps(
+      { ...input, reviewPasses: 1, reviewBehavior: "invalid" as "debate" },
+      {
+        ...builderDeps,
+        loadWorkflowSteps: () => {
+          loaded = true;
+          return [];
+        },
+      },
+    );
+    expect(result).toMatchObject({ ok: false, error: 'plan: reviewBehavior must be "debate" or "light"' });
+    expect(loaded).toBe(false);
+  });
+
+  test("aliases delegate with defaults while explicit options override them", async () => {
+    const debate = await buildReviewedPlanWorkflowSteps(input, builderDeps);
+    const light = await buildReviewedPlanLightWorkflowSteps(input, builderDeps);
+    const override = await buildReviewedPlanWorkflowSteps(
+      { ...input, reviewPasses: 0, reviewBehavior: "light" },
+      builderDeps,
+    );
+    expect(debate.ok && debate.steps[1]).toMatchObject({ behavior: "review-debate", maxCycles: 1 });
+    expect(light.ok && light.steps[1]).toMatchObject({ behavior: "review", maxCycles: 1 });
+    expect(override.ok && override.steps).toHaveLength(1);
+    if (debate.ok && light.ok) expect(debate.identity).toEqual(light.identity);
+  });
+});
+
 describe("buildReviewedPlanWorkflowSteps", () => {
   test("defaults to one loaded draft-plus-debate workflow", async () => {
     const calls: (readonly WorkflowSourceStep[])[] = [];

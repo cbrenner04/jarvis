@@ -1,8 +1,13 @@
-import { basename, dirname, join, resolve } from "node:path";
+import { realpathSync } from "node:fs";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { resolveActiveLinkedSubspec as realResolveActiveLinkedSubspec } from "../../../shared/linked-subspec-routing.ts";
 import { findProjectMatch, type ProjectMatch } from "../../../shared/project-registry.ts";
 import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
-import { readProjectRegistry } from "../config/machine-config-loader.ts";
+import {
+  readProjectImplementReviewBehavior,
+  readProjectImplementReviewPasses,
+  readProjectRegistry,
+} from "../config/machine-config-loader.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import {
   implementReviewPromptProfile,
@@ -28,19 +33,23 @@ import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 /** Per-run inputs the operator supplies alongside cwd project resolution. */
 export type BuildImplementWorkflowStepsInput = {
   cwd: string;
-  branchName: string;
+  branchName?: string;
   baseRef: string;
   specPath: string;
   artifactPath?: string;
   projectRoot?: string;
   projectName?: string;
-  reviewPasses: number;
+  reviewPasses?: number;
   reviewBehavior?: ImplementReviewBehavior;
+  configPath?: string;
+  projectRegistry?: Record<string, { root: string; origin?: string }>;
 };
 
 /** Test-only seams for project resolution and machine-config loading. */
 export type BuildImplementWorkflowStepsDeps = {
   resolveProjectMatch?: (p: string) => ProjectMatch | undefined;
+  readProjectRegistry?: () => Record<string, { root: string; origin?: string }>;
+  configPath?: string;
   loadWorkflowSteps?: (steps: readonly WorkflowSourceStep[]) => AnyWorkflowStep[];
   resolveActiveLinkedSubspec?: (
     specPath: string,
@@ -55,6 +64,100 @@ function resolveImplementReviewPasses(reviewPasses: number): number | { error: s
     return { error: "implement: reviewPasses must be a non-negative integer" };
   }
   return reviewPasses;
+}
+
+function resolveExistingImplementPath(label: string, path: string): string | { error: string } {
+  try {
+    return realpathSync(path);
+  } catch {
+    return { error: `${label} path does not exist: ${path}` };
+  }
+}
+
+/** Resolve the spec path and its owning project match from the registry, with existence checks. */
+function resolveImplementSpecAndProject(
+  input: BuildImplementWorkflowStepsInput,
+  deps: BuildImplementWorkflowStepsDeps,
+): { match: ProjectMatch; resolvedSpecPath: string } | { error: string } {
+  const requestedSpecPath = resolve(input.cwd, input.specPath);
+  const resolvedSpecPath = resolveExistingImplementPath("Spec", requestedSpecPath);
+  if (typeof resolvedSpecPath === "object") return resolvedSpecPath;
+
+  const registry =
+    input.projectRegistry ??
+    (deps.readProjectRegistry ?? (() => readProjectRegistry(input.configPath ?? deps.configPath)))();
+  const lexicalMatch =
+    (deps.resolveProjectMatch ?? ((p: string) => findProjectMatch(p, registry)))(requestedSpecPath) ??
+    findProjectMatch(resolvedSpecPath, registry);
+  if (lexicalMatch === undefined) {
+    return { error: `Spec path outside registered project roots: ${resolvedSpecPath}` };
+  }
+  const root = resolveExistingImplementPath("Registered project root", lexicalMatch.root);
+  if (typeof root === "object") return root;
+  const match = { ...lexicalMatch, root };
+  if (findProjectMatch(resolvedSpecPath, { [match.key]: { root: match.root } }) === undefined) {
+    return { error: `Spec path outside registered project roots: ${resolvedSpecPath}` };
+  }
+  return { match, resolvedSpecPath };
+}
+
+function resolveImplementLaunch(
+  input: BuildImplementWorkflowStepsInput,
+  deps: BuildImplementWorkflowStepsDeps,
+): BuildImplementWorkflowStepsInput | { error: string } {
+  if (input.projectRoot !== undefined) {
+    return {
+      ...input,
+      branchName: input.branchName ?? basename(dirname(resolve(input.projectRoot, input.specPath))),
+      reviewPasses: input.reviewPasses ?? 0,
+    };
+  }
+
+  if (deps.resolveProjectMatch !== undefined) {
+    return { ...input, reviewPasses: input.reviewPasses ?? 0 };
+  }
+
+  const resolvedSpec = resolveImplementSpecAndProject(input, deps);
+  if ("error" in resolvedSpec) return resolvedSpec;
+  const { match, resolvedSpecPath } = resolvedSpec;
+
+  const isIndexSpec = basename(resolvedSpecPath) === "index.md";
+  const artifactPath = isIndexSpec ? resolvedSpecPath : input.artifactPath;
+  if (artifactPath === undefined) return { error: "Non-index spec requires --artifact" };
+  const resolvedArtifactPath = isIndexSpec
+    ? resolvedSpecPath
+    : resolveExistingImplementPath("Artifact", resolve(input.cwd, artifactPath));
+  if (typeof resolvedArtifactPath === "object") return resolvedArtifactPath;
+  if (findProjectMatch(resolvedArtifactPath, { [match.key]: { root: match.root } }) === undefined) {
+    return { error: `Artifact path outside registered project root: ${resolvedArtifactPath}` };
+  }
+
+  const configPath = input.configPath ?? deps.configPath;
+  const reviewPasses =
+    input.reviewPasses !== undefined
+      ? { ok: true as const, reviewPasses: input.reviewPasses }
+      : configPath === undefined
+        ? { ok: true as const, reviewPasses: 0 }
+        : readProjectImplementReviewPasses(match.key, configPath);
+  if (!reviewPasses.ok) return { error: reviewPasses.error };
+  const reviewBehavior =
+    input.reviewBehavior !== undefined
+      ? { ok: true as const, reviewBehavior: input.reviewBehavior }
+      : configPath === undefined
+        ? { ok: true as const, reviewBehavior: "debate" as const }
+        : readProjectImplementReviewBehavior(match.key, configPath);
+  if (!reviewBehavior.ok) return { error: reviewBehavior.error };
+
+  return {
+    ...input,
+    branchName: input.branchName ?? basename(dirname(resolvedSpecPath)),
+    specPath: relative(match.root, resolvedSpecPath),
+    projectRoot: match.root,
+    projectName: match.key,
+    ...(isIndexSpec ? {} : { artifactPath: relative(match.root, resolvedArtifactPath) }),
+    reviewPasses: reviewPasses.reviewPasses,
+    reviewBehavior: reviewBehavior.reviewBehavior,
+  };
 }
 
 function resolveImplementProjectMatch(
@@ -164,21 +267,31 @@ export function buildImplementWorkflowSteps(
   input: BuildImplementWorkflowStepsInput,
   deps: BuildImplementWorkflowStepsDeps = {},
 ): BuildImplementWorkflowStepsResult {
-  const reviewPasses = resolveImplementReviewPasses(input.reviewPasses);
+  if (input.reviewPasses !== undefined) {
+    const reviewPasses = resolveImplementReviewPasses(input.reviewPasses);
+    if (typeof reviewPasses === "object") return { ok: false, error: reviewPasses.error };
+  }
+  const resolvedInput = resolveImplementLaunch(input, deps);
+  if ("error" in resolvedInput) return { ok: false, error: resolvedInput.error };
+  const reviewPasses = resolveImplementReviewPasses(resolvedInput.reviewPasses ?? 0);
   if (typeof reviewPasses === "object") return { ok: false, error: reviewPasses.error };
-  const reviewBehavior = input.reviewBehavior ?? "debate";
+  const reviewBehavior = resolvedInput.reviewBehavior ?? "debate";
 
   const resolveProjectMatch = deps.resolveProjectMatch ?? ((p: string) => findProjectMatch(p, readProjectRegistry()));
   const loadSteps = deps.loadWorkflowSteps ?? realLoadWorkflowSteps;
   const resolveLinkedSubspec = deps.resolveActiveLinkedSubspec ?? realResolveActiveLinkedSubspec;
 
-  const match = resolveImplementProjectMatch(input, resolveProjectMatch);
+  const match = resolveImplementProjectMatch(resolvedInput, resolveProjectMatch);
   if ("error" in match) return { ok: false, error: match.error };
 
-  const absoluteSpecPath = resolve(match.root, input.specPath);
+  const absoluteSpecPath = resolve(match.root, resolvedInput.specPath);
   const isIndexSpec = basename(absoluteSpecPath) === "index.md";
 
-  const expectedArtifactPath = resolveImplementExpectedArtifactPath(isIndexSpec, input.specPath, input.artifactPath);
+  const expectedArtifactPath = resolveImplementExpectedArtifactPath(
+    isIndexSpec,
+    resolvedInput.specPath,
+    resolvedInput.artifactPath,
+  );
   if (typeof expectedArtifactPath === "object") return { ok: false, error: expectedArtifactPath.error };
 
   const routingError = validateLinkedIndexRouting(isIndexSpec, absoluteSpecPath, match.root, resolveLinkedSubspec);
@@ -193,10 +306,10 @@ export function buildImplementWorkflowSteps(
     worktree: {
       projectRoot: match.root,
       projectName: match.key,
-      branchName: input.branchName,
-      baseRef: input.baseRef,
+      branchName: resolvedInput.branchName ?? "",
+      baseRef: resolvedInput.baseRef,
     },
-    specPath: input.specPath,
+    specPath: resolvedInput.specPath,
     expectedArtifactPath,
     linkedIndexRouting: isIndexSpec,
   };
@@ -206,9 +319,9 @@ export function buildImplementWorkflowSteps(
   }
 
   const cwd = getExternalWorktreePath(sourceStep.worktree);
-  const verdictPath = join(cwd, dirname(input.specPath), "verdict-patch.md");
+  const verdictPath = join(cwd, dirname(resolvedInput.specPath), "verdict-patch.md");
   const profileContext = (passNumber: number, priorCycleVerdict?: string) => ({
-    specPath: input.specPath,
+    specPath: resolvedInput.specPath,
     cwd,
     baseBranch: input.baseRef,
     passNumber,

@@ -1,16 +1,13 @@
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { basename, dirname, relative, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
-import { findProjectMatch } from "../../shared/project-registry.ts";
 import type { AgentModelConfig, LoadError } from "./config/agent-model-config.ts";
 import {
   type ImplementReviewBehavior,
   loadMachineConfig,
   readIterationTimeoutMs,
   readMachineConfigDocument,
-  readProjectImplementReviewBehavior,
-  readProjectImplementReviewPasses,
   readProjectRegistry,
   resolveMachineProfile,
   validateMachineConfigAgents,
@@ -84,16 +81,18 @@ const WRITE_USAGE =
 const WORKFLOW_IMPLEMENT_USAGE =
   "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>] [--review-passes <n>] [--review-behavior debate|light]\n";
 const WORKFLOW_INTENT_USAGE =
-  "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>]\n";
-const WORKFLOW_INTENT_REVIEWED_USAGE =
-  "usage: jarvis run workflow intent-reviewed (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>]\n";
-const WORKFLOW_PLAN_USAGE = "usage: jarvis run workflow plan --ready-intent <path> [--target-dir <dir>]\n";
-const WORKFLOW_PLAN_REVIEWED_USAGE =
-  "usage: jarvis run workflow plan-reviewed --ready-intent <path> [--target-dir <dir>] [--review-passes <n>]\n";
-const WORKFLOW_PLAN_REVIEWED_LIGHT_USAGE =
-  "usage: jarvis run workflow plan-reviewed-light --ready-intent <path> [--target-dir <dir>] [--review-passes <n>]\n";
-const WORKFLOW_USAGE =
-  "usage: jarvis run workflow <implement|intent|intent-reviewed|plan|plan-reviewed|plan-reviewed-light> [flags]\n";
+  "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light]\n";
+const WORKFLOW_PLAN_USAGE =
+  "usage: jarvis run workflow plan --ready-intent <path> [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light]\n";
+const WORKFLOW_USAGE = "usage: jarvis run workflow <intent|plan|implement> [flags]\n";
+
+const LEGACY_WORKFLOW_ALIASES: Readonly<
+  Record<string, { canonical: "intent" | "plan"; passes: number; behavior: "debate" | "light" }>
+> = {
+  "intent-reviewed": { canonical: "intent", passes: 1, behavior: "light" },
+  "plan-reviewed": { canonical: "plan", passes: 1, behavior: "debate" },
+  "plan-reviewed-light": { canonical: "plan", passes: 1, behavior: "light" },
+};
 
 export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliDeps>): Promise<number> {
   const out = io ?? {
@@ -447,61 +446,37 @@ function runTuiCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<
 
 function getWorkflowUsage(name: string): string {
   if (name === "intent") return WORKFLOW_INTENT_USAGE;
-  if (name === "intent-reviewed") return WORKFLOW_INTENT_REVIEWED_USAGE;
   if (name === "plan") return WORKFLOW_PLAN_USAGE;
-  if (name === "plan-reviewed") return WORKFLOW_PLAN_REVIEWED_USAGE;
-  if (name === "plan-reviewed-light") return WORKFLOW_PLAN_REVIEWED_LIGHT_USAGE;
   if (name === "implement") return WORKFLOW_IMPLEMENT_USAGE;
   return WORKFLOW_USAGE;
 }
 
-function parseWorkflowArgsByName(
-  args: readonly string[],
-  _name: string,
-  isIntentPreset: boolean,
-  isPlanPreset: boolean,
-  allowReviewPasses: boolean,
-) {
+function parseWorkflowArgsByName(args: readonly string[], isIntentPreset: boolean, isPlanPreset: boolean) {
   if (isIntentPreset) {
-    return parseIntentWorkflowArgs(args, allowReviewPasses);
+    return parseIntentWorkflowArgs(args);
   }
   if (isPlanPreset) {
-    return parsePlanWorkflowArgs(args, allowReviewPasses);
+    return parsePlanWorkflowArgs(args);
   }
   return parseImplementWorkflowArgs(args);
 }
 
-async function buildWorkflowBuilderInput(
+function buildWorkflowBuilderInput(
   name: string,
   parsed: ImplementWorkflowCliInput | IntentWorkflowCliInput | PlanWorkflowCliInput,
   isIntentPreset: boolean,
   isPlanPreset: boolean,
   deps: CliDeps,
-  io: Io,
-): Promise<{ ok: true; input: WorkflowPresetBuilderInput } | { ok: false }> {
+): { ok: true; input: WorkflowPresetBuilderInput } | { ok: false } {
   if (name === "implement") {
-    const resolved = resolveImplementWorkflowInput(
-      parsed as ImplementWorkflowCliInput,
-      deps.cwd(),
-      deps.readProjectRegistry,
-      deps.machineConfigPath,
-    );
-    if (!resolved.ok) {
-      io.stderr(`${resolved.error}\n`);
-      return { ok: false };
-    }
+    const { ok: _ok, ...launchInput } = parsed as Extract<ImplementWorkflowCliInput, { ok: true }>;
     return {
       ok: true,
       input: {
         cwd: deps.cwd(),
-        branchName: resolved.branchName,
-        baseRef: resolved.baseRef,
-        specPath: resolved.specPath,
-        projectRoot: resolved.projectRoot,
-        projectName: resolved.projectName,
-        ...(resolved.artifactPath !== undefined ? { artifactPath: resolved.artifactPath } : {}),
-        reviewPasses: resolved.reviewPasses,
-        reviewBehavior: resolved.reviewBehavior,
+        ...launchInput,
+        configPath: deps.machineConfigPath,
+        projectRegistry: deps.readProjectRegistry(),
       },
     };
   }
@@ -520,37 +495,42 @@ async function buildWorkflowBuilderInput(
 
 async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
   const name = argv[0];
+  const alias = name === undefined ? undefined : LEGACY_WORKFLOW_ALIASES[name];
+  const canonicalName = alias?.canonical ?? name;
   const builder =
-    name !== undefined && Object.hasOwn(deps.workflowPresetBuilders, name)
-      ? deps.workflowPresetBuilders[name]
-      : undefined;
+    canonicalName !== undefined && Object.hasOwn(deps.workflowPresetBuilders, canonicalName)
+      ? deps.workflowPresetBuilders[canonicalName]
+      : name !== undefined && Object.hasOwn(deps.workflowPresetBuilders, name)
+        ? deps.workflowPresetBuilders[name]
+        : undefined;
   if (builder === undefined || name === undefined) {
     io.stderr(WORKFLOW_USAGE);
     return 1;
   }
 
-  const isIntentPreset = name === "intent" || name === "intent-reviewed";
-  const isPlanPreset = name === "plan" || name === "plan-reviewed" || name === "plan-reviewed-light";
-  const allowReviewPasses = name === "intent-reviewed" || name === "plan-reviewed" || name === "plan-reviewed-light";
-  const parsed = parseWorkflowArgsByName(argv.slice(1), name, isIntentPreset, isPlanPreset, allowReviewPasses);
+  const isIntentPreset = canonicalName === "intent";
+  const isPlanPreset = canonicalName === "plan";
+  const parsed = parseWorkflowArgsByName(argv.slice(1), isIntentPreset, isPlanPreset);
   if (!parsed.ok) {
-    io.stderr(getWorkflowUsage(name));
+    io.stderr(getWorkflowUsage(canonicalName ?? name ?? ""));
     return 1;
   }
 
-  if (
-    "reviewPasses" in parsed &&
-    parsed.reviewPasses !== undefined &&
-    name !== "implement" &&
-    name !== "intent-reviewed" &&
-    name !== "plan-reviewed" &&
-    name !== "plan-reviewed-light"
-  ) {
-    io.stderr(getWorkflowUsage(name));
-    return 1;
+  if (alias !== undefined) {
+    if ("reviewPasses" in parsed && parsed.reviewPasses === undefined) parsed.reviewPasses = alias.passes;
+    if ("reviewBehavior" in parsed && parsed.reviewBehavior === undefined) parsed.reviewBehavior = alias.behavior;
+    io.stderr(
+      `deprecated: use ${alias.canonical} --review-passes ${alias.passes} --review-behavior ${alias.behavior}\n`,
+    );
   }
 
-  const builderInputResult = await buildWorkflowBuilderInput(name, parsed, isIntentPreset, isPlanPreset, deps, io);
+  const builderInputResult = buildWorkflowBuilderInput(
+    canonicalName ?? name ?? "",
+    parsed,
+    isIntentPreset,
+    isPlanPreset,
+    deps,
+  );
   if (!builderInputResult.ok) return 1;
 
   const built = await builder(builderInputResult.input as Parameters<WorkflowPresetBuilder>[0]);
@@ -703,6 +683,30 @@ function parseWriteCliInput(argv: readonly string[], deps: CliDeps): WriteCliInp
   }
 }
 
+type ReviewCliInput = { reviewPasses?: number; reviewBehavior?: ImplementReviewBehavior };
+
+function parseReviewCliInput(
+  values: Record<string, string | boolean | string[] | undefined>,
+): ReviewCliInput | undefined {
+  let reviewPasses: number | undefined;
+  if (typeof values["review-passes"] === "string") {
+    const raw = values["review-passes"];
+    if (!/^\d+$/u.test(raw)) return undefined;
+    reviewPasses = Number(raw);
+    if (!Number.isSafeInteger(reviewPasses)) return undefined;
+  }
+  let reviewBehavior: ImplementReviewBehavior | undefined;
+  if (typeof values["review-behavior"] === "string") {
+    const raw = values["review-behavior"];
+    if (raw !== "debate" && raw !== "light") return undefined;
+    reviewBehavior = raw;
+  }
+  return {
+    ...(reviewPasses !== undefined ? { reviewPasses } : {}),
+    ...(reviewBehavior !== undefined ? { reviewBehavior } : {}),
+  };
+}
+
 type ImplementWorkflowCliInput =
   | {
       ok: true;
@@ -739,18 +743,8 @@ function parseImplementWorkflowArgs(argv: readonly string[]): ImplementWorkflowC
   const baseRef = typeof values.base === "string" ? values.base : undefined;
   const specPath = typeof values.spec === "string" ? values.spec : undefined;
   const artifactPath = typeof values.artifact === "string" ? values.artifact : undefined;
-  let reviewPasses: number | undefined;
-  if (typeof values["review-passes"] === "string") {
-    const raw = values["review-passes"];
-    if (!/^\d+$/u.test(raw)) return { ok: false };
-    reviewPasses = Number(raw);
-  }
-  let reviewBehavior: ImplementReviewBehavior | undefined;
-  if (typeof values["review-behavior"] === "string") {
-    const raw = values["review-behavior"];
-    if (raw !== "debate" && raw !== "light") return { ok: false };
-    reviewBehavior = raw;
-  }
+  const review = parseReviewCliInput(values);
+  if (review === undefined) return { ok: false };
 
   if (baseRef === undefined || specPath === undefined) {
     return { ok: false };
@@ -762,125 +756,25 @@ function parseImplementWorkflowArgs(argv: readonly string[]): ImplementWorkflowC
     baseRef,
     specPath,
     ...(artifactPath !== undefined ? { artifactPath } : {}),
-    ...(reviewPasses !== undefined ? { reviewPasses } : {}),
-    ...(reviewBehavior !== undefined ? { reviewBehavior } : {}),
+    ...review,
   };
-}
-
-type ResolvedImplementWorkflowInput =
-  | {
-      ok: true;
-      branchName: string;
-      baseRef: string;
-      specPath: string;
-      projectRoot: string;
-      projectName: string;
-      artifactPath?: string;
-      reviewPasses: number;
-      reviewBehavior: ImplementReviewBehavior;
-    }
-  | { ok: false; error: string };
-
-function resolveImplementWorkflowInput(
-  parsed: ImplementWorkflowCliInput,
-  cwd: string,
-  readProjectRegistry: () => Record<string, { root: string; origin?: string }>,
-  configPath: string,
-): ResolvedImplementWorkflowInput {
-  if (!parsed.ok) {
-    return { ok: false, error: "Invalid arguments" };
-  }
-
-  const requestedSpecPath = resolve(cwd, parsed.specPath);
-  const resolvedSpecPath = resolveExistingImplementPath("Spec", requestedSpecPath);
-  if (typeof resolvedSpecPath === "object") return resolvedSpecPath;
-
-  const registry = readProjectRegistry();
-  const lexicalMatch = findProjectMatch(requestedSpecPath, registry) ?? findProjectMatch(resolvedSpecPath, registry);
-  if (lexicalMatch === undefined) {
-    return { ok: false, error: `Spec path outside registered project roots: ${resolvedSpecPath}` };
-  }
-  const root = resolveExistingImplementPath("Registered project root", lexicalMatch.root);
-  if (typeof root === "object") return root;
-  const match = { ...lexicalMatch, root };
-  if (findProjectMatch(resolvedSpecPath, { [match.key]: { root: match.root } }) === undefined) {
-    return { ok: false, error: `Spec path outside registered project roots: ${resolvedSpecPath}` };
-  }
-
-  const specFilename = basename(resolvedSpecPath);
-  const isIndexSpec = specFilename === "index.md";
-  const artifactPath = isIndexSpec ? resolvedSpecPath : parsed.artifactPath;
-
-  if (artifactPath === undefined) {
-    return { ok: false, error: "Non-index spec requires --artifact" };
-  }
-
-  const resolvedArtifactPath = isIndexSpec
-    ? resolvedSpecPath
-    : resolveExistingImplementPath("Artifact", resolve(cwd, artifactPath));
-  if (typeof resolvedArtifactPath === "object") return resolvedArtifactPath;
-  if (findProjectMatch(resolvedArtifactPath, { [match.key]: { root: match.root } }) === undefined) {
-    return { ok: false, error: `Artifact path outside registered project root: ${resolvedArtifactPath}` };
-  }
-
-  const branchName = parsed.branchName ?? basename(dirname(resolvedSpecPath));
-
-  const worktreeRelativeSpec = relative(match.root, resolvedSpecPath);
-  const worktreeRelativeArtifact = relative(match.root, resolvedArtifactPath);
-
-  const reviewPasses =
-    parsed.reviewPasses !== undefined
-      ? { ok: true as const, reviewPasses: parsed.reviewPasses }
-      : readProjectImplementReviewPasses(match.key, configPath);
-  if (!reviewPasses.ok) {
-    return { ok: false, error: reviewPasses.error };
-  }
-
-  const reviewBehavior =
-    parsed.reviewBehavior !== undefined
-      ? { ok: true as const, reviewBehavior: parsed.reviewBehavior }
-      : readProjectImplementReviewBehavior(match.key, configPath);
-  if (!reviewBehavior.ok) {
-    return { ok: false, error: reviewBehavior.error };
-  }
-
-  return {
-    ok: true,
-    branchName,
-    baseRef: parsed.baseRef,
-    specPath: worktreeRelativeSpec,
-    projectRoot: match.root,
-    projectName: match.key,
-    ...(worktreeRelativeArtifact !== undefined ? { artifactPath: worktreeRelativeArtifact } : {}),
-    reviewPasses: reviewPasses.reviewPasses,
-    reviewBehavior: reviewBehavior.reviewBehavior,
-  };
-}
-
-function resolveExistingImplementPath(label: string, path: string): string | { ok: false; error: string } {
-  try {
-    return realpathSync(path);
-  } catch {
-    return { ok: false, error: `${label} path does not exist: ${path}` };
-  }
 }
 
 type IntentWorkflowCliInput =
-  | { ok: true; seed: string; targetDir?: string; reviewPasses?: number }
-  | { ok: true; seedText: string; targetDir?: string; reviewPasses?: number }
+  | ({ ok: true; seed: string; targetDir?: string } & ReviewCliInput)
+  | ({ ok: true; seedText: string; targetDir?: string } & ReviewCliInput)
   | { ok: false };
 
-function parseIntentWorkflowArgs(argv: readonly string[], allowReviewPasses: boolean = false): IntentWorkflowCliInput {
+function parseIntentWorkflowArgs(argv: readonly string[]): IntentWorkflowCliInput {
   let values: Record<string, string | boolean | undefined>;
   try {
     const options: Record<string, { type: "string" }> = {
       seed: { type: "string" },
       "seed-text": { type: "string" },
       "target-dir": { type: "string" },
+      "review-passes": { type: "string" },
+      "review-behavior": { type: "string" },
     };
-    if (allowReviewPasses) {
-      options["review-passes"] = { type: "string" };
-    }
     values = parseArgs({
       args: [...argv],
       allowPositionals: false,
@@ -893,21 +787,15 @@ function parseIntentWorkflowArgs(argv: readonly string[], allowReviewPasses: boo
   const seed = typeof values.seed === "string" ? values.seed : undefined;
   const seedText = typeof values["seed-text"] === "string" ? values["seed-text"] : undefined;
   const targetDir = typeof values["target-dir"] === "string" ? values["target-dir"] : undefined;
-  let reviewPasses: number | undefined;
-  if (allowReviewPasses && typeof values["review-passes"] === "string") {
-    const parsed = Number.parseInt(values["review-passes"], 10);
-    if (!Number.isInteger(parsed) || parsed < 0) {
-      return { ok: false };
-    }
-    reviewPasses = parsed;
-  }
+  const review = parseReviewCliInput(values);
+  if (review === undefined) return { ok: false };
   if ((seed === undefined) === (seedText === undefined)) return { ok: false };
   if (seed !== undefined) {
     return {
       ok: true,
       seed,
       ...(targetDir !== undefined ? { targetDir } : {}),
-      ...(reviewPasses !== undefined ? { reviewPasses } : {}),
+      ...review,
     };
   }
   if (seedText !== undefined) {
@@ -915,24 +803,23 @@ function parseIntentWorkflowArgs(argv: readonly string[], allowReviewPasses: boo
       ok: true,
       seedText,
       ...(targetDir !== undefined ? { targetDir } : {}),
-      ...(reviewPasses !== undefined ? { reviewPasses } : {}),
+      ...review,
     };
   }
   return { ok: false };
 }
 
-type PlanWorkflowCliInput =
-  | { ok: true; readyIntent: string; targetDir?: string; reviewPasses?: number }
-  | { ok: false };
+type PlanWorkflowCliInput = ({ ok: true; readyIntent: string; targetDir?: string } & ReviewCliInput) | { ok: false };
 
-function parsePlanWorkflowArgs(argv: readonly string[], allowReviewPasses: boolean = false): PlanWorkflowCliInput {
+function parsePlanWorkflowArgs(argv: readonly string[]): PlanWorkflowCliInput {
   let values: Record<string, string | boolean | undefined>;
   try {
     const options: Record<string, { type: "string" }> = {
       "ready-intent": { type: "string" },
       "target-dir": { type: "string" },
+      "review-passes": { type: "string" },
+      "review-behavior": { type: "string" },
     };
-    if (allowReviewPasses) options["review-passes"] = { type: "string" };
     values = parseArgs({
       args: [...argv],
       allowPositionals: false,
@@ -945,13 +832,8 @@ function parsePlanWorkflowArgs(argv: readonly string[], allowReviewPasses: boole
 
   const readyIntent = typeof values["ready-intent"] === "string" ? values["ready-intent"] : undefined;
   const targetDir = typeof values["target-dir"] === "string" ? values["target-dir"] : undefined;
-  let reviewPasses: number | undefined;
-  if (allowReviewPasses && typeof values["review-passes"] === "string") {
-    const raw = values["review-passes"];
-    if (!/^\d+$/u.test(raw)) return { ok: false };
-    const parsed = Number(raw);
-    reviewPasses = parsed;
-  }
+  const review = parseReviewCliInput(values);
+  if (review === undefined) return { ok: false };
 
   if (readyIntent === undefined) {
     return { ok: false };
@@ -961,7 +843,7 @@ function parsePlanWorkflowArgs(argv: readonly string[], allowReviewPasses: boole
     ok: true,
     readyIntent,
     ...(targetDir !== undefined ? { targetDir } : {}),
-    ...(reviewPasses !== undefined ? { reviewPasses } : {}),
+    ...review,
   };
 }
 

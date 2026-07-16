@@ -23,12 +23,12 @@
 
 ## Acceptance criteria
 
-- [ ] New `v2/src/cli.test.ts` cases fail on baseline and verify each of `intent`, `plan`, and `implement` accepts both review flags, forwards zero without a review step, and selects light or debate for positive passes.
-- [ ] Invalid `--review-passes` or `--review-behavior` values on every primary preset exit `1` with usage before daemon contact.
-- [ ] `intent-reviewed`, `plan-reviewed`, and `plan-reviewed-light` still launch their compatible canonical workflows and emit a terse migration hint naming `intent` or `plan` plus the corresponding review behavior.
-- [ ] Unknown workflow names list only `intent`, `plan`, and `implement` as primary presets while legacy aliases remain recognized.
-- [ ] Existing `v2/src/cli.test.ts` workflow start/wait, exit-code, and implement launch cases stay green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] New `v2/src/cli.test.ts` cases fail on baseline and verify each of `intent`, `plan`, and `implement` accepts both review flags, forwards zero without a review step, and selects light or debate for positive passes.
+- [x] Invalid `--review-passes` or `--review-behavior` values on every primary preset exit `1` with usage before daemon contact.
+- [x] `intent-reviewed`, `plan-reviewed`, and `plan-reviewed-light` still launch their compatible canonical workflows and emit a terse migration hint naming `intent` or `plan` plus the corresponding review behavior.
+- [x] Unknown workflow names list only `intent`, `plan`, and `implement` as primary presets while legacy aliases remain recognized.
+- [x] Existing `v2/src/cli.test.ts` workflow start/wait, exit-code, and implement launch cases stay green.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

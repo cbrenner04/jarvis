@@ -674,10 +674,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       };
     }
     const existingWorkflowClaim = _registry.get(workflowKey);
-    if (
-      existingWorkflowClaim?.workflow === true &&
-      activeRuns.get(existingWorkflowClaim.runId)?.kind !== "workflow"
-    ) {
+    if (existingWorkflowClaim?.workflow === true && activeRuns.get(existingWorkflowClaim.runId)?.kind !== "workflow") {
       _registry.release(workflowKey);
     }
     const workflowClaimError = checkWorktreeClaimed(_registry, workflowKey);

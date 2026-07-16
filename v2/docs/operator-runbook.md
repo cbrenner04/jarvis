@@ -49,11 +49,11 @@ Prioritization for seeds and ready intents (operator-maintained):
 | `intent-reviewed` | Split plus rendered staged-intent review; re-run before relying on its result. |
 | `plan-reviewed`, `plan-reviewed-light` | Split/draft works; review behavior remains separately documented below. |
 
-Intent-reviewed dispatch now resolves the registered layered critic and actuator
-artifacts at runtime, reading every staged Markdown file and spec guidance. The
-critic's stdout remains the verdict channel and is persisted at the reserved verdict
-path; empty verdicts skip the actuator. Other review reliability issues remain
-separate concerns and are not implied fixed here.
+Intent-reviewed dispatch resolves the registered layered critic and actuator at
+runtime. A review is complete only when the critic ran and produced its managed
+verdict artifact; empty verdict content is valid and skips the actuator. Missing or
+empty workspaces, exhausted critic bindings, and boundary or verdict-inspection
+failures stop with an operator-readable reason and remain persisted for diagnosis.
 
 **Two diagnoses of this have already been wrong — do not cut a spec against a third
 without observing a run.** "The review step never invokes an agent" is refuted:

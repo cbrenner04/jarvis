@@ -77,6 +77,19 @@ describe("review-intent-enforcement", () => {
     discardSnapshot(before);
   });
 
+  test("git inspection errors are preserved instead of treated as unchanged", async () => {
+    const repo = dir();
+    execFileSync("git", ["init", "-q"], { cwd: repo });
+    const before = await snapshotWorkingTree(repo);
+    const runner = {
+      runAsync: async () => {
+        throw new Error("git status unavailable");
+      },
+    };
+    await expect(getChangedPaths(repo, before, runner)).rejects.toThrow("git status unavailable");
+    discardSnapshot(before);
+  });
+
   test("git-disabled: getChangedPaths detects an edit outside the staging directory", async () => {
     const plain = dir();
     writeFileSync(join(plain, "tracked.txt"), "base\n", "utf8");

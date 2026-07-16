@@ -207,6 +207,7 @@ export type WorkflowResult = {
   prePublicationError?: string;
   /** Named linked-index routing diagnostic (`implement.<kind>`), set only for linked-index routing failures. */
   routingFailure?: string;
+  failureMessage?: string;
 };
 
 export type WorkflowRunnerInput = {
@@ -289,6 +290,7 @@ type WorkflowStepOutcome = {
   iterationsConsumed: number;
   resumable: boolean;
   routingFailure?: string;
+  failureMessage?: string;
   /** False when linked implement completed without routing to an active subspec. */
   implementReviewEligible?: boolean;
   completionAgent?: string;
@@ -660,6 +662,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           iterationsConsumed: totalIterationsConsumed,
           resumable: stepResult.resumable,
           ...(stepResult.routingFailure !== undefined ? { routingFailure: stepResult.routingFailure } : {}),
+          ...(stepResult.failureMessage !== undefined ? { failureMessage: stepResult.failureMessage } : {}),
         };
       }
 
@@ -1395,6 +1398,7 @@ type ReviewStepOutcome =
       runId: string;
       iterationsConsumed: number;
       resumable: boolean;
+      failureMessage?: string;
     };
 
 /**
@@ -1762,7 +1766,11 @@ async function runStandardReviewStep(
         attemptId: ids.attemptId,
         runStatus: "failed",
         outcomeKind: "invocation_failure",
-        invocationFailureDetail: { failureKind: "error", bindingAttempts: [] },
+        invocationFailureDetail: {
+          failureKind: "error",
+          bindingAttempts: [],
+          message: boundaryViolationMsg,
+        },
       });
     }
     return {
@@ -1770,6 +1778,7 @@ async function runStandardReviewStep(
       runId: ids.runId,
       iterationsConsumed: result.cycles.length,
       resumable: true,
+      failureMessage: boundaryViolationMsg,
     };
   }
 
@@ -1785,10 +1794,20 @@ async function runStandardReviewStep(
         attemptId: ids.attemptId,
         runStatus: "failed",
         outcomeKind: "invocation_failure",
-        invocationFailureDetail: { failureKind: result.failureKind, bindingAttempts: [] },
+        invocationFailureDetail: {
+          failureKind: result.failureKind,
+          bindingAttempts: [],
+          message: result.message,
+        },
       });
     }
-    return { kind: "invocation_failure", runId: ids.runId, iterationsConsumed: result.cycles.length, resumable: false };
+    return {
+      kind: "invocation_failure",
+      runId: ids.runId,
+      iterationsConsumed: result.cycles.length,
+      resumable: false,
+      failureMessage: result.message,
+    };
   }
 
   const completionAgent =

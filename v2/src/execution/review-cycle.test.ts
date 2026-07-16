@@ -56,7 +56,12 @@ describe("executeReviewCycle", () => {
     for (const maxCycles of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(executeReviewCycle(input(path, calls, "fix", maxCycles))).rejects.toBeInstanceOf(RangeError);
     }
-    await expect(executeReviewCycle(input(path, calls, "fix", 0))).resolves.toEqual({ kind: "complete", cycles: [] });
+    await expect(executeReviewCycle(input(path, calls, "fix", 0))).resolves.toMatchObject({
+      kind: "invocation_failure",
+      failureKind: "error",
+      message: "review: critic invocation produced no verdict evidence (maxCycles is zero)",
+      cycles: [],
+    });
     expect(calls).toHaveLength(0);
     expect(existsSync(path)).toBe(false);
   });
@@ -144,7 +149,12 @@ describe("executeReviewCycle", () => {
   test("reports verdict I/O failure without a cycle when invalidation fails", async () => {
     const calls: string[] = [];
     const result = await executeReviewCycle(input(join(dir(), "missing", "verdict.md"), calls));
-    expect(result).toEqual({ kind: "invocation_failure", failureKind: "error", cycles: [] });
+    expect(result).toMatchObject({
+      kind: "invocation_failure",
+      failureKind: "error",
+      message: expect.stringContaining("unable to create verdict artifact"),
+      cycles: [],
+    });
     expect(calls).toHaveLength(0);
   });
 });

@@ -577,9 +577,10 @@ unchanged. After successful landing, git-enabled workflows commit, push, and
 open or reuse the draft PR from that workspace; git-disabled workflows only
 land local files and perform no Git or GitHub operation.
 
-An empty verdict (trimmed) or all bounded cycles without actuator invocation
-converges to `complete` without landing (landing only occurs when
-the reviewed-intent landing policy is configured and cycles complete). Critic, actuator,
+An empty verdict (trimmed) is valid evidence and converges to `complete` without
+actuator invocation (landing only occurs when the reviewed-intent landing policy is
+configured and the reviewed workspace is valid). Zero cycles never count as
+evidence. Critic, actuator,
 abort, verdict-I/O failures, and landing failures return `invocation_failure`
 and stop later steps. `iterationsConsumed` counts cycles whose critic started,
 including a role-failed cycle, but not pre-critic failures or landing attempts.

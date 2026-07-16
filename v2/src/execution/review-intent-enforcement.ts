@@ -98,11 +98,7 @@ export async function getChangedPaths(
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): Promise<Set<string>> {
   if (before.kind === "git") {
-    try {
-      return await gitStatusPaths(cwd, runner);
-    } catch {
-      return new Set();
-    }
+    return gitStatusPaths(cwd, runner);
   }
   const after = new Set(listFiles(cwd));
   const changed = new Set<string>();
@@ -226,6 +222,17 @@ export async function executeReviewCycleEnforced(args: {
 }> {
   const { input, invocationId, stagingDir, cwd, verdictPath } = args;
 
+  if (!existsSync(cwd)) {
+    return {
+      result: {
+        kind: "invocation_failure",
+        failureKind: "error",
+        cycles: [],
+        message: `review: reviewed-intent workspace is missing: ${cwd}`,
+      },
+      verdictState: { kind: "missing" },
+    };
+  }
   // Check verdict ownership before any review.
   const verdictState = checkVerdictOwnershipBefore(verdictPath, invocationId);
   if (verdictState.kind === "foreign") {
@@ -234,6 +241,7 @@ export async function executeReviewCycleEnforced(args: {
         kind: "invocation_failure",
         failureKind: "error",
         cycles: [],
+        message: `review: ${VERDICT_FILE} is owned by a different invocation`,
       },
       verdictState,
       boundaryViolation: `verdict file ${VERDICT_FILE} is owned by a different invocation`,
@@ -249,7 +257,20 @@ export async function executeReviewCycleEnforced(args: {
   // After review, check if there were any boundary violations.
   if (result.kind === "complete") {
     // Critic should be read-only: no changes outside the verdict file.
-    const afterReview = await getChangedPaths(cwd, beforeReview);
+    let afterReview: Set<string>;
+    try {
+      afterReview = await getChangedPaths(cwd, beforeReview);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await restoreWorkingTree(cwd, beforeReview);
+      discardSnapshot(beforeReview);
+      const failureMessage = `review: unable to inspect boundary changes: ${message}`;
+      return {
+        result: { kind: "invocation_failure", failureKind: "error", cycles: [], message: failureMessage },
+        verdictState,
+        boundaryViolation: failureMessage,
+      };
+    }
 
     // Filter out the verdict file, its owner marker, and the staging directory.
     const stagingPath = relative(cwd, stagingDir).replace(/\\/g, "/");
@@ -274,10 +295,16 @@ export async function executeReviewCycleEnforced(args: {
       if (verdict !== undefined) writeFileSync(verdictPath, verdict);
       if (owner !== undefined) writeFileSync(ownerMarkerPath(verdictPath), owner);
       discardSnapshot(beforeReview);
+      const boundaryViolation = `critic or actuator modified files outside ${stagingDir}: ${unauthorizedChanges.join(", ")}`;
       return {
-        result,
+        result: {
+          kind: "invocation_failure",
+          failureKind: "error",
+          cycles: result.cycles,
+          message: `review: ${boundaryViolation}`,
+        },
         verdictState,
-        boundaryViolation: `critic or actuator modified files outside ${stagingDir}: ${unauthorizedChanges.join(", ")}`,
+        boundaryViolation,
       };
     }
   }

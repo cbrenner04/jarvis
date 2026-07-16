@@ -59,6 +59,7 @@ export type ReviewCycleResult =
       failureKind: "error" | InvocationFailureKind;
       failedRole?: ReviewCycleRole;
       cycles: ReviewCycleOutcome[];
+      message: string;
     };
 
 /** Critic prompt for one cycle: the review profile's renderer, else the caller's literal prompt. */
@@ -76,11 +77,24 @@ export async function executeReviewCycle(args: ReviewCycleInput): Promise<Review
   }
 
   const cycles: ReviewCycleOutcome[] = [];
+  if (args.maxCycles === 0) {
+    return {
+      kind: "invocation_failure",
+      failureKind: "error",
+      cycles,
+      message: "review: critic invocation produced no verdict evidence (maxCycles is zero)",
+    };
+  }
   for (let cycle = 0; cycle < args.maxCycles; cycle += 1) {
     try {
       writeFileSync(args.verdictPath, "", "utf8");
     } catch {
-      return { kind: "invocation_failure", failureKind: "error", cycles };
+      return {
+        kind: "invocation_failure",
+        failureKind: "error",
+        cycles,
+        message: `review: unable to create verdict artifact at ${args.verdictPath}`,
+      };
     }
 
     const roleResults: Partial<Record<ReviewCycleRole, InvocationExecution>> = {};
@@ -95,16 +109,32 @@ export async function executeReviewCycle(args: ReviewCycleInput): Promise<Review
     if (criticFailure !== null) {
       const outcome = roleFailedOutcome("critic", criticFailure, null, roleResults);
       cycles.push(outcome);
-      return { kind: "invocation_failure", failureKind: criticFailure, failedRole: "critic", cycles };
+      return {
+        kind: "invocation_failure",
+        failureKind: criticFailure,
+        failedRole: "critic",
+        cycles,
+        message: reviewRoleFailureMessage("critic", criticFailure),
+      };
     }
 
     const verdict = (critic.final?.result as InvocationOk).stdout;
     try {
       writeFileSync(args.verdictPath, verdict, "utf8");
     } catch {
-      const outcome: ReviewCycleOutcome = { kind: "invocation_failure", failureKind: "error", verdict, roleResults };
+      const outcome: ReviewCycleOutcome = {
+        kind: "invocation_failure",
+        failureKind: "error",
+        verdict,
+        roleResults,
+      };
       cycles.push(outcome);
-      return { kind: "invocation_failure", failureKind: "error", cycles };
+      return {
+        kind: "invocation_failure",
+        failureKind: "error",
+        cycles,
+        message: `review: unable to persist critic verdict at ${args.verdictPath}`,
+      };
     }
 
     if (verdict.trim().length === 0) {
@@ -123,7 +153,13 @@ export async function executeReviewCycle(args: ReviewCycleInput): Promise<Review
     if (actuatorFailure !== null) {
       const outcome = roleFailedOutcome("actuator", actuatorFailure, verdict, roleResults);
       cycles.push(outcome);
-      return { kind: "invocation_failure", failureKind: actuatorFailure, failedRole: "actuator", cycles };
+      return {
+        kind: "invocation_failure",
+        failureKind: actuatorFailure,
+        failedRole: "actuator",
+        cycles,
+        message: reviewRoleFailureMessage("actuator", actuatorFailure),
+      };
     }
 
     cycles.push({ kind: "completed", verdict, actuatorRan: true, roleResults });
@@ -144,6 +180,11 @@ function roleFailedOutcome(
 function failureKind(execution: InvocationExecution): InvocationFailureKind | null {
   if (execution.final === null) return "no_binding";
   return execution.final.result.kind === "ok" ? null : execution.final.result.kind;
+}
+
+function reviewRoleFailureMessage(role: ReviewCycleRole, kind: InvocationFailureKind): string {
+  if (kind === "no_binding") return `review: no ${role} binding available; critic evidence was not produced`;
+  return `review: ${role} invocation failed (${kind})`;
 }
 
 async function invokeRole(

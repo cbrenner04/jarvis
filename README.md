@@ -1,9 +1,5 @@
 # jarvis
 
-_When an LLM is the interpreter, English is code. Combinations of words produce
-behavior, and like any code, predictable behavior depends on composing those
-words carefully and repeatably. Jarvis is that idea applied._
-
 Jarvis is a TypeScript/Bun harness for running coding-agent CLIs (`claude`,
 `codex`, `cursor`, `opencode`) against Markdown specs. It does not implement an
 agent itself: it prepares the repo, invokes one configured CLI at a time,
@@ -14,8 +10,8 @@ Two engines ship side by side:
 
 - **`jarvis` (v2)** — the daemon-backed engine being built toward full parity.
   Durable runs in SQLite, workflow presets, a live TUI, pause/kill steering.
-- **`jarvis1` (v1)** — the stable engine and current daily driver for
-  full-parity workflows (intent → plan → run → review → triage).
+- **`jarvis1` (v1)** — the stable engine covering the full pipeline
+  (intent → plan → run → review → triage).
 
 Both engines read the shared top-level `prompts/` tree, so prompt improvements
 land in both. v1 is not going away; v2 grows phase by phase.
@@ -45,12 +41,10 @@ symlink into another `PATH` directory such as `~/.local/bin`.
 
 ## v2 (`jarvis`)
 
-v2 is a working engine, not a scaffold: a host-agnostic write loop, a
-long-running daemon, durable run state in SQLite
-(`~/.jarvis/state/v2.sqlite`), Unix-socket IPC, workflow presets, review
-behaviors, draft-PR publication, and an ink TUI are all implemented. Parity
-gaps remain (see [Status](#status)), so `jarvis1` stays the daily driver for
-workflows v2 does not cover yet.
+v2 is a working engine: a host-agnostic write loop, a long-running daemon,
+durable run state in SQLite (`~/.jarvis/state/v2.sqlite`), Unix-socket IPC,
+workflow presets, review behaviors, draft-PR publication, and an ink TUI are
+all implemented. Remaining parity gaps are listed under [Status](#status).
 
 ### Configuration
 

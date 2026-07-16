@@ -212,6 +212,7 @@ export type WorkflowResult = {
 export type WorkflowRunnerInput = {
   steps: AnyWorkflowStep[];
   stateStore?: StateStore;
+  signal?: AbortSignal;
   logSink?: LogSink;
   /** Reports a review step's live/terminal role progress, keyed by `invocationId`+`stepId`. */
   onReviewDebateProgress?: (invocationId: string, stepId: string, progress: ReviewDebateProgress) => void;
@@ -219,6 +220,7 @@ export type WorkflowRunnerInput = {
   telemetry?: WorkflowTelemetryContext;
   /** Fires once a step's run row is durably created/resolved, before that step executes. */
   onStepRunCreated?: (stepIndex: number, runId: string) => void;
+  onStepReapable?: (stepIndex: number, runId: string) => void;
   completionCommitter?: CompletionCommitter;
   completionPublisher?: CompletionPublisher;
   readyFinalizer?: ReadyFinalizer;
@@ -304,6 +306,8 @@ async function runWorkflowStep(
   onReviewDebateProgress: ((invocationId: string, stepId: string, progress: ReviewDebateProgress) => void) | undefined,
   telemetry: WorkflowTelemetryContext | undefined,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+  onStepReapable: ((stepIndex: number, runId: string) => void) | undefined,
+  signal: AbortSignal | undefined,
   freshDispatch: boolean | undefined,
   touchedStepsInExecution: Set<string>,
 ): Promise<WorkflowStepOutcome> {
@@ -372,7 +376,12 @@ async function runWorkflowStep(
 
   return executeWriteLoop(
     onStepRunCreated
-      ? { ...preparedStep.input, onRunCreated: (runId) => onStepRunCreated(stepIndex, runId) }
+      ? {
+          ...preparedStep.input,
+          ...(signal !== undefined ? { signal } : {}),
+          onRunCreated: (runId) => onStepRunCreated(stepIndex, runId),
+          onReapable: (runId) => onStepReapable?.(stepIndex, runId),
+        }
       : preparedStep.input,
   );
 }
@@ -634,6 +643,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         args.onReviewDebateProgress,
         args.telemetry,
         args.onStepRunCreated,
+        args.onStepReapable,
+        args.signal,
         args.freshDispatch,
         touchedStepsInExecution,
       );

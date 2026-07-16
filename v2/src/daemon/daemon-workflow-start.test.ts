@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding, InvocationResult } from "../../../shared/invocation/execute.ts";
@@ -318,6 +318,35 @@ test("kill rejects a workflow-started run's step-0 runId with run_not_active", a
 
   const killResponse = await handlers.kill(requestFrame("k1", "kill", { runId }), new AbortController().signal);
   expect(killResponse).toEqual({ kind: "error", code: "run_not_active", message: expect.any(String) });
+});
+
+test("kill reaps a wedged workflow run and keeps its worktree", async () => {
+  const steps: AnyWorkflowStep[] = [createWriteStep("step-1", "workflow-wedged-branch", neverResolvingBindingFactory)];
+  const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
+  const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
+  expect(runId).toBeTruthy();
+
+  await flushBackgroundRuns();
+  const before = (await listRunsDirect(handlers))?.find((run) => run.runId === runId);
+  expect(before).toMatchObject({ status: "in-progress", isLive: true });
+  const worktreePath = stateStore.loadRun(runId as string)?.worktreePath;
+
+  const killResponse = await handlers.kill(requestFrame("k1", "kill", { runId }), new AbortController().signal);
+  expect(killResponse).toEqual({ kind: "response", result: { ok: true } });
+  expect(worktreePath && existsSync(worktreePath)).toBe(true);
+
+  const after = (await listRunsDirect(handlers))?.find((run) => run.runId === runId);
+  expect(after).toMatchObject({ status: "killed", isLive: false });
+});
+
+test("pause still rejects a wedged workflow run", async () => {
+  const steps: AnyWorkflowStep[] = [createWriteStep("step-1", "workflow-wedged-pause", neverResolvingBindingFactory)];
+  const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
+  const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
+  await flushBackgroundRuns();
+
+  const pauseResponse = await handlers.pause(requestFrame("p1", "pause", { runId }), new AbortController().signal);
+  expect(pauseResponse).toEqual({ kind: "error", code: "run_not_active", message: expect.any(String) });
 });
 
 test("pause rejects a workflow-started run's step-0 runId with run_not_active", async () => {

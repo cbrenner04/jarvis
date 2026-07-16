@@ -61,6 +61,9 @@ type ActiveRun =
   | {
       kind: "workflow";
       runId: string;
+      workflowKey: OwnershipKey;
+      abortController: AbortController;
+      reapable: boolean;
     };
 
 export class DaemonDoubleClaimError extends Error {
@@ -568,6 +571,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     return new Promise((resolve) => {
       const workflowRunIds = new Set<string>();
+      const abortController = new AbortController();
       let entryRunId: string | undefined;
       let trackPromiseResolve: (() => void) | undefined;
       const trackPromise = new Promise<void>((res) => {
@@ -579,18 +583,23 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       executeWorkflow({
         steps,
         stateStore: store,
+        signal: abortController.signal,
         freshDispatch: true,
         ...(logSink !== undefined ? { logSink } : {}),
         ...(telemetry !== undefined ? { telemetry } : {}),
         onReviewDebateProgress: reportReviewProgress,
         onStepRunCreated: (stepIndex, runId) => {
           workflowRunIds.add(runId);
-          activeRuns.set(runId, { kind: "workflow", runId });
+          activeRuns.set(runId, { kind: "workflow", runId, workflowKey, abortController, reapable: false });
           if (stepIndex === 0) {
             entryRunId = runId;
             workflowPromisesByEntryRunId.set(runId, trackPromise);
             resolve({ kind: "response", result: { runId } });
           }
+        },
+        onStepReapable: (_stepIndex, runId) => {
+          const activeRun = activeRuns.get(runId);
+          if (activeRun?.kind === "workflow") activeRun.reapable = true;
         },
       })
         .catch((err) => {
@@ -868,6 +877,18 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     if (activeRun && activeRun.runId === runId && activeRun.kind === "write-loop") {
       activeRun.abortController.abort();
       store.commitGuardedKill(runId);
+      return { kind: "response", result: { ok: true } };
+    }
+    if (activeRun && activeRun.runId === runId && activeRun.kind === "workflow" && activeRun.reapable) {
+      activeRun.abortController.abort();
+      store.commitGuardedKill(runId);
+      for (const [trackedRunId, trackedRun] of activeRuns) {
+        if (trackedRun.kind === "workflow" && trackedRun.abortController === activeRun.abortController) {
+          activeRuns.delete(trackedRunId);
+        }
+      }
+      _registry.release(activeRun.workflowKey);
+      workflowPromisesByEntryRunId.delete(runId);
       return { kind: "response", result: { ok: true } };
     }
 

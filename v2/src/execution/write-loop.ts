@@ -74,6 +74,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   };
   /** Fires once this run's row is durably created/resolved, before any iteration executes. */
   onRunCreated?: (runId: string) => void;
+  /** Fires when an iteration has started but has not bound an agent on the next turn. */
+  onReapable?: (runId: string) => void;
   telemetry?: {
     sinkPath?: string;
     operatorSessionId: string;
@@ -217,6 +219,8 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       args.logSink?.append(runId, { kind: "iteration_started", attemptId });
 
+      const reapableTimer = setImmediate(() => args.onReapable?.(runId));
+
       const clock = args.clock ?? (() => new Date());
       const sessionLog = openSessionLog(runId, formatSessionLogTimestamp(clock()), {
         ...(args.sessionsDir !== undefined ? { sessionsDir: args.sessionsDir } : {}),
@@ -225,6 +229,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       sessionLog.append("harness", `run=${runId} spec=${args.specPath} iteration=${iterationsConsumed + 1}`);
 
       const settled = await awaitIteration(args, runId, attemptId, sessionLog);
+      clearImmediate(reapableTimer);
       if (settled.kind === "aborted") {
         closeSessionLog(sessionLog, "abort");
         return finishLoop(args, runId, "progress", iterationsConsumed + 1, true);

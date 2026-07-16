@@ -24,6 +24,7 @@ import { getExternalWorktreePath } from "./external-worktree.ts";
 import { listLandedIntentFiles } from "./intent-output.ts";
 import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
 import { landPublication, type PublicationLanding } from "./publication-landing.ts";
+import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import {
   executeReviewCycle,
@@ -205,6 +206,7 @@ export type WorkflowResult = {
   completionCommitError?: string;
   readyGateError?: string;
   readyFlipError?: string;
+  publicationFailure?: PublicationFailure;
   boundaryTelemetryFailure?: string;
   prePublicationError?: string;
   invocationFailureMessage?: string;
@@ -831,11 +833,13 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               },
             );
             if (publishError !== undefined) {
+              const publicationFailure = publicationFailureFor(publishError.error);
               args.logSink?.append(lastResult.runId, {
                 kind: "loop_finished",
                 loopOutcomeKind: publishError.kind,
                 iterationsConsumed: totalIterationsConsumed,
                 resumable: true,
+                ...(publicationFailure !== undefined ? { publicationFailure } : {}),
               });
               return {
                 kind: publishError.kind,
@@ -849,6 +853,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                   : publishError.kind === "ready_flip_failed"
                     ? { readyFlipError: publishError.error?.message ?? "ready flip failed" }
                     : { completionCommitError: publishError.error?.message ?? "completion commit failed" }),
+                ...(publicationFailure !== undefined ? { publicationFailure } : {}),
               };
             }
           }

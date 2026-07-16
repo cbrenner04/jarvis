@@ -345,10 +345,9 @@ branch if safe. Seed: `v2-cleanup-command`.
 
 ### Publication / completion failures
 
-Retryable `completion_commit_failed`, `ready_gate_failed`, or `ready_flip_failed` on `list` / `wait`: verify the
-completion commit/PR state, fix `git`/`gh`/`origin` access, then
+Retryable `completion_commit_failed`, `ready_gate_failed`, or `ready_flip_failed` on `list` / `wait`: inspect `error.publicationFailure` first for the operation, message, exit code, and command-output tails; then verify the completion commit/PR state, fix `git`/`gh`/`origin` access, then
 `jarvis run resume <run-id>`. Resume reuses the persisted write snapshot before replaying
-publication; do not delete the worktree or substitute current config.
+publication; daemon-process logs are secondary, and do not delete the worktree or substitute current config.
 
 ### Intent-reviewed operator checkout
 

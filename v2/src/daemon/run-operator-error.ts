@@ -1,3 +1,4 @@
+import type { PublicationFailure } from "../execution/publication-retry.ts";
 import type { LoopFinishedEvent, PersistedRecord, RunExecutionFailedEvent } from "../persistence/log-stream.ts";
 import type { Attempt, RunStatus } from "../persistence/state-store.ts";
 
@@ -36,6 +37,7 @@ export type RunOperatorError = {
   reason: RunOperatorErrorReason;
   retryable: boolean;
   nextAction: RunOperatorNextAction;
+  publicationFailure?: PublicationFailure;
 };
 
 const runOperatorErrorReasonSet = new Set<string>(RUN_OPERATOR_ERROR_REASONS);
@@ -131,11 +133,17 @@ function mapFromLoopFinished(
 
   switch (event.loopOutcomeKind) {
     case "completion_commit_failed":
-      return op("completion_commit_failed", "resume", true);
+      return {
+        ...op("completion_commit_failed", "resume", true),
+        ...(event.publicationFailure !== undefined ? { publicationFailure: event.publicationFailure } : {}),
+      };
     case "ready_gate_failed":
       return op("ready_gate_failed", "resume", true);
     case "ready_flip_failed":
-      return op("ready_flip_failed", "resume", true);
+      return {
+        ...op("ready_flip_failed", "resume", true),
+        ...(event.publicationFailure !== undefined ? { publicationFailure: event.publicationFailure } : {}),
+      };
     case "blocked":
       return op("agent_blocked", "inspect_spec");
     case "contract_miss":

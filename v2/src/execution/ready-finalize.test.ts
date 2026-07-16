@@ -77,8 +77,8 @@ describe("createReadyFinalizer", () => {
     expect(attempts).toBe(3);
     expect(delays).toEqual([1000, 1000]);
     expect(notices).toEqual([
-      "gh pr ready: transient network error; retrying (attempt 2/3)",
-      "gh pr ready: transient network error; retrying (attempt 3/3)",
+      "gh pr ready: Connection reset by peer; exit=unknown; retrying (attempt 2/3)",
+      "gh pr ready: Connection reset by peer; exit=unknown; retrying (attempt 3/3)",
     ]);
   });
 

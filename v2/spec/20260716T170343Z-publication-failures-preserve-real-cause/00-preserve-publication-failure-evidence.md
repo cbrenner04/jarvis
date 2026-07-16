@@ -24,15 +24,15 @@ Completion publication and the ready flip currently retry every thrown error as 
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/publication-retry.test.ts` fails against the baseline and proves normalization retains message and exit code, keeps bounded labeled stdout/stderr tails, positively identifies supported transport failures, and rejects unknown, auth, permission, not-found, invalid-input, and rate-limit failures.
-- [ ] Completion push, PR ensure, body refresh, and ready flip share the same classifier, notice format, three-attempt cap, and flat 1000 ms backoff; permanent failures make one attempt and exhausted transient failures rethrow the original error.
-- [ ] Retry notices name the publication operation and include its normalized failure evidence instead of the generic `transient network error` diagnosis.
-- [ ] Non-fast-forward push divergence fast-fails as its dedicated permanent failure with the underlying command evidence intact.
-- [ ] `already ready` and `not a draft` still satisfy the ready flip before classification; `ReadyGateError` still enters gate repair without publication retry.
-- [ ] Direct-write and workflow publication failures retain the failing publication operation and normalized evidence in their result and `loop_finished` record.
-- [ ] Daemon `list` and `wait`, plus `jarvis run list`/`wait`, expose the retained publication failure detail alongside `completion_commit_failed` or `ready_flip_failed`; operators need not inspect daemon-process logs.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/write-behavior.md`, `v2/docs/workflow-runner.md`, `v2/docs/daemon-host.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` document the shared retry, evidence, terminal-error, and recovery contracts in their durable homes.
+- [x] `v2/src/execution/publication-retry.test.ts` fails against the baseline and proves normalization retains message and exit code, keeps bounded labeled stdout/stderr tails, positively identifies supported transport failures, and rejects unknown, auth, permission, not-found, invalid-input, and rate-limit failures.
+- [x] Completion push, PR ensure, body refresh, and ready flip share the same classifier, notice format, three-attempt cap, and flat 1000 ms backoff; permanent failures make one attempt and exhausted transient failures rethrow the original error.
+- [x] Retry notices name the publication operation and include its normalized failure evidence instead of the generic `transient network error` diagnosis.
+- [x] Non-fast-forward push divergence fast-fails as its dedicated permanent failure with the underlying command evidence intact.
+- [x] `already ready` and `not a draft` still satisfy the ready flip before classification; `ReadyGateError` still enters gate repair without publication retry.
+- [x] Direct-write and workflow publication failures retain the failing publication operation and normalized evidence in their result and `loop_finished` record.
+- [x] Daemon `list` and `wait`, plus `jarvis run list`/`wait`, expose the retained publication failure detail alongside `completion_commit_failed` or `ready_flip_failed`; operators need not inspect daemon-process logs.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/write-behavior.md`, `v2/docs/workflow-runner.md`, `v2/docs/daemon-host.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` document the shared retry, evidence, terminal-error, and recovery contracts in their durable homes.
 
 ## Documentation updates
 

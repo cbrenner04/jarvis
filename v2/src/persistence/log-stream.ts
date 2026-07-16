@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
+import type { PublicationFailure } from "../execution/publication-retry.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { OutcomeKind, RunStatus } from "./state-store.ts";
 
@@ -26,6 +27,7 @@ export type LoopFinishedEvent = {
   loopOutcomeKind: WriteLoopOutcomeKind;
   iterationsConsumed: number;
   resumable: boolean;
+  publicationFailure?: PublicationFailure;
 };
 
 export type RunExecutionFailedEvent = {

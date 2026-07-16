@@ -441,6 +441,41 @@ Do not merge to `main` blindly during long in-flight runs; see v1 runbook
 
 Operators add bullets here; delete when fixed.
 
+- **Drive plans with plain `plan` — the reviewed plan path strands the spec (2026-07-16):**
+  `plan --review-passes 1 --review-behavior light` produced, 3 for 3, a PR containing
+  `.jarvis-plan-stage/` and **no spec**, and reported `runStatus: killed` on success. Same
+  ready-intent through plain `jarvis run workflow plan` lands correctly and reports `completed`.
+  Two separate defects, one trigger: the review step's landing-resumption hook is hardcoded to
+  `intent-stage` so a deferred `plan-tree` landing is never resumed, and the status rollup reads the
+  review step's by-design missing run row as `killed`. Until they ship, **omit the review flags on
+  plan**. Seeds: `reviewed-plan-workflows-never-land-their-spec`,
+  `a-non-durable-review-step-rolls-up-as-killed`. Cleanup: delete this bullet when both ship.
+- **A green gate does not mean the code runs — keep reviewing implement diffs (2026-07-16):** a
+  `jarvis cleanup` that could never retire anything shipped **twice**, from two different models,
+  each with 7/7 acceptance criteria ticked and a green gate. Attempt 1 called `gh pr view --head`
+  (an invalid flag → every check threw → fail-closed → permanent silent no-op), hidden by a mock
+  matching the command name without inspecting argv. Attempt 2 fixed the flag and shipped a wholly
+  vacuous suite: restoring the original bug *and* stubbing every guard still gave 7 pass / 0 fail.
+  Neither was caught by `check`, `typecheck`, tests, CI, or the acceptance criteria — only by
+  subagent diff review. **Review every implement diff before merging, and distrust a green suite on
+  code with no test seam.** Seed: `agent-authored-subprocess-mocks-assert-nothing-about-argv`.
+- **`daemon stop` and `run kill` can deadlock each other (2026-07-16):** a durable row that is
+  non-terminal *and* not in memory is refused by both (`active durable runs` / `run_not_active`), so
+  nothing can clear it. Since a restart is required after every v2 code merge, one stranded row
+  wedges every subsequent merge. `run list` shows the tell: `in-progress` + `not-live` on a spec
+  whose PR already merged. Seed: `a-daemon-lost-run-row-deadlocks-the-daemon`. Cleanup: delete when
+  it ships.
+- **`JARVIS_READY_TIER` is stomped, not inherited (2026-07-16):** `ready-finalize.ts:54` spreads
+  `process.env` and then overwrites the key with `"full"`, so setting it locally does nothing. The
+  full aggregate gate is ~85% of a v2 workflow's wall clock (~13 of ~15 min on a two-file markdown
+  plan spec). Seed: `ready-gate-tier-is-not-configurable`. Cleanup: delete when it ships.
+- **`jarvis1 cleanup` cannot see v2 worktrees — confirmed live (2026-07-16):** it reported "no
+  merged worktrees to remove" with 26 abandoned worktrees under `~/.jarvis/worktrees/`. Reclaim them
+  by hand (`git worktree remove --force` + `git branch -D`) until the v2 cleanup command ships, and
+  note that a branch freshly created from `main` is also an ancestor of `main` — so
+  `merge-base --is-ancestor` alone will happily delete your in-flight work. Seed:
+  `v2-reclaims-its-workspace`. Cleanup: delete when it ships.
+
 - **Gate `main` before debugging a red branch (2026-07-16):** `bun run ready` runs the aggregate
   suite, which CI never runs (CI scopes by changed path). `main` was red on the operator machine
   behind green CI for an unknown number of sessions — the aggregate's per-file timeout was smaller

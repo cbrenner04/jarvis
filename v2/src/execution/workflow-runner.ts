@@ -56,6 +56,7 @@ import {
 import {
   executeWriteLoop,
   publishCompletionArtifacts,
+  publishWithReadyRepair,
   type WriteLoopInput,
   type WriteLoopOutcomeKind,
   type WriteLoopResult,
@@ -818,11 +819,12 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 baseRef: worktree.baseRef,
               });
             }
-            const publishError = await publishCompletionArtifacts(
-              {
-                ...(args.completionPublisher !== undefined ? { completionPublisher: args.completionPublisher } : {}),
-                ...(args.readyFinalizer !== undefined ? { readyFinalizer: args.readyFinalizer } : {}),
-              },
+            const repairInput = buildCompletionStepWriteLoopInput(completionStep, workflowSnapshot, args, store);
+            const publication = await publishWithReadyRepair(
+              repairInput,
+              store,
+              lastResult as WriteLoopResult,
+              totalIterationsConsumed,
               {
                 worktreePath,
                 baseRef: worktree.baseRef,
@@ -833,31 +835,36 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 ...(specTemplate ? { specTemplate } : {}),
               },
             );
-            if (publishError !== undefined) {
-              const publicationFailure = publicationFailureFor(publishError.error);
-              const isFlipFailure = publishError.kind === "ready_flip_failed";
+            totalIterationsConsumed = publication.iterationsConsumed;
+            if (publication.failure !== undefined) {
+              const publicationFailure = publicationFailureFor(publication.failure.error);
+              const isFlipFailure = publication.failure.kind === "ready_flip_failed";
+              const isGateFailure = publication.failure.kind === "ready_gate_failed";
               args.logSink?.append(lastResult.runId, {
                 kind: "loop_finished",
-                loopOutcomeKind: publishError.kind,
+                loopOutcomeKind: publication.failure.kind,
                 iterationsConsumed: totalIterationsConsumed,
                 resumable: !isFlipFailure,
                 ...(publicationFailure !== undefined ? { publicationFailure } : {}),
               });
+              if (isGateFailure) {
+                store.setRunStatus(lastResult.runId, "failed");
+              }
               return {
-                kind: publishError.kind,
+                kind: publication.failure.kind,
                 stepIndex: args.steps.length - 1,
                 stepId: lastStepId,
                 runId: lastResult.runId,
                 iterationsConsumed: totalIterationsConsumed,
                 resumable: !isFlipFailure,
-                ...(publishError.kind === "ready_gate_failed"
-                  ? { readyGateError: publishError.error?.message ?? "ready gate failed" }
-                  : publishError.kind === "ready_flip_failed"
+                ...(isGateFailure
+                  ? { readyGateError: publication.failure.error?.message ?? "ready gate failed" }
+                  : isFlipFailure
                     ? {
-                        readyFlipError: publishError.error?.message ?? "ready flip failed",
-                        ...(publishError.prNumber !== undefined ? { readyFlipPrNumber: publishError.prNumber } : {}),
+                        readyFlipError: publication.failure.error?.message ?? "ready flip failed",
+                        ...(publication.failure.prNumber !== undefined ? { readyFlipPrNumber: publication.failure.prNumber } : {}),
                       }
-                    : { completionCommitError: publishError.error?.message ?? "completion commit failed" }),
+                    : { completionCommitError: publication.failure.error?.message ?? "completion commit failed" }),
                 ...(publicationFailure !== undefined ? { publicationFailure } : {}),
               };
             }
@@ -1180,6 +1187,50 @@ function prepareHumanWorkflowStep(
     });
   store.setRunStatus(runId, "awaiting-human");
   return { kind: "awaiting-human", runId };
+}
+
+function buildCompletionStepWriteLoopInput(
+  step: WriteWorkflowStep,
+  workflowSnapshot: WorkflowSnapshot,
+  args: WorkflowRunnerInput,
+  store: StateStore,
+): WriteLoopInput {
+  const { role, agents, agentModelConfig, createBinding, behavior: _behavior, ...loopInput } = step;
+  const executableRole = resolveExecutableRole(role);
+  const bindings = resolveInvocationBindings(
+    executableRole,
+    agents,
+    agentModelConfig,
+    createBinding ?? createResolvedAgentBinding,
+  );
+  const telemetryContext = args.telemetry;
+
+  return {
+    ...loopInput,
+    bindings,
+    bindingResolution: {
+      role,
+      agents,
+      agentModelConfig,
+    },
+    workflowSnapshot,
+    publishCompletion: false,
+    stateStore: store,
+    ...(args.completionCommitter !== undefined ? { completionCommitter: args.completionCommitter } : {}),
+    ...(args.completionPublisher !== undefined ? { completionPublisher: args.completionPublisher } : {}),
+    ...(args.readyFinalizer !== undefined ? { readyFinalizer: args.readyFinalizer } : {}),
+    ...(args.logSink !== undefined ? { logSink: args.logSink } : {}),
+    ...(telemetryContext !== undefined
+      ? {
+          telemetry: {
+            sinkPath: telemetryContext.sinkPath ?? defaultTelemetrySinkPath(),
+            operatorSessionId: telemetryContext.operatorSessionId,
+            workflow: telemetryContext.workflow,
+            role,
+          },
+        }
+      : {}),
+  };
 }
 
 function prepareWorkflowStep(

@@ -22,11 +22,11 @@ completed in `run list`, with the red gate visible only as a terminal-log
 
 ## Acceptance criteria
 
-- [ ] A new workflow-runner test asserts that after repair is exhausted against a persistently red gate, the run's persisted status is `failed`, not `completed`; it fails against the pre-fix code, which persists `completed`.
-- [ ] A new daemon test asserts `run list` shows the red-gate run as not completed and carries the `ready_gate_failed` reason with `nextAction: "resume"`.
-- [ ] `run resume` on a red-gate run is still accepted and retries publication; it is not rejected as `terminal_run`.
-- [ ] A workflow whose gate is green (or goes green via repair) still settles `completed` — `workflow-runner.test.ts` completion tests stay green.
-- [ ] A `ready_flip_failed` run's settled status is unchanged by this subspec — `write-loop.test.ts` and `workflow-runner.test.ts` flip-failure tests stay green.
+- [x] A new workflow-runner test asserts that after repair is exhausted against a persistently red gate, the run's persisted status is `failed`, not `completed`; it fails against the pre-fix code, which persists `completed`.
+- [x] A new daemon test asserts `run list` shows the red-gate run as not completed and carries the `ready_gate_failed` reason with `nextAction: "resume"`.
+- [x] `run resume` on a red-gate run is still accepted and retries publication; it is not rejected as `terminal_run`.
+- [x] A workflow whose gate is green (or goes green via repair) still settles `completed` — `workflow-runner.test.ts` completion tests stay green.
+- [x] A `ready_flip_failed` run's settled status is unchanged by this subspec — `write-loop.test.ts` and `workflow-runner.test.ts` flip-failure tests stay green.
 
 ## Documentation updates
 

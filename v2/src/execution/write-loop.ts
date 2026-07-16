@@ -874,7 +874,7 @@ async function runReadyRepairIteration(
   return stepResult.kind === "blocked" ? "blocked" : "continue";
 }
 
-async function publishWithReadyRepair(
+export async function publishWithReadyRepair(
   args: WriteLoopInput,
   store: StateStore,
   result: WriteLoopResult,

@@ -644,3 +644,7 @@ Failures retain staging and diagnostics. `none` performs no filesystem landing.
 Workflow completion publishes before running the ready gate, then flips the draft PR only after a green gate. Publication failures return `completion_commit_failed` with `completionCommitError`; red gates return `ready_gate_failed` with `readyGateError`; failed flips return `ready_flip_failed` with `readyFlipError`. Completion-commit and ready-gate failures exit `1`, preserve durable `completed` status, and are resumed with `nextAction: "resume"`. Failed flips are terminal non-resumable outcomes: they exit `1`, preserve durable `completed` status, and reject `resume` with `code: "terminal_run"`.
 
 For publication and ready-flip failures, the result and terminal row also retain normalized operation, message, exit code, and bounded labelled stdout/stderr tails. Ready-flip failures record `resumable: false` in the `loop_finished` terminal row.
+
+## Ready gate repair
+
+When the ready gate raises `ReadyGateError` during publication, the workflow runs a bounded repair loop: it reprompts the agent with the gate failure details, records the boundary, re-commits, and republishes up to 3 times (configurable via `MAX_READY_GATE_REPAIRS`). Each repair iteration consumes an iteration from the workflow's budget; repair stops early if the agent returns `blocked`. Non-`ReadyGateError` failures (ready-flip failures) skip repair and settle immediately as `ready_flip_failed`. Repair iterations are recorded as `ready_gate_repair` log events with attempt count and gate exit code.

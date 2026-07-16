@@ -1750,6 +1750,127 @@ describe("executeWorkflow human steps", () => {
     });
   });
 
+  test("routes a red ready gate through bounded repair before settlement", async () => {
+    const step = createStep({
+      stepId: "gate-repair",
+      role: "implement",
+      branchName: "gate-repair",
+    });
+    const logSink = new TestLogSink();
+    let gateCalls = 0;
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          gateCalls += 1;
+          if (gateCalls === 1) throw new ReadyGateError("bun run ready", 1, "tests failed");
+        },
+      });
+      expect(result.kind).toBe("complete");
+      expect(gateCalls).toBe(2);
+      expect(logSink.getEventsForRun(result.runId)).toContainEqual({
+        kind: "ready_gate_repair",
+        attempt: 1,
+        gateExitCode: 1,
+      });
+    });
+  });
+
+  test("caps ready gate repairs and settles as ready_gate_failed when exhausted", async () => {
+    let invocations = 0;
+    const trackingBindingFactory = createBindingFactory(async ({ cwd }) => {
+      invocations += 1;
+      writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+      return { kind: "ok", stdout: "done", stderr: "" } as const;
+    });
+    const step = createStep({
+      stepId: "gate-exhausted",
+      role: "implement",
+      branchName: "gate-exhausted",
+      createBinding: trackingBindingFactory,
+    });
+    const logSink = new TestLogSink();
+    let gateCalls = 0;
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          gateCalls += 1;
+          throw new ReadyGateError("bun run ready", 2, `failure ${gateCalls}`);
+        },
+      });
+      expect(result.kind).toBe("ready_gate_failed");
+      expect(result.resumable).toBe(true);
+      expect(invocations).toBe(5);
+      expect(gateCalls).toBe(4);
+      const events = logSink.getEventsForRun(result.runId);
+      expect(events.filter((event) => event.kind === "ready_gate_repair")).toHaveLength(3);
+    });
+  });
+
+  test("skips repair when ready-flip failure occurs (non-ReadyGateError)", async () => {
+    const step = createStep({
+      stepId: "flip-no-repair",
+      role: "implement",
+      branchName: "flip-no-repair",
+    });
+    const logSink = new TestLogSink();
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          throw new Error("gh pr ready failed");
+        },
+      });
+      expect(result.kind).toBe("ready_flip_failed");
+      expect(result.resumable).toBe(false);
+      const events = logSink.getEventsForRun(result.runId);
+      expect(events.filter((event) => event.kind === "ready_gate_repair")).toHaveLength(0);
+    });
+  });
+
+  test("repair iterations count toward workflow iterationsConsumed", async () => {
+    const trackingBindingFactory = createBindingFactory(async ({ cwd }) => {
+      writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+      return { kind: "ok", stdout: "done", stderr: "" } as const;
+    });
+    const step = createStep({
+      stepId: "repair-counting",
+      role: "implement",
+      branchName: "repair-counting",
+      createBinding: trackingBindingFactory,
+    });
+    const logSink = new TestLogSink();
+    let gateCalls = 0;
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          gateCalls += 1;
+          if (gateCalls <= 2) throw new ReadyGateError("bun run ready", 1, "red");
+        },
+      });
+      expect(result.kind).toBe("complete");
+      expect(result.iterationsConsumed).toBe(4);
+    });
+  });
+
   test("retains a supplied title for completion-publication retry", async () => {
     const stateDbPath = ":memory:";
     const firstStep = createStep({

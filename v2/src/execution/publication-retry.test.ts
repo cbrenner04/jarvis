@@ -28,7 +28,14 @@ test("retries only positively identified transport failures and rethrows the ori
   for (const message of ["network connection reset", "HTTP 503 service unavailable", "broken pipe"]) {
     expect(isTransientPublicationFailure(normalizePublicationFailure("push", new Error(message)))).toBe(true);
   }
-  for (const message of ["unknown failure", "authentication failed", "permission denied", "not found", "invalid input", "rate limit 429"]) {
+  for (const message of [
+    "unknown failure",
+    "authentication failed",
+    "permission denied",
+    "not found",
+    "invalid input",
+    "rate limit 429",
+  ]) {
     expect(isTransientPublicationFailure(normalizePublicationFailure("push", new Error(message)))).toBe(false);
   }
 
@@ -50,7 +57,11 @@ test("retries only positively identified transport failures and rethrows the ori
     "push: connection reset; exit=1; stderr: socket closed; retrying (attempt 2/3)",
     "push: connection reset; exit=1; stderr: socket closed; retrying (attempt 3/3)",
   ]);
-  expect(publicationFailureFor(original)).toMatchObject({ operation: "push", exitCode: 1, stderrTail: "socket closed" });
+  expect(publicationFailureFor(original)).toMatchObject({
+    operation: "push",
+    exitCode: 1,
+    stderrTail: "socket closed",
+  });
 });
 
 test("permanent publication errors make one attempt", async () => {

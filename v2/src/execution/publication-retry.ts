@@ -21,7 +21,8 @@ function textTail(value: unknown): string | undefined {
 /** Normalize command evidence once, retaining bounded independently-labelled output tails. */
 export function normalizePublicationFailure(operation: string, thrown: unknown): PublicationFailure {
   const error: OutputError = thrown instanceof Error ? (thrown as OutputError) : new Error(String(thrown));
-  const status = typeof error.status === "number" ? error.status : typeof error.code === "number" ? error.code : undefined;
+  const status =
+    typeof error.status === "number" ? error.status : typeof error.code === "number" ? error.code : undefined;
   const stdoutTail = textTail(error.stdout);
   const stderrTail = textTail(error.stderr);
   return {
@@ -38,7 +39,10 @@ export function publicationFailureFor(error: unknown): PublicationFailure | unde
 }
 
 export class NonFastForwardPublicationError extends Error {
-  constructor(readonly failure: PublicationFailure, options?: ErrorOptions) {
+  constructor(
+    readonly failure: PublicationFailure,
+    options?: ErrorOptions,
+  ) {
     super(`Non-fast-forward push rejection; ${failure.message}`, options);
     this.name = "NonFastForwardPublicationError";
   }
@@ -47,8 +51,15 @@ export class NonFastForwardPublicationError extends Error {
 /** Only known transport failures retry; explicit permanent diagnostics always win. */
 export function isTransientPublicationFailure(failure: PublicationFailure): boolean {
   const text = `${failure.message}\n${failure.stdoutTail ?? ""}\n${failure.stderrTail ?? ""}`.toLowerCase();
-  if (/auth|permission|forbidden|not found|invalid|rate.?limit|\b429\b|non-fast-forward|failed to push some refs/.test(text)) return false;
-  return /network|connection (?:reset|refused|timed out)|econnreset|econnrefused|etimedout|broken pipe|\b(?:502|503|504)\b|temporary failure/.test(text);
+  if (
+    /auth|permission|forbidden|not found|invalid|rate.?limit|\b429\b|non-fast-forward|failed to push some refs/.test(
+      text,
+    )
+  )
+    return false;
+  return /network|connection (?:reset|refused|timed out)|econnreset|econnrefused|etimedout|broken pipe|\b(?:502|503|504)\b|temporary failure/.test(
+    text,
+  );
 }
 
 export function formatPublicationFailure(failure: PublicationFailure): string {
@@ -61,7 +72,11 @@ export function formatPublicationFailure(failure: PublicationFailure): string {
 export async function runPublicationWithRetry<T>(
   operation: string,
   action: () => Promise<T>,
-  options: { delay: (ms: number) => Promise<void>; retryNotice: (message: string) => void; isSuccess?: (error: unknown) => boolean },
+  options: {
+    delay: (ms: number) => Promise<void>;
+    retryNotice: (message: string) => void;
+    isSuccess?: (error: unknown) => boolean;
+  },
 ): Promise<T> {
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {

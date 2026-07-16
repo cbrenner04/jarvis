@@ -16,6 +16,7 @@ import { loadMachineProfileModels } from "./config/machine-profile-loader.ts";
 import { resolveWriteLoopBindings, type WaitRunCompletionResult } from "./daemon/daemon.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon/daemon-lifecycle.ts";
 import { followDaemonProcessLog, readDaemonProcessLog } from "./daemon/daemon-process-log.ts";
+import type { DaemonListRunRow } from "./daemon/daemon-wire.ts";
 import { parseListRuns, parseStartResult, parseWaitCompletion } from "./daemon/daemon-wire.ts";
 import {
   WORKFLOW_PRESET_BUILDERS,
@@ -280,6 +281,23 @@ async function runConfigCommand(argv: readonly string[], io: Io, deps: CliDeps):
   return 0;
 }
 
+function formatListRunRow(run: DaemonListRunRow): string {
+  const e = run.error;
+  const columns = [
+    run.runId,
+    run.project,
+    run.branch,
+    run.status,
+    run.isLive ? "live" : "not-live",
+    e?.reason ?? "-",
+    e ? String(e.retryable) : "-",
+    e?.nextAction ?? "-",
+    run.worktreePath ?? "-",
+    e?.publicationFailure === undefined ? "-" : JSON.stringify(e.publicationFailure),
+  ];
+  return `${columns.join("\t")}\n`;
+}
+
 async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
   const subcommand = argv[0];
 
@@ -335,12 +353,7 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
         return 1;
       }
 
-      for (const run of list.runs) {
-        const e = run.error;
-        io.stdout(
-          `${run.runId}\t${run.project}\t${run.branch}\t${run.status}\t${run.isLive ? "live" : "not-live"}\t${e?.reason ?? "-"}\t${e ? String(e.retryable) : "-"}\t${e?.nextAction ?? "-"}\t${run.worktreePath ?? "-"}\t${e?.publicationFailure === undefined ? "-" : JSON.stringify(e.publicationFailure)}\n`,
-        );
-      }
+      for (const run of list.runs) io.stdout(formatListRunRow(run));
       return 0;
     });
   }

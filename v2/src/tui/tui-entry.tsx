@@ -1,4 +1,4 @@
-import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.ts";
+import type { DaemonListResult } from "../daemon/daemon-wire.ts";
 import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import { connectTuiDaemon, type TuiDaemonClient } from "./tui-daemon-client.ts";
 import { showTuiInkFeedback } from "./tui-ink-feedback.tsx";

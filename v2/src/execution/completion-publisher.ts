@@ -1,9 +1,9 @@
 import { execFile } from "node:child_process";
 import { type RefreshPrBodyInput, refreshPrBody } from "./pr-body-refresh.ts";
+import { runPublicationWithRetry } from "./publication-retry.ts";
 import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
-import { runPublicationWithRetry } from "./publication-retry.ts";
 
 export type CompletionPublisherInput = {
   worktreePath: string;

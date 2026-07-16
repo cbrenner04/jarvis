@@ -109,9 +109,9 @@ Adapted from v1; v2 session close-out is the same obligation:
    PR.
 5. **Maintain this runbook** (branch → PR → merge). Operators add gotchas and remove
    entries when the structural fix ships.
-6. **End-of-session cleanup** — v2 has no `jarvis cleanup` yet (seed
-   `v2-reclaims-its-workspace`); use v1 cleanup where it applies and manual worktree
-   recovery for `~/.jarvis/worktrees/` (see [Recovery](#recovery)).
+6. **End-of-session cleanup** — after merged PRs settle, run `jarvis cleanup --dry-run`,
+   review the worktree/branch preview, then run `jarvis cleanup` and confirm `[y/N]`.
+   It skips non-merged, durable-owned, daemon-live, and uninspectable workspaces.
 
 ## Runbook maintenance
 
@@ -496,8 +496,8 @@ Operators add bullets here; delete when fixed.
   contract). Re-run the preset before believing the status.
 - **List polls heavy (2026-07-12):** TUI refresh drives `list`; terminal retention
   caps at 50 newest terminal rows. See `daemon-terminal-run-retention` spec.
-- **No v2 cleanup (2026-07-12):** worktrees and completed specs accumulate. Seed:
-  `v2-reclaims-its-workspace`. Cleanup: delete when shipped.
+- **Cleanup guard:** `jarvis cleanup` skips unmerged, owned, live, or
+  uninspectable workspaces. Resolve the guard rather than removing paths manually.
 - **Preset cartesian product (2026-07-12):** avoid new `*-reviewed` preset code
   paths; seed `workflow-composable-collapse`. Cleanup: delete when collapsed.
 

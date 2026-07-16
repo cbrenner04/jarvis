@@ -171,6 +171,12 @@ invocation may have harness + outbound only — no `inbound_*` until the binding
 settles. Structured `jarvis run log` records remain the durable run timeline once
 they exist.
 
+### Session close-out
+
+After the PR is merged, run `jarvis cleanup --dry-run`; if the listed worktree
+and local branch are expected, run `jarvis cleanup` and answer `y`. Cleanup retains
+remote branches, specs, intents, and durable run history.
+
 ### Nothing is happening
 
 Read the detached daemon's stdout/stderr separately from a run's structured

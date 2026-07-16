@@ -567,6 +567,15 @@ passes through daemon guards such as `invalid_params`, `unknown_run`,
 without local reclassification.
 
 - Worktree path: `~/.jarvis/worktrees/<project>/<branch>/`.
+
+### Cleanup
+
+`jarvis cleanup [--dry-run]` scans registered projects' external worktree homes.
+It previews each merged-PR worktree and local branch; `--dry-run` neither prompts
+nor mutates. Normal cleanup asks `[y/N]`, rechecks daemon-live and non-terminal
+durable ownership, then removes the linked worktree and local branch only. Remote
+branches, specs, ready intents, and durable run history are retained. Unavailable
+PR or ownership inspection skips the candidate.
 - Locking uses v1-compatible `.jarvis.lock` semantics, in a dedicated lock tree
   (`~/.jarvis/worktree-locks/<project>/<branch>/`) so the run serializes on the
   branch before its worktree exists.

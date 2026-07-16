@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlink
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { main } from "./cli.ts";
+import type { CleanupDeps } from "./commands/cleanup.ts";
 import type { AgentModelConfig } from "./config/agent-model-config.ts";
 import type { BuildImplementWorkflowStepsInput } from "./execution/implement-workflow-steps.ts";
 import type { AnyWorkflowStep } from "./execution/workflow-runner.ts";
@@ -29,6 +30,33 @@ function captureIo() {
     read: () => ({ stdout, stderr }),
   };
 }
+
+test("cleanup previews without prompting and cancellation does not mutate", async () => {
+  const preview = captureIo();
+  const base = {
+    readProjectRegistry: () => ({ demo: { root: "/repo" } }),
+    createCleanupDeps: () => ({
+      jarvisRoot: "/home",
+      listDurableRuns: () => [],
+      listLiveRuns: async () => [],
+      runner: {
+        async runAsync(command, args) {
+          if (command === "git" && args[0] === "worktree" && args[1] === "list") {
+            return "worktree /repo\nbranch refs/heads/main\n\nworktree /home/worktrees/demo/plan/test\nbranch refs/heads/plan/test\n\n";
+          }
+          if (command === "gh") return "MERGED\n";
+          return "";
+        },
+      },
+    } satisfies CleanupDeps),
+    connectIpcClient: async () => makeIpcClient([{ kind: "response", id: "ignored", result: { runs: [] } }]),
+  };
+  expect(await main(["cleanup", "--dry-run"], preview.io, base)).toBe(0);
+  expect(preview.read().stdout).toContain("plan/test");
+  const cancelled = captureIo();
+  expect(await main(["cleanup"], cancelled.io, { ...base, confirmCleanup: async () => false })).toBe(0);
+  expect(cancelled.read().stdout).not.toContain("removed");
+});
 
 function tempPaths() {
   const dir = mkdtempSync(join(tmpdir(), "jarvis-cli-test-"));

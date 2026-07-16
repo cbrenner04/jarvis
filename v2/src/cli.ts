@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
 import type { AgentModelConfig, LoadError } from "./config/agent-model-config.ts";
@@ -40,6 +41,7 @@ import { createRpcTransport } from "./ipc/rpc-transport.ts";
 import { DAEMON_LOG_PATH, DAEMON_PID_PATH, DAEMON_SOCKET_PATH, MACHINE_CONFIG_PATH } from "./paths.ts";
 import { runTuiEntry } from "./tui/tui-entry.tsx";
 import { runTuiLogFollow } from "./tui/tui-log-follow-entry.tsx";
+import { cleanupMergedWorkspaces, defaultCleanupDeps, type CleanupDeps } from "./commands/cleanup.ts";
 import type { RunTuiLogFollowDeps } from "./tui/tui-log-follow-types.ts";
 import type { RunTuiEntryDeps } from "./tui/tui-monitor-types.ts";
 
@@ -67,6 +69,8 @@ type CliDeps = {
   pidPath: string;
   logPath: string;
   machineConfigPath: string;
+  confirmCleanup: () => Promise<boolean>;
+  createCleanupDeps: (listLiveRuns: () => Promise<DaemonListRunRow[]>) => CleanupDeps;
 };
 
 type WriteCliInput = { ok: true; input: WriteLoopInput } | { ok: false; message?: string };
@@ -121,6 +125,15 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     pidPath: DAEMON_PID_PATH,
     logPath: DAEMON_LOG_PATH,
     machineConfigPath: MACHINE_CONFIG_PATH,
+    confirmCleanup: async () => {
+      const prompt = createInterface({ input: process.stdin, output: process.stdout });
+      try {
+        return (await prompt.question("Remove these workspaces? [y/N] ")).trim().toLowerCase() === "y";
+      } finally {
+        prompt.close();
+      }
+    },
+    createCleanupDeps: defaultCleanupDeps,
     ...deps,
     workflowPresetBuilders: deps?.workflowPresetBuilders ?? WORKFLOW_PRESET_BUILDERS,
   };
@@ -169,8 +182,42 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     return runTuiCommand(argv.slice(1), out, runtimeDeps);
   }
 
+  if (command === "cleanup") {
+    return runCleanupCommand(argv.slice(1), out, runtimeDeps);
+  }
+
   out.stdout("v2 not ready\n");
   return 0;
+}
+
+async function runCleanupCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
+  if (argv.length > 1 || (argv.length === 1 && argv[0] !== "--dry-run")) {
+    io.stderr("usage: jarvis cleanup [--dry-run]\n");
+    return 1;
+  }
+  let client: IpcClient | undefined;
+  try {
+    client = await deps.connectIpcClient(deps.socketPath);
+    const cleanupDeps = deps.createCleanupDeps(async () => {
+      const result = await request(client as IpcClient, "list");
+      const list = parseListRuns(result);
+      if (list === undefined) throw new Error("invalid daemon response");
+      return list.runs;
+    });
+    const preview = await cleanupMergedWorkspaces(deps.readProjectRegistry(), cleanupDeps, true);
+    for (const candidate of preview.candidates) io.stdout(`${candidate.path}\t${candidate.branch}\n`);
+    if (argv[0] === "--dry-run" || preview.candidates.length === 0) return 0;
+    if (!(await deps.confirmCleanup())) return 0;
+    const result = await cleanupMergedWorkspaces(deps.readProjectRegistry(), cleanupDeps, false);
+    for (const candidate of result.removed) io.stdout(`removed ${candidate.path}\t${candidate.branch}\n`);
+    for (const failure of result.failures) io.stderr(`${failure}\n`);
+    return result.failures.length === 0 ? 0 : 1;
+  } catch (error) {
+    io.stderr(formatConnectionError(error));
+    return 1;
+  } finally {
+    client?.close();
+  }
 }
 
 async function runDaemonCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {

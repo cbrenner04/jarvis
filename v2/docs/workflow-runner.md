@@ -516,6 +516,11 @@ debate cycle. The profile selects verdict ownership and write boundaries, so
 domain-specific enforcement is applied in one path without a generic
 least-restrictive policy.
 
+At the daemon boundary, workflow JSON stores the profile's serializable policy
+and `domain`, never render callbacks. Immediately before either light or debate
+dispatch, the runner resolves that domain through its executable profile registry
+to restore the renderers for intent, plan, or implement.
+
 The review `cwd` is always the existing workflow worktree. This includes the
 external split worktree for reviewed intent and the materialized plan or
 implement worktree; the operator checkout is never substituted.

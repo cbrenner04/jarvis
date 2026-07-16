@@ -37,6 +37,7 @@ import {
   type ReviewDebateRole,
   type ReviewDebateRoleBindings,
 } from "./review-debate.ts";
+import { rehydrateReviewPromptProfile } from "./review-profile-registry.ts";
 import {
   cleanupVerdictFile,
   excludeVerdictFromStaging,
@@ -1405,7 +1406,7 @@ async function runReviewDebateStep(
   telemetry: WorkflowTelemetryContext | undefined,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
 ): Promise<ReviewDebateStepOutcome> {
-  const { stepId, project, branch, agents, agentModelConfig, createBinding, ...debateInput } = step;
+  const { stepId, project, branch, agents, agentModelConfig, createBinding, profile: serializedProfile, ...debateInput } = step;
   const resolveBindings = createBinding ?? createResolvedAgentBinding;
   const runId = crypto.randomUUID();
   const attemptId = crypto.randomUUID();
@@ -1441,8 +1442,10 @@ async function runReviewDebateStep(
       ? { onRoleStart: (role: ReviewDebateRole) => onProgress(invocationId, stepId, { status: "in_progress", role }) }
       : {};
 
+  const profile = rehydrateReviewPromptProfile(serializedProfile);
   const result = await executeReviewDebate({
     ...debateInput,
+    ...(profile !== undefined ? { profile } : {}),
     bindings,
     ...telemetryFields,
     ...onRoleStart,
@@ -1697,9 +1700,10 @@ async function runProfileReviewStep(
   telemetry: WorkflowTelemetryContext | undefined,
 ): Promise<ReviewStepOutcome> {
   const { stepId } = step;
+  const profile = rehydrateReviewPromptProfile(step.profile);
   const result = await executeReviewCycle({
     cwd: step.cwd,
-    ...(step.profile !== undefined ? { profile: step.profile } : {}),
+    ...(profile !== undefined ? { profile } : {}),
     ...(step.profileContext !== undefined ? { profileContext: step.profileContext } : {}),
     ...(reviewInput.prompt !== undefined ? { prompt: reviewInput.prompt } : {}),
     ...(reviewInput.actuatorPromptRenderer !== undefined
@@ -1774,9 +1778,10 @@ async function runStandardReviewStep(
       };
     }
   }
+  const profile = rehydrateReviewPromptProfile(step.profile);
   const reviewCycleInput: ReviewCycleInput = {
     ...reviewInput,
-    ...(step.profile !== undefined ? { profile: step.profile } : {}),
+    ...(profile !== undefined ? { profile } : {}),
     ...(step.profileContext !== undefined ? { profileContext: step.profileContext } : {}),
     bindings,
     ...buildReviewStepTelemetryFields(step, ids, telemetry),

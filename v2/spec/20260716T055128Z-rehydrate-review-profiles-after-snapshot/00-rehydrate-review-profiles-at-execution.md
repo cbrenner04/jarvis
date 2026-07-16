@@ -23,13 +23,13 @@ Daemon JSON transport preserves review policy but drops profile render callbacks
 
 ## Acceptance criteria
 
-- [ ] A regression test in `v2/src/daemon/daemon-workflow-start.test.ts` JSON-round-trips daemon workflow input and proves intent, plan, and implement review profiles render after reload in light and debate modes; it fails against the pre-fix code.
-- [ ] Each JSON-round-tripped light review invokes rendered critic and non-empty-verdict actuator prompts.
-- [ ] Each JSON-round-tripped debate review invokes rendered adversary, advocate, adjudicator, and non-empty-verdict actuator prompts.
-- [ ] Review policy, rendered prompt output, cycle behavior, and domain enforcement tests stay green in `v2/src/execution/review-cycle.test.ts`, `v2/src/execution/review-debate.test.ts`, and `v2/src/execution/workflow-runner.test.ts`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/workflow-runner.md` defines serializable profile identity and execution-time registry rehydration at the daemon boundary.
-- [ ] `v2/docs/v1-behaviors.md` records daemon-run review rendering after JSON transport for v2 parity review.
+- [x] A regression test in `v2/src/daemon/daemon-workflow-start.test.ts` JSON-round-trips daemon workflow input and proves intent, plan, and implement review profiles render after reload in light and debate modes; it fails against the pre-fix code.
+- [x] Each JSON-round-tripped light review invokes rendered critic and non-empty-verdict actuator prompts.
+- [x] Each JSON-round-tripped debate review invokes rendered adversary, advocate, adjudicator, and non-empty-verdict actuator prompts.
+- [x] Review policy, rendered prompt output, cycle behavior, and domain enforcement tests stay green in `v2/src/execution/review-cycle.test.ts`, `v2/src/execution/review-debate.test.ts`, and `v2/src/execution/workflow-runner.test.ts`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/workflow-runner.md` defines serializable profile identity and execution-time registry rehydration at the daemon boundary.
+- [x] `v2/docs/v1-behaviors.md` records daemon-run review rendering after JSON transport for v2 parity review.
 
 ## Documentation updates
 

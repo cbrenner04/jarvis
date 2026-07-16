@@ -471,6 +471,16 @@ Operators add bullets here; delete when fixed.
   dropped its work, and cost an unnecessary hand-recovery. Before concluding a run committed
   nothing, check `jarvis run list` for a **live row on the same branch**. Seed:
   `workflow-completes-before-its-review-step` (#1488). Cleanup: delete when it ships.
+- **`in-progress` + `not-live` is normal while a run finalizes — it does not mean stuck
+  (2026-07-16):** `isLive` tracks the *agent process*, so once the write loop finishes the row reads
+  `not-live` for the whole publication-and-gate tail. That tail is **~8-15 minutes** (the gate runs
+  the full aggregate suite), and `jarvis run workflow` blocks the entire time with no output. The
+  durable row flips to `completed` on its own at the end. Observed twice this session, and both times
+  it read as the documented strand defect: the operator drafted a seed for a phantom bug and
+  `pkill`ed one healthy plan run at ~15 minutes. **Before concluding a run is stranded, check
+  `jarvis run log <id>` for a `loop_finished` and wait out the gate** — a genuinely stranded run
+  never settles at all, and `daemon.log` names its failure. See also the `run wait` caveat below: a
+  terminal run id does not mean the workflow is done.
 - **The daemon goes deaf while a run is active (2026-07-12):** `jarvis run list` and
   `jarvis run log` both hung past 60s while an `intent-reviewed` run was publishing
   — the daemon blocks on sync git in the publication path. You lose all

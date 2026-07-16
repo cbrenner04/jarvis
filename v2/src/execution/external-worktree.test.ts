@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
@@ -123,6 +123,7 @@ function setupMockRepo(): { repoRoot: string; jarvisRoot: string; runner: AsyncS
   const repoRoot = join(root, "repo");
   const jarvisRoot = join(root, "jarvis-home");
   mkdirSync(repoRoot, { recursive: true });
+  mkdirSync(join(repoRoot, "node_modules"));
   const state = createFakeGitState();
   registerRepo(state, repoRoot);
   return { repoRoot, jarvisRoot, runner: createWorktreeRunner(state) };
@@ -152,6 +153,21 @@ function makeInput(
 }
 
 describe("external worktree helper", () => {
+  test("provisions project dependencies before the first callback", async () => {
+    const { repoRoot, jarvisRoot, runner } = setupMockRepo();
+    let callbackLink: string | undefined;
+
+    await withExternalWorktree(
+      makeInput(jarvisRoot, repoRoot),
+      (worktree) => {
+        callbackLink = readlinkSync(join(worktree.path, "node_modules"));
+      },
+      runner,
+    );
+
+    expect(callbackLink).toBe(join(repoRoot, "node_modules"));
+  });
+
   test("creates a fresh external worktree and releases lock on success", async () => {
     const { repoRoot, jarvisRoot, runner } = setupMockRepo();
     const result = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "ok", runner);

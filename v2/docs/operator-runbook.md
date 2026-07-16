@@ -449,12 +449,6 @@ Operators add bullets here; delete when fixed.
   dropped its work, and cost an unnecessary hand-recovery. Before concluding a run committed
   nothing, check `jarvis run list` for a **live row on the same branch**. Seed:
   `workflow-completes-before-its-review-step` (#1488). Cleanup: delete when it ships.
-- **No v2 run can gate its own work (2026-07-14):** v2 worktrees live at
-  `~/.jarvis/worktrees/`, outside the repo, so bun's `node_modules` up-walk never reaches the
-  project's. `bun run typecheck` exits **127** inside one, and so does every other gate. Re-gate
-  by hand from the repo root (or symlink `node_modules` into the worktree) before trusting any
-  v2 run's completion. Seed: `v2-worktrees-have-no-dependencies-so-no-gate-can-run`. Cleanup:
-  delete when it ships.
 - **The daemon goes deaf while a run is active (2026-07-12):** `jarvis run list` and
   `jarvis run log` both hung past 60s while an `intent-reviewed` run was publishing
   — the daemon blocks on sync git in the publication path. You lose all

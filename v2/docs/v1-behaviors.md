@@ -546,6 +546,7 @@ Items tagged **[v2-cleanup candidate]** are dead or vestigial code paths flagged
 ## v2 Parity: Async worktree and write-loop Git
 
 - **v2-ported with async contract change:** Worktree setup (`ensureExternalWorktree`), reuse, validation, and cleanup remain functionally identical to v1 semantics — same branch existence checks, same common-dir resolution, same error handling and fallbacks, same sequential ordering. **v2 implementation detail:** daemon-reachable write paths await Git through `AsyncSubprocessRunner` (`execFile` with UTF-8 stdout) so worktree setup yields to the event loop without changing user-observable behavior. Worktree paths, lock semantics, and concurrency guards are unchanged. Sources: `v2/src/execution/external-worktree.ts`, `v2/src/execution/write.ts`, `shared/git.ts`, `shared/subprocess.ts`
+- **v2 behavior change:** Fresh git-enabled external worktrees link `node_modules` to the registered project's dependency directory before the first callback. Reused worktrees and `git: false` local paths are unchanged; the ready gate remains authoritative. Source: `v2/src/execution/external-worktree.ts`
 
 ## v2 Parity: Async workflow and review Git
 

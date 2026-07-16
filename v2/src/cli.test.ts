@@ -726,14 +726,19 @@ describe("v2 cli", () => {
     });
 
     expect(code).toBe(1);
-    expect(cap.read()).toEqual({ stdout: "", stderr: "Error: DaemonStopRefusedError: active durable runs: queued-id, live-id\n" });
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "Error: DaemonStopRefusedError: active durable runs: queued-id, live-id\n",
+    });
   });
 
   test("daemon stop --force passes force and unsupported args print usage", async () => {
     const cap = captureIo();
     let force: boolean | undefined;
     const forcedCode = await main(["daemon", "stop", "--force"], cap.io, {
-      stopDaemon: async (_socket, options) => { force = options?.force; },
+      stopDaemon: async (_socket, options) => {
+        force = options?.force;
+      },
     });
     expect(forcedCode).toBe(0);
     expect(force).toBe(true);

@@ -305,7 +305,8 @@ function isPublicationRetryEligible(loopOutcomeKind: string | undefined): boolea
 
 function resumeContextForRun(run: Run, loopOutcomeKind?: string): ResolvedWriteLoopInput | undefined {
   const resumableStatus = run.status === "paused" || run.status === "budget-soft-stopped" || run.status === "killed";
-  const publicationRetry = (run.status === "completed" || run.status === "failed") && isPublicationRetryEligible(loopOutcomeKind);
+  const publicationRetry =
+    (run.status === "completed" || run.status === "failed") && isPublicationRetryEligible(loopOutcomeKind);
   return resumableStatus || publicationRetry ? reconstructWriteResume(run) : undefined;
 }
 

@@ -55,7 +55,6 @@ import {
 } from "./work-boundary-telemetry.ts";
 import {
   executeWriteLoop,
-  publishCompletionArtifacts,
   publishWithReadyRepair,
   type WriteLoopInput,
   type WriteLoopOutcomeKind,
@@ -862,7 +861,9 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                   : isFlipFailure
                     ? {
                         readyFlipError: publication.failure.error?.message ?? "ready flip failed",
-                        ...(publication.failure.prNumber !== undefined ? { readyFlipPrNumber: publication.failure.prNumber } : {}),
+                        ...(publication.failure.prNumber !== undefined
+                          ? { readyFlipPrNumber: publication.failure.prNumber }
+                          : {}),
                       }
                     : { completionCommitError: publication.failure.error?.message ?? "completion commit failed" }),
                 ...(publicationFailure !== undefined ? { publicationFailure } : {}),

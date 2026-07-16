@@ -206,6 +206,7 @@ export type WorkflowResult = {
   readyFlipError?: string;
   boundaryTelemetryFailure?: string;
   prePublicationError?: string;
+  invocationFailureMessage?: string;
   /** Named linked-index routing diagnostic (`implement.<kind>`), set only for linked-index routing failures. */
   routingFailure?: string;
 };
@@ -290,6 +291,7 @@ type WorkflowStepOutcome = {
   iterationsConsumed: number;
   resumable: boolean;
   routingFailure?: string;
+  invocationFailureMessage?: string;
   /** False when linked implement completed without routing to an active subspec. */
   implementReviewEligible?: boolean;
   completionAgent?: string;
@@ -661,6 +663,9 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           iterationsConsumed: totalIterationsConsumed,
           resumable: stepResult.resumable,
           ...(stepResult.routingFailure !== undefined ? { routingFailure: stepResult.routingFailure } : {}),
+          ...(stepResult.invocationFailureMessage !== undefined
+            ? { invocationFailureMessage: stepResult.invocationFailureMessage }
+            : {}),
         };
       }
 
@@ -1384,20 +1389,7 @@ type ReviewDebateStepOutcome =
       resumable: false;
     };
 
-type ReviewStepOutcome =
-  | {
-      kind: "complete";
-      runId: string;
-      iterationsConsumed: number;
-      resumable: false;
-      completionAgent?: string;
-    }
-  | {
-      kind: "invocation_failure";
-      runId: string;
-      iterationsConsumed: number;
-      resumable: boolean;
-    };
+type ReviewStepOutcome = WorkflowStepOutcome & { kind: "complete" | "invocation_failure" };
 
 /**
  * Resolve each of the step's four per-role `agents` orders to that role's bindings and run
@@ -1649,6 +1641,38 @@ function terminalRoleFromReviewCycles(cycles: ReviewCycleResult["cycles"]): Revi
   return "critic";
 }
 
+function reviewedIntentWorkspaceFailure(stagingDir: string): string | undefined {
+  try {
+    if (!existsSync(stagingDir) || readdirSync(stagingDir).length === 0) {
+      return `intent review: staged workspace is missing or empty: ${stagingDir}`;
+    }
+    return undefined;
+  } catch (error) {
+    return `intent review: could not inspect staged workspace ${stagingDir}: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+function reviewedIntentEvidenceFailure(result: ReviewCycleResult, verdictPath: string): string | undefined {
+  const criticRan = result.cycles.some((cycle) => cycle.roleResults.critic?.final?.result.kind === "ok");
+  if (!criticRan) return "intent review: critic invocation did not produce a verdict";
+  try {
+    readFileSync(verdictPath, "utf8");
+    return undefined;
+  } catch (error) {
+    return `intent review: critic did not produce verdict artifact ${verdictPath}: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+function reviewedIntentFailureMessage(result: Extract<ReviewCycleResult, { kind: "invocation_failure" }>): string {
+  if (
+    (result.failedRole === "critic" || result.failedRole === "actuator") &&
+    (result.failureKind === "no_binding" || result.failureKind === "quota")
+  ) {
+    return `intent review: configured ${result.failedRole} bindings exhausted (${result.failureKind})`;
+  }
+  return `intent review: ${result.failedRole ?? "review"} invocation failed (${result.failureKind})`;
+}
+
 type ReviewWorkflowCycleInput = Omit<
   ReviewWorkflowStep,
   | "stepId"
@@ -1732,6 +1756,24 @@ async function runStandardReviewStep(
   store: StateStore,
 ): Promise<ReviewStepOutcome> {
   const { stepId } = step;
+  if (landing?.kind === "intent-stage") {
+    const workspaceFailure = reviewedIntentWorkspaceFailure(resolve(step.cwd, landing.stagingDir));
+    if (workspaceFailure !== undefined) {
+      store.commitCompletionBoundary({
+        attemptId: ids.attemptId,
+        runStatus: "failed",
+        outcomeKind: "invocation_failure",
+        invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message: workspaceFailure },
+      });
+      return {
+        kind: "invocation_failure",
+        runId: ids.runId,
+        iterationsConsumed: 0,
+        resumable: false,
+        invocationFailureMessage: workspaceFailure,
+      };
+    }
+  }
   const reviewCycleInput: ReviewCycleInput = {
     ...reviewInput,
     ...(step.profile !== undefined ? { profile: step.profile } : {}),
@@ -1764,7 +1806,7 @@ async function runStandardReviewStep(
         attemptId: ids.attemptId,
         runStatus: "failed",
         outcomeKind: "invocation_failure",
-        invocationFailureDetail: { failureKind: "error", bindingAttempts: [] },
+        invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message: boundaryViolationMsg },
       });
     }
     return {
@@ -1772,6 +1814,7 @@ async function runStandardReviewStep(
       runId: ids.runId,
       iterationsConsumed: result.cycles.length,
       resumable: true,
+      invocationFailureMessage: boundaryViolationMsg,
     };
   }
 
@@ -1782,15 +1825,41 @@ async function runStandardReviewStep(
   });
 
   if (result.kind === "invocation_failure") {
+    const message = reviewedIntentFailureMessage(result);
     if (landing?.kind === "intent-stage") {
       store.commitCompletionBoundary({
         attemptId: ids.attemptId,
         runStatus: "failed",
         outcomeKind: "invocation_failure",
-        invocationFailureDetail: { failureKind: result.failureKind, bindingAttempts: [] },
+        invocationFailureDetail: { failureKind: result.failureKind, bindingAttempts: [], message },
       });
     }
-    return { kind: "invocation_failure", runId: ids.runId, iterationsConsumed: result.cycles.length, resumable: false };
+    return {
+      kind: "invocation_failure",
+      runId: ids.runId,
+      iterationsConsumed: result.cycles.length,
+      resumable: false,
+      ...(landing?.kind === "intent-stage" ? { invocationFailureMessage: message } : {}),
+    };
+  }
+
+  if (landing?.kind === "intent-stage") {
+    const evidenceFailure = reviewedIntentEvidenceFailure(result, reviewInput.verdictPath);
+    if (evidenceFailure !== undefined) {
+      store.commitCompletionBoundary({
+        attemptId: ids.attemptId,
+        runStatus: "failed",
+        outcomeKind: "invocation_failure",
+        invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message: evidenceFailure },
+      });
+      return {
+        kind: "invocation_failure",
+        runId: ids.runId,
+        iterationsConsumed: result.cycles.length,
+        resumable: false,
+        invocationFailureMessage: evidenceFailure,
+      };
+    }
   }
 
   const completionAgent =

@@ -24,14 +24,14 @@ Make reviewed-intent completion prove that its critic ran and produced a verdict
 
 ## Acceptance criteria
 
-- [ ] An `intent-reviewed` review with no critic invocation or verdict evidence stops as `invocation_failure`, never `completed`, and reports why.
-- [ ] A missing or empty reviewed-intent workspace fails before landing with an operator-readable message.
-- [ ] Exhausting the configured critic bindings fails the review with an operator-readable message.
-- [ ] Empty critic output still counts as a produced verdict and may complete without actuator invocation.
-- [ ] Critic or actuator boundary violations fail, restore unauthorized changes, and expose the violation message in the persisted and returned failure.
-- [ ] A Git error while inspecting review boundary changes fails enforcement with the underlying cause instead of reporting no changes.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/workflow-runner.md` defines the evidence requirement and named failure cases; `v2/docs/operator-runbook.md` removes the silent-no-op caveat and states the corrected status.
+- [x] An `intent-reviewed` review with no critic invocation or verdict evidence stops as `invocation_failure`, never `completed`, and reports why.
+- [x] A missing or empty reviewed-intent workspace fails before landing with an operator-readable message.
+- [x] Exhausting the configured critic bindings fails the review with an operator-readable message.
+- [x] Empty critic output still counts as a produced verdict and may complete without actuator invocation.
+- [x] Critic or actuator boundary violations fail, restore unauthorized changes, and expose the violation message in the persisted and returned failure.
+- [x] A Git error while inspecting review boundary changes fails enforcement with the underlying cause instead of reporting no changes.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/workflow-runner.md` defines the evidence requirement and named failure cases; `v2/docs/operator-runbook.md` removes the silent-no-op caveat and states the corrected status.
 
 ## Documentation updates
 

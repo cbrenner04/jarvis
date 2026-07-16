@@ -179,6 +179,11 @@ runtime reads every staged Markdown file in filename order, adds explicit file
 boundaries and `v1/docs/spec-guidance.md`, and names the verdict destination.
 The actuator receives the likewise-rendered `intent.prompt.review-actuator` with
 the unchanged verdict in its delimited data slot. Empty verdicts skip actuation.
+Reviewed intent completion requires a critic invocation and its managed verdict
+artifact; an empty artifact is valid evidence. A missing or empty staged workspace,
+exhausted critic bindings, missing evidence, boundary violation, or Git inspection
+error stops as `invocation_failure` with its persisted, operator-readable cause.
+Boundary violations restore unauthorized changes and prevent landing.
 
 `intent-reviewed` remains a compatibility alias for `intent`, defaulting to one
 light pass and emitting a migration hint. Explicit review flags override it.

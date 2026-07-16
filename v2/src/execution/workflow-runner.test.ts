@@ -3007,6 +3007,35 @@ describe("executeWorkflow review dispatch", () => {
     codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
   };
 
+  function stageReviewedIntent(workspace: string): void {
+    const stage = join(workspace, ".jarvis-intent-stage");
+    mkdirSync(stage, { recursive: true });
+    writeFileSync(join(stage, "existing.md"), "---\nname: existing\n---\n\n## Prerequisites\n", "utf8");
+  }
+
+  function reviewedIntentStep(workspace: string, overrides: Partial<ReviewWorkflowStep> = {}): ReviewWorkflowStep {
+    return {
+      behavior: "review",
+      stepId: "review",
+      project: "demo",
+      branch: "intent/review",
+      cwd: workspace,
+      prompt: "inspect",
+      verdictPath: join(workspace, ".jarvis-intent-review-verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: config,
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId: "invocation-1",
+        baseRef: "none",
+      },
+      ...overrides,
+    };
+  }
+
   test("resolves role orders independently and reports a fresh non-durable run", async () => {
     const calls: string[] = [];
     const progress: string[] = [];
@@ -3070,6 +3099,7 @@ describe("executeWorkflow review dispatch", () => {
   test("runs reviewed-intent review and landing only in the split workspace", async () => {
     const operatorCheckout = mkdtempSync(join(tmpdir(), "reviewed-intent-operator-"));
     const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-workspace-"));
+    stageReviewedIntent(workspace);
     const durableDir = join(workspace, "ready-intents");
     const verdictPath = join(workspace, ".jarvis-intent-review-verdict.md");
     const observedCwds: string[] = [];
@@ -3136,8 +3166,91 @@ describe("executeWorkflow review dispatch", () => {
     expect(existsSync(verdictPath)).toBe(false);
   });
 
+  test("fails reviewed intent without critic verdict evidence before landing", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-evidence-"));
+    stageReviewedIntent(workspace);
+    const step = reviewedIntentStep(workspace, { branch: "intent/evidence", maxCycles: 0 });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store });
+      expect(result).toMatchObject({ kind: "invocation_failure", iterationsConsumed: 0 });
+      expect(result.invocationFailureMessage).toContain("critic invocation did not produce a verdict");
+      expect(store.loadRun(result.runId)?.attempts.at(-1)?.invocationFailureDetail?.message).toBe(
+        result.invocationFailureMessage,
+      );
+      expect(existsSync(join(workspace, "ready-intents"))).toBe(false);
+    });
+  });
+
+  test("fails a missing reviewed-intent workspace before invoking the critic", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-missing-"));
+    let calls = 0;
+    const step = reviewedIntentStep(workspace, {
+      branch: "intent/missing",
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        invoke: async () => {
+          calls += 1;
+          return { kind: "ok" as const, stdout: "", stderr: "" };
+        },
+      }),
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store });
+      expect(result.invocationFailureMessage).toContain("staged workspace is missing or empty");
+      expect(store.loadRun(result.runId)?.attempts.at(-1)?.invocationFailureDetail?.message).toBe(
+        result.invocationFailureMessage,
+      );
+    });
+    expect(calls).toBe(0);
+  });
+
+  test("reports exhausted reviewed-intent critic bindings", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-exhausted-"));
+    stageReviewedIntent(workspace);
+    const step = reviewedIntentStep(workspace, {
+      branch: "intent/exhausted",
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        invoke: async () => ({ kind: "quota" as const, stderr: "quota" }),
+      }),
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store });
+      expect(result.invocationFailureMessage).toContain("configured critic bindings exhausted (quota)");
+      expect(store.loadRun(result.runId)?.attempts.at(-1)?.invocationFailureDetail?.message).toBe(
+        result.invocationFailureMessage,
+      );
+    });
+  });
+
+  test("accepts an empty critic verdict without invoking the actuator", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-empty-verdict-"));
+    stageReviewedIntent(workspace);
+    const calls: string[] = [];
+    const step = reviewedIntentStep(workspace, {
+      branch: "intent/empty-verdict",
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async () => {
+          calls.push(agentId);
+          return { kind: "ok" as const, stdout: "", stderr: "" };
+        },
+      }),
+    });
+
+    await withStateStore(async (store) => {
+      expect(await executeWorkflow({ steps: [step], stateStore: store })).toMatchObject({ kind: "complete" });
+    });
+    expect(calls).toEqual(["claude"]);
+  });
+
   test("emits iteration_started and loop_finished around a durable reviewed-intent review", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-log-"));
+    stageReviewedIntent(workspace);
     const _durableDir = join(workspace, "ready-intents");
     const step: ReviewWorkflowStep = {
       behavior: "review",
@@ -3194,6 +3307,7 @@ describe("executeWorkflow review dispatch", () => {
   test("restores a reviewed-intent boundary violation in the split workspace", async () => {
     const operatorCheckout = mkdtempSync(join(tmpdir(), "reviewed-intent-operator-"));
     const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-workspace-"));
+    stageReviewedIntent(workspace);
     writeFileSync(join(operatorCheckout, "unrelated-dirty.txt"), "keep\n", "utf8");
 
     const step: ReviewWorkflowStep = {
@@ -3227,15 +3341,20 @@ describe("executeWorkflow review dispatch", () => {
     let result!: Awaited<ReturnType<typeof executeWorkflow>>;
     await withStateStore(async (store) => {
       result = await executeWorkflow({ steps: [step], stateStore: store });
+      expect(store.loadRun(result.runId)?.attempts.at(-1)?.invocationFailureDetail?.message).toBe(
+        result.invocationFailureMessage,
+      );
     });
 
     expect(result).toMatchObject({ kind: "invocation_failure", iterationsConsumed: 1 });
+    expect(result.invocationFailureMessage).toContain("modified files outside");
     expect(existsSync(join(workspace, "rogue.txt"))).toBe(false);
     expect(readFileSync(join(operatorCheckout, "unrelated-dirty.txt"), "utf8")).toBe("keep\n");
   });
 
   test("emits iteration_started and loop_finished on a durable reviewed-intent invocation_failure", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-log-fail-"));
+    stageReviewedIntent(workspace);
     const step: ReviewWorkflowStep = {
       behavior: "review",
       stepId: "review",
@@ -3282,6 +3401,7 @@ describe("executeWorkflow review dispatch", () => {
 
   test("retries reviewed-intent landing without rerunning review and persists its cause", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-retry-"));
+    stageReviewedIntent(workspace);
     const durableDir = join(workspace, "ready-intents");
     const staged = "---\nname: example\n---\n\n# Example\n\n## Prerequisites\n";
     mkdirSync(durableDir, { recursive: true });
@@ -3347,6 +3467,7 @@ describe("executeWorkflow review dispatch", () => {
 
   test("re-entering a reviewed-intent landing checkpoint emits its own start and terminal log events", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-log-resume-"));
+    stageReviewedIntent(workspace);
     const durableDir = join(workspace, "ready-intents");
     const staged = "---\nname: example\n---\n\n# Example\n\n## Prerequisites\n";
     mkdirSync(durableDir, { recursive: true });

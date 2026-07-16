@@ -6,11 +6,13 @@ import { join } from "node:path";
 import {
   checkVerdictOwnershipBefore,
   discardSnapshot,
+  executeReviewCycleEnforced,
   getChangedPaths,
   restoreWorkingTree,
   snapshotWorkingTree,
   VERDICT_FILE,
 } from "./review-intent-enforcement.ts";
+import type { ReviewCycleInput } from "./review-cycle.ts";
 
 function dir(): string {
   return mkdtempSync(join(tmpdir(), "review-intent-enforcement-"));
@@ -125,5 +127,32 @@ describe("review-intent-enforcement", () => {
     expect(Array.from(changed)).toEqual([".jarvis-intent-stage/one.md"]);
     discardSnapshot(before);
     rmSync(plain, { recursive: true, force: true });
+  });
+
+  test("fails closed with the Git inspection cause", async () => {
+    const repo = dir();
+    execFileSync("git", ["init", "-q"], { cwd: repo });
+    const verdictPath = join(repo, VERDICT_FILE);
+    const input: ReviewCycleInput = {
+      cwd: repo,
+      prompt: "inspect",
+      verdictPath,
+      maxCycles: 1,
+      bindings: {
+        critic: [
+          { id: "critic", invoke: async () => ({ kind: "ok" as const, stdout: "", stderr: "" }) },
+        ],
+        actuator: [],
+      },
+    };
+    const result = await executeReviewCycleEnforced({
+      input,
+      invocationId: "inv-1",
+      stagingDir: join(repo, ".jarvis-intent-stage"),
+      cwd: repo,
+      verdictPath,
+      runner: { runAsync: async () => Promise.reject(new Error("git status denied")) },
+    });
+    expect(result.boundaryViolation).toContain("git status denied");
   });
 });

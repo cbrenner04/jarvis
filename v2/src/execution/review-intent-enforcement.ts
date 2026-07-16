@@ -98,11 +98,7 @@ export async function getChangedPaths(
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): Promise<Set<string>> {
   if (before.kind === "git") {
-    try {
-      return await gitStatusPaths(cwd, runner);
-    } catch {
-      return new Set();
-    }
+    return await gitStatusPaths(cwd, runner);
   }
   const after = new Set(listFiles(cwd));
   const changed = new Set<string>();
@@ -219,12 +215,13 @@ export async function executeReviewCycleEnforced(args: {
   stagingDir: string;
   cwd: string;
   verdictPath: string;
+  runner?: AsyncSubprocessRunner;
 }): Promise<{
   result: ReviewCycleResult;
   verdictState: VerdictState;
   boundaryViolation?: string;
 }> {
-  const { input, invocationId, stagingDir, cwd, verdictPath } = args;
+  const { input, invocationId, stagingDir, cwd, verdictPath, runner } = args;
 
   // Check verdict ownership before any review.
   const verdictState = checkVerdictOwnershipBefore(verdictPath, invocationId);
@@ -249,7 +246,17 @@ export async function executeReviewCycleEnforced(args: {
   // After review, check if there were any boundary violations.
   if (result.kind === "complete") {
     // Critic should be read-only: no changes outside the verdict file.
-    const afterReview = await getChangedPaths(cwd, beforeReview);
+    let afterReview: Set<string>;
+    try {
+      afterReview = await getChangedPaths(cwd, beforeReview, runner);
+    } catch (error) {
+      discardSnapshot(beforeReview);
+      return {
+        result,
+        verdictState,
+        boundaryViolation: `intent review boundary inspection failed: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
 
     // Filter out the verdict file, its owner marker, and the staging directory.
     const stagingPath = relative(cwd, stagingDir).replace(/\\/g, "/");
@@ -270,7 +277,7 @@ export async function executeReviewCycleEnforced(args: {
       // Unauthorized changes detected. Restore and fail.
       const verdict = readFileSafely(verdictPath);
       const owner = readFileSafely(ownerMarkerPath(verdictPath));
-      await restoreWorkingTree(cwd, beforeReview);
+      await restoreWorkingTree(cwd, beforeReview, runner);
       if (verdict !== undefined) writeFileSync(verdictPath, verdict);
       if (owner !== undefined) writeFileSync(ownerMarkerPath(verdictPath), owner);
       discardSnapshot(beforeReview);

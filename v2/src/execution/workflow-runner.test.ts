@@ -257,7 +257,14 @@ describe("intent publication input consumption", () => {
     const inputs = { sourceRoot: source, paths: [join(source, "queue/seed.md")], consumeFrom: "worktree" as const };
     await expect(
       landPublication(
-        { kind: "intent-stage", output: { durableDir: "ready-intents" }, stagingDir: ".jarvis-intent-stage", invocationId: "i", baseRef: "HEAD", inputs },
+        {
+          kind: "intent-stage",
+          output: { durableDir: "ready-intents" },
+          stagingDir: ".jarvis-intent-stage",
+          invocationId: "i",
+          baseRef: "HEAD",
+          inputs,
+        },
         worktree,
       ),
     ).rejects.toThrow("missing");
@@ -265,10 +272,19 @@ describe("intent publication input consumption", () => {
     mkdirSync(join(worktree, ".jarvis-intent-stage"));
     writeFileSync(join(worktree, ".jarvis-intent-stage", "one.md"), "---\nname: one\n---\n\n## Prerequisites\n");
     await landPublication(
-      { kind: "intent-stage", output: { durableDir: "ready-intents" }, stagingDir: ".jarvis-intent-stage", invocationId: "i", baseRef: "HEAD", inputs },
+      {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId: "i",
+        baseRef: "HEAD",
+        inputs,
+      },
       worktree,
     );
-    expect(execFileSync("git", ["diff", "--name-only"], { cwd: worktree, encoding: "utf8" })).toContain("queue/seed.md");
+    expect(execFileSync("git", ["diff", "--name-only"], { cwd: worktree, encoding: "utf8" })).toContain(
+      "queue/seed.md",
+    );
     expect(existsSync(join(source, "queue/seed.md"))).toBe(true);
 
     const noGitSource = mkdtempSync(join(tmpdir(), "intent-no-git-source-"));

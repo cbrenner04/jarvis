@@ -53,7 +53,11 @@ describe("publication landing hooks", () => {
         stagingDir: ".jarvis-intent-stage",
         invocationId: "multi",
         baseRef: "HEAD",
-        inputs: { sourceRoot: root, paths: [join(root, "queue/one.md"), join(root, "queue/two.md")], consumeFrom: "worktree" },
+        inputs: {
+          sourceRoot: root,
+          paths: [join(root, "queue/one.md"), join(root, "queue/two.md")],
+          consumeFrom: "worktree",
+        },
       },
       root,
     );
@@ -82,7 +86,12 @@ describe("publication landing hooks", () => {
       baseRef: "HEAD",
       inputs: {
         sourceRoot: source,
-        paths: [join(source, "queue/safe.md"), join(source, "queue/escaped.md"), join(external, "outside.md"), join(source, "missing.md")],
+        paths: [
+          join(source, "queue/safe.md"),
+          join(source, "queue/escaped.md"),
+          join(external, "outside.md"),
+          join(source, "missing.md"),
+        ],
         consumeFrom: "source" as const,
       },
     };
@@ -143,7 +152,12 @@ describe("publication landing hooks", () => {
       durablePath: "v2/spec/tree",
       inputs: {
         sourceRoot: source,
-        paths: [join(source, "ready-intents/safe.md"), join(source, "ready-intents/escaped.md"), join(external, "outside.md"), join(source, "missing.md")],
+        paths: [
+          join(source, "ready-intents/safe.md"),
+          join(source, "ready-intents/escaped.md"),
+          join(external, "outside.md"),
+          join(source, "missing.md"),
+        ],
         consumeFrom: "source" as const,
       },
     };

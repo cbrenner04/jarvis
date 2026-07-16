@@ -31,10 +31,18 @@ function fail(message: string): never {
 function planFiles(stage: string): string[] {
   if (!existsSync(stage) || !statSync(stage).isDirectory()) fail("plan: .jarvis-plan-stage is missing");
   const files = readdirSync(stage, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && (entry.name === "index.md" || entry.name === "intent.md" || /^\d{2}-.*\.md$/u.test(entry.name)))
+    .filter(
+      (entry) =>
+        entry.isFile() &&
+        (entry.name === "index.md" || entry.name === "intent.md" || /^\d{2}-.*\.md$/u.test(entry.name)),
+    )
     .map((entry) => entry.name)
     .sort();
-  if (!files.includes("index.md") || !files.includes("intent.md") || !files.some((file) => /^\d{2}-.*\.md$/u.test(file)))
+  if (
+    !files.includes("index.md") ||
+    !files.includes("intent.md") ||
+    !files.some((file) => /^\d{2}-.*\.md$/u.test(file))
+  )
     fail("plan: staged spec tree has invalid shape");
   return files;
 }

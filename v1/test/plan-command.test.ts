@@ -306,7 +306,10 @@ describe("planCommand", () => {
         name: "blocker",
         reviewPasses: 0,
         run: (specDir) => {
-          writeFileSync(join(specDir, "intent.md"), "---\nname: blocker\n---\n\n## Prerequisites\n\nnone\n\n## Blocker\n\nblocked\n");
+          writeFileSync(
+            join(specDir, "intent.md"),
+            "---\nname: blocker\n---\n\n## Prerequisites\n\nnone\n\n## Blocker\n\nblocked\n",
+          );
           return { kind: "ok", stdout: "", stderr: "" };
         },
       },

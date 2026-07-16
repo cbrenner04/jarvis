@@ -26,15 +26,15 @@
 
 ## Acceptance criteria
 
-- [ ] Pressing down (`downArrow` or `j`) moves selection to the next selectable row and up (`upArrow`) to the previous one, stepping in the order the run table renders (verified against the rendered rows, not a separately derived list).
-- [ ] Navigation clamps: down on the last selectable row and up on the first leave selection unchanged.
-- [ ] Queued rows are never selected by navigation, even when adjacent to a selectable row in `list` order.
-- [ ] With no run selected, down selects the first selectable row and up selects the last; with no selectable rows, both keys are no-ops.
-- [ ] Moving selection issues a daemon `wait` for the newly selected run, resets the Outcome panel to pending for it, and clears steering feedback.
-- [ ] After a refresh reorders rows, the same run stays selected and the next movement key steps relative to that run's new position in the rendered order.
-- [ ] Navigation keys do not move selection while a revise prompt is composing.
-- [ ] The footer hint line names the navigation keys.
-- [ ] The `tui-ink-monitor` binding tests from `00-keypress-seam.md` (`q`, `a`, `v`, `k`, revise-compose) stay green, as do `tui-entry.test.tsx` — including its clearing of selection when the selected run leaves the selectable set.
+- [x] Pressing down (`downArrow` or `j`) moves selection to the next selectable row and up (`upArrow`) to the previous one, stepping in the order the run table renders (verified against the rendered rows, not a separately derived list).
+- [x] Navigation clamps: down on the last selectable row and up on the first leave selection unchanged.
+- [x] Queued rows are never selected by navigation, even when adjacent to a selectable row in `list` order.
+- [x] With no run selected, down selects the first selectable row and up selects the last; with no selectable rows, both keys are no-ops.
+- [x] Moving selection issues a daemon `wait` for the newly selected run, resets the Outcome panel to pending for it, and clears steering feedback.
+- [x] After a refresh reorders rows, the same run stays selected and the next movement key steps relative to that run's new position in the rendered order.
+- [x] Navigation keys do not move selection while a revise prompt is composing.
+- [x] The footer hint line names the navigation keys.
+- [x] The `tui-ink-monitor` binding tests from `00-keypress-seam.md` (`q`, `a`, `v`, `k`, revise-compose) stay green, as do `tui-entry.test.tsx` — including its clearing of selection when the selected run leaves the selectable set.
 
 ## Documentation updates
 

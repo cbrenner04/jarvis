@@ -138,6 +138,12 @@ function createViewHost() {
     selectRun(runId: string) {
       controls?.selectRun(runId);
     },
+    selectNextRun() {
+      controls?.selectNextRun();
+    },
+    selectPreviousRun() {
+      controls?.selectPreviousRun();
+    },
     pauseSelected() {
       controls?.pauseSelected();
     },
@@ -475,6 +481,80 @@ describe("runTuiEntry", () => {
 
     expect(view.monitorStates.at(-1)?.selectedRunId).toBe("run-alpha");
     expect(clientOptions.methods).toEqual(["health", "status", "list", "wait:run-alpha", "close"]);
+  });
+
+  test("navigates selectable rows in rendered order, skipping queued rows and clamping", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_BETA, RUN_QUEUED, RUN_ALPHA, RUN_GAMMA] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.selectNextRun();
+    await flush();
+    view.selectNextRun();
+    await flush();
+    view.selectNextRun();
+    await flush();
+    view.selectPreviousRun();
+    await flush();
+    view.quit();
+    await pending;
+
+    expect(view.monitorStates.at(-1)?.selectedRunId).toBe("run-beta");
+    expect(clientOptions.methods).toEqual([
+      "health",
+      "status",
+      "list",
+      "wait:run-alpha",
+      "wait:run-beta",
+      "wait:run-gamma",
+      "wait:run-beta",
+      "close",
+    ]);
+  });
+
+  test("navigates from no selection and uses the selected run's refreshed display position", async () => {
+    const view = createViewHost();
+    const refresh = createRefreshScheduler();
+    const { deps } = entryDeps(
+      {
+        listResponses: [
+          { runs: [RUN_ALPHA, RUN_DELTA] },
+          { runs: [RUN_DELTA, RUN_ALPHA] },
+          { runs: [{ ...RUN_ALPHA, status: "queued", isLive: false }] },
+          { runs: [RUN_BETA, RUN_ALPHA] },
+        ],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host, refreshScheduler: refresh.scheduler },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    view.selectNextRun();
+    await flush();
+    refresh.tick();
+    await flush();
+    view.selectNextRun();
+    await flush();
+    refresh.tick();
+    await flush();
+    refresh.tick();
+    await flush();
+    view.selectPreviousRun();
+    await flush();
+    view.quit();
+    await pending;
+
+    expect(view.monitorStates.at(-1)?.selectedRunId).toBe("run-beta");
   });
 
   test("refresh clears selection when the selected run transitions to queued", async () => {

@@ -1,6 +1,6 @@
 import { createElement, Fragment, type ReactElement, useState } from "react";
 import type { InkRender } from "./tui-ink-feedback.tsx";
-import { loadInkUi } from "./tui-ink-runtime.ts";
+import { type InjectedInkUi, type InkUseInput, loadInkUi } from "./tui-ink-runtime.ts";
 import {
   joinMonitorRow,
   type MonitorLineRow,
@@ -10,13 +10,6 @@ import {
 import type { TuiMonitorControls, TuiMonitorSession, TuiMonitorState } from "./tui-monitor-types.ts";
 
 export type ComposingMode = { kind: "idle" } | { kind: "composing"; buffer: string };
-
-type MonitorUseInputHook = (
-  inputHandler: (
-    input: string,
-    key: { ctrl?: boolean; return?: boolean; escape?: boolean; backspace?: boolean; delete?: boolean },
-  ) => void,
-) => void;
 
 type MonitorText = (props: { children?: string; color?: string; key?: number }) => ReactElement;
 type MonitorRowBox = (props: {
@@ -66,10 +59,10 @@ export function createMonitorDisplay(
 export async function openInkMonitor(
   initialState: TuiMonitorState,
   controls: TuiMonitorControls,
-  inkRender?: InkRender,
+  inkRender?: InkRender | InjectedInkUi,
 ): Promise<TuiMonitorSession> {
   const { renderFn, Text, Box, useInput: inkUseInput } = await loadInkUi(inkRender);
-  const useInput: MonitorUseInputHook = inkUseInput ?? (() => {});
+  const useInput: InkUseInput = inkUseInput ?? (() => {});
   const sessionState = { current: initialState };
 
   const MonitorDisplay = ({ state, composing }: { state: TuiMonitorState; composing: ComposingMode }): ReactElement =>
@@ -114,6 +107,14 @@ export async function openInkMonitor(
       }
       if (input === "k") {
         controls.killSelected();
+        return;
+      }
+      if (input === "j" || key.downArrow) {
+        controls.selectNextRun();
+        return;
+      }
+      if (key.upArrow) {
+        controls.selectPreviousRun();
       }
     });
 

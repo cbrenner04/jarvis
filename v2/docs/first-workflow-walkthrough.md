@@ -124,6 +124,10 @@ Keys act on the selected run: `k` kills any live run; `a` (approve) and `v`
 not reachable via this ad-hoc walkthrough, which uses `jarvis run start`
 rather than a workflow with human-approval steps.
 
+Move selection with Up/Down arrow keys or `j` (down only). Movement clamps at
+the first and last selectable run-table rows, skips Queue rows, re-issues daemon
+`wait` for the new selection, and resets Outcome to its pending state.
+
 Quit with `q` or Ctrl-C.
 
 ### Structured log

@@ -283,8 +283,10 @@ a server/runner world (pause + route to a human loop vs. process exit).
   render under a separate "Queue" heading, oldest-queued-first, each showing a
   fixed "waiting: memory headroom" descriptor in place of liveness; the
   "Runs" section (non-queued) always renders. Queued runs are excluded from
-  selection (`selectRun`, initial pick, and the selection-loss fallback) since
-  they carry no steering RPCs.
+  selection (`selectRun`, initial pick, navigation, and the selection-loss
+  fallback) since they carry no steering RPCs. Down/`j` and Up move selection;
+  `k` remains kill rather than an up binding, preserving the established
+  steering key.
 - **Shipped TUI log follow (`jarvis tui log <run-id>`).** Separate ink session
   over the same production socket: IPC tail replay plus live follow for one run;
   operator contract:

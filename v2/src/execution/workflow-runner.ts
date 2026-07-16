@@ -37,12 +37,12 @@ import {
   type ReviewDebateRole,
   type ReviewDebateRoleBindings,
 } from "./review-debate.ts";
-import { rehydrateReviewPromptProfile } from "./review-profile-registry.ts";
 import {
   cleanupVerdictFile,
   excludeVerdictFromStaging,
   executeReviewCycleEnforced,
 } from "./review-intent-enforcement.ts";
+import { rehydrateReviewPromptProfile } from "./review-profile-registry.ts";
 import { parseRevisionNumber } from "./revision-step-id.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
@@ -1406,7 +1406,16 @@ async function runReviewDebateStep(
   telemetry: WorkflowTelemetryContext | undefined,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
 ): Promise<ReviewDebateStepOutcome> {
-  const { stepId, project, branch, agents, agentModelConfig, createBinding, profile: serializedProfile, ...debateInput } = step;
+  const {
+    stepId,
+    project,
+    branch,
+    agents,
+    agentModelConfig,
+    createBinding,
+    profile: serializedProfile,
+    ...debateInput
+  } = step;
   const resolveBindings = createBinding ?? createResolvedAgentBinding;
   const runId = crypto.randomUUID();
   const attemptId = crypto.randomUUID();

@@ -3,6 +3,11 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding, InvocationResult } from "../../../shared/invocation/execute.ts";
+import {
+  implementReviewProfile,
+  intentReviewProfile,
+  planReviewProfile,
+} from "../../../shared/prompts/review-profile.ts";
 import type {
   AnyWorkflowStep,
   HumanWorkflowStep,
@@ -10,7 +15,6 @@ import type {
   ReviewWorkflowStep,
   WriteWorkflowStep,
 } from "../execution/workflow-runner.ts";
-import { implementReviewProfile, intentReviewProfile, planReviewProfile } from "../../../shared/prompts/review-profile.ts";
 import { openLogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
@@ -270,7 +274,15 @@ test("JSON-round-tripped review profiles rehydrate renderers for every domain an
       verdictPath: join(cwd, "light-verdict.md"),
       maxCycles: 1,
       profile: profile as NonNullable<ReviewWorkflowStep["profile"]>,
-      profileContext: { stagingDir: cwd, verdictPath: join(cwd, "light-verdict.md"), specPath: join(cwd, "spec.md"), worktreePath: cwd, cwd, passNumber: 1, totalPasses: 1 },
+      profileContext: {
+        stagingDir: cwd,
+        verdictPath: join(cwd, "light-verdict.md"),
+        specPath: join(cwd, "spec.md"),
+        worktreePath: cwd,
+        cwd,
+        passNumber: 1,
+        totalPasses: 1,
+      },
       agents: { critic: ["claude"], actuator: ["claude"] },
       agentModelConfig: REVIEW_AGENT_MODEL_CONFIG,
       createBinding: bindingFactory,
@@ -298,7 +310,10 @@ test("JSON-round-tripped review profiles rehydrate renderers for every domain an
     if (serialized[0]?.behavior === "write" && write.withExternalWorktree !== undefined)
       serialized[0].withExternalWorktree = write.withExternalWorktree;
 
-    const response = await handlers.start(requestFrame(profile.domain, "start", { steps: serialized }), new AbortController().signal);
+    const response = await handlers.start(
+      requestFrame(profile.domain, "start", { steps: serialized }),
+      new AbortController().signal,
+    );
     expect(response.kind).toBe("response");
     const runId = (response as { result: { runId: string } }).result.runId;
     await waitDirect(handlers, runId);

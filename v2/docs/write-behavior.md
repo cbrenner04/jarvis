@@ -102,8 +102,9 @@ thrown `gh` error whose combined stdout+stderr contains (case-insensitive)
 `already ready` or `not a draft`, as success without retry. Any other thrown
 error is handed to the transient classifier unchanged. Gate or flip failure
 (except the success-guarded flip cases) leaves the PR draft, keeps the durable
-run `completed`, and returns retryable `ready_finalize_failed` (`nextAction:
-resume`), distinct from publication's `completion_commit_failed`. Resume
+run `completed`, and returns retryable `ready_gate_failed` with `readyGateError`
+or `ready_flip_failed` with `readyFlipError` (`nextAction: resume`), distinct
+from publication's `completion_commit_failed`. Resume
 replays publication first (idempotent), then re-runs the gate and re-attempts
 the flip. Gate and `gh` are injectable seams so tests require no live
 verification or GitHub credentials.
@@ -157,7 +158,7 @@ durable branch pointer before running. For linked-index implement, the runner's
 first routing read happens before that materialization; the write loop creates
 the worktree on its first `executeWrite` call.
 
-When completion publication's ready gate fails with a `ReadyGateError`, the write loop invokes the agent again with the gate command, exit code, and the last 16 KiB of gate output. It commits and republishes after each repair, for at most three repair attempts. Repair iterations consume the normal iteration budget; a blocked repair, exhausted budget, or still-red gate returns retryable `ready_finalize_failed`. Flip failures do not trigger repair.
+When completion publication's ready gate fails with a `ReadyGateError`, the write loop invokes the agent again with the gate command, exit code, and the last 16 KiB of gate output. It commits and republishes after each repair, for at most three repair attempts. Repair iterations consume the normal iteration budget; a blocked repair, exhausted budget, or still-red gate returns retryable `ready_gate_failed`. Flip failures return `ready_flip_failed` and do not trigger repair.
 
 The write prompt injects the v2 restraint principles (`write.principles`) at
 every iteration; see [`coding-standards.md`](./coding-standards.md) for the
@@ -701,11 +702,11 @@ caller-supplied bindings, same seam as write-step invocations.
 ## Exit codes
 
 - `0`: `complete` (success)
-- `1`: `blocked`, `contract_miss`, `completion_commit_failed`, or `ready_finalize_failed`
+- `1`: `blocked`, `contract_miss`, `completion_commit_failed`, `ready_gate_failed`, or `ready_flip_failed`
 - `2`: `invocation_failure` (binding chain or token parse failure)
 - `5`: `budget-exhausted` (soft-stop, resumable per spec 02)
 
-`completion_commit_failed` and `ready_finalize_failed` leave the durable run
+`completion_commit_failed`, `ready_gate_failed`, and `ready_flip_failed` leave the durable run
 `completed` with `resumable: true`; `jarvis run resume <run-id>` may retry without
 creating a duplicate commit or PR.
 
@@ -719,11 +720,11 @@ needing lifecycle success should loop `wait` until exit `0` or inspect stdout
 When `loopOutcomeKind` is present it wins over `runStatus`:
 
 - `0`: `complete`
-- `1`: `blocked`, `contract_miss`, `completion_commit_failed`, `ready_finalize_failed`, `paused`, `progress`, or any other present kind
+- `1`: `blocked`, `contract_miss`, `completion_commit_failed`, `ready_gate_failed`, `ready_flip_failed`, `paused`, `progress`, or any other present kind
 - `2`: `invocation_failure`
 - `5`: `budget-exhausted`
 
-`completion_commit_failed` and `ready_finalize_failed` carry `runStatus: completed`
+`completion_commit_failed`, `ready_gate_failed`, and `ready_flip_failed` carry `runStatus: completed`
 and `resumable: true` on stdout; exit `1` is retryable via `jarvis run resume`.
 
 When `loopOutcomeKind` is omitted:

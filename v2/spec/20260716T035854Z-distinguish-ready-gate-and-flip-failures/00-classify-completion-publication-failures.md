@@ -21,14 +21,14 @@ which boundary failed.
 
 ## Acceptance criteria
 
-- [ ] A regression test in `v2/src/execution/workflow-runner.test.ts` independently drives pre-gate publication, ready-gate, and ready-flip failures through workflow completion publication and asserts `completion_commit_failed`, `ready_gate_failed`, and `ready_flip_failed` in both the workflow result and `loop_finished`; it fails against the pre-fix code.
-- [ ] Standalone write-loop tests in `v2/src/execution/write-loop.test.ts` prove exhausted, budget-limited, and blocked red-gate repair ends as retryable `ready_gate_failed`, while a flip failure ends as retryable `ready_flip_failed` without repair.
-- [ ] Ready-gate and ready-flip results expose `readyGateError` and `readyFlipError`, respectively; `readyFinalizeError` and emitted `ready_finalize_failed` outcomes are removed from the closed v2 result and log contracts.
-- [ ] `v2/src/daemon/run-operator-error.test.ts` and daemon `list`/`wait` tests prove each ready outcome produces its matching retryable error reason with `nextAction: "resume"`; completed-run resume accepts both outcomes and still accepts `completion_commit_failed`.
-- [ ] CLI serialization and exit-code tests prove both ready outcomes retain exit `1` and expose the matching error detail.
-- [ ] Existing green-gate/ready-flip success tests in `v2/src/execution/ready-finalize.test.ts` and completion-publication tests stay green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/workflow-runner.md`, `v2/docs/write-behavior.md`, `v2/docs/daemon-host.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` describe the distinct publication, gate, and flip outcomes, evidence, exit behavior, and unchanged resume eligibility.
+- [x] A regression test in `v2/src/execution/workflow-runner.test.ts` independently drives pre-gate publication, ready-gate, and ready-flip failures through workflow completion publication and asserts `completion_commit_failed`, `ready_gate_failed`, and `ready_flip_failed` in both the workflow result and `loop_finished`; it fails against the pre-fix code.
+- [x] Standalone write-loop tests in `v2/src/execution/write-loop.test.ts` prove exhausted, budget-limited, and blocked red-gate repair ends as retryable `ready_gate_failed`, while a flip failure ends as retryable `ready_flip_failed` without repair.
+- [x] Ready-gate and ready-flip results expose `readyGateError` and `readyFlipError`, respectively; `readyFinalizeError` and emitted `ready_finalize_failed` outcomes are removed from the closed v2 result and log contracts.
+- [x] `v2/src/daemon/run-operator-error.test.ts` and daemon `list`/`wait` tests prove each ready outcome produces its matching retryable error reason with `nextAction: "resume"`; completed-run resume accepts both outcomes and still accepts `completion_commit_failed`.
+- [x] CLI serialization and exit-code tests prove both ready outcomes retain exit `1` and expose the matching error detail.
+- [x] Existing green-gate/ready-flip success tests in `v2/src/execution/ready-finalize.test.ts` and completion-publication tests stay green.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/workflow-runner.md`, `v2/docs/write-behavior.md`, `v2/docs/daemon-host.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` describe the distinct publication, gate, and flip outcomes, evidence, exit behavior, and unchanged resume eligibility.
 
 ## Documentation updates
 

@@ -191,7 +191,11 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           }
           return withBoundaryTelemetry(args, prepared.result, published.commitSha, published.filesChanged);
         } catch (error) {
-          return completionCommitFailed(args, prepared.result, error instanceof Error ? error : new Error(String(error)));
+          return completionCommitFailed(
+            args,
+            prepared.result,
+            error instanceof Error ? error : new Error(String(error)),
+          );
         }
       }
       return prepared.result;

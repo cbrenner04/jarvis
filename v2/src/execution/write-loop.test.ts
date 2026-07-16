@@ -1025,7 +1025,14 @@ describe("write loop", () => {
   });
 
   test("publishes index and spec-path titles, with named failure for unreadable indexes", async () => {
-    const cases: Array<{ branchName: string; specPath: string; index?: string | undefined; title?: string | undefined; unreadable?: boolean; failure?: boolean }> = [
+    const cases: Array<{
+      branchName: string;
+      specPath: string;
+      index?: string | undefined;
+      title?: string | undefined;
+      unreadable?: boolean;
+      failure?: boolean;
+    }> = [
       { branchName: "index-title", specPath: "spec/index.md", index: "#  Index title  \n", title: "Index title" },
       { branchName: "sibling-title", specPath: "spec/01-write.md", index: "# Sibling title\n", title: "01-write.md" },
       { branchName: "missing-title", specPath: "spec/index.md", index: undefined, title: undefined, failure: true },

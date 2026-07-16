@@ -20,15 +20,13 @@ export function resolveSpecIndexPath(worktreePath: string, specPath: string): st
     // resolvedSpecPath may not exist yet as a directory; fall back to file-based resolution
   }
 
-  return isDirectory || basename(resolvedSpecPath) === "index.md" ? join(resolvedSpecPath, isDirectory ? "index.md" : "") : "";
+  return isDirectory || basename(resolvedSpecPath) === "index.md"
+    ? join(resolvedSpecPath, isDirectory ? "index.md" : "")
+    : "";
 }
 
 /** Resolve the title at publication time; explicit workflow titles remain authoritative. */
-export function resolvePublicationTitle(
-  worktreePath: string,
-  specPath: string,
-  explicitTitle?: unknown,
-): string {
+export function resolvePublicationTitle(worktreePath: string, specPath: string, explicitTitle?: unknown): string {
   if (typeof explicitTitle === "string" && explicitTitle.trim()) return explicitTitle.trim();
   const resolvedSpecPath = isAbsolute(specPath) ? specPath : join(worktreePath, specPath);
   const indexPath = resolveSpecIndexPath(worktreePath, specPath);

@@ -188,6 +188,28 @@ async function terminateProcess(pid: number, killTimeoutMs: number, processProbe
   }
 }
 
+/** Refuse a non-forced stop when the durable store holds any non-terminal run. */
+function assertStopAllowed(stateStore: Pick<StateStore, "listRuns" | "close"> | undefined): void {
+  let store = stateStore;
+  let ownsStore = false;
+  try {
+    if (store === undefined) {
+      store = openStateStore();
+      ownsStore = true;
+    }
+    const blockers = store
+      .listRuns()
+      .filter((run) => !STOP_TERMINAL_STATUSES.has(run.status))
+      .map((run) => run.id);
+    if (blockers.length > 0) throw new DaemonStopRefusedError(blockers);
+  } catch (error) {
+    if (error instanceof DaemonStopRefusedError) throw error;
+    throw new DaemonStopInspectionError(error);
+  } finally {
+    if (ownsStore) store?.close();
+  }
+}
+
 export async function stopDaemon(
   socketPath: string,
   options?: {
@@ -204,21 +226,7 @@ export async function stopDaemon(
   const processProber = options?.processProber ?? { isAlive: isProcessAlive };
 
   if (!options?.force) {
-    let store = options?.stateStore;
-    let ownsStore = false;
-    try {
-      if (store === undefined) {
-        store = openStateStore();
-        ownsStore = true;
-      }
-      const blockers = store.listRuns().filter((run) => !STOP_TERMINAL_STATUSES.has(run.status)).map((run) => run.id);
-      if (blockers.length > 0) throw new DaemonStopRefusedError(blockers);
-    } catch (error) {
-      if (error instanceof DaemonStopRefusedError) throw error;
-      throw new DaemonStopInspectionError(error);
-    } finally {
-      if (ownsStore) store?.close();
-    }
+    assertStopAllowed(options?.stateStore);
   }
 
   let pid: number | null = null;

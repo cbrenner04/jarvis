@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { Run } from "../persistence/state-store";
 import {
   DaemonAlreadyRunningError,
   DaemonReadinessTimeoutError,
@@ -12,7 +13,6 @@ import {
   startDaemon,
   stopDaemon,
 } from "./daemon-lifecycle";
-import type { Run } from "../persistence/state-store";
 
 describe("daemon-lifecycle", () => {
   describe("startDaemon", () => {
@@ -372,26 +372,41 @@ describe("daemon-lifecycle", () => {
     test("refuses every non-terminal durable run before shutdown", async () => {
       const processProber: ProcessProber = { isAlive: () => false };
       const stateStore = {
-        listRuns: () => [run("queued-id", "queued"), run("live-id", "in-progress"), run("paused-id", "paused"), run("non-live-id", "awaiting-human")],
+        listRuns: () => [
+          run("queued-id", "queued"),
+          run("live-id", "in-progress"),
+          run("paused-id", "paused"),
+          run("non-live-id", "awaiting-human"),
+        ],
         close: () => {},
       };
 
-      await expect(
-        stopDaemon("/nonexistent/socket", { stateStore, processProber }),
-      ).rejects.toEqual(new DaemonStopRefusedError(["queued-id", "live-id", "paused-id", "non-live-id"]));
+      await expect(stopDaemon("/nonexistent/socket", { stateStore, processProber })).rejects.toEqual(
+        new DaemonStopRefusedError(["queued-id", "live-id", "paused-id", "non-live-id"]),
+      );
     });
 
     test("allows all durable terminal statuses and refuses store failures", async () => {
       const processProber: ProcessProber = { isAlive: () => false };
       const stateStore = {
-        listRuns: () => [run("completed-id", "completed"), run("failed-id", "failed"), run("blocked-id", "blocked"), run("killed-id", "killed")],
+        listRuns: () => [
+          run("completed-id", "completed"),
+          run("failed-id", "failed"),
+          run("blocked-id", "blocked"),
+          run("killed-id", "killed"),
+        ],
         close: () => {},
       };
 
       await expect(stopDaemon("/nonexistent/socket", { stateStore, processProber })).resolves.toBeUndefined();
       await expect(
         stopDaemon("/nonexistent/socket", {
-          stateStore: { listRuns: () => { throw new Error("store unavailable"); }, close: () => {} },
+          stateStore: {
+            listRuns: () => {
+              throw new Error("store unavailable");
+            },
+            close: () => {},
+          },
           processProber,
         }),
       ).rejects.toEqual(new DaemonStopInspectionError(new Error("store unavailable")));

@@ -3,6 +3,23 @@ import { closeSync, existsSync, openSync, readFileSync, renameSync, rmSync, stat
 import { dirname, resolve } from "node:path";
 import { connectIpcClient } from "../ipc/client";
 import { createRpcTransport } from "../ipc/rpc-transport";
+import { openStateStore, type StateStore } from "../persistence/state-store";
+
+const STOP_TERMINAL_STATUSES = new Set(["completed", "failed", "blocked", "killed"]);
+
+export class DaemonStopRefusedError extends Error {
+  constructor(readonly runIds: readonly string[]) {
+    super(`active durable runs: ${runIds.join(", ")}`);
+    this.name = "DaemonStopRefusedError";
+  }
+}
+
+export class DaemonStopInspectionError extends Error {
+  constructor(cause: unknown) {
+    super(`failed to inspect durable runs: ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = "DaemonStopInspectionError";
+  }
+}
 
 export class DaemonAlreadyRunningError extends Error {
   constructor(socketPath: string) {
@@ -177,12 +194,32 @@ export async function stopDaemon(
     drainTimeoutMs?: number;
     killTimeoutMs?: number;
     pidPath?: string;
+    force?: boolean;
+    stateStore?: Pick<StateStore, "listRuns" | "close">;
     processProber?: ProcessProber;
   },
 ): Promise<void> {
   const drainTimeoutMs = options?.drainTimeoutMs ?? 2_000;
   const killTimeoutMs = options?.killTimeoutMs ?? 3_000;
   const processProber = options?.processProber ?? { isAlive: isProcessAlive };
+
+  if (!options?.force) {
+    let store = options?.stateStore;
+    let ownsStore = false;
+    try {
+      if (store === undefined) {
+        store = openStateStore();
+        ownsStore = true;
+      }
+      const blockers = store.listRuns().filter((run) => !STOP_TERMINAL_STATUSES.has(run.status)).map((run) => run.id);
+      if (blockers.length > 0) throw new DaemonStopRefusedError(blockers);
+    } catch (error) {
+      if (error instanceof DaemonStopRefusedError) throw error;
+      throw new DaemonStopInspectionError(error);
+    } finally {
+      if (ownsStore) store?.close();
+    }
+  }
 
   let pid: number | null = null;
   if (options?.pidPath && existsSync(options.pidPath)) {

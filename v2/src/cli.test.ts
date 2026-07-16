@@ -717,6 +717,34 @@ describe("v2 cli", () => {
     expect(cap.read()).toEqual({ stdout: "stopped\n", stderr: "" });
   });
 
+  test("daemon stop reports refusal and does not print stopped", async () => {
+    const cap = captureIo();
+    const code = await main(["daemon", "stop"], cap.io, {
+      stopDaemon: async () => {
+        throw new Error("DaemonStopRefusedError: active durable runs: queued-id, live-id");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "Error: DaemonStopRefusedError: active durable runs: queued-id, live-id\n" });
+  });
+
+  test("daemon stop --force passes force and unsupported args print usage", async () => {
+    const cap = captureIo();
+    let force: boolean | undefined;
+    const forcedCode = await main(["daemon", "stop", "--force"], cap.io, {
+      stopDaemon: async (_socket, options) => { force = options?.force; },
+    });
+    expect(forcedCode).toBe(0);
+    expect(force).toBe(true);
+    expect(cap.read().stdout).toBe("stopped\n");
+
+    const invalid = captureIo();
+    const invalidCode = await main(["daemon", "stop", "--unexpected"], invalid.io);
+    expect(invalidCode).toBe(1);
+    expect(invalid.read().stderr).toBe("usage: jarvis daemon <start|stop|status|log>\n");
+  });
+
   test("daemon status prints running with exit 0", async () => {
     const cap = captureIo();
     const paths = tempPaths();

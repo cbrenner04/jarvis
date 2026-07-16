@@ -431,5 +431,11 @@ precomputed spec tree for plans. Completion publication runs only after landing.
 
 ## Related docs
 
+New plan and implement PRs use the spec's first non-empty `index.md` H1. A
+heading-less readable index uses its directory basename; a non-index spec uses
+its file basename even when a sibling index exists. Intent and reviewed-intent
+PRs retain `intent: <name>`. Missing or unreadable index identity fails with a
+named title-resolution error, with no generic completion title.
+
 - [`daemon-host.md`](./daemon-host.md) — IPC methods, `list`/`wait` error shape, resume semantics
 - [`workflow-runner.md`](./workflow-runner.md) — multi-step workflows and the `implement` preset

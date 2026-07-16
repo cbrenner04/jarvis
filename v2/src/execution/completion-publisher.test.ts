@@ -7,6 +7,7 @@ describe("createCompletionPublisher", () => {
     baseRef: "main",
     specPath: "v2/spec/test/index.md",
     branch: "feature-branch",
+    creationTitle: "Spec title",
   };
 
   const noopDelay = async () => {};
@@ -93,7 +94,7 @@ describe("createCompletionPublisher", () => {
     {},
     "",
     " \t\n ",
-  ])("uses the fallback title for an unusable supplied subject", async (creationTitle) => {
+  ])("rejects an unusable supplied subject when the index is unreadable", async (creationTitle) => {
     let createArgs: readonly string[] | undefined;
     const publisher = createCompletionPublisher({
       git: async (_cwd, args) => {
@@ -114,9 +115,8 @@ describe("createCompletionPublisher", () => {
       ...noopRefreshSeams,
     });
 
-    await publisher({ ...baseInput, creationTitle });
-
-    expect(createArgs).toContain("jarvis: complete run");
+    await expect(publisher({ ...baseInput, creationTitle })).rejects.toThrow("Title resolution");
+    expect(createArgs).toBeUndefined();
   });
 
   it("runs all gh commands in the completed run worktree context", async () => {

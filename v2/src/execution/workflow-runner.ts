@@ -43,7 +43,7 @@ import {
   executeReviewCycleEnforced,
 } from "./review-intent-enforcement.ts";
 import { parseRevisionNumber } from "./revision-step-id.ts";
-import { resolveSpecCreationTitle } from "./spec-creation-title.ts";
+import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import {
@@ -731,11 +731,20 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       if (completionStep) {
         const worktree = completionStep.worktree;
         const worktreePath = getExternalWorktreePath(worktree);
+        const publicationPath = publicationSpecPath ?? completionStep.specPath;
         try {
+          const creationTitle = resolvePublicationTitle(worktreePath, publicationPath, workflowSnapshot.creationTitle);
+          store.setCreationTitle(lastResult.runId, creationTitle);
+          const completionRun = store.findRunByProjectBranch({
+            project: worktree.projectName,
+            branch: worktree.branchName,
+            stepId: completionStep.stepId,
+          });
+          if (completionRun !== null) store.setCreationTitle(completionRun.id, creationTitle);
           const published = await (args.completionCommitter ?? createCompletionCommitter())({
             worktreePath,
             baseRef: worktree.baseRef,
-            specPath: publicationSpecPath ?? completionStep.specPath,
+            specPath: publicationPath,
             agent: publicationAgent,
           });
           if (published.commitSha === undefined) {
@@ -796,7 +805,6 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 specPath: publicationSpecPath ?? completionStep.specPath,
               });
             }
-            const publicationPath = publicationSpecPath ?? completionStep.specPath;
             const publishError = await publishCompletionArtifacts(
               {
                 ...(args.completionPublisher !== undefined ? { completionPublisher: args.completionPublisher } : {}),
@@ -807,7 +815,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 baseRef: worktree.baseRef,
                 specPath: publicationPath,
                 branch: worktree.branchName,
-                creationTitle: workflowSnapshot.creationTitle,
+                creationTitle,
                 ...(bodySummary !== undefined ? { bodySummary } : {}),
               },
             );
@@ -988,7 +996,9 @@ function buildWorkflowSnapshot(
         if (requestedInvocationId !== undefined && candidate.invocationId !== requestedInvocationId) {
           throw new Error("intent: existing workflow is owned by another invocation; resume the recorded invocation");
         }
-        return candidate;
+        return candidate.creationTitle !== undefined || !existingRun?.creationTitle
+          ? candidate
+          : { ...candidate, creationTitle: existingRun.creationTitle };
       }
     }
   }
@@ -1006,11 +1016,7 @@ function workflowCreationTitleField(
   steps: readonly AnyWorkflowStep[],
 ): { creationTitle: string } | Record<string, never> {
   const writeStep = steps.find(isWriteStep);
-  const creationTitle =
-    writeStep?.creationTitle ??
-    (writeStep === undefined
-      ? undefined
-      : resolveSpecCreationTitle(getExternalWorktreePath(writeStep.worktree), writeStep.specPath));
+  const creationTitle = writeStep?.creationTitle;
   return creationTitle === undefined ? {} : { creationTitle };
 }
 

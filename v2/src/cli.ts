@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
+import { type CleanupDeps, cleanupMergedWorkspaces, defaultCleanupDeps } from "./commands/cleanup.ts";
 import type { AgentModelConfig, LoadError } from "./config/agent-model-config.ts";
 import {
   type ImplementReviewBehavior,
@@ -41,7 +42,6 @@ import { createRpcTransport } from "./ipc/rpc-transport.ts";
 import { DAEMON_LOG_PATH, DAEMON_PID_PATH, DAEMON_SOCKET_PATH, MACHINE_CONFIG_PATH } from "./paths.ts";
 import { runTuiEntry } from "./tui/tui-entry.tsx";
 import { runTuiLogFollow } from "./tui/tui-log-follow-entry.tsx";
-import { cleanupMergedWorkspaces, defaultCleanupDeps, type CleanupDeps } from "./commands/cleanup.ts";
 import type { RunTuiLogFollowDeps } from "./tui/tui-log-follow-types.ts";
 import type { RunTuiEntryDeps } from "./tui/tui-monitor-types.ts";
 

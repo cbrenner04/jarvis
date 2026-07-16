@@ -1,9 +1,9 @@
 import { join, relative } from "node:path";
-import { realAsyncSubprocessRunner, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { jarvisHome } from "../paths.ts";
 import { openStateStore, type Run } from "../persistence/state-store.ts";
-import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 
 export type CleanupCandidate = { project: string; root: string; path: string; branch: string };
 
@@ -42,15 +42,26 @@ function isInside(path: string, home: string): boolean {
 
 async function hasMergedPr(candidate: CleanupCandidate, runner: AsyncSubprocessRunner): Promise<boolean> {
   try {
-    return (await runner.runAsync("gh", ["pr", "view", "--head", candidate.branch, "--json", "state", "-q", ".state"], candidate.root)).trim() === "MERGED";
+    return (
+      (
+        await runner.runAsync(
+          "gh",
+          ["pr", "view", "--head", candidate.branch, "--json", "state", "-q", ".state"],
+          candidate.root,
+        )
+      ).trim() === "MERGED"
+    );
   } catch {
     return false;
   }
 }
 
 function isOwned(candidate: CleanupCandidate, durable: Run[], live: DaemonListRunRow[]): boolean {
-  return durable.some((run) => run.project === candidate.project && run.worktreePath === candidate.path && !TERMINAL.has(run.status)) ||
-    live.some((run) => run.project === candidate.project && run.branch === candidate.branch && run.isLive);
+  return (
+    durable.some(
+      (run) => run.project === candidate.project && run.worktreePath === candidate.path && !TERMINAL.has(run.status),
+    ) || live.some((run) => run.project === candidate.project && run.branch === candidate.branch && run.isLive)
+  );
 }
 
 async function eligible(

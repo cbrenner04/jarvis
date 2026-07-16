@@ -35,20 +35,21 @@ test("cleanup previews without prompting and cancellation does not mutate", asyn
   const preview = captureIo();
   const base = {
     readProjectRegistry: () => ({ demo: { root: "/repo" } }),
-    createCleanupDeps: () => ({
-      jarvisRoot: "/home",
-      listDurableRuns: () => [],
-      listLiveRuns: async () => [],
-      runner: {
-        async runAsync(command, args) {
-          if (command === "git" && args[0] === "worktree" && args[1] === "list") {
-            return "worktree /repo\nbranch refs/heads/main\n\nworktree /home/worktrees/demo/plan/test\nbranch refs/heads/plan/test\n\n";
-          }
-          if (command === "gh") return "MERGED\n";
-          return "";
+    createCleanupDeps: () =>
+      ({
+        jarvisRoot: "/home",
+        listDurableRuns: () => [],
+        listLiveRuns: async () => [],
+        runner: {
+          async runAsync(command, args) {
+            if (command === "git" && args[0] === "worktree" && args[1] === "list") {
+              return "worktree /repo\nbranch refs/heads/main\n\nworktree /home/worktrees/demo/plan/test\nbranch refs/heads/plan/test\n\n";
+            }
+            if (command === "gh") return "MERGED\n";
+            return "";
+          },
         },
-      },
-    } satisfies CleanupDeps),
+      }) satisfies CleanupDeps,
     connectIpcClient: async () => makeIpcClient([{ kind: "response", id: "ignored", result: { runs: [] } }]),
   };
   expect(await main(["cleanup", "--dry-run"], preview.io, base)).toBe(0);

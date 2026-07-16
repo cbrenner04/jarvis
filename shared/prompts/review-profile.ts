@@ -51,7 +51,15 @@ export const intentReviewProfile = profile({
 
 export const planReviewProfile = profile({
   domain: "plan",
-  promptIds: { critic: "plan.prompt.review.critic", actuator: "plan.prompt.review-actuator" },
+  promptIds: {
+    critic: "plan.prompt.review.critic",
+    actuator: "plan.prompt.review-actuator",
+    debate: {
+      adversary: "plan.prompt.review.adversary",
+      advocate: "plan.prompt.review.advocate",
+      adjudicator: "plan.prompt.review.adjudicator",
+    },
+  },
   verdict: { source: "critic", empty: "stop", persist: "stdout" },
   boundaries: {
     light: { critic: "read-only", actuator: "write" },

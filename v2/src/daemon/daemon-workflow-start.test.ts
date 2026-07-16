@@ -3,10 +3,16 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding, InvocationResult } from "../../../shared/invocation/execute.ts";
+import {
+  implementReviewProfile,
+  intentReviewProfile,
+  planReviewProfile,
+} from "../../../shared/prompts/review-profile.ts";
 import type {
   AnyWorkflowStep,
   HumanWorkflowStep,
   ReviewDebateWorkflowStep,
+  ReviewWorkflowStep,
   WriteWorkflowStep,
 } from "../execution/workflow-runner.ts";
 import { openLogReader } from "../persistence/log-stream.ts";
@@ -55,6 +61,24 @@ const DEBATE_AGENT_MODEL_CONFIG = {
     actuator: { rungs: [{ adapterModel: "ACT", priceKey: "p-act" }] },
   },
 };
+
+const REVIEW_AGENT_MODEL_CONFIG = {
+  claude: {
+    critic: { rungs: [{ adapterModel: "CRIT", priceKey: "p-crit" }] },
+    ...DEBATE_AGENT_MODEL_CONFIG.claude,
+  },
+};
+
+function createReviewBindingFactory(prompts: string[]): NonNullable<ReviewWorkflowStep["createBinding"]> {
+  return ({ agentId, adapterModel }) => ({
+    id: `${agentId}/${adapterModel}`,
+    invoke: async ({ prompt }) => {
+      prompts.push(prompt);
+      return { kind: "ok", stdout: "apply this verdict", stderr: "" } as const;
+    },
+    metadata: { agent: agentId, model: adapterModel },
+  });
+}
 
 function createDebateStep(stepId: string, branch: string): ReviewDebateWorkflowStep {
   return {
@@ -231,6 +255,77 @@ test("start with steps dispatches to executeWorkflow and returns step 0's runId"
   const run = runId ? stateStore.loadRun(runId) : null;
   expect(run?.project).toBe("demo");
   expect(run?.branch).toBe("workflow-branch");
+});
+
+test("JSON-round-tripped review profiles rehydrate renderers for every domain and behavior", async () => {
+  const profiles = [intentReviewProfile, planReviewProfile, implementReviewProfile] as const;
+
+  for (const profile of profiles) {
+    const prompts: string[] = [];
+    const cwd = mkdtempSync(join(tmpdir(), `daemon-review-${profile.domain}-`));
+    const bindingFactory = createReviewBindingFactory(prompts);
+    const light: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: `${profile.domain}-light`,
+      project: "demo",
+      branch: `${profile.domain}-branch`,
+      cwd,
+      prompt: "fallback critic",
+      verdictPath: join(cwd, "light-verdict.md"),
+      maxCycles: 1,
+      profile: profile as NonNullable<ReviewWorkflowStep["profile"]>,
+      profileContext: {
+        stagingDir: cwd,
+        verdictPath: join(cwd, "light-verdict.md"),
+        specPath: join(cwd, "spec.md"),
+        worktreePath: cwd,
+        cwd,
+        passNumber: 1,
+        totalPasses: 1,
+      },
+      agents: { critic: ["claude"], actuator: ["claude"] },
+      agentModelConfig: REVIEW_AGENT_MODEL_CONFIG,
+      createBinding: bindingFactory,
+    };
+    const debate: ReviewDebateWorkflowStep = {
+      behavior: "review-debate",
+      stepId: `${profile.domain}-debate`,
+      project: "demo",
+      branch: `${profile.domain}-branch`,
+      cwd,
+      prompts: { adversary: "fallback adversary", advocate: "fallback advocate", adjudicator: "fallback adjudicator" },
+      verdictPath: join(cwd, "debate-verdict.md"),
+      maxCycles: 1,
+      profile: profile as NonNullable<ReviewDebateWorkflowStep["profile"]>,
+      profileContext: light.profileContext,
+      agents: { adversary: ["claude"], advocate: ["claude"], adjudicator: ["claude"], actuator: ["claude"] },
+      agentModelConfig: REVIEW_AGENT_MODEL_CONFIG,
+      createBinding: bindingFactory,
+    };
+    const write = createWriteStep(`${profile.domain}-write`, `${profile.domain}-branch`);
+    const serialized = JSON.parse(JSON.stringify([write, light, debate])) as AnyWorkflowStep[];
+    for (const [index, step] of serialized.entries()) {
+      if (step.behavior !== "human") step.createBinding = index === 0 ? doneWithArtifactBindingFactory : bindingFactory;
+    }
+    if (serialized[0]?.behavior === "write" && write.withExternalWorktree !== undefined)
+      serialized[0].withExternalWorktree = write.withExternalWorktree;
+
+    const response = await handlers.start(
+      requestFrame(profile.domain, "start", { steps: serialized }),
+      new AbortController().signal,
+    );
+    expect(response.kind).toBe("response");
+    const runId = (response as { result: { runId: string } }).result.runId;
+    await waitDirect(handlers, runId);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(stateStore.loadRun(runId)?.status).toBe("completed");
+    expect(prompts.length).toBe(6);
+    expect(prompts[0]).not.toBe("fallback critic");
+    expect(prompts[1]?.trim().length).toBeGreaterThan(0);
+    expect(prompts.slice(2, 5).every((prompt) => !prompt.startsWith("fallback"))).toBe(true);
+    expect(prompts[5]?.trim().length).toBeGreaterThan(0);
+  }
 });
 
 test("start with steps appends observability log events when logsPath is configured", async () => {

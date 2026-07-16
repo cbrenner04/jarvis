@@ -53,8 +53,6 @@ the fixed code supports, but the assertion must be on the gate's real exit code,
 - [ ] A test asserts the serial retry re-runs the exact command that failed (same argv), and that a retry can
       never be a narrower invocation than the failed step; it fails against the pre-fix code.
 - [ ] A resolved test scope with zero test steps makes the gate exit non-zero, covered by a test.
-- [ ] The reproduction from § Root-cause first is captured in the PR body: the tree/edit used, `bun run ready`
-      exit 0, direct `bun test <file>` exit non-zero.
 - [ ] Existing `v1/test/ready-script.sandbox-unrunnable.test.ts` and `v1/test/ready-gate.test.ts` stay green.
 
 ## Documentation updates

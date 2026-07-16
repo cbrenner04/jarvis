@@ -331,8 +331,7 @@ function isGenuineTestFailure(code: number): boolean {
 }
 
 function isTestStep(args: string[]): boolean {
-  // Detect `bun run test` exactly, not substring matches like `check` or `check:fix`
-  return args[0] === "run" && args[1] === "test" && args.length === 2;
+  return args[0] === "run" && args[1]?.startsWith("test") === true && args.length === 2;
 }
 
 export async function runReady(opts?: { repoRoot?: string; runCommandFn?: typeof runCommand }): Promise<void> {
@@ -342,6 +341,10 @@ export async function runReady(opts?: { repoRoot?: string; runCommandFn?: typeof
   const runInstall = tier === "full" && shouldRunInstall(repoRoot);
   const testScope = parseReadyTestScope();
   const commands = getReadyCommands(tier, { runInstall, ...(testScope !== undefined ? { testScope } : {}) });
+  if (testScope !== undefined && testScope !== "full" && testScope.length === 0) {
+    process.stderr.write("ready: resolved test scope contains no test steps\n");
+    process.exit(1);
+  }
   const timeoutMs = parseTimeout();
   const startTime = Date.now();
 
@@ -349,16 +352,15 @@ export async function runReady(opts?: { repoRoot?: string; runCommandFn?: typeof
     const elapsed = Date.now() - startTime;
     let code = await runCommandFn(name, args, timeoutMs, elapsed);
 
-    // Serial retry: on test-step failure (genuine process exit, not signal/timeout),
-    // run the suite serially without `--parallel` before declaring red
+    // Retry only the identical failed test step; a narrower command cannot clear it.
     if (code !== 0 && isTestStep(args) && isGenuineTestFailure(code)) {
-      process.stderr.write(`ready: parallel test failed (code ${code}); retrying serially\n`);
+      process.stderr.write(`ready: test step failed (code ${code}); retrying\n`);
       const serialElapsed = Date.now() - startTime;
-      code = await runCommandFn("bun", ["test"], timeoutMs, serialElapsed);
+      code = await runCommandFn(name, args, timeoutMs, serialElapsed);
       if (code === 0) {
-        process.stderr.write(`ready: parallel-load flake recovered (serial test passed); continuing\n`);
+        process.stderr.write(`ready: test flake recovered (retry passed); continuing\n`);
       } else {
-        process.stderr.write(`ready: serial test failed (code ${code})\n`);
+        process.stderr.write(`ready: retry failed (code ${code})\n`);
       }
     }
 

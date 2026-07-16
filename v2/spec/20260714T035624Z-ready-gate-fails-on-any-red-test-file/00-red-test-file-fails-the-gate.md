@@ -48,12 +48,12 @@ the fixed code supports, but the assertion must be on the gate's real exit code,
 
 ## Acceptance criteria
 
-- [ ] A test drives the ready gate over a resolved suite containing a deliberately failing test file and asserts
+- [x] A test drives the ready gate over a resolved suite containing a deliberately failing test file and asserts
       a non-zero exit; it fails against the pre-fix code and passes after the change.
-- [ ] A test asserts the serial retry re-runs the exact command that failed (same argv), and that a retry can
+- [x] A test asserts the serial retry re-runs the exact command that failed (same argv), and that a retry can
       never be a narrower invocation than the failed step; it fails against the pre-fix code.
-- [ ] A resolved test scope with zero test steps makes the gate exit non-zero, covered by a test.
-- [ ] Existing `v1/test/ready-script.sandbox-unrunnable.test.ts` and `v1/test/ready-gate.test.ts` stay green.
+- [x] A resolved test scope with zero test steps makes the gate exit non-zero, covered by a test.
+- [x] Existing `v1/test/ready-script.sandbox-unrunnable.test.ts` and `v1/test/ready-gate.test.ts` stay green.
 
 ## Documentation updates
 

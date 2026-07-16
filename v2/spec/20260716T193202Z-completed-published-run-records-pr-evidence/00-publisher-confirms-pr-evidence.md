@@ -22,11 +22,11 @@ pre-fix number is wrong.
 
 ## Acceptance criteria
 
-- [ ] A publisher test whose `gh pr create` seam returns a PR URL under a digit-bearing owner asserts the publisher reports the PR's real number and URL; it fails against the pre-fix code, which reports a number parsed out of the owner slug.
-- [ ] A publisher test whose post-create confirmation returns no open PR for the branch, and one whose confirmed PR has a different base than the requested `baseRef`, each fail publication with a named `pr` publication failure carrying the command cause rather than returning a PR number.
-- [ ] Publication succeeds only when the confirmed PR matches the requested branch and base; the confirmed number and URL are both available on the publisher result.
-- [ ] `completion-publisher.test.ts` push, retry, body-refresh, and title-resolution tests stay green (confirmation is additive to those paths).
-- [ ] Missing PR evidence makes one confirmation attempt (no transient retry).
+- [x] A publisher test whose `gh pr create` seam returns a PR URL under a digit-bearing owner asserts the publisher reports the PR's real number and URL; it fails against the pre-fix code, which reports a number parsed out of the owner slug.
+- [x] A publisher test whose post-create confirmation returns no open PR for the branch, and one whose confirmed PR has a different base than the requested `baseRef`, each fail publication with a named `pr` publication failure carrying the command cause rather than returning a PR number.
+- [x] Publication succeeds only when the confirmed PR matches the requested branch and base; the confirmed number and URL are both available on the publisher result.
+- [x] `completion-publisher.test.ts` push, retry, body-refresh, and title-resolution tests stay green (confirmation is additive to those paths).
+- [x] Missing PR evidence makes one confirmation attempt (no transient retry).
 
 ## Documentation updates
 

@@ -14,11 +14,11 @@ published" costs a live `gh` query per row.
 
 ## Acceptance criteria
 
-- [ ] A completed published run's terminal `loop_finished` record carries the confirmed PR number and URL; a test asserts both and fails against the pre-fix code.
-- [ ] `run list` reports the PR number and URL for that run, with no live `gh` query.
-- [ ] A run that failed its ready flip after a confirmed PR carries the same evidence on its terminal record and list row.
-- [ ] A run that never published (git-disabled, or terminal before publication) reports no PR evidence, and `jarvis run list` renders `-` for both columns.
-- [ ] Existing `jarvis run list` columns keep their order and meaning; the PR columns are appended.
+- [x] A completed published run's terminal `loop_finished` record carries the confirmed PR number and URL; a test asserts both and fails against the pre-fix code.
+- [x] `run list` reports the PR number and URL for that run, with no live `gh` query.
+- [x] A run that failed its ready flip after a confirmed PR carries the same evidence on its terminal record and list row.
+- [x] A run that never published (git-disabled, or terminal before publication) reports no PR evidence, and `jarvis run list` renders `-` for both columns.
+- [x] Existing `jarvis run list` columns keep their order and meaning; the PR columns are appended.
 
 ## Documentation updates
 

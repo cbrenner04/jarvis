@@ -255,12 +255,16 @@ resume a `ready_gate_failed` run after fixing the gate, or a `ready_flip_failed`
 
 A v2 implement run reporting `runStatus: "completed"` implies (1) the active subspec's
 non-human-only acceptance criteria are all ticked at the boundary, (2) a completion commit
-exists, and (3) the ready gate is green. The spec.criteria-ticked contract prevents `done` / `no-work`
-completions when unticked non-human-only criteria exist, re-reading the subspec from the run's
-worktree and blocking before any completion commit or PR publication. The completion boundary
-enforces (2): when the committer returns no new commit and the worktree is dirty, the run records
+exists, (3) confirmed PR evidence (a pushed commit linked to an open PR), and (4) the ready gate
+is green. The spec.criteria-ticked contract prevents `done` / `no-work` completions when
+unticked non-human-only criteria exist, re-reading the subspec from the run's worktree and
+blocking before any completion commit or PR publication. The completion boundary enforces (2):
+when the committer returns no new commit and the worktree is dirty, the run records
 `completion_commit_failed` and names the uncommitted paths instead of masking them as `complete`.
-A red gate demotes the run to `failed` and blocks completion; resume the run after fixing the gate.
+The publication boundary enforces (3): when the publisher returns a `pushSha` but no PR evidence
+(no `prNumber`), the run records `completion_commit_failed` (retryable) and skips ready finalization,
+preventing silent publication gaps where code is pushed but no PR exists. A red gate demotes the
+run to `failed` and blocks completion; resume the run after fixing the gate.
 
 v2 TUI tests can pass while ink rendering is broken — see seed
 `tui-tests-bypass-the-render-path` and [`test-writing.md`](./test-writing.md).

@@ -842,6 +842,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
           ? { workflow: workflowRowSnapshot(fullRun, workflowRuns, liveRunIds, reviewDebateProgressByInvocation) }
           : {}),
         ...(reportedStatus === "blocked" ? { worktreePath: run.worktreePath } : {}),
+        ...(run.prNumber !== undefined ? { prNumber: run.prNumber } : {}),
+        ...(run.prUrl !== undefined ? { prUrl: run.prUrl } : {}),
       };
     });
 

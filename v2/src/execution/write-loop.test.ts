@@ -192,6 +192,7 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
   return {
     createRun: (args) => inner.createRun(args),
     setCreationTitle: (runId, title) => inner.setCreationTitle(runId, title),
+    setPrEvidence: (runId, prNumber, prUrl) => inner.setPrEvidence(runId, prNumber, prUrl),
     loadRun: (runId) => inner.loadRun(runId),
     findRunByProjectBranch: (args) => inner.findRunByProjectBranch(args),
     findRevisionRuns: (args) => inner.findRevisionRuns(args),
@@ -1014,6 +1015,60 @@ describe("write loop", () => {
       expect(result.kind).toBe("ready_flip_failed");
       expect(result.readyFlipPrNumber).toBeUndefined();
       expect(result.readyFlipError).toContain("gh pr ready failed");
+    });
+
+    test("returns retryable completion_commit_failed when pushed without PR evidence", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1", filesChanged: 1 }),
+        completionPublisher: async () => ({ pushSha: "abc123def456" }),
+        readyFinalizer: async () => {
+          throw new Error("should not finalize when PR evidence is missing");
+        },
+      });
+
+      expect(result.kind).toBe("completion_commit_failed");
+      expect(result.resumable).toBe(true);
+      expect(result.completionCommitError).toContain("PR evidence");
+      expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "completion_commit_failed",
+        resumable: true,
+      });
+    });
+
+    test("completed published run's terminal loop_finished record carries PR evidence", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1", filesChanged: 1 }),
+        completionPublisher: async () => ({ prNumber: 42, prUrl: "https://github.com/owner/repo/pull/42" }),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(result.prNumber).toBe(42);
+      expect(result.prUrl).toBe("https://github.com/owner/repo/pull/42");
+
+      const loopFinished = logSink.getEventsForRun(result.runId).at(-1);
+      expect(loopFinished?.kind).toBe("loop_finished");
+      if (loopFinished?.kind === "loop_finished") {
+        expect(loopFinished.prNumber).toBe(42);
+        expect(loopFinished.prUrl).toBe("https://github.com/owner/repo/pull/42");
+      }
+
+      const storedRun = loadRunOnce(stateDbPath, result.runId);
+      expect(storedRun?.prNumber).toBe(42);
+      expect(storedRun?.prUrl).toBe("https://github.com/owner/repo/pull/42");
     });
 
     test("completed-run resume replays publication after a prior publication failure", async () => {

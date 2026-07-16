@@ -40,9 +40,22 @@ the resolved title is retained durably so re-publication uses the original title
 when the spec's `index.md` cannot be re-read. Multiple open PRs on the same branch are
 disambiguated by `baseRef` match; when multiple match the same base, the first is
 reused; when none match, a new PR is created. When the branch has no origin or
-push/PR operations are disabled, this phase is skipped. Every publication
-subprocess (`gh auth status`, upstream detection, `git push`, `git rev-parse HEAD`,
-`gh pr list`/`create`) is awaited in that order before body refresh begins.
+push/PR operations are disabled, this phase is skipped. 
+
+PR evidence is confirmed after both the found and created path: `gh pr view <branch>` 
+queries for the open PR on the branch and validates that its number, URL, and base ref 
+match the requested base; only the confirmed number and URL are recorded as PR evidence. 
+Missing evidence (no open PR found, or PR base mismatch) fails the publication operation 
+as a permanent `pr` publication failure with one confirmation attempt (no transient retry).
+
+**Publication evidence gate:** After all publication operations (push, PR, body refresh) succeed,
+a final gate checks that evidence of publication exists: if a `pushSha` is recorded but no
+`prNumber` exists, the run records `completion_commit_failed` (retryable) and skips ready 
+finalization. This ensures a reported completion always implies confirmed PR evidence, preventing
+silent publication gaps where code is pushed but no PR was created or found.
+
+Every publication subprocess (`gh auth status`, upstream detection, `git push`, `git rev-parse HEAD`,
+`gh pr list`, `gh pr create`, `gh pr view`) is awaited in that order before body refresh begins.
 
 **PR body refresh:** after the draft PR is ensured, the publisher rewrites its
 body: regenerated `Spec: <specPath>` header, an optional caller-supplied summary
@@ -527,7 +540,7 @@ before retrying `jarvis tui` or `jarvis tui log <run-id>`.
 | --- | --- | --- | --- |
 | `jarvis run start ...` | Same required flags as `jarvis write`; `--project-root`, `--project`, `--branch`, `--base`, `--spec`, `--artifact`, optional `--max-iterations`; mapped to the same `WriteLoopInput` fields and sent over IPC as one `start` request | Run ID | `0` on success |
 | `jarvis run workflow <name> ...` | Selects a registered workflow builder by name. Only `implement` is registered. Required flags: `--base` and `--spec`. Optional flags: `--branch` (defaults to parent directory basename of resolved `--spec`), `--artifact` (required for non-index specs, ignored for index specs), `--review-passes <n>` (non-negative integer; overrides the registered project's `implement.reviewPasses`, default `0`). A relative `--spec` is resolved from invocation cwd before project lookup; project is resolved from the registered project containing the resolved spec path (not from invocation cwd). Spec and artifact paths passed to the workflow are worktree-relative. The `implement` builder supplies `role`/`promptId`/`agents`/`agentModelConfig` and sends one IPC `start` request carrying `{ steps }`, then blocks on an IPC `wait` request for the resulting run ID | Run ID line, then one minified JSON line: `{runStatus, loopOutcomeKind?, iterationsConsumed?, resumable?, error?, worktreePath?}` — only present optional fields included | `0` on success; `1` on missing/unknown name, invalid flags, spec outside registered projects, invalid `implement.reviewPasses` project config, machine-config validation failure, or daemon `wait` error — selection, parsing, project resolution, effective review-count resolution, and builder errors occur before daemon connection; otherwise see [wait exit codes](#wait-exit-codes) for the workflow run's terminal exit code |
-| `jarvis run list` | None | One tab-separated row per run: `runId project branch status liveness reason retryable nextAction worktreePath publicationFailure` — `publicationFailure` is JSON or `-` | `0` on success |
+| `jarvis run list` | None | One tab-separated row per run: `runId project branch status liveness reason retryable nextAction worktreePath publicationFailure prNumber prUrl` — `publicationFailure` is JSON or `-`; `prNumber` and `prUrl` are the confirmed PR evidence from publication or `-` when not available | `0` on success |
 | `jarvis run log <run-id>` | Run ID | One compact JSON line per persisted record; replay first, then follow new records until stream end or client close | `0` on stream end/client close |
 | `jarvis run pause <run-id>` | Run ID | `paused <run-id>` | `0` on success |
 | `jarvis run resume <run-id>` | Run ID | `resumed <run-id>` | `0` on success |
@@ -538,8 +551,8 @@ before retrying `jarvis tui` or `jarvis tui log <run-id>`.
 verbatim when present (`reason`, `retryable`, `nextAction`); see
 [`daemon-host.md`](./daemon-host.md#operator-error-on-list-and-wait) for the wire
 contract. Default output is actionable summary only — no stderr dumps or log
-transcripts. List rows always emit eight columns; scripts that parsed the prior
-five-column layout must migrate. Wait stdout includes `error` only when the daemon
+transcripts. List rows always emit twelve columns (appended: PR evidence); scripts that parsed the prior
+five-column or ten-column layout must migrate. Wait stdout includes `error` only when the daemon
 result carries it (no `null` placeholder). Wait exit codes follow
 `loopOutcomeKind` / `runStatus` only; `error` is informational stdout (e.g.
 `retryable: true` with exit `4` on `killed`). TUI run views are unchanged in

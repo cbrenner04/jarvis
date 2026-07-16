@@ -28,6 +28,8 @@ export type LoopFinishedEvent = {
   iterationsConsumed: number;
   resumable: boolean;
   publicationFailure?: PublicationFailure;
+  prNumber?: number;
+  prUrl?: string;
 };
 
 export type RunExecutionFailedEvent = {

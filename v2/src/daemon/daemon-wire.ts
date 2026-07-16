@@ -31,6 +31,10 @@ export type DaemonListRunRow = {
   workflow?: DaemonWorkflowSnapshot;
   /** Surviving worktree path; present on `blocked` rows so the operator can locate resumable work. */
   worktreePath?: string;
+  /** Confirmed PR number when publication succeeded. */
+  prNumber?: number;
+  /** Confirmed PR URL when publication succeeded. */
+  prUrl?: string;
 };
 
 /** Successful daemon `list` wire payload. */

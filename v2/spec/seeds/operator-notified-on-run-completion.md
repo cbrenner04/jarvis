@@ -66,6 +66,12 @@ misinformation.
 - Reach an operator not watching the terminal: the human case (OS notification /
   terminal bell) and the agent-operator case (harness re-invoke on completion) are
   the same need served by the same daemon sink.
+- **Return `run workflow` to fire-and-forget.** #1558
+  (`run-workflow-exit-status-tracks-run-outcome`) made the CLI `start` then block on
+  `waitForRunCompletion` so exit status tracks the run. Once the daemon push carries
+  the outcome, that foreground block is the polling this seed removes — just spelled
+  as a blocking wait instead of a `tail -f`. `run workflow` should print the run-id
+  and return; the push (not a held-open CLI) delivers the terminal state.
 
 ## Decisions
 
@@ -80,7 +86,10 @@ misinformation.
   JSONL + SQLite).
 - Fold into config / the existing invocation surface rather than adding a new
   subcommand where possible — "fewer manual steps" is not "more commands".
-- Do not solve this by telling operators to run in the foreground.
+- Do not solve this by telling operators to run in the foreground — and note that
+  #1558's blocking `run workflow` *is* running in the foreground. Revert it: the
+  outcome-tracking it exists for moves to the push. Keep `run wait <run-id>` as the
+  opt-in blocking path for anyone who still wants an exit code to gate on.
 - Terminal-state coverage is the acceptance bar, not happy-path completion.
 
 ## Out of scope

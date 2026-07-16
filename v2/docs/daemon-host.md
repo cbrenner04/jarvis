@@ -430,9 +430,15 @@ within `readinessTimeoutMs`.
 
 ### `stopDaemon(socketPath, options?)`
 
-Graceful shutdown: attempts RPC `shutdown` (for coordinated drain), sends
-SIGTERM, waits bounded time, then SIGKILL if needed. Cleans up injected
-`pidPath`.
+Normal shutdown first reads the durable run store. `in-progress`, `paused`,
+`budget-soft-stopped`, `awaiting-human`, `revising`, and `queued` rows refuse
+the stop and report every run ID. The refusal happens before shutdown, process
+signals, or PID cleanup. A store read failure also refuses the stop.
+
+`completed`, `failed`, `blocked`, and `killed` rows do not block. With
+`force: true`, the durable guard is skipped and the existing graceful shutdown
+path is used: RPC `shutdown`, SIGTERM, bounded wait, SIGKILL if needed, and
+`pidPath` cleanup.
 
 **Drain:** Signals server to reject new connections and drain in-flight IPC
 (default 2s). Waits bounded time (default 3s) for process exit after SIGTERM.

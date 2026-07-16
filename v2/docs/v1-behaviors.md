@@ -19,6 +19,7 @@ flags override alias defaults. Invalid values fail with usage before daemon cont
 - Behavior entries in this catalog stay as short bullets ending with `Sources:` citations; `[uncertain]` is reserved for cases where source evidence cannot support a stronger claim. Sources: `v1/spec/completed/2026-05-22T04-09-01Z-v1-behavior-catalog/00-skeleton-commands-and-project-resolution.md`
 
 - v2 daemon restart reconciliation kills orphaned non-terminal runs before IPC, preserving their worktrees and branches; kill and reconcile never overwrite boundary-terminal status (`completed`, `blocked`, `failed`), and `run_reconciled` events emit only for pending rows currently `killed`. Sources: `v2/src/daemon/daemon.ts`, `v2/src/persistence/state-store.ts`
+- v2 `jarvis daemon stop` refuses when durable runs are non-terminal, reports every blocker ID, and leaves shutdown side effects untouched; `--force` bypasses only this guard. Sources: `v2/src/daemon/daemon-lifecycle.ts`, `v2/src/cli.ts`
 
 ## Commands and modes
 

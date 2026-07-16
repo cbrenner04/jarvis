@@ -913,7 +913,7 @@ test("resume retries a completed run after completion publication failed", async
   expect(fakeExecutor.pendingCount()).toBe(1);
 });
 
-test("resume retries a completed run after ready finalization failed", async () => {
+test("resume retries completed runs after ready gate and flip failures", async () => {
   const runId = createPublicationRetryRun();
   stateStore.setRunStatus(runId, "completed");
   const logReader: LogReader = {
@@ -924,7 +924,7 @@ test("resume retries a completed run after ready finalization failed", async () 
         ts: "2026-01-01T00:00:00.000Z",
         event: {
           kind: "loop_finished",
-          loopOutcomeKind: "ready_finalize_failed",
+          loopOutcomeKind: "ready_gate_failed",
           iterationsConsumed: 1,
           resumable: true,
         },
@@ -942,6 +942,21 @@ test("resume retries a completed run after ready finalization failed", async () 
   });
 
   expect((await resumeDirect(handlers, { runId })).kind).toBe("response");
+  expect(fakeExecutor.pendingCount()).toBe(1);
+
+  fakeExecutor.settleAll();
+  await flushBackgroundRuns();
+  const flipRunId = createPublicationRetryRun();
+  stateStore.setRunStatus(flipRunId, "completed");
+  handlers = createRunControlHandlers({
+    stateStore,
+    logReader: { tail: () => [{ runId: flipRunId, seq: 1, ts: "2026-01-01T00:00:00.000Z", event: { kind: "loop_finished", loopOutcomeKind: "ready_flip_failed", iterationsConsumed: 1, resumable: true } }], async *follow() {} },
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+  });
+  expect((await resumeDirect(handlers, { runId: flipRunId })).kind).toBe("response");
   expect(fakeExecutor.pendingCount()).toBe(1);
 });
 

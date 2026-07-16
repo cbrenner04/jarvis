@@ -800,7 +800,7 @@ describe("write loop", () => {
       expect(calls).toEqual(["publish", "finalize"]);
     });
 
-    test("returns retryable ready_finalize_failed when the gate fails and does not call the flip", async () => {
+    test("returns retryable ready_gate_failed when the gate fails and does not call the flip", async () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       const logSink = new TestLogSink();
       const result = await runLoop({
@@ -810,16 +810,16 @@ describe("write loop", () => {
         logSink,
         ...completionHooks,
         readyFinalizer: async () => {
-          throw new Error("ready gate failed (exit 1): tests failed");
+          throw new ReadyGateError("bun run ready", 1, "tests failed");
         },
       });
 
-      expect(result.kind).toBe("ready_finalize_failed");
+      expect(result.kind).toBe("ready_gate_failed");
       expect(result.resumable).toBe(true);
-      expect(result.readyFinalizeError).toContain("ready gate failed");
+      expect(result.readyGateError).toContain("ready gate failed");
       expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
         kind: "loop_finished",
-        loopOutcomeKind: "ready_finalize_failed",
+        loopOutcomeKind: "ready_gate_failed",
         resumable: true,
       });
     });
@@ -891,7 +891,7 @@ describe("write loop", () => {
         },
       });
 
-      expect(result.kind).toBe("ready_finalize_failed");
+      expect(result.kind).toBe("ready_gate_failed");
       expect(result.resumable).toBe(true);
       expect(invocations).toBe(4);
       expect(gateCalls).toBe(4);
@@ -900,7 +900,7 @@ describe("write loop", () => {
       expect(events.filter((event) => event.kind === "ready_gate_repair")).toHaveLength(3);
     });
 
-    test("returns ready_finalize_failed when the repair budget is exhausted", async () => {
+    test("returns ready_gate_failed when the repair budget is exhausted", async () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       let invocations = 0;
       const result = await runLoop({
@@ -924,7 +924,7 @@ describe("write loop", () => {
         },
       });
 
-      expect(result.kind).toBe("ready_finalize_failed");
+      expect(result.kind).toBe("ready_gate_failed");
       expect(result.iterationsConsumed).toBe(2);
       expect(invocations).toBe(2);
     });
@@ -958,13 +958,13 @@ describe("write loop", () => {
         },
       });
 
-      expect(result.kind).toBe("ready_finalize_failed");
+      expect(result.kind).toBe("ready_gate_failed");
       expect(result.iterationsConsumed).toBe(2);
       expect(gateCalls).toBe(1);
       expect(invocations).toBe(2);
     });
 
-    test("returns retryable ready_finalize_failed when publication succeeded but flip fails", async () => {
+    test("returns retryable ready_flip_failed when publication succeeded but flip fails without repair", async () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       const result = await runLoop({
         jarvisRoot,
@@ -976,8 +976,8 @@ describe("write loop", () => {
         },
       });
 
-      expect(result.kind).toBe("ready_finalize_failed");
-      expect(result.readyFinalizeError).toContain("gh pr ready failed");
+      expect(result.kind).toBe("ready_flip_failed");
+      expect(result.readyFlipError).toContain("gh pr ready failed");
     });
 
     test("completed-run resume replays publication after a prior publication failure", async () => {

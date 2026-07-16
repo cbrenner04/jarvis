@@ -886,13 +886,14 @@ function writeStdoutJson(result: WriteLoopResult): string {
   }
   if (result.commitSha !== undefined) payload.commitSha = result.commitSha;
   if (result.completionCommitError !== undefined) payload.completionCommitError = result.completionCommitError;
-  if (result.readyFinalizeError !== undefined) payload.readyFinalizeError = result.readyFinalizeError;
+  if (result.readyGateError !== undefined) payload.readyGateError = result.readyGateError;
+  if (result.readyFlipError !== undefined) payload.readyFlipError = result.readyFlipError;
   return JSON.stringify(payload, null, 2);
 }
 
 function exitCodeForWriteResult(kind: Awaited<ReturnType<typeof executeWriteLoop>>["kind"]): number {
   if (kind === "complete") return 0;
-  if (kind === "completion_commit_failed" || kind === "ready_finalize_failed") return 1;
+  if (kind === "completion_commit_failed" || kind === "ready_gate_failed" || kind === "ready_flip_failed") return 1;
   if (kind === "invocation_failure") return 2;
   if (kind === "budget-exhausted") return 5;
   return 1;

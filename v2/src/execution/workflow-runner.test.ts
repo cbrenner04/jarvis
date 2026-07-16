@@ -28,6 +28,7 @@ import {
 } from "../testing/write-fixtures.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
+import { ReadyGateError } from "./ready-finalize.ts";
 import { intentReviewPromptProfile } from "./render-intent-review-prompts.ts";
 import { planReviewPromptProfile } from "./render-plan-review-prompts.ts";
 import { implementReviewPromptProfile } from "./review-debate-render.ts";
@@ -1637,6 +1638,38 @@ describe("executeWorkflow human steps", () => {
       expect(result).toMatchObject({ kind: "complete", commitSha: "commit-1" });
       expect(published).toEqual([{ specPath: "spec.md", agent: "claude" }]);
     });
+  });
+
+  test("classifies completion publication, ready-gate, and ready-flip failures in results and loop_finished", async () => {
+    const cases: Array<{
+      kind: "completion_commit_failed" | "ready_gate_failed" | "ready_flip_failed";
+      publish: () => Promise<{ pushSha?: string }>;
+      finalize: () => Promise<void>;
+    }> = [
+      { kind: "completion_commit_failed", publish: async () => { throw new Error("publish failed"); }, finalize: async () => {} },
+      { kind: "ready_gate_failed", publish: async () => ({}), finalize: async () => { throw new ReadyGateError("bun run ready", 1, "red"); } },
+      { kind: "ready_flip_failed", publish: async () => ({}), finalize: async () => { throw new Error("gh pr ready failed"); } },
+    ];
+
+    for (const testCase of cases) {
+      const step = createStep({ stepId: `publish-${testCase.kind}`, role: "implement", branchName: `publish-${testCase.kind}` });
+      const logSink = new TestLogSink();
+      await withStateStore(async (store) => {
+        const result = await executeWorkflow({
+          steps: [step],
+          stateStore: store,
+          logSink,
+          completionCommitter: async () => ({ commitSha: "commit-1" }),
+          completionPublisher: testCase.publish,
+          readyFinalizer: testCase.finalize,
+        });
+        expect(result.kind).toBe(testCase.kind);
+        expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
+          kind: "loop_finished",
+          loopOutcomeKind: testCase.kind,
+        });
+      });
+    }
   });
 
   test("retains a supplied title for completion-publication retry", async () => {

@@ -629,3 +629,6 @@ validated Markdown into ready-intents. `plan-tree` validates `index.md` plus
 numbered subspecs and transactionally lands them at the precomputed spec path.
 Control files remain staged and successful landing removes transient staging.
 Failures retain staging and diagnostics. `none` performs no filesystem landing.
+# Completion publication failures
+
+Workflow completion publishes before running the ready gate, then flips the draft PR only after a green gate. Publication failures return `completion_commit_failed` with `completionCommitError`; red gates return `ready_gate_failed` with `readyGateError`; failed flips return `ready_flip_failed` with `readyFlipError`. Each emits the same `loop_finished` outcome, exits `1`, preserves durable `completed` status, and is resumed with `nextAction: "resume"`.

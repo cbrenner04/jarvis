@@ -18,14 +18,14 @@ Publication and ready-finalization failures currently end the durable run log wi
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop.test.ts` fails against the baseline and proves standalone completion-commit, completion-publication, and ready-finalization failures append one terminal `loop_finished` with the matching `publicationFailure.step` and exact returned error message.
-- [ ] `v2/src/execution/workflow-runner.test.ts` fails against the baseline and proves workflow completion-commit, completion-publication, and ready-finalization failures emit the same `publicationFailure` shape as standalone runs.
-- [ ] Non-publication `loop_finished` events omit `publicationFailure`; successful agent invocations followed by publication failure are not reported as `invocation_failure`.
-- [ ] `v2/src/cli.test.ts` proves `jarvis run log <run-id>` replays persisted publication failure detail unchanged.
-- [ ] `v2/docs/operator-runbook.md` makes `jarvis run log <run-id>` authoritative for publication-failure recovery and does not direct operators to `~/.jarvis/daemon.log` for the cause.
-- [ ] `v2/docs/write-behavior.md` documents the terminal publication-failure event, step values, error semantics, and identical standalone/workflow evidence.
-- [ ] `v2/docs/v1-behaviors.md` records the changed v2 failure-reporting behavior.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/write-loop.test.ts` fails against the baseline and proves standalone completion-commit, completion-publication, and ready-finalization failures append one terminal `loop_finished` with the matching `publicationFailure.step` and exact returned error message.
+- [x] `v2/src/execution/workflow-runner.test.ts` fails against the baseline and proves workflow completion-commit, completion-publication, and ready-finalization failures emit the same `publicationFailure` shape as standalone runs.
+- [x] Non-publication `loop_finished` events omit `publicationFailure`; successful agent invocations followed by publication failure are not reported as `invocation_failure`.
+- [x] `v2/src/cli.test.ts` proves `jarvis run log <run-id>` replays persisted publication failure detail unchanged.
+- [x] `v2/docs/operator-runbook.md` makes `jarvis run log <run-id>` authoritative for publication-failure recovery and does not direct operators to `~/.jarvis/daemon.log` for the cause.
+- [x] `v2/docs/write-behavior.md` documents the terminal publication-failure event, step values, error semantics, and identical standalone/workflow evidence.
+- [x] `v2/docs/v1-behaviors.md` records the changed v2 failure-reporting behavior.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -2142,6 +2142,34 @@ describe("v2 cli", () => {
     });
   });
 
+  test("run log replays publication failure detail unchanged", async () => {
+    const cap = captureIo();
+    const streamId = "00000000-0000-4000-8000-000000000005";
+    const record = {
+      ...logRecord(3, "loop_finished"),
+      event: {
+        kind: "loop_finished" as const,
+        loopOutcomeKind: "completion_commit_failed" as const,
+        iterationsConsumed: 1,
+        resumable: true,
+        publicationFailure: { step: "completion_publish" as const, error: "git push failed (exit 1)" },
+      },
+    };
+    const originalRandomUuid = crypto.randomUUID;
+    crypto.randomUUID = () => streamId;
+    try {
+      expect(await main(["run", "log", "run-123"], cap.io, {
+        connectIpcClient: async () => makeIpcClient([
+          { kind: "stream-data", streamId, payload: JSON.stringify(record) },
+          { kind: "stream-end", streamId },
+        ]),
+      })).toBe(0);
+    } finally {
+      crypto.randomUUID = originalRandomUuid;
+    }
+    expect(cap.read().stdout).toBe(`${JSON.stringify(record)}\n`);
+  });
+
   test("run pause reports daemon success", async () => {
     const cap = captureIo();
     const requestId = "00000000-0000-4000-8000-000000000005";

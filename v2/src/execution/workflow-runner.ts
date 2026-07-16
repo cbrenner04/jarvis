@@ -755,6 +755,10 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 loopOutcomeKind: "completion_commit_failed",
                 iterationsConsumed: totalIterationsConsumed,
                 resumable: true,
+                publicationFailure: {
+                  step: "completion_commit",
+                  error: `Uncommitted changes: ${uncommitted.join(", ")}`,
+                },
               });
               return {
                 kind: "completion_commit_failed",
@@ -830,6 +834,11 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 loopOutcomeKind,
                 iterationsConsumed: totalIterationsConsumed,
                 resumable: true,
+                publicationFailure: {
+                  step: loopOutcomeKind === "ready_finalize_failed" ? "ready_finalize" : "completion_publish",
+                  error: publishError.error?.message ??
+                    (loopOutcomeKind === "ready_finalize_failed" ? "ready finalize failed" : "completion publish failed"),
+                },
               });
               return {
                 kind: loopOutcomeKind,
@@ -851,6 +860,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             loopOutcomeKind: "completion_commit_failed",
             iterationsConsumed: totalIterationsConsumed,
             resumable: true,
+            publicationFailure: { step: "completion_commit", error: message },
           });
           return {
             kind: "completion_commit_failed",

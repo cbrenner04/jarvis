@@ -26,6 +26,10 @@ export type LoopFinishedEvent = {
   loopOutcomeKind: WriteLoopOutcomeKind;
   iterationsConsumed: number;
   resumable: boolean;
+  publicationFailure?: {
+    step: "completion_commit" | "completion_publish" | "ready_finalize";
+    error: string;
+  };
 };
 
 export type RunExecutionFailedEvent = {

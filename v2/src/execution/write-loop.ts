@@ -166,7 +166,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             if (publication.failure !== undefined) {
               const publishedResult = { ...prepared.result, iterationsConsumed: publication.iterationsConsumed };
               return publication.failure.kind === "completion_commit_failed"
-                ? completionCommitFailed(args, publishedResult, publication.failure.error)
+                ? completionCommitFailed(args, publishedResult, publication.failure.error, "completion_publish")
                 : readyFinalizeFailed(args, publishedResult, publication.failure.error);
             }
           }
@@ -408,7 +408,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           if (publication.failure !== undefined) {
             const publishedResult = { ...attributed, iterationsConsumed: publication.iterationsConsumed };
             return publication.failure.kind === "completion_commit_failed"
-              ? completionCommitFailed(args, publishedResult, publication.failure.error)
+              ? completionCommitFailed(args, publishedResult, publication.failure.error, "completion_publish")
               : readyFinalizeFailed(args, publishedResult, publication.failure.error);
           }
         }
@@ -928,33 +928,42 @@ export async function publishCompletionArtifacts(
   return undefined;
 }
 
-function completionCommitFailed(args: WriteLoopInput, result: WriteLoopResult, error?: Error): WriteLoopResult {
+function completionCommitFailed(
+  args: WriteLoopInput,
+  result: WriteLoopResult,
+  error?: Error,
+  step: "completion_commit" | "completion_publish" = "completion_commit",
+): WriteLoopResult {
+  const message = error?.message ?? "completion commit failed";
   args.logSink?.append(result.runId, {
     kind: "loop_finished",
     loopOutcomeKind: "completion_commit_failed",
     iterationsConsumed: result.iterationsConsumed,
     resumable: true,
+    publicationFailure: { step, error: message },
   });
   return {
     ...result,
     kind: "completion_commit_failed",
     resumable: true,
-    completionCommitError: error?.message ?? "completion commit failed",
+    completionCommitError: message,
   };
 }
 
 function readyFinalizeFailed(args: WriteLoopInput, result: WriteLoopResult, error?: Error): WriteLoopResult {
+  const message = error?.message ?? "ready finalize failed";
   args.logSink?.append(result.runId, {
     kind: "loop_finished",
     loopOutcomeKind: "ready_finalize_failed",
     iterationsConsumed: result.iterationsConsumed,
     resumable: true,
+    publicationFailure: { step: "ready_finalize", error: message },
   });
   return {
     ...result,
     kind: "ready_finalize_failed",
     resumable: true,
-    readyFinalizeError: error?.message ?? "ready finalize failed",
+    readyFinalizeError: message,
   };
 }
 

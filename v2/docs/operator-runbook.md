@@ -336,8 +336,10 @@ branch if safe. Seed: `v2-cleanup-command`.
 
 ### Publication / completion failures
 
-Retryable `completion_commit_failed` or `ready_finalize_failed` on `list` / `wait`: verify the
-completion commit/PR state, fix `git`/`gh`/`origin` access, then
+Retryable `completion_commit_failed` or `ready_finalize_failed` on `list` / `wait`: first run
+`jarvis run log <run-id>`. Its terminal `loop_finished.publicationFailure` is authoritative for
+the failing boundary and exact command error; do not consult `~/.jarvis/daemon.log` for the cause.
+Verify the completion commit/PR state, fix `git`/`gh`/`origin` access, then
 `jarvis run resume <run-id>`. Resume reuses the persisted write snapshot before replaying
 publication; do not delete the worktree or substitute current config.
 

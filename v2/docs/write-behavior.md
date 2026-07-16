@@ -10,6 +10,12 @@ retryable boundary comprising three operations in sequence: commit, then push+PR
 then PR body refresh. Ready finalization is a separate retryable boundary after
 publication succeeds: ready gate, then draft→ready flip.
 
+**Durable publication failures:** every terminal `loop_finished` caused by this boundary carries
+`publicationFailure: { step, error }`. `step` is `completion_commit`, `completion_publish`, or
+`ready_finalize`; `error` is the returned operator error message unchanged, including command
+evidence. Non-publication terminal events omit this field. Standalone writes and workflows emit
+the identical evidence, replayable with `jarvis run log <run-id>`.
+
 **Commit phase:** captures an isolated `git add -A` snapshot, creates one
 `jarvis: complete run` commit with `Spec: <specPath>` and the final successful
 binding's `Jarvis-Agent` trailer, then updates the branch by compare-and-swap.

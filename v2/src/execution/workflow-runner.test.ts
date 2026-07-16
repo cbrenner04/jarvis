@@ -1639,6 +1639,30 @@ describe("executeWorkflow human steps", () => {
     });
   });
 
+  test.each([
+    ["completion commit", "completion_commit", "workflow commit evidence", {
+      completionCommitter: async () => { throw new Error("workflow commit evidence"); },
+    }],
+    ["completion publication", "completion_publish", "workflow publish evidence", {
+      completionCommitter: async () => ({ commitSha: "commit-1" }),
+      completionPublisher: async () => { throw new Error("workflow publish evidence"); },
+    }],
+    ["ready finalization", "ready_finalize", "workflow finalize evidence", {
+      completionCommitter: async () => ({ commitSha: "commit-1" }),
+      completionPublisher: async () => ({}),
+      readyFinalizer: async () => { throw new Error("workflow finalize evidence"); },
+    }],
+  ] as const)("emits %s failure detail", async (_name, step, error, seams) => {
+    const logSink = new TestLogSink();
+    const writeStep = createStep({ stepId: `publication-${step}`, role: "implement", branchName: `publication-${step}` });
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [writeStep], stateStore: store, logSink, ...seams });
+      const terminal = logSink.getEventsForRun(result.runId).filter((event) => event.kind === "loop_finished");
+      expect(terminal.at(-1)).toMatchObject({ publicationFailure: { step, error } });
+      expect(terminal[0]).not.toHaveProperty("publicationFailure");
+    });
+  });
+
   test("retains a supplied title for completion-publication retry", async () => {
     const stateDbPath = ":memory:";
     const firstStep = createStep({

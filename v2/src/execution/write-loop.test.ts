@@ -800,6 +800,36 @@ describe("write loop", () => {
       expect(calls).toEqual(["publish", "finalize"]);
     });
 
+    test.each([
+      ["completion commit", "completion_commit", "commit evidence", {
+        completionCommitter: async () => { throw new Error("commit evidence"); },
+      }],
+      ["completion publication", "completion_publish", "publish evidence", {
+        completionCommitter: completionHooks.completionCommitter,
+        completionPublisher: async () => { throw new Error("publish evidence"); },
+      }],
+      ["ready finalization", "ready_finalize", "finalize evidence", {
+        completionCommitter: completionHooks.completionCommitter,
+        completionPublisher: completionHooks.completionPublisher,
+        readyFinalizer: async () => { throw new Error("finalize evidence"); },
+      }],
+    ] as const)("persists %s failure detail", async (_name, step, error, hooks) => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        logSink,
+        ...hooks,
+      });
+
+      const terminal = logSink.getEventsForRun(result.runId).filter((event) => event.kind === "loop_finished");
+      expect(terminal).toHaveLength(1);
+      expect(terminal[0]).toMatchObject({ publicationFailure: { step, error } });
+      expect(result.kind).not.toBe("invocation_failure");
+    });
+
     test("returns retryable ready_finalize_failed when the gate fails and does not call the flip", async () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       const logSink = new TestLogSink();
@@ -821,6 +851,7 @@ describe("write loop", () => {
         kind: "loop_finished",
         loopOutcomeKind: "ready_finalize_failed",
         resumable: true,
+        publicationFailure: { step: "ready_finalize", error: "ready gate failed (exit 1): tests failed" },
       });
     });
 

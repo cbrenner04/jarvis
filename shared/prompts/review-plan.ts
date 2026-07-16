@@ -23,7 +23,12 @@ function readSpecFiles(specPath: string): string {
     .join("\n\n");
 }
 
-function renderPlanReviewPrompt(promptId: string, context: PlanReviewPromptContext, verdict = ""): string {
+function renderPlanReviewPrompt(
+  promptId: string,
+  context: PlanReviewPromptContext,
+  verdict = "",
+  extra: Record<string, string> = {},
+): string {
   const artifact = loadPromptRegistry().getById(promptId);
   return renderArtifactTemplate(artifact, {
     WORKDIR: context.worktreePath,
@@ -35,6 +40,7 @@ function renderPlanReviewPrompt(promptId: string, context: PlanReviewPromptConte
     SPEC_GUIDANCE: readFileSync(join(import.meta.dir, "..", "..", "v1", "docs", "spec-guidance.md"), "utf8"),
     REVIEW_PASS_CONTEXT: "",
     VERDICT: verdict,
+    ...extra,
   }).trim();
 }
 
@@ -46,7 +52,30 @@ export function renderPlanReviewActuatorPrompt(context: PlanReviewPromptContext,
   return renderPlanReviewPrompt("plan.prompt.review-actuator", context, verdict);
 }
 
-export const planReviewPromptProfile = bindReviewPromptProfile<PlanReviewPromptContext, "critic" | "actuator">(
+export type PlanReviewDebateRole = "adversary" | "advocate" | "adjudicator";
+
+export function renderPlanReviewDebateRolePrompt(
+  role: PlanReviewDebateRole,
+  context: PlanReviewPromptContext,
+  priorOutput?: string,
+): string {
+  return renderPlanReviewPrompt(
+    `plan.prompt.review.${role}`,
+    context,
+    "",
+    role === "advocate"
+      ? { ADVERSARY_FINDINGS: priorOutput ?? "(no prior findings)" }
+      : role === "adjudicator"
+        ? { ADVOCATE_RESPONSE: priorOutput ?? "(no prior response)" }
+        : {},
+  );
+}
+
+export const planReviewPromptProfile = bindReviewPromptProfile<PlanReviewPromptContext, PlanReviewDebateRole>(
   planReviewProfile,
-  { critic: renderPlanReviewCriticPrompt, actuator: renderPlanReviewActuatorPrompt },
+  {
+    critic: renderPlanReviewCriticPrompt,
+    actuator: renderPlanReviewActuatorPrompt,
+    debateRole: renderPlanReviewDebateRolePrompt,
+  },
 );

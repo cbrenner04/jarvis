@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Rehydrate review profiles at execution](./00-rehydrate-review-profiles-at-execution.md)
+- [x] [00 - Rehydrate review profiles at execution](./00-rehydrate-review-profiles-at-execution.md)

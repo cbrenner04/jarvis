@@ -32,7 +32,8 @@ const WRITE_LOOP_OUTCOME_KINDS = [
   "budget-exhausted",
   "paused",
   "completion_commit_failed",
-  "ready_finalize_failed",
+  "ready_gate_failed",
+  "ready_flip_failed",
 ] as const;
 
 export type WriteLoopOutcomeKind = (typeof WRITE_LOOP_OUTCOME_KINDS)[number];
@@ -51,7 +52,8 @@ export type WriteLoopResult = {
   commitSha?: string;
   completionAgent?: string;
   completionCommitError?: string;
-  readyFinalizeError?: string;
+  readyGateError?: string;
+  readyFlipError?: string;
   attemptId?: string;
   outcomeKind?: OutcomeKind;
   runStatus?: RunStatus;
@@ -167,7 +169,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               const publishedResult = { ...prepared.result, iterationsConsumed: publication.iterationsConsumed };
               return publication.failure.kind === "completion_commit_failed"
                 ? completionCommitFailed(args, publishedResult, publication.failure.error)
-                : readyFinalizeFailed(args, publishedResult, publication.failure.error);
+                : readyFailed(args, publishedResult, publication.failure.kind, publication.failure.error);
             }
           }
           if (published.commitSha === undefined) {
@@ -409,7 +411,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             const publishedResult = { ...attributed, iterationsConsumed: publication.iterationsConsumed };
             return publication.failure.kind === "completion_commit_failed"
               ? completionCommitFailed(args, publishedResult, publication.failure.error)
-              : readyFinalizeFailed(args, publishedResult, publication.failure.error);
+              : readyFailed(args, publishedResult, publication.failure.kind, publication.failure.error);
           }
         }
         if (published.commitSha === undefined) {
@@ -794,7 +796,7 @@ function withBoundaryTelemetry(
 export type CompletionPublicationSeams = Pick<WriteLoopInput, "completionPublisher" | "readyFinalizer">;
 
 export type CompletionPublishFailure = {
-  kind: "completion_commit_failed" | "ready_finalize_failed";
+  kind: "completion_commit_failed" | "ready_gate_failed" | "ready_flip_failed";
   error?: Error;
 };
 
@@ -865,7 +867,7 @@ async function publishWithReadyRepair(
 ): Promise<{ failure?: CompletionPublishFailure; iterationsConsumed: number }> {
   let failure = await publishCompletionArtifacts(args, input);
   let repairAttempt = 0;
-  while (failure?.kind === "ready_finalize_failed" && failure.error instanceof ReadyGateError) {
+  while (failure?.kind === "ready_gate_failed" && failure.error instanceof ReadyGateError) {
     repairAttempt += 1;
     if (repairAttempt > MAX_READY_GATE_REPAIRS) return { failure, iterationsConsumed };
     if (iterationsConsumed >= (args.maxIterations ?? DEFAULT_MAX_ITERATIONS)) return { failure, iterationsConsumed };
@@ -923,7 +925,7 @@ export async function publishCompletionArtifacts(
     });
   } catch (finalizeError) {
     const err = finalizeError instanceof Error ? finalizeError : new Error(String(finalizeError));
-    return { kind: "ready_finalize_failed", error: err };
+    return { kind: err instanceof ReadyGateError ? "ready_gate_failed" : "ready_flip_failed", error: err };
   }
   return undefined;
 }
@@ -943,18 +945,25 @@ function completionCommitFailed(args: WriteLoopInput, result: WriteLoopResult, e
   };
 }
 
-function readyFinalizeFailed(args: WriteLoopInput, result: WriteLoopResult, error?: Error): WriteLoopResult {
+function readyFailed(
+  args: WriteLoopInput,
+  result: WriteLoopResult,
+  kind: "ready_gate_failed" | "ready_flip_failed",
+  error?: Error,
+): WriteLoopResult {
   args.logSink?.append(result.runId, {
     kind: "loop_finished",
-    loopOutcomeKind: "ready_finalize_failed",
+    loopOutcomeKind: kind,
     iterationsConsumed: result.iterationsConsumed,
     resumable: true,
   });
   return {
     ...result,
-    kind: "ready_finalize_failed",
+    kind,
     resumable: true,
-    readyFinalizeError: error?.message ?? "ready finalize failed",
+    ...(kind === "ready_gate_failed"
+      ? { readyGateError: error?.message ?? "ready gate failed" }
+      : { readyFlipError: error?.message ?? "ready flip failed" }),
   };
 }
 

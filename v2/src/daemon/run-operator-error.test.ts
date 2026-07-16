@@ -164,9 +164,12 @@ test("composeRunOperatorError resolves failed plus loop_finished complete to sto
   ).toEqual(err("model_config", "fix_config"));
 });
 
-test("composeRunOperatorError maps ready_finalize_failed from loop_finished", () => {
-  expect(composeRunOperatorError(runWith("completed"), loopFinished("ready_finalize_failed"))).toEqual(
-    err("ready_finalize_failed", "resume", true),
+test("composeRunOperatorError maps ready gate and flip failures from loop_finished", () => {
+  expect(composeRunOperatorError(runWith("completed"), loopFinished("ready_gate_failed"))).toEqual(
+    err("ready_gate_failed", "resume", true),
+  );
+  expect(composeRunOperatorError(runWith("completed"), loopFinished("ready_flip_failed"))).toEqual(
+    err("ready_flip_failed", "resume", true),
   );
 });
 

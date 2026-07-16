@@ -250,7 +250,7 @@ insufficient without a green gate on the branch head.
 
 A red ready gate is handed back to the agent for up to three bounded repair iterations. Each repair
 consumes the iteration budget and republishes before the gate is rerun. Flip failures are not repaired;
-resume a `ready_finalize_failed` run after checking the PR state.
+resume a `ready_gate_failed` run after fixing the gate, or a `ready_flip_failed` run after checking the PR state.
 
 A v2 implement run reporting `runStatus: "completed"` implies both (1) the active subspec's
 non-human-only acceptance criteria are all ticked at the boundary, and (2) a completion commit
@@ -344,7 +344,7 @@ branch if safe. Seed: `v2-cleanup-command`.
 
 ### Publication / completion failures
 
-Retryable `completion_commit_failed` or `ready_finalize_failed` on `list` / `wait`: verify the
+Retryable `completion_commit_failed`, `ready_gate_failed`, or `ready_flip_failed` on `list` / `wait`: verify the
 completion commit/PR state, fix `git`/`gh`/`origin` access, then
 `jarvis run resume <run-id>`. Resume reuses the persisted write snapshot before replaying
 publication; do not delete the worktree or substitute current config.

@@ -101,6 +101,8 @@ export type Run = {
   stepId?: string | null;
   workflowSnapshot?: WorkflowSnapshot | null;
   queuedInput?: WriteLoopInput | null;
+  prNumber?: number | null;
+  prUrl?: string | null;
 };
 
 /** A durable attempt record linked to a run. */
@@ -133,6 +135,9 @@ export interface StateStore {
 
   /** Retain the title resolved at the publication boundary for retries. */
   setCreationTitle(runId: string, title: string): void;
+
+  /** Record the confirmed PR number and URL after successful publication. */
+  setPrEvidence(runId: string, prNumber: number, prUrl: string): void;
 
   /** Whether a non-terminal `queued` run exists for `(project, branch)`. */
   hasQueuedRun(args: { project: string; branch: string }): boolean;
@@ -224,7 +229,8 @@ const SCHEMA = `
 
 const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, status,
   attempt_count AS attemptCount, worktree_path AS worktreePath, branch, spec_path AS specPath, step_id AS stepId,
-  workflow_snapshot AS workflowSnapshotJson, queued_input AS queuedInputJson, creation_title AS creationTitle`;
+  workflow_snapshot AS workflowSnapshotJson, queued_input AS queuedInputJson, creation_title AS creationTitle,
+  pr_number AS prNumber, pr_url AS prUrl`;
 
 const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, started_at AS startedAt, status,
   outcome_kind AS outcomeKind, invocation_failure_detail AS invocationFailureDetailJson,
@@ -262,6 +268,11 @@ const SCHEMA_MIGRATIONS = [
   {
     id: "011-run-owner-identity",
     up: "ALTER TABLE runs ADD COLUMN owner_identity TEXT",
+  },
+  {
+    id: "012-run-pr-evidence",
+    up: `ALTER TABLE runs ADD COLUMN pr_number INTEGER;
+        ALTER TABLE runs ADD COLUMN pr_url TEXT;`,
   },
 ] as const;
 
@@ -413,6 +424,10 @@ class StateStoreImpl implements StateStore {
 
   setCreationTitle(runId: string, title: string): void {
     this.db.prepare("UPDATE runs SET creation_title = ? WHERE id = ?").run(title, runId);
+  }
+
+  setPrEvidence(runId: string, prNumber: number, prUrl: string): void {
+    this.db.prepare("UPDATE runs SET pr_number = ?, pr_url = ? WHERE id = ?").run(prNumber, prUrl, runId);
   }
 
   loadRun(runId: string): (Run & { attempts: Attempt[] }) | null {

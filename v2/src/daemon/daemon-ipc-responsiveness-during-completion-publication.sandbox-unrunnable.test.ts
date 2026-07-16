@@ -116,7 +116,11 @@ socketTest("list completes after publication gh auth signals pending and before 
         return JSON.stringify([]);
       }
       if (args[0] === "pr" && args[1] === "create") {
-        return "#42";
+        return "https://github.com/demo/demo/pull/42";
+      }
+      // Publication confirms the created PR exists before reporting success.
+      if (args[0] === "pr" && args[1] === "view") {
+        return JSON.stringify({ number: 42, url: "https://github.com/demo/demo/pull/42", baseRefName: "main" });
       }
       return "";
     },

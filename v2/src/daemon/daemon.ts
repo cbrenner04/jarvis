@@ -299,6 +299,24 @@ function reconstructWriteResume(run: Run): ResolvedWriteLoopInput {
   });
 }
 
+/** Confirmed publication evidence, so `completed` is falsifiable from `run list` alone. */
+function runListPrEvidence(run: Run): { prNumber?: number; prUrl?: string } {
+  return {
+    ...(run.prNumber !== undefined && run.prNumber !== null ? { prNumber: run.prNumber } : {}),
+    ...(run.prUrl !== undefined && run.prUrl !== null ? { prUrl: run.prUrl } : {}),
+  };
+}
+
+function runListReviewFields(snapshot: WorkflowSnapshot | undefined): {
+  reviewPasses?: number;
+  reviewBehavior?: string;
+} {
+  return {
+    ...(snapshot?.reviewPasses !== undefined ? { reviewPasses: snapshot.reviewPasses } : {}),
+    ...(snapshot?.reviewBehavior !== undefined ? { reviewBehavior: snapshot.reviewBehavior } : {}),
+  };
+}
+
 function isPublicationRetryEligible(loopOutcomeKind: string | undefined): boolean {
   return loopOutcomeKind === "completion_commit_failed" || loopOutcomeKind === "ready_gate_failed";
 }
@@ -809,6 +827,34 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     });
   };
 
+  const buildRunListRow = (
+    run: Run,
+    fullRun: LoadedRun | undefined,
+    isLive: boolean,
+    reportedStatus: RunStatus,
+    workflowRuns: Map<string, Map<string, LoadedRun>>,
+    liveRunIds: Set<string>,
+  ) => {
+    const snapshot = fullRun?.workflowSnapshot ?? undefined;
+    const terminalRecord = findTerminalLogRecord(logReader?.tail(run.id) ?? []);
+    const error = runListRowError(fullRun, resumeContextForTerminalRecord(fullRun, terminalRecord), terminalRecord);
+
+    return {
+      runId: run.id,
+      project: run.project,
+      branch: run.branch,
+      status: reportedStatus,
+      isLive,
+      ...(error !== undefined ? { error } : {}),
+      ...runListReviewFields(snapshot),
+      ...(fullRun !== undefined && snapshot !== undefined
+        ? { workflow: workflowRowSnapshot(fullRun, workflowRuns, liveRunIds, reviewDebateProgressByInvocation) }
+        : {}),
+      ...(reportedStatus === "blocked" ? { worktreePath: run.worktreePath } : {}),
+      ...runListPrEvidence(run),
+    };
+  };
+
   const listHandler: RpcHandler = () => {
     const durableRuns = retainListedRuns(store.listRuns());
     const liveRunIds = new Set<string>();
@@ -822,27 +868,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     const runList = durableRuns.map((run) => {
       const fullRun = fullRuns.get(run.id);
       const isLive = run.status === "in-progress" && liveRunIds.has(run.id);
-      const records = logReader?.tail(run.id) ?? [];
-      const terminalRecord = findTerminalLogRecord(records);
-      const resumeContext = resumeContextForTerminalRecord(fullRun, terminalRecord);
-      const error = runListRowError(fullRun, resumeContext, terminalRecord);
       const reportedStatus = reportedRunStatus(run, fullRun);
-      const snapshot = fullRun?.workflowSnapshot ?? undefined;
 
-      return {
-        runId: run.id,
-        project: run.project,
-        branch: run.branch,
-        status: reportedStatus,
-        isLive,
-        ...(error !== undefined ? { error } : {}),
-        ...(snapshot?.reviewPasses !== undefined ? { reviewPasses: snapshot.reviewPasses } : {}),
-        ...(snapshot?.reviewBehavior !== undefined ? { reviewBehavior: snapshot.reviewBehavior } : {}),
-        ...(fullRun !== undefined && snapshot !== undefined
-          ? { workflow: workflowRowSnapshot(fullRun, workflowRuns, liveRunIds, reviewDebateProgressByInvocation) }
-          : {}),
-        ...(reportedStatus === "blocked" ? { worktreePath: run.worktreePath } : {}),
-      };
+      return buildRunListRow(run, fullRun, isLive, reportedStatus, workflowRuns, liveRunIds);
     });
 
     return { kind: "response", result: { runs: runList } };

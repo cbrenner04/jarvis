@@ -18,6 +18,7 @@ export type CompletionPublisherInput = {
 export type CompletionPublisherResult = {
   pushSha?: string;
   prNumber?: number;
+  prUrl?: string;
 };
 
 export type CompletionPublisher = (input: CompletionPublisherInput) => Promise<CompletionPublisherResult>;
@@ -114,14 +115,15 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
     }
 
     const creationTitle = resolvePublicationTitle(input.worktreePath, input.specPath, input.creationTitle);
-    const prNumber = await runPublicationWithRetry(
+    const prEvidence = await runPublicationWithRetry(
       "pr",
       () => findOrCreatePr(gh, input.worktreePath, input.baseRef, input.branch, specPath, creationTitle),
       { delay, retryNotice },
     );
 
-    if (prNumber) {
-      result.prNumber = prNumber;
+    if (prEvidence) {
+      result.prNumber = prEvidence.number;
+      result.prUrl = prEvidence.url;
     }
 
     await runPublicationWithRetry(
@@ -164,6 +166,11 @@ async function checkHasUpstream(git: Git, worktreePath: string, branch: string):
   }
 }
 
+type PrEvidence = {
+  number: number;
+  url: string;
+};
+
 async function findOrCreatePr(
   gh: GhCommand,
   cwd: string,
@@ -171,17 +178,17 @@ async function findOrCreatePr(
   branch: string,
   specPath: string,
   creationTitle: string,
-): Promise<number> {
+): Promise<PrEvidence> {
   const prListJson = await gh(cwd, ["pr", "list", "--head", branch, "--state", "open", "--json", "number,baseRefName"]);
   const prs = JSON.parse(prListJson) as Array<{ number: number; baseRefName: string }>;
 
   const matching = prs.filter((pr) => pr.baseRefName === baseRef);
 
   if (matching.length > 0 && matching[0]) {
-    return matching[0].number;
+    return confirmPr(gh, cwd, branch, baseRef, matching[0].number);
   }
 
-  const createOutput = await gh(cwd, [
+  await gh(cwd, [
     "pr",
     "create",
     "--draft",
@@ -193,10 +200,26 @@ async function findOrCreatePr(
     `Spec: ${specPath}`,
   ]);
 
-  const match = createOutput.match(/(?:pull\/|#)?(\d+)/);
-  if (!match?.[1]) {
-    throw new Error(`Failed to parse PR number from: ${createOutput}`);
+  return confirmPr(gh, cwd, branch, baseRef);
+}
+
+async function confirmPr(
+  gh: GhCommand,
+  cwd: string,
+  branch: string,
+  baseRef: string,
+  expectedNumber?: number,
+): Promise<PrEvidence> {
+  const prViewJson = await gh(cwd, ["pr", "view", branch, "--json", "number,url,baseRefName"]);
+  const pr = JSON.parse(prViewJson) as { number: number; url: string; baseRefName: string };
+
+  if (expectedNumber !== undefined && pr.number !== expectedNumber) {
+    throw new Error(`Confirmed PR number ${pr.number} does not match expected number ${expectedNumber}`);
   }
 
-  return Number.parseInt(match[1], 10);
+  if (pr.baseRefName !== baseRef) {
+    throw new Error(`PR base ${pr.baseRefName} does not match requested base ${baseRef}`);
+  }
+
+  return { number: pr.number, url: pr.url };
 }

@@ -8,10 +8,12 @@ const profiles = {
   intent: intentReviewPromptProfile,
   plan: planReviewPromptProfile,
   implement: implementReviewPromptProfile,
+  // biome-ignore lint/suspicious/noExplicitAny: profiles have specific context types at runtime
 } satisfies Record<string, ReviewPromptProfile<any, any>>;
 
 export function rehydrateReviewPromptProfile(
   profile: Pick<ReviewPromptProfile, "domain"> | undefined,
+  // biome-ignore lint/suspicious/noExplicitAny: context type determined at runtime by profile domain
 ): ReviewPromptProfile<any, any> | undefined {
   return profile === undefined ? undefined : profiles[profile.domain];
 }

@@ -294,6 +294,8 @@ function formatListRunRow(run: DaemonListRunRow): string {
     e?.nextAction ?? "-",
     run.worktreePath ?? "-",
     e?.publicationFailure === undefined ? "-" : JSON.stringify(e.publicationFailure),
+    run.prNumber !== undefined ? String(run.prNumber) : "-",
+    run.prUrl ?? "-",
   ];
   return `${columns.join("\t")}\n`;
 }

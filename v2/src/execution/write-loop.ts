@@ -61,6 +61,8 @@ export type WriteLoopResult = {
   outcomeKind?: OutcomeKind;
   runStatus?: RunStatus;
   boundaryTelemetryFailure?: string;
+  prNumber?: number;
+  prUrl?: string;
 } & Partial<InvocationFailureDetail>;
 
 /** Input for the write loop. Run identity derives from `worktree` (project, branch, base). */
@@ -169,16 +171,24 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               creationTitle,
             });
             if (publication.failure !== undefined) {
-              const publishedResult = { ...prepared.result, iterationsConsumed: publication.iterationsConsumed };
+              const publishedResult = {
+                ...prepared.result,
+                iterationsConsumed: publication.iterationsConsumed,
+                ...(publication.failure.prNumber !== undefined ? { prNumber: publication.failure.prNumber } : {}),
+                ...(publication.failure.prUrl !== undefined ? { prUrl: publication.failure.prUrl } : {}),
+              };
               return publication.failure.kind === "completion_commit_failed"
                 ? completionCommitFailed(args, publishedResult, publication.failure.error)
-                : readyFailed(
-                    args,
-                    publishedResult,
-                    publication.failure.kind,
-                    publication.failure.error,
-                    publication.failure.prNumber,
-                  );
+                : readyFailed(args, publishedResult, publication.failure.kind, publication.failure.error);
+            }
+            if (
+              publication.success !== undefined &&
+              publication.success.prNumber !== undefined &&
+              publication.success.prUrl !== undefined
+            ) {
+              store.setPrEvidence(prepared.result.runId, publication.success.prNumber, publication.success.prUrl);
+              prepared.result.prNumber = publication.success.prNumber;
+              prepared.result.prUrl = publication.success.prUrl;
             }
           }
           if (published.commitSha === undefined) {
@@ -196,6 +206,8 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             loopOutcomeKind: "complete",
             iterationsConsumed: prepared.result.iterationsConsumed,
             resumable: false,
+            ...(prepared.result.prNumber !== undefined ? { prNumber: prepared.result.prNumber } : {}),
+            ...(prepared.result.prUrl !== undefined ? { prUrl: prepared.result.prUrl } : {}),
           });
           if (published.commitSha === undefined) {
             return prepared.result;
@@ -417,16 +429,24 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               : {}),
           });
           if (publication.failure !== undefined) {
-            const publishedResult = { ...attributed, iterationsConsumed: publication.iterationsConsumed };
+            const publishedResult = {
+              ...attributed,
+              iterationsConsumed: publication.iterationsConsumed,
+              ...(publication.failure.prNumber !== undefined ? { prNumber: publication.failure.prNumber } : {}),
+              ...(publication.failure.prUrl !== undefined ? { prUrl: publication.failure.prUrl } : {}),
+            };
             return publication.failure.kind === "completion_commit_failed"
               ? completionCommitFailed(args, publishedResult, publication.failure.error)
-              : readyFailed(
-                  args,
-                  publishedResult,
-                  publication.failure.kind,
-                  publication.failure.error,
-                  publication.failure.prNumber,
-                );
+              : readyFailed(args, publishedResult, publication.failure.kind, publication.failure.error);
+          }
+          if (
+            publication.success !== undefined &&
+            publication.success.prNumber !== undefined &&
+            publication.success.prUrl !== undefined
+          ) {
+            store.setPrEvidence(runId, publication.success.prNumber, publication.success.prUrl);
+            attributed.prNumber = publication.success.prNumber;
+            attributed.prUrl = publication.success.prUrl;
           }
         }
         if (published.commitSha === undefined) {
@@ -444,6 +464,8 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           loopOutcomeKind: "complete",
           iterationsConsumed,
           resumable: false,
+          ...(attributed.prNumber !== undefined ? { prNumber: attributed.prNumber } : {}),
+          ...(attributed.prUrl !== undefined ? { prUrl: attributed.prUrl } : {}),
         });
         if (published.commitSha === undefined) {
           return attributed;
@@ -752,6 +774,8 @@ function committedResult(run: StoredRun): WriteLoopResult | null {
       resumable: false,
       ...(agent ? { completionAgent: agent } : {}),
       ...(stamp !== undefined ? stamp : {}),
+      ...(run.prNumber !== undefined && run.prNumber !== null ? { prNumber: run.prNumber } : {}),
+      ...(run.prUrl !== undefined && run.prUrl !== null ? { prUrl: run.prUrl } : {}),
     };
   }
   if (run.status === "failed") {
@@ -814,6 +838,12 @@ export type CompletionPublishFailure = {
   kind: "completion_commit_failed" | "ready_gate_failed" | "ready_flip_failed";
   error?: Error;
   prNumber?: number;
+  prUrl?: string;
+};
+
+export type CompletionPublishSuccess = {
+  prNumber?: number;
+  prUrl?: string;
 };
 
 type CompletionPublishInput = Parameters<typeof publishCompletionArtifacts>[1];
@@ -880,23 +910,23 @@ export async function publishWithReadyRepair(
   result: WriteLoopResult,
   iterationsConsumed: number,
   input: CompletionPublishInput,
-): Promise<{ failure?: CompletionPublishFailure; iterationsConsumed: number }> {
-  let failure = await publishCompletionArtifacts(args, input);
+): Promise<{ failure?: CompletionPublishFailure; success?: CompletionPublishSuccess; iterationsConsumed: number }> {
+  let outcome = await publishCompletionArtifacts(args, input);
   let repairAttempt = 0;
-  while (failure?.kind === "ready_gate_failed" && failure.error instanceof ReadyGateError) {
+  while (outcome.kind === "ready_gate_failed" && outcome.error instanceof ReadyGateError) {
     repairAttempt += 1;
-    if (repairAttempt > MAX_READY_GATE_REPAIRS) return { failure, iterationsConsumed };
-    if (iterationsConsumed >= (args.maxIterations ?? DEFAULT_MAX_ITERATIONS)) return { failure, iterationsConsumed };
+    if (repairAttempt > MAX_READY_GATE_REPAIRS) break;
+    if (iterationsConsumed >= (args.maxIterations ?? DEFAULT_MAX_ITERATIONS)) break;
     args.logSink?.append(result.runId, {
       kind: "ready_gate_repair",
       attempt: repairAttempt,
-      gateExitCode: failure.error.exitCode,
+      gateExitCode: outcome.error.exitCode,
     });
 
-    const outcome = await runReadyRepairIteration(args, store, result, failure.error, iterationsConsumed + 1);
-    if (outcome === "unsettled") return { failure, iterationsConsumed };
+    const repairOutcome = await runReadyRepairIteration(args, store, result, outcome.error, iterationsConsumed + 1);
+    if (repairOutcome === "unsettled") return { failure: outcome, iterationsConsumed };
     iterationsConsumed += 1;
-    if (outcome === "blocked") return { failure, iterationsConsumed };
+    if (repairOutcome === "blocked") return { failure: outcome, iterationsConsumed };
     try {
       await (args.completionCommitter ?? createCompletionCommitter())({
         worktreePath: input.worktreePath,
@@ -904,16 +934,17 @@ export async function publishWithReadyRepair(
         specPath: input.specPath,
         agent: result.completionAgent ?? "",
       });
-      failure = await publishCompletionArtifacts(args, input);
+      outcome = await publishCompletionArtifacts(args, input);
     } catch (error) {
       return {
         failure: { kind: "completion_commit_failed", error: error instanceof Error ? error : new Error(String(error)) },
         iterationsConsumed,
       };
     }
-    if (failure === undefined) return { iterationsConsumed };
   }
-  return { ...(failure !== undefined ? { failure } : {}), iterationsConsumed };
+  return outcome.kind === "success"
+    ? { success: outcome, iterationsConsumed }
+    : { failure: outcome, iterationsConsumed };
 }
 
 export async function publishCompletionArtifacts(
@@ -927,13 +958,20 @@ export async function publishCompletionArtifacts(
     bodySummary?: string;
     specTemplate?: boolean;
   },
-): Promise<CompletionPublishFailure | undefined> {
+): Promise<CompletionPublishFailure | (CompletionPublishSuccess & { kind: "success" })> {
   let publisherResult: Awaited<ReturnType<CompletionPublisher>> | undefined;
   try {
     publisherResult = await (seams.completionPublisher ?? createCompletionPublisher())(input);
   } catch (publishError) {
     const err = publishError instanceof Error ? publishError : new Error(String(publishError));
     return { kind: "completion_commit_failed", error: err };
+  }
+  if (publisherResult?.pushSha !== undefined && publisherResult?.prNumber === undefined) {
+    const err = new Error("Pushed completion without PR evidence is a publication failure");
+    return {
+      kind: "completion_commit_failed",
+      error: err,
+    };
   }
   try {
     await (seams.readyFinalizer ?? createReadyFinalizer())({
@@ -946,9 +984,14 @@ export async function publishCompletionArtifacts(
       kind: err instanceof ReadyGateError ? "ready_gate_failed" : "ready_flip_failed",
       error: err,
       ...(publisherResult?.prNumber !== undefined ? { prNumber: publisherResult.prNumber } : {}),
+      ...(publisherResult?.prUrl !== undefined ? { prUrl: publisherResult.prUrl } : {}),
     };
   }
-  return undefined;
+  return {
+    kind: "success",
+    ...(publisherResult?.prNumber !== undefined ? { prNumber: publisherResult.prNumber } : {}),
+    ...(publisherResult?.prUrl !== undefined ? { prUrl: publisherResult.prUrl } : {}),
+  };
 }
 
 function completionCommitFailed(args: WriteLoopInput, result: WriteLoopResult, error?: Error): WriteLoopResult {
@@ -959,6 +1002,8 @@ function completionCommitFailed(args: WriteLoopInput, result: WriteLoopResult, e
     iterationsConsumed: result.iterationsConsumed,
     resumable: true,
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),
+    ...(result.prNumber !== undefined ? { prNumber: result.prNumber } : {}),
+    ...(result.prUrl !== undefined ? { prUrl: result.prUrl } : {}),
   });
   return {
     ...result,
@@ -974,7 +1019,6 @@ function readyFailed(
   result: WriteLoopResult,
   kind: "ready_gate_failed" | "ready_flip_failed",
   error?: Error,
-  prNumber?: number,
 ): WriteLoopResult {
   const publicationFailure = error === undefined ? undefined : publicationFailureFor(error);
   const isFlipFailure = kind === "ready_flip_failed";
@@ -984,6 +1028,8 @@ function readyFailed(
     iterationsConsumed: result.iterationsConsumed,
     resumable: !isFlipFailure,
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),
+    ...(result.prNumber !== undefined ? { prNumber: result.prNumber } : {}),
+    ...(result.prUrl !== undefined ? { prUrl: result.prUrl } : {}),
   });
   return {
     ...result,
@@ -993,7 +1039,7 @@ function readyFailed(
       ? { readyGateError: error?.message ?? "ready gate failed" }
       : {
           readyFlipError: error?.message ?? "ready flip failed",
-          ...(prNumber !== undefined ? { readyFlipPrNumber: prNumber } : {}),
+          ...(result.prNumber !== undefined ? { readyFlipPrNumber: result.prNumber } : {}),
         }),
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),
   };

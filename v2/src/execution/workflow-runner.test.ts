@@ -1643,7 +1643,7 @@ describe("executeWorkflow human steps", () => {
   test("classifies completion publication, ready-gate, and ready-flip failures in results and loop_finished", async () => {
     const cases: Array<{
       kind: "completion_commit_failed" | "ready_gate_failed" | "ready_flip_failed";
-      publish: () => Promise<{ pushSha?: string }>;
+      publish: () => Promise<{ pushSha?: string; prNumber?: number }>;
       finalize: () => Promise<void>;
       expectedResumable: boolean;
     }> = [
@@ -1653,6 +1653,14 @@ describe("executeWorkflow human steps", () => {
           throw new Error("publish failed");
         },
         finalize: async () => {},
+        expectedResumable: true,
+      },
+      {
+        kind: "completion_commit_failed",
+        publish: async () => ({ pushSha: "abc123def456" }),
+        finalize: async () => {
+          throw new Error("should not finalize when PR evidence is missing");
+        },
         expectedResumable: true,
       },
       {

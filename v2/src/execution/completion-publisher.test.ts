@@ -17,6 +17,7 @@ describe("createCompletionPublisher", () => {
     writePrBody: async () => {},
     renderFooter: async () => "",
   };
+  const viewPr = (number: number, url: string, baseRefName = "main") => JSON.stringify({ number, url, baseRefName });
 
   it("publishes push with new upstream and creates draft PR", async () => {
     const gitCalls: string[] = [];
@@ -44,6 +45,9 @@ describe("createCompletionPublisher", () => {
       if (_args[0] === "pr" && _args[1] === "create") {
         return "https://github.com/user/repo/pull/42";
       }
+      if (_args[0] === "pr" && _args[1] === "view") {
+        return viewPr(42, "https://github.com/user/repo/pull/42");
+      }
       return "";
     };
 
@@ -58,6 +62,7 @@ describe("createCompletionPublisher", () => {
 
     expect(result.pushSha).toBe("abc123def456");
     expect(result.prNumber).toBe(42);
+    expect(result.prUrl).toBe("https://github.com/user/repo/pull/42");
     expect(gitCalls.some((c) => c.includes("push -u origin feature-branch"))).toBe(true);
   });
 
@@ -74,6 +79,9 @@ describe("createCompletionPublisher", () => {
         if (args[0] === "pr" && args[1] === "create") {
           createArgs = args;
           return "#42";
+        }
+        if (args[0] === "pr" && args[1] === "view") {
+          return viewPr(42, "https://github.com/user/repo/pull/42");
         }
         return "";
       },
@@ -108,6 +116,9 @@ describe("createCompletionPublisher", () => {
           createArgs = args;
           return "#42";
         }
+        if (args[0] === "pr" && args[1] === "view") {
+          return viewPr(42, "https://github.com/user/repo/pull/42");
+        }
         return "";
       },
       ghReady: readyGh,
@@ -132,6 +143,7 @@ describe("createCompletionPublisher", () => {
         ghCwds.push(cwd);
         if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
         if (args[0] === "pr" && args[1] === "create") return "https://github.com/user/repo/pull/42";
+        if (args[0] === "pr" && args[1] === "view") return viewPr(42, "https://github.com/user/repo/pull/42");
         return "";
       },
       ghReady: async (cwd) => {
@@ -165,6 +177,7 @@ describe("createCompletionPublisher", () => {
     const mockGh = async (_cwd: string, _args: readonly string[]) => {
       if (_args[0] === "pr" && _args[1] === "list") return JSON.stringify([]);
       if (_args[0] === "pr" && _args[1] === "create") return "https://github.com/user/repo/pull/42";
+      if (_args[0] === "pr" && _args[1] === "view") return viewPr(42, "https://github.com/user/repo/pull/42");
       return "";
     };
 
@@ -196,6 +209,9 @@ describe("createCompletionPublisher", () => {
       if (args[0] === "pr" && args[1] === "list") {
         return JSON.stringify([{ number: 99, baseRefName: "main" }]);
       }
+      if (args[0] === "pr" && args[1] === "view") {
+        return viewPr(99, "https://github.com/user/repo/pull/99");
+      }
       return "";
     };
 
@@ -209,6 +225,7 @@ describe("createCompletionPublisher", () => {
     const result = await publisher(baseInput);
 
     expect(result.prNumber).toBe(99);
+    expect(result.prUrl).toBe("https://github.com/user/repo/pull/99");
   });
 
   it.each([
@@ -226,6 +243,9 @@ describe("createCompletionPublisher", () => {
         ghCalls.push(args.join(" "));
         if (args[0] === "pr" && args[1] === "list") {
           return JSON.stringify([{ number: 99, baseRefName: "main", isDraft, title }]);
+        }
+        if (args[0] === "pr" && args[1] === "view") {
+          return viewPr(99, "https://github.com/user/repo/pull/99");
         }
         return "";
       },
@@ -254,6 +274,7 @@ describe("createCompletionPublisher", () => {
         return JSON.stringify([{ number: 88, baseRefName: "develop" }]); // Different base
       }
       if (args[0] === "pr" && args[1] === "create") return "https://github.com/user/repo/pull/99";
+      if (args[0] === "pr" && args[1] === "view") return viewPr(99, "https://github.com/user/repo/pull/99");
       return "";
     };
 
@@ -267,6 +288,7 @@ describe("createCompletionPublisher", () => {
     const result = await publisher(baseInput);
 
     expect(result.prNumber).toBe(99);
+    expect(result.prUrl).toBe("https://github.com/user/repo/pull/99");
     expect(ghCalls.some((c) => c.includes("pr create"))).toBe(true);
   });
 
@@ -327,6 +349,7 @@ describe("createCompletionPublisher", () => {
     const mockGh = async (_cwd: string, args: readonly string[]) => {
       if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
       if (args[0] === "pr" && args[1] === "create") return "#42";
+      if (args[0] === "pr" && args[1] === "view") return viewPr(42, "https://github.com/user/repo/pull/42");
       return "";
     };
 
@@ -386,6 +409,9 @@ describe("createCompletionPublisher", () => {
       if (args[0] === "pr" && args[1] === "create") {
         return "https://github.com/org/repo/pull/123\n"; // URL format
       }
+      if (args[0] === "pr" && args[1] === "view") {
+        return viewPr(123, "https://github.com/org/repo/pull/123");
+      }
       return "";
     };
 
@@ -399,6 +425,130 @@ describe("createCompletionPublisher", () => {
     const result = await publisher(baseInput);
 
     expect(result.prNumber).toBe(123);
+    expect(result.prUrl).toBe("https://github.com/org/repo/pull/123");
+  });
+
+  it("confirms PR number after creation when owner slug contains digits", async () => {
+    const mockGit = async (_cwd: string, args: readonly string[]) => {
+      if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+      return "";
+    };
+
+    const mockGh = async (_cwd: string, args: readonly string[]) => {
+      if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+      if (args[0] === "pr" && args[1] === "create") {
+        // Pre-fix would extract "4" from cbrenner04 in this URL
+        return "https://github.com/cbrenner04/jarvis/pull/42";
+      }
+      if (args[0] === "pr" && args[1] === "view") {
+        // Confirmation returns the correct PR number
+        return viewPr(42, "https://github.com/cbrenner04/jarvis/pull/42");
+      }
+      return "";
+    };
+
+    const publisher = createCompletionPublisher({
+      git: mockGit,
+      gh: mockGh,
+      ghReady: readyGh,
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+    const result = await publisher(baseInput);
+
+    expect(result.prNumber).toBe(42);
+    expect(result.prUrl).toBe("https://github.com/cbrenner04/jarvis/pull/42");
+  });
+
+  it("fails publication when confirmation finds no open PR for the branch", async () => {
+    const mockGit = async (_cwd: string, args: readonly string[]) => {
+      if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+      return "";
+    };
+
+    const mockGh = async (_cwd: string, args: readonly string[]) => {
+      if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+      if (args[0] === "pr" && args[1] === "create") {
+        return "https://github.com/org/repo/pull/123";
+      }
+      if (args[0] === "pr" && args[1] === "view") {
+        throw new Error("no pull requests found for this branch");
+      }
+      return "";
+    };
+
+    const publisher = createCompletionPublisher({
+      git: mockGit,
+      gh: mockGh,
+      ghReady: readyGh,
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+
+    await expect(publisher(baseInput)).rejects.toThrow("no pull requests found for this branch");
+  });
+
+  it("fails publication when confirmed PR has a different base than requested", async () => {
+    const mockGit = async (_cwd: string, args: readonly string[]) => {
+      if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+      return "";
+    };
+
+    const mockGh = async (_cwd: string, args: readonly string[]) => {
+      if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+      if (args[0] === "pr" && args[1] === "create") {
+        return "https://github.com/org/repo/pull/123";
+      }
+      if (args[0] === "pr" && args[1] === "view") {
+        return viewPr(123, "https://github.com/org/repo/pull/123", "develop");
+      }
+      return "";
+    };
+
+    const publisher = createCompletionPublisher({
+      git: mockGit,
+      gh: mockGh,
+      ghReady: readyGh,
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+
+    await expect(publisher(baseInput)).rejects.toThrow("PR base develop does not match requested base main");
+  });
+
+  it("makes one confirmation attempt (no transient retry) when PR is not found", async () => {
+    let confirmAttempts = 0;
+    const mockGit = async (_cwd: string, args: readonly string[]) => {
+      if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+      return "";
+    };
+
+    const mockGh = async (_cwd: string, args: readonly string[]) => {
+      if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+      if (args[0] === "pr" && args[1] === "create") {
+        return "https://github.com/org/repo/pull/123";
+      }
+      if (args[0] === "pr" && args[1] === "view") {
+        confirmAttempts += 1;
+        throw new Error("no pull requests found for this branch");
+      }
+      return "";
+    };
+
+    const publisher = createCompletionPublisher({
+      git: mockGit,
+      gh: mockGh,
+      ghReady: readyGh,
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+
+    await expect(publisher(baseInput)).rejects.toThrow("no pull requests found for this branch");
+    expect(confirmAttempts).toBe(1);
   });
 
   it("refreshes ensured PR body with attribution footer via injected seams", async () => {
@@ -414,6 +564,7 @@ describe("createCompletionPublisher", () => {
       gh: async (_cwd, args) => {
         if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
         if (args[0] === "pr" && args[1] === "create") return "https://github.com/user/repo/pull/42";
+        if (args[0] === "pr" && args[1] === "view") return viewPr(42, "https://github.com/user/repo/pull/42");
         return "";
       },
       ghReady: readyGh,
@@ -447,6 +598,7 @@ describe("createCompletionPublisher", () => {
       gh: async (_cwd, args) => {
         if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
         if (args[0] === "pr" && args[1] === "create") return "https://github.com/user/repo/pull/42";
+        if (args[0] === "pr" && args[1] === "view") return viewPr(42, "https://github.com/user/repo/pull/42");
         return "";
       },
       ghReady: readyGh,
@@ -478,6 +630,9 @@ describe("createCompletionPublisher", () => {
         if (args[0] === "pr" && args[1] === "list") {
           return JSON.stringify([{ number: 99, baseRefName: "main" }]);
         }
+        if (args[0] === "pr" && args[1] === "view") {
+          return viewPr(99, "https://github.com/user/repo/pull/99");
+        }
         return "";
       },
       ghReady: readyGh,
@@ -492,6 +647,7 @@ describe("createCompletionPublisher", () => {
     const result = await publisher(baseInput);
 
     expect(result.prNumber).toBe(99);
+    expect(result.prUrl).toBe("https://github.com/user/repo/pull/99");
     expect(ghCalls.some((c) => c.includes("pr create"))).toBe(false);
     expect(writtenBody).toBe(`Spec: ${baseInput.specPath}`);
   });
@@ -510,6 +666,7 @@ describe("createCompletionPublisher", () => {
       gh: async (_cwd, args) => {
         if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
         if (args[0] === "pr" && args[1] === "create") return "#42";
+        if (args[0] === "pr" && args[1] === "view") return viewPr(42, "https://github.com/user/repo/pull/42");
         return "";
       },
       ghReady: readyGh,
@@ -549,6 +706,7 @@ describe("createCompletionPublisher", () => {
       gh: async (_cwd, args) => {
         if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
         if (args[0] === "pr" && args[1] === "create") return "#42";
+        if (args[0] === "pr" && args[1] === "view") return viewPr(42, "https://github.com/user/repo/pull/42");
         return "";
       },
       ghReady: readyGh,
@@ -563,7 +721,7 @@ describe("createCompletionPublisher", () => {
     await expect(publisher(baseInput)).rejects.toThrow("gh pr edit failed");
   });
 
-  it("awaits auth, upstream detection, push, HEAD lookup, PR lookup/create, and body refresh in order", async () => {
+  it("awaits auth, upstream detection, push, HEAD lookup, PR lookup/create/confirm, and body refresh in order", async () => {
     const events: string[] = [];
 
     const publisher = createCompletionPublisher({
@@ -595,6 +753,10 @@ describe("createCompletionPublisher", () => {
           events.push("pr-create");
           return "#42";
         }
+        if (args[0] === "pr" && args[1] === "view") {
+          events.push("pr-confirm");
+          return viewPr(42, "https://github.com/user/repo/pull/42");
+        }
         return "";
       },
       delay: noopDelay,
@@ -610,7 +772,17 @@ describe("createCompletionPublisher", () => {
 
     await publisher(baseInput);
 
-    expect(events).toEqual(["auth", "upstream", "push", "head", "pr-lookup", "pr-create", "fetch-body", "write-body"]);
+    expect(events).toEqual([
+      "auth",
+      "upstream",
+      "push",
+      "head",
+      "pr-lookup",
+      "pr-create",
+      "pr-confirm",
+      "fetch-body",
+      "write-body",
+    ]);
   });
 
   it("fails refresh when attribution git read is rejected", async () => {
@@ -624,6 +796,7 @@ describe("createCompletionPublisher", () => {
       gh: async (_cwd, args) => {
         if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
         if (args[0] === "pr" && args[1] === "create") return "#42";
+        if (args[0] === "pr" && args[1] === "view") return viewPr(42, "https://github.com/user/repo/pull/42");
         return "";
       },
       ghReady: readyGh,

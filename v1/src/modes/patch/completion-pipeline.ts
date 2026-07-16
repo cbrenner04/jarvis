@@ -154,12 +154,6 @@ async function generatePrBody(
   });
 }
 
-type FanoutFn = (
-  tag: "harness" | "outbound" | "inbound_stdout" | "inbound_stderr",
-  text: string,
-  stream: "stdout" | "stderr" | null,
-) => void;
-
 /**
  * Commit and push a complete-but-dirty worktree.
  * Returns true if successfully committed and pushed with a clean worktree.

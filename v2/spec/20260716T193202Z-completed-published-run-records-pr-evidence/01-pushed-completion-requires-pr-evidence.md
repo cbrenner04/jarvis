@@ -16,11 +16,11 @@ for any publisher.
 
 ## Acceptance criteria
 
-- [ ] A write-loop test with a publisher that returns a `pushSha` and no PR evidence ends the run at retryable `completion_commit_failed` with a normalized `pr` cause instead of `complete`/exit `0`; it fails against the pre-fix code.
-- [ ] The same publisher through the workflow-runner publication boundary yields the same failure outcome rather than a completed workflow.
-- [ ] Ready finalization does not run when PR evidence is missing: no gate, no draft→ready flip.
-- [ ] A completion that pushes nothing (git-disabled workflow) still completes without publication.
-- [ ] `write-loop.test.ts` and `workflow-runner.test.ts` completion and publication-failure tests stay green (gate is additive to those paths).
+- [x] A write-loop test with a publisher that returns a `pushSha` and no PR evidence ends the run at retryable `completion_commit_failed` with a normalized `pr` cause instead of `complete`/exit `0`; it fails against the pre-fix code.
+- [x] The same publisher through the workflow-runner publication boundary yields the same failure outcome rather than a completed workflow.
+- [x] Ready finalization does not run when PR evidence is missing: no gate, no draft→ready flip.
+- [x] A completion that pushes nothing (git-disabled workflow) still completes without publication.
+- [x] `write-loop.test.ts` and `workflow-runner.test.ts` completion and publication-failure tests stay green (gate is additive to those paths).
 
 ## Documentation updates
 

@@ -3,6 +3,7 @@ import {
   type AsyncSubprocessRunner,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
+import { runPublicationWithRetry } from "./publication-retry.ts";
 
 export type ReadyFinalizeInput = {
   worktreePath: string;
@@ -35,8 +36,6 @@ export class ReadyGateError extends Error {
   }
 }
 
-const MAX_ATTEMPTS = 3;
-const BACKOFF_MS = 1000;
 const READY_GATE_MAX_BUFFER = 16 * 1024 * 1024;
 
 function defaultDelay(ms: number): Promise<void> {
@@ -81,22 +80,11 @@ function isPrReadySuccessGuard(message: string): boolean {
 }
 
 async function flipWithRetry(flip: () => Promise<void>, delay: Delay, retryNotice: RetryNotice): Promise<void> {
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    try {
-      await flip();
-      return;
-    } catch (error) {
-      const combined = ghFlipCombinedOutput(error);
-      if (isPrReadySuccessGuard(combined)) {
-        return;
-      }
-      if (attempt === MAX_ATTEMPTS) {
-        throw error instanceof Error ? error : new Error(String(error));
-      }
-      retryNotice(`gh pr ready: transient network error; retrying (attempt ${attempt + 1}/3)`);
-      await delay(BACKOFF_MS);
-    }
-  }
+  await runPublicationWithRetry("gh pr ready", flip, {
+    delay,
+    retryNotice,
+    isSuccess: (error) => isPrReadySuccessGuard(ghFlipCombinedOutput(error)),
+  });
 }
 
 /** Runs the ready gate in the worktree, then flips the draft PR to ready on green. */

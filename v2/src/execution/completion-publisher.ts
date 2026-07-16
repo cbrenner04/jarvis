@@ -3,6 +3,7 @@ import { type RefreshPrBodyInput, refreshPrBody } from "./pr-body-refresh.ts";
 import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
+import { runPublicationWithRetry } from "./publication-retry.ts";
 
 export type CompletionPublisherInput = {
   worktreePath: string;
@@ -30,7 +31,6 @@ type RetryNotice = (message: string) => void;
 type FetchPrBody = RefreshPrBodyInput["fetchPrBody"];
 type WritePrBody = RefreshPrBodyInput["writePrBody"];
 type RenderFooter = NonNullable<RefreshPrBodyInput["renderFooter"]>;
-type AttributionGit = NonNullable<RefreshPrBodyInput["git"]>;
 
 type PublisherSeams = {
   git: Git;
@@ -95,7 +95,8 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
 
     const result: CompletionPublisherResult = {};
 
-    const pushSha = await publishWithRetry(
+    const pushSha = await runPublicationWithRetry(
+      "push",
       async () => {
         const hasUpstream = await checkHasUpstream(git, input.worktreePath, input.branch);
         if (hasUpstream) {
@@ -105,9 +106,7 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
         }
         return await git(input.worktreePath, ["rev-parse", "HEAD"]);
       },
-      "push",
-      delay,
-      retryNotice,
+      { delay, retryNotice },
     );
 
     if (pushSha) {
@@ -115,18 +114,18 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
     }
 
     const creationTitle = resolvePublicationTitle(input.worktreePath, input.specPath, input.creationTitle);
-    const prNumber = await publishWithRetry(
-      () => findOrCreatePr(gh, input.worktreePath, input.baseRef, input.branch, specPath, creationTitle),
+    const prNumber = await runPublicationWithRetry(
       "pr",
-      delay,
-      retryNotice,
+      () => findOrCreatePr(gh, input.worktreePath, input.baseRef, input.branch, specPath, creationTitle),
+      { delay, retryNotice },
     );
 
     if (prNumber) {
       result.prNumber = prNumber;
     }
 
-    await publishWithRetry(
+    await runPublicationWithRetry(
+      "pr-body-refresh",
       async () => {
         const bodySummary = input.specTemplate
           ? await deriveSpecRunBodySummary({
@@ -141,7 +140,7 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
           branch: input.branch,
           base: input.baseRef,
           cwd: input.worktreePath,
-          git: syncGitToAttributionGit(git),
+          git,
           ...(bodySummary !== undefined ? { bodySummary } : {}),
           ...(seams?.fetchPrBody !== undefined ? { fetchPrBody: seams.fetchPrBody } : {}),
           ...(seams?.writePrBody !== undefined ? { writePrBody: seams.writePrBody } : {}),
@@ -149,17 +148,11 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
         });
         return true;
       },
-      "pr-body-refresh",
-      delay,
-      retryNotice,
+      { delay, retryNotice },
     );
 
     return result;
   };
-}
-
-function syncGitToAttributionGit(git: Git): AttributionGit {
-  return async (cwd, args) => git(cwd, args);
 }
 
 async function checkHasUpstream(git: Git, worktreePath: string, branch: string): Promise<boolean> {
@@ -169,40 +162,6 @@ async function checkHasUpstream(git: Git, worktreePath: string, branch: string):
   } catch {
     return false;
   }
-}
-
-type PublishResult<T> = T | null;
-
-async function publishWithRetry<T>(
-  operation: () => T | Promise<T>,
-  operationName: string,
-  delay: Delay,
-  retryNotice: RetryNotice,
-): Promise<PublishResult<T>> {
-  const maxAttempts = 3;
-  const backoffMs = 1000;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      return await operation();
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      const msg = err.message;
-
-      if (msg.includes("non-fast-forward") || msg.includes("failed to push some refs")) {
-        throw new Error("Non-fast-forward push rejection; PR head diverged from remote");
-      }
-
-      if (attempt === maxAttempts) {
-        throw err;
-      }
-
-      retryNotice(`${operationName}: transient network error; retrying (attempt ${attempt + 1}/3)`);
-      await delay(backoffMs);
-    }
-  }
-
-  return null;
 }
 
 async function findOrCreatePr(

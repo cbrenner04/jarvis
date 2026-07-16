@@ -348,8 +348,8 @@ describe("createCompletionPublisher", () => {
     expect(result.pushSha).toBe("abc123def456");
     expect(delays).toEqual([1000, 1000]);
     expect(notices).toEqual([
-      "push: transient network error; retrying (attempt 2/3)",
-      "push: transient network error; retrying (attempt 3/3)",
+      "push: Connection reset by peer; exit=unknown; retrying (attempt 2/3)",
+      "push: Connection reset by peer; exit=unknown; retrying (attempt 3/3)",
     ]);
   });
 
@@ -534,8 +534,8 @@ describe("createCompletionPublisher", () => {
     expect(refreshAttempts).toBe(3);
     expect(delays).toEqual([1000, 1000]);
     expect(notices).toEqual([
-      "pr-body-refresh: transient network error; retrying (attempt 2/3)",
-      "pr-body-refresh: transient network error; retrying (attempt 3/3)",
+      "pr-body-refresh: Connection reset by peer; exit=unknown; retrying (attempt 2/3)",
+      "pr-body-refresh: Connection reset by peer; exit=unknown; retrying (attempt 3/3)",
     ]);
   });
 

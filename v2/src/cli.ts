@@ -338,7 +338,7 @@ async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Pr
       for (const run of list.runs) {
         const e = run.error;
         io.stdout(
-          `${run.runId}\t${run.project}\t${run.branch}\t${run.status}\t${run.isLive ? "live" : "not-live"}\t${e?.reason ?? "-"}\t${e ? String(e.retryable) : "-"}\t${e?.nextAction ?? "-"}\t${run.worktreePath ?? "-"}\n`,
+          `${run.runId}\t${run.project}\t${run.branch}\t${run.status}\t${run.isLive ? "live" : "not-live"}\t${e?.reason ?? "-"}\t${e ? String(e.retryable) : "-"}\t${e?.nextAction ?? "-"}\t${run.worktreePath ?? "-"}\t${e?.publicationFailure === undefined ? "-" : JSON.stringify(e.publicationFailure)}\n`,
         );
       }
       return 0;
@@ -893,6 +893,7 @@ function writeStdoutJson(result: WriteLoopResult): string {
   if (result.completionCommitError !== undefined) payload.completionCommitError = result.completionCommitError;
   if (result.readyGateError !== undefined) payload.readyGateError = result.readyGateError;
   if (result.readyFlipError !== undefined) payload.readyFlipError = result.readyFlipError;
+  if (result.publicationFailure !== undefined) payload.publicationFailure = result.publicationFailure;
   return JSON.stringify(payload, null, 2);
 }
 

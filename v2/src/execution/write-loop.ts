@@ -13,6 +13,7 @@ import {
 } from "../persistence/state-store.ts";
 import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
 import { type CompletionPublisher, createCompletionPublisher } from "./completion-publisher.ts";
+import { publicationFailureFor, type PublicationFailure } from "./publication-retry.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import { createReadyFinalizer, type ReadyFinalizer, ReadyGateError } from "./ready-finalize.ts";
@@ -54,6 +55,7 @@ export type WriteLoopResult = {
   completionCommitError?: string;
   readyGateError?: string;
   readyFlipError?: string;
+  publicationFailure?: PublicationFailure;
   attemptId?: string;
   outcomeKind?: OutcomeKind;
   runStatus?: RunStatus;
@@ -931,17 +933,20 @@ export async function publishCompletionArtifacts(
 }
 
 function completionCommitFailed(args: WriteLoopInput, result: WriteLoopResult, error?: Error): WriteLoopResult {
+  const publicationFailure = error === undefined ? undefined : publicationFailureFor(error);
   args.logSink?.append(result.runId, {
     kind: "loop_finished",
     loopOutcomeKind: "completion_commit_failed",
     iterationsConsumed: result.iterationsConsumed,
     resumable: true,
+    ...(publicationFailure !== undefined ? { publicationFailure } : {}),
   });
   return {
     ...result,
     kind: "completion_commit_failed",
     resumable: true,
     completionCommitError: error?.message ?? "completion commit failed",
+    ...(publicationFailure !== undefined ? { publicationFailure } : {}),
   };
 }
 
@@ -951,11 +956,13 @@ function readyFailed(
   kind: "ready_gate_failed" | "ready_flip_failed",
   error?: Error,
 ): WriteLoopResult {
+  const publicationFailure = error === undefined ? undefined : publicationFailureFor(error);
   args.logSink?.append(result.runId, {
     kind: "loop_finished",
     loopOutcomeKind: kind,
     iterationsConsumed: result.iterationsConsumed,
     resumable: true,
+    ...(publicationFailure !== undefined ? { publicationFailure } : {}),
   });
   return {
     ...result,
@@ -964,6 +971,7 @@ function readyFailed(
     ...(kind === "ready_gate_failed"
       ? { readyGateError: error?.message ?? "ready gate failed" }
       : { readyFlipError: error?.message ?? "ready flip failed" }),
+    ...(publicationFailure !== undefined ? { publicationFailure } : {}),
   };
 }
 

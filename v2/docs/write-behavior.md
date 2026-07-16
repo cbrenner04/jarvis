@@ -114,7 +114,7 @@ retryable `completion_commit_failed`, and return exit `1`; `jarvis run resume <r
 may retry without creating a duplicate commit or PR. Non-fast-forward push rejection
 is permanent (no retry). Transient network failures (push, PR lookup, PR creation, body refresh) retry
 to 3 total attempts with flat 1000 ms backoff between re-attempts and emit
-`<op>: transient network error; retrying (attempt <n>/3)` to stderr. Subprocess, backoff
+`<op>: <message>; exit=<code>; stdout: <tail>; stderr: <tail>; retrying (attempt <n>/3)` to stderr. Publication failures are normalized once with the operation, message, exit code, and independently labelled bounded output tails. Only positively identified transport failures retry (three total attempts, flat 1000 ms); auth, permission, not-found, invalid-input, rate-limit, unknown, and non-fast-forward failures make one attempt. Exhausted transient failures rethrow the original error. Subprocess, backoff
 delay, retry-notice, and `gh`-readiness are each independently injectable async seams, so
 publication tests exercise retries and failures without live git/`gh` calls or wall-clock
 delay; every retry attempt is awaited. Missing binding attribution fails before git mutation. This boundary operates
@@ -124,6 +124,8 @@ Workflows suppress per-step commits and publish once after every step and hidden
 completes, attributed to the final contributor. The publication and finalization
 boundaries match standalone runs: commit once, then push+PR and body refresh once,
 then ready gate and draft→ready flip once.
+
+Publication terminal results and their `loop_finished` row retain the normalized failure detail. The ready gate remains outside this policy; `ReadyGateError` enters repair, while `already ready` and `not a draft` satisfy the ready flip before classification.
 
 The captured snapshot is the retry identity: later operator edits are excluded.
 
@@ -522,7 +524,7 @@ before retrying `jarvis tui` or `jarvis tui log <run-id>`.
 | --- | --- | --- | --- |
 | `jarvis run start ...` | Same required flags as `jarvis write`; `--project-root`, `--project`, `--branch`, `--base`, `--spec`, `--artifact`, optional `--max-iterations`; mapped to the same `WriteLoopInput` fields and sent over IPC as one `start` request | Run ID | `0` on success |
 | `jarvis run workflow <name> ...` | Selects a registered workflow builder by name. Only `implement` is registered. Required flags: `--base` and `--spec`. Optional flags: `--branch` (defaults to parent directory basename of resolved `--spec`), `--artifact` (required for non-index specs, ignored for index specs), `--review-passes <n>` (non-negative integer; overrides the registered project's `implement.reviewPasses`, default `0`). A relative `--spec` is resolved from invocation cwd before project lookup; project is resolved from the registered project containing the resolved spec path (not from invocation cwd). Spec and artifact paths passed to the workflow are worktree-relative. The `implement` builder supplies `role`/`promptId`/`agents`/`agentModelConfig` and sends one IPC `start` request carrying `{ steps }`, then blocks on an IPC `wait` request for the resulting run ID | Run ID line, then one minified JSON line: `{runStatus, loopOutcomeKind?, iterationsConsumed?, resumable?, error?, worktreePath?}` — only present optional fields included | `0` on success; `1` on missing/unknown name, invalid flags, spec outside registered projects, invalid `implement.reviewPasses` project config, machine-config validation failure, or daemon `wait` error — selection, parsing, project resolution, effective review-count resolution, and builder errors occur before daemon connection; otherwise see [wait exit codes](#wait-exit-codes) for the workflow run's terminal exit code |
-| `jarvis run list` | None | One tab-separated row per run: `runId project branch status liveness reason retryable nextAction` — last three columns are `-` when daemon omits `error` | `0` on success |
+| `jarvis run list` | None | One tab-separated row per run: `runId project branch status liveness reason retryable nextAction worktreePath publicationFailure` — `publicationFailure` is JSON or `-` | `0` on success |
 | `jarvis run log <run-id>` | Run ID | One compact JSON line per persisted record; replay first, then follow new records until stream end or client close | `0` on stream end/client close |
 | `jarvis run pause <run-id>` | Run ID | `paused <run-id>` | `0` on success |
 | `jarvis run resume <run-id>` | Run ID | `resumed <run-id>` | `0` on success |

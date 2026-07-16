@@ -218,6 +218,8 @@ No stderr, exit codes, or attempt transcripts appear in this contract.
 | `harness_failure` | terminal `run_execution_failed`, or `failed` without mappable attempt detail | `false` | `stop` |
 | `unsupported_resume_context` | stopped or publication-retry write run whose snapshot cannot reconstruct an executable step | `false` | `stop` |
 
+For `completion_commit_failed` and `ready_flip_failed`, `error.publicationFailure` on both `list` and `wait` contains the failed operation, message, exit code, and bounded labelled stdout/stderr tails from the terminal `loop_finished` row.
+
 **Omission:** `error` is absent on `in-progress` runs and on `completed` runs with
 no operator-actionable stop.
 

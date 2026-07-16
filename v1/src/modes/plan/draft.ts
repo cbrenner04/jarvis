@@ -239,7 +239,11 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
       };
     }
 
-    return { result: finalResult, subspecCount: null, agentLabel };
+    return {
+      result: finalResult.kind === "stall" ? { kind: "error", exitCode: -1, stderr: finalResult.stderr } : finalResult,
+      subspecCount: null,
+      agentLabel,
+    };
   } finally {
     if (draftIdleTimeoutHandle !== null) {
       clearTimeout(draftIdleTimeoutHandle);

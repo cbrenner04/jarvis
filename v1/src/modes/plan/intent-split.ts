@@ -105,7 +105,10 @@ export async function runIntentSplitTurn(opts: {
     };
   }
 
-  return { result: finalResult, agentLabel };
+  return {
+    result: finalResult.kind === "stall" ? { kind: "error", exitCode: -1, stderr: finalResult.stderr } : finalResult,
+    agentLabel,
+  };
 }
 
 export function listStageMarkdownFiles(stagingDir: string): string[] {

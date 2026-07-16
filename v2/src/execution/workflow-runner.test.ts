@@ -1646,13 +1646,35 @@ describe("executeWorkflow human steps", () => {
       publish: () => Promise<{ pushSha?: string }>;
       finalize: () => Promise<void>;
     }> = [
-      { kind: "completion_commit_failed", publish: async () => { throw new Error("publish failed"); }, finalize: async () => {} },
-      { kind: "ready_gate_failed", publish: async () => ({}), finalize: async () => { throw new ReadyGateError("bun run ready", 1, "red"); } },
-      { kind: "ready_flip_failed", publish: async () => ({}), finalize: async () => { throw new Error("gh pr ready failed"); } },
+      {
+        kind: "completion_commit_failed",
+        publish: async () => {
+          throw new Error("publish failed");
+        },
+        finalize: async () => {},
+      },
+      {
+        kind: "ready_gate_failed",
+        publish: async () => ({}),
+        finalize: async () => {
+          throw new ReadyGateError("bun run ready", 1, "red");
+        },
+      },
+      {
+        kind: "ready_flip_failed",
+        publish: async () => ({}),
+        finalize: async () => {
+          throw new Error("gh pr ready failed");
+        },
+      },
     ];
 
     for (const testCase of cases) {
-      const step = createStep({ stepId: `publish-${testCase.kind}`, role: "implement", branchName: `publish-${testCase.kind}` });
+      const step = createStep({
+        stepId: `publish-${testCase.kind}`,
+        role: "implement",
+        branchName: `publish-${testCase.kind}`,
+      });
       const logSink = new TestLogSink();
       await withStateStore(async (store) => {
         const result = await executeWorkflow({

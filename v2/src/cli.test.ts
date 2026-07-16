@@ -294,8 +294,26 @@ describe("v2 cli", () => {
     [{ kind: "invocation_failure", runId: "run-789", iterationsConsumed: 0, resumable: false }, 2],
     [{ kind: "iteration_timeout", runId: "run-timeout", iterationsConsumed: 1, resumable: false }, 1],
     [{ kind: "budget-exhausted", runId: "run-999", iterationsConsumed: 5, resumable: true }, 5],
-    [{ kind: "ready_gate_failed", runId: "run-gate", iterationsConsumed: 1, resumable: true, readyGateError: "gate red" }, 1],
-    [{ kind: "ready_flip_failed", runId: "run-flip", iterationsConsumed: 1, resumable: true, readyFlipError: "flip failed" }, 1],
+    [
+      {
+        kind: "ready_gate_failed",
+        runId: "run-gate",
+        iterationsConsumed: 1,
+        resumable: true,
+        readyGateError: "gate red",
+      },
+      1,
+    ],
+    [
+      {
+        kind: "ready_flip_failed",
+        runId: "run-flip",
+        iterationsConsumed: 1,
+        resumable: true,
+        readyFlipError: "flip failed",
+      },
+      1,
+    ],
   ] as const)("write command maps %p to exit %i", async (result, expectedExit) => {
     const cap = captureIo();
 

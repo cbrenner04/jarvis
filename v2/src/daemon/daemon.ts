@@ -63,6 +63,10 @@ type ActiveRun =
   | {
       kind: "workflow";
       runId: string;
+      reapable: boolean;
+      abortController: AbortController;
+      key: OwnershipKey;
+      claimRunId: string;
     };
 
 export class DaemonDoubleClaimError extends Error {
@@ -576,9 +580,14 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     steps: AnyWorkflowStep[],
     workflowKey: OwnershipKey,
     claimRunId: string,
+    abortController: AbortController,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     return new Promise((resolve) => {
-      const workflowRunIds = new Set<string>();
+      const workflowRunIds = (): string[] =>
+        [...activeRuns.values()]
+          .filter((activeRun) => activeRun.kind === "workflow" && activeRun.claimRunId === claimRunId)
+          .map((activeRun) => activeRun.runId)
+          .filter((runId) => runId !== claimRunId);
       let entryRunId: string | undefined;
       let trackPromiseResolve: (() => void) | undefined;
       const trackPromise = new Promise<void>((res) => {
@@ -594,32 +603,49 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         ...(logSink !== undefined ? { logSink } : {}),
         ...(telemetry !== undefined ? { telemetry } : {}),
         onReviewDebateProgress: reportReviewProgress,
+        signal: abortController.signal,
         onStepRunCreated: (stepIndex, runId) => {
-          workflowRunIds.add(runId);
-          activeRuns.set(runId, { kind: "workflow", runId });
+          activeRuns.set(runId, {
+            kind: "workflow",
+            runId,
+            reapable: false,
+            abortController,
+            key: workflowKey,
+            claimRunId,
+          });
           if (stepIndex === 0) {
             entryRunId = runId;
             workflowPromisesByEntryRunId.set(runId, trackPromise);
             resolve({ kind: "response", result: { runId } });
           }
         },
+        onStepReapable: (_stepIndex, runId) => {
+          const activeRun = activeRuns.get(runId);
+          if (
+            activeRun?.kind === "workflow" &&
+            activeRun.runId === runId &&
+            store.loadRun(runId)?.status === "in-progress"
+          ) {
+            activeRun.reapable = true;
+          }
+        },
       })
         .catch((err) => {
           const message = err instanceof Error ? err.message : String(err);
-          if (workflowRunIds.size === 0) {
+          if (workflowRunIds().length === 0) {
             resolve({
               kind: "error",
               code: err instanceof LinkedIndexReadError ? "routing_read_failed" : "invalid_params",
               message,
             });
           }
-          for (const runId of workflowRunIds) {
+          for (const runId of workflowRunIds()) {
             settleFailedWorkflowRun(runId, message, logSink);
           }
         })
         .finally(() => {
           logSink?.close();
-          for (const runId of workflowRunIds) activeRuns.delete(runId);
+          for (const runId of workflowRunIds()) activeRuns.delete(runId);
           activeRuns.delete(claimRunId);
           if (entryRunId !== undefined) {
             workflowPromisesByEntryRunId.delete(entryRunId);
@@ -690,9 +716,17 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
     const worktreePath = firstStep?.behavior === "write" ? getExternalWorktreePath(firstStep.worktree) : "";
     const claimRunId = crypto.randomUUID();
+    const abortController = new AbortController();
     _registry.claim(workflowKey, { runId: claimRunId, worktreePath, workflow: true });
-    activeRuns.set(claimRunId, { kind: "workflow", runId: claimRunId });
-    return startWorkflowRun(steps, workflowKey, claimRunId);
+    activeRuns.set(claimRunId, {
+      kind: "workflow",
+      runId: claimRunId,
+      reapable: false,
+      abortController,
+      key: workflowKey,
+      claimRunId,
+    });
+    return startWorkflowRun(steps, workflowKey, claimRunId, abortController);
   };
 
   const handleWriteLoopStart = (rawInput: WriteLoopInput): StartResult => {
@@ -886,6 +920,18 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     if (activeRun && activeRun.runId === runId && activeRun.kind === "write-loop") {
       activeRun.abortController.abort();
       store.commitGuardedKill(runId);
+      return { kind: "response", result: { ok: true } };
+    }
+    if (activeRun && activeRun.runId === runId && activeRun.kind === "workflow" && activeRun.reapable) {
+      activeRun.abortController.abort();
+      store.commitGuardedKill(runId);
+      for (const [activeRunId, workflowRun] of activeRuns) {
+        if (workflowRun.kind === "workflow" && workflowRun.claimRunId === activeRun.claimRunId) {
+          activeRuns.delete(activeRunId);
+          workflowPromisesByEntryRunId.delete(activeRunId);
+        }
+      }
+      _registry.release(activeRun.key, activeRun.claimRunId);
       return { kind: "response", result: { ok: true } };
     }
 

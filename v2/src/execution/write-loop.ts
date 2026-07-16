@@ -76,6 +76,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   };
   /** Fires once this run's row is durably created/resolved, before any iteration executes. */
   onRunCreated?: (runId: string) => void;
+  /** Fires when an iteration has yielded without reaching a bound agent invocation. */
+  onAttemptStalled?: (runId: string, attemptId: string) => void;
   telemetry?: {
     sinkPath?: string;
     operatorSessionId: string;
@@ -468,15 +470,30 @@ function awaitIteration(
   sessionLog: SessionLog,
 ): Promise<IterationSettlement> {
   const executionController = new AbortController();
+  let activeAgentInvocations = 0;
   const abortExecution = () => executionController.abort();
   if (args.signal?.aborted) abortExecution();
   args.signal?.addEventListener("abort", abortExecution, { once: true });
+  let stallTimer: ReturnType<typeof setTimeout> | undefined;
   const execution = executeWrite(
-    buildWriteExecuteInput(args, runId, attemptId, executionController.signal, sessionLog),
+    buildWriteExecuteInput(args, runId, attemptId, executionController.signal, sessionLog, {
+      started: () => {
+        activeAgentInvocations += 1;
+      },
+      settled: () => {
+        activeAgentInvocations -= 1;
+      },
+    }),
   ).then(
     (result): IterationSettlement => ({ kind: "settled", result }),
     (error): IterationSettlement => ({ kind: "threw", error }),
   );
+  void execution.then(() => {
+    if (stallTimer !== undefined) clearTimeout(stallTimer);
+  });
+  stallTimer = setTimeout(() => {
+    if (activeAgentInvocations === 0) args.onAttemptStalled?.(runId, attemptId);
+  }, 0);
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let removeAbort: (() => void) | undefined;
   const watchdog = new Promise<IterationSettlement>((resolve) => {
@@ -646,6 +663,7 @@ function buildWriteExecuteInput(
   attemptId: string,
   signal: AbortSignal,
   sessionLog: SessionLog,
+  agentInvocation: { started: () => void; settled: () => void },
 ): WriteExecuteInput {
   const telemetry = args.telemetry;
   // An operator-session-only telemetry attachment (no sinkPath/workflow/role) is a
@@ -668,7 +686,17 @@ function buildWriteExecuteInput(
     specPath: args.specPath,
     stepRules: args.stepRules,
     expectedArtifactPath: args.expectedArtifactPath,
-    bindings: args.bindings,
+    bindings: args.bindings.map((binding) => ({
+      ...binding,
+      invoke: async (input) => {
+        agentInvocation.started();
+        try {
+          return await binding.invoke(input);
+        } finally {
+          agentInvocation.settled();
+        }
+      },
+    })),
     ...(args.promptId !== undefined ? { promptId: args.promptId } : {}),
     ...(args.promptPlaceholders !== undefined ? { promptPlaceholders: args.promptPlaceholders } : {}),
     ...(args.intentSeed !== undefined ? { intentSeed: args.intentSeed, intentBefore: args.intentSeed } : {}),

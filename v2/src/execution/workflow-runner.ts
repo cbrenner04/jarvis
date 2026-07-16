@@ -220,6 +220,10 @@ export type WorkflowRunnerInput = {
   telemetry?: WorkflowTelemetryContext;
   /** Fires once a step's run row is durably created/resolved, before that step executes. */
   onStepRunCreated?: (stepIndex: number, runId: string) => void;
+  /** Fires when a write step stalls after iteration start without a bound agent invocation. */
+  onStepReapable?: (stepIndex: number, runId: string) => void;
+  /** Cancels active write steps. */
+  signal?: AbortSignal;
   completionCommitter?: CompletionCommitter;
   completionPublisher?: CompletionPublisher;
   readyFinalizer?: ReadyFinalizer;
@@ -295,6 +299,21 @@ type WorkflowStepOutcome = {
   completionAgent?: string;
 };
 
+function withWorkflowRunControls(
+  input: WriteLoopInput,
+  stepIndex: number,
+  onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+  onStepReapable: ((stepIndex: number, runId: string) => void) | undefined,
+  signal: AbortSignal | undefined,
+): WriteLoopInput {
+  return {
+    ...input,
+    ...(onStepRunCreated ? { onRunCreated: (runId) => onStepRunCreated(stepIndex, runId) } : {}),
+    ...(onStepReapable ? { onAttemptStalled: (runId) => onStepReapable(stepIndex, runId) } : {}),
+    ...(signal ? { signal } : {}),
+  };
+}
+
 /** Dispatch one step to its behavior-specific executor and normalize the result. */
 async function runWorkflowStep(
   step: AnyWorkflowStep,
@@ -305,6 +324,8 @@ async function runWorkflowStep(
   onReviewDebateProgress: ((invocationId: string, stepId: string, progress: ReviewDebateProgress) => void) | undefined,
   telemetry: WorkflowTelemetryContext | undefined,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+  onStepReapable: ((stepIndex: number, runId: string) => void) | undefined,
+  signal: AbortSignal | undefined,
   freshDispatch: boolean | undefined,
   touchedStepsInExecution: Set<string>,
 ): Promise<WorkflowStepOutcome> {
@@ -341,6 +362,8 @@ async function runWorkflowStep(
       logSink,
       telemetry,
       onStepRunCreated,
+      onStepReapable,
+      signal,
       freshDispatch,
       touchedStepsInExecution,
     );
@@ -371,11 +394,7 @@ async function runWorkflowStep(
 
   touchedStepsInExecution.add(step.stepId);
 
-  return executeWriteLoop(
-    onStepRunCreated
-      ? { ...preparedStep.input, onRunCreated: (runId) => onStepRunCreated(stepIndex, runId) }
-      : preparedStep.input,
-  );
+  return executeWriteLoop(withWorkflowRunControls(preparedStep.input, stepIndex, onStepRunCreated, onStepReapable, signal));
 }
 
 /** Resolve `path` inside a materialized worktree. */
@@ -423,6 +442,8 @@ async function runPreparedLinkedWriteStep(
   logSink: LogSink | undefined,
   telemetry: WorkflowTelemetryContext | undefined,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+  onStepReapable: ((stepIndex: number, runId: string) => void) | undefined,
+  signal: AbortSignal | undefined,
   freshDispatch: boolean | undefined,
   touchedStepsInExecution: Set<string>,
 ): Promise<WorkflowStepOutcome> {
@@ -451,11 +472,7 @@ async function runPreparedLinkedWriteStep(
 
   touchedStepsInExecution.add(linkStep.stepId);
 
-  return executeWriteLoop(
-    onStepRunCreated
-      ? { ...preparedLink.input, onRunCreated: (runId) => onStepRunCreated(stepIndex, runId) }
-      : preparedLink.input,
-  );
+  return executeWriteLoop(withWorkflowRunControls(preparedLink.input, stepIndex, onStepRunCreated, onStepReapable, signal));
 }
 
 function finalizeLinkedImplementPass(
@@ -504,6 +521,8 @@ async function runLinkedImplementStep(
   logSink: LogSink | undefined,
   telemetry: WorkflowTelemetryContext | undefined,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+  onStepReapable: ((stepIndex: number, runId: string) => void) | undefined,
+  signal: AbortSignal | undefined,
   freshDispatch: boolean | undefined,
   touchedStepsInExecution: Set<string>,
 ): Promise<WorkflowStepOutcome> {
@@ -541,6 +560,8 @@ async function runLinkedImplementStep(
       logSink,
       telemetry,
       onStepRunCreated,
+      onStepReapable,
+      signal,
       freshDispatch,
       touchedStepsInExecution,
     );
@@ -635,6 +656,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         args.onReviewDebateProgress,
         args.telemetry,
         args.onStepRunCreated,
+        args.onStepReapable,
+        args.signal,
         args.freshDispatch,
         touchedStepsInExecution,
       );
@@ -673,6 +696,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           args.logSink,
           args.telemetry,
           args.onStepRunCreated,
+          args.onStepReapable,
+          args.signal,
           args.freshDispatch,
           touchedStepsInExecution,
         );
@@ -1251,6 +1276,8 @@ async function runShrinkAfterImplementComplete(
   logSink: LogSink | undefined,
   telemetry: WorkflowTelemetryContext | undefined,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+  onStepReapable: ((stepIndex: number, runId: string) => void) | undefined,
+  signal: AbortSignal | undefined,
   freshDispatch: boolean | undefined,
   touchedStepsInExecution: Set<string>,
 ): Promise<WriteLoopResult> {
@@ -1286,11 +1313,7 @@ async function runShrinkAfterImplementComplete(
 
   touchedStepsInExecution.add(shrinkStep.stepId);
 
-  return executeWriteLoop(
-    onStepRunCreated
-      ? { ...preparedStep.input, onRunCreated: (runId) => onStepRunCreated(stepIndex, runId) }
-      : preparedStep.input,
-  );
+  return executeWriteLoop(withWorkflowRunControls(preparedStep.input, stepIndex, onStepRunCreated, onStepReapable, signal));
 }
 
 async function shrinkPromptPlaceholders(

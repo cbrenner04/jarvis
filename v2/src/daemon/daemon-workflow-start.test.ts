@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding, InvocationResult } from "../../../shared/invocation/execute.ts";
@@ -328,6 +328,40 @@ test("pause rejects a workflow-started run's step-0 runId with run_not_active", 
   const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
   const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
   expect(runId).toBeTruthy();
+
+  const pauseResponse = await handlers.pause(requestFrame("p1", "pause", { runId }), new AbortController().signal);
+  expect(pauseResponse).toEqual({ kind: "error", code: "run_not_active", message: expect.any(String) });
+});
+
+test("kill reaps a workflow step stalled before an agent binding", async () => {
+  const step = createWriteStep("step-1", "workflow-wedged-branch");
+  if (step.worktree.jarvisRoot === undefined || step.withExternalWorktree === undefined) {
+    throw new Error("Test write step requires fake worktree support");
+  }
+  const worktreePath = join(step.worktree.jarvisRoot, "worktrees", step.worktree.projectName, step.worktree.branchName);
+  const withExternalWorktree = step.withExternalWorktree;
+  step.withExternalWorktree = async (args, _run) =>
+    withExternalWorktree(args, async () => await new Promise<never>(() => {}));
+
+  const response = await handlers.start(requestFrame("s1", "start", { steps: [step] }), new AbortController().signal);
+  const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
+  expect(runId).toBeTruthy();
+
+  await flushBackgroundRuns();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  expect((await listRunsDirect(handlers))?.find((run) => run.runId === runId)).toMatchObject({
+    status: "in-progress",
+    isLive: true,
+  });
+
+  const killResponse = await handlers.kill(requestFrame("k1", "kill", { runId }), new AbortController().signal);
+  expect(killResponse).toEqual({ kind: "response", result: { ok: true } });
+  expect(stateStore.loadRun(runId as string)?.status).toBe("killed");
+  expect(existsSync(worktreePath)).toBe(true);
+  expect((await listRunsDirect(handlers))?.find((run) => run.runId === runId)).toMatchObject({
+    status: "killed",
+    isLive: false,
+  });
 
   const pauseResponse = await handlers.pause(requestFrame("p1", "pause", { runId }), new AbortController().signal);
   expect(pauseResponse).toEqual({ kind: "error", code: "run_not_active", message: expect.any(String) });

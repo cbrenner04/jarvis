@@ -431,10 +431,12 @@ The CLI sends one IPC `start` request and prints the run ID on stdout:
 7f3a9c2e-4b1d-4e8a-9f0c-1a2b3c4d5e6f
 ```
 
-Observe the run with `jarvis tui` or `jarvis run log <run-id>`. The run cannot be
-paused or killed live; the workflow step executes atomically to completion within
-its step timeout. Pausing/resuming/killing are not supported for
-workflow-started implement runs.
+Observe the run with `jarvis tui` or `jarvis run log <run-id>`. A healthy
+workflow-started run cannot be paused or killed live; the workflow step executes
+atomically to completion within its step timeout. Pausing/resuming remain
+unsupported. If the workflow run wedges, reap it with `jarvis run kill <run-id>`
+using the same run ID that `jarvis run list` shows; healthy in-flight runs still
+reject that command.
 
 See [`write-behavior.md`](./write-behavior.md#run-control-cli) for the full CLI
 contract and [`workflow-runner.md`](./workflow-runner.md) for workflow composition.

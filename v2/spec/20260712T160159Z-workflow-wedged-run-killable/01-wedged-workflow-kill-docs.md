@@ -24,15 +24,15 @@ operators. Depends on [00 - Wedged workflow kill plumbing](./00-wedged-workflow-
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/daemon-host.md` documents that a workflow-started run `list`
+- [x] `v2/docs/daemon-host.md` documents that a workflow-started run `list`
       reports as `live` accepts `kill` only when wedged (reapable), reaches
       durable `killed` with worktree retained, and thereafter `list` shows
       `isLive: false` for that `runId`.
-- [ ] `v2/docs/first-workflow-walkthrough.md` states that healthy
+- [x] `v2/docs/first-workflow-walkthrough.md` states that healthy
       workflow-started runs still cannot be paused or killed live, and that a
       wedged workflow run (same `runId` as `list`) can be reaped with
       `jarvis run kill`.
-- [ ] `v2/docs/v1-behaviors.md` records wedged workflow kill and list/kill
+- [x] `v2/docs/v1-behaviors.md` records wedged workflow kill and list/kill
       coherence under `[v2 additive]`.
 
 ## Documentation updates

@@ -32,11 +32,11 @@ diagnostics) are separate behaviors.
 
 ## Acceptance criteria
 
-- [ ] A binding invocation whose child emits no stdout/stderr for the caller-supplied idle budget has its process group killed and settles as `kind: "stall"`; a new test in `shared/invocation/agents.test.ts` drives a silent fake child under an injected timer and fails against the pre-fix code (which never settles until the child exits).
-- [ ] Output resets the budget: a child emitting a chunk each half-budget runs to normal completion and settles `ok`, asserted by a new test that fails against a naive wall-clock implementation.
-- [ ] An unset or `0` idle budget arms nothing: existing `shared/invocation` tests stay green with no timer injected.
-- [ ] A stalled invocation is not classified as `quota` and, under the default `shouldAdvance`, stops the binding chain instead of advancing to the next binding — asserted by a new `shared/invocation/execute.test.ts` test.
-- [ ] `bun run typecheck` passes: the widened union forces every result-kind consumer in `shared/**`, `v1/**`, and `v2/**` to handle `stall` explicitly.
+- [x] A binding invocation whose child emits no stdout/stderr for the caller-supplied idle budget has its process group killed and settles as `kind: "stall"`; a new test in `shared/invocation/agents.test.ts` drives a silent fake child under an injected timer and fails against the pre-fix code (which never settles until the child exits).
+- [x] Output resets the budget: a child emitting a chunk each half-budget runs to normal completion and settles `ok`, asserted by a new test that fails against a naive wall-clock implementation.
+- [x] An unset or `0` idle budget arms nothing: existing `shared/invocation` tests stay green with no timer injected.
+- [x] A stalled invocation is not classified as `quota` and, under the default `shouldAdvance`, stops the binding chain instead of advancing to the next binding — asserted by a new `shared/invocation/execute.test.ts` test.
+- [x] `bun run typecheck` passes: the widened union forces every result-kind consumer in `shared/**`, `v1/**`, and `v2/**` to handle `stall` explicitly.
 
 ## Documentation updates
 

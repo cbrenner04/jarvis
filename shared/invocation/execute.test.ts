@@ -124,6 +124,33 @@ describe("shared invocation fallback", () => {
     expect(result.final?.result.kind).toBe("error");
   });
 
+  test("stops on stall instead of advancing the default binding chain", async () => {
+    const calls: string[] = [];
+    const result = await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [
+        {
+          id: "first",
+          invoke: async () => {
+            calls.push("first");
+            return { kind: "stall", stderr: "silent" };
+          },
+        },
+        {
+          id: "second",
+          invoke: async () => {
+            calls.push("second");
+            return { kind: "ok", stdout: "unexpected", stderr: "" };
+          },
+        },
+      ] as InvocationBinding[],
+    });
+
+    expect(calls).toEqual(["first"]);
+    expect(result.final?.result.kind).toBe("stall");
+  });
+
   test("returns null final when no bindings are configured", async () => {
     const result = await executeWithQuotaFallback({
       prompt: "p",

@@ -5,14 +5,17 @@ agent-invocation fallback seam used by v2 write-step execution.
 
 Contract:
 
-- Input: `(prompt, cwd, ordered bindings, AbortSignal?)`.
-- Each binding invocation returns typed `ok | quota | model_config | error`.
+- Input: `(prompt, cwd, ordered bindings, AbortSignal?, idleOutputMs?)`.
+- Each binding invocation returns typed `ok | quota | stall | model_config | error`.
+  `idleOutputMs` is caller-supplied and disabled when unset or `0`; output on either
+  stream resets the idle budget.
 - Fallback advances when the binding's `shouldAdvance` predicate returns true.
   Default policy is `result.kind === "quota"` only; callers may override per
   binding. Review actuator opts into a broader actuator-only policy (quota,
   lenient weak-quota upgrades, and `aborted: idle-timeout` errors) while
   standalone review debate bindings keep quota-only advance.
 - Any non-advancing result stops immediately (no later binding attempt).
+  The default policy does not advance on `stall`.
 - Output returns ordered attempts plus the final attempt (or `null` when no
   bindings are configured).
 - When the caller also passes write-step telemetry context plus a sink, each
@@ -27,7 +30,7 @@ Contract:
   `outbound` (prompt) lines before `binding.invoke` runs, then
   `inbound_stdout`/`inbound_stderr` after it settles: an `ok` result writes
   stdout under `inbound_stdout` and stderr under `inbound_stderr`; a
-  `quota`/`model_config`/`error` result writes only its `stderr`, under
+  `quota`/`stall`/`model_config`/`error` result writes only its `stderr`, under
   `inbound_stderr`. A throwing `sessionLog.append` is swallowed and never fails
   the invocation. Callers that omit `sessionLog` stay unaffected.
 
@@ -88,6 +91,7 @@ chain stops, `failureKind` encodes why:
 | `failureKind` | Meaning |
 | --- | --- |
 | `quota` | Every configured binding returned `quota`; fallback exhausted |
+| `stall` | A binding exceeded its caller-supplied idle-output budget |
 | `model_config` | First non-quota result was `model_config`; chain stops (no advance) |
 | `error` | First non-quota result was `error`; chain stops (no advance) |
 | `no_binding` | No bindings configured (`final === null`), including an empty resolved binding list |

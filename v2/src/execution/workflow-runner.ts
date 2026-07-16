@@ -791,6 +791,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               }
             }
             let bodySummary: string | undefined;
+            let specTemplate = false;
             if (completionStep.landing?.kind === "intent-stage") {
               bodySummary = deriveIntentRunBodySummary({
                 creationTitle: workflowSnapshot.creationTitle,
@@ -800,9 +801,11 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               completionStep.landing?.kind === "plan-tree" ||
               completionStep.promptId === "plan.prompt.draft"
             ) {
-              bodySummary = deriveSpecRunBodySummary({
+              specTemplate = true;
+              bodySummary = await deriveSpecRunBodySummary({
                 worktreePath,
                 specPath: publicationSpecPath ?? completionStep.specPath,
+                baseRef: worktree.baseRef,
               });
             }
             const publishError = await publishCompletionArtifacts(
@@ -817,6 +820,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 branch: worktree.branchName,
                 creationTitle,
                 ...(bodySummary !== undefined ? { bodySummary } : {}),
+                ...(specTemplate ? { specTemplate } : {}),
               },
             );
             if (publishError !== undefined) {

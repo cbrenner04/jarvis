@@ -57,8 +57,9 @@ labels joined per commit; `unknown` when no trailer; excluded from summary),
 blank line, then `Written by <labels> through Jarvis.` with first-seen dedup.
 The summary sits after the `Spec:` line and before narrative markers or the footer
 separator; it is rebuilt on every refresh (not read from the existing body).
-Absent or blank summary ⇒ today's body shape (header, then narrative or footer
-only). Direct `jarvis2 write` and daemon completion paths supply no summary.
+Absent or blank summary ⇒ header, then narrative or footer only. Direct write
+and daemon completion paths use the same plan/implement template when their
+step is plan or implement.
 Intent runs (`completionStep.intentOutput` set) re-derive a summary at every
 publish from the landed durable dir: the workflow creation title when it is not
 the generic `jarvis: complete run` fallback, then one `- <file>.md` bullet per
@@ -66,11 +67,16 @@ owned intent file (invocation ownership when recorded, else every `.md` in the
 durable dir). Empty landed-file list ⇒ subject line only; generic fallback title
 ⇒ bullets only. Review-last intent workflows land before this derivation; both
 intent branches use the same publish-site logic.
-Spec-authoring runs (`completionStep.promptId === "plan.prompt.draft"`) re-derive
-a summary at every publish from `<publication spec path>/index.md`: the H1 as a
-`# …` line, then every subspec checklist line verbatim in index order (full list,
-no truncation). H1 with no checklist items ⇒ H1 only; missing or H1-less
-`index.md` ⇒ no summary (today's body shape).
+Plan and implement runs re-derive a deterministic v1-shaped template at every
+publish attempt from linked subspec titles plus each first prose line, commits
+from `baseRef..HEAD` (oldest first), and `baseRef...HEAD` numstat. The rendered
+order is `## Subspecs`, `## Commits`, optional `## Risk cues`, then `## Change
+summary`; why lines truncate at 80 characters, areas are capped at two path
+segments and ordered by changed lines, and binary numstat counts as a file with
+zero lines. The template follows `Spec:` and precedes preserved narrative
+markers and the attribution footer. Intent keeps its landed-file summary.
+Empty inputs render `(no content)` for plan/implement. Retries re-read all
+inputs, so changed linked subspecs, commits, or stats are reflected.
 Empty footer ⇒ header (+ summary and narrative when present) only, no `---`
 separator. v1's
 hash-verified generated-narrative path (`jarvis:narrative:generated-sha256:`) is

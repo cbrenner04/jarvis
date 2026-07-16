@@ -791,3 +791,26 @@ with the completion run, so retries do not reread changed or unavailable specs.
 Unreadable index identity fails with a title-resolution error naming the spec path;
 there is no `jarvis: complete run` fallback. Existing matching open PRs retain
 their titles.
+
+## Cleanup
+
+`jarvis cleanup [--dry-run]` discovers and retires merged v2 worktrees under
+`~/.jarvis/worktrees/<project>/`, including nested branch paths.
+
+Each worktree is eligible for removal when:
+- Its PR is merged (checked via `gh pr view <branch> --json state`).
+- No non-terminal durable run references it (status not in `blocked`, `completed`, or `failed`).
+- The daemon does not report it as live.
+
+**Dry-run mode** (`--dry-run`) previews worktrees for removal without prompting or mutating state.
+
+**Confirmation mode** prompts `[y/N]` before removal; declining cancels. Ownership is rechecked
+after confirmation to guard against concurrent worktree operations.
+
+**Removal** deletes the worktree directory and its local branch only; remote branches, specs,
+ready intents, and durable run rows are retained. The local branch deletion uses
+`git branch -d` with force fallback (`git branch -D`) to handle merged or unmerged branches.
+
+Failed removals are reported without stopping subsequent candidates; the command exits
+nonzero when any confirmed removal fails. Worktree discovery is scoped per registered project
+and runs independently.

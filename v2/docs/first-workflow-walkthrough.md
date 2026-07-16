@@ -459,3 +459,15 @@ named title-resolution error, with no generic completion title.
 
 - [`daemon-host.md`](./daemon-host.md) — IPC methods, `list`/`wait` error shape, resume semantics
 - [`workflow-runner.md`](./workflow-runner.md) — multi-step workflows and the `implement` preset
+
+## Session close-out
+
+When your run completes and the PR is merged, retire its worktree to free local disk:
+
+```bash
+jarvis cleanup --dry-run   # preview
+jarvis cleanup             # confirm with [y/N]
+```
+
+See [`write-behavior.md#cleanup`](./write-behavior.md#cleanup) for eligibility rules
+and exit codes.

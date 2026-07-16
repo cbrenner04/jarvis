@@ -15,7 +15,8 @@ own yet.
 | Patch spec implementation (`jarvis1 run <spec>`) | `jarvis1` | v2 implement preset is workflow-shaped, not a drop-in for every spec run |
 | Project registry (`jarvis1 init`, `jarvis1 config`) | `jarvis1` | v2 reads the same `~/.jarvis/config.json` |
 | Log server preflight | `jarvis1` | v2 daemon runs do not gate on `jarvis1 log-server` |
-| Cleanup, triage, runbook add | `jarvis1` | See [v1 operator runbook](../../v1/docs/operator-runbook.md) |
+| v2 worktree cleanup | `jarvis` | Discovers and retires merged v2 worktrees; see [`write-behavior.md`](./write-behavior.md#cleanup) |
+| v1 cleanup, triage, runbook add | `jarvis1` | See [v1 operator runbook](../../v1/docs/operator-runbook.md) |
 | Daemon, run control, TUI, workflow presets | `jarvis` | This doc |
 
 Orientation: [`onboarding.md`](./onboarding.md). Install path:
@@ -109,9 +110,8 @@ Adapted from v1; v2 session close-out is the same obligation:
    PR.
 5. **Maintain this runbook** (branch → PR → merge). Operators add gotchas and remove
    entries when the structural fix ships.
-6. **End-of-session cleanup** — v2 has no `jarvis cleanup` yet (seed
-   `v2-reclaims-its-workspace`); use v1 cleanup where it applies and manual worktree
-   recovery for `~/.jarvis/worktrees/` (see [Recovery](#recovery)).
+6. **End-of-session cleanup** — run `jarvis cleanup [--dry-run]` to retire merged v2 worktrees
+   (see [Session close-out](#session-close-out)). v1 cleanup still applies to v1 artifacts.
 
 ## Runbook maintenance
 
@@ -268,6 +268,12 @@ run to `failed` and blocks completion; resume the run after fixing the gate.
 
 v2 TUI tests can pass while ink rendering is broken — see seed
 `tui-tests-bypass-the-render-path` and [`test-writing.md`](./test-writing.md).
+
+## Session close-out
+
+Run `jarvis cleanup` (or `--dry-run` to preview) at the end of a session to retire merged
+v2 worktrees. See [`write-behavior.md#cleanup`](./write-behavior.md#cleanup) for the
+eligibility rules, prompt flow, and exit codes.
 
 ## Recovery
 

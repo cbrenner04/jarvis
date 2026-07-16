@@ -22,13 +22,13 @@
 
 ## Acceptance criteria
 
-- [ ] `jarvis cleanup --dry-run` discovers merged-PR worktrees beneath each registered project's `~/.jarvis/worktrees/<project>/` home, including slash-nested branch paths, and previews both worktree and local-branch removals without prompting or mutating state.
-- [ ] `jarvis cleanup` prompts `[y/N]`; declining changes nothing, while confirmation removes each still-eligible worktree registration/directory and its local branch without deleting the remote branch, specs, ready intents, or durable run rows.
-- [ ] A worktree is omitted when its PR is not merged, PR or ownership inspection cannot establish eligibility, a non-terminal durable run references it, or the daemon reports a referencing run live; ownership is rechecked after confirmation before removal.
-- [ ] Cleanup handles registered projects independently, leaves an ineligible or failed candidate intact, and exits nonzero when a confirmed retirement fails.
-- [ ] `v2/src/commands/cleanup.test.ts` and `v2/src/cli.test.ts` add regression coverage for discovery, dry-run, confirmation, merged-state filtering, durable/live ownership guards, failure isolation, retained run rows, and local-only branch deletion that fails against the pre-change code and passes after implementation.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/write-behavior.md`, `v2/docs/operator-runbook.md`, and `v2/docs/first-workflow-walkthrough.md` document the cleanup command, preview/confirmation flow, safety guards, retained artifacts/history, and session-end invocation.
+- [x] `jarvis cleanup --dry-run` discovers merged-PR worktrees beneath each registered project's `~/.jarvis/worktrees/<project>/` home, including slash-nested branch paths, and previews both worktree and local-branch removals without prompting or mutating state.
+- [x] `jarvis cleanup` prompts `[y/N]`; declining changes nothing, while confirmation removes each still-eligible worktree registration/directory and its local branch without deleting the remote branch, specs, ready intents, or durable run rows.
+- [x] A worktree is omitted when its PR is not merged, PR or ownership inspection cannot establish eligibility, a non-terminal durable run references it, or the daemon reports a referencing run live; ownership is rechecked after confirmation before removal.
+- [x] Cleanup handles registered projects independently, leaves an ineligible or failed candidate intact, and exits nonzero when a confirmed retirement fails.
+- [x] `v2/src/commands/cleanup.test.ts` and `v2/src/cli.test.ts` add regression coverage for discovery, dry-run, confirmation, merged-state filtering, durable/live ownership guards, failure isolation, retained run rows, and local-only branch deletion that fails against the pre-change code and passes after implementation.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/write-behavior.md`, `v2/docs/operator-runbook.md`, and `v2/docs/first-workflow-walkthrough.md` document the cleanup command, preview/confirmation flow, safety guards, retained artifacts/history, and session-end invocation.
 
 ## Documentation updates
 

@@ -1,8 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { createInterface } from "node:readline";
 import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
 import type { AgentModelConfig, LoadError } from "./config/agent-model-config.ts";
+import { cleanupCommand, type CleanupIo } from "./commands/cleanup.ts";
 import {
   type ImplementReviewBehavior,
   loadMachineConfig,
@@ -167,6 +169,10 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
 
   if (command === "tui") {
     return runTuiCommand(argv.slice(1), out, runtimeDeps);
+  }
+
+  if (command === "cleanup") {
+    return runCleanupCommand(argv.slice(1), out, runtimeDeps);
   }
 
   out.stdout("v2 not ready\n");
@@ -462,6 +468,50 @@ function runTuiCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<
   }
   io.stderr(TUI_USAGE);
   return Promise.resolve(1);
+}
+
+async function runCleanupCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
+  const dryRun = argv.includes("--dry-run");
+  const projectRegistry = deps.readProjectRegistry();
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+
+  const cleanupIo: CleanupIo = {
+    stdout: (s) => io.stdout(s),
+    stderr: (s) => io.stderr(s),
+    readlineSync: (prompt) => new Promise<string>((resolve) => rl.question(prompt, resolve)),
+  };
+
+  let daemonRuns: DaemonListRunRow[] | undefined;
+  const listRunsFromDaemon = async (): Promise<DaemonListRunRow[]> => {
+    if (daemonRuns !== undefined) {
+      return daemonRuns;
+    }
+    let client: IpcClient | undefined;
+    try {
+      client = await deps.connectIpcClient(deps.socketPath);
+      const result = await request(client, "list");
+      const parsed = parseListRuns(result);
+      daemonRuns = parsed?.runs ?? [];
+      return daemonRuns;
+    } catch {
+      return [];
+    } finally {
+      client?.close();
+    }
+  };
+
+  try {
+    const result = await cleanupCommand({
+      io: cleanupIo,
+      dryRun,
+      projectRegistry,
+      listRunsFromDaemon,
+    });
+    return result;
+  } finally {
+    rl.close();
+  }
 }
 
 function getWorkflowUsage(name: string): string {

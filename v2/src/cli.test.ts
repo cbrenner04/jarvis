@@ -2405,4 +2405,18 @@ describe("v2 cli", () => {
     expect(extraArgs).toBe(1);
     expect(cap.read().stderr).toContain("usage: jarvis tui log <run-id>");
   });
+
+  describe("cleanup command", () => {
+    test("returns 0 when no worktrees exist", async () => {
+      const cap = captureIo();
+      const code = await main(["cleanup", "--dry-run"], cap.io, {
+        readProjectRegistry: () => ({
+          testproj: { root: "/tmp/repo" },
+        }),
+      });
+
+      expect(code).toBe(0);
+      expect(cap.read().stdout).toContain("no merged worktrees to remove");
+    });
+  });
 });

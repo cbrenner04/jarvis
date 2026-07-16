@@ -39,6 +39,22 @@ it.** Here the harness asserts a *cause*.
   agent invocations all exited `ok` must carry the publication step's real error.
 - Both call sites (`completion-publisher`, `ready-finalize`) get the same treatment; do not fix one.
 
+Decisions carried from the pruned `publication-retries-classify-and-report-errors` spec (planned
+post-#1620, absorbed here rather than run as a same-seam sibling):
+
+- One evidence-aware retry policy shared by completion publish (push, PR ensure, body refresh) and
+  the ready flip; no second classifier or divergent notice format.
+- Retry only positively classified transient transport failures; unknown is permanent (fast-fail),
+  alongside auth/permission/not-found/invalid-input.
+- Normalize thrown command evidence once (message, exit code, bounded separately-labeled
+  stdout/stderr tails) for both classification and notices.
+- Keep three total attempts with flat 1000 ms backoff; exhausted retries rethrow the original
+  failure.
+- Preserve the dedicated non-fast-forward divergence error; evaluate `already ready` / `not a
+  draft` success guards before classification.
+- Ready-gate (test) failures stay outside publication retry classification — the existing
+  `ReadyGateError` repair path is untouched.
+
 ## Prerequisites
 
 - None.

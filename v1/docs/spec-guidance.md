@@ -125,6 +125,16 @@ Do not bundle spec authoring and implementation in the same PR.
 `jarvis1 plan` is one way to author specs; the merge-first
 rule applies to plan-generated specs the same as hand-written ones.
 
+## Plan same-seam siblings serially
+
+Sibling seeds/intents that edit the same code seam must be planned (and run) one
+at a time, each against the merged result of the previous one — never fanned out
+in parallel off a shared base. Parallel-planned siblings encode the pre-fix
+vocabulary and structure of that base; the first sibling to land renames or
+reshapes the seam and stales every other spec, which then has to be pruned and
+re-planned (observed on the publication/ready-finalize cluster, PR #1620).
+Parallel fan-out is fine across disjoint seams.
+
 ## Authoring with `jarvis1 plan` or `jarvis1 intent`
 
 When using `jarvis1 plan <intent-file|"inline text">` or `jarvis1 intent <intent-text>` to generate a spec, both tools produce specs that conform to the conventions documented in this file: an `index.md` file with an H1 title and a GitHub-style task list of links to atomic subspecs, plus numbered subspec files (`00-*.md`, `01-*.md`, etc.) each with an exact `## Acceptance criteria` section containing checkboxes.

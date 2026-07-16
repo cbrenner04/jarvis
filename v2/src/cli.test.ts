@@ -294,6 +294,26 @@ describe("v2 cli", () => {
     [{ kind: "invocation_failure", runId: "run-789", iterationsConsumed: 0, resumable: false }, 2],
     [{ kind: "iteration_timeout", runId: "run-timeout", iterationsConsumed: 1, resumable: false }, 1],
     [{ kind: "budget-exhausted", runId: "run-999", iterationsConsumed: 5, resumable: true }, 5],
+    [
+      {
+        kind: "ready_gate_failed",
+        runId: "run-gate",
+        iterationsConsumed: 1,
+        resumable: true,
+        readyGateError: "gate red",
+      },
+      1,
+    ],
+    [
+      {
+        kind: "ready_flip_failed",
+        runId: "run-flip",
+        iterationsConsumed: 1,
+        resumable: true,
+        readyFlipError: "flip failed",
+      },
+      1,
+    ],
   ] as const)("write command maps %p to exit %i", async (result, expectedExit) => {
     const cap = captureIo();
 
@@ -304,6 +324,8 @@ describe("v2 cli", () => {
 
     expect(code).toBe(expectedExit);
     expect(cap.read().stdout).toContain(`"kind": "${result.kind}"`);
+    if (result.kind === "ready_gate_failed") expect(cap.read().stdout).toContain('"readyGateError": "gate red"');
+    if (result.kind === "ready_flip_failed") expect(cap.read().stdout).toContain('"readyFlipError": "flip failed"');
   });
 
   test("write stdout failureKind and bindingAttempts attach only on binding-chain invocation_failure", async () => {
@@ -715,6 +737,39 @@ describe("v2 cli", () => {
     expect(code).toBe(0);
     expect(called).toBe(1);
     expect(cap.read()).toEqual({ stdout: "stopped\n", stderr: "" });
+  });
+
+  test("daemon stop reports refusal and does not print stopped", async () => {
+    const cap = captureIo();
+    const code = await main(["daemon", "stop"], cap.io, {
+      stopDaemon: async () => {
+        throw new Error("DaemonStopRefusedError: active durable runs: queued-id, live-id");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "Error: DaemonStopRefusedError: active durable runs: queued-id, live-id\n",
+    });
+  });
+
+  test("daemon stop --force passes force and unsupported args print usage", async () => {
+    const cap = captureIo();
+    let force: boolean | undefined;
+    const forcedCode = await main(["daemon", "stop", "--force"], cap.io, {
+      stopDaemon: async (_socket, options) => {
+        force = options?.force;
+      },
+    });
+    expect(forcedCode).toBe(0);
+    expect(force).toBe(true);
+    expect(cap.read().stdout).toBe("stopped\n");
+
+    const invalid = captureIo();
+    const invalidCode = await main(["daemon", "stop", "--unexpected"], invalid.io);
+    expect(invalidCode).toBe(1);
+    expect(invalid.read().stderr).toBe("usage: jarvis daemon <start|stop|status|log>\n");
   });
 
   test("daemon status prints running with exit 0", async () => {
@@ -2256,6 +2311,8 @@ describe("v2 cli", () => {
     [{ runStatus: "in-progress", loopOutcomeKind: "progress" }, 1],
     [{ runStatus: "failed", loopOutcomeKind: "invocation_failure" }, 2],
     [{ runStatus: "failed", loopOutcomeKind: "iteration_timeout" }, 1],
+    [{ runStatus: "completed", loopOutcomeKind: "ready_gate_failed" }, 1],
+    [{ runStatus: "completed", loopOutcomeKind: "ready_flip_failed" }, 1],
     [{ runStatus: "budget-soft-stopped", loopOutcomeKind: "budget-exhausted" }, 5],
     [{ runStatus: "failed" }, 3],
     [{ runStatus: "killed" }, 4],

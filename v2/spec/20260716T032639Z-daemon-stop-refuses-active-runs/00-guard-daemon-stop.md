@@ -25,12 +25,12 @@
 
 ## Acceptance criteria
 
-- [ ] A regression test in `v2/src/daemon/daemon-lifecycle.test.ts` seeds durable queued, live, paused, and temporarily non-live non-terminal rows, then proves normal stop reports every run ID and performs no shutdown or process termination; it fails against the pre-fix code.
-- [ ] Durable `completed`, `failed`, `blocked`, and `killed` rows do not block normal stop, while failure to inspect durable state refuses it without shutdown side effects.
-- [ ] `v2/src/cli.test.ts` proves a refused `jarvis daemon stop` exits non-zero, writes every blocker ID to stderr, and does not print `stopped`.
-- [ ] `v2/src/cli.test.ts` proves `jarvis daemon stop --force` bypasses the guard, executes the existing stop path, prints `stopped`, and exits `0`; unsupported stop arguments print usage and exit non-zero.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
-- [ ] `v2/docs/daemon-host.md`, `v2/docs/write-behavior.md`, and `v2/docs/v1-behaviors.md` describe the guarded stop semantics and force bypass in their durable homes.
+- [x] A regression test in `v2/src/daemon/daemon-lifecycle.test.ts` seeds durable queued, live, paused, and temporarily non-live non-terminal rows, then proves normal stop reports every run ID and performs no shutdown or process termination; it fails against the pre-fix code.
+- [x] Durable `completed`, `failed`, `blocked`, and `killed` rows do not block normal stop, while failure to inspect durable state refuses it without shutdown side effects.
+- [x] `v2/src/cli.test.ts` proves a refused `jarvis daemon stop` exits non-zero, writes every blocker ID to stderr, and does not print `stopped`.
+- [x] `v2/src/cli.test.ts` proves `jarvis daemon stop --force` bypasses the guard, executes the existing stop path, prints `stopped`, and exits `0`; unsupported stop arguments print usage and exit non-zero.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `v2/docs/daemon-host.md`, `v2/docs/write-behavior.md`, and `v2/docs/v1-behaviors.md` describe the guarded stop semantics and force bypass in their durable homes.
 
 ## Documentation updates
 

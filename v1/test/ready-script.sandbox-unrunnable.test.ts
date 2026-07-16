@@ -287,7 +287,10 @@ describe("ready tier parsing and step lists", () => {
         JSON.stringify({ scripts: { typecheck: "true", test: "bun test red.custom.ts" } }),
         "utf8",
       );
-      writeFileSync(join(repoRoot, "red.custom.ts"), 'import { expect, test } from "bun:test"; test("red", () => expect(1).toBe(2));\n');
+      writeFileSync(
+        join(repoRoot, "red.custom.ts"),
+        'import { expect, test } from "bun:test"; test("red", () => expect(1).toBe(2));\n',
+      );
 
       const result = spawnSync("bun", [join(process.cwd(), "scripts/ready.ts")], {
         cwd: repoRoot,

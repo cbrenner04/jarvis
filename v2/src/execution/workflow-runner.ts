@@ -202,7 +202,8 @@ export type WorkflowResult = {
   resumable: boolean;
   commitSha?: string;
   completionCommitError?: string;
-  readyFinalizeError?: string;
+  readyGateError?: string;
+  readyFlipError?: string;
   boundaryTelemetryFailure?: string;
   prePublicationError?: string;
   /** Named linked-index routing diagnostic (`implement.<kind>`), set only for linked-index routing failures. */
@@ -824,23 +825,24 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               },
             );
             if (publishError !== undefined) {
-              const loopOutcomeKind = publishError.kind;
               args.logSink?.append(lastResult.runId, {
                 kind: "loop_finished",
-                loopOutcomeKind,
+                loopOutcomeKind: publishError.kind,
                 iterationsConsumed: totalIterationsConsumed,
                 resumable: true,
               });
               return {
-                kind: loopOutcomeKind,
+                kind: publishError.kind,
                 stepIndex: args.steps.length - 1,
                 stepId: lastStepId,
                 runId: lastResult.runId,
                 iterationsConsumed: totalIterationsConsumed,
                 resumable: true,
-                ...(loopOutcomeKind === "ready_finalize_failed"
-                  ? { readyFinalizeError: publishError.error?.message ?? "ready finalize failed" }
-                  : { completionCommitError: publishError.error?.message ?? "completion commit failed" }),
+                ...(publishError.kind === "ready_gate_failed"
+                  ? { readyGateError: publishError.error?.message ?? "ready gate failed" }
+                  : publishError.kind === "ready_flip_failed"
+                    ? { readyFlipError: publishError.error?.message ?? "ready flip failed" }
+                    : { completionCommitError: publishError.error?.message ?? "completion commit failed" }),
               };
             }
           }

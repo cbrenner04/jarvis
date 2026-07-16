@@ -24,11 +24,11 @@
 
 ## Acceptance criteria
 
-- [ ] New `shared/prompts/review-profile.test.ts` and intent prompt-rendering coverage fails on baseline and verifies governed, fully rendered intent debate prompts plus the intent actuator/boundary profile.
-- [ ] New `v2/src/execution/intent-workflow-steps.test.ts` cases fail on baseline and verify `intent` omits review for omitted/zero passes and appends the selected light or debate step for positive passes.
-- [ ] `intent-reviewed` resolves through the primary intent builder, defaults to one light pass, and honors explicit review options without a second builder implementation.
-- [ ] Existing intent split, light-review, landing, and resume cases in `v2/src/execution/intent-workflow-steps.test.ts` and `v2/src/execution/workflow-runner.test.ts` stay green.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] New `shared/prompts/review-profile.test.ts` and intent prompt-rendering coverage fails on baseline and verifies governed, fully rendered intent debate prompts plus the intent actuator/boundary profile.
+- [x] New `v2/src/execution/intent-workflow-steps.test.ts` cases fail on baseline and verify `intent` omits review for omitted/zero passes and appends the selected light or debate step for positive passes.
+- [x] `intent-reviewed` resolves through the primary intent builder, defaults to one light pass, and honors explicit review options without a second builder implementation.
+- [x] Existing intent split, light-review, landing, and resume cases in `v2/src/execution/intent-workflow-steps.test.ts` and `v2/src/execution/workflow-runner.test.ts` stay green.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

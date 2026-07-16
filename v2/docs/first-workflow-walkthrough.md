@@ -312,16 +312,16 @@ publication ordering.
 
 ## Review an intent seed
 
-The reviewed intent preset (`intent-reviewed`) is the recommended operator workflow
-for v2 intent generation. It composes split + review, accepting the same seed flags as the split preset:
+The canonical intent workflow optionally composes split + review:
 
 ```bash
-jarvis run workflow intent-reviewed --seed path/to/seed.md
-jarvis run workflow intent-reviewed --seed-text "Add a safer checkout flow" --review-passes 2
+jarvis run workflow intent --seed path/to/seed.md --review-passes 1 --review-behavior light
+jarvis run workflow intent --seed-text "Add a safer checkout flow" --review-passes 2 --review-behavior debate
 ```
 
-The `--review-passes` flag (optional, defaults to `1`) controls the critic-actuator review cycle count.
-Passing `--review-passes 0` is equivalent to the split-only preset (skips review).
+The uniform `--review-passes` flag defaults to the builder/config result (zero
+for intent and plan), and `--review-behavior` selects `debate` or `light`.
+Passing `--review-passes 0` skips review.
 
 Review runs entirely in the split workspace: critic and actuator invocations,
 verdict handling, staging, durable landing, and Git publication never modify the
@@ -346,7 +346,7 @@ operator checkout.
 To bypass review and use split-only, pass `--review-passes 0`:
 
 ```bash
-jarvis run workflow intent-reviewed --seed path/to/seed.md --review-passes 0
+jarvis run workflow intent --seed path/to/seed.md --review-passes 0
 ```
 
 This publishes the split output directly without invoking the critic or actuator.
@@ -356,17 +356,17 @@ publication ordering.
 
 ## Draft and light-review a plan ready-intent
 
-The `plan-reviewed-light` preset drafts a spec tree from a ready-intent, then
+The canonical `plan` workflow drafts a spec tree from a ready-intent, then
 runs one critic-actuator review cycle (by default) over the materialized draft:
 
 ```bash
-jarvis run workflow plan-reviewed-light --ready-intent spec/ready-intents/my-feature.md
-jarvis run workflow plan-reviewed-light --ready-intent spec/ready-intents/my-feature.md --review-passes 2
+jarvis run workflow plan --ready-intent spec/ready-intents/my-feature.md --review-passes 1 --review-behavior light
+jarvis run workflow plan --ready-intent spec/ready-intents/my-feature.md --review-passes 2 --review-behavior debate
 ```
 
-`--review-passes` defaults to `1`. Passing `--review-passes 0` produces the
+`--review-passes` defaults to the builder/config result. Passing `--review-passes 0` produces the
 same draft-only workflow as `plan` (no review step is loaded). Invalid pass
-counts (`1x`, `-1`, `1.5`, and similar) and `--review-behavior` are rejected
+counts (`1x`, `-1`, `1.5`, and similar) and invalid `--review-behavior` values are rejected
 before daemon contact.
 
 On successful review, the actuator's edits land in the drafted spec tree and

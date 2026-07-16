@@ -21,10 +21,10 @@
 
 ## Acceptance criteria
 
-- [ ] New `v2/src/execution/plan-workflow-steps.test.ts` cases fail on baseline and verify `plan` omits review for omitted/zero passes and appends the selected light or debate step for positive passes.
-- [ ] `plan-reviewed` and `plan-reviewed-light` resolve through the primary plan builder with their existing one-pass behavior defaults, while explicit options override those defaults.
-- [ ] Existing plan validation, publication, light-review, and debate-review cases in `v2/src/execution/plan-workflow-steps.test.ts` and `v2/src/execution/workflow-runner.test.ts` stay green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] New `v2/src/execution/plan-workflow-steps.test.ts` cases fail on baseline and verify `plan` omits review for omitted/zero passes and appends the selected light or debate step for positive passes.
+- [x] `plan-reviewed` and `plan-reviewed-light` resolve through the primary plan builder with their existing one-pass behavior defaults, while explicit options override those defaults.
+- [x] Existing plan validation, publication, light-review, and debate-review cases in `v2/src/execution/plan-workflow-steps.test.ts` and `v2/src/execution/workflow-runner.test.ts` stay green.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -5,6 +5,7 @@ import { getBaseBranch } from "../../../shared/git.ts";
 import type { ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
+import { INTENT_REVIEW_DEBATE_ROLE_PROMPT_IDS } from "../../../shared/prompts/review-intent.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import type { MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
 import { jarvisHome } from "../paths.ts";
@@ -22,8 +23,6 @@ import {
 } from "./workflow-loader.ts";
 import {
   type AnyWorkflowStep,
-  type ReviewDebateWorkflowStep,
-  type ReviewWorkflowStep,
   resolveWorkflowPreset,
   type WriteWorkflowStep,
 } from "./workflow-runner.ts";
@@ -42,6 +41,7 @@ export type IntentWorkflowInput = {
   configPath?: string;
   jarvisRoot?: string;
   reviewPasses?: number;
+  reviewBehavior?: "debate" | "light";
 };
 export type PlanWorkflowInput = {
   cwd: string;
@@ -49,6 +49,7 @@ export type PlanWorkflowInput = {
   targetDir?: string;
   configPath?: string;
   reviewPasses?: number;
+  reviewBehavior?: "debate" | "light";
 };
 type ProjectConfig = ProjectMatch & { git?: boolean; plan?: { commit?: boolean; targetDir?: string } };
 export type IntentWorkflowIdentity = {
@@ -316,8 +317,62 @@ export async function buildIntentWorkflowSteps(
 ): Promise<IntentWorkflowResult> {
   const r = await intentSource(input, deps);
   if ("error" in r) return { ok: false, error: r.error };
+  const passes = input.reviewPasses ?? 0;
+  if (!Number.isInteger(passes) || passes < 0)
+    return { ok: false, error: "intent: reviewPasses must be a non-negative integer" };
+  if (passes === 0) {
+    try {
+      return { ok: true, steps: publish("intent", deps, r.source), identity: r.identity };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+  const behavior = input.reviewBehavior ?? "debate";
+  if (behavior !== "debate" && behavior !== "light")
+    return { ok: false, error: 'intent: reviewBehavior must be "debate" or "light"' };
+  const landing = r.source.landing;
+  if (landing?.kind !== "intent-stage") return { ok: false, error: "intent: missing durable output configuration" };
+  const cwd = getExternalWorktreePath(r.source.worktree);
+  const verdictPath = join(cwd, intentReview);
+  const profileContext = { stagingDir: resolve(cwd, landing.stagingDir), verdictPath };
+  const review: ReviewWorkflowSourceStep | ReviewDebateWorkflowSourceStep =
+    behavior === "light"
+      ? {
+          behavior: "review",
+          stepId: "review",
+          project: r.source.worktree.projectName,
+          branch: r.source.worktree.branchName,
+          cwd,
+          prompt: "intent.prompt.review",
+          verdictPath,
+          maxCycles: passes,
+          profile: intentReviewPromptProfile,
+          profileContext,
+          ...(deps.createBinding ? { createBinding: deps.createBinding } : {}),
+          landing,
+        }
+      : {
+          behavior: "review-debate",
+          stepId: "review",
+          project: r.source.worktree.projectName,
+          branch: r.source.worktree.branchName,
+          cwd,
+          prompts: {
+            ...INTENT_REVIEW_DEBATE_ROLE_PROMPT_IDS,
+          },
+          verdictPath,
+          maxCycles: passes,
+          profile: intentReviewPromptProfile,
+          profileContext,
+          ...(deps.createBinding ? { createBinding: deps.createBinding } : {}),
+        };
   try {
-    return { ok: true, steps: publish("intent", deps, r.source), identity: r.identity };
+    const loaded = (deps.loadWorkflowSteps ?? realLoadWorkflowSteps)([r.source, review], loadOptions(deps));
+    const loadedReview = loaded.find((step) =>
+      behavior === "light" ? step.behavior === "review" : step.behavior === "review-debate",
+    );
+    if (!loadedReview) return { ok: false, error: "intent: review step was not loaded" };
+    return { ok: true, steps: [...publish("intent", deps, r.source, loaded), loadedReview], identity: r.identity };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
@@ -328,8 +383,55 @@ export async function buildPlanWorkflowSteps(
 ): Promise<PlanWorkflowResult> {
   const r = await planSource(input, deps);
   if ("error" in r) return { ok: false, error: r.error };
+  const passes = input.reviewPasses ?? 0;
+  if (!Number.isInteger(passes) || passes < 0)
+    return { ok: false, error: "plan: reviewPasses must be a non-negative integer" };
+  if (passes === 0) {
+    try {
+      return { ok: true, steps: publish("plan", deps, r.source), identity: r.identity };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+  const behavior = input.reviewBehavior ?? "debate";
+  if (behavior !== "debate" && behavior !== "light")
+    return { ok: false, error: 'plan: reviewBehavior must be "debate" or "light"' };
+  const cwd = getExternalWorktreePath(r.source.worktree);
+  const review: ReviewWorkflowSourceStep | ReviewDebateWorkflowSourceStep =
+    behavior === "light"
+      ? {
+          behavior: "review",
+          stepId: "plan-review",
+          project: r.source.worktree.projectName,
+          branch: r.source.worktree.branchName,
+          cwd,
+          prompt: "",
+          verdictPath: join(cwd, r.source.specPath, "verdict-plan.md"),
+          maxCycles: passes,
+          profile: planReviewPromptProfile,
+          profileContext: { specPath: join(cwd, r.source.specPath), worktreePath: cwd },
+        }
+      : {
+          behavior: "review-debate",
+          stepId: "review-debate",
+          project: r.source.worktree.projectName,
+          branch: r.source.worktree.branchName,
+          cwd,
+          prompts: {
+            adversary: "plan.prompt.review.adversary",
+            advocate: "plan.prompt.review.advocate",
+            adjudicator: "plan.prompt.review.adjudicator",
+          },
+          verdictPath: join(cwd, r.source.specPath, "verdict-plan.md"),
+          maxCycles: passes,
+          profile: planReviewPromptProfile,
+          profileContext: { specPath: join(cwd, r.source.specPath), worktreePath: cwd },
+        };
   try {
-    return { ok: true, steps: publish("plan", deps, r.source), identity: r.identity };
+    const loaded = (deps.loadWorkflowSteps ?? realLoadWorkflowSteps)([r.source, review], loadOptions(deps));
+    const loadedReview = loaded.find((step) => step.behavior === review.behavior);
+    if (!loadedReview) return { ok: false, error: `plan: ${behavior} review step was not loaded` };
+    return { ok: true, steps: [...publish("plan", deps, r.source, loaded), loadedReview], identity: r.identity };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
@@ -339,40 +441,10 @@ export async function buildReviewedIntentWorkflowSteps(
   input: IntentWorkflowInput,
   deps: IntentWorkflowDeps = {},
 ): Promise<IntentWorkflowResult> {
-  const passes = input.reviewPasses ?? 1;
-  if (!Number.isInteger(passes) || passes < 0)
-    return { ok: false, error: "intent: reviewPasses must be a non-negative integer" };
-  if (!passes) return buildIntentWorkflowSteps(input, deps);
-  const r = await intentSource(input, deps);
-  if ("error" in r) return { ok: false, error: r.error };
-  const landing = r.source.landing;
-  if (landing?.kind !== "intent-stage") return { ok: false, error: "intent: missing durable output configuration" };
-  const cwd = getExternalWorktreePath(r.source.worktree);
-  const review: ReviewWorkflowSourceStep = {
-    behavior: "review",
-    stepId: "review",
-    project: r.source.worktree.projectName,
-    branch: r.source.worktree.branchName,
-    cwd,
-    prompt: "intent.prompt.review",
-    verdictPath: join(cwd, intentReview),
-    maxCycles: passes,
-    profile: intentReviewPromptProfile,
-    profileContext: {
-      stagingDir: resolve(cwd, landing.stagingDir),
-      verdictPath: join(cwd, intentReview),
-    },
-    ...(deps.createBinding ? { createBinding: deps.createBinding } : {}),
-    landing,
-  };
-  try {
-    const loaded = (deps.loadWorkflowSteps ?? realLoadWorkflowSteps)([r.source, review], loadOptions(deps));
-    const loadedReview = loaded.find((s): s is ReviewWorkflowStep => s.behavior === "review");
-    if (!loadedReview) return { ok: false, error: "intent: review step was not loaded" };
-    return { ok: true, steps: [...publish("intent", deps, r.source, loaded), loadedReview], identity: r.identity };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
-  }
+  return buildIntentWorkflowSteps(
+    { ...input, reviewPasses: input.reviewPasses ?? 1, reviewBehavior: input.reviewBehavior ?? "light" },
+    deps,
+  );
 }
 
 function parseFrontmatter(content: string): Record<string, string> {
@@ -461,73 +533,21 @@ function planSource(
     return { source, identity: { name: ready.name, branch } };
   })();
 }
-function reviewPasses(input: PlanWorkflowInput): number | { error: string } {
-  const n = input.reviewPasses ?? 1;
-  return Number.isInteger(n) && n >= 0 ? n : { error: "plan: --review-passes must be a non-negative integer" };
-}
 export async function buildReviewedPlanWorkflowSteps(
   input: PlanWorkflowInput,
   deps: PlanWorkflowDeps = {},
 ): Promise<PlanWorkflowResult> {
-  const n = reviewPasses(input);
-  if (typeof n === "object") return { ok: false, error: n.error };
-  if (!n) return buildPlanWorkflowSteps(input, deps);
-  const r = await planSource(input, deps);
-  if ("error" in r) return { ok: false, error: r.error };
-  const cwd = getExternalWorktreePath(r.source.worktree);
-  const review: ReviewDebateWorkflowSourceStep = {
-    behavior: "review-debate",
-    stepId: "review-debate",
-    project: r.source.worktree.projectName,
-    branch: r.source.worktree.branchName,
-    cwd,
-    prompts: {
-      adversary: "plan.prompt.review.adversary",
-      advocate: "plan.prompt.review.advocate",
-      adjudicator: "plan.prompt.review.adjudicator",
-    },
-    verdictPath: join(cwd, r.source.specPath, "verdict-plan.md"),
-    maxCycles: n,
-    profile: planReviewPromptProfile,
-    profileContext: { specPath: join(cwd, r.source.specPath), worktreePath: cwd },
-  };
-  try {
-    const loaded = (deps.loadWorkflowSteps ?? realLoadWorkflowSteps)([r.source, review], loadOptions(deps));
-    const debate = loaded.find((s): s is ReviewDebateWorkflowStep => s.behavior === "review-debate");
-    if (!debate) return { ok: false, error: "plan: review-debate step was not loaded" };
-    return { ok: true, steps: [...publish("plan", deps, r.source, loaded), debate], identity: r.identity };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
-  }
+  return buildPlanWorkflowSteps(
+    { ...input, reviewPasses: input.reviewPasses ?? 1, reviewBehavior: input.reviewBehavior ?? "debate" },
+    deps,
+  );
 }
 export async function buildReviewedPlanLightWorkflowSteps(
   input: PlanWorkflowInput,
   deps: PlanWorkflowDeps = {},
 ): Promise<PlanWorkflowResult> {
-  const n = reviewPasses(input);
-  if (typeof n === "object") return { ok: false, error: n.error };
-  if (!n) return buildPlanWorkflowSteps(input, deps);
-  const r = await planSource(input, deps);
-  if ("error" in r) return { ok: false, error: r.error };
-  const cwd = getExternalWorktreePath(r.source.worktree);
-  const review: ReviewWorkflowSourceStep = {
-    behavior: "review",
-    stepId: "plan-review",
-    project: r.source.worktree.projectName,
-    branch: r.source.worktree.branchName,
-    cwd,
-    prompt: "",
-    verdictPath: join(cwd, r.source.specPath, "verdict-plan.md"),
-    maxCycles: n,
-    profile: planReviewPromptProfile,
-    profileContext: { specPath: join(cwd, r.source.specPath), worktreePath: cwd },
-  };
-  try {
-    const loaded = (deps.loadWorkflowSteps ?? realLoadWorkflowSteps)([r.source, review], loadOptions(deps));
-    const loadedReview = loaded.find((s): s is ReviewWorkflowStep => s.behavior === "review");
-    if (!loadedReview) return { ok: false, error: "plan: review step was not loaded" };
-    return { ok: true, steps: [...publish("plan", deps, r.source, loaded), loadedReview], identity: r.identity };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
-  }
+  return buildPlanWorkflowSteps(
+    { ...input, reviewPasses: input.reviewPasses ?? 1, reviewBehavior: input.reviewBehavior ?? "light" },
+    deps,
+  );
 }

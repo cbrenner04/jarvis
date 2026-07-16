@@ -33,7 +33,15 @@ function profile(spec: ProfileSpec): ProfileSpec {
 /** Domain policy is shared; render callbacks are bound by each prompt assembler. */
 export const intentReviewProfile = profile({
   domain: "intent",
-  promptIds: { critic: "intent.prompt.review", actuator: "intent.prompt.review-actuator" },
+  promptIds: {
+    critic: "intent.prompt.review",
+    actuator: "intent.prompt.review-actuator",
+    debate: {
+      adversary: "intent.prompt.review.adversary",
+      advocate: "intent.prompt.review.advocate",
+      adjudicator: "intent.prompt.review.adjudicator",
+    },
+  },
   verdict: { source: "critic", empty: "stop", persist: "stdout" },
   boundaries: {
     light: { critic: "read-only", actuator: "write" },

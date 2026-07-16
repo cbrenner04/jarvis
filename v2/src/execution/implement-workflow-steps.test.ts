@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProjectMatch } from "../../../shared/project-registry.ts";
@@ -344,6 +344,49 @@ describe("buildImplementWorkflowSteps", () => {
     expect(step.specPath).toBe("spec/index.md");
     expect(step.expectedArtifactPath).toBe("spec/index.md");
     expect(step.worktree.branchName).toBe("new-branch");
+  });
+
+  test("resolves an unresolved registered launch and derives branch, artifact, and review defaults", () => {
+    const root = mkdtempSync(join(tmpdir(), "implement-workflow-steps-registered-"));
+    mkdirSync(join(root, "specs"));
+    writeFileSync(join(root, "specs", "index.md"), "- [ ] [Work](./work.md)\n", "utf8");
+    writeFileSync(join(root, "specs", "work.md"), "# Work\n", "utf8");
+    const machineConfigPath = writeJson("config.json", {
+      projects: { registered: { root, implement: { reviewPasses: 2, reviewBehavior: "light" } } },
+    });
+    const machineProfile = writeValidProfile();
+
+    const result = buildImplementWorkflowSteps(
+      { cwd: root, baseRef: "main", specPath: "specs/index.md", configPath: machineConfigPath },
+      {
+        loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const write = result.steps[0];
+    expect(write?.behavior).toBe("write");
+    if (write?.behavior !== "write") return;
+    expect(write.worktree.projectRoot).toBe(realpathSync(root));
+    expect(write.worktree.branchName).toBe("specs");
+    expect(write.expectedArtifactPath).toBe("specs/index.md");
+    expect(write.implementReviewBehavior).toBe("light");
+    expect(result.steps).toHaveLength(2);
+  });
+
+  test("rejects an unresolved launch whose spec symlink escapes the registered root", () => {
+    const root = mkdtempSync(join(tmpdir(), "implement-workflow-steps-contained-"));
+    const outside = mkdtempSync(join(tmpdir(), "implement-workflow-steps-outside-"));
+    writeFileSync(join(outside, "index.md"), "- [ ] Work\n", "utf8");
+    symlinkSync(join(outside, "index.md"), join(root, "escaped.md"));
+    const configPath = writeJson("config.json", { projects: { registered: { root } } });
+
+    const result = buildImplementWorkflowSteps({ cwd: root, baseRef: "main", specPath: "escaped.md", configPath }, {
+      loadWorkflowSteps: () => [],
+    });
+
+    expect(result).toEqual({ ok: false, error: `Spec path outside registered project roots: ${realpathSync(join(outside, "index.md"))}` });
   });
 
   test("executes a first launch in a new worktree with project-relative paths", async () => {

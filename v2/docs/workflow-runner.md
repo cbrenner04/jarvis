@@ -154,9 +154,11 @@ resumable invocation. The seed mapping is fingerprinted so a distinct seed
 cannot attach to an existing slug. Divergent remote state fails without reset,
 force-push, suffixing, or publication.
 
-**CLI usage (split-only):** `jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>]`
+**CLI usage:** `jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light]`
 
-`buildReviewedIntentWorkflowSteps` (preset: `intent-reviewed`) extends the split workflow with an optional
+The intent builder omits review when `reviewPasses` is omitted or zero. Positive passes select light review with `reviewBehavior: "light"`, or debate review with `reviewBehavior: "debate"` (the default).
+
+`buildReviewedIntentWorkflowSteps` (preset: `intent-reviewed`) delegates to the intent builder, defaulting omitted options to one light
 review step. It accepts a non-negative `reviewPasses` parameter (defaulting
 to `1`); zero passes delegates to the split-only builder, while positive values
 add one critic-actuator review step with `maxCycles` equal to the pass count.
@@ -173,39 +175,43 @@ boundaries and `v1/docs/spec-guidance.md`, and names the verdict destination.
 The actuator receives the likewise-rendered `intent.prompt.review-actuator` with
 the unchanged verdict in its delimited data slot. Empty verdicts skip actuation.
 
-**CLI usage (split + review):** `jarvis run workflow intent-reviewed (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>]` — defaults to one review pass.
+`intent-reviewed` remains a compatibility alias for `intent`, defaulting to one
+light pass and emitting a migration hint. Explicit review flags override it.
 
 `buildPlanWorkflowSteps` (preset: `plan`) accepts a `--ready-intent <path>` and optional relative, non-traversing `targetDir`. It validates the ready-intent file pre-daemon: the file must be located in a `ready-intents/` directory, carry frontmatter `name:` matching the filename (minus `.md`), and include a `## Prerequisites` section. The name is normalized from the validated frontmatter; empty names are rejected.
 
 Target precedence is run override, project `plan.targetDir`, global `modes.plan.targetDir`, then `spec`. Effective publication follows project `plan.commit`, global `modes.plan.commit`, then `true`, with project `git: false` disabling it. Git-enabled output uses branch `plan/<name>` in `~/.jarvis/worktrees`, and the GitHub default branch is used as the base ref. Durable output is `<targetDir>/<UTC-timestamp>-<name>/`. Git-disabled output is external `~/.jarvis/specs/<project-safe-id>/plans/<name>/`; the run does not publish Git or GitHub state. The UTC timestamp is generated once in the builder, pre-daemon, ensuring the spec-dir path is stable across the run.
 
-The builder emits one `write` step with role `plan`, prompt `plan.prompt.draft`, `.jarvis-plan-stage/` as the artifact boundary, and the ready-intent content threaded as `intentSeed` for downstream write-step seeding (subspec 01). Branch, worktree, and project collisions are named failures. Divergent remote state fails without reset, force-push, suffixing, or publication.
+The builder emits one `write` step with role `plan`, prompt `plan.prompt.draft`, `.jarvis-plan-stage/` as the artifact boundary, and the ready-intent content threaded as `intentSeed` for downstream write-step seeding (subspec 01). `reviewPasses` defaults to zero, so the canonical builder omits review unless a positive count is supplied. Positive counts append either a light `review` step (`reviewBehavior: "light"`) or a debate `review-debate` step (the default). Branch, worktree, and project collisions are named failures. Divergent remote state fails without reset, force-push, suffixing, or publication.
 
-**CLI usage:** `jarvis run workflow plan --ready-intent <path> [--target-dir <dir>]`
+**CLI usage:** `jarvis run workflow plan --ready-intent <path> [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light]`
 
-`buildReviewedPlanWorkflowSteps` (preset: `plan-reviewed`) composes the loaded
-plan draft with one loaded `review-debate` step. It defaults `reviewPasses` to
-`1`; zero delegates to the draft-only `plan` workflow. Positive values set the
-debate cycle limit and load the `adversary`, `advocate`, `adjudicator`, and
-`actuator` orders from machine configuration. The debate uses
+`buildReviewedPlanWorkflowSteps` (preset: `plan-reviewed`) is a compatibility
+alias for the canonical builder with defaults of one debate pass. Explicit
+`reviewPasses` and `reviewBehavior` options override those defaults. The debate
+uses
 `plan.prompt.review.adversary`, `.advocate`, and `.adjudicator`; its
 verdict-driven actuator applies the verdict at
 `<spec-dir>/verdict-plan.md`.
 
-**CLI usage (draft + debate):** `jarvis run workflow plan-reviewed --ready-intent <path> [--target-dir <dir>] [--review-passes <n>]` — defaults to one debate pass.
+`plan-reviewed` remains a compatibility alias for `plan`, defaulting to one
+debate pass and emitting a migration hint. Explicit review flags override it.
 Choose it for adversarial review; `plan-reviewed-light` is the critic-actuator
 alternative for a lighter editorial pass.
 
-`buildReviewedPlanLightWorkflowSteps` (preset: `plan-reviewed-light`) composes
-the loaded plan draft with one loaded `review` step. It defaults `reviewPasses`
-to `1`; zero delegates to the draft-only `plan` workflow. Positive values set
-the critic-actuator cycle limit and load separate `critic` and `actuator`
+`buildReviewedPlanLightWorkflowSteps` (preset: `plan-reviewed-light`) is a
+compatibility alias for the canonical builder with defaults of one light pass.
+Explicit `reviewPasses` and `reviewBehavior` options override those defaults.
+Positive values set the critic-actuator cycle limit and load separate `critic` and `actuator`
 orders from machine configuration. Runtime rendering uses
 `plan.prompt.review.critic` and `plan.prompt.review-actuator` against the
 materialized draft; the critic verdict is written to
 `<spec-dir>/verdict-plan.md`.
 
-**CLI usage (draft + light review):** `jarvis run workflow plan-reviewed-light --ready-intent <path> [--target-dir <dir>] [--review-passes <n>]` — defaults to one review pass. `--review-behavior` is not accepted on this preset. Malformed pass counts (for example `1x`, `-1`, `1.5`) are rejected before daemon contact.
+`plan-reviewed-light` remains a compatibility alias for `plan`, defaulting to one
+light pass and emitting a migration hint. Explicit review flags override it.
+All three primary commands accept both review flags; malformed values are
+rejected before daemon contact.
 
 A workflow step is authored as a plain object literal `satisfies WorkflowStepInput`.
 `WorkflowStepInput` (identical in shape to the runtime `AnyWorkflowStep`) is a
@@ -240,15 +246,13 @@ For `implement`, the caller's `role`/`promptId` on each step are discarded: the
 preset pins `role: "implement"` and `promptId: "patch.prompt.body"`
 unconditionally on all positions.
 
-Current preset surface:
+Current primary preset surface:
 
 - `write-write`: two steps
 - `implement`: one or two steps, with `role`/`promptId` fixed by the preset on both positions
-- `intent`: one step (split only)
-- `intent-reviewed`: two steps (split + review)
-- `plan`: one step, with `role`/`promptId` fixed by the preset
-- `plan-reviewed`: one validated draft write step followed by a loaded `review-debate` step
-- `plan-reviewed-light`: one validated draft write step followed by a loaded `review` step
+- `intent`: one step, optionally followed by review
+- `plan`: one validated draft write step, optionally followed by review
+- aliases: `intent-reviewed` → `intent` (light), `plan-reviewed` → `plan` (debate), `plan-reviewed-light` → `plan` (light)
 
 Validation stays synchronous:
 
@@ -364,9 +368,10 @@ loader. When no profile is injected, profile selection uses
 
 ## Building `implement` workflow steps from cwd + run args
 
-`buildImplementWorkflowSteps({ cwd, branchName, baseRef, specPath, reviewPasses }, deps?)`
-(`v2/src/execution/implement-workflow-steps.ts`) turns "operator standing in a
-project checkout, wants to run `implement`" into the `AnyWorkflowStep[]` payload
+`buildImplementWorkflowSteps({ cwd, baseRef, specPath, ...launchOptions }, deps?)`
+(`v2/src/execution/implement-workflow-steps.ts`) owns implement launch resolution
+and turns "operator standing in a project checkout, wants to run `implement`"
+into the `AnyWorkflowStep[]` payload
 the daemon `start` RPC accepts. `reviewPasses` is validated as a non-negative
 integer; `0` emits only the implement write step, while a positive value loads
 one appended `review-debate` step with `maxCycles` equal to that count.
@@ -428,7 +433,9 @@ edits. The reverse order does not typecheck: `resolveWorkflowPreset`
 requires `agents`/`agentModelConfig` already present, and only
 `loadWorkflowSteps` supplies them.
 
-Project resolution matches `cwd` against `findProjectMatchForPath`
+The CLI only parses launch flags and dispatches unresolved values to the builder.
+The builder resolves project, path, branch, artifact, and review defaults before
+returning steps. Project resolution matches `cwd` against `findProjectMatchForPath`
 (`v1/src/config.ts`) — the same registry-only primitive `jarvis init`/`jarvis
 config` populate, with no ad-hoc unregistered-checkout fallback. This is the
 first `v2/src/**` module to import from `v1/src/**`; a precedent for future

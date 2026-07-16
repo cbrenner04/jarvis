@@ -31,3 +31,6 @@ prompt/rules.md
 intent/split.md
 intent/review.md
 intent/review-actuator.md
+intent/review-adversary.md
+intent/review-advocate.md
+intent/review-adjudicator.md

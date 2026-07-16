@@ -141,7 +141,7 @@ function mapFromLoopFinished(
       return op("ready_gate_failed", "resume", true);
     case "ready_flip_failed":
       return {
-        ...op("ready_flip_failed", "resume", true),
+        ...op("ready_flip_failed", "stop", false),
         ...(event.publicationFailure !== undefined ? { publicationFailure: event.publicationFailure } : {}),
       };
     case "blocked":

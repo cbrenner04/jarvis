@@ -299,13 +299,13 @@ function reconstructWriteResume(run: Run): ResolvedWriteLoopInput {
   });
 }
 
+function isPublicationRetryEligible(loopOutcomeKind: string | undefined): boolean {
+  return loopOutcomeKind === "completion_commit_failed" || loopOutcomeKind === "ready_gate_failed";
+}
+
 function resumeContextForRun(run: Run, loopOutcomeKind?: string): ResolvedWriteLoopInput | undefined {
   const resumableStatus = run.status === "paused" || run.status === "budget-soft-stopped" || run.status === "killed";
-  const publicationRetry =
-    run.status === "completed" &&
-    (loopOutcomeKind === "completion_commit_failed" ||
-      loopOutcomeKind === "ready_gate_failed" ||
-      loopOutcomeKind === "ready_flip_failed");
+  const publicationRetry = run.status === "completed" && isPublicationRetryEligible(loopOutcomeKind);
   return resumableStatus || publicationRetry ? reconstructWriteResume(run) : undefined;
 }
 
@@ -1002,9 +1002,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     const retryCompletionPublication =
       run.status === "completed" &&
       terminalRecord?.event.kind === "loop_finished" &&
-      (terminalRecord.event.loopOutcomeKind === "completion_commit_failed" ||
-        terminalRecord.event.loopOutcomeKind === "ready_gate_failed" ||
-        terminalRecord.event.loopOutcomeKind === "ready_flip_failed");
+      isPublicationRetryEligible(terminalRecord.event.loopOutcomeKind);
 
     // A completed durable boundary is idempotent, except a failed external publication.
     if (

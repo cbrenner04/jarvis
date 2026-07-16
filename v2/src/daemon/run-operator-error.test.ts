@@ -169,7 +169,7 @@ test("composeRunOperatorError maps ready gate and flip failures from loop_finish
     err("ready_gate_failed", "resume", true),
   );
   expect(composeRunOperatorError(runWith("completed"), loopFinished("ready_flip_failed"))).toEqual(
-    err("ready_flip_failed", "resume", true),
+    err("ready_flip_failed", "stop", false),
   );
 });
 

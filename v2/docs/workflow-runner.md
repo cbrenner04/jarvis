@@ -641,6 +641,6 @@ Control files remain staged and successful landing removes transient staging.
 Failures retain staging and diagnostics. `none` performs no filesystem landing.
 # Completion publication failures
 
-Workflow completion publishes before running the ready gate, then flips the draft PR only after a green gate. Publication failures return `completion_commit_failed` with `completionCommitError`; red gates return `ready_gate_failed` with `readyGateError`; failed flips return `ready_flip_failed` with `readyFlipError`. Each emits the same `loop_finished` outcome, exits `1`, preserves durable `completed` status, and is resumed with `nextAction: "resume"`.
+Workflow completion publishes before running the ready gate, then flips the draft PR only after a green gate. Publication failures return `completion_commit_failed` with `completionCommitError`; red gates return `ready_gate_failed` with `readyGateError`; failed flips return `ready_flip_failed` with `readyFlipError`. Completion-commit and ready-gate failures exit `1`, preserve durable `completed` status, and are resumed with `nextAction: "resume"`. Failed flips are terminal non-resumable outcomes: they exit `1`, preserve durable `completed` status, and reject `resume` with `code: "terminal_run"`.
 
-For publication and ready-flip failures, the result and terminal row also retain normalized operation, message, exit code, and bounded labelled stdout/stderr tails.
+For publication and ready-flip failures, the result and terminal row also retain normalized operation, message, exit code, and bounded labelled stdout/stderr tails. Ready-flip failures record `resumable: false` in the `loop_finished` terminal row.

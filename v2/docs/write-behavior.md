@@ -103,10 +103,13 @@ thrown `gh` error whose combined stdout+stderr contains (case-insensitive)
 error is handed to the transient classifier unchanged. Gate or flip failure
 (except the success-guarded flip cases) leaves the PR draft, keeps the durable
 run `completed`, and returns retryable `ready_gate_failed` with `readyGateError`
-or `ready_flip_failed` with `readyFlipError` (`nextAction: resume`), distinct
-from publication's `completion_commit_failed`. Resume
+or `ready_flip_failed` with `readyFlipError` (non-resumable terminal settlement), distinct
+from publication's `completion_commit_failed` (retryable via `resume`). Resume
 replays publication first (idempotent), then re-runs the gate and re-attempts
-the flip. Gate and `gh` are injectable seams so tests require no live
+the flip; failed flips reject resume as terminal runs. On flip failure, when the
+publication returned a PR number, the result includes `readyFlipPrNumber` to
+identify the PR for manual fixing; omitted when publication returned no PR.
+Gate and `gh` are injectable seams so tests require no live
 verification or GitHub credentials.
 
 Publication failures (commit, push, PR, or body refresh) leave the durable run `completed`, expose
@@ -708,9 +711,10 @@ caller-supplied bindings, same seam as write-step invocations.
 - `2`: `invocation_failure` (binding chain or token parse failure)
 - `5`: `budget-exhausted` (soft-stop, resumable per spec 02)
 
-`completion_commit_failed`, `ready_gate_failed`, and `ready_flip_failed` leave the durable run
+`completion_commit_failed` and `ready_gate_failed` leave the durable run
 `completed` with `resumable: true`; `jarvis run resume <run-id>` may retry without
-creating a duplicate commit or PR.
+creating a duplicate commit or PR. `ready_flip_failed` is a terminal non-resumable settlement:
+the run stays `completed` with `resumable: false`, and `resume` is rejected as a terminal run.
 
 ### Wait exit codes
 
@@ -726,8 +730,9 @@ When `loopOutcomeKind` is present it wins over `runStatus`:
 - `2`: `invocation_failure`
 - `5`: `budget-exhausted`
 
-`completion_commit_failed`, `ready_gate_failed`, and `ready_flip_failed` carry `runStatus: completed`
-and `resumable: true` on stdout; exit `1` is retryable via `jarvis run resume`.
+`completion_commit_failed` and `ready_gate_failed` carry `runStatus: completed`
+and `resumable: true` on stdout; exit `1` is retryable via `jarvis run resume`. `ready_flip_failed`
+carries `runStatus: completed` and `resumable: false` on stdout; exit `1` is terminal and non-resumable.
 
 When `loopOutcomeKind` is omitted:
 

@@ -29,6 +29,7 @@ import {
   type StateStore,
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
+import { resolveSourceRevision } from "./daemon-lifecycle.ts";
 import { type ReviseReconvergeDeps, reconvergeRevisingRun, reviseAwaitingHuman } from "./daemon-revise.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
 import {
@@ -1253,6 +1254,7 @@ export type DaemonStartupDeps = {
   logsPath?: string;
   openLogSink?: typeof openLogSink;
   startIpcServer?: typeof startIpcServer;
+  sourceRevision?: string;
 };
 
 export async function startDaemon(
@@ -1262,6 +1264,7 @@ export async function startDaemon(
   startupDeps: DaemonStartupDeps = {},
 ): Promise<void> {
   const store = stateStore ?? openStateStore();
+  const sourceRevision = startupDeps.sourceRevision ?? process.env.DAEMON_SOURCE_REVISION ?? resolveSourceRevision();
   const logsPath = startupDeps.logsPath ?? join(jarvisHome(), "state", "logs.jsonl");
   const logReaderInstance = logReader ?? openLogReader(logsPath);
   const createLogSink = startupDeps.openLogSink ?? openLogSink;
@@ -1296,7 +1299,7 @@ export async function startDaemon(
   };
 
   const statusHandler: RpcHandler = () => {
-    return { kind: "response", result: { state: "running" } };
+    return { kind: "response", result: { state: "running", loadedRevision: sourceRevision } };
   };
 
   const shutdownHandler: RpcHandler = () => {

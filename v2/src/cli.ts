@@ -14,7 +14,7 @@ import {
 } from "./config/machine-config-loader.ts";
 import { loadMachineProfileModels } from "./config/machine-profile-loader.ts";
 import { resolveWriteLoopBindings, type WaitRunCompletionResult } from "./daemon/daemon.ts";
-import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon/daemon-lifecycle.ts";
+import { getDaemonStatus, resolveSourceRevision, startDaemon, stopDaemon } from "./daemon/daemon-lifecycle.ts";
 import { followDaemonProcessLog, readDaemonProcessLog } from "./daemon/daemon-process-log.ts";
 import { parseListRuns, parseStartResult, parseWaitCompletion } from "./daemon/daemon-wire.ts";
 import {
@@ -54,6 +54,7 @@ type CliDeps = {
   startDaemon: typeof startDaemon;
   stopDaemon: typeof stopDaemon;
   getDaemonStatus: typeof getDaemonStatus;
+  resolveSourceRevision: typeof resolveSourceRevision;
   readDaemonProcessLog: typeof readDaemonProcessLog;
   followDaemonProcessLog: typeof followDaemonProcessLog;
   onSigint: (handler: () => void) => () => void;
@@ -106,6 +107,7 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     startDaemon,
     stopDaemon,
     getDaemonStatus,
+    resolveSourceRevision,
     readDaemonProcessLog,
     followDaemonProcessLog,
     onSigint: (handler) => {
@@ -205,8 +207,14 @@ async function runDaemonCommand(argv: readonly string[], io: Io, deps: CliDeps):
     }
 
     const status = await deps.getDaemonStatus(pid, deps.socketPath);
-    io.stdout(`${status}\n`);
-    return status === "running" ? 0 : 1;
+    if (status.state === "stopped") {
+      io.stdout("stopped\n");
+      return 1;
+    }
+    const currentRevision = deps.resolveSourceRevision();
+    const state = status.loadedRevision === currentRevision ? "running" : "stale";
+    io.stdout(`${state} loaded=${status.loadedRevision} current=${currentRevision}\n`);
+    return state === "running" ? 0 : 1;
   }
 
   if (subcommand === "log") {

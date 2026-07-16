@@ -451,7 +451,7 @@ describe("daemon-lifecycle", () => {
       };
 
       const status = await getDaemonStatus(9999, "/fake/socket", { processProber });
-      expect(status).toBe("stopped");
+      expect(status).toEqual({ state: "stopped" });
     });
 
     test("returns stopped if socket probe fails", async () => {
@@ -468,10 +468,10 @@ describe("daemon-lifecycle", () => {
         socketProber,
         healthTimeoutMs: 100,
       });
-      expect(status).toBe("stopped");
+      expect(status).toEqual({ state: "stopped" });
     });
 
-    test("returns running when process alive and socket responds", async () => {
+    test("returns the daemon startup revision when process alive and socket responds", async () => {
       const processProber: ProcessProber = {
         isAlive: () => true,
       };
@@ -483,8 +483,9 @@ describe("daemon-lifecycle", () => {
       const status = await getDaemonStatus(1000, "/fake/socket", {
         processProber,
         socketProber,
+        statusProber: { status: async () => ({ state: "running", loadedRevision: "a".repeat(40) }) },
       });
-      expect(status).toBe("running");
+      expect(status).toEqual({ state: "running", loadedRevision: "a".repeat(40) });
     });
   });
 });

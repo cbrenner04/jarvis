@@ -772,7 +772,7 @@ describe("v2 cli", () => {
     expect(invalid.read().stderr).toBe("usage: jarvis daemon <start|stop|status|log>\n");
   });
 
-  test("daemon status prints running with exit 0", async () => {
+  test("daemon status prints matching source revisions with exit 0", async () => {
     const cap = captureIo();
     const paths = tempPaths();
     writeFileSync(paths.pidPath, "77\n");
@@ -783,12 +783,44 @@ describe("v2 cli", () => {
       getDaemonStatus: async (pid, socketPath) => {
         expect(pid).toBe(77);
         expect(socketPath).toBe(paths.socketPath);
-        return "running";
+        return { state: "running", loadedRevision: "a".repeat(40) };
       },
+      resolveSourceRevision: () => "a".repeat(40),
     });
 
     expect(code).toBe(0);
-    expect(cap.read()).toEqual({ stdout: "running\n", stderr: "" });
+    expect(cap.read()).toEqual({ stdout: `running loaded=${"a".repeat(40)} current=${"a".repeat(40)}\n`, stderr: "" });
+  });
+
+  test("daemon status prints stale when loaded source revision differs", async () => {
+    const cap = captureIo();
+    const paths = tempPaths();
+    writeFileSync(paths.pidPath, "77\n");
+
+    const code = await main(["daemon", "status"], cap.io, {
+      socketPath: paths.socketPath,
+      pidPath: paths.pidPath,
+      getDaemonStatus: async () => ({ state: "running", loadedRevision: "a".repeat(40) }),
+      resolveSourceRevision: () => "b".repeat(40),
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: `stale loaded=${"a".repeat(40)} current=${"b".repeat(40)}\n`, stderr: "" });
+  });
+
+  test("daemon status prints stopped with exit 1 when liveness check fails", async () => {
+    const cap = captureIo();
+    const paths = tempPaths();
+    writeFileSync(paths.pidPath, "77\n");
+
+    const code = await main(["daemon", "status"], cap.io, {
+      socketPath: paths.socketPath,
+      pidPath: paths.pidPath,
+      getDaemonStatus: async () => ({ state: "stopped" }),
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "stopped\n", stderr: "" });
   });
 
   test("daemon status prints stopped with exit 1 when pid is missing", async () => {

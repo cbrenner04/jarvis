@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { connectIpcClient } from "../ipc/client";
@@ -48,6 +48,19 @@ export type SocketProber = {
   probe(socketPath: string, timeoutMs: number): Promise<boolean>;
 };
 
+export type DaemonStatus = { state: "running"; loadedRevision: string } | { state: "stopped" };
+
+export type DaemonStatusProber = {
+  status(socketPath: string, timeoutMs: number): Promise<DaemonStatus>;
+};
+
+/** Resolve the full commit of the Jarvis checkout containing this source file. */
+export function resolveSourceRevision(): string {
+  return execFileSync("git", ["-C", resolve(import.meta.dir, "../../.."), "rev-parse", "HEAD"], {
+    encoding: "utf8",
+  }).trim();
+}
+
 export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -70,6 +83,29 @@ async function probeSocket(socketPath: string, timeoutMs: number): Promise<boole
   } catch {
     return false;
   }
+}
+
+async function probeDaemonStatus(socketPath: string, timeoutMs: number): Promise<DaemonStatus> {
+  try {
+    const client = await connectIpcClient(socketPath);
+    const transport = createRpcTransport(client);
+    try {
+      const result = await transport.request("status", undefined, { timeoutMs });
+      if (
+        typeof result === "object" &&
+        result !== null &&
+        (result as { state?: unknown }).state === "running" &&
+        typeof (result as { loadedRevision?: unknown }).loadedRevision === "string"
+      ) {
+        return { state: "running", loadedRevision: (result as { loadedRevision: string }).loadedRevision };
+      }
+    } finally {
+      transport.close();
+    }
+  } catch {
+    // A reachable socket without a valid status response is not a live daemon.
+  }
+  return { state: "stopped" };
 }
 
 function setupLogFile(logPath: string, logCapBytes: number): number | undefined {
@@ -104,6 +140,7 @@ export async function startDaemon(
     logCapBytes?: number;
     processProber?: ProcessProber;
     socketProber?: SocketProber;
+    sourceRevision?: string;
   },
 ): Promise<DaemonMetadata> {
   const readinessTimeoutMs = options?.readinessTimeoutMs ?? 5_000;
@@ -120,10 +157,11 @@ export async function startDaemon(
 
   const logFd = options?.logPath ? setupLogFile(options.logPath, logCapBytes) : undefined;
 
+  const sourceRevision = options?.sourceRevision ?? resolveSourceRevision();
   const proc = spawn("bun", [daemonScript], {
     detached: true,
     stdio: logFd !== undefined ? ["ignore", logFd, logFd] : "ignore",
-    env: { ...process.env, DAEMON_SOCKET_PATH: socketPath },
+    env: { ...process.env, DAEMON_SOCKET_PATH: socketPath, DAEMON_SOURCE_REVISION: sourceRevision },
   });
 
   // Close parent's copy of the log fd
@@ -268,16 +306,20 @@ export async function getDaemonStatus(
     healthTimeoutMs?: number;
     processProber?: ProcessProber;
     socketProber?: SocketProber;
+    statusProber?: DaemonStatusProber;
   },
-): Promise<"running" | "stopped"> {
+): Promise<DaemonStatus> {
   const healthTimeoutMs = options?.healthTimeoutMs ?? 1_000;
   const processProber = options?.processProber ?? { isAlive: isProcessAlive };
   const socketProber = options?.socketProber ?? { probe: probeSocket };
 
   if (!processProber.isAlive(pid)) {
-    return "stopped";
+    return { state: "stopped" };
   }
 
   const up = await socketProber.probe(socketPath, healthTimeoutMs);
-  return up ? "running" : "stopped";
+  if (!up) return { state: "stopped" };
+
+  const statusProber = options?.statusProber ?? { status: probeDaemonStatus };
+  return statusProber.status(socketPath, healthTimeoutMs);
 }

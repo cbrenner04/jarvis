@@ -396,6 +396,11 @@ functions in `v2/src/daemon/daemon-lifecycle.ts`.
 Spawns a detached child running `v2/src/daemon/daemon.ts`. Returns metadata `{pid,
 socketPath}` or throws on startup failure.
 
+**Source snapshot:** Before spawning, resolves the full Git `HEAD` of the
+Jarvis source checkout and passes it to the child. The daemon retains that
+revision for its process lifetime; checkout changes never reload source for
+in-flight work.
+
 **Injected paths:** Callers must supply an explicit `socketPath`; the daemon
 environment variable is `DAEMON_SOCKET_PATH`. Tests may inject `pidPath` (for
 cleanup); `daemonScript` (test override); `readinessTimeoutMs` (default 5s);
@@ -449,12 +454,16 @@ directly. If `pidPath` is not provided, external signal handling is required.
 
 ### `getDaemonStatus(pid, socketPath, options?)`
 
-Returns `"running"` only if process is alive AND socket responds to `health` in
-short timeout (default 1s). Returns `"stopped"` on any liveness or transport
+Returns `{ state: "running", loadedRevision }` only if process is alive, the
+socket responds to `health`, and the daemon's `status` RPC returns its captured
+revision. Returns `{ state: "stopped" }` on any liveness, transport, or status
 failure.
 
 **Probe order:** Process liveness first (no socket I/O if dead). Prevents false
-"running" states from stale sockets.
+"running" states from stale sockets. The CLI resolves its own full source
+revision from the Jarvis checkout and prints `running loaded=<revision>
+current=<revision>` for a match or `stale loaded=<revision> current=<revision>`
+for a mismatch.
 
 ### `jarvis daemon log [--follow]`
 

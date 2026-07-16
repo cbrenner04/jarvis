@@ -95,6 +95,29 @@ One cost hole remains, a real finding to state rather than estimate around:
 
 Leave such cells blank with a note, per the missing-binding rule below.
 
+**Codex `cost_usd: null` is NOT a hole — recover it, do not write it off (2026-07-16).** Every codex
+invocation currently records `cost_usd: null` / `usage_source: "unavailable"`, and two consecutive
+reports wrote that spend off as unrecoverable (64 rows on `2026-07-16T06-45`, 5 more the same day).
+It was recoverable the whole time. The correlation the harness *tries* (mtime + marker + cwd) misses
+silently, but the data is exact and on disk:
+
+1. Compute each invocation's **start time** = `ts - duration_ms` from its `invocation_completed` row.
+2. Convert to **local** time — that is the rollout filename:
+   `~/.codex/sessions/YYYY/MM/DD/rollout-<local-start-time>-<uuid>.jsonl`. The match is exact
+   (5/5 this session, to the second).
+3. `grep -o '"total_token_usage":{[^}]*}' <file> | tail -1` — cumulative for that invocation.
+   `input_tokens` is **inclusive of** `cached_input_tokens`, and `total_tokens` = input + output, so
+   uncached input = `input_tokens - cached_input_tokens`. `reasoning_output_tokens` ⊆ `output_tokens`.
+4. Price with the model's `data/prices.json` row (`grep -o '"model":"[^"]*"' <file> | head -1`):
+   `uncached·input_per_mtok + cached·cache_read_per_mtok + output·output_per_mtok`, ÷ 1e6.
+
+Worked example: 5 codex invocations recovered $2.06 that telemetry recorded as null. Note this
+sums a *session file*, so it is only 1:1 with an invocation because jarvis spawns a fresh codex
+session per invocation — verify that assumption if it ever batches.
+
+Cleanup: delete this block when `codex-usage-from-invocation-stream` ships (amended in #1655 to keep
+this correlation as a labelled fallback, re-keyed on start time, rather than deleting it).
+
 **Sources:** spec/`session-*` figures come from `~/.jarvis/runs.jsonl` (the `namespace`, `mode`, `run_start_ts`/`run_end_ts`, `run_base`, and per-run cost/token fields). Operator/`operator-*` figures come from the operator's own session-cost source, which depends on the CLI the operator drove: Claude Code `/cost` for a Claude operator; the opencode SQLite db (`~/.local/share/opencode/opencode.db`, `session` table — `cost`, `tokens_input`, `tokens_output`, `tokens_cache_read`, `tokens_cache_write`, filtered by session `id`) for an opencode/GLM operator; `opencode stats` gives lifetime aggregates, per-session attribution needs a direct SQL query. `api_time` is blank for opencode (no `/cost` equivalent field). The audit in [outcome-data-source-audit.md](../../v2/docs/outcome-data-source-audit.md) is the authority on which field derives from which source.
 
 **Columns:**

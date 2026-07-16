@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ReviewCycleInput } from "./review-cycle.ts";
 import {
   checkVerdictOwnershipBefore,
   discardSnapshot,
@@ -12,7 +13,6 @@ import {
   snapshotWorkingTree,
   VERDICT_FILE,
 } from "./review-intent-enforcement.ts";
-import type { ReviewCycleInput } from "./review-cycle.ts";
 
 function dir(): string {
   return mkdtempSync(join(tmpdir(), "review-intent-enforcement-"));
@@ -139,9 +139,7 @@ describe("review-intent-enforcement", () => {
       verdictPath,
       maxCycles: 1,
       bindings: {
-        critic: [
-          { id: "critic", invoke: async () => ({ kind: "ok" as const, stdout: "", stderr: "" }) },
-        ],
+        critic: [{ id: "critic", invoke: async () => ({ kind: "ok" as const, stdout: "", stderr: "" }) }],
         actuator: [],
       },
     };

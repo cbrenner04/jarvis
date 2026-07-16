@@ -1653,9 +1653,7 @@ function reviewedIntentWorkspaceFailure(stagingDir: string): string | undefined 
 }
 
 function reviewedIntentEvidenceFailure(result: ReviewCycleResult, verdictPath: string): string | undefined {
-  const criticRan = result.cycles.some(
-    (cycle) => cycle.roleResults.critic?.final?.result.kind === "ok",
-  );
+  const criticRan = result.cycles.some((cycle) => cycle.roleResults.critic?.final?.result.kind === "ok");
   if (!criticRan) return "intent review: critic invocation did not produce a verdict";
   try {
     readFileSync(verdictPath, "utf8");

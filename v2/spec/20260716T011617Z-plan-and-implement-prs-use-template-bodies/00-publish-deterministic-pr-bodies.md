@@ -22,12 +22,12 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/spec-run-body-summary.test.ts` adds regression coverage that fails before this change and passes after it, pinning v1-style subspec why lines, commit ordering, risk cues, diff totals, area ordering, truncation, binary numstat handling, and empty inputs.
-- [ ] `v2/src/execution/workflow-runner.test.ts` proves both plan and implement publication re-derive the deterministic template on retry from the current linked subspecs, branch commits, and diff stats; the new expectations fail against the baseline.
-- [ ] Published plan and implement bodies retain the normalized `Spec:` header, preserved plain-marker narrative, and attribution footer around the generated template; `v2/src/execution/pr-body-refresh.test.ts` stays green.
-- [ ] Intent publication retains its existing staged-file summary; `v2/src/execution/intent-run-body-summary.test.ts` and intent publication cases in `v2/src/execution/workflow-runner.test.ts` stay green.
-- [ ] Template generation invokes no agent.
-- [ ] `v2/docs/write-behavior.md`, `v2/docs/v1-behaviors.md`, and `v2/docs/first-workflow-walkthrough.md` document the plan/implement inputs, rendered order, retry behavior, and completed PR example.
+- [x] `v2/src/execution/spec-run-body-summary.test.ts` adds regression coverage that fails before this change and passes after it, pinning v1-style subspec why lines, commit ordering, risk cues, diff totals, area ordering, truncation, binary numstat handling, and empty inputs.
+- [x] `v2/src/execution/workflow-runner.test.ts` proves both plan and implement publication re-derive the deterministic template on retry from the current linked subspecs, branch commits, and diff stats; the new expectations fail against the baseline.
+- [x] Published plan and implement bodies retain the normalized `Spec:` header, preserved plain-marker narrative, and attribution footer around the generated template; `v2/src/execution/pr-body-refresh.test.ts` stays green.
+- [x] Intent publication retains its existing staged-file summary; `v2/src/execution/intent-run-body-summary.test.ts` and intent publication cases in `v2/src/execution/workflow-runner.test.ts` stay green.
+- [x] Template generation invokes no agent.
+- [x] `v2/docs/write-behavior.md`, `v2/docs/v1-behaviors.md`, and `v2/docs/first-workflow-walkthrough.md` document the plan/implement inputs, rendered order, retry behavior, and completed PR example.
 
 ## Documentation updates
 

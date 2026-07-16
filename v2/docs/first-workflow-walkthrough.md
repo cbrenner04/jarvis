@@ -260,9 +260,25 @@ H1 heading (falling back to `jarvis: complete run` when unresolvable) and body:
 
 ```
 Spec: v2/spec/your-spec/index.md
+
+## Subspecs
+- 00 - Safer checkout — Prevents unsafe checkout state.
+
+## Commits
+- implement safer checkout
+
+## Change summary
+2 files changed (+18/-4)
+
+- v2/src: 1 file (+15/-3)
+- v2/test: 1 file (+3/-1)
 ```
 
-v2 does not render a v1-style per-commit attribution footer on the PR body.
+Plan and implement PR bodies contain the deterministic template after `Spec:`:
+linked subspec why lines, branch commit subjects, risk cues, and a diff summary.
+The template is regenerated on each publication retry; plain narrative markers
+and the attribution footer remain around it. Intent PRs retain their landed-file
+summary.
 
 **Finding the branch and PR**
 

@@ -2161,7 +2161,7 @@ describe("executeWorkflow human steps", () => {
 
       expect(result.kind).toBe("complete");
       expect(summaries).toEqual([
-        "# Plan body summary\n\n- [ ] [00 - First](./00-first.md)\n- [x] [01 - Second](./01-second.md)",
+        "## Subspecs\n- 00 - First\n- 01 - Second",
       ]);
     });
   });
@@ -2213,8 +2213,8 @@ describe("executeWorkflow human steps", () => {
       });
       expect(retried.kind).toBe("complete");
       expect(summaries).toEqual([
-        "# Retry plan\n\n- [ ] [00 - Only](./00-only.md)",
-        "# Retry plan\n\n- [ ] [00 - Only](./00-only.md)",
+        "## Subspecs\n- 00 - Only",
+        "## Subspecs\n- 00 - Only",
       ]);
     });
   });
@@ -2271,8 +2271,8 @@ describe("executeWorkflow human steps", () => {
       });
       expect(retried.kind).toBe("complete");
       expect(summaries).toEqual([
-        "# Refresh plan\n\n- [ ] [00 - Alpha](./00-alpha.md)",
-        "# Refresh plan\n\n- [ ] [00 - Alpha](./00-alpha.md)\n- [ ] [01 - Beta](./01-beta.md)",
+        "## Subspecs\n- 00 - Alpha",
+        "## Subspecs\n- 00 - Alpha\n- 01 - Beta",
       ]);
     });
   });
@@ -2311,7 +2311,7 @@ describe("executeWorkflow human steps", () => {
         readyFinalizer: async () => {},
       });
       expect(result.kind).toBe("complete");
-      expect(summaries).toEqual(["# H1 only plan"]);
+      expect(summaries).toEqual(["(no content)"]);
     });
   });
 
@@ -2346,7 +2346,7 @@ describe("executeWorkflow human steps", () => {
         readyFinalizer: async () => {},
       });
       expect(result.kind).toBe("complete");
-      expect(summaries).toEqual([undefined]);
+      expect(summaries).toEqual(["(no content)"]);
     });
   });
 

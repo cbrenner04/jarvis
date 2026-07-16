@@ -1,44 +1,91 @@
 import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { parseSpec } from "../../../shared/spec-parser.ts";
+import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { resolveSpecIndexPath } from "./spec-creation-title.ts";
+import { readBranchCommits } from "./pr-attribution.ts";
 
-type ParsedSpecIndex = {
-  title: string;
-  checklistLines: string[];
-};
+type DiffStat = { added: number; removed: number; path: string };
+type Git = (cwd: string, args: readonly string[]) => Promise<string>;
 
-/** Parse an index H1 and subspec checklist lines (verbatim), mirroring v1 `parseIndex`. */
-export function parseSpecIndex(indexPath: string): ParsedSpecIndex {
-  if (!existsSync(indexPath)) {
-    return { title: "", checklistLines: [] };
+function firstProseLine(body: string): string | undefined {
+  for (const raw of body.split("\n")) {
+    const line = raw.trim();
+    if (line === "" || line.startsWith("#") || /^[-*+]\s/.test(line)) continue;
+    return line.length > 80 ? `${line.slice(0, 80)}…` : line;
   }
-  const content = readFileSync(indexPath, "utf8");
-  const lines = content.replace(/\r\n/g, "\n").split("\n");
-  let title = "";
-  const checklistLines: string[] = [];
-  for (const rawLine of lines) {
-    if (title === "") {
-      const h1 = rawLine.match(/^#\s+(.+?)\s*$/);
-      if (h1?.[1] !== undefined) {
-        title = h1[1].trim();
-        continue;
-      }
-    }
-    if (/^\s*-\s+\[( |x|X)\]\s+\[.+?\]\(.+?\)/.test(rawLine)) {
-      checklistLines.push(rawLine);
-    }
-  }
-  return { title, checklistLines };
+  return undefined;
 }
 
-/** Pre-rendered spec-authoring PR body summary: H1 plus verbatim index checklist lines. */
-export function deriveSpecRunBodySummary(input: { worktreePath: string; specPath: string }): string | undefined {
-  const parsed = parseSpecIndex(resolveSpecIndexPath(input.worktreePath, input.specPath));
-  if (parsed.title === "") {
-    return undefined;
+function area(path: string): string {
+  const parts = path.split("/");
+  return parts.length === 1 ? "(root)" : parts.slice(0, 2).join("/");
+}
+
+function riskCue(diffs: readonly DiffStat[]): string | undefined {
+  const source = diffs.some((d) => !d.path.endsWith(".test.ts") && !d.path.includes("/test/") && !d.path.endsWith(".md") && !d.path.endsWith(".json"));
+  const tests = diffs.some((d) => d.path.endsWith(".test.ts") || d.path.includes("/test/"));
+  return source && !tests ? "no test changes" : undefined;
+}
+
+function renderTemplate(subspecs: readonly { title: string; why: string | undefined }[], commits: readonly string[], diffs: readonly DiffStat[]): string {
+  const lines: string[] = [];
+  if (subspecs.length > 0) {
+    lines.push("## Subspecs");
+    subspecs.forEach(({ title, why }) => lines.push(`- ${title}${why === undefined ? "" : ` — ${why}`}`));
   }
-  const lines = [`# ${parsed.title}`];
-  if (parsed.checklistLines.length > 0) {
-    lines.push("", ...parsed.checklistLines);
+  if (commits.length > 0) {
+    if (lines.length > 0) lines.push("");
+    lines.push("## Commits", ...commits.map((subject) => `- ${subject}`));
   }
-  return lines.join("\n");
+  if (diffs.length > 0) {
+    if (lines.length > 0) lines.push("");
+    const cue = riskCue(diffs);
+    if (cue !== undefined) lines.push("## Risk cues", `- ${cue}`, "");
+    const totals = diffs.reduce((sum, diff) => ({ added: sum.added + diff.added, removed: sum.removed + diff.removed }), { added: 0, removed: 0 });
+    lines.push("## Change summary", `${diffs.length} file${diffs.length === 1 ? "" : "s"} changed (+${totals.added}/-${totals.removed})`, "");
+    const groups = new Map<string, { added: number; removed: number; files: number }>();
+    for (const diff of diffs) {
+      const key = area(diff.path);
+      const current = groups.get(key) ?? { added: 0, removed: 0, files: 0 };
+      current.added += diff.added; current.removed += diff.removed; current.files += 1;
+      groups.set(key, current);
+    }
+    [...groups.entries()].sort(([a, x], [b, y]) => (y.added + y.removed) - (x.added + x.removed) || a.localeCompare(b))
+      .forEach(([key, stats]) => lines.push(`- ${key}: ${stats.files} file${stats.files === 1 ? "" : "s"} (+${stats.added}/-${stats.removed})`));
+  }
+  return lines.length === 0 ? "(no content)" : lines.join("\n");
+}
+
+async function readDiffStats(cwd: string, base: string, git: Git): Promise<DiffStat[]> {
+  try {
+    const output = await git(cwd, ["diff", "--numstat", `${base}...HEAD`]);
+    return output.split("\n").flatMap((line) => {
+      const [added, removed, path] = line.split("\t");
+      if (path === undefined || added === undefined || removed === undefined) return [];
+      const parsedAdded = added === "-" ? 0 : Number.parseInt(added, 10);
+      const parsedRemoved = removed === "-" ? 0 : Number.parseInt(removed, 10);
+      return Number.isNaN(parsedAdded) || Number.isNaN(parsedRemoved) ? [] : [{ added: parsedAdded, removed: parsedRemoved, path }];
+    });
+  } catch { return []; }
+}
+
+/** Derive the v1-shaped plan/implement template from the current worktree. */
+export async function deriveSpecRunBodySummary(input: { worktreePath: string; specPath: string; baseRef: string; git?: Git }): Promise<string> {
+  const indexPath = resolveSpecIndexPath(input.worktreePath, input.specPath);
+  if (!existsSync(indexPath)) return "(no content)";
+  const index = parseSpec(readFileSync(indexPath, "utf8"));
+  const bodies = index.linkedSubspecs.map((subspec) => {
+    try { return readFileSync(join(dirname(indexPath), subspec.path), "utf8"); } catch { return ""; }
+  });
+  const git = input.git ?? ((cwd, args) => realAsyncSubprocessRunner.runAsync("git", [...args], cwd));
+  const [commits, diffs] = await Promise.all([
+    readBranchCommits({ cwd: input.worktreePath, base: input.baseRef, git }).catch(() => []),
+    readDiffStats(input.worktreePath, input.baseRef, git),
+  ]);
+  return renderTemplate(
+    index.linkedSubspecs.map((subspec, i) => ({ title: subspec.text, why: firstProseLine(bodies[i] ?? "") })),
+    commits.map((commit) => commit.subject),
+    diffs,
+  );
 }

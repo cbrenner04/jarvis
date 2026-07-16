@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { type RefreshPrBodyInput, refreshPrBody } from "./pr-body-refresh.ts";
 import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
+import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
 
 export type CompletionPublisherInput = {
   worktreePath: string;
@@ -10,6 +11,7 @@ export type CompletionPublisherInput = {
   branch: string;
   creationTitle?: unknown;
   bodySummary?: string;
+  specTemplate?: boolean;
 };
 
 export type CompletionPublisherResult = {
@@ -126,13 +128,21 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
 
     await publishWithRetry(
       async () => {
+        const bodySummary = input.specTemplate
+          ? await deriveSpecRunBodySummary({
+              worktreePath: input.worktreePath,
+              specPath: input.specPath,
+              baseRef: input.baseRef,
+              git: async (cwd, args) => git(cwd, args),
+            })
+          : input.bodySummary;
         await refreshPrBody({
           specPath,
           branch: input.branch,
           base: input.baseRef,
           cwd: input.worktreePath,
           git: syncGitToAttributionGit(git),
-          ...(input.bodySummary !== undefined ? { bodySummary: input.bodySummary } : {}),
+          ...(bodySummary !== undefined ? { bodySummary } : {}),
           ...(seams?.fetchPrBody !== undefined ? { fetchPrBody: seams.fetchPrBody } : {}),
           ...(seams?.writePrBody !== undefined ? { writePrBody: seams.writePrBody } : {}),
           ...(seams?.renderFooter !== undefined ? { renderFooter: seams.renderFooter } : {}),

@@ -2160,9 +2160,7 @@ describe("executeWorkflow human steps", () => {
       });
 
       expect(result.kind).toBe("complete");
-      expect(summaries).toEqual([
-        "## Subspecs\n- 00 - First\n- 01 - Second",
-      ]);
+      expect(summaries).toEqual(["## Subspecs\n- 00 - First\n- 01 - Second"]);
     });
   });
 
@@ -2212,10 +2210,7 @@ describe("executeWorkflow human steps", () => {
         readyFinalizer: async () => {},
       });
       expect(retried.kind).toBe("complete");
-      expect(summaries).toEqual([
-        "## Subspecs\n- 00 - Only",
-        "## Subspecs\n- 00 - Only",
-      ]);
+      expect(summaries).toEqual(["## Subspecs\n- 00 - Only", "## Subspecs\n- 00 - Only"]);
     });
   });
 
@@ -2270,10 +2265,7 @@ describe("executeWorkflow human steps", () => {
         readyFinalizer: async () => {},
       });
       expect(retried.kind).toBe("complete");
-      expect(summaries).toEqual([
-        "## Subspecs\n- 00 - Alpha",
-        "## Subspecs\n- 00 - Alpha\n- 01 - Beta",
-      ]);
+      expect(summaries).toEqual(["## Subspecs\n- 00 - Alpha", "## Subspecs\n- 00 - Alpha\n- 01 - Beta"]);
     });
   });
 

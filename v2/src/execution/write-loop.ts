@@ -401,7 +401,9 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             specPath: args.specPath,
             branch: args.worktree.branchName,
             creationTitle,
-            ...(args.promptId === "patch.prompt.body" || args.promptId === "plan.prompt.draft" ? { specTemplate: true } : {}),
+            ...(args.promptId === "patch.prompt.body" || args.promptId === "plan.prompt.draft"
+              ? { specTemplate: true }
+              : {}),
           });
           if (publication.failure !== undefined) {
             const publishedResult = { ...attributed, iterationsConsumed: publication.iterationsConsumed };

@@ -305,7 +305,8 @@ function isPublicationRetryEligible(loopOutcomeKind: string | undefined): boolea
 
 function resumeContextForRun(run: Run, loopOutcomeKind?: string): ResolvedWriteLoopInput | undefined {
   const resumableStatus = run.status === "paused" || run.status === "budget-soft-stopped" || run.status === "killed";
-  const publicationRetry = run.status === "completed" && isPublicationRetryEligible(loopOutcomeKind);
+  const publicationRetry =
+    (run.status === "completed" || run.status === "failed") && isPublicationRetryEligible(loopOutcomeKind);
   return resumableStatus || publicationRetry ? reconstructWriteResume(run) : undefined;
 }
 
@@ -1000,14 +1001,14 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   ): { kind: "error"; code: string; message: string } | undefined {
     const terminalRecord = logReader ? findTerminalLogRecord(logReader.tail(runId)) : undefined;
     const retryCompletionPublication =
-      run.status === "completed" &&
+      (run.status === "completed" || run.status === "failed") &&
       terminalRecord?.event.kind === "loop_finished" &&
       isPublicationRetryEligible(terminalRecord.event.loopOutcomeKind);
 
     // A completed durable boundary is idempotent, except a failed external publication.
     if (
       (run.status === "completed" && !retryCompletionPublication) ||
-      run.status === "failed" ||
+      (run.status === "failed" && !retryCompletionPublication) ||
       run.status === "blocked"
     ) {
       return { kind: "error", code: "terminal_run", message: `Cannot resume a ${run.status} run` };

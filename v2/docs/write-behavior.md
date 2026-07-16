@@ -101,12 +101,12 @@ transient classifier, the flip treats exit-0 (including empty output), and any
 thrown `gh` error whose combined stdout+stderr contains (case-insensitive)
 `already ready` or `not a draft`, as success without retry. Any other thrown
 error is handed to the transient classifier unchanged. Gate or flip failure
-(except the success-guarded flip cases) leaves the PR draft, keeps the durable
-run `completed`, and returns retryable `ready_gate_failed` with `readyGateError`
-or `ready_flip_failed` with `readyFlipError` (non-resumable terminal settlement), distinct
-from publication's `completion_commit_failed` (retryable via `resume`). Resume
-replays publication first (idempotent), then re-runs the gate and re-attempts
-the flip; failed flips reject resume as terminal runs. On flip failure, when the
+(except the success-guarded flip cases) leaves the PR draft, demotes the durable
+run to `failed` on gate failure (or keeps it `completed` on flip failure), and returns
+retryable `ready_gate_failed` with `readyGateError` or non-resumable `ready_flip_failed`
+with `readyFlipError`, distinct from publication's `completion_commit_failed` (retryable via `resume`).
+Resume of a gate failure retries publication first (idempotent), then re-runs the gate
+and re-attempts the flip; failed flips reject resume as terminal runs. On flip failure, when the
 publication returned a PR number, the result includes `readyFlipPrNumber` to
 identify the PR for manual fixing; omitted when publication returned no PR.
 Gate and `gh` are injectable seams so tests require no live
@@ -730,9 +730,9 @@ When `loopOutcomeKind` is present it wins over `runStatus`:
 - `2`: `invocation_failure`
 - `5`: `budget-exhausted`
 
-`completion_commit_failed` and `ready_gate_failed` carry `runStatus: completed`
-and `resumable: true` on stdout; exit `1` is retryable via `jarvis run resume`. `ready_flip_failed`
-carries `runStatus: completed` and `resumable: false` on stdout; exit `1` is terminal and non-resumable.
+`completion_commit_failed` carries `runStatus: completed` and `resumable: true` on stdout; exit `1` is retryable via `jarvis run resume`.
+`ready_gate_failed` carries `runStatus: failed` and `resumable: true` on stdout; exit `1` is retryable via `jarvis run resume`.
+`ready_flip_failed` carries `runStatus: completed` and `resumable: false` on stdout; exit `1` is terminal and non-resumable.
 
 When `loopOutcomeKind` is omitted:
 

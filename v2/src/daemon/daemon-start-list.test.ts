@@ -945,6 +945,38 @@ test("resume retries completed runs after ready gate failures", async () => {
   expect(fakeExecutor.pendingCount()).toBe(1);
 });
 
+test("resume retries failed runs demoted from ready gate failures", async () => {
+  const runId = createPublicationRetryRun();
+  stateStore.setRunStatus(runId, "failed");
+  const logReader: LogReader = {
+    tail: () => [
+      {
+        runId,
+        seq: 1,
+        ts: "2026-01-01T00:00:00.000Z",
+        event: {
+          kind: "loop_finished",
+          loopOutcomeKind: "ready_gate_failed",
+          iterationsConsumed: 1,
+          resumable: true,
+        },
+      },
+    ],
+    async *follow() {},
+  };
+  handlers = createRunControlHandlers({
+    stateStore,
+    logReader,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+  });
+
+  expect((await resumeDirect(handlers, { runId })).kind).toBe("response");
+  expect(fakeExecutor.pendingCount()).toBe(1);
+});
+
 test("resume rejects completed runs after ready flip failures", async () => {
   const flipRunId = createPublicationRetryRun();
   stateStore.setRunStatus(flipRunId, "completed");

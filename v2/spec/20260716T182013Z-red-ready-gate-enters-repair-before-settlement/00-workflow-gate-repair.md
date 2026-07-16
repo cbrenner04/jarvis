@@ -20,17 +20,17 @@ reachable only from `executeWriteLoop`, which no runtime caller invokes — so
 
 ## Task checklist
 
-- [ ] Export `publishWithReadyRepair` from `v2/src/execution/write-loop.ts`.
-- [ ] Replace the direct `publishCompletionArtifacts` call in the workflow-runner completion block with the repair-aware publication.
-- [ ] Thread the store, last write result, and consumed-iteration count into the repair loop; fold its returned count back into `totalIterationsConsumed`.
-- [ ] Add workflow-runner regression tests for repair-then-green, exhausted repair, and flip-failure-skips-repair.
+- [x] Export `publishWithReadyRepair` from `v2/src/execution/write-loop.ts`.
+- [x] Replace the direct `publishCompletionArtifacts` call in the workflow-runner completion block with the repair-aware publication.
+- [x] Thread the store, last write result, and consumed-iteration count into the repair loop; fold its returned count back into `totalIterationsConsumed`.
+- [x] Add workflow-runner regression tests for repair-then-green, exhausted repair, and flip-failure-skips-repair.
 
 ## Acceptance criteria
 
-- [ ] A new `workflow-runner.test.ts` regression test drives `executeWorkflow` to completion with a ready finalizer that raises `ReadyGateError` on its first call and succeeds on the next; the test asserts a `ready_gate_repair` event on the log sink and a `complete` workflow outcome. It fails against the pre-fix code, which emits no repair event.
-- [ ] A red ready gate that stays red past the repair bound settles `ready_gate_failed`, and the log sink shows exactly `MAX_READY_GATE_REPAIRS` `ready_gate_repair` events — asserted by a new workflow-runner test that fails against the pre-fix code.
-- [ ] A ready-flip failure (a non-`ReadyGateError` from the ready finalizer) settles `ready_flip_failed` with no `ready_gate_repair` event and no agent reprompt.
-- [ ] Repair iterations count toward the workflow's reported `iterationsConsumed`.
+- [x] A new `workflow-runner.test.ts` regression test drives `executeWorkflow` to completion with a ready finalizer that raises `ReadyGateError` on its first call and succeeds on the next; the test asserts a `ready_gate_repair` event on the log sink and a `complete` workflow outcome. It fails against the pre-fix code, which emits no repair event.
+- [x] A red ready gate that stays red past the repair bound settles `ready_gate_failed`, and the log sink shows exactly `MAX_READY_GATE_REPAIRS` `ready_gate_repair` events — asserted by a new workflow-runner test that fails against the pre-fix code.
+- [x] A ready-flip failure (a non-`ReadyGateError` from the ready finalizer) settles `ready_flip_failed` with no `ready_gate_repair` event and no agent reprompt.
+- [x] Repair iterations count toward the workflow's reported `iterationsConsumed`.
 
 ## Documentation updates
 

@@ -3,8 +3,8 @@ import { createElement, Fragment, type ReactElement } from "react";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import { createMonitorDisplay, openInkMonitor } from "./tui-ink-monitor.tsx";
-import { loadInkUi } from "./tui-ink-runtime.ts";
 import type { InjectedInkUi, InkUseInput } from "./tui-ink-runtime.ts";
+import { loadInkUi } from "./tui-ink-runtime.ts";
 import { joinMonitorRow, monitorSegmentRows } from "./tui-monitor-lines.ts";
 import type { TuiMonitorControls, TuiMonitorState } from "./tui-monitor-types.ts";
 

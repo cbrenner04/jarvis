@@ -1,6 +1,6 @@
 import { createElement, Fragment, type ReactElement, useState } from "react";
 import type { InkRender } from "./tui-ink-feedback.tsx";
-import { loadInkUi, type InjectedInkUi, type InkUseInput } from "./tui-ink-runtime.ts";
+import { type InjectedInkUi, type InkUseInput, loadInkUi } from "./tui-ink-runtime.ts";
 import {
   joinMonitorRow,
   type MonitorLineRow,

@@ -1,7 +1,8 @@
 import { type SpawnSyncReturns, spawnSync } from "node:child_process";
 import { sliceTestFiles, type TestSliceMode, walkTestFiles } from "./test-slice.ts";
 
-const PER_FILE_TIMEOUT_MS = 60_000;
+/** Must exceed the slowest single file; `v1/test/run.test.ts` runs ~120s under the aggregate suite. */
+const PER_FILE_TIMEOUT_MS = 180_000;
 
 export function walkV2TestFiles(root = "v2"): string[] {
   return walkTestFiles(root);

@@ -435,6 +435,17 @@ Do not merge to `main` blindly during long in-flight runs; see v1 runbook
 
 Operators add bullets here; delete when fixed.
 
+- **Gate `main` before debugging a red branch (2026-07-16):** `bun run ready` runs the aggregate
+  suite, which CI never runs (CI scopes by changed path). `main` was red on the operator machine
+  behind green CI for an unknown number of sessions — the aggregate's per-file timeout was smaller
+  than its slowest file. Every v1 and v2 gate failed regardless of the diff. If a gate goes red on a
+  diff that cannot explain it, run the gate on `main` before touching the branch. Recovered in
+  #1644. Seed: `v1/spec/seeds/ci-cannot-protect-the-local-ready-gate.md`. Cleanup: delete when it
+  ships. See [v1 runbook § The gate](../../v1/docs/operator-runbook.md#the-gate).
+- **`jarvis1 triage --merge` refuses every v2 workflow PR (2026-07-16):** both intent and plan PRs
+  fail with `no spec found for branch <intent|plan>/<name>`, so the gated merge path is unavailable
+  for v2 work and every v2 PR is hand-merged (gate by hand first — see the bullet above). Seed:
+  `triage-merge-refuses-v2-plan-prs`. Cleanup: delete when it ships.
 - **Launch `jarvis run workflow` from the project root (2026-07-14):** `--spec` resolves against
   your shell's cwd, and the resulting repo-relative path is re-resolved *inside the run's own
   worktree*. A cwd inside another git worktree (e.g. `.worktree/<x>/`) yields a path that passes

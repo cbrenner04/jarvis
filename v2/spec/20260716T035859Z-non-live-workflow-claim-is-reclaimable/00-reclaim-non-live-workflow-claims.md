@@ -24,12 +24,12 @@ An orphaned in-memory workflow claim can reject every later invocation for the s
 
 ## Acceptance criteria
 
-- [ ] A regression test in `v2/src/daemon/daemon-workflow-start.test.ts` leaves a workflow claim whose owner is no longer live, then proves a new invocation for the same `(project, branch)` starts without restarting the daemon; it fails against the pre-fix code.
-- [ ] `v2/src/daemon/daemon-workflow-start.test.ts` proves a genuinely live workflow owner still rejects a new same-key invocation with `worktree_claimed`.
-- [ ] Existing same-key bare-run and queued-run cases in `v2/src/daemon/daemon-workflow-start.test.ts` stay green.
-- [ ] Stale-claim admission changes no worktree or branch state on disk.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/daemon-host.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` describe stale workflow-claim reclamation and live-owner protection in their durable homes.
+- [x] A regression test in `v2/src/daemon/daemon-workflow-start.test.ts` leaves a workflow claim whose owner is no longer live, then proves a new invocation for the same `(project, branch)` starts without restarting the daemon; it fails against the pre-fix code.
+- [x] `v2/src/daemon/daemon-workflow-start.test.ts` proves a genuinely live workflow owner still rejects a new same-key invocation with `worktree_claimed`.
+- [x] Existing same-key bare-run and queued-run cases in `v2/src/daemon/daemon-workflow-start.test.ts` stay green.
+- [x] Stale-claim admission changes no worktree or branch state on disk.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/daemon-host.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` describe stale workflow-claim reclamation and live-owner protection in their durable homes.
 
 ## Documentation updates
 

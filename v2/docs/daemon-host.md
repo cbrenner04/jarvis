@@ -368,10 +368,11 @@ concurrently across different `(project, branch)` keys.
    (queued-run check, then live-claim check) run first, against a key
    derived from the workflow's first step — `worktree.projectName`/
    `worktree.branchName` when that step's `behavior` is `"write"`, else its
-   flat `project`/`branch` fields (`"human"` or `"review-debate"`). This
-   guard is absent in a build that has 00-dispatch-core landed but not this
-   subspec — a transient window where a workflow start bypasses claim/queue
-   checks entirely.
+   flat `project`/`branch` fields (`"human"` or `"review-debate"`). A workflow
+   claim records its daemon-live owner from acquisition through cleanup. If its
+   owner is no longer live in daemon memory, admission releases only that stale
+   claim and acquires the key for the new workflow; a live owner still rejects
+   `worktree_claimed`. This never changes worktrees or branches on disk.
 
 ## Streaming
 

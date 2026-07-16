@@ -43,6 +43,8 @@ import { rollupWorkflowRunStatus } from "./workflow-run-status-rollup.ts";
 type WorktreeOwnership = {
   runId: string;
   worktreePath: string;
+  /** Workflow claims are validated against daemon-local workflow liveness. */
+  workflow?: true;
 };
 
 export type OwnershipKey = {
@@ -151,8 +153,12 @@ export class WorktreeOwnershipRegistry {
     this.registry.set(ks, ownership);
   }
 
-  release(key: OwnershipKey): void {
-    this.registry.delete(ownershipKeyString(key));
+  release(key: OwnershipKey, runId?: string): void {
+    const ks = ownershipKeyString(key);
+    if (runId !== undefined && this.registry.get(ks)?.runId !== runId) {
+      return;
+    }
+    this.registry.delete(ks);
   }
 
   get(key: OwnershipKey): WorktreeOwnership | undefined {
@@ -351,6 +357,8 @@ export type RunControlHandlerDeps = {
   hasMemoryHeadroom?: () => boolean;
   /** Delay (ms) after promoting a queued run before the next promotion re-checks headroom; defaults to configured `memory.settleDelayMs`. */
   settleDelayMs?: number;
+  /** Test seam for pre-existing daemon-memory ownership. */
+  registry?: WorktreeOwnershipRegistry;
 };
 
 export type WaitRunCompletionResult = {
@@ -441,7 +449,7 @@ export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDel
  *   await `failureReporter`, then release — they do not propagate to RPC callers.
  */
 export function createRunControlHandlers(deps: RunControlHandlerDeps) {
-  const _registry = new WorktreeOwnershipRegistry();
+  const _registry = deps.registry ?? new WorktreeOwnershipRegistry();
   const activeRuns = new Map<string, ActiveRun>();
   const waitAbortControllers = new Set<AbortController>();
   /**
@@ -567,6 +575,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const startWorkflowRun = (
     steps: AnyWorkflowStep[],
     workflowKey: OwnershipKey,
+    claimRunId: string,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     return new Promise((resolve) => {
       const workflowRunIds = new Set<string>();
@@ -611,10 +620,11 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         .finally(() => {
           logSink?.close();
           for (const runId of workflowRunIds) activeRuns.delete(runId);
+          activeRuns.delete(claimRunId);
           if (entryRunId !== undefined) {
             workflowPromisesByEntryRunId.delete(entryRunId);
           }
-          _registry.release(workflowKey);
+          _registry.release(workflowKey, claimRunId);
           trackPromiseResolve?.();
         });
     });
@@ -663,6 +673,10 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         message: worktreeClaimedMessage(workflowKey),
       };
     }
+    const existingWorkflowClaim = _registry.get(workflowKey);
+    if (existingWorkflowClaim?.workflow === true && activeRuns.get(existingWorkflowClaim.runId)?.kind !== "workflow") {
+      _registry.release(workflowKey);
+    }
     const workflowClaimError = checkWorktreeClaimed(_registry, workflowKey);
     if (workflowClaimError) {
       return workflowClaimError;
@@ -675,8 +689,10 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       };
     }
     const worktreePath = firstStep?.behavior === "write" ? getExternalWorktreePath(firstStep.worktree) : "";
-    _registry.claim(workflowKey, { runId: "", worktreePath });
-    return startWorkflowRun(steps, workflowKey);
+    const claimRunId = crypto.randomUUID();
+    _registry.claim(workflowKey, { runId: claimRunId, worktreePath, workflow: true });
+    activeRuns.set(claimRunId, { kind: "workflow", runId: claimRunId });
+    return startWorkflowRun(steps, workflowKey, claimRunId);
   };
 
   const handleWriteLoopStart = (rawInput: WriteLoopInput): StartResult => {

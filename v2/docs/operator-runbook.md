@@ -267,6 +267,14 @@ v2 TUI tests can pass while ink rendering is broken — see seed
 
 Documented gaps and operator workarounds. Remove entries when seeds merge.
 
+### Workflow reports a stale worktree claim
+
+If a workflow start returns `worktree_claimed` after its prior owner is no longer
+live, invoke the workflow again. The daemon drops that in-memory workflow claim
+at admission and preserves all worktree and branch state; do not restart the daemon
+or remove a worktree for this case. A genuinely live owner remains protected and
+continues to reject the same `(project, branch)`.
+
 ### v2 debris blocks the `jarvis1` fallback
 
 A failed v2 run leaks its worktree under `~/.jarvis/worktrees/<project>/<branch>/`

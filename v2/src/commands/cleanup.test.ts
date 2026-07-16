@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach } from "bun:test";
-import { cleanupCommand } from "./cleanup.ts";
-import type { CleanupIo } from "./cleanup.ts";
+import { describe, expect, it } from "bun:test";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
+import type { CleanupIo } from "./cleanup.ts";
+import { cleanupCommand } from "./cleanup.ts";
 
 function createTestIo(): { io: CleanupIo; getStdout: () => string; getStderr: () => string; responses: string[] } {
   let stdout = "";
@@ -20,7 +20,7 @@ function createTestIo(): { io: CleanupIo; getStdout: () => string; getStderr: ()
       stderr: (s) => {
         stderr += s;
       },
-      readlineSync: (prompt) => {
+      readlineSync: (_prompt) => {
         const response = responses[responseIndex] ?? "n";
         responseIndex++;
         return response;
@@ -30,7 +30,6 @@ function createTestIo(): { io: CleanupIo; getStdout: () => string; getStderr: ()
 }
 
 describe("cleanupCommand", () => {
-
   it("returns 0 when no worktrees exist", async () => {
     const { io, getStdout } = createTestIo();
     const result = await cleanupCommand({

@@ -3,8 +3,8 @@ import { dirname } from "node:path";
 import { createInterface } from "node:readline";
 import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
+import { type CleanupIo, cleanupCommand } from "./commands/cleanup.ts";
 import type { AgentModelConfig, LoadError } from "./config/agent-model-config.ts";
-import { cleanupCommand, type CleanupIo } from "./commands/cleanup.ts";
 import {
   type ImplementReviewBehavior,
   loadMachineConfig,

@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { jarvisHome } from "../paths.ts";
-import { type DaemonListRunRow } from "../daemon/daemon-wire.ts";
 
 export type CleanupIo = {
   stdout: (s: string) => void;
@@ -44,7 +44,7 @@ function isMergedPr(branch: string, projectRoot?: string): boolean {
   }
 }
 
-function getCurrentBranch(worktreePath: string): string | null {
+function _getCurrentBranch(worktreePath: string): string | null {
   try {
     return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
       encoding: "utf8",
@@ -106,7 +106,10 @@ function discoverWorktreeCandidates(projectRegistry: Record<string, { root: stri
 
 async function checkWorktreeEligibility(
   candidate: WorktreeCandidate,
-  opts: { isMergedPr?: (branch: string, projectRoot?: string) => boolean; listRunsFromDaemon?: () => Promise<DaemonListRunRow[]> },
+  opts: {
+    isMergedPr?: (branch: string, projectRoot?: string) => boolean;
+    listRunsFromDaemon?: () => Promise<DaemonListRunRow[]>;
+  },
 ): Promise<WorktreeCheckResult> {
   const checkMerged = opts.isMergedPr ?? isMergedPr;
 
@@ -136,7 +139,9 @@ async function checkWorktreeEligibility(
         };
       }
 
-      const liveRuns = runs.filter((run) => run.isLive && (run.worktreePath === candidate.worktreePath || run.branch === candidate.branchName));
+      const liveRuns = runs.filter(
+        (run) => run.isLive && (run.worktreePath === candidate.worktreePath || run.branch === candidate.branchName),
+      );
       if (liveRuns.length > 0) {
         return {
           candidate,

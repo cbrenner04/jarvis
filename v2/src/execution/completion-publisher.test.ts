@@ -772,7 +772,17 @@ describe("createCompletionPublisher", () => {
 
     await publisher(baseInput);
 
-    expect(events).toEqual(["auth", "upstream", "push", "head", "pr-lookup", "pr-create", "pr-confirm", "fetch-body", "write-body"]);
+    expect(events).toEqual([
+      "auth",
+      "upstream",
+      "push",
+      "head",
+      "pr-lookup",
+      "pr-create",
+      "pr-confirm",
+      "fetch-body",
+      "write-body",
+    ]);
   });
 
   it("fails refresh when attribution git read is rejected", async () => {

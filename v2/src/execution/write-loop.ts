@@ -181,7 +181,11 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
                 ? completionCommitFailed(args, publishedResult, publication.failure.error)
                 : readyFailed(args, publishedResult, publication.failure.kind, publication.failure.error);
             }
-            if (publication.success !== undefined && publication.success.prNumber !== undefined && publication.success.prUrl !== undefined) {
+            if (
+              publication.success !== undefined &&
+              publication.success.prNumber !== undefined &&
+              publication.success.prUrl !== undefined
+            ) {
               store.setPrEvidence(prepared.result.runId, publication.success.prNumber, publication.success.prUrl);
               prepared.result.prNumber = publication.success.prNumber;
               prepared.result.prUrl = publication.success.prUrl;
@@ -435,7 +439,11 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               ? completionCommitFailed(args, publishedResult, publication.failure.error)
               : readyFailed(args, publishedResult, publication.failure.kind, publication.failure.error);
           }
-          if (publication.success !== undefined && publication.success.prNumber !== undefined && publication.success.prUrl !== undefined) {
+          if (
+            publication.success !== undefined &&
+            publication.success.prNumber !== undefined &&
+            publication.success.prUrl !== undefined
+          ) {
             store.setPrEvidence(runId, publication.success.prNumber, publication.success.prUrl);
             attributed.prNumber = publication.success.prNumber;
             attributed.prUrl = publication.success.prUrl;
@@ -934,7 +942,9 @@ export async function publishWithReadyRepair(
       };
     }
   }
-  return outcome.kind === "success" ? { success: outcome, iterationsConsumed } : { failure: outcome, iterationsConsumed };
+  return outcome.kind === "success"
+    ? { success: outcome, iterationsConsumed }
+    : { failure: outcome, iterationsConsumed };
 }
 
 export async function publishCompletionArtifacts(

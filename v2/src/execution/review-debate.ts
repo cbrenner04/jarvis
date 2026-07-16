@@ -39,6 +39,7 @@ type ReviewDebateResult = {
 export type ReviewDebateInput = {
   cwd: string;
   prompts?: { adversary: string; advocate: string; adjudicator: string };
+  // biome-ignore lint/suspicious/noExplicitAny: profile context type determined at dispatch
   profile?: ReviewPromptProfile<any, any>;
   profileContext?: unknown;
   bindings: ReviewDebateRoleBindings;

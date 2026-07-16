@@ -20,6 +20,7 @@ export type ReviewCycleRoleBindings = {
 export type ReviewCycleInput = {
   cwd: string;
   prompt?: string | (() => string);
+  // biome-ignore lint/suspicious/noExplicitAny: profile context type determined at dispatch
   profile?: ReviewPromptProfile<any, any>;
   profileContext?: unknown;
   bindings: ReviewCycleRoleBindings;

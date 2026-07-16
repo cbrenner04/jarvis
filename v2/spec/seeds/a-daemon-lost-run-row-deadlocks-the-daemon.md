@@ -57,6 +57,19 @@ reclaims the ability to restart.
 - No hand-editing of `~/.jarvis/state/v2.sqlite` is an acceptable recovery. If the only escape from
   a wedged daemon is SQL, the harness has no answer.
 
+**Recovery that works, verified 2026-07-16:** `kill -9 <daemon-pid>` then `jarvis daemon start`.
+Startup reconciliation settles every orphaned row to `killed` / `daemon_restart` before IPC opens,
+and `daemon stop` then succeeds normally. This *confirms the decision above rather than resolving
+it*: the reconciliation logic is already correct and already knows what to do — the only thing
+standing between the operator and it is the `stop` refusal, which `kill -9` bypasses. Requiring
+`kill -9` to reach a working code path is the bug, not the fix.
+
+Second live instance the same session: a workflow-started implement (`a51cfe79`) whose agent
+process tree had been killed still reported `in-progress` / **`live`**, and `run kill` still refused
+it `run_not_active`. So the wedge is reachable from two directions — a stale `not-live` row and a
+falsely-`live` one — and `run kill` refuses both. Two stranded rows then refused `daemon stop`
+together.
+
 ## Prerequisites
 
 - None.

@@ -463,8 +463,18 @@ Operators add bullets here; delete when fixed.
   non-terminal *and* not in memory is refused by both (`active durable runs` / `run_not_active`), so
   nothing can clear it. Since a restart is required after every v2 code merge, one stranded row
   wedges every subsequent merge. `run list` shows the tell: `in-progress` + `not-live` on a spec
-  whose PR already merged. Seed: `a-daemon-lost-run-row-deadlocks-the-daemon`. Cleanup: delete when
-  it ships.
+  whose PR already merged. **Recovery (verified 2026-07-16): `kill -9 <daemon-pid>` then
+  `jarvis daemon start`.** Startup reconciliation settles every orphaned non-terminal row to
+  `killed` / `daemon_restart` before IPC opens, which is what the refusing `stop` was blocking you
+  from reaching. Do **not** hand-edit `~/.jarvis/state/v2.sqlite`. Confirm no run is genuinely live
+  first — this orphans anything that is. Seed: `a-daemon-lost-run-row-deadlocks-the-daemon`.
+  Cleanup: delete when it ships.
+- **`run kill` does not work on workflow-started runs (2026-07-16):** it refuses `run_not_active`
+  even while `run list` reports the row `live`. Combined with the deadlock above there is no
+  jarvis-native way to stop a workflow implement; kill the agent process tree directly
+  (`ps aux | grep <branch>` → the `claude`/`codex` child, the `v2/src/cli.ts` parent). The durable
+  row stays `live` afterwards until a daemon restart reconciles it. See
+  [`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workflow-started-runs).
 - **`JARVIS_READY_TIER` is stomped, not inherited (2026-07-16):** `ready-finalize.ts:54` spreads
   `process.env` and then overwrites the key with `"full"`, so setting it locally does nothing. The
   full aggregate gate is ~85% of a v2 workflow's wall clock (~13 of ~15 min on a two-file markdown

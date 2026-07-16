@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { IpcServer } from "../ipc/server.ts";
 import type { LogEvent, LogReader, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
 import {
@@ -28,6 +29,9 @@ const terminalStatuses: readonly RunStatus[] = ["completed", "blocked", "failed"
 const PRIOR_IDENTITY = "11111:1000000";
 // Identity of the process performing the sweep.
 const CURRENT_IDENTITY = "22222:2000000";
+const AGENT_MODEL_CONFIG: AgentModelConfig = {
+  codex: { implement: { rungs: [{ adapterModel: "codex-fast", priceKey: "codex-fast" }] } },
+};
 
 let seedStore: StateStore;
 
@@ -55,6 +59,31 @@ function createRun(store: StateStore, status: RunStatus): string {
           },
         }
       : {}),
+  });
+}
+
+function createRecoverableRun(store: StateStore, branch: string): string {
+  return store.createRun({
+    project: "project",
+    specRef: "main",
+    worktreePath: `/tmp/worktree-${branch}`,
+    branch,
+    specPath: `/tmp/spec-${branch}.md`,
+    status: "in-progress",
+    stepId: "step",
+    workflowSnapshot: {
+      invocationId: `workflow-${branch}`,
+      steps: [
+        {
+          stepId: "step",
+          role: "implement",
+          stepRules: "recover",
+          expectedArtifactPath: "artifact.md",
+          agents: ["codex"],
+          agentModelConfig: AGENT_MODEL_CONFIG,
+        },
+      ],
+    },
   });
 }
 
@@ -235,7 +264,7 @@ test("retries an event left pending by a failed log append exactly once", async 
       },
       reader,
     ),
-  ).resolves.toBeUndefined();
+  ).resolves.toEqual([]);
 
   expect(records).toEqual([
     { runId, seq: 1, ts: "now", event: { kind: "run_reconciled", runStatus: "killed", reason: "daemon_restart" } },
@@ -348,4 +377,51 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
     ).rejects.toThrow(failure.message);
     expect(opened).toBe(false);
   }
+});
+
+test("startup opens IPC before independently recovering reconciled runs", async () => {
+  const successRunId = createRecoverableRun(seedStore, "recover-success");
+  const failedRunId = createRun(seedStore, "in-progress");
+  const events: Array<{ runId: string; event: LogEvent }> = [];
+  const order: string[] = [];
+  const sweepStore = openSweepStore(async () => false);
+  let healthAvailable = false;
+
+  await startDaemon("/fake/recovery-socket", sweepStore, { tail: () => [], async *follow() {} }, {
+    openLogSink: () => ({ append: (runId, event) => events.push({ runId, event }), close: () => undefined }),
+    startIpcServer: async (_socket, handlers) => {
+      order.push("ipc");
+      healthAvailable = handlers?.health !== undefined;
+      return { close: async () => undefined } as IpcServer;
+    },
+    writeLoopExecutor: async () => {
+      order.push("recovered");
+      sweepStore.setRunStatus(successRunId, "in-progress");
+      await new Promise<void>(() => undefined);
+    },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(order).toEqual(["ipc", "recovered"]);
+  expect(healthAvailable).toBe(true);
+  expect(sweepStore.loadRun(successRunId)).toMatchObject({
+    id: successRunId,
+    status: "in-progress",
+    workflowSnapshot: { invocationId: "workflow-recover-success" },
+    worktreePath: "/tmp/worktree-recover-success",
+    branch: "recover-success",
+  });
+  expect(sweepStore.loadRun(failedRunId)?.status).toBe("failed");
+  expect(events).toContainEqual({
+    runId: successRunId,
+    event: { kind: "run_recovery_started", reason: "daemon_restart" },
+  });
+  expect(events).toContainEqual({
+    runId: failedRunId,
+    event: {
+      kind: "run_execution_failed",
+      message: "Automatic restart recovery failed: run has no matching workflow snapshot step",
+    },
+  });
+  sweepStore.close();
 });

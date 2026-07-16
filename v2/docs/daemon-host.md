@@ -41,6 +41,15 @@ Kill and reconcile never overwrite a boundary-terminal row status (`completed`,
 append); a pending row that has since reached a boundary-terminal status gets its
 pending flag cleared with no reconcile event.
 
+After the listener opens, the daemon automatically admits every run reconciled in
+that durable sweep through the normal snapshot-backed `resume` path. It retains the
+same run ID, workflow snapshot, worktree, and branch; health and all other IPC stay
+available while resumed work runs. A successful admission appends
+`run_recovery_started` with `reason: "daemon_restart"`. An admission failure marks
+only that run `failed` and appends `run_execution_failed` with an actionable
+`Automatic restart recovery failed:` diagnostic; remaining reconciled runs are
+still attempted.
+
 ## Socket path
 
 Callers supply `socketPath` explicitly. There is no production default,

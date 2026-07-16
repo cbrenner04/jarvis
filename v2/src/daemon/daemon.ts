@@ -86,8 +86,9 @@ export async function reconcileOrphanedRuns(
   stateStore: StateStore,
   logSink: LogSink,
   logReader?: LogReader,
-): Promise<void> {
-  for (const runId of await stateStore.beginRunReconciliation()) {
+): Promise<string[]> {
+  const reconciledRunIds = await stateStore.beginRunReconciliation();
+  for (const runId of reconciledRunIds) {
     const run = stateStore.loadRun(runId);
     const eventPersisted = logReader
       ?.tail(runId)
@@ -102,6 +103,7 @@ export async function reconcileOrphanedRuns(
     }
     stateStore.finishRunReconciliation(runId);
   }
+  return reconciledRunIds;
 }
 
 function isTerminalListStatus(status: RunStatus): boolean {
@@ -1234,6 +1236,7 @@ export type DaemonStartupDeps = {
   logsPath?: string;
   openLogSink?: typeof openLogSink;
   startIpcServer?: typeof startIpcServer;
+  writeLoopExecutor?: (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => Promise<void>;
 };
 
 export async function startDaemon(
@@ -1247,15 +1250,16 @@ export async function startDaemon(
   const logReaderInstance = logReader ?? openLogReader(logsPath);
   const createLogSink = startupDeps.openLogSink ?? openLogSink;
   const reconciliationLogSink = createLogSink(logsPath);
+  let reconciledRunIds: string[];
   try {
-    await reconcileOrphanedRuns(store, reconciliationLogSink, logReaderInstance);
+    reconciledRunIds = await reconcileOrphanedRuns(store, reconciliationLogSink, logReaderInstance);
   } finally {
     reconciliationLogSink.close();
   }
   let shutdownRequested = false;
   const operatorSessionId = crypto.randomUUID();
 
-  const writeLoopExecutor = async (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => {
+  const writeLoopExecutor = startupDeps.writeLoopExecutor ?? (async (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => {
     const logSink = openLogSink(logsPath);
     try {
       await executeWriteLoop({
@@ -1268,7 +1272,7 @@ export async function startDaemon(
     } finally {
       logSink.close();
     }
-  };
+  });
 
   const tailStreamHandler = createTailStreamHandler({ stateStore: store, logReader: logReaderInstance });
 
@@ -1313,6 +1317,41 @@ export async function startDaemon(
     console.error(`Failed to start IPC server on ${socketPath}:`, err);
     process.exit(1);
   }
+
+  void (async () => {
+    for (const runId of reconciledRunIds) {
+      try {
+        const response = await runControlHandlers.resume(
+          { kind: "request", id: `startup-recovery-${runId}`, method: "resume", params: { runId } },
+          new AbortController().signal,
+        );
+        const logSink = createLogSink(logsPath);
+        try {
+          if (response.kind === "response") {
+            logSink.append(runId, { kind: "run_recovery_started", reason: "daemon_restart" });
+          } else {
+            store.setRunStatus(runId, "failed");
+            logSink.append(runId, { kind: "run_execution_failed", message: `Automatic restart recovery failed: ${response.message}` });
+          }
+        } finally {
+          logSink.close();
+        }
+      } catch (reason) {
+        const message = reason instanceof Error ? reason.message : String(reason);
+        try {
+          store.setRunStatus(runId, "failed");
+        } catch {
+          // Continue recovery attempts when one durable update fails.
+        }
+        const logSink = createLogSink(logsPath);
+        try {
+          logSink.append(runId, { kind: "run_execution_failed", message: `Automatic restart recovery failed: ${message}` });
+        } finally {
+          logSink.close();
+        }
+      }
+    }
+  })();
 
   const signalHandler = () => {
     shutdownRequested = true;

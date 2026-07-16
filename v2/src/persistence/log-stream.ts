@@ -39,6 +39,11 @@ export type RunReconciledEvent = {
   reason: "daemon_restart";
 };
 
+export type RunRecoveryStartedEvent = {
+  kind: "run_recovery_started";
+  reason: "daemon_restart";
+};
+
 /** Agent stdout excerpt when token parsing fails; truncated at append time. */
 export type InvalidTokenDetailEvent = {
   kind: "invalid_token_detail";
@@ -74,6 +79,7 @@ export type LogEvent =
   | LoopFinishedEvent
   | RunExecutionFailedEvent
   | RunReconciledEvent
+  | RunRecoveryStartedEvent
   | InvalidTokenDetailEvent
   | TokenRepromptEvent
   | BlockerRepromptEvent

@@ -300,9 +300,12 @@ work.
 ### Orphaned non-terminal runs after daemon restart
 
 Durable non-terminal rows from a prior daemon are reconciled to `killed` with reason
-`daemon_restart` before IPC opens (#1430, race fixed by #1476–#1478). Worktrees and branches
-survive, but the killed iteration's agent work does **not** — it is left uncommitted in the
-worktree, and its token spend is lost.
+`daemon_restart` before IPC opens, then automatically resumed after IPC is listening.
+The same run ID, snapshot, worktree, and branch are retained; inspect `jarvis run log <run-id>`
+for `run_recovery_started`. The daemon remains healthy while recovery runs. If an admission
+cannot reconstruct or start the snapshot, that run becomes `failed` with an actionable
+`Automatic restart recovery failed:` log entry; inspect and repair its context or re-run the
+spec. Other orphaned runs continue recovering.
 
 **Two traps here, both seeded, both observed live on 2026-07-14:**
 
@@ -310,9 +313,9 @@ worktree, and its token spend is lost.
   any v2 change (stale code snapshot). So landing a v2 fix destroys concurrent work. Seed:
   `daemon-restart-kills-in-flight-runs`. Cleanup: delete when it ships.
 - Killed workflow write runs resume from their persisted snapshot. If the snapshot is missing or
-  cannot resolve its write step, `resume` returns `resume_unsupported` before spawn; `list` / `wait`
-  report `unsupported_resume_context` with `retryable: false` and `nextAction: "stop"`. Fix the
-  persisted context or re-run the spec rather than treating that row as a config-binding failure.
+  cannot resolve its write step, automatic recovery marks the run failed; manual `resume` still
+  returns `resume_unsupported`. Fix the persisted context or re-run the spec rather than treating
+  that row as a config-binding failure.
 
 ### Wedged run, no agent activity
 

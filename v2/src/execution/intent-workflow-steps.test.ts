@@ -28,15 +28,24 @@ const load = (steps: readonly WorkflowSourceStep[]): LoadedWorkflowStep[] =>
 
 describe("buildIntentWorkflowSteps", () => {
   test("omits review by default and for zero passes", async () => {
-    const noReview = await buildIntentWorkflowSteps({ cwd: "/repo", seedText: "x" }, { resolveProjectMatch: () => match, loadWorkflowSteps: load });
-    const zero = await buildIntentWorkflowSteps({ cwd: "/repo", seedText: "x", reviewPasses: 0 }, { resolveProjectMatch: () => match, loadWorkflowSteps: load });
+    const noReview = await buildIntentWorkflowSteps(
+      { cwd: "/repo", seedText: "x" },
+      { resolveProjectMatch: () => match, loadWorkflowSteps: load },
+    );
+    const zero = await buildIntentWorkflowSteps(
+      { cwd: "/repo", seedText: "x", reviewPasses: 0 },
+      { resolveProjectMatch: () => match, loadWorkflowSteps: load },
+    );
     expect(noReview.ok && noReview.steps).toHaveLength(1);
     expect(zero.ok && zero.steps).toHaveLength(1);
   });
 
   test("selects light or debate review for positive passes", async () => {
     const deps = { resolveProjectMatch: () => match, loadWorkflowSteps: load };
-    const light = await buildIntentWorkflowSteps({ cwd: "/repo", seedText: "x", reviewPasses: 1, reviewBehavior: "light" }, deps);
+    const light = await buildIntentWorkflowSteps(
+      { cwd: "/repo", seedText: "x", reviewPasses: 1, reviewBehavior: "light" },
+      deps,
+    );
     const debate = await buildIntentWorkflowSteps({ cwd: "/repo", seedText: "x", reviewPasses: 2 }, deps);
     expect(light.ok && light.steps[1]?.behavior).toBe("review");
     expect(debate.ok && debate.steps[1]?.behavior).toBe("review-debate");
@@ -45,7 +54,14 @@ describe("buildIntentWorkflowSteps", () => {
   test("rejects invalid review options", async () => {
     const deps = { resolveProjectMatch: () => match, loadWorkflowSteps: load };
     expect((await buildIntentWorkflowSteps({ cwd: "/repo", seedText: "x", reviewPasses: -1 }, deps)).ok).toBe(false);
-    expect((await buildIntentWorkflowSteps({ cwd: "/repo", seedText: "x", reviewPasses: 1, reviewBehavior: "heavy" as "light" }, deps)).ok).toBe(false);
+    expect(
+      (
+        await buildIntentWorkflowSteps(
+          { cwd: "/repo", seedText: "x", reviewPasses: 1, reviewBehavior: "heavy" as "light" },
+          deps,
+        )
+      ).ok,
+    ).toBe(false);
   });
   test("builds file and inline seeds with stable PR titles", async () => {
     const root = mkdtempSync(join(tmpdir(), "intent-builder-"));

@@ -84,10 +84,11 @@ const WORKFLOW_INTENT_USAGE =
   "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light]\n";
 const WORKFLOW_PLAN_USAGE =
   "usage: jarvis run workflow plan --ready-intent <path> [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light]\n";
-const WORKFLOW_USAGE =
-  "usage: jarvis run workflow <intent|plan|implement> [flags]\n";
+const WORKFLOW_USAGE = "usage: jarvis run workflow <intent|plan|implement> [flags]\n";
 
-const LEGACY_WORKFLOW_ALIASES: Readonly<Record<string, { canonical: "intent" | "plan"; passes: number; behavior: "debate" | "light" }>> = {
+const LEGACY_WORKFLOW_ALIASES: Readonly<
+  Record<string, { canonical: "intent" | "plan"; passes: number; behavior: "debate" | "light" }>
+> = {
   "intent-reviewed": { canonical: "intent", passes: 1, behavior: "light" },
   "plan-reviewed": { canonical: "plan", passes: 1, behavior: "debate" },
   "plan-reviewed-light": { canonical: "plan", passes: 1, behavior: "light" },
@@ -450,11 +451,7 @@ function getWorkflowUsage(name: string): string {
   return WORKFLOW_USAGE;
 }
 
-function parseWorkflowArgsByName(
-  args: readonly string[],
-  isIntentPreset: boolean,
-  isPlanPreset: boolean,
-) {
+function parseWorkflowArgsByName(args: readonly string[], isIntentPreset: boolean, isPlanPreset: boolean) {
   if (isIntentPreset) {
     return parseIntentWorkflowArgs(args);
   }
@@ -505,7 +502,7 @@ async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps
       ? deps.workflowPresetBuilders[canonicalName]
       : name !== undefined && Object.hasOwn(deps.workflowPresetBuilders, name)
         ? deps.workflowPresetBuilders[name]
-      : undefined;
+        : undefined;
   if (builder === undefined || name === undefined) {
     io.stderr(WORKFLOW_USAGE);
     return 1;
@@ -522,10 +519,18 @@ async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps
   if (alias !== undefined) {
     if ("reviewPasses" in parsed && parsed.reviewPasses === undefined) parsed.reviewPasses = alias.passes;
     if ("reviewBehavior" in parsed && parsed.reviewBehavior === undefined) parsed.reviewBehavior = alias.behavior;
-    io.stderr(`deprecated: use ${alias.canonical} --review-passes ${alias.passes} --review-behavior ${alias.behavior}\n`);
+    io.stderr(
+      `deprecated: use ${alias.canonical} --review-passes ${alias.passes} --review-behavior ${alias.behavior}\n`,
+    );
   }
 
-  const builderInputResult = buildWorkflowBuilderInput(canonicalName ?? name ?? "", parsed, isIntentPreset, isPlanPreset, deps);
+  const builderInputResult = buildWorkflowBuilderInput(
+    canonicalName ?? name ?? "",
+    parsed,
+    isIntentPreset,
+    isPlanPreset,
+    deps,
+  );
   if (!builderInputResult.ok) return 1;
 
   const built = await builder(builderInputResult.input as Parameters<WorkflowPresetBuilder>[0]);
@@ -680,7 +685,9 @@ function parseWriteCliInput(argv: readonly string[], deps: CliDeps): WriteCliInp
 
 type ReviewCliInput = { reviewPasses?: number; reviewBehavior?: ImplementReviewBehavior };
 
-function parseReviewCliInput(values: Record<string, string | boolean | string[] | undefined>): ReviewCliInput | undefined {
+function parseReviewCliInput(
+  values: Record<string, string | boolean | string[] | undefined>,
+): ReviewCliInput | undefined {
   let reviewPasses: number | undefined;
   if (typeof values["review-passes"] === "string") {
     const raw = values["review-passes"];
@@ -802,9 +809,7 @@ function parseIntentWorkflowArgs(argv: readonly string[]): IntentWorkflowCliInpu
   return { ok: false };
 }
 
-type PlanWorkflowCliInput =
-  | ({ ok: true; readyIntent: string; targetDir?: string } & ReviewCliInput)
-  | { ok: false };
+type PlanWorkflowCliInput = ({ ok: true; readyIntent: string; targetDir?: string } & ReviewCliInput) | { ok: false };
 
 function parsePlanWorkflowArgs(argv: readonly string[]): PlanWorkflowCliInput {
   let values: Record<string, string | boolean | undefined>;

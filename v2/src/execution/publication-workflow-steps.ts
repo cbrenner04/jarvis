@@ -21,11 +21,7 @@ import {
   type WorkflowSourceStep,
   type WriteWorkflowSourceStep,
 } from "./workflow-loader.ts";
-import {
-  type AnyWorkflowStep,
-  resolveWorkflowPreset,
-  type WriteWorkflowStep,
-} from "./workflow-runner.ts";
+import { type AnyWorkflowStep, resolveWorkflowPreset, type WriteWorkflowStep } from "./workflow-runner.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 const INTENT_STAGE = ".jarvis-intent-stage";

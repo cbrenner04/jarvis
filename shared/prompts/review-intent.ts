@@ -54,7 +54,9 @@ function renderIntentReviewPrompt(
       REVIEW_PASS_NUMBER: String(context.passNumber ?? 1),
       REVIEW_PASS_CONTEXT:
         context.priorCycleVerdict?.trim() ??
-        (context.totalPasses === 1 ? "This is the only review pass." : `This is review pass 1 of ${context.totalPasses ?? 1}.`),
+        (context.totalPasses === 1
+          ? "This is the only review pass."
+          : `This is review pass 1 of ${context.totalPasses ?? 1}.`),
       ADVERSARY_FINDINGS: "(no prior findings)",
       ADVOCATE_RESPONSE: "(no prior response)",
       ...extra,
@@ -97,14 +99,11 @@ export function renderIntentReviewDebateRolePrompt(
 export const intentReviewPromptProfile = bindReviewPromptProfile<
   IntentReviewPromptContext,
   "critic" | "actuator" | IntentReviewDebateRole
->(
-  intentReviewProfile,
-  {
-    critic: renderIntentReviewCriticPrompt,
-    actuator: renderIntentReviewActuatorPrompt,
-    debateRole: (role, context, prior) => {
-      if (role === "critic" || role === "actuator") throw new Error(`unsupported intent debate role: ${role}`);
-      return renderIntentReviewDebateRolePrompt(role, context, prior);
-    },
+>(intentReviewProfile, {
+  critic: renderIntentReviewCriticPrompt,
+  actuator: renderIntentReviewActuatorPrompt,
+  debateRole: (role, context, prior) => {
+    if (role === "critic" || role === "actuator") throw new Error(`unsupported intent debate role: ${role}`);
+    return renderIntentReviewDebateRolePrompt(role, context, prior);
   },
-);
+});

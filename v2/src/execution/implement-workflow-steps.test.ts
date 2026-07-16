@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProjectMatch } from "../../../shared/project-registry.ts";
@@ -382,11 +391,17 @@ describe("buildImplementWorkflowSteps", () => {
     symlinkSync(join(outside, "index.md"), join(root, "escaped.md"));
     const configPath = writeJson("config.json", { projects: { registered: { root } } });
 
-    const result = buildImplementWorkflowSteps({ cwd: root, baseRef: "main", specPath: "escaped.md", configPath }, {
-      loadWorkflowSteps: () => [],
-    });
+    const result = buildImplementWorkflowSteps(
+      { cwd: root, baseRef: "main", specPath: "escaped.md", configPath },
+      {
+        loadWorkflowSteps: () => [],
+      },
+    );
 
-    expect(result).toEqual({ ok: false, error: `Spec path outside registered project roots: ${realpathSync(join(outside, "index.md"))}` });
+    expect(result).toEqual({
+      ok: false,
+      error: `Spec path outside registered project roots: ${realpathSync(join(outside, "index.md"))}`,
+    });
   });
 
   test("executes a first launch in a new worktree with project-relative paths", async () => {

@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { renderIntentReviewDebateRolePrompt } from "./review-intent.ts";
 import {
   implementReviewProfile,
   intentReviewProfile,
   planReviewProfile,
   type ReviewProfileSpec,
 } from "./review-profile.ts";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { renderIntentReviewDebateRolePrompt } from "./review-intent.ts";
 
 describe("ReviewPromptProfile", () => {
   test("defines one domain contract for light and debate review", () => {

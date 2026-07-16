@@ -109,7 +109,10 @@ describe("buildPlanWorkflowSteps review composition", () => {
   const input = { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md" };
 
   test.each([undefined, 0])("omits review for reviewPasses=%s", async (reviewPasses) => {
-    const result = await buildPlanWorkflowSteps({ ...input, ...(reviewPasses === undefined ? {} : { reviewPasses }) }, builderDeps);
+    const result = await buildPlanWorkflowSteps(
+      { ...input, ...(reviewPasses === undefined ? {} : { reviewPasses }) },
+      builderDeps,
+    );
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.steps).toHaveLength(1);
   });
@@ -127,7 +130,13 @@ describe("buildPlanWorkflowSteps review composition", () => {
     let loaded = false;
     const result = await buildPlanWorkflowSteps(
       { ...input, reviewPasses: 1, reviewBehavior: "invalid" as "debate" },
-      { ...builderDeps, loadWorkflowSteps: () => { loaded = true; return []; } },
+      {
+        ...builderDeps,
+        loadWorkflowSteps: () => {
+          loaded = true;
+          return [];
+        },
+      },
     );
     expect(result).toMatchObject({ ok: false, error: 'plan: reviewBehavior must be "debate" or "light"' });
     expect(loaded).toBe(false);
@@ -136,7 +145,10 @@ describe("buildPlanWorkflowSteps review composition", () => {
   test("aliases delegate with defaults while explicit options override them", async () => {
     const debate = await buildReviewedPlanWorkflowSteps(input, builderDeps);
     const light = await buildReviewedPlanLightWorkflowSteps(input, builderDeps);
-    const override = await buildReviewedPlanWorkflowSteps({ ...input, reviewPasses: 0, reviewBehavior: "light" }, builderDeps);
+    const override = await buildReviewedPlanWorkflowSteps(
+      { ...input, reviewPasses: 0, reviewBehavior: "light" },
+      builderDeps,
+    );
     expect(debate.ok && debate.steps[1]).toMatchObject({ behavior: "review-debate", maxCycles: 1 });
     expect(light.ok && light.steps[1]).toMatchObject({ behavior: "review", maxCycles: 1 });
     expect(override.ok && override.steps).toHaveLength(1);

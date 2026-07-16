@@ -74,22 +74,11 @@ function resolveExistingImplementPath(label: string, path: string): string | { e
   }
 }
 
-function resolveImplementLaunch(
+/** Resolve the spec path and its owning project match from the registry, with existence checks. */
+function resolveImplementSpecAndProject(
   input: BuildImplementWorkflowStepsInput,
   deps: BuildImplementWorkflowStepsDeps,
-): BuildImplementWorkflowStepsInput | { error: string } {
-  if (input.projectRoot !== undefined) {
-    return {
-      ...input,
-      branchName: input.branchName ?? basename(dirname(resolve(input.projectRoot, input.specPath))),
-      reviewPasses: input.reviewPasses ?? 0,
-    };
-  }
-
-  if (deps.resolveProjectMatch !== undefined) {
-    return { ...input, reviewPasses: input.reviewPasses ?? 0 };
-  }
-
+): { match: ProjectMatch; resolvedSpecPath: string } | { error: string } {
   const requestedSpecPath = resolve(input.cwd, input.specPath);
   const resolvedSpecPath = resolveExistingImplementPath("Spec", requestedSpecPath);
   if (typeof resolvedSpecPath === "object") return resolvedSpecPath;
@@ -109,6 +98,28 @@ function resolveImplementLaunch(
   if (findProjectMatch(resolvedSpecPath, { [match.key]: { root: match.root } }) === undefined) {
     return { error: `Spec path outside registered project roots: ${resolvedSpecPath}` };
   }
+  return { match, resolvedSpecPath };
+}
+
+function resolveImplementLaunch(
+  input: BuildImplementWorkflowStepsInput,
+  deps: BuildImplementWorkflowStepsDeps,
+): BuildImplementWorkflowStepsInput | { error: string } {
+  if (input.projectRoot !== undefined) {
+    return {
+      ...input,
+      branchName: input.branchName ?? basename(dirname(resolve(input.projectRoot, input.specPath))),
+      reviewPasses: input.reviewPasses ?? 0,
+    };
+  }
+
+  if (deps.resolveProjectMatch !== undefined) {
+    return { ...input, reviewPasses: input.reviewPasses ?? 0 };
+  }
+
+  const resolvedSpec = resolveImplementSpecAndProject(input, deps);
+  if ("error" in resolvedSpec) return resolvedSpec;
+  const { match, resolvedSpecPath } = resolvedSpec;
 
   const isIndexSpec = basename(resolvedSpecPath) === "index.md";
   const artifactPath = isIndexSpec ? resolvedSpecPath : input.artifactPath;
@@ -276,7 +287,11 @@ export function buildImplementWorkflowSteps(
   const absoluteSpecPath = resolve(match.root, resolvedInput.specPath);
   const isIndexSpec = basename(absoluteSpecPath) === "index.md";
 
-  const expectedArtifactPath = resolveImplementExpectedArtifactPath(isIndexSpec, resolvedInput.specPath, resolvedInput.artifactPath);
+  const expectedArtifactPath = resolveImplementExpectedArtifactPath(
+    isIndexSpec,
+    resolvedInput.specPath,
+    resolvedInput.artifactPath,
+  );
   if (typeof expectedArtifactPath === "object") return { ok: false, error: expectedArtifactPath.error };
 
   const routingError = validateLinkedIndexRouting(isIndexSpec, absoluteSpecPath, match.root, resolveLinkedSubspec);

@@ -245,6 +245,56 @@ describe("createResolvedAgentBinding", () => {
     expect(fake.calls[0]?.child?.killedWith).toContain("SIGTERM");
   });
 
+  test("idle output expiry kills a silent child and settles stall", async () => {
+    const fake = fakeSpawn([{ kind: "hang" }]);
+    let expiry: (() => void) | undefined;
+    const binding = createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      {
+        spawn: fake.spawn,
+        setTimeout: ((callback: Parameters<typeof setTimeout>[0]) => {
+          expiry = callback;
+          return { unref() {} } as unknown as ReturnType<typeof setTimeout>;
+        }) as typeof setTimeout,
+        clearTimeout: (() => {}) as typeof clearTimeout,
+      },
+    );
+
+    const promise = binding.invoke({ prompt: "p", cwd: "/repo", idleOutputMs: 100 });
+    expiry?.();
+
+    await expect(promise).resolves.toEqual({ kind: "stall", stderr: "" });
+    expect(fake.calls[0]?.child?.killedWith).toContain("SIGTERM");
+  });
+
+  test("output clears the previous idle expiry", async () => {
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: "done" }]);
+    const expiries: (() => void)[] = [];
+    const active = new Set<() => void>();
+    const binding = createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      {
+        spawn: fake.spawn,
+        setTimeout: ((callback: Parameters<typeof setTimeout>[0]) => {
+          const wrapped = () => {
+            if (active.has(wrapped)) callback();
+          };
+          active.add(wrapped);
+          expiries.push(wrapped);
+          return wrapped as unknown as ReturnType<typeof setTimeout>;
+        }) as typeof setTimeout,
+        clearTimeout: ((timer) => active.delete(timer as unknown as () => void)) as typeof clearTimeout,
+      },
+    );
+
+    const promise = binding.invoke({ prompt: "p", cwd: "/repo", idleOutputMs: 100 });
+    fake.calls[0]?.child?.stdout.write("progress");
+    expiries[0]?.();
+
+    await expect(promise).resolves.toMatchObject({ kind: "ok" });
+    expect(expiries.length).toBeGreaterThan(1);
+  });
+
   test("claude spawn failure returns terminal error", async () => {
     const fake = fakeSpawn([{ kind: "throw", error: new Error("ENOENT") }]);
 

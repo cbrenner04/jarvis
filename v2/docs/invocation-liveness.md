@@ -1,9 +1,10 @@
 # Invocation liveness
 
 Behavioral contract for **stall** (process up, no useful progress toward the step
-outcome) vs **slow work** (long but legitimate) during one agent invocation. Policy
-is evaluated in shared invocation; workflow loops consume outcomes. Enforcement
-details are deferred — see [Deferred](#deferred-to-first-enforcement-consumer).
+outcome) vs **slow work** (long but legitimate) during one agent invocation. Shared
+invocation now detects stdout/stderr-only stalls when a caller supplies an
+`idleOutputMs` budget; workflow loops consume outcomes. Workspace and marker signals,
+profiles, and stall-driven binding advance remain deferred.
 
 Related: [`shared-invocation.md`](./shared-invocation.md), [`role-resolution.md`](./role-resolution.md),
 [`v1-behaviors.md`](./v1-behaviors.md).
@@ -58,7 +59,8 @@ workspace row applies when the resolved role may write toward the step outcome
 (`actuator`, `implement` under `write`, etc.).
 
 v1 ≈ `max(output idle, file idle)` under one global `idleOutputTimeoutMs` plus
-`iterationTimeoutMs` — [`v1-behaviors.md`](./v1-behaviors.md). v2 is not stdout-only.
+`iterationTimeoutMs` — [`v1-behaviors.md`](./v1-behaviors.md). Shared v2 currently
+enforces caller-supplied stdout/stderr idle budgets only.
 
 ## Stall-response categories
 
@@ -110,7 +112,7 @@ Exemplars:
 
 ## Deferred to first enforcement consumer
 
-- Signal algorithms, weights, intervals, timeout tables per profile.
+- Workspace and step-marker signal algorithms, weights, intervals, and timeout tables per profile.
 - **Profile context plumbing** — behavior, resolved role, and step metadata supplied
   into shared invocation for profile selection (including metadata-tightened bounds).
 - **Stall-driven binding advance** — contract extension beyond quota-only fallback:

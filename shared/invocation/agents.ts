@@ -19,6 +19,8 @@ export type ResolvedAgentBindingOptions = {
   spawn?: SpawnFn;
   codexSessionsDir?: string;
   randomUUID?: () => string;
+  setTimeout?: typeof setTimeout;
+  clearTimeout?: typeof clearTimeout;
 };
 
 function createUnwiredBinding(id: string, stderr: string): InvocationBinding {
@@ -44,12 +46,15 @@ export function createResolvedAgentBinding(
     return {
       id,
       metadata,
-      invoke: ({ prompt, cwd, signal }) =>
+      invoke: ({ prompt, cwd, signal, idleOutputMs }) =>
         runClaudeBinding({
           prompt,
           cwd,
           adapterModel,
+          ...(idleOutputMs !== undefined ? { idleOutputMs } : {}),
           ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
+          ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
+          ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
           ...(signal !== undefined ? { signal } : {}),
         }),
     };
@@ -59,12 +64,15 @@ export function createResolvedAgentBinding(
     return {
       id,
       metadata,
-      invoke: ({ prompt, cwd, signal }) => {
+      invoke: ({ prompt, cwd, signal, idleOutputMs }) => {
         const runArgs = {
           prompt,
           cwd,
           adapterModel,
+          ...(idleOutputMs !== undefined ? { idleOutputMs } : {}),
           ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
+          ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
+          ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
           ...(opts.codexSessionsDir !== undefined ? { sessionsDir: opts.codexSessionsDir } : {}),
           ...(opts.randomUUID !== undefined ? { randomUUID: opts.randomUUID } : {}),
           ...(signal !== undefined ? { signal } : {}),
@@ -78,7 +86,7 @@ export function createResolvedAgentBinding(
     return {
       id,
       metadata,
-      invoke: ({ prompt, cwd, signal }) =>
+      invoke: ({ prompt, cwd, signal, idleOutputMs }) =>
         runAgent(
           {
             name: "cursor",
@@ -102,7 +110,12 @@ export function createResolvedAgentBinding(
             ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
           },
           prompt,
-          signal === undefined ? {} : { signal },
+          {
+            ...(signal !== undefined ? { signal } : {}),
+            ...(idleOutputMs !== undefined ? { idleOutputMs } : {}),
+            ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
+            ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
+          },
         ),
     };
   }
@@ -122,6 +135,9 @@ type AgentRunOptions = {
   signal?: AbortSignal;
   abortKillGraceMs?: number;
   sleepMs?: (delayMs: number, signal?: AbortSignal) => Promise<void>;
+  idleOutputMs?: number;
+  setTimeout?: typeof setTimeout;
+  clearTimeout?: typeof clearTimeout;
 };
 
 type SpawnConfig = {
@@ -179,14 +195,21 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
     let stderrEnded = false;
     let childClosed = false;
     let abortReason: string | null = null;
-    let abortTimer: NodeJS.Timeout | null = null;
+    let abortTimer: ReturnType<typeof setTimeout> | null = null;
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    const setTimer = opts.setTimeout ?? setTimeout;
+    const clearTimer = opts.clearTimeout ?? clearTimeout;
 
-    const settle = (result: InvocationResult) => {
+    const settle = (result: InvocationResult, keepAbortTimer = false) => {
       if (settled) return;
       settled = true;
-      if (abortTimer !== null) {
-        clearTimeout(abortTimer);
+      if (!keepAbortTimer && abortTimer !== null) {
+        clearTimer(abortTimer);
         abortTimer = null;
+      }
+      if (idleTimer !== null) {
+        clearTimer(idleTimer);
+        idleTimer = null;
       }
       resolvePromise(result);
     };
@@ -197,6 +220,41 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
         exitCode: -1,
         stderr: `aborted: ${abortReason}`,
       });
+    };
+
+    const killProcessGroup = () => {
+      const pgid = child.pid;
+      if (pgid === undefined) {
+        child.kill("SIGTERM");
+        return;
+      }
+      try {
+        process.kill(-pgid, "SIGTERM");
+      } catch {
+        child.kill("SIGTERM");
+      }
+      abortTimer = setTimer(() => {
+        try {
+          process.kill(-pgid, "SIGKILL");
+        } catch {
+          try {
+            child.kill("SIGKILL");
+          } catch {
+            // Best-effort kill.
+          }
+        }
+      }, opts.abortKillGraceMs ?? 2000);
+      abortTimer.unref?.();
+    };
+
+    const armIdleTimer = () => {
+      if (opts.idleOutputMs === undefined || opts.idleOutputMs <= 0 || settled) return;
+      if (idleTimer !== null) clearTimer(idleTimer);
+      idleTimer = setTimer(() => {
+        killProcessGroup();
+        settle({ kind: "stall", stderr: errBuf }, true);
+      }, opts.idleOutputMs);
+      idleTimer.unref?.();
     };
 
     const settleZeroExit = () => {
@@ -241,6 +299,7 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
 
     stdout.on("data", (chunk: Buffer) => {
       outBuf += chunk.toString("utf8");
+      armIdleTimer();
     });
     stdout.on("end", () => {
       stdoutEnded = true;
@@ -251,6 +310,7 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
     });
     stderr.on("data", (chunk: Buffer) => {
       errBuf += chunk.toString("utf8");
+      armIdleTimer();
     });
     stderr.on("end", () => {
       stderrEnded = true;
@@ -267,7 +327,7 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
       });
     });
     child.on("exit", (code) => {
-      if (abortReason === null && code === 0) {
+      if (!settled && abortReason === null && code === 0) {
         const pgid = child.pid;
         if (pgid !== undefined) {
           try {
@@ -285,29 +345,7 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
 
     if (opts.signal) {
       const handleAbort = () => {
-        const pgid = child.pid;
-        if (pgid !== undefined) {
-          try {
-            process.kill(-pgid, "SIGTERM");
-          } catch {
-            child.kill("SIGTERM");
-          }
-          const abortKillGraceMs = opts.abortKillGraceMs ?? 2000;
-          abortTimer = setTimeout(() => {
-            try {
-              process.kill(-pgid, "SIGKILL");
-            } catch {
-              try {
-                child.kill("SIGKILL");
-              } catch {
-                // Best-effort abort.
-              }
-            }
-          }, abortKillGraceMs);
-          abortTimer.unref();
-        } else {
-          child.kill("SIGTERM");
-        }
+        killProcessGroup();
         abortReason = opts.signal?.reason ? String(opts.signal.reason) : "aborted";
         checkSettlement();
       };
@@ -317,6 +355,8 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
         opts.signal.addEventListener("abort", handleAbort);
       }
     }
+
+    armIdleTimer();
 
     if (config.writeStdin && stdin) {
       config.writeStdin(stdin, prompt);
@@ -411,6 +451,9 @@ async function runClaudeBinding(args: {
   cwd: string;
   adapterModel: string;
   signal?: AbortSignal;
+  idleOutputMs?: number;
+  setTimeout?: typeof setTimeout;
+  clearTimeout?: typeof clearTimeout;
   spawn?: SpawnFn;
 }): Promise<InvocationResult> {
   const result = await runAgent(
@@ -438,7 +481,12 @@ async function runClaudeBinding(args: {
       ...(args.spawn !== undefined ? { spawn: args.spawn } : {}),
     },
     args.prompt,
-    args.signal === undefined ? {} : { signal: args.signal },
+    {
+      ...(args.signal !== undefined ? { signal: args.signal } : {}),
+      ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
+      ...(args.setTimeout !== undefined ? { setTimeout: args.setTimeout } : {}),
+      ...(args.clearTimeout !== undefined ? { clearTimeout: args.clearTimeout } : {}),
+    },
   );
   return finalizeClaudeInvocationResult(result);
 }
@@ -448,6 +496,9 @@ async function runCodexBinding(args: {
   cwd: string;
   adapterModel: string;
   signal?: AbortSignal;
+  idleOutputMs?: number;
+  setTimeout?: typeof setTimeout;
+  clearTimeout?: typeof clearTimeout;
   spawn?: SpawnFn;
   sessionsDir?: string;
   randomUUID?: () => string;
@@ -482,7 +533,12 @@ async function runCodexBinding(args: {
       ...(args.spawn !== undefined ? { spawn: args.spawn } : {}),
     },
     `${args.prompt}\n${invocationMarker}`,
-    args.signal === undefined ? {} : { signal: args.signal },
+    {
+      ...(args.signal !== undefined ? { signal: args.signal } : {}),
+      ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
+      ...(args.setTimeout !== undefined ? { setTimeout: args.setTimeout } : {}),
+      ...(args.clearTimeout !== undefined ? { clearTimeout: args.clearTimeout } : {}),
+    },
   );
 
   if (result.kind !== "ok") {

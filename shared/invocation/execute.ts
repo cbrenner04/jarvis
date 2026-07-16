@@ -22,6 +22,11 @@ export type InvocationQuota = {
   authFailure?: true;
 };
 
+export type InvocationStall = {
+  kind: "stall";
+  stderr: string;
+};
+
 export type InvocationError =
   | {
       kind: "model_config";
@@ -33,11 +38,11 @@ export type InvocationError =
       stderr: string;
     };
 
-export type InvocationResult = InvocationOk | InvocationQuota | InvocationError;
+export type InvocationResult = InvocationOk | InvocationQuota | InvocationStall | InvocationError;
 
 export type InvocationBinding<T extends InvocationResult = InvocationResult> = {
   id: string;
-  invoke: (args: { prompt: string; cwd: string; signal?: AbortSignal }) => Promise<T>;
+  invoke: (args: { prompt: string; cwd: string; signal?: AbortSignal; idleOutputMs?: number }) => Promise<T>;
   shouldAdvance?: (result: T) => boolean;
   metadata?: { agent: string; model: string };
 };
@@ -124,6 +129,7 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
   cwd: string;
   bindings: readonly InvocationBinding<T>[];
   signal?: AbortSignal;
+  idleOutputMs?: number;
   telemetry?: InvocationTelemetryContext;
   sessionLog?: SessionLog;
 }): Promise<InvocationExecution<T>> {
@@ -149,6 +155,7 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
       prompt: args.prompt,
       cwd: args.cwd,
       ...(args.signal !== undefined ? { signal: args.signal } : {}),
+      ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
     });
     if (result.kind === "ok") {
       logAppend("inbound_stdout", result.stdout);

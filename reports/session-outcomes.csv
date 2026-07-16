@@ -238,30 +238,30 @@ report,session_id,report_date,cost,completed_work_units,success_status,failure_r
 2026-07-10T03-36-27Z-operator,intent-agent-flag-rejected-by-dispatcher,2026-07-10,$4.30,1,completed,,patch,1,52.97,$0.0812,6,$0.7167,single subspec; dispatcher admits --agent for intent
 2026-07-10T03-36-27Z-operator,cleanup-archive-already-merged-specs,2026-07-10,$7.47,1,completed,,patch,1,66.78,$0.1119,8,$0.9338,review-incomplete (exit 11) recovery; operator finalized
 2026-07-10T03-36-27Z-operator,ready-gate-scope-tests-by-changed-path,2026-07-10,$2.72,2,completed,3-agent iteration-wall timeouts; operator+subagent hand-finalize,patch,3,59.98,$0.0454,16,$0.1700,2 subspecs; claude/cursor/glm all timed out on subspec 01; completed via manual finalization on CI-green
-2026-07-11T00-01-14Z-operator,commit-completed-run-worktree,2026-07-10,$3.94,1,completed,,implementation,1,45.73,$0.0862,16,$0.2462,""
-2026-07-11T00-01-14Z-operator,publish-completed-run-draft-pr,2026-07-10,$10.70,1,completed,,implementation,2,53.68,$0.1993,12,$0.8917,""
-2026-07-11T00-01-14Z-operator,record-work-boundary-telemetry,2026-07-10,$9.21,2,completed,,implementation,3,52.7,$0.1748,12,$0.7675,""
-2026-07-11T00-01-14Z-operator,finalize-pr-attribution-and-ready,2026-07-10,$5.94,2,completed,,implementation,2,69.37,$0.0856,23,$0.2583,""
+2026-07-11T00-01-14Z-operator,commit-completed-run-worktree,2026-07-10,$3.94,1,completed,,implementation,1,45.73,$0.0862,16,$0.2462,
+2026-07-11T00-01-14Z-operator,publish-completed-run-draft-pr,2026-07-10,$10.70,1,completed,,implementation,2,53.68,$0.1993,12,$0.8917,
+2026-07-11T00-01-14Z-operator,record-work-boundary-telemetry,2026-07-10,$9.21,2,completed,,implementation,3,52.7,$0.1748,12,$0.7675,
+2026-07-11T00-01-14Z-operator,finalize-pr-attribution-and-ready,2026-07-10,$5.94,2,completed,,implementation,2,69.37,$0.0856,23,$0.2583,
 2026-07-11T00-13-10Z-operator,onboarding-overview-and-coexistence,2026-07-10,$3.75,1,completed,,implementation,2,53.25,$0.0704,8,$0.4688,
 2026-07-11T00-13-10Z-operator,v2-install-and-config,2026-07-10,$5.50,1,completed,,implementation,2,34.88,$0.1577,6,$0.9167,
 2026-07-11T00-13-10Z-operator,v2-first-workflow-walkthrough,2026-07-10,$6.35,1,completed,,implementation,2,36.73,$0.1729,6,$1.0583,
 2026-07-11T10-30-00Z-operator-v2-seeds-00-04,review-behavior,2026-07-11,$4.94,3,completed,,implementation,1,72.18,$0.0684,24,$0.2058,
 2026-07-11T10-30-00Z-operator-v2-seeds-00-04,generic-workflow-launcher,2026-07-11,$2.95,1,completed,,implementation,1,28.37,$0.1040,8,$0.3688,
 2026-07-11T10-30-00Z-operator-v2-seeds-00-04,intent-workflow-split,2026-07-11,$5.87,4,completed,,implementation,1,89.43,$0.0656,24,$0.2446,
-2026-07-11T10-30-00Z-operator-v2-seeds-00-04,intent-workflow-reviewed,2026-07-11,$9.47,4,completed,,implementation,2,124.42,$0.0761,25,$0.3788,"run retried across haiku/opus timeouts; subspec split; op-fixed durable-review regression"
-2026-07-11T10-30-00Z-operator-v2-seeds-00-04,plan-workflow-draft,2026-07-11,$16.89,4,completed,,implementation,1,117.87,$0.1433,18,$0.9383,"run retried; two subspecs hand-split; review caught 2 real bugs"
-2026-07-11T23-30-00Z-operator-v1-seed-and-v2-seeds-05-09,plan-one-iteration-subspec-drafting,2026-07-11,$4.19,1,completed,,implementation,1,66.9,$0.0626,21,$0.1995,"v1 sizing seed; sizing+validateSplitIntegrity (enforcement later reverted #1349)"
-2026-07-11T23-30-00Z-operator-v1-seed-and-v2-seeds-05-09,plan-resplit-timed-out-subspec,2026-07-11,$6.72,1,completed,,implementation,2,68.13,$0.0986,12,$0.5600,"jarvis1 plan --recover; codex quota exhausted mid-run"
-2026-07-11T23-30-00Z-operator-v1-seed-and-v2-seeds-05-09,implement-linked-subspec-routing,2026-07-11,$3.46,1,completed,,implementation,1,36.05,$0.0960,13,$0.2662,"run exit review-incomplete; finalized via triage --merge; excludes timed-out first attempt"
-2026-07-11T23-30-00Z-operator-v1-seed-and-v2-seeds-05-09,implement-preset-optional-review-slot,2026-07-11,$5.00,1,completed,,implementation,1,42.38,$0.1180,7,$0.7143,"review caught double-shrink regression"
-2026-07-11T23-30-00Z-operator-v1-seed-and-v2-seeds-05-09,implement-spec-launch-resolution,2026-07-11,$5.90,1,completed,,implementation,1,39.5,$0.1494,10,$0.5900,"excludes claude-haiku zero-output timeout re-run; review caught projectName drop"
-2026-07-11T23-30-00Z-operator-v1-seed-and-v2-seeds-05-09,plan-split-gate-on-actual-split,2026-07-11,$2.51,1,completed,,implementation,1,38.65,$0.0649,6,$0.4183,"regression fix; plan drafted --review-passes 0 to dodge the bug"
-2026-07-11T23-30-00Z-operator-v1-seed-and-v2-seeds-05-09,workflow-loader-review-debate-steps,2026-07-11,$4.28,1,completed,,implementation,1,34.87,$0.1227,10,$0.4280,"excludes abandoned first plan #1332 $3.78 (split-gate regression); CI-only test fixed via review-feedback"
-2026-07-11T23-30-00Z-operator-v1-seed-and-v2-seeds-05-09,workflow-loader-review-steps,2026-07-11,$3.44,1,completed,,implementation,1,38.03,$0.0905,10,$0.3440,"excludes abandoned first plan #1331 $5.15 (split-gate regression)"
-2026-07-11T23-30-00Z-operator-v1-seed-and-v2-seeds-05-09,plan-reviewed-debate,2026-07-11,$5.47,1,completed,,implementation,2,48.27,$0.1133,10,$0.5470,"excludes abandoned first plan #1346 $1.09 (split-integrity abort); review caught git-disabled cwd bug"
-2026-07-11T23-30-00Z-operator-v1-seed-and-v2-seeds-05-09,plan-reviewed-light,2026-07-11,$5.85,1,completed,,implementation,2,66.07,$0.0885,26,$0.2250,"impl on cursor after 2 claude-haiku timeouts; review caught never-executed cycle"
-2026-07-11T23-30-00Z-operator-v1-seed-and-v2-seeds-05-09,implement-optional-debate-review,2026-07-11,$10.05,1,completed,,implementation,3,51.6,$0.1948,28,$0.3589,"impl on cursor; review caught empty-index RPC regression"
-2026-07-11T23-30-00Z-operator-v1-seed-and-v2-seeds-05-09,implement-light-review-selection,2026-07-11,$9.21,1,completed,,implementation,3,73.38,$0.1255,32,$0.2878,"impl on cursor; empty review verdict"
+2026-07-11T10-30-00Z-operator-v2-seeds-00-04,intent-workflow-reviewed,2026-07-11,$9.47,4,completed,,implementation,2,124.42,$0.0761,25,$0.3788,run retried across haiku/opus timeouts; subspec split; op-fixed durable-review regression
+2026-07-11T10-30-00Z-operator-v2-seeds-00-04,plan-workflow-draft,2026-07-11,$16.89,4,completed,,implementation,1,117.87,$0.1433,18,$0.9383,run retried; two subspecs hand-split; review caught 2 real bugs
+2026-07-11T23-30-00Z-operator-v1-seed-and-v2-seeds-05-09,plan-one-iteration-subspec-drafting,2026-07-11,$4.19,1,completed,,implementation,1,66.9,$0.0626,21,$0.1995,v1 sizing seed; sizing+validateSplitIntegrity (enforcement later reverted #1349)
+2026-07-11T23-30-00Z-operator-v1-seed-and-v2-seeds-05-09,plan-resplit-timed-out-subspec,2026-07-11,$6.72,1,completed,,implementation,2,68.13,$0.0986,12,$0.5600,jarvis1 plan --recover; codex quota exhausted mid-run
+2026-07-11T23-30-00Z-operator-v1-seed-and-v2-seeds-05-09,implement-linked-subspec-routing,2026-07-11,$3.46,1,completed,,implementation,1,36.05,$0.0960,13,$0.2662,run exit review-incomplete; finalized via triage --merge; excludes timed-out first attempt
+2026-07-11T23-30-00Z-operator-v1-seed-and-v2-seeds-05-09,implement-preset-optional-review-slot,2026-07-11,$5.00,1,completed,,implementation,1,42.38,$0.1180,7,$0.7143,review caught double-shrink regression
+2026-07-11T23-30-00Z-operator-v1-seed-and-v2-seeds-05-09,implement-spec-launch-resolution,2026-07-11,$5.90,1,completed,,implementation,1,39.5,$0.1494,10,$0.5900,excludes claude-haiku zero-output timeout re-run; review caught projectName drop
+2026-07-11T23-30-00Z-operator-v1-seed-and-v2-seeds-05-09,plan-split-gate-on-actual-split,2026-07-11,$2.51,1,completed,,implementation,1,38.65,$0.0649,6,$0.4183,regression fix; plan drafted --review-passes 0 to dodge the bug
+2026-07-11T23-30-00Z-operator-v1-seed-and-v2-seeds-05-09,workflow-loader-review-debate-steps,2026-07-11,$4.28,1,completed,,implementation,1,34.87,$0.1227,10,$0.4280,excludes abandoned first plan #1332 $3.78 (split-gate regression); CI-only test fixed via review-feedback
+2026-07-11T23-30-00Z-operator-v1-seed-and-v2-seeds-05-09,workflow-loader-review-steps,2026-07-11,$3.44,1,completed,,implementation,1,38.03,$0.0905,10,$0.3440,excludes abandoned first plan #1331 $5.15 (split-gate regression)
+2026-07-11T23-30-00Z-operator-v1-seed-and-v2-seeds-05-09,plan-reviewed-debate,2026-07-11,$5.47,1,completed,,implementation,2,48.27,$0.1133,10,$0.5470,excludes abandoned first plan #1346 $1.09 (split-integrity abort); review caught git-disabled cwd bug
+2026-07-11T23-30-00Z-operator-v1-seed-and-v2-seeds-05-09,plan-reviewed-light,2026-07-11,$5.85,1,completed,,implementation,2,66.07,$0.0885,26,$0.2250,impl on cursor after 2 claude-haiku timeouts; review caught never-executed cycle
+2026-07-11T23-30-00Z-operator-v1-seed-and-v2-seeds-05-09,implement-optional-debate-review,2026-07-11,$10.05,1,completed,,implementation,3,51.6,$0.1948,28,$0.3589,impl on cursor; review caught empty-index RPC regression
+2026-07-11T23-30-00Z-operator-v1-seed-and-v2-seeds-05-09,implement-light-review-selection,2026-07-11,$9.21,1,completed,,implementation,3,73.38,$0.1255,32,$0.2878,impl on cursor; empty review verdict
 2026-07-12T22-00-00Z-operator-v2-dogfooding,intent-reviewed-uses-external-worktree,2026-07-12,$8.78,1,completed,,implementation,2,59.0,$0.1488,16,$0.5487,PR #1380; review cwd/staging/verdict from external worktree; landing cause surfaced
 2026-07-12T22-00-00Z-operator-v2-dogfooding,v2-pr-title-from-workflow,2026-07-12,$7.59,1,completed,,implementation,2,51.0,$0.1488,19,$0.3995,PR #1381; publisher takes workflow-supplied title
 2026-07-12T22-00-00Z-operator-v2-dogfooding,v2-pr-description-summarizes-change,2026-07-12,$8.66,1,completed,,implementation,3,63.0,$0.1375,19,$0.4558,PR #1403; replanned after title landed (first plan blocked on prereq)
@@ -293,19 +293,19 @@ report,session_id,report_date,cost,completed_work_units,success_status,failure_r
 2026-07-13T07-00-00Z-operator-v2-preset-sweep-and-p0-p1,review-step-emits-log-events,2026-07-13,$4.16,0,partial,blocked: no blocker text,plan-only,1,9.05,$0.4598,,,PLAN-ONLY: v2 implement preset ran subspec 00 to completion then returned blocked with no blocker; work uncommitted in worktree
 2026-07-13T20-30-00Z-operator-review-gate-root-cause,review-step-emits-log-events,2026-07-13,$6.84,2,completed,,patch,1,26.08,$0.2623,4,$1.7100,v1 rerun from scratch after the prior session's v2 implement left it blocked with no blocker. criteria-complete exit 0; full ready gate green; PR #1485.
 2026-07-13T20-30-00Z-operator-review-gate-root-cause,intent-review-prompts-render,2026-07-13,,1,completed,,plan+patch,1,,,6,,"COST DARK (v2). The session's P0. Verified by re-running intent-reviewed: critic + actuator now fire on rendered prompts. PRs #1482, #1484."
-2026-07-13T20-30-00Z-operator-review-gate-root-cause,blocked-run-retains-worktree-and-branch,2026-07-13,,1,partial,"implement reported done with 0/5 AC ticked, no commit, no PR",plan-only,1,,,4,,"COST DARK (v2). Plan landed via debate (#1490); implementation dropped silently. Seed #1491."
+2026-07-13T20-30-00Z-operator-review-gate-root-cause,blocked-run-retains-worktree-and-branch,2026-07-13,,1,partial,"implement reported done with 0/5 AC ticked, no commit, no PR",plan-only,1,,,4,,COST DARK (v2). Plan landed via debate (#1490); implementation dropped silently. Seed #1491.
 2026-07-14T00-30-00Z-operator-p0-complete,shared-invocation-claude-stream-json,2026-07-13,,2,completed,,patch,1,,,13,,Cost dark (pre-fix run); the spec is the fix. Operator-recovered from the worktree after the run reported completed with no commit.
 2026-07-14T00-30-00Z-operator-p0-complete,reconcile-done-token-against-unticked-criteria,2026-07-13,$0.9515,1,completed,,patch,1,7.20,$0.1322,8,$0.1189,"Operator added the 2 tests; they fail pre-fix, pass after."
 2026-07-14T00-30-00Z-operator-p0-complete,no-done-without-a-completion-commit,2026-07-13,$2.4857,1,completed,,patch,1,14.50,$0.1714,7,$0.3551,First v2 run to commit and publish its own PR. Operator added the missing test.
 2026-07-14T00-30-00Z-operator-p0-complete,cli-workflow-request-always-starts-a-run,2026-07-14,$4.0479,2,completed,,patch,1,23.67,$0.1710,11,$0.3680,Harness-driven end to end; 7 tests.
 2026-07-14T00-30-00Z-operator-p0-complete,blocked-run-retains-worktree-and-branch,2026-07-13,,0,partial,blocker-detected: seed not reproducible; 4/5 AC,patch,1,13.58,,7,,v1 path. Blocked runs record no cost -- seed blocked-run-records-no-cost.
-2026-07-14T05-30-00Z-operator-p1,v2-ready-gate-runs-full-tier,2026-07-14,$1.65,1,completed,"",workflow,1,26.0,$0.0635,6,$0.275,v2 implement preset.
-2026-07-14T05-30-00Z-operator-p1,zero-output-iteration-is-a-harness-defect,2026-07-14,$2.73,1,completed,"",workflow,1,28.0,$0.0975,8,$0.3412,v2 implement preset.
-2026-07-14T05-30-00Z-operator-p1,quota-detection-matches-typographic-apostrophe,2026-07-14,$2.51,1,completed,"",workflow,1,22.0,$0.1141,5,$0.502,v2 implement preset.
-2026-07-14T05-30-00Z-operator-p1,acceptance-criteria-require-a-failing-test,2026-07-14,$2.72,1,completed,"",workflow,1,41.0,$0.0663,7,$0.3886,v2 implement preset.
-2026-07-14T05-30-00Z-operator-p1,workflow-run-status-covers-every-step,2026-07-14,$4.18,0,partial,"red gate: 14 type errors + biome complexity; parked as draft #1544",workflow,1,65.0,$0.0643,9,$0.4644,v2 implement preset.
-2026-07-14T05-30-00Z-operator-p1,run-workflow-exit-status-tracks-run-outcome,2026-07-14,$3.58,0,partial,"blocked/contract_miss; first attempt broke 17 tests; parked as draft #1542",workflow,1,70.0,$0.0511,4,$0.895,v2 implement preset.
-2026-07-14T05-30-00Z-operator-p1,triage-merge-resolves-v2-worktrees,2026-07-14,$1.12,0,failed,"blocked/contract_miss; no commit; 2 type + 2 biome errors",workflow,1,35.0,$0.032,0,,v2 implement preset.
+2026-07-14T05-30-00Z-operator-p1,v2-ready-gate-runs-full-tier,2026-07-14,$1.65,1,completed,,workflow,1,26.0,$0.0635,6,$0.275,v2 implement preset.
+2026-07-14T05-30-00Z-operator-p1,zero-output-iteration-is-a-harness-defect,2026-07-14,$2.73,1,completed,,workflow,1,28.0,$0.0975,8,$0.3412,v2 implement preset.
+2026-07-14T05-30-00Z-operator-p1,quota-detection-matches-typographic-apostrophe,2026-07-14,$2.51,1,completed,,workflow,1,22.0,$0.1141,5,$0.502,v2 implement preset.
+2026-07-14T05-30-00Z-operator-p1,acceptance-criteria-require-a-failing-test,2026-07-14,$2.72,1,completed,,workflow,1,41.0,$0.0663,7,$0.3886,v2 implement preset.
+2026-07-14T05-30-00Z-operator-p1,workflow-run-status-covers-every-step,2026-07-14,$4.18,0,partial,red gate: 14 type errors + biome complexity; parked as draft #1544,workflow,1,65.0,$0.0643,9,$0.4644,v2 implement preset.
+2026-07-14T05-30-00Z-operator-p1,run-workflow-exit-status-tracks-run-outcome,2026-07-14,$3.58,0,partial,blocked/contract_miss; first attempt broke 17 tests; parked as draft #1542,workflow,1,70.0,$0.0511,4,$0.895,v2 implement preset.
+2026-07-14T05-30-00Z-operator-p1,triage-merge-resolves-v2-worktrees,2026-07-14,$1.12,0,failed,blocked/contract_miss; no commit; 2 type + 2 biome errors,workflow,1,35.0,$0.032,0,,v2 implement preset.
 2026-07-14T05-00-00Z-operator,red-gate-feeds-back-to-the-agent,2026-07-14,$1.28,2,completed,,workflow,2,8.13,$0.157,13,$0.0985,"PR #1560. Headline P1 fix. Implement on codex; run cost unattributable (codex records null usage), so cost reflects the plan phase only."
 2026-07-14T05-00-00Z-operator,run-workflow-exit-status-tracks-run-outcome,2026-07-14,$3.97,1,completed,two prior attempts went blocked/contract_miss,workflow,1,1.37,$2.898,5,$0.7940,PR #1558. Third attempt landed. Exposed a latent IPC bug (seed #1561) that would have broken run workflow on every invocation.
 2026-07-14T05-00-00Z-operator,patch-rules-require-hermetic-config-tests,2026-07-14,$1.45,1,completed,first attempt harness_failure on a drifted-cwd spec path,workflow,1,6.98,$0.208,7,$0.2071,PR #1556.
@@ -317,3 +317,13 @@ report,session_id,report_date,cost,completed_work_units,success_status,failure_r
 2026-07-14T05-00-00Z-operator,ready-gate-fails-on-any-red-test-file,2026-07-14,$0.95,1,partial,implement still in flight at session close,workflow,2,3.00,$0.317,3,$0.3167,PR #1554 plan merged; implement launched as the live verification of #1560 and had not landed when the session closed.
 2026-07-14T05-00-00Z-operator,intent:red-gate-does-not-feed-back-to-the-agent,2026-07-14,$0.97,1,completed,,workflow,1,0.42,$2.310,1,$0.9700,"PR #1549, intent only."
 2026-07-14T05-00-00Z-operator,intent:v2-has-no-idle-output-watchdog,2026-07-14,$0.84,1,completed,,workflow,1,0.33,$2.545,3,$0.2800,"PR #1550, intent only. Produced 3 ready-intents."
+2026-07-16T00-38-20Z-operator,workflow-routing-read-failure-surfaces-named-error,2026-07-15,$1.21,1,completed,,implementation,1,,,4,,codex cost NULL. 1 subspec.
+2026-07-16T00-38-20Z-operator,resume-stopped-write-run-from-snapshot,2026-07-15,$2.15,1,completed,,implementation,1,,,6,,P0 root. codex cost NULL.
+2026-07-16T00-38-20Z-operator,publication-workflow-composition,2026-07-15,$3.26,2,completed,,implementation,1,,,14,,"Collapse 1/5, 2 subspecs. codex cost NULL."
+2026-07-16T00-38-20Z-operator,review-workflow-composition,2026-07-15,$4.00,2,completed,,implementation,1,,,12,,Collapse 2/5. Blocked on dep gap then re-run. codex cost NULL.
+2026-07-16T00-38-20Z-operator,shared-linked-subspec-routing,2026-07-15,$0.81,1,completed,,implementation,1,,,6,,Collapse 4/5. codex cost NULL.
+2026-07-16T00-38-20Z-operator,workflow-review-options,2026-07-15,$3.09,4,completed,,implementation,1,,,10,,"Collapse 3/5, 4 subspecs. codex cost NULL."
+2026-07-16T00-38-20Z-operator,workflow-composition-gate,2026-07-15,$0.58,1,completed,,implementation,1,,,2,,"Collapse 5/5, docs-only. codex cost NULL."
+2026-07-16T00-38-20Z-operator,provision-v2-worktree-dependencies,2026-07-15,$0.74,1,completed,,implementation,1,,,7,,"Dependency fix, validated live. codex cost NULL."
+2026-07-16T00-38-20Z-operator,workflow-prs-use-spec-titles,2026-07-15,$1.36,1,completed,,implementation,1,,,8,,PR title fix. codex cost NULL.
+2026-07-16T00-38-20Z-operator,plan-and-implement-prs-use-template-bodies,2026-07-15,$1.14,1,completed,,implementation,1,,,6,,PR body fix. codex cost NULL.

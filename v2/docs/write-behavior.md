@@ -414,10 +414,15 @@ Daemon lifecycle commands use production defaults:
 | Command | Output | Exit |
 | --- | --- | --- |
 | `jarvis daemon start` | Compact JSON `{"pid":<n>,"socketPath":"..."}` | `0` on success, `1` with `<ErrorName>: <message>` on lifecycle failure |
-| `jarvis daemon stop` | `stopped` | `0` |
+| `jarvis daemon stop [--force]` | `stopped`, or blocker IDs on stderr | `0`, or `1` when guarded |
 | `jarvis daemon status` | `running` or `stopped` | `0` when running, `1` when stopped |
 | `jarvis daemon log` | Retained bytes of the daemon process log (`~/.jarvis/daemon.log`) on stdout | `0` on success, `1` with `daemon process log not found: <path>` on stderr when absent, `1` on read failure |
 | `jarvis daemon log --follow` | Replay then follow appends on stdout | `130` on SIGINT; `1` on read/watch/reopen failure or when the file is removed while following (missing path on stderr) |
+
+`jarvis daemon stop` refuses when durable non-terminal runs exist and reports
+their IDs on stderr; it does not print `stopped`. Add `--force` to bypass that
+guard and use the existing shutdown path. See the lifecycle contract in
+[`daemon-host.md`](./daemon-host.md#stopdaemonsocketpath-options).
 
 `jarvis daemon status` probes the PID file and socket for lifecycle state. This is
 distinct from the daemon IPC `status` RPC (`{ state: "running" }` host liveness),

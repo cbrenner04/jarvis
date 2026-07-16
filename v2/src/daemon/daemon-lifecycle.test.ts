@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { Run } from "../persistence/state-store";
 import {
   DaemonAlreadyRunningError,
   DaemonReadinessTimeoutError,
+  DaemonStopInspectionError,
+  DaemonStopRefusedError,
   getDaemonStatus,
   type ProcessProber,
   type SocketProber,
@@ -354,6 +357,61 @@ describe("daemon-lifecycle", () => {
   });
 
   describe("stopDaemon", () => {
+    const run = (id: string, status: Run["status"]): Run => ({
+      id,
+      project: "demo",
+      specRef: "spec.md",
+      createdAt: 1,
+      status,
+      attemptCount: 0,
+      worktreePath: "/tmp/worktree",
+      branch: "branch",
+      specPath: "spec.md",
+    });
+
+    test("refuses every non-terminal durable run before shutdown", async () => {
+      const processProber: ProcessProber = { isAlive: () => false };
+      const stateStore = {
+        listRuns: () => [
+          run("queued-id", "queued"),
+          run("live-id", "in-progress"),
+          run("paused-id", "paused"),
+          run("non-live-id", "awaiting-human"),
+        ],
+        close: () => {},
+      };
+
+      await expect(stopDaemon("/nonexistent/socket", { stateStore, processProber })).rejects.toEqual(
+        new DaemonStopRefusedError(["queued-id", "live-id", "paused-id", "non-live-id"]),
+      );
+    });
+
+    test("allows all durable terminal statuses and refuses store failures", async () => {
+      const processProber: ProcessProber = { isAlive: () => false };
+      const stateStore = {
+        listRuns: () => [
+          run("completed-id", "completed"),
+          run("failed-id", "failed"),
+          run("blocked-id", "blocked"),
+          run("killed-id", "killed"),
+        ],
+        close: () => {},
+      };
+
+      await expect(stopDaemon("/nonexistent/socket", { stateStore, processProber })).resolves.toBeUndefined();
+      await expect(
+        stopDaemon("/nonexistent/socket", {
+          stateStore: {
+            listRuns: () => {
+              throw new Error("store unavailable");
+            },
+            close: () => {},
+          },
+          processProber,
+        }),
+      ).rejects.toEqual(new DaemonStopInspectionError(new Error("store unavailable")));
+    });
+
     test("completes without error when process not alive", async () => {
       const processProber: ProcessProber = {
         isAlive: () => false,
@@ -361,6 +419,7 @@ describe("daemon-lifecycle", () => {
 
       await expect(
         stopDaemon("/nonexistent/socket", {
+          force: true,
           processProber,
           drainTimeoutMs: 100,
           killTimeoutMs: 100,
@@ -375,6 +434,7 @@ describe("daemon-lifecycle", () => {
 
       await expect(
         stopDaemon("/fake/socket", {
+          force: true,
           pidPath: "/nonexistent/pid",
           processProber,
           drainTimeoutMs: 100,

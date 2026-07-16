@@ -186,10 +186,15 @@ async function runDaemonCommand(argv: readonly string[], io: Io, deps: CliDeps):
     }
   }
 
-  if (subcommand === "stop" && argv.length === 1) {
-    await deps.stopDaemon(deps.socketPath, { pidPath: deps.pidPath });
-    io.stdout("stopped\n");
-    return 0;
+  if (subcommand === "stop" && (argv.length === 1 || (argv.length === 2 && argv[1] === "--force"))) {
+    try {
+      await deps.stopDaemon(deps.socketPath, { pidPath: deps.pidPath, force: argv[1] === "--force" });
+      io.stdout("stopped\n");
+      return 0;
+    } catch (error) {
+      io.stderr(formatLifecycleError(error));
+      return 1;
+    }
   }
 
   if (subcommand === "status" && argv.length === 1) {

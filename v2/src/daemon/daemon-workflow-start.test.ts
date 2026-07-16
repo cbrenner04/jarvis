@@ -14,7 +14,7 @@ import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import { createRunControlHandlers } from "./daemon.ts";
+import { createRunControlHandlers, WorktreeOwnershipRegistry } from "./daemon.ts";
 
 const { roots } = trackedTempRoots();
 
@@ -107,6 +107,7 @@ let stateStore: StateStore;
 let fakeExecutor: FakeWriteLoopExecutor;
 let memoryHeadroom: boolean;
 let handlers: ReturnType<typeof createRunControlHandlers>;
+let registry: WorktreeOwnershipRegistry;
 
 function requestFrame(id: string, method: string, params?: unknown) {
   return { kind: "request" as const, id, method, params };
@@ -120,12 +121,14 @@ beforeEach(() => {
   stateStore = openStateStore(join(tmpdir(), `jarvis-state-${process.pid}-${Date.now()}-${Math.random()}.db`));
   fakeExecutor = createFakeWriteLoopExecutor();
   memoryHeadroom = true;
+  registry = new WorktreeOwnershipRegistry();
 
   handlers = createRunControlHandlers({
     stateStore,
     writeLoopExecutor: fakeExecutor.executor,
     failureReporter: () => {},
     hasMemoryHeadroom: () => memoryHeadroom,
+    registry,
   });
 });
 
@@ -370,6 +373,18 @@ test("start with steps is rejected worktree_claimed when a live workflow run hol
   const steps: AnyWorkflowStep[] = [createWriteStep("step-1", "workflow-branch")];
   const response = await handlers.start(requestFrame("s2", "start", { steps }), new AbortController().signal);
   expect(response).toEqual({ kind: "error", code: "worktree_claimed", message: expect.any(String) });
+});
+
+test("start with steps reclaims a non-live workflow claim for the same (project, branch)", async () => {
+  const key = { project: "demo", branch: "workflow-branch" };
+  registry.claim(key, { runId: "orphaned-workflow", worktreePath: "/unchanged", workflow: true });
+
+  const response = await handlers.start(
+    requestFrame("s1", "start", { steps: [createWriteStep("step-1", "workflow-branch")] }),
+    new AbortController().signal,
+  );
+
+  expect(response.kind).toBe("response");
 });
 
 test("start with input is rejected worktree_claimed when a live workflow run holds the (project, branch)", async () => {

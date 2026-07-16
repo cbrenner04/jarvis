@@ -127,6 +127,12 @@ async function waitDirect(handlers: ReturnType<typeof createRunControlHandlers>,
   return handlers.wait({ kind: "request", id: "w1", method: "wait", params: { runId } }, new AbortController().signal);
 }
 
+/** Polls until `predicate` holds, so a slow step fails on its own assertion rather than on a sleep. */
+async function waitFor(predicate: () => boolean, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 5));
+}
+
 let stateStore: StateStore;
 let fakeExecutor: FakeWriteLoopExecutor;
 let memoryHeadroom: boolean;
@@ -317,7 +323,8 @@ test("JSON-round-tripped review profiles rehydrate renderers for every domain an
     expect(response.kind).toBe("response");
     const runId = (response as { result: { runId: string } }).result.runId;
     await waitDirect(handlers, runId);
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    // `runId` is step 0's; the review steps run under their own ids, so poll for their prompts.
+    await waitFor(() => prompts.length === 6);
 
     expect(stateStore.loadRun(runId)?.status).toBe("completed");
     expect(prompts.length).toBe(6);

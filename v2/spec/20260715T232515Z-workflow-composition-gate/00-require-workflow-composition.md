@@ -16,10 +16,10 @@ Add the v2 authoring gate that keeps workflow behavior within established compos
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/coding-standards.md` requires new workflow behavior to compose existing publication, review, landing, and linked-subspec routing groups.
-- [ ] `v2/docs/coding-standards.md` requires an active subspec `## Blocker` instead of a new runner dispatch branch, while exempting declarative preset rows that compose existing groups.
-- [ ] `v2/docs/workflow-runner.md` cross-links the governing composition standard at the runner dispatch boundary without duplicating it.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/coding-standards.md` requires new workflow behavior to compose existing publication, review, landing, and linked-subspec routing groups.
+- [x] `v2/docs/coding-standards.md` requires an active subspec `## Blocker` instead of a new runner dispatch branch, while exempting declarative preset rows that compose existing groups.
+- [x] `v2/docs/workflow-runner.md` cross-links the governing composition standard at the runner dispatch boundary without duplicating it.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

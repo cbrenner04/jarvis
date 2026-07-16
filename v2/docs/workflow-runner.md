@@ -455,6 +455,9 @@ test-only override seam; the builder does not accept an `--agents` override.
 
 ## Review-debate dispatch
 
+The runner dispatch boundary is governed by the
+[`Workflow composition gate`](coding-standards.md#workflow-composition-gate).
+
 A step declaring `behavior: "review-debate"` dispatches to
 [`executeReviewDebate`](write-behavior.md#review-debate-cycle) instead of
 `executeWriteLoop`. Unlike a `write` step's single `role` + single `agents`

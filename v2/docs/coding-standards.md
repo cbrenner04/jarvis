@@ -59,6 +59,18 @@ runner seam; new allowlist entries need a CLI-only reason. `bun run check`
 enforces this, including v2 imports of synchronous runner seams and Git helpers.
 Small synchronous filesystem reads remain permitted.
 
+## Workflow composition gate
+
+New workflow behavior must compose the existing publication, review, landing,
+and linked-subspec routing groups. Do not duplicate those groups in
+preset-specific paths.
+
+If composition requires a new runner dispatch branch, add an exact `##
+Blocker` to the active subspec instead of extending the runner state machine.
+Declarative preset-table rows are exempt when they only compose existing
+groups. This is a planning and implementation standard; it adds no runtime or
+lint gate.
+
 ## Referenced documents
 
 - [`Source layout`](./v2-architecture.md#source-layout) — domain map and import direction

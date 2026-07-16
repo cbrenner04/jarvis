@@ -297,7 +297,9 @@ function resumeContextForRun(run: Run, loopOutcomeKind?: string): ResolvedWriteL
   const resumableStatus = run.status === "paused" || run.status === "budget-soft-stopped" || run.status === "killed";
   const publicationRetry =
     run.status === "completed" &&
-    (loopOutcomeKind === "completion_commit_failed" || loopOutcomeKind === "ready_finalize_failed");
+    (loopOutcomeKind === "completion_commit_failed" ||
+      loopOutcomeKind === "ready_gate_failed" ||
+      loopOutcomeKind === "ready_flip_failed");
   return resumableStatus || publicationRetry ? reconstructWriteResume(run) : undefined;
 }
 
@@ -985,7 +987,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       run.status === "completed" &&
       terminalRecord?.event.kind === "loop_finished" &&
       (terminalRecord.event.loopOutcomeKind === "completion_commit_failed" ||
-        terminalRecord.event.loopOutcomeKind === "ready_finalize_failed");
+        terminalRecord.event.loopOutcomeKind === "ready_gate_failed" ||
+        terminalRecord.event.loopOutcomeKind === "ready_flip_failed");
 
     // A completed durable boundary is idempotent, except a failed external publication.
     if (

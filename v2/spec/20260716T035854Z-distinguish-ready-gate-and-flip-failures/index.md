@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Classify completion publication failures](./00-classify-completion-publication-failures.md)
+- [x] [00 - Classify completion publication failures](./00-classify-completion-publication-failures.md)

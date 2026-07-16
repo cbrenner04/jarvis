@@ -110,7 +110,7 @@ Adapted from v1; v2 session close-out is the same obligation:
 5. **Maintain this runbook** (branch → PR → merge). Operators add gotchas and remove
    entries when the structural fix ships.
 6. **End-of-session cleanup** — v2 has no `jarvis cleanup` yet (seed
-   `v2-cleanup-command`); use v1 cleanup where it applies and manual worktree
+   `v2-reclaims-its-workspace`); use v1 cleanup where it applies and manual worktree
    recovery for `~/.jarvis/worktrees/` (see [Recovery](#recovery)).
 
 ## Runbook maintenance
@@ -228,7 +228,7 @@ v2 git-enabled workflows use `~/.jarvis/worktrees/<project>/<branch>/`, not
 Implement branch defaults to the spec directory basename.
 
 Leaked worktrees block reuse of branch names — manual `git worktree remove --force`
-until `v2-cleanup-command` ships.
+until `v2-reclaims-its-workspace` ships.
 
 ## Implementation on jarvis specs
 
@@ -294,7 +294,7 @@ git branch -D <branch>
 git worktree prune
 ```
 
-Seed: `v2-cleanup-command`. Cleanup: delete when it ships.
+Seed: `v2-reclaims-its-workspace`. Cleanup: delete when it ships.
 
 ### Blocked run: inspect and resume
 
@@ -346,7 +346,7 @@ fatal: '<branch>' is already used by worktree at ...
 ```
 
 Remove the stale worktree under `~/.jarvis/worktrees/…` and delete the local
-branch if safe. Seed: `v2-cleanup-command`.
+branch if safe. Seed: `v2-reclaims-its-workspace`.
 
 ### Publication / completion failures
 
@@ -451,7 +451,7 @@ Operators add bullets here; delete when fixed.
 - **`jarvis1 triage --merge` refuses every v2 workflow PR (2026-07-16):** both intent and plan PRs
   fail with `no spec found for branch <intent|plan>/<name>`, so the gated merge path is unavailable
   for v2 work and every v2 PR is hand-merged (gate by hand first — see the bullet above). Seed:
-  `triage-merge-refuses-v2-plan-prs`. Cleanup: delete when it ships.
+  `triage-sees-and-merges-everything`. Cleanup: delete when it ships.
 - **Launch `jarvis run workflow` from the project root (2026-07-14):** `--spec` resolves against
   your shell's cwd, and the resulting repo-relative path is re-resolved *inside the run's own
   worktree*. A cwd inside another git worktree (e.g. `.worktree/<x>/`) yields a path that passes
@@ -497,7 +497,7 @@ Operators add bullets here; delete when fixed.
 - **List polls heavy (2026-07-12):** TUI refresh drives `list`; terminal retention
   caps at 50 newest terminal rows. See `daemon-terminal-run-retention` spec.
 - **No v2 cleanup (2026-07-12):** worktrees and completed specs accumulate. Seed:
-  `v2-cleanup-command`. Cleanup: delete when shipped.
+  `v2-reclaims-its-workspace`. Cleanup: delete when shipped.
 - **Preset cartesian product (2026-07-12):** avoid new `*-reviewed` preset code
   paths; seed `workflow-composable-collapse`. Cleanup: delete when collapsed.
 

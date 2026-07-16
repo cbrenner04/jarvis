@@ -74,7 +74,7 @@ const MONITOR_LINES_FIXTURE_PIN = [
   "Outcome",
   "runStatus: in-progress",
   "daemon_error: paused",
-  "Press q or Ctrl-C to quit.",
+  "Press up/down or j to select; q or Ctrl-C to quit.",
 ] as const;
 
 describe("orderSelectableRuns", () => {

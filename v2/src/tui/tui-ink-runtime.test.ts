@@ -7,6 +7,13 @@ import { loadInkUi } from "./tui-ink-runtime.ts";
 // ink and the TUI rendered monochrome while every color test stayed green — those tests
 // asserted against their own injected Text, not this one.
 describe("loadInkUi production Text", () => {
+  test("uses ink's input hook in production", async () => {
+    const ink = await import("ink");
+    const { useInput } = await loadInkUi();
+
+    expect(useInput).toBe(ink.useInput);
+  });
+
   test("forwards color to ink's Text", async () => {
     const { Text } = await loadInkUi();
     const element = Text({ children: "failed", color: "red" });

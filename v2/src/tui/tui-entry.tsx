@@ -3,7 +3,7 @@ import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import { connectTuiDaemon, type TuiDaemonClient } from "./tui-daemon-client.ts";
 import { showTuiInkFeedback } from "./tui-ink-feedback.tsx";
 import { openInkMonitor } from "./tui-ink-monitor.tsx";
-import { firstSelectableRunId } from "./tui-monitor-lines.ts";
+import { firstSelectableRunId, orderSelectableRuns } from "./tui-monitor-lines.ts";
 import type {
   RunTuiEntryDeps,
   TuiMonitorControls,
@@ -45,10 +45,6 @@ function createRefreshScheduler(intervalMs = TUI_REFRESH_INTERVAL_MS): TuiRefres
       };
     },
   };
-}
-
-function isSelectableRun(run: DaemonListRunRow): boolean {
-  return run.status !== "queued";
 }
 
 function buildWaitStateForSelection(runId: string | null): TuiWaitState {
@@ -226,7 +222,7 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
         }
 
         const selectedRunId = currentState.selectedRunId;
-        if (selectedRunId !== null && !list.runs.some((run) => run.runId === selectedRunId && isSelectableRun(run))) {
+        if (selectedRunId !== null && !orderSelectableRuns(list.runs).some((run) => run.runId === selectedRunId)) {
           setState({ runs: list.runs, selectedRunId: null, waitState: { kind: "none" }, steeringFeedback: null });
           activeWaitToken += 1;
           continue;
@@ -265,12 +261,23 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
       currentState,
       {
         selectRun(runId) {
-          if (
-            !currentState.runs.some((run) => run.runId === runId && isSelectableRun(run)) ||
-            currentState.selectedRunId === runId
-          )
-            return;
+          if (!orderSelectableRuns(currentState.runs).some((run) => run.runId === runId)) return;
+          if (currentState.selectedRunId === runId) return;
           setSelection(runId);
+        },
+        selectNextRun() {
+          const rows = orderSelectableRuns(currentState.runs);
+          if (rows.length === 0) return;
+          const selectedIndex = rows.findIndex((run) => run.runId === currentState.selectedRunId);
+          const next = rows[selectedIndex < 0 ? 0 : Math.min(selectedIndex + 1, rows.length - 1)];
+          if (next !== undefined && next.runId !== currentState.selectedRunId) setSelection(next.runId);
+        },
+        selectPreviousRun() {
+          const rows = orderSelectableRuns(currentState.runs);
+          if (rows.length === 0) return;
+          const selectedIndex = rows.findIndex((run) => run.runId === currentState.selectedRunId);
+          const previous = rows[selectedIndex < 0 ? rows.length - 1 : Math.max(selectedIndex - 1, 0)];
+          if (previous !== undefined && previous.runId !== currentState.selectedRunId) setSelection(previous.runId);
         },
         pauseSelected() {
           runSteeringAction("pause");

@@ -14,10 +14,10 @@
 
 ## Acceptance criteria
 
-- [ ] A test can render the monitor with an injected renderer and dispatch keypresses to the same input handler production `ink` drives; the production path still uses `ink`'s `useInput`.
-- [ ] New `tui-ink-monitor` tests pin current bindings: `q` and Ctrl-C quit, `a` approves the selected run, `k` kills it, `v` opens the revise prompt, and while composing, typed characters accumulate, backspace/delete erase, Enter submits (empty buffer submits no prompt text), Escape cancels.
-- [ ] While composing, `q`/`a`/`k` are consumed as prompt text and do not invoke their controls.
-- [ ] `tui-entry.test.tsx` and `tui-monitor-lines.test.ts` stay green (no behavior change).
+- [x] A test can render the monitor with an injected renderer and dispatch keypresses to the same input handler production `ink` drives; the production path still uses `ink`'s `useInput`.
+- [x] New `tui-ink-monitor` tests pin current bindings: `q` and Ctrl-C quit, `a` approves the selected run, `k` kills it, `v` opens the revise prompt, and while composing, typed characters accumulate, backspace/delete erase, Enter submits (empty buffer submits no prompt text), Escape cancels.
+- [x] While composing, `q`/`a`/`k` are consumed as prompt text and do not invoke their controls.
+- [x] `tui-entry.test.tsx` and `tui-monitor-lines.test.ts` stay green (no behavior change).
 
 ## Documentation updates
 

@@ -3,22 +3,41 @@ import type { InkRender } from "./tui-ink-feedback.tsx";
 
 type InkUi = {
   renderFn: InkRender;
-  Text: (props: { children?: ReactNode; color?: string }) => ReactElement;
+  Text: InkText;
   Box?: (props: { children?: ReactNode; flexDirection?: "column" | "row" }) => ReactElement;
-  useInput?: (
-    inputHandler: (
-      input: string,
-      key: { ctrl?: boolean; upArrow?: boolean; downArrow?: boolean; return?: boolean },
-    ) => void,
-  ) => void;
+  useInput?: InkUseInput;
 };
 
+type InkText = (props: { children?: ReactNode; color?: string }) => ReactElement;
+
+export type InkUseInput = (
+  inputHandler: (
+    input: string,
+    key: {
+      ctrl?: boolean;
+      upArrow?: boolean;
+      downArrow?: boolean;
+      return?: boolean;
+      escape?: boolean;
+      backspace?: boolean;
+      delete?: boolean;
+    },
+  ) => void,
+) => void;
+
+/** Injectable renderer and input hook pair for TUI tests. */
+export type InjectedInkUi = { renderFn: InkRender; Text?: InkText; useInput?: InkUseInput };
+
 /** Load production ink or inject a test render seam. */
-export async function loadInkUi(inkRender?: InkRender): Promise<InkUi> {
+export async function loadInkUi(inkRender?: InkRender | InjectedInkUi): Promise<InkUi> {
   if (inkRender !== undefined) {
     return {
-      renderFn: inkRender,
-      Text: ({ children }) => createElement(Fragment, null, children),
+      renderFn: typeof inkRender === "function" ? inkRender : inkRender.renderFn,
+      Text:
+        typeof inkRender === "function"
+          ? ({ children }) => createElement(Fragment, null, children)
+          : (inkRender.Text ?? (({ children }) => createElement(Fragment, null, children))),
+      ...(typeof inkRender === "function" ? {} : { useInput: inkRender.useInput }),
     };
   }
 

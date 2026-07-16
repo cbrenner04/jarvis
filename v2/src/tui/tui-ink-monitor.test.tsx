@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { Fragment } from "react";
+import { createElement, Fragment, type ReactElement } from "react";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import { createMonitorDisplay, openInkMonitor } from "./tui-ink-monitor.tsx";
 import { loadInkUi } from "./tui-ink-runtime.ts";
+import type { InjectedInkUi, InkUseInput } from "./tui-ink-runtime.ts";
 import { joinMonitorRow, monitorSegmentRows } from "./tui-monitor-lines.ts";
 import type { TuiMonitorControls, TuiMonitorState } from "./tui-monitor-types.ts";
 
@@ -103,6 +104,8 @@ function createInkCapture(state: TuiMonitorState) {
 function noopControls(): TuiMonitorControls {
   return {
     selectRun() {},
+    selectNextRun() {},
+    selectPreviousRun() {},
     pauseSelected() {},
     resumeSelected() {},
     killSelected() {},
@@ -127,7 +130,118 @@ function textNode(nodes: TextCapture[], text: string): TextCapture {
   return match;
 }
 
+function inputHarness() {
+  let inputHandler: Parameters<InkUseInput>[0] | undefined;
+  let instance: Awaited<ReturnType<InkRender>> | undefined;
+  const useInput: InkUseInput = (nextHandler) => {
+    inputHandler = nextHandler;
+  };
+
+  return {
+    async injection(): Promise<InjectedInkUi> {
+      const ink = await import("ink");
+      return {
+        renderFn: ((element: ReactElement) => {
+          instance = ink.render(element, { exitOnCtrlC: false });
+          return instance;
+        }) as InkRender,
+        Text: ({ children, color }) => createElement(ink.Text, color === undefined ? null : { color }, children),
+        useInput,
+      };
+    },
+    async press(input: string, key: Parameters<Parameters<InkUseInput>[0]>[1] = {}) {
+      if (inputHandler === undefined) throw new Error("expected input handler");
+      inputHandler(input, key);
+      if (instance === undefined) throw new Error("expected ink instance");
+      await instance.waitUntilRenderFlush();
+    },
+  };
+}
+
 describe("openInkMonitor", () => {
+  test("drives quit, approve, and kill through the injected input hook", async () => {
+    const calls: string[] = [];
+    const controls = noopControls();
+    controls.quit = () => calls.push("quit");
+    controls.approveSelected = () => calls.push("approve");
+    controls.killSelected = () => calls.push("kill");
+    const input = inputHarness();
+    const session = await openInkMonitor(monitorState([], null), controls, await input.injection());
+
+    await input.press("q");
+    await input.press("c", { ctrl: true });
+    await input.press("a");
+    await input.press("k");
+
+    expect(calls).toEqual(["quit", "quit", "approve", "kill"]);
+    session.close();
+  });
+
+  test("drives row navigation through the injected input hook", async () => {
+    const calls: string[] = [];
+    const controls = noopControls();
+    controls.selectNextRun = () => calls.push("next");
+    controls.selectPreviousRun = () => calls.push("previous");
+    const input = inputHarness();
+    const session = await openInkMonitor(monitorState([], null), controls, await input.injection());
+
+    await input.press("j");
+    await input.press("", { downArrow: true });
+    await input.press("", { upArrow: true });
+
+    expect(calls).toEqual(["next", "next", "previous"]);
+    session.close();
+  });
+
+  test("composes, submits, and cancels revise prompts through the injected input hook", async () => {
+    const prompts: Array<string | undefined> = [];
+    const controls = noopControls();
+    controls.reviseSelected = (prompt) => prompts.push(prompt);
+    const input = inputHarness();
+    const session = await openInkMonitor(monitorState([], null), controls, await input.injection());
+
+    await input.press("v");
+    await input.press("a");
+    await input.press("b");
+    await input.press("", { backspace: true });
+    await input.press("c");
+    await input.press("", { delete: true });
+    await input.press("", { return: true });
+    await input.press("v");
+    await input.press("", { return: true });
+    await input.press("v");
+    await input.press("x");
+    await input.press("", { escape: true });
+
+    expect(prompts).toEqual(["a", undefined]);
+    session.close();
+  });
+
+  test("treats control bindings as prompt text while composing", async () => {
+    const calls: string[] = [];
+    const controls = noopControls();
+    controls.quit = () => calls.push("quit");
+    controls.approveSelected = () => calls.push("approve");
+    controls.killSelected = () => calls.push("kill");
+    controls.selectNextRun = () => calls.push("next");
+    controls.selectPreviousRun = () => calls.push("previous");
+    controls.reviseSelected = (prompt) => calls.push(`revise:${prompt}`);
+    const input = inputHarness();
+    const session = await openInkMonitor(monitorState([], null), controls, await input.injection());
+
+    await input.press("v");
+    await input.press("q");
+    await input.press("a");
+    await input.press("k");
+    await input.press("j");
+    await input.press("", { downArrow: true });
+    await input.press("", { upArrow: true });
+    await input.press("", { return: true });
+
+    expect(calls).toEqual(["revise:qakj"]);
+    session.close();
+  });
+
   test("colors status and liveness cells on run-table rows", async () => {
     const state = monitorState(
       [

@@ -181,7 +181,7 @@ export function monitorSegmentRows(state: TuiMonitorState): MonitorLineRow[] {
   if (state.steeringFeedback !== null) {
     lines.push(row(untoned(state.steeringFeedback)));
   }
-  lines.push(row(untoned("Press q or Ctrl-C to quit.")));
+  lines.push(row(untoned("Press up/down or j to select; q or Ctrl-C to quit.")));
   return lines;
 }
 

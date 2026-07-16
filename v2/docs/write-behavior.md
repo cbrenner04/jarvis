@@ -485,16 +485,16 @@ perpetual pending. Selection changes abandon the prior `wait` client-side, start
 a fresh `wait` for the newly selected run, and ignore any late reply from the
 abandoned request.
 
-Production ink selects the first list row on entry only; row navigation
-keybindings are not wired yet—selection changes in tests use the injectable
-view-host seam until navigation lands.
+Production ink selects the first selectable row on entry. Down/`j` and Up move
+selection through the rendered non-queued rows, clamping at either end. These
+bindings route through the same selection path as the injectable view-host seam.
 
 When the selected row includes workflow metadata, the monitor renders per-step
 status from `list` only; single-step rows keep the prior layout. The outcome
 panel still comes from `wait`.
 
 The monitor exposes injectable `pauseSelected`, `resumeSelected`, and
-`killSelected` (production keybindings deferred). Each maps 1:1 to daemon
+`killSelected`. Each maps 1:1 to daemon
 `pause`, `resume`, and `kill` on the selected `runId`; no selection → no-op with
 inline `no run selected`. No client pre-gate on liveness or terminal rows—daemon
 and transport failures surface inline as `<code>: <message>` or
@@ -502,7 +502,7 @@ and transport failures surface inline as `<code>: <message>` or
 feedback replaces on the next action and clears on selection change;
 `waitState` errors are unchanged. Successful `resume` re-issues `wait` and
 abandons any prior ready snapshot; other successful actions keep the existing
-refresh/`wait` loop. Success-feedback layout deferred until keybindings land.
+refresh/`wait` loop. Success-feedback layout is deferred.
 
 Operator quit on the run monitor (`jarvis tui`) is `q` or Ctrl-C. Quit closes the
 connected daemon RPC client and exits `0`.

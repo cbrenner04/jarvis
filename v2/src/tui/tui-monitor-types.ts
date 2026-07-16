@@ -30,6 +30,10 @@ export type TuiMonitorState = {
 export type TuiMonitorControls = {
   /** Change selection to the given run when present in the current list. */
   selectRun(runId: string): void;
+  /** Move to the next selectable row in display order. */
+  selectNextRun(): void;
+  /** Move to the previous selectable row in display order. */
+  selectPreviousRun(): void;
   /** Signals pause via daemon `pause`. */
   pauseSelected(): void;
   /** Resumes via daemon `resume` and re-issues `wait`, abandoning any prior ready snapshot. */

@@ -191,6 +191,7 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
   let crashed = false;
   return {
     createRun: (args) => inner.createRun(args),
+    setCreationTitle: (runId, title) => inner.setCreationTitle(runId, title),
     loadRun: (runId) => inner.loadRun(runId),
     findRunByProjectBranch: (args) => inner.findRunByProjectBranch(args),
     findRevisionRuns: (args) => inner.findRevisionRuns(args),
@@ -1023,21 +1024,22 @@ describe("write loop", () => {
     });
   });
 
-  test("publishes index and sibling-index titles, with fallback for unusable indexes", async () => {
-    const cases = [
+  test("publishes index and spec-path titles, with named failure for unreadable indexes", async () => {
+    const cases: Array<{ branchName: string; specPath: string; index?: string | undefined; title?: string | undefined; unreadable?: boolean; failure?: boolean }> = [
       { branchName: "index-title", specPath: "spec/index.md", index: "#  Index title  \n", title: "Index title" },
-      { branchName: "sibling-title", specPath: "spec/01-write.md", index: "# Sibling title\n", title: "Sibling title" },
-      { branchName: "missing-title", specPath: "spec/index.md", index: undefined, title: undefined },
+      { branchName: "sibling-title", specPath: "spec/01-write.md", index: "# Sibling title\n", title: "01-write.md" },
+      { branchName: "missing-title", specPath: "spec/index.md", index: undefined, title: undefined, failure: true },
       {
         branchName: "unreadable-title",
         specPath: "spec/index.md",
         index: undefined,
         unreadable: true,
         title: undefined,
+        failure: true,
       },
-      { branchName: "malformed-title", specPath: "spec/index.md", index: "#\n", title: undefined },
-      { branchName: "blank-title", specPath: "spec/index.md", index: "# \n", title: undefined },
-      { branchName: "whitespace-title", specPath: "spec/index.md", index: "# \t \n", title: undefined },
+      { branchName: "malformed-title", specPath: "spec/index.md", index: "#\n", title: "spec" },
+      { branchName: "blank-title", specPath: "spec/index.md", index: "# \n", title: "spec" },
+      { branchName: "whitespace-title", specPath: "spec/index.md", index: "# \t \n", title: "spec" },
     ];
 
     for (const testCase of cases) {
@@ -1060,8 +1062,8 @@ describe("write loop", () => {
         readyFinalizer: async () => {},
       });
 
-      expect(result.kind).toBe("complete");
-      expect(titles).toEqual([testCase.title]);
+      expect(result.kind).toBe(testCase.failure ? "completion_commit_failed" : "complete");
+      expect(titles).toEqual(testCase.failure ? [] : [testCase.title]);
     }
   });
 

@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { type RefreshPrBodyInput, refreshPrBody } from "./pr-body-refresh.ts";
 import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
+import { resolvePublicationTitle } from "./spec-creation-title.ts";
 
 export type CompletionPublisherInput = {
   worktreePath: string;
@@ -111,8 +112,9 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
       result.pushSha = pushSha;
     }
 
+    const creationTitle = resolvePublicationTitle(input.worktreePath, input.specPath, input.creationTitle);
     const prNumber = await publishWithRetry(
-      () => findOrCreatePr(gh, input.worktreePath, input.baseRef, input.branch, specPath, input.creationTitle),
+      () => findOrCreatePr(gh, input.worktreePath, input.baseRef, input.branch, specPath, creationTitle),
       "pr",
       delay,
       retryNotice,
@@ -199,7 +201,7 @@ async function findOrCreatePr(
   baseRef: string,
   branch: string,
   specPath: string,
-  creationTitle: unknown,
+  creationTitle: string,
 ): Promise<number> {
   const prListJson = await gh(cwd, ["pr", "list", "--head", branch, "--state", "open", "--json", "number,baseRefName"]);
   const prs = JSON.parse(prListJson) as Array<{ number: number; baseRefName: string }>;
@@ -217,7 +219,7 @@ async function findOrCreatePr(
     "--base",
     baseRef,
     "--title",
-    resolveCreationTitle(creationTitle),
+    creationTitle,
     "--body",
     `Spec: ${specPath}`,
   ]);
@@ -228,8 +230,4 @@ async function findOrCreatePr(
   }
 
   return Number.parseInt(match[1], 10);
-}
-
-function resolveCreationTitle(subject: unknown): string {
-  return typeof subject === "string" && subject.trim() ? subject.trim() : "jarvis: complete run";
 }

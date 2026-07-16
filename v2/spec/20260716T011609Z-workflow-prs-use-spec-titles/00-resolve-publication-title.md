@@ -22,16 +22,16 @@ Plan and implement workflows can reach publication without a title, so their PRs
 
 ## Acceptance criteria
 
-- [ ] A new plan, reviewed-plan, direct-write, or implement PR uses the first non-empty H1 from its readable `index.md`.
-- [ ] A readable H1-less `index.md` uses its directory basename, while a non-index spec uses its file basename even when a sibling `index.md` exists.
-- [ ] Intent and reviewed-intent PRs retain `intent: <name>`.
-- [ ] Missing or unreadable index identity fails publication with an error that names title resolution and the spec path; no new PR uses `jarvis: complete run`.
-- [ ] Completion-publication retry reuses the title resolved on the first attempt after the source identity changes or becomes unavailable.
-- [ ] Matching open PRs keep their existing titles; `v2/src/execution/completion-publisher.test.ts` reuse coverage stays green.
-- [ ] New or updated tests in `v2/src/execution/spec-creation-title.test.ts`, `v2/src/execution/write-loop.test.ts`, and `v2/src/execution/workflow-runner.test.ts` cover the title matrix and fail against the pre-fix code.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] A new plan, reviewed-plan, direct-write, or implement PR uses the first non-empty H1 from its readable `index.md`.
+- [x] A readable H1-less `index.md` uses its directory basename, while a non-index spec uses its file basename even when a sibling `index.md` exists.
+- [x] Intent and reviewed-intent PRs retain `intent: <name>`.
+- [x] Missing or unreadable index identity fails publication with an error that names title resolution and the spec path; no new PR uses `jarvis: complete run`.
+- [x] Completion-publication retry reuses the title resolved on the first attempt after the source identity changes or becomes unavailable.
+- [x] Matching open PRs keep their existing titles; `v2/src/execution/completion-publisher.test.ts` reuse coverage stays green.
+- [x] New or updated tests in `v2/src/execution/spec-creation-title.test.ts`, `v2/src/execution/write-loop.test.ts`, and `v2/src/execution/workflow-runner.test.ts` cover the title matrix and fail against the pre-fix code.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

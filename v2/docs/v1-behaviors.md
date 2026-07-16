@@ -589,6 +589,13 @@ Items tagged **[v2-cleanup candidate]** are dead or vestigial code paths flagged
 
 ## v2 Parity: Completion publication (push and draft PR)
 
+### Publication title resolution
+
+v2 ports v1 `getIndexTitle` at the shared publication boundary: index H1, then
+index parent basename, or non-index file basename. Unlike v1's unchecked read,
+an unreadable index is an intentional v2 publication failure naming title
+resolution and the spec path. Explicit intent titles remain authoritative.
+
 - **v2-ported with async contract change:** push, draft PR ensure, post-PR body refresh with attribution footer, ready gate (`bun run ready`), and draft→ready flip (`gh pr ready`). v2 collapses work into one completion commit (v1 uses per-subspec commits for attribution). Completion publication and body refresh await every `git`/`gh` subprocess in order (auth → upstream detection → push → HEAD lookup → PR lookup/create → body refresh); each retry attempt is awaited. Rejected attribution `git log` reads fail refresh; only intentional missing qualifying commits yield an empty footer. Ready finalization awaits the gate once before up to three awaited flip attempts; gate+flip failures surface as retryable `ready_finalize_failed`. Sources: `v2/docs/write-behavior.md`, `v2/src/execution/completion-publisher.ts`, `v2/src/execution/pr-attribution.ts`, `v2/src/execution/pr-body-refresh.ts`, `v2/src/execution/ready-finalize.ts`.
 
 ## v2 Additive: Fresh dispatch for new run rows

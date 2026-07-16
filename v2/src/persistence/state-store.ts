@@ -131,6 +131,9 @@ export interface StateStore {
     queuedInput?: WriteLoopInput;
   }): string;
 
+  /** Retain the title resolved at the publication boundary for retries. */
+  setCreationTitle(runId: string, title: string): void;
+
   /** Whether a non-terminal `queued` run exists for `(project, branch)`. */
   hasQueuedRun(args: { project: string; branch: string }): boolean;
 
@@ -406,6 +409,10 @@ class StateStoreImpl implements StateStore {
         this.currentIdentity,
       );
     return id;
+  }
+
+  setCreationTitle(runId: string, title: string): void {
+    this.db.prepare("UPDATE runs SET creation_title = ? WHERE id = ?").run(title, runId);
   }
 
   loadRun(runId: string): (Run & { attempts: Attempt[] }) | null {

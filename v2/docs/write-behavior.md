@@ -748,3 +748,14 @@ Drive the path through the test seam:
 
 A live `jarvis write ...` runs the full pipeline and reports
 `"kind": "invocation_failure"` until process bindings land.
+
+### Publication titles
+
+Every new PR resolves its title at the shared publication boundary. A readable
+`index.md` uses its first non-empty H1, then its directory basename; a non-index
+spec uses its file basename. Intent keeps its explicit `intent: <name>` title.
+Plan output resolves only after staged output lands. The resolved title is stored
+with the completion run, so retries do not reread changed or unavailable specs.
+Unreadable index identity fails with a title-resolution error naming the spec path;
+there is no `jarvis: complete run` fallback. Existing matching open PRs retain
+their titles.

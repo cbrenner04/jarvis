@@ -16,7 +16,7 @@ import { type CompletionPublisher, createCompletionPublisher } from "./completio
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import { createReadyFinalizer, type ReadyFinalizer, ReadyGateError } from "./ready-finalize.ts";
-import { resolveSpecCreationTitle } from "./spec-creation-title.ts";
+import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import { type BoundaryStamp, boundaryStampFromStoredRun, emitWorkBoundaryRecorded } from "./work-boundary-telemetry.ts";
@@ -149,12 +149,19 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             agent: prepared.result.completionAgent ?? "",
           });
           if (published.commitSha !== undefined) {
+            const creationTitle = resolveAndPersistCreationTitle(
+              store,
+              prepared.result.runId,
+              getExternalWorktreePath(args.worktree),
+              args.specPath,
+              prepared.creationTitle,
+            );
             const publication = await publishWithReadyRepair(args, store, prepared.result, 0, {
               worktreePath: getExternalWorktreePath(args.worktree),
               baseRef: args.worktree.baseRef,
               specPath: args.specPath,
               branch: args.worktree.branchName,
-              creationTitle: prepared.creationTitle,
+              creationTitle,
             });
             if (publication.failure !== undefined) {
               const publishedResult = { ...prepared.result, iterationsConsumed: publication.iterationsConsumed };
@@ -183,8 +190,8 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             return prepared.result;
           }
           return withBoundaryTelemetry(args, prepared.result, published.commitSha, published.filesChanged);
-        } catch {
-          return completionCommitFailed(args, prepared.result);
+        } catch (error) {
+          return completionCommitFailed(args, prepared.result, error instanceof Error ? error : new Error(String(error)));
         }
       }
       return prepared.result;
@@ -377,12 +384,19 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           agent,
         });
         if (published.commitSha !== undefined) {
+          const creationTitle = resolveAndPersistCreationTitle(
+            store,
+            runId,
+            worktreePath,
+            args.specPath,
+            prepared.creationTitle,
+          );
           const publication = await publishWithReadyRepair(args, store, attributed, iterationsConsumed, {
             worktreePath,
             baseRef: args.worktree.baseRef,
             specPath: args.specPath,
             branch: args.worktree.branchName,
-            creationTitle: prepared.creationTitle,
+            creationTitle,
           });
           if (publication.failure !== undefined) {
             const publishedResult = { ...attributed, iterationsConsumed: publication.iterationsConsumed };
@@ -411,8 +425,8 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           return attributed;
         }
         return withBoundaryTelemetry(args, attributed, published.commitSha, published.filesChanged);
-      } catch {
-        return completionCommitFailed(args, attributed);
+      } catch (error) {
+        return completionCommitFailed(args, attributed, error instanceof Error ? error : new Error(String(error)));
       }
     }
 
@@ -569,7 +583,7 @@ function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {
   });
 
   if (existingRun === null || args.freshDispatch === true) {
-    const creationTitle = args.creationTitle ?? resolveSpecCreationTitle(worktreePath, args.specPath);
+    const creationTitle = args.creationTitle;
     const runId = store.createRun({
       project: args.worktree.projectName,
       specRef: args.worktree.baseRef,
@@ -603,6 +617,18 @@ function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {
         ...(existingRun.creationTitle ? { creationTitle: existingRun.creationTitle } : {}),
       }
     : { result: committed, ...(existingRun.creationTitle ? { creationTitle: existingRun.creationTitle } : {}) };
+}
+
+function resolveAndPersistCreationTitle(
+  store: StateStore,
+  runId: string,
+  worktreePath: string,
+  specPath: string,
+  existingTitle?: string,
+): string {
+  const title = resolvePublicationTitle(worktreePath, specPath, existingTitle);
+  if (existingTitle === undefined) store.setCreationTitle(runId, title);
+  return title;
 }
 
 function buildWriteExecuteInput(

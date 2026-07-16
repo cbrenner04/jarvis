@@ -22,7 +22,7 @@ Fresh git-backed v2 worktrees cannot resolve project dependencies because they l
 
 ## Acceptance criteria
 
-- [ ] A fresh git-backed external worktree exposes the project root's `node_modules` before its first callback, so Bun commands there resolve the project's installed dependencies without agent setup.
-- [ ] `v2/src/execution/external-worktree.test.ts` contains a regression test that observes the dependency link from inside the first callback, targets the project root's `node_modules`, and fails against the pre-fix code.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/workflow-runner.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` describe the provisioned external-worktree behavior without changing ready-gate authority.
+- [x] A fresh git-backed external worktree exposes the project root's `node_modules` before its first callback, so Bun commands there resolve the project's installed dependencies without agent setup.
+- [x] `v2/src/execution/external-worktree.test.ts` contains a regression test that observes the dependency link from inside the first callback, targets the project root's `node_modules`, and fails against the pre-fix code.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/workflow-runner.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` describe the provisioned external-worktree behavior without changing ready-gate authority.

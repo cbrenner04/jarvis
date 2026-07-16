@@ -145,6 +145,11 @@ output is external `~/.jarvis/specs/<project-safe-id>/ready-intents/`; the run
 does not publish Git or GitHub state. The project-safe ID is a path-safe form
 of the registered project key.
 
+Fresh git-enabled external worktrees are created under `~/.jarvis/worktrees` and
+receive a `node_modules` symlink to the registered project's `node_modules`
+before the first write callback. Reused worktrees and `git: false` local paths
+are not mutated.
+
 The builder emits one `write` step with role `plan`, prompt
 `intent.prompt.split`, the shared split prompt (plus v1-parity file-output and
 write-loop step-rules suffixes at execution time), and `.jarvis-intent-stage/` as

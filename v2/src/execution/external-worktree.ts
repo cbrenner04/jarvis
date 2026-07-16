@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, symlinkSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { branchExistsLocalAsync, branchExistsOnOriginAsync, getCurrentBranchAsync } from "../../../shared/git.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
@@ -142,14 +142,13 @@ async function ensureExternalWorktree(
       throwIfAborted(signal);
     }
     await runner.runAsync("git", ["worktree", "add", "--checkout", worktreePath, args.branchName], args.projectRoot);
+  } else {
+    await runner.runAsync("git", ["branch", args.branchName, args.baseRef], args.projectRoot);
     throwIfAborted(signal);
-    return { path: worktreePath, reused: false };
+    await runner.runAsync("git", ["worktree", "add", worktreePath, args.branchName], args.projectRoot);
   }
-
-  await runner.runAsync("git", ["branch", args.branchName, args.baseRef], args.projectRoot);
   throwIfAborted(signal);
-  await runner.runAsync("git", ["worktree", "add", worktreePath, args.branchName], args.projectRoot);
-  throwIfAborted(signal);
+  symlinkSync(join(args.projectRoot, "node_modules"), join(worktreePath, "node_modules"), "dir");
   return { path: worktreePath, reused: false };
 }
 

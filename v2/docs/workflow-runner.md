@@ -77,6 +77,13 @@ Existing destination files are accepted only
 when byte-identical; differing collisions are never overwritten.
 The workflow records landed filenames by invocation in the worktree's private
 Jarvis state so a retry can distinguish its own output from a collision.
+Intent publication metadata also records the exact canonical file seed paths
+read by the builder; inline seeds record none. Durable output always lands
+before those inputs are consumed. Git runs delete the mapped worktree files so
+the completion commit contains both output and deletion. Git-disabled runs
+delete safe in-project source files only after transactional landing. Failed
+validation, landing, commit, push, or PR publication retains the source for
+retry; resumed or deferred-review landing reuses the recorded metadata.
 
 The trigger keys on the write step's `role` being `implement`, not on "is this
 the shipped implement preset." Any hand-authored `write` step naming
@@ -635,10 +642,14 @@ pending landing are durable checkpoints; retries resume at landing or later
 publication without rerunning agents.
 
 `intent-stage` validates ownership and boundaries, then transactionally lands
-validated Markdown into ready-intents. `plan-tree` validates `index.md` plus
-numbered subspecs and transactionally lands them at the precomputed spec path.
-Control files remain staged and successful landing removes transient staging.
-Failures retain staging and diagnostics. `none` performs no filesystem landing.
+validated Markdown into ready-intents. `plan-tree` validates `index.md`,
+`intent.md`, and numbered subspecs and transactionally lands them at the
+precomputed spec path. Both hooks consume recorded queue inputs only after
+landing: Git runs delete the mapped worktree inputs in the completion commit;
+no-Git runs delete source inputs after durable output lands. Missing, external,
+or symlink-escaped inputs are skipped. Control files remain staged and
+successful landing removes transient staging. Failures retain staging and
+diagnostics. `none` performs no filesystem landing.
 # Completion publication failures
 
 Workflow completion publishes before running the ready gate, then flips the draft PR only after a green gate. Publication failures return `completion_commit_failed` with `completionCommitError`; red gates return `ready_gate_failed` with `readyGateError`; failed flips return `ready_flip_failed` with `readyFlipError`. Completion-commit and ready-gate failures exit `1`, preserve durable `completed` status, and are resumed with `nextAction: "resume"`. Failed flips are terminal non-resumable outcomes: they exit `1`, preserve durable `completed` status, and reject `resume` with `code: "terminal_run"`.

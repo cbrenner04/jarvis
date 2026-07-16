@@ -273,6 +273,7 @@ describe("planCommand", () => {
       expect(cap.out()).toContain("/specs/project/");
       expect(cap.out()).toContain("jarvis1 run ");
       expectNoPlanBranchOrWorktree(project, "git-false-loop-only");
+      expect(existsSync(intentPath)).toBe(false);
 
       const specPath = cap.out().match(/Spec written to (.+\/index\.md)\n/)?.[1];
       expect(specPath).toBeTruthy();
@@ -281,6 +282,91 @@ describe("planCommand", () => {
       }
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("no-commit failures retain the ready-intent for retry", async () => {
+    const cases: Array<{
+      name: string;
+      reviewPasses: number;
+      setup?: (cfgDir: string) => void;
+      run: (specDir: string, prompt: string) => AgentResult;
+    }> = [
+      {
+        name: "draft-failure",
+        reviewPasses: 0,
+        run: () => ({ kind: "error", exitCode: 1, stderr: "draft failed" }),
+      },
+      {
+        name: "validation-failure",
+        reviewPasses: 0,
+        run: () => ({ kind: "ok", stdout: "", stderr: "" }),
+      },
+      {
+        name: "blocker",
+        reviewPasses: 0,
+        run: (specDir) => {
+          writeFileSync(join(specDir, "intent.md"), "---\nname: blocker\n---\n\n## Prerequisites\n\nnone\n\n## Blocker\n\nblocked\n");
+          return { kind: "ok", stdout: "", stderr: "" };
+        },
+      },
+      {
+        name: "review-failure",
+        reviewPasses: 1,
+        run: (specDir) => {
+          if (!existsSync(join(specDir, "index.md"))) {
+            writeDraftSpec(specDir);
+            return { kind: "ok", stdout: "", stderr: "" };
+          }
+          return { kind: "error", exitCode: 1, stderr: "review failed" };
+        },
+      },
+      {
+        name: "publication-failure",
+        reviewPasses: 0,
+        setup: (cfgDir) => {
+          const cfg = loadConfig({ dir: cfgDir });
+          cfg.modes.plan.specTimestamp = false;
+          writeConfig(cfg, { dir: cfgDir });
+        },
+        run: (specDir) => {
+          writeDraftSpec(specDir);
+          return { kind: "ok", stdout: "", stderr: "" };
+        },
+      },
+    ];
+
+    for (const failureCase of cases) {
+      const { dir, cfgDir, project } = setupRegisteredProject();
+      try {
+        configureGitDisabledPlanProject(cfgDir, failureCase.reviewPasses);
+        failureCase.setup?.(cfgDir);
+        const intentPath = writeReadyIntent(project, failureCase.name);
+        if (failureCase.name === "publication-failure") {
+          const externalRoot = join(cfgDir, "specs", "project");
+          mkdirSync(externalRoot, { recursive: true });
+          chmodSync(externalRoot, 0o555);
+        }
+        const cap = captureIo();
+        const code = await planCommand({
+          io: cap.io,
+          args: [intentPath],
+          cwd: project,
+          config: { dir: cfgDir },
+          logClient: okLogClient,
+          skipGhCheck: true,
+          createAgent: () =>
+            new FakeAgent("claude", (prompt, opts) => {
+              const specDir = opts.additionalReadDirs?.[0] ?? "";
+              return failureCase.run(specDir, prompt);
+            }),
+        });
+
+        expect(code).not.toBe(0);
+        expect(existsSync(intentPath)).toBe(true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     }
   });
 

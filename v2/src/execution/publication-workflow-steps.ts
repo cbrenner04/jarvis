@@ -165,7 +165,7 @@ function publish(
   return resolveWorkflowPreset(kind, writes);
 }
 
-type SeedDetails = { label: string; content: string; slug: string; name: string };
+type SeedDetails = { label: string; content: string; slug: string; name: string; paths: string[] };
 function resolveSeed(
   input: IntentWorkflowInput,
   project: ProjectMatch,
@@ -185,6 +185,7 @@ function resolveSeed(
         content: readSeed(canonical),
         name,
         slug: slugify(name),
+        paths: [canonical],
       };
     } catch (e) {
       return { error: `intent: cannot resolve seed path: ${e instanceof Error ? e.message : String(e)}` };
@@ -192,7 +193,7 @@ function resolveSeed(
   }
   const content = input.seedText ?? "";
   const slug = slugify(content.split(/\s+/u).slice(0, 6).join(" "));
-  return { label: "inline seed", content, slug, name: slug };
+  return { label: "inline seed", content, slug, name: slug, paths: [] };
 }
 /**
  * Machine-config `modes.plan` block, normalized. Shared by every publication row's
@@ -299,6 +300,7 @@ function intentSource(
         stagingDir: INTENT_STAGE,
         invocationId: identity.invocationId,
         baseRef,
+        inputs: { sourceRoot: project.root, paths: seed.paths, consumeFrom: publishGit ? "worktree" : "source" },
       } satisfies PublicationLanding,
       workflowInvocationId: identity.invocationId,
       creationTitle: `intent: ${seed.name}`,
@@ -504,6 +506,7 @@ function planSource(
     const cwd = join(root, "worktrees", project.key, branch);
     const timestamp = `${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z`;
     const specDir = join(target, `${timestamp}-${ready.name}`);
+    const durableSpecPath = git ? specDir : join(root, "specs", projectSafeId(project.key), "plans", ready.name);
     const source: WriteWorkflowSourceStep = {
       behavior: "write",
       stepId: "plan",
@@ -519,9 +522,18 @@ function planSource(
         jarvisRoot: root,
         ...(git ? {} : { git: false, localPath: join(root, "specs", projectSafeId(project.key), "plans", ready.name) }),
       },
-      specPath: git ? specDir : join(root, "specs", projectSafeId(project.key), "plans", ready.name),
+      specPath: durableSpecPath,
       expectedArtifactPath: PLAN_STAGE,
-      landing: { kind: "plan-tree", stagingDir: PLAN_STAGE, durablePath: specDir } satisfies PublicationLanding,
+      landing: {
+        kind: "plan-tree",
+        stagingDir: PLAN_STAGE,
+        durablePath: durableSpecPath,
+        inputs: {
+          sourceRoot: project.root,
+          paths: [join(input.cwd, input.readyIntent)],
+          consumeFrom: git ? "worktree" : "source",
+        },
+      } satisfies PublicationLanding,
       intentSeed: ready.content,
       workflowInvocationId: crypto.randomUUID(),
       publishCompletion: true,

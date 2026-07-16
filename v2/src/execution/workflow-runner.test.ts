@@ -28,6 +28,7 @@ import {
 } from "../testing/write-fixtures.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
+import { landPublication } from "./publication-landing.ts";
 import { ReadyGateError } from "./ready-finalize.ts";
 import { intentReviewPromptProfile } from "./render-intent-review-prompts.ts";
 import { planReviewPromptProfile } from "./render-plan-review-prompts.ts";
@@ -242,6 +243,113 @@ function createStepInput(
 ): WorkflowStepInput {
   return createStep(overrides);
 }
+
+describe("intent publication input consumption", () => {
+  test("keeps the registered file through failures, maps Git deletion into its completion diff, and consumes no-Git sources", async () => {
+    const source = createIntentWorktreeHarness("input-source").workspace;
+    const worktree = createIntentWorktreeHarness("input-worktree").workspace;
+    for (const root of [source, worktree]) {
+      mkdirSync(join(root, "queue"));
+      writeFileSync(join(root, "queue", "seed.md"), "seed\n");
+      execFileSync("git", ["add", "queue"], { cwd: root });
+      execFileSync("git", ["commit", "-qm", "seed"], { cwd: root });
+    }
+    const inputs = { sourceRoot: source, paths: [join(source, "queue/seed.md")], consumeFrom: "worktree" as const };
+    await expect(
+      landPublication(
+        { kind: "intent-stage", output: { durableDir: "ready-intents" }, stagingDir: ".jarvis-intent-stage", invocationId: "i", baseRef: "HEAD", inputs },
+        worktree,
+      ),
+    ).rejects.toThrow("missing");
+    expect(existsSync(join(source, "queue/seed.md"))).toBe(true);
+    mkdirSync(join(worktree, ".jarvis-intent-stage"));
+    writeFileSync(join(worktree, ".jarvis-intent-stage", "one.md"), "---\nname: one\n---\n\n## Prerequisites\n");
+    await landPublication(
+      { kind: "intent-stage", output: { durableDir: "ready-intents" }, stagingDir: ".jarvis-intent-stage", invocationId: "i", baseRef: "HEAD", inputs },
+      worktree,
+    );
+    expect(execFileSync("git", ["diff", "--name-only"], { cwd: worktree, encoding: "utf8" })).toContain("queue/seed.md");
+    expect(existsSync(join(source, "queue/seed.md"))).toBe(true);
+
+    const noGitSource = mkdtempSync(join(tmpdir(), "intent-no-git-source-"));
+    const noGitWorktree = createIntentWorktreeHarness("input-no-git").workspace;
+    writeFileSync(join(noGitSource, "seed.md"), "seed\n");
+    mkdirSync(join(noGitWorktree, ".jarvis-intent-stage"));
+    writeFileSync(join(noGitWorktree, ".jarvis-intent-stage", "two.md"), "---\nname: two\n---\n\n## Prerequisites\n");
+    await landPublication(
+      {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId: "no-git",
+        baseRef: "HEAD",
+        inputs: { sourceRoot: noGitSource, paths: [join(noGitSource, "seed.md")], consumeFrom: "source" },
+      },
+      noGitWorktree,
+    );
+    expect(existsSync(join(noGitSource, "seed.md"))).toBe(false);
+  });
+
+  test("lands the byte-identical ready intent before consuming plan inputs", async () => {
+    const source = createIntentWorktreeHarness("plan-input-source").workspace;
+    const worktree = createIntentWorktreeHarness("plan-input-worktree").workspace;
+    const intent = "---\nname: plan\n---\n\n## Prerequisites\n\nkeep bytes\n";
+    for (const root of [source, worktree]) {
+      mkdirSync(join(root, "ready-intents"));
+      writeFileSync(join(root, "ready-intents/plan.md"), intent);
+      execFileSync("git", ["add", "ready-intents"], { cwd: root });
+      execFileSync("git", ["commit", "-qm", "ready intent"], { cwd: root });
+    }
+    mkdirSync(join(worktree, ".jarvis-plan-stage"));
+    writeFileSync(join(worktree, ".jarvis-plan-stage/index.md"), "# Plan\n");
+    writeFileSync(join(worktree, ".jarvis-plan-stage/intent.md"), intent);
+    writeFileSync(join(worktree, ".jarvis-plan-stage/00-first.md"), "# First\n");
+    await landPublication(
+      {
+        kind: "plan-tree",
+        stagingDir: ".jarvis-plan-stage",
+        durablePath: "spec/plan",
+        inputs: { sourceRoot: source, paths: [join(source, "ready-intents/plan.md")], consumeFrom: "worktree" },
+      },
+      worktree,
+    );
+    expect(readFileSync(join(worktree, "spec/plan/intent.md"), "utf8")).toBe(intent);
+    expect(existsSync(join(source, "ready-intents/plan.md"))).toBe(true);
+    expect(execFileSync("git", ["diff", "--name-only"], { cwd: worktree, encoding: "utf8" })).toContain(
+      "ready-intents/plan.md",
+    );
+  });
+
+  test("retains no-Git ready intents until a complete plan tree lands", async () => {
+    const source = mkdtempSync(join(tmpdir(), "plan-no-git-source-"));
+    const workspace = createIntentWorktreeHarness("plan-no-git").workspace;
+    const intentPath = join(source, "plan.md");
+    writeFileSync(intentPath, "intent\n");
+    const landing = {
+      kind: "plan-tree" as const,
+      stagingDir: ".jarvis-plan-stage",
+      durablePath: "plans/plan",
+      inputs: { sourceRoot: source, paths: [intentPath], consumeFrom: "source" as const },
+    };
+    // Draft, review, and validation failures never reach this landing boundary.
+    expect(existsSync(intentPath)).toBe(true);
+    await expect(landPublication(landing, workspace)).rejects.toThrow("missing");
+    expect(existsSync(intentPath)).toBe(true);
+    mkdirSync(join(workspace, ".jarvis-plan-stage"));
+    writeFileSync(join(workspace, ".jarvis-plan-stage/index.md"), "# Plan\n");
+    writeFileSync(join(workspace, ".jarvis-plan-stage/intent.md"), "intent\n");
+    writeFileSync(join(workspace, ".jarvis-plan-stage/00-first.md"), "# First\n");
+    mkdirSync(join(workspace, "plans/plan"), { recursive: true });
+    writeFileSync(join(workspace, "plans/plan/index.md"), "# collision\n");
+    await expect(landPublication(landing, workspace)).rejects.toThrow("different contents");
+    expect(existsSync(intentPath)).toBe(true);
+    writeFileSync(join(workspace, "plans/plan/index.md"), "# Plan\n");
+    writeFileSync(join(workspace, "plans/plan/intent.md"), "intent\n");
+    writeFileSync(join(workspace, "plans/plan/00-first.md"), "# First\n");
+    await landPublication(landing, workspace);
+    expect(existsSync(intentPath)).toBe(false);
+  });
+});
 
 describe("resolveWorkflowPreset step shape", () => {
   test("builds a workflow step and preserves loop-control fields", () => {

@@ -286,7 +286,7 @@ describe("plan ready-intent deletion command flow", () => {
     }
   });
 
-  test("commit: false leaves the source ready-intent untouched", async () => {
+  test("commit: false consumes the source ready-intent after successful publication", async () => {
     const setup = initCommittedProject();
     try {
       configureNoCommitMode(setup.cfgDir);
@@ -319,7 +319,7 @@ describe("plan ready-intent deletion command flow", () => {
       });
 
       expect(code).toBe(0);
-      expect(readFileSync(readyIntentPath, "utf8")).toBe(READY_INTENT);
+      expect(existsSync(readyIntentPath)).toBe(false);
     } finally {
       setup.cleanup();
     }

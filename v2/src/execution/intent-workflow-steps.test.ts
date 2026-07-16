@@ -93,6 +93,10 @@ describe("buildIntentWorkflowSteps", () => {
       promptId: "intent.prompt.split",
       creationTitle: "intent: improve-api",
     });
+    expect(file.steps[0]).toMatchObject({
+      landing: { inputs: { sourceRoot: root, paths: [seed], consumeFrom: "worktree" } },
+    });
+    expect(inline.steps[0]).toMatchObject({ landing: { inputs: { paths: [], consumeFrom: "worktree" } } });
   });
 
   test("rejects dual seeds, traversal, and reserved slugs before loading steps", async () => {

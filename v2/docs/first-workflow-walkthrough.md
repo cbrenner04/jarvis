@@ -312,7 +312,8 @@ resolution. `--target-dir` is relative and non-traversing. Output is written
 to `<targetDir>/ready-intents/` for git-enabled runs, or to
 `~/.jarvis/specs/<project-safe-id>/ready-intents/` when git publication is
 disabled. One seed produces one or more validated intent files; a single
-intent remains a valid result. The raw seed remains in place.
+intent remains a valid result. A successful file-seed promotion consumes that
+seed; inline seeds have no source artifact. Failures retain file seeds for retry.
 
 Git-enabled runs use `intent/<slug>` in a Jarvis worktree and the resolved
 remote default branch for both the worktree base and PR base. Completion first
@@ -447,7 +448,11 @@ Publication writes first use `.jarvis-intent-stage` or `.jarvis-plan-stage`.
 After writing (and review, when configured), the selected landing hook validates
 and atomically moves durable output. Collisions and filesystem failures leave
 staging for retry; durable destinations are ready-intents for intents and the
-precomputed spec tree for plans. Completion publication runs only after landing.
+precomputed spec tree for plans. A successful intent or plan consumes its queue
+input only after landing; Git commits include the mapped queue deletion, while
+no-Git runs delete the source after the durable output exists. Draft, review,
+validation, collision, and publication failures retain queue inputs. Completion
+publication runs only after landing.
 
 ## Related docs
 

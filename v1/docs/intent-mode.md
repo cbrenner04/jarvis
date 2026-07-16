@@ -38,7 +38,11 @@ file-seed input directory depends on the commit mode:
 - **Committed mode (`commit: true`):** File seeds must live under `<targetDir>/seeds/`.
 - **No-commit mode (`commit: false`):** File seeds must live under `~/.jarvis/specs/<project-safe-id>/seeds/`.
 
-The raw seed is read but left in place after fan-out.
+Inline seeds have no file to consume. A successful file-seed fan-out consumes
+the seed: committed mode deletes its mapped worktree copy before the split
+commit, while no-commit mode deletes it only after every ready-intent lands.
+Collisions, validation failures, and publication failures leave file seeds in
+place. Missing, external, or symlink-escaped mapped targets are skipped.
 
 `<targetDir>` resolves with per-run override: `--target-dir <dir>` (if provided)
 takes precedence over project-level `plan.targetDir`, then global `modes.plan.targetDir`,

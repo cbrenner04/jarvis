@@ -103,6 +103,23 @@ describe("plan preset draft write step", () => {
     expect(resultKind).toBe("complete");
     expect(capturedPrompt).toContain(specGuidance.slice(0, 80));
   });
+
+  test("records the ready-intent as the byte-identical plan input", async () => {
+    const result = await buildPlanWorkflowSteps(input, builderDeps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const step = result.steps[0];
+    if (step?.behavior !== "write") throw new Error("expected write step");
+    expect(step.intentSeed).toBe(intent.content);
+    expect(step.landing).toMatchObject({
+      kind: "plan-tree",
+      inputs: {
+        sourceRoot: "/repo",
+        paths: ["/repo/spec/ready-intents/reviewed-plan.md"],
+        consumeFrom: "worktree",
+      },
+    });
+  });
 });
 
 describe("buildPlanWorkflowSteps review composition", () => {

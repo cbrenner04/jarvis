@@ -13,10 +13,10 @@ queue must reflect promotion immediately without changing archival cleanup.
 
 ## Acceptance criteria
 
-- [ ] `v1/test/plan-delete-ready-intent-command.test.ts` keeps proving that a Git-backed plan commit contains the byte-identical `intent.md` copy and safe source deletion, while missing, external, and symlink-escaped targets remain untouched.
-- [ ] `v1/test/plan-command.test.ts` adds a regression that fails against the baseline and proves a successful no-commit plan consumes its ready-intent after the complete spec output lands.
-- [ ] `v1/test/plan-command.test.ts` proves draft, review, blocker, validation, and filesystem-publication failures retain the ready-intent for a safe retry.
-- [ ] `v1/test/cleanup-command.sandbox-unrunnable.test.ts` external-spec cleanup tests stay green and continue to permit best-effort pruning when an old ready-intent remains.
+- [x] `v1/test/plan-delete-ready-intent-command.test.ts` keeps proving that a Git-backed plan commit contains the byte-identical `intent.md` copy and safe source deletion, while missing, external, and symlink-escaped targets remain untouched.
+- [x] `v1/test/plan-command.test.ts` adds a regression that fails against the baseline and proves a successful no-commit plan consumes its ready-intent after the complete spec output lands.
+- [x] `v1/test/plan-command.test.ts` proves draft, review, blocker, validation, and filesystem-publication failures retain the ready-intent for a safe retry.
+- [x] `v1/test/cleanup-command.sandbox-unrunnable.test.ts` external-spec cleanup tests stay green and continue to permit best-effort pruning when an old ready-intent remains.
 
 ## Documentation updates
 

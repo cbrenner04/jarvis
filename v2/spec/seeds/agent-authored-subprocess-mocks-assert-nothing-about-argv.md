@@ -69,6 +69,43 @@ the agent cannot fail is not a criterion.
   the harness itself depends on (`gh pr view`, `gh pr list`). A stub encodes the author's belief
   about the flag; the belief was the bug. Rules out mocks as the *only* coverage of an external CLI
   contract.
+- **Code that reads a filesystem or process root takes it as an injectable dependency.** A function
+  resolving `~/.jarvis` (or `$HOME`, or a daemon socket) internally has no test seam, so the only
+  green path is a mock that bypasses it — which is what both agents built. Rules out treating this
+  as an agent-quality problem: two models failed identically because the shape admitted no honest
+  test. Where a spec's criteria require testing such a function, the spec owes the seam.
+
+## Second instance: a stronger agent produced a *worse* rubber stamp (2026-07-16)
+
+The spec was re-run from scratch on claude after codex's attempt was rejected. Claude fixed the
+`--head` typo — and its test suite was **100% vacuous**, strictly worse than the mock above.
+
+Every test passes a fabricated registry (`{ testproj: { root: "/path/to/repo" } }`) while
+`discoverWorktreeCandidates` reads the **real** `~/.jarvis/worktrees/<projectKey>`. That path does
+not exist, so discovery returns zero candidates and every test exercises the early-return. The
+`isMergedPr` and `listRunsFromDaemon` mocks are never invoked. The two guard tests assert
+`toContain("no merged worktrees to remove")` — the *zero-candidates* string — so they pass with the
+guards deleted.
+
+Demonstrated, not inferred: restoring the original `--head` bug **and** stubbing
+`checkWorktreeEligibility` to `return { candidate, eligible: true }` (every guard removed) still
+yields **7 pass / 0 fail**. The suite proves nothing about the code it covers.
+
+It also hid two defects the tests would have caught on contact:
+
+- `removeWorktree` is `rmSync` with no `git worktree remove`/`prune`, so the registration survives
+  and the subsequent `git branch -d`/`-D` **always** fails (`cannot delete branch 'x' used by
+  worktree at …`). Every eligible worktree ends half-mutated: directory gone, branch orphaned,
+  command exits 1, re-run not idempotent.
+- The CLI's `listRunsFromDaemon` swallows errors (`catch { return [] }`), so a **daemon-down**
+  ownership check reads as blanket permission — fail-open in exactly the case the spec says must
+  fail closed.
+
+**Two independent agents, two rejections, same root cause — so this is a property of the code
+shape, not the model.** `discoverWorktreeCandidates` resolves `~/.jarvis` internally and takes no
+injectable root. There is no seam to test against, so the only way to make the suite green is to
+mock around the thing under test. Both agents did, in different ways, and both ticked the
+fail-before criterion.
 
 ## Prerequisites
 

@@ -327,3 +327,11 @@ report,session_id,report_date,cost,completed_work_units,success_status,failure_r
 2026-07-16T00-38-20Z-operator,provision-v2-worktree-dependencies,2026-07-15,$0.74,1,completed,,implementation,1,,,7,,"Dependency fix, validated live. codex cost NULL."
 2026-07-16T00-38-20Z-operator,workflow-prs-use-spec-titles,2026-07-15,$1.36,1,completed,,implementation,1,,,8,,PR title fix. codex cost NULL.
 2026-07-16T00-38-20Z-operator,plan-and-implement-prs-use-template-bodies,2026-07-15,$1.14,1,completed,,implementation,1,,,6,,PR body fix. codex cost NULL.
+2026-07-16T06-45-00Z-operator,shared-invocation-idle-output-watchdog,2026-07-16,,1,completed,,implementation,1,,,,,PR #1610 merged. codex cost NULL.
+2026-07-16T06-45-00Z-operator,daemon-stop-refuses-active-runs,2026-07-16,,1,completed,,implementation,1,,,,,PR #1617 merged. codex cost NULL.
+2026-07-16T06-45-00Z-operator,distinguish-ready-gate-and-flip-failures,2026-07-16,,1,completed,,implementation,1,,,,,PR #1620 merged. codex cost NULL.
+2026-07-16T06-45-00Z-operator,non-live-workflow-claim-is-reclaimable,2026-07-16,,1,completed,,implementation,1,,,,,PR #1622 merged. codex cost NULL.
+2026-07-16T06-45-00Z-operator,review-without-evidence-fails-the-run,2026-07-16,,1,completed,,implementation,1,,,,,PR #1630 merged. codex cost NULL.
+2026-07-16T06-45-00Z-operator,tui-row-navigation,2026-07-16,,1,completed,,implementation,1,,,,,PR #1629 merged. codex cost NULL.
+2026-07-16T06-45-00Z-operator,rehydrate-review-profiles-after-snapshot,2026-07-16,,1,completed,,implementation,1,,,,,PR #1633 merged. codex cost NULL.
+2026-07-16T06-45-00Z-operator,ready-gate-fails-on-any-red-test-file,2026-07-16,,1,completed,,implementation,1,,,,,PR #1637 merged. codex cost NULL.

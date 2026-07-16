@@ -345,9 +345,11 @@ branch if safe. Seed: `v2-cleanup-command`.
 
 ### Publication / completion failures
 
-Retryable `completion_commit_failed`, `ready_gate_failed`, or `ready_flip_failed` on `list` / `wait`: inspect `error.publicationFailure` first for the operation, message, exit code, and command-output tails; then verify the completion commit/PR state, fix `git`/`gh`/`origin` access, then
+Retryable `completion_commit_failed` or `ready_gate_failed` on `list` / `wait`: inspect `error.publicationFailure` first for the operation, message, exit code, and command-output tails; then verify the completion commit/PR state, fix `git`/`gh`/`origin` access, then
 `jarvis run resume <run-id>`. Resume reuses the persisted write snapshot before replaying
 publication; daemon-process logs are secondary, and do not delete the worktree or substitute current config.
+
+**`ready_flip_failed` is terminal** — do not resume. The flip error identifies the PR by number (`error.prNumber`); inspect and manually fix the PR draft → ready transition. The fix does not require a daemon restart or `jarvis run resume`. The PR number is also available via `jarvis run list <run-id>` as the `readyFlipPrNumber` field; use it to identify the PR to fix. After manual fix, verify `gh pr view <prNumber> --json isDraft` reports `false`, then proceed with the next workflow step or close the run.
 
 ### Intent-reviewed operator checkout
 

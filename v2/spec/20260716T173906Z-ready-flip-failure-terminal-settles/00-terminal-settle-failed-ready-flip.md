@@ -21,13 +21,13 @@
 
 ## Acceptance criteria
 
-- [ ] A workflow driven to a ready-flip failure through the `readyFinalizer` seam settles: `run workflow` returns `ready_flip_failed` with `resumable: false`, no run row is left `in-progress`, and the `loop_finished` row records `resumable: false`; the test fails against the pre-fix code.
-- [ ] After that settlement the worktree claim is released: a second `start` on the same `(project, branch)` is accepted without a daemon restart, and the worktree, branch, and completion commit survive untouched; the test fails against the pre-fix code.
-- [ ] `resume` of a flip-settled run is refused as a terminal run; `completion_commit_failed` and `ready_gate_failed` runs stay resume-eligible (`daemon-resume.test.ts` covers both directions).
-- [ ] `list` and `wait` report `ready_flip_failed` with `retryable: false` and `nextAction: "stop"`, still carrying `publicationFailure`; `run workflow` and `run wait` still exit `1`.
-- [ ] `v2/src/execution/ready-finalize.test.ts` stays green — retry policy, `already ready` / `not a draft` guards, and `ReadyGateError` repair routing are unchanged by this subspec.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/workflow-runner.md`, `v2/docs/write-behavior.md`, `v2/docs/daemon-host.md`, and `v2/docs/v1-behaviors.md` document the non-resumable flip outcome, its resume ineligibility, and claim release.
+- [x] A workflow driven to a ready-flip failure through the `readyFinalizer` seam settles: `run workflow` returns `ready_flip_failed` with `resumable: false`, no run row is left `in-progress`, and the `loop_finished` row records `resumable: false`; the test fails against the pre-fix code.
+- [x] After that settlement the worktree claim is released: a second `start` on the same `(project, branch)` is accepted without a daemon restart, and the worktree, branch, and completion commit survive untouched; the test fails against the pre-fix code.
+- [x] `resume` of a flip-settled run is refused as a terminal run; `completion_commit_failed` and `ready_gate_failed` runs stay resume-eligible (`daemon-resume.test.ts` covers both directions).
+- [x] `list` and `wait` report `ready_flip_failed` with `retryable: false` and `nextAction: "stop"`, still carrying `publicationFailure`; `run workflow` and `run wait` still exit `1`.
+- [x] `v2/src/execution/ready-finalize.test.ts` stays green — retry policy, `already ready` / `not a draft` guards, and `ReadyGateError` repair routing are unchanged by this subspec.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/workflow-runner.md`, `v2/docs/write-behavior.md`, `v2/docs/daemon-host.md`, and `v2/docs/v1-behaviors.md` document the non-resumable flip outcome, its resume ineligibility, and claim release.
 
 ## Documentation updates
 

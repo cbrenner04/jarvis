@@ -17,11 +17,11 @@ The flip failure is the one failure whose remediation is manual, but the operato
 
 ## Acceptance criteria
 
-- [ ] A flip failure whose publication returned a PR number surfaces that PR on the run's terminal record and on `list` / `wait` alongside the preserved flip cause; the test fails against the pre-fix code.
-- [ ] A flip failure whose publication returned no PR number omits the PR reference rather than emitting a placeholder, and still surfaces the flip cause.
-- [ ] `v2/src/execution/write-loop.test.ts` and `v2/src/execution/workflow-runner.test.ts` completion-publication cases stay green — publication ordering and the `completion_commit_failed` / `ready_gate_failed` paths are unchanged.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/operator-runbook.md` § Recovery gives failed-flip recovery against the named PR and the recorded flip cause, without `jarvis run resume` or a daemon restart; `v2/docs/daemon-host.md` and `v2/docs/write-behavior.md` document the PR reference on the flip failure.
+- [x] A flip failure whose publication returned a PR number surfaces that PR on the run's terminal record and on `list` / `wait` alongside the preserved flip cause; the test fails against the pre-fix code.
+- [x] A flip failure whose publication returned no PR number omits the PR reference rather than emitting a placeholder, and still surfaces the flip cause.
+- [x] `v2/src/execution/write-loop.test.ts` and `v2/src/execution/workflow-runner.test.ts` completion-publication cases stay green — publication ordering and the `completion_commit_failed` / `ready_gate_failed` paths are unchanged.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/operator-runbook.md` § Recovery gives failed-flip recovery against the named PR and the recorded flip cause, without `jarvis run resume` or a daemon restart; `v2/docs/daemon-host.md` and `v2/docs/write-behavior.md` document the PR reference on the flip failure.
 
 ## Documentation updates
 

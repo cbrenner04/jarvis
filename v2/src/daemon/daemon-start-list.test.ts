@@ -913,7 +913,7 @@ test("resume retries a completed run after completion publication failed", async
   expect(fakeExecutor.pendingCount()).toBe(1);
 });
 
-test("resume retries completed runs after ready gate and flip failures", async () => {
+test("resume retries completed runs after ready gate failures", async () => {
   const runId = createPublicationRetryRun();
   stateStore.setRunStatus(runId, "completed");
   const logReader: LogReader = {
@@ -943,9 +943,9 @@ test("resume retries completed runs after ready gate and flip failures", async (
 
   expect((await resumeDirect(handlers, { runId })).kind).toBe("response");
   expect(fakeExecutor.pendingCount()).toBe(1);
+});
 
-  fakeExecutor.settleAll();
-  await flushBackgroundRuns();
+test("resume rejects completed runs after ready flip failures", async () => {
   const flipRunId = createPublicationRetryRun();
   stateStore.setRunStatus(flipRunId, "completed");
   handlers = createRunControlHandlers({
@@ -960,7 +960,7 @@ test("resume retries completed runs after ready gate and flip failures", async (
             kind: "loop_finished",
             loopOutcomeKind: "ready_flip_failed",
             iterationsConsumed: 1,
-            resumable: true,
+            resumable: false,
           },
         },
       ],
@@ -971,8 +971,8 @@ test("resume retries completed runs after ready gate and flip failures", async (
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
   });
-  expect((await resumeDirect(handlers, { runId: flipRunId })).kind).toBe("response");
-  expect(fakeExecutor.pendingCount()).toBe(1);
+  expect((await resumeDirect(handlers, { runId: flipRunId })).kind).toBe("error");
+  expect(fakeExecutor.pendingCount()).toBe(0);
 });
 
 test("resume without decision on an awaiting-human run is rejected invalid_params", async () => {

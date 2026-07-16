@@ -980,6 +980,42 @@ describe("write loop", () => {
       expect(result.readyFlipError).toContain("gh pr ready failed");
     });
 
+    test("surfaces PR number when flip failure occurs after successful publication", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({ prNumber: 99 }),
+        readyFinalizer: async () => {
+          throw new Error("gh pr ready failed");
+        },
+      });
+
+      expect(result.kind).toBe("ready_flip_failed");
+      expect(result.readyFlipPrNumber).toBe(99);
+      expect(result.readyFlipError).toContain("gh pr ready failed");
+    });
+
+    test("omits PR number when flip failure occurs but publication returned no PR", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          throw new Error("gh pr ready failed");
+        },
+      });
+
+      expect(result.kind).toBe("ready_flip_failed");
+      expect(result.readyFlipPrNumber).toBeUndefined();
+      expect(result.readyFlipError).toContain("gh pr ready failed");
+    });
+
     test("completed-run resume replays publication after a prior publication failure", async () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       const branchName = "resume-publication";

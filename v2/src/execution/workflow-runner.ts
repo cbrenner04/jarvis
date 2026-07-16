@@ -206,6 +206,7 @@ export type WorkflowResult = {
   completionCommitError?: string;
   readyGateError?: string;
   readyFlipError?: string;
+  readyFlipPrNumber?: number;
   publicationFailure?: PublicationFailure;
   boundaryTelemetryFailure?: string;
   prePublicationError?: string;
@@ -834,11 +835,12 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             );
             if (publishError !== undefined) {
               const publicationFailure = publicationFailureFor(publishError.error);
+              const isFlipFailure = publishError.kind === "ready_flip_failed";
               args.logSink?.append(lastResult.runId, {
                 kind: "loop_finished",
                 loopOutcomeKind: publishError.kind,
                 iterationsConsumed: totalIterationsConsumed,
-                resumable: true,
+                resumable: !isFlipFailure,
                 ...(publicationFailure !== undefined ? { publicationFailure } : {}),
               });
               return {
@@ -847,11 +849,14 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 stepId: lastStepId,
                 runId: lastResult.runId,
                 iterationsConsumed: totalIterationsConsumed,
-                resumable: true,
+                resumable: !isFlipFailure,
                 ...(publishError.kind === "ready_gate_failed"
                   ? { readyGateError: publishError.error?.message ?? "ready gate failed" }
                   : publishError.kind === "ready_flip_failed"
-                    ? { readyFlipError: publishError.error?.message ?? "ready flip failed" }
+                    ? {
+                        readyFlipError: publishError.error?.message ?? "ready flip failed",
+                        ...(publishError.prNumber !== undefined ? { readyFlipPrNumber: publishError.prNumber } : {}),
+                      }
                     : { completionCommitError: publishError.error?.message ?? "completion commit failed" }),
                 ...(publicationFailure !== undefined ? { publicationFailure } : {}),
               };

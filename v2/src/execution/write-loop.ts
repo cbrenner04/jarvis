@@ -55,6 +55,7 @@ export type WriteLoopResult = {
   completionCommitError?: string;
   readyGateError?: string;
   readyFlipError?: string;
+  readyFlipPrNumber?: number;
   publicationFailure?: PublicationFailure;
   attemptId?: string;
   outcomeKind?: OutcomeKind;
@@ -171,7 +172,13 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               const publishedResult = { ...prepared.result, iterationsConsumed: publication.iterationsConsumed };
               return publication.failure.kind === "completion_commit_failed"
                 ? completionCommitFailed(args, publishedResult, publication.failure.error)
-                : readyFailed(args, publishedResult, publication.failure.kind, publication.failure.error);
+                : readyFailed(
+                    args,
+                    publishedResult,
+                    publication.failure.kind,
+                    publication.failure.error,
+                    publication.failure.prNumber,
+                  );
             }
           }
           if (published.commitSha === undefined) {
@@ -413,7 +420,13 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             const publishedResult = { ...attributed, iterationsConsumed: publication.iterationsConsumed };
             return publication.failure.kind === "completion_commit_failed"
               ? completionCommitFailed(args, publishedResult, publication.failure.error)
-              : readyFailed(args, publishedResult, publication.failure.kind, publication.failure.error);
+              : readyFailed(
+                  args,
+                  publishedResult,
+                  publication.failure.kind,
+                  publication.failure.error,
+                  publication.failure.prNumber,
+                );
           }
         }
         if (published.commitSha === undefined) {
@@ -800,6 +813,7 @@ export type CompletionPublicationSeams = Pick<WriteLoopInput, "completionPublish
 export type CompletionPublishFailure = {
   kind: "completion_commit_failed" | "ready_gate_failed" | "ready_flip_failed";
   error?: Error;
+  prNumber?: number;
 };
 
 type CompletionPublishInput = Parameters<typeof publishCompletionArtifacts>[1];
@@ -914,8 +928,9 @@ export async function publishCompletionArtifacts(
     specTemplate?: boolean;
   },
 ): Promise<CompletionPublishFailure | undefined> {
+  let publisherResult: Awaited<ReturnType<CompletionPublisher>> | undefined;
   try {
-    await (seams.completionPublisher ?? createCompletionPublisher())(input);
+    publisherResult = await (seams.completionPublisher ?? createCompletionPublisher())(input);
   } catch (publishError) {
     const err = publishError instanceof Error ? publishError : new Error(String(publishError));
     return { kind: "completion_commit_failed", error: err };
@@ -927,7 +942,11 @@ export async function publishCompletionArtifacts(
     });
   } catch (finalizeError) {
     const err = finalizeError instanceof Error ? finalizeError : new Error(String(finalizeError));
-    return { kind: err instanceof ReadyGateError ? "ready_gate_failed" : "ready_flip_failed", error: err };
+    return {
+      kind: err instanceof ReadyGateError ? "ready_gate_failed" : "ready_flip_failed",
+      error: err,
+      ...(publisherResult?.prNumber !== undefined ? { prNumber: publisherResult.prNumber } : {}),
+    };
   }
   return undefined;
 }
@@ -955,22 +974,27 @@ function readyFailed(
   result: WriteLoopResult,
   kind: "ready_gate_failed" | "ready_flip_failed",
   error?: Error,
+  prNumber?: number,
 ): WriteLoopResult {
   const publicationFailure = error === undefined ? undefined : publicationFailureFor(error);
+  const isFlipFailure = kind === "ready_flip_failed";
   args.logSink?.append(result.runId, {
     kind: "loop_finished",
     loopOutcomeKind: kind,
     iterationsConsumed: result.iterationsConsumed,
-    resumable: true,
+    resumable: !isFlipFailure,
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),
   });
   return {
     ...result,
     kind,
-    resumable: true,
+    resumable: !isFlipFailure,
     ...(kind === "ready_gate_failed"
       ? { readyGateError: error?.message ?? "ready gate failed" }
-      : { readyFlipError: error?.message ?? "ready flip failed" }),
+      : {
+          readyFlipError: error?.message ?? "ready flip failed",
+          ...(prNumber !== undefined ? { readyFlipPrNumber: prNumber } : {}),
+        }),
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),
   };
 }

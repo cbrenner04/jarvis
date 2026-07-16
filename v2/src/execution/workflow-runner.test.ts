@@ -1645,6 +1645,7 @@ describe("executeWorkflow human steps", () => {
       kind: "completion_commit_failed" | "ready_gate_failed" | "ready_flip_failed";
       publish: () => Promise<{ pushSha?: string }>;
       finalize: () => Promise<void>;
+      expectedResumable: boolean;
     }> = [
       {
         kind: "completion_commit_failed",
@@ -1652,6 +1653,7 @@ describe("executeWorkflow human steps", () => {
           throw new Error("publish failed");
         },
         finalize: async () => {},
+        expectedResumable: true,
       },
       {
         kind: "ready_gate_failed",
@@ -1659,6 +1661,7 @@ describe("executeWorkflow human steps", () => {
         finalize: async () => {
           throw new ReadyGateError("bun run ready", 1, "red");
         },
+        expectedResumable: true,
       },
       {
         kind: "ready_flip_failed",
@@ -1666,6 +1669,7 @@ describe("executeWorkflow human steps", () => {
         finalize: async () => {
           throw new Error("gh pr ready failed");
         },
+        expectedResumable: false,
       },
     ];
 
@@ -1686,12 +1690,64 @@ describe("executeWorkflow human steps", () => {
           readyFinalizer: testCase.finalize,
         });
         expect(result.kind).toBe(testCase.kind);
+        expect(result.resumable).toBe(testCase.expectedResumable);
         expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
           kind: "loop_finished",
           loopOutcomeKind: testCase.kind,
+          resumable: testCase.expectedResumable,
         });
       });
     }
+  });
+
+  test("surfaces PR number when flip failure occurs after successful publication", async () => {
+    const step = createStep({
+      stepId: "flip-with-pr",
+      role: "implement",
+      branchName: "flip-with-pr",
+    });
+    const logSink = new TestLogSink();
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({ prNumber: 42 }),
+        readyFinalizer: async () => {
+          throw new Error("gh pr ready failed");
+        },
+      });
+      expect(result.kind).toBe("ready_flip_failed");
+      expect(result.resumable).toBe(false);
+      expect(result.readyFlipPrNumber).toBe(42);
+      expect(result.readyFlipError).toBeDefined();
+    });
+  });
+
+  test("omits PR number when flip failure occurs but publication returned no PR", async () => {
+    const step = createStep({
+      stepId: "flip-no-pr",
+      role: "implement",
+      branchName: "flip-no-pr",
+    });
+    const logSink = new TestLogSink();
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          throw new Error("gh pr ready failed");
+        },
+      });
+      expect(result.kind).toBe("ready_flip_failed");
+      expect(result.resumable).toBe(false);
+      expect(result.readyFlipPrNumber).toBeUndefined();
+      expect(result.readyFlipError).toBeDefined();
+    });
   });
 
   test("retains a supplied title for completion-publication retry", async () => {

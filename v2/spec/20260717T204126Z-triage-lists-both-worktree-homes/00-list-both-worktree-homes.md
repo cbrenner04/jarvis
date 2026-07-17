@@ -23,14 +23,14 @@
 
 ## Acceptance criteria
 
-- [ ] No-argument `jarvis1 triage` prints one table containing every worktree from the registered project's v1 and v2 homes, with each table row labeled `v1` or `v2`; equal names in different homes remain distinguishable rows.
-- [ ] Jarvis-owned branch-nested worktrees are listed under their complete home-relative name, and `no worktrees` prints only when neither home contains a worktree.
-- [ ] Dirty, ahead/behind, PR, spec-progress, landed, draft, and outstanding-verdict classification apply unchanged to rows from either home.
-- [ ] `v1/test/triage-command.test.ts` test `lists registered v1 and v2 worktree homes` exercises a combined no-argument listing and fails against the pre-fix code because the v2 row is absent.
-- [ ] Existing `v1/test/triage-command.test.ts` `describe("triage verdict")` and named-form tests stay green.
-- [ ] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v1/docs/operator-runbook.md` records that no-argument triage combines both homes and identifies each row's home.
-- [ ] `v2/docs/v1-behaviors.md` records the two-home listing and unchanged row classification.
+- [x] No-argument `jarvis1 triage` prints one table containing every worktree from the registered project's v1 and v2 homes, with each table row labeled `v1` or `v2`; equal names in different homes remain distinguishable rows.
+- [x] Jarvis-owned branch-nested worktrees are listed under their complete home-relative name, and `no worktrees` prints only when neither home contains a worktree.
+- [x] Dirty, ahead/behind, PR, spec-progress, landed, draft, and outstanding-verdict classification apply unchanged to rows from either home.
+- [x] `v1/test/triage-command.test.ts` test `lists registered v1 and v2 worktree homes` exercises a combined no-argument listing and fails against the pre-fix code because the v2 row is absent.
+- [x] Existing `v1/test/triage-command.test.ts` `describe("triage verdict")` and named-form tests stay green.
+- [x] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v1/docs/operator-runbook.md` records that no-argument triage combines both homes and identifies each row's home.
+- [x] `v2/docs/v1-behaviors.md` records the two-home listing and unchanged row classification.
 
 ## Documentation updates
 

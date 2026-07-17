@@ -6,6 +6,8 @@ Reference for the **operator** dogfooding Jarvis on the Jarvis repo itself — d
 
 Scope: **Jarvis-on-Jarvis only.** An operator driving Jarvis on some *other* repo just runs the prescribed process to land that repo's work and surfaces harness gaps through the [intake](#harness-suggestions-from-other-repos), which the Jarvis-on-Jarvis operator triages.
 
+No-argument `jarvis1 triage` combines `<repo>/.worktree/` and the registered project's `~/.jarvis/worktrees/<project-key>/` home in one table. Each row and outstanding-verdict entry is labeled `v1` or `v2`.
+
 ## Where seeds and intents live
 
 Seeds and ready-intents live under the configured `plan.targetDir`, **not** a fixed

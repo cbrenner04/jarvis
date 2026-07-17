@@ -327,6 +327,42 @@ A single open draft PR passes these gates and retirement proceeds. Zero matching
 
 Use `--dry-run` to preview without confirmation: `jarvis cleanup --abandon <name> --dry-run`.
 
+### Worktree capacity warnings and refusal
+
+Before each agent subprocess, v2 checks the registered worktree count and warns or refuses based on
+configurable thresholds. The sandbox enforces a hard limit per-project on the deny-path set size; past that,
+every spawned command fails with `E2BIG` even for trivial operations, wasting quota and blocking progress.
+
+**Capacity warning:** A warning like `Worktree capacity at 7 registrations (warn threshold: 5, refuse at 10)`
+means safe capacity exists but is getting close. The run proceeds normally. Clean up merged worktrees to
+reduce the warning:
+
+```sh
+jarvis cleanup --dry-run  # preview which worktrees are eligible
+jarvis cleanup            # retire all eligible merged worktrees
+```
+
+**Capacity refusal:** When the count hits the refusal threshold (default 10, but operator-configurable), the
+run stops before spawning the agent with `capacity_refused` and no quota spent. The message names the count,
+the E2BIG risk, and recovery:
+
+```sh
+jarvis cleanup  # retire eligible merged worktrees and re-run
+```
+
+A capacity refusal means either (1) accumulated merged PRs have not been cleaned up, or (2) live unmerged
+worktrees exceed safe capacity. To diagnose:
+
+```sh
+git worktree list --porcelain  # list all registrations in this repo
+jarvis cleanup --dry-run       # preview which are eligible for retirement
+```
+
+Eligible worktrees have merged PRs and no live runs. Ineligible ones are live, unmerged, or daemon-unknown
+(conservative: if the daemon cannot confirm live status, retirement skips). If safe capacity cannot be
+established (git failure, pruning failure, daemon unreachable), refusal is fail-closed: the run stops and
+you must clean up manually before retry.
+
 ### Blocked run: inspect and resume
 
 A `blocked` run (agent appended `## Blocker` to the spec) keeps its worktree, branch, and

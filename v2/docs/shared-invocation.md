@@ -5,10 +5,15 @@ agent-invocation fallback seam used by v2 write-step execution.
 
 Contract:
 
-- Input: `(prompt, cwd, ordered bindings, AbortSignal?, idleOutputMs?)`.
-- Each binding invocation returns typed `ok | quota | stall | model_config | error`.
+- Input: `(prompt, cwd, ordered bindings, AbortSignal?, idleOutputMs?, PreSpawnGuard?)`.
+- Each binding invocation returns typed `ok | quota | stall | model_config | error | capacity_refused`.
   `idleOutputMs` is caller-supplied and disabled when unset or `0`; output on either
   stream resets the idle budget.
+- A `preSpawnGuard`, when supplied, is invoked before each binding attempt. The guard
+  can refuse (returns `capacity_refused` immediately, no binding invocation), warn
+  (logs a harness message and continues), or allow (`ok`). Refusal stops the fallback
+  chain entirely before any binding is invoked, spending no quota. The guard is
+  v2-only, optional, and omitted for test bindings and v1 invocations.
 - Fallback advances when the binding's `shouldAdvance` predicate returns true.
   Default policy is `result.kind === "quota"` only; callers may override per
   binding. Review actuator opts into a broader actuator-only policy (quota,
@@ -94,6 +99,7 @@ chain stops, `failureKind` encodes why:
 | `stall` | A binding exceeded its caller-supplied idle-output budget |
 | `model_config` | First non-quota result was `model_config`; chain stops (no advance) |
 | `error` | First non-quota result was `error`; chain stops (no advance) |
+| `capacity_refused` | Pre-spawn guard refused execution (e.g., worktree capacity at refuse threshold); no binding invoked |
 | `no_binding` | No bindings configured (`final === null`), including an empty resolved binding list |
 
 Detail (`failureKind` plus ordered `bindingAttempts`) attaches only for

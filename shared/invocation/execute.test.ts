@@ -396,4 +396,59 @@ describe("shared invocation fallback", () => {
     });
     expect(errorLog.lines.filter((l) => l.tag === "inbound_stderr").map((l) => l.text)).toEqual(["spawn failed"]);
   });
+
+  test("preSpawnGuard refusal stops execution before binding.invoke", async () => {
+    const sessionLog = fakeSessionLog();
+    const result = await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      sessionLog: sessionLog.log,
+      bindings: [binding("agent", { kind: "ok", stdout: "done", stderr: "" })],
+      preSpawnGuard: {
+        check: async () => ({
+          kind: "refusal",
+          message: "capacity exceeded",
+        }),
+      },
+    });
+
+    expect(result.final?.result.kind).toBe("capacity_refused");
+    expect(result.final?.result.stderr).toBe("capacity exceeded");
+    expect(result.attempts).toHaveLength(1);
+  });
+
+  test("preSpawnGuard warning logs and continues", async () => {
+    const sessionLog = fakeSessionLog();
+    const result = await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      sessionLog: sessionLog.log,
+      bindings: [binding("agent", { kind: "ok", stdout: "done", stderr: "" })],
+      preSpawnGuard: {
+        check: async () => ({
+          kind: "warning",
+          message: "capacity at 7 of 10",
+        }),
+      },
+    });
+
+    expect(result.final?.result.kind).toBe("ok");
+    const harnesslogs = sessionLog.lines.filter((l) => l.tag === "harness");
+    expect(harnesslogs.some((l) => l.text.includes("capacity_warning"))).toBe(true);
+  });
+
+  test("preSpawnGuard ok allows execution", async () => {
+    const result = await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [binding("agent", { kind: "ok", stdout: "done", stderr: "" })],
+      preSpawnGuard: {
+        check: async () => ({
+          kind: "ok",
+        }),
+      },
+    });
+
+    expect(result.final?.result.kind).toBe("ok");
+  });
 });

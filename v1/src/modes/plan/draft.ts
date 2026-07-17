@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
+import { collapseToError, executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import { buildPlanDraftPrompt } from "../../../../shared/prompts/plan-draft.ts";
 import { PromptRenderingError } from "../../../../shared/prompts/render.ts";
 import { detectBlocker, isStructuralAc, parseSpec } from "../../../../shared/spec-parser.ts";
@@ -240,7 +240,7 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
     }
 
     return {
-      result: finalResult.kind === "stall" ? { kind: "error", exitCode: -1, stderr: finalResult.stderr } : finalResult,
+      result: collapseToError(finalResult),
       subspecCount: null,
       agentLabel,
     };

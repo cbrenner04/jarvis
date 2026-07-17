@@ -38,7 +38,25 @@ export type InvocationError =
       stderr: string;
     };
 
-export type InvocationResult = InvocationOk | InvocationQuota | InvocationStall | InvocationError;
+export type InvocationCapacityRefused = {
+  kind: "capacity_refused";
+  stderr: string;
+};
+
+export type InvocationResult = InvocationOk | InvocationQuota | InvocationStall | InvocationError | InvocationCapacityRefused;
+
+/**
+ * Collapse `stall`/`capacity_refused` into a generic `error`, for callers whose
+ * own result type (e.g. v1's `AgentResult`) has no such kinds.
+ */
+export function collapseToError(
+  result: InvocationResult,
+): InvocationOk | InvocationQuota | InvocationError {
+  if (result.kind === "stall" || result.kind === "capacity_refused") {
+    return { kind: "error", exitCode: -1, stderr: result.stderr };
+  }
+  return result;
+}
 
 export type InvocationBinding<T extends InvocationResult = InvocationResult> = {
   id: string;
@@ -117,12 +135,19 @@ export type InvocationTelemetryContext = {
   invocationIds: readonly string[];
 };
 
+export type PreSpawnGuard = {
+  check: () => Promise<{ kind: "ok" } | { kind: "warning"; message: string } | { kind: "refusal"; message: string }>;
+};
+
 /**
  * Run bindings in order, advancing when the binding's `shouldAdvance` predicate
  * returns true (default: `result.kind === "quota"`).
  *
  * Plan/intent inner loops override the predicate to also advance on `error` and
  * `model_config`; patch/review/shrink keep terminal `model_config` and `error`.
+ *
+ * If a preSpawnGuard is provided, it is invoked before each binding.invoke.
+ * A guard refusal stops execution and returns a capacity_refused result without invoking.
  */
 export async function executeWithQuotaFallback<T extends InvocationResult = InvocationResult>(args: {
   prompt: string;
@@ -132,6 +157,7 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
   idleOutputMs?: number;
   telemetry?: InvocationTelemetryContext;
   sessionLog?: SessionLog;
+  preSpawnGuard?: PreSpawnGuard;
 }): Promise<InvocationExecution<T>> {
   const attempts: InvocationAttempt<T>[] = [];
   const telemetryFailures: InvocationTelemetryFailure[] = [];
@@ -144,6 +170,22 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
   };
 
   for (const [bindingIndex, binding] of args.bindings.entries()) {
+    if (args.preSpawnGuard !== undefined) {
+      const guardResult = await args.preSpawnGuard.check();
+      if (guardResult.kind === "refusal") {
+        const refusalResult: InvocationCapacityRefused = {
+          kind: "capacity_refused",
+          stderr: guardResult.message,
+        };
+        const attempt = { binding, result: refusalResult as T };
+        attempts.push(attempt);
+        return { attempts, final: attempt, telemetryFailures };
+      }
+      if (guardResult.kind === "warning") {
+        logAppend("harness", `capacity_warning: ${guardResult.message}`);
+      }
+    }
+
     const startedAt = Date.now();
     const metadataForLog = binding.metadata;
     logAppend(

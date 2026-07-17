@@ -1,6 +1,6 @@
 import { mkdirSync, rmSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
-import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
+import { collapseToError, executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import { buildIntentSplitPrompt, listIntentStageMarkdownFiles } from "../../../../shared/prompts/intent-split.ts";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
@@ -106,7 +106,7 @@ export async function runIntentSplitTurn(opts: {
   }
 
   return {
-    result: finalResult.kind === "stall" ? { kind: "error", exitCode: -1, stderr: finalResult.stderr } : finalResult,
+    result: collapseToError(finalResult),
     agentLabel,
   };
 }

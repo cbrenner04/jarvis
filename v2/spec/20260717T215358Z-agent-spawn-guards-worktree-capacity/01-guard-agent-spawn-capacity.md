@@ -27,13 +27,13 @@ registration count: warn the operator, or refuse before spending quota.
 
 ## Acceptance criteria
 
-- [ ] Immediately before every production v2 agent subprocess, stale worktree registrations are pruned and the remaining registrations across distinct registered repositories are counted once; directory debris and duplicate registry aliases pointing at the same repo do not inflate the count.
-- [ ] Cleanup-eligible merged workspaces are retired through the 00 seam (with its immediate pre-removal recheck) before the capacity decision; live, unmerged, daemon-unknown, or otherwise ineligible workspaces are left untouched.
-- [ ] Given a configured warn threshold below a configured refuse threshold, a post-retirement count in the warn band emits exactly one warning per logical invocation — naming the count, the sandbox `E2BIG` risk, and `jarvis cleanup` recovery — then invokes the agent normally.
-- [ ] At or above the configured refuse threshold, or when capacity cannot be established safely, the run stops before `binding.invoke` with a typed failure reporting the count, the risk, and `jarvis cleanup` recovery; no agent subprocess is spawned and no quota is spent.
-- [ ] `v2/src/execution/agent-spawn-capacity.test.ts` fails against the baseline and, with injected thresholds, proves the below-warn, warn, refuse, stale-prune, safe-retirement, fail-closed, and no-agent-invocation-on-refusal cases through the production guard seam.
-- [ ] A workflow-path test proves a non-implement role and a fallback or re-prompt invocation also cross the guard, while injected test bindings remain isolated from host Git state.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] Immediately before every production v2 agent subprocess, stale worktree registrations are pruned and the remaining registrations across distinct registered repositories are counted once; directory debris and duplicate registry aliases pointing at the same repo do not inflate the count.
+- [x] Cleanup-eligible merged workspaces are retired through the 00 seam (with its immediate pre-removal recheck) before the capacity decision; live, unmerged, daemon-unknown, or otherwise ineligible workspaces are left untouched.
+- [x] Given a configured warn threshold below a configured refuse threshold, a post-retirement count in the warn band emits exactly one warning per logical invocation — naming the count, the sandbox `E2BIG` risk, and `jarvis cleanup` recovery — then invokes the agent normally.
+- [x] At or above the configured refuse threshold, or when capacity cannot be established safely, the run stops before `binding.invoke` with a typed failure reporting the count, the risk, and `jarvis cleanup` recovery; no agent subprocess is spawned and no quota is spent.
+- [x] `v2/src/execution/agent-spawn-capacity.test.ts` fails against the baseline and, with injected thresholds, proves the below-warn, warn, refuse, stale-prune, safe-retirement, fail-closed, and no-agent-invocation-on-refusal cases through the production guard seam.
+- [x] A workflow-path test proves a non-implement role and a fallback or re-prompt invocation also cross the guard, while injected test bindings remain isolated from host Git state.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
@@ -41,3 +41,4 @@ registration count: warn the operator, or refuse before spending quota.
 - `v1/docs/operator-runbook.md` — remove the mid-session cleanup caveat and the `E2BIG` worktree-count diagnosis now that the v2 preflight owns prevention.
 - `v2/docs/v1-behaviors.md` — record the v2-only agent-spawn worktree-capacity guard as a `[v2 additive]` entry with its `Sources:` citation.
 - `v2/docs/shared-invocation.md` — document the pre-spawn callback boundary while noting the shared executor stays behavior-agnostic.
+

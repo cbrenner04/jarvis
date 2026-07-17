@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
+import { collapseToError, executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import { createAgent } from "../../agents/factory.ts";
 import type { AgentResult } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
@@ -114,7 +114,7 @@ export async function runNameOnlyPhase(opts: {
   }
 
   return {
-    result: finalResult.kind === "stall" ? { kind: "error", exitCode: -1, stderr: finalResult.stderr } : finalResult,
+    result: collapseToError(finalResult),
     agentLabel,
   };
 }

@@ -5,6 +5,7 @@ import {
   type InvocationExecution,
   type InvocationResult,
   type InvocationTelemetryContext,
+  type PreSpawnGuard,
 } from "../../../shared/invocation/execute.ts";
 import type { SessionLog } from "../../../shared/invocation/session-log.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
@@ -41,6 +42,7 @@ type StepRunInput = {
   signal?: AbortSignal;
   telemetry?: InvocationTelemetryContext;
   sessionLog?: SessionLog;
+  preSpawnGuard?: PreSpawnGuard;
 };
 
 /** The first (token-less) response plus the token-only re-prompt's own invocation. */
@@ -114,6 +116,7 @@ function requestTokenReprompt(args: StepRunInput, responseText: string): Promise
       ? { telemetry: { ...args.telemetry, invocationIds: args.bindings.map(() => crypto.randomUUID()) } }
       : {}),
     ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),
+    ...(args.preSpawnGuard !== undefined ? { preSpawnGuard: args.preSpawnGuard } : {}),
   });
 }
 
@@ -131,6 +134,7 @@ function requestBlockerReprompt(args: StepRunInput): Promise<InvocationExecution
       ? { telemetry: { ...args.telemetry, invocationIds: args.bindings.map(() => crypto.randomUUID()) } }
       : {}),
     ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),
+    ...(args.preSpawnGuard !== undefined ? { preSpawnGuard: args.preSpawnGuard } : {}),
   });
 }
 
@@ -241,6 +245,7 @@ export async function runStep(args: StepRunInput): Promise<StepRunResult> {
     ...(args.signal !== undefined ? { signal: args.signal } : {}),
     ...(args.telemetry !== undefined ? { telemetry: args.telemetry } : {}),
     ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),
+    ...(args.preSpawnGuard !== undefined ? { preSpawnGuard: args.preSpawnGuard } : {}),
   });
 
   const final = invocation.final;

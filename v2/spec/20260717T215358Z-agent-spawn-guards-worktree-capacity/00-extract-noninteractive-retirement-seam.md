@@ -24,10 +24,10 @@ workspace instead of duplicating (and drifting from) the ownership gate.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/cleanup.ts` retirement runs through a single non-interactive seam that returns retired/skipped workspaces as data with no prompt or stdout/stderr coupling.
-- [ ] The existing cleanup eligibility and removal tests (`v2/src/commands/eligibility-gate.test.ts` and the cleanup command tests) stay green — `jarvis cleanup` retires and skips the same workspaces with the same operator output (behavior unchanged by the extraction).
-- [ ] A unit test drives the extracted seam directly and asserts it retires an eligible merged workspace, leaves live/unmerged/daemon-unknown workspaces untouched, and re-runs the eligibility check immediately before removal (a workspace that goes ineligible between discovery and removal is not retired).
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `v2/src/commands/cleanup.ts` retirement runs through a single non-interactive seam that returns retired/skipped workspaces as data with no prompt or stdout/stderr coupling.
+- [x] The existing cleanup eligibility and removal tests (`v2/src/commands/eligibility-gate.test.ts` and the cleanup command tests) stay green — `jarvis cleanup` retires and skips the same workspaces with the same operator output (behavior unchanged by the extraction).
+- [x] A unit test drives the extracted seam directly and asserts it retires an eligible merged workspace, leaves live/unmerged/daemon-unknown workspaces untouched, and re-runs the eligibility check immediately before removal (a workspace that goes ineligible between discovery and removal is not retired).
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

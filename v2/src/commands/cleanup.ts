@@ -234,20 +234,24 @@ function provenIntentPrune(spec: ArtifactSpec): boolean {
   }
 }
 
-async function archiveRetiredArtifact(
+type ArtifactArchiveResult =
+  | { archived: true; spec: ArtifactSpec; result: ReturnType<typeof archiveCompletedSpec> }
+  | { archived: false; reason: string };
+
+async function archiveRetiredArtifactNonInteractive(
   candidate: CleanupCandidate,
   registry: Record<string, ProjectRegistryEntry>,
   allWorktrees: readonly DiscoveredWorktree[],
   store: StateStore,
   runner: AsyncSubprocessRunner,
-  io: { stdout: (s: string) => void; stderr: (s: string) => void },
-): Promise<void> {
+): Promise<ArtifactArchiveResult> {
   const projectRoot = registry[candidate.project]?.root;
-  if (projectRoot === undefined) return;
+  if (projectRoot === undefined) {
+    return { archived: false, reason: "Project root not found" };
+  }
   const spec = artifactForRetiredWorktree(candidate, projectRoot, store);
   if (spec === undefined) {
-    io.stdout(`Skipped artifact: ${candidate.worktree.path} — no durable spec identity\n`);
-    return;
+    return { archived: false, reason: "No durable spec identity" };
   }
 
   const eligibility = await checkArtifactEligibility(spec, {
@@ -269,11 +273,12 @@ async function archiveRetiredArtifact(
       ),
   });
   if (eligibility.status === "ineligible") {
-    io.stdout(`Skipped artifact: ${spec.source} — ${eligibility.reason}\n`);
-    return;
+    return { archived: false, reason: eligibility.reason };
   }
 
-  reportArchive(spec, archiveCompletedSpec(spec), "artifact", io);
+  // Perform the archive
+  const result = archiveCompletedSpec(spec);
+  return { archived: true, spec, result };
 }
 
 function previewArtifact(spec: ArtifactSpec, io: { stdout: (s: string) => void }): void {
@@ -385,6 +390,25 @@ async function findEligibleWorktreeCandidates(
   return candidates;
 }
 
+/**
+ * `git worktree remove` + `prune` + best-effort local `branch -D`.
+ * Branch-delete failure is reported back rather than thrown (not fatal).
+ */
+async function removeWorktreeGit(
+  worktree: DiscoveredWorktree,
+  runner: AsyncSubprocessRunner,
+  projectRoot: string,
+): Promise<{ branchDeleteError?: string }> {
+  await runner.runAsync("git", ["worktree", "remove", worktree.path], projectRoot);
+  await runner.runAsync("git", ["worktree", "prune"], projectRoot);
+  try {
+    await runner.runAsync("git", ["branch", "-D", worktree.branch], projectRoot);
+    return {};
+  } catch (err) {
+    return { branchDeleteError: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 function previewWorktreeCandidates(
   candidates: readonly CleanupCandidate[],
   registry: Record<string, ProjectRegistryEntry>,
@@ -403,43 +427,59 @@ function previewWorktreeCandidates(
   }
 }
 
-async function recheckEligibleWorktrees(
-  candidates: readonly CleanupCandidate[],
+/**
+ * Non-interactive seam for retiring eligible worktrees.
+ * Discovers worktrees, checks eligibility, rechecks immediately before removal,
+ * and performs removals. Returns which worktrees were retired/skipped.
+ * No prompt, no stdout/stderr coupling — results returned as data.
+ * Note: archiving of associated artifacts must be handled separately by the caller.
+ */
+export type RetirementResult = {
+  retired: CleanupCandidate[];
+  skipped: Array<{ worktree: DiscoveredWorktree; reason: string }>;
+};
+
+export async function retireEligibleWorktreesNonInteractive(
+  registry: Record<string, ProjectRegistryEntry>,
+  jarvisRoot: string,
   runner: AsyncSubprocessRunner,
   daemonClient: DaemonClient,
   store: StateStore,
-  io: { stdout: (s: string) => void },
-): Promise<CleanupCandidate[]> {
-  const stillEligible: CleanupCandidate[] = [];
+): Promise<RetirementResult> {
+  const discovered = await discoverMaterializedWorktrees(registry, jarvisRoot, runner);
+  const candidates = await findEligibleWorktreeCandidates(
+    discovered,
+    registry,
+    jarvisRoot,
+    runner,
+    daemonClient,
+    store,
+  );
+
+  const retired: CleanupCandidate[] = [];
+  const skipped: Array<{ worktree: DiscoveredWorktree; reason: string }> = [];
+
+  if (candidates.length === 0) {
+    return { retired, skipped };
+  }
+
+  // Recheck eligibility immediately before removal
   for (const candidate of candidates) {
     const recheck = await checkEligibility(candidate.worktree, candidate.project, runner, daemonClient, store);
     if (recheck.status === "eligible") {
-      stillEligible.push(candidate);
+      try {
+        const projectRoot = registry[candidate.project]?.root ?? ".";
+        await removeWorktreeGit(candidate.worktree, runner, projectRoot);
+        retired.push(candidate);
+      } catch {
+        skipped.push({ worktree: candidate.worktree, reason: "Failed to retire worktree" });
+      }
     } else {
-      io.stdout(`Skipped (became ineligible): ${candidate.worktree.path} — ${recheck.reason}\n`);
+      skipped.push({ worktree: candidate.worktree, reason: recheck.reason });
     }
   }
-  return stillEligible;
-}
 
-async function retireEligibleWorktrees(
-  candidates: readonly CleanupCandidate[],
-  registry: Record<string, ProjectRegistryEntry>,
-  discovered: readonly DiscoveredWorktree[],
-  store: StateStore,
-  runner: AsyncSubprocessRunner,
-  io: { stdout: (s: string) => void; stderr: (s: string) => void },
-): Promise<number> {
-  if (candidates.length === 0) return 0;
-  return performWorktreeRemovals(
-    [...candidates],
-    runner,
-    io,
-    async (candidate) => {
-      await archiveRetiredArtifact(candidate, registry, discovered, store, runner, io);
-    },
-    (candidate) => registry[candidate.project]?.root ?? ".",
-  );
+  return { retired, skipped };
 }
 
 /**
@@ -501,58 +541,42 @@ export async function runCleanupCommand(
     return 0;
   }
 
-  const stillEligible = await recheckEligibleWorktrees(candidates, runner, daemonClient, store, io);
-  const result = await retireEligibleWorktrees(stillEligible, registry, discovered, store, runner, io);
+  // Use the non-interactive seam to retire eligible worktrees
+  const result = await retireEligibleWorktreesNonInteractive(registry, jarvisRoot, runner, daemonClient, store);
 
-  for (const spec of stranded) {
-    reportArchive(spec, archiveCompletedSpec(spec), "stranded artifact", io);
-  }
-  if (stillEligible.length === 0 && candidates.length > 0) io.stdout("No worktrees remain eligible after re-check.\n");
-  return result;
-}
-
-/**
- * Retire eligible worktrees via `git worktree remove` + `prune` + `git branch -D`.
- * Exit nonzero if any removal fails, leaving other candidates intact.
- */
-export async function performWorktreeRemovals(
-  candidates: CleanupCandidate[],
-  runner: AsyncSubprocessRunner,
-  io: { stdout: (s: string) => void; stderr: (s: string) => void },
-  afterRetirement?: (candidate: CleanupCandidate) => Promise<void>,
-  projectRootForCandidate: (candidate: CleanupCandidate) => string = () => ".",
-): Promise<number> {
-  let failed = false;
-
-  for (const candidate of candidates) {
-    const worktree = candidate.worktree;
-    try {
-      // Remove worktree via git (cwd doesn't matter for absolute paths)
-      const projectRoot = projectRootForCandidate(candidate);
-      await runner.runAsync("git", ["worktree", "remove", worktree.path], projectRoot);
-
-      // Prune to clean up stale registrations
-      await runner.runAsync("git", ["worktree", "prune"], projectRoot);
-
-      // Delete local branch
-      try {
-        await runner.runAsync("git", ["branch", "-D", worktree.branch], projectRoot);
-      } catch (err) {
-        // Branch delete may fail if already deleted; log but don't fail the whole operation
-        io.stdout(
-          `Warning: could not delete local branch ${worktree.branch}: ${err instanceof Error ? err.message : String(err)}\n`,
-        );
-      }
-
-      io.stdout(`Retired: ${worktree.path}\n`);
-      await afterRetirement?.(candidate);
-    } catch (err) {
-      failed = true;
-      io.stderr(`Failed to retire ${worktree.path}: ${err instanceof Error ? err.message : String(err)}\n`);
+  // Report retired worktrees and archive their associated artifacts
+  for (const { worktree, project } of result.retired) {
+    io.stdout(`Retired: ${worktree.path}\n`);
+    // Archive the artifact associated with this worktree
+    const archiveResult = await archiveRetiredArtifactNonInteractive(
+      { worktree, project },
+      registry,
+      discovered,
+      store,
+      runner,
+    );
+    if (archiveResult.archived) {
+      reportArchive(archiveResult.spec, archiveResult.result, "artifact", io);
+    } else {
+      io.stdout(`Skipped artifact: ${worktree.path} — ${archiveResult.reason}\n`);
     }
   }
 
-  return failed ? 1 : 0;
+  // Report skipped worktrees
+  for (const { worktree, reason } of result.skipped) {
+    io.stdout(`Skipped (became ineligible): ${worktree.path} — ${reason}\n`);
+  }
+
+  // Archive stranded artifacts
+  for (const spec of stranded) {
+    reportArchive(spec, archiveCompletedSpec(spec), "stranded artifact", io);
+  }
+
+  if (result.skipped.length > 0 && result.retired.length === 0 && candidates.length > 0) {
+    io.stdout("No worktrees remain eligible after re-check.\n");
+  }
+
+  return result.skipped.some((s) => s.reason === "Failed to retire worktree") ? 1 : 0;
 }
 
 type AbandonResolution = {

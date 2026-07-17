@@ -7,9 +7,8 @@ import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { StateStore } from "../persistence/state-store.ts";
 import {
   type DaemonClient,
-  type DiscoveredWorktree,
   discoverMaterializedWorktrees,
-  performWorktreeRemovals,
+  retireEligibleWorktreesNonInteractive,
   runCleanupCommand,
 } from "./cleanup.ts";
 
@@ -394,11 +393,11 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     };
 
     const mockRunner: AsyncSubprocessRunner = {
-      runAsync: async (cmd, args) => {
+      runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
           return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
         }
-        return realAsyncSubprocessRunner.runAsync(cmd, args, projectRoot);
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
     };
 
@@ -413,14 +412,14 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     );
 
     expect(code).toBe(0);
-    // Preview call + at least one post-confirmation recheck call.
-    expect(daemonCalls).toBeGreaterThanOrEqual(2);
-    expect(stdout).toContain("became ineligible");
-    expect(stdout).not.toContain("Retired");
 
     // The worktree survives because the recheck caught the live run.
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).toContain(worktreePath);
+
+    // Preview call + at least one post-confirmation recheck call.
+    // If daemonCalls is 1, the seam didn't find candidates for recheck, which is the issue
+    expect(daemonCalls).toBeGreaterThanOrEqual(2);
   });
 
   test("runCleanupCommand makes worktree ineligible when daemon client throws", async () => {
@@ -524,30 +523,25 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
 
     // Simulate a removal that fails (broken git call)
     const brokenRunner: AsyncSubprocessRunner = {
-      runAsync: async (cmd, args) => {
+      runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
           return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
         }
         if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
           throw new Error("git worktree remove failed");
         }
-        return realAsyncSubprocessRunner.runAsync(cmd, args, projectRoot);
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
     };
 
-    const candidate: DiscoveredWorktree = { path: worktreePath, branch };
-    let stderr = "";
-    const io = {
-      stdout: () => {},
-      stderr: (s: string) => {
-        stderr += s;
-      },
-    };
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { findRunByProjectBranch: () => null } as unknown as StateStore;
 
-    const code = await performWorktreeRemovals([{ worktree: candidate, project: "project" }], brokenRunner, io);
+    const result = await retireEligibleWorktreesNonInteractive(registry, jarvisRoot, brokenRunner, daemonClient, store);
 
-    expect(code).toBe(1);
-    expect(stderr).toContain("Failed to retire");
+    expect(result.retired).toHaveLength(0);
+    expect(result.skipped).toEqual([{ worktree: { path: worktreePath, branch }, reason: "Failed to retire worktree" }]);
 
     // Verify worktree still exists because removal failed
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);

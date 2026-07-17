@@ -1,13 +1,13 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { getCurrentBranchAsync } from "../../../shared/git.ts";
-import { isProcessAlive, type WorktreeLock } from "../../../shared/worktree-lock.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
+import { isProcessAlive, type WorktreeLock } from "../../../shared/worktree-lock.ts";
 import { jarvisHome } from "../paths.ts";
 import type { StateStore } from "../persistence/state-store.ts";
 import { isBoundaryTerminalRunStatus } from "../persistence/state-store.ts";
@@ -633,6 +633,63 @@ async function resolveName(
   return { error: `No worktree found matching name "${name}"` };
 }
 
+async function performAbandonmentSteps(
+  branch: string,
+  worktreePath: string,
+  projectRoot: string | undefined,
+  prNumber: number | undefined,
+  runner: AsyncSubprocessRunner,
+  io: { stdout: (s: string) => void; stderr: (s: string) => void },
+): Promise<number> {
+  // Best-effort: close the PR
+  if (prNumber !== undefined) {
+    try {
+      await runner.runAsync("gh", ["pr", "close", String(prNumber)], projectRoot ?? ".");
+      io.stdout(`Closed PR #${prNumber}\n`);
+    } catch (err) {
+      io.stdout(`Warning: Could not close PR #${prNumber}: ${err instanceof Error ? err.message : String(err)}\n`);
+    }
+  }
+
+  // Remove worktree
+  try {
+    await runner.runAsync("git", ["worktree", "remove", "--force", worktreePath], projectRoot ?? ".");
+    io.stdout(`Removed worktree: ${worktreePath}\n`);
+  } catch (err) {
+    io.stderr(`Failed to remove worktree: ${err instanceof Error ? err.message : String(err)}\n`);
+    return 1;
+  }
+
+  // Prune stale worktree registrations
+  try {
+    await runner.runAsync("git", ["worktree", "prune"], projectRoot ?? ".");
+  } catch {
+    // Prune may fail but shouldn't block the operation
+  }
+
+  // Delete local branch
+  try {
+    await runner.runAsync("git", ["branch", "-D", branch], projectRoot ?? ".");
+    io.stdout(`Deleted local branch: ${branch}\n`);
+  } catch (err) {
+    io.stdout(
+      `Warning: Could not delete local branch ${branch}: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+  }
+
+  // Delete remote branch
+  try {
+    await runner.runAsync("git", ["push", "origin", "--delete", branch], projectRoot ?? ".");
+    io.stdout(`Deleted remote branch: ${branch}\n`);
+  } catch (err) {
+    io.stdout(
+      `Warning: Could not delete remote branch ${branch}: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+  }
+
+  return 0;
+}
+
 export async function runAbandonCommand(
   workspaceName: string,
   options: {
@@ -667,7 +724,7 @@ export async function runAbandonCommand(
     io.stderr(`Error: Cannot abandon: multiple open PRs match branch ${branch}\n`);
     return 1;
   }
-  if (openPrs.length === 1 && openPrs[0]!.state === "OPEN") {
+  if (openPrs.length === 1 && openPrs[0].state === "OPEN") {
     io.stderr(`Error: Cannot abandon: matching PR is ready (non-draft)\n`);
     return 1;
   }
@@ -706,50 +763,8 @@ export async function runAbandonCommand(
   }
 
   // Execute abandonment
-
-  // Best-effort: close the PR
-  if (prNumber !== undefined) {
-    try {
-      await runner.runAsync("gh", ["pr", "close", String(prNumber)], projectRoot ?? ".");
-      io.stdout(`Closed PR #${prNumber}\n`);
-    } catch (err) {
-      io.stdout(
-        `Warning: Could not close PR #${prNumber}: ${err instanceof Error ? err.message : String(err)}\n`,
-      );
-    }
-  }
-
-  // Remove worktree
-  try {
-    await runner.runAsync("git", ["worktree", "remove", "--force", worktreePath], projectRoot ?? ".");
-    io.stdout(`Removed worktree: ${worktreePath}\n`);
-  } catch (err) {
-    io.stderr(`Failed to remove worktree: ${err instanceof Error ? err.message : String(err)}\n`);
-    return 1;
-  }
-
-  // Prune stale worktree registrations
-  try {
-    await runner.runAsync("git", ["worktree", "prune"], projectRoot ?? ".");
-  } catch {
-    // Prune may fail but shouldn't block the operation
-  }
-
-  // Delete local branch
-  try {
-    await runner.runAsync("git", ["branch", "-D", branch], projectRoot ?? ".");
-    io.stdout(`Deleted local branch: ${branch}\n`);
-  } catch (err) {
-    io.stdout(`Warning: Could not delete local branch ${branch}: ${err instanceof Error ? err.message : String(err)}\n`);
-  }
-
-  // Delete remote branch
-  try {
-    await runner.runAsync("git", ["push", "origin", "--delete", branch], projectRoot ?? ".");
-    io.stdout(`Deleted remote branch: ${branch}\n`);
-  } catch (err) {
-    io.stdout(`Warning: Could not delete remote branch ${branch}: ${err instanceof Error ? err.message : String(err)}\n`);
-  }
+  const result = await performAbandonmentSteps(branch, worktreePath, projectRoot, prNumber, runner, io);
+  if (result !== 0) return result;
 
   io.stdout(`Abandoned workspace: ${workspaceName}\n`);
   return 0;

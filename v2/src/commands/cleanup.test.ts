@@ -730,7 +730,7 @@ describe("cleanup: runAbandonCommand", () => {
     const daemonClient: DaemonClient = async () => [];
 
     let stdout = "";
-    let invocations: Array<{ cmd: string; args: string[] }> = [];
+    const invocations: Array<{ cmd: string; args: string[] }> = [];
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         invocations.push({ cmd, args: [...args] });
@@ -755,13 +755,19 @@ describe("cleanup: runAbandonCommand", () => {
     expect(stdout).toContain("Abandoned workspace");
 
     // Verify exact git commands were called
-    const removeInvocation = invocations.find((i) => i.cmd === "git" && i.args[0] === "worktree" && i.args[1] === "remove");
+    const removeInvocation = invocations.find(
+      (i) => i.cmd === "git" && i.args[0] === "worktree" && i.args[1] === "remove",
+    );
     expect(removeInvocation?.args).toEqual(["worktree", "remove", "--force", worktreePath]);
 
-    const branchDeleteInvocation = invocations.find((i) => i.cmd === "git" && i.args[0] === "branch" && i.args[1] === "-D");
+    const branchDeleteInvocation = invocations.find(
+      (i) => i.cmd === "git" && i.args[0] === "branch" && i.args[1] === "-D",
+    );
     expect(branchDeleteInvocation?.args).toEqual(["branch", "-D", branch]);
 
-    const pushDeleteInvocation = invocations.find((i) => i.cmd === "git" && i.args[0] === "push" && i.args[1] === "origin");
+    const pushDeleteInvocation = invocations.find(
+      (i) => i.cmd === "git" && i.args[0] === "push" && i.args[1] === "origin",
+    );
     expect(pushDeleteInvocation?.args).toEqual(["push", "origin", "--delete", branch]);
 
     // Verify worktree and branches are gone
@@ -774,12 +780,12 @@ describe("cleanup: runAbandonCommand", () => {
 
   test("abandon closes matching draft PR via gh pr close with exact argv", async () => {
     const branch = "feat/with-pr";
-    const worktreePath = await createUnmergedWorktree(branch);
+    const _worktreePath = await createUnmergedWorktree(branch);
 
     const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
     const daemonClient: DaemonClient = async () => [];
 
-    let ghInvocations: Array<{ cmd: string; args: string[] }> = [];
+    const ghInvocations: Array<{ cmd: string; args: string[] }> = [];
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh") {

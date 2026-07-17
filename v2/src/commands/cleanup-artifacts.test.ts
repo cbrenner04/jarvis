@@ -2,10 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  type ArtifactSpec,
   archiveCompletedSpec,
   checkArtifactEligibility,
   completedSpecEligibility,
-  type ArtifactSpec,
 } from "./cleanup-artifacts.ts";
 
 let sequence = 0;
@@ -43,20 +43,40 @@ describe("completed v2 artifact archival", () => {
 
   test("returns a specific fail-closed refusal reason", async () => {
     const unchecked = fixture("# Index\n\n- [x] [one](./one.md)\n", { "one.md": complete.replace("[x]", "[ ]") });
-    expect(completedSpecEligibility(unchecked)).toMatchObject({ status: "ineligible", reason: expect.stringContaining("unchecked") });
+    expect(completedSpecEligibility(unchecked)).toMatchObject({
+      status: "ineligible",
+      reason: expect.stringContaining("unchecked"),
+    });
 
     const empty = fixture("# Empty\n\n## Acceptance criteria\n\n- [x] Visual inspection only\n");
-    expect(completedSpecEligibility(empty)).toEqual({ status: "ineligible", reason: "no non-human-only acceptance criteria" });
+    expect(completedSpecEligibility(empty)).toEqual({
+      status: "ineligible",
+      reason: "no non-human-only acceptance criteria",
+    });
     expect(await checkArtifactEligibility(empty, { ...eligibleInspection, findOpenPrs: async () => 1 })).toEqual({
       status: "ineligible",
       reason: "no non-human-only acceptance criteria",
     });
 
     const completeSpec = fixture(complete);
-    expect(await checkArtifactEligibility(completeSpec, { ...eligibleInspection, findOpenPrs: async () => 1 })).toMatchObject({ reason: "matching open PR exists for plan/feature" });
-    expect(await checkArtifactEligibility(completeSpec, { ...eligibleInspection, hasMaterializedOwner: async () => true })).toMatchObject({ reason: "another materialized worktree owns this spec" });
-    expect(await checkArtifactEligibility(completeSpec, { ...eligibleInspection, findOpenPrs: async () => Promise.reject(new Error("offline")) })).toMatchObject({ reason: expect.stringContaining("failed to inspect matching PRs") });
-    expect(await checkArtifactEligibility(completeSpec, { ...eligibleInspection, hasMaterializedOwner: async () => Promise.reject(new Error("unreadable")) })).toMatchObject({ reason: expect.stringContaining("failed to inspect worktree ownership") });
+    expect(
+      await checkArtifactEligibility(completeSpec, { ...eligibleInspection, findOpenPrs: async () => 1 }),
+    ).toMatchObject({ reason: "matching open PR exists for plan/feature" });
+    expect(
+      await checkArtifactEligibility(completeSpec, { ...eligibleInspection, hasMaterializedOwner: async () => true }),
+    ).toMatchObject({ reason: "another materialized worktree owns this spec" });
+    expect(
+      await checkArtifactEligibility(completeSpec, {
+        ...eligibleInspection,
+        findOpenPrs: async () => Promise.reject(new Error("offline")),
+      }),
+    ).toMatchObject({ reason: expect.stringContaining("failed to inspect matching PRs") });
+    expect(
+      await checkArtifactEligibility(completeSpec, {
+        ...eligibleInspection,
+        hasMaterializedOwner: async () => Promise.reject(new Error("unreadable")),
+      }),
+    ).toMatchObject({ reason: expect.stringContaining("failed to inspect worktree ownership") });
   });
 
   test("archives transactionally, prunes only byte-identical intent, and leaves run data outside its scope", () => {
@@ -67,7 +87,11 @@ describe("completed v2 artifact archival", () => {
     const runs = join(spec.home, "runs.jsonl");
     writeFileSync(runs, "durable row\n");
 
-    expect(archiveCompletedSpec(spec)).toEqual({ status: "archived", destination: join(spec.home, "completed", "feature"), intentPruned: true });
+    expect(archiveCompletedSpec(spec)).toEqual({
+      status: "archived",
+      destination: join(spec.home, "completed", "feature"),
+      intentPruned: true,
+    });
     expect(existsSync(spec.source)).toBe(false);
     expect(existsSync(ready)).toBe(false);
     expect(readFileSync(runs, "utf8")).toBe("durable row\n");

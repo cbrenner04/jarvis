@@ -63,16 +63,23 @@ export function completedSpecEligibility(spec: ArtifactSpec, fs: ArtifactFs = re
   for (const file of files) {
     if (!fs.exists(file)) return { status: "ineligible", reason: `linked subspec is missing: ${file}` };
     try {
-      const criteria = parseSpec(fs.read(file).toString("utf8")).acceptanceCriteria.filter((criterion) => !criterion.humanOnly);
+      const criteria = parseSpec(fs.read(file).toString("utf8")).acceptanceCriteria.filter(
+        (criterion) => !criterion.humanOnly,
+      );
       criterionCount += criteria.length;
       const unchecked = criteria.find((criterion) => !criterion.checked);
       if (unchecked !== undefined)
-        return { status: "ineligible", reason: `unchecked acceptance criterion in ${basename(file)}: ${unchecked.text}` };
+        return {
+          status: "ineligible",
+          reason: `unchecked acceptance criterion in ${basename(file)}: ${unchecked.text}`,
+        };
     } catch {
       return { status: "ineligible", reason: `could not inspect acceptance criteria: ${file}` };
     }
   }
-  return criterionCount === 0 ? { status: "ineligible", reason: "no non-human-only acceptance criteria" } : { status: "eligible" };
+  return criterionCount === 0
+    ? { status: "ineligible", reason: "no non-human-only acceptance criteria" }
+    : { status: "eligible" };
 }
 
 /** Fail-closed artifact archival inspection, deliberately independent of run status and index checkbox state. */
@@ -112,11 +119,13 @@ export function archiveCompletedSpec(spec: ArtifactSpec, fs: ArtifactFs = realFs
   const destination = join(spec.home, "completed", basename(spec.source));
   const readyIntent = join(spec.home, "ready-intents", `${spec.name}.md`);
   const sourceIntent = join(spec.source, "intent.md");
-  if (fs.exists(destination)) return { status: "skipped", reason: `archive destination already exists: ${destination}` };
+  if (fs.exists(destination))
+    return { status: "skipped", reason: `archive destination already exists: ${destination}` };
 
   let pruneIntent = false;
   try {
-    pruneIntent = fs.exists(readyIntent) && fs.exists(sourceIntent) && fs.read(readyIntent).equals(fs.read(sourceIntent));
+    pruneIntent =
+      fs.exists(readyIntent) && fs.exists(sourceIntent) && fs.read(readyIntent).equals(fs.read(sourceIntent));
   } catch (error) {
     return { status: "skipped", reason: `failed to inspect ready-intent: ${String(error)}` };
   }
@@ -136,7 +145,10 @@ export function archiveCompletedSpec(spec: ArtifactSpec, fs: ArtifactFs = realFs
     try {
       fs.rename(destination, spec.source);
     } catch (rollbackError) {
-      return { status: "skipped", reason: `failed to prune ready-intent and restore archive: ${String(rollbackError)}` };
+      return {
+        status: "skipped",
+        reason: `failed to prune ready-intent and restore archive: ${String(rollbackError)}`,
+      };
     }
     return { status: "skipped", reason: `failed to prune ready-intent; archive restored: ${String(error)}` };
   }

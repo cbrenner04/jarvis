@@ -39,13 +39,13 @@ will be faked again.**
 
 ## Acceptance criteria
 
-- [ ] `jarvis cleanup --dry-run` discovers merged-PR worktrees under each registered project's home,
+- [x] `jarvis cleanup --dry-run` discovers merged-PR worktrees under each registered project's home,
   including slash-nested paths, and previews worktree + local-branch removals without prompting or
   mutating anything.
-- [ ] `jarvis cleanup` prompts `[y/N]`; declining changes nothing; confirming removes each
+- [x] `jarvis cleanup` prompts `[y/N]`; declining changes nothing; confirming removes each
   still-eligible worktree (via `git worktree remove` + `prune`) and its **local** branch, leaving the
   remote branch, specs, ready-intents, and durable run rows untouched.
-- [ ] **End-to-end through `runCleanupCommand`, the #1682/#1694 killer.** A test invokes the real
+- [x] **End-to-end through `runCleanupCommand`, the #1682/#1694 killer.** A test invokes the real
   `runCleanupCommand` (or `main(["cleanup", …])`) — **not** a hand-assembled call to the runner in the
   test body — with a temp `jarvisRoot` holding a **real materialized** merged worktree (`git worktree
   add`), the real `AsyncSubprocessRunner`, and an injected daemon client. The test must exercise the
@@ -54,16 +54,16 @@ will be faked again.**
   worktree is reported **ineligible** and still present. The test asserts the injected daemon client
   was invoked by the production path. A test that calls `runner.runAsync("worktree","remove",…)` in
   its own body does **not** satisfy this.
-- [ ] **The removal guards are load-bearing under mutation of production code** (verified against this
+- [x] **The removal guards are load-bearing under mutation of production code** (verified against this
   end-to-end test, since it now executes the real path): replacing `git worktree remove` with `rmSync`
   turns it red; making the daemon client's connect-failure path return `[]` instead of throwing
   (fail-open) turns it red; deleting the post-confirmation recheck in `performWorktreeRemovals` turns
   it red. Re-running cleanup over an already-retired workspace is a no-op, not an error.
-- [ ] Cleanup handles registered projects independently, leaves an ineligible or failed candidate
+- [x] Cleanup handles registered projects independently, leaves an ineligible or failed candidate
   intact, and exits nonzero when a confirmed retirement fails.
-- [ ] `v2/src/cli.test.ts` covers command parsing, `--dry-run`, `[y/N]` decline, and the end-to-end
+- [x] `v2/src/cli.test.ts` covers command parsing, `--dry-run`, `[y/N]` decline, and the end-to-end
   path above; no test uses an empty or nonexistent registry root.
-- [ ] `bun run check`, `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run check`, `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -352,7 +352,9 @@ function emitVerdict(io: TriageIo, statuses: WorktreeStatus[]): void {
   }
 }
 
-type DrillDownResolution = { ok: true; worktreePath: string } | { ok: false; reason: "not-found" | "ambiguous"; paths?: string[] };
+type DrillDownResolution =
+  | { ok: true; worktreePath: string }
+  | { ok: false; reason: "not-found" | "ambiguous"; paths?: string[] };
 
 function resolveWorktreeNameAcrossHomes(
   worktreeName: string,

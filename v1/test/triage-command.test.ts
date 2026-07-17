@@ -240,6 +240,26 @@ function setupPlanMergeWorktree(
   return { worktreePath, specPath: indexPath, branch };
 }
 
+function setupV2PlanWorktree(
+  jarvisConfigDir: string,
+  planName: string,
+): { worktreePath: string; specPath: string; branch: string } {
+  const branch = `plan/${planName}`;
+  const projectKey = "project";
+  const worktreePath = join(jarvisConfigDir, "worktrees", projectKey, "plan", planName);
+  setupWorktree(worktreePath);
+  execSync(`git branch -M ${branch}`, { cwd: worktreePath, stdio: "pipe" });
+
+  const compactTimestamp = "20260101T000000Z";
+  const specDir = join(worktreePath, "v2", "spec", `${compactTimestamp}-${planName}`);
+  mkdirSync(specDir, { recursive: true });
+  const indexPath = join(specDir, "index.md");
+  writeFileSync(indexPath, "# Test\n\n- [ ] [subspec 1](./01-test.md)");
+  writeFileSync(join(specDir, "01-test.md"), "# Test\n\n## Acceptance criteria\n\n- [ ] automated criterion");
+
+  return { worktreePath, specPath: indexPath, branch };
+}
+
 function singleOpenPrStub() {
   return [{ number: 1, isDraft: false }];
 }
@@ -2650,6 +2670,33 @@ describe("triage --mark-ready", () => {
       expect(code).toBe(1);
       expectMergeRefusal(err(), "plan PR", "failed to merge PR");
       expect(err()).not.toContain("implementation PR");
+    });
+
+    test("--merge on Jarvis-owned v2 plan worktree with compact-timestamp spec merges", async () => {
+      const planName = "plan-v2-compact";
+      const configDir = join(root, "jarvis-config");
+      const { config } = jarvisConfigOpts("v2/spec");
+      setupV2PlanWorktree(configDir, planName);
+
+      let mergeRan = false;
+      const { io, out } = captureIo();
+      const code = await triageCommand(
+        triageMergeOpts({
+          projectRoot,
+          io,
+          worktreeName: `plan/${planName}`,
+          ghRunner: mergeReadyGhRunner,
+          runGate: () => {},
+          adminMerge: () => {
+            mergeRan = true;
+          },
+          config: config!,
+        }),
+      );
+
+      expect(code).toBe(0);
+      expect(mergeRan).toBe(true);
+      expect(out()).toContain("merged successfully");
     });
 
     test("--merge with green CI checks merges the PR", async () => {

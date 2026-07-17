@@ -13,12 +13,12 @@ Merged-workspace cleanup currently removes the worktree and local branch but lea
 
 ## Acceptance criteria
 
-- [ ] Confirmed `jarvis cleanup` archives each complete retired workspace's v2 spec into that home's `completed/` directory and prunes only its proven consumed ready-intent.
-- [ ] Failed workspace retirement leaves its spec and ready-intent untouched.
-- [ ] An incomplete spec, open matching PR, or different worktree owner remains at the spec root after the original workspace retires, with a specific stdout skip reason.
-- [ ] `jarvis cleanup --dry-run` previews the worktree, archive destination, and any proven intent prune without changing worktrees, branches, specs, intents, or run rows.
-- [ ] `v2/src/commands/cleanup.test.ts` adds a baseline-failing end-to-end case through `runCleanupCommand` using a real materialized worktree and proves retirement ordering, archival, refusal output, and dry-run preservation.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] Confirmed `jarvis cleanup` archives each complete retired workspace's v2 spec into that home's `completed/` directory and prunes only its proven consumed ready-intent.
+- [x] Failed workspace retirement leaves its spec and ready-intent untouched.
+- [x] An incomplete spec, open matching PR, or different worktree owner remains at the spec root after the original workspace retires, with a specific stdout skip reason.
+- [x] `jarvis cleanup --dry-run` previews the worktree, archive destination, and any proven intent prune without changing worktrees, branches, specs, intents, or run rows.
+- [x] `v2/src/commands/cleanup.test.ts` adds a baseline-failing end-to-end case through `runCleanupCommand` using a real materialized worktree and proves retirement ordering, archival, refusal output, and dry-run preservation.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -15,12 +15,12 @@ Cleanup needs one fail-closed policy for deciding whether a v2 spec tree may mov
 
 ## Acceptance criteria
 
-- [ ] Complete index-routed and single-file v2 specs are eligible from non-human-only acceptance criteria alone; unchecked index links and terminal run status do not change the result.
-- [ ] An unchecked non-human-only criterion, absent non-human-only criteria, an open matching PR, another materialized worktree owner, or failed ownership/PR inspection leaves the spec in place with a specific skip reason.
-- [ ] Successful archival moves the complete tree to its home's `completed/` directory, removes only a byte-identical matching ready-intent, and does not update or delete durable run rows.
-- [ ] A same-named ready-intent that differs from `intent.md` remains queued, and archive/prune failure does not leave a partial move or deletion.
-- [ ] `v2/src/commands/cleanup-artifacts.test.ts` adds baseline-failing coverage for completeness, refusal reasons, transactional archival, byte-identical pruning, differing-intent retention, and unchanged run rows.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] Complete index-routed and single-file v2 specs are eligible from non-human-only acceptance criteria alone; unchecked index links and terminal run status do not change the result.
+- [x] An unchecked non-human-only criterion, absent non-human-only criteria, an open matching PR, another materialized worktree owner, or failed ownership/PR inspection leaves the spec in place with a specific skip reason.
+- [x] Successful archival moves the complete tree to its home's `completed/` directory, removes only a byte-identical matching ready-intent, and does not update or delete durable run rows.
+- [x] A same-named ready-intent that differs from `intent.md` remains queued, and archive/prune failure does not leave a partial move or deletion.
+- [x] `v2/src/commands/cleanup-artifacts.test.ts` adds baseline-failing coverage for completeness, refusal reasons, transactional archival, byte-identical pruning, differing-intent retention, and unchanged run rows.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

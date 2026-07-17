@@ -296,6 +296,14 @@ but publication fails with a retryable `completion_commit_failed` operator error
 on `list` / `wait`; fix prerequisites and use `jarvis run resume <run-id>` to
 retry publish without a duplicate commit.
 
+## Session close-out
+
+After the implementation PR lands, run `jarvis cleanup --dry-run`, then confirm
+`jarvis cleanup`. It retires the merged worktree and local branch, archives the
+completed v2 spec under `v2/spec/completed/`, and prunes its ready-intent only
+when it byte-matches `intent.md`. Durable run history remains available; incomplete,
+open-PR, or worktree-owned specs remain in place with a refusal reason.
+
 ## Split an intent seed
 
 The split-only preset (`intent`) accepts either a file seed or inline text and sends one

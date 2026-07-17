@@ -7,6 +7,7 @@ import {
   type AsyncSubprocessRunner,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
+import { isProcessAlive, type WorktreeLock } from "../../../shared/worktree-lock.ts";
 import { jarvisHome } from "../paths.ts";
 import type { StateStore } from "../persistence/state-store.ts";
 import { isBoundaryTerminalRunStatus } from "../persistence/state-store.ts";
@@ -552,4 +553,220 @@ export async function performWorktreeRemovals(
   }
 
   return failed ? 1 : 0;
+}
+
+type AbandonResolution = {
+  project: string;
+  branch: string;
+  worktreePath: string;
+};
+
+type LiveRunCheck = { live: false } | { live: true; reason: string };
+
+async function isWorktreeLiveHeld(
+  project: string,
+  branch: string,
+  jarvisRoot: string,
+  daemonClient: DaemonClient,
+): Promise<LiveRunCheck> {
+  // Check daemon for live runs
+  try {
+    const daemonRuns = await daemonClient(project, branch);
+    if (daemonRuns.some((r) => r.isLive)) {
+      return { live: true, reason: "daemon reports live run" };
+    }
+  } catch {
+    // Daemon unreachable doesn't prove it's not live, but we can't gate on that
+  }
+
+  // Check lock file
+  const lockPath = join(jarvisRoot, "worktree-locks", project, branch, ".jarvis.lock");
+  if (existsSync(lockPath)) {
+    try {
+      const lock = JSON.parse(readFileSync(lockPath, "utf8")) as WorktreeLock;
+      if (isProcessAlive(lock.pid)) {
+        return { live: true, reason: `process ${lock.pid} holds worktree lock` };
+      }
+    } catch {
+      // Lock read error; be conservative
+    }
+  }
+
+  return { live: false };
+}
+
+type OpenPr = { number: number; isDraft: boolean };
+
+async function findAllOpenPrsForBranch(branch: string, runner: AsyncSubprocessRunner): Promise<OpenPr[]> {
+  try {
+    const output = await runner.runAsync(
+      "gh",
+      ["pr", "list", "--head", branch, "--state", "open", "--json", "number,isDraft"],
+      ".",
+    );
+    const parsed: unknown = JSON.parse(output);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((item: unknown) => {
+      const p = item as { number?: number; isDraft?: boolean };
+      return { number: p.number ?? 0, isDraft: p.isDraft ?? false };
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function resolveName(
+  name: string,
+  registry: Record<string, ProjectRegistryEntry>,
+  jarvisRoot: string,
+  runner: AsyncSubprocessRunner,
+): Promise<AbandonResolution | { error: string }> {
+  // Try to match the name against discovered worktrees
+  const discovered = await discoverMaterializedWorktrees(registry, jarvisRoot, runner);
+  for (const worktree of discovered) {
+    const project = projectForWorktree(worktree, registry, jarvisRoot);
+    if (project && (worktree.branch === name || worktree.path.endsWith(name))) {
+      return { project, branch: worktree.branch, worktreePath: worktree.path };
+    }
+  }
+
+  return { error: `No worktree found matching name "${name}"` };
+}
+
+async function performAbandonmentSteps(
+  branch: string,
+  worktreePath: string,
+  projectRoot: string | undefined,
+  prNumber: number | undefined,
+  runner: AsyncSubprocessRunner,
+  io: { stdout: (s: string) => void; stderr: (s: string) => void },
+): Promise<number> {
+  // Best-effort: close the PR
+  if (prNumber !== undefined) {
+    try {
+      await runner.runAsync("gh", ["pr", "close", String(prNumber)], projectRoot ?? ".");
+      io.stdout(`Closed PR #${prNumber}\n`);
+    } catch (err) {
+      io.stdout(`Warning: Could not close PR #${prNumber}: ${err instanceof Error ? err.message : String(err)}\n`);
+    }
+  }
+
+  // Remove worktree
+  try {
+    await runner.runAsync("git", ["worktree", "remove", "--force", worktreePath], projectRoot ?? ".");
+    io.stdout(`Removed worktree: ${worktreePath}\n`);
+  } catch (err) {
+    io.stderr(`Failed to remove worktree: ${err instanceof Error ? err.message : String(err)}\n`);
+    return 1;
+  }
+
+  // Prune stale worktree registrations
+  try {
+    await runner.runAsync("git", ["worktree", "prune"], projectRoot ?? ".");
+  } catch {
+    // Prune may fail but shouldn't block the operation
+  }
+
+  // Delete local branch
+  try {
+    await runner.runAsync("git", ["branch", "-D", branch], projectRoot ?? ".");
+    io.stdout(`Deleted local branch: ${branch}\n`);
+  } catch (err) {
+    io.stdout(
+      `Warning: Could not delete local branch ${branch}: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+  }
+
+  // Delete remote branch
+  try {
+    await runner.runAsync("git", ["push", "origin", "--delete", branch], projectRoot ?? ".");
+    io.stdout(`Deleted remote branch: ${branch}\n`);
+  } catch (err) {
+    io.stdout(
+      `Warning: Could not delete remote branch ${branch}: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+  }
+
+  return 0;
+}
+
+export async function runAbandonCommand(
+  workspaceName: string,
+  options: {
+    dryRun?: boolean;
+    promptConfirm?: (message: string) => Promise<boolean>;
+  },
+  registry: Record<string, ProjectRegistryEntry>,
+  jarvisRoot: string,
+  runner: AsyncSubprocessRunner,
+  daemonClient: DaemonClient,
+  io: { stdout: (s: string) => void; stderr: (s: string) => void },
+): Promise<number> {
+  // Resolve the workspace name
+  const resolution = await resolveName(workspaceName, registry, jarvisRoot, runner);
+  if ("error" in resolution) {
+    io.stderr(`Error: ${resolution.error}\n`);
+    return 1;
+  }
+
+  const { project, branch, worktreePath } = resolution;
+  const projectRoot = registry[project]?.root;
+
+  // Check if worktree exists
+  if (!existsSync(worktreePath)) {
+    io.stderr(`Error: Worktree not found at ${worktreePath}\n`);
+    return 1;
+  }
+
+  // PR-ownership gates: refuse ready PRs and ambiguous PR ownership
+  const openPrs = await findAllOpenPrsForBranch(branch, runner);
+  if (openPrs.length > 1) {
+    io.stderr(`Error: Cannot abandon: multiple open PRs match branch ${branch}\n`);
+    return 1;
+  }
+  const singlePr = openPrs.at(0);
+  if (singlePr && !singlePr.isDraft) {
+    io.stderr(`Error: Cannot abandon: matching PR is ready (non-draft)\n`);
+    return 1;
+  }
+  const prNumber = singlePr?.number;
+
+  // Check if worktree is held by a live run
+  const liveCheck = await isWorktreeLiveHeld(project, branch, jarvisRoot, daemonClient);
+  if (liveCheck.live) {
+    io.stderr(`Error: Cannot abandon: ${liveCheck.reason}\n`);
+    return 1;
+  }
+
+  // Preview actions
+  io.stdout(`Preview abandon of workspace:\n`);
+  io.stdout(`  Project: ${project}\n`);
+  io.stdout(`  Branch: ${branch}\n`);
+  io.stdout(`  Worktree: ${worktreePath}\n`);
+  if (prNumber !== undefined) {
+    io.stdout(`  close: PR #${prNumber}\n`);
+  }
+  io.stdout(`  remove: worktree at ${worktreePath}\n`);
+  io.stdout(`  delete: local branch ${branch}\n`);
+  io.stdout(`  delete: remote branch ${branch}\n`);
+
+  if (options.dryRun) {
+    io.stdout("(dry-run: no changes made)\n");
+    return 0;
+  }
+
+  const confirmed =
+    options.promptConfirm !== undefined ? await options.promptConfirm("Abandon workspace? [y/N] ") : false;
+
+  if (!confirmed) {
+    io.stdout("Cancelled.\n");
+    return 0;
+  }
+
+  // Execute abandonment
+  const result = await performAbandonmentSteps(branch, worktreePath, projectRoot, prNumber, runner, io);
+  if (result !== 0) return result;
+
+  io.stdout(`Abandoned workspace: ${workspaceName}\n`);
+  return 0;
 }

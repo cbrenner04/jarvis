@@ -17,9 +17,9 @@ Refuse when the branch's PR is ready (non-draft) — that is operator-reviewed w
 
 ## Acceptance criteria
 
-- [ ] A test asserts `cleanup --abandon <name>` refuses when the branch's matching PR is ready (non-draft), closes nothing, removes nothing, and exits nonzero; it fails against the pre-fix code.
-- [ ] A test asserts `cleanup --abandon <name>` refuses when multiple open PRs match the branch, closes nothing, removes nothing, and exits nonzero.
-- [ ] A test asserts a single open draft PR still passes the gates and retirement proceeds (worktree/branches removed) — guarding the happy path against the new refusals.
+- [x] A test asserts `cleanup --abandon <name>` refuses when the branch's matching PR is ready (non-draft), closes nothing, removes nothing, and exits nonzero; it fails against the pre-fix code.
+- [x] A test asserts `cleanup --abandon <name>` refuses when multiple open PRs match the branch, closes nothing, removes nothing, and exits nonzero.
+- [x] A test asserts a single open draft PR still passes the gates and retirement proceeds (worktree/branches removed) — guarding the happy path against the new refusals.
 
 ## Documentation updates
 

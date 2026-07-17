@@ -309,7 +309,23 @@ git worktree prune
 ```
 
 This is the **unmerged/failed** case; `jarvis cleanup` only retires *merged* workspaces, so it will
-not clear this debris — hand-removal remains the path for a failed run's leaked worktree.
+not clear this debris. Use `jarvis cleanup --abandon <name>` to retire one named wedged workspace:
+
+```sh
+jarvis cleanup --abandon <name>  # preview planned removal
+jarvis cleanup --abandon <name> && answer 'y'  # confirm removal
+```
+
+`--abandon <name>` resolves the workspace name to its branch, worktree path, and matching open PR. It previews the planned actions (close PR, remove worktree, delete local and remote branches), prompts for confirmation, then best-effort closes the PR, force-removes the worktree, and deletes both branches. It leaves source spec files and durable run rows intact. It refuses before touching anything if the worktree is missing or held by a live run (daemon `isLive` or locked by `.jarvis.lock`).
+
+**PR-ownership gates:** `--abandon` refuses and changes nothing if:
+
+- **Multiple open PRs match the branch**: ambiguous ownership, no closure guarantee. Hand-close extra PRs or force-resolve branch ambiguity, then retry.
+- **Single matching PR is ready (non-draft)**: operator-reviewed work — `--abandon` protects operator-reviewed branches from force-retirement. Merge the ready PR (preferred), or manually close it and retry.
+
+A single open draft PR passes these gates and retirement proceeds. Zero matching PRs also pass.
+
+Use `--dry-run` to preview without confirmation: `jarvis cleanup --abandon <name> --dry-run`.
 
 ### Blocked run: inspect and resume
 
@@ -530,8 +546,8 @@ Operators add bullets here; delete when fixed.
 - **`jarvis cleanup` archives completed v2 specs (shipped 2026-07-17):** run it at session end
   (`jarvis cleanup --dry-run` to preview, then `jarvis cleanup`, `[y/N]`) to retire merged worktrees,
   delete their local branches, and archive eligible open-home specs under `v2/spec/completed/`.
-  Unmerged/leaked worktrees still need hand-removal. `jarvis1 cleanup` remains blind to the v2 home;
-  use `jarvis cleanup`. `--abandon` is not built yet.
+  Unmerged/leaked worktrees use `jarvis cleanup --abandon <name>` (see [Recovery § Branch / worktree collision](#branch--worktree-collision)).
+  `jarvis1 cleanup` remains blind to the v2 home; use `jarvis cleanup`.
 
 - **Gate `main` before debugging a red branch (2026-07-16):** `bun run ready` runs the aggregate
   suite, which CI never runs (CI scopes by changed path). `main` was red on the operator machine

@@ -23,8 +23,8 @@
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 triage <target> --merge` accepts a resolved open PR whose branch has no spec, runs the local-ready gate, waits for CI green, and only then admin-squash-merges it.
-- [ ] A local-ready failure or non-green CI still leaves a spec-less PR unmerged.
-- [ ] A regression test in `v1/test/triage-command.test.ts` drives `--merge` against a resolved worktree and open PR with no marker or matching spec, asserts both gates precede merge, and fails against the pre-fix `no spec found for branch` refusal.
-- [ ] `v1/test/triage-command.test.ts` tests `--merge with incomplete spec returns error`, `--merge on plan worktree merges with incomplete subspec AC`, and `--merge corrupted .active-spec-path refuses without branch fallback` stay green.
-- [ ] `v1/docs/operator-runbook.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` describe the gated spec-less merge path without weakening spec-backed completeness or the manual fallback for genuinely unavailable gates.
+- [x] `jarvis1 triage <target> --merge` accepts a resolved open PR whose branch has no spec, runs the local-ready gate, waits for CI green, and only then admin-squash-merges it.
+- [x] A local-ready failure or non-green CI still leaves a spec-less PR unmerged.
+- [x] A regression test in `v1/test/triage-command.test.ts` drives `--merge` against a resolved worktree and open PR with no marker or matching spec, asserts both gates precede merge, and fails against the pre-fix `no spec found for branch` refusal.
+- [x] `v1/test/triage-command.test.ts` tests `--merge with incomplete spec returns error`, `--merge on plan worktree merges with incomplete subspec AC`, and `--merge corrupted .active-spec-path refuses without branch fallback` stay green.
+- [x] `v1/docs/operator-runbook.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` describe the gated spec-less merge path without weakening spec-backed completeness or the manual fallback for genuinely unavailable gates.

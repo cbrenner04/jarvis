@@ -1019,6 +1019,11 @@ async function triageMarkReady(opts: TriageCommandOptions): Promise<number> {
   }
   const { worktreePath, branch, specPath } = ctx;
 
+  if (specPath === undefined) {
+    opts.io.stderr(`${label}: no spec found for branch ${branch}\n`);
+    return 1;
+  }
+
   if (!isSpecComplete(specPath)) {
     opts.io.stderr(`${label}: incomplete run — use \`jarvis1 run ${specPath}\` to continue, not finalize\n`);
     return 1;
@@ -1266,7 +1271,7 @@ function resolvePlanTargetDir(opts: TriageCommandOptions): string {
 }
 
 type TriageNamedWorktree =
-  | { ok: true; worktreePath: string; branch: string; specPath: string }
+  | { ok: true; worktreePath: string; branch: string; specPath: string | undefined }
   | { ok: false; code: number };
 
 function resolveTriageNamedWorktree(opts: TriageCommandOptions, label: string): TriageNamedWorktree {
@@ -1306,7 +1311,7 @@ function resolveTriageNamedWorktree(opts: TriageCommandOptions, label: string): 
 
   const mergeClass = isMerge ? (branch.startsWith("plan/") ? "plan PR" : "implementation PR") : undefined;
 
-  let specPath: string;
+  let specPath: string | undefined;
 
   const specMarkerPath = join(worktreePath, ".active-spec-path");
   if (existsSync(specMarkerPath)) {
@@ -1338,20 +1343,25 @@ function resolveTriageNamedWorktree(opts: TriageCommandOptions, label: string): 
     const derived = deriveSpecPathFromBranch(branch, opts.projectRoot, targetDir, worktreePath);
     if (!derived.ok) {
       if (derived.reason === "no-match") {
-        refuse(`no spec found for branch ${branch}`, mergeClass);
+        if (!isMerge) {
+          refuse(`no spec found for branch ${branch}`);
+          return { ok: false, code: 1 };
+        }
       } else if (derived.reason === "zero-md") {
         refuse(`spec directory has no markdown files: ${derived.dirPath}`, mergeClass);
+        return { ok: false, code: 1 };
       } else {
         refuse(`spec directory is ambiguous (multiple .md files, no index.md): ${derived.dirPath}`, mergeClass);
+        return { ok: false, code: 1 };
       }
-      return { ok: false, code: 1 };
+    } else {
+      const relocatedPath = resolveWorktreeLocalSpecPath({
+        projectRoot: opts.projectRoot,
+        worktreePath,
+        markerSpecPath: derived.specPath,
+      });
+      specPath = existsSync(relocatedPath) ? relocatedPath : derived.specPath;
     }
-    const relocatedPath = resolveWorktreeLocalSpecPath({
-      projectRoot: opts.projectRoot,
-      worktreePath,
-      markerSpecPath: derived.specPath,
-    });
-    specPath = existsSync(relocatedPath) ? relocatedPath : derived.specPath;
   }
 
   const lockPath = resolveTriageLockPath(opts, worktreePath, branch);
@@ -1693,7 +1703,7 @@ async function triageMerge(opts: TriageCommandOptions): Promise<number> {
     return 1;
   }
 
-  if (!branch.startsWith("plan/") && !isSpecComplete(specPath)) {
+  if (specPath !== undefined && !branch.startsWith("plan/") && !isSpecComplete(specPath)) {
     emitMergeRefusal(opts.io, mergeClass, "spec is not complete — linked subspecs have unchecked items");
     return 1;
   }

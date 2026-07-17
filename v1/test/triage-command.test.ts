@@ -188,7 +188,7 @@ function writeIndexSpec(homeRel: string, name: string, body = completeIndexBody)
   writeFileSync(join(specDir, "index.md"), body);
 }
 
-function jarvisConfigOpts(planTargetDir: string): { config: ConfigOptions } {
+function jarvisConfigOpts(planTargetDir: string): { config: ConfigOptions; configDir: string } {
   const configDir = join(root, "jarvis-config");
   mkdirSync(configDir, { recursive: true });
   writeFileSync(
@@ -204,7 +204,7 @@ function jarvisConfigOpts(planTargetDir: string): { config: ConfigOptions } {
       projects: { project: { root: projectRoot } },
     }),
   );
-  return { config: { dir: configDir } };
+  return { config: { dir: configDir }, configDir };
 }
 
 function setupMergeWorktree(worktreeName: string): { worktreePath: string; specPath: string } {
@@ -399,6 +399,42 @@ describe("triage command", () => {
     expect(output).toContain("NAME");
     expect(output).toContain("DIRTY");
     expect(output).toContain(worktreeName);
+  });
+
+  test("lists registered v1 and v2 worktree homes", async () => {
+    const v1Name = "same-name";
+    setupWorktree(join(worktreeDir, v1Name));
+    const { config, configDir } = jarvisConfigOpts("v1/spec");
+    const v2Home = join(configDir, "worktrees", "project");
+    setupWorktree(join(v2Home, v1Name));
+    setupWorktree(join(v2Home, "plan", "nested-name"));
+
+    const { io, out } = captureIo();
+    const code = await triageCommand({
+      projectRoot,
+      io,
+      config,
+      ghRunner: { getPrState: () => null },
+    });
+
+    expect(code).toBe(0);
+    const output = out();
+    expect(output).toContain("HOME");
+    expect(output).toContain("v1\tsame-name");
+    expect(output).toContain("v2\tsame-name");
+    expect(output).toContain("v2\tplan/nested-name");
+    expect(output).toContain("  v2\tplan/nested-name\tno PR");
+  });
+
+  test("lists a registered v2 home when the v1 home is empty", async () => {
+    const { config, configDir } = jarvisConfigOpts("v1/spec");
+    setupWorktree(join(configDir, "worktrees", "project", "v2-only"));
+
+    const { io, out } = captureIo();
+    const code = await triageCommand({ projectRoot, io, config, ghRunner: { getPrState: () => null } });
+
+    expect(code).toBe(0);
+    expect(out()).toContain("v2\tv2-only");
   });
 
   test("unknown worktree with name returns error", async () => {

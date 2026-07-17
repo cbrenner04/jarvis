@@ -142,14 +142,20 @@ registered project before daemon contact; file seeds must be relative and remain
 inside the project after symlink resolution. The slug is normalized from the file basename
 or first inline words; empty, `index`, and `head` are rejected.
 
-Target precedence is run override, project `plan.targetDir`, global
-`modes.plan.targetDir`, then `spec`. Effective publication follows project
+Target precedence is run override, then a canonical file seed's `<targetDir>/seeds/`
+parent, project `plan.targetDir`, global `modes.plan.targetDir`, then `spec`.
+Thus a file from `v1/spec/seeds/` or `v2/spec/seeds/` publishes to that same
+surface's `ready-intents/`, even if configuration names the other surface.
+Inline seeds and file seeds outside a direct `seeds/` parent use configured/default
+routing. `intent-reviewed` delegates to this same builder and therefore uses identical
+routing. Effective publication follows project
 `plan.commit`, global `modes.plan.commit`, then `true`, with project `git: false`
 disabling it. Git-enabled output uses branch `intent/<slug>` in
 `~/.jarvis/worktrees`, and the GitHub default branch is used for both its base
 ref and PR base. Durable output is `<targetDir>/ready-intents/`. Git-disabled
-output is external `~/.jarvis/specs/<project-safe-id>/ready-intents/`; the run
-does not publish Git or GitHub state. The project-safe ID is a path-safe form
+output is external `~/.jarvis/specs/<project-safe-id>/ready-intents/`; Git-disabled
+output remains external regardless of canonical seed location.
+The run does not publish Git or GitHub state. The project-safe ID is a path-safe form
 of the registered project key.
 
 Fresh git-enabled external worktrees are created under `~/.jarvis/worktrees` and
@@ -197,7 +203,7 @@ light pass and emitting a migration hint. Explicit review flags override it.
 
 `buildPlanWorkflowSteps` (preset: `plan`) accepts a `--ready-intent <path>` and optional relative, non-traversing `targetDir`. It validates the ready-intent file pre-daemon: the file must be located in a `ready-intents/` directory, carry frontmatter `name:` matching the filename (minus `.md`), and include a `## Prerequisites` section. The name is normalized from the validated frontmatter; empty names are rejected.
 
-Target precedence is run override, project `plan.targetDir`, global `modes.plan.targetDir`, then `spec`. Effective publication follows project `plan.commit`, global `modes.plan.commit`, then `true`, with project `git: false` disabling it. Git-enabled output uses branch `plan/<name>` in `~/.jarvis/worktrees`, and the GitHub default branch is used as the base ref. Durable output is `<targetDir>/<UTC-timestamp>-<name>/`. Git-disabled output is external `~/.jarvis/specs/<project-safe-id>/plans/<name>/`; the run does not publish Git or GitHub state. The UTC timestamp is generated once in the builder, pre-daemon, ensuring the spec-dir path is stable across the run.
+Target precedence is run override, canonical ready-intent parent (`<targetDir>/ready-intents/`), project `plan.targetDir`, global `modes.plan.targetDir`, then `spec`. Thus canonical v1 and v2 queue inputs draft to their matching surfaces even when configuration names the other one. `plan-reviewed` and `plan-reviewed-light` delegate to this builder and share the same routing. Effective publication follows project `plan.commit`, global `modes.plan.commit`, then `true`, with project `git: false` disabling it. Git-enabled output uses branch `plan/<name>` in `~/.jarvis/worktrees`, and the GitHub default branch is used as the base ref. Durable output is `<targetDir>/<UTC-timestamp>-<name>/`. Git-disabled output is external `~/.jarvis/specs/<project-safe-id>/plans/<name>/` regardless of the ready-intent location; the run does not publish Git or GitHub state. The UTC timestamp is generated once in the builder, pre-daemon, ensuring the spec-dir path is stable across the run.
 
 The builder emits one `write` step with role `plan`, prompt `plan.prompt.draft`, `.jarvis-plan-stage/` as the artifact boundary, and the ready-intent content threaded as `intentSeed` for downstream write-step seeding (subspec 01). `reviewPasses` defaults to zero, so the canonical builder omits review unless a positive count is supplied. Positive counts append either a light `review` step (`reviewBehavior: "light"`) or a debate `review-debate` step (the default). Branch, worktree, and project collisions are named failures. Divergent remote state fails without reset, force-push, suffixing, or publication.
 

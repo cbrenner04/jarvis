@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProjectMatch } from "../../../shared/project-registry.ts";
@@ -135,6 +135,83 @@ describe("buildIntentWorkflowSteps", () => {
       publishCompletion: false,
       worktree: { baseRef: "none", git: false, localPath: "/jarvis/intent-work/demo/one-thing" },
     });
+  });
+
+  test("routes committed intent output from canonical seeds before configured targets", async () => {
+    const root = mkdtempSync(join(tmpdir(), "intent-routing-"));
+    const config = join(root, "config.json");
+    for (const { targetDir, configuredTargetDir } of [
+      { targetDir: "v1/spec", configuredTargetDir: "v2/spec" },
+      { targetDir: "v2/spec", configuredTargetDir: "v1/spec" },
+    ]) {
+      writeFileSync(
+        config,
+        JSON.stringify({ projects: { demo: { root } }, modes: { plan: { targetDir: configuredTargetDir } } }),
+      );
+      const seed = join(root, targetDir, "seeds", "feature.md");
+      mkdirSync(join(root, targetDir, "seeds"), { recursive: true });
+      writeFileSync(seed, "feature", "utf8");
+      for (const [name, build] of [
+        ["intent", buildIntentWorkflowSteps],
+        ["intent-reviewed", buildReviewedIntentWorkflowSteps],
+      ] as const) {
+        const result = await build({ cwd: root, seed: join(targetDir, "seeds", "feature.md"), configPath: config }, {
+          loadWorkflowSteps: load,
+          resolveBaseBranch: () => "trunk",
+        });
+        expect(result.ok, name).toBe(true);
+        if (result.ok) expect(result.steps[0]).toMatchObject({ specPath: `${targetDir}/ready-intents` });
+      }
+    }
+  });
+
+  test("preserves explicit, inline, and non-canonical target routing", async () => {
+    const root = mkdtempSync(join(tmpdir(), "intent-routing-"));
+    const config = join(root, "config.json");
+    mkdirSync(join(root, "notes"), { recursive: true });
+    writeFileSync(join(root, "notes", "feature.md"), "feature", "utf8");
+    writeFileSync(
+      config,
+      JSON.stringify({ projects: { demo: { root } }, modes: { plan: { targetDir: "v2/spec" } } }),
+    );
+    mkdirSync(join(root, "v2/spec/seeds"), { recursive: true });
+    writeFileSync(join(root, "v2/spec/seeds/override.md"), "override", "utf8");
+    const cases = [
+      { input: { seedText: "inline" }, expected: "v2/spec/ready-intents" },
+      { input: { seed: "notes/feature.md" }, expected: "v2/spec/ready-intents" },
+      { input: { seed: "v2/spec/seeds/override.md", targetDir: "v1/spec" }, expected: "v1/spec/ready-intents" },
+      { input: { seedText: "override", targetDir: "v1/spec" }, expected: "v1/spec/ready-intents" },
+    ];
+    for (const { input, expected } of cases) {
+      const result = await buildIntentWorkflowSteps(
+        { cwd: root, configPath: config, ...input },
+        { loadWorkflowSteps: load, resolveBaseBranch: () => "trunk" },
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.steps[0]).toMatchObject({ specPath: expected });
+    }
+
+    const defaultResult = await buildIntentWorkflowSteps(
+      { cwd: root, seedText: "default" },
+      { resolveProjectMatch: () => ({ ...match, root }), loadWorkflowSteps: load, resolveBaseBranch: () => "trunk" },
+    );
+    expect(defaultResult.ok).toBe(true);
+    if (defaultResult.ok) expect(defaultResult.steps[0]).toMatchObject({ specPath: "spec/ready-intents" });
+  });
+
+  test("keeps canonical seed output external when git is disabled", async () => {
+    const root = mkdtempSync(join(tmpdir(), "intent-routing-"));
+    const config = join(root, "config.json");
+    mkdirSync(join(root, "v1/spec/seeds"), { recursive: true });
+    writeFileSync(join(root, "v1/spec/seeds/feature.md"), "feature", "utf8");
+    writeFileSync(config, JSON.stringify({ projects: { demo: { root, git: false } } }));
+
+    const result = await buildIntentWorkflowSteps(
+      { cwd: root, seed: "v1/spec/seeds/feature.md", configPath: config, jarvisRoot: "/jarvis" },
+      { loadWorkflowSteps: load },
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.steps[0]).toMatchObject({ specPath: "/jarvis/specs/demo/ready-intents" });
   });
 
   test("only resumes a collision owned by the supplied invocation", async () => {

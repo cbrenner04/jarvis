@@ -21,11 +21,11 @@
 
 ## Acceptance criteria
 
-- [ ] New table-driven cases in `v2/src/execution/plan-workflow-steps.test.ts` fail against the baseline and prove `plan`, `plan-reviewed`, and `plan-reviewed-light` route `v1/spec/ready-intents/` and `v2/spec/ready-intents/` inputs to timestamped trees under the matching target even when configured `plan.targetDir` names the other surface.
-- [ ] `v2/src/execution/plan-workflow-steps.test.ts` proves explicit `targetDir` wins over ready-intent routing.
-- [ ] `v2/src/execution/plan-workflow-steps.test.ts` proves Git-disabled ready-intents retain Jarvis-owned external plan output.
-- [ ] Existing plan builder, review composition, validation, and input-consumption tests stay green: `v2/src/execution/plan-workflow-steps.test.ts` and `v2/src/execution/workflow-runner.test.ts`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] New table-driven cases in `v2/src/execution/plan-workflow-steps.test.ts` fail against the baseline and prove `plan`, `plan-reviewed`, and `plan-reviewed-light` route `v1/spec/ready-intents/` and `v2/spec/ready-intents/` inputs to timestamped trees under the matching target even when configured `plan.targetDir` names the other surface.
+- [x] `v2/src/execution/plan-workflow-steps.test.ts` proves explicit `targetDir` wins over ready-intent routing.
+- [x] `v2/src/execution/plan-workflow-steps.test.ts` proves Git-disabled ready-intents retain Jarvis-owned external plan output.
+- [x] Existing plan builder, review composition, validation, and input-consumption tests stay green: `v2/src/execution/plan-workflow-steps.test.ts` and `v2/src/execution/workflow-runner.test.ts`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import type { ProjectMatch } from "../../../shared/project-registry.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
+import { jarvisHome } from "../paths.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import {
   buildPlanWorkflowSteps,
@@ -119,6 +120,76 @@ describe("plan preset draft write step", () => {
         consumeFrom: "worktree",
       },
     });
+  });
+});
+
+describe("plan ready-intent output routing", () => {
+  const builders = [
+    ["plan", buildPlanWorkflowSteps],
+    ["plan-reviewed", buildReviewedPlanWorkflowSteps],
+    ["plan-reviewed-light", buildReviewedPlanLightWorkflowSteps],
+  ] as const;
+
+  test.each([
+    ["v1/spec", "v2/spec"],
+    ["v2/spec", "v1/spec"],
+  ] as const)("routes %s ready-intents ahead of configured %s", async (targetDir, configuredTargetDir) => {
+    const root = mkdtempSync(join(tmpdir(), "plan-routing-"));
+    const config = join(root, "config.json");
+    const readyIntent = join(targetDir, "ready-intents", "feature.md");
+    mkdirSync(join(root, targetDir, "ready-intents"), { recursive: true });
+    writeFileSync(join(root, readyIntent), "---\nname: feature\n---\n\n## Prerequisites\n", "utf8");
+    writeFileSync(
+      config,
+      JSON.stringify({ projects: { demo: { root } }, modes: { plan: { targetDir: configuredTargetDir } } }),
+    );
+
+    for (const [name, build] of builders) {
+      const result = await build(
+        { cwd: root, readyIntent, configPath: config },
+        { loadWorkflowSteps: load, resolveBaseBranch: () => "trunk" },
+      );
+      expect(result.ok, name).toBe(true);
+      if (result.ok) expect(result.steps[0]).toMatchObject({ specPath: expect.stringMatching(new RegExp(`^${targetDir}/\\d{8}T\\d{6}Z-feature$`)) });
+    }
+  });
+
+  test("keeps explicit targetDir ahead of canonical ready-intent routing", async () => {
+    const root = mkdtempSync(join(tmpdir(), "plan-routing-"));
+    const config = join(root, "config.json");
+    const readyIntent = "v2/spec/ready-intents/feature.md";
+    mkdirSync(join(root, "v2/spec/ready-intents"), { recursive: true });
+    writeFileSync(join(root, readyIntent), "---\nname: feature\n---\n\n## Prerequisites\n", "utf8");
+    writeFileSync(config, JSON.stringify({ projects: { demo: { root } }, modes: { plan: { targetDir: "v2/spec" } } }));
+
+    const result = await buildPlanWorkflowSteps(
+      { cwd: root, readyIntent, targetDir: "v1/spec", configPath: config },
+      { loadWorkflowSteps: load, resolveBaseBranch: () => "trunk" },
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.steps[0]).toMatchObject({ specPath: expect.stringMatching(/^v1\/spec\/\d{8}T\d{6}Z-feature$/) });
+  });
+
+  test("keeps Git-disabled ready-intent plans in external storage", async () => {
+    const root = mkdtempSync(join(tmpdir(), "plan-routing-"));
+    const config = join(root, "config.json");
+    const readyIntent = "v1/spec/ready-intents/feature.md";
+    mkdirSync(join(root, "v1/spec/ready-intents"), { recursive: true });
+    writeFileSync(join(root, readyIntent), "---\nname: feature\n---\n\n## Prerequisites\n", "utf8");
+    writeFileSync(config, JSON.stringify({ projects: { demo: { root, git: false } } }));
+
+    const result = await buildPlanWorkflowSteps(
+      { cwd: root, readyIntent, configPath: config },
+      { loadWorkflowSteps: load },
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const externalPlanPath = join(jarvisHome(), "specs", "demo", "plans", "feature");
+      expect(result.steps[0]).toMatchObject({
+        specPath: externalPlanPath,
+        worktree: { git: false, localPath: externalPlanPath },
+      });
+    }
   });
 });
 

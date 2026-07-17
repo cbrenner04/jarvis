@@ -210,13 +210,29 @@ function resolveTargetDir(
   explicit: string | undefined,
   config: ReturnType<typeof projectConfig>,
   modePlan: Record<string, unknown>,
+  canonicalSeedTargetDir?: string,
 ): string {
   return (
     explicit ??
+    canonicalSeedTargetDir ??
     config.plan?.targetDir ??
     (typeof modePlan.targetDir === "string" ? modePlan.targetDir : undefined) ??
     "spec"
   );
+}
+
+function canonicalTargetDir(project: ProjectMatch, path: string | undefined, inputDirectory: string): string | undefined {
+  if (path === undefined || basename(dirname(path)) !== inputDirectory) return undefined;
+  let projectRoot = resolve(project.root);
+  let inputPath = resolve(path);
+  try {
+    projectRoot = realpathSync(project.root);
+    inputPath = realpathSync(path);
+  } catch {
+    // Builder tests may provide virtual ready-intent paths through injected readers.
+  }
+  const targetDir = relative(projectRoot, dirname(dirname(inputPath)));
+  return validTargetDir(targetDir) ? targetDir : undefined;
 }
 
 /** The intent row's input contract: exactly-one-seed, target-dir shape, project match, seed slug. */
@@ -255,7 +271,7 @@ function intentSource(
     const { project, seed } = resolved;
     const config = projectConfig(input.configPath, project);
     const plan = machineModePlan(input.configPath);
-    const targetDir = resolveTargetDir(input.targetDir, config, plan);
+    const targetDir = resolveTargetDir(input.targetDir, config, plan, canonicalTargetDir(project, seed.paths[0], "seeds"));
     if (!validTargetDir(targetDir)) return { error: "intent: configured targetDir is invalid" };
     const publishGit =
       config.git !== false && (config.plan?.commit ?? (typeof plan.commit === "boolean" ? plan.commit : true));
@@ -498,7 +514,12 @@ function planSource(
     if (!ready.ok) return { error: ready.message };
     const config = projectConfig(input.configPath, project);
     const modePlan = machineModePlan(input.configPath);
-    const target = resolveTargetDir(input.targetDir, config, modePlan);
+    const target = resolveTargetDir(
+      input.targetDir,
+      config,
+      modePlan,
+      canonicalTargetDir(project, join(input.cwd, input.readyIntent), "ready-intents"),
+    );
     if (!validTargetDir(target)) return { error: "plan: configured targetDir is invalid" };
     const git = config.git !== false && (config.plan?.commit ?? true);
     const root = jarvisHome();

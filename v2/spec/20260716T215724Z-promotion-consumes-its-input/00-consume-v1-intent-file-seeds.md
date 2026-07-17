@@ -15,11 +15,11 @@ consume.
 
 ## Acceptance criteria
 
-- [ ] `v1/test/intent-command.test.ts` adds a Git-backed file-seed regression that fails against the baseline and proves one split commit contains every emitted ready-intent plus deletion of the consumed seed while unrelated seeds remain.
-- [ ] `v1/test/intent-command.test.ts` adds no-commit regressions that fail against the baseline and prove a multi-output split consumes its file seed only after every ready-intent lands, while collision, validation, and publication failures leave it intact.
-- [ ] `shared/publication-input-consumption.test.ts` covers multiple input paths and proves missing, external, and symlink-escaped mapped targets are skipped while safe targets are deleted; the target repo and publication workspace are compared by real path.
-- [ ] Inline v1 intent runs create the same outputs without attempting source deletion.
-- [ ] `v1/test/intent-command.test.ts` existing split, collision, validation, and inline-seed tests stay green.
+- [x] `v1/test/intent-command.test.ts` adds a Git-backed file-seed regression that fails against the baseline and proves one split commit contains every emitted ready-intent plus deletion of the consumed seed while unrelated seeds remain.
+- [x] `v1/test/intent-command.test.ts` adds no-commit regressions that fail against the baseline and prove a multi-output split consumes its file seed only after every ready-intent lands, while collision, validation, and publication failures leave it intact.
+- [x] `shared/publication-input-consumption.test.ts` covers multiple input paths and proves missing, external, and symlink-escaped mapped targets are skipped while safe targets are deleted; the target repo and publication workspace are compared by real path.
+- [x] Inline v1 intent runs create the same outputs without attempting source deletion.
+- [x] `v1/test/intent-command.test.ts` existing split, collision, validation, and inline-seed tests stay green.
 
 ## Documentation updates
 

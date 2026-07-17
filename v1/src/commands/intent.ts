@@ -9,6 +9,7 @@ import {
   validateIntentStageContent as sharedValidateIntentStageContent,
   validateIntentStageStructure,
 } from "../../../shared/intent-stage.ts";
+import { consumePublicationInputs } from "../../../shared/publication-input-consumption.ts";
 import { realSubprocessRunner, type SubprocessRunner } from "../../../shared/subprocess.ts";
 import type { Agent, AgentName } from "../agents/types.ts";
 import { CONFIG_DIR, loadConfig, resolvePlanFlags, validateTargetDir } from "../config.ts";
@@ -831,6 +832,13 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
       }
 
       rmSync(externalStageDir, { recursive: true, force: true });
+      if (inv.mode === "file") {
+        consumePublicationInputs({
+          sourceRoot: externalRoot,
+          publicationRoot: externalRoot,
+          inputPaths: [inv.seedPath],
+        });
+      }
 
       const emittedPaths = emittedNames.map((name) => join(readyIntentsDir, `${name}.md`));
       opts.io.stdout(
@@ -914,6 +922,13 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
       renameSync(intent.path, join(readyDirPath, `${intent.slug}.md`));
     }
     rmSync(stageDir, { recursive: true, force: true });
+    if (inv.mode === "file") {
+      consumePublicationInputs({
+        sourceRoot: project.root,
+        publicationRoot: worktreePath,
+        inputPaths: [inv.seedPath],
+      });
+    }
 
     commitIntentSplit({
       worktreePath,

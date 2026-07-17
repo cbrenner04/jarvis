@@ -1,10 +1,25 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
+import { consumePublicationInputs } from "../../../shared/publication-input-consumption.ts";
 import { type IntentOutputConfig, landIntentWorkflowOutput } from "./intent-output.ts";
 
+type PublicationInputs = { sourceRoot: string; paths: string[]; consumeFrom: "worktree" | "source" };
+
 export type PublicationLanding =
-  | { kind: "intent-stage"; output: IntentOutputConfig; stagingDir: string; invocationId: string; baseRef: string }
-  | { kind: "plan-tree"; stagingDir: string; durablePath: string }
+  | {
+      kind: "intent-stage";
+      output: IntentOutputConfig;
+      stagingDir: string;
+      invocationId: string;
+      baseRef: string;
+      inputs?: PublicationInputs;
+    }
+  | {
+      kind: "plan-tree";
+      stagingDir: string;
+      durablePath: string;
+      inputs?: PublicationInputs;
+    }
   | { kind: "none" };
 
 export type PublicationLandingResult = { specPath: string; files: string[] };
@@ -16,10 +31,18 @@ function fail(message: string): never {
 function planFiles(stage: string): string[] {
   if (!existsSync(stage) || !statSync(stage).isDirectory()) fail("plan: .jarvis-plan-stage is missing");
   const files = readdirSync(stage, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && (entry.name === "index.md" || /^\d{2}-.*\.md$/u.test(entry.name)))
+    .filter(
+      (entry) =>
+        entry.isFile() &&
+        (entry.name === "index.md" || entry.name === "intent.md" || /^\d{2}-.*\.md$/u.test(entry.name)),
+    )
     .map((entry) => entry.name)
     .sort();
-  if (!files.includes("index.md") || !files.some((file) => /^\d{2}-.*\.md$/u.test(file)))
+  if (
+    !files.includes("index.md") ||
+    !files.includes("intent.md") ||
+    !files.some((file) => /^\d{2}-.*\.md$/u.test(file))
+  )
     fail("plan: staged spec tree has invalid shape");
   return files;
 }
@@ -28,10 +51,26 @@ function relativePath(root: string, path: string): string {
   return relative(root, path).replace(/\\/g, "/");
 }
 
-function landPlanTree(landing: Extract<PublicationLanding, { kind: "plan-tree" }>): PublicationLandingResult {
-  const files = planFiles(landing.stagingDir);
+function consumeInputs(inputs: PublicationInputs, worktreePath: string): void {
+  consumePublicationInputs({
+    sourceRoot: inputs.sourceRoot,
+    publicationRoot: inputs.consumeFrom === "source" ? inputs.sourceRoot : worktreePath,
+    inputPaths: inputs.paths,
+  });
+}
+
+function landPlanTree(
+  landing: Extract<PublicationLanding, { kind: "plan-tree" }>,
+  worktreePath: string,
+): PublicationLandingResult {
   const durablePath = resolve(landing.durablePath);
   const root = resolve(landing.stagingDir, "..");
+  if (!existsSync(landing.stagingDir) && existsSync(durablePath)) {
+    const files = planFiles(durablePath);
+    if (landing.inputs !== undefined) consumeInputs(landing.inputs, worktreePath);
+    return { specPath: relativePath(root, durablePath), files };
+  }
+  const files = planFiles(landing.stagingDir);
   const backup = join(root, `.jarvis-plan-backup-${crypto.randomUUID()}`);
   const created: string[] = [];
   const backups: Array<[string, string]> = [];
@@ -55,6 +94,7 @@ function landPlanTree(landing: Extract<PublicationLanding, { kind: "plan-tree" }
     }
     rmSync(landing.stagingDir, { recursive: true, force: true });
     rmSync(backup, { recursive: true, force: true });
+    if (landing.inputs !== undefined) consumeInputs(landing.inputs, worktreePath);
     return { specPath: relativePath(root, durablePath), files };
   } catch (error) {
     for (const destination of created) rmSync(destination, { force: true });
@@ -72,16 +112,21 @@ export async function landPublication(
 ): Promise<PublicationLandingResult> {
   if (landing.kind === "none") return { specPath: "", files: [] };
   if (landing.kind === "intent-stage") {
-    return landIntentWorkflowOutput({
+    const result = await landIntentWorkflowOutput({
       worktreePath,
       baseRef: landing.baseRef,
       output: landing.output,
       invocationId: landing.invocationId,
     });
+    if (landing.inputs !== undefined) consumeInputs(landing.inputs, worktreePath);
+    return result;
   }
-  return landPlanTree({
-    ...landing,
-    stagingDir: resolve(worktreePath, landing.stagingDir),
-    durablePath: resolve(worktreePath, landing.durablePath),
-  });
+  return landPlanTree(
+    {
+      ...landing,
+      stagingDir: resolve(worktreePath, landing.stagingDir),
+      durablePath: resolve(worktreePath, landing.durablePath),
+    },
+    worktreePath,
+  );
 }

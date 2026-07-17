@@ -28,14 +28,17 @@ today that is typically `v1/spec`; v2-only planning uses `--target-dir v2/spec`.
 
 | Artifact | Typical path |
 | --- | --- |
-| Seeds | `<targetDir>/seeds/` (v2 seeds: `v2/spec/seeds/`) |
-| Ready intents | `<targetDir>/ready-intents/` |
+| Seeds (open-work queue) | `<targetDir>/seeds/` (v2 seeds: `v2/spec/seeds/`) |
+| Ready intents (open-work queue) | `<targetDir>/ready-intents/` |
 | Active specs | `<targetDir>/<UTC-timestamp>-<name>/` |
 | Completed specs | `<targetDir>/completed/` |
 | Operator scratch notes | repo `.scratch/` (gitignored) |
 
 Prioritization for seeds and ready intents (operator-maintained):
 `.scratch/v2-seeds-ready-intents-prioritization.md`.
+
+Successful publication consumes the queue input only after its durable output
+lands; see the [workflow publication contract](./workflow-runner.md#publication-landing).
 
 ## When to dogfood v2
 

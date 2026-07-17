@@ -13,10 +13,10 @@ leaves the source in the open-work queue.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/plan-workflow-steps.test.ts` and `v2/src/execution/workflow-runner.test.ts` add a regression that fails against the baseline and proves `intent.md` is a byte-identical ready-intent copy and the Git-backed completion commit also deletes every ready-intent input actually read.
-- [ ] `v2/src/execution/workflow-runner.test.ts` proves no-Git ready-intents are consumed only after the complete spec tree lands, while draft, review, validation, collision, and filesystem-publication failures retain them.
-- [ ] `v2/src/execution/publication-landing.test.ts` proves missing, external, and symlink-escaped plan inputs are skipped and publication resume is idempotent.
-- [ ] `v2/src/execution/plan-workflow-steps.test.ts`, `v2/src/execution/publication-landing.test.ts`, and `v2/src/execution/workflow-runner.test.ts` existing plan builder, landing, review, completion-publication, and external-output tests stay green.
+- [x] `v2/src/execution/plan-workflow-steps.test.ts` and `v2/src/execution/workflow-runner.test.ts` add a regression that fails against the baseline and proves `intent.md` is a byte-identical ready-intent copy and the Git-backed completion commit also deletes every ready-intent input actually read.
+- [x] `v2/src/execution/workflow-runner.test.ts` proves no-Git ready-intents are consumed only after the complete spec tree lands, while draft, review, validation, collision, and filesystem-publication failures retain them.
+- [x] `v2/src/execution/publication-landing.test.ts` proves missing, external, and symlink-escaped plan inputs are skipped and publication resume is idempotent.
+- [x] `v2/src/execution/plan-workflow-steps.test.ts`, `v2/src/execution/publication-landing.test.ts`, and `v2/src/execution/workflow-runner.test.ts` existing plan builder, landing, review, completion-publication, and external-output tests stay green.
 
 ## Documentation updates
 

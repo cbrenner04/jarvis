@@ -16,11 +16,11 @@ the deferred publication boundary.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/publication-landing.test.ts` adds a multi-output file-seed regression that fails against the baseline and proves all durable ready-intents land before every recorded safe input is consumed.
-- [ ] `v2/src/execution/workflow-runner.test.ts` proves Git-backed intent deletion joins the ready-intent completion commit, no-Git success consumes the source, and inline seeds carry no deletion target.
-- [ ] `v2/src/execution/workflow-runner.test.ts` proves failed validation, landing, commit, push, or PR publication leaves the registered queue artifact intact for retry.
-- [ ] `v2/src/execution/publication-landing.test.ts` proves batched input metadata consumes every safe mapped input, skips missing, external, and symlink-escaped targets, and remains idempotent across deferred review landing and publication resume.
-- [ ] `v2/src/execution/intent-output.test.ts`, `v2/src/execution/intent-workflow-steps.test.ts`, and `v2/src/execution/workflow-runner.test.ts` existing intent landing, builder, review, and publication tests stay green.
+- [x] `v2/src/execution/publication-landing.test.ts` adds a multi-output file-seed regression that fails against the baseline and proves all durable ready-intents land before every recorded safe input is consumed.
+- [x] `v2/src/execution/workflow-runner.test.ts` proves Git-backed intent deletion joins the ready-intent completion commit, no-Git success consumes the source, and inline seeds carry no deletion target.
+- [x] `v2/src/execution/workflow-runner.test.ts` proves failed validation, landing, commit, push, or PR publication leaves the registered queue artifact intact for retry.
+- [x] `v2/src/execution/publication-landing.test.ts` proves batched input metadata consumes every safe mapped input, skips missing, external, and symlink-escaped targets, and remains idempotent across deferred review landing and publication resume.
+- [x] `v2/src/execution/intent-output.test.ts`, `v2/src/execution/intent-workflow-steps.test.ts`, and `v2/src/execution/workflow-runner.test.ts` existing intent landing, builder, review, and publication tests stay green.
 
 ## Documentation updates
 

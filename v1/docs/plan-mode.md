@@ -458,9 +458,9 @@ git branch -D plan/<plan-name>
 
 No-commit specs in Jarvis-owned storage (`~/.jarvis/specs/…`) persist until the associated merged worktree is cleaned up or the operator removes them manually. They can be re-run with `jarvis1 run` at any time before archival.
 
-**On success:** The spec tree and its `index.md` are left untouched until `jarvis1 cleanup` archives them into `~/.jarvis/specs/<project-safe-id>/completed/`. Cleanup also prunes the consumed `ready-intents/<branch-slug>.md` when present.
+**On success:** After draft, configured review, and durable spec writes succeed, plan consumes its source ready-intent: `commit: true` stages the safe deletion in `plan: draft`; `commit: false` deletes the safe live-checkout entry. The spec tree and its `index.md` remain until `jarvis1 cleanup` archives them into `~/.jarvis/specs/<project-safe-id>/completed/`. Cleanup's best-effort pruning of an old `ready-intents/<branch-slug>.md` remains an idempotent fallback.
 
-**On failure:** When `commit: false` plan phases fail (draft, review, validation, quota, model configuration, boundary violation, or interrupt), the named external spec directory and its `intent.md` are preserved; failure output prints the preserved directory path (e.g., `Spec preserved at ~/.jarvis/specs/…`) adjacent to the error. The only exception is if the `intent.md` write itself fails before the `Intent:` line is printed — in that case, the abandoned pre-`intent.md` spec directory is removed and no breadcrumb is emitted (the operator did not yet receive an `Intent:` path, so there is no external artifact to preserve).
+**On failure:** When `commit: false` plan phases fail (draft, review, validation, quota, model configuration, boundary violation, filesystem publication, or interrupt), both the ready-intent and the named external spec directory with its `intent.md` are preserved for retry; failure output prints the preserved directory path (e.g., `Spec preserved at ~/.jarvis/specs/…`) adjacent to the error. The only exception is if the `intent.md` write itself fails before the `Intent:` line is printed — in that case, the abandoned pre-`intent.md` spec directory is removed and no breadcrumb is emitted (the operator did not yet receive an `Intent:` path, so there is no external artifact to preserve).
 
 To remove an external no-commit spec:
 

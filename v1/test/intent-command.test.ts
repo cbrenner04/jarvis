@@ -775,12 +775,66 @@ describe("intentCommand", () => {
           cwd: env.projectRoot,
           config: { dir: env.cfgDir },
           logClient: okLogClient,
-          createAgent: createSplitAgentFactory({ claude: "ok-one" }),
+          createAgent: createSplitAgentFactory({ claude: "ok-two" }),
         });
         expect(code).toBe(0);
-        expect(readFileSync(join(externalRoot, "ready-intents", "single-behavior.md"), "utf8")).toContain(
-          "name: single-behavior",
-        );
+        expect(readFileSync(join(externalRoot, "ready-intents", "slice-one.md"), "utf8")).toContain("name: slice-one");
+        expect(readFileSync(join(externalRoot, "ready-intents", "slice-two.md"), "utf8")).toContain("name: slice-two");
+        expect(existsSync(seedPath)).toBe(false);
+      } finally {
+        env.cleanup();
+      }
+    });
+
+    test("file seeds survive failed no-commit publication", async () => {
+      const env = setupNoCommitEnv();
+      try {
+        const externalRoot = join(env.cfgDir, "specs", "project");
+        const seedDir = join(externalRoot, "seeds");
+        mkdirSync(seedDir, { recursive: true });
+        const seedPath = join(seedDir, "raw-seed.md");
+        writeFileSync(seedPath, "# Seed\n");
+        mkdirSync(join(externalRoot, "ready-intents"), { recursive: true });
+        writeFileSync(join(externalRoot, "ready-intents", "slice-one.md"), "keep\n");
+
+        const cap = captureIo();
+        const code = await intentCommand({
+          io: cap.io,
+          args: [seedPath],
+          cwd: env.projectRoot,
+          config: { dir: env.cfgDir },
+          logClient: okLogClient,
+          createAgent: createSplitAgentFactory({ claude: "ok-two" }),
+        });
+        expect(code).toBe(1);
+        expect(existsSync(seedPath)).toBe(true);
+      } finally {
+        env.cleanup();
+      }
+    });
+
+    test("file seeds survive validation and splitter failures", async () => {
+      const env = setupNoCommitEnv();
+      try {
+        const externalRoot = join(env.cfgDir, "specs", "project");
+        const seedDir = join(externalRoot, "seeds");
+        mkdirSync(seedDir, { recursive: true });
+        const seedPath = join(seedDir, "raw-seed.md");
+        writeFileSync(seedPath, "# Seed\n");
+        for (const mode of ["invalid-prerequisites", "hard-error"] as const) {
+          const cap = captureIo();
+          expect(
+            await intentCommand({
+              io: cap.io,
+              args: [seedPath],
+              cwd: env.projectRoot,
+              config: { dir: env.cfgDir },
+              logClient: okLogClient,
+              createAgent: createSplitAgentFactory({ claude: mode }),
+            }),
+          ).toBe(1);
+          expect(existsSync(seedPath)).toBe(true);
+        }
       } finally {
         env.cleanup();
       }
@@ -1268,6 +1322,14 @@ exit 0
               writeFileSync(join(dstReadyDir, entry), readFileSync(join(srcReadyDir, entry)));
             }
           }
+          const srcSeedDir = join(opts.projectRoot, "spec", "seeds");
+          if (existsSync(srcSeedDir)) {
+            const dstSeedDir = join(worktreePath, "spec", "seeds");
+            mkdirSync(dstSeedDir, { recursive: true });
+            for (const entry of readdirSync(srcSeedDir)) {
+              writeFileSync(join(dstSeedDir, entry), readFileSync(join(srcSeedDir, entry)));
+            }
+          }
           return worktreePath;
         },
         renderAttribution: () => "",
@@ -1314,13 +1376,14 @@ exit 0
       }
     });
 
-    test("file seed from seeds writes one intent and leaves the raw seed in place", async () => {
+    test("file seed split commits its deletion while unrelated seeds remain", async () => {
       const env = setupCommitEnv();
       try {
         const seedDir = join(env.projectRoot, "spec", "seeds");
         mkdirSync(seedDir, { recursive: true });
         const seedPath = join(seedDir, "raw-seed.md");
         writeFileSync(seedPath, "# Seed\n");
+        writeFileSync(join(seedDir, "unrelated.md"), "# Other\n");
 
         const cap = captureIo();
         const code = await intentCommand({
@@ -1338,9 +1401,13 @@ exit 0
         const worktree = findIntentWorktree(env.projectRoot);
         expect(existsSync(seedPath)).toBe(true);
         expect(readFileSync(seedPath, "utf8")).toBe("# Seed\n");
+        expect(existsSync(join(worktree, "spec", "seeds", "raw-seed.md"))).toBe(false);
+        expect(readFileSync(join(worktree, "spec", "seeds", "unrelated.md"), "utf8")).toBe("# Other\n");
         expect(readFileSync(join(worktree, "spec", "ready-intents", "single-behavior.md"), "utf8")).toContain(
           "name: single-behavior",
         );
+        const commit = env.runnerCalls.find((call) => call.args[0] === "git" && call.args[1] === "commit");
+        expect(commit?.args.join("\n")).toContain("intent: split 1 intent");
       } finally {
         env.cleanup();
       }

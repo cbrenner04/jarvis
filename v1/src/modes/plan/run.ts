@@ -1,16 +1,8 @@
 import { execFileSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
+import { consumePublicationInputs } from "../../../../shared/publication-input-consumption.ts";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName } from "../../agents/types.ts";
 import type { PlanCommandOptions, PlanIo } from "../../commands/plan.ts";
@@ -634,36 +626,13 @@ export function deleteReadyIntentFromWorktree(args: {
   projectRoot: string;
   worktreePath: string;
 }): boolean {
-  const worktreePath = resolve(args.worktreePath);
-  const canonicalWorktreePath = (() => {
-    try {
-      return realpathSync(worktreePath);
-    } catch {
-      return worktreePath;
-    }
-  })();
-  const targetPath = resolve(worktreePath, relative(resolve(args.projectRoot), resolve(args.readyIntentPath)));
-  if (!isPathInside(worktreePath, targetPath)) {
-    return false;
-  }
-  if (!existsSync(targetPath)) {
-    return false;
-  }
-  let resolvedTargetPath: string;
-  try {
-    resolvedTargetPath = realpathSync(targetPath);
-  } catch {
-    return false;
-  }
-  if (!isPathInside(canonicalWorktreePath, resolvedTargetPath)) {
-    return false;
-  }
-  try {
-    unlinkSync(targetPath);
-    return true;
-  } catch {
-    return false;
-  }
+  return (
+    consumePublicationInputs({
+      sourceRoot: args.projectRoot,
+      publicationRoot: args.worktreePath,
+      inputPaths: [args.readyIntentPath],
+    }).length > 0
+  );
 }
 
 export async function planCommand(opts: PlanCommandOptions): Promise<number> {
@@ -1605,6 +1574,12 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           ...(planFixCommand !== undefined ? { fixCommand: planFixCommand } : {}),
         });
       } else {
+        consumePublicationInputs({
+          sourceRoot: project.root,
+          publicationRoot: project.root,
+          inputPaths: [candidatePath],
+        });
+
         // For commit: false, show the absolute path and jarvis run command
         const noCommitSpecRoot = computeNoCommitSpecRoot(jarvisConfigDir, project, specDirBasename);
         const indexPath = join(noCommitSpecRoot, "index.md");

@@ -238,7 +238,8 @@ function specHasUncheckedAutomatedCriterion(content: string): boolean {
   return parseSpec(content).acceptanceCriteria.some((criterion) => !criterion.humanOnly && !criterion.checked);
 }
 
-const ALREADY_COMPLETE_ERROR = "implement.already_complete: requested spec has no unchecked non-human-only acceptance criteria";
+const ALREADY_COMPLETE_ERROR =
+  "implement.already_complete: requested spec has no unchecked non-human-only acceptance criteria";
 
 function validateSpecTreeCompletion(
   absoluteSpecPath: string,
@@ -256,9 +257,7 @@ function validateSpecTreeCompletion(
     return specHasUncheckedAutomatedCriterion(specContent) ? undefined : ALREADY_COMPLETE_ERROR;
   }
   for (const subspec of linkedSubspecs) {
-    const subspecPath = isAbsolute(subspec.path)
-      ? subspec.path
-      : resolve(dirname(absoluteSpecPath), subspec.path);
+    const subspecPath = isAbsolute(subspec.path) ? subspec.path : resolve(dirname(absoluteSpecPath), subspec.path);
     if (relative(projectRoot, subspecPath).startsWith("..")) {
       return `implement.link_out_of_tree: Linked path is outside project: ${subspec.path}`;
     }

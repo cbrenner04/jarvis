@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Derive completion commit subject from spec title; recognize prior commit by trailer](./00-subject-from-spec-title.md)
+- [x] [00 - Derive completion commit subject from spec title; recognize prior commit by trailer](./00-subject-from-spec-title.md)

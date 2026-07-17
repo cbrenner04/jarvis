@@ -7,11 +7,20 @@ import { createCompletionCommitter } from "./completion-commit.ts";
 
 const { roots } = trackedTempRoots();
 
-function setupWorktree(): { worktreePath: string; gitDir: string } {
+function setupWorktree(specPath?: string): { worktreePath: string; gitDir: string } {
   const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-v2-completion-commit-"));
   roots.push(worktreePath);
   const gitDir = join(worktreePath, ".git");
   mkdirSync(gitDir);
+
+  // Create a default index.md if a spec path is provided
+  if (specPath) {
+    const specDir = join(worktreePath, specPath.replace(/\/index\.md$/, ""));
+    mkdirSync(specDir, { recursive: true });
+    const indexPath = join(specDir, "index.md");
+    writeFileSync(indexPath, "# Test Spec Title\n");
+  }
+
   return { worktreePath, gitDir };
 }
 
@@ -19,7 +28,7 @@ type GitCall = { args: readonly string[]; env: Record<string, string> | undefine
 
 describe("createCompletionCommitter", () => {
   test("commits and returns a sha when the working tree has changes", async () => {
-    const { worktreePath, gitDir } = setupWorktree();
+    const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");
     const calls: GitCall[] = [];
 
     const runGit = async (_cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> => {
@@ -45,10 +54,18 @@ describe("createCompletionCommitter", () => {
     expect(result).toEqual({ commitSha: "new-commit", filesChanged: 2 });
     expect(calls.some((c) => c.args[0] === "update-ref")).toBe(true);
     expect(calls.some((c) => c.args[0] === "diff-tree" && c.args.includes("--no-renames"))).toBe(true);
+
+    // Subject is derived from the spec title, not the fixed "jarvis: complete run".
+    const commitCall = calls.find((c) => c.args[0] === "commit-tree");
+    const message = commitCall?.args[commitCall.args.indexOf("-m") + 1];
+    expect(message).toContain("Test Spec Title");
+    expect(message).toContain("Spec: v2/spec/test/index.md");
+    expect(message).toContain("Jarvis-Agent: claude");
+    expect(message).not.toContain("jarvis: complete run");
   });
 
   test("resuming after a successful commit reports the existing completion commit sha, not a no-op", async () => {
-    const { worktreePath, gitDir } = setupWorktree();
+    const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");
 
     const runGit = async (_cwd: string, args: readonly string[]): Promise<string> => {
       if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
@@ -57,7 +74,7 @@ describe("createCompletionCommitter", () => {
       if (args[0] === "add") return "";
       if (args[0] === "write-tree") return "same-tree";
       if (args[0] === "rev-parse" && args[1] === "completion-commit^{tree}") return "same-tree";
-      if (args[0] === "log") return "jarvis: complete run\n\nSpec: v2/spec/test/index.md\n\nJarvis-Agent: claude\n";
+      if (args[0] === "log") return "test spec title\n\nSpec: v2/spec/test/index.md\n\nJarvis-Agent: claude\n";
       if (args[0] === "diff-tree") return "spec/index.md";
       return "";
     };
@@ -76,7 +93,7 @@ describe("createCompletionCommitter", () => {
   });
 
   test("truly nothing to commit when HEAD is not a completion commit", async () => {
-    const { worktreePath, gitDir } = setupWorktree();
+    const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");
 
     const runGit = async (_cwd: string, args: readonly string[]): Promise<string> => {
       if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
@@ -118,7 +135,7 @@ describe("createCompletionCommitter", () => {
   });
 
   test("filesChanged matches tree diff on commit and is absent when no commit is produced", async () => {
-    const { worktreePath, gitDir } = setupWorktree();
+    const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");
     const diffOutput = "a.ts\nb.ts\nc.ts";
     const calls: GitCall[] = [];
 
@@ -176,7 +193,7 @@ describe("createCompletionCommitter", () => {
         baseHead: "base-head",
         tree: "new-tree",
         branchRef: "refs/heads/feature",
-        message: "jarvis: complete run\n\nSpec: v2/spec/test/index.md\n\nJarvis-Agent: claude",
+        message: "test spec title\n\nSpec: v2/spec/test/index.md\n\nJarvis-Agent: claude",
         agent: "claude",
         timestamp: "2026-01-01T00:00:00.000Z",
         commitSha: "existing-commit",

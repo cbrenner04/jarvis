@@ -49,19 +49,19 @@ a variable subject breaks it, so it must switch to a marker that survives.
 
 ## Acceptance criteria
 
-- [ ] The v2 completion commit subject equals the resolved spec title (spec
+- [x] The v2 completion commit subject equals the resolved spec title (spec
   `index.md` H1, matching `resolvePublicationTitle`), not the literal
   `jarvis: complete run`.
-- [ ] The completion commit message still carries the `Spec: <specPath>` and
+- [x] The completion commit message still carries the `Spec: <specPath>` and
   `Jarvis-Agent: <agent>` trailer lines.
-- [ ] The already-committed idempotency path recognizes a prior completion commit
+- [x] The already-committed idempotency path recognizes a prior completion commit
   whose HEAD subject is not `jarvis: complete run` (recognized via its
   `Jarvis-Agent:` trailer) and reports its existing sha instead of a no-op.
-- [ ] A HEAD commit with no `Jarvis-Agent:` trailer and an unchanged tree is
+- [x] A HEAD commit with no `Jarvis-Agent:` trailer and an unchanged tree is
   still treated as "nothing to commit" (returns `{}`).
-- [ ] An updated/added test in `completion-commit.test.ts` asserts the spec-title
+- [x] An updated/added test in `completion-commit.test.ts` asserts the spec-title
   subject and the trailer-based idempotency; it fails against the pre-fix code
   (which emits/matches the fixed `jarvis: complete run` subject) and passes after
   the change.
-- [ ] `v2/docs/v1-behaviors.md` and `v2/docs/write-behavior.md` describe the
+- [x] `v2/docs/v1-behaviors.md` and `v2/docs/write-behavior.md` describe the
   spec-title subject and trailer-based idempotency contract.

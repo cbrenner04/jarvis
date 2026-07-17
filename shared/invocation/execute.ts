@@ -43,15 +43,18 @@ export type InvocationCapacityRefused = {
   stderr: string;
 };
 
-export type InvocationResult = InvocationOk | InvocationQuota | InvocationStall | InvocationError | InvocationCapacityRefused;
+export type InvocationResult =
+  | InvocationOk
+  | InvocationQuota
+  | InvocationStall
+  | InvocationError
+  | InvocationCapacityRefused;
 
 /**
  * Collapse `stall`/`capacity_refused` into a generic `error`, for callers whose
  * own result type (e.g. v1's `AgentResult`) has no such kinds.
  */
-export function collapseToError(
-  result: InvocationResult,
-): InvocationOk | InvocationQuota | InvocationError {
+export function collapseToError(result: InvocationResult): InvocationOk | InvocationQuota | InvocationError {
   if (result.kind === "stall" || result.kind === "capacity_refused") {
     return { kind: "error", exitCode: -1, stderr: result.stderr };
   }
@@ -149,6 +152,7 @@ export type PreSpawnGuard = {
  * If a preSpawnGuard is provided, it is invoked before each binding.invoke.
  * A guard refusal stops execution and returns a capacity_refused result without invoking.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: binding loop with pre-spawn guard is one cohesive invocation boundary
 export async function executeWithQuotaFallback<T extends InvocationResult = InvocationResult>(args: {
   prompt: string;
   cwd: string;

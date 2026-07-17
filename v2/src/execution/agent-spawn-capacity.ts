@@ -1,9 +1,9 @@
-import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
+import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { DaemonClient } from "../commands/cleanup.ts";
-import type { StateStore } from "../persistence/state-store.ts";
 import { retireEligibleWorktreesNonInteractive } from "../commands/cleanup.ts";
 import { jarvisHome } from "../paths.ts";
+import type { StateStore } from "../persistence/state-store.ts";
 
 export type CapacityWarning = {
   kind: "warning";
@@ -99,10 +99,7 @@ export async function countDedupWorktrees(
  * - If warnThreshold <= count < refuseThreshold, warn.
  * - If count >= refuseThreshold, refuse.
  */
-export function classifyCapacityTier(
-  count: number | null,
-  config: CapacityGuardConfig,
-): CapacityCheckResult {
+export function classifyCapacityTier(count: number | null, config: CapacityGuardConfig): CapacityCheckResult {
   if (count === null) {
     return {
       kind: "refusal",
@@ -157,7 +154,13 @@ export async function checkAgentSpawnCapacity(args: {
 
   // 2. Retire cleanup-eligible worktrees through the 00 seam
   try {
-    await retireEligibleWorktreesNonInteractive(args.registry, jarvisHome(), args.runner, args.daemonClient, args.store);
+    await retireEligibleWorktreesNonInteractive(
+      args.registry,
+      jarvisHome(),
+      args.runner,
+      args.daemonClient,
+      args.store,
+    );
   } catch {
     // Retirement failure doesn't prevent counting; continue
   }

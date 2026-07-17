@@ -1,18 +1,20 @@
-import { describe, it, expect } from "bun:test";
-import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { describe, expect, it } from "bun:test";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
+import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import type { DaemonClient } from "../commands/cleanup.ts";
+import type { StateStore } from "../persistence/state-store.ts";
 import {
+  type CapacityGuardConfig,
+  type CapacityRefusal,
+  type CapacityWarning,
   checkAgentSpawnCapacity,
   classifyCapacityTier,
   countDedupWorktrees,
   createPreSpawnGuard,
-  type CapacityGuardConfig,
 } from "./agent-spawn-capacity.ts";
-import type { DaemonClient } from "../commands/cleanup.ts";
-import type { StateStore } from "../persistence/state-store.ts";
 
 const mockDaemonClient: DaemonClient = async () => [];
-const mockStore: StateStore = { findRunByProjectBranch: () => null } as any;
+const mockStore: StateStore = { findRunByProjectBranch: () => null } as unknown as StateStore;
 
 function worktreeListOutput(count: number): string {
   return Array.from({ length: count }, (_, i) => `worktree /path/wt${i + 1}`)
@@ -20,7 +22,11 @@ function worktreeListOutput(count: number): string {
     .join("");
 }
 
-function makeGitRunner(args: { commonDir?: string; worktreeCount: number; onPrune?: () => void }): AsyncSubprocessRunner {
+function makeGitRunner(args: {
+  commonDir?: string;
+  worktreeCount: number;
+  onPrune?: () => void;
+}): AsyncSubprocessRunner {
   return {
     async runAsync(cmd: string, cmdArgs: string[]) {
       if (cmd === "git" && cmdArgs[0] === "worktree" && cmdArgs[1] === "prune") {
@@ -40,7 +46,6 @@ function makeGitRunner(args: { commonDir?: string; worktreeCount: number; onPrun
 }
 
 describe("agent-spawn-capacity", () => {
-
   describe("classifyCapacityTier", () => {
     const config: CapacityGuardConfig = {
       warnThreshold: 5,
@@ -55,19 +60,19 @@ describe("agent-spawn-capacity", () => {
     it("returns warning when count is at or above warn threshold but below refuse", () => {
       const result = classifyCapacityTier(5, config);
       expect(result.kind).toBe("warning");
-      expect((result as any).count).toBe(5);
+      expect((result as CapacityWarning).count).toBe(5);
     });
 
     it("returns refusal when count is at or above refuse threshold", () => {
       const result = classifyCapacityTier(10, config);
       expect(result.kind).toBe("refusal");
-      expect((result as any).count).toBe(10);
+      expect((result as CapacityRefusal).count).toBe(10);
     });
 
     it("returns refusal when count is null (fail closed)", () => {
       const result = classifyCapacityTier(null, config);
       expect(result.kind).toBe("refusal");
-      expect((result as any).count).toBeNull();
+      expect((result as CapacityRefusal).count).toBeNull();
     });
   });
 
@@ -93,10 +98,7 @@ describe("agent-spawn-capacity", () => {
       };
 
       // Should count worktrees only once, even though registry has two aliases
-      const count = await countDedupWorktrees(
-        registry,
-        makeGitRunner({ commonDir: "/shared/.git", worktreeCount: 2 }),
-      );
+      const count = await countDedupWorktrees(registry, makeGitRunner({ commonDir: "/shared/.git", worktreeCount: 2 }));
       expect(count).toBe(2);
     });
   });
@@ -118,7 +120,7 @@ describe("agent-spawn-capacity", () => {
       });
 
       expect(result.kind).toBe("refusal");
-      expect((result as any).count).toBe(10);
+      expect((result as CapacityRefusal).count).toBe(10);
       expect(pruned).toBe(true);
     });
 
@@ -132,7 +134,7 @@ describe("agent-spawn-capacity", () => {
       });
 
       expect(result.kind).toBe("warning");
-      expect((result as any).count).toBe(7);
+      expect((result as CapacityWarning).count).toBe(7);
     });
 
     it("returns ok when count is below warn threshold", async () => {
@@ -165,7 +167,7 @@ describe("agent-spawn-capacity", () => {
 
       const result = await guard.check();
       expect(result.kind).toBe("warning");
-      expect((result as any).message).toContain("6");
+      expect((result as CapacityWarning).message).toContain("6");
     });
 
     it("returns a guard that reports refusal", async () => {
@@ -179,7 +181,7 @@ describe("agent-spawn-capacity", () => {
 
       const result = await guard.check();
       expect(result.kind).toBe("refusal");
-      expect((result as any).message).toContain("jarvis cleanup");
+      expect((result as CapacityRefusal).message).toContain("jarvis cleanup");
     });
   });
 });

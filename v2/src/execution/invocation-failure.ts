@@ -1,7 +1,14 @@
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
 
 /** Terminal binding-chain stop cause from `runStep` when `kind === "invocation_failure"`. */
-export type InvocationFailureKind = "quota" | "stall" | "model_config" | "error" | "no_binding" | "landing" | "capacity_refused";
+export type InvocationFailureKind =
+  | "quota"
+  | "stall"
+  | "model_config"
+  | "error"
+  | "no_binding"
+  | "landing"
+  | "capacity_refused";
 
 /** One binding attempt in chain order; `resultKind` is that attempt's `InvocationResult.kind`. */
 export type BindingAttemptSummary = {

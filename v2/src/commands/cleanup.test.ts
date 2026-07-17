@@ -208,7 +208,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       }),
     } as unknown as StateStore;
     let failRemoval = true;
-    let stdout = "";
+    let _stdout = "";
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[1] === "view")
@@ -218,7 +218,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
     };
-    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+    const io = { stdout: (s: string) => (_stdout += s), stderr: () => {} };
 
     expect(
       await runCleanupCommand(
@@ -236,7 +236,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(readFileSync(readyIntent, "utf8")).toBe("intent\n");
 
     failRemoval = false;
-    stdout = "";
+    _stdout = "";
     expect(
       await runCleanupCommand(
         { promptConfirm: async () => true },
@@ -249,7 +249,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       ),
     ).toBe(0);
     expect(existsSync(source)).toBe(true);
-    expect(stdout).toContain("unchecked acceptance criterion");
+    expect(_stdout).toContain("unchecked acceptance criterion");
   });
 
   test("dry-run previews archive and proven intent pruning without changes", async () => {
@@ -384,10 +384,10 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     };
     const store: StateStore = { findRunByProjectBranch: () => null } as unknown as StateStore;
 
-    let stdout = "";
+    let _stdout = "";
     const io = {
       stdout: (s: string) => {
-        stdout += s;
+        _stdout += s;
       },
       stderr: () => {},
     };

@@ -2415,7 +2415,7 @@ describe("v2 cli", () => {
     const worktreePath = join(worktreesHome, "feature-branch");
     mkdirSync(join(worktreePath, ".git"), { recursive: true });
     writeFileSync(join(worktreePath, ".git", "HEAD"), "ref: refs/heads/feature-branch");
-    return { projectRoot };
+    return { jarvisRoot, projectRoot };
   }
 
   function mergedGhSubprocessRunner(onGhCall?: () => void) {
@@ -2431,7 +2431,7 @@ describe("v2 cli", () => {
   }
 
   test("jarvis cleanup --dry-run discovers merged-PR worktrees and previews without mutating", async () => {
-    const { projectRoot } = setUpCleanupWorktreeFixture();
+    const { jarvisRoot, projectRoot } = setUpCleanupWorktreeFixture();
 
     let ghCalls = 0;
     const cap = captureIo();
@@ -2441,6 +2441,7 @@ describe("v2 cli", () => {
         throw new Error("daemon should not be contacted in dry-run");
       },
       subprocessRunner: mergedGhSubprocessRunner(() => ghCalls++),
+      jarvisRoot,
     });
 
     expect(code).toBe(0);
@@ -2465,7 +2466,7 @@ describe("v2 cli", () => {
   });
 
   test("jarvis cleanup queries daemon for live runs and reports them", async () => {
-    const { projectRoot } = setUpCleanupWorktreeFixture();
+    const { jarvisRoot, projectRoot } = setUpCleanupWorktreeFixture();
 
     let daemonQueried = false;
     const mockClient = {
@@ -2481,6 +2482,7 @@ describe("v2 cli", () => {
         return mockClient as unknown as IpcClient;
       },
       subprocessRunner: mergedGhSubprocessRunner(),
+      jarvisRoot,
     });
 
     expect(code).toBe(0);
@@ -2488,7 +2490,7 @@ describe("v2 cli", () => {
   });
 
   test("jarvis cleanup handles daemon unavailability gracefully", async () => {
-    const { projectRoot } = setUpCleanupWorktreeFixture();
+    const { jarvisRoot, projectRoot } = setUpCleanupWorktreeFixture();
 
     const cap = captureIo();
     const code = await main(["cleanup", "--dry-run"], cap.io, {
@@ -2497,6 +2499,7 @@ describe("v2 cli", () => {
         throw new Error("daemon unreachable");
       },
       subprocessRunner: mergedGhSubprocessRunner(),
+      jarvisRoot,
     });
 
     expect(code).toBe(0);

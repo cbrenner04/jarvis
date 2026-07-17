@@ -66,6 +66,7 @@ type CliDeps = {
   workflowPresetBuilders: Readonly<Record<string, WorkflowPresetBuilder>>;
   readProjectRegistry: () => Record<string, { root: string; origin?: string }>;
   subprocessRunner?: AsyncSubprocessRunner;
+  jarvisRoot?: string;
   cwd: () => string;
   socketPath: string;
   pidPath: string;
@@ -505,12 +506,16 @@ async function runCleanupCommand(argv: readonly string[], io: Io, deps: CliDeps)
   }
 
   try {
-    const result = await cleanup(io, {
+    const cleanupDeps: Parameters<typeof cleanup>[1] = {
       isDryRun,
       readProjectRegistry: deps.readProjectRegistry,
       subprocessRunner: deps.subprocessRunner ?? realAsyncSubprocessRunner,
       daemonRuns,
-    });
+    };
+    if (deps.jarvisRoot !== undefined) {
+      cleanupDeps.jarvisRoot = deps.jarvisRoot;
+    }
+    const result = await cleanup(io, cleanupDeps);
     return result;
   } catch (error) {
     io.stderr(`Cleanup failed: ${error instanceof Error ? error.message : String(error)}\n`);

@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Resolve compact-timestamp plan specs](./00-resolve-compact-timestamp-plan-specs.md)
+- [x] [00 - Resolve compact-timestamp plan specs](./00-resolve-compact-timestamp-plan-specs.md)

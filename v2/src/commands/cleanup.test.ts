@@ -791,7 +791,7 @@ describe("cleanup: runAbandonCommand", () => {
         if (cmd === "gh") {
           ghInvocations.push({ cmd, args: [...args] });
           if (args[0] === "pr" && args[1] === "list") {
-            return JSON.stringify([{ number: 456, state: "DRAFT" }]);
+            return JSON.stringify([{ number: 456, isDraft: true }]);
           } else if (args[0] === "pr" && args[1] === "close") {
             return "";
           }
@@ -828,7 +828,7 @@ describe("cleanup: runAbandonCommand", () => {
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([{ number: 789, state: "DRAFT" }]);
+          return JSON.stringify([{ number: 789, isDraft: true }]);
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
           throw new Error("gh pr close failed");
@@ -1038,7 +1038,7 @@ describe("cleanup: runAbandonCommand", () => {
           gitRemoveInvoked = true;
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([{ number: 222, state: "OPEN" }]);
+          return JSON.stringify([{ number: 222, isDraft: false }]);
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
           return JSON.stringify({ number: 222, state: "OPEN" });
@@ -1126,7 +1126,7 @@ describe("cleanup: runAbandonCommand", () => {
           gitRemoveInvoked = true;
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([{ number: 445, state: "DRAFT" }]);
+          return JSON.stringify([{ number: 445, isDraft: true }]);
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
           return JSON.stringify({ number: 445, state: "DRAFT" });

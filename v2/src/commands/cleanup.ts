@@ -595,20 +595,20 @@ async function isWorktreeLiveHeld(
   return { live: false };
 }
 
-type OpenPr = { number: number; state: string };
+type OpenPr = { number: number; isDraft: boolean };
 
 async function findAllOpenPrsForBranch(branch: string, runner: AsyncSubprocessRunner): Promise<OpenPr[]> {
   try {
     const output = await runner.runAsync(
       "gh",
-      ["pr", "list", "--head", branch, "--state", "open", "--json", "number,state"],
+      ["pr", "list", "--head", branch, "--state", "open", "--json", "number,isDraft"],
       ".",
     );
     const parsed: unknown = JSON.parse(output);
     if (!Array.isArray(parsed)) return [];
     return parsed.map((item: unknown) => {
-      const p = item as { number?: number; state?: string };
-      return { number: p.number ?? 0, state: p.state ?? "" };
+      const p = item as { number?: number; isDraft?: boolean };
+      return { number: p.number ?? 0, isDraft: p.isDraft ?? false };
     });
   } catch {
     return [];
@@ -725,7 +725,7 @@ export async function runAbandonCommand(
     return 1;
   }
   const singlePr = openPrs.at(0);
-  if (singlePr && singlePr.state === "OPEN") {
+  if (singlePr && !singlePr.isDraft) {
     io.stderr(`Error: Cannot abandon: matching PR is ready (non-draft)\n`);
     return 1;
   }

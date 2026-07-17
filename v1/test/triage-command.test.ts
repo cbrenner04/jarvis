@@ -12,6 +12,7 @@ import {
   runRecoveryProbeWithExec,
   triageCommand,
 } from "../src/commands/triage.ts";
+import type { ConfigOptions } from "../src/config.ts";
 import type { BaseCurrentCheckResult } from "../src/git/base-current.ts";
 import { FixCommandError, ReadyCommandError } from "../src/ready-gate.ts";
 import { checkScopedAbandonPreflight } from "../src/scoped-abandon-preflight.ts";
@@ -187,7 +188,7 @@ function writeIndexSpec(homeRel: string, name: string, body = completeIndexBody)
   writeFileSync(join(specDir, "index.md"), body);
 }
 
-function jarvisConfigOpts(planTargetDir: string): Pick<TriageCommandOptions, "config"> {
+function jarvisConfigOpts(planTargetDir: string): { config: ConfigOptions } {
   const configDir = join(root, "jarvis-config");
   mkdirSync(configDir, { recursive: true });
   writeFileSync(
@@ -2690,7 +2691,7 @@ describe("triage --mark-ready", () => {
           adminMerge: () => {
             mergeRan = true;
           },
-          config: config!,
+          config,
         }),
       );
 

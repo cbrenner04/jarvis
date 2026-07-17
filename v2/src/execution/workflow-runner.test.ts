@@ -4613,4 +4613,92 @@ describe("executeWorkflow telemetry", () => {
       expect(() => readFileSync(telemetryPath, "utf8")).toThrow();
     });
   });
+
+  test("implement workflow publication receives shrink-authored narrative when present", async () => {
+    const capturedPublisherInputs: Array<{ narrative?: string }> = [];
+
+    const implementStep = createStep({
+      stepId: "implement-1",
+      role: "implement",
+      branchName: "shrink-with-narrative",
+      creationTitle: "implement: narrative-test",
+      createBinding: createBindingFactory(async ({ cwd, adapterModel }) => {
+        if (adapterModel === "shrink-model") {
+          const scratchDir = join(cwd, ".scratch");
+          mkdirSync(scratchDir, { recursive: true });
+          writeFileSync(
+            join(scratchDir, "shrink-narrative.md"),
+            "Refactored module X to simplify Y.\nAll tests pass and git diff is clean.",
+            "utf8",
+          );
+        }
+        writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+        return { kind: "ok", stdout: "done", stderr: "" } as const;
+      }),
+      agentModelConfig: {
+        claude: {
+          implement: { rungs: [{ adapterModel: "impl-model", priceKey: "impl-model" }] },
+          shrink: { rungs: [{ adapterModel: "shrink-model", priceKey: "shrink-model" }] },
+        },
+      },
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: resolveWorkflowPreset("implement", [implementStep]),
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-123" }),
+        completionPublisher: async (input) => {
+          capturedPublisherInputs.push({
+            ...(input.narrative !== undefined ? { narrative: input.narrative } : {}),
+          });
+          return { prNumber: 42 };
+        },
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(capturedPublisherInputs).toHaveLength(1);
+      expect(capturedPublisherInputs[0]?.narrative).toBe(
+        "Refactored module X to simplify Y.\nAll tests pass and git diff is clean.",
+      );
+    });
+  });
+
+  test("implement workflow publication succeeds when narrative file is absent", async () => {
+    const capturedPublisherInputs: Array<{ narrative?: string }> = [];
+
+    const implementStep = createStep({
+      stepId: "implement-1",
+      role: "implement",
+      branchName: "shrink-no-narrative",
+      creationTitle: "implement: no-narrative",
+      createBinding: doneBindingFactory,
+      agentModelConfig: {
+        claude: {
+          implement: { rungs: [{ adapterModel: "impl", priceKey: "impl" }] },
+          shrink: { rungs: [{ adapterModel: "shrink", priceKey: "shrink" }] },
+        },
+      },
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: resolveWorkflowPreset("implement", [implementStep]),
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-123" }),
+        completionPublisher: async (input) => {
+          capturedPublisherInputs.push({
+            ...(input.narrative !== undefined ? { narrative: input.narrative } : {}),
+          });
+          return { prNumber: 42 };
+        },
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(capturedPublisherInputs).toHaveLength(1);
+      expect(capturedPublisherInputs[0]?.narrative).toBeUndefined();
+    });
+  });
 });

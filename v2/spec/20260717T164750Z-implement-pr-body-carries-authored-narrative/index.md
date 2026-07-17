@@ -7,5 +7,5 @@ narrative marker block, yet nothing writes one, so every implement PR ships only
 templated `Spec:` header. Give the marker block a producer — the existing post-completion
 shrink pass — and a sink that always round-trips.
 
-- [ ] [00 - refreshPrBody emits a supplied narrative in the marker block](./00-refresh-emits-narrative.md)
-- [ ] [01 - Shrink pass authors the implement PR narrative](./01-shrink-authors-narrative.md)
+- [x] [00 - refreshPrBody emits a supplied narrative in the marker block](./00-refresh-emits-narrative.md)
+- [x] [01 - Shrink pass authors the implement PR narrative](./01-shrink-authors-narrative.md)

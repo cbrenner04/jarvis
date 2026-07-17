@@ -62,4 +62,20 @@ Hunt and remove bloat matching these patterns only — no numeric line-count tar
 - Preserve observable behavior; run tests before finishing.
 - Prefer deletion. Reuse existing `shared/*` helpers before inlining; inline only when nothing shared fits.
 
+## Narrative
+
+Before your final outcome token, emit the PR narrative: a review-altitude summary of what changed, why, and how to verify. The narrative is distinct from the spec header — focus on intent and verification, not a restatement of the acceptance criteria.
+
+Write the narrative to `.scratch/shrink-narrative.md`:
+
+```
+mkdir -p .scratch
+cat > .scratch/shrink-narrative.md << 'EOF'
+What changed and why — intent captured and verification path.
+Multiple lines OK.
+EOF
+```
+
+Omit the narrative file if there is no clear narrative to share; absent file produces no PR marker block.
+
 <STEP_RULES>

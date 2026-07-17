@@ -269,6 +269,11 @@ The publication boundary enforces (3): when the publisher returns a `pushSha` bu
 preventing silent publication gaps where code is pushed but no PR exists. A red gate demotes the
 run to `failed` and blocks completion; resume the run after fixing the gate.
 
+Implement PR bodies now carry an agent-authored review-altitude narrative in the PR marker block
+(see [PR body narrative markers](./workflow-runner.md#pr-body-narrative-markers)). The shrink pass
+authors this narrative after implementation; on re-publication, human edits inside the marker block
+are preserved and clobber-protected by precedence rules.
+
 v2 TUI tests can pass while ink rendering is broken — see seed
 `tui-tests-bypass-the-render-path` and [`test-writing.md`](./test-writing.md).
 

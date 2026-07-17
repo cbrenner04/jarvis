@@ -66,6 +66,39 @@ describe("createCompletionPublisher", () => {
     expect(gitCalls.some((c) => c.includes("push -u origin feature-branch"))).toBe(true);
   });
 
+  it("threads a supplied narrative through refreshPrBody into the written PR body marker block", async () => {
+    let writtenBody = "";
+    const narrative = "Refactored the widget to simplify Z.\nVerify: all tests pass and the diff is clean.";
+    const publisher = createCompletionPublisher({
+      git: async (_cwd, args) => {
+        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+        return "";
+      },
+      gh: async (_cwd, args) => {
+        if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+        if (args[0] === "pr" && args[1] === "create") return "#42";
+        if (args[0] === "pr" && args[1] === "view") return viewPr(42, "https://github.com/user/repo/pull/42");
+        return "";
+      },
+      ghReady: readyGh,
+      delay: noopDelay,
+      fetchPrBody: async () => "", // no existing narrative in the fetched body
+      writePrBody: async (_branch: string, body: string) => {
+        writtenBody = body;
+      },
+      renderFooter: async () => "",
+    });
+
+    await publisher({ ...baseInput, narrative });
+
+    expect(writtenBody).toContain("<!-- jarvis:narrative:start -->");
+    expect(writtenBody).toContain("<!-- jarvis:narrative:end -->");
+    expect(writtenBody).toContain("Refactored the widget to simplify Z.");
+    // Distinct from the Spec: header — the narrative is a real block, not the header echoed back.
+    expect(writtenBody).toContain("Verify: all tests pass");
+  });
+
   it("uses the supplied title when creating a draft PR", async () => {
     let createArgs: readonly string[] | undefined;
     const publisher = createCompletionPublisher({

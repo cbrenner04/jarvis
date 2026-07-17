@@ -15,6 +15,7 @@ export type RefreshPrBodyInput = {
   base: string;
   cwd: string;
   bodySummary?: string;
+  narrative?: string;
   fetchPrBody?: FetchPrBody;
   writePrBody?: WritePrBody;
   renderFooter?: (opts: { cwd: string; base: string; git?: Git }) => Promise<string>;
@@ -91,7 +92,9 @@ export async function refreshPrBody(input: RefreshPrBodyInput): Promise<void> {
   const renderFooter = input.renderFooter ?? renderAttribution;
 
   const currentBody = await fetchPrBody(input.branch, input.cwd);
-  const narrative = extractNarrative(currentBody);
+  const extractedNarrative = extractNarrative(currentBody);
+  const trimmedSuppliedNarrative = input.narrative?.trim() ?? "";
+  const narrative = extractedNarrative ?? (trimmedSuppliedNarrative || null);
   const header = buildHeaderBlock(input.specPath, input.cwd, input.bodySummary);
   let headerAndNarrative = header;
   if (narrative !== null) {

@@ -13,6 +13,7 @@ export type CompletionPublisherInput = {
   creationTitle?: unknown;
   bodySummary?: string;
   specTemplate?: boolean;
+  narrative?: string;
 };
 
 export type CompletionPublisherResult = {
@@ -144,6 +145,7 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
           cwd: input.worktreePath,
           git,
           ...(bodySummary !== undefined ? { bodySummary } : {}),
+          ...(input.narrative !== undefined ? { narrative: input.narrative } : {}),
           ...(seams?.fetchPrBody !== undefined ? { fetchPrBody: seams.fetchPrBody } : {}),
           ...(seams?.writePrBody !== undefined ? { writePrBody: seams.writePrBody } : {}),
           ...(seams?.renderFooter !== undefined ? { renderFooter: seams.renderFooter } : {}),

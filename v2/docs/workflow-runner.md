@@ -633,6 +633,51 @@ Cycle semantics are defined in [`write-behavior.md`](./write-behavior.md#review-
 
 No new workflow-level budget, pause, or abort concept — each step inherits its own `maxIterations`, `signal` (abort), and `pauseSignal` (pause). Values are per-step-configurable; there is no single shared workflow-level cap.
 
+## PR body narrative markers
+
+v2 `refreshPrBody` manages a reserved narrative marker block in PR body text:
+`<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->`. The block
+carries machine-authored narrative text (e.g., generated intent summary, run
+context, or authored notes).
+
+### Narrative authoring in implement workflows
+
+The shrink pass (see above: [execution contract](#execution-contract)) authors a
+review-altitude narrative summarizing what changed, why, and how to verify,
+distinct from the spec header. The shrink agent writes the narrative to
+`.scratch/shrink-narrative.md` inside the worktree; the runner reads it after
+shrink completes and threads it into the publication input. The publication
+path passes the narrative to `refreshPrBody`, which renders it inside marker
+blocks in the PR body. Only implement workflows generate a narrative; plan and
+intent publication paths do not. If the narrative file is absent or unreadable,
+publication succeeds without one (graceful fallback — missing narrative does not
+fail the run).
+
+### Narrative preservation and re-publication
+
+When `refreshPrBody` is called with an optional `narrative` input:
+
+1. **Precedence:** An existing narrative extracted from the fetched PR body wins
+   over the supplied `narrative` — this preserves human edits and prior
+   machine-owned narrative on every re-publish, preventing supplied narrative
+   from clobbering manual updates.
+2. **Fallback:** The supplied `narrative` fills the marker block only when the
+   fetched body has no existing markers (preserves the common case of initial
+   introduction).
+3. **Marker emission:** Markers are emitted whenever narrative text (preserved or
+   supplied) exists; when neither extracted nor supplied narrative exists, no
+   marker block is emitted — keeps caller PRs that pass no narrative unchanged,
+   with no empty-marker churn.
+4. **Whitespace trimming:** Empty or whitespace-only supplied `narrative` is
+   treated as absent, falling through to no-marker behavior when no extracted
+   narrative exists.
+
+The round-trip contract: if a caller supplies `narrative` to `refreshPrBody`,
+`extractNarrative(writtenBody)` will later return either that narrative (when no
+prior extracted narrative existed) or the preserved prior narrative (when one did
+exist). This enables multi-step workflows to author once and carry the narrative
+forward across re-publications without clobbering operator edits.
+
 ## Publication landing
 
 Publication rows select one closed landing hook: `intent-stage`, `plan-tree`, or

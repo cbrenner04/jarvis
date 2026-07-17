@@ -112,9 +112,11 @@ Adapted from v1; v2 session close-out is the same obligation:
    PR.
 5. **Maintain this runbook** (branch → PR → merge). Operators add gotchas and remove
    entries when the structural fix ships.
-6. **End-of-session cleanup** — v2 has no `jarvis cleanup` yet (seed
-   `v2-reclaims-its-workspace`); use v1 cleanup where it applies and manual worktree
-   recovery for `~/.jarvis/worktrees/` (see [Recovery](#recovery)).
+6. **End-of-session cleanup** — `jarvis cleanup` retires **merged** v2 worktrees and their local
+   branches under `~/.jarvis/worktrees/` (`--dry-run` to preview, `[y/N]` to confirm). It does **not**
+   yet archive completed specs or abandon unmerged runs (ready-intents
+   `cleanup-archives-completed-v2-artifacts`, `cleanup-abandons-v2-workspaces`) — for unmerged/leaked
+   worktrees use manual recovery (see [Recovery](#recovery)).
 
 ## Runbook maintenance
 
@@ -230,8 +232,9 @@ v2 git-enabled workflows use `~/.jarvis/worktrees/<project>/<branch>/`, not
 `<repo>/.worktree/`. Intent branches: `intent/<slug>`. Plan branches: `plan/<name>`.
 Implement branch defaults to the spec directory basename.
 
-Leaked worktrees block reuse of branch names — manual `git worktree remove --force`
-until `v2-reclaims-its-workspace` ships.
+Merged worktrees are retired by `jarvis cleanup`. A leaked worktree from a **failed/unmerged** run
+still blocks reuse of its branch name — clear it with manual `git worktree remove --force` (cleanup
+only touches merged workspaces).
 
 ## Implementation on jarvis specs
 
@@ -302,7 +305,8 @@ git branch -D <branch>
 git worktree prune
 ```
 
-Seed: `v2-reclaims-its-workspace`. Cleanup: delete when it ships.
+This is the **unmerged/failed** case; `jarvis cleanup` only retires *merged* workspaces, so it will
+not clear this debris — hand-removal remains the path for a failed run's leaked worktree.
 
 ### Blocked run: inspect and resume
 
@@ -354,7 +358,7 @@ fatal: '<branch>' is already used by worktree at ...
 ```
 
 Remove the stale worktree under `~/.jarvis/worktrees/…` and delete the local
-branch if safe. Seed: `v2-reclaims-its-workspace`.
+branch if safe. (`jarvis cleanup` handles this automatically once the branch's PR is merged; hand-remove only for unmerged branches.)
 
 ### Publication / completion failures
 
@@ -505,12 +509,13 @@ Operators add bullets here; delete when fixed.
   `process.env` and then overwrites the key with `"full"`, so setting it locally does nothing. The
   full aggregate gate is ~85% of a v2 workflow's wall clock (~13 of ~15 min on a two-file markdown
   plan spec). Seed: `ready-gate-tier-is-not-configurable`. Cleanup: delete when it ships.
-- **`jarvis1 cleanup` cannot see v2 worktrees — confirmed live (2026-07-16):** it reported "no
-  merged worktrees to remove" with 26 abandoned worktrees under `~/.jarvis/worktrees/`. Reclaim them
-  by hand (`git worktree remove --force` + `git branch -D`) until the v2 cleanup command ships, and
-  note that a branch freshly created from `main` is also an ancestor of `main` — so
-  `merge-base --is-ancestor` alone will happily delete your in-flight work. Seed:
-  `v2-reclaims-its-workspace`. Cleanup: delete when it ships.
+- **`jarvis cleanup` now retires merged v2 worktrees (shipped 2026-07-17):** run it at session end
+  (`jarvis cleanup --dry-run` to preview, then `jarvis cleanup`, `[y/N]`) to retire merged worktrees
+  and their local branches under `~/.jarvis/worktrees/`. It is eligibility-gated (merged PR + no
+  non-terminal/live run) and fail-closed, so it will not touch unmerged or in-flight worktrees —
+  those still need hand-removal. `jarvis1 cleanup` remains blind to the v2 home; use `jarvis cleanup`.
+  Archive-completed-specs and `--abandon` are not built yet (ready-intents
+  `cleanup-archives-completed-v2-artifacts`, `cleanup-abandons-v2-workspaces`).
 
 - **Gate `main` before debugging a red branch (2026-07-16):** `bun run ready` runs the aggregate
   suite, which CI never runs (CI scopes by changed path). `main` was red on the operator machine
@@ -563,8 +568,6 @@ Operators add bullets here; delete when fixed.
   contract). Re-run the preset before believing the status.
 - **List polls heavy (2026-07-12):** TUI refresh drives `list`; terminal retention
   caps at 50 newest terminal rows. See `daemon-terminal-run-retention` spec.
-- **No v2 cleanup (2026-07-12):** worktrees and completed specs accumulate. Seed:
-  `v2-reclaims-its-workspace`. Cleanup: delete when shipped.
 - **Preset cartesian product (2026-07-12):** avoid new `*-reviewed` preset code
   paths; seed `workflow-composable-collapse`. Cleanup: delete when collapsed.
 

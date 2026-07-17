@@ -724,11 +724,12 @@ export async function runAbandonCommand(
     io.stderr(`Error: Cannot abandon: multiple open PRs match branch ${branch}\n`);
     return 1;
   }
-  if (openPrs.length === 1 && openPrs[0].state === "OPEN") {
+  const singlePr = openPrs.at(0);
+  if (singlePr && singlePr.state === "OPEN") {
     io.stderr(`Error: Cannot abandon: matching PR is ready (non-draft)\n`);
     return 1;
   }
-  const prNumber = openPrs[0]?.number;
+  const prNumber = singlePr?.number;
 
   // Check if worktree is held by a live run
   const liveCheck = await isWorktreeLiveHeld(project, branch, jarvisRoot, daemonClient);

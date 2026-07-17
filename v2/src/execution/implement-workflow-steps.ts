@@ -2,6 +2,7 @@ import { realpathSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { resolveActiveLinkedSubspec as realResolveActiveLinkedSubspec } from "../../../shared/linked-subspec-routing.ts";
 import { findProjectMatch, type ProjectMatch } from "../../../shared/project-registry.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
 import {
   readProjectImplementReviewBehavior,
@@ -55,6 +56,7 @@ export type BuildImplementWorkflowStepsDeps = {
     specPath: string,
     projectRoot: string,
   ) => ReturnType<typeof realResolveActiveLinkedSubspec>;
+  asyncSubprocessRunner?: AsyncSubprocessRunner;
 };
 
 export type BuildImplementWorkflowStepsResult = { ok: true; steps: AnyWorkflowStep[] } | { ok: false; error: string };
@@ -71,6 +73,20 @@ function resolveExistingImplementPath(label: string, path: string): string | { e
     return realpathSync(path);
   } catch {
     return { error: `${label} path does not exist: ${path}` };
+  }
+}
+
+async function isSpecAvailableInBaseRef(
+  projectRoot: string,
+  baseRef: string,
+  specPath: string,
+  runner: AsyncSubprocessRunner,
+): Promise<boolean> {
+  try {
+    await runner.runAsync("git", ["cat-file", "-e", `${baseRef}:${specPath}`], projectRoot, { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -101,10 +117,10 @@ function resolveImplementSpecAndProject(
   return { match, resolvedSpecPath };
 }
 
-function resolveImplementLaunch(
+async function resolveImplementLaunch(
   input: BuildImplementWorkflowStepsInput,
   deps: BuildImplementWorkflowStepsDeps,
-): BuildImplementWorkflowStepsInput | { error: string } {
+): Promise<BuildImplementWorkflowStepsInput | { error: string }> {
   if (input.projectRoot !== undefined) {
     return {
       ...input,
@@ -120,6 +136,7 @@ function resolveImplementLaunch(
   const resolvedSpec = resolveImplementSpecAndProject(input, deps);
   if ("error" in resolvedSpec) return resolvedSpec;
   const { match, resolvedSpecPath } = resolvedSpec;
+  const projectRelativeSpecPath = relative(match.root, resolvedSpecPath);
 
   const isIndexSpec = basename(resolvedSpecPath) === "index.md";
   const artifactPath = isIndexSpec ? resolvedSpecPath : input.artifactPath;
@@ -148,10 +165,21 @@ function resolveImplementLaunch(
         : readProjectImplementReviewBehavior(match.key, configPath);
   if (!reviewBehavior.ok) return { error: reviewBehavior.error };
 
+  if (
+    !(await isSpecAvailableInBaseRef(
+      match.root,
+      input.baseRef,
+      projectRelativeSpecPath,
+      deps.asyncSubprocessRunner ?? realAsyncSubprocessRunner,
+    ))
+  ) {
+    return { error: `Spec path unavailable in base ref ${input.baseRef}: ${projectRelativeSpecPath}` };
+  }
+
   return {
     ...input,
     branchName: input.branchName ?? basename(dirname(resolvedSpecPath)),
-    specPath: relative(match.root, resolvedSpecPath),
+    specPath: projectRelativeSpecPath,
     projectRoot: match.root,
     projectName: match.key,
     ...(isIndexSpec ? {} : { artifactPath: relative(match.root, resolvedArtifactPath) }),
@@ -263,15 +291,15 @@ function loadImplementWorkflowSteps(
 }
 
 /** Build the implement preset workflow for cwd + run args. */
-export function buildImplementWorkflowSteps(
+export async function buildImplementWorkflowSteps(
   input: BuildImplementWorkflowStepsInput,
   deps: BuildImplementWorkflowStepsDeps = {},
-): BuildImplementWorkflowStepsResult {
+): Promise<BuildImplementWorkflowStepsResult> {
   if (input.reviewPasses !== undefined) {
     const reviewPasses = resolveImplementReviewPasses(input.reviewPasses);
     if (typeof reviewPasses === "object") return { ok: false, error: reviewPasses.error };
   }
-  const resolvedInput = resolveImplementLaunch(input, deps);
+  const resolvedInput = await resolveImplementLaunch(input, deps);
   if ("error" in resolvedInput) return { ok: false, error: resolvedInput.error };
   const reviewPasses = resolveImplementReviewPasses(resolvedInput.reviewPasses ?? 0);
   if (typeof reviewPasses === "object") return { ok: false, error: reviewPasses.error };

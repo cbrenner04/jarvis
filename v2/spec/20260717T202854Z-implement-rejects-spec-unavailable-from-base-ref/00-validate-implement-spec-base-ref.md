@@ -26,8 +26,8 @@ An implement launch can resolve a spec from the operator's cwd even though the r
 
 ## Acceptance criteria
 
-- [ ] `jarvis run workflow implement --base <ref> --spec <path>` exits `1` when the cwd-visible spec is absent at its resolved project-relative path in `<ref>`; stderr names the path and base ref, and no daemon contact, worktree creation, or agent invocation occurs.
-- [ ] `v2/src/execution/implement-workflow-steps.test.ts` includes a real-git regression where a gitignored worktree-local spec exists on disk but not in the base ref; it fails against the pre-fix code and passes after the change.
-- [ ] A spec tracked at the resolved project-relative path in the requested base continues through implement workflow construction, including launch from a cwd below the registered project root.
-- [ ] `v2/src/cli.test.ts` verifies the unavailable-from-base error is surfaced before daemon contact.
-- [ ] `v2/docs/workflow-runner.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` describe the base-ref preflight behavior and no longer direct operators to avoid non-root cwd as a workaround.
+- [x] `jarvis run workflow implement --base <ref> --spec <path>` exits `1` when the cwd-visible spec is absent at its resolved project-relative path in `<ref>`; stderr names the path and base ref, and no daemon contact, worktree creation, or agent invocation occurs.
+- [x] `v2/src/execution/implement-workflow-steps.test.ts` includes a real-git regression where a gitignored worktree-local spec exists on disk but not in the base ref; it fails against the pre-fix code and passes after the change.
+- [x] A spec tracked at the resolved project-relative path in the requested base continues through implement workflow construction, including launch from a cwd below the registered project root.
+- [x] `v2/src/cli.test.ts` verifies the unavailable-from-base error is surfaced before daemon contact.
+- [x] `v2/docs/workflow-runner.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` describe the base-ref preflight behavior and no longer direct operators to avoid non-root cwd as a workaround.

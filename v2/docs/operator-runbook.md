@@ -197,10 +197,10 @@ jarvis run workflow plan --ready-intent v2/spec/ready-intents/my-intent.md
 jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md
 ```
 
-`--spec` for implement is resolved against the **registered project root** for
-both CLI preflight and the runner's first linked-index routing read when no
-external worktree exists yet (see seed
-`implement-preflight-validates-spec-in-missing-worktree`).
+`--spec` is resolved from the caller's cwd, then checked at its resolved
+project-relative path in `--base` before daemon contact. If it is unavailable,
+commit or select a base ref that contains the spec and retry; launching from a
+project subdirectory is supported.
 
 If that first routing index read fails, the daemon returns `routing_read_failed`.
 The operator message names the resolved index path and the underlying read

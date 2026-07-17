@@ -1,5 +1,5 @@
 import { execFileSync, execSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { type Dirent, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { parseSpec } from "../../../shared/spec-parser.ts";
 import { type CiCheckState, classifyCiChecks, fetchCommitChecksForSha } from "../ci-checks.ts";
@@ -116,7 +116,8 @@ export function triageCommand(opts: TriageCommandOptions): number | Promise<numb
   // No-arg form: list all worktrees with summary
   const ghRunner = opts.ghRunner || createDefaultGhRunner();
   const project = findProjectMatchForPath(opts.projectRoot, opts.config);
-  const jarvisWorktreeDir = project === undefined ? undefined : join(opts.config?.dir ?? CONFIG_DIR, "worktrees", project.key);
+  const jarvisWorktreeDir =
+    project === undefined ? undefined : join(opts.config?.dir ?? CONFIG_DIR, "worktrees", project.key);
   return triageListWorktrees(worktreeDir, jarvisWorktreeDir, opts.io, ghRunner);
 }
 
@@ -138,7 +139,7 @@ type ListedWorktree = { home: "v1" | "v2"; name: string; path: string };
 function listWorktrees(home: string, label: "v1" | "v2"): ListedWorktree[] {
   const worktrees: ListedWorktree[] = [];
   const visit = (dir: string): void => {
-    let entries;
+    let entries: Dirent[];
     try {
       entries = readdirSync(dir, { withFileTypes: true });
     } catch {

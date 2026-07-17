@@ -188,7 +188,7 @@ function writeIndexSpec(homeRel: string, name: string, body = completeIndexBody)
   writeFileSync(join(specDir, "index.md"), body);
 }
 
-function jarvisConfigOpts(planTargetDir: string): { config: ConfigOptions } {
+function jarvisConfigOpts(planTargetDir: string): { config: ConfigOptions; configDir: string } {
   const configDir = join(root, "jarvis-config");
   mkdirSync(configDir, { recursive: true });
   writeFileSync(
@@ -204,7 +204,7 @@ function jarvisConfigOpts(planTargetDir: string): { config: ConfigOptions } {
       projects: { project: { root: projectRoot } },
     }),
   );
-  return { config: { dir: configDir } };
+  return { config: { dir: configDir }, configDir };
 }
 
 function setupMergeWorktree(worktreeName: string): { worktreePath: string; specPath: string } {
@@ -404,8 +404,8 @@ describe("triage command", () => {
   test("lists registered v1 and v2 worktree homes", async () => {
     const v1Name = "same-name";
     setupWorktree(join(worktreeDir, v1Name));
-    const { config } = jarvisConfigOpts("v1/spec");
-    const v2Home = join(config.dir!, "worktrees", "project");
+    const { config, configDir } = jarvisConfigOpts("v1/spec");
+    const v2Home = join(configDir, "worktrees", "project");
     setupWorktree(join(v2Home, v1Name));
     setupWorktree(join(v2Home, "plan", "nested-name"));
 
@@ -427,8 +427,8 @@ describe("triage command", () => {
   });
 
   test("lists a registered v2 home when the v1 home is empty", async () => {
-    const { config } = jarvisConfigOpts("v1/spec");
-    setupWorktree(join(config.dir!, "worktrees", "project", "v2-only"));
+    const { config, configDir } = jarvisConfigOpts("v1/spec");
+    setupWorktree(join(configDir, "worktrees", "project", "v2-only"));
 
     const { io, out } = captureIo();
     const code = await triageCommand({ projectRoot, io, config, ghRunner: { getPrState: () => null } });

@@ -112,11 +112,9 @@ Adapted from v1; v2 session close-out is the same obligation:
    PR.
 5. **Maintain this runbook** (branch → PR → merge). Operators add gotchas and remove
    entries when the structural fix ships.
-6. **End-of-session cleanup** — `jarvis cleanup` retires **merged** v2 worktrees and their local
-   branches under `~/.jarvis/worktrees/` (`--dry-run` to preview, `[y/N]` to confirm). It does **not**
-   yet archive completed specs or abandon unmerged runs (ready-intents
-   `cleanup-archives-completed-v2-artifacts`, `cleanup-abandons-v2-workspaces`) — for unmerged/leaked
-   worktrees use manual recovery (see [Recovery](#recovery)).
+6. **End-of-session cleanup** — `jarvis cleanup` retires merged v2 worktrees and scans each registered
+   `v2/spec/` home for completed stranded specs (`--dry-run` to preview, `[y/N]` to confirm). It retains
+   unmerged/leaked worktrees for manual recovery (see [Recovery](#recovery)).
 
 ## Runbook maintenance
 
@@ -390,6 +388,21 @@ finalizes. Check for `bun run ready` or `git` children on the daemon PID.
 `jarvis cleanup` retires merged v2 worktrees discovered under `~/.jarvis/worktrees/<project>/`.
 The eligibility gate decides whether a worktree is safe to remove.
 
+After Git retires a workspace, cleanup resolves its recorded spec path back to the
+configured v2 spec home and then archives a complete artifact to `completed/`.
+It prunes `ready-intents/<spec-name>.md` only when it byte-matches `intent.md`.
+`--dry-run` lists the worktree, archive destination, and that proven prune without
+changing worktrees, branches, specs, intents, or run rows. A failed retirement does
+not inspect or move its artifact. If archival is refused (incomplete criteria, an
+open matching PR, or another materialized owner), retirement remains successful and
+stdout names the artifact and refusal; resolve that condition, then rerun cleanup.
+
+Cleanup also scans immediate open directories in every registered `v2/spec/` home, even
+when no workspace is retired. It ignores `completed/`, `seeds/`, and `ready-intents/`.
+The same completeness, open-PR, ownership, intent-proof, and move/rollback checks apply;
+stdout (including `--dry-run`) names candidates and refusals for unchecked criteria, open
+matching PRs, and materialized owners. It never changes durable run rows.
+
 A worktree is eligible iff:
 
 - **PR merged**: `gh pr view <branch> --json state,mergedAt` reports `state: "MERGED"` and
@@ -514,13 +527,11 @@ Operators add bullets here; delete when fixed.
   `process.env` and then overwrites the key with `"full"`, so setting it locally does nothing. The
   full aggregate gate is ~85% of a v2 workflow's wall clock (~13 of ~15 min on a two-file markdown
   plan spec). Seed: `ready-gate-tier-is-not-configurable`. Cleanup: delete when it ships.
-- **`jarvis cleanup` now retires merged v2 worktrees (shipped 2026-07-17):** run it at session end
-  (`jarvis cleanup --dry-run` to preview, then `jarvis cleanup`, `[y/N]`) to retire merged worktrees
-  and their local branches under `~/.jarvis/worktrees/`. It is eligibility-gated (merged PR + no
-  non-terminal/live run) and fail-closed, so it will not touch unmerged or in-flight worktrees —
-  those still need hand-removal. `jarvis1 cleanup` remains blind to the v2 home; use `jarvis cleanup`.
-  Archive-completed-specs and `--abandon` are not built yet (ready-intents
-  `cleanup-archives-completed-v2-artifacts`, `cleanup-abandons-v2-workspaces`).
+- **`jarvis cleanup` archives completed v2 specs (shipped 2026-07-17):** run it at session end
+  (`jarvis cleanup --dry-run` to preview, then `jarvis cleanup`, `[y/N]`) to retire merged worktrees,
+  delete their local branches, and archive eligible open-home specs under `v2/spec/completed/`.
+  Unmerged/leaked worktrees still need hand-removal. `jarvis1 cleanup` remains blind to the v2 home;
+  use `jarvis cleanup`. `--abandon` is not built yet.
 
 - **Gate `main` before debugging a red branch (2026-07-16):** `bun run ready` runs the aggregate
   suite, which CI never runs (CI scopes by changed path). `main` was red on the operator machine

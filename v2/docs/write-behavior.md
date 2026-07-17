@@ -1,5 +1,23 @@
 # Write behavior
 
+## Completed-spec archival
+
+Cleanup may archive a v2 spec only when every linked subspec (or the sole spec
+file) has at least one non-human-only acceptance criterion and all such criteria
+are checked. Index routing checkboxes and durable run status are not evidence of
+completeness. Cleanup fails closed when matching open-PR or materialized-worktree
+ownership inspection fails, or finds an open PR or another owner.
+
+The operation renames the entire source tree into the same spec home's
+`completed/` directory. It removes `ready-intents/<name>.md` only when its bytes
+match archived `intent.md`; a different queued intent remains. A prune failure
+rolls the archive rename back. Cleanup never mutates durable run rows.
+
+For `jarvis cleanup`, workspace retirement precedes this operation. Cleanup derives
+the timestamped artifact identity from the retired run's recorded spec path, previews
+the retirement, archive destination, and proven intent prune under `--dry-run`, and
+prints a specific skip reason if the artifact stays at the root after retirement.
+
 `jarvis write` runs a resumable write loop: repeatedly calls `executeWrite` until
 work is done, blocked, or the budget runs out. See [`state-store.md`](./state-store.md)
 for durable run state and resume mechanics.

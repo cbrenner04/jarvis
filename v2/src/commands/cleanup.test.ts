@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
@@ -17,6 +17,29 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
   let tempRoot: string;
   let projectRoot: string;
   let jarvisRoot: string;
+
+  function createSpec(name: string, criterion: string, intent?: string): { source: string; readyIntent?: string } {
+    const source = join(projectRoot, "v2", "spec", name);
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "index.md"), `# Plan\n\n## Acceptance criteria\n\n- ${criterion}\n`);
+    if (intent === undefined) return { source };
+
+    writeFileSync(join(source, "intent.md"), intent);
+    const readyIntent = join(projectRoot, "v2", "spec", "ready-intents", `${name}.md`);
+    mkdirSync(dirname(readyIntent), { recursive: true });
+    writeFileSync(readyIntent, intent);
+    return { source, readyIntent };
+  }
+
+  async function materializeWorktree(branch: string, message: string): Promise<string> {
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", message], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    const worktreePath = join(jarvisRoot, "worktrees", "project", branch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+    return worktreePath;
+  }
 
   beforeEach(async () => {
     tempRoot = join(process.env.TMPDIR || "/tmp", `jarvis-cleanup-e2e-${Date.now()}-${Math.random()}`);
@@ -127,6 +150,220 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     // Verify worktree is gone
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("retires before archiving a complete durable spec and prunes only its consumed intent", async () => {
+    const branch = "plan/archive-me";
+    const specName = "20260717T000000Z-archive-me";
+    const intent = "---\nname: archive-me\n---\n";
+    const { source } = createSpec(specName, "[x] Done", intent);
+    const worktreePath = await materializeWorktree(branch, "spec");
+    const run = {
+      status: "completed",
+      specPath: join(worktreePath, "v2", "spec", specName, "index.md"),
+    };
+    const store: StateStore = { findRunByProjectBranch: () => run } as unknown as StateStore;
+    const order: string[] = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[1] === "view")
+          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+        if (cmd === "gh" && args[1] === "list") {
+          order.push("inspect archive");
+          return "[]";
+        }
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") order.push("retire");
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        mockRunner,
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(order).toEqual(["retire", "inspect archive"]);
+    expect(existsSync(source)).toBe(false);
+    expect(existsSync(join(projectRoot, "v2", "spec", "completed", specName))).toBe(true);
+    expect(existsSync(join(projectRoot, "v2", "spec", "ready-intents", `${specName}.md`))).toBe(false);
+    expect(stdout).toContain("pruned consumed ready-intent");
+  });
+
+  test("preserves artifacts when retirement fails and reports post-retirement archive refusals", async () => {
+    const branch = "plan/refuse-archive";
+    const specName = "20260717T000001Z-refuse-archive";
+    const { source, readyIntent } = createSpec(specName, "[ ] Incomplete", "intent\n");
+    const worktreePath = await materializeWorktree(branch, "incomplete spec");
+    const store: StateStore = {
+      findRunByProjectBranch: () => ({
+        status: "completed",
+        specPath: join(worktreePath, "v2", "spec", specName, "index.md"),
+      }),
+    } as unknown as StateStore;
+    let failRemoval = true;
+    let stdout = "";
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[1] === "view")
+          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove" && failRemoval)
+          throw new Error("remove failed");
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        mockRunner,
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(1);
+    expect(existsSync(source)).toBe(true);
+    if (readyIntent === undefined) throw new Error("expected ready intent");
+    expect(readFileSync(readyIntent, "utf8")).toBe("intent\n");
+
+    failRemoval = false;
+    stdout = "";
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        mockRunner,
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(existsSync(source)).toBe(true);
+    expect(stdout).toContain("unchecked acceptance criterion");
+  });
+
+  test("dry-run previews archive and proven intent pruning without changes", async () => {
+    const branch = "plan/preview-archive";
+    const specName = "20260717T000002Z-preview-archive";
+    const { source, readyIntent } = createSpec(specName, "[x] Done", "intent\n");
+    if (readyIntent === undefined) throw new Error("expected ready intent");
+    const worktreePath = await materializeWorktree(branch, "preview spec");
+    const store: StateStore = {
+      findRunByProjectBranch: () => ({
+        status: "completed",
+        specPath: join(worktreePath, "v2", "spec", specName, "index.md"),
+      }),
+    } as unknown as StateStore;
+    let stdout = "";
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) =>
+        cmd === "gh" && args[1] === "view"
+          ? JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" })
+          : realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot),
+    };
+
+    expect(
+      await runCleanupCommand(
+        { dryRun: true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        mockRunner,
+        async () => [],
+        store,
+        { stdout: (s) => (stdout += s), stderr: () => {} },
+      ),
+    ).toBe(0);
+    expect(stdout).toContain(`archive: ${source} -> ${join(projectRoot, "v2", "spec", "completed", specName)}`);
+    expect(stdout).toContain("prune consumed ready-intent");
+    expect(existsSync(worktreePath)).toBe(true);
+    expect(existsSync(source)).toBe(true);
+    expect(existsSync(readyIntent)).toBe(true);
+  });
+
+  test("archives eligible stranded specs without retiring a worktree and retains refused siblings", async () => {
+    const home = join(projectRoot, "v2", "spec");
+    const complete = "20260717T000003Z-stranded-complete";
+    const incomplete = "20260717T000004Z-stranded-incomplete";
+    const open = "20260717T000005Z-stranded-open";
+    const owned = "20260717T000006Z-stranded-owned";
+    mkdirSync(join(home, owned), { recursive: true });
+    writeFileSync(join(home, owned, "index.md"), "# Plan\n\n## Acceptance criteria\n\n- [x] Done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "owned stranded spec"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", "owned-worktree"], projectRoot);
+    const ownedWorktree = join(jarvisRoot, "worktrees", "project", "owned-worktree");
+    mkdirSync(join(jarvisRoot, "worktrees", "project"), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", ownedWorktree, "owned-worktree"], projectRoot);
+    for (const [name, criterion] of [
+      [complete, "[x] Done"],
+      [incomplete, "[ ] Incomplete"],
+      [open, "[x] Done"],
+    ] as const) {
+      mkdirSync(join(home, name), { recursive: true });
+      writeFileSync(join(home, name, "index.md"), `# Plan\n\n## Acceptance criteria\n\n- ${criterion}\n`);
+    }
+    mkdirSync(join(home, "completed", "ignored"), { recursive: true });
+    mkdirSync(join(home, "seeds", "ignored"), { recursive: true });
+    mkdirSync(join(home, "ready-intents", "ignored"), { recursive: true });
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[1] === "view") return JSON.stringify({ state: "CLOSED", mergedAt: null });
+        if (cmd === "gh" && args[1] === "list") return args[3] === open ? '[{"number":1}]' : "[]";
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+    const store: StateStore = { findRunByProjectBranch: () => null } as unknown as StateStore;
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    expect(
+      await runCleanupCommand(
+        { dryRun: true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        mockRunner,
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(stdout).toContain(`archive: ${join(home, complete)}`);
+    expect(stdout).toContain("unchecked acceptance criterion");
+    expect(stdout).toContain(`matching open PR exists for ${open}`);
+    expect(stdout).toContain("another materialized worktree owns this spec");
+    expect(existsSync(join(home, complete))).toBe(true);
+
+    stdout = "";
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        mockRunner,
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(existsSync(join(home, complete))).toBe(false);
+    expect(existsSync(join(home, "completed", complete))).toBe(true);
+    expect(existsSync(join(home, incomplete))).toBe(true);
+    expect(existsSync(join(home, open))).toBe(true);
+    expect(existsSync(join(home, owned))).toBe(true);
+    expect(existsSync(join(home, "completed", "ignored"))).toBe(true);
+    expect(existsSync(join(home, "seeds", "ignored"))).toBe(true);
+    expect(existsSync(join(home, "ready-intents", "ignored"))).toBe(true);
   });
 
   test("runCleanupCommand rechecks eligibility after confirmation and spares a worktree that went live in the race window", async () => {
@@ -307,11 +544,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       },
     };
 
-    const code = await performWorktreeRemovals(
-      [{ worktree: candidate, project: "project", eligibility: { status: "eligible" } }],
-      brokenRunner,
-      io,
-    );
+    const code = await performWorktreeRemovals([{ worktree: candidate, project: "project" }], brokenRunner, io);
 
     expect(code).toBe(1);
     expect(stderr).toContain("Failed to retire");

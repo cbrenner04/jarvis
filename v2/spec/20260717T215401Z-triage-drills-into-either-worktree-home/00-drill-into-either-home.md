@@ -32,18 +32,18 @@ whichever home it lives in.
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 triage <name>` renders the existing diagnostic sections for a
+- [x] `jarvis1 triage <name>` renders the existing diagnostic sections for a
   worktree that exists only in the registered project's Jarvis-owned v2 home.
-- [ ] A `<name>` present in both the v1 home and the v2 home is refused, and the
+- [x] A `<name>` present in both the v1 home and the v2 home is refused, and the
   error names both matching paths instead of drilling into one.
-- [ ] A `<name>` present in neither home still fails with the existing
+- [x] A `<name>` present in neither home still fails with the existing
   `unknown worktree` error.
-- [ ] A test drives drill-down into a v2-home-only worktree (asserting the
+- [x] A test drives drill-down into a v2-home-only worktree (asserting the
   diagnostic section output) and a test asserts cross-home ambiguity refusal;
   both fail against the pre-fix v1-home-only drill-down and pass after the
   change.
-- [ ] `v1/docs/operator-runbook.md` records that drill-down resolves both homes
+- [x] `v1/docs/operator-runbook.md` records that drill-down resolves both homes
   and refuses cross-home ambiguity.
-- [ ] `v2/docs/v1-behaviors.md` records named drill-down resolution across both
+- [x] `v2/docs/v1-behaviors.md` records named drill-down resolution across both
   homes and its ambiguity refusal, superseding the stale "drill-down remains
   v1-home-only" note.

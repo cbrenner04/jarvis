@@ -596,6 +596,74 @@ describe("triage command", () => {
     const output = out();
     expect(output).toContain("Last commit");
   });
+
+  test("drill-down into v2-home-only worktree", async () => {
+    const { config, configDir } = jarvisConfigOpts("v1/spec");
+    const v2Home = join(configDir, "worktrees", "project");
+    const worktreeName = "v2-only-tree";
+    const v2WorktreePath = join(v2Home, worktreeName);
+    setupWorktree(v2WorktreePath);
+
+    const { io, out } = captureIo();
+    const code = await triageCommand({
+      projectRoot,
+      io,
+      config,
+      worktreeName,
+    });
+
+    expect(code).toBe(0);
+    const output = out();
+    expect(output).toContain("Identity");
+    expect(output).toContain("Git");
+    expect(output).toContain("Spec");
+    expect(output).toContain("PR");
+    expect(output).toContain("Session log");
+    expect(output).toContain("Suggested next moves");
+    expect(output).toContain(v2WorktreePath);
+  });
+
+  test("drill-down refuses ambiguous cross-home name match", async () => {
+    const { config, configDir } = jarvisConfigOpts("v1/spec");
+    const v2Home = join(configDir, "worktrees", "project");
+    const worktreeName = "same-name";
+
+    const v1Path = join(worktreeDir, worktreeName);
+    setupWorktree(v1Path);
+
+    const v2Path = join(v2Home, worktreeName);
+    setupWorktree(v2Path);
+
+    const { io, err } = captureIo();
+    const code = await triageCommand({
+      projectRoot,
+      io,
+      config,
+      worktreeName,
+    });
+
+    expect(code).toBe(1);
+    const errMsg = err();
+    expect(errMsg).toContain("ambiguous worktree name");
+    expect(errMsg).toContain("both homes");
+    expect(errMsg).toContain(v1Path);
+    expect(errMsg).toContain(v2Path);
+  });
+
+  test("drill-down still reports unknown worktree when not found in either home", async () => {
+    const { config } = jarvisConfigOpts("v1/spec");
+
+    const { io, err } = captureIo();
+    const code = await triageCommand({
+      projectRoot,
+      io,
+      config,
+      worktreeName: "nonexistent-tree",
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toContain("unknown worktree: nonexistent-tree");
+  });
 });
 
 describe("suggested moves rules", () => {

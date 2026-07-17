@@ -619,3 +619,7 @@ resolution and the spec path. Explicit intent titles remain authoritative.
   successful landing removes transient staging. `none` preserves non-publication
   workflows. Sources: `v2/src/execution/publication-landing.ts`,
   `v2/src/execution/workflow-runner.ts`.
+
+## v2 Parity: Completion commit subject and idempotency
+
+- **v2 behavior change:** v2 completion commits derive their subject from the resolved spec title (the spec `index.md` H1 heading when readable and non-empty, falling back to the spec directory basename), rather than using the fixed literal `jarvis: complete run`. The `Spec: <specPath>` and `Jarvis-Agent: <agent>` trailers are preserved in the message body. Idempotency — recognizing a prior completion commit when the tree is unchanged — switches from matching the fixed subject to checking for the presence of a `Jarvis-Agent:` trailer in the HEAD message. This enables `git log --oneline` to show a human-readable subject per-run while preserving the idempotency contract through the trailer. Sources: `v2/src/execution/completion-commit.ts`, `v2/docs/write-behavior.md`.

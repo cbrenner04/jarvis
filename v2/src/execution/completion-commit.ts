@@ -3,6 +3,7 @@ import { existsSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
+import { resolvePublicationTitle } from "./spec-creation-title.ts";
 
 export type CompletionCommitInput = { worktreePath: string; baseRef: string; specPath: string; agent: string };
 export type CompletionCommitResult = { commitSha?: string; filesChanged?: number };
@@ -57,18 +58,19 @@ export function createCompletionCommitter(runGit: Git = git): CompletionCommitte
           // HEAD may already be a completion commit whose publish previously failed;
           // report its sha so the caller retries publication instead of no-op'ing.
           const headMessage = await runGit(input.worktreePath, ["log", "-1", "--format=%B", head]);
-          return headMessage.startsWith("jarvis: complete run")
+          return headMessage.includes("Jarvis-Agent:")
             ? {
                 commitSha: head,
                 filesChanged: await countFilesChanged(runGit, input.worktreePath, `${head}^^{tree}`, `${head}^{tree}`),
               }
             : {};
         }
+        const subject = resolvePublicationTitle(input.worktreePath, input.specPath);
         pending = {
           baseHead: head,
           tree,
           branchRef: await runGit(input.worktreePath, ["symbolic-ref", "HEAD"]),
-          message: `jarvis: complete run\n\nSpec: ${normalizePublicationSpecPath(input.worktreePath, input.specPath)}\n\nJarvis-Agent: ${agent}`,
+          message: `${subject}\n\nSpec: ${normalizePublicationSpecPath(input.worktreePath, input.specPath)}\n\nJarvis-Agent: ${agent}`,
           agent,
           timestamp: new Date().toISOString(),
         };

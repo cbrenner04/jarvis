@@ -11,14 +11,17 @@ then PR body refresh. Ready finalization is a separate retryable boundary after
 publication succeeds: ready gate, then draft→ready flip.
 
 **Commit phase:** captures an isolated `git add -A` snapshot, creates one
-`jarvis: complete run` commit with `Spec: <specPath>` and the final successful
-binding's `Jarvis-Agent` trailer, then updates the branch by compare-and-swap.
-Hooks are bypassed. A clean snapshot with a HEAD that predates this completion
-(no `jarvis: complete run` commit) is a true no-op and returns no `commitSha`.
-A clean snapshot whose HEAD *is* the completion commit — i.e. the commit landed
-on a prior attempt but publication never confirmed success — reports that
-existing `commitSha` again rather than no-op'ing, so resume re-attempts
-publication instead of masking a failed publish as success.
+completion commit with the resolved spec title as subject, `Spec: <specPath>`,
+and the final successful binding's `Jarvis-Agent` trailer, then updates the
+branch by compare-and-swap. Hooks are bypassed. A clean snapshot with a HEAD
+that predates this completion (no `Jarvis-Agent:` trailer) is a true no-op and
+returns no `commitSha`. A clean snapshot whose HEAD *is* the completion commit
+— i.e. the commit landed on a prior attempt but publication never confirmed
+success — reports that existing `commitSha` again rather than no-op'ing, so
+resume re-attempts publication instead of masking a failed publish as success.
+The spec title is resolved identically to the PR title: from the spec
+`index.md` H1 heading (when readable and non-empty), falling back to the spec
+directory basename.
 
 When the committer returns no `commitSha` (a true no-op), the completion boundary
 checks the worktree for uncommitted changes (`git status --porcelain`). If dirty, the

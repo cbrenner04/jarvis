@@ -271,26 +271,14 @@ describe("refreshPrBody", () => {
     expect(writtenBody).toContain(NARRATIVE_END_MARKER);
     expect(extractNarrative(writtenBody)).toBe(suppliedNarrative);
     expect(writtenBody).toBe(
-      [
-        "Spec: v2/spec/test/index.md",
-        "",
-        NARRATIVE_START_MARKER,
-        suppliedNarrative,
-        NARRATIVE_END_MARKER,
-      ].join("\n"),
+      ["Spec: v2/spec/test/index.md", "", NARRATIVE_START_MARKER, suppliedNarrative, NARRATIVE_END_MARKER].join("\n"),
     );
   });
 
   test("preserves extracted narrative even when a different narrative is supplied", async () => {
     const existingNarrative = "Human edited narrative";
     const suppliedNarrative = "Ignored supplied narrative";
-    const currentBody = [
-      "Spec: old",
-      "",
-      NARRATIVE_START_MARKER,
-      existingNarrative,
-      NARRATIVE_END_MARKER,
-    ].join("\n");
+    const currentBody = ["Spec: old", "", NARRATIVE_START_MARKER, existingNarrative, NARRATIVE_END_MARKER].join("\n");
 
     let writtenBody = "";
     await refreshPrBody({

@@ -1,7 +1,8 @@
-import { realpathSync } from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { readFileSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { resolveActiveLinkedSubspec as realResolveActiveLinkedSubspec } from "../../../shared/linked-subspec-routing.ts";
 import { findProjectMatch, type ProjectMatch } from "../../../shared/project-registry.ts";
+import { parseSpec } from "../../../shared/spec-parser.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
 import {
@@ -56,6 +57,7 @@ export type BuildImplementWorkflowStepsDeps = {
     specPath: string,
     projectRoot: string,
   ) => ReturnType<typeof realResolveActiveLinkedSubspec>;
+  readSpecFile?: (path: string) => string;
   asyncSubprocessRunner?: AsyncSubprocessRunner;
 };
 
@@ -232,6 +234,42 @@ function validateLinkedIndexRouting(
   return { error: `implement.${routingResult.errorKind}: ${routingResult.error}` };
 }
 
+function specHasUncheckedAutomatedCriterion(content: string): boolean {
+  return parseSpec(content).acceptanceCriteria.some((criterion) => !criterion.humanOnly && !criterion.checked);
+}
+
+const ALREADY_COMPLETE_ERROR =
+  "implement.already_complete: requested spec has no unchecked non-human-only acceptance criteria";
+
+function validateSpecTreeCompletion(
+  absoluteSpecPath: string,
+  projectRoot: string,
+  readSpecFile: (path: string) => string,
+): string | undefined {
+  let specContent: string;
+  try {
+    specContent = readSpecFile(absoluteSpecPath);
+  } catch (err) {
+    return `implement.link_unreadable: ${err instanceof Error ? err.message : String(err)}`;
+  }
+  const linkedSubspecs = parseSpec(specContent).linkedSubspecs;
+  if (basename(absoluteSpecPath) !== "index.md" || linkedSubspecs.length === 0) {
+    return specHasUncheckedAutomatedCriterion(specContent) ? undefined : ALREADY_COMPLETE_ERROR;
+  }
+  for (const subspec of linkedSubspecs) {
+    const subspecPath = isAbsolute(subspec.path) ? subspec.path : resolve(dirname(absoluteSpecPath), subspec.path);
+    if (relative(projectRoot, subspecPath).startsWith("..")) {
+      return `implement.link_out_of_tree: Linked path is outside project: ${subspec.path}`;
+    }
+    try {
+      if (specHasUncheckedAutomatedCriterion(readSpecFile(subspecPath))) return undefined;
+    } catch (err) {
+      return `implement.link_unreadable: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+  return ALREADY_COMPLETE_ERROR;
+}
+
 function stampImplementReviewBehavior(
   steps: readonly AnyWorkflowStep[],
   reviewBehavior: ImplementReviewBehavior,
@@ -314,6 +352,15 @@ export async function buildImplementWorkflowSteps(
 
   const absoluteSpecPath = resolve(match.root, resolvedInput.specPath);
   const isIndexSpec = basename(absoluteSpecPath) === "index.md";
+
+  if (deps.resolveActiveLinkedSubspec === undefined || deps.readSpecFile !== undefined) {
+    const completionError = validateSpecTreeCompletion(
+      absoluteSpecPath,
+      match.root,
+      deps.readSpecFile ?? ((path) => readFileSync(path, "utf8")),
+    );
+    if (completionError !== undefined) return { ok: false, error: completionError };
+  }
 
   const expectedArtifactPath = resolveImplementExpectedArtifactPath(
     isIndexSpec,

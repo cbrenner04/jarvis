@@ -28,11 +28,11 @@ Prevent an implement launch from creating a no-op workflow when its requested sp
 
 ## Acceptance criteria
 
-- [ ] `jarvis run workflow implement` exits `1` with an explicit already-complete message when every non-human-only acceptance criterion in the requested single-file spec or every linked subspec is checked.
-- [ ] The already-complete rejection occurs before daemon contact, worktree creation, agent invocation, or run-row creation.
-- [ ] Linked-index checkbox state does not determine launch completion: checked links with an unchecked non-human-only subspec criterion still launch, while unchecked links whose subspec criteria are complete are rejected.
-- [ ] An incomplete requested spec still launches even when a prior run row for the same workflow is `completed`.
-- [ ] Unchecked human-only criteria alone do not make an otherwise complete spec runnable.
-- [ ] `v2/src/execution/implement-workflow-steps.test.ts` covers complete and incomplete single-file and linked spec trees, including contradictory index checkbox state; the complete-tree cases fail against the pre-fix code and pass after the change.
-- [ ] `v2/src/cli.test.ts` verifies the already-complete diagnostic and exit `1` occur without daemon contact.
-- [ ] `v2/docs/workflow-runner.md`, `v2/docs/operator-runbook.md`, `v2/docs/first-workflow-walkthrough.md`, and `v2/docs/v1-behaviors.md` describe the shipped preflight semantics without retaining the prior already-complete no-op behavior.
+- [x] `jarvis run workflow implement` exits `1` with an explicit already-complete message when every non-human-only acceptance criterion in the requested single-file spec or every linked subspec is checked.
+- [x] The already-complete rejection occurs before daemon contact, worktree creation, agent invocation, or run-row creation.
+- [x] Linked-index checkbox state does not determine launch completion: checked links with an unchecked non-human-only subspec criterion still launch, while unchecked links whose subspec criteria are complete are rejected.
+- [x] An incomplete requested spec still launches even when a prior run row for the same workflow is `completed`.
+- [x] Unchecked human-only criteria alone do not make an otherwise complete spec runnable.
+- [x] `v2/src/execution/implement-workflow-steps.test.ts` covers complete and incomplete single-file and linked spec trees, including contradictory index checkbox state; the complete-tree cases fail against the pre-fix code and pass after the change.
+- [x] `v2/src/cli.test.ts` verifies the already-complete diagnostic and exit `1` occur without daemon contact.
+- [x] `v2/docs/workflow-runner.md`, `v2/docs/operator-runbook.md`, `v2/docs/first-workflow-walkthrough.md`, and `v2/docs/v1-behaviors.md` describe the shipped preflight semantics without retaining the prior already-complete no-op behavior.

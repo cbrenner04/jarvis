@@ -1760,6 +1760,27 @@ describe("v2 cli", () => {
     expect(cap.read().stderr).toContain("Spec path outside registered project roots");
   });
 
+  test("run workflow implement reports an already-complete spec without daemon contact", async () => {
+    const cap = captureIo();
+    const code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
+      cwd: () => testRepoSub,
+      workflowPresetBuilders: {
+        implement: () => ({
+          ok: false,
+          error: "implement.already_complete: requested spec has no unchecked non-human-only acceptance criteria",
+        }),
+      },
+      connectIpcClient: async () => {
+        throw new Error("should not contact daemon");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toBe(
+      "implement.already_complete: requested spec has no unchecked non-human-only acceptance criteria\n",
+    );
+  });
+
   test("run workflow intent builds seed text before one daemon start", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];

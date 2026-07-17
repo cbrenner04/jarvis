@@ -430,6 +430,11 @@ pass counts (`1x`, `-1`, `1.5`, and similar), unknown `--review-behavior` values
 and invalid project `implement.reviewPasses` or `implement.reviewBehavior` values
 also fail before daemon contact.
 
+An already-complete spec tree does not start a workflow: the command exits `1`
+with `implement.already_complete`, prints no run ID, and creates neither a
+worktree nor a run row. Complete the next unchecked non-human-only criterion or
+choose an incomplete spec before retrying.
+
 The CLI sends one IPC `start` request and prints the run ID on stdout:
 
 ```

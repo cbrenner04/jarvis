@@ -271,7 +271,7 @@ describe("buildImplementWorkflowSteps", () => {
     expect(result.error).toContain("non-negative integer");
   });
 
-  test("allows already-complete index routing at build time when review is enabled", async () => {
+  test("rejects an already-complete linked tree at build time", async () => {
     const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
     const machineProfile = writeValidProfile();
     const match: ProjectMatch = { key: "proj", root: "/tmp/proj" };
@@ -287,12 +287,55 @@ describe("buildImplementWorkflowSteps", () => {
           error: "All linked subspecs are complete",
           errorKind: "already_complete",
         }),
+        readSpecFile: (path) =>
+          path.endsWith("index.md")
+            ? "- [ ] [One](./one.md)\n- [x] [Two](./two.md)\n"
+            : "## Acceptance criteria\n\n- [x] Done\n- [ ] Confirmed visually (Manual)\n",
       },
     );
 
+    expect(result).toEqual({
+      ok: false,
+      error: "implement.already_complete: requested spec has no unchecked non-human-only acceptance criteria",
+    });
+  });
+
+  test("uses linked subspec criteria instead of contradictory index checkboxes", async () => {
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
+    const machineProfile = writeValidProfile();
+    const match: ProjectMatch = { key: "proj", root: "/tmp/proj" };
+    const result = await buildImplementWorkflowSteps(INPUT, {
+      resolveProjectMatch: () => match,
+      loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
+      resolveActiveLinkedSubspec: () => ({
+        ok: false,
+        error: "All linked subspecs are complete",
+        errorKind: "already_complete",
+      }),
+      readSpecFile: (path) =>
+        path.endsWith("index.md")
+          ? "- [x] [One](./one.md)\n- [ ] [Two](./two.md)\n"
+          : path.endsWith("one.md")
+            ? "## Acceptance criteria\n\n- [ ] Implement\n"
+            : "## Acceptance criteria\n\n- [x] Done\n",
+    });
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.steps).toHaveLength(2);
+  });
+
+  test("rejects a complete single-file spec and launches an incomplete one", async () => {
+    const complete = await buildImplementWorkflowSteps(INPUT_WITH_ARTIFACT, {
+      resolveProjectMatch: () => ({ key: "proj", root: "/tmp/proj" }),
+      readSpecFile: () => "## Acceptance criteria\n\n- [x] Done\n- [ ] Visual check (Manual)\n",
+    });
+    expect(complete.ok).toBe(false);
+    if (!complete.ok) expect(complete.error).toContain("already_complete");
+
+    const incomplete = await buildImplementWorkflowSteps(INPUT_WITH_ARTIFACT, {
+      resolveProjectMatch: () => ({ key: "proj", root: "/tmp/proj" }),
+      readSpecFile: () => "## Acceptance criteria\n\n- [ ] Implement\n",
+      loadWorkflowSteps: (steps) => steps as WriteWorkflowStep[],
+    });
+    expect(incomplete.ok).toBe(true);
   });
 
   test("uses the supplied projectRoot and projectName for CLI-resolved launches", async () => {
@@ -332,7 +375,7 @@ describe("buildImplementWorkflowSteps", () => {
     const root = mkdtempSync(join(tmpdir(), "implement-workflow-steps-project-"));
     mkdirSync(join(root, "spec"));
     writeFileSync(join(root, "spec", "index.md"), "- [ ] [Sub](./sub.md)\n", "utf8");
-    writeFileSync(join(root, "spec", "sub.md"), "# Sub\n", "utf8");
+    writeFileSync(join(root, "spec", "sub.md"), "# Sub\n\n## Acceptance criteria\n\n- [ ] Work\n", "utf8");
     const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
     const machineProfile = writeValidProfile();
 
@@ -366,7 +409,7 @@ describe("buildImplementWorkflowSteps", () => {
     const root = mkdtempSync(join(tmpdir(), "implement-workflow-steps-registered-"));
     mkdirSync(join(root, "specs"));
     writeFileSync(join(root, "specs", "index.md"), "- [ ] [Work](./work.md)\n", "utf8");
-    writeFileSync(join(root, "specs", "work.md"), "# Work\n", "utf8");
+    writeFileSync(join(root, "specs", "work.md"), "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n", "utf8");
     initGitRepo(root);
     execFileSync("git", ["add", "specs"], { cwd: root });
     execFileSync("git", ["commit", "-qm", "base"], { cwd: root });
@@ -428,7 +471,7 @@ describe("buildImplementWorkflowSteps", () => {
     const root = mkdtempSync(join(tmpdir(), "implement-workflow-steps-base-ref-"));
     mkdirSync(join(root, "spec", "nested"), { recursive: true });
     writeFileSync(join(root, "spec", "index.md"), "- [ ] [Work](./work.md)\n", "utf8");
-    writeFileSync(join(root, "spec", "work.md"), "# Work\n", "utf8");
+    writeFileSync(join(root, "spec", "work.md"), "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n", "utf8");
     initGitRepo(root);
     execFileSync("git", ["add", "spec"], { cwd: root });
     execFileSync("git", ["commit", "-qm", "base"], { cwd: root });
@@ -470,7 +513,7 @@ describe("buildImplementWorkflowSteps", () => {
     const root = mkdtempSync(join(tmpdir(), "implement-workflow-steps-project-"));
     const home = mkdtempSync(join(tmpdir(), "implement-workflow-steps-home-"));
     mkdirSync(join(root, "spec"));
-    writeFileSync(join(root, "spec", "spec.md"), "- [ ] Work\n", "utf8");
+    writeFileSync(join(root, "spec", "spec.md"), "## Acceptance criteria\n\n- [ ] Work\n", "utf8");
     const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
     const machineProfile = writeValidProfile();
     let reachedWorktree: string | undefined;

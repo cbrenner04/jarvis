@@ -2,9 +2,9 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import { jarvisHome } from "../paths.ts";
-import type { IpcClient } from "../ipc/client.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
+import type { IpcClient } from "../ipc/client.ts";
+import { jarvisHome } from "../paths.ts";
 
 export type CleanupDeps = {
   jarvisRoot?: string;
@@ -118,7 +118,11 @@ async function checkIsMergedPr(
   branchName: string,
 ): Promise<boolean | null> {
   try {
-    const output = await subprocess.runAsync("gh", ["pr", "list", "--head", branchName, "--json", "state"], projectRoot);
+    const output = await subprocess.runAsync(
+      "gh",
+      ["pr", "list", "--head", branchName, "--json", "state"],
+      projectRoot,
+    );
     const parsed = JSON.parse(output.trim());
 
     if (!Array.isArray(parsed)) {
@@ -144,7 +148,7 @@ export async function queryDaemonForRuns(
   try {
     const result = await request(daemonClient, "list");
     if (typeof result === "object" && result !== null && "runs" in result) {
-      const runs = (result as any).runs;
+      const runs = (result as Record<string, unknown>).runs;
       return Array.isArray(runs) ? runs : null;
     }
     return null;
@@ -155,7 +159,11 @@ export async function queryDaemonForRuns(
 
 function hasNonTerminalRun(runs: DaemonListRunRow[], worktreePath: string): boolean {
   return runs.some(
-    (run) => run.worktreePath === worktreePath && run.status !== "completed" && run.status !== "blocked" && run.status !== "failed",
+    (run) =>
+      run.worktreePath === worktreePath &&
+      run.status !== "completed" &&
+      run.status !== "blocked" &&
+      run.status !== "failed",
   );
 }
 
@@ -219,7 +227,10 @@ async function removeWorktree(
 
     return { success: true };
   } catch (error) {
-    return { success: false, error: `Failed to remove worktree: ${error instanceof Error ? error.message : String(error)}` };
+    return {
+      success: false,
+      error: `Failed to remove worktree: ${error instanceof Error ? error.message : String(error)}`,
+    };
   }
 }
 

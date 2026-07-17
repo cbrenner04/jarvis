@@ -9,6 +9,7 @@ import type { AnyWorkflowStep } from "./execution/workflow-runner.ts";
 import type { WriteLoopInput, WriteLoopResult } from "./execution/write-loop.ts";
 import { applyOperatorSessionId } from "./execution/write-loop.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "./execution/write-loop-input.ts";
+import type { IpcClient } from "./ipc/client.ts";
 import type { PersistedRecord } from "./persistence/log-stream.ts";
 import { withFixedUuid } from "./testing/fixed-uuid.ts";
 import { makeIpcClient } from "./testing/ipc-client-fake.ts";
@@ -2477,7 +2478,7 @@ describe("v2 cli", () => {
       readProjectRegistry: () => ({ demo: { root: projectRoot } }),
       connectIpcClient: async () => {
         daemonQueried = true;
-        return mockClient as any;
+        return mockClient as unknown as IpcClient;
       },
       subprocessRunner: mergedGhSubprocessRunner(),
     });

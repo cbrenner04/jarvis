@@ -1,10 +1,10 @@
-import { describe, test, expect, beforeEach } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
-import { cleanup, type CleanupDeps, type CleanupCandidate } from "./cleanup.ts";
+import { cleanup } from "./cleanup.ts";
 
 function captureIo() {
   let stdout = "";
@@ -26,7 +26,7 @@ function createTempWorktree(jarvisRoot: string, project: string, branch: string)
   const worktreePath = join(jarvisRoot, "worktrees", project, branch);
   mkdirSync(worktreePath, { recursive: true });
   mkdirSync(join(worktreePath, ".git"), { recursive: true });
-  writeFileSync(join(worktreePath, ".git", "HEAD"), "ref: refs/heads/" + branch);
+  writeFileSync(join(worktreePath, ".git", "HEAD"), `ref: refs/heads/${branch}`);
   return worktreePath;
 }
 
@@ -60,7 +60,7 @@ describe("cleanup command", () => {
   });
 
   test("discovers merged worktrees and reports them in dry-run", async () => {
-    const worktreePath = createTempWorktree(jarvisRoot, "test-project", "feature-branch");
+    createTempWorktree(jarvisRoot, "test-project", "feature-branch");
     const { io, read } = captureIo();
 
     const subprocess = mockSubprocessRunner({
@@ -272,7 +272,7 @@ describe("cleanup command", () => {
   });
 
   test("handles nested branch paths (slash-separated)", async () => {
-    const worktreePath = createTempWorktree(jarvisRoot, "test-project", "feature/subfeature/branch");
+    createTempWorktree(jarvisRoot, "test-project", "feature/subfeature/branch");
     const { io, read } = captureIo();
 
     const subprocess = mockSubprocessRunner({
@@ -295,7 +295,10 @@ describe("cleanup command", () => {
   test("handles multiple projects independently", async () => {
     const projectRegistry2 = {
       ...projectRegistry,
-      "other-project": { root: mkdtempSync(join(tmpdir(), "jarvis-project-")), origin: "https://github.com/user/other.git" },
+      "other-project": {
+        root: mkdtempSync(join(tmpdir(), "jarvis-project-")),
+        origin: "https://github.com/user/other.git",
+      },
     };
 
     createTempWorktree(jarvisRoot, "test-project", "branch1");

@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
+import { type CleanupCommandOptions, cleanupCommand } from "./commands/cleanup.ts";
 import type { AgentModelConfig, LoadError } from "./config/agent-model-config.ts";
 import {
   type ImplementReviewBehavior,
@@ -167,6 +168,10 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
 
   if (command === "tui") {
     return runTuiCommand(argv.slice(1), out, runtimeDeps);
+  }
+
+  if (command === "cleanup") {
+    return runCleanupCommand(argv.slice(1), out, runtimeDeps);
   }
 
   out.stdout("v2 not ready\n");
@@ -918,6 +923,39 @@ function exitCodeForWriteResult(kind: Awaited<ReturnType<typeof executeWriteLoop
   if (kind === "invocation_failure") return 2;
   if (kind === "budget-exhausted") return 5;
   return 1;
+}
+
+async function runCleanupCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
+  const dryRun = argv.includes("--dry-run");
+  const args = argv.filter((arg) => arg !== "--dry-run");
+
+  if (args.length !== 0) {
+    io.stderr("usage: jarvis cleanup [--dry-run]\n");
+    return 1;
+  }
+
+  const projectRegistry = deps.readProjectRegistry();
+
+  const readlineSync = (prompt: string): string => {
+    io.stdout(prompt);
+    const buffer = Buffer.alloc(256);
+    let input = "";
+    try {
+      const nread = readSync(process.stdin.fd, buffer, 0, 256, null);
+      input = buffer.toString("utf8", 0, nread).trim();
+    } catch {
+      return "";
+    }
+    return input;
+  };
+
+  const cleanupOpts: CleanupCommandOptions = {
+    io: { stdout: io.stdout, stderr: io.stderr, readlineSync },
+    dryRun,
+    projectRegistry,
+  };
+
+  return cleanupCommand(cleanupOpts);
 }
 
 function exitCodeForWaitResult(result: WaitRunCompletionResult): number {

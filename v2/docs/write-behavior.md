@@ -781,6 +781,30 @@ Drive the path through the test seam:
 A live `jarvis write ...` runs the full pipeline and reports
 `"kind": "invocation_failure"` until process bindings land.
 
+## Cleanup CLI
+
+`jarvis cleanup [--dry-run]` discovers merged-PR worktrees under `~/.jarvis/worktrees/<project>/` 
+for all registered projects, previews their removal, and prompts for confirmation before retiring them.
+
+A worktree is eligible for removal when:
+- Its branch's PR is merged (checked via `gh pr view <branch> --json state -q .state`)
+- No non-terminal durable run exists for the branch (checked against the state store)
+- No live daemon run references the worktree (checked against in-memory run table)
+
+Ineligible worktrees are skipped. After confirmation, the operator is re-prompted for eligibility 
+(merged PR, no durable run, no daemon live run) before each removal to guard against races. 
+On removal, `jarvis cleanup` runs `git worktree remove`, `git worktree prune`, and `git branch -D` 
+to clean the registration, directory, and local branch; remote branches and specs are retained.
+
+The command supports nested branch paths (e.g., `feature/cleanup/retry`). `--dry-run` previews 
+removals without prompting or mutating state. On completion, merged worktrees are gone; 
+re-running cleanup over the same paths is a no-op. On failure (e.g., `git worktree remove` fails), 
+the command exits nonzero with stderr reporting which removals failed; ineligible and failed 
+candidates are left intact.
+
+`--dry-run` returns 0 regardless of whether candidates were discovered; `jarvis cleanup` without 
+`--dry-run` returns 1 if any confirmed removals fail.
+
 ### Publication titles
 
 Every new PR resolves its title at the shared publication boundary. A readable

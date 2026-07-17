@@ -27,16 +27,16 @@ Two prior implementations were rejected on review, both with every acceptance cr
 
 ## Acceptance criteria
 
-- [ ] `jarvis cleanup --dry-run` discovers merged-PR worktrees beneath each registered project's `~/.jarvis/worktrees/<project>/` home, including slash-nested branch paths, and previews both worktree and local-branch removals without prompting or mutating state.
-- [ ] `jarvis cleanup` prompts `[y/N]`; declining changes nothing, while confirmation removes each still-eligible worktree registration/directory and its local branch without deleting the remote branch, specs, ready intents, or durable run rows.
-- [ ] A worktree is omitted when its PR is not merged, PR or ownership inspection cannot establish eligibility, a non-terminal durable run references it, or the daemon reports a referencing run live; ownership is rechecked after confirmation before removal.
-- [ ] Cleanup handles registered projects independently, leaves an ineligible or failed candidate intact, and exits nonzero when a confirmed retirement fails.
-- [ ] Retirement leaves no stale `.git/worktrees/` registration: after a confirmed removal, `git worktree list` no longer names the path and the local branch delete succeeds. Re-running cleanup over the same already-retired workspace is a no-op, not a failure.
-- [ ] `v2/src/commands/cleanup.test.ts` and `v2/src/cli.test.ts` drive discovery against a temp `jarvisRoot` holding real materialized worktrees — never a registry whose root does not exist — and every test asserts a non-empty candidate set before asserting the behavior under test, so a zero-candidate early return cannot satisfy it.
-- [ ] Every `gh` and `git` expectation asserts the full argv the injected runner received, not the executable name. A stub answering `gh pr view --head <branch>` — an invalid flag for `gh pr view` — fails the suite.
-- [ ] Each safety guard is individually load-bearing: removing the merged-PR check, the non-terminal-durable-run check, the daemon-live check, or the post-confirmation ownership recheck each turns at least one test red.
-- [ ] `bun run check`, `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/write-behavior.md`, `v2/docs/operator-runbook.md`, and `v2/docs/first-workflow-walkthrough.md` document the cleanup command, preview/confirmation flow, safety guards, retained artifacts/history, and session-end invocation.
+- [x] `jarvis cleanup --dry-run` discovers merged-PR worktrees beneath each registered project's `~/.jarvis/worktrees/<project>/` home, including slash-nested branch paths, and previews both worktree and local-branch removals without prompting or mutating state.
+- [x] `jarvis cleanup` prompts `[y/N]`; declining changes nothing, while confirmation removes each still-eligible worktree registration/directory and its local branch without deleting the remote branch, specs, ready intents, or durable run rows.
+- [x] A worktree is omitted when its PR is not merged, PR or ownership inspection cannot establish eligibility, a non-terminal durable run references it, or the daemon reports a referencing run live; ownership is rechecked after confirmation before removal.
+- [x] Cleanup handles registered projects independently, leaves an ineligible or failed candidate intact, and exits nonzero when a confirmed retirement fails.
+- [x] Retirement leaves no stale `.git/worktrees/` registration: after a confirmed removal, `git worktree list` no longer names the path and the local branch delete succeeds. Re-running cleanup over the same already-retired workspace is a no-op, not a failure.
+- [x] `v2/src/commands/cleanup.test.ts` and `v2/src/cli.test.ts` drive discovery against a temp `jarvisRoot` holding real materialized worktrees — never a registry whose root does not exist — and every test asserts a non-empty candidate set before asserting the behavior under test, so a zero-candidate early return cannot satisfy it.
+- [x] Every `gh` and `git` expectation asserts the full argv the injected runner received, not the executable name. A stub answering `gh pr view --head <branch>` — an invalid flag for `gh pr view` — fails the suite.
+- [x] Each safety guard is individually load-bearing: removing the merged-PR check, the non-terminal-durable-run check, the daemon-live check, or the post-confirmation ownership recheck each turns at least one test red.
+- [x] `bun run check`, `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/write-behavior.md`, `v2/docs/operator-runbook.md`, and `v2/docs/first-workflow-walkthrough.md` document the cleanup command, preview/confirmation flow, safety guards, retained artifacts/history, and session-end invocation.
 
 ## Documentation updates
 

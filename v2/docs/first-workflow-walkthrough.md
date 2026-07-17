@@ -454,6 +454,25 @@ no-Git runs delete the source after the durable output exists. Draft, review,
 validation, collision, and publication failures retain queue inputs. Completion
 publication runs only after landing.
 
+## Clean up
+
+After merging one or more workflow PRs, retire their worktrees and free disk space:
+
+```bash
+jarvis cleanup --dry-run     # Preview what will be removed
+jarvis cleanup               # Prompt for confirmation, then remove
+```
+
+`jarvis cleanup [--dry-run]` discovers merged-PR worktrees under `~/.jarvis/worktrees/`,
+checks that their PRs are truly merged, that no durable run references them, and that
+the daemon doesn't have them live, then either previews (with `--dry-run`) or prompts
+for confirmation before removal. On removal, the worktree directory, local branch, and
+git registration are cleaned; remote branches and specs are retained. Ineligible
+candidates are skipped; failures leave candidates intact and exit nonzero.
+
+See [`write-behavior.md`](./write-behavior.md#cleanup-cli) for the full CLI contract
+and [`operator-runbook.md`](./operator-runbook.md#cleanup-merged-worktrees) for safety guards.
+
 ## Related docs
 
 New plan and implement PRs use the spec's first non-empty `index.md` H1. A

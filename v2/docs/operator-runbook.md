@@ -15,7 +15,8 @@ own yet.
 | Patch spec implementation (`jarvis1 run <spec>`) | `jarvis1` | v2 implement preset is workflow-shaped, not a drop-in for every spec run |
 | Project registry (`jarvis1 init`, `jarvis1 config`) | `jarvis1` | v2 reads the same `~/.jarvis/config.json` |
 | Log server preflight | `jarvis1` | v2 daemon runs do not gate on `jarvis1 log-server` |
-| Cleanup, triage, runbook add | `jarvis1` | See [v1 operator runbook](../../v1/docs/operator-runbook.md) |
+| Cleanup merged v2 worktrees | `jarvis` | `jarvis cleanup [--dry-run]`; see [Cleanup](#cleanup-merged-worktrees) |
+| Triage, runbook add | `jarvis1` | See [v1 operator runbook](../../v1/docs/operator-runbook.md) |
 | Daemon, run control, TUI, workflow presets | `jarvis` | This doc |
 
 Orientation: [`onboarding.md`](./onboarding.md). Install path:
@@ -94,6 +95,28 @@ minimize manual steps; fold fixes into existing commands rather than new subcomm
 v2-specific gaps become seeds under `v2/spec/seeds/` (or `v1/spec/seeds/` when the
 shipping surface is v1).
 
+## Cleanup merged worktrees
+
+`jarvis cleanup [--dry-run]` discovers worktrees under `~/.jarvis/worktrees/<project>/`
+for all registered projects, identifies merged-PR branches, and retires them safely.
+
+Run `jarvis cleanup --dry-run` to preview removals without mutating state. Each candidate
+is checked for:
+1. Merged PR (via `gh pr view <branch> --json state`)
+2. No non-terminal durable run (checked against state store)
+3. No live daemon run (checked in-memory)
+
+Ineligible candidates are skipped. After preview, you are prompted `[y/N]`; declining
+cancels. On confirmation, eligibility is rechecked (merged PR, no durable run, no daemon run)
+per worktree before removal to guard against races between discovery and removal.
+
+On successful removal, `git worktree remove`, `git worktree prune`, and `git branch -D`
+clean the registration, directory, and local branch. Remote branches and specs are retained.
+
+Nested branch paths (e.g., `feature/cleanup/task`) are supported. Re-running cleanup
+over already-retired workspaces is a no-op. On failure, the command exits nonzero
+with stderr naming which removals failed; ineligible and failed candidates remain intact.
+
 ## Operator feedback cadence
 
 Same two-point rule as v1: report when you launch a `jarvis` command and when it
@@ -112,9 +135,8 @@ Adapted from v1; v2 session close-out is the same obligation:
    PR.
 5. **Maintain this runbook** (branch → PR → merge). Operators add gotchas and remove
    entries when the structural fix ships.
-6. **End-of-session cleanup** — v2 has no `jarvis cleanup` yet (seed
-   `v2-reclaims-its-workspace`); use v1 cleanup where it applies and manual worktree
-   recovery for `~/.jarvis/worktrees/` (see [Recovery](#recovery)).
+6. **End-of-session cleanup** — run `jarvis cleanup` after merging PRs to retire merged
+   worktrees and free disk space. Use `jarvis cleanup --dry-run` to preview removals.
 
 ## Runbook maintenance
 
@@ -482,12 +504,6 @@ Operators add bullets here; delete when fixed.
   `process.env` and then overwrites the key with `"full"`, so setting it locally does nothing. The
   full aggregate gate is ~85% of a v2 workflow's wall clock (~13 of ~15 min on a two-file markdown
   plan spec). Seed: `ready-gate-tier-is-not-configurable`. Cleanup: delete when it ships.
-- **`jarvis1 cleanup` cannot see v2 worktrees — confirmed live (2026-07-16):** it reported "no
-  merged worktrees to remove" with 26 abandoned worktrees under `~/.jarvis/worktrees/`. Reclaim them
-  by hand (`git worktree remove --force` + `git branch -D`) until the v2 cleanup command ships, and
-  note that a branch freshly created from `main` is also an ancestor of `main` — so
-  `merge-base --is-ancestor` alone will happily delete your in-flight work. Seed:
-  `v2-reclaims-its-workspace`. Cleanup: delete when it ships.
 
 - **Gate `main` before debugging a red branch (2026-07-16):** `bun run ready` runs the aggregate
   suite, which CI never runs (CI scopes by changed path). `main` was red on the operator machine

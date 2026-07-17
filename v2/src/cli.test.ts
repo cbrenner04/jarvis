@@ -62,44 +62,69 @@ async function setAgents(configPath: string, csv: string, io = captureIo().io): 
   return runConfig(configPath, ["set-agents", csv], io);
 }
 
-const WRITE_ARGS = [
-  "write",
-  "--project-root",
-  "/tmp/repo",
-  "--project",
-  "demo",
-  "--branch",
-  "write-run",
-  "--base",
-  "HEAD",
-  "--spec",
-  "spec.md",
-  "--artifact",
-  "proof.txt",
-];
-
-const RUN_WORKFLOW_IMPLEMENT_ARGS = [
-  "run",
-  "workflow",
-  "implement",
-  "--branch",
-  "implement-run",
-  "--base",
-  "HEAD",
-  "--spec",
-  "index.md",
-];
-
+let WRITE_ARGS: string[];
+let RUN_WORKFLOW_IMPLEMENT_ARGS: string[];
 let FAKE_IMPLEMENT_STEPS: AnyWorkflowStep[];
+let RUN_START_ARGS: string[];
+let testRepoPath: string;
+let unregisteredPath: string;
 
 beforeAll(() => {
-  mkdirSync("/tmp/repo/sub", { recursive: true });
-  mkdirSync("/tmp/repo/v2/spec/my-spec", { recursive: true });
-  mkdirSync("/tmp/unregistered", { recursive: true });
-  writeFileSync("/tmp/repo/sub/index.md", "# Index\n", "utf8");
-  writeFileSync("/tmp/repo/spec.md", "# Spec\n", "utf8");
-  writeFileSync("/tmp/repo/v2/spec/my-spec/index.md", "# Index\n", "utf8");
-  writeFileSync("/tmp/unregistered/index.md", "# Index\n", "utf8");
+  testRepoPath = mkdtempSync(join(tmpdir(), "cli-test-repo-"));
+  unregisteredPath = mkdtempSync(join(tmpdir(), "cli-test-unregistered-"));
+
+  mkdirSync(join(testRepoPath, "sub"), { recursive: true });
+  mkdirSync(join(testRepoPath, "v2/spec/my-spec"), { recursive: true });
+  writeFileSync(join(testRepoPath, "sub/index.md"), "# Index\n", "utf8");
+  writeFileSync(join(testRepoPath, "spec.md"), "# Spec\n", "utf8");
+  writeFileSync(join(testRepoPath, "v2/spec/my-spec/index.md"), "# Index\n", "utf8");
+  writeFileSync(join(unregisteredPath, "index.md"), "# Index\n", "utf8");
+
+  WRITE_ARGS = [
+    "write",
+    "--project-root",
+    testRepoPath,
+    "--project",
+    "demo",
+    "--branch",
+    "write-run",
+    "--base",
+    "HEAD",
+    "--spec",
+    "spec.md",
+    "--artifact",
+    "proof.txt",
+  ];
+
+  RUN_WORKFLOW_IMPLEMENT_ARGS = [
+    "run",
+    "workflow",
+    "implement",
+    "--branch",
+    "implement-run",
+    "--base",
+    "HEAD",
+    "--spec",
+    "index.md",
+  ];
+
+  RUN_START_ARGS = [
+    "run",
+    "start",
+    "--project-root",
+    testRepoPath,
+    "--project",
+    "demo",
+    "--branch",
+    "write-run",
+    "--base",
+    "HEAD",
+    "--spec",
+    "spec.md",
+    "--artifact",
+    "proof.txt",
+  ];
+
   FAKE_IMPLEMENT_STEPS = [
     {
       behavior: "write",
@@ -110,7 +135,7 @@ beforeAll(() => {
       agents: ["claude"],
       agentModelConfig: {},
       worktree: {
-        projectRoot: realpathSync("/tmp/repo"),
+        projectRoot: realpathSync(testRepoPath),
         projectName: "demo",
         branchName: "implement-run",
         baseRef: "HEAD",
@@ -120,23 +145,6 @@ beforeAll(() => {
     },
   ];
 });
-
-const RUN_START_ARGS = [
-  "run",
-  "start",
-  "--project-root",
-  "/tmp/repo",
-  "--project",
-  "demo",
-  "--branch",
-  "write-run",
-  "--base",
-  "HEAD",
-  "--spec",
-  "spec.md",
-  "--artifact",
-  "proof.txt",
-];
 
 const TEST_RUNG = { rungs: [{ adapterModel: "m1", priceKey: "p1" }] };
 
@@ -906,7 +914,7 @@ describe("v2 cli", () => {
       params: {
         input: {
           worktree: {
-            projectRoot: "/tmp/repo",
+            projectRoot: testRepoPath,
             projectName: "demo",
             branchName: "write-run",
             baseRef: "HEAD",
@@ -969,8 +977,8 @@ describe("v2 cli", () => {
     let code = NaN;
     try {
       code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
-        cwd: () => "/tmp/repo/sub",
-        readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
+        cwd: () => join(testRepoPath, "sub"),
+        readProjectRegistry: () => ({ "test-project": { root: testRepoPath } }),
         workflowPresetBuilders: {
           implement: (input) => {
             builtInput = input;
@@ -1010,12 +1018,12 @@ describe("v2 cli", () => {
       stderr: "",
     });
     expect(builtInput).toMatchObject({
-      cwd: "/tmp/repo/sub",
+      cwd: join(testRepoPath, "sub"),
       branchName: "implement-run",
       baseRef: "HEAD",
       specPath: "index.md",
       configPath: expect.any(String),
-      projectRegistry: { "test-project": { root: "/tmp/repo" } },
+      projectRegistry: { "test-project": { root: testRepoPath } },
     });
     expect(sent).toHaveLength(2);
     expect(sent[0]).toMatchObject({
@@ -1041,8 +1049,8 @@ describe("v2 cli", () => {
     let code = NaN;
     try {
       code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
-        cwd: () => "/tmp/repo/sub",
-        readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
+        cwd: () => join(testRepoPath, "sub"),
+        readProjectRegistry: () => ({ "test-project": { root: testRepoPath } }),
         workflowPresetBuilders: {
           implement: () => ({ ok: true, steps: FAKE_IMPLEMENT_STEPS }),
         },
@@ -1073,8 +1081,8 @@ describe("v2 cli", () => {
     let code = NaN;
     try {
       code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
-        cwd: () => "/tmp/repo/sub",
-        readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
+        cwd: () => join(testRepoPath, "sub"),
+        readProjectRegistry: () => ({ "test-project": { root: testRepoPath } }),
         workflowPresetBuilders: {
           implement: () => ({ ok: true, steps: FAKE_IMPLEMENT_STEPS }),
         },
@@ -1108,8 +1116,8 @@ describe("v2 cli", () => {
     let code = NaN;
     try {
       code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
-        cwd: () => "/tmp/repo/sub",
-        readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
+        cwd: () => join(testRepoPath, "sub"),
+        readProjectRegistry: () => ({ "test-project": { root: testRepoPath } }),
         workflowPresetBuilders: {
           implement: () => ({ ok: true, steps: FAKE_IMPLEMENT_STEPS }),
         },
@@ -1160,8 +1168,8 @@ describe("v2 cli", () => {
     let code = NaN;
     try {
       code = await main([...RUN_WORKFLOW_IMPLEMENT_ARGS, "--review-passes", "2"], cap.io, {
-        cwd: () => "/tmp/repo/sub",
-        readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
+        cwd: () => join(testRepoPath, "sub"),
+        readProjectRegistry: () => ({ "test-project": { root: testRepoPath } }),
         workflowPresetBuilders: {
           implement: (input) => {
             builtInput = input;
@@ -1207,7 +1215,7 @@ describe("v2 cli", () => {
   test("run workflow implement uses project implement.reviewPasses when flag is omitted", async () => {
     const cap = captureIo();
     const configPath = writeMachineConfig({
-      projects: { "test-project": { root: "/tmp/repo", implement: { reviewPasses: 3 } } },
+      projects: { "test-project": { root: testRepoPath, implement: { reviewPasses: 3 } } },
     });
     const startRequestId = "00000000-0000-4000-8000-000000000010" as const;
     const waitRequestId = "00000000-0000-4000-8000-000000000100" as const;
@@ -1219,9 +1227,9 @@ describe("v2 cli", () => {
     let code = NaN;
     try {
       code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
-        cwd: () => "/tmp/repo/sub",
+        cwd: () => join(testRepoPath, "sub"),
         machineConfigPath: configPath,
-        readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
+        readProjectRegistry: () => ({ "test-project": { root: testRepoPath } }),
         workflowPresetBuilders: {
           implement: (input) => {
             builtInput = input;
@@ -1249,7 +1257,7 @@ describe("v2 cli", () => {
   test("run workflow implement --review-passes overrides project implement.reviewPasses", async () => {
     const cap = captureIo();
     const configPath = writeMachineConfig({
-      projects: { "test-project": { root: "/tmp/repo", implement: { reviewPasses: 3 } } },
+      projects: { "test-project": { root: testRepoPath, implement: { reviewPasses: 3 } } },
     });
     const startRequestId = "00000000-0000-4000-8000-000000000011" as const;
     const waitRequestId = "00000000-0000-4000-8000-000000000110" as const;
@@ -1261,9 +1269,9 @@ describe("v2 cli", () => {
     let code = NaN;
     try {
       code = await main([...RUN_WORKFLOW_IMPLEMENT_ARGS, "--review-passes", "1"], cap.io, {
-        cwd: () => "/tmp/repo/sub",
+        cwd: () => join(testRepoPath, "sub"),
         machineConfigPath: configPath,
-        readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
+        readProjectRegistry: () => ({ "test-project": { root: testRepoPath } }),
         workflowPresetBuilders: {
           implement: (input) => {
             builtInput = input;
@@ -1291,13 +1299,13 @@ describe("v2 cli", () => {
   test("run workflow implement rejects invalid project implement.reviewPasses before daemon contact", async () => {
     const cap = captureIo();
     const configPath = writeMachineConfig({
-      projects: { "test-project": { root: "/tmp/repo", implement: { reviewPasses: -1 } } },
+      projects: { "test-project": { root: testRepoPath, implement: { reviewPasses: -1 } } },
     });
 
     const code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
-      cwd: () => "/tmp/repo/sub",
+      cwd: () => join(testRepoPath, "sub"),
       machineConfigPath: configPath,
-      readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
+      readProjectRegistry: () => ({ "test-project": { root: testRepoPath } }),
       connectIpcClient: async () => {
         throw new Error("should not contact daemon");
       },
@@ -1326,7 +1334,7 @@ describe("v2 cli", () => {
   test("run workflow implement uses project implement.reviewBehavior when flag is omitted", async () => {
     const cap = captureIo();
     const configPath = writeMachineConfig({
-      projects: { "test-project": { root: "/tmp/repo", implement: { reviewBehavior: "light" } } },
+      projects: { "test-project": { root: testRepoPath, implement: { reviewBehavior: "light" } } },
     });
     const startRequestId = "00000000-0000-4000-8000-000000000012" as const;
     const waitRequestId = "00000000-0000-4000-8000-000000000120" as const;
@@ -1338,9 +1346,9 @@ describe("v2 cli", () => {
     let code = NaN;
     try {
       code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
-        cwd: () => "/tmp/repo/sub",
+        cwd: () => join(testRepoPath, "sub"),
         machineConfigPath: configPath,
-        readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
+        readProjectRegistry: () => ({ "test-project": { root: testRepoPath } }),
         workflowPresetBuilders: {
           implement: (input) => {
             builtInput = input;
@@ -1368,7 +1376,7 @@ describe("v2 cli", () => {
   test("run workflow implement --review-behavior debate overrides project implement.reviewBehavior", async () => {
     const cap = captureIo();
     const configPath = writeMachineConfig({
-      projects: { "test-project": { root: "/tmp/repo", implement: { reviewBehavior: "light" } } },
+      projects: { "test-project": { root: testRepoPath, implement: { reviewBehavior: "light" } } },
     });
     const startRequestId = "00000000-0000-4000-8000-000000000013" as const;
     const waitRequestId = "00000000-0000-4000-8000-000000000130" as const;
@@ -1380,9 +1388,9 @@ describe("v2 cli", () => {
     let code = NaN;
     try {
       code = await main([...RUN_WORKFLOW_IMPLEMENT_ARGS, "--review-behavior", "debate"], cap.io, {
-        cwd: () => "/tmp/repo/sub",
+        cwd: () => join(testRepoPath, "sub"),
         machineConfigPath: configPath,
-        readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
+        readProjectRegistry: () => ({ "test-project": { root: testRepoPath } }),
         workflowPresetBuilders: {
           implement: (input) => {
             builtInput = input;
@@ -1410,13 +1418,13 @@ describe("v2 cli", () => {
   test("run workflow implement rejects invalid project implement.reviewBehavior before daemon contact", async () => {
     const cap = captureIo();
     const configPath = writeMachineConfig({
-      projects: { "test-project": { root: "/tmp/repo", implement: { reviewBehavior: "heavy" } } },
+      projects: { "test-project": { root: testRepoPath, implement: { reviewBehavior: "heavy" } } },
     });
 
     const code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
-      cwd: () => "/tmp/repo/sub",
+      cwd: () => join(testRepoPath, "sub"),
       machineConfigPath: configPath,
-      readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
+      readProjectRegistry: () => ({ "test-project": { root: testRepoPath } }),
       connectIpcClient: async () => {
         throw new Error("should not contact daemon");
       },
@@ -1442,8 +1450,8 @@ describe("v2 cli", () => {
         ["run", "workflow", "implement", "--base", "main", "--spec", "v2/spec/my-spec/index.md"],
         cap.io,
         {
-          cwd: () => "/tmp/repo",
-          readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
+          cwd: () => testRepoPath,
+          readProjectRegistry: () => ({ "test-project": { root: testRepoPath } }),
           workflowPresetBuilders: {
             implement: (input) => {
               builtInput = input;
@@ -1470,11 +1478,11 @@ describe("v2 cli", () => {
     expect(cap.read().stdout).toContain("run-derived-branch");
     expect(cap.read().stdout).toContain('{"runStatus":"completed"');
     expect(builtInput).toMatchObject({
-      cwd: "/tmp/repo",
+      cwd: testRepoPath,
       baseRef: "main",
       specPath: "v2/spec/my-spec/index.md",
       configPath: expect.any(String),
-      projectRegistry: { "test-project": { root: "/tmp/repo" } },
+      projectRegistry: { "test-project": { root: testRepoPath } },
     });
   });
 
@@ -1482,8 +1490,8 @@ describe("v2 cli", () => {
     const cap = captureIo();
 
     const code = await main(["run", "workflow", "implement", "--base", "main", "--spec", "spec.md"], cap.io, {
-      cwd: () => "/tmp/repo",
-      readProjectRegistry: () => ({ "test-project": { root: "/tmp/repo" } }),
+      cwd: () => testRepoPath,
+      readProjectRegistry: () => ({ "test-project": { root: testRepoPath } }),
       connectIpcClient: async () => {
         throw new Error("should not contact daemon");
       },
@@ -1687,7 +1695,7 @@ describe("v2 cli", () => {
     const cap = captureIo();
 
     const code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
-      cwd: () => "/tmp/unregistered",
+      cwd: () => unregisteredPath,
       readProjectRegistry: () => ({}),
       connectIpcClient: async () => {
         throw new Error("should not contact daemon");
@@ -1708,7 +1716,7 @@ describe("v2 cli", () => {
     let received: unknown;
     try {
       const code = await main(["run", "workflow", "intent", "--seed-text", "Improve API"], cap.io, {
-        cwd: () => "/tmp/repo",
+        cwd: () => testRepoPath,
         workflowPresetBuilders: {
           intent: (input) => {
             received = input;
@@ -1730,7 +1738,7 @@ describe("v2 cli", () => {
     } finally {
       crypto.randomUUID = originalRandomUuid;
     }
-    expect(received).toMatchObject({ cwd: "/tmp/repo", seedText: "Improve API" });
+    expect(received).toMatchObject({ cwd: testRepoPath, seedText: "Improve API" });
     expect(sent).toHaveLength(2);
     expect(sent[0]).toMatchObject({ kind: "request", method: "start", params: { steps: FAKE_IMPLEMENT_STEPS } });
     expect(sent[1]).toMatchObject({ kind: "request", method: "wait", params: { runId: "intent-1" } });
@@ -1763,7 +1771,7 @@ describe("v2 cli", () => {
     let received: unknown;
     try {
       const code = await main(["run", "workflow", "intent-reviewed", "--seed-text", "Improve API"], cap.io, {
-        cwd: () => "/tmp/repo",
+        cwd: () => testRepoPath,
         workflowPresetBuilders: {
           "intent-reviewed": (input) => {
             received = input;
@@ -1785,7 +1793,7 @@ describe("v2 cli", () => {
     } finally {
       crypto.randomUUID = originalRandomUuid;
     }
-    expect(received).toMatchObject({ cwd: "/tmp/repo", seedText: "Improve API" });
+    expect(received).toMatchObject({ cwd: testRepoPath, seedText: "Improve API" });
     expect(sent).toHaveLength(2);
     expect(sent[0]).toMatchObject({ kind: "request", method: "start", params: { steps: FAKE_IMPLEMENT_STEPS } });
     expect(sent[1]).toMatchObject({ kind: "request", method: "wait", params: { runId: "intent-reviewed-1" } });
@@ -1805,7 +1813,7 @@ describe("v2 cli", () => {
         ["run", "workflow", "intent-reviewed", "--seed-text", "Improve API", "--review-passes", "2"],
         cap.io,
         {
-          cwd: () => "/tmp/repo",
+          cwd: () => testRepoPath,
           workflowPresetBuilders: {
             "intent-reviewed": (input) => {
               received = input;
@@ -1826,7 +1834,7 @@ describe("v2 cli", () => {
     } finally {
       crypto.randomUUID = originalRandomUuid;
     }
-    expect(received).toMatchObject({ cwd: "/tmp/repo", seedText: "Improve API", reviewPasses: 2 });
+    expect(received).toMatchObject({ cwd: testRepoPath, seedText: "Improve API", reviewPasses: 2 });
     expect(sent).toHaveLength(2);
     expect(sent[0]).toMatchObject({ kind: "request", method: "start", params: { steps: FAKE_IMPLEMENT_STEPS } });
     expect(sent[1]).toMatchObject({ kind: "request", method: "wait", params: { runId: "intent-reviewed-2" } });
@@ -1886,7 +1894,7 @@ describe("v2 cli", () => {
         ["run", "workflow", "plan-reviewed", "--ready-intent", "spec/ready-intents/demo.md", "--review-passes", "2"],
         cap.io,
         {
-          cwd: () => "/tmp/repo",
+          cwd: () => testRepoPath,
           workflowPresetBuilders: {
             "plan-reviewed": (input) => {
               received = input;
@@ -1908,7 +1916,7 @@ describe("v2 cli", () => {
       crypto.randomUUID = originalRandomUuid;
     }
     expect(received).toMatchObject({
-      cwd: "/tmp/repo",
+      cwd: testRepoPath,
       readyIntent: "spec/ready-intents/demo.md",
       reviewPasses: 2,
     });
@@ -1960,7 +1968,7 @@ describe("v2 cli", () => {
         ],
         cap.io,
         {
-          cwd: () => "/tmp/repo",
+          cwd: () => testRepoPath,
           workflowPresetBuilders: {
             "plan-reviewed-light": (input) => {
               received = input;
@@ -1982,7 +1990,7 @@ describe("v2 cli", () => {
       crypto.randomUUID = originalRandomUuid;
     }
     expect(received).toMatchObject({
-      cwd: "/tmp/repo",
+      cwd: testRepoPath,
       readyIntent: "spec/ready-intents/demo.md",
       reviewPasses: 2,
     });
@@ -2404,5 +2412,27 @@ describe("v2 cli", () => {
     expect(missingRunId).toBe(1);
     expect(extraArgs).toBe(1);
     expect(cap.read().stderr).toContain("usage: jarvis tui log <run-id>");
+  });
+
+  test("jarvis cleanup with extra args prints usage and exits 1", async () => {
+    const cap = captureIo();
+
+    const code = await main(["cleanup", "--extra"], cap.io, {
+      readProjectRegistry: () => ({}),
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain("usage: jarvis cleanup");
+  });
+
+  test("jarvis cleanup with --dry-run and no project registry shows no merged worktrees", async () => {
+    const cap = captureIo();
+
+    const code = await main(["cleanup", "--dry-run"], cap.io, {
+      readProjectRegistry: () => ({}),
+    });
+
+    expect(code).toBe(0);
+    expect(cap.read().stdout).toContain("no merged worktrees");
   });
 });

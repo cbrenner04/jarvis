@@ -129,6 +129,63 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(listOutput).not.toContain(worktreePath);
   });
 
+  test("runCleanupCommand rechecks eligibility after confirmation and spares a worktree that went live in the race window", async () => {
+    const branch = "race-branch";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+
+    const worktreesRoot = join(jarvisRoot, "worktrees", "project");
+    const worktreePath = join(worktreesRoot, branch);
+    mkdirSync(worktreesRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    // Eligible on the preview call (no live runs), then a live run appears before removal.
+    // A working post-confirmation recheck must catch this and spare the worktree.
+    let daemonCalls = 0;
+    const daemonClient: DaemonClient = async () => {
+      daemonCalls += 1;
+      return daemonCalls === 1 ? [] : [{ isLive: true }];
+    };
+    const store: StateStore = { findRunByProjectBranch: () => null } as unknown as StateStore;
+
+    let stdout = "";
+    const io = {
+      stdout: (s: string) => {
+        stdout += s;
+      },
+      stderr: () => {},
+    };
+
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, projectRoot);
+      },
+    };
+
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      store,
+      io,
+    );
+
+    expect(code).toBe(0);
+    // Preview call + at least one post-confirmation recheck call.
+    expect(daemonCalls).toBeGreaterThanOrEqual(2);
+    expect(stdout).toContain("became ineligible");
+    expect(stdout).not.toContain("Retired");
+
+    // The worktree survives because the recheck caught the live run.
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
   test("runCleanupCommand makes worktree ineligible when daemon client throws", async () => {
     const branch = "daemon-fail-branch";
     await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
-import { realAsyncSubprocessRunner } from "../../shared/subprocess.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../shared/subprocess.ts";
 import { type DaemonClient, runCleanupCommand } from "./commands/cleanup.ts";
 import type { AgentModelConfig, LoadError } from "./config/agent-model-config.ts";
 import {
@@ -67,6 +67,10 @@ type CliDeps = {
   readProjectRegistry: () => Record<string, { root: string; origin?: string }>;
   cwd: () => string;
   promptConfirm?: (message: string) => Promise<boolean>;
+  /** Worktrees home for `cleanup` discovery; defaults to `jarvisHome()`. Injectable for tests. */
+  jarvisRoot?: string;
+  /** Subprocess runner for `cleanup` (gh/git); defaults to `realAsyncSubprocessRunner`. Injectable for tests. */
+  subprocessRunner?: AsyncSubprocessRunner;
   socketPath: string;
   pidPath: string;
   logPath: string;
@@ -917,35 +921,40 @@ async function runCleanupCliCommand(argv: readonly string[], io: Io, deps: CliDe
 
   const registry = deps.readProjectRegistry();
 
+  // Use the real daemon client for both preview and removal so the dry-run
+  // preview reflects true eligibility (a fail-open `() => []` would show a
+  // worktree as eligible that a live daemon run actually protects).
   let daemonClient: DaemonClient;
-  if (dryRun) {
-    daemonClient = async () => [];
-  } else {
-    try {
-      const client = await deps.connectIpcClient(deps.socketPath);
-      daemonClient = async (project: string, branch: string) => {
-        try {
-          const result = await request(client, "list");
-          const list = parseListRuns(result);
-          if (list === undefined) return [];
-          return list.runs
-            .filter((r) => r.project === project && r.branch === branch)
-            .map((r) => ({ isLive: r.isLive }));
-        } catch (error) {
-          throw new Error(`Daemon query failed: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      };
-    } catch (error) {
-      io.stderr(formatConnectionError(error));
-      return 1;
-    }
+  try {
+    const client = await deps.connectIpcClient(deps.socketPath);
+    daemonClient = async (project: string, branch: string) => {
+      try {
+        const result = await request(client, "list");
+        const list = parseListRuns(result);
+        if (list === undefined) return [];
+        return list.runs.filter((r) => r.project === project && r.branch === branch).map((r) => ({ isLive: r.isLive }));
+      } catch (error) {
+        throw new Error(`Daemon query failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    };
+  } catch (error) {
+    io.stderr(formatConnectionError(error));
+    return 1;
   }
 
   const store = openStateStore();
 
   const options = dryRun ? { dryRun: true } : { promptConfirm: deps.promptConfirm ?? createPromptFunction() };
 
-  return runCleanupCommand(options, registry, jarvisHome(), realAsyncSubprocessRunner, daemonClient, store, io);
+  return runCleanupCommand(
+    options,
+    registry,
+    deps.jarvisRoot ?? jarvisHome(),
+    deps.subprocessRunner ?? realAsyncSubprocessRunner,
+    daemonClient,
+    store,
+    io,
+  );
 }
 
 function createPromptFunction(): (message: string) => Promise<boolean> {

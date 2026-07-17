@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import {
   existsSync,
   mkdirSync,
@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../shared/subprocess.ts";
 import { main } from "./cli.ts";
 import type { AgentModelConfig } from "./config/agent-model-config.ts";
 import type { BuildImplementWorkflowStepsInput } from "./execution/implement-workflow-steps.ts";
@@ -2439,39 +2440,100 @@ describe("v2 cli", () => {
 });
 
 describe("cleanup command", () => {
-  test("cleanup with no worktrees discovered exits 0 with message", async () => {
-    const cap = captureIo();
+  const LIST_REQUEST_ID = "00000000-0000-4000-8000-0000000000c1";
+  let cleanupTmp: string;
+  let cleanupProjectRoot: string;
+  let cleanupJarvisRoot: string;
 
-    const code = await main(["cleanup"], cap.io, {
-      readProjectRegistry: () => ({}),
-      connectIpcClient: async () => makeIpcClient([]),
-    });
+  // A subprocess runner that reports every branch's PR as merged, and otherwise
+  // delegates git to the real runner rooted in the temp project.
+  function mergedPrRunner(projectRoot: string): AsyncSubprocessRunner {
+    return {
+      runAsync: async (cmd, args) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, projectRoot);
+      },
+    };
+  }
 
-    expect(code).toBe(0);
-    expect(cap.read().stdout).toContain("No eligible worktrees");
+  async function materializeMergedWorktree(branch: string): Promise<string> {
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], cleanupProjectRoot);
+    const worktreesRoot = join(cleanupJarvisRoot, "worktrees", "project");
+    const worktreePath = join(worktreesRoot, branch);
+    mkdirSync(worktreesRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], cleanupProjectRoot);
+    return worktreePath;
+  }
+
+  // A daemon list-response reporting no runs for the queried branch (→ eligible).
+  const noRunsFrame = { kind: "response", id: LIST_REQUEST_ID, result: { runs: [] } };
+
+  beforeEach(async () => {
+    cleanupTmp = mkdtempSync(join(tmpdir(), "jarvis-cli-cleanup-"));
+    cleanupProjectRoot = join(cleanupTmp, "project");
+    cleanupJarvisRoot = join(cleanupTmp, "jarvis-home");
+    mkdirSync(cleanupProjectRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["init"], cleanupProjectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.email", "t@t.com"], cleanupProjectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.name", "T"], cleanupProjectRoot);
+    writeFileSync(join(cleanupProjectRoot, "README.md"), "# Test\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], cleanupProjectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "Initial"], cleanupProjectRoot);
   });
 
-  test("cleanup --dry-run does not contact daemon", async () => {
-    const cap = captureIo();
-    let daemonContactAttempted = false;
+  afterEach(() => {
+    rmSync(cleanupTmp, { recursive: true, force: true });
+  });
 
-    const code = await main(["cleanup", "--dry-run"], cap.io, {
-      readProjectRegistry: () => ({}),
-      connectIpcClient: async () => {
-        daemonContactAttempted = true;
-        return makeIpcClient([]);
-      },
-    });
+  test("cleanup --dry-run through main discovers a real merged worktree and previews without mutating", async () => {
+    const worktreePath = await materializeMergedWorktree("dry-run-merged");
+    const cap = captureIo();
+
+    const code = await withFixedUuid(LIST_REQUEST_ID, () =>
+      main(["cleanup", "--dry-run"], cap.io, {
+        readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
+        jarvisRoot: cleanupJarvisRoot,
+        subprocessRunner: mergedPrRunner(cleanupProjectRoot),
+        connectIpcClient: async () => makeIpcClient([noRunsFrame]),
+      }),
+    );
 
     expect(code).toBe(0);
-    expect(daemonContactAttempted).toBe(false);
+    expect(cap.read().stdout).toContain(worktreePath);
+    expect(cap.read().stdout).toContain("dry-run");
+    // Not mutated.
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], cleanupProjectRoot);
+    expect(list).toContain(worktreePath);
+  });
+
+  test("cleanup [y/N] decline through main changes nothing", async () => {
+    const worktreePath = await materializeMergedWorktree("decline-merged");
+    const cap = captureIo();
+
+    const code = await withFixedUuid(LIST_REQUEST_ID, () =>
+      main(["cleanup"], cap.io, {
+        readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
+        jarvisRoot: cleanupJarvisRoot,
+        subprocessRunner: mergedPrRunner(cleanupProjectRoot),
+        connectIpcClient: async () => makeIpcClient([noRunsFrame]),
+        promptConfirm: async () => false,
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read().stdout).toContain("Cancelled");
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], cleanupProjectRoot);
+    expect(list).toContain(worktreePath);
   });
 
   test("cleanup with invalid arguments prints usage and exits 1", async () => {
     const cap = captureIo();
 
     const code = await main(["cleanup", "invalid"], cap.io, {
-      readProjectRegistry: () => ({}),
+      readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
+      jarvisRoot: cleanupJarvisRoot,
       connectIpcClient: async () => makeIpcClient([]),
     });
 
@@ -2483,7 +2545,8 @@ describe("cleanup command", () => {
     const cap = captureIo();
 
     const code = await main(["cleanup"], cap.io, {
-      readProjectRegistry: () => ({}),
+      readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
+      jarvisRoot: cleanupJarvisRoot,
       connectIpcClient: async () => {
         throw new Error("Daemon unreachable");
       },

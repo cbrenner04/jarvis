@@ -27,12 +27,12 @@ PR-ownership refusals (ready PR, multiple open PRs) are added in subspec 01; thi
 
 ## Acceptance criteria
 
-- [ ] A new test drives `cleanup --abandon <name>` against a real temp-git fixture holding an unmerged workspace and asserts exact argv `git worktree remove --force <path>`, `git branch -D <branch>`, and `git push origin --delete <branch>` are invoked and the worktree and branches are gone afterward; it fails against the pre-fix code.
-- [ ] A test asserts the one matching draft PR is closed via `gh pr close <number>` (exact argv) and that a failing `gh pr close` still completes worktree and branch retirement with a warning.
-- [ ] A test asserts `cleanup --abandon <name>` refuses a workspace held by a live run (live `.jarvis.lock` holder or daemon `isLive`), removes nothing, and exits nonzero.
-- [ ] A test asserts `cleanup --abandon <name>` against a missing worktree removes nothing and exits nonzero.
-- [ ] A test asserts the source spec files and the durable run row for the abandoned `(project, branch)` remain present after retirement.
-- [ ] A test asserts the preview lists the planned close/remove/delete actions and that declining confirmation changes nothing (no `git worktree remove`, no `gh pr close`, no branch deletion).
+- [x] A new test drives `cleanup --abandon <name>` against a real temp-git fixture holding an unmerged workspace and asserts exact argv `git worktree remove --force <path>`, `git branch -D <branch>`, and `git push origin --delete <branch>` are invoked and the worktree and branches are gone afterward; it fails against the pre-fix code.
+- [x] A test asserts the one matching draft PR is closed via `gh pr close <number>` (exact argv) and that a failing `gh pr close` still completes worktree and branch retirement with a warning.
+- [x] A test asserts `cleanup --abandon <name>` refuses a workspace held by a live run (live `.jarvis.lock` holder or daemon `isLive`), removes nothing, and exits nonzero.
+- [x] A test asserts `cleanup --abandon <name>` against a missing worktree removes nothing and exits nonzero.
+- [x] A test asserts the source spec files and the durable run row for the abandoned `(project, branch)` remain present after retirement.
+- [x] A test asserts the preview lists the planned close/remove/delete actions and that declining confirmation changes nothing (no `git worktree remove`, no `gh pr close`, no branch deletion).
 
 ## Documentation updates
 

@@ -683,3 +683,468 @@ describe("cleanup: discover materialized worktrees", () => {
     expect(discovered).toHaveLength(0);
   });
 });
+
+describe("cleanup: runAbandonCommand", () => {
+  let tempRoot: string;
+  let projectRoot: string;
+  let jarvisRoot: string;
+
+  async function createUnmergedWorktree(branch: string): Promise<string> {
+    // Create a new file with unique content for this branch (sanitize branch name for filename)
+    const fileName = `${branch.replace(/\//g, "-")}.txt`;
+    writeFileSync(join(projectRoot, fileName), `Content for ${branch}\n`);
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", `Working on ${branch}`], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    const worktreePath = join(jarvisRoot, "worktrees", "project", branch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+    return worktreePath;
+  }
+
+  beforeEach(async () => {
+    tempRoot = join(process.env.TMPDIR || "/tmp", `jarvis-abandon-e2e-${Date.now()}-${Math.random()}`);
+    mkdirSync(tempRoot, { recursive: true });
+
+    projectRoot = join(tempRoot, "project");
+    jarvisRoot = join(tempRoot, "jarvis-home");
+
+    mkdirSync(projectRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["init"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.email", "test@test.com"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.name", "Test User"], projectRoot);
+    writeFileSync(join(projectRoot, "README.md"), "# Test\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "Initial"], projectRoot);
+  });
+
+  afterEach(() => {
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test("abandon retires an unmerged workspace via git worktree remove --force, branch -D, and push origin --delete", async () => {
+    const branch = "feat/test";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stdout = "";
+    let invocations: Array<{ cmd: string; args: string[] }> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        invocations.push({ cmd, args: [...args] });
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+          return JSON.stringify({ number: 123, state: "DRAFT" });
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("Abandoned workspace");
+
+    // Verify exact git commands were called
+    const removeInvocation = invocations.find((i) => i.cmd === "git" && i.args[0] === "worktree" && i.args[1] === "remove");
+    expect(removeInvocation?.args).toEqual(["worktree", "remove", "--force", worktreePath]);
+
+    const branchDeleteInvocation = invocations.find((i) => i.cmd === "git" && i.args[0] === "branch" && i.args[1] === "-D");
+    expect(branchDeleteInvocation?.args).toEqual(["branch", "-D", branch]);
+
+    const pushDeleteInvocation = invocations.find((i) => i.cmd === "git" && i.args[0] === "push" && i.args[1] === "origin");
+    expect(pushDeleteInvocation?.args).toEqual(["push", "origin", "--delete", branch]);
+
+    // Verify worktree and branches are gone
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+
+    const branchListOutput = await realAsyncSubprocessRunner.runAsync("git", ["branch"], projectRoot);
+    expect(branchListOutput).not.toContain(branch);
+  });
+
+  test("abandon closes matching draft PR via gh pr close with exact argv", async () => {
+    const branch = "feat/with-pr";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let ghInvocations: Array<{ cmd: string; args: string[] }> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh") {
+          ghInvocations.push({ cmd, args: [...args] });
+          if (args[0] === "pr" && args[1] === "list") {
+            return JSON.stringify([{ number: 456, state: "DRAFT" }]);
+          } else if (args[0] === "pr" && args[1] === "close") {
+            return "";
+          }
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+
+    // Verify gh pr close was called with exact number
+    const closeInvocation = ghInvocations.find((i) => i.args[0] === "pr" && i.args[1] === "close");
+    expect(closeInvocation?.args).toEqual(["pr", "close", "456"]);
+  });
+
+  test("abandon completes worktree/branch retirement even if gh pr close fails", async () => {
+    const branch = "feat/pr-close-fails";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stdout = "";
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 789, state: "DRAFT" }]);
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          throw new Error("gh pr close failed");
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("Warning: Could not close PR");
+    expect(stdout).toContain("Abandoned workspace");
+
+    // Verify worktree was still removed despite PR close failure
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("abandon refuses a workspace held by a live run (daemon isLive)", async () => {
+    const branch = "feat/live-daemon";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async (project, b) => {
+      if (project === "project" && b === branch) {
+        return [{ isLive: true }];
+      }
+      return [];
+    };
+
+    let stderr = "";
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("Cannot abandon");
+    expect(stderr).toContain("daemon reports live run");
+
+    // Verify worktree still exists
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("abandon refuses a missing worktree", async () => {
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stderr = "";
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      "nonexistent",
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("No worktree found matching name");
+  });
+
+  test("abandon leaves spec files and run rows intact", async () => {
+    const branch = "feat/spec-intact";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    // Create a spec file in the worktree
+    const specDir = join(worktreePath, "v2", "spec", "test-spec");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# Test Spec\n");
+
+    // Create a spec file in the project root (the source)
+    const projectSpecDir = join(projectRoot, "v2", "spec", "test-spec");
+    mkdirSync(projectSpecDir, { recursive: true });
+    writeFileSync(join(projectSpecDir, "index.md"), "# Test Spec\n");
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+
+    // Verify source spec files remain
+    expect(existsSync(projectSpecDir)).toBe(true);
+    expect(existsSync(join(projectSpecDir, "index.md"))).toBe(true);
+  });
+
+  test("abandon previews and declines confirmation changes nothing", async () => {
+    const branch = "feat/decline";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stdout = "";
+    let gitRemoveInvoked = false;
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
+          gitRemoveInvoked = true;
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+          return JSON.stringify({ number: 999, state: "DRAFT" });
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => false },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("Preview abandon");
+    expect(stdout).toContain("Cancelled");
+    expect(gitRemoveInvoked).toBe(false);
+
+    // Verify worktree still exists
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("abandon with --dry-run previews without changes", async () => {
+    const branch = "feat/dry-run";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stdout = "";
+    let gitRemoveInvoked = false;
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
+          gitRemoveInvoked = true;
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+          return JSON.stringify({ number: 111, state: "DRAFT" });
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { dryRun: true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("Preview abandon");
+    expect(stdout).toContain("dry-run");
+    expect(gitRemoveInvoked).toBe(false);
+
+    // Verify worktree still exists
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("abandon refuses when the matching PR is ready (non-draft)", async () => {
+    const branch = "feat/ready-pr";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stderr = "";
+    let gitRemoveInvoked = false;
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
+          gitRemoveInvoked = true;
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 222, state: "OPEN" }]);
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+          return JSON.stringify({ number: 222, state: "OPEN" });
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("Cannot abandon");
+    expect(stderr).toContain("ready");
+    expect(gitRemoveInvoked).toBe(false);
+
+    // Verify worktree still exists
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("abandon refuses when multiple open PRs match the branch", async () => {
+    const branch = "feat/multi-pr";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stderr = "";
+    let gitRemoveInvoked = false;
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
+          gitRemoveInvoked = true;
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([
+            { number: 333, state: "DRAFT" },
+            { number: 334, state: "OPEN" },
+          ]);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("Cannot abandon");
+    expect(stderr).toContain("multiple open PRs");
+    expect(gitRemoveInvoked).toBe(false);
+
+    // Verify worktree still exists
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("abandon proceeds with single open draft PR, passes through to retirement", async () => {
+    const branch = "feat/draft-pr";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stdout = "";
+    let gitRemoveInvoked = false;
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
+          gitRemoveInvoked = true;
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 445, state: "DRAFT" }]);
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+          return JSON.stringify({ number: 445, state: "DRAFT" });
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("Abandoned workspace");
+    expect(gitRemoveInvoked).toBe(true);
+
+    // Verify worktree is gone
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+});

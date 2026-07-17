@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../shared/subprocess.ts";
-import { type DaemonClient, runCleanupCommand } from "./commands/cleanup.ts";
+import { type DaemonClient, runAbandonCommand, runCleanupCommand } from "./commands/cleanup.ts";
 import type { AgentModelConfig, LoadError } from "./config/agent-model-config.ts";
 import {
   type ImplementReviewBehavior,
@@ -907,15 +907,19 @@ function writeMachineConfigAgents(configPath: string, agents: readonly string[])
 
 async function runCleanupCliCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
   let dryRun = false;
+  let abandonName: string | undefined;
   let args: readonly string[] = argv;
 
   if (argv[0] === "--dry-run") {
     dryRun = true;
     args = argv.slice(1);
+  } else if (argv[0] === "--abandon" && argv[1]) {
+    abandonName = argv[1];
+    args = argv.slice(2);
   }
 
   if (args.length > 0) {
-    io.stderr("usage: jarvis cleanup [--dry-run]\n");
+    io.stderr("usage: jarvis cleanup [--dry-run] [--abandon <name>]\n");
     return 1;
   }
 
@@ -942,9 +946,21 @@ async function runCleanupCliCommand(argv: readonly string[], io: Io, deps: CliDe
     return 1;
   }
 
-  const store = openStateStore();
-
   const options = dryRun ? { dryRun: true } : { promptConfirm: deps.promptConfirm ?? createPromptFunction() };
+
+  if (abandonName !== undefined) {
+    return runAbandonCommand(
+      abandonName,
+      options,
+      registry,
+      deps.jarvisRoot ?? jarvisHome(),
+      deps.subprocessRunner ?? realAsyncSubprocessRunner,
+      daemonClient,
+      io,
+    );
+  }
+
+  const store = openStateStore();
 
   return runCleanupCommand(
     options,

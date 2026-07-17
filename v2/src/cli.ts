@@ -473,7 +473,7 @@ function runTuiCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<
   return Promise.resolve(1);
 }
 
-function runCleanupCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
+async function runCleanupCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
   let isDryRun = false;
 
   for (const arg of argv) {
@@ -481,12 +481,14 @@ function runCleanupCommand(argv: readonly string[], io: Io, deps: CliDeps): Prom
       isDryRun = true;
     } else if (arg.startsWith("--")) {
       io.stderr(CLEANUP_USAGE);
-      return Promise.resolve(1);
+      return 1;
     }
   }
 
-  return withRunClient(io, deps, async (daemonClient) => {
-    let daemonRuns: DaemonListRunRow[] | null = null;
+  let daemonRuns: DaemonListRunRow[] | null = null;
+  let daemonClient: IpcClient | undefined;
+  try {
+    daemonClient = await deps.connectIpcClient(deps.socketPath);
     try {
       const listResponse = await request(daemonClient, "list");
       const parsed = parseListRuns(listResponse);
@@ -496,20 +498,24 @@ function runCleanupCommand(argv: readonly string[], io: Io, deps: CliDeps): Prom
     } catch {
       // Request failed, continue with null
     }
+  } catch {
+    // Daemon unavailable, continue with null
+  } finally {
+    daemonClient?.close();
+  }
 
-    try {
-      const result = await cleanup(io, {
-        isDryRun,
-        readProjectRegistry: deps.readProjectRegistry,
-        subprocessRunner: deps.subprocessRunner ?? realAsyncSubprocessRunner,
-        daemonRuns,
-      });
-      return result;
-    } catch (error) {
-      io.stderr(`Cleanup failed: ${error instanceof Error ? error.message : String(error)}\n`);
-      return 1;
-    }
-  });
+  try {
+    const result = await cleanup(io, {
+      isDryRun,
+      readProjectRegistry: deps.readProjectRegistry,
+      subprocessRunner: deps.subprocessRunner ?? realAsyncSubprocessRunner,
+      daemonRuns,
+    });
+    return result;
+  } catch (error) {
+    io.stderr(`Cleanup failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    return 1;
+  }
 }
 
 function getWorkflowUsage(name: string): string {

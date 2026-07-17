@@ -88,6 +88,11 @@ export function getSuggestedMoves(input: SuggestedMovesInput): string[] {
   return defaultSuggestedMove(input);
 }
 
+function resolveJarvisWorktreeDir(opts: TriageCommandOptions): string | undefined {
+  const project = findProjectMatchForPath(opts.projectRoot, opts.config);
+  return project === undefined ? undefined : join(opts.config?.dir ?? CONFIG_DIR, "worktrees", project.key);
+}
+
 export function triageCommand(opts: TriageCommandOptions): number | Promise<number> {
   const worktreeDir = join(opts.projectRoot, ".worktree");
 
@@ -110,15 +115,12 @@ export function triageCommand(opts: TriageCommandOptions): number | Promise<numb
       }
       return triageMerge({ ...opts, worktreePath: resolution.worktreePath });
     }
-    return triageDrillDown(opts.projectRoot, worktreeDir, opts.worktreeName, opts.io);
+    return triageDrillDown(opts.projectRoot, worktreeDir, resolveJarvisWorktreeDir(opts), opts.worktreeName, opts.io);
   }
 
   // No-arg form: list all worktrees with summary
   const ghRunner = opts.ghRunner || createDefaultGhRunner();
-  const project = findProjectMatchForPath(opts.projectRoot, opts.config);
-  const jarvisWorktreeDir =
-    project === undefined ? undefined : join(opts.config?.dir ?? CONFIG_DIR, "worktrees", project.key);
-  return triageListWorktrees(worktreeDir, jarvisWorktreeDir, opts.io, ghRunner);
+  return triageListWorktrees(worktreeDir, resolveJarvisWorktreeDir(opts), opts.io, ghRunner);
 }
 
 type WorktreeStatus = {
@@ -350,13 +352,57 @@ function emitVerdict(io: TriageIo, statuses: WorktreeStatus[]): void {
   }
 }
 
-function triageDrillDown(projectRoot: string, worktreeDir: string, worktreeName: string, io: TriageIo): number {
-  const worktreePath = join(worktreeDir, worktreeName);
+type DrillDownResolution =
+  | { ok: true; worktreePath: string }
+  | { ok: false; reason: "not-found" | "ambiguous"; paths?: string[] };
 
-  if (!existsSync(worktreePath)) {
-    io.stderr(`unknown worktree: ${worktreeName}\n`);
+function resolveWorktreeNameAcrossHomes(
+  worktreeName: string,
+  v1Home: string,
+  v2Home: string | undefined,
+): DrillDownResolution {
+  const v1Path = join(v1Home, worktreeName);
+  const v2Path = v2Home ? join(v2Home, worktreeName) : undefined;
+
+  const v1Exists = existsSync(v1Path);
+  const v2Exists = v2Path && existsSync(v2Path);
+
+  if (v1Exists && v2Exists) {
+    return { ok: false, reason: "ambiguous", paths: [v1Path, v2Path] };
+  }
+
+  if (v1Exists) {
+    return { ok: true, worktreePath: v1Path };
+  }
+
+  if (v2Exists && v2Path) {
+    return { ok: true, worktreePath: v2Path };
+  }
+
+  return { ok: false, reason: "not-found" };
+}
+
+function triageDrillDown(
+  projectRoot: string,
+  v1Home: string,
+  v2Home: string | undefined,
+  worktreeName: string,
+  io: TriageIo,
+): number {
+  const resolution = resolveWorktreeNameAcrossHomes(worktreeName, v1Home, v2Home);
+
+  if (!resolution.ok) {
+    if (resolution.reason === "ambiguous") {
+      io.stderr(
+        `ambiguous worktree name: found in both homes\n  v1: ${resolution.paths?.[0]}\n  v2: ${resolution.paths?.[1]}\n`,
+      );
+    } else {
+      io.stderr(`unknown worktree: ${worktreeName}\n`);
+    }
     return 1;
   }
+
+  const worktreePath = resolution.worktreePath;
 
   const exitCode = 0;
 

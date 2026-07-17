@@ -1,3 +1,3 @@
 # Triage merges PRs without specs
 
-- [ ] [00 - Gate spec-less PR merges](./00-gate-spec-less-pr-merges.md)
+- [x] [00 - Gate spec-less PR merges](./00-gate-spec-less-pr-merges.md)

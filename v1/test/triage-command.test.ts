@@ -2361,22 +2361,64 @@ describe("triage --mark-ready", () => {
       expectMergeRefusal(err(), "unknown worktree", "unresolvable target");
     });
 
-    test("--merge with missing .active-spec-path and no matching spec returns error", async () => {
+    test("--merge without a spec runs the local and CI gates before merging", async () => {
       const worktreeName = "branch-1";
       const worktreePath = join(worktreeDir, worktreeName);
       setupWorktree(worktreePath);
 
-      const { io, err } = captureIo();
+      const calls: string[] = [];
+      const { io } = captureIo();
       const code = await triageCommand(
         triageMergeOpts({
           projectRoot,
           io,
           worktreeName,
+          ghRunner: {
+            getPrState: () => ({ state: "OPEN", isDraft: false }),
+            getChecks: () => {
+              calls.push("ci");
+              return [{ name: "test", status: "success" }];
+            },
+          },
+          runGate: () => {
+            calls.push("ready");
+          },
+          adminMerge: () => {
+            calls.push("merge");
+          },
         }),
       );
 
-      expect(code).toBe(1);
-      expectMergeRefusal(err(), "implementation PR", "no spec found for branch");
+      expect(code).toBe(0);
+      expect(calls).toEqual(["ready", "ci", "merge"]);
+    });
+
+    test("--merge without a spec refuses on local-ready or CI failure", async () => {
+      for (const failure of ["ready", "ci"] as const) {
+        const worktreeName = `spec-less-${failure}`;
+        setupWorktree(join(worktreeDir, worktreeName));
+        let mergeRan = false;
+        const { io } = captureIo();
+        const code = await triageCommand(
+          triageMergeOpts({
+            projectRoot,
+            io,
+            worktreeName,
+            ghRunner: {
+              getPrState: () => ({ state: "OPEN", isDraft: false }),
+              getChecks: () => [{ name: "test", status: failure === "ci" ? "failure" : "success" }],
+            },
+            runGate: () => {
+              if (failure === "ready") throw new Error("ready failed");
+            },
+            adminMerge: () => {
+              mergeRan = true;
+            },
+          }),
+        );
+        expect(code).toBe(1);
+        expect(mergeRan).toBe(false);
+      }
     });
 
     test("--merge when no PR exists returns error", async () => {
@@ -3350,7 +3392,7 @@ describe("triage --mark-ready", () => {
       expect(out()).toContain("merged successfully");
     });
 
-    test("--merge markerless plan worktree with no spec in either location returns error", async () => {
+    test("--merge markerless plan worktree with no spec still requires an open PR", async () => {
       const planName = "plan-merge-no-spec";
       const worktreeName = `plan-${planName}`;
       const branch = `plan/${planName}`;
@@ -3374,7 +3416,7 @@ describe("triage --mark-ready", () => {
       );
 
       expect(code).toBe(1);
-      expectMergeRefusal(err(), "plan PR", "no spec found for branch");
+      expectMergeRefusal(err(), "plan PR", "no PR found");
       expect(mergeRan).toBe(false);
     });
   });

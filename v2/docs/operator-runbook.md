@@ -15,7 +15,7 @@ own yet.
 | Patch spec implementation (`jarvis1 run <spec>`) | `jarvis1` | v2 implement preset is workflow-shaped, not a drop-in for every spec run |
 | Project registry (`jarvis1 init`, `jarvis1 config`) | `jarvis1` | v2 reads the same `~/.jarvis/config.json` |
 | Log server preflight | `jarvis1` | v2 daemon runs do not gate on `jarvis1 log-server` |
-| Cleanup, triage, runbook add | `jarvis1` | See [v1 operator runbook](../../v1/docs/operator-runbook.md) |
+| Cleanup, triage, runbook add | `jarvis1` | `triage --merge` gates spec-backed and spec-less PRs; see [v1 operator runbook](../../v1/docs/operator-runbook.md) |
 | Daemon, run control, TUI, workflow presets | `jarvis` | This doc |
 
 Orientation: [`onboarding.md`](./onboarding.md). Install path:

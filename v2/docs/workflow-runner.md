@@ -393,6 +393,11 @@ the daemon `start` RPC accepts. `reviewPasses` is validated as a non-negative
 integer; `0` emits only the implement write step, while a positive value loads
 one appended `review-debate` step with `maxCycles` equal to that count.
 
+The builder first resolves `specPath` from the caller's cwd, finds its registered
+project root, and verifies that the resulting project-relative path exists in
+`baseRef`. An unavailable path fails at CLI preflight before workflow construction,
+daemon contact, or worktree creation.
+
 **Linked-subspec routing:** When `specPath` points to a multi-subspec
 `index.md`, the builder and runner use the shared linked-subspec routing contract
 to resolve the first unchecked linked subspec via

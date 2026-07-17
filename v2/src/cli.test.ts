@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -1541,6 +1542,35 @@ describe("v2 cli", () => {
     expect(code).toBe(1);
     expect(built).toBe(false);
     expect(cap.read().stderr).toContain(`Spec path does not exist: ${join(root, "missing.md")}`);
+  });
+
+  test("run workflow implement rejects a cwd-visible spec unavailable from the base ref before daemon contact", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-implement-base-ref-"));
+    execFileSync("git", ["init", "-q"], { cwd: root });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: root });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
+    writeFileSync(join(root, ".gitignore"), "local-spec/\n", "utf8");
+    writeFileSync(join(root, "README.md"), "seed\n", "utf8");
+    execFileSync("git", ["add", ".gitignore", "README.md"], { cwd: root });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: root });
+    mkdirSync(join(root, "local-spec"));
+    writeFileSync(join(root, "local-spec", "index.md"), "- [ ] Work\n", "utf8");
+    const cap = captureIo();
+
+    const code = await main(
+      ["run", "workflow", "implement", "--base", "HEAD", "--spec", "local-spec/index.md"],
+      cap.io,
+      {
+        cwd: () => root,
+        readProjectRegistry: () => ({ project: { root } }),
+        connectIpcClient: async () => {
+          throw new Error("should not contact daemon");
+        },
+      },
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toBe("Spec path unavailable in base ref HEAD: local-spec/index.md\n");
   });
 
   test("run workflow implement rejects a missing non-index artifact before daemon contact", async () => {

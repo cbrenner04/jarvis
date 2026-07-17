@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -23,6 +24,12 @@ function writeJson(name: string, value: unknown): string {
   const filePath = join(dir, name);
   writeFileSync(filePath, JSON.stringify(value));
   return filePath;
+}
+
+function initGitRepo(root: string): void {
+  execFileSync("git", ["init", "-q"], { cwd: root });
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: root });
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
 }
 
 let machinesDir: string | undefined;
@@ -360,13 +367,16 @@ describe("buildImplementWorkflowSteps", () => {
     mkdirSync(join(root, "specs"));
     writeFileSync(join(root, "specs", "index.md"), "- [ ] [Work](./work.md)\n", "utf8");
     writeFileSync(join(root, "specs", "work.md"), "# Work\n", "utf8");
+    initGitRepo(root);
+    execFileSync("git", ["add", "specs"], { cwd: root });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: root });
     const machineConfigPath = writeJson("config.json", {
       projects: { registered: { root, implement: { reviewPasses: 2, reviewBehavior: "light" } } },
     });
     const machineProfile = writeValidProfile();
 
     const result = buildImplementWorkflowSteps(
-      { cwd: root, baseRef: "main", specPath: "specs/index.md", configPath: machineConfigPath },
+      { cwd: root, baseRef: "HEAD", specPath: "specs/index.md", configPath: machineConfigPath },
       {
         loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
       },
@@ -382,6 +392,49 @@ describe("buildImplementWorkflowSteps", () => {
     expect(write.expectedArtifactPath).toBe("specs/index.md");
     expect(write.implementReviewBehavior).toBe("light");
     expect(result.steps).toHaveLength(2);
+  });
+
+  test("rejects a gitignored cwd-visible spec unavailable from the base ref before routing", () => {
+    const root = mkdtempSync(join(tmpdir(), "implement-workflow-steps-base-ref-"));
+    initGitRepo(root);
+    writeFileSync(join(root, ".gitignore"), "local-spec/\n", "utf8");
+    writeFileSync(join(root, "README.md"), "seed\n", "utf8");
+    execFileSync("git", ["add", ".gitignore", "README.md"], { cwd: root });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: root });
+    mkdirSync(join(root, "local-spec"));
+    writeFileSync(join(root, "local-spec", "index.md"), "- [ ] Work\n", "utf8");
+
+    const result = buildImplementWorkflowSteps(
+      { cwd: root, baseRef: "HEAD", specPath: "local-spec/index.md", configPath: writeJson("config.json", { projects: { project: { root } } }) },
+      { loadWorkflowSteps: () => { throw new Error("should not load workflow steps"); } },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Spec path unavailable in base ref HEAD: local-spec/index.md",
+    });
+  });
+
+  test("accepts a base-tracked spec launched below the registered project root", () => {
+    const root = mkdtempSync(join(tmpdir(), "implement-workflow-steps-base-ref-"));
+    mkdirSync(join(root, "spec", "nested"), { recursive: true });
+    writeFileSync(join(root, "spec", "index.md"), "- [ ] [Work](./work.md)\n", "utf8");
+    writeFileSync(join(root, "spec", "work.md"), "# Work\n", "utf8");
+    initGitRepo(root);
+    execFileSync("git", ["add", "spec"], { cwd: root });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: root });
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"], projects: { project: { root } } });
+    const machineProfile = writeValidProfile();
+
+    const result = buildImplementWorkflowSteps(
+      { cwd: join(root, "spec", "nested"), baseRef: "HEAD", specPath: "../index.md", configPath: machineConfigPath },
+      { loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }) },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps[0]?.behavior).toBe("write");
+    expect(result.steps[0]).toMatchObject({ specPath: "spec/index.md" });
   });
 
   test("rejects an unresolved launch whose spec symlink escapes the registered root", () => {

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { resolveActiveLinkedSubspec as realResolveActiveLinkedSubspec } from "../../../shared/linked-subspec-routing.ts";
@@ -74,6 +75,15 @@ function resolveExistingImplementPath(label: string, path: string): string | { e
   }
 }
 
+function isSpecAvailableInBaseRef(projectRoot: string, baseRef: string, specPath: string): boolean {
+  try {
+    execFileSync("git", ["-C", projectRoot, "cat-file", "-e", `${baseRef}:${specPath}`], { stdio: "pipe" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Resolve the spec path and its owning project match from the registry, with existence checks. */
 function resolveImplementSpecAndProject(
   input: BuildImplementWorkflowStepsInput,
@@ -120,6 +130,7 @@ function resolveImplementLaunch(
   const resolvedSpec = resolveImplementSpecAndProject(input, deps);
   if ("error" in resolvedSpec) return resolvedSpec;
   const { match, resolvedSpecPath } = resolvedSpec;
+  const projectRelativeSpecPath = relative(match.root, resolvedSpecPath);
 
   const isIndexSpec = basename(resolvedSpecPath) === "index.md";
   const artifactPath = isIndexSpec ? resolvedSpecPath : input.artifactPath;
@@ -148,10 +159,14 @@ function resolveImplementLaunch(
         : readProjectImplementReviewBehavior(match.key, configPath);
   if (!reviewBehavior.ok) return { error: reviewBehavior.error };
 
+  if (!isSpecAvailableInBaseRef(match.root, input.baseRef, projectRelativeSpecPath)) {
+    return { error: `Spec path unavailable in base ref ${input.baseRef}: ${projectRelativeSpecPath}` };
+  }
+
   return {
     ...input,
     branchName: input.branchName ?? basename(dirname(resolvedSpecPath)),
-    specPath: relative(match.root, resolvedSpecPath),
+    specPath: projectRelativeSpecPath,
     projectRoot: match.root,
     projectName: match.key,
     ...(isIndexSpec ? {} : { artifactPath: relative(match.root, resolvedArtifactPath) }),

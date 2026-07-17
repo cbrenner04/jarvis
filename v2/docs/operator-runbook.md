@@ -15,8 +15,8 @@ own yet.
 | Patch spec implementation (`jarvis1 run <spec>`) | `jarvis1` | v2 implement preset is workflow-shaped, not a drop-in for every spec run |
 | Project registry (`jarvis1 init`, `jarvis1 config`) | `jarvis1` | v2 reads the same `~/.jarvis/config.json` |
 | Log server preflight | `jarvis1` | v2 daemon runs do not gate on `jarvis1 log-server` |
-| Cleanup, triage, runbook add | `jarvis1` | See [v1 operator runbook](../../v1/docs/operator-runbook.md) |
-| Daemon, run control, TUI, workflow presets | `jarvis` | This doc |
+| Triage, runbook add | `jarvis1` | See [v1 operator runbook](../../v1/docs/operator-runbook.md) |
+| Daemon, run control, TUI, workflow presets, cleanup | `jarvis` | This doc |
 
 Orientation: [`onboarding.md`](./onboarding.md). Install path:
 [`install-and-config.md`](./install-and-config.md).
@@ -365,6 +365,48 @@ Review and landing must use the split external worktree, not the operator checko
 If review dirties the primary checkout, treat as a harness bug; seed
 `intent-reviewed-uses-external-worktree` (fold into `workflow-composable-collapse`).
 
+### Cleanup: retire merged v2 worktrees
+
+`jarvis cleanup [--dry-run]` discovers external worktrees under `~/.jarvis/worktrees/`
+whose PR is merged, rechecks ownership before removal, and retires both the worktree
+and its local branch. Remote branch, specs, ready intents, and durable run history
+are preserved.
+
+**Usage:**
+- `jarvis cleanup --dry-run` — preview all discovered worktrees, report eligibility
+  (merged PR, no active runs, daemon liveness check), without mutating state.
+- `jarvis cleanup` — list eligible worktrees, prompt `[y/N]` for confirmation, then
+  retire each after rechecking ownership.
+
+**Eligibility checks (fail-closed):**
+- **PR merged:** `gh pr list --head <branch> --json state` returns `MERGED`. If unavailable
+  (timeout, subprocess error) or non-merged state, worktree is **ineligible**.
+- **No non-terminal durable run:** daemon `list` request filters runs whose `worktreePath`
+  matches and `status` is not `completed`, `blocked`, or `failed`. If any match, worktree
+  is **ineligible**.
+- **No daemon-live run:** same `list` response filters runs whose `worktreePath` matches
+  and `isLive` is true. If any match, worktree is **ineligible**.
+
+Ownership is rechecked after operator confirmation but before removal (catch
+concurrent changes).
+
+**Discovered worktrees:**
+- Searched recursively under `~/.jarvis/worktrees/<project>/` for `.git/` directories.
+- Supports slash-nested branch paths (e.g., `feature/subfeature/branch`).
+- Only registered projects (in `~/.jarvis/config.json`) are examined.
+- Empty directories (plan/intent parent dirs) are ignored.
+
+**Removal:**
+- `git worktree remove <path>` to unregister and delete the worktree directory.
+- `git worktree prune` to clean up `.git/worktrees/` stale entries.
+- `git branch -D <branch>` to delete the local branch.
+- Errors: if removal fails, the run exits nonzero without deleting run history.
+
+Exit codes:
+- `0` — no worktrees discovered, no eligible worktrees, user declined prompt, or all
+  removals succeeded.
+- `1` — one or more confirmed removals failed.
+
 ### Daemon blocked on long git / ready subprocess
 
 Responsive-daemon specs and seed `nonblocking-ready-gate-and-guard` address sync
@@ -544,8 +586,6 @@ Operators add bullets here; delete when fixed.
   contract). Re-run the preset before believing the status.
 - **List polls heavy (2026-07-12):** TUI refresh drives `list`; terminal retention
   caps at 50 newest terminal rows. See `daemon-terminal-run-retention` spec.
-- **No v2 cleanup (2026-07-12):** worktrees and completed specs accumulate. Seed:
-  `v2-reclaims-its-workspace`. Cleanup: delete when shipped.
 - **Preset cartesian product (2026-07-12):** avoid new `*-reviewed` preset code
   paths; seed `workflow-composable-collapse`. Cleanup: delete when collapsed.
 

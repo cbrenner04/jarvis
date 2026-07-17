@@ -2405,4 +2405,101 @@ describe("v2 cli", () => {
     expect(extraArgs).toBe(1);
     expect(cap.read().stderr).toContain("usage: jarvis tui log <run-id>");
   });
+
+  function setUpCleanupWorktreeFixture() {
+    const jarvisRoot = mkdtempSync(join(tmpdir(), "jarvis-cli-cleanup-test-"));
+    const projectRoot = mkdtempSync(join(tmpdir(), "jarvis-cli-project-"));
+    const worktreesHome = join(jarvisRoot, "worktrees", "demo");
+    mkdirSync(worktreesHome, { recursive: true });
+    const worktreePath = join(worktreesHome, "feature-branch");
+    mkdirSync(join(worktreePath, ".git"), { recursive: true });
+    writeFileSync(join(worktreePath, ".git", "HEAD"), "ref: refs/heads/feature-branch");
+    return { projectRoot };
+  }
+
+  function mergedGhSubprocessRunner(onGhCall?: () => void) {
+    return {
+      async runAsync(cmd: string, args: string[], _cwd: string) {
+        if (cmd === "gh" && args[0] === "pr") {
+          onGhCall?.();
+          return JSON.stringify([{ state: "MERGED" }]);
+        }
+        throw new Error(`Unexpected subprocess call: ${cmd}`);
+      },
+    };
+  }
+
+  test("jarvis cleanup --dry-run discovers merged-PR worktrees and previews without mutating", async () => {
+    const { projectRoot } = setUpCleanupWorktreeFixture();
+
+    let ghCalls = 0;
+    const cap = captureIo();
+    const code = await main(["cleanup", "--dry-run"], cap.io, {
+      readProjectRegistry: () => ({ demo: { root: projectRoot } }),
+      connectIpcClient: async () => {
+        throw new Error("daemon should not be contacted in dry-run");
+      },
+      subprocessRunner: mergedGhSubprocessRunner(() => ghCalls++),
+    });
+
+    expect(code).toBe(0);
+    expect(ghCalls).toBeGreaterThan(0);
+    const output = cap.read();
+    expect(output.stdout).toContain("Discovered");
+    expect(output.stdout).toContain("feature-branch");
+    expect(output.stdout).toContain("eligible");
+  });
+
+  test("jarvis cleanup with invalid flags prints usage and exits 1", async () => {
+    const cap = captureIo();
+    const code = await main(["cleanup", "--invalid-flag"], cap.io, {
+      readProjectRegistry: () => ({}),
+      connectIpcClient: async () => {
+        throw new Error("should not connect");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain("usage: jarvis cleanup");
+  });
+
+  test("jarvis cleanup queries daemon for live runs and reports them", async () => {
+    const { projectRoot } = setUpCleanupWorktreeFixture();
+
+    let daemonQueried = false;
+    const mockClient = {
+      close: () => {},
+      send: () => {},
+    };
+
+    const cap = captureIo();
+    const code = await main(["cleanup", "--dry-run"], cap.io, {
+      readProjectRegistry: () => ({ demo: { root: projectRoot } }),
+      connectIpcClient: async () => {
+        daemonQueried = true;
+        return mockClient as any;
+      },
+      subprocessRunner: mergedGhSubprocessRunner(),
+    });
+
+    expect(code).toBe(0);
+    expect(daemonQueried).toBe(true);
+  });
+
+  test("jarvis cleanup handles daemon unavailability gracefully", async () => {
+    const { projectRoot } = setUpCleanupWorktreeFixture();
+
+    const cap = captureIo();
+    const code = await main(["cleanup", "--dry-run"], cap.io, {
+      readProjectRegistry: () => ({ demo: { root: projectRoot } }),
+      connectIpcClient: async () => {
+        throw new Error("daemon unreachable");
+      },
+      subprocessRunner: mergedGhSubprocessRunner(),
+    });
+
+    expect(code).toBe(0);
+    const output = cap.read();
+    expect(output.stdout).toContain("feature-branch");
+  });
 });

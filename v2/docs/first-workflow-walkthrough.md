@@ -454,6 +454,23 @@ no-Git runs delete the source after the durable output exists. Draft, review,
 validation, collision, and publication failures retain queue inputs. Completion
 publication runs only after landing.
 
+## Session-end cleanup
+
+After a session of workflows, merged external worktrees accumulate under
+`~/.jarvis/worktrees/`. Clean them up with:
+
+```bash
+jarvis cleanup --dry-run          # Preview eligible worktrees
+jarvis cleanup                    # Retire merged-PR worktrees after confirmation
+```
+
+The cleanup command discovers worktrees whose PR is merged, confirms no active
+runs reference them, and removes both the worktree directory and local branch.
+Remote branches, specs, and durable run history are preserved.
+
+See [`operator-runbook.md` § Cleanup](./operator-runbook.md#cleanup-retire-merged-v2-worktrees)
+for safety guards, eligibility criteria, and error handling.
+
 ## Related docs
 
 New plan and implement PRs use the spec's first non-empty `index.md` H1. A
@@ -463,4 +480,5 @@ PRs retain `intent: <name>`. Missing or unreadable index identity fails with a
 named title-resolution error, with no generic completion title.
 
 - [`daemon-host.md`](./daemon-host.md) — IPC methods, `list`/`wait` error shape, resume semantics
+- [`operator-runbook.md`](./operator-runbook.md) — Cleanup, daemon lifecycle, actuator choice
 - [`workflow-runner.md`](./workflow-runner.md) — multi-step workflows and the `implement` preset

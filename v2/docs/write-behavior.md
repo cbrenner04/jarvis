@@ -756,6 +756,53 @@ When `loopOutcomeKind` is omitted:
 
 Malformed success payloads exit `1` with `invalid daemon response` on stderr; other errors follow run-control rules above.
 
+## Cleanup
+
+`jarvis cleanup` retires merged v2 external worktrees discovered under
+`~/.jarvis/worktrees/<project>/`. The command discovers worktrees via materialized
+`.git/` directories, checks each for eligibility, and removes eligible ones after
+operator confirmation.
+
+**Eligibility:** a worktree is eligible for retirement when its PR is merged, no
+non-terminal durable run references it, and the daemon reports no live run for it.
+Eligibility is rechecked after operator confirmation but before removal.
+
+**Discovery:** searches recursively under each registered project's worktree home
+(`~/.jarvis/worktrees/<project>/**/...`) for directories containing `.git`, mapping
+each to its branch name. Supports slash-nested branch paths like
+`feature/subfeature/branch` via directory traversal.
+
+**PR state inspection:** gates on `gh pr list --head <branch> --json state` per
+worktree, querying the default origin remote and treating any non-merged state
+(open, draft, closed, etc.) as ineligible. Missing PR (`[]` response), unavailable
+inspection (timeout/subprocess error), or non-merge state all mark the worktree
+**ineligible** (fail-closed).
+
+**Live ownership:** reads durable run state from the daemon via a single `list` IPC
+request and filters for runs whose `worktreePath` matches and `status` is non-terminal
+(not `completed`, `blocked`, or `failed`) or `isLive` is true. Missing daemon client,
+unresponsive daemon, or empty response reads as no active runs (eligible if PR is
+merged).
+
+**Removal:** runs `git worktree remove`, `git worktree prune`, then `git branch -D`
+in the project root, leaving no `.git/worktrees/` registration and removing the
+local branch. Remote branch, specs, ready intents, and durable run history are
+preserved.
+
+**Flags:**
+- `--dry-run` previews discovery and eligibility without prompting or mutating state.
+- Without `--dry-run`, displays eligible worktrees and prompts `[y/N]` for confirmation before removal.
+
+Exit codes:
+- `0`: no worktrees discovered, no eligible worktrees, user declined prompt, or all removals succeeded.
+- `1`: one or more confirmed removals failed.
+
+### Seams
+
+- `jarvisRoot` (injectable; default `jarvisHome()`): worktrees discovery home.
+- `AsyncSubprocessRunner` (injectable; default real subprocess): all `gh` and `git` commands route through this seam.
+- Daemon client (connected via IPC): contacted to list live runs; unavailability is not an error.
+
 ## Verification
 
 Drive the path through the test seam:
@@ -777,6 +824,11 @@ Drive the path through the test seam:
   blocking-after-replay quit, server close, live append, empty tail,
   mid-session tail failure, unavailable daemon, ink render seam, and per-kind line
   projection with injectable tail client and view-host fakes.
+- `bun test v2/src/commands/cleanup.test.ts` proves cleanup discovery, eligibility
+  (merged PR, non-terminal-run absence, daemon-live absence, fail-closed inspection),
+  preview (`--dry-run`), confirmation and removal, nested branch paths, multiple
+  projects, failure handling, and terminal-status validation with injectable
+  subprocess runner and daemon responses.
 
 A live `jarvis write ...` runs the full pipeline and reports
 `"kind": "invocation_failure"` until process bindings land.

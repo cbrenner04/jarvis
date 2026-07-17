@@ -2,6 +2,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
+import type { AsyncSubprocessRunner } from "../../shared/subprocess.ts";
+import { realAsyncSubprocessRunner } from "../../shared/subprocess.ts";
+import { cleanup } from "./commands/cleanup.ts";
 import type { AgentModelConfig, LoadError } from "./config/agent-model-config.ts";
 import {
   type ImplementReviewBehavior,
@@ -62,6 +65,7 @@ type CliDeps = {
   runTuiLogFollow: (runId: string, deps?: RunTuiLogFollowDeps) => Promise<number>;
   workflowPresetBuilders: Readonly<Record<string, WorkflowPresetBuilder>>;
   readProjectRegistry: () => Record<string, { root: string; origin?: string }>;
+  subprocessRunner?: AsyncSubprocessRunner;
   cwd: () => string;
   socketPath: string;
   pidPath: string;
@@ -77,6 +81,7 @@ const CONFIG_USAGE = "usage: jarvis config <show|path|set-agents> [args]\n";
 const RUN_USAGE = "usage: jarvis run <start|list|log|pause|resume|kill|wait> [args]\n";
 const TUI_USAGE = "usage: jarvis tui\n";
 const TUI_LOG_USAGE = "usage: jarvis tui log <run-id>\n";
+const CLEANUP_USAGE = "usage: jarvis cleanup [--dry-run]\n";
 const WRITE_USAGE =
   "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--max-iterations <n>]\n";
 const WORKFLOW_IMPLEMENT_USAGE =
@@ -167,6 +172,10 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
 
   if (command === "tui") {
     return runTuiCommand(argv.slice(1), out, runtimeDeps);
+  }
+
+  if (command === "cleanup") {
+    return runCleanupCommand(argv.slice(1), out, runtimeDeps);
   }
 
   out.stdout("v2 not ready\n");
@@ -462,6 +471,45 @@ function runTuiCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<
   }
   io.stderr(TUI_USAGE);
   return Promise.resolve(1);
+}
+
+function runCleanupCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
+  let isDryRun = false;
+
+  for (const arg of argv) {
+    if (arg === "--dry-run") {
+      isDryRun = true;
+    } else if (arg.startsWith("--")) {
+      io.stderr(CLEANUP_USAGE);
+      return Promise.resolve(1);
+    }
+  }
+
+  return withRunClient(io, deps, async (daemonClient) => {
+    let daemonRuns: DaemonListRunRow[] | null = null;
+    try {
+      const listResponse = await request(daemonClient, "list");
+      const parsed = parseListRuns(listResponse);
+      if (parsed) {
+        daemonRuns = parsed.runs;
+      }
+    } catch {
+      // Request failed, continue with null
+    }
+
+    try {
+      const result = await cleanup(io, {
+        isDryRun,
+        readProjectRegistry: deps.readProjectRegistry,
+        subprocessRunner: deps.subprocessRunner ?? realAsyncSubprocessRunner,
+        daemonRuns,
+      });
+      return result;
+    } catch (error) {
+      io.stderr(`Cleanup failed: ${error instanceof Error ? error.message : String(error)}\n`);
+      return 1;
+    }
+  });
 }
 
 function getWorkflowUsage(name: string): string {

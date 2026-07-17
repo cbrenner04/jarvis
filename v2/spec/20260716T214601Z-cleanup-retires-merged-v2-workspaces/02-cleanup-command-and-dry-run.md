@@ -6,11 +6,26 @@ Compose discovery (`00`) and the eligibility gate (`01`) into the real `jarvis c
 retire eligible worktrees safely. #1682 shipped a correct-looking gate that the production CLI never
 wired to the daemon; this subspec's end-to-end test exists to make that failure impossible to repeat.
 
+**Attempt 5 (#1694) faked the end-to-end test.** `runCleanupCommand` hard-coded the real
+`AsyncSubprocessRunner`, `openStateStore()`, and `jarvisHome()` with **no seam** for `jarvisRoot` or
+the runner, so no test could point the command at a temp worktree. The agent responded by writing a
+test *titled* "end-to-end" that called `runner.runAsync("git", ["worktree","remove",…])` **in its own
+body** and never invoked `main`/`runCleanupCommand`/`performWorktreeRemovals`. Result: the removal
+path, the `git worktree remove` argv, the post-confirm recheck, and the daemon fail-closed had **zero**
+execution coverage — mutations for `rmSync`, daemon fail-open, and dropped recheck all stayed green.
+**The command must expose the seams that make the honest test possible, or the test is impossible and
+will be faked again.**
+
 ## Decisions
 
-- Wire `jarvis cleanup` in `v2/src/cli.ts`, constructing the **real** `AsyncSubprocessRunner`, daemon
-  client, and durable run store and passing them into discovery + the gate; rules out #1682's
-  `() => []` / `() => false` defaults and #1686's swallowed daemon failure.
+- `runCleanupCommand` takes `jarvisRoot`, the `AsyncSubprocessRunner`, the state store, and the daemon
+  client as injected parameters (defaulting to the real ones for the production `main` path), and
+  threads them into discovery + the gate + removal; rules out attempt 5's hard-coded
+  `jarvisHome()` / `realAsyncSubprocessRunner` / `openStateStore()` that left no seam and made the
+  end-to-end test impossible to write honestly. The default production wiring still constructs the
+  real daemon client that **throws** on connect failure (fail-closed), never `() => []`.
+- Wire `jarvis cleanup` in `v2/src/cli.ts`, passing those real seams into discovery + the gate; rules
+  out #1682's `() => []` / `() => false` defaults and #1686's swallowed daemon failure.
 - Retire via `git worktree remove <path>` then `git worktree prune`, then `git branch -D <branch>`
   (local only) — all through the injected runner; rules out `rmSync`, which orphans the
   `.git/worktrees/` registration and fails the branch delete (#1675).
@@ -30,15 +45,20 @@ wired to the daemon; this subspec's end-to-end test exists to make that failure 
 - [ ] `jarvis cleanup` prompts `[y/N]`; declining changes nothing; confirming removes each
   still-eligible worktree (via `git worktree remove` + `prune`) and its **local** branch, leaving the
   remote branch, specs, ready-intents, and durable run rows untouched.
-- [ ] **End-to-end through the real CLI (`v2/src/cli.ts`), the #1682 killer.** A test drives the real
-  `cleanup` entry with only the permitted seams injected, against a temp `jarvisRoot` with a
-  materialized merged worktree. With the daemon client resolving (no live run) the worktree is listed
-  and, on confirm, removed; with the daemon client throwing it is reported **ineligible** and left
-  intact. The test asserts the daemon client was actually invoked by the production path.
-- [ ] The removal argv is asserted (`git worktree remove <path>`, then `git worktree prune`, then
-  `git branch -D <branch>`); replacing `git worktree remove` with `rmSync` turns a test red. After a
-  real retirement in a temp worktree, `git worktree list` no longer names the path and re-running
-  cleanup over it is a no-op, not an error.
+- [ ] **End-to-end through `runCleanupCommand`, the #1682/#1694 killer.** A test invokes the real
+  `runCleanupCommand` (or `main(["cleanup", …])`) — **not** a hand-assembled call to the runner in the
+  test body — with a temp `jarvisRoot` holding a **real materialized** merged worktree (`git worktree
+  add`), the real `AsyncSubprocessRunner`, and an injected daemon client. The test must exercise the
+  actual removal path: on confirm with the daemon resolving, `performWorktreeRemovals` runs and
+  afterward `git worktree list` no longer names the path; with the daemon client throwing, the
+  worktree is reported **ineligible** and still present. The test asserts the injected daemon client
+  was invoked by the production path. A test that calls `runner.runAsync("worktree","remove",…)` in
+  its own body does **not** satisfy this.
+- [ ] **The removal guards are load-bearing under mutation of production code** (verified against this
+  end-to-end test, since it now executes the real path): replacing `git worktree remove` with `rmSync`
+  turns it red; making the daemon client's connect-failure path return `[]` instead of throwing
+  (fail-open) turns it red; deleting the post-confirmation recheck in `performWorktreeRemovals` turns
+  it red. Re-running cleanup over an already-retired workspace is a no-op, not an error.
 - [ ] Cleanup handles registered projects independently, leaves an ineligible or failed candidate
   intact, and exits nonzero when a confirmed retirement fails.
 - [ ] `v2/src/cli.test.ts` covers command parsing, `--dry-run`, `[y/N]` decline, and the end-to-end

@@ -791,3 +791,37 @@ with the completion run, so retries do not reread changed or unavailable specs.
 Unreadable index identity fails with a title-resolution error naming the spec path;
 there is no `jarvis: complete run` fallback. Existing matching open PRs retain
 their titles.
+
+## Cleanup behavior
+
+`jarvis cleanup [--dry-run]` discovers and retires merged-PR worktrees across all
+registered projects, preventing local-branch accumulation.
+
+Discovery walks `~/.jarvis/worktrees/<project>/` for each registered project,
+discovering all real git worktrees (including slash-nested paths like `plan/name`
+and `intent/name`). Empty directories and non-git debris are ignored. A discovered
+worktree is a candidate for retirement.
+
+Each candidate passes the **eligibility gate**: the PR must be merged (`gh pr list
+--head <branch> --state merged`), no non-terminal durable run may reference it
+(per state store lookup), and the daemon must report no live runs for the branch.
+If any check fails, the candidate is ineligible. The gate fails closed: subprocess
+errors, daemon unreachability, and store read failures all render a candidate
+ineligible.
+
+`--dry-run` previews all eligible candidates with their paths and branches, prints
+the count of candidates that would be removed, and exits without prompting or
+mutating anything.
+
+Without `--dry-run`, the command prints eligible candidates and prompts `[y/N]`.
+Declining the prompt changes nothing. Confirming the prompt re-checks eligibility
+immediately (to rule out ownership races), then removes each still-eligible
+worktree: `git worktree remove <path>`, then `git worktree prune`, then `git branch
+-D <branch>` (local only). Removal failures cause the command to exit nonzero and
+leave remaining candidates intact. Remote branches, specs, ready-intents, and
+durable run rows are never deleted.
+
+Cleanup handles registered projects independently, so failure in one project's
+candidates does not affect another. The command exits zero when no eligible
+candidates exist or when all removals succeed; nonzero when a confirmed removal
+fails.

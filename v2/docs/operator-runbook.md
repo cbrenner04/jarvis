@@ -112,9 +112,12 @@ Adapted from v1; v2 session close-out is the same obligation:
    PR.
 5. **Maintain this runbook** (branch → PR → merge). Operators add gotchas and remove
    entries when the structural fix ships.
-6. **End-of-session cleanup** — v2 has no `jarvis cleanup` yet (seed
-   `v2-reclaims-its-workspace`); use v1 cleanup where it applies and manual worktree
-   recovery for `~/.jarvis/worktrees/` (see [Recovery](#recovery)).
+6. **End-of-session cleanup** — run `jarvis cleanup [--dry-run]` to retire merged-PR
+   worktrees under `~/.jarvis/worktrees/`. The command discovers all materialized
+   worktrees, checks eligibility (merged PR, no live runs), previews removals, and
+   prompts `[y/N]` for confirmation. `--dry-run` shows what would be removed without
+   prompting. Retention: remote branches, specs, ready-intents, and durable run
+   history are never deleted. See [write-behavior.md § Cleanup behavior](./write-behavior.md#cleanup-behavior) for details.
 
 ## Runbook maintenance
 
@@ -289,7 +292,15 @@ continues to reject the same `(project, branch)`.
 A failed v2 run leaks its worktree under `~/.jarvis/worktrees/<project>/<branch>/`
 and holds the branch name. `jarvis1 plan`/`run` for the same name then dies with
 `fatal: '<branch>' is already used by worktree at …`, so **the v2 failure breaks the
-v1 recovery path**. Clear it before falling back:
+v1 recovery path**. Clear it via `jarvis cleanup` (which handles both merged and
+unmerged branches safely by removing only those that pass eligibility checks):
+
+```sh
+jarvis cleanup
+```
+
+For branches that are not yet merged or where daemon/store visibility is unavailable,
+remove manually if confident the worktree is not in use:
 
 ```sh
 git worktree remove --force ~/.jarvis/worktrees/<project>/<branch>
@@ -297,7 +308,7 @@ git branch -D <branch>
 git worktree prune
 ```
 
-Seed: `v2-reclaims-its-workspace`. Cleanup: delete when it ships.
+Seed: `v2-reclaims-its-workspace`.
 
 ### Blocked run: inspect and resume
 
@@ -348,8 +359,14 @@ Workflow-started runs reject live kill/pause ([`daemon-host.md` § Live controls
 fatal: '<branch>' is already used by worktree at ...
 ```
 
-Remove the stale worktree under `~/.jarvis/worktrees/…` and delete the local
-branch if safe. Seed: `v2-reclaims-its-workspace`.
+If the PR is merged, use `jarvis cleanup` to remove it safely. For unmerged branches
+or when cleanup eligibility checks cannot be reached, remove manually:
+
+```sh
+git worktree remove --force ~/.jarvis/worktrees/<project>/<branch>
+git branch -D <branch>
+git worktree prune
+```
 
 ### Publication / completion failures
 
@@ -370,6 +387,16 @@ If review dirties the primary checkout, treat as a harness bug; seed
 Responsive-daemon specs and seed `nonblocking-ready-gate-and-guard` address sync
 subprocess on the daemon event loop. Symptom: `jarvis run list` hangs while a run
 finalizes. Check for `bun run ready` or `git` children on the daemon PID.
+
+### Cleanup eligibility gate
+
+v2 `jarvis cleanup` retires merged worktrees only when:
+
+- The PR is confirmed merged (via `gh pr list --head <branch> --state merged`).
+- No non-terminal durable run references the branch (checked against `~/.jarvis/state/v2.sqlite`).
+- No daemon-reported live run references the branch.
+
+Eligibility failure when any check cannot be reached (daemon unreachable, `gh` errors, store unreadable) is **fail-closed**: the candidate is deemed ineligible and skipped. This prevents accidental deletion of in-flight work when the safety check infrastructure is momentarily unavailable.
 
 ## Choosing an actuator
 

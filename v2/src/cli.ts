@@ -2,6 +2,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
+import { realAsyncSubprocessRunner } from "../../shared/subprocess.ts";
+import { discoverMaterializedWorktrees, type WorktreeCandidate } from "./commands/cleanup-discovery.ts";
+import { checkEligibilityGate, type DaemonListRunsClient } from "./commands/cleanup-eligibility-gate.ts";
 import type { AgentModelConfig, LoadError } from "./config/agent-model-config.ts";
 import {
   type ImplementReviewBehavior,
@@ -38,6 +41,7 @@ import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import { RpcError } from "./ipc/rpc-errors.ts";
 import { createRpcTransport } from "./ipc/rpc-transport.ts";
 import { DAEMON_LOG_PATH, DAEMON_PID_PATH, DAEMON_SOCKET_PATH, MACHINE_CONFIG_PATH } from "./paths.ts";
+import { openStateStore } from "./persistence/state-store.ts";
 import { runTuiEntry } from "./tui/tui-entry.tsx";
 import { runTuiLogFollow } from "./tui/tui-log-follow-entry.tsx";
 import type { RunTuiLogFollowDeps } from "./tui/tui-log-follow-types.ts";
@@ -167,6 +171,10 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
 
   if (command === "tui") {
     return runTuiCommand(argv.slice(1), out, runtimeDeps);
+  }
+
+  if (command === "cleanup") {
+    return runCleanupCommand(argv.slice(1), out, runtimeDeps);
   }
 
   out.stdout("v2 not ready\n");
@@ -910,6 +918,130 @@ function writeStdoutJson(result: WriteLoopResult): string {
   if (result.readyFlipError !== undefined) payload.readyFlipError = result.readyFlipError;
   if (result.publicationFailure !== undefined) payload.publicationFailure = result.publicationFailure;
   return JSON.stringify(payload, null, 2);
+}
+
+async function runCleanupCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
+  const dryRun = argv.includes("--dry-run");
+
+  if (argv.length !== (dryRun ? 1 : 0)) {
+    io.stderr("usage: jarvis cleanup [--dry-run]\n");
+    return 1;
+  }
+
+  try {
+    const registry = deps.readProjectRegistry();
+    const storePromise = Promise.resolve(openStateStore());
+    const daemonClient = createDaemonListRunsClient(deps);
+
+    const candidates = await discoverMaterializedWorktrees(registry);
+    const eligibilities = await Promise.all(
+      candidates.map((c) => checkEligibilityGate(c, storePromise, realAsyncSubprocessRunner, daemonClient)),
+    );
+    const eligible = candidates.filter((_, i) => eligibilities[i]?.eligible);
+
+    if (eligible.length === 0) {
+      io.stdout("No eligible worktrees to clean up.\n");
+      return 0;
+    }
+
+    for (const candidate of eligible) {
+      io.stdout(`${candidate.path} (${candidate.branch})\n`);
+    }
+
+    if (dryRun) {
+      io.stdout(`${eligible.length} worktree(s) would be removed.\n`);
+      return 0;
+    }
+
+    return await promptForCleanupConfirmation(io, eligible, registry, storePromise, daemonClient);
+  } catch (error) {
+    io.stderr(formatConnectionError(error));
+    return 1;
+  }
+}
+
+async function promptForCleanupConfirmation(
+  io: Io,
+  eligible: WorktreeCandidate[],
+  registry: Record<string, { root: string; origin?: string }>,
+  storePromise: Promise<ReturnType<typeof openStateStore>>,
+  daemonClient: DaemonListRunsClient,
+): Promise<number> {
+  const readline = await import("node:readline");
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise<number>((resolve) => {
+    rl.question("Remove worktree(s)? [y/N] ", async (answer) => {
+      rl.close();
+
+      if (answer.toLowerCase() !== "y") {
+        io.stdout("Cancelled.\n");
+        resolve(0);
+        return;
+      }
+
+      try {
+        const removeResult = await performWorktreeRemovals(io, eligible, registry, storePromise, daemonClient);
+        resolve(removeResult);
+      } catch (error) {
+        io.stderr(`Error during cleanup: ${error instanceof Error ? error.message : String(error)}\n`);
+        resolve(1);
+      }
+    });
+  });
+}
+
+async function performWorktreeRemovals(
+  io: Io,
+  eligible: WorktreeCandidate[],
+  registry: Record<string, { root: string; origin?: string }>,
+  storePromise: Promise<ReturnType<typeof openStateStore>>,
+  daemonClient: DaemonListRunsClient,
+): Promise<number> {
+  for (const candidate of eligible) {
+    const recheck = await checkEligibilityGate(candidate, storePromise, realAsyncSubprocessRunner, daemonClient);
+    if (!recheck.eligible) {
+      io.stdout(`Skipping ${candidate.path}: ${recheck.reason}\n`);
+      continue;
+    }
+
+    const projectRoot = registry[candidate.project]?.root ?? process.cwd();
+    try {
+      await realAsyncSubprocessRunner.runAsync("git", ["worktree", "remove", candidate.path], projectRoot);
+      await realAsyncSubprocessRunner.runAsync("git", ["worktree", "prune"], projectRoot);
+      await realAsyncSubprocessRunner.runAsync("git", ["branch", "-D", candidate.branch], projectRoot);
+      io.stdout(`Removed ${candidate.path}\n`);
+    } catch (error) {
+      io.stderr(`Failed to remove ${candidate.path}: ${error instanceof Error ? error.message : String(error)}\n`);
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+function createDaemonListRunsClient(deps: CliDeps): DaemonListRunsClient {
+  return async (project: string, branch: string): Promise<DaemonListRunRow[]> => {
+    try {
+      let client: IpcClient | undefined;
+      try {
+        client = await deps.connectIpcClient(deps.socketPath);
+        const result = (await request(client, "list")) as unknown;
+        const parsed = parseListRuns(result);
+        if (!parsed) {
+          return [];
+        }
+        return parsed.runs.filter((run) => run.project === project && run.branch === branch);
+      } finally {
+        client?.close();
+      }
+    } catch {
+      throw new Error(`Failed to list daemon runs for ${project}/${branch}`);
+    }
+  };
 }
 
 function exitCodeForWriteResult(kind: Awaited<ReturnType<typeof executeWriteLoop>>["kind"]): number {

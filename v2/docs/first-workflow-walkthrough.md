@@ -454,6 +454,29 @@ no-Git runs delete the source after the durable output exists. Draft, review,
 validation, collision, and publication failures retain queue inputs. Completion
 publication runs only after landing.
 
+## Session-end cleanup
+
+After one or more workflows complete and land, clean up completed worktrees:
+
+```sh
+jarvis cleanup --dry-run
+```
+
+This previews merged-PR worktrees that would be removed. To confirm removal:
+
+```sh
+jarvis cleanup
+```
+
+The command discovers all materialized worktrees, checks that each PR is merged and
+no live runs reference it, then prompts `[y/N]`. Confirming removes eligible
+worktrees via `git worktree remove`, `git worktree prune`, and `git branch -D`.
+Remote branches, specs, ready-intents, and durable run history are always retained.
+
+For details on the eligibility gate and safety guarantees, see
+[`write-behavior.md` § Cleanup behavior](./write-behavior.md#cleanup-behavior) and
+[`operator-runbook.md` § Cleanup eligibility gate](./operator-runbook.md#cleanup-eligibility-gate).
+
 ## Related docs
 
 New plan and implement PRs use the spec's first non-empty `index.md` H1. A

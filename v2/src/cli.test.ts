@@ -2405,4 +2405,63 @@ describe("v2 cli", () => {
     expect(extraArgs).toBe(1);
     expect(cap.read().stderr).toContain("usage: jarvis tui log <run-id>");
   });
+
+  describe("cleanup command", () => {
+    test("cleanup with invalid flags prints usage and exits 1", async () => {
+      const cap = captureIo();
+      const code = await main(["cleanup", "--invalid"], cap.io, {
+        readProjectRegistry: () => ({}),
+      });
+      expect(code).toBe(1);
+      expect(cap.read().stderr).toContain("usage: jarvis cleanup");
+    });
+
+    test("cleanup with extra positional args prints usage and exits 1", async () => {
+      const cap = captureIo();
+      const code = await main(["cleanup", "extra"], cap.io, {
+        readProjectRegistry: () => ({}),
+      });
+      expect(code).toBe(1);
+      expect(cap.read().stderr).toContain("usage: jarvis cleanup");
+    });
+
+    test("cleanup with --dry-run and extra args prints usage and exits 1", async () => {
+      const cap = captureIo();
+      const code = await main(["cleanup", "--dry-run", "extra"], cap.io, {
+        readProjectRegistry: () => ({}),
+      });
+      expect(code).toBe(1);
+      expect(cap.read().stderr).toContain("usage: jarvis cleanup");
+    });
+
+    test("cleanup with empty registry finds no eligible worktrees", async () => {
+      const cap = captureIo();
+      const code = await main(["cleanup"], cap.io, {
+        readProjectRegistry: () => ({}),
+      });
+      expect(code).toBe(0);
+      expect(cap.read().stdout).toContain("No eligible worktrees");
+    });
+
+    test("cleanup --dry-run with empty registry finds no eligible worktrees", async () => {
+      const cap = captureIo();
+      const code = await main(["cleanup", "--dry-run"], cap.io, {
+        readProjectRegistry: () => ({}),
+      });
+      expect(code).toBe(0);
+      expect(cap.read().stdout).toContain("No eligible worktrees");
+    });
+
+    test("cleanup reports connection errors from registry read", async () => {
+      const cap = captureIo();
+      const code = await main(["cleanup"], cap.io, {
+        readProjectRegistry: () => {
+          throw new Error("registry read failed");
+        },
+      });
+
+      expect(code).toBe(1);
+      expect(cap.read().stderr).toContain("registry read failed");
+    });
+  });
 });

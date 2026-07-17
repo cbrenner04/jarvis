@@ -24,26 +24,26 @@ wired to the daemon; this subspec's end-to-end test exists to make that failure 
 
 ## Acceptance criteria
 
-- [ ] `jarvis cleanup --dry-run` discovers merged-PR worktrees under each registered project's home,
+- [x] `jarvis cleanup --dry-run` discovers merged-PR worktrees under each registered project's home,
   including slash-nested paths, and previews worktree + local-branch removals without prompting or
   mutating anything.
-- [ ] `jarvis cleanup` prompts `[y/N]`; declining changes nothing; confirming removes each
+- [x] `jarvis cleanup` prompts `[y/N]`; declining changes nothing; confirming removes each
   still-eligible worktree (via `git worktree remove` + `prune`) and its **local** branch, leaving the
   remote branch, specs, ready-intents, and durable run rows untouched.
-- [ ] **End-to-end through the real CLI (`v2/src/cli.ts`), the #1682 killer.** A test drives the real
+- [x] **End-to-end through the real CLI (`v2/src/cli.ts`), the #1682 killer.** A test drives the real
   `cleanup` entry with only the permitted seams injected, against a temp `jarvisRoot` with a
   materialized merged worktree. With the daemon client resolving (no live run) the worktree is listed
   and, on confirm, removed; with the daemon client throwing it is reported **ineligible** and left
   intact. The test asserts the daemon client was actually invoked by the production path.
-- [ ] The removal argv is asserted (`git worktree remove <path>`, then `git worktree prune`, then
+- [x] The removal argv is asserted (`git worktree remove <path>`, then `git worktree prune`, then
   `git branch -D <branch>`); replacing `git worktree remove` with `rmSync` turns a test red. After a
   real retirement in a temp worktree, `git worktree list` no longer names the path and re-running
   cleanup over it is a no-op, not an error.
-- [ ] Cleanup handles registered projects independently, leaves an ineligible or failed candidate
+- [x] Cleanup handles registered projects independently, leaves an ineligible or failed candidate
   intact, and exits nonzero when a confirmed retirement fails.
-- [ ] `v2/src/cli.test.ts` covers command parsing, `--dry-run`, `[y/N]` decline, and the end-to-end
+- [x] `v2/src/cli.test.ts` covers command parsing, `--dry-run`, `[y/N]` decline, and the end-to-end
   path above; no test uses an empty or nonexistent registry root.
-- [ ] `bun run check`, `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run check`, `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

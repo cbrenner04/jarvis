@@ -15,11 +15,11 @@ Root cause: v2 plan worktrees carry no `.active-spec-path` marker (only v1 patch
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 triage <target> --merge` on a `plan/*` branch whose spec directory uses the compact v2 timestamp (`20260716T215724Z-<name>`) and exists only in the v2-home worktree resolves that spec and proceeds to the gates instead of refusing `no spec found for branch`.
-- [ ] A test in `v1/test/triage-command.test.ts` drives `--merge` against a markerless `plan/<name>` worktree in the registered project's Jarvis-owned home, with the spec dir compact-timestamped under `v2/spec` in the worktree only; it fails against the pre-fix code with the `no spec found` refusal and passes after.
-- [ ] `stripPlanSpecTimestampPrefix` returns `<name>` for both `2026-07-16T21-57-24Z-<name>` and `20260716T215724Z-<name>`, and returns untimestamped basenames unchanged; a unit test covers all three and fails against the pre-fix code.
-- [ ] The existing plan-PR unchecked-acceptance-criteria merge test (`v1/test/triage-command.test.ts:3265`) stays green (completeness semantics unchanged).
-- [ ] `v1/test/triage-command.test.ts` `describe("merge target resolution")` stays green (two-home resolution unchanged by this fix).
+- [x] `jarvis1 triage <target> --merge` on a `plan/*` branch whose spec directory uses the compact v2 timestamp (`20260716T215724Z-<name>`) and exists only in the v2-home worktree resolves that spec and proceeds to the gates instead of refusing `no spec found for branch`.
+- [x] A test in `v1/test/triage-command.test.ts` drives `--merge` against a markerless `plan/<name>` worktree in the registered project's Jarvis-owned home, with the spec dir compact-timestamped under `v2/spec` in the worktree only; it fails against the pre-fix code with the `no spec found` refusal and passes after.
+- [x] `stripPlanSpecTimestampPrefix` returns `<name>` for both `2026-07-16T21-57-24Z-<name>` and `20260716T215724Z-<name>`, and returns untimestamped basenames unchanged; a unit test covers all three and fails against the pre-fix code.
+- [x] The existing plan-PR unchecked-acceptance-criteria merge test (`v1/test/triage-command.test.ts:3265`) stays green (completeness semantics unchanged).
+- [x] `v1/test/triage-command.test.ts` `describe("merge target resolution")` stays green (two-home resolution unchanged by this fix).
 
 ## Documentation updates
 

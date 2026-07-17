@@ -9,11 +9,11 @@ export function formatPlanSpecTimestamp(date: Date = new Date()): string {
     .replace(/:/g, "-");
 }
 
-const TIMESTAMPED_SPEC_DIR_RE = /^(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z)-(.+)$/;
+const TIMESTAMPED_SPEC_DIR_RE = /^(?:\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z|\d{8}T\d{6}Z)-(.+)$/;
 
 export function stripPlanSpecTimestampPrefix(dirBasename: string): string {
   const match = TIMESTAMPED_SPEC_DIR_RE.exec(dirBasename);
-  return match?.[2] ?? dirBasename;
+  return match?.[1] ?? dirBasename;
 }
 
 /**

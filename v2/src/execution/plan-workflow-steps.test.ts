@@ -150,7 +150,10 @@ describe("plan ready-intent output routing", () => {
         { loadWorkflowSteps: load, resolveBaseBranch: () => "trunk" },
       );
       expect(result.ok, name).toBe(true);
-      if (result.ok) expect(result.steps[0]).toMatchObject({ specPath: expect.stringMatching(new RegExp(`^${targetDir}/\\d{8}T\\d{6}Z-feature$`)) });
+      if (result.ok)
+        expect(result.steps[0]).toMatchObject({
+          specPath: expect.stringMatching(new RegExp(`^${targetDir}/\\d{8}T\\d{6}Z-feature$`)),
+        });
     }
   });
 
@@ -167,7 +170,8 @@ describe("plan ready-intent output routing", () => {
       { loadWorkflowSteps: load, resolveBaseBranch: () => "trunk" },
     );
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.steps[0]).toMatchObject({ specPath: expect.stringMatching(/^v1\/spec\/\d{8}T\d{6}Z-feature$/) });
+    if (result.ok)
+      expect(result.steps[0]).toMatchObject({ specPath: expect.stringMatching(/^v1\/spec\/\d{8}T\d{6}Z-feature$/) });
   });
 
   test("keeps Git-disabled ready-intent plans in external storage", async () => {

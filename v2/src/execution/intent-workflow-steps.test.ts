@@ -155,10 +155,13 @@ describe("buildIntentWorkflowSteps", () => {
         ["intent", buildIntentWorkflowSteps],
         ["intent-reviewed", buildReviewedIntentWorkflowSteps],
       ] as const) {
-        const result = await build({ cwd: root, seed: join(targetDir, "seeds", "feature.md"), configPath: config }, {
-          loadWorkflowSteps: load,
-          resolveBaseBranch: () => "trunk",
-        });
+        const result = await build(
+          { cwd: root, seed: join(targetDir, "seeds", "feature.md"), configPath: config },
+          {
+            loadWorkflowSteps: load,
+            resolveBaseBranch: () => "trunk",
+          },
+        );
         expect(result.ok, name).toBe(true);
         if (result.ok) expect(result.steps[0]).toMatchObject({ specPath: `${targetDir}/ready-intents` });
       }
@@ -170,10 +173,7 @@ describe("buildIntentWorkflowSteps", () => {
     const config = join(root, "config.json");
     mkdirSync(join(root, "notes"), { recursive: true });
     writeFileSync(join(root, "notes", "feature.md"), "feature", "utf8");
-    writeFileSync(
-      config,
-      JSON.stringify({ projects: { demo: { root } }, modes: { plan: { targetDir: "v2/spec" } } }),
-    );
+    writeFileSync(config, JSON.stringify({ projects: { demo: { root } }, modes: { plan: { targetDir: "v2/spec" } } }));
     mkdirSync(join(root, "v2/spec/seeds"), { recursive: true });
     writeFileSync(join(root, "v2/spec/seeds/override.md"), "override", "utf8");
     const cases = [

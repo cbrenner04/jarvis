@@ -221,7 +221,11 @@ function resolveTargetDir(
   );
 }
 
-function canonicalTargetDir(project: ProjectMatch, path: string | undefined, inputDirectory: string): string | undefined {
+function canonicalTargetDir(
+  project: ProjectMatch,
+  path: string | undefined,
+  inputDirectory: string,
+): string | undefined {
   if (path === undefined || basename(dirname(path)) !== inputDirectory) return undefined;
   let projectRoot = resolve(project.root);
   let inputPath = resolve(path);
@@ -271,7 +275,12 @@ function intentSource(
     const { project, seed } = resolved;
     const config = projectConfig(input.configPath, project);
     const plan = machineModePlan(input.configPath);
-    const targetDir = resolveTargetDir(input.targetDir, config, plan, canonicalTargetDir(project, seed.paths[0], "seeds"));
+    const targetDir = resolveTargetDir(
+      input.targetDir,
+      config,
+      plan,
+      canonicalTargetDir(project, seed.paths[0], "seeds"),
+    );
     if (!validTargetDir(targetDir)) return { error: "intent: configured targetDir is invalid" };
     const publishGit =
       config.git !== false && (config.plan?.commit ?? (typeof plan.commit === "boolean" ? plan.commit : true));

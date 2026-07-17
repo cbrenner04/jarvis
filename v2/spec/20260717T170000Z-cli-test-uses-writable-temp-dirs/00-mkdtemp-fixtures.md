@@ -22,11 +22,11 @@ paths are also non-hermetic: concurrent runs share them and stale fixtures leak 
 
 ## Acceptance criteria
 
-- [ ] `v2/src/cli.test.ts` contains **no** hardcoded `/tmp/` path literal; all fixture roots come from
+- [x] `v2/src/cli.test.ts` contains **no** hardcoded `/tmp/` path literal; all fixture roots come from
   `mkdtempSync` under the OS temp dir, and are removed after use.
-- [ ] The tests assert the same behavior as before (same describe/it structure and expectations);
+- [x] The tests assert the same behavior as before (same describe/it structure and expectations);
   `bun test v2/src/cli.test.ts` passes.
-- [ ] `bun run check`, `bun run typecheck`, and `bun run test:v2` pass.
+- [x] `bun run check`, `bun run typecheck`, and `bun run test:v2` pass.
 
 ## Documentation updates
 

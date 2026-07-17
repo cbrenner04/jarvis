@@ -400,9 +400,11 @@ integer; `0` emits only the implement write step, while a positive value loads
 one appended `review-debate` step with `maxCycles` equal to that count.
 
 The builder first resolves `specPath` from the caller's cwd, finds its registered
-project root, and verifies that the resulting project-relative path exists in
-`baseRef`. An unavailable path fails at CLI preflight before workflow construction,
-daemon contact, or worktree creation.
+project root, verifies that the resulting project-relative path exists in
+`baseRef`, then reads the source spec tree. If every non-human-only acceptance
+criterion is checked (across every linked subspec, or in a single file), it exits
+`1` with `implement.already_complete` before workflow construction, daemon contact,
+worktree creation, or a run row. Index link checkboxes do not determine this check.
 
 **Linked-subspec routing:** When `specPath` points to a multi-subspec
 `index.md`, the builder and runner use the shared linked-subspec routing contract
@@ -422,8 +424,8 @@ remain allowed. Harness advancement checks non-human-only acceptance criteria
 only; unchecked human-only criteria do not block routing. After the final
 linked subspec completes, shrink runs once. Direct subspec input (non-index
 `specPath`) fails with `implement.requires_index`. Empty indexes (no linked
-subspecs) and already-complete indexes (all checked) return complete without
-implement or shrink invocation. Invalid linked paths fail before agent
+subspecs) and empty indexes retain their routing behavior. A complete linked tree
+is rejected at launch rather than starting a no-op workflow. Invalid linked paths fail before agent
 invocation: `implement.malformed_link` (empty/invalid path syntax),
 `implement.link_missing` (file not found), `implement.link_unreadable` (I/O
 error), `implement.link_out_of_tree` (resolved path outside project).

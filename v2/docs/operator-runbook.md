@@ -44,7 +44,7 @@ lands; see the [workflow publication contract](./workflow-runner.md#publication-
 
 **Status 2026-07-13: v2 can plan and implement.** The launch-blocking P0s shipped
 (#1450, #1451, #1456, #1458, #1459, #1460, #1474, #1476–#1479). `intent`, `plan`, and
-`implement` all launch, invoke an agent, and do real work.
+`implement` launches only when its requested spec tree has unchecked automated work.
 
 | Preset | State |
 | --- | --- |
@@ -205,6 +205,11 @@ project subdirectory is supported.
 If that first routing index read fails, the daemon returns `routing_read_failed`.
 The operator message names the resolved index path and the underlying read
 reason; use both to diagnose missing or unreadable spec state.
+
+Before daemon contact, `jarvis run workflow implement` reads the requested spec
+tree. If all non-human-only criteria are checked, it exits `1` with
+`implement.already_complete`; no worktree, agent invocation, or run row exists.
+Linked-index checkboxes are not the completion source of truth.
 
 ### Ad-hoc write loop (live pause/kill)
 

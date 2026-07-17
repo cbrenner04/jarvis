@@ -371,6 +371,24 @@ Responsive-daemon specs and seed `nonblocking-ready-gate-and-guard` address sync
 subprocess on the daemon event loop. Symptom: `jarvis run list` hangs while a run
 finalizes. Check for `bun run ready` or `git` children on the daemon PID.
 
+### Cleanup: eligibility gate
+
+`jarvis cleanup` retires merged v2 worktrees discovered under `~/.jarvis/worktrees/<project>/`.
+The eligibility gate decides whether a worktree is safe to remove.
+
+A worktree is eligible iff:
+
+- **PR merged**: `gh pr view <branch> --json state,mergedAt` reports `state: "MERGED"` and
+  `mergedAt` is set.
+- **No non-terminal durable run**: the run store has no `in-progress`, `paused`, `awaiting-human`,
+  `revising`, `queued`, `budget-soft-stopped`, or `killed` run for the `(project, branch)`.
+- **No live daemon run**: the daemon reports no live run for the `(project, branch)`.
+
+**Fail closed**: if `gh` fails, the daemon is unreachable, the run store is inaccessible, or any
+other error occurs, the worktree is marked ineligible and skipped. This prevents accidental deletion
+of an operator's in-flight work. Worktrees ineligible for this session remain untouched; the operator
+can retry `jarvis cleanup` later if issues are resolved.
+
 ## Choosing an actuator
 
 **Claude is usable as patch/implement primary again (2026-07-13).**

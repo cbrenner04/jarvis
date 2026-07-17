@@ -2437,3 +2437,59 @@ describe("v2 cli", () => {
     expect(cap.read().stderr).toContain("usage: jarvis tui log <run-id>");
   });
 });
+
+describe("cleanup command", () => {
+  test("cleanup with no worktrees discovered exits 0 with message", async () => {
+    const cap = captureIo();
+
+    const code = await main(["cleanup"], cap.io, {
+      readProjectRegistry: () => ({}),
+      connectIpcClient: async () => makeIpcClient([]),
+    });
+
+    expect(code).toBe(0);
+    expect(cap.read().stdout).toContain("No eligible worktrees");
+  });
+
+  test("cleanup --dry-run does not contact daemon", async () => {
+    const cap = captureIo();
+    let daemonContactAttempted = false;
+
+    const code = await main(["cleanup", "--dry-run"], cap.io, {
+      readProjectRegistry: () => ({}),
+      connectIpcClient: async () => {
+        daemonContactAttempted = true;
+        return makeIpcClient([]);
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(daemonContactAttempted).toBe(false);
+  });
+
+  test("cleanup with invalid arguments prints usage and exits 1", async () => {
+    const cap = captureIo();
+
+    const code = await main(["cleanup", "invalid"], cap.io, {
+      readProjectRegistry: () => ({}),
+      connectIpcClient: async () => makeIpcClient([]),
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain("usage: jarvis cleanup");
+  });
+
+  test("cleanup with daemon connection failure prints error and exits 1", async () => {
+    const cap = captureIo();
+
+    const code = await main(["cleanup"], cap.io, {
+      readProjectRegistry: () => ({}),
+      connectIpcClient: async () => {
+        throw new Error("Daemon unreachable");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain("Daemon unreachable");
+  });
+});

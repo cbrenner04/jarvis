@@ -12,6 +12,6 @@ command. See `01-eligibility-gate.md` for the full autopsy.
 Split so the safety-critical eligibility logic is its own small subspec whose entire purpose is
 differential tests that a hard-coded stub cannot satisfy. Run in order — 02 depends on 00 and 01.
 
-- [ ] [00 - Discover materialized worktrees](./00-discover-materialized-worktrees.md)
-- [ ] [01 - Eligibility gate](./01-eligibility-gate.md)
-- [ ] [02 - Cleanup command and dry-run](./02-cleanup-command-and-dry-run.md)
+- [x] [00 - Discover materialized worktrees](./00-discover-materialized-worktrees.md)
+- [x] [01 - Eligibility gate](./01-eligibility-gate.md)
+- [x] [02 - Cleanup command and dry-run](./02-cleanup-command-and-dry-run.md)

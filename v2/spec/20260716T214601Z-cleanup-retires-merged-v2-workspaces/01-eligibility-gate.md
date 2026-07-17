@@ -43,22 +43,22 @@ forces the production code to actually distinguish the cases.
 
 ## Acceptance criteria
 
-- [ ] **Differential merged-vs-open.** One test drives the gate with a single mock `AsyncSubprocessRunner`
+- [x] **Differential merged-vs-open.** One test drives the gate with a single mock `AsyncSubprocessRunner`
   that answers `gh` from the actual argv it receives — returning a *merged* state for branch A and an
   *open/unmerged* state for branch B (it does **not** hard-code one answer). The gate returns eligible
   for A and ineligible for B. A stub answering `MERGED` regardless would make both eligible and fail;
   a bare `gh pr list --head` seeing only open PRs would make both ineligible and fail.
-- [ ] **Differential daemon-reachable-vs-unreachable.** With merged branch A: a daemon client that
+- [x] **Differential daemon-reachable-vs-unreachable.** With merged branch A: a daemon client that
   resolves reporting no live run → eligible; a daemon client that throws / cannot connect →
   ineligible. Same candidate, opposite outcomes. The eligible case asserts the client was invoked.
-- [ ] **Differential durable-run.** With merged branch A: a run store reporting a non-terminal run
+- [x] **Differential durable-run.** With merged branch A: a run store reporting a non-terminal run
   referencing A → ineligible; the same store reporting only terminal runs → eligible.
-- [ ] The exact merged-detection argv is asserted, and it carries a filter that includes merged PRs.
+- [x] The exact merged-detection argv is asserted, and it carries a filter that includes merged PRs.
   Reverting it to `gh pr view --head <branch>` or a stateless `gh pr list --head <branch>` turns a
   test red.
-- [ ] `bun run check`, `bun run typecheck`, and `bun run test:v2` pass.
+- [x] `bun run check`, `bun run typecheck`, and `bun run test:v2` pass.
 
 ## Documentation updates
 
-- `v2/docs/operator-runbook.md` § Recovery/Gate trust — state the eligibility guarantees (merged PR
+- [x] `v2/docs/operator-runbook.md` § Recovery/Cleanup: eligibility gate — state the eligibility guarantees (merged PR
   required; unreachable daemon or gh failure ⇒ ineligible).

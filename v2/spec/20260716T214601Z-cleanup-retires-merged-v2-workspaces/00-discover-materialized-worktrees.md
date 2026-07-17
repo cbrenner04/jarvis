@@ -35,18 +35,18 @@ real `git worktree add`, not a hand-rolled mock.**
 
 ## Acceptance criteria
 
-- [ ] A discovery function takes an injectable `jarvisRoot` (default `jarvisHome()`) and the project
+- [x] A discovery function takes an injectable `jarvisRoot` (default `jarvisHome()`) and the project
   registry, and returns one candidate per real worktree under `~/.jarvis/worktrees/<project>/`,
   each carrying its absolute path and resolved branch (including slash-nested `plan/<name>`).
-- [ ] `v2/src/commands/cleanup.test.ts` drives discovery **through `realAsyncSubprocessRunner`** (not
+- [x] `v2/src/commands/cleanup.test.ts` drives discovery **through `realAsyncSubprocessRunner`** (not
   a hand-rolled git mock) against a temp `jarvisRoot` holding **real materialized worktrees** (create
   them with `git worktree add`), asserts a non-empty candidate set, and asserts the branch is resolved
   for a slash-nested path. This test must fail if the worktree check is a constant-false no-op (e.g.
   restoring `stdio: "ignore"` on a stdout-inspecting call turns it red).
-- [ ] Empty directories — specifically the `plan/` and `intent/` parents — and non-worktree
+- [x] Empty directories — specifically the `plan/` and `intent/` parents — and non-worktree
   directories are excluded. A test materializes a real worktree beside an empty `plan/` dir and a
   bare non-git dir and asserts only the real worktree is returned.
-- [ ] `bun run check`, `bun run typecheck`, and `bun run test:v2` pass.
+- [x] `bun run check`, `bun run typecheck`, and `bun run test:v2` pass.
 
 ## Documentation updates
 

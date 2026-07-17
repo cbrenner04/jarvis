@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
+import { realAsyncSubprocessRunner } from "../../shared/subprocess.ts";
+import { type DaemonClient, runCleanupCommand } from "./commands/cleanup.ts";
 import type { AgentModelConfig, LoadError } from "./config/agent-model-config.ts";
 import {
   type ImplementReviewBehavior,
@@ -37,7 +39,8 @@ import {
 import { connectIpcClient, type IpcClient } from "./ipc/client.ts";
 import { RpcError } from "./ipc/rpc-errors.ts";
 import { createRpcTransport } from "./ipc/rpc-transport.ts";
-import { DAEMON_LOG_PATH, DAEMON_PID_PATH, DAEMON_SOCKET_PATH, MACHINE_CONFIG_PATH } from "./paths.ts";
+import { DAEMON_LOG_PATH, DAEMON_PID_PATH, DAEMON_SOCKET_PATH, jarvisHome, MACHINE_CONFIG_PATH } from "./paths.ts";
+import { openStateStore } from "./persistence/state-store.ts";
 import { runTuiEntry } from "./tui/tui-entry.tsx";
 import { runTuiLogFollow } from "./tui/tui-log-follow-entry.tsx";
 import type { RunTuiLogFollowDeps } from "./tui/tui-log-follow-types.ts";
@@ -63,6 +66,7 @@ type CliDeps = {
   workflowPresetBuilders: Readonly<Record<string, WorkflowPresetBuilder>>;
   readProjectRegistry: () => Record<string, { root: string; origin?: string }>;
   cwd: () => string;
+  promptConfirm?: (message: string) => Promise<boolean>;
   socketPath: string;
   pidPath: string;
   logPath: string;
@@ -167,6 +171,10 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
 
   if (command === "tui") {
     return runTuiCommand(argv.slice(1), out, runtimeDeps);
+  }
+
+  if (command === "cleanup") {
+    return runCleanupCliCommand(argv.slice(1), out, runtimeDeps);
   }
 
   out.stdout("v2 not ready\n");
@@ -891,6 +899,65 @@ function writeMachineConfigAgents(configPath: string, agents: readonly string[])
   const next = { ...existing, agents: [...agents] };
   mkdirSync(dirname(configPath), { recursive: true });
   writeFileSync(configPath, `${JSON.stringify(next, null, 2)}\n`);
+}
+
+async function runCleanupCliCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
+  let dryRun = false;
+  let args: readonly string[] = argv;
+
+  if (argv[0] === "--dry-run") {
+    dryRun = true;
+    args = argv.slice(1);
+  }
+
+  if (args.length > 0) {
+    io.stderr("usage: jarvis cleanup [--dry-run]\n");
+    return 1;
+  }
+
+  const registry = deps.readProjectRegistry();
+
+  let daemonClient: DaemonClient;
+  if (dryRun) {
+    daemonClient = async () => [];
+  } else {
+    try {
+      const client = await deps.connectIpcClient(deps.socketPath);
+      daemonClient = async (project: string, branch: string) => {
+        try {
+          const result = await request(client, "list");
+          const list = parseListRuns(result);
+          if (list === undefined) return [];
+          return list.runs
+            .filter((r) => r.project === project && r.branch === branch)
+            .map((r) => ({ isLive: r.isLive }));
+        } catch (error) {
+          throw new Error(`Daemon query failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      };
+    } catch (error) {
+      io.stderr(formatConnectionError(error));
+      return 1;
+    }
+  }
+
+  const store = openStateStore();
+
+  const options = dryRun ? { dryRun: true } : { promptConfirm: deps.promptConfirm ?? createPromptFunction() };
+
+  return runCleanupCommand(options, registry, jarvisHome(), realAsyncSubprocessRunner, daemonClient, store, io);
+}
+
+function createPromptFunction(): (message: string) => Promise<boolean> {
+  return async (message: string) => {
+    process.stdout.write(message);
+    const answer = await new Promise<string>((resolve) => {
+      process.stdin.once("data", (data) => {
+        resolve(data.toString().trim().toLowerCase());
+      });
+    });
+    return answer === "y" || answer === "yes";
+  };
 }
 
 function writeStdoutJson(result: WriteLoopResult): string {

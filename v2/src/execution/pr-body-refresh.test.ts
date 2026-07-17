@@ -250,4 +250,115 @@ describe("refreshPrBody", () => {
     expect(secondWrittenBody).not.toContain(firstSummary);
     expect(secondWrittenBody).toBe(`Spec: v2/spec/test/index.md\n\n${secondSummary}`);
   });
+
+  test("emits supplied narrative in marker block when fetched body has no narrative", async () => {
+    const suppliedNarrative = "Authored narrative\nMultiple lines";
+    let writtenBody = "";
+    await refreshPrBody({
+      specPath: "v2/spec/test/index.md",
+      branch: "feature",
+      base: "main",
+      cwd: "/tmp/worktree",
+      narrative: suppliedNarrative,
+      fetchPrBody: async () => "Spec: old spec",
+      writePrBody: async (_branch, body) => {
+        writtenBody = body;
+      },
+      renderFooter: async () => "",
+    });
+
+    expect(writtenBody).toContain(NARRATIVE_START_MARKER);
+    expect(writtenBody).toContain(NARRATIVE_END_MARKER);
+    expect(extractNarrative(writtenBody)).toBe(suppliedNarrative);
+    expect(writtenBody).toBe(
+      [
+        "Spec: v2/spec/test/index.md",
+        "",
+        NARRATIVE_START_MARKER,
+        suppliedNarrative,
+        NARRATIVE_END_MARKER,
+      ].join("\n"),
+    );
+  });
+
+  test("preserves extracted narrative even when a different narrative is supplied", async () => {
+    const existingNarrative = "Human edited narrative";
+    const suppliedNarrative = "Ignored supplied narrative";
+    const currentBody = [
+      "Spec: old",
+      "",
+      NARRATIVE_START_MARKER,
+      existingNarrative,
+      NARRATIVE_END_MARKER,
+    ].join("\n");
+
+    let writtenBody = "";
+    await refreshPrBody({
+      specPath: "v2/spec/test/index.md",
+      branch: "feature",
+      base: "main",
+      cwd: "/tmp/worktree",
+      narrative: suppliedNarrative,
+      fetchPrBody: async () => currentBody,
+      writePrBody: async (_branch, body) => {
+        writtenBody = body;
+      },
+      renderFooter: async () => "",
+    });
+
+    expect(extractNarrative(writtenBody)).toBe(existingNarrative);
+    expect(writtenBody).not.toContain(suppliedNarrative);
+  });
+
+  test("does not emit markers when neither extracted nor supplied narrative exists", async () => {
+    let writtenBody = "";
+    await refreshPrBody({
+      specPath: "v2/spec/test/index.md",
+      branch: "feature",
+      base: "main",
+      cwd: "/tmp/worktree",
+      fetchPrBody: async () => "Spec: old",
+      writePrBody: async (_branch, body) => {
+        writtenBody = body;
+      },
+      renderFooter: async () => "",
+    });
+
+    expect(writtenBody).not.toContain(NARRATIVE_START_MARKER);
+    expect(writtenBody).not.toContain(NARRATIVE_END_MARKER);
+    expect(writtenBody).toBe("Spec: v2/spec/test/index.md");
+  });
+
+  test("treats empty or whitespace-only supplied narrative as absent", async () => {
+    let writtenBody1 = "";
+    await refreshPrBody({
+      specPath: "v2/spec/test/index.md",
+      branch: "feature",
+      base: "main",
+      cwd: "/tmp/worktree",
+      narrative: "   ",
+      fetchPrBody: async () => "Spec: old",
+      writePrBody: async (_branch, body) => {
+        writtenBody1 = body;
+      },
+      renderFooter: async () => "",
+    });
+
+    let writtenBody2 = "";
+    await refreshPrBody({
+      specPath: "v2/spec/test/index.md",
+      branch: "feature",
+      base: "main",
+      cwd: "/tmp/worktree",
+      narrative: "",
+      fetchPrBody: async () => "Spec: old",
+      writePrBody: async (_branch, body) => {
+        writtenBody2 = body;
+      },
+      renderFooter: async () => "",
+    });
+
+    expect(writtenBody1).not.toContain(NARRATIVE_START_MARKER);
+    expect(writtenBody2).not.toContain(NARRATIVE_START_MARKER);
+  });
 });

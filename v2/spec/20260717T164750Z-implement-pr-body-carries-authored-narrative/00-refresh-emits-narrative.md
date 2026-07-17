@@ -22,9 +22,9 @@ freshly-authored narrative and make the marker block round-trip.
 
 ## Acceptance criteria
 
-- [ ] A `pr-body-refresh.test.ts` case supplying `narrative` with a marker-less fetched body asserts the written body carries that narrative between `NARRATIVE_START_MARKER`/`NARRATIVE_END_MARKER`, and that `extractNarrative(writtenBody)` returns it; it fails against the pre-fix code.
-- [ ] The existing preserve test (`pr-body-refresh.test.ts` "composes header + preserved narrative + footer") stays green, and a case supplying a *different* `narrative` alongside an existing marker block confirms the existing narrative is kept (supplied ignored).
-- [ ] When neither an extracted nor a supplied narrative exists, the written body carries no marker block (existing marker-less behavior unchanged).
+- [x] A `pr-body-refresh.test.ts` case supplying `narrative` with a marker-less fetched body asserts the written body carries that narrative between `NARRATIVE_START_MARKER`/`NARRATIVE_END_MARKER`, and that `extractNarrative(writtenBody)` returns it; it fails against the pre-fix code.
+- [x] The existing preserve test (`pr-body-refresh.test.ts` "composes header + preserved narrative + footer") stays green, and a case supplying a *different* `narrative` alongside an existing marker block confirms the existing narrative is kept (supplied ignored).
+- [x] When neither an extracted nor a supplied narrative exists, the written body carries no marker block (existing marker-less behavior unchanged).
 
 ## Documentation updates
 

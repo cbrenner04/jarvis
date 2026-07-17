@@ -614,6 +614,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     let lastResult: WorkflowStepOutcome | undefined;
     let lastStepId = "";
     let completionAgent: string | undefined;
+    let shrinkNarrative: string | undefined;
     let boundaryTelemetryFailure: string | undefined;
     let implementReviewEligible = false;
     const touchedStepsInExecution = new Set<string>();
@@ -690,6 +691,9 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         lastStepId = step.stepId;
         if (shrinkResult.kind === "complete" && (shrinkResult as WriteLoopResult).completionAgent) {
           completionAgent = (shrinkResult as WriteLoopResult).completionAgent;
+        }
+        if (shrinkResult.kind === "complete") {
+          shrinkNarrative = tryReadShrinkNarrative(getExternalWorktreePath(step.worktree));
         }
         if (shrinkResult.kind !== "complete") {
           return {
@@ -832,6 +836,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 creationTitle,
                 ...(bodySummary !== undefined ? { bodySummary } : {}),
                 ...(specTemplate ? { specTemplate } : {}),
+                ...(shrinkNarrative !== undefined ? { narrative: shrinkNarrative } : {}),
               },
             );
             totalIterationsConsumed = publication.iterationsConsumed;
@@ -1434,6 +1439,20 @@ async function gitOutput(
     return (await runner.runAsync("git", [...args], worktreePath, { maxBuffer: GIT_OUTPUT_MAX_BUFFER })).trim();
   } catch {
     return "";
+  }
+}
+
+/** Read the shrink-authored narrative from .scratch/shrink-narrative.md if present, undefined otherwise. Absent file does not fail. */
+function tryReadShrinkNarrative(worktreePath: string): string | undefined {
+  const narrativePath = join(worktreePath, ".scratch", "shrink-narrative.md");
+  try {
+    if (!existsSync(narrativePath)) {
+      return undefined;
+    }
+    const content = readFileSync(narrativePath, "utf8").trim();
+    return content.length > 0 ? content : undefined;
+  } catch {
+    return undefined;
   }
 }
 

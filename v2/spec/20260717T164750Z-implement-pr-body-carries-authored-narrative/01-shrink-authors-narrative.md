@@ -26,9 +26,9 @@ already runs.
 
 ## Acceptance criteria
 
-- [ ] An integration test drives an implement workflow through shrink to publication with stubbed `gh`/publisher seams and asserts the written PR body carries the shrink-authored narrative inside `NARRATIVE_START_MARKER`/`NARRATIVE_END_MARKER`, distinct from the `Spec:` header; it fails against the pre-fix code (which writes no marker block).
-- [ ] A failed or empty narrative capture leaves publication succeeding with no marker block (does not abort the run).
-- [ ] Plan and intent publication paths still write no narrative marker block (unchanged), verified by an existing or added assertion.
+- [x] An integration test drives an implement workflow through shrink to publication with stubbed `gh`/publisher seams and asserts the written PR body carries the shrink-authored narrative inside `NARRATIVE_START_MARKER`/`NARRATIVE_END_MARKER`, distinct from the `Spec:` header; it fails against the pre-fix code (which writes no marker block).
+- [x] A failed or empty narrative capture leaves publication succeeding with no marker block (does not abort the run).
+- [x] Plan and intent publication paths still write no narrative marker block (unchanged), verified by an existing or added assertion.
 
 ## Documentation updates
 

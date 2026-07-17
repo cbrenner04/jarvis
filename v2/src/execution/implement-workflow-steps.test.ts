@@ -405,8 +405,17 @@ describe("buildImplementWorkflowSteps", () => {
     writeFileSync(join(root, "local-spec", "index.md"), "- [ ] Work\n", "utf8");
 
     const result = buildImplementWorkflowSteps(
-      { cwd: root, baseRef: "HEAD", specPath: "local-spec/index.md", configPath: writeJson("config.json", { projects: { project: { root } } }) },
-      { loadWorkflowSteps: () => { throw new Error("should not load workflow steps"); } },
+      {
+        cwd: root,
+        baseRef: "HEAD",
+        specPath: "local-spec/index.md",
+        configPath: writeJson("config.json", { projects: { project: { root } } }),
+      },
+      {
+        loadWorkflowSteps: () => {
+          throw new Error("should not load workflow steps");
+        },
+      },
     );
 
     expect(result).toEqual({

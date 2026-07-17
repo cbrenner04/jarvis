@@ -22,11 +22,11 @@
 
 ## Acceptance criteria
 
-- [ ] New table-driven cases in `v2/src/execution/intent-workflow-steps.test.ts` fail against the baseline and prove `intent` and `intent-reviewed` route canonical `v1/spec/seeds/` and `v2/spec/seeds/` inputs to the matching `ready-intents/` directory even when configured `plan.targetDir` names the other surface.
-- [ ] `v2/src/execution/intent-workflow-steps.test.ts` proves explicit `targetDir` wins, while inline and non-canonical file seeds retain configured/default routing.
-- [ ] `v2/src/execution/intent-workflow-steps.test.ts` proves Git-disabled canonical file seeds retain Jarvis-owned external output.
-- [ ] Existing intent builder, review composition, validation, and input-consumption tests stay green: `v2/src/execution/intent-workflow-steps.test.ts` and `v2/src/execution/workflow-runner.test.ts`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] New table-driven cases in `v2/src/execution/intent-workflow-steps.test.ts` fail against the baseline and prove `intent` and `intent-reviewed` route canonical `v1/spec/seeds/` and `v2/spec/seeds/` inputs to the matching `ready-intents/` directory even when configured `plan.targetDir` names the other surface.
+- [x] `v2/src/execution/intent-workflow-steps.test.ts` proves explicit `targetDir` wins, while inline and non-canonical file seeds retain configured/default routing.
+- [x] `v2/src/execution/intent-workflow-steps.test.ts` proves Git-disabled canonical file seeds retain Jarvis-owned external output.
+- [x] Existing intent builder, review composition, validation, and input-consumption tests stay green: `v2/src/execution/intent-workflow-steps.test.ts` and `v2/src/execution/workflow-runner.test.ts`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

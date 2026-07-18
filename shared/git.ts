@@ -131,3 +131,11 @@ export async function isGitRepoAsync(
     return false;
   }
 }
+
+/** The full HEAD commit hash at `cwd` asynchronously. */
+export async function getCurrentHeadAsync(
+  cwd: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<string> {
+  return (await runner.runAsync("git", ["rev-parse", "HEAD"], cwd)).trim();
+}

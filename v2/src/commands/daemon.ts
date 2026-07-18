@@ -12,6 +12,20 @@ function readPid(pidPath: string): number | null {
   return Number.isNaN(pid) ? null : pid;
 }
 
+async function handleStopCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number | null> {
+  if (!(argv.length === 1 || (argv.length === 2 && argv[1] === "--force"))) {
+    return null;
+  }
+  try {
+    await deps.stopDaemon(deps.socketPath, { pidPath: deps.pidPath, force: argv[1] === "--force" });
+    io.stdout("stopped\n");
+    return 0;
+  } catch (error) {
+    io.stderr(formatLifecycleError(error));
+    return 1;
+  }
+}
+
 export async function runDaemonCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
   const subcommand = argv[0];
 
@@ -26,15 +40,9 @@ export async function runDaemonCommand(argv: readonly string[], io: Io, deps: Cl
     }
   }
 
-  if (subcommand === "stop" && (argv.length === 1 || (argv.length === 2 && argv[1] === "--force"))) {
-    try {
-      await deps.stopDaemon(deps.socketPath, { pidPath: deps.pidPath, force: argv[1] === "--force" });
-      io.stdout("stopped\n");
-      return 0;
-    } catch (error) {
-      io.stderr(formatLifecycleError(error));
-      return 1;
-    }
+  if (subcommand === "stop") {
+    const result = await handleStopCommand(argv, io, deps);
+    if (result !== null) return result;
   }
 
   if (subcommand === "status" && argv.length === 1) {
@@ -45,8 +53,13 @@ export async function runDaemonCommand(argv: readonly string[], io: Io, deps: Cl
     }
 
     const status = await deps.getDaemonStatus(pid, deps.socketPath);
-    io.stdout(`${status}\n`);
-    return status === "running" ? 0 : 1;
+    if (status.state === "stopped") {
+      io.stdout("stopped\n");
+      return 1;
+    }
+    const output = `${status.state} loaded=${status.loadedRevision} current=${status.currentRevision}`;
+    io.stdout(`${output}\n`);
+    return status.state === "running" ? 0 : 1;
   }
 
   if (subcommand === "log") {

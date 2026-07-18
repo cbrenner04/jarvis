@@ -816,12 +816,12 @@ describe("v2 cli", () => {
       getDaemonStatus: async (pid, socketPath) => {
         expect(pid).toBe(77);
         expect(socketPath).toBe(paths.socketPath);
-        return "running";
+        return { state: "running", loadedRevision: "abc123", currentRevision: "abc123" };
       },
     });
 
     expect(code).toBe(0);
-    expect(cap.read()).toEqual({ stdout: "running\n", stderr: "" });
+    expect(cap.read()).toEqual({ stdout: "running loaded=abc123 current=abc123\n", stderr: "" });
   });
 
   test("daemon status prints stopped with exit 1 when pid is missing", async () => {

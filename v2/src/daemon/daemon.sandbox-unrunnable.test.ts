@@ -68,7 +68,9 @@ describe("daemon (real process)", () => {
     statusClient.send({ kind: "request", id: "s1", method: "status" });
     const statusFrame = await statusClient.nextFrame();
     expect(statusFrame.kind).toBe("response");
-    expect((statusFrame as ResponseFrame).result).toEqual({ state: "running" });
+    const statusResult = (statusFrame as ResponseFrame).result as { state?: string; loadedRevision?: string };
+    expect(statusResult.state).toBe("running");
+    expect(typeof statusResult.loadedRevision).toBe("string");
     statusClient.close();
 
     // Stop daemon and verify socket unbinds

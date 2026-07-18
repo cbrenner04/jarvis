@@ -257,24 +257,31 @@ describe("ready tier parsing and step lists", () => {
     expect(commands.some((command) => command.args[1]?.startsWith("test"))).toBe(false);
   });
 
-  test("runReady fails when the resolved test scope is empty", async () => {
+  test("runReady passes when the resolved test scope is empty and runs no test step", async () => {
+    const executed: string[] = [];
     const repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-empty-scope-"));
-    let exitCode: number | undefined;
-    const originalExit = process.exit;
-    process.exit = ((code: number) => {
-      exitCode = code;
-      throw new Error(`process.exit(${code})`);
-    }) as never;
+    writeFileSync(join(repoRoot, "bun.lock"), "lock-bytes", "utf8");
+    writePackage(repoRoot, "alpha", "alpha", "1.0.0");
+    const digest = computeInstallDigest(repoRoot);
+    expect(digest).toBeDefined();
+    writeRecordedInstallDigest(repoRoot, digest as string);
 
     try {
-      await withEnvAsync("JARVIS_READY_TIER", "fast", async () => {
+      await withEnvAsync("JARVIS_READY_TIER", "full", async () => {
         await withEnvAsync("JARVIS_READY_TEST_SCOPE", "", async () => {
-          await expect(runReady({ repoRoot })).rejects.toThrow("process.exit(1)");
+          await runReady({
+            repoRoot,
+            runCommandFn: async (_name, args) => {
+              executed.push(args.join(" "));
+              return 0;
+            },
+          });
         });
       });
-      expect(exitCode).toBe(1);
+
+      expect(executed.some((step) => step.startsWith("run test"))).toBe(false);
+      expect(executed).toEqual(["run check", "run typecheck", "run lint:md"]);
     } finally {
-      process.exit = originalExit;
       rmSync(repoRoot, { recursive: true, force: true });
     }
   });
@@ -355,6 +362,33 @@ describe("ready tier parsing and step lists", () => {
 
       expect(executed).toEqual(["run typecheck", "run test:v1", "run test:integration:v1"]);
     } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("runReady exits non-zero when a scoped test step fails", async () => {
+    let exitCode: number | undefined;
+    const originalExit = process.exit;
+    process.exit = ((code: number) => {
+      exitCode = code;
+      throw new Error(`process.exit(${code})`);
+    }) as never;
+    const repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-scoped-fail-"));
+
+    try {
+      await withEnvAsync("JARVIS_READY_TIER", "fast", async () => {
+        await withEnvAsync("JARVIS_READY_TEST_SCOPE", "test:v1 test:integration:v1", async () => {
+          await expect(
+            runReady({
+              repoRoot,
+              runCommandFn: async (_name, args) => (args[1] === "test:v1" ? 1 : 0),
+            }),
+          ).rejects.toThrow("process.exit(1)");
+        });
+      });
+      expect(exitCode).toBe(1);
+    } finally {
+      process.exit = originalExit;
       rmSync(repoRoot, { recursive: true, force: true });
     }
   });

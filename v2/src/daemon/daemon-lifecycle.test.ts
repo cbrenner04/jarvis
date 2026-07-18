@@ -1,6 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+
+async function waitForLogMarkers(logPath: string, markers: string[], timeoutMs = 3_000): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const content = readFileSync(logPath, "utf-8");
+    if (markers.every((marker) => content.includes(marker))) {
+      return content;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return readFileSync(logPath, "utf-8");
+}
 import type { Run } from "../persistence/state-store";
 import {
   DaemonAlreadyRunningError,
@@ -299,7 +311,7 @@ describe("daemon-lifecycle", () => {
           }),
         ).rejects.toThrow("Daemon failed to become ready");
 
-        const content = readFileSync(logPath, "utf-8");
+        const content = await waitForLogMarkers(logPath, ["child-output-marker"]);
         expect(content).toContain("child-output-marker");
       } finally {
         rmSync(tmpDir, { recursive: true, force: true });
@@ -347,7 +359,7 @@ describe("daemon-lifecycle", () => {
           }),
         ).rejects.toThrow("Daemon failed to become ready");
 
-        const content = readFileSync(logPath, "utf-8");
+        const content = await waitForLogMarkers(logPath, ["first-daemon-marker", "second-daemon-marker"]);
         expect(content).toContain("first-daemon-marker");
         expect(content).toContain("second-daemon-marker");
       } finally {

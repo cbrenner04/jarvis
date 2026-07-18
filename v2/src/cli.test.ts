@@ -20,10 +20,10 @@ import type { AnyWorkflowStep } from "./execution/workflow-runner.ts";
 import type { WriteLoopInput, WriteLoopResult } from "./execution/write-loop.ts";
 import { applyOperatorSessionId } from "./execution/write-loop.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "./execution/write-loop-input.ts";
-import type { PersistedRecord } from "./persistence/log-stream.ts";
-import { withFixedUuid } from "./testing/fixed-uuid.ts";
 import type { IpcClient } from "./ipc/client.ts";
 import type { IpcFrame } from "./ipc/types.ts";
+import type { PersistedRecord } from "./persistence/log-stream.ts";
+import { withFixedUuid } from "./testing/fixed-uuid.ts";
 import { mockWriteLoopInput } from "./testing/run-control.ts";
 
 function captureIo() {
@@ -53,10 +53,7 @@ function main(
 }
 
 /** Supplies the admission preflight used by run-control tests without changing their RPC fixtures. */
-function makeIpcClient(
-  frames: unknown[],
-  options?: { sent?: unknown[]; loadedRevision?: string },
-): IpcClient {
+function makeIpcClient(frames: unknown[], options?: { sent?: unknown[]; loadedRevision?: string }): IpcClient {
   const queue = [...frames] as IpcFrame[];
   const sent = options?.sent ?? [];
   let waiter:
@@ -1034,7 +1031,8 @@ describe("v2 cli", () => {
     expect(sent).toEqual([]);
     expect(cap.read()).toEqual({
       stdout: "",
-      stderr: "daemon revision mismatch: loaded=loaded-revision current=test-revision; restart the daemon before starting or resuming work\n",
+      stderr:
+        "daemon revision mismatch: loaded=loaded-revision current=test-revision; restart the daemon before starting or resuming work\n",
     });
   });
 

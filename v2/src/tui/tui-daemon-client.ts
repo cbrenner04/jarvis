@@ -1,3 +1,4 @@
+import { type GetCurrentRevision, getInvokingRevision, revisionMismatchMessage } from "../cli/dispatch-revision.ts";
 import type { WaitRunCompletionResult } from "../daemon/daemon.ts";
 import {
   type DaemonListResult,
@@ -12,7 +13,6 @@ import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { RpcConnectionError } from "../ipc/rpc-errors.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import { DAEMON_SOCKET_PATH } from "../paths.ts";
-import { getInvokingRevision, revisionMismatchMessage, type GetCurrentRevision } from "../cli/dispatch-revision.ts";
 
 /** Successful `health` RPC payload from the daemon host. */
 type TuiDaemonHealthResult = { ok: true };

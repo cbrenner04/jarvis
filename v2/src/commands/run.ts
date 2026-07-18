@@ -1,6 +1,6 @@
 import type { CliDeps } from "../cli/deps.ts";
-import type { Io } from "../cli/io.ts";
 import { guardWorkDispatch } from "../cli/dispatch-revision.ts";
+import type { Io } from "../cli/io.ts";
 import { formatRpcError, parseStreamPayload, request, withRunClient } from "../cli/ipc.ts";
 import { waitForRunCompletion } from "../cli/run-completion.ts";
 import { RUN_USAGE, WRITE_USAGE } from "../cli/usage.ts";

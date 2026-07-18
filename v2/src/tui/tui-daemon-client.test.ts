@@ -274,16 +274,13 @@ async function runErrorCaseGroup(cases: ErrorCase[]): Promise<void> {
     async () => {
       const client = await connectTuiDaemon({
         connectIpcClient: async () =>
-        makeGatedIpcClient(
-          cases.flatMap((c) =>
-            c.method === "start" || c.method === "resume"
-              ? [
-                  statusFrame(c.requestId),
-                  { kind: "error", id: c.requestId, code: c.code, message: c.message },
-                ]
-              : [{ kind: "error", id: c.requestId, code: c.code, message: c.message }],
+          makeGatedIpcClient(
+            cases.flatMap((c) =>
+              c.method === "start" || c.method === "resume"
+                ? [statusFrame(c.requestId), { kind: "error", id: c.requestId, code: c.code, message: c.message }]
+                : [{ kind: "error", id: c.requestId, code: c.code, message: c.message }],
+            ),
           ),
-        ),
         getCurrentRevision: matchingRevision,
       });
 
@@ -518,10 +515,9 @@ test("start sends one correlated IPC start request and returns runId", async () 
   await withFixedUuid([STATUS_REQUEST_ID, START_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeGatedIpcClient([
-          statusFrame(),
-          { kind: "response", id: START_REQUEST_ID, result: { runId: "run-999" } },
-        ], { sent }),
+        makeGatedIpcClient([statusFrame(), { kind: "response", id: START_REQUEST_ID, result: { runId: "run-999" } }], {
+          sent,
+        }),
       getCurrentRevision: matchingRevision,
     });
 
@@ -544,10 +540,21 @@ test("revision mismatch rejects start and human-decision resume before their mut
   await withFixedUuid([STATUS_REQUEST_ID, STATUS_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeGatedIpcClient([
-          { kind: "response", id: STATUS_REQUEST_ID, result: { state: "running", loadedRevision: "loaded-revision" } },
-          { kind: "response", id: STATUS_REQUEST_ID, result: { state: "running", loadedRevision: "loaded-revision" } },
-        ], { sent }),
+        makeGatedIpcClient(
+          [
+            {
+              kind: "response",
+              id: STATUS_REQUEST_ID,
+              result: { state: "running", loadedRevision: "loaded-revision" },
+            },
+            {
+              kind: "response",
+              id: STATUS_REQUEST_ID,
+              result: { state: "running", loadedRevision: "loaded-revision" },
+            },
+          ],
+          { sent },
+        ),
       getCurrentRevision: async () => "current-revision",
     });
 
@@ -570,16 +577,13 @@ test.each([
 ])("%s sends one correlated IPC request and returns ok", async (method, requestId) => {
   const sent: unknown[] = [];
   const ids = method === "resume" ? [STATUS_REQUEST_ID, requestId] : [requestId];
-  const frames = method === "resume"
-    ? [
-        statusFrame(),
-        { kind: "response", id: requestId, result: { ok: true } },
-      ]
-    : [{ kind: "response", id: requestId, result: { ok: true } }];
+  const frames =
+    method === "resume"
+      ? [statusFrame(), { kind: "response", id: requestId, result: { ok: true } }]
+      : [{ kind: "response", id: requestId, result: { ok: true } }];
   await withFixedUuid(ids, async () => {
     const client = await connectTuiDaemon({
-      connectIpcClient: async () =>
-        makeGatedIpcClient(frames, { sent }),
+      connectIpcClient: async () => makeGatedIpcClient(frames, { sent }),
       getCurrentRevision: matchingRevision,
     });
 
@@ -597,10 +601,9 @@ test("resume forwards decision and prompt for awaiting-human runs", async () => 
   await withFixedUuid([STATUS_REQUEST_ID, RESUME_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeGatedIpcClient([
-          statusFrame(),
-          { kind: "response", id: RESUME_REQUEST_ID, result: { ok: true } },
-        ], { sent }),
+        makeGatedIpcClient([statusFrame(), { kind: "response", id: RESUME_REQUEST_ID, result: { ok: true } }], {
+          sent,
+        }),
       getCurrentRevision: matchingRevision,
     });
 

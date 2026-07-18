@@ -1,7 +1,7 @@
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
-import type { Io } from "../cli/io.ts";
 import { guardWorkDispatch } from "../cli/dispatch-revision.ts";
+import type { Io } from "../cli/io.ts";
 import { formatRpcError, request, withRunClient } from "../cli/ipc.ts";
 import { waitForRunCompletion } from "../cli/run-completion.ts";
 import { WORKFLOW_IMPLEMENT_USAGE, WORKFLOW_INTENT_USAGE, WORKFLOW_PLAN_USAGE, WORKFLOW_USAGE } from "../cli/usage.ts";

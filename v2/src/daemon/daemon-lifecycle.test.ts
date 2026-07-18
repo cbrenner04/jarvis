@@ -464,7 +464,7 @@ describe("daemon-lifecycle", () => {
       };
 
       const status = await getDaemonStatus(9999, "/fake/socket", { processProber });
-      expect(status).toBe("stopped");
+      expect(status).toEqual({ state: "stopped" });
     });
 
     test("returns stopped if socket probe fails", async () => {
@@ -481,10 +481,89 @@ describe("daemon-lifecycle", () => {
         socketProber,
         healthTimeoutMs: 100,
       });
-      expect(status).toBe("stopped");
+      expect(status).toEqual({ state: "stopped" });
     });
 
-    test("returns running when process alive and socket responds", async () => {
+    test("returns running when process alive and socket responds with matching revisions", async () => {
+      const processProber: ProcessProber = {
+        isAlive: () => true,
+      };
+
+      const socketProber: SocketProber = {
+        probe: async () => true,
+      };
+
+      const commonRevision = "abc123def456";
+
+      const status = await getDaemonStatus(1000, "/fake/socket", {
+        processProber,
+        socketProber,
+        getDaemonLoadedRevision: async () => commonRevision,
+        getCurrentRevision: async () => commonRevision,
+      });
+      expect(status.state).toBe("running");
+      expect(typeof status).toBe("object");
+      if (status.state !== "stopped") {
+        expect(typeof status.loadedRevision).toBe("string");
+        expect(typeof status.currentRevision).toBe("string");
+      }
+    });
+
+    test("comparison logic: running when loaded and current revisions match", async () => {
+      const processProber: ProcessProber = {
+        isAlive: () => true,
+      };
+
+      const socketProber: SocketProber = {
+        probe: async () => true,
+      };
+
+      const commonRevision = "abc123def456";
+
+      const status = await getDaemonStatus(1000, "/fake/socket", {
+        processProber,
+        socketProber,
+        getDaemonLoadedRevision: async () => commonRevision,
+        getCurrentRevision: async () => commonRevision,
+      });
+
+      expect(status).toEqual({
+        state: "running",
+        loadedRevision: commonRevision,
+        currentRevision: commonRevision,
+      });
+    });
+
+    test("comparison logic: stale when loaded and current revisions differ", async () => {
+      const processProber: ProcessProber = {
+        isAlive: () => true,
+      };
+
+      const socketProber: SocketProber = {
+        probe: async () => true,
+      };
+
+      const loadedRevision = "abc123def456";
+      const currentRevision = "xyz789uvw012";
+
+      const status = await getDaemonStatus(1000, "/fake/socket", {
+        processProber,
+        socketProber,
+        getDaemonLoadedRevision: async () => loadedRevision,
+        getCurrentRevision: async () => currentRevision,
+      });
+
+      expect(status).toEqual({
+        state: "stale",
+        loadedRevision,
+        currentRevision,
+      });
+    });
+
+    test("startup-captured revision persists (not recomputed live)", async () => {
+      let getCurrentRevisionCallCount = 0;
+      const capturedRevision = "initial_revision_abc123";
+
       const processProber: ProcessProber = {
         isAlive: () => true,
       };
@@ -496,8 +575,19 @@ describe("daemon-lifecycle", () => {
       const status = await getDaemonStatus(1000, "/fake/socket", {
         processProber,
         socketProber,
+        getDaemonLoadedRevision: async () => capturedRevision,
+        getCurrentRevision: async () => {
+          getCurrentRevisionCallCount++;
+          return capturedRevision;
+        },
       });
-      expect(status).toBe("running");
+
+      expect(getCurrentRevisionCallCount).toBe(1);
+      expect(status).toEqual({
+        state: "running",
+        loadedRevision: capturedRevision,
+        currentRevision: capturedRevision,
+      });
     });
   });
 });

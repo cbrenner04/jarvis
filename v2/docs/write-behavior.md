@@ -455,7 +455,7 @@ Daemon lifecycle commands use production defaults:
 | --- | --- | --- |
 | `jarvis daemon start` | Compact JSON `{"pid":<n>,"socketPath":"..."}` | `0` on success, `1` with `<ErrorName>: <message>` on lifecycle failure |
 | `jarvis daemon stop [--force]` | `stopped`, or blocker IDs on stderr | `0`, or `1` when guarded |
-| `jarvis daemon status` | `running` or `stopped` | `0` when running, `1` when stopped |
+| `jarvis daemon status` | `running loaded=<revision> current=<revision>`, `stale loaded=<revision> current=<revision>`, or `stopped` | `0` when running (same revision), `1` when stale (mismatched revision) or stopped |
 | `jarvis daemon log` | Retained bytes of the daemon process log (`~/.jarvis/daemon.log`) on stdout | `0` on success, `1` with `daemon process log not found: <path>` on stderr when absent, `1` on read failure |
 | `jarvis daemon log --follow` | Replay then follow appends on stdout | `130` on SIGINT; `1` on read/watch/reopen failure or when the file is removed while following (missing path on stderr) |
 
@@ -464,10 +464,18 @@ their IDs on stderr; it does not print `stopped`. Add `--force` to bypass that
 guard and use the existing shutdown path. See the lifecycle contract in
 [`daemon-host.md`](./daemon-host.md#stopdaemonsocketpath-options).
 
-`jarvis daemon status` probes the PID file and socket for lifecycle state. This is
-distinct from the daemon IPC `status` RPC (`{ state: "running" }` host liveness),
-which `jarvis tui` uses after `health` to prove the channel is live. See
-[TUI CLI](#tui-cli).
+`jarvis daemon status` probes the PID file and socket for lifecycle state and
+compares the daemon's startup Git revision with the invoking CLI's current Git revision.
+Output format:
+- `running loaded=<revision> current=<revision>` (exit 0): daemon is alive and both revisions match
+- `stale loaded=<revision> current=<revision>` (exit 1): daemon is alive but revisions differ (checkout changed since daemon startup)
+- `stopped` (exit 1): daemon process dead or socket unreachable
+
+The daemon captures its startup Git revision once at boot and retains it for the lifetime
+of the process. Exit `0` means running; `1` means stale or stopped. PID file absence or
+parse failure returns `stopped` without further checks. Note: this is distinct from the
+daemon IPC `status` RPC response field, which `jarvis tui` uses after `health` to prove
+the channel is live. See [TUI CLI](#tui-cli).
 
 `jarvis daemon log` reads the process log directly off disk — no PID, socket, or
 IPC-status check, so it works regardless of whether the daemon is running. It is

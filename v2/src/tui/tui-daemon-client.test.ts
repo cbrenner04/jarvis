@@ -52,7 +52,7 @@ test("uses injected connectIpcClient instead of production transport", async () 
     return makeGatedIpcClient(
       [
         { kind: "response", id: HEALTH_REQUEST_ID, result: { ok: true } },
-        { kind: "response", id: STATUS_REQUEST_ID, result: { state: "running" } },
+        { kind: "response", id: STATUS_REQUEST_ID, result: { state: "running", loadedRevision: "abc123" } },
         {
           kind: "response",
           id: LIST_REQUEST_ID,
@@ -73,7 +73,7 @@ test("uses injected connectIpcClient instead of production transport", async () 
     });
 
     await expect(client.health()).resolves.toEqual({ ok: true });
-    await expect(client.status()).resolves.toEqual({ state: "running" });
+    await expect(client.status()).resolves.toEqual({ state: "running", loadedRevision: "abc123" });
     await expect(client.list()).resolves.toEqual({
       runs: [{ runId: "run-1", project: "demo", branch: "main", status: "completed", isLive: false }],
     });
@@ -113,7 +113,7 @@ test("health then status reuse one connection without reconnecting", async () =>
         connectCalls += 1;
         return makeGatedIpcClient([
           { kind: "response", id: HEALTH_REQUEST_ID, result: { ok: true } },
-          { kind: "response", id: STATUS_REQUEST_ID, result: { state: "running" } },
+          { kind: "response", id: STATUS_REQUEST_ID, result: { state: "running", loadedRevision: "xyz789" } },
           { kind: "response", id: LIST_REQUEST_ID, result: { runs: [] } },
           { kind: "response", id: WAIT_REQUEST_ID, result: { runStatus: "completed" } },
         ]);
@@ -121,7 +121,7 @@ test("health then status reuse one connection without reconnecting", async () =>
     });
 
     await expect(client.health()).resolves.toEqual({ ok: true });
-    await expect(client.status()).resolves.toEqual({ state: "running" });
+    await expect(client.status()).resolves.toEqual({ state: "running", loadedRevision: "xyz789" });
     await expect(client.list()).resolves.toEqual({ runs: [] });
     await expect(client.wait("run-1")).resolves.toEqual({ runStatus: "completed" });
     client.close();

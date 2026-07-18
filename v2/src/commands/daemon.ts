@@ -45,8 +45,13 @@ export async function runDaemonCommand(argv: readonly string[], io: Io, deps: Cl
     }
 
     const status = await deps.getDaemonStatus(pid, deps.socketPath);
-    io.stdout(`${status}\n`);
-    return status === "running" ? 0 : 1;
+    if (status.state === "stopped") {
+      io.stdout("stopped\n");
+      return 1;
+    }
+    const output = `${status.state} loaded=${status.loadedRevision} current=${status.currentRevision}`;
+    io.stdout(`${output}\n`);
+    return status.state === "running" ? 0 : 1;
   }
 
   if (subcommand === "log") {

@@ -1,9 +1,12 @@
 import { spawn } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { getCurrentHeadAsync } from "../../../shared/git.ts";
+import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { connectIpcClient } from "../ipc/client";
 import { createRpcTransport } from "../ipc/rpc-transport";
 import { openStateStore, type StateStore } from "../persistence/state-store";
+import { parseStatusResult } from "./daemon-wire";
 
 const STOP_TERMINAL_STATUSES = new Set(["completed", "failed", "blocked", "killed"]);
 
@@ -261,6 +264,14 @@ export async function stopDaemon(
   }
 }
 
+export type DaemonStatusResult =
+  | { state: "running"; loadedRevision: string; currentRevision: string }
+  | { state: "stale"; loadedRevision: string; currentRevision: string }
+  | { state: "stopped" };
+
+export type GetCurrentRevisionFn = () => Promise<string>;
+export type GetDaemonLoadedRevisionFn = () => Promise<string | undefined>;
+
 export async function getDaemonStatus(
   pid: number,
   socketPath: string,
@@ -268,16 +279,71 @@ export async function getDaemonStatus(
     healthTimeoutMs?: number;
     processProber?: ProcessProber;
     socketProber?: SocketProber;
+    getCurrentRevision?: GetCurrentRevisionFn;
+    getDaemonLoadedRevision?: GetDaemonLoadedRevisionFn;
   },
-): Promise<"running" | "stopped"> {
+): Promise<DaemonStatusResult> {
   const healthTimeoutMs = options?.healthTimeoutMs ?? 1_000;
   const processProber = options?.processProber ?? { isAlive: isProcessAlive };
   const socketProber = options?.socketProber ?? { probe: probeSocket };
 
   if (!processProber.isAlive(pid)) {
-    return "stopped";
+    return { state: "stopped" };
   }
 
   const up = await socketProber.probe(socketPath, healthTimeoutMs);
-  return up ? "running" : "stopped";
+  if (!up) {
+    return { state: "stopped" };
+  }
+
+  let loadedRevision: string | undefined;
+
+  if (options?.getDaemonLoadedRevision) {
+    try {
+      loadedRevision = await options.getDaemonLoadedRevision();
+    } catch {
+      return { state: "stopped" };
+    }
+  } else {
+    try {
+      const client = await connectIpcClient(socketPath);
+      const transport = createRpcTransport(client);
+      try {
+        const response = await transport.request("status", undefined, { timeoutMs: healthTimeoutMs });
+        const daemonStatus = parseStatusResult(response);
+
+        if (!daemonStatus) {
+          return { state: "stopped" };
+        }
+
+        loadedRevision = daemonStatus.loadedRevision;
+      } finally {
+        transport.close();
+      }
+    } catch {
+      return { state: "stopped" };
+    }
+  }
+
+  if (!loadedRevision) {
+    return { state: "stopped" };
+  }
+
+  let currentRevision = "unknown";
+  try {
+    if (options?.getCurrentRevision) {
+      currentRevision = await options.getCurrentRevision();
+    } else {
+      currentRevision = await getCurrentHeadAsync(resolve(import.meta.dir, "../../.."), realAsyncSubprocessRunner);
+    }
+  } catch {
+    // Leave as "unknown" if we can't determine current revision
+  }
+
+  const isSame = loadedRevision === currentRevision;
+  return {
+    state: isSame ? "running" : "stale",
+    loadedRevision,
+    currentRevision,
+  };
 }

@@ -1,5 +1,6 @@
 import { join } from "node:path";
-import { isWorktreeDirtyAsync } from "../../../shared/git.ts";
+import { getCurrentHeadAsync, isWorktreeDirtyAsync } from "../../../shared/git.ts";
+import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
 import { resolveMachineProfile } from "../config/machine-config-loader.ts";
@@ -1301,6 +1302,13 @@ export async function startDaemon(
   let shutdownRequested = false;
   const operatorSessionId = crypto.randomUUID();
 
+  let loadedRevision: string;
+  try {
+    loadedRevision = await getCurrentHeadAsync(import.meta.dir, realAsyncSubprocessRunner);
+  } catch {
+    loadedRevision = "unknown";
+  }
+
   const writeLoopExecutor = async (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => {
     const logSink = openLogSink(logsPath);
     try {
@@ -1323,7 +1331,7 @@ export async function startDaemon(
   };
 
   const statusHandler: RpcHandler = () => {
-    return { kind: "response", result: { state: "running" } };
+    return { kind: "response", result: { state: "running", loadedRevision } };
   };
 
   const shutdownHandler: RpcHandler = () => {

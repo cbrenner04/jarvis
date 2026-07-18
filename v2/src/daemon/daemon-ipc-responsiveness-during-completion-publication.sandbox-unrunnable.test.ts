@@ -93,15 +93,26 @@ afterEach(async () => {
   }
 });
 
-socketTest("list completes after publication gh auth signals pending and before auth is released", async () => {
+socketTest("list completes while publication PR lookup is pending", async () => {
   const { jarvisRoot } = createJarvisHome();
   tempRoots.push(join(jarvisRoot, ".."));
   const branchName = "pub-responsive";
-  const holdableAuth = createHoldableAsyncSeam(async (_cwd: string) => true);
+  const holdablePrLookup = createHoldableAsyncSeam(async (_cwd: string, args: readonly string[]) => {
+    if (args[0] === "pr" && args[1] === "list") {
+      return JSON.stringify([]);
+    }
+    if (args[0] === "pr" && args[1] === "create") {
+      return "https://github.com/demo/demo/pull/42";
+    }
+    // Publication confirms the created PR exists before reporting success.
+    if (args[0] === "pr" && args[1] === "view") {
+      return JSON.stringify({ number: 42, url: "https://github.com/demo/demo/pull/42", baseRefName: "main" });
+    }
+    return "";
+  });
   let publicationCompleted = false;
 
   const completionPublisher = createCompletionPublisher({
-    ghReady: holdableAuth.fn,
     git: async (_cwd, args) => {
       if (args[0] === "rev-parse" && args.includes(`${branchName}@{u}`)) {
         throw new Error("no upstream");
@@ -111,19 +122,7 @@ socketTest("list completes after publication gh auth signals pending and before 
       }
       return "";
     },
-    gh: async (_cwd, args) => {
-      if (args[0] === "pr" && args[1] === "list") {
-        return JSON.stringify([]);
-      }
-      if (args[0] === "pr" && args[1] === "create") {
-        return "https://github.com/demo/demo/pull/42";
-      }
-      // Publication confirms the created PR exists before reporting success.
-      if (args[0] === "pr" && args[1] === "view") {
-        return JSON.stringify({ number: 42, url: "https://github.com/demo/demo/pull/42", baseRefName: "main" });
-      }
-      return "";
-    },
+    gh: holdablePrLookup.fn,
     delay: async () => {},
     fetchPrBody: async () => "",
     writePrBody: async () => {},
@@ -199,14 +198,14 @@ socketTest("list completes after publication gh auth signals pending and before 
       bindings: [],
     });
 
-    await holdableAuth.whenPending();
+    await holdablePrLookup.whenPending();
     let released = false;
     const runs = await listRuns(listClient);
     expect(released).toBe(false);
     expect(runs?.length).toBe(1);
 
     released = true;
-    holdableAuth.release();
+    holdablePrLookup.release();
 
     const runId = await startPromise;
     expect(typeof runId).toBe("string");

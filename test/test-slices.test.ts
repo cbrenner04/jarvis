@@ -100,11 +100,7 @@ describe("Test slice boundaries", () => {
   });
 
   it("v2 integration slice derives from sandbox-unrunnable filename convention", () => {
-    const testFiles = [
-      "v2/example/foo.test.ts",
-      "v2/example/foo.sandbox-unrunnable.test.ts",
-      "v2/other/bar.test.ts",
-    ];
+    const testFiles = ["v2/example/foo.test.ts", "v2/example/foo.sandbox-unrunnable.test.ts", "v2/other/bar.test.ts"];
 
     const { agent, integration } = partitionTestFiles(testFiles);
 

@@ -53,7 +53,14 @@ function main(
 }
 
 /** Supplies the admission preflight used by run-control tests without changing their RPC fixtures. */
-function makeIpcClient(frames: unknown[], options?: { sent?: unknown[]; loadedRevision?: string }): IpcClient {
+function makeIpcClient(
+  frames: unknown[],
+  options?: {
+    sent?: unknown[];
+    loadedRevision?: string;
+    recovery?: { pending: boolean; reconciled: number; resumed: number };
+  },
+): IpcClient {
   const queue = [...frames] as IpcFrame[];
   const sent = options?.sent ?? [];
   let waiter:
@@ -77,7 +84,11 @@ function makeIpcClient(frames: unknown[], options?: { sent?: unknown[]; loadedRe
         deliver({
           kind: "response",
           id: request.id,
-          result: { state: "running", loadedRevision: options?.loadedRevision ?? TEST_REVISION },
+          result: {
+            state: "running",
+            loadedRevision: options?.loadedRevision ?? TEST_REVISION,
+            ...(options?.recovery === undefined ? {} : { recovery: options.recovery }),
+          },
         });
         return;
       }
@@ -1022,7 +1033,7 @@ describe("v2 cli", () => {
   test("revision mismatch refuses fresh starts before IPC start", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
-    const code = await main(RUN_START_ARGS, cap.io, {
+    const code = await main([...RUN_START_ARGS, "--no-auto-bounce"], cap.io, {
       loadAgentModelConfig: stubAgentModelConfig,
       connectIpcClient: async () => makeIpcClient([], { sent, loadedRevision: "loaded-revision" }),
     });
@@ -1039,13 +1050,188 @@ describe("v2 cli", () => {
   test("revision mismatch refuses ordinary resumes before IPC resume", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
-    const code = await main(["run", "resume", "run-123"], cap.io, {
+    const code = await main(["run", "resume", "run-123", "--no-auto-bounce"], cap.io, {
       connectIpcClient: async () => makeIpcClient([], { sent, loadedRevision: "loaded-revision" }),
     });
 
     expect(code).toBe(1);
     expect(sent).toEqual([]);
     expect(cap.read().stderr).toContain("loaded=loaded-revision current=test-revision");
+  });
+
+  test("revision mismatch safely bounces an idle daemon and retries start once", async () => {
+    const cap = captureIo();
+    const ids = ["operator", "status-one", "list", "recovery", "status-two", "start"];
+    const originalRandomUuid = crypto.randomUUID;
+    crypto.randomUUID = (() => ids.shift() ?? "extra") as typeof crypto.randomUUID;
+    const sent: unknown[] = [];
+    let connections = 0;
+    let stopped = 0;
+    let started = 0;
+    try {
+      const code = await main(RUN_START_ARGS, cap.io, {
+        loadAgentModelConfig: stubAgentModelConfig,
+        connectIpcClient: async () => {
+          connections += 1;
+          return connections === 1
+            ? makeIpcClient([{ kind: "response", id: "list", result: { runs: [] } }], {
+                sent,
+                loadedRevision: "loaded-revision",
+              })
+            : makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-bounced" } }], {
+                sent,
+                recovery: { pending: false, reconciled: 2, resumed: 1 },
+              });
+        },
+        stopDaemon: async () => {
+          stopped += 1;
+        },
+        startDaemon: async () => {
+          started += 1;
+          return { pid: 1, socketPath: "test.sock" };
+        },
+      });
+      expect(code).toBe(0);
+    } finally {
+      crypto.randomUUID = originalRandomUuid;
+    }
+    expect({ connections, stopped, started }).toEqual({ connections: 2, stopped: 1, started: 1 });
+    expect(sent.filter((frame) => (frame as { method?: string }).method === "start")).toHaveLength(1);
+    expect(cap.read()).toEqual({
+      stdout: "run-bounced\n",
+      stderr:
+        "daemon revision mismatch: loaded=loaded-revision current=test-revision; restarted; recovery reconciled=2 resumed=1; retrying original dispatch\n",
+    });
+  });
+
+  test("revision mismatch with a live row refuses without lifecycle mutation", async () => {
+    const cap = captureIo();
+    const ids = ["operator", "status", "list"];
+    const originalRandomUuid = crypto.randomUUID;
+    crypto.randomUUID = (() => ids.shift() ?? "extra") as typeof crypto.randomUUID;
+    let stopped = 0;
+    let started = 0;
+    try {
+      const code = await main(RUN_START_ARGS, cap.io, {
+        loadAgentModelConfig: stubAgentModelConfig,
+        connectIpcClient: async () =>
+          makeIpcClient(
+            [
+              {
+                kind: "response",
+                id: "list",
+                result: {
+                  runs: [
+                    { runId: "live-a", isLive: true },
+                    { runId: "orphan", isLive: false },
+                  ],
+                },
+              },
+            ],
+            {
+              loadedRevision: "loaded-revision",
+            },
+          ),
+        stopDaemon: async () => {
+          stopped += 1;
+        },
+        startDaemon: async () => {
+          started += 1;
+          return { pid: 1, socketPath: "test.sock" };
+        },
+      });
+      expect(code).toBe(1);
+    } finally {
+      crypto.randomUUID = originalRandomUuid;
+    }
+    expect({ stopped, started }).toEqual({ stopped: 0, started: 0 });
+    expect(cap.read().stderr).toContain("cannot restart while live runs: live-a");
+  });
+
+  test("a post-bounce mismatch does not start a second lifecycle cycle", async () => {
+    const cap = captureIo();
+    const ids = ["operator", "status-one", "list", "recovery", "status-two"];
+    const originalRandomUuid = crypto.randomUUID;
+    crypto.randomUUID = (() => ids.shift() ?? "extra") as typeof crypto.randomUUID;
+    let connections = 0;
+    let stopped = 0;
+    let started = 0;
+    try {
+      const code = await main(RUN_START_ARGS, cap.io, {
+        loadAgentModelConfig: stubAgentModelConfig,
+        connectIpcClient: async () => {
+          connections += 1;
+          return connections === 1
+            ? makeIpcClient([{ kind: "response", id: "list", result: { runs: [] } }], { loadedRevision: "old" })
+            : makeIpcClient([], {
+                loadedRevision: "still-old",
+                recovery: { pending: false, reconciled: 0, resumed: 0 },
+              });
+        },
+        stopDaemon: async () => {
+          stopped += 1;
+        },
+        startDaemon: async () => {
+          started += 1;
+          return { pid: 1, socketPath: "test.sock" };
+        },
+      });
+      expect(code).toBe(1);
+    } finally {
+      crypto.randomUUID = originalRandomUuid;
+    }
+    expect({ stopped, started }).toEqual({ stopped: 1, started: 1 });
+    expect(cap.read().stderr).toContain("loaded=still-old current=test-revision");
+  });
+
+  test("revision mismatch retries an ordinary resume once after a safe bounce", async () => {
+    const cap = captureIo();
+    const ids = ["operator", "status-one", "list", "recovery", "status-two", "resume"];
+    const originalRandomUuid = crypto.randomUUID;
+    crypto.randomUUID = (() => ids.shift() ?? "extra") as typeof crypto.randomUUID;
+    const sent: unknown[] = [];
+    let connections = 0;
+    try {
+      const code = await main(["run", "resume", "run-123"], cap.io, {
+        connectIpcClient: async () => {
+          connections += 1;
+          return connections === 1
+            ? makeIpcClient([{ kind: "response", id: "list", result: { runs: [] } }], { loadedRevision: "old", sent })
+            : makeIpcClient([{ kind: "response", id: "resume", result: { ok: true } }], {
+                recovery: { pending: false, reconciled: 1, resumed: 1 },
+                sent,
+              });
+        },
+        stopDaemon: async () => undefined,
+        startDaemon: async () => ({ pid: 1, socketPath: "test.sock" }),
+      });
+      expect(code).toBe(0);
+    } finally {
+      crypto.randomUUID = originalRandomUuid;
+    }
+    expect(sent.filter((frame) => (frame as { method?: string }).method === "resume")).toHaveLength(1);
+  });
+
+  test("a bounce lifecycle failure reports its actionable reason", async () => {
+    const cap = captureIo();
+    const ids = ["operator", "status", "list"];
+    const originalRandomUuid = crypto.randomUUID;
+    crypto.randomUUID = (() => ids.shift() ?? "extra") as typeof crypto.randomUUID;
+    try {
+      const code = await main(RUN_START_ARGS, cap.io, {
+        loadAgentModelConfig: stubAgentModelConfig,
+        connectIpcClient: async () =>
+          makeIpcClient([{ kind: "response", id: "list", result: { runs: [] } }], { loadedRevision: "old" }),
+        stopDaemon: async () => undefined,
+        startDaemon: async () => {
+          throw new Error("daemon start failed: address in use");
+        },
+      });
+      expect(code).toBe(1);
+    } finally {
+      crypto.randomUUID = originalRandomUuid;
+    }
+    expect(cap.read().stderr).toContain("daemon start failed: address in use");
   });
 
   test("run start passes through daemon guard errors without local write-loop logic", async () => {
@@ -1154,6 +1340,55 @@ describe("v2 cli", () => {
       method: "wait",
       params: { runId: "run-888" },
     });
+  });
+
+  test("run workflow implements its original dispatch once after a safe bounce", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    let connections = 0;
+    await withFixedUuid([SESSION_UUID, "status-one", "list", "recovery", "status-two", "start", "wait"], async () => {
+      const code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
+        cwd: () => testRepoSub,
+        readProjectRegistry: () => ({ "test-project": { root: testRepoRoot } }),
+        workflowPresetBuilders: { implement: () => ({ ok: true, steps: FAKE_IMPLEMENT_STEPS }) },
+        connectIpcClient: async () => {
+          connections += 1;
+          return connections === 1
+            ? makeIpcClient([{ kind: "response", id: "list", result: { runs: [] } }], { loadedRevision: "old", sent })
+            : makeIpcClient(workflowFrames("start", "wait", "workflow-bounced", COMPLETED_WAIT_RESULT), {
+                recovery: { pending: false, reconciled: 1, resumed: 0 },
+                sent,
+              });
+        },
+        stopDaemon: async () => undefined,
+        startDaemon: async () => ({ pid: 1, socketPath: "test.sock" }),
+      });
+      expect(code).toBe(0);
+    });
+    expect(connections).toBe(2);
+    expect(sent.filter((frame) => (frame as { method?: string }).method === "start")).toHaveLength(1);
+  });
+
+  test("run workflow --no-auto-bounce preserves mismatch refusal without lifecycle work", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    await withFixedUuid([SESSION_UUID, "status"], async () => {
+      const code = await main([...RUN_WORKFLOW_IMPLEMENT_ARGS, "--no-auto-bounce"], cap.io, {
+        cwd: () => testRepoSub,
+        readProjectRegistry: () => ({ "test-project": { root: testRepoRoot } }),
+        workflowPresetBuilders: { implement: () => ({ ok: true, steps: FAKE_IMPLEMENT_STEPS }) },
+        connectIpcClient: async () => makeIpcClient([], { loadedRevision: "old", sent }),
+        stopDaemon: async () => {
+          throw new Error("should not stop");
+        },
+        startDaemon: async () => {
+          throw new Error("should not start");
+        },
+      });
+      expect(code).toBe(1);
+    });
+    expect(sent).toEqual([]);
+    expect(cap.read().stderr).toContain("restart the daemon before starting or resuming work");
   });
 
   test("run workflow implement blocks on completion and exits with proper exit code when workflow fails", async () => {

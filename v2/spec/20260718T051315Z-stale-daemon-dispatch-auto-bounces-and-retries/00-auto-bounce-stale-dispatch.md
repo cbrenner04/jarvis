@@ -27,20 +27,20 @@ The revision guard prevents stale code from accepting work, but every source mer
 
 ## Acceptance criteria
 
-- [ ] Default CLI fresh-start, ordinary-resume, and workflow-start dispatches that first encounter a revision mismatch stop and start a daemon with no `isLive` rows, wait for startup recovery, pass a matching second guard, and send the original mutating request once.
-- [ ] A mismatch with one or more `isLive` rows exits nonzero, names every live run ID, and does not stop, start, or dispatch; not-live non-terminal rows do not block the forced bounce.
-- [ ] Successful bounce stderr names loaded/current revisions, confirms restart, reports distinct reconciled and successfully auto-resumed counts, and says the original dispatch is being retried.
-- [ ] `--no-auto-bounce` on each affected CLI form sends no mutating request and returns the existing mismatch plus manual-restart guidance without listing or invoking daemon lifecycle operations.
-- [ ] A list, stop, start, reconnect, or startup-recovery readiness failure exits nonzero with its underlying actionable reason; a second mismatch exits after that single retry attempt without another lifecycle cycle.
-- [ ] `status` reports startup recovery as pending until admission attempts finish, then reports stable reconciled and successfully resumed counts; unsupported and failed admissions are not counted as resumed.
-- [ ] `v2/src/cli.test.ts` adds start, resume, and workflow regression cases for safe bounce, live refusal, opt-out, failure, and one-retry behavior that fail against the pre-fix code; `v2/src/daemon/daemon-reconciliation.test.ts` adds recovery-status/count coverage that fails against the pre-fix code.
-- [ ] `v2/src/tui/tui-daemon-client.test.ts` mismatch-refusal cases stay green (TUI behavior unchanged).
-- [ ] Health, daemon status, list, log/tail, wait, pause, kill, and explicit daemon start/stop mismatch coverage stays green in `v2/src/cli.test.ts` and `v2/src/tui/tui-daemon-client.test.ts`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/daemon-host.md` documents the startup-recovery fields and completion/count semantics on `status`.
-- [ ] `v2/docs/write-behavior.md` documents default auto-bounce, the `isLive` gate, one retry, stderr output, `--no-auto-bounce`, failure behavior, exempt commands, and retained TUI refusal.
-- [ ] `v2/docs/operator-runbook.md` replaces manual per-merge bounce guidance with automatic recovery, live-run refusal, audit output, and opt-out guidance.
-- [ ] `v2/docs/v1-behaviors.md` replaces the v2-only refusal entry with the shipped CLI auto-bounce contract and retained TUI behavior.
+- [x] Default CLI fresh-start, ordinary-resume, and workflow-start dispatches that first encounter a revision mismatch stop and start a daemon with no `isLive` rows, wait for startup recovery, pass a matching second guard, and send the original mutating request once.
+- [x] A mismatch with one or more `isLive` rows exits nonzero, names every live run ID, and does not stop, start, or dispatch; not-live non-terminal rows do not block the forced bounce.
+- [x] Successful bounce stderr names loaded/current revisions, confirms restart, reports distinct reconciled and successfully auto-resumed counts, and says the original dispatch is being retried.
+- [x] `--no-auto-bounce` on each affected CLI form sends no mutating request and returns the existing mismatch plus manual-restart guidance without listing or invoking daemon lifecycle operations.
+- [x] A list, stop, start, reconnect, or startup-recovery readiness failure exits nonzero with its underlying actionable reason; a second mismatch exits after that single retry attempt without another lifecycle cycle.
+- [x] `status` reports startup recovery as pending until admission attempts finish, then reports stable reconciled and successfully resumed counts; unsupported and failed admissions are not counted as resumed.
+- [x] `v2/src/cli.test.ts` adds start, resume, and workflow regression cases for safe bounce, live refusal, opt-out, failure, and one-retry behavior that fail against the pre-fix code; `v2/src/daemon/daemon-reconciliation.test.ts` adds recovery-status/count coverage that fails against the pre-fix code.
+- [x] `v2/src/tui/tui-daemon-client.test.ts` mismatch-refusal cases stay green (TUI behavior unchanged).
+- [x] Health, daemon status, list, log/tail, wait, pause, kill, and explicit daemon start/stop mismatch coverage stays green in `v2/src/cli.test.ts` and `v2/src/tui/tui-daemon-client.test.ts`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/daemon-host.md` documents the startup-recovery fields and completion/count semantics on `status`.
+- [x] `v2/docs/write-behavior.md` documents default auto-bounce, the `isLive` gate, one retry, stderr output, `--no-auto-bounce`, failure behavior, exempt commands, and retained TUI refusal.
+- [x] `v2/docs/operator-runbook.md` replaces manual per-merge bounce guidance with automatic recovery, live-run refusal, audit output, and opt-out guidance.
+- [x] `v2/docs/v1-behaviors.md` replaces the v2-only refusal entry with the shipped CLI auto-bounce contract and retained TUI behavior.
 
 ## Documentation updates
 

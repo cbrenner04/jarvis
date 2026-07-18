@@ -18,7 +18,8 @@ export type WarningKind =
   | "near-miss-acceptance-heading"
   | "near-miss-blocker-heading"
   | "duplicate-section"
-  | "missing-anchor-behavioral-ac";
+  | "missing-anchor-behavioral-ac"
+  | "unsatisfiable-acceptance-criterion";
 
 export type ParsedSpecWarning = {
   kind: WarningKind;
@@ -377,6 +378,16 @@ export function parseSpec(content: string): ParsedSpec {
     }
   }
 
+  // Check for unsatisfiable ACs (non-human-only asserting GitHub/network-only facts)
+  for (const criterion of acceptanceCriteria) {
+    if (isUnsatisfiableAc(criterion)) {
+      warnings.push({
+        kind: "unsatisfiable-acceptance-criterion",
+        message: `Unsatisfiable AC (cannot be verified from implement worktree without network/GitHub): "${criterion.text}". Mark as human-only with (Manual), "visual inspection only", or "no automated guard" if this is post-merge verification.`,
+      });
+    }
+  }
+
   const blockerExtraction = extractBlockerBody(content);
   const blocker = blockerExtraction?.body;
 
@@ -468,6 +479,59 @@ export function stripBlockerSection(content: string): string {
   }
 
   return resultLines.join("\n");
+}
+
+/**
+ * Detect if an acceptance criterion asserts something only verifiable via
+ * GitHub/network resources (PR body/title, CI status, review state, etc.).
+ * These are non-automatable from the implement worktree and must be marked
+ * human-only to be valid. Returns true if unsatisfiable (not human-only AND
+ * asserts GitHub/network-only facts).
+ */
+export function isUnsatisfiableAc(criterion: AcceptanceCriterion): boolean {
+  // Human-only criteria are exempt
+  if (criterion.humanOnly) {
+    return false;
+  }
+
+  const text = criterion.text.toLowerCase();
+
+  // Patterns for GitHub/network-only assertions
+  const unsatisfiablePatterns = [
+    // PR body/title
+    /\bpr\s+(body|title|lists|describes|states|includes)/,
+    /\bpull request\s+(body|title)/,
+
+    // CI status/checks
+    /\b(ci|github\s+actions?|checks?|status)\s+(is\s+)?green/,
+    /\b(ci|checks?|status)\s+(pass(es)?|succeeds?|is\s+passing|are\s+passing)/,
+    /\bgreen\s+ci\b/,
+    /\bci\s+validates?\b/,
+    /\bgithub\s+actions?\s+(succeeds?|passes?|workflow)/,
+    /\b(workflow|build)\s+.*(passes?|succeeds?)/,
+
+    // Review state
+    /\breview(s|ed)?\s+(is\s+)?(ready|approved|passed|complete)/,
+    /\bpr\s+(is\s+)?(ready|approved|reviewed)/,
+    /\breview\s+(passes?|gate)/,
+    /\b(ready\s+)?gate\s+(passes?|fails?)/,
+    /\bready\b.*\bgate\b/,
+
+    // Merge status
+    /\b(is\s+)?merged?/,
+    /\bmerges?\s+to\s+(main|master)/,
+
+    // Approval/merge-ability
+    /\bapproved\b/,
+    /\bapprovable\b/,
+    /\bapproval\s+(is\s+required|passes?)/,
+
+    // Comments/reactions
+    /\bcomments?(\s+on)?\s+(pr|pull request)/,
+    /\b(reactions?|emoji|👍|✓)\s+on\s+(pr|pull request)/,
+  ];
+
+  return unsatisfiablePatterns.some((pattern) => pattern.test(text));
 }
 
 /**

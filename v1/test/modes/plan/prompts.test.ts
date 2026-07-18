@@ -43,6 +43,19 @@ describe("buildDraftPrompt", () => {
     // The post-intent Rules section still appears after the closing sentinel.
     expect(prompt.slice(end)).toContain("Rules");
   });
+
+  test("draft prompt states the agent-verifiable acceptance criteria rule", () => {
+    const prompt = buildDraftPrompt({
+      name: "x",
+      intent: "intent",
+      specGuidance: "(none)",
+    });
+    expect(prompt).toContain("Agent-verifiable acceptance criteria");
+    expect(prompt).toContain("verifiable from the implement worktree without network or GitHub");
+    expect(prompt).toContain("PR body/title");
+    expect(prompt).toContain("CI status");
+    expect(prompt).toContain("review state");
+  });
 });
 
 describe("buildReviewPrompt", () => {

@@ -5,6 +5,7 @@ import {
   hasPathLikeAnchor,
   isBehavioralPreservationAc,
   isStructuralAc,
+  isUnsatisfiableAc,
   parseRunnableIndexTier,
   parseSpec,
   stripBlockerSection,
@@ -693,5 +694,116 @@ describe("human-only criterion detection", () => {
       { checked: false, text: "Tests remain green.", humanOnly: false },
       { checked: false, text: "No visual regressions. visual inspection only", humanOnly: true },
     ]);
+  });
+});
+
+describe("unsatisfiable AC detection", () => {
+  test("flags non-human-only ACs asserting PR body content", () => {
+    const unsatisfiable = [
+      { checked: false, text: "PR body lists the breaking changes", humanOnly: false },
+      { checked: false, text: "PR title states the feature name", humanOnly: false },
+      { checked: false, text: "Pull request body describes the motivation", humanOnly: false },
+      { checked: false, text: "PR body and title both state the change", humanOnly: false },
+    ];
+
+    for (const ac of unsatisfiable) {
+      expect(isUnsatisfiableAc(ac)).toBe(true);
+    }
+  });
+
+  test("flags non-human-only ACs asserting CI/check status", () => {
+    const unsatisfiable = [
+      { checked: false, text: "CI is green", humanOnly: false },
+      { checked: false, text: "All checks pass", humanOnly: false },
+      { checked: false, text: "The CI status passes", humanOnly: false },
+      { checked: false, text: "GitHub actions workflow succeeds", humanOnly: false },
+      { checked: false, text: "Workflow passes", humanOnly: false },
+      { checked: false, text: "The green CI validates the change", humanOnly: false },
+    ];
+
+    for (const ac of unsatisfiable) {
+      expect(isUnsatisfiableAc(ac)).toBe(true);
+    }
+  });
+
+  test("flags non-human-only ACs asserting review/ready state", () => {
+    const unsatisfiable = [
+      { checked: false, text: "PR is ready", humanOnly: false },
+      { checked: false, text: "Review state is approved", humanOnly: false },
+      { checked: false, text: "The ready gate passes", humanOnly: false },
+      { checked: false, text: "Review passes", humanOnly: false },
+    ];
+
+    for (const ac of unsatisfiable) {
+      expect(isUnsatisfiableAc(ac)).toBe(true);
+    }
+  });
+
+  test("exempts human-only ACs even if text asserts GitHub facts", () => {
+    const humanOnly = [
+      { checked: false, text: "CI is green. (Manual)", humanOnly: true },
+      { checked: false, text: "PR body looks good. visual inspection only", humanOnly: true },
+      { checked: false, text: "Review state verified. no automated guard", humanOnly: true },
+    ];
+
+    for (const ac of humanOnly) {
+      expect(isUnsatisfiableAc(ac)).toBe(false);
+    }
+  });
+
+  test("does not flag satisfiable ACs about operator behavior", () => {
+    const satisfiable = [
+      { checked: false, text: "Implementation correctly handles the edge case", humanOnly: false },
+      { checked: false, text: "Tests pass when the feature is enabled", humanOnly: false },
+      { checked: false, text: "The command runs without errors", humanOnly: false },
+      { checked: false, text: "`spec-parser.test.ts` stays green", humanOnly: false },
+    ];
+
+    for (const ac of satisfiable) {
+      expect(isUnsatisfiableAc(ac)).toBe(false);
+    }
+  });
+
+  test("is case-insensitive", () => {
+    const uppercase = { checked: false, text: "CI IS GREEN", humanOnly: false };
+    const lowercase = { checked: false, text: "ci is green", humanOnly: false };
+    const mixedcase = { checked: false, text: "CI Is Green", humanOnly: false };
+
+    expect(isUnsatisfiableAc(uppercase)).toBe(true);
+    expect(isUnsatisfiableAc(lowercase)).toBe(true);
+    expect(isUnsatisfiableAc(mixedcase)).toBe(true);
+  });
+
+  test("warns during parseSpec when unsatisfiable ACs are found", () => {
+    const content = `# Title
+
+## Acceptance criteria
+
+- [ ] CI is green
+- [ ] Implementation works correctly`;
+
+    const parsed = parseSpec(content);
+    const unsatWarnings = parsed.warnings.filter((w) => w.kind === "unsatisfiable-acceptance-criterion");
+
+    expect(unsatWarnings).toHaveLength(1);
+    expect(unsatWarnings[0]?.message).toContain("CI is green");
+  });
+
+  test("parseSpec with mixed satisfiable and unsatisfiable ACs warns only on unsatisfiable ones", () => {
+    const content = `# Title
+
+## Acceptance criteria
+
+- [ ] Tests pass
+- [ ] PR body lists breaking changes
+- [ ] The feature works correctly
+- [ ] CI is green`;
+
+    const parsed = parseSpec(content);
+    const unsatWarnings = parsed.warnings.filter((w) => w.kind === "unsatisfiable-acceptance-criterion");
+
+    expect(unsatWarnings).toHaveLength(2);
+    expect(unsatWarnings.some((w) => w.message.includes("PR body lists"))).toBe(true);
+    expect(unsatWarnings.some((w) => w.message.includes("CI is green"))).toBe(true);
   });
 });

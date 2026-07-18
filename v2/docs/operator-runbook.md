@@ -359,19 +359,23 @@ forward.
 ### Orphaned non-terminal runs after daemon restart
 
 Durable non-terminal rows from a prior daemon are reconciled to `killed` with reason
-`daemon_restart` before IPC opens (#1430, race fixed by #1476–#1478). Worktrees and branches
-survive, but the killed iteration's agent work does **not** — it is left uncommitted in the
-worktree, and its token spend is lost.
+`daemon_restart` before IPC opens (#1430, race fixed by #1476–#1478). Once IPC is healthy, the
+daemon automatically resumes every reconciled row with a resolvable workflow write snapshot.
+The original run ID, snapshot, worktree, and branch are retained; check `jarvis run log <run-id>`
+for its `run_recovery` outcome. A failed automatic admission becomes `failed` with an actionable
+log diagnostic, without blocking other recoveries. Worktrees and branches survive, but the killed
+iteration's agent work does **not** — it is left uncommitted in the worktree, and its token spend
+is lost.
 
 **Two traps here, both seeded, both observed live on 2026-07-14:**
 
 - A revision mismatch now refuses only new starts and resumes. Leave admitted work
   alone; use status/list/log/wait/pause/kill to recover it, then restart the
   daemon once no active work needs preserving before dispatching new work.
-- Killed workflow write runs resume from their persisted snapshot. If the snapshot is missing or
-  cannot resolve its write step, `resume` returns `resume_unsupported` before spawn; `list` / `wait`
-  report `unsupported_resume_context` with `retryable: false` and `nextAction: "stop"`. Fix the
-  persisted context or re-run the spec rather than treating that row as a config-binding failure.
+- A reconciled orphan with a missing or unresolvable workflow write snapshot is not auto-resumed.
+  It stays `killed`; `list` / `wait` report `unsupported_resume_context` with `retryable: false`
+  and `nextAction: "stop"`. Fix the persisted context or re-run the spec rather than treating that
+  row as a config-binding failure.
 
 ### Wedged run, no agent activity
 

@@ -14,7 +14,7 @@ Daemon-hosted work, including finalization (the ready gate and draft-to-ready
 flip), must not block unrelated IPC. No daemon-hosted path may use a synchronous
 child process; `bun run check` guards `v2/**` and `shared/**` against it.
 
-## Restart reconciliation
+## Restart reconciliation and recovery
 
 Before opening its IPC listener, a daemon marks durable `queued`, `in-progress`,
 `paused`, `budget-soft-stopped`, `awaiting-human`, and `revising` runs whose
@@ -40,6 +40,16 @@ Kill and reconcile never overwrite a boundary-terminal row status (`completed`,
 `killed` (including a row left `killed` + pending by a crash before the event
 append); a pending row that has since reached a boundary-terminal status gets its
 pending flag cleared with no reconcile event.
+
+Once IPC is listening, the daemon automatically admits every row that this
+startup sweep reconciled through the normal snapshot-backed write `resume`
+path. Health and all other IPC calls remain available while the resumed work
+runs. Recovery reuses the durable run ID, workflow snapshot, worktree, and
+branch. Each successful admission appends `run_recovery` with `outcome:
+"resumed"`. A snapshot-less or otherwise unresolvable row is not admitted and
+stays `killed` with `unsupported_resume_context`. Any other admission failure
+sets that row to `failed` and appends `run_recovery` with `outcome: "failed"`
+and its diagnostic; it does not block later reconciled rows.
 
 ## Socket path
 

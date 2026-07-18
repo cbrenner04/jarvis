@@ -10,6 +10,21 @@ worktree retained (dirty). Today `activeRuns` tracks workflow steps with
 Depends on the prerequisites in [intent.md](./intent.md). Out of scope:
 pause/resume for workflow-started runs; redesigning workflow step execution.
 
+## Blocker
+
+**Do not re-run this spec as-is.** Four attempts (two codex, one claude on the
+sharpened discriminant below) all produced a runtime no-op: every `reapable` latch
+tried — no-bound-subprocess inference, iteration-timeout, abort, orphan-settle —
+**coincides with the run terminating**, so a `(live ∧ reapable)` state is never
+observable by a real kill (verified empirically and by code read in closed PR #1760:
+`write-loop.ts` fires `onReapable` immediately before `finishLoop(...,true)` /
+`finishIterationTimeout`). The correct discriminant needs a **live idle/stall signal**
+that fires while the run is still live — which v2 lacks until Wave 4. This spec is
+superseded by seed `wedged-workflow-kill-needs-a-live-stall-signal.md` and is
+**blocked on Wave 4** (`invocation-output-age-telemetry`,
+`v2-write-loop-escalates-on-stall`). Re-plan from that seed after the Wave 4 idle
+signal lands; discard the pinned discriminant below.
+
 ## Decisions
 
 - Kill by the same `runId` `list` shows for the wedged step — rules out a

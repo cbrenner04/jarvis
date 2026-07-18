@@ -16,13 +16,14 @@ export class PromptRenderingError extends Error {
 }
 
 export function renderArtifactTemplate(artifact: PromptArtifact, values: Record<string, unknown>): string {
-  return renderTemplateWithDeclarations(artifact.body, artifact.metadata.placeholders, values);
+  return renderTemplateWithDeclarations(artifact.body, artifact.metadata.placeholders, values, artifact.metadata.id);
 }
 
 export function renderTemplateWithDeclarations(
   template: string,
   declarations: ReadonlyArray<PromptPlaceholderDeclaration>,
   values: Record<string, unknown>,
+  promptId?: string,
 ): string {
   const allowed = new Map(declarations.map((d) => [d.name, d]));
   const placeholderPattern = /(?<!<)<([A-Z_][A-Z_0-9]{1,})>(?!>)/g;
@@ -48,7 +49,10 @@ export function renderTemplateWithDeclarations(
       throw new PromptRenderingError("unknown_placeholder", `Template references unknown placeholder \`${token}\``);
     }
     if (declaration.required && values[name] === undefined) {
-      throw new PromptRenderingError("missing_value", `Required placeholder \`${token}\` has no value`);
+      throw new PromptRenderingError(
+        "missing_value",
+        `${promptId ? `Prompt \`${promptId}\`: ` : ""}Required placeholder \`${token}\` has no value`,
+      );
     }
     const value = values[name];
     if (value !== undefined && declaration.type === "string" && typeof value !== "string") {

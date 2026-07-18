@@ -8,11 +8,14 @@ describe("renderTemplateWithDeclarations", () => {
   ];
 
   test("enforces required placeholder presence", () => {
-    expect(() =>
-      renderTemplateWithDeclarations("x <AA> y <BB>", declarations, {
-        AA: "1",
-      }),
-    ).toThrow("Required placeholder `<BB>` has no value");
+    const values = { AA: "1" };
+    const template = "x <AA> y <BB>";
+    expect(() => renderTemplateWithDeclarations(template, declarations, values)).toThrow(
+      "Required placeholder `<BB>` has no value",
+    );
+    expect(() => renderTemplateWithDeclarations(template, declarations, values, "test.prompt")).toThrow(
+      "Prompt `test.prompt`: Required placeholder `<BB>` has no value",
+    );
   });
 
   test("enforces placeholder type", () => {

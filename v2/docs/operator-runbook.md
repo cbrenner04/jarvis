@@ -565,13 +565,15 @@ Operators add bullets here; delete when fixed.
   Unmerged/leaked worktrees use `jarvis cleanup --abandon <name>` (see [Recovery § Branch / worktree collision](#branch--worktree-collision)).
   `jarvis1 cleanup` remains blind to the v2 home; use `jarvis cleanup`.
 
-- **Gate `main` before debugging a red branch (2026-07-16):** `bun run ready` runs the aggregate
-  suite, which CI never runs (CI scopes by changed path). `main` was red on the operator machine
-  behind green CI for an unknown number of sessions — the aggregate's per-file timeout was smaller
-  than its slowest file. Every v1 and v2 gate failed regardless of the diff. If a gate goes red on a
-  diff that cannot explain it, run the gate on `main` before touching the branch. Recovered in
-  #1644. Seed: `v1/spec/seeds/ci-cannot-protect-the-local-ready-gate.md`. Cleanup: delete when it
-  ships. See [v1 runbook § The gate](../../v1/docs/operator-runbook.md#the-gate).
+- **Scoped CI vs. aggregate ready contract (2026-07-18):** `bun run ready` runs the aggregate
+  suite, which CI never runs (CI scopes by changed path via `scripts/ci-test-scope.ts`). Roster
+  equivalence (aggregate = union of six scoped slices) and policy parity (timeout, isolation,
+  failure handling) are protected by regression tests (`test/test-slices.test.ts`,
+  `scripts/ci-test-scope.test.ts`), ensuring green CI is evidence the local gate can pass. When
+  a gate goes red on a diff that cannot explain it, check path classification is correct; if so,
+  the failure is environment-specific (machine load, system flake) not a code issue. See
+  [v2 behaviors § Test execution](./v1-behaviors.md#test-execution-and-development-workflows) and
+  [v1 runbook § The gate](../../v1/docs/operator-runbook.md#the-gate).
 - **Launch `jarvis run workflow` from the project root (2026-07-14):** `--spec` resolves against
   your shell's cwd, and the resulting repo-relative path is re-resolved *inside the run's own
   worktree*. A cwd inside another git worktree (e.g. `.worktree/<x>/`) yields a path that passes

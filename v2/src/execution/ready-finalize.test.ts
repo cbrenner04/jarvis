@@ -227,4 +227,56 @@ describe("createReadyFinalizer", () => {
     expect(calls[0]?.env?.JARVIS_READY_TIER).toBe("full");
     expect(calls[0]?.env?.JARVIS_READY_TEST_SCOPE).toBe("full");
   });
+
+  it("rejects required v2 integration scope failure before publisher finalization", async () => {
+    let flipCalls = 0;
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {},
+      runRequiredIntegration: async () => {
+        throw new ReadyGateError("bun run test:integration:v2", 1, "integration test failed\n");
+      },
+      ghReadyFlip: async () => {
+        flipCalls += 1;
+      },
+    });
+
+    const inputWithIntegration = { ...input, requiredIntegrationScope: "test:integration:v2" };
+    await expect(finalizer(inputWithIntegration)).rejects.toThrow("ready gate failed");
+    expect(flipCalls).toBe(0);
+  });
+
+  it("runs required integration scope after ready gate and before flip", async () => {
+    const calls: string[] = [];
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {
+        calls.push("gate");
+      },
+      runRequiredIntegration: async () => {
+        calls.push("integration");
+      },
+      ghReadyFlip: async () => {
+        calls.push("flip");
+      },
+    });
+
+    const inputWithIntegration = { ...input, requiredIntegrationScope: "test:integration:v2" };
+    await finalizer(inputWithIntegration);
+
+    expect(calls).toEqual(["gate", "integration", "flip"]);
+  });
+
+  it("skips required integration scope when not specified", async () => {
+    let integrationCalls = 0;
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {},
+      runRequiredIntegration: async () => {
+        integrationCalls += 1;
+      },
+      ghReadyFlip: async () => {},
+    });
+
+    await finalizer(input);
+
+    expect(integrationCalls).toBe(0);
+  });
 });

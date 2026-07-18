@@ -22,12 +22,12 @@ A v2 implement run can settle completed and flip its PR ready while an explicitl
 
 ## Acceptance criteria
 
-- [ ] A v2 implement run whose active subspec requires `bun run test:integration:v2` settles without `runStatus: completed` when that command exits non-zero, and its draft-to-ready operation is not called.
-- [ ] `v2/src/execution/ready-finalize.test.ts` regression `rejects required v2 integration scope failure before publisher finalization` fails against the reproduced bypass and passes only when finalization requires an exit-zero `bun run test:integration:v2` result.
-- [ ] The regression verifies ready gate → required integration scope → draft-to-ready ordering and preserves the required command's non-zero exit and output as ready-gate failure evidence.
-- [ ] Finalization without an active subspec requirement does not invoke `bun run test:integration:v2`; existing `v2/src/execution/ready-finalize.test.ts` ready-gate and flip tests stay green.
-- [ ] `v2/docs/operator-runbook.md` Gate trust and `v2/docs/v1-behaviors.md` document the required integration evidence, failure settlement, and no-flip behavior; `v2/docs/test-writing.md` matches the reproduced aggregate-suite semantics.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A v2 implement run whose active subspec requires `bun run test:integration:v2` settles without `runStatus: completed` when that command exits non-zero, and its draft-to-ready operation is not called.
+- [x] `v2/src/execution/ready-finalize.test.ts` regression `rejects required v2 integration scope failure before publisher finalization` fails against the reproduced bypass and passes only when finalization requires an exit-zero `bun run test:integration:v2` result.
+- [x] The regression verifies ready gate → required integration scope → draft-to-ready ordering and preserves the required command's non-zero exit and output as ready-gate failure evidence.
+- [x] Finalization without an active subspec requirement does not invoke `bun run test:integration:v2`; existing `v2/src/execution/ready-finalize.test.ts` ready-gate and flip tests stay green.
+- [x] `v2/docs/operator-runbook.md` Gate trust and `v2/docs/v1-behaviors.md` document the required integration evidence, failure settlement, and no-flip behavior; `v2/docs/test-writing.md` matches the reproduced aggregate-suite semantics.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

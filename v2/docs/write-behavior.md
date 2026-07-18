@@ -576,6 +576,15 @@ before retrying `jarvis tui` or `jarvis tui log <run-id>`.
 | `jarvis run kill <run-id>` | Run ID | `killed <run-id>` | `0` on success |
 | `jarvis run wait <run-id>` | Run ID | One minified JSON line: `{runStatus, loopOutcomeKind?, iterationsConsumed?, resumable?, error?}` — only present optional fields included | See [wait exit codes](#wait-exit-codes) |
 
+Before `jarvis run start`, `jarvis run workflow …`, and `jarvis run resume`,
+the CLI (and equivalent TUI actions) reads daemon `status` and compares its
+loaded revision with the invoking source revision. A mismatch sends no `start`
+or `resume` request and exits 1 with `daemon revision mismatch:
+loaded=<revision> current=<revision>; restart the daemon before starting or
+resuming work`. Health, status, listing, logs/tail, wait, pause, kill, and
+daemon lifecycle commands remain available; the check never changes admitted
+runs.
+
 `jarvis run list` and `jarvis run wait` pass through daemon `error` fields
 verbatim when present (`reason`, `retryable`, `nextAction`); see
 [`daemon-host.md`](./daemon-host.md#operator-error-on-list-and-wait) for the wire

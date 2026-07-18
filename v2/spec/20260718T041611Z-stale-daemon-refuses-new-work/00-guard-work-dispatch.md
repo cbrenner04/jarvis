@@ -23,9 +23,9 @@ A daemon keeps its startup source snapshot after the invoking checkout changes. 
 
 ## Acceptance criteria
 
-- [ ] When loaded and invoking revisions differ, fresh write and workflow dispatches exit nonzero, send no `start` request, and report both revisions plus daemon restart guidance.
-- [ ] When loaded and invoking revisions differ, ordinary and human-decision resumes exit nonzero, send no `resume` request, and report both revisions plus daemon restart guidance.
-- [ ] Matching revisions preserve existing start and resume outputs, daemon requests, and run behavior.
-- [ ] Observation, steering, and lifecycle commands remain available across a revision mismatch, and already admitted or in-flight runs are not mutated by the preflight.
-- [ ] New cases in `v2/src/cli.test.ts` and `v2/src/tui/tui-daemon-client.test.ts` fail against the pre-fix code and pass with guarded start/resume dispatch.
-- [ ] `v2/docs/write-behavior.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` document the shipped behavior without retaining the restart-after-every-merge stopgap.
+- [x] When loaded and invoking revisions differ, fresh write and workflow dispatches exit nonzero, send no `start` request, and report both revisions plus daemon restart guidance.
+- [x] When loaded and invoking revisions differ, ordinary and human-decision resumes exit nonzero, send no `resume` request, and report both revisions plus daemon restart guidance.
+- [x] Matching revisions preserve existing start and resume outputs, daemon requests, and run behavior.
+- [x] Observation, steering, and lifecycle commands remain available across a revision mismatch, and already admitted or in-flight runs are not mutated by the preflight.
+- [x] New cases in `v2/src/cli.test.ts` and `v2/src/tui/tui-daemon-client.test.ts` fail against the pre-fix code and pass with guarded start/resume dispatch.
+- [x] `v2/docs/write-behavior.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` document the shipped behavior without retaining the restart-after-every-merge stopgap.

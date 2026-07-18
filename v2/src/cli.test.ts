@@ -13,16 +13,17 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../shared/subprocess.ts";
-import { main } from "./cli.ts";
+import { main as runtimeMain } from "./cli.ts";
 import type { AgentModelConfig } from "./config/agent-model-config.ts";
 import type { BuildImplementWorkflowStepsInput } from "./execution/implement-workflow-steps.ts";
 import type { AnyWorkflowStep } from "./execution/workflow-runner.ts";
 import type { WriteLoopInput, WriteLoopResult } from "./execution/write-loop.ts";
 import { applyOperatorSessionId } from "./execution/write-loop.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "./execution/write-loop-input.ts";
+import type { IpcClient } from "./ipc/client.ts";
+import type { IpcFrame } from "./ipc/types.ts";
 import type { PersistedRecord } from "./persistence/log-stream.ts";
 import { withFixedUuid } from "./testing/fixed-uuid.ts";
-import { makeIpcClient } from "./testing/ipc-client-fake.ts";
 import { mockWriteLoopInput } from "./testing/run-control.ts";
 
 function captureIo() {
@@ -38,6 +39,69 @@ function captureIo() {
       },
     },
     read: () => ({ stdout, stderr }),
+  };
+}
+
+const TEST_REVISION = "test-revision";
+
+function main(
+  argv: readonly string[],
+  io?: Parameters<typeof runtimeMain>[1],
+  deps?: Parameters<typeof runtimeMain>[2],
+): Promise<number> {
+  return runtimeMain(argv, io, { getCurrentRevision: async () => TEST_REVISION, ...deps });
+}
+
+/** Supplies the admission preflight used by run-control tests without changing their RPC fixtures. */
+function makeIpcClient(frames: unknown[], options?: { sent?: unknown[]; loadedRevision?: string }): IpcClient {
+  const queue = [...frames] as IpcFrame[];
+  const sent = options?.sent ?? [];
+  let waiter:
+    | { resolve: (frame: Awaited<ReturnType<IpcClient["nextFrame"]>>) => void; reject: (error: Error) => void }
+    | undefined;
+  let closed = false;
+  let drainFrames = false;
+  const deliver = (frame: Awaited<ReturnType<IpcClient["nextFrame"]>>): void => {
+    if (waiter !== undefined) {
+      const pending = waiter;
+      waiter = undefined;
+      pending.resolve(frame);
+      return;
+    }
+    queue.unshift(frame);
+  };
+  return {
+    send(frame: unknown): void {
+      const request = frame as { kind?: string; id?: string; method?: string };
+      if (request.kind === "request" && request.method === "status" && typeof request.id === "string") {
+        deliver({
+          kind: "response",
+          id: request.id,
+          result: { state: "running", loadedRevision: options?.loadedRevision ?? TEST_REVISION },
+        });
+        return;
+      }
+      sent.push(frame);
+      drainFrames ||= request.kind === "stream-open";
+      const response = queue.shift();
+      if (response !== undefined) deliver(response);
+    },
+    async nextFrame() {
+      if (closed) throw new Error("connection closed");
+      if (drainFrames) {
+        const frame = queue.shift();
+        if (frame === undefined) throw new Error("connection closed");
+        return frame;
+      }
+      return await new Promise<Awaited<ReturnType<IpcClient["nextFrame"]>>>((resolve, reject) => {
+        waiter = { resolve, reject };
+      });
+    },
+    close(): void {
+      closed = true;
+      waiter?.reject(new Error("connection closed"));
+      waiter = undefined;
+    },
   };
 }
 
@@ -204,20 +268,20 @@ function workflowFrames(startRequestId: string, waitRequestId: string, runId: st
 }
 
 /** `main()` consumes one uuid for its operator session id before any RPC id is minted, so a
- * workflow's id sequence is: session, then the `start` request, then the `wait` request. */
+ * workflow's id sequence is: session, revision status, then `start` and `wait`. */
 const SESSION_UUID = "00000000-0000-4000-8000-0000000000ff";
 
 function makeWorkflowUuidManager(startId: string, waitId: string): () => string {
   let callCount = 0;
   return () => {
-    const ids: readonly string[] = [SESSION_UUID, startId, waitId];
+    const ids: readonly string[] = [SESSION_UUID, SESSION_UUID, startId, waitId];
     return ids[callCount++] ?? waitId;
   };
 }
 
-/** Stubs the session/start/wait uuid sequence for a `run workflow` invocation. */
+/** Stubs the session/status/start/wait uuid sequence for a `run workflow` invocation. */
 function withWorkflowUuids<T>(startId: string, waitId: string, fn: () => Promise<T>): Promise<T> {
-  return withFixedUuid([SESSION_UUID, startId, waitId], fn);
+  return withFixedUuid([SESSION_UUID, SESSION_UUID, startId, waitId], fn);
 }
 
 const COMPLETED_WAIT_RESULT = {
@@ -953,6 +1017,35 @@ describe("v2 cli", () => {
         },
       },
     });
+  });
+
+  test("revision mismatch refuses fresh starts before IPC start", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const code = await main(RUN_START_ARGS, cap.io, {
+      loadAgentModelConfig: stubAgentModelConfig,
+      connectIpcClient: async () => makeIpcClient([], { sent, loadedRevision: "loaded-revision" }),
+    });
+
+    expect(code).toBe(1);
+    expect(sent).toEqual([]);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr:
+        "daemon revision mismatch: loaded=loaded-revision current=test-revision; restart the daemon before starting or resuming work\n",
+    });
+  });
+
+  test("revision mismatch refuses ordinary resumes before IPC resume", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const code = await main(["run", "resume", "run-123"], cap.io, {
+      connectIpcClient: async () => makeIpcClient([], { sent, loadedRevision: "loaded-revision" }),
+    });
+
+    expect(code).toBe(1);
+    expect(sent).toEqual([]);
+    expect(cap.read().stderr).toContain("loaded=loaded-revision current=test-revision");
   });
 
   test("run start passes through daemon guard errors without local write-loop logic", async () => {

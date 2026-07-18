@@ -37,6 +37,13 @@ const WAIT_REQUEST_ID = "00000000-0000-4000-8000-000000000005";
 const PAUSE_REQUEST_ID = "00000000-0000-4000-8000-000000000008";
 const RESUME_REQUEST_ID = "00000000-0000-4000-8000-000000000009";
 const KILL_REQUEST_ID = "00000000-0000-4000-8000-00000000000a";
+const CURRENT_REVISION = "abc123";
+
+const matchingRevision = async (): Promise<string> => CURRENT_REVISION;
+
+function statusFrame(id = STATUS_REQUEST_ID, loadedRevision = CURRENT_REVISION): IpcFrame {
+  return { kind: "response", id, result: { state: "running", loadedRevision } };
+}
 
 // All fixed clients in this file drive connectTuiDaemon's reader loop, which requires gated delivery.
 function makeGatedIpcClient(frames: unknown[], options: { sent?: unknown[] } = {}): IpcClient {
@@ -52,7 +59,7 @@ test("uses injected connectIpcClient instead of production transport", async () 
     return makeGatedIpcClient(
       [
         { kind: "response", id: HEALTH_REQUEST_ID, result: { ok: true } },
-        { kind: "response", id: STATUS_REQUEST_ID, result: { state: "running", loadedRevision: "abc123" } },
+        statusFrame(),
         {
           kind: "response",
           id: LIST_REQUEST_ID,
@@ -263,11 +270,18 @@ const RESUME_RUN_IN_PROGRESS_CASE: ErrorCase = {
 
 async function runErrorCaseGroup(cases: ErrorCase[]): Promise<void> {
   await withFixedUuid(
-    cases.map((c) => c.requestId),
+    cases.flatMap((c) => (c.method === "start" || c.method === "resume" ? [c.requestId, c.requestId] : [c.requestId])),
     async () => {
       const client = await connectTuiDaemon({
         connectIpcClient: async () =>
-          makeGatedIpcClient(cases.map((c) => ({ kind: "error", id: c.requestId, code: c.code, message: c.message }))),
+          makeGatedIpcClient(
+            cases.flatMap((c) =>
+              c.method === "start" || c.method === "resume"
+                ? [statusFrame(c.requestId), { kind: "error", id: c.requestId, code: c.code, message: c.message }]
+                : [{ kind: "error", id: c.requestId, code: c.code, message: c.message }],
+            ),
+          ),
+        getCurrentRevision: matchingRevision,
       });
 
       for (const c of cases) {
@@ -498,14 +512,18 @@ test("rejects unreachable socket with RpcConnectionError and sends no RPCs", asy
 
 test("start sends one correlated IPC start request and returns runId", async () => {
   const sent: unknown[] = [];
-  await withFixedUuid([START_REQUEST_ID], async () => {
+  await withFixedUuid([STATUS_REQUEST_ID, START_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeGatedIpcClient([{ kind: "response", id: START_REQUEST_ID, result: { runId: "run-999" } }], { sent }),
+        makeGatedIpcClient([statusFrame(), { kind: "response", id: START_REQUEST_ID, result: { runId: "run-999" } }], {
+          sent,
+        }),
+      getCurrentRevision: matchingRevision,
     });
 
     await expect(client.start(START_INPUT)).resolves.toEqual({ runId: "run-999" });
     expect(sent).toEqual([
+      { kind: "request", id: STATUS_REQUEST_ID, method: "status" },
       {
         kind: "request",
         id: START_REQUEST_ID,
@@ -517,36 +535,83 @@ test("start sends one correlated IPC start request and returns runId", async () 
   });
 });
 
+test("revision mismatch rejects start and human-decision resume before their mutating requests", async () => {
+  const sent: unknown[] = [];
+  await withFixedUuid([STATUS_REQUEST_ID, STATUS_REQUEST_ID], async () => {
+    const client = await connectTuiDaemon({
+      connectIpcClient: async () =>
+        makeGatedIpcClient(
+          [
+            {
+              kind: "response",
+              id: STATUS_REQUEST_ID,
+              result: { state: "running", loadedRevision: "loaded-revision" },
+            },
+            {
+              kind: "response",
+              id: STATUS_REQUEST_ID,
+              result: { state: "running", loadedRevision: "loaded-revision" },
+            },
+          ],
+          { sent },
+        ),
+      getCurrentRevision: async () => "current-revision",
+    });
+
+    await expect(client.start(START_INPUT)).rejects.toThrow("loaded=loaded-revision current=current-revision");
+    await expect(client.resume("run-123", { decision: "revise", prompt: "try again" })).rejects.toThrow(
+      "restart the daemon before starting or resuming work",
+    );
+    expect(sent).toEqual([
+      { kind: "request", id: STATUS_REQUEST_ID, method: "status" },
+      { kind: "request", id: STATUS_REQUEST_ID, method: "status" },
+    ]);
+    client.close();
+  });
+});
+
 test.each([
   ["pause", PAUSE_REQUEST_ID] as const,
   ["resume", RESUME_REQUEST_ID] as const,
   ["kill", KILL_REQUEST_ID] as const,
 ])("%s sends one correlated IPC request and returns ok", async (method, requestId) => {
   const sent: unknown[] = [];
-  await withFixedUuid([requestId], async () => {
+  const ids = method === "resume" ? [STATUS_REQUEST_ID, requestId] : [requestId];
+  const frames =
+    method === "resume"
+      ? [statusFrame(), { kind: "response", id: requestId, result: { ok: true } }]
+      : [{ kind: "response", id: requestId, result: { ok: true } }];
+  await withFixedUuid(ids, async () => {
     const client = await connectTuiDaemon({
-      connectIpcClient: async () =>
-        makeGatedIpcClient([{ kind: "response", id: requestId, result: { ok: true } }], { sent }),
+      connectIpcClient: async () => makeGatedIpcClient(frames, { sent }),
+      getCurrentRevision: matchingRevision,
     });
 
     await expect(client[method]("run-123")).resolves.toEqual({ ok: true });
-    expect(sent).toEqual([{ kind: "request", id: requestId, method, params: { runId: "run-123" } }]);
+    expect(sent).toEqual([
+      ...(method === "resume" ? [{ kind: "request", id: STATUS_REQUEST_ID, method: "status" }] : []),
+      { kind: "request", id: requestId, method, params: { runId: "run-123" } },
+    ]);
     client.close();
   });
 });
 
 test("resume forwards decision and prompt for awaiting-human runs", async () => {
   const sent: unknown[] = [];
-  await withFixedUuid([RESUME_REQUEST_ID], async () => {
+  await withFixedUuid([STATUS_REQUEST_ID, RESUME_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeGatedIpcClient([{ kind: "response", id: RESUME_REQUEST_ID, result: { ok: true } }], { sent }),
+        makeGatedIpcClient([statusFrame(), { kind: "response", id: RESUME_REQUEST_ID, result: { ok: true } }], {
+          sent,
+        }),
+      getCurrentRevision: matchingRevision,
     });
 
     await expect(client.resume("run-123", { decision: "revise", prompt: "try again" })).resolves.toEqual({
       ok: true,
     });
     expect(sent).toEqual([
+      { kind: "request", id: STATUS_REQUEST_ID, method: "status" },
       {
         kind: "request",
         id: RESUME_REQUEST_ID,
@@ -562,17 +627,13 @@ test("steering RPCs succeed while wait is unresolved on the same client", async 
   const sent: unknown[] = [];
   const deferred = createDeferredIpcClient(sent);
 
-  await withFixedUuid([WAIT_REQUEST_ID, PAUSE_REQUEST_ID, RESUME_REQUEST_ID, KILL_REQUEST_ID], async () => {
+  await withFixedUuid([WAIT_REQUEST_ID, PAUSE_REQUEST_ID, KILL_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({ connectIpcClient: async () => deferred.client });
     const waitPromise = client.wait("run-123");
 
     const pausePromise = client.pause("run-123");
     deferred.push({ kind: "response", id: PAUSE_REQUEST_ID, result: { ok: true } });
     await expect(pausePromise).resolves.toEqual({ ok: true });
-
-    const resumePromise = client.resume("run-123");
-    deferred.push({ kind: "response", id: RESUME_REQUEST_ID, result: { ok: true } });
-    await expect(resumePromise).resolves.toEqual({ ok: true });
 
     const killPromise = client.kill("run-123");
     deferred.push({ kind: "response", id: KILL_REQUEST_ID, result: { ok: true } });
@@ -590,7 +651,6 @@ test("steering RPCs succeed while wait is unresolved on the same client", async 
     expect(sent).toEqual([
       { kind: "request", id: WAIT_REQUEST_ID, method: "wait", params: { runId: "run-123" } },
       { kind: "request", id: PAUSE_REQUEST_ID, method: "pause", params: { runId: "run-123" } },
-      { kind: "request", id: RESUME_REQUEST_ID, method: "resume", params: { runId: "run-123" } },
       { kind: "request", id: KILL_REQUEST_ID, method: "kill", params: { runId: "run-123" } },
     ]);
     client.close();

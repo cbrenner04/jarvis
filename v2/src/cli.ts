@@ -16,7 +16,7 @@ import {
 } from "./config/machine-config-loader.ts";
 import { loadMachineProfileModels } from "./config/machine-profile-loader.ts";
 import { resolveWriteLoopBindings, type WaitRunCompletionResult } from "./daemon/daemon.ts";
-import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon/daemon-lifecycle.ts";
+import { getDaemonStatus, type DaemonStatusDetail, startDaemon, stopDaemon } from "./daemon/daemon-lifecycle.ts";
 import { followDaemonProcessLog, readDaemonProcessLog } from "./daemon/daemon-process-log.ts";
 import type { DaemonListRunRow } from "./daemon/daemon-wire.ts";
 import { parseListRuns, parseStartResult, parseWaitCompletion } from "./daemon/daemon-wire.ts";
@@ -218,9 +218,22 @@ async function runDaemonCommand(argv: readonly string[], io: Io, deps: CliDeps):
       return 1;
     }
 
-    const status = await deps.getDaemonStatus(pid, deps.socketPath);
-    io.stdout(`${status}\n`);
-    return status === "running" ? 0 : 1;
+    const statusDetail = await deps.getDaemonStatus(pid, deps.socketPath);
+    if (statusDetail.status === "stopped") {
+      io.stdout("stopped\n");
+      return 1;
+    }
+    if (statusDetail.status === "stale") {
+      io.stdout(`stale loaded=${statusDetail.loadedRevision} current=${statusDetail.currentRevision}\n`);
+      return 1;
+    }
+
+    io.stdout(
+      statusDetail.loadedRevision !== undefined
+        ? `running loaded=${statusDetail.loadedRevision} current=${statusDetail.currentRevision}\n`
+        : "running\n",
+    );
+    return 0;
   }
 
   if (subcommand === "log") {

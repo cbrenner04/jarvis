@@ -17,7 +17,7 @@ import { DAEMON_SOCKET_PATH } from "../paths.ts";
 type TuiDaemonHealthResult = { ok: true };
 
 /** Successful IPC `status` RPC payload when the daemon host is live. */
-type TuiDaemonStatusResult = { state: "running" };
+type TuiDaemonStatusResult = { state: "running"; loadedRevision?: string };
 
 /** Successful IPC `start` RPC payload with the spawned run id. */
 type TuiDaemonStartResult = { runId: string };

@@ -816,7 +816,7 @@ describe("v2 cli", () => {
       getDaemonStatus: async (pid, socketPath) => {
         expect(pid).toBe(77);
         expect(socketPath).toBe(paths.socketPath);
-        return "running";
+        return { status: "running" };
       },
     });
 
@@ -835,6 +835,54 @@ describe("v2 cli", () => {
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "stopped\n", stderr: "" });
+  });
+
+  test("daemon status prints running with matching revisions and exit 0", async () => {
+    const cap = captureIo();
+    const paths = tempPaths();
+    writeFileSync(paths.pidPath, "77\n");
+    const loadedRevision = "abc123def456abc123def456abc123def456abc1";
+    const currentRevision = "abc123def456abc123def456abc123def456abc1";
+
+    const code = await main(["daemon", "status"], cap.io, {
+      socketPath: paths.socketPath,
+      pidPath: paths.pidPath,
+      getDaemonStatus: async (pid, socketPath) => {
+        expect(pid).toBe(77);
+        expect(socketPath).toBe(paths.socketPath);
+        return { status: "running", loadedRevision, currentRevision };
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({
+      stdout: `running loaded=${loadedRevision} current=${currentRevision}\n`,
+      stderr: "",
+    });
+  });
+
+  test("daemon status prints stale with different revisions and exit 1", async () => {
+    const cap = captureIo();
+    const paths = tempPaths();
+    writeFileSync(paths.pidPath, "77\n");
+    const loadedRevision = "abc123def456abc123def456abc123def456abc1";
+    const currentRevision = "def456abc123def456abc123def456abc123def45";
+
+    const code = await main(["daemon", "status"], cap.io, {
+      socketPath: paths.socketPath,
+      pidPath: paths.pidPath,
+      getDaemonStatus: async (pid, socketPath) => {
+        expect(pid).toBe(77);
+        expect(socketPath).toBe(paths.socketPath);
+        return { status: "stale", loadedRevision, currentRevision };
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: `stale loaded=${loadedRevision} current=${currentRevision}\n`,
+      stderr: "",
+    });
   });
 
   test("daemon log writes retained bytes to stdout and exits 0", async () => {

@@ -22,12 +22,12 @@ Make `jarvis daemon status` identify and compare the daemon's startup revision w
 
 ## Acceptance criteria
 
-- [ ] A running daemon with the same loaded and current full Git revision prints `running loaded=<revision> current=<revision>` and exits `0`.
-- [ ] A running daemon with different loaded and current revisions prints `stale loaded=<loaded-revision> current=<current-revision>` and exits `1`.
-- [ ] A missing, dead, or unreachable daemon still prints `stopped` and exits `1` without reporting a stale comparison.
-- [ ] The daemon reports the revision captured at startup for its lifetime even if the checkout revision later changes; it does not reload source for in-flight work.
-- [ ] `v2/src/daemon/daemon-lifecycle.test.ts` and `v2/src/cli.test.ts` include regression coverage for captured identity plus matching, stale, and stopped status paths that fails against the pre-fix code and passes after implementation.
-- [ ] `v2/src/tui/tui-daemon-client.test.ts` stays green with the enriched daemon status response.
-- [ ] The daemon resolves its startup revision with no synchronous child-process call: `daemon-lifecycle.ts` (and any status-path code) contains no `spawnSync`/`execSync`/`execFileSync`, and `v2/src/daemon/daemon-ipc-responsiveness-during-git.sandbox-unrunnable.test.ts` stays green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/write-behavior.md`, `v2/docs/daemon-host.md`, and `v2/docs/v1-behaviors.md` document the shipped status and source-snapshot contracts.
+- [x] A running daemon with the same loaded and current full Git revision prints `running loaded=<revision> current=<revision>` and exits `0`.
+- [x] A running daemon with different loaded and current revisions prints `stale loaded=<loaded-revision> current=<current-revision>` and exits `1`.
+- [x] A missing, dead, or unreachable daemon still prints `stopped` and exits `1` without reporting a stale comparison.
+- [x] The daemon reports the revision captured at startup for its lifetime even if the checkout revision later changes; it does not reload source for in-flight work.
+- [x] `v2/src/daemon/daemon-lifecycle.test.ts` and `v2/src/cli.test.ts` include regression coverage for captured identity plus matching, stale, and stopped status paths that fails against the pre-fix code and passes after implementation.
+- [x] `v2/src/tui/tui-daemon-client.test.ts` stays green with the enriched daemon status response.
+- [x] The daemon resolves its startup revision with no synchronous child-process call: `daemon-lifecycle.ts` (and any status-path code) contains no `spawnSync`/`execSync`/`execFileSync`, and `v2/src/daemon/daemon-ipc-responsiveness-during-git.sandbox-unrunnable.test.ts` stays green.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/write-behavior.md`, `v2/docs/daemon-host.md`, and `v2/docs/v1-behaviors.md` document the shipped status and source-snapshot contracts.

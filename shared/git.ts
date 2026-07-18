@@ -131,3 +131,11 @@ export async function isGitRepoAsync(
     return false;
   }
 }
+
+/** Get the full Git HEAD commit at `cwd`. */
+export async function getHeadRevisionAsync(
+  cwd: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<string> {
+  return (await runner.runAsync("git", ["rev-parse", "HEAD"], cwd)).trim();
+}

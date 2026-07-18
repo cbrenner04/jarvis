@@ -1,5 +1,6 @@
-import { join } from "node:path";
-import { isWorktreeDirtyAsync } from "../../../shared/git.ts";
+import { join, resolve } from "node:path";
+import { getHeadRevisionAsync, isWorktreeDirtyAsync } from "../../../shared/git.ts";
+import { realAsyncSubprocessRunner, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
 import { resolveMachineProfile } from "../config/machine-config-loader.ts";
@@ -1280,6 +1281,8 @@ export type DaemonStartupDeps = {
   logsPath?: string;
   openLogSink?: typeof openLogSink;
   startIpcServer?: typeof startIpcServer;
+  subprocessRunner?: AsyncSubprocessRunner;
+  jarvisSourceRoot?: string;
 };
 
 export async function startDaemon(
@@ -1318,12 +1321,24 @@ export async function startDaemon(
 
   const tailStreamHandler = createTailStreamHandler({ stateStore: store, logReader: logReaderInstance });
 
+  const subprocessRunner = startupDeps.subprocessRunner ?? realAsyncSubprocessRunner;
+  const jarvisSourceRoot = startupDeps.jarvisSourceRoot ?? resolve(import.meta.dir, "../../..");
+  let loadedRevision: string | undefined;
+  try {
+    loadedRevision = await getHeadRevisionAsync(jarvisSourceRoot, subprocessRunner);
+  } catch (err) {
+    console.error("Failed to capture loaded revision:", err);
+  }
+
   const healthHandler: RpcHandler = () => {
     return { kind: "response", result: { ok: true } };
   };
 
   const statusHandler: RpcHandler = () => {
-    return { kind: "response", result: { state: "running" } };
+    return {
+      kind: "response",
+      result: { state: "running", ...(loadedRevision !== undefined ? { loadedRevision } : {}) },
+    };
   };
 
   const shutdownHandler: RpcHandler = () => {

@@ -52,6 +52,19 @@ production socket), [`jarvis tui log <run-id>`](./write-behavior.md#tui-cli)
 plus `~/.jarvis/daemon.pid` at the consumer layer; other callers still pass
 explicit paths.
 
+## Source-revision snapshot
+
+The daemon captures the Jarvis source checkout's full Git HEAD commit (via async
+subprocess runner) once at startup and retains it for its process lifetime. The
+CLI `jarvis daemon status` uses this snapshot to detect source-revision
+mismatch: if the invoking CLI's current HEAD differs from the daemon's loaded
+HEAD, the status prints `stale` and exits 1. A matching HEAD prints `running`
+and exits 0. This prevents silent causality loss when the Jarvis binary is
+replaced during a daemon session (e.g., mid-workflow after a git pull without
+daemon restart). The snapshot is reported in the `status` RPC response as
+`loadedRevision`; callers that do not care about this liveness signal can ignore
+it (the TUI ignores it; the CLI uses it for revision comparison).
+
 ## Framing
 
 One connection carries length-prefixed UTF-8 JSON frames:
@@ -83,7 +96,7 @@ Valid JSON with missing or invalid `kind` closes the connection.
 | `method` | `params` | `result` | Meaning |
 | --- | --- | --- | --- |
 | `health` | — | `{ ok: true }` | Channel liveness |
-| `status` | — | `{ state: "running" }` | Daemon-host liveness only — not run orchestration status |
+| `status` | — | `{ state: "running", loadedRevision?: string }` | Daemon-host liveness only — not run orchestration status. Optional `loadedRevision` contains the full Git HEAD commit captured at daemon startup; the CLI uses it to detect source-revision mismatch. |
 | `start` | `{ input: WriteLoopInput } \| { steps: AnyWorkflowStep[] }` | `{ runId: string }` | Exactly one of `input`/`steps`; both, neither, or an empty `steps` array is rejected `invalid_params`. `{ input }` spawns a write loop in the background, or persists it `queued` if memory headroom is unavailable; returns immediately with run ID either way (see [Admission guards](#admission-guards-for-start-resume-revise)). Rejected `worktree_claimed` if an existing queued run holds the `(project, branch)` key, or if memory headroom is clear and the key is claimed by a live run. `{ steps }` dispatches to `executeWorkflow` with `freshDispatch: true`, creating new run rows for every step and minting a fresh `invocationId`; prior `completed` runs are not reused. Returns `{ runId }` for step 0 once its run row is durably created; the workflow then keeps running in the background. A `firstStep.workflowInvocationId` request whose prior run is non-terminal (`in-progress`, `paused`, `budget-soft-stopped`, `awaiting-human`, `revising`) and owned by another invocation is rejected `worktree_claimed` (intent ownership guard). Terminal prior runs (`completed`, `failed`, `blocked`, `killed`) do not block a fresh request, allowing new runs to start. Rejected `insufficient_memory` (not queued) if memory headroom is unavailable at call time. A failure before step 0's run row exists (e.g. an invalid step shape) returns an error rather than hanging, surfacing `executeWorkflow`'s thrown message as `invalid_params`. |
 | `list` | — | `{ runs: Array<{runId, project, branch, status, isLive, error?, reviewPasses?, reviewBehavior?, workflow?, prNumber?, prUrl?}> }` | List durable runs merged with in-memory liveness; `isLive=true` only while the loop's Promise is executing. After spawn-boundary executor failure: `status: "failed"`, `isLive: false` (see [Spawn-boundary failure capture](#spawn-boundary-failure-capture)). Optional `error` on non-success terminals (see [Operator error on list and wait](#operator-error-on-list-and-wait)). Optional `prNumber` and `prUrl` when publication confirmed a PR. Workflow-backed rows may also carry authored per-step progress (see [Workflow snapshots on list rows](#workflow-snapshots-on-list-rows)). Implement workflow rows may also carry retained `reviewPasses` and `reviewBehavior` (see [Implement review selection on list rows](#implement-review-selection-on-list-rows)). For workflow entry rows (the returned run id from a `start { steps }` invocation), `status` reflects a rollup over all steps in the invocation: the first authored durable step's terminal-but-not-completed status, `killed` if an authored durable step has no row in a non-live invocation, or `completed` if all authored durable steps are completed; while the workflow is live, status is `in-progress` regardless of step row state. Other step rows in that workflow report their own durable statuses. Terminal runs (`completed`, `failed`, `blocked`, `killed`) are bounded to the 50 newest by creation time; all other statuses are exempt and always returned. Step runs of a listed workflow invocation are retained with that invocation regardless of the bound. Retention filters the response only — durable rows are kept (see [Terminal run list retention](#terminal-run-list-retention)). |
 | `pause` | `{ runId: string }` | `{ ok: true }` | Signal graceful pause for an active run. The run continues at the next iteration boundary (in-flight step is not aborted). Rejected `run_not_active` if run is unknown, not active, or is a workflow-started run (see [Live controls on workflow-started runs](#live-controls-on-workflow-started-runs)). |

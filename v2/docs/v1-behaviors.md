@@ -20,6 +20,7 @@ flags override alias defaults. Invalid values fail with usage before daemon cont
 
 - v2 daemon restart reconciliation kills orphaned non-terminal runs before IPC, preserving their worktrees and branches; kill and reconcile never overwrite boundary-terminal status (`completed`, `blocked`, `failed`), and `run_reconciled` events emit only for pending rows currently `killed`. Sources: `v2/src/daemon/daemon.ts`, `v2/src/persistence/state-store.ts`
 - v2 `jarvis daemon stop` refuses when durable runs are non-terminal, reports every blocker ID, and leaves shutdown side effects untouched; `--force` bypasses only this guard. Sources: `v2/src/daemon/daemon-lifecycle.ts`, `v2/src/cli.ts`
+- **v2 additive:** `jarvis daemon status` captures the daemon's startup source revision (full Git HEAD commit via async subprocess runner) once at startup and retains it for the process lifetime. The status command compares the daemon's loaded revision with the invoking CLI's current revision and prints: `running loaded=<revision> current=<revision>` with exit 0 when they match; `stale loaded=<loaded-revision> current=<current-revision>` with exit 1 when they differ; `stopped` with exit 1 when the daemon is absent or unreachable. v1 has no equivalent; this is v2-only source-revision-mismatch detection to prevent silent causality loss when the Jarvis binary is replaced during a daemon session. Sources: `v2/src/daemon/daemon.ts`, `v2/src/daemon/daemon-lifecycle.ts`, `v2/src/cli.ts`, `shared/git.ts`
 
 ## Commands and modes
 

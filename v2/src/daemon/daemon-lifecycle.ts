@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { getHeadRevisionAsync } from "../../../shared/git.ts";
+import { realAsyncSubprocessRunner, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { connectIpcClient } from "../ipc/client";
 import { createRpcTransport } from "../ipc/rpc-transport";
 import { openStateStore, type StateStore } from "../persistence/state-store";
@@ -261,6 +263,11 @@ export async function stopDaemon(
   }
 }
 
+export type DaemonStatusDetail =
+  | { status: "running"; loadedRevision?: string; currentRevision?: string }
+  | { status: "stale"; loadedRevision: string; currentRevision: string }
+  | { status: "stopped" };
+
 export async function getDaemonStatus(
   pid: number,
   socketPath: string,
@@ -268,16 +275,52 @@ export async function getDaemonStatus(
     healthTimeoutMs?: number;
     processProber?: ProcessProber;
     socketProber?: SocketProber;
+    jarvisSourceRoot?: string;
+    subprocessRunner?: AsyncSubprocessRunner;
   },
-): Promise<"running" | "stopped"> {
+): Promise<DaemonStatusDetail> {
   const healthTimeoutMs = options?.healthTimeoutMs ?? 1_000;
   const processProber = options?.processProber ?? { isAlive: isProcessAlive };
   const socketProber = options?.socketProber ?? { probe: probeSocket };
 
   if (!processProber.isAlive(pid)) {
-    return "stopped";
+    return { status: "stopped" };
   }
 
   const up = await socketProber.probe(socketPath, healthTimeoutMs);
-  return up ? "running" : "stopped";
+  if (!up) {
+    return { status: "stopped" };
+  }
+
+  try {
+    const client = await connectIpcClient(socketPath);
+    const transport = createRpcTransport(client);
+    try {
+      const response = await transport.request("status", undefined, { timeoutMs: healthTimeoutMs });
+      const loadedRevision = (response as { loadedRevision?: string }).loadedRevision;
+
+      if (loadedRevision === undefined) {
+        return { status: "running" };
+      }
+
+      const subprocessRunner = options?.subprocessRunner ?? realAsyncSubprocessRunner;
+      const jarvisSourceRoot = options?.jarvisSourceRoot ?? resolve(import.meta.dir, "../..");
+      let currentRevision: string;
+      try {
+        currentRevision = await getHeadRevisionAsync(jarvisSourceRoot, subprocessRunner);
+      } catch {
+        return { status: "running", loadedRevision };
+      }
+
+      if (loadedRevision === currentRevision) {
+        return { status: "running", loadedRevision, currentRevision };
+      } else {
+        return { status: "stale", loadedRevision, currentRevision };
+      }
+    } finally {
+      transport.close();
+    }
+  } catch {
+    return { status: "running" };
+  }
 }

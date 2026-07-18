@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Pass no-test-impact empty scope through ready](./00-pass-no-test-impact-empty-scope.md)
+- [x] [00 - Pass no-test-impact empty scope through ready](./00-pass-no-test-impact-empty-scope.md)

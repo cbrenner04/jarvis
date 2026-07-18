@@ -16,6 +16,7 @@ Make `jarvis daemon status` identify and compare the daemon's startup revision w
 - Capture the source revision used by daemon startup and expose it through the daemon status boundary without weakening lifecycle liveness checks.
 - Resolve the invoking CLI's source revision, compare it with the loaded revision, and render the matching, stale, and stopped contracts.
 - Keep non-status daemon and TUI behavior compatible with the enriched status response.
+- Update every pre-existing test that asserts the daemon status IPC response shape so it accepts the enriched `loadedRevision` field — in particular `v2/src/daemon/daemon.sandbox-unrunnable.test.ts` (which does an exact `toEqual({ state: "running" })` on the status response and will otherwise fail sandbox-off once the response is enriched).
 - Update `v2/docs/write-behavior.md` with status output and exit semantics.
 - Update `v2/docs/daemon-host.md` with the startup-snapshot identity and lifetime boundary.
 - Update `v2/docs/v1-behaviors.md` with the v2-only daemon status behavior.
@@ -26,7 +27,9 @@ Make `jarvis daemon status` identify and compare the daemon's startup revision w
 - [ ] A running daemon with different loaded and current revisions prints `stale loaded=<loaded-revision> current=<current-revision>` and exits `1`.
 - [ ] A missing, dead, or unreachable daemon still prints `stopped` and exits `1` without reporting a stale comparison.
 - [ ] The daemon reports the revision captured at startup for its lifetime even if the checkout revision later changes; it does not reload source for in-flight work.
-- [ ] `v2/src/daemon/daemon-lifecycle.test.ts` and `v2/src/cli.test.ts` include regression coverage for captured identity plus matching, stale, and stopped status paths that fails against the pre-fix code and passes after implementation.
+- [ ] Regression coverage for the status comparison exercises the **real** decision logic, not stubbed status returns: a test drives the status resolver (`getDaemonStatus` in `daemon-lifecycle.ts`) through a fake IPC transport that returns a daemon `loadedRevision` plus an injected subprocess runner for the current revision, and asserts `running` when they match and `stale` when they differ. **Deleting or inverting the `loadedRevision === currentRevision ? running : stale` comparison must turn this test RED** (a CLI-render test that stubs `getDaemonStatus`'s return is not sufficient — it leaves the comparison vacuous).
+- [ ] The startup-capture lifetime (a status resolved after the checkout revision changes still reports the daemon's startup-captured revision) has a regression test that goes RED if status recomputes the revision live instead of returning the captured one.
+- [ ] `v2/src/daemon/daemon.sandbox-unrunnable.test.ts` passes sandbox-off with the enriched status response (its status assertion accepts/asserts `loadedRevision`).
 - [ ] `v2/src/tui/tui-daemon-client.test.ts` stays green with the enriched daemon status response.
 - [ ] The daemon resolves its startup revision with no synchronous child-process call: `daemon-lifecycle.ts` (and any status-path code) contains no `spawnSync`/`execSync`/`execFileSync`, and `v2/src/daemon/daemon-ipc-responsiveness-during-git.sandbox-unrunnable.test.ts` stays green.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.

@@ -38,23 +38,23 @@ this change wants; only the v2 case carries the brittle literal.
 
 ## Acceptance criteria
 
-- [ ] `test/test-slices.test.ts` contains no hardcoded list of
+- [x] `test/test-slices.test.ts` contains no hardcoded list of
   `*.sandbox-unrunnable.test.ts` paths; the v2 integration slice's membership is
   derived via `isSandboxUnrunnable` (grep for the daemon sandbox-unrunnable path
   literals returns nothing).
-- [ ] The v2 slice test asserts, without naming any specific file: agent files
+- [x] The v2 slice test asserts, without naming any specific file: agent files
   are all non-sandbox-unrunnable, integration files are all sandbox-unrunnable,
   integration is non-empty, and `[...agent, ...integration].sort()` equals
   `walkV2TestFiles()`.
-- [ ] A test drives `sliceTestFiles` (or `partitionTestFiles`) over a file list
+- [x] A test drives `sliceTestFiles` (or `partitionTestFiles`) over a file list
   containing a synthetic new `foo.sandbox-unrunnable.test.ts` path and asserts it
   routes to the integration slice while a plain `*.test.ts` sibling routes to
   agent — documenting that integration membership follows the filename
   convention, the derivation the reworked v2 slice test now relies on.
-- [ ] `test/test-slices.test.ts` stays green, with the v1 slice test and the
+- [x] `test/test-slices.test.ts` stays green, with the v1 slice test and the
   sibling `test:v2`/`test:integration:v2` script-body and runner-`spawn`
   assertions unchanged.
-- [ ] `v2/docs/test-writing.md` states that adding a v2 sandbox-unrunnable
+- [x] `v2/docs/test-writing.md` states that adding a v2 sandbox-unrunnable
   (integration) test requires no edit to the slice-boundary test.
 
 ## Documentation updates

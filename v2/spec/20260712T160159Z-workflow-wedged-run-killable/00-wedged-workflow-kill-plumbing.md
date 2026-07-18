@@ -70,16 +70,16 @@ pause/resume for workflow-started runs; redesigning workflow step execution.
 
 ## Acceptance criteria
 
-- [ ] A workflow-started run whose `list` row is `in-progress` and `live` and
+- [x] A workflow-started run whose `list` row is `in-progress` and `live` and
       whose `activeRuns` entry is `reapable: true` accepts `jarvis run kill`
       (daemon `kill` RPC) and returns success.
-- [ ] After that kill, the same `runId` has durable status `killed`, the
+- [x] After that kill, the same `runId` has durable status `killed`, the
       external worktree still exists, and `list` reports `isLive: false`.
-- [ ] A workflow-started run that is actively progressing (`reapable: false`)
+- [x] A workflow-started run that is actively progressing (`reapable: false`)
       still rejects `kill` with `run_not_active`.
-- [ ] `pause` on a workflow-started run (reapable or not) still rejects
+- [x] `pause` on a workflow-started run (reapable or not) still rejects
       `run_not_active`.
-- [ ] `daemon-workflow-start.test.ts` bare write-loop kill/pause tests and
+- [x] `daemon-workflow-start.test.ts` bare write-loop kill/pause tests and
       non-reapable workflow kill/pause reject tests stay green for the healthy
       paths they cover today.
 

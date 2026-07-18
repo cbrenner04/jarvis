@@ -81,6 +81,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   };
   /** Fires once this run's row is durably created/resolved, before any iteration executes. */
   onRunCreated?: (runId: string) => void;
+  /** Fires when the step is detected as stalled (iteration timeout or abort without completing). */
+  onReapable?: (runId: string) => void;
   telemetry?: {
     sinkPath?: string;
     operatorSessionId: string;
@@ -250,10 +252,12 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       const settled = await awaitIteration(args, runId, attemptId, sessionLog);
       if (settled.kind === "aborted") {
         closeSessionLog(sessionLog, "abort");
+        args.onReapable?.(runId);
         return finishLoop(args, runId, "progress", iterationsConsumed + 1, true);
       }
       if (settled.kind === "timed_out") {
         closeSessionLog(sessionLog, "timeout");
+        args.onReapable?.(runId);
         return finishIterationTimeout(args, store, runId, attemptId, iterationsConsumed + 1);
       }
       if (settled.kind === "threw") {

@@ -64,6 +64,7 @@ type ActiveRun =
   | {
       kind: "workflow";
       runId: string;
+      reapable: boolean;
     };
 
 export class DaemonDoubleClaimError extends Error {
@@ -619,11 +620,17 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         onReviewDebateProgress: reportReviewProgress,
         onStepRunCreated: (stepIndex, runId) => {
           workflowRunIds.add(runId);
-          activeRuns.set(runId, { kind: "workflow", runId });
+          activeRuns.set(runId, { kind: "workflow", runId, reapable: false });
           if (stepIndex === 0) {
             entryRunId = runId;
             workflowPromisesByEntryRunId.set(runId, trackPromise);
             resolve({ kind: "response", result: { runId } });
+          }
+        },
+        onStepReapable: (stepIndex, runId) => {
+          const activeRun = activeRuns.get(runId);
+          if (activeRun && activeRun.kind === "workflow") {
+            activeRun.reapable = true;
           }
         },
       })
@@ -642,6 +649,12 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         })
         .finally(() => {
           logSink?.close();
+          for (const runId of workflowRunIds) {
+            const activeRun = activeRuns.get(runId);
+            if (activeRun && activeRun.kind === "workflow" && !activeRun.reapable) {
+              activeRun.reapable = true;
+            }
+          }
           for (const runId of workflowRunIds) activeRuns.delete(runId);
           activeRuns.delete(claimRunId);
           if (entryRunId !== undefined) {
@@ -714,7 +727,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     const worktreePath = firstStep?.behavior === "write" ? getExternalWorktreePath(firstStep.worktree) : "";
     const claimRunId = crypto.randomUUID();
     _registry.claim(workflowKey, { runId: claimRunId, worktreePath, workflow: true });
-    activeRuns.set(claimRunId, { kind: "workflow", runId: claimRunId });
+    activeRuns.set(claimRunId, { kind: "workflow", runId: claimRunId, reapable: false });
     return startWorkflowRun(steps, workflowKey, claimRunId);
   };
 
@@ -919,6 +932,12 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     if (activeRun && activeRun.runId === runId && activeRun.kind === "write-loop") {
       activeRun.abortController.abort();
       store.commitGuardedKill(runId);
+      return { kind: "response", result: { ok: true } };
+    }
+
+    if (activeRun && activeRun.runId === runId && activeRun.kind === "workflow" && activeRun.reapable) {
+      store.setRunStatus(runId, "killed");
+      activeRuns.delete(runId);
       return { kind: "response", result: { ok: true } };
     }
 

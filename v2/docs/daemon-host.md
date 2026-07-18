@@ -350,6 +350,15 @@ durably created — gets a `workflow`-kind entry keyed by that step's `runId`. A
 code as an absent/unknown run; real kill/pause plumbing for a running workflow
 step is deferred to a future consumer.
 
+**Wedged workflow kill:** A workflow-started run whose step `activeRuns` entry
+is `reapable: true` (latched when the step's write-loop iteration watchdog times
+out or stalls without completing, or when the background workflow task has settled
+and left the step tracked) accepts `kill` and reaches durable `killed` status with
+the worktree retained. A subsequent `list` for that `runId` shows `status: "killed"`
+and `isLive: false`. A workflow-started run that is actively progressing
+(`reapable: false`) still rejects `kill` with `run_not_active`. `pause` on a
+workflow-started run (reapable or not) remains unchanged and is rejected `run_not_active`.
+
 ### Admission guards for `start`, `resume`, `revise`
 
 There is no global single in-flight guard — multiple runs may be active

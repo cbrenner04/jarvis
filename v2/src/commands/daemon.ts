@@ -1,0 +1,75 @@
+import { existsSync, readFileSync } from "node:fs";
+import type { CliDeps } from "../cli/deps.ts";
+import type { Io } from "../cli/io.ts";
+import { formatLifecycleError } from "../cli/ipc.ts";
+import { DAEMON_LOG_USAGE, DAEMON_USAGE } from "../cli/usage.ts";
+
+function readPid(pidPath: string): number | null {
+  if (!existsSync(pidPath)) return null;
+  const raw = readFileSync(pidPath, "utf8").trim();
+  if (raw.length === 0) return null;
+  const pid = Number.parseInt(raw, 10);
+  return Number.isNaN(pid) ? null : pid;
+}
+
+export async function runDaemonCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
+  const subcommand = argv[0];
+
+  if (subcommand === "start" && argv.length === 1) {
+    try {
+      const result = await deps.startDaemon(deps.socketPath, { pidPath: deps.pidPath, logPath: deps.logPath });
+      io.stdout(`${JSON.stringify(result)}\n`);
+      return 0;
+    } catch (error) {
+      io.stderr(formatLifecycleError(error));
+      return 1;
+    }
+  }
+
+  if (subcommand === "stop" && (argv.length === 1 || (argv.length === 2 && argv[1] === "--force"))) {
+    try {
+      await deps.stopDaemon(deps.socketPath, { pidPath: deps.pidPath, force: argv[1] === "--force" });
+      io.stdout("stopped\n");
+      return 0;
+    } catch (error) {
+      io.stderr(formatLifecycleError(error));
+      return 1;
+    }
+  }
+
+  if (subcommand === "status" && argv.length === 1) {
+    const pid = readPid(deps.pidPath);
+    if (pid === null) {
+      io.stdout("stopped\n");
+      return 1;
+    }
+
+    const status = await deps.getDaemonStatus(pid, deps.socketPath);
+    io.stdout(`${status}\n`);
+    return status === "running" ? 0 : 1;
+  }
+
+  if (subcommand === "log") {
+    if (argv.length === 1) {
+      return deps.readDaemonProcessLog(deps.logPath, { writeOut: io.stdout, writeErr: io.stderr });
+    }
+    if (argv.length === 2 && argv[1] === "--follow") {
+      const controller = new AbortController();
+      const unregister = deps.onSigint(() => controller.abort());
+      try {
+        return await deps.followDaemonProcessLog(
+          deps.logPath,
+          { writeOut: io.stdout, writeErr: io.stderr },
+          controller.signal,
+        );
+      } finally {
+        unregister();
+      }
+    }
+    io.stderr(DAEMON_LOG_USAGE);
+    return 1;
+  }
+
+  io.stderr(DAEMON_USAGE);
+  return 1;
+}

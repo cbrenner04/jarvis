@@ -139,10 +139,9 @@ Template for a new gotcha:
 1. `jarvis daemon status` — start with `jarvis daemon start` if stopped.
 2. `jarvis config show` — agents listed; `machineProfile` hand-edited in
    `~/.jarvis/config.json` (see [`install-and-config.md`](./install-and-config.md)).
-3. `gh auth status` — required for completion publish paths.
-4. Register the jarvis repo if needed: `jarvis1 init` from the project root.
-5. Read `.scratch/v2-seeds-ready-intents-prioritization.md` for current gates.
-6. Sweep open [harness-suggestion issues](https://github.com/cbrenner04/jarvis/issues?q=label%3Aharness-suggestion+is%3Aopen)
+3. Register the jarvis repo if needed: `jarvis1 init` from the project root.
+4. Read `.scratch/v2-seeds-ready-intents-prioritization.md` for current gates.
+5. Sweep open [harness-suggestion issues](https://github.com/cbrenner04/jarvis/issues?q=label%3Aharness-suggestion+is%3Aopen)
    — **and read their comments.**
 
 **Issue comments are not returned by default.** `gh issue list` gives titles only, and

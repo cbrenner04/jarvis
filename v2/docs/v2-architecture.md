@@ -589,7 +589,7 @@ repos" principle change is smaller:
   and intent-output change detection plus ownership lookup (`git status`, `git diff`,
   `rev-parse --git-dir`), plus completion-commit Git and PR-attribution footer rendering
   (`git log`, index staging via `GIT_INDEX_FILE`, `commit-tree`, `update-ref`), plus
-  completion publication (`gh auth status`, upstream detection, `git push`, `git rev-parse HEAD`,
+  completion publication (upstream detection, `git push`, `git rev-parse HEAD`,
   `gh pr list`/`create`, `gh pr view`/`edit`), are awaited (including `maxBuffer` and ignored
   stdio where applicable). Ready finalization remains synchronous on its own conversion slice.
   See [`write-behavior.md`](./write-behavior.md) for publication ordering, retries, and failures.

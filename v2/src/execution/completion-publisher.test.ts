@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { type CompletionPublisherInput, createCompletionPublisher } from "./completion-publisher.ts";
+import { publicationFailureFor } from "./publication-retry.ts";
 
 describe("createCompletionPublisher", () => {
   const baseInput: CompletionPublisherInput = {
@@ -346,19 +347,78 @@ describe("createCompletionPublisher", () => {
     await expect(publisher(baseInput)).rejects.toThrow("Non-fast-forward push rejection");
   });
 
-  it("throws when gh readiness probe fails", async () => {
-    const mockGit = async () => "";
-    const mockGh = async () => "";
-    const notReadyGh = async (_cwd: string) => false;
+  it("normalizes push failure evidence without invoking the legacy readiness seam", async () => {
+    let readinessCalls = 0;
+    const failure = Object.assign(new Error("remote rejected push"), {
+      code: 7,
+      stdout: "push stdout",
+      stderr: "push stderr",
+    });
 
     const publisher = createCompletionPublisher({
-      git: mockGit,
-      gh: mockGh,
-      ghReady: notReadyGh,
+      git: async (_cwd, args) => {
+        if (args[0] === "push") throw failure;
+        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+        return "";
+      },
+      gh: async () => "",
+      ghReady: async () => {
+        readinessCalls += 1;
+        return false;
+      },
       delay: noopDelay,
     });
 
-    await expect(publisher(baseInput)).rejects.toThrow("GitHub auth unavailable");
+    const error = await publisher(baseInput).then(
+      () => {
+        throw new Error("expected push failure");
+      },
+      (error: unknown) => error,
+    );
+    expect(error).toMatchObject({ message: "remote rejected push" });
+    expect(publicationFailureFor(error)).toEqual({
+      operation: "push",
+      message: "remote rejected push",
+      exitCode: 7,
+      stdoutTail: "push stdout",
+      stderrTail: "push stderr",
+    });
+    expect(readinessCalls).toBe(0);
+  });
+
+  it("normalizes PR command failure evidence at the publication retry boundary", async () => {
+    const failure = Object.assign(new Error("PR creation rejected"), {
+      status: 22,
+      stdout: "pr stdout",
+      stderr: "pr stderr",
+    });
+    const publisher = createCompletionPublisher({
+      git: async (_cwd, args) => {
+        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) return "origin/feature-branch";
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+        return "";
+      },
+      gh: async (_cwd, args) => {
+        if (args[0] === "pr" && args[1] === "list") throw failure;
+        return "";
+      },
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+    const error = await publisher(baseInput).then(
+      () => {
+        throw new Error("expected PR failure");
+      },
+      (error: unknown) => error,
+    );
+    expect(error).toMatchObject({ message: "PR creation rejected" });
+    expect(publicationFailureFor(error)).toEqual({
+      operation: "pr",
+      message: "PR creation rejected",
+      exitCode: 22,
+      stdoutTail: "pr stdout",
+      stderrTail: "pr stderr",
+    });
   });
 
   it("retries transient push errors up to 3 attempts using the injected delay and retry-notice seams", async () => {
@@ -754,14 +814,10 @@ describe("createCompletionPublisher", () => {
     await expect(publisher(baseInput)).rejects.toThrow("gh pr edit failed");
   });
 
-  it("awaits auth, upstream detection, push, HEAD lookup, PR lookup/create/confirm, and body refresh in order", async () => {
+  it("awaits upstream detection, push, HEAD lookup, PR lookup/create/confirm, and body refresh in order", async () => {
     const events: string[] = [];
 
     const publisher = createCompletionPublisher({
-      ghReady: async () => {
-        events.push("auth");
-        return true;
-      },
       git: async (_cwd, args) => {
         const cmd = args.join(" ");
         if (cmd.includes("@{u}")) {
@@ -806,7 +862,6 @@ describe("createCompletionPublisher", () => {
     await publisher(baseInput);
 
     expect(events).toEqual([
-      "auth",
       "upstream",
       "push",
       "head",

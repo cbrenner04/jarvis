@@ -27,6 +27,10 @@ export function rollupWorkflowRunStatus(args: {
 
   if (isLive) return "in-progress";
 
+  // Implement's hidden shrink is the completion-publication boundary. Its failure
+  // must prevent the authored entry row from rolling up to completed.
+  if (siblingRuns.some((run) => run.stepId?.endsWith("~shrink") && run.status === "failed")) return "failed";
+
   const runById = new Map(siblingRuns.map((run) => [run.stepId, run]));
   for (const step of workflowSnapshot.steps) {
     if (step.durable === false) continue;

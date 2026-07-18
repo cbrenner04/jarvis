@@ -276,8 +276,9 @@ resume a `ready_gate_failed` run after fixing the gate, or a `ready_flip_failed`
 
 A v2 implement run reporting `runStatus: "completed"` implies (1) the active subspec's
 non-human-only acceptance criteria are all ticked at the boundary, (2) a completion commit
-exists, (3) confirmed PR evidence (a pushed commit linked to an open PR), and (4) the ready gate
-is green. The spec.criteria-ticked contract prevents `done` / `no-work` completions when
+exists, (3) confirmed PR evidence (a pushed commit linked to an open PR), (4) the ready gate
+is green, and (5) if the active subspec's acceptance criteria reference `bun run test:integration:v2`,
+that command exits zero. The spec.criteria-ticked contract prevents `done` / `no-work` completions when
 unticked non-human-only criteria exist, re-reading the subspec from the run's worktree and
 blocking before any completion commit or PR publication. The completion boundary enforces (2):
 when the committer returns no new commit and the worktree is dirty, the run records
@@ -285,7 +286,11 @@ when the committer returns no new commit and the worktree is dirty, the run reco
 The publication boundary enforces (3): when the publisher returns a `pushSha` but no PR evidence
 (no `prNumber`), the run records `completion_commit_failed` (retryable) and skips ready finalization,
 preventing silent publication gaps where code is pushed but no PR exists. A red gate demotes the
-run to `failed` and blocks completion; resume the run after fixing the gate.
+run to `failed` and blocks completion; resume the run after fixing the gate. If (5) applies and the
+required integration test exits non-zero, finalization records `ready_gate_failed` with the integration
+test command and output, blocks the draft-to-ready flip, and allows bounded repair iterations.
+Until `implement-completion-requires-adversarial-mutation-verification` ships, mutation-review validation
+remains a stopgap in addition to explicit required integration scope.
 
 Implement PR bodies now carry an agent-authored review-altitude narrative in the PR marker block
 (see [PR body narrative markers](./workflow-runner.md#pr-body-narrative-markers)). The shrink pass

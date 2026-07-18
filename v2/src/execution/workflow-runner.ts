@@ -431,6 +431,7 @@ async function runPreparedLinkedWriteStep(
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
   freshDispatch: boolean | undefined,
   touchedStepsInExecution: Set<string>,
+  requiredIntegrationScope?: string,
 ): Promise<WorkflowStepOutcome> {
   const preparedLink = prepareWorkflowStep(
     linkStep,
@@ -459,8 +460,12 @@ async function runPreparedLinkedWriteStep(
 
   return executeWriteLoop(
     onStepRunCreated
-      ? { ...preparedLink.input, onRunCreated: (runId) => onStepRunCreated(stepIndex, runId) }
-      : preparedLink.input,
+      ? {
+          ...preparedLink.input,
+          onRunCreated: (runId) => onStepRunCreated(stepIndex, runId),
+          ...(requiredIntegrationScope ? { requiredIntegrationScope } : {}),
+        }
+      : { ...preparedLink.input, ...(requiredIntegrationScope ? { requiredIntegrationScope } : {}) },
   );
 }
 
@@ -549,6 +554,7 @@ async function runLinkedImplementStep(
       onStepRunCreated,
       freshDispatch,
       touchedStepsInExecution,
+      routing.active.requiredIntegrationScope,
     );
 
     totalIterationsConsumed += outcome.iterationsConsumed;

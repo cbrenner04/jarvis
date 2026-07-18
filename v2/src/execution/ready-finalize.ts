@@ -8,6 +8,7 @@ import { runPublicationWithRetry } from "./publication-retry.ts";
 export type ReadyFinalizeInput = {
   worktreePath: string;
   branch: string;
+  requiredIntegrationScope?: string;
 };
 
 export type ReadyGate = (worktreePath: string) => Promise<void>;
@@ -21,6 +22,7 @@ export type ReadyFinalizerSeams = {
   delay?: Delay;
   retryNotice?: RetryNotice;
   asyncSubprocessRunner?: AsyncSubprocessRunner;
+  runRequiredIntegration?: RequiredIntegrationRunner;
 };
 
 export type ReadyFinalizer = (input: ReadyFinalizeInput) => Promise<void>;
@@ -63,6 +65,24 @@ function createDefaultRunReadyGate(runner: AsyncSubprocessRunner): ReadyGate {
   };
 }
 
+type RequiredIntegrationRunner = (worktreePath: string, scope: string) => Promise<void>;
+
+function createDefaultRunRequiredIntegration(runner: AsyncSubprocessRunner): RequiredIntegrationRunner {
+  return async (worktreePath: string, scope: string): Promise<void> => {
+    try {
+      await runner.runAsync("bun", ["run", scope], worktreePath, {
+        maxBuffer: READY_GATE_MAX_BUFFER,
+      });
+    } catch (error) {
+      if (error instanceof AsyncSubprocessError) {
+        throw new ReadyGateError(scope, error.status, `${error.stdout}${error.stderr}`);
+      }
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new ReadyGateError(scope, undefined, detail);
+    }
+  };
+}
+
 async function defaultGhReadyFlip(branch: string, worktreePath: string): Promise<void> {
   await realAsyncSubprocessRunner.runAsync("gh", ["pr", "ready", branch], worktreePath);
 }
@@ -94,9 +114,14 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
   const ghReadyFlip = seams?.ghReadyFlip ?? defaultGhReadyFlip;
   const delay = seams?.delay ?? defaultDelay;
   const retryNotice = seams?.retryNotice ?? defaultRetryNotice;
+  const runRequiredIntegration =
+    seams?.runRequiredIntegration ?? createDefaultRunRequiredIntegration(asyncSubprocessRunner);
 
   return async (input) => {
     await runReadyGate(input.worktreePath);
+    if (input.requiredIntegrationScope) {
+      await runRequiredIntegration(input.worktreePath, input.requiredIntegrationScope);
+    }
     await flipWithRetry(() => ghReadyFlip(input.branch, input.worktreePath), delay, retryNotice);
   };
 }

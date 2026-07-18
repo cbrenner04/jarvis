@@ -89,7 +89,8 @@ export async function reconcileOrphanedRuns(
   stateStore: StateStore,
   logSink: LogSink,
   logReader?: LogReader,
-): Promise<void> {
+): Promise<string[]> {
+  const reconciledRunIds: string[] = [];
   for (const runId of await stateStore.beginRunReconciliation()) {
     const run = stateStore.loadRun(runId);
     const eventPersisted = logReader
@@ -104,7 +105,9 @@ export async function reconcileOrphanedRuns(
       logSink.append(runId, { kind: "run_reconciled", runStatus: "killed", reason: "daemon_restart" });
     }
     stateStore.finishRunReconciliation(runId);
+    reconciledRunIds.push(runId);
   }
+  return reconciledRunIds;
 }
 
 function isTerminalListStatus(status: RunStatus): boolean {
@@ -1281,7 +1284,40 @@ export type DaemonStartupDeps = {
   logsPath?: string;
   openLogSink?: typeof openLogSink;
   startIpcServer?: typeof startIpcServer;
+  recoverReconciledRuns?: typeof recoverReconciledRuns;
 };
+
+export async function recoverReconciledRuns(
+  runIds: readonly string[],
+  stateStore: StateStore,
+  logSink: LogSink,
+  resume: RpcHandler,
+): Promise<void> {
+  for (const runId of runIds) {
+    const response = await resume(
+      { kind: "request", id: `restart-recovery-${runId}`, method: "resume", params: { runId } },
+      new AbortController().signal,
+    );
+    if (response.kind === "response") {
+      logSink.append(runId, { kind: "run_recovery", outcome: "resumed" });
+      continue;
+    }
+    // Missing snapshot context remains a safe, inspectable killed row.
+    if (response.code === "resume_unsupported") continue;
+
+    const message = `Automatic restart recovery admission failed: ${response.message}`;
+    try {
+      stateStore.setRunStatus(runId, "failed");
+    } catch {
+      // Log the diagnostic even if persistence is unavailable.
+    }
+    try {
+      logSink.append(runId, { kind: "run_recovery", outcome: "failed", message });
+    } catch {
+      // One bad recovery log must not prevent other admissions.
+    }
+  }
+}
 
 export async function startDaemon(
   socketPath: string,
@@ -1294,8 +1330,9 @@ export async function startDaemon(
   const logReaderInstance = logReader ?? openLogReader(logsPath);
   const createLogSink = startupDeps.openLogSink ?? openLogSink;
   const reconciliationLogSink = createLogSink(logsPath);
+  let reconciledRunIds: string[];
   try {
-    await reconcileOrphanedRuns(store, reconciliationLogSink, logReaderInstance);
+    reconciledRunIds = await reconcileOrphanedRuns(store, reconciliationLogSink, logReaderInstance);
   } finally {
     reconciliationLogSink.close();
   }
@@ -1366,6 +1403,18 @@ export async function startDaemon(
   } catch (err) {
     console.error(`Failed to start IPC server on ${socketPath}:`, err);
     process.exit(1);
+  }
+
+  const recoveryLogSink = createLogSink(logsPath);
+  try {
+    await (startupDeps.recoverReconciledRuns ?? recoverReconciledRuns)(
+      reconciledRunIds,
+      store,
+      recoveryLogSink,
+      runControlHandlers.resume,
+    );
+  } finally {
+    recoveryLogSink.close();
   }
 
   const signalHandler = () => {

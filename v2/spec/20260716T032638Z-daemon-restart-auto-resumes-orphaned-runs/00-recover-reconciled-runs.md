@@ -22,15 +22,15 @@ Startup reconciles orphaned non-terminal runs to `killed` but leaves them for ma
 
 ## Acceptance criteria
 
-- [ ] After IPC is listening, startup automatically attempts every run that its durable sweep reconciled from an orphaned non-terminal row, including a row orphaned by forced daemon stop.
-- [ ] IPC health remains available while automatically resumed work is still running.
-- [ ] A successful automatic recovery keeps the run ID, workflow snapshot, worktree, and branch, returns the run to live execution, and records the automatic resume in that run's durable log.
-- [ ] An automatic recovery admission failure (for a run that had a resolvable snapshot) records an actionable diagnostic in that run's durable log, leaves its durable status `failed`, and does not prevent attempts for the other reconciled runs.
-- [ ] On restart, a reconciled orphan lacking a resolvable workflow snapshot is left `killed` / `unsupported_resume_context`, not `failed`.
-- [ ] `v2/src/daemon/daemon.sandbox-unrunnable.test.ts` (the list-over-IPC contract asserting the snapshot-less `killed` / `unsupported_resume_context` state) stays green.
-- [ ] `v2/src/daemon/daemon-reconciliation.test.ts` adds restart-recovery regression coverage that fails before this change and passes after it, including IPC-before-recovery ordering and success/failure observability.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/daemon-host.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` document automatic restart recovery, ordering, identity retention, and admission-failure semantics.
+- [x] After IPC is listening, startup automatically attempts every run that its durable sweep reconciled from an orphaned non-terminal row, including a row orphaned by forced daemon stop.
+- [x] IPC health remains available while automatically resumed work is still running.
+- [x] A successful automatic recovery keeps the run ID, workflow snapshot, worktree, and branch, returns the run to live execution, and records the automatic resume in that run's durable log.
+- [x] An automatic recovery admission failure (for a run that had a resolvable snapshot) records an actionable diagnostic in that run's durable log, leaves its durable status `failed`, and does not prevent attempts for the other reconciled runs.
+- [x] On restart, a reconciled orphan lacking a resolvable workflow snapshot is left `killed` / `unsupported_resume_context`, not `failed`.
+- [x] `v2/src/daemon/daemon.sandbox-unrunnable.test.ts` (the list-over-IPC contract asserting the snapshot-less `killed` / `unsupported_resume_context` state) stays green.
+- [x] `v2/src/daemon/daemon-reconciliation.test.ts` adds restart-recovery regression coverage that fails before this change and passes after it, including IPC-before-recovery ordering and success/failure observability.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/daemon-host.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` document automatic restart recovery, ordering, identity retention, and admission-failure semantics.
 
 ## Documentation updates
 

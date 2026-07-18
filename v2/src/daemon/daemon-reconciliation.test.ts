@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { IpcServer } from "../ipc/server.ts";
+import type { IpcServer, RpcHandler } from "../ipc/server.ts";
 import type { LogEvent, LogReader, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
 import {
   type OwnerLivenessProbe,
@@ -11,7 +11,7 @@ import {
   type RunStatus,
   type StateStore,
 } from "../persistence/state-store.ts";
-import { reconcileOrphanedRuns, startDaemon } from "./daemon.ts";
+import { reconcileOrphanedRuns, recoverReconciledRuns, startDaemon } from "./daemon.ts";
 
 const dbPath = join(tmpdir(), `jarvis-reconciliation-${process.pid}.sqlite`);
 const orphanedStatuses: readonly RunStatus[] = [
@@ -68,7 +68,7 @@ afterEach(() => {
   rmSync(dbPath, { force: true });
 });
 
-test("reconciles every orphaned status owned by a dead prior incarnation, retaining durable run metadata", async () => {
+test("reconciles every orphaned status after a forced daemon stop, retaining durable run metadata", async () => {
   const runIds = orphanedStatuses.map((status) => createRun(seedStore, status));
   const attemptIds = runIds.map((runId) => seedStore.recordAttemptStart(runId));
   const events: Array<{ runId: string; event: LogEvent }> = [];
@@ -235,7 +235,7 @@ test("retries an event left pending by a failed log append exactly once", async 
       },
       reader,
     ),
-  ).resolves.toBeUndefined();
+  ).resolves.toEqual([]);
 
   expect(records).toEqual([
     { runId, seq: 1, ts: "now", event: { kind: "run_reconciled", runStatus: "killed", reason: "daemon_restart" } },
@@ -270,8 +270,10 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
   const reader: LogReader = { tail: () => [], async *follow() {} };
   const sink: LogSink = { append: () => order.push("log"), close: () => undefined };
   const server = { close: async () => undefined } as IpcServer;
-  const startIpcServer = async () => {
+  let health: RpcHandler | undefined;
+  const startIpcServer = async (_socketPath: string, handlers?: Record<string, RpcHandler>) => {
     order.push("ipc");
+    health = handlers?.health;
     return server;
   };
   const reconciledStore = {
@@ -297,8 +299,20 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
     finishRunReconciliation: () => order.push("finished"),
   } as unknown as StateStore;
 
-  await startDaemon("/fake/socket", reconciledStore, reader, { openLogSink: () => sink, startIpcServer });
-  expect(order).toEqual(["state", "log", "finished", "ipc"]);
+  await startDaemon("/fake/socket", reconciledStore, reader, {
+    openLogSink: () => sink,
+    startIpcServer,
+    recoverReconciledRuns: async (runIds) => {
+      expect(runIds).toEqual(["run-1"]);
+      const response = await health?.(
+        { kind: "request", id: "health", method: "health" },
+        new AbortController().signal,
+      );
+      expect(response).toEqual({ kind: "response", result: { ok: true } });
+      order.push("recovery");
+    },
+  });
+  expect(order).toEqual(["state", "log", "finished", "ipc", "recovery"]);
 
   for (const failure of [
     {
@@ -348,4 +362,44 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
     ).rejects.toThrow(failure.message);
     expect(opened).toBe(false);
   }
+});
+
+test("automatic recovery records success, isolates admission failures, and preserves unsupported orphans", async () => {
+  const successId = createRun(seedStore, "in-progress");
+  const failedId = createRun(seedStore, "in-progress");
+  const unsupportedId = createRun(seedStore, "in-progress");
+  seedStore.setRunStatus(successId, "killed");
+  seedStore.setRunStatus(failedId, "killed");
+  seedStore.setRunStatus(unsupportedId, "killed");
+  const events: Array<{ runId: string; event: LogEvent }> = [];
+  const admissions: string[] = [];
+
+  await recoverReconciledRuns(
+    [successId, failedId, unsupportedId],
+    seedStore,
+    { append: (runId, event) => events.push({ runId, event }), close: () => undefined },
+    async (frame) => {
+      const runId = (frame.params as { runId: string }).runId;
+      admissions.push(runId);
+      if (runId === successId) return { kind: "response", result: { ok: true } };
+      if (runId === failedId) return { kind: "error", code: "worktree_claimed", message: "worktree still claimed" };
+      return { kind: "error", code: "resume_unsupported", message: "run has no matching workflow snapshot step" };
+    },
+  );
+
+  expect(admissions).toEqual([successId, failedId, unsupportedId]);
+  expect(seedStore.loadRun(successId)?.status).toBe("killed");
+  expect(seedStore.loadRun(failedId)?.status).toBe("failed");
+  expect(seedStore.loadRun(unsupportedId)?.status).toBe("killed");
+  expect(events).toEqual([
+    { runId: successId, event: { kind: "run_recovery", outcome: "resumed" } },
+    {
+      runId: failedId,
+      event: {
+        kind: "run_recovery",
+        outcome: "failed",
+        message: "Automatic restart recovery admission failed: worktree still claimed",
+      },
+    },
+  ]);
 });

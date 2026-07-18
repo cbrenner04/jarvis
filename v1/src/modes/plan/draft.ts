@@ -373,16 +373,14 @@ export function validateDraftOutput(
     const subspecContent = readFileSync(subspecPath, "utf8");
     const parsed = parseSpec(subspecContent);
 
-    // Check for near-miss headings or duplicate sections
+    // Check for near-miss headings, duplicate sections, or unsatisfiable ACs (hard failures)
     for (const warning of parsed.warnings) {
-      if (warning.kind === "near-miss-acceptance-heading" || warning.kind === "near-miss-blocker-heading") {
-        return {
-          valid: false,
-          error: `${subspecFile}: ${warning.message}`,
-          warnings: [],
-        };
-      }
-      if (warning.kind === "duplicate-section") {
+      if (
+        warning.kind === "near-miss-acceptance-heading" ||
+        warning.kind === "near-miss-blocker-heading" ||
+        warning.kind === "duplicate-section" ||
+        warning.kind === "unsatisfiable-acceptance-criterion"
+      ) {
         return {
           valid: false,
           error: `${subspecFile}: ${warning.message}`,

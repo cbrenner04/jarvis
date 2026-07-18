@@ -312,6 +312,36 @@ Bad (should be automated):
 
 (Conventions should have linters; if they don't, add one rather than marking them human-only.)
 
+#### Agent-verifiable acceptance criteria
+
+An acceptance criterion that is not marked human-only must be verifiable from the implement agent's worktree environment **without network or GitHub access**. The implement agent runs in isolation and cannot interact with pull requests, CI status, reviews, or other GitHub/network resources.
+
+Do not write non-human-only ACs that assert:
+- PR body or title content ("PR body lists the breaking changes", "pull request describes the change")
+- CI status ("CI is green", "all checks pass", "workflow succeeds")
+- Review or merge-readiness state ("review is approved", "ready gate passes", "PR is reviewed")
+- PR merge or approval status ("is merged", "is approved")
+
+These assertions can only be verified after the spec is complete, when a human publishes the PR or looks at CI results. If post-merge evidence is necessary (e.g., "PR body documents the decision"), that belongs in publication records (`prNarrative`, PR templates, release notes), not in acceptance criteria that strand an implement run at `blocked` when the agent cannot tick them.
+
+**Escape hatch:** If verification truly cannot be automated, mark the criterion human-only with `(Manual)`, `visual inspection only`, or `no automated guard` to indicate post-merge human verification. The harness then removes it from automated completion requirements.
+
+Good (satisfiable):
+```md
+- [ ] Quota exhaustion falls through to the next configured agent.
+- [ ] Tests pass when the feature is disabled.
+- [ ] `run.test.ts` stays green.
+```
+
+Bad (unsatisfiable, will strand implement at blocked):
+```md
+- [ ] CI is green.
+- [ ] PR body lists the test-count change.
+- [ ] Review is approved.
+```
+
+Fix by appending `(Manual)` to each (human-only escape), or rewriting as a satisfiable worktree-verifiable outcome.
+
 Subspec heading contract (enforced by patch mode parser):
 - Acceptance criteria must use the exact heading `## Acceptance criteria`.
 - Blockers must use the exact heading `## Blocker`.

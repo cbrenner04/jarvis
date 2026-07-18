@@ -501,4 +501,73 @@ describe("runDraftPhase (plan inner loop on hard error)", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("validateDraftOutput rejects unsatisfiable AC asserting CI status", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-draft-unsatisfiable-ac-"));
+    try {
+      const name = "p-draft";
+      const specDir = join(dir, "spec", name);
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "intent.md"), "---\nname: p-draft\n---\n\n# Intent\n");
+      writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00](./00-one.md)\n");
+      writeFileSync(
+        join(specDir, "00-one.md"),
+        "# One\n\n## Acceptance criteria\n\n- [ ] Implementation works correctly\n- [ ] CI is green\n",
+      );
+
+      const result = validateDraftOutput(dir, name, undefined, undefined, undefined);
+
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain("00-one.md");
+      expect(result.error).toContain("Unsatisfiable AC");
+      expect(result.error).toContain("CI is green");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("validateDraftOutput rejects unsatisfiable AC asserting PR body state", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-draft-unsatisfiable-pr-body-"));
+    try {
+      const name = "p-draft";
+      const specDir = join(dir, "spec", name);
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "intent.md"), "---\nname: p-draft\n---\n\n# Intent\n");
+      writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00](./00-one.md)\n");
+      writeFileSync(
+        join(specDir, "00-one.md"),
+        "# One\n\n## Acceptance criteria\n\n- [ ] PR body lists the breaking changes\n",
+      );
+
+      const result = validateDraftOutput(dir, name, undefined, undefined, undefined);
+
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain("00-one.md");
+      expect(result.error).toContain("Unsatisfiable AC");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("validateDraftOutput exempts human-only ACs from unsatisfiability check", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-draft-human-only-unsatisfiable-"));
+    try {
+      const name = "p-draft";
+      const specDir = join(dir, "spec", name);
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "intent.md"), "---\nname: p-draft\n---\n\n# Intent\n");
+      writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00](./00-one.md)\n");
+      writeFileSync(
+        join(specDir, "00-one.md"),
+        "# One\n\n## Acceptance criteria\n\n- [ ] CI is green. (Manual)\n- [ ] Implementation works correctly\n",
+      );
+
+      const result = validateDraftOutput(dir, name, undefined, undefined, undefined);
+
+      expect(result.valid).toBe(true);
+      expect(result.error).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

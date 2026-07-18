@@ -31,13 +31,13 @@ agent's worktree. Today such criteria pass plan draft and strand every implement
 
 ## Acceptance criteria
 
-- [ ] `validateDraftOutput` returns invalid when a generated subspec carries a non-human-only AC asserting PR body/title, CI status, review/ready state, or another GitHub/network-only fact; human-only markers exempt the same text.
-- [ ] A regression test in `shared/spec-parser.test.ts` classifies representative unsatisfiable vs satisfiable AC text and fails against the pre-fix code.
-- [ ] A regression test in `v1/test/plan-draft-hard-error-continue.test.ts` (or `v1/test/modes/plan/spec-dir.test.ts`) drives `validateDraftOutput` to invalid on an unsatisfiable AC subspec and fails against the pre-fix code.
-- [ ] The rendered plan-draft prompt (`buildDraftPrompt`) states that every non-human-only AC must be verifiable from the implement worktree without network or GitHub; PR-body evidence belongs in publication, not ACs.
-- [ ] A new assertion in `v1/test/modes/plan/prompts.test.ts` fails against the pre-change prompt and passes after it, covering the agent-verifiable rule above.
-- [ ] `v1/docs/spec-guidance.md` documents the agent-verifiable rule with examples; `v1/docs/operator-runbook.md` documents blocked-run recovery via spec fix, not re-run.
-- [ ] `plan.prompt.draft` revision is bumped and the rendered-snapshot suite (`v1/test/prompts/rendered-snapshots.test.ts`) is green against the new fixture.
+- [x] `validateDraftOutput` returns invalid when a generated subspec carries a non-human-only AC asserting PR body/title, CI status, review/ready state, or another GitHub/network-only fact; human-only markers exempt the same text.
+- [x] A regression test in `shared/spec-parser.test.ts` classifies representative unsatisfiable vs satisfiable AC text and fails against the pre-fix code.
+- [x] A regression test in `v1/test/plan-draft-hard-error-continue.test.ts` (or `v1/test/modes/plan/spec-dir.test.ts`) drives `validateDraftOutput` to invalid on an unsatisfiable AC subspec and fails against the pre-fix code.
+- [x] The rendered plan-draft prompt (`buildDraftPrompt`) states that every non-human-only AC must be verifiable from the implement worktree without network or GitHub; PR-body evidence belongs in publication, not ACs.
+- [x] A new assertion in `v1/test/modes/plan/prompts.test.ts` fails against the pre-change prompt and passes after it, covering the agent-verifiable rule above.
+- [x] `v1/docs/spec-guidance.md` documents the agent-verifiable rule with examples; `v1/docs/operator-runbook.md` documents blocked-run recovery via spec fix, not re-run.
+- [x] `plan.prompt.draft` revision is bumped and the rendered-snapshot suite (`v1/test/prompts/rendered-snapshots.test.ts`) is green against the new fixture.
 
 ## Documentation updates
 

@@ -95,6 +95,7 @@ For mixed builders, only stable instruction text relocates in pass one; interpol
 - Placeholder declarations are uppercase and validated at load time.
 - Render-time missing/invalid values fail.
 - Sentinel delimiters (`<<<...>>>`) bound injected user data zones and are enforced by runtime policy.
+- `missing_value` names the missing placeholder token; includes the prompt id when supplied (artifact render path).
 
 | Bucket | Current surface | Current source location | First-pass ownership call | Relocation unit | Migration timing / notes |
 | --- | --- | --- | --- | --- | --- |

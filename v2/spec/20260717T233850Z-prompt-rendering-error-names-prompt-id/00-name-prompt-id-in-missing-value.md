@@ -27,10 +27,10 @@ holds `artifact.metadata.id`, but never passes it to the error site.
 
 ## Acceptance criteria
 
-- [ ] A `missing_value` `PromptRenderingError` raised through `renderArtifactTemplate` names both the prompt id (`artifact.metadata.id`) and the missing placeholder token in its message.
-- [ ] A new or updated test in `shared/prompts/render.test.ts` asserts the `missing_value` message from an artifact render contains both the prompt id and the token; it fails against the pre-fix code and passes after.
-- [ ] The existing `render.test.ts` `Required placeholder \`<BB>\` has no value` assertion (raw `renderTemplateWithDeclarations` caller, no prompt id) stays green.
-- [ ] `v2/docs/prompts.md` records the `missing_value` message contract: prompt id + missing placeholder token.
+- [x] A `missing_value` `PromptRenderingError` raised through `renderArtifactTemplate` names both the prompt id (`artifact.metadata.id`) and the missing placeholder token in its message.
+- [x] A new or updated test in `shared/prompts/render.test.ts` asserts the `missing_value` message from an artifact render contains both the prompt id and the token; it fails against the pre-fix code and passes after.
+- [x] The existing `render.test.ts` `Required placeholder \`<BB>\` has no value` assertion (raw `renderTemplateWithDeclarations` caller, no prompt id) stays green.
+- [x] `v2/docs/prompts.md` records the `missing_value` message contract: prompt id + missing placeholder token.
 
 ## Documentation updates
 

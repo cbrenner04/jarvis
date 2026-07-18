@@ -341,10 +341,6 @@ export async function runReady(opts?: { repoRoot?: string; runCommandFn?: typeof
   const runInstall = tier === "full" && shouldRunInstall(repoRoot);
   const testScope = parseReadyTestScope();
   const commands = getReadyCommands(tier, { runInstall, ...(testScope !== undefined ? { testScope } : {}) });
-  if (testScope !== undefined && testScope !== "full" && testScope.length === 0) {
-    process.stderr.write("ready: resolved test scope contains no test steps\n");
-    process.exit(1);
-  }
   const timeoutMs = parseTimeout();
   const startTime = Date.now();
 

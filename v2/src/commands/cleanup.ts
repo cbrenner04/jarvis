@@ -585,14 +585,7 @@ export async function resetStaleWorkspace(
     return { status: "refused", reason: "matching PR is ready (non-draft)" };
   }
 
-  const abandonResult = await performAbandonmentSteps(
-    branch,
-    worktreePath,
-    projectRoot,
-    singlePr?.number,
-    runner,
-    io,
-  );
+  const abandonResult = await performAbandonmentSteps(branch, worktreePath, projectRoot, singlePr?.number, runner, io);
   return abandonResult === 0 ? { status: "reset" } : { status: "refused", reason: "abandonment failed" };
 }
 

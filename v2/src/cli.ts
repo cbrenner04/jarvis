@@ -24,6 +24,7 @@ import {
   WORKFLOW_PRESET_BUILDERS,
   type WorkflowPresetBuilder,
   type WorkflowPresetBuilderInput,
+  type WorkflowPresetBuilderResult,
 } from "./execution/workflow-presets.ts";
 import {
   applyOperatorSessionId,
@@ -525,110 +526,148 @@ function buildWorkflowBuilderInput(
   };
 }
 
-async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
-  const name = argv[0];
-  const alias = name === undefined ? undefined : LEGACY_WORKFLOW_ALIASES[name];
+type ResolvedWorkflowPreset = {
+  builder: WorkflowPresetBuilder;
+  canonicalName: string;
+  alias: (typeof LEGACY_WORKFLOW_ALIASES)[string] | undefined;
+};
+
+type SuccessfulWorkflowBuild = Extract<WorkflowPresetBuilderResult, { ok: true }>;
+
+function resolveWorkflowPresetBuilder(name: string | undefined, deps: CliDeps): ResolvedWorkflowPreset | undefined {
+  if (name === undefined) return undefined;
+  const alias = LEGACY_WORKFLOW_ALIASES[name];
   const canonicalName = alias?.canonical ?? name;
-  const builder =
-    canonicalName !== undefined && Object.hasOwn(deps.workflowPresetBuilders, canonicalName)
-      ? deps.workflowPresetBuilders[canonicalName]
-      : name !== undefined && Object.hasOwn(deps.workflowPresetBuilders, name)
-        ? deps.workflowPresetBuilders[name]
-        : undefined;
-  if (builder === undefined || name === undefined) {
+  const builder = Object.hasOwn(deps.workflowPresetBuilders, canonicalName)
+    ? deps.workflowPresetBuilders[canonicalName]
+    : Object.hasOwn(deps.workflowPresetBuilders, name)
+      ? deps.workflowPresetBuilders[name]
+      : undefined;
+  if (builder === undefined) return undefined;
+  return { builder, canonicalName, alias };
+}
+
+function applyLegacyWorkflowAlias(
+  parsed: ImplementWorkflowCliInput | IntentWorkflowCliInput | PlanWorkflowCliInput,
+  alias: ResolvedWorkflowPreset["alias"],
+  io: Io,
+): void {
+  if (alias === undefined) return;
+  if ("reviewPasses" in parsed && parsed.reviewPasses === undefined) parsed.reviewPasses = alias.passes;
+  if ("reviewBehavior" in parsed && parsed.reviewBehavior === undefined) parsed.reviewBehavior = alias.behavior;
+  io.stderr(`deprecated: use ${alias.canonical} --review-passes ${alias.passes} --review-behavior ${alias.behavior}\n`);
+}
+
+async function prepareWorkflowSteps(
+  builder: WorkflowPresetBuilder,
+  builderInput: WorkflowPresetBuilderInput,
+  machineConfigPath: string,
+  io: Io,
+): Promise<{ ok: true; steps: SuccessfulWorkflowBuild["steps"]; built: SuccessfulWorkflowBuild } | { ok: false }> {
+  const built = await builder(builderInput as Parameters<WorkflowPresetBuilder>[0]);
+  if (!built.ok) {
+    io.stderr(`${built.error.replace(/\n+$/, "")}\n`);
+    return { ok: false };
+  }
+  let iterationTimeoutMs: number;
+  try {
+    iterationTimeoutMs = readIterationTimeoutMs(machineConfigPath);
+  } catch (error) {
+    io.stderr(`${error instanceof Error ? error.message : String(error)}\n`);
+    return { ok: false };
+  }
+  const steps = built.steps.map((step) => (step.behavior === "write" ? { ...step, iterationTimeoutMs } : step));
+  return { ok: true, steps, built };
+}
+
+async function maybeResetStaleImplementWorkspace(
+  canonicalName: string,
+  built: SuccessfulWorkflowBuild,
+  deps: CliDeps,
+  io: Io,
+): Promise<number | undefined> {
+  if (canonicalName !== "implement") return undefined;
+  const writeStep = built.steps.find((step) => step.behavior === "write");
+  const worktree = writeStep?.behavior === "write" ? writeStep.worktree : undefined;
+  if (!(worktree?.git !== false && worktree?.projectRoot && worktree.projectName && worktree.branchName)) {
+    return undefined;
+  }
+  const resetResult = await resetStaleWorkspace(
+    worktree.projectName,
+    worktree.branchName,
+    worktree.projectRoot,
+    deps.jarvisRoot ?? jarvisHome(),
+    deps.subprocessRunner ?? realAsyncSubprocessRunner,
+    async () => [],
+    io,
+  );
+  if (resetResult.status === "refused") {
+    io.stderr(`Error: Cannot re-run incomplete spec: ${resetResult.reason}\n`);
+    return 1;
+  }
+  return undefined;
+}
+
+async function startWorkflowRun(
+  client: IpcClient,
+  steps: SuccessfulWorkflowBuild["steps"],
+  built: SuccessfulWorkflowBuild,
+  isIntentPreset: boolean,
+  io: Io,
+): Promise<number> {
+  let result: unknown;
+  try {
+    result = await request(client, "start", { steps });
+  } catch (error) {
+    if (error instanceof RpcError) {
+      io.stderr(formatRpcError(error));
+      return 1;
+    }
+    throw error;
+  }
+  const start = parseStartResult(result);
+  if (start === undefined) {
+    io.stderr("invalid daemon response\n");
+    return 1;
+  }
+  if (isIntentPreset) {
+    const intentStep = built.steps[0];
+    if (
+      intentStep?.behavior === "write" &&
+      intentStep.landing?.kind === "intent-stage" &&
+      intentStep.publishCompletion === false
+    ) {
+      io.stderr(`intent paths: ${intentStep.landing.output.durableDir}\n`);
+    }
+  }
+  io.stdout(`${start.runId}\n`);
+  return waitForRunCompletion(client, start.runId, io);
+}
+
+async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
+  const resolved = resolveWorkflowPresetBuilder(argv[0], deps);
+  if (resolved === undefined) {
     io.stderr(WORKFLOW_USAGE);
     return 1;
   }
-
+  const { builder, canonicalName, alias } = resolved;
   const isIntentPreset = canonicalName === "intent";
   const isPlanPreset = canonicalName === "plan";
   const parsed = parseWorkflowArgsByName(argv.slice(1), isIntentPreset, isPlanPreset);
   if (!parsed.ok) {
-    io.stderr(getWorkflowUsage(canonicalName ?? name ?? ""));
+    io.stderr(getWorkflowUsage(canonicalName));
     return 1;
   }
-
-  if (alias !== undefined) {
-    if ("reviewPasses" in parsed && parsed.reviewPasses === undefined) parsed.reviewPasses = alias.passes;
-    if ("reviewBehavior" in parsed && parsed.reviewBehavior === undefined) parsed.reviewBehavior = alias.behavior;
-    io.stderr(
-      `deprecated: use ${alias.canonical} --review-passes ${alias.passes} --review-behavior ${alias.behavior}\n`,
-    );
-  }
-
-  const builderInputResult = buildWorkflowBuilderInput(
-    canonicalName ?? name ?? "",
-    parsed,
-    isIntentPreset,
-    isPlanPreset,
-    deps,
-  );
+  applyLegacyWorkflowAlias(parsed, alias, io);
+  const builderInputResult = buildWorkflowBuilderInput(canonicalName, parsed, isIntentPreset, isPlanPreset, deps);
   if (!builderInputResult.ok) return 1;
-
-  const built = await builder(builderInputResult.input as Parameters<WorkflowPresetBuilder>[0]);
-  if (!built.ok) {
-    io.stderr(`${built.error.replace(/\n+$/, "")}\n`);
-    return 1;
-  }
-
-  let iterationTimeoutMs: number;
-  try {
-    iterationTimeoutMs = readIterationTimeoutMs(deps.machineConfigPath);
-  } catch (error) {
-    io.stderr(`${error instanceof Error ? error.message : String(error)}\n`);
-    return 1;
-  }
-  const steps = built.steps.map((step) => (step.behavior === "write" ? { ...step, iterationTimeoutMs } : step));
-
-  if (canonicalName === "implement") {
-    const writeStep = built.steps.find((step) => step.behavior === "write");
-    const worktree = writeStep?.behavior === "write" ? writeStep.worktree : undefined;
-    if (worktree?.git !== false && worktree?.projectRoot && worktree.projectName && worktree.branchName) {
-      const resetResult = await resetStaleWorkspace(
-        worktree.projectName,
-        worktree.branchName,
-        worktree.projectRoot,
-        deps.jarvisRoot ?? jarvisHome(),
-        deps.subprocessRunner ?? realAsyncSubprocessRunner,
-        async () => [],
-        io,
-      );
-      if (resetResult.status === "refused") {
-        io.stderr(`Error: Cannot re-run incomplete spec: ${resetResult.reason}\n`);
-        return 1;
-      }
-    }
-  }
-
-  return withRunClient(io, deps, async (client) => {
-    let result: unknown;
-    try {
-      result = await request(client, "start", { steps });
-    } catch (error) {
-      if (error instanceof RpcError) {
-        io.stderr(formatRpcError(error));
-        return 1;
-      }
-      throw error;
-    }
-    const start = parseStartResult(result);
-    if (start === undefined) {
-      io.stderr("invalid daemon response\n");
-      return 1;
-    }
-    if (isIntentPreset) {
-      const intentStep = built.steps[0];
-      if (
-        intentStep?.behavior === "write" &&
-        intentStep.landing?.kind === "intent-stage" &&
-        intentStep.publishCompletion === false
-      ) {
-        io.stderr(`intent paths: ${intentStep.landing.output.durableDir}\n`);
-      }
-    }
-    io.stdout(`${start.runId}\n`);
-    return waitForRunCompletion(client, start.runId, io);
-  });
+  const prepared = await prepareWorkflowSteps(builder, builderInputResult.input, deps.machineConfigPath, io);
+  if (!prepared.ok) return 1;
+  const resetExitCode = await maybeResetStaleImplementWorkspace(canonicalName, prepared.built, deps, io);
+  if (resetExitCode !== undefined) return resetExitCode;
+  return withRunClient(io, deps, async (client) =>
+    startWorkflowRun(client, prepared.steps, prepared.built, isIntentPreset, io),
+  );
 }
 
 async function withRunClient(io: Io, deps: CliDeps, fn: (client: IpcClient) => Promise<number>): Promise<number> {

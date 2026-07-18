@@ -273,7 +273,8 @@ export function resolveWriteLoopBindings(input: WriteLoopInput): ResolvedWriteLo
 function reconstructWriteResume(run: Run): ResolvedWriteLoopInput {
   const snapshot = run.workflowSnapshot;
   const stepId = run.stepId;
-  const step = snapshot?.steps.find((candidate) => candidate.stepId === stepId);
+  const hiddenShrink = stepId?.endsWith("~shrink") === true;
+  const step = snapshot?.steps.find((candidate) => candidate.stepId === stepId || (hiddenShrink && candidate.stepId === stepId.slice(0, -7)));
 
   if (!snapshot || !stepId || !step) return { ok: false, message: "run has no matching workflow snapshot step" };
   if (step.behavior === "review" || step.behavior === "review-debate") {
@@ -296,7 +297,7 @@ function reconstructWriteResume(run: Run): ResolvedWriteLoopInput {
     stepRules: step.stepRules,
     expectedArtifactPath: step.expectedArtifactPath,
     bindings: [],
-    bindingResolution: { role: step.role, agents: step.agents, agentModelConfig: step.agentModelConfig },
+    bindingResolution: { role: hiddenShrink ? "shrink" : step.role, agents: step.agents, agentModelConfig: step.agentModelConfig },
     stepId,
     workflowSnapshot: snapshot,
     ...(step.iterationTimeoutMs === undefined ? {} : { iterationTimeoutMs: step.iterationTimeoutMs }),

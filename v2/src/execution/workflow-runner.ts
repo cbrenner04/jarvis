@@ -764,6 +764,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           if (published.commitSha === undefined) {
             const uncommitted = await getUncommittedPaths(worktreePath);
             if (uncommitted.length > 0) {
+              store.setRunStatus(lastResult.runId, "failed");
               args.logSink?.append(lastResult.runId, {
                 kind: "loop_finished",
                 loopOutcomeKind: "completion_commit_failed",
@@ -851,7 +852,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 resumable: !isFlipFailure,
                 ...(publicationFailure !== undefined ? { publicationFailure } : {}),
               });
-              if (isGateFailure) {
+              if (!isFlipFailure) {
                 store.setRunStatus(lastResult.runId, "failed");
               }
               return {
@@ -877,6 +878,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
+          store.setRunStatus(lastResult.runId, "failed");
           args.logSink?.append(lastResult.runId, {
             kind: "loop_finished",
             loopOutcomeKind: "completion_commit_failed",
@@ -1260,6 +1262,7 @@ function prepareWorkflowStep(
   if (
     !shouldSkipReuse &&
     (existingRun?.status === "completed" ||
+      (existingRun?.status === "failed" && existingRun.attempts.at(-1)?.completionAgent?.trim() !== undefined) ||
       (step.landing !== undefined && step.landing.kind !== "none" && existingRun?.status === "failed"))
   ) {
     const completionAgent = existingRun.attempts.at(-1)?.completionAgent?.trim();

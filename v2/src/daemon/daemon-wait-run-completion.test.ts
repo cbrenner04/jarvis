@@ -361,6 +361,44 @@ test("workflow list reports rollup status reflecting all steps, not just entry r
   expect(entryRow?.status).toBe("completed");
 });
 
+test("list and wait preserve failed hidden-shrink publication evidence and resumability", async () => {
+  const invocationId = "inv-failed-shrink-publication";
+  const workflowSnapshot = {
+    invocationId,
+    steps: [{
+      stepId: "implement", role: "implement", stepRules: "retry rules", expectedArtifactPath: "/tmp/test-project/artifact",
+      agents: ["codex"], agentModelConfig: { codex: { implement: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] }, shrink: { rungs: [{ adapterModel: "S1", priceKey: "S1" }] } } },
+    }],
+  };
+  const entryRunId = stateStore.createRun({
+    project: "test-project", specRef: "main", worktreePath: "/tmp/test-project", branch: "failed-shrink",
+    specPath: "/tmp/test-project/spec.md", stepId: "implement",
+    workflowSnapshot,
+  });
+  const shrinkRunId = stateStore.createRun({
+    project: "test-project", specRef: "main", worktreePath: "/tmp/test-project", branch: "failed-shrink",
+    specPath: "/tmp/test-project/spec.md", stepId: "implement~shrink",
+    workflowSnapshot,
+  });
+  finishLoop(entryRunId, "completed", 1);
+  stateStore.setRunStatus(shrinkRunId, "failed");
+  logSink.append(shrinkRunId, {
+    kind: "loop_finished", loopOutcomeKind: "completion_commit_failed", iterationsConsumed: 2, resumable: true,
+    publicationFailure: { operation: "push", message: "remote rejected", exitCode: 7, stdoutTail: "out", stderrTail: "err" },
+  });
+
+  const list = await expectResponse(await listDirect());
+  const rows = list.runs as Array<{ runId: string; status: string; error?: unknown }>;
+  expect(rows.find((row) => row.runId === entryRunId)?.status).toBe("failed");
+  expect(rows.find((row) => row.runId === shrinkRunId)).toMatchObject({
+    status: "failed", error: { reason: "completion_commit_failed", nextAction: "resume", publicationFailure: { operation: "push", exitCode: 7 } },
+  });
+  expect(await expectResponse(await waitDirect("failed-shrink", shrinkRunId))).toMatchObject({
+    runStatus: "failed", loopOutcomeKind: "completion_commit_failed", resumable: true,
+    error: { reason: "completion_commit_failed", nextAction: "resume", publicationFailure: { stderrTail: "err" } },
+  });
+});
+
 test("workflow wait returns killed when review step never runs and workflow is not live", async () => {
   const writeStepId = "write-step-killed";
   const reviewStepId = "review-step-killed";

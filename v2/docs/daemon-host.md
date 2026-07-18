@@ -231,6 +231,8 @@ No stderr, exit codes, or attempt transcripts appear in this contract.
 
 For `completion_commit_failed`, `ready_gate_failed`, and `ready_flip_failed`, `error.publicationFailure` on both `list` and `wait` contains the failed operation, message, exit code, and bounded labelled stdout/stderr tails from the terminal `loop_finished` row. `ready_flip_failed` is terminal non-resumable; `completion_commit_failed` and `ready_gate_failed` are retryable. When `ready_flip_failed` occurs after the publisher returned a PR number, `error.prNumber` on `list` and `wait` identifies the PR for manual fixing; omitted when publication returned no PR.
 
+A failed hidden shrink publication row remains `failed` and resumable; the workflow entry row rolls up to `failed` rather than `completed`.
+
 **Omission:** `error` is absent on `in-progress` runs and on `completed` runs with
 no operator-actionable stop.
 

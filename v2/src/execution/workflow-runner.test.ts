@@ -1828,6 +1828,9 @@ describe("executeWorkflow human steps", () => {
           loopOutcomeKind: testCase.kind,
           resumable: testCase.expectedResumable,
         });
+        if (testCase.kind === "completion_commit_failed" || testCase.kind === "ready_gate_failed") {
+          expect(store.loadRun(result.runId)?.status).toBe("failed");
+        }
       });
     }
   });

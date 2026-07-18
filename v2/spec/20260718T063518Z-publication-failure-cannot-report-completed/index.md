@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Fail the publishing completion row](./00-fail-publishing-completion-row.md)
+- [x] [00 - Fail the publishing completion row](./00-fail-publishing-completion-row.md)

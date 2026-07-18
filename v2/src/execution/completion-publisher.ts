@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { type RefreshPrBodyInput, refreshPrBody } from "./pr-body-refresh.ts";
 import { runPublicationWithRetry } from "./publication-retry.ts";
 import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
@@ -26,6 +26,7 @@ export type CompletionPublisher = (input: CompletionPublisherInput) => Promise<C
 
 type Git = (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string>;
 type GhCommand = (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string>;
+/** Retained only for compatibility with injected test seams; publication never probes it. */
 type GhReady = (cwd: string) => Promise<boolean>;
 type Delay = (ms: number) => Promise<void>;
 type RetryNotice = (message: string) => void;
@@ -45,32 +46,14 @@ type PublisherSeams = {
   renderFooter?: RenderFooter;
 };
 
-function defaultGit(cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile("git", args, { cwd, env: { ...process.env, ...env }, encoding: "utf8" }, (error, stdout) => {
-      if (error) reject(error);
-      else resolve(stdout.trim());
-    });
-  });
+function defaultCommand(command: string, cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> {
+  return realAsyncSubprocessRunner
+    .runAsync(command, [...args], cwd, { env: { ...process.env, ...env } })
+    .then((stdout) => stdout.trim());
 }
 
-function defaultGh(cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile("gh", args, { cwd, env: { ...process.env, ...env }, encoding: "utf8" }, (error, stdout) => {
-      if (error) reject(error);
-      else resolve(stdout.trim());
-    });
-  });
-}
-
-async function defaultGhReady(cwd: string): Promise<boolean> {
-  try {
-    await defaultGh(cwd, ["auth", "status"]);
-    return true;
-  } catch {
-    return false;
-  }
-}
+const defaultGit: Git = (cwd, args, env) => defaultCommand("git", cwd, args, env);
+const defaultGh: GhCommand = (cwd, args, env) => defaultCommand("gh", cwd, args, env);
 
 function defaultDelay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -84,16 +67,11 @@ function defaultRetryNotice(message: string): void {
 export function createCompletionPublisher(seams?: Partial<PublisherSeams>): CompletionPublisher {
   const git = seams?.git ?? defaultGit;
   const gh = seams?.gh ?? defaultGh;
-  const ghReady = seams?.ghReady ?? defaultGhReady;
   const delay = seams?.delay ?? defaultDelay;
   const retryNotice = seams?.retryNotice ?? defaultRetryNotice;
 
   return async (input) => {
     const specPath = normalizePublicationSpecPath(input.worktreePath, input.specPath);
-
-    if (!(await ghReady(input.worktreePath))) {
-      throw new Error("GitHub auth unavailable; cannot publish PR");
-    }
 
     const result: CompletionPublisherResult = {};
 

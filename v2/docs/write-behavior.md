@@ -48,9 +48,7 @@ run records `completion_commit_failed` (resumable) and names the uncommitted pat
 reported `complete` always implies a commit exists.
 
 **Push+PR phase:** (when commit succeeds, or resume finds an already-committed
-HEAD) gates on a single injectable `gh` readiness probe (`gh auth status`;
-nonzero exit, including a missing binary, is not-ready) before pushing to origin
-with upstream detection: a branch without upstream tracking uses
+HEAD) starts at upstream detection: a branch without upstream tracking uses
 `git push -u origin <branch>`; a tracked branch uses plain `git push`. PR lookup
 follows: scans for open PRs on the current branch, filters by matching base ref
 (the run's `baseRef`), and reuses the first match without mutating its title or
@@ -75,8 +73,10 @@ a final gate checks that evidence of publication exists: if a `pushSha` is recor
 finalization. This ensures a reported completion always implies confirmed PR evidence, preventing
 silent publication gaps where code is pushed but no PR was created or found.
 
-Every publication subprocess (`gh auth status`, upstream detection, `git push`, `git rev-parse HEAD`,
-`gh pr list`, `gh pr create`, `gh pr view`) is awaited in that order before body refresh begins.
+Every publication subprocess is awaited inside its retry boundary. A failed push or PR operation retains its
+operation, message, exit code, and labelled stdout/stderr tails in durable publication evidence.
+Publication failure marks the owning completion (including hidden shrink) row `failed`; workflow entry status
+rolls up from that row. `completed` requires confirmed PR evidence and then a green ready gate.
 
 **PR body refresh:** after the draft PR is ensured, the publisher rewrites its
 body: regenerated `Spec: <specPath>` header, an optional caller-supplied summary
@@ -766,7 +766,7 @@ caller-supplied bindings, same seam as write-step invocations.
 - `5`: `budget-exhausted` (soft-stop, resumable per spec 02)
 
 `completion_commit_failed` and `ready_gate_failed` leave the durable run
-`completed` with `resumable: true`; `jarvis run resume <run-id>` may retry without
+`failed` with `resumable: true`; `jarvis run resume <run-id>` may retry without
 creating a duplicate commit or PR. `ready_flip_failed` is a terminal non-resumable settlement:
 the run stays `completed` with `resumable: false`, and `resume` is rejected as a terminal run.
 
@@ -784,7 +784,7 @@ When `loopOutcomeKind` is present it wins over `runStatus`:
 - `2`: `invocation_failure`
 - `5`: `budget-exhausted`
 
-`completion_commit_failed` carries `runStatus: completed` and `resumable: true` on stdout; exit `1` is retryable via `jarvis run resume`.
+`completion_commit_failed` carries `runStatus: failed` and `resumable: true` on stdout; exit `1` is retryable via `jarvis run resume`.
 `ready_gate_failed` carries `runStatus: failed` and `resumable: true` on stdout; exit `1` is retryable via `jarvis run resume`.
 `ready_flip_failed` carries `runStatus: completed` and `resumable: false` on stdout; exit `1` is terminal and non-resumable.
 

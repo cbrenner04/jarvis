@@ -982,6 +982,7 @@ export async function publishCompletionArtifacts(
     await (seams.readyFinalizer ?? createReadyFinalizer())({
       worktreePath: input.worktreePath,
       branch: input.branch,
+      baseRef: input.baseRef,
       ...(input.requiredIntegrationScope ? { requiredIntegrationScope: input.requiredIntegrationScope } : {}),
     });
   } catch (finalizeError) {

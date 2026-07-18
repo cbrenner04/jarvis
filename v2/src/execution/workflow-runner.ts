@@ -993,7 +993,8 @@ function isDurableWorkflowStep(
 function isDurableWorkflowStep(step: AnyWorkflowStep): boolean;
 function isDurableWorkflowStep(step: AnyWorkflowStep): boolean {
   return (
-    step.behavior === "write" || step.behavior === "human" ||
+    step.behavior === "write" ||
+    step.behavior === "human" ||
     (step.behavior === "review" && step.landing?.kind === "intent-stage")
   );
 }
@@ -2027,18 +2028,17 @@ async function runReviewDispatch(
   }
 
   const bindings = resolveReviewStepBindings(step);
-  const runId =
-    isDurableWorkflowStep(step)
-      ? store.createRun({
-          project: step.project,
-          specRef: step.landing.baseRef,
-          worktreePath: step.cwd,
-          branch: step.branch,
-          specPath: step.landing.stagingDir,
-          stepId: step.stepId,
-          workflowSnapshot,
-        })
-      : crypto.randomUUID();
+  const runId = isDurableWorkflowStep(step)
+    ? store.createRun({
+        project: step.project,
+        specRef: step.landing.baseRef,
+        worktreePath: step.cwd,
+        branch: step.branch,
+        specPath: step.landing.stagingDir,
+        stepId: step.stepId,
+        workflowSnapshot,
+      })
+    : crypto.randomUUID();
   const ids: ReviewStepExecutionIds = {
     runId,
     attemptId: isDurableWorkflowStep(step) ? store.recordAttemptStart(runId) : crypto.randomUUID(),

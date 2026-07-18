@@ -49,13 +49,13 @@ export function parseHealthResult(value: unknown): { ok: true } | undefined {
 }
 
 /** Parse a daemon `status` success payload; returns `undefined` when malformed. */
-export function parseStatusResult(
-  value: unknown,
-): {
-  state: "running";
-  loadedRevision?: string;
-  recovery?: { pending: boolean; reconciled: number; resumed: number };
-} | undefined {
+export function parseStatusResult(value: unknown):
+  | {
+      state: "running";
+      loadedRevision?: string;
+      recovery?: { pending: boolean; reconciled: number; resumed: number };
+    }
+  | undefined {
   if (typeof value === "object" && value !== null && (value as { state?: unknown }).state === "running") {
     const loadedRevision = (value as { loadedRevision?: unknown }).loadedRevision;
     const recovery = (value as { recovery?: unknown }).recovery;

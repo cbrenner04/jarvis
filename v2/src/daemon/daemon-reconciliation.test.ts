@@ -311,10 +311,7 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
         new AbortController().signal,
       );
       expect(response).toEqual({ kind: "response", result: { ok: true } });
-      const pending = await status?.(
-        { kind: "request", id: "status", method: "status" },
-        new AbortController().signal,
-      );
+      const pending = await status?.({ kind: "request", id: "status", method: "status" }, new AbortController().signal);
       expect(pending).toMatchObject({
         kind: "response",
         result: { state: "running", recovery: { pending: true, reconciled: 1, resumed: 0 } },
@@ -324,10 +321,7 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
     },
   });
   expect(order).toEqual(["state", "log", "finished", "ipc", "recovery"]);
-  const complete = await status?.(
-    { kind: "request", id: "status", method: "status" },
-    new AbortController().signal,
-  );
+  const complete = await status?.({ kind: "request", id: "status", method: "status" }, new AbortController().signal);
   expect(complete).toMatchObject({
     kind: "response",
     result: { state: "running", recovery: { pending: false, reconciled: 1, resumed: 1 } },

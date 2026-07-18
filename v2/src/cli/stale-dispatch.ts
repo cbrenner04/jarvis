@@ -1,10 +1,10 @@
+import { parseListRuns, parseStatusResult } from "../daemon/daemon-wire.ts";
+import type { IpcClient } from "../ipc/client.ts";
+import { RpcError } from "../ipc/rpc-errors.ts";
 import type { CliDeps } from "./deps.ts";
 import { guardWorkDispatch } from "./dispatch-revision.ts";
 import type { Io } from "./io.ts";
 import { formatConnectionError, formatLifecycleError, formatRpcError, request } from "./ipc.ts";
-import { parseListRuns, parseStatusResult } from "../daemon/daemon-wire.ts";
-import type { IpcClient } from "../ipc/client.ts";
-import { RpcError } from "../ipc/rpc-errors.ts";
 
 export function stripAutoBounceFlag(argv: readonly string[]): { argv: string[]; autoBounce: boolean } {
   return { argv: argv.filter((arg) => arg !== "--no-auto-bounce"), autoBounce: !argv.includes("--no-auto-bounce") };
@@ -42,7 +42,9 @@ export async function withAutoBounceDispatch(
     if (list === undefined) throw new Error("invalid daemon response");
     const live = list.runs.filter((run) => run.isLive).map((run) => run.runId);
     if (live.length > 0) {
-      io.stderr(`daemon revision mismatch: loaded=${loaded} current=${current}; cannot restart while live runs: ${live.join(", ")}\n`);
+      io.stderr(
+        `daemon revision mismatch: loaded=${loaded} current=${current}; cannot restart while live runs: ${live.join(", ")}\n`,
+      );
       return 1;
     }
     client.close();

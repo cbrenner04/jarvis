@@ -55,7 +55,11 @@ function main(
 /** Supplies the admission preflight used by run-control tests without changing their RPC fixtures. */
 function makeIpcClient(
   frames: unknown[],
-  options?: { sent?: unknown[]; loadedRevision?: string; recovery?: { pending: boolean; reconciled: number; resumed: number } },
+  options?: {
+    sent?: unknown[];
+    loadedRevision?: string;
+    recovery?: { pending: boolean; reconciled: number; resumed: number };
+  },
 ): IpcClient {
   const queue = [...frames] as IpcFrame[];
   const sent = options?.sent ?? [];
@@ -1079,7 +1083,9 @@ describe("v2 cli", () => {
                 recovery: { pending: false, reconciled: 2, resumed: 1 },
               });
         },
-        stopDaemon: async () => { stopped += 1; },
+        stopDaemon: async () => {
+          stopped += 1;
+        },
         startDaemon: async () => {
           started += 1;
           return { pid: 1, socketPath: "test.sock" };
@@ -1109,10 +1115,26 @@ describe("v2 cli", () => {
       const code = await main(RUN_START_ARGS, cap.io, {
         loadAgentModelConfig: stubAgentModelConfig,
         connectIpcClient: async () =>
-          makeIpcClient([{ kind: "response", id: "list", result: { runs: [{ runId: "live-a", isLive: true }, { runId: "orphan", isLive: false }] } }], {
-            loadedRevision: "loaded-revision",
-          }),
-        stopDaemon: async () => { stopped += 1; },
+          makeIpcClient(
+            [
+              {
+                kind: "response",
+                id: "list",
+                result: {
+                  runs: [
+                    { runId: "live-a", isLive: true },
+                    { runId: "orphan", isLive: false },
+                  ],
+                },
+              },
+            ],
+            {
+              loadedRevision: "loaded-revision",
+            },
+          ),
+        stopDaemon: async () => {
+          stopped += 1;
+        },
         startDaemon: async () => {
           started += 1;
           return { pid: 1, socketPath: "test.sock" };
@@ -1141,9 +1163,14 @@ describe("v2 cli", () => {
           connections += 1;
           return connections === 1
             ? makeIpcClient([{ kind: "response", id: "list", result: { runs: [] } }], { loadedRevision: "old" })
-            : makeIpcClient([], { loadedRevision: "still-old", recovery: { pending: false, reconciled: 0, resumed: 0 } });
+            : makeIpcClient([], {
+                loadedRevision: "still-old",
+                recovery: { pending: false, reconciled: 0, resumed: 0 },
+              });
         },
-        stopDaemon: async () => { stopped += 1; },
+        stopDaemon: async () => {
+          stopped += 1;
+        },
         startDaemon: async () => {
           started += 1;
           return { pid: 1, socketPath: "test.sock" };
@@ -1319,28 +1346,25 @@ describe("v2 cli", () => {
     const cap = captureIo();
     const sent: unknown[] = [];
     let connections = 0;
-    await withFixedUuid(
-      [SESSION_UUID, "status-one", "list", "recovery", "status-two", "start", "wait"],
-      async () => {
-        const code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
-          cwd: () => testRepoSub,
-          readProjectRegistry: () => ({ "test-project": { root: testRepoRoot } }),
-          workflowPresetBuilders: { implement: () => ({ ok: true, steps: FAKE_IMPLEMENT_STEPS }) },
-          connectIpcClient: async () => {
-            connections += 1;
-            return connections === 1
-              ? makeIpcClient([{ kind: "response", id: "list", result: { runs: [] } }], { loadedRevision: "old", sent })
-              : makeIpcClient(workflowFrames("start", "wait", "workflow-bounced", COMPLETED_WAIT_RESULT), {
-                  recovery: { pending: false, reconciled: 1, resumed: 0 },
-                  sent,
-                });
-          },
-          stopDaemon: async () => undefined,
-          startDaemon: async () => ({ pid: 1, socketPath: "test.sock" }),
-        });
-        expect(code).toBe(0);
-      },
-    );
+    await withFixedUuid([SESSION_UUID, "status-one", "list", "recovery", "status-two", "start", "wait"], async () => {
+      const code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
+        cwd: () => testRepoSub,
+        readProjectRegistry: () => ({ "test-project": { root: testRepoRoot } }),
+        workflowPresetBuilders: { implement: () => ({ ok: true, steps: FAKE_IMPLEMENT_STEPS }) },
+        connectIpcClient: async () => {
+          connections += 1;
+          return connections === 1
+            ? makeIpcClient([{ kind: "response", id: "list", result: { runs: [] } }], { loadedRevision: "old", sent })
+            : makeIpcClient(workflowFrames("start", "wait", "workflow-bounced", COMPLETED_WAIT_RESULT), {
+                recovery: { pending: false, reconciled: 1, resumed: 0 },
+                sent,
+              });
+        },
+        stopDaemon: async () => undefined,
+        startDaemon: async () => ({ pid: 1, socketPath: "test.sock" }),
+      });
+      expect(code).toBe(0);
+    });
     expect(connections).toBe(2);
     expect(sent.filter((frame) => (frame as { method?: string }).method === "start")).toHaveLength(1);
   });

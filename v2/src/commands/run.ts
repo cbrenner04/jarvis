@@ -1,8 +1,8 @@
 import type { CliDeps } from "../cli/deps.ts";
-import { stripAutoBounceFlag, withAutoBounceDispatch } from "../cli/stale-dispatch.ts";
 import type { Io } from "../cli/io.ts";
 import { formatRpcError, parseStreamPayload, request, withRunClient } from "../cli/ipc.ts";
 import { waitForRunCompletion } from "../cli/run-completion.ts";
+import { stripAutoBounceFlag, withAutoBounceDispatch } from "../cli/stale-dispatch.ts";
 import { RUN_USAGE, WRITE_USAGE } from "../cli/usage.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { parseListRuns, parseStartResult } from "../daemon/daemon-wire.ts";
@@ -27,6 +27,46 @@ function formatListRunRow(run: DaemonListRunRow): string {
     run.prUrl ?? "-",
   ];
   return `${columns.join("\t")}\n`;
+}
+
+function isRunAction(subcommand: string | undefined): subcommand is "pause" | "resume" | "kill" {
+  return subcommand === "pause" || subcommand === "resume" || subcommand === "kill";
+}
+
+async function runActionCommand(
+  subcommand: "pause" | "resume" | "kill",
+  argv: readonly string[],
+  io: Io,
+  deps: CliDeps,
+): Promise<number> {
+  const bounce = subcommand === "resume" ? stripAutoBounceFlag(argv) : undefined;
+  const args = bounce?.argv ?? argv;
+  const runId = args[0];
+  if (args.length !== 1 || runId === undefined) {
+    io.stderr(RUN_USAGE);
+    return 1;
+  }
+  if (subcommand === "resume") {
+    return withAutoBounceDispatch(io, deps, bounce?.autoBounce ?? true, async (client) => {
+      await request(client, "resume", { runId });
+      io.stdout(`resumed ${runId}\n`);
+      return 0;
+    });
+  }
+  return withRunClient(io, deps, async (client) => {
+    try {
+      await request(client, subcommand, { runId });
+    } catch (error) {
+      if (error instanceof RpcError) {
+        io.stderr(formatRpcError(error));
+        return 1;
+      }
+      throw error;
+    }
+    const message = subcommand === "kill" ? "killed" : `${subcommand}d`;
+    io.stdout(`${message} ${runId}\n`);
+    return 0;
+  });
 }
 
 export async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
@@ -116,30 +156,7 @@ export async function runRunCommand(argv: readonly string[], io: Io, deps: CliDe
     });
   }
 
-  const resumeBounce = subcommand === "resume" ? stripAutoBounceFlag(argv.slice(1)) : undefined;
-  if ((subcommand === "pause" || subcommand === "resume" || subcommand === "kill") && (argv.length === 2 || (subcommand === "resume" && resumeBounce?.argv.length === 1))) {
-    const runId = subcommand === "resume" ? resumeBounce?.argv[0] : argv[1];
-    if (runId === undefined) { io.stderr(RUN_USAGE); return 1; }
-    if (subcommand === "resume") return withAutoBounceDispatch(io, deps, resumeBounce?.autoBounce ?? true, async (client) => {
-      await request(client, "resume", { runId });
-      io.stdout(`resumed ${runId}\n`);
-      return 0;
-    });
-    return withRunClient(io, deps, async (client) => {
-      try {
-        await request(client, subcommand, { runId });
-      } catch (error) {
-        if (error instanceof RpcError) {
-          io.stderr(formatRpcError(error));
-          return 1;
-        }
-        throw error;
-      }
-      const message = subcommand === "kill" ? "killed" : `${subcommand}d`;
-      io.stdout(`${message} ${runId}\n`);
-      return 0;
-    });
-  }
+  if (isRunAction(subcommand)) return runActionCommand(subcommand, argv.slice(1), io, deps);
 
   if (subcommand === "wait" && argv.length === 2) {
     const runId = argv[1];

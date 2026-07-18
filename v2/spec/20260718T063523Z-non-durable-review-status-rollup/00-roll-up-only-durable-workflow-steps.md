@@ -25,13 +25,13 @@ review durable or repairing reviewed-plan landing.
 
 ## Acceptance criteria
 
-- [ ] A finished reviewed-plan workflow whose durable rows completed reports `runStatus: completed` through daemon `wait` and `list`, despite its ordinary review step having no run row.
-- [ ] A finished workflow with an authored durable step but no matching row reports `runStatus: killed`.
-- [ ] Durable step rows propagate the first authored status other than `completed`.
-- [ ] A workflow snapshot without durability metadata treats every authored step as durable and preserves the legacy missing-row `killed` result.
-- [ ] `v2/src/daemon/workflow-run-status-rollup.test.ts` adds the non-durable reviewed-plan and legacy-snapshot cases that fail against the pre-fix rollup and pass after the change.
-- [ ] `v2/src/execution/workflow-runner.test.ts` verifies snapshots classify ordinary plan review as non-durable while preserving durable reviewed-intent review.
-- [ ] `bun run typecheck` and the v2 unit and integration test suites pass.
+- [x] A finished reviewed-plan workflow whose durable rows completed reports `runStatus: completed` through daemon `wait` and `list`, despite its ordinary review step having no run row.
+- [x] A finished workflow with an authored durable step but no matching row reports `runStatus: killed`.
+- [x] Durable step rows propagate the first authored status other than `completed`.
+- [x] A workflow snapshot without durability metadata treats every authored step as durable and preserves the legacy missing-row `killed` result.
+- [x] `v2/src/daemon/workflow-run-status-rollup.test.ts` adds the non-durable reviewed-plan and legacy-snapshot cases that fail against the pre-fix rollup and pass after the change.
+- [x] `v2/src/execution/workflow-runner.test.ts` verifies snapshots classify ordinary plan review as non-durable while preserving durable reviewed-intent review.
+- [x] `bun run typecheck` and the v2 unit and integration test suites pass.
 
 ## Documentation updates
 

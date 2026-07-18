@@ -974,8 +974,8 @@ describe("executeWorkflow", () => {
         iterationTimeoutMs: 123,
       };
       expect(run1?.workflowSnapshot?.steps).toEqual([
-        { stepId: "step-1", role: "implement", ...stepConfig },
-        { stepId: "step-2", role: "implement", ...stepConfig },
+        { stepId: "step-1", role: "implement", durable: true, ...stepConfig },
+        { stepId: "step-2", role: "implement", durable: true, ...stepConfig },
       ]);
     });
   });
@@ -3405,6 +3405,20 @@ describe("executeWorkflow review dispatch", () => {
     });
   });
 
+  test("persists reviewed-intent review as a durable snapshot step", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-snapshot-"));
+    stageReviewedIntent(workspace);
+    const step = reviewedIntentStep(workspace, { branch: "intent/snapshot", maxCycles: 0 });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store });
+
+      expect(store.loadRun(result.runId)?.workflowSnapshot?.steps).toEqual([
+        { stepId: "review", role: "", behavior: "review", durable: true },
+      ]);
+    });
+  });
+
   test("runs reviewed-intent review and landing only in the split workspace", async () => {
     const operatorCheckout = mkdtempSync(join(tmpdir(), "reviewed-intent-operator-"));
     const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-workspace-"));
@@ -4006,7 +4020,7 @@ describe("executeWorkflow review dispatch", () => {
     });
   });
 
-  test("reuses a matching mixed-workflow snapshot while retaining the review entry", async () => {
+  test("marks ordinary plan review non-durable while reusing its mixed-workflow snapshot", async () => {
     const calls: string[] = [];
     const makeReview = (): ReviewWorkflowStep => ({
       behavior: "review",
@@ -4040,9 +4054,9 @@ describe("executeWorkflow review dispatch", () => {
       const first = await executeWorkflow({ steps: [makeReview(), makeWrite()], stateStore: store });
       const writeRun = store.findRunByProjectBranch({ project: "demo", branch: "mixed-review", stepId: "write-1" });
       expect(first.kind).toBe("complete");
-      expect(writeRun?.workflowSnapshot?.steps.map((entry) => [entry.stepId, entry.behavior])).toEqual([
-        ["review-1", "review"],
-        ["write-1", undefined],
+      expect(writeRun?.workflowSnapshot?.steps.map((entry) => [entry.stepId, entry.behavior, entry.durable])).toEqual([
+        ["review-1", "review", false],
+        ["write-1", undefined, true],
       ]);
 
       const second = await executeWorkflow({ steps: [makeReview(), makeWrite()], stateStore: store });

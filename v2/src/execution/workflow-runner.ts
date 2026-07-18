@@ -329,7 +329,7 @@ async function runWorkflowStep(
     return runReviewDispatch(
       step,
       stepIndex,
-      workflowSnapshot.invocationId,
+      workflowSnapshot,
       onReviewDebateProgress,
       telemetry,
       onStepRunCreated,
@@ -986,12 +986,24 @@ function stepIdentity(step: WorkflowStep): { project: string; branch: string } {
     : { project: step.worktree.projectName, branch: step.worktree.branchName };
 }
 
+/** Shared row-persistence policy used for both execution and workflow snapshots. */
+function isDurableWorkflowStep(
+  step: ReviewDebateWorkflowStep | ReviewWorkflowStep,
+): step is ReviewWorkflowStep & { landing: Extract<PublicationLanding, { kind: "intent-stage" }> };
+function isDurableWorkflowStep(step: AnyWorkflowStep): boolean;
+function isDurableWorkflowStep(step: AnyWorkflowStep): boolean {
+  return (
+    step.behavior === "write" ||
+    step.behavior === "human" ||
+    (step.behavior === "review" && step.landing?.kind === "intent-stage")
+  );
+}
+
 /**
  * Every step, including review behaviors, contributes an entry to the shared snapshot
- * so the daemon's `list` handler can render a row for it. Only `write` and `human`
- * steps carry durable run identity, though: a `review-debate` step has no durable
- * run/resume in this slice (deferred to first consumer), so it is excluded from the
- * existing-run lookup that resumes a prior invocation's snapshot.
+ * so the daemon's `list` handler can render a row for it. The shared durability
+ * policy is captured with each step so status readers do not infer persistence from
+ * behavior names. Non-durable steps are excluded from existing-run lookup.
  */
 function buildWorkflowSnapshot(
   steps: readonly AnyWorkflowStep[],
@@ -1002,6 +1014,7 @@ function buildWorkflowSnapshot(
   const authoredSteps = steps.map((step) => ({
     stepId: step.stepId,
     role: step.behavior === "write" ? step.role : "",
+    durable: isDurableWorkflowStep(step),
     ...(step.behavior === "review-debate" || step.behavior === "review"
       ? { behavior: step.behavior as "review-debate" | "review" }
       : {}),
@@ -1021,7 +1034,7 @@ function buildWorkflowSnapshot(
   if (!freshDispatch) {
     const identifiableSteps = steps.filter(
       (step): step is WorkflowStep | HumanWorkflowStep =>
-        step.behavior !== "review-debate" && step.behavior !== "review",
+        isDurableWorkflowStep(step) && (step.behavior === "write" || step.behavior === "human"),
     );
     for (const step of identifiableSteps) {
       const { project, branch } = stepIdentity(step);
@@ -1983,13 +1996,14 @@ async function runStandardReviewStep(
 async function runReviewDispatch(
   step: ReviewDebateWorkflowStep | ReviewWorkflowStep,
   stepIndex: number,
-  invocationId: string,
+  workflowSnapshot: WorkflowSnapshot,
   onProgress: ((invocationId: string, stepId: string, progress: ReviewProgress) => void) | undefined,
   telemetry: WorkflowTelemetryContext | undefined,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
   store: StateStore,
   logSink: LogSink | undefined,
 ): Promise<ReviewDebateStepOutcome | ReviewStepOutcome> {
+  const { invocationId } = workflowSnapshot;
   if (step.behavior === "review-debate") {
     return runReviewDebateStep(step, stepIndex, invocationId, onProgress, telemetry, onStepRunCreated);
   }
@@ -1998,13 +2012,13 @@ async function runReviewDispatch(
 
   // Only reviewed-intent workflows carry a durable post-review checkpoint; generic review
   // steps stay non-durable (no run row, fresh synthesized run ID each dispatch).
-  if (landing?.kind === "intent-stage") {
+  if (isDurableWorkflowStep(step)) {
     const checkpoint = findReviewLandingCheckpoint(store, step);
     if (checkpoint !== undefined) {
       onStepRunCreated?.(stepIndex, checkpoint.id);
       return await finishReviewedIntentLanding(
         step,
-        landing,
+        step.landing,
         checkpoint.id,
         store,
         reviewCompletionAgent(checkpoint),
@@ -2014,32 +2028,32 @@ async function runReviewDispatch(
   }
 
   const bindings = resolveReviewStepBindings(step);
-  const runId =
-    landing?.kind === "intent-stage"
-      ? store.createRun({
-          project: step.project,
-          specRef: landing.baseRef,
-          worktreePath: step.cwd,
-          branch: step.branch,
-          specPath: landing.stagingDir,
-          stepId: step.stepId,
-        })
-      : crypto.randomUUID();
+  const runId = isDurableWorkflowStep(step)
+    ? store.createRun({
+        project: step.project,
+        specRef: step.landing.baseRef,
+        worktreePath: step.cwd,
+        branch: step.branch,
+        specPath: step.landing.stagingDir,
+        stepId: step.stepId,
+        workflowSnapshot,
+      })
+    : crypto.randomUUID();
   const ids: ReviewStepExecutionIds = {
     runId,
-    attemptId: landing?.kind === "intent-stage" ? store.recordAttemptStart(runId) : crypto.randomUUID(),
+    attemptId: isDurableWorkflowStep(step) ? store.recordAttemptStart(runId) : crypto.randomUUID(),
   };
   onStepRunCreated?.(stepIndex, ids.runId);
 
-  if (landing?.kind === "intent-stage") {
+  if (isDurableWorkflowStep(step)) {
     logSink?.append(ids.runId, { kind: "iteration_started", attemptId: ids.attemptId });
   }
 
-  const outcome = await (landing?.kind === "intent-stage"
-    ? runStandardReviewStep(step, reviewInput, landing, ids, bindings, invocationId, onProgress, telemetry, store)
+  const outcome = await (isDurableWorkflowStep(step)
+    ? runStandardReviewStep(step, reviewInput, step.landing, ids, bindings, invocationId, onProgress, telemetry, store)
     : runProfileReviewStep(step, reviewInput, ids, bindings, invocationId, onProgress, telemetry));
 
-  if (landing?.kind === "intent-stage") {
+  if (isDurableWorkflowStep(step)) {
     logSink?.append(ids.runId, {
       kind: "loop_finished",
       loopOutcomeKind: outcome.kind,

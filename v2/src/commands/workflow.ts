@@ -1,6 +1,7 @@
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
+import { guardWorkDispatch } from "../cli/dispatch-revision.ts";
 import { formatRpcError, request, withRunClient } from "../cli/ipc.ts";
 import { waitForRunCompletion } from "../cli/run-completion.ts";
 import { WORKFLOW_IMPLEMENT_USAGE, WORKFLOW_INTENT_USAGE, WORKFLOW_PLAN_USAGE, WORKFLOW_USAGE } from "../cli/usage.ts";
@@ -161,10 +162,16 @@ async function startWorkflowRun(
   steps: SuccessfulWorkflowBuild["steps"],
   built: SuccessfulWorkflowBuild,
   isIntentPreset: boolean,
+  getCurrentRevision: CliDeps["getCurrentRevision"],
   io: Io,
 ): Promise<number> {
   let result: unknown;
   try {
+    const mismatch = await guardWorkDispatch(client, getCurrentRevision);
+    if (mismatch !== undefined) {
+      io.stderr(mismatch);
+      return 1;
+    }
     result = await request(client, "start", { steps });
   } catch (error) {
     if (error instanceof RpcError) {
@@ -214,6 +221,6 @@ export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: 
   const resetExitCode = await maybeResetStaleImplementWorkspace(canonicalName, prepared.built, deps, io);
   if (resetExitCode !== undefined) return resetExitCode;
   return withRunClient(io, deps, async (client) =>
-    startWorkflowRun(client, prepared.steps, prepared.built, isIntentPreset, io),
+    startWorkflowRun(client, prepared.steps, prepared.built, isIntentPreset, deps.getCurrentRevision, io),
   );
 }

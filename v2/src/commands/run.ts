@@ -1,5 +1,6 @@
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
+import { guardWorkDispatch } from "../cli/dispatch-revision.ts";
 import { formatRpcError, parseStreamPayload, request, withRunClient } from "../cli/ipc.ts";
 import { waitForRunCompletion } from "../cli/run-completion.ts";
 import { RUN_USAGE, WRITE_USAGE } from "../cli/usage.ts";
@@ -42,6 +43,11 @@ export async function runRunCommand(argv: readonly string[], io: Io, deps: CliDe
     return withRunClient(io, deps, async (client) => {
       let result: unknown;
       try {
+        const mismatch = await guardWorkDispatch(client, deps.getCurrentRevision);
+        if (mismatch !== undefined) {
+          io.stderr(mismatch);
+          return 1;
+        }
         result = await request(client, "start", { input: parsed.input });
       } catch (error) {
         if (error instanceof RpcError) {
@@ -117,6 +123,13 @@ export async function runRunCommand(argv: readonly string[], io: Io, deps: CliDe
   if ((subcommand === "pause" || subcommand === "resume" || subcommand === "kill") && argv.length === 2) {
     return withRunClient(io, deps, async (client) => {
       try {
+        if (subcommand === "resume") {
+          const mismatch = await guardWorkDispatch(client, deps.getCurrentRevision);
+          if (mismatch !== undefined) {
+            io.stderr(mismatch);
+            return 1;
+          }
+        }
         await request(client, subcommand, { runId: argv[1] });
       } catch (error) {
         if (error instanceof RpcError) {

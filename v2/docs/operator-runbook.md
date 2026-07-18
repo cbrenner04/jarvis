@@ -365,9 +365,9 @@ worktree, and its token spend is lost.
 
 **Two traps here, both seeded, both observed live on 2026-07-14:**
 
-- The restart itself kills every in-flight run, and the harness *requires* a restart after merging
-  any v2 change (stale code snapshot). So landing a v2 fix destroys concurrent work. Seed:
-  `daemon-restart-kills-in-flight-runs`. Cleanup: delete when it ships.
+- A revision mismatch now refuses only new starts and resumes. Leave admitted work
+  alone; use status/list/log/wait/pause/kill to recover it, then restart the
+  daemon once no active work needs preserving before dispatching new work.
 - Killed workflow write runs resume from their persisted snapshot. If the snapshot is missing or
   cannot resolve its write step, `resume` returns `resume_unsupported` before spawn; `list` / `wait`
   report `unsupported_resume_context` with `retryable: false` and `nextAction: "stop"`. Fix the
@@ -539,8 +539,8 @@ Operators add bullets here; delete when fixed.
   code with no test seam.** Seed: `agent-authored-subprocess-mocks-assert-nothing-about-argv`.
 - **`daemon stop` and `run kill` can deadlock each other (2026-07-16):** a durable row that is
   non-terminal *and* not in memory is refused by both (`active durable runs` / `run_not_active`), so
-  nothing can clear it. Since a restart is required after every v2 code merge, one stranded row
-  wedges every subsequent merge. `run list` shows the tell: `in-progress` + `not-live` on a spec
+  nothing can clear it. A stranded row prevents the daemon restart needed after a revision mismatch.
+  `run list` shows the tell: `in-progress` + `not-live` on a spec
   whose PR already merged. **Recovery (verified 2026-07-16): `kill -9 <daemon-pid>` then
   `jarvis daemon start`.** Startup reconciliation settles every orphaned non-terminal row to
   `killed` / `daemon_restart` before IPC opens, which is what the refusing `stop` was blocking you

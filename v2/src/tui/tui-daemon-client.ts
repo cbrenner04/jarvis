@@ -12,6 +12,7 @@ import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { RpcConnectionError } from "../ipc/rpc-errors.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import { DAEMON_SOCKET_PATH } from "../paths.ts";
+import { getInvokingRevision, revisionMismatchMessage, type GetCurrentRevision } from "../cli/dispatch-revision.ts";
 
 /** Successful `health` RPC payload from the daemon host. */
 type TuiDaemonHealthResult = { ok: true };
@@ -56,6 +57,7 @@ export type ConnectTuiDaemonOptions = {
   socketPath?: string;
   /** Injectable IPC transport seam for tests and callers. */
   connectIpcClient?: (socketPath: string) => Promise<IpcClient>;
+  getCurrentRevision?: GetCurrentRevision;
 };
 
 function parseOrThrow<T>(parsed: T | undefined, message: string): T {
@@ -73,6 +75,7 @@ function parseOrThrow<T>(parsed: T | undefined, message: string): T {
 export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promise<TuiDaemonClient> {
   const socketPath = options?.socketPath ?? DAEMON_SOCKET_PATH;
   const connectFn = options?.connectIpcClient ?? connectIpcClient;
+  const getCurrentRevision = options?.getCurrentRevision ?? getInvokingRevision;
 
   let client: IpcClient;
   try {
@@ -88,6 +91,17 @@ export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promi
       parseHealthResult(await transport.request(method, { runId })),
       `malformed RPC reply: invalid ${method} result`,
     );
+
+  const guard = async (): Promise<void> => {
+    const status = parseStatusResult(await transport.request("status"));
+    if (status?.loadedRevision === undefined) {
+      throw new RpcConnectionError("malformed RPC reply: invalid daemon status result");
+    }
+    const currentRevision = await getCurrentRevision();
+    if (status.loadedRevision !== currentRevision) {
+      throw new RpcConnectionError(revisionMismatchMessage(status.loadedRevision, currentRevision).trim());
+    }
+  };
 
   return {
     async health() {
@@ -106,6 +120,7 @@ export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promi
       return parseListRuns(await transport.request("list")) as DaemonListResult;
     },
     async start(input) {
+      await guard();
       return parseOrThrow(
         parseStartResult(await transport.request("start", { input })),
         "malformed RPC reply: invalid start result",
@@ -113,6 +128,7 @@ export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promi
     },
     pause: (runId) => okRunRpc("pause", runId),
     async resume(runId, options) {
+      await guard();
       return parseOrThrow(
         parseHealthResult(await transport.request("resume", { runId, ...options })),
         "malformed RPC reply: invalid resume result",

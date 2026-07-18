@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { execSync } from "node:child_process";
 import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { basename, join } from "node:path";
+import { aggregateTestFiles } from "../scripts/run-tests.ts";
 import { sharedTests } from "../scripts/run-shared-tests.ts";
 import { v1Tests } from "../scripts/run-v1-tests.ts";
 import { v2Tests, walkV2TestFiles } from "../scripts/run-v2-tests.ts";
@@ -140,5 +141,38 @@ describe("Test slice boundaries", () => {
     expect(readyScript).not.toContain("test:v1");
     expect(readyScript).not.toContain("test:v2");
     expect(readyScript).not.toContain("test:shared");
+  });
+
+  it("aggregate roster is exactly the union of six scoped rosters", () => {
+    const aggregate = aggregateTestFiles();
+    const expectedAgent = [...v1Tests("agent"), ...v2Tests("agent"), ...sharedTests("agent")].sort();
+    const expectedIntegration = [
+      ...v1Tests("integration"),
+      ...v2Tests("integration"),
+      ...sharedTests("integration"),
+    ].sort();
+
+    expect(aggregate.agent.sort()).toEqual(expectedAgent);
+    expect(aggregate.integration.sort()).toEqual(expectedIntegration);
+  });
+
+  it("policy parity: aggregate and v2 files share per-file timeout and subprocess isolation", async () => {
+    const runV2TestsScript = await Bun.file("scripts/run-v2-tests.ts").text();
+    const runTestsScript = await Bun.file("scripts/run-tests.ts").text();
+
+    expect(runV2TestsScript).toContain("PER_FILE_TIMEOUT_MS = 180_000");
+    expect(runV2TestsScript).toContain('spawn("bun", ["test", file]');
+    expect(runV2TestsScript).toContain("timeout: PER_FILE_TIMEOUT_MS");
+    expect(runV2TestsScript).toContain('killSignal: "SIGKILL"');
+
+    expect(runTestsScript).toMatch(/runV2TestFiles\([^)]*\)/);
+  });
+
+  it("policy parity: agent-mode timeout diagnostics vs integration-mode fail-fast behavior", async () => {
+    const runV2TestsScript = await Bun.file("scripts/run-v2-tests.ts").text();
+
+    expect(runV2TestsScript).toContain('if (mode !== "agent")');
+    expect(runV2TestsScript).toContain("return results");
+    expect(runV2TestsScript).toContain("continue");
   });
 });

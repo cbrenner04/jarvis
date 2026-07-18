@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Unify scoped and aggregate test contracts](./00-unify-test-contracts.md)
+- [x] [00 - Unify scoped and aggregate test contracts](./00-unify-test-contracts.md)

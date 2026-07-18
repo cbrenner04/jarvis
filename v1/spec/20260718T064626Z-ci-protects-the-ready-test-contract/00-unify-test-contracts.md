@@ -32,8 +32,8 @@
 
 ## Acceptance criteria
 
-- [ ] `test/test-slices.test.ts` proves the aggregate roster is exactly the union of all six scoped rosters and fails if either side drifts.
-- [ ] `test/test-slices.test.ts` has a policy-parity regression that fails against the pre-fix code and proves scoped and aggregate files share timeout, subprocess isolation, and failure handling.
-- [ ] `scripts/ci-test-scope.test.ts` proves `v1/**`, `v2/**`, `shared/**`, `test/**`, root-tooling, unknown, unresolved-base, and docs/spec/report-only changes select the defined scope.
-- [ ] `bun run typecheck`, `bun run test:v1`, and the relevant root-tooling test suite stay green.
-- [ ] `v2/docs/operator-runbook.md`, `v2/docs/v1-behaviors.md`, and `v1/docs/operator-runbook.md` state the protected scoped-CI/unscoped-ready contract without the temporary incident warning.
+- [x] `test/test-slices.test.ts` proves the aggregate roster is exactly the union of all six scoped rosters and fails if either side drifts.
+- [x] `test/test-slices.test.ts` has a policy-parity regression that fails against the pre-fix code and proves scoped and aggregate files share timeout, subprocess isolation, and failure handling.
+- [x] `scripts/ci-test-scope.test.ts` proves `v1/**`, `v2/**`, `shared/**`, `test/**`, root-tooling, unknown, unresolved-base, and docs/spec/report-only changes select the defined scope.
+- [x] `bun run typecheck`, `bun run test:v1`, and the relevant root-tooling test suite stay green.
+- [x] `v2/docs/operator-runbook.md`, `v2/docs/v1-behaviors.md`, and `v1/docs/operator-runbook.md` state the protected scoped-CI/unscoped-ready contract without the temporary incident warning.

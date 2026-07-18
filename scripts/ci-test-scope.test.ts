@@ -69,4 +69,12 @@ describe("resolveCiTestScope", () => {
   test("root-tooling + no-test-impact diff still runs full suite", () => {
     expect(resolveCiTestScope(["package.json", "v1/docs/run-loop.md"], true)).toBe("full");
   });
+
+  test("test/ (harness) change runs shared test slices", () => {
+    expect(resolveCiTestScope(["test/setup-fake-agents.ts"], true)).toEqual(["test:shared", "test:integration:shared"]);
+  });
+
+  test("empty changed-path input runs full suite", () => {
+    expect(resolveCiTestScope([], true)).toBe("full");
+  });
 });

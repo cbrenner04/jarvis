@@ -9,6 +9,7 @@ Make `jarvis daemon status` identify and compare the daemon's startup revision w
 - Capture the daemon revision once at startup and retain it for the process lifetime; rules out recomputing identity after checkout changes or hot-swapping loaded code.
 - Print `running loaded=<revision> current=<revision>` for a match and `stale loaded=<revision> current=<revision>` for a mismatch; rules out JSON, multiline output, or an unlabeled revision.
 - Exit `0` only for a matching running daemon; exit `1` for stale or stopped states, preserving stopped detection rather than classifying absence as stale.
+- Capture the daemon startup revision through the async subprocess runner (`AsyncSubprocessRunner.runAsync`), never a synchronous `child_process` call (`spawnSync`/`execSync`/`execFileSync`); the daemon must not block its event loop to resolve identity. This is the prior attempt's failure mode — the status logic was correct but a synchronous git call red-gated it against the IPC-responsiveness guard.
 
 ## Tasks
 
@@ -27,5 +28,6 @@ Make `jarvis daemon status` identify and compare the daemon's startup revision w
 - [ ] The daemon reports the revision captured at startup for its lifetime even if the checkout revision later changes; it does not reload source for in-flight work.
 - [ ] `v2/src/daemon/daemon-lifecycle.test.ts` and `v2/src/cli.test.ts` include regression coverage for captured identity plus matching, stale, and stopped status paths that fails against the pre-fix code and passes after implementation.
 - [ ] `v2/src/tui/tui-daemon-client.test.ts` stays green with the enriched daemon status response.
+- [ ] The daemon resolves its startup revision with no synchronous child-process call: `daemon-lifecycle.ts` (and any status-path code) contains no `spawnSync`/`execSync`/`execFileSync`, and `v2/src/daemon/daemon-ipc-responsiveness-during-git.sandbox-unrunnable.test.ts` stays green.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 - [ ] `v2/docs/write-behavior.md`, `v2/docs/daemon-host.md`, and `v2/docs/v1-behaviors.md` document the shipped status and source-snapshot contracts.

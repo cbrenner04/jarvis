@@ -17,16 +17,31 @@ pause/resume for workflow-started runs; redesigning workflow step execution.
 - Preserve healthy-run steering deferral: an actively progressing workflow step
   keeps today's `run_not_active` kill rejection; only wedged steps become
   killable.
-- **Wedged-vs-healthy discriminant (pinned here):** extend workflow-kind
-  `activeRuns` entries with `reapable: boolean` (default `false`). The workflow
-  runner sets `reapable: true` on the active step's runId via a new
-  `onStepReapable(stepIndex, runId)` callback when that step's write loop has
-  emitted `iteration_started` and is stalled with no bound agent subprocess for
-  the active attempt (the plan-workflow wedge shape). Steps with a live agent
-  binding or post-`iteration_started` forward progress keep `reapable: false`.
-  Orphaned liveness — workflow background task settled but an `activeRuns`
-  entry remains — also sets `reapable: true` on the stale runId before kill is
-  offered.
+- **Wedged-vs-healthy discriminant (pinned — a latched flag, never inferred at
+  kill time):** extend workflow-kind `activeRuns` entries with `reapable:
+  boolean` (default `false`). `killHandler` **only reads** this flag; it performs
+  no stall inference at kill time. Note the workflow-kind `activeRuns` entry is
+  `{ kind: "workflow", runId }` (`daemon.ts:618`) — it carries no agent-subprocess
+  handle, so "is the active attempt bound to a live subprocess" is **not**
+  observable at the kill site; that is why the flag must be latched by the
+  workflow runner, which does observe write-loop settlement. The flag is latched
+  `true` by exactly two runner-observable events, threaded via a new
+  `onStepReapable(stepIndex, runId)` callback on `executeWorkflow` (parallel to
+  `onStepRunCreated`):
+    1. **Iteration-timeout wedge:** the active step's write loop resolves its
+       `awaitIteration` watchdog as `timed_out` or `aborted`
+       (`write-loop.ts:519-523`, the `iterationTimeoutMs` boundary — the sole
+       stall signal v2 exposes) for the active attempt without the step
+       completing forward. Latch `reapable: true` on that step's `runId`.
+    2. **Orphaned tracking:** the workflow background task (`executeWorkflow`
+       promise, `daemon.ts:625-648`) has settled — its tracked
+       `workflowPromisesByEntryRunId` promise resolved — while `activeRuns` still
+       holds an entry for one of its tracked runIds. Latch `reapable: true` on
+       every still-tracked runId at settle, before those entries are deleted, so
+       a concurrent kill observes it.
+  A step whose `awaitIteration` watchdog is still pending (a live agent attempt
+  in flight, healthy forward progress) keeps `reapable: false`. No other
+  condition sets `reapable`.
 - **`killHandler` for reapable workflow entries:** when `activeRun.kind ===
   "workflow"`, `activeRun.runId === runId`, and `activeRun.reapable === true`:
   abort any step-local control wired for that run, `setRunStatus(runId,

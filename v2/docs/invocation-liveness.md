@@ -97,12 +97,12 @@ Exemplars:
 
 ## Guarantees
 
-**During legitimate long work**
+### During legitimate long work
 
 - Quiet stdout does not imply stall when other progress signals are active.
 - Productive silent work does not require operator hand-finalize.
 
-**At termination**
+### At termination
 
 - True stall ends within a profile-appropriate bound — not by default a 30-minute wall
   on short bounded steps.

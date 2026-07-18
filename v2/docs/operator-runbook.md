@@ -263,7 +263,9 @@ Do not assume parity between them — see [Gate trust](#gate-trust) for what the
 ## Gate trust
 
 The v2 ready gate runs the `full` tier (`check`, `typecheck`, tests, `lint:md`) unconditionally,
-overriding any `JARVIS_READY_TIER` in the parent environment.
+overriding any `JARVIS_READY_TIER` in the parent environment. The `lint:md` step covers all v2
+markdown: `v2/docs/**/*.md` and `v2/spec/**/*.md`, subject to the shared ignores (`**/completed/**`,
+`**/verdict-*.md`).
 
 `jarvis1 run` must not report success when the ready gate is red (seed
 `run-cannot-report-complete-over-red-gate`). Treat `criteria-complete` exit 0 as
@@ -580,10 +582,6 @@ Operators add bullets here; delete when fixed.
   the broken commit and stops. Until `red-gate-feeds-back-to-the-agent` ships, expect to run
   `bun run fix` and re-gate by hand on every implement PR before merging. Seed:
   `red-gate-does-not-feed-back-to-the-agent`. Cleanup: delete when it ships.
-- **`lint:md` lints one file in all of v2 (2026-07-14):** the globs cover `v2/docs/onboarding.md`
-  and nothing else under v2 — not `v2/docs/**`, not `v2/spec/**`. The full-tier ready gate runs
-  `lint:md` over a surface it does not cover, so v2 markdown is effectively unlinted. Seed:
-  `lint-md-does-not-cover-the-v2-surface`. Cleanup: delete when it ships.
 
 - **A terminal run id does not mean the workflow is done (2026-07-14):** `jarvis run wait <id>`
   returns when *that run* goes terminal, but the workflow continues under a **new run id** (the

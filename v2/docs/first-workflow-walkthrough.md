@@ -284,7 +284,7 @@ The template is regenerated on each publication retry; plain narrative markers
 and the attribution footer remain around it. Intent PRs retain their landed-file
 summary.
 
-**Finding the branch and PR**
+### Finding the branch and PR
 
 - Branch: the `--branch` value you passed to `jarvis run start`, checked out in
   `~/.jarvis/worktrees/<project>/<branch>/` and pushed to `origin`.

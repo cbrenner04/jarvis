@@ -1292,7 +1292,8 @@ export async function recoverReconciledRuns(
   stateStore: StateStore,
   logSink: LogSink,
   resume: RpcHandler,
-): Promise<void> {
+): Promise<{ resumed: number }> {
+  let resumed = 0;
   for (const runId of runIds) {
     const response = await resume(
       { kind: "request", id: `restart-recovery-${runId}`, method: "resume", params: { runId } },
@@ -1300,6 +1301,7 @@ export async function recoverReconciledRuns(
     );
     if (response.kind === "response") {
       logSink.append(runId, { kind: "run_recovery", outcome: "resumed" });
+      resumed += 1;
       continue;
     }
     // Missing snapshot context remains a safe, inspectable killed row.
@@ -1317,6 +1319,7 @@ export async function recoverReconciledRuns(
       // One bad recovery log must not prevent other admissions.
     }
   }
+  return { resumed };
 }
 
 export async function startDaemon(
@@ -1367,8 +1370,9 @@ export async function startDaemon(
     return { kind: "response", result: { ok: true } };
   };
 
+  let recoveryStatus = { pending: true, reconciled: reconciledRunIds.length, resumed: 0 };
   const statusHandler: RpcHandler = () => {
-    return { kind: "response", result: { state: "running", loadedRevision } };
+    return { kind: "response", result: { state: "running", loadedRevision, recovery: recoveryStatus } };
   };
 
   const shutdownHandler: RpcHandler = () => {
@@ -1407,12 +1411,13 @@ export async function startDaemon(
 
   const recoveryLogSink = createLogSink(logsPath);
   try {
-    await (startupDeps.recoverReconciledRuns ?? recoverReconciledRuns)(
+    const recovery = await (startupDeps.recoverReconciledRuns ?? recoverReconciledRuns)(
       reconciledRunIds,
       store,
       recoveryLogSink,
       runControlHandlers.resume,
     );
+    recoveryStatus = { ...recoveryStatus, pending: false, resumed: recovery?.resumed ?? 0 };
   } finally {
     recoveryLogSink.close();
   }

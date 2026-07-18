@@ -1,5 +1,5 @@
 import type { CliDeps } from "../cli/deps.ts";
-import { guardWorkDispatch } from "../cli/dispatch-revision.ts";
+import { stripAutoBounceFlag, withAutoBounceDispatch } from "../cli/stale-dispatch.ts";
 import type { Io } from "../cli/io.ts";
 import { formatRpcError, parseStreamPayload, request, withRunClient } from "../cli/ipc.ts";
 import { waitForRunCompletion } from "../cli/run-completion.ts";
@@ -33,21 +33,17 @@ export async function runRunCommand(argv: readonly string[], io: Io, deps: CliDe
   const subcommand = argv[0];
 
   if (subcommand === "start") {
-    const parsed = parseWriteCliInput(argv.slice(1), deps);
+    const bounce = stripAutoBounceFlag(argv.slice(1));
+    const parsed = parseWriteCliInput(bounce.argv, deps);
     if (!parsed.ok) {
       if (parsed.message !== undefined) io.stderr(parsed.message);
       io.stderr(WRITE_USAGE);
       return 1;
     }
 
-    return withRunClient(io, deps, async (client) => {
+    return withAutoBounceDispatch(io, deps, bounce.autoBounce, async (client) => {
       let result: unknown;
       try {
-        const mismatch = await guardWorkDispatch(client, deps.getCurrentRevision);
-        if (mismatch !== undefined) {
-          io.stderr(mismatch);
-          return 1;
-        }
         result = await request(client, "start", { input: parsed.input });
       } catch (error) {
         if (error instanceof RpcError) {
@@ -120,17 +116,18 @@ export async function runRunCommand(argv: readonly string[], io: Io, deps: CliDe
     });
   }
 
-  if ((subcommand === "pause" || subcommand === "resume" || subcommand === "kill") && argv.length === 2) {
+  const resumeBounce = subcommand === "resume" ? stripAutoBounceFlag(argv.slice(1)) : undefined;
+  if ((subcommand === "pause" || subcommand === "resume" || subcommand === "kill") && (argv.length === 2 || (subcommand === "resume" && resumeBounce?.argv.length === 1))) {
+    const runId = subcommand === "resume" ? resumeBounce?.argv[0] : argv[1];
+    if (runId === undefined) { io.stderr(RUN_USAGE); return 1; }
+    if (subcommand === "resume") return withAutoBounceDispatch(io, deps, resumeBounce?.autoBounce ?? true, async (client) => {
+      await request(client, "resume", { runId });
+      io.stdout(`resumed ${runId}\n`);
+      return 0;
+    });
     return withRunClient(io, deps, async (client) => {
       try {
-        if (subcommand === "resume") {
-          const mismatch = await guardWorkDispatch(client, deps.getCurrentRevision);
-          if (mismatch !== undefined) {
-            io.stderr(mismatch);
-            return 1;
-          }
-        }
-        await request(client, subcommand, { runId: argv[1] });
+        await request(client, subcommand, { runId });
       } catch (error) {
         if (error instanceof RpcError) {
           io.stderr(formatRpcError(error));
@@ -139,7 +136,7 @@ export async function runRunCommand(argv: readonly string[], io: Io, deps: CliDe
         throw error;
       }
       const message = subcommand === "kill" ? "killed" : `${subcommand}d`;
-      io.stdout(`${message} ${argv[1]}\n`);
+      io.stdout(`${message} ${runId}\n`);
       return 0;
     });
   }

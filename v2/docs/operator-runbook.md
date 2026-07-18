@@ -369,9 +369,11 @@ is lost.
 
 **Two traps here, both seeded, both observed live on 2026-07-14:**
 
-- A revision mismatch now refuses only new starts and resumes. Leave admitted work
-  alone; use status/list/log/wait/pause/kill to recover it, then restart the
-  daemon once no active work needs preserving before dispatching new work.
+- A revision mismatch on a CLI start, resume, or workflow dispatch automatically
+  bounces an idle daemon, waits for recovery, and retries once. Its stderr output
+  records revisions and recovery counts. If any `isLive` row exists it names the
+  IDs and refuses; finish or recover them first. Use `--no-auto-bounce` to retain
+  manual restart control. TUI continues to refuse mismatches.
 - A reconciled orphan with a missing or unresolvable workflow write snapshot is not auto-resumed.
   It stays `killed`; `list` / `wait` report `unsupported_resume_context` with `retryable: false`
   and `nextAction: "stop"`. Fix the persisted context or re-run the spec rather than treating that

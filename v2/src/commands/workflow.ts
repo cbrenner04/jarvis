@@ -1,8 +1,8 @@
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
-import { guardWorkDispatch } from "../cli/dispatch-revision.ts";
+import { stripAutoBounceFlag, withAutoBounceDispatch } from "../cli/stale-dispatch.ts";
 import type { Io } from "../cli/io.ts";
-import { formatRpcError, request, withRunClient } from "../cli/ipc.ts";
+import { formatRpcError, request } from "../cli/ipc.ts";
 import { waitForRunCompletion } from "../cli/run-completion.ts";
 import { WORKFLOW_IMPLEMENT_USAGE, WORKFLOW_INTENT_USAGE, WORKFLOW_PLAN_USAGE, WORKFLOW_USAGE } from "../cli/usage.ts";
 import { readIterationTimeoutMs } from "../config/machine-config-loader.ts";
@@ -162,16 +162,10 @@ async function startWorkflowRun(
   steps: SuccessfulWorkflowBuild["steps"],
   built: SuccessfulWorkflowBuild,
   isIntentPreset: boolean,
-  getCurrentRevision: CliDeps["getCurrentRevision"],
   io: Io,
 ): Promise<number> {
   let result: unknown;
   try {
-    const mismatch = await guardWorkDispatch(client, getCurrentRevision);
-    if (mismatch !== undefined) {
-      io.stderr(mismatch);
-      return 1;
-    }
     result = await request(client, "start", { steps });
   } catch (error) {
     if (error instanceof RpcError) {
@@ -200,6 +194,7 @@ async function startWorkflowRun(
 }
 
 export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
+  const bounce = stripAutoBounceFlag(argv.slice(1));
   const resolved = resolveWorkflowPresetBuilder(argv[0], deps);
   if (resolved === undefined) {
     io.stderr(WORKFLOW_USAGE);
@@ -208,7 +203,7 @@ export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: 
   const { builder, canonicalName, alias } = resolved;
   const isIntentPreset = canonicalName === "intent";
   const isPlanPreset = canonicalName === "plan";
-  const parsed = parseWorkflowArgsByName(argv.slice(1), isIntentPreset, isPlanPreset);
+  const parsed = parseWorkflowArgsByName(bounce.argv, isIntentPreset, isPlanPreset);
   if (!parsed.ok) {
     io.stderr(getWorkflowUsage(canonicalName));
     return 1;
@@ -220,7 +215,7 @@ export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: 
   if (!prepared.ok) return 1;
   const resetExitCode = await maybeResetStaleImplementWorkspace(canonicalName, prepared.built, deps, io);
   if (resetExitCode !== undefined) return resetExitCode;
-  return withRunClient(io, deps, async (client) =>
-    startWorkflowRun(client, prepared.steps, prepared.built, isIntentPreset, deps.getCurrentRevision, io),
+  return withAutoBounceDispatch(io, deps, bounce.autoBounce, async (client) =>
+    startWorkflowRun(client, prepared.steps, prepared.built, isIntentPreset, io),
   );
 }

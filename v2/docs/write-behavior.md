@@ -577,11 +577,14 @@ before retrying `jarvis tui` or `jarvis tui log <run-id>`.
 | `jarvis run wait <run-id>` | Run ID | One minified JSON line: `{runStatus, loopOutcomeKind?, iterationsConsumed?, resumable?, error?}` — only present optional fields included | See [wait exit codes](#wait-exit-codes) |
 
 Before `jarvis run start`, `jarvis run workflow …`, and `jarvis run resume`,
-the CLI (and equivalent TUI actions) reads daemon `status` and compares its
-loaded revision with the invoking source revision. A mismatch sends no `start`
-or `resume` request and exits 1 with `daemon revision mismatch:
-loaded=<revision> current=<revision>; restart the daemon before starting or
-resuming work`. Health, status, listing, logs/tail, wait, pause, kill, and
+the CLI reads daemon `status` and compares its loaded revision with the invoking
+source revision. For `run start`, `run resume`, and workflow starts, a mismatch
+lists runs and automatically force-restarts only when no row is `isLive`; it
+waits for startup recovery, reports loaded/current revisions, restart, recovery
+counts, and its one retry on stderr, then retries the original request once.
+`--no-auto-bounce` retains the mismatch refusal and restart guidance. A live row
+names its IDs and refuses without lifecycle mutation; lifecycle, reconnect, or
+recovery failures retain their actionable reason. TUI keeps its refusal. Health, status, listing, logs/tail, wait, pause, kill, and
 daemon lifecycle commands remain available; the check never changes admitted
 runs.
 

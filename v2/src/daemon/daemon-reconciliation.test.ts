@@ -271,9 +271,11 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
   const sink: LogSink = { append: () => order.push("log"), close: () => undefined };
   const server = { close: async () => undefined } as IpcServer;
   let health: RpcHandler | undefined;
+  let status: RpcHandler | undefined;
   const startIpcServer = async (_socketPath: string, handlers?: Record<string, RpcHandler>) => {
     order.push("ipc");
     health = handlers?.health;
+    status = handlers?.status;
     return server;
   };
   const reconciledStore = {
@@ -309,10 +311,27 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
         new AbortController().signal,
       );
       expect(response).toEqual({ kind: "response", result: { ok: true } });
+      const pending = await status?.(
+        { kind: "request", id: "status", method: "status" },
+        new AbortController().signal,
+      );
+      expect(pending).toMatchObject({
+        kind: "response",
+        result: { state: "running", recovery: { pending: true, reconciled: 1, resumed: 0 } },
+      });
       order.push("recovery");
+      return { resumed: 1 };
     },
   });
   expect(order).toEqual(["state", "log", "finished", "ipc", "recovery"]);
+  const complete = await status?.(
+    { kind: "request", id: "status", method: "status" },
+    new AbortController().signal,
+  );
+  expect(complete).toMatchObject({
+    kind: "response",
+    result: { state: "running", recovery: { pending: false, reconciled: 1, resumed: 1 } },
+  });
 
   for (const failure of [
     {
@@ -374,7 +393,7 @@ test("automatic recovery records success, isolates admission failures, and prese
   const events: Array<{ runId: string; event: LogEvent }> = [];
   const admissions: string[] = [];
 
-  await recoverReconciledRuns(
+  const recovery = await recoverReconciledRuns(
     [successId, failedId, unsupportedId],
     seedStore,
     { append: (runId, event) => events.push({ runId, event }), close: () => undefined },
@@ -387,6 +406,7 @@ test("automatic recovery records success, isolates admission failures, and prese
     },
   );
 
+  expect(recovery).toEqual({ resumed: 1 });
   expect(admissions).toEqual([successId, failedId, unsupportedId]);
   expect(seedStore.loadRun(successId)?.status).toBe("killed");
   expect(seedStore.loadRun(failedId)?.status).toBe("failed");

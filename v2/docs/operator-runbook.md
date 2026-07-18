@@ -209,6 +209,17 @@ tree. If all non-human-only criteria are checked, it exits `1` with
 `implement.already_complete`; no worktree, agent invocation, or run row exists.
 Linked-index checkboxes are not the completion source of truth.
 
+On an incomplete re-run with git enabled, preflight retires a stale workspace for
+the resolved `(project, branch)` before the write step starts: close the matching
+open draft PR (when exactly one exists), remove the materialized worktree, and
+delete local and remote branch refs so materialization recreates from `--base`.
+First runs with no existing worktree skip this path. Refusal exits `1` without
+mutation when the workspace is live-held, the matching PR is ready (non-draft),
+or multiple open PRs match the branch — stderr names the blocking state. Recovery:
+end the live run or wait for its lock to clear; mark the PR draft again or merge
+it; or close duplicate PRs until exactly one open draft remains, then re-run.
+Manual fallback: `jarvis cleanup --abandon <branch>` when guards pass.
+
 ### Ad-hoc write loop (live pause/kill)
 
 `jarvis run start` with explicit worktree fields — supports `pause` / `kill` /
@@ -236,8 +247,8 @@ v2 git-enabled workflows use `~/.jarvis/worktrees/<project>/<branch>/`, not
 Implement branch defaults to the spec directory basename.
 
 Merged worktrees are retired by `jarvis cleanup`. A leaked worktree from a **failed/unmerged** run
-still blocks reuse of its branch name — clear it with manual `git worktree remove --force` (cleanup
-only touches merged workspaces).
+is reset automatically on the next incomplete `jarvis run workflow implement` re-run (see above);
+for manual cleanup when guards pass, use `jarvis cleanup --abandon <branch>`.
 
 ## Implementation on jarvis specs
 
@@ -338,9 +349,10 @@ blocker.
 `terminal_run: Cannot resume a blocked run`, and `run list` correctly reports the row as
 `resumable: false` with remediation `inspect_spec`. (This section previously said "`blocked` is
 inspect-and-resume, not terminal" and told you to resume. That was wrong; the harness never
-supported it.) To continue the work, resolve the blocker and **re-run the spec** — the worktree
-persists, so a fresh `jarvis run workflow implement` on the same branch picks up the uncommitted
-work.
+supported it.) To continue the work, resolve the blocker and **re-run the spec**. An incomplete
+`jarvis run workflow implement` re-run resets the stale worktree from `--base` (see
+[Implement workflow](#implement-workflow)); uncommitted work in the prior worktree is not carried
+forward.
 
 ### Orphaned non-terminal runs after daemon restart
 

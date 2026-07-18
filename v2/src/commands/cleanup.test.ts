@@ -10,6 +10,7 @@ import {
   type DiscoveredWorktree,
   discoverMaterializedWorktrees,
   performWorktreeRemovals,
+  resetStaleWorkspace,
   runCleanupCommand,
 } from "./cleanup.ts";
 
@@ -1152,5 +1153,211 @@ describe("cleanup: runAbandonCommand", () => {
     // Verify worktree is gone
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).not.toContain(worktreePath);
+  });
+});
+
+describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
+  let tempRoot: string;
+  let projectRoot: string;
+  let jarvisRoot: string;
+
+  const silentIo = { stdout: () => {}, stderr: () => {} };
+  const noLiveDaemon: DaemonClient = async () => [];
+
+  type OpenPr = { number: number; isDraft: boolean };
+
+  async function setupWorktreeAndBranch(branch: string): Promise<string> {
+    const sanitizedBranchName = branch.replace(/\//g, "-");
+    writeFileSync(join(projectRoot, `file-${sanitizedBranchName}.txt`), `Content for ${branch}\n`);
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", `Setup for ${branch}`], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    const worktreePath = join(jarvisRoot, "worktrees", "project", branch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+    return worktreePath;
+  }
+
+  function callReset(
+    branch: string,
+    runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+    daemonClient: DaemonClient = noLiveDaemon,
+    io: { stdout: (s: string) => void; stderr: (s: string) => void } = silentIo,
+  ) {
+    return resetStaleWorkspace("project", branch, projectRoot, jarvisRoot, runner, daemonClient, io);
+  }
+
+  function ghPrListRunner(prs: OpenPr[]): AsyncSubprocessRunner {
+    return {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") return JSON.stringify(prs);
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+  }
+
+  beforeEach(async () => {
+    tempRoot = join(process.env.TMPDIR || "/tmp", `jarvis-reset-e2e-${Date.now()}-${Math.random()}`);
+    mkdirSync(tempRoot, { recursive: true });
+
+    projectRoot = join(tempRoot, "project");
+    jarvisRoot = join(tempRoot, "jarvis-home");
+
+    mkdirSync(projectRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["init"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.email", "test@test.com"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.name", "Test User"], projectRoot);
+    writeFileSync(join(projectRoot, "README.md"), "# Test\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "Initial"], projectRoot);
+  });
+
+  afterEach(() => {
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test("reset removes stale worktree and draft PR before re-run", async () => {
+    const branch = "impl/stale-reset";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+
+    const closedPrs: number[] = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 123, isDraft: true }]);
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          closedPrs.push(Number(args[2]));
+          return "";
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    let stdout = "";
+    const result = await callReset(branch, mockRunner, noLiveDaemon, {
+      stdout: (s) => (stdout += s),
+      stderr: () => {},
+    });
+
+    expect(result.status).toBe("reset");
+    expect(stdout).toContain("Closed PR #123");
+    expect(stdout).toContain("Removed worktree");
+    expect(stdout).toContain("Deleted");
+    expect(closedPrs).toContain(123);
+
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("reset refuses when worktree is live-held by daemon", async () => {
+    const branch = "impl/live-held";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+
+    const result = await callReset(branch, realAsyncSubprocessRunner, async () => [{ isLive: true }]);
+
+    expect(result).toEqual({ status: "refused", reason: expect.stringContaining("live run") });
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("reset refuses when matching PR is ready (non-draft)", async () => {
+    const branch = "impl/ready-pr";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+
+    const result = await callReset(branch, ghPrListRunner([{ number: 456, isDraft: false }]));
+
+    expect(result).toEqual({ status: "refused", reason: "matching PR is ready (non-draft)" });
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("reset refuses when multiple open PRs match the branch", async () => {
+    const branch = "impl/multi-pr";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+
+    const result = await callReset(
+      branch,
+      ghPrListRunner([
+        { number: 111, isDraft: true },
+        { number: 112, isDraft: true },
+      ]),
+    );
+
+    expect(result).toEqual({ status: "refused", reason: "multiple open PRs match branch" });
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("reset is no-op when no stale worktree exists", async () => {
+    const branch = "impl/no-worktree";
+
+    const teardownCalls: string[] = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+        if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") teardownCalls.push("push-delete");
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const result = await callReset(branch, mockRunner);
+
+    expect(result.status).toBe("no-op");
+    expect(teardownCalls).toEqual([]);
+  });
+
+  test("reset leaves the source spec tree intact", async () => {
+    const branch = "impl/spec-survives";
+    const specDir = join(projectRoot, "v2", "spec", "my-spec");
+    mkdirSync(specDir, { recursive: true });
+    const indexPath = join(specDir, "index.md");
+    const subspecPath = join(specDir, "00-task.md");
+    const indexContent = "# Index\n\n- [ ] [00](./00-task.md)\n";
+    const subspecContent = "# Task\n\n## Acceptance criteria\n\n- [ ] done\n";
+    writeFileSync(indexPath, indexContent);
+    writeFileSync(subspecPath, subspecContent);
+
+    await setupWorktreeAndBranch(branch);
+
+    const result = await callReset(branch, ghPrListRunner([{ number: 321, isDraft: true }]));
+
+    expect(result.status).toBe("reset");
+    expect(readFileSync(indexPath, "utf8")).toBe(indexContent);
+    expect(readFileSync(subspecPath, "utf8")).toBe(subspecContent);
+  });
+
+  test("reset closes draft PR before deleting branch", async () => {
+    const branch = "impl/pr-close-order";
+    await setupWorktreeAndBranch(branch);
+
+    const invocationOrder: string[] = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 789, isDraft: true }]);
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          invocationOrder.push("pr-close");
+        }
+        if (cmd === "git" && args[0] === "branch" && args[1] === "-D") {
+          invocationOrder.push("branch-delete");
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          invocationOrder.push("push-delete");
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const result = await callReset(branch, mockRunner);
+
+    expect(result.status).toBe("reset");
+    const prCloseIdx = invocationOrder.indexOf("pr-close");
+    const branchDeleteIdx = invocationOrder.indexOf("branch-delete");
+    expect(prCloseIdx).toBeGreaterThanOrEqual(0);
+    expect(branchDeleteIdx).toBeGreaterThanOrEqual(0);
+    expect(prCloseIdx).toBeLessThan(branchDeleteIdx);
   });
 });

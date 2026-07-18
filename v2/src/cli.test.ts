@@ -1762,8 +1762,16 @@ describe("v2 cli", () => {
 
   test("run workflow implement reports an already-complete spec without daemon contact", async () => {
     const cap = captureIo();
+    const teardownCalls: string[] = [];
     const code = await main(RUN_WORKFLOW_IMPLEMENT_ARGS, cap.io, {
       cwd: () => testRepoSub,
+      subprocessRunner: {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+          if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? testRepoRoot);
+        },
+      },
       workflowPresetBuilders: {
         implement: () => ({
           ok: false,
@@ -1779,6 +1787,194 @@ describe("v2 cli", () => {
     expect(cap.read().stderr).toBe(
       "implement.already_complete: requested spec has no unchecked non-human-only acceptance criteria\n",
     );
+    expect(teardownCalls).toEqual([]);
+  });
+
+  describe("implement preflight stale workspace reset", () => {
+    let resetTmp: string;
+    let resetProjectRoot: string;
+    let resetJarvisRoot: string;
+    const resetBranch = "implement-run";
+
+    function resetImplementSteps(branch = resetBranch): AnyWorkflowStep[] {
+      return [
+        {
+          behavior: "write",
+          stepId: "implement",
+          role: "implement",
+          promptId: "patch.prompt.body",
+          stepRules: DEFAULT_WRITE_STEP_RULES,
+          agents: ["claude"],
+          agentModelConfig: {},
+          worktree: {
+            projectRoot: realpathSync(resetProjectRoot),
+            projectName: "demo",
+            branchName: branch,
+            baseRef: "HEAD",
+          },
+          specPath: "index.md",
+          expectedArtifactPath: "index.md",
+        },
+      ];
+    }
+
+    function resetImplementDeps(overrides: NonNullable<Parameters<typeof main>[2]> = {}) {
+      return {
+        cwd: () => resetProjectRoot,
+        jarvisRoot: resetJarvisRoot,
+        readProjectRegistry: () => ({ demo: { root: resetProjectRoot } }),
+        workflowPresetBuilders: {
+          implement: () => ({ ok: true as const, steps: resetImplementSteps() }),
+        },
+        ...overrides,
+      } as NonNullable<Parameters<typeof main>[2]>;
+    }
+
+    async function materializeStaleWorktree(branch = resetBranch): Promise<string> {
+      await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], resetProjectRoot);
+      const worktreePath = join(resetJarvisRoot, "worktrees", "demo", branch);
+      mkdirSync(dirname(worktreePath), { recursive: true });
+      await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], resetProjectRoot);
+      return worktreePath;
+    }
+
+    beforeEach(async () => {
+      resetTmp = mkdtempSync(join(tmpdir(), "jarvis-cli-reset-"));
+      resetProjectRoot = join(resetTmp, "project");
+      resetJarvisRoot = join(resetTmp, "jarvis-home");
+      mkdirSync(resetProjectRoot, { recursive: true });
+      await realAsyncSubprocessRunner.runAsync("git", ["init"], resetProjectRoot);
+      await realAsyncSubprocessRunner.runAsync("git", ["config", "user.email", "t@t.com"], resetProjectRoot);
+      await realAsyncSubprocessRunner.runAsync("git", ["config", "user.name", "T"], resetProjectRoot);
+      writeFileSync(join(resetProjectRoot, "index.md"), "# Index\n", "utf8");
+      await realAsyncSubprocessRunner.runAsync("git", ["add", "."], resetProjectRoot);
+      await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "Initial"], resetProjectRoot);
+    });
+
+    afterEach(() => {
+      rmSync(resetTmp, { recursive: true, force: true });
+    });
+
+    test("run workflow implement resets a stale worktree before daemon start", async () => {
+      const worktreePath = await materializeStaleWorktree();
+      const cap = captureIo();
+      const sent: unknown[] = [];
+      const startRequestId = "00000000-0000-4000-8000-000000000081" as const;
+      const waitRequestId = "00000000-0000-4000-8000-000000000810" as const;
+      const originalRandomUuid = crypto.randomUUID;
+      crypto.randomUUID = makeWorkflowUuidManager(startRequestId, waitRequestId) as typeof crypto.randomUUID;
+
+      const closedPrs: number[] = [];
+      const subprocessRunner: AsyncSubprocessRunner = {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+            return JSON.stringify([{ number: 55, isDraft: true }]);
+          }
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+            closedPrs.push(Number(args[2]));
+          }
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? resetProjectRoot);
+        },
+      };
+
+      let code = NaN;
+      try {
+        code = await main(
+          ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+          cap.io,
+          resetImplementDeps({
+            subprocessRunner,
+            connectIpcClient: async () =>
+              makeIpcClient(
+                workflowFrames(startRequestId, waitRequestId, "run-reset", {
+                  runStatus: "completed",
+                  loopOutcomeKind: "complete",
+                  iterationsConsumed: 1,
+                  resumable: false,
+                }),
+                { sent },
+              ),
+          }),
+        );
+      } finally {
+        crypto.randomUUID = originalRandomUuid;
+      }
+
+      expect(code).toBe(0);
+      expect(closedPrs).toEqual([55]);
+      const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+      expect(list).not.toContain(worktreePath);
+      expect(sent).toHaveLength(2);
+    });
+
+    test("run workflow implement refuses reset when the workspace is live-held", async () => {
+      await materializeStaleWorktree();
+      const lockPath = join(resetJarvisRoot, "worktree-locks", "demo", resetBranch, ".jarvis.lock");
+      mkdirSync(dirname(lockPath), { recursive: true });
+      writeFileSync(lockPath, JSON.stringify({ pid: process.pid }));
+      const cap = captureIo();
+
+      const code = await main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          connectIpcClient: async () => {
+            throw new Error("should not contact daemon");
+          },
+          subprocessRunner: {
+            runAsync: async (cmd, args) => {
+              if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+                return JSON.stringify([{ number: 77, isDraft: true }]);
+              }
+              return realAsyncSubprocessRunner.runAsync(cmd, args, resetProjectRoot);
+            },
+          },
+        }),
+      );
+
+      expect(code).toBe(1);
+      expect(cap.read().stderr).toContain(`Cannot re-run incomplete spec: process ${process.pid} holds worktree lock`);
+    });
+
+    test("run workflow implement performs no reset teardown on a fresh run", async () => {
+      const cap = captureIo();
+      const teardownCalls: string[] = [];
+      const startRequestId = "00000000-0000-4000-8000-000000000082" as const;
+      const waitRequestId = "00000000-0000-4000-8000-000000000820" as const;
+      const originalRandomUuid = crypto.randomUUID;
+      crypto.randomUUID = makeWorkflowUuidManager(startRequestId, waitRequestId) as typeof crypto.randomUUID;
+
+      let code = NaN;
+      try {
+        code = await main(
+          ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+          cap.io,
+          resetImplementDeps({
+            subprocessRunner: {
+              runAsync: async (cmd, args, cwd) => {
+                if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+                if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+                return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? resetProjectRoot);
+              },
+            },
+            connectIpcClient: async () =>
+              makeIpcClient(
+                workflowFrames(startRequestId, waitRequestId, "run-fresh", {
+                  runStatus: "completed",
+                  loopOutcomeKind: "complete",
+                  iterationsConsumed: 1,
+                  resumable: false,
+                }),
+              ),
+          }),
+        );
+      } finally {
+        crypto.randomUUID = originalRandomUuid;
+      }
+
+      expect(code).toBe(0);
+      expect(teardownCalls).toEqual([]);
+    });
   });
 
   test("run workflow intent builds seed text before one daemon start", async () => {

@@ -977,6 +977,7 @@ export async function publishCompletionArtifacts(
     await (seams.readyFinalizer ?? createReadyFinalizer())({
       worktreePath: input.worktreePath,
       branch: input.branch,
+      baseRef: input.baseRef,
     });
   } catch (finalizeError) {
     const err = finalizeError instanceof Error ? finalizeError : new Error(String(finalizeError));

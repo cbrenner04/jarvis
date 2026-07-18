@@ -127,7 +127,10 @@ ready`; any non-zero exit is a gate failure (missing and red gate scripts are
 not distinguished), reported as `ready gate failed (exit N): <output>`. The thrown gate error
 also carries the `bun run ready` command, exit code, and combined stdout+stderr output as fields. The
 gate runs the `full` tier (format, lint, typecheck, tests) unconditionally,
-overriding any `JARVIS_READY_TIER` in the parent environment.
+overriding any `JARVIS_READY_TIER` in the parent environment. The test step is scoped from the run's base ref:
+a diff of `<baseRef>...HEAD` (three-dot, merge-base relative) including untracked files is classified via the shared classifier; the resolved
+scope is passed as `JARVIS_READY_TEST_SCOPE` (e.g., `test:v2 test:integration:v2` or `full`). When the diff fails
+(unresolvable base), the scope falls back to `full`, and finalization proceeds rather than erroring.
 The gate runs unbounded. On green, the awaited flip calls `gh pr ready <branch>`
 through the same bounded transient-retry
 seam as publication (3 total attempts, flat 1000 ms backoff). Before the

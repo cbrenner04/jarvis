@@ -28,12 +28,12 @@ v1 already does this in `v1/src/ready-gate.ts` (`resolveReadyTestScope`).
 
 ## Acceptance criteria
 
-- [ ] When the run's `baseRef` resolves and only `v2/**` source changed relative to it, the default ready gate spawns `bun run ready` with `JARVIS_READY_TEST_SCOPE` set to the v2 test scripts (not `full`) and `JARVIS_READY_TIER: "full"` unchanged.
-- [ ] When the `<baseRef>...HEAD` diff fails (unresolvable base), the ready gate spawns with `JARVIS_READY_TEST_SCOPE=full` and finalization still proceeds rather than erroring.
-- [ ] The full ready tier is unchanged: the gate still passes `JARVIS_READY_TIER: "full"` and the non-test gate steps (check, typecheck, lint:md) are unaffected by scoping.
-- [ ] `baseRef` flows from the completion `input` through `ReadyFinalizeInput` to the gate, including the ready-repair retry path.
-- [ ] A test in `v2/src/execution/ready-finalize.test.ts` drives the default gate against a real git fixture worktree where only `v2/**` changed vs `baseRef` and asserts the child env carries the scoped `JARVIS_READY_TEST_SCOPE`; it fails against the pre-fix gate (which sets no scope) and passes after the change.
-- [ ] A test asserts the unresolved-base fallback sets `JARVIS_READY_TEST_SCOPE=full`; it fails against pre-fix code and passes after.
+- [x] When the run's `baseRef` resolves and only `v2/**` source changed relative to it, the default ready gate spawns `bun run ready` with `JARVIS_READY_TEST_SCOPE` set to the v2 test scripts (not `full`) and `JARVIS_READY_TIER: "full"` unchanged.
+- [x] When the `<baseRef>...HEAD` diff fails (unresolvable base), the ready gate spawns with `JARVIS_READY_TEST_SCOPE=full` and finalization still proceeds rather than erroring.
+- [x] The full ready tier is unchanged: the gate still passes `JARVIS_READY_TIER: "full"` and the non-test gate steps (check, typecheck, lint:md) are unaffected by scoping.
+- [x] `baseRef` flows from the completion `input` through `ReadyFinalizeInput` to the gate, including the ready-repair retry path.
+- [x] A test in `v2/src/execution/ready-finalize.test.ts` drives the default gate against a real git fixture worktree where only `v2/**` changed vs `baseRef` and asserts the child env carries the scoped `JARVIS_READY_TEST_SCOPE`; it fails against the pre-fix gate (which sets no scope) and passes after the change.
+- [x] A test asserts the unresolved-base fallback sets `JARVIS_READY_TEST_SCOPE=full`; it fails against pre-fix code and passes after.
 
 ## Documentation updates
 

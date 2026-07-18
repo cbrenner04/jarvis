@@ -264,7 +264,12 @@ Do not assume parity between them — see [Gate trust](#gate-trust) for what the
 The v2 ready gate runs the `full` tier (`check`, `typecheck`, tests, `lint:md`) unconditionally,
 overriding any `JARVIS_READY_TIER` in the parent environment. The `lint:md` step covers all v2
 markdown: `v2/docs/**/*.md` and `v2/spec/**/*.md`, subject to the shared ignores (`**/completed/**`,
-`**/verdict-*.md`).
+`**/verdict-*.md`). The test step is base-scoped: a diff of `<baseRef>...HEAD` (three-dot, merge-base
+relative) is classified via the shared classifier, and the resolved scope is passed as
+`JARVIS_READY_TEST_SCOPE` (e.g., `test:v2 test:integration:v2` when only v2 changed, or `full` for root
+tooling/shared changes). When the diff fails (unresolvable base ref), the test scope falls back to `full`
+and finalization proceeds rather than erroring. Non-test steps (`check`, `typecheck`, `lint:md`) and the
+`full` tier remain unchanged.
 
 `jarvis1 run` must not report success when the ready gate is red (seed
 `run-cannot-report-complete-over-red-gate`). Treat `criteria-complete` exit 0 as

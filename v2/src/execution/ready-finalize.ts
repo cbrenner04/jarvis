@@ -1,3 +1,4 @@
+import { resolveCiTestScope } from "../../../scripts/ci-test-scope.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
@@ -8,9 +9,10 @@ import { runPublicationWithRetry } from "./publication-retry.ts";
 export type ReadyFinalizeInput = {
   worktreePath: string;
   branch: string;
+  baseRef: string;
 };
 
-export type ReadyGate = (worktreePath: string) => Promise<void>;
+export type ReadyGate = (worktreePath: string, baseRef: string) => Promise<void>;
 export type GhReadyFlip = (branch: string, worktreePath: string) => Promise<void>;
 type Delay = (ms: number) => Promise<void>;
 type RetryNotice = (message: string) => void;
@@ -46,12 +48,55 @@ function defaultRetryNotice(message: string): void {
   console.error(message);
 }
 
+async function getChangedPathsWithResolvability(
+  runner: AsyncSubprocessRunner,
+  worktreePath: string,
+  baseRef: string,
+): Promise<{ paths: string[]; baseResolvable: boolean }> {
+  try {
+    const result = await runner.runAsync(
+      "git",
+      ["diff", "--name-only", "--diff-filter=ACM", `${baseRef}...HEAD`],
+      worktreePath,
+      { maxBuffer: 10 * 1024 * 1024 },
+    );
+    const paths = result
+      .split("\n")
+      .map((p) => p.trim())
+      .filter(Boolean);
+    try {
+      const untrackedResult = await runner.runAsync(
+        "git",
+        ["ls-files", "--others", "--exclude-standard"],
+        worktreePath,
+      );
+      const untrackedPaths = untrackedResult
+        .split("\n")
+        .map((p) => p.trim())
+        .filter(Boolean);
+      return { paths: [...paths, ...untrackedPaths], baseResolvable: true };
+    } catch {
+      return { paths, baseResolvable: true };
+    }
+  } catch {
+    return { paths: [], baseResolvable: false };
+  }
+}
+
 function createDefaultRunReadyGate(runner: AsyncSubprocessRunner): ReadyGate {
-  return async (worktreePath: string): Promise<void> => {
+  return async (worktreePath: string, baseRef: string): Promise<void> => {
+    const { paths: changedPaths, baseResolvable } = await getChangedPathsWithResolvability(
+      runner,
+      worktreePath,
+      baseRef,
+    );
+    const scope = resolveCiTestScope(changedPaths, baseResolvable);
+    const testScope = scope === "full" ? "full" : scope.join(" ");
+    const env = { ...process.env, JARVIS_READY_TIER: "full", JARVIS_READY_TEST_SCOPE: testScope };
     try {
       await runner.runAsync("bun", ["run", "ready"], worktreePath, {
         maxBuffer: READY_GATE_MAX_BUFFER,
-        env: { ...process.env, JARVIS_READY_TIER: "full" },
+        env,
       });
     } catch (error) {
       if (error instanceof AsyncSubprocessError) {
@@ -96,7 +141,7 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
   const retryNotice = seams?.retryNotice ?? defaultRetryNotice;
 
   return async (input) => {
-    await runReadyGate(input.worktreePath);
+    await runReadyGate(input.worktreePath, input.baseRef);
     await flipWithRetry(() => ghReadyFlip(input.branch, input.worktreePath), delay, retryNotice);
   };
 }

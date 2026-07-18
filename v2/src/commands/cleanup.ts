@@ -563,6 +563,39 @@ type AbandonResolution = {
 
 type LiveRunCheck = { live: false } | { live: true; reason: string };
 
+export async function resetStaleWorkspace(
+  project: string,
+  branch: string,
+  projectRoot: string,
+  jarvisRoot: string,
+  runner: AsyncSubprocessRunner,
+  daemonClient: DaemonClient,
+  io: { stdout: (s: string) => void; stderr: (s: string) => void },
+): Promise<{ status: "reset" | "no-op" } | { status: "refused"; reason: string }> {
+  const worktreePath = join(jarvisRoot, "worktrees", project, branch);
+  if (!existsSync(worktreePath)) return { status: "no-op" };
+
+  const liveCheck = await isWorktreeLiveHeld(project, branch, jarvisRoot, daemonClient);
+  if (liveCheck.live) return { status: "refused", reason: liveCheck.reason };
+
+  const openPrs = await findAllOpenPrsForBranch(branch, runner);
+  if (openPrs.length > 1) return { status: "refused", reason: "multiple open PRs match branch" };
+  const singlePr = openPrs.at(0);
+  if (singlePr && !singlePr.isDraft) {
+    return { status: "refused", reason: "matching PR is ready (non-draft)" };
+  }
+
+  const abandonResult = await performAbandonmentSteps(
+    branch,
+    worktreePath,
+    projectRoot,
+    singlePr?.number,
+    runner,
+    io,
+  );
+  return abandonResult === 0 ? { status: "reset" } : { status: "refused", reason: "abandonment failed" };
+}
+
 async function isWorktreeLiveHeld(
   project: string,
   branch: string,

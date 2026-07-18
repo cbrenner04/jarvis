@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../shared/subprocess.ts";
-import { type DaemonClient, runAbandonCommand, runCleanupCommand } from "./commands/cleanup.ts";
+import { type DaemonClient, resetStaleWorkspace, runAbandonCommand, runCleanupCommand } from "./commands/cleanup.ts";
 import type { AgentModelConfig, LoadError } from "./config/agent-model-config.ts";
 import {
   type ImplementReviewBehavior,
@@ -579,6 +579,26 @@ async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps
     return 1;
   }
   const steps = built.steps.map((step) => (step.behavior === "write" ? { ...step, iterationTimeoutMs } : step));
+
+  if (canonicalName === "implement") {
+    const writeStep = built.steps.find((step) => step.behavior === "write");
+    const worktree = writeStep?.behavior === "write" ? writeStep.worktree : undefined;
+    if (worktree?.git !== false && worktree?.projectRoot && worktree.projectName && worktree.branchName) {
+      const resetResult = await resetStaleWorkspace(
+        worktree.projectName,
+        worktree.branchName,
+        worktree.projectRoot,
+        deps.jarvisRoot ?? jarvisHome(),
+        deps.subprocessRunner ?? realAsyncSubprocessRunner,
+        async () => [],
+        io,
+      );
+      if (resetResult.status === "refused") {
+        io.stderr(`Error: Cannot re-run incomplete spec: ${resetResult.reason}\n`);
+        return 1;
+      }
+    }
+  }
 
   return withRunClient(io, deps, async (client) => {
     let result: unknown;

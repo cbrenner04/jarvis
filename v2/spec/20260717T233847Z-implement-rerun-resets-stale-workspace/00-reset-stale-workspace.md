@@ -31,19 +31,19 @@ interactive name lookup.
 
 ## Task checklist
 
-- [ ] Add a keyed reset orchestrator in `cleanup.ts` reusing `isWorktreeLiveHeld`, `findAllOpenPrsForBranch`, `performAbandonmentSteps`; returns reset / no-op / refused-with-state.
-- [ ] Wire it into the implement run preflight (CLI `runWorkflowCommand`, implement preset) after a successful build and before `start`; turn refusal into a non-zero exit and a stderr state message.
-- [ ] Regression + refusal tests against a git fixture.
-- [ ] Docs.
+- [x] Add a keyed reset orchestrator in `cleanup.ts` reusing `isWorktreeLiveHeld`, `findAllOpenPrsForBranch`, `performAbandonmentSteps`; returns reset / no-op / refused-with-state.
+- [x] Wire it into the implement run preflight (CLI `runWorkflowCommand`, implement preset) after a successful build and before `start`; turn refusal into a non-zero exit and a stderr state message.
+- [x] Regression + refusal tests against a git fixture.
+- [x] Docs.
 
 ## Acceptance criteria
 
-- [ ] Re-running `run workflow implement` for an incomplete spec whose resolved `(project, branch)` has a stale worktree, branch, and draft PR closes the draft PR, removes the worktree, and deletes the local and remote branch before the write step runs, then recreates the branch from `--base`; a regression test drives this against a real git fixture and fails against the pre-fix code.
-- [ ] The reset refuses with a non-zero exit and mutates nothing when the workspace is live-held, when the matching PR is ready (non-draft), or when multiple open PRs match the branch; each refusal names the blocking state. New tests assert all three refusals and fail against the pre-fix code.
-- [ ] The stale draft PR is closed before its branch is deleted (test asserts `gh pr close` precedes `git branch -D` / `git push origin --delete` by recorded argv order).
-- [ ] A fresh implement run with no existing worktree, branch, or PR performs no reset teardown and proceeds to materialize the branch from base (regression test asserts no `gh pr close` / branch-delete calls).
-- [ ] The source spec tree (index and subspecs) survives the reset (regression test asserts the files are intact afterward).
-- [ ] An already-complete spec re-run still exits with `implement.already_complete` and performs no reset teardown (test asserts no teardown calls occur).
+- [x] Re-running `run workflow implement` for an incomplete spec whose resolved `(project, branch)` has a stale worktree, branch, and draft PR closes the draft PR, removes the worktree, and deletes the local and remote branch before the write step runs, then recreates the branch from `--base`; a regression test drives this against a real git fixture and fails against the pre-fix code.
+- [x] The reset refuses with a non-zero exit and mutates nothing when the workspace is live-held, when the matching PR is ready (non-draft), or when multiple open PRs match the branch; each refusal names the blocking state. New tests assert all three refusals and fail against the pre-fix code.
+- [x] The stale draft PR is closed before its branch is deleted (test asserts `gh pr close` precedes `git branch -D` / `git push origin --delete` by recorded argv order).
+- [x] A fresh implement run with no existing worktree, branch, or PR performs no reset teardown and proceeds to materialize the branch from base (regression test asserts no `gh pr close` / branch-delete calls).
+- [x] The source spec tree (index and subspecs) survives the reset (regression test asserts the files are intact afterward).
+- [x] An already-complete spec re-run still exits with `implement.already_complete` and performs no reset teardown (test asserts no teardown calls occur).
 
 ## Documentation updates
 

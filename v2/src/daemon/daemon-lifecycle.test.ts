@@ -13,6 +13,7 @@ async function waitForLogMarkers(logPath: string, markers: string[], timeoutMs =
   }
   return readFileSync(logPath, "utf-8");
 }
+
 import type { Run } from "../persistence/state-store";
 import {
   DaemonAlreadyRunningError,

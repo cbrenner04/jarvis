@@ -50,7 +50,9 @@ export type OnReviseConfig = {
 export type WorkflowSnapshotStep = {
   stepId: string;
   role: string;
-  /** Marks a non-durable review step; absent for `write`/`human` steps. */
+  /** Whether this step owns a durable run row; absent means durable for legacy snapshots. */
+  durable?: boolean;
+  /** Identifies a review behavior. */
   behavior?: "review-debate" | "review";
   onRevise?: OnReviseConfig;
   stepRules?: string;

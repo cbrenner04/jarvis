@@ -124,7 +124,7 @@ Return `WorkflowResult` indicates which step produced the stopping outcome
 (`awaiting-human` included), its run ID, total iterations consumed across all
 steps, and resumability.
 
-Each step run also persists the workflow invocation snapshot that launched it:
+Each durable step run also persists the workflow invocation snapshot that launched it:
 one `invocationId` plus the authored `steps[]` metadata (`stepId`, `role`,
 order). Daemon/TUI consumers read that snapshot back from daemon `list` rows as
 per-step progress in authored order, without reconstructing future steps from
@@ -327,7 +327,7 @@ A one-step workflow runs identically to a single-step `executeWriteLoop` invocat
 
 `startWorkflowRun` returns the first step's run id. That step's row reaches `completed` when the step finishes, but later steps may still be running. A caller reading the returned run's status via `loadRun` gets a durable row status, not the workflow status.
 
-To answer "is the workflow terminal?", the daemon computes a rollup: given the entry step's run, its workflow snapshot, and all sibling runs for that invocation, the rollup reports the first authored durable step whose status is terminal-but-not-`completed`, or `killed` if an authored durable step has no row in a non-live invocation, or `completed` if all authored steps are `completed`. When the invocation is still live (`executeWorkflow` running), the rollup reports `in-progress` regardless of row state. `review-debate` steps carry no run row and are skipped during the walk.
+To answer "is the workflow terminal?", the daemon computes a rollup: given the entry step's run, its workflow snapshot, and all sibling runs for that invocation, the rollup reports the first authored durable step whose status is terminal-but-not-`completed`, or `killed` if an authored durable step has no row in a non-live invocation, or `completed` if all authored durable steps are `completed`. When the invocation is still live (`executeWorkflow` running), the rollup reports `in-progress` regardless of row state. Snapshots record the shared runner durability policy: write and human steps, plus reviewed-intent review, are durable; ordinary review and review-debate are non-durable. Snapshots created before this field default every step to durable, preserving legacy missing-row `killed` behavior.
 
 This rollup is computed at read time, never overwriting a step row's status in place — resume logic skips a completed step on-row, so a stale entry-row status would cause resume to re-run step 0.
 

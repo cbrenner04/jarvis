@@ -527,13 +527,10 @@ Operators add bullets here; delete when fixed.
 
 - **Drive plans with plain `plan` — the reviewed plan path strands the spec (2026-07-16):**
   `plan --review-passes 1 --review-behavior light` produced, 3 for 3, a PR containing
-  `.jarvis-plan-stage/` and **no spec**, and reported `runStatus: killed` on success. Same
-  ready-intent through plain `jarvis run workflow plan` lands correctly and reports `completed`.
-  Two separate defects, one trigger: the review step's landing-resumption hook is hardcoded to
-  `intent-stage` so a deferred `plan-tree` landing is never resumed, and the status rollup reads the
-  review step's by-design missing run row as `killed`. Until they ship, **omit the review flags on
-  plan**. Seeds: `reviewed-plan-workflows-never-land-their-spec`,
-  `a-non-durable-review-step-rolls-up-as-killed`. Cleanup: delete this bullet when both ship.
+  `.jarvis-plan-stage/` and **no spec**. Same ready-intent through plain `jarvis run workflow plan`
+  lands correctly and reports `completed`. The deferred `plan-tree` landing is never resumed. Until
+  landing is repaired, **omit the review flags on plan**. Seed:
+  `reviewed-plan-workflows-never-land-their-spec`. Cleanup: delete this bullet when landing ships.
 - **A green gate does not mean the code runs — keep reviewing implement diffs (2026-07-16):** a
   `jarvis cleanup` that could never retire anything shipped **twice**, from two different models,
   each with 7/7 acceptance criteria ticked and a green gate. Attempt 1 called `gh pr view --head`

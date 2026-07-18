@@ -48,8 +48,8 @@ describe("rollupWorkflowRunStatus", () => {
     const entryRun = createRun({ stepId: "step-0", status: "completed" });
     const snapshot = createSnapshot({
       steps: [
-        { stepId: "step-0", role: "implement" },
-        { stepId: "step-1", role: "review", behavior: "review" },
+        { stepId: "step-0", role: "implement", durable: true },
+        { stepId: "step-1", role: "review", behavior: "review", durable: true },
       ],
     });
     const siblingRuns = [
@@ -67,12 +67,31 @@ describe("rollupWorkflowRunStatus", () => {
     expect(status).toBe("completed");
   });
 
+  test("ignores a non-durable reviewed-plan step with no row", () => {
+    const entryRun = createRun({ stepId: "step-0", status: "completed" });
+    const snapshot = createSnapshot({
+      steps: [
+        { stepId: "step-0", role: "plan", durable: true },
+        { stepId: "step-1", role: "", behavior: "review", durable: false },
+      ],
+    });
+
+    expect(
+      rollupWorkflowRunStatus({
+        entryRun,
+        workflowSnapshot: snapshot,
+        siblingRuns: [createRun({ id: "run-0", stepId: "step-0", status: "completed" })],
+        isLive: false,
+      }),
+    ).toBe("completed");
+  });
+
   test("returns first terminal step status that is not completed", () => {
     const entryRun = createRun({ stepId: "step-0", status: "completed" });
     const snapshot = createSnapshot({
       steps: [
-        { stepId: "step-0", role: "implement" },
-        { stepId: "step-1", role: "review", behavior: "review" },
+        { stepId: "step-0", role: "implement", durable: true },
+        { stepId: "step-1", role: "review", behavior: "review", durable: true },
       ],
     });
     const siblingRuns = [
@@ -110,12 +129,31 @@ describe("rollupWorkflowRunStatus", () => {
     expect(status).toBe("killed");
   });
 
+  test("treats a legacy snapshot without durability metadata as durable", () => {
+    const entryRun = createRun({ stepId: "step-0", status: "completed" });
+    const snapshot = createSnapshot({
+      steps: [
+        { stepId: "step-0", role: "implement" },
+        { stepId: "step-1", role: "review", behavior: "review" },
+      ],
+    });
+
+    expect(
+      rollupWorkflowRunStatus({
+        entryRun,
+        workflowSnapshot: snapshot,
+        siblingRuns: [createRun({ id: "run-0", stepId: "step-0", status: "completed" })],
+        isLive: false,
+      }),
+    ).toBe("killed");
+  });
+
   test("skips review-debate steps when walking authored steps", () => {
     const entryRun = createRun({ stepId: "step-0", status: "completed" });
     const snapshot = createSnapshot({
       steps: [
         { stepId: "step-0", role: "implement" },
-        { stepId: "step-debate", role: "debate", behavior: "review-debate" },
+        { stepId: "step-debate", role: "debate", behavior: "review-debate", durable: false },
         { stepId: "step-1", role: "review", behavior: "review" },
       ],
     });
@@ -202,7 +240,7 @@ describe("rollupWorkflowRunStatus", () => {
     const snapshot = createSnapshot({
       steps: [
         { stepId: "step-0", role: "implement" },
-        { stepId: "step-debate", role: "debate", behavior: "review-debate" },
+        { stepId: "step-debate", role: "debate", behavior: "review-debate", durable: false },
       ],
     });
     const siblingRuns = [createRun({ id: "run-0", stepId: "step-0", status: "completed" })];

@@ -16,7 +16,7 @@ import {
 } from "./config/machine-config-loader.ts";
 import { loadMachineProfileModels } from "./config/machine-profile-loader.ts";
 import { resolveWriteLoopBindings, type WaitRunCompletionResult } from "./daemon/daemon.ts";
-import { getDaemonStatus, type DaemonStatusDetail, startDaemon, stopDaemon } from "./daemon/daemon-lifecycle.ts";
+import { getDaemonStatus, startDaemon, stopDaemon } from "./daemon/daemon-lifecycle.ts";
 import { followDaemonProcessLog, readDaemonProcessLog } from "./daemon/daemon-process-log.ts";
 import type { DaemonListRunRow } from "./daemon/daemon-wire.ts";
 import { parseListRuns, parseStartResult, parseWaitCompletion } from "./daemon/daemon-wire.ts";
@@ -190,74 +190,87 @@ async function runDaemonCommand(argv: readonly string[], io: Io, deps: CliDeps):
   const subcommand = argv[0];
 
   if (subcommand === "start" && argv.length === 1) {
-    try {
-      const result = await deps.startDaemon(deps.socketPath, { pidPath: deps.pidPath, logPath: deps.logPath });
-      io.stdout(`${JSON.stringify(result)}\n`);
-      return 0;
-    } catch (error) {
-      io.stderr(formatLifecycleError(error));
-      return 1;
-    }
+    return runDaemonStart(io, deps);
   }
-
   if (subcommand === "stop" && (argv.length === 1 || (argv.length === 2 && argv[1] === "--force"))) {
-    try {
-      await deps.stopDaemon(deps.socketPath, { pidPath: deps.pidPath, force: argv[1] === "--force" });
-      io.stdout("stopped\n");
-      return 0;
-    } catch (error) {
-      io.stderr(formatLifecycleError(error));
-      return 1;
-    }
+    return runDaemonStop(argv, io, deps);
   }
-
   if (subcommand === "status" && argv.length === 1) {
-    const pid = readPid(deps.pidPath);
-    if (pid === null) {
-      io.stdout("stopped\n");
-      return 1;
-    }
-
-    const statusDetail = await deps.getDaemonStatus(pid, deps.socketPath);
-    if (statusDetail.status === "stopped") {
-      io.stdout("stopped\n");
-      return 1;
-    }
-    if (statusDetail.status === "stale") {
-      io.stdout(`stale loaded=${statusDetail.loadedRevision} current=${statusDetail.currentRevision}\n`);
-      return 1;
-    }
-
-    io.stdout(
-      statusDetail.loadedRevision !== undefined
-        ? `running loaded=${statusDetail.loadedRevision} current=${statusDetail.currentRevision}\n`
-        : "running\n",
-    );
-    return 0;
+    return runDaemonStatus(io, deps);
   }
-
   if (subcommand === "log") {
-    if (argv.length === 1) {
-      return deps.readDaemonProcessLog(deps.logPath, { writeOut: io.stdout, writeErr: io.stderr });
-    }
-    if (argv.length === 2 && argv[1] === "--follow") {
-      const controller = new AbortController();
-      const unregister = deps.onSigint(() => controller.abort());
-      try {
-        return await deps.followDaemonProcessLog(
-          deps.logPath,
-          { writeOut: io.stdout, writeErr: io.stderr },
-          controller.signal,
-        );
-      } finally {
-        unregister();
-      }
-    }
-    io.stderr(DAEMON_LOG_USAGE);
-    return 1;
+    return runDaemonLog(argv, io, deps);
   }
 
   io.stderr(DAEMON_USAGE);
+  return 1;
+}
+
+async function runDaemonStart(io: Io, deps: CliDeps): Promise<number> {
+  try {
+    const result = await deps.startDaemon(deps.socketPath, { pidPath: deps.pidPath, logPath: deps.logPath });
+    io.stdout(`${JSON.stringify(result)}\n`);
+    return 0;
+  } catch (error) {
+    io.stderr(formatLifecycleError(error));
+    return 1;
+  }
+}
+
+async function runDaemonStop(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
+  try {
+    await deps.stopDaemon(deps.socketPath, { pidPath: deps.pidPath, force: argv[1] === "--force" });
+    io.stdout("stopped\n");
+    return 0;
+  } catch (error) {
+    io.stderr(formatLifecycleError(error));
+    return 1;
+  }
+}
+
+async function runDaemonStatus(io: Io, deps: CliDeps): Promise<number> {
+  const pid = readPid(deps.pidPath);
+  if (pid === null) {
+    io.stdout("stopped\n");
+    return 1;
+  }
+
+  const statusDetail = await deps.getDaemonStatus(pid, deps.socketPath);
+  if (statusDetail.status === "stopped") {
+    io.stdout("stopped\n");
+    return 1;
+  }
+  if (statusDetail.status === "stale") {
+    io.stdout(`stale loaded=${statusDetail.loadedRevision} current=${statusDetail.currentRevision}\n`);
+    return 1;
+  }
+
+  io.stdout(
+    statusDetail.loadedRevision !== undefined
+      ? `running loaded=${statusDetail.loadedRevision} current=${statusDetail.currentRevision}\n`
+      : "running\n",
+  );
+  return 0;
+}
+
+async function runDaemonLog(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
+  if (argv.length === 1) {
+    return deps.readDaemonProcessLog(deps.logPath, { writeOut: io.stdout, writeErr: io.stderr });
+  }
+  if (argv.length === 2 && argv[1] === "--follow") {
+    const controller = new AbortController();
+    const unregister = deps.onSigint(() => controller.abort());
+    try {
+      return await deps.followDaemonProcessLog(
+        deps.logPath,
+        { writeOut: io.stdout, writeErr: io.stderr },
+        controller.signal,
+      );
+    } finally {
+      unregister();
+    }
+  }
+  io.stderr(DAEMON_LOG_USAGE);
   return 1;
 }
 

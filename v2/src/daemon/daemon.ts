@@ -1,7 +1,7 @@
 import { join, resolve } from "node:path";
 import { getHeadRevisionAsync, isWorktreeDirtyAsync } from "../../../shared/git.ts";
-import { realAsyncSubprocessRunner, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
 import { resolveMachineProfile } from "../config/machine-config-loader.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";

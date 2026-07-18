@@ -2,11 +2,24 @@ import { readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { type AcceptanceCriterion, type LinkedSubspec, parseSpec } from "./spec-parser.ts";
 
+/** Extract required integration test scope from acceptance criteria.
+ * Looks for criteria containing `bun run test:integration:v2`.
+ */
+export function extractRequiredIntegrationScope(acceptanceCriteria: AcceptanceCriterion[]): string | undefined {
+  for (const criterion of acceptanceCriteria) {
+    if (criterion.text.includes("bun run test:integration:v2")) {
+      return "test:integration:v2";
+    }
+  }
+  return undefined;
+}
+
 export type ActiveLinkedSubspec = {
   index: number;
   subspec: LinkedSubspec;
   path: string;
   body: string;
+  requiredIntegrationScope?: string;
 };
 
 export type LinkedIndexErrorKind =
@@ -68,9 +81,17 @@ export function resolveActiveLinkedSubspec(specPath: string, projectRoot: string
     const message = err instanceof Error ? err.message : "Unknown error";
     return { ok: false, error: `Failed to read linked subspec: ${message}`, errorKind: "link_unreadable" };
   }
+  const parsedSubspec = parseSpec(body);
+  const requiredIntegrationScope = extractRequiredIntegrationScope(parsedSubspec.acceptanceCriteria);
   return {
     ok: true,
-    active: { index: uncheckedIndex, subspec: activeLink, path: resolvedLinkedPath, body },
+    active: {
+      index: uncheckedIndex,
+      subspec: activeLink,
+      path: resolvedLinkedPath,
+      body,
+      ...(requiredIntegrationScope ? { requiredIntegrationScope } : {}),
+    },
     isTerminal: uncheckedIndex === linkedSubspecs.length - 1,
   };
 }

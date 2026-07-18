@@ -96,6 +96,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   clock?: () => Date;
   /** When set, suppresses reuse of completed runs from prior invocations. */
   freshDispatch?: boolean;
+  /** Required integration test scope (e.g., "test:integration:v2") from active subspec. */
+  requiredIntegrationScope?: string;
 };
 
 /**
@@ -169,6 +171,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               specPath: args.specPath,
               branch: args.worktree.branchName,
               creationTitle,
+              ...(args.requiredIntegrationScope ? { requiredIntegrationScope: args.requiredIntegrationScope } : {}),
             });
             if (publication.failure !== undefined) {
               const publishedResult = {
@@ -427,6 +430,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             ...(args.promptId === "patch.prompt.body" || args.promptId === "plan.prompt.draft"
               ? { specTemplate: true }
               : {}),
+            ...(args.requiredIntegrationScope ? { requiredIntegrationScope: args.requiredIntegrationScope } : {}),
           });
           if (publication.failure !== undefined) {
             const publishedResult = {
@@ -957,6 +961,7 @@ export async function publishCompletionArtifacts(
     creationTitle?: unknown;
     bodySummary?: string;
     specTemplate?: boolean;
+    requiredIntegrationScope?: string;
   },
 ): Promise<CompletionPublishFailure | (CompletionPublishSuccess & { kind: "success" })> {
   let publisherResult: Awaited<ReturnType<CompletionPublisher>> | undefined;
@@ -977,6 +982,7 @@ export async function publishCompletionArtifacts(
     await (seams.readyFinalizer ?? createReadyFinalizer())({
       worktreePath: input.worktreePath,
       branch: input.branch,
+      ...(input.requiredIntegrationScope ? { requiredIntegrationScope: input.requiredIntegrationScope } : {}),
     });
   } catch (finalizeError) {
     const err = finalizeError instanceof Error ? finalizeError : new Error(String(finalizeError));

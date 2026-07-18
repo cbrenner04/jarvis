@@ -3,7 +3,7 @@
 ## Problem
 
 `renderTemplateWithDeclarations` (`shared/prompts/render.ts`) throws
-`missing_value` `PromptRenderingError` with `Required placeholder \`<SPEC_PATH>\` has no value`.
+`missing_value` `PromptRenderingError` with message: "Required placeholder \`<SPEC_PATH>\` has no value".
 When this surfaces through a v2 run as `run_execution_failed`, the operator sees the
 token but not which prompt was being rendered, so there is no way to tell which prompt id
 failed.

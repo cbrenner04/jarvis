@@ -22,10 +22,10 @@ completion gate.
 
 ## Acceptance criteria
 
-- [ ] `bun run lint:md` exits 0 on the committed tree with the widened globs.
-- [ ] `scripts/markdownlint-globs.test.ts` asserts `.markdownlint-cli2.jsonc` lists `v2/docs/**/*.md` and `v2/spec/**/*.md`, does not list `v2/docs/onboarding.md`, and keeps the `**/completed/**` and `**/verdict-*.md` ignores; it fails against the pre-fix config.
-- [ ] `v1/docs/operator-runbook.md` § The gate no longer claims `lint:md` excludes `v2/docs/**`; the `lint:md` glob enumeration includes `v2/docs/**` and `v2/spec/**`.
-- [ ] `v2/docs/operator-runbook.md` § Gate trust states the full-tier gate's `lint:md` step covers v2 markdown (`v2/docs/**`, `v2/spec/**`, subject to the shared ignores); the `lint:md` lints one file in all of v2 gotcha is removed.
+- [x] `bun run lint:md` exits 0 on the committed tree with the widened globs.
+- [x] `scripts/markdownlint-globs.test.ts` asserts `.markdownlint-cli2.jsonc` lists `v2/docs/**/*.md` and `v2/spec/**/*.md`, does not list `v2/docs/onboarding.md`, and keeps the `**/completed/**` and `**/verdict-*.md` ignores; it fails against the pre-fix config.
+- [x] `v1/docs/operator-runbook.md` § The gate no longer claims `lint:md` excludes `v2/docs/**`; the `lint:md` glob enumeration includes `v2/docs/**` and `v2/spec/**`.
+- [x] `v2/docs/operator-runbook.md` § Gate trust states the full-tier gate's `lint:md` step covers v2 markdown (`v2/docs/**`, `v2/spec/**`, subject to the shared ignores); the `lint:md` lints one file in all of v2 gotcha is removed.
 
 ## Documentation updates
 

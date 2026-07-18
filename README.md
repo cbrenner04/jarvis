@@ -362,7 +362,7 @@ Found friction using Jarvis on another repo?
 TypeScript on Bun with strict compiler settings and Biome.
 
 Checks: `bun run typecheck`, `bun run lint`, `bun run check`, and
-`bun run lint:md` (markdownlint over specs, docs, and root docs). Fixes:
+`bun run lint:md` (markdownlint over v1 and v2 specs, v1 and v2 docs, reports, and root docs). Fixes:
 `bun run format`, `bun run lint:fix`, `bun run check:fix` (plus `:unsafe`
 variants — inspect their diffs).
 

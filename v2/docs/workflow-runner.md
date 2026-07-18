@@ -708,7 +708,8 @@ no-Git runs delete source inputs after durable output lands. Missing, external,
 or symlink-escaped inputs are skipped. Control files remain staged and
 successful landing removes transient staging. Failures retain staging and
 diagnostics. `none` performs no filesystem landing.
-# Completion publication failures
+
+## Completion publication failures
 
 Workflow completion publishes before running the ready gate, then flips the draft PR only after a green gate. Publication failures return `completion_commit_failed` with `completionCommitError`; red gates return `ready_gate_failed` with `readyGateError`; failed flips return `ready_flip_failed` with `readyFlipError`. Completion-commit and ready-gate failures exit `1`, preserve durable `completed` status, and are resumed with `nextAction: "resume"`. Failed flips are terminal non-resumable outcomes: they exit `1`, preserve durable `completed` status, and reject `resume` with `code: "terminal_run"`.
 

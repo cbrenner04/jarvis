@@ -28,6 +28,8 @@ Keep a real-process test only when the OS/git/process boundary is the behavior u
 - **`bun run test:integration:v2`** — v2 `*.sandbox-unrunnable.test.ts` at any depth under `v2/`; runs serially (no `--parallel`). Use outside the coding-agent sandbox.
 - **`bun run test`** — aggregate gate; still collects all v2 tests including sandbox-unrunnable files.
 
+The v2 integration slice is derived from the filename convention: a `*.sandbox-unrunnable.test.ts` file automatically routes to the integration slice without requiring edits to the slice-boundary test.
+
 Sources: `package.json`, `scripts/run-v2-tests.ts`, `test/test-slices.test.ts`
 
 ## Shared socket fixtures

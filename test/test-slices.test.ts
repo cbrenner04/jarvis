@@ -5,7 +5,7 @@ import { basename, join } from "node:path";
 import { sharedTests } from "../scripts/run-shared-tests.ts";
 import { v1Tests } from "../scripts/run-v1-tests.ts";
 import { v2Tests, walkV2TestFiles } from "../scripts/run-v2-tests.ts";
-import { isSandboxUnrunnable } from "../scripts/test-slice.ts";
+import { isSandboxUnrunnable, partitionTestFiles } from "../scripts/test-slice.ts";
 
 describe("Test slice boundaries", () => {
   it("test files are scoped to owner directories", () => {
@@ -90,22 +90,22 @@ describe("Test slice boundaries", () => {
     const agent = v2Tests("agent");
     const integration = v2Tests("integration");
 
+    expect(agent.every((file) => !isSandboxUnrunnable(file))).toBeTrue();
+    expect(integration.every((file) => isSandboxUnrunnable(file))).toBeTrue();
+    expect(integration.length).toBeGreaterThan(0);
     expect([...agent, ...integration].sort()).toEqual(onDisk);
-    expect(integration).toEqual([
-      "v2/src/daemon/daemon-ipc-responsiveness-during-completion-publication.sandbox-unrunnable.test.ts",
-      "v2/src/daemon/daemon-ipc-responsiveness-during-git.sandbox-unrunnable.test.ts",
-      "v2/src/daemon/daemon-ipc-responsiveness-during-ready-gate.sandbox-unrunnable.test.ts",
-      "v2/src/daemon/daemon-ipc-responsiveness-during-revise-dirty.sandbox-unrunnable.test.ts",
-      "v2/src/daemon/daemon-start-list.sandbox-unrunnable.test.ts",
-      "v2/src/daemon/daemon.sandbox-unrunnable.test.ts",
-      "v2/src/execution/write-loop-dirty-completion.sandbox-unrunnable.test.ts",
-      "v2/src/ipc/ipc.sandbox-unrunnable.test.ts",
-      "v2/src/testing/preload.sandbox-unrunnable.test.ts",
-      "v2/src/tui/tui-log-tail-client.sandbox-unrunnable.test.ts",
-    ]);
 
     const runnerScript = await Bun.file("scripts/run-v2-tests.ts").text();
     expect(runnerScript).toContain('spawn("bun", ["test", file]');
+  });
+
+  it("v2 integration slice derives from sandbox-unrunnable filename convention", () => {
+    const testFiles = ["v2/example/foo.test.ts", "v2/example/foo.sandbox-unrunnable.test.ts", "v2/other/bar.test.ts"];
+
+    const { agent, integration } = partitionTestFiles(testFiles);
+
+    expect(agent).toEqual(["v2/example/foo.test.ts", "v2/other/bar.test.ts"]);
+    expect(integration).toEqual(["v2/example/foo.sandbox-unrunnable.test.ts"]);
   });
 
   it("shared integration slice includes preload real-process test", () => {

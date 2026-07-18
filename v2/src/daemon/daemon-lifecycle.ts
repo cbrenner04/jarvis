@@ -126,13 +126,16 @@ export async function startDaemon(
     env: { ...process.env, DAEMON_SOCKET_PATH: socketPath },
   });
 
-  // Close parent's copy of the log fd
+  // Defer closing the parent's log fd so the detached child inherits it first.
   if (logFd !== undefined) {
-    try {
-      closeSync(logFd);
-    } catch {
-      // Ignore close errors
-    }
+    const fd = logFd;
+    setImmediate(() => {
+      try {
+        closeSync(fd);
+      } catch {
+        // Ignore close errors
+      }
+    });
   }
 
   if (proc.pid === undefined) {

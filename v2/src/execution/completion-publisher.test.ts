@@ -370,12 +370,18 @@ describe("createCompletionPublisher", () => {
     });
 
     const error = await publisher(baseInput).then(
-      () => { throw new Error("expected push failure"); },
+      () => {
+        throw new Error("expected push failure");
+      },
       (error: unknown) => error,
     );
     expect(error).toMatchObject({ message: "remote rejected push" });
     expect(publicationFailureFor(error)).toEqual({
-      operation: "push", message: "remote rejected push", exitCode: 7, stdoutTail: "push stdout", stderrTail: "push stderr",
+      operation: "push",
+      message: "remote rejected push",
+      exitCode: 7,
+      stdoutTail: "push stdout",
+      stderrTail: "push stderr",
     });
     expect(readinessCalls).toBe(0);
   });
@@ -400,12 +406,18 @@ describe("createCompletionPublisher", () => {
       ...noopRefreshSeams,
     });
     const error = await publisher(baseInput).then(
-      () => { throw new Error("expected PR failure"); },
+      () => {
+        throw new Error("expected PR failure");
+      },
       (error: unknown) => error,
     );
     expect(error).toMatchObject({ message: "PR creation rejected" });
     expect(publicationFailureFor(error)).toEqual({
-      operation: "pr", message: "PR creation rejected", exitCode: 22, stdoutTail: "pr stdout", stderrTail: "pr stderr",
+      operation: "pr",
+      message: "PR creation rejected",
+      exitCode: 22,
+      stdoutTail: "pr stdout",
+      stderrTail: "pr stderr",
     });
   });
 

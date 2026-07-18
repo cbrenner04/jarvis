@@ -46,7 +46,12 @@ type PublisherSeams = {
   renderFooter?: RenderFooter;
 };
 
-function defaultCommand(command: string, cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> {
+function defaultCommand(
+  command: string,
+  cwd: string,
+  args: readonly string[],
+  env?: Record<string, string>,
+): Promise<string> {
   return realAsyncSubprocessRunner
     .runAsync(command, [...args], cwd, { env: { ...process.env, ...env } })
     .then((stdout) => stdout.trim());

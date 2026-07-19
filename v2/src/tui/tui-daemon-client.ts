@@ -37,14 +37,10 @@ export type TuiDaemonClient = {
   /** Signal graceful pause for an active run at the next iteration boundary; rejects with `unknown_run`/`run_not_active`. */
   pause(runId: string): Promise<TuiDaemonHealthResult>;
   /**
-   * Resume a paused or killed run under daemon start guards, or resolve an
-   * `awaiting-human` run via `decision`/`prompt`; rejects with `unknown_run`, `terminal_run`,
-   * `run_in_progress`, `worktree_claimed`, …
+   * Resume a paused or killed run under daemon start guards; rejects with `unknown_run`,
+   * `terminal_run`, `run_in_progress`, `worktree_claimed`, …
    */
-  resume(
-    runId: string,
-    options?: { decision?: "approve" | "abort" | "revise"; prompt?: string },
-  ): Promise<TuiDaemonHealthResult>;
+  resume(runId: string): Promise<TuiDaemonHealthResult>;
   /** Abort an active run immediately and record durable status `killed`; rejects with `unknown_run`/`run_not_active`. */
   kill(runId: string): Promise<TuiDaemonHealthResult>;
   wait(runId: string): Promise<WaitRunCompletionResult>;
@@ -127,10 +123,10 @@ export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promi
       );
     },
     pause: (runId) => okRunRpc("pause", runId),
-    async resume(runId, options) {
+    async resume(runId) {
       await guard();
       return parseOrThrow(
-        parseHealthResult(await transport.request("resume", { runId, ...options })),
+        parseHealthResult(await transport.request("resume", { runId })),
         "malformed RPC reply: invalid resume result",
       );
     },

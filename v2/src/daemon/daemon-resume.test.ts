@@ -59,7 +59,6 @@ test("resume on an ad-hoc paused run returns resume_unsupported without invoking
       starts.push(input);
     },
     failureReporter: () => {},
-    isWorktreeDirty: async () => false,
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
   });
@@ -91,7 +90,6 @@ test("resume on a workflow paused run respawns with resolved bindings", async ()
       starts.push(input);
     },
     failureReporter: () => {},
-    isWorktreeDirty: async () => false,
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
   });
@@ -195,7 +193,6 @@ test("resume on a workflow paused run with an empty agents list returns resume_u
       starts.push(input);
     },
     failureReporter: () => {},
-    isWorktreeDirty: async () => false,
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
   });
@@ -239,7 +236,6 @@ test("resume on a workflow paused run with a non-executable role returns a contr
       starts.push(input);
     },
     failureReporter: () => {},
-    isWorktreeDirty: async () => false,
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
   });

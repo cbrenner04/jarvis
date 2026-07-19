@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { getCurrentHeadAsync, isWorktreeDirtyAsync } from "../../../shared/git.ts";
+import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
@@ -30,7 +30,6 @@ import {
   type StateStore,
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
-import { type ReviseReconvergeDeps, reconvergeRevisingRun, reviseAwaitingHuman } from "./daemon-revise.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
 import {
   composeRunOperatorError,
@@ -176,8 +175,8 @@ export class WorktreeOwnershipRegistry {
 
 /**
  * `(project, branch)` ownership key for a workflow start, derived from its first
- * step. A `write` step carries `worktree.projectName`/`worktree.branchName`; `human`
- * and `review-debate` steps carry flat `project`/`branch` fields.
+ * step. A `write` step carries `worktree.projectName`/`worktree.branchName`;
+ * review steps carry flat `project`/`branch` fields.
  */
 export function workflowStartOwnershipKey(steps: AnyWorkflowStep[]): OwnershipKey {
   const firstStep = steps[0];
@@ -382,7 +381,6 @@ export type RunControlHandlerDeps = {
   writeLoopExecutor: (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => Promise<void>;
   failureReporter: (runId: string, reason: unknown) => void | Promise<void>;
   /** `revise`'s dirty-worktree gate; defaults to a real `git status --porcelain` check. */
-  isWorktreeDirty?: (worktreePath: string) => Promise<boolean>;
   /** `start`'s memory-watermark admission check; defaults to the real free-memory reader. */
   hasMemoryHeadroom?: () => boolean;
   /** Delay (ms) after promoting a queued run before the next promotion re-checks headroom; defaults to configured `memory.settleDelayMs`. */
@@ -506,7 +504,6 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   // Tracks `executeWorkflow` promises by entry run id (step 0), allowing wait to await the full workflow
   const workflowPromisesByEntryRunId = new Map<string, Promise<void>>();
   const { stateStore: store, logReader, writeLoopExecutor, failureReporter, logsPath, operatorSessionId } = deps;
-  const checkWorktreeDirty = deps.isWorktreeDirty ?? isWorktreeDirtyAsync;
   const checkMemoryHeadroom = deps.hasMemoryHeadroom ?? (() => hasMemoryHeadroom(resolveMachineProfile()));
   const injectedSettleDelayMs = deps.settleDelayMs;
   const settleDelayMs: () => number =
@@ -937,89 +934,6 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return { kind: "error", code: "run_not_active", message: `Run ${runId} is not currently active` };
   };
 
-  const reviseReconvergeDeps: ReviseReconvergeDeps = {
-    store,
-    registry: _registry,
-    checkWorktreeDirty,
-    spawnWriteLoop,
-    checkWorktreeClaimed,
-  };
-
-  const humanDecisionAdmission = new Map<string, Promise<unknown>>();
-
-  function withHumanDecisionAdmission<T>(runId: string, work: () => Promise<T>): Promise<T> {
-    const prev = humanDecisionAdmission.get(runId) ?? Promise.resolve();
-    const next = prev.catch(() => {}).then(work);
-    humanDecisionAdmission.set(runId, next);
-    next
-      .catch(() => {})
-      .finally(() => {
-        if (humanDecisionAdmission.get(runId) === next) {
-          humanDecisionAdmission.delete(runId);
-        }
-      });
-    return next;
-  }
-
-  async function resumeAwaitingHumanDecision(
-    run: LoadedRun,
-    decision: string | undefined,
-    prompt: string | undefined,
-  ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> {
-    if (decision === undefined) {
-      return { kind: "error", code: "invalid_params", message: "Missing decision for awaiting-human run" };
-    }
-
-    if (decision === "approve") {
-      store.setRunStatus(run.id, "completed");
-      return { kind: "response", result: { ok: true } };
-    }
-
-    if (decision === "abort") {
-      const ks = ownershipKeyString({ project: run.project, branch: run.branch });
-      const activeRun = activeRuns.get(ks);
-      if (activeRun && activeRun.runId === run.id && activeRun.kind === "write-loop") {
-        activeRun.abortController.abort();
-      }
-      store.commitGuardedKill(run.id);
-      return { kind: "response", result: { ok: true } };
-    }
-
-    if (decision === "revise") {
-      return await reviseAwaitingHuman(reviseReconvergeDeps, run, prompt);
-    }
-
-    return { kind: "error", code: "invalid_params", message: `Unknown decision: ${decision}` };
-  }
-
-  async function resumeAwaitingHuman(
-    run: LoadedRun,
-    decision: string | undefined,
-    prompt: string | undefined,
-  ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> {
-    return withHumanDecisionAdmission(run.id, async () => {
-      const current = store.loadRun(run.id);
-      if (!current) {
-        return { kind: "error", code: "unknown_run", message: `Run ${run.id} not found` };
-      }
-      if (current.status !== "awaiting-human") {
-        if (current.status === "revising") {
-          return {
-            kind: "error",
-            code: "revise_in_progress",
-            message: `Run ${run.id} is revising; wait for it to re-converge to awaiting-human`,
-          };
-        }
-        return {
-          kind: "error",
-          code: "invalid_params",
-          message: `Run ${run.id} is not awaiting a human decision`,
-        };
-      }
-      return resumeAwaitingHumanDecision(current, decision, prompt);
-    });
-  }
-
   const resumePausedRun = (
     run: LoadedRun,
     key: OwnershipKey,
@@ -1060,30 +974,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return undefined;
   }
 
-  /** Human-loop resume dispatch. Returns undefined when `run` is not in a human-loop status. */
-  async function resumeHumanLoopRun(
-    run: Parameters<typeof resumeAwaitingHuman>[0],
-    runId: string,
-    params: { decision?: string; prompt?: string },
-  ): Promise<Awaited<ReturnType<typeof resumeAwaitingHuman>> | undefined> {
-    if (run.status === "awaiting-human") {
-      return await resumeAwaitingHuman(run, params.decision, params.prompt);
-    }
-    if (run.status !== "revising") return undefined;
-
-    const reconverged = reconvergeRevisingRun(reviseReconvergeDeps, run);
-    if (!reconverged) {
-      return {
-        kind: "error",
-        code: "revise_in_progress",
-        message: `Run ${runId} is revising; wait for it to re-converge to awaiting-human`,
-      };
-    }
-    return await resumeAwaitingHuman(reconverged, params.decision, params.prompt);
-  }
-
   const resumeHandler: RpcHandler = async (frame) => {
-    const params = frame.params as { runId?: string; decision?: string; prompt?: string } | undefined;
+    const params = frame.params as { runId?: string } | undefined;
     if (!params?.runId) {
       return { kind: "error", code: "invalid_params", message: "Missing runId" };
     }
@@ -1092,13 +984,6 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     const run = store.loadRun(runId);
     if (!run) {
       return { kind: "error", code: "unknown_run", message: `Run ${runId} not found` };
-    }
-
-    const humanResume = await resumeHumanLoopRun(run, runId, params);
-    if (humanResume) return humanResume;
-
-    if (params.decision !== undefined) {
-      return { kind: "error", code: "invalid_params", message: "decision is only valid for awaiting-human runs" };
     }
 
     const terminalError = terminalResumeBlocked(run, runId);

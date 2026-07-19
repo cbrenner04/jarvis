@@ -179,18 +179,6 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
   const runSteeringAction = (method: "pause" | "resume" | "kill", rewaitOnSuccess = false): void =>
     runAction((runId) => requireClient()[method](runId), rewaitOnSuccess);
 
-  const runResumeDecisionAction = (decision: "approve" | "abort" | "revise", prompt?: string): void =>
-    runAction(
-      (runId) => requireClient().resume(runId, prompt !== undefined ? { decision, prompt } : { decision }),
-      true,
-    );
-
-  const isSelectedAwaitingHuman = (): boolean => {
-    const runId = currentState.selectedRunId;
-    if (runId === null) return false;
-    return currentState.runs.find((run) => run.runId === runId)?.status === "awaiting-human";
-  };
-
   const refreshRuns = async (initial = false): Promise<void> => {
     if (refreshInFlight) {
       refreshQueued = true;
@@ -286,17 +274,7 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
           runSteeringAction("resume", true);
         },
         killSelected() {
-          if (isSelectedAwaitingHuman()) {
-            runResumeDecisionAction("abort");
-            return;
-          }
           runSteeringAction("kill");
-        },
-        approveSelected() {
-          runResumeDecisionAction("approve");
-        },
-        reviseSelected(prompt) {
-          runResumeDecisionAction("revise", prompt);
         },
         quit() {
           resolveQuit();

@@ -43,7 +43,7 @@ const RUN_DELTA: DaemonListRunRow = {
   runId: "run-delta",
   project: "demo",
   branch: "delta",
-  status: "awaiting-human",
+  status: "paused",
   isLive: false,
 };
 
@@ -153,12 +153,6 @@ function createViewHost() {
     killSelected() {
       controls?.killSelected();
     },
-    approveSelected() {
-      controls?.approveSelected();
-    },
-    reviseSelected(prompt?: string) {
-      controls?.reviseSelected(prompt);
-    },
     quit() {
       controls?.quit();
       exit.resolve();
@@ -182,7 +176,6 @@ type FakeClientOptions = {
   pauseImpl?: (runId: string) => Promise<{ ok: true }>;
   resumeImpl?: (runId: string) => Promise<{ ok: true }>;
   killImpl?: (runId: string) => Promise<{ ok: true }>;
-  resumeOptionsLog?: { decision?: string; prompt?: string }[];
 };
 
 function fakeClient(options: FakeClientOptions = {}): TuiDaemonClient {
@@ -199,12 +192,8 @@ function fakeClient(options: FakeClientOptions = {}): TuiDaemonClient {
       return (impl ?? (async () => ({ ok: true as const })))(runId);
     };
 
-  const resume = async (
-    runId: string,
-    resumeOptions?: { decision?: "approve" | "abort" | "revise"; prompt?: string },
-  ): Promise<{ ok: true }> => {
+  const resume = async (runId: string): Promise<{ ok: true }> => {
     methods.push(`resume:${runId}`);
-    options.resumeOptionsLog?.push(resumeOptions ?? {});
     if (options.resumeError !== undefined) throw options.resumeError;
     return (options.resumeImpl ?? (async () => ({ ok: true as const })))(runId);
   };
@@ -927,86 +916,6 @@ describe("runTuiEntry", () => {
     expect(methods).toContain("pause:run-gamma");
     expect(methods).toContain("resume:run-gamma");
     expect(methods).toContain("kill:run-gamma");
-  });
-
-  test("approveSelected sends resume with decision approve for the selected run", async () => {
-    const view = createViewHost();
-    const resumeOptionsLog: { decision?: string; prompt?: string }[] = [];
-    const { deps } = entryDeps(
-      {
-        listResponses: [{ runs: [RUN_DELTA] }],
-        waitImpl: async () => ({ runStatus: "completed" }),
-        resumeOptionsLog,
-      },
-      { viewHost: view.host },
-    );
-
-    const pending = runTuiEntry(deps);
-    await view.waitUntilOpen();
-    await flush();
-    view.approveSelected();
-    await flush();
-
-    expect(resumeOptionsLog).toEqual([{ decision: "approve" }]);
-    view.quit();
-    expect(await pending).toBe(0);
-  });
-
-  test("reviseSelected sends resume with decision revise and the given prompt, or none for an empty buffer", async () => {
-    const view = createViewHost();
-    const resumeOptionsLog: { decision?: string; prompt?: string }[] = [];
-    const { deps } = entryDeps(
-      {
-        listResponses: [{ runs: [RUN_DELTA] }],
-        waitImpl: async () => ({ runStatus: "completed" }),
-        resumeOptionsLog,
-      },
-      { viewHost: view.host },
-    );
-
-    const pending = runTuiEntry(deps);
-    await view.waitUntilOpen();
-    await flush();
-    view.reviseSelected("try again");
-    await flush();
-    view.reviseSelected();
-    await flush();
-
-    expect(resumeOptionsLog).toEqual([{ decision: "revise", prompt: "try again" }, { decision: "revise" }]);
-    view.quit();
-    expect(await pending).toBe(0);
-  });
-
-  test("killSelected sends resume with decision abort for an awaiting-human run but plain kill otherwise", async () => {
-    const view = createViewHost();
-    const { deps, clientOptions } = entryDeps(
-      {
-        methods: [],
-        listResponses: [{ runs: [RUN_ALPHA, RUN_DELTA] }],
-        waitImpl: async () => ({ runStatus: "completed" }),
-      },
-      { viewHost: view.host },
-    );
-
-    const pending = runTuiEntry(deps);
-    await view.waitUntilOpen();
-    await flush();
-
-    view.selectRun("run-delta");
-    await flush();
-    view.killSelected();
-    await flush();
-
-    view.selectRun("run-alpha");
-    await flush();
-    view.killSelected();
-    await flush();
-
-    view.quit();
-    expect(await pending).toBe(0);
-    const methods = clientOptions.methods ?? [];
-    expect(methods).toContain("resume:run-delta");
-    expect(methods).toContain("kill:run-alpha");
   });
 
   test("steering RPC errors render inline and keep the monitor open", async () => {

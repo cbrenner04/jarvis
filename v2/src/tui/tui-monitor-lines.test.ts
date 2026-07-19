@@ -113,7 +113,7 @@ describe("orderSelectableRuns", () => {
       runId: "run-awaiting",
       project: "demo",
       branch: "await",
-      status: "awaiting-human",
+      status: "paused",
       isLive: false,
     };
     const terminal: DaemonListRunRow = {

@@ -38,12 +38,8 @@ export type TuiMonitorControls = {
   pauseSelected(): void;
   /** Resumes via daemon `resume` and re-issues `wait`, abandoning any prior ready snapshot. */
   resumeSelected(): void;
-  /** Signals kill via daemon `kill`, or `resume` with `decision: "abort"` when `awaiting-human`. */
+  /** Signals kill via daemon `kill`. */
   killSelected(): void;
-  /** Approves an `awaiting-human` run via `resume` with `decision: "approve"`. */
-  approveSelected(): void;
-  /** Revises an `awaiting-human` run via `resume` with `decision: "revise"` and the given prompt. */
-  reviseSelected(prompt?: string): void;
   /** Exit the monitor. */
   quit(): void;
 };

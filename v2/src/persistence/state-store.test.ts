@@ -295,26 +295,6 @@ describe("StateStore", () => {
     expect(run?.stepId === null || run?.stepId === undefined).toBe(true);
   });
 
-  test("findRevisionRuns returns only runs whose stepId is a revision of repeatStepId", () => {
-    const r1 = seedRun(store, { stepId: "implement~r1" });
-    const r2 = seedRun(store, { stepId: "implement~r2" });
-    seedRun(store, { stepId: "implement" });
-    seedRun(store, { stepId: "other" });
-    seedRun(store, { branch: "other-branch", stepId: "implement~r1" });
-
-    const runs = store.findRevisionRuns({ project: "test-project", branch: "test-branch", repeatStepId: "implement" });
-
-    expect(runs.map((run) => run.id).sort()).toEqual([r1, r2].sort());
-  });
-
-  test("findRevisionRuns returns none when no revision runs exist", () => {
-    seedRun(store, { stepId: "implement" });
-
-    const runs = store.findRevisionRuns({ project: "test-project", branch: "test-branch", repeatStepId: "implement" });
-
-    expect(runs).toEqual([]);
-  });
-
   test("migration adds owner_identity to a pre-migration database without backfilling existing rows", () => {
     const legacyDbPath = join(tmpdir(), "jarvis-test-state-legacy-migration.sqlite");
     rmSync(legacyDbPath, { force: true });
@@ -444,7 +424,7 @@ describe("commitGuardedKill", () => {
   });
 
   test("sets killed for non-boundary-terminal statuses", () => {
-    for (const status of ["in-progress", "paused", "awaiting-human", "queued"] as const) {
+    for (const status of ["in-progress", "paused", "queued"] as const) {
       const runId = seedRun(store, { status, branch: `branch-${status}` });
       store.commitGuardedKill(runId);
       expect(loadRunOrThrow(store, runId).status).toBe("killed");

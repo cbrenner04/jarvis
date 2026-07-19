@@ -1,4 +1,4 @@
-import { createElement, Fragment, type ReactElement, useState } from "react";
+import { createElement, Fragment, type ReactElement } from "react";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import { type InjectedInkUi, type InkUseInput, loadInkUi } from "./tui-ink-runtime.ts";
 import {
@@ -8,8 +8,6 @@ import {
   monitorSegmentRows,
 } from "./tui-monitor-lines.ts";
 import type { TuiMonitorControls, TuiMonitorSession, TuiMonitorState } from "./tui-monitor-types.ts";
-
-export type ComposingMode = { kind: "idle" } | { kind: "composing"; buffer: string };
 
 type MonitorText = (props: { children?: string; color?: string; key?: number }) => ReactElement;
 type MonitorRowBox = (props: {
@@ -40,16 +38,8 @@ function renderSegmentRow(
 }
 
 /** Ink tree for one monitor snapshot; shared by the session host and render tests. */
-export function createMonitorDisplay(
-  state: TuiMonitorState,
-  composing: ComposingMode,
-  Text: MonitorText,
-  Box?: MonitorRowBox,
-): ReactElement {
+export function createMonitorDisplay(state: TuiMonitorState, Text: MonitorText, Box?: MonitorRowBox): ReactElement {
   const rows = monitorSegmentRows(state);
-  if (composing.kind === "composing") {
-    rows.push({ segments: [{ text: `Revise prompt: ${composing.buffer}` }] });
-  }
   const rendered = rows.map((line, index) => renderSegmentRow(line, Text, index, Box));
   if (Box !== undefined) return createElement(Box, { flexDirection: "column" }, ...rendered);
   return createElement(Fragment, null, ...rendered);
@@ -65,44 +55,13 @@ export async function openInkMonitor(
   const useInput: InkUseInput = inkUseInput ?? (() => {});
   const sessionState = { current: initialState };
 
-  const MonitorDisplay = ({ state, composing }: { state: TuiMonitorState; composing: ComposingMode }): ReactElement =>
-    createMonitorDisplay(state, composing, Text, Box);
+  const MonitorDisplay = ({ state }: { state: TuiMonitorState }): ReactElement =>
+    createMonitorDisplay(state, Text, Box);
 
   const MonitorSessionRoot = (): ReactElement => {
-    const [composing, setComposing] = useState<ComposingMode>({ kind: "idle" });
-
     useInput((input, key) => {
-      if (composing.kind === "composing") {
-        if (key.return) {
-          const trimmed = composing.buffer.trim();
-          setComposing({ kind: "idle" });
-          controls.reviseSelected(trimmed.length > 0 ? trimmed : undefined);
-          return;
-        }
-        if (key.escape) {
-          setComposing({ kind: "idle" });
-          return;
-        }
-        if (key.backspace || key.delete) {
-          setComposing({ kind: "composing", buffer: composing.buffer.slice(0, -1) });
-          return;
-        }
-        if (!key.ctrl && input.length > 0) {
-          setComposing({ kind: "composing", buffer: composing.buffer + input });
-        }
-        return;
-      }
-
       if (input === "q" || (key.ctrl && input === "c")) {
         controls.quit();
-        return;
-      }
-      if (input === "a") {
-        controls.approveSelected();
-        return;
-      }
-      if (input === "v") {
-        setComposing({ kind: "composing", buffer: "" });
         return;
       }
       if (input === "k") {
@@ -118,7 +77,7 @@ export async function openInkMonitor(
       }
     });
 
-    return createElement(MonitorDisplay, { state: sessionState.current, composing });
+    return createElement(MonitorDisplay, { state: sessionState.current });
   };
 
   const instance = renderFn(createElement(MonitorSessionRoot));

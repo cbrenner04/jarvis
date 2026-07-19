@@ -559,9 +559,7 @@ test("revision mismatch rejects start and human-decision resume before their mut
     });
 
     await expect(client.start(START_INPUT)).rejects.toThrow("loaded=loaded-revision current=current-revision");
-    await expect(client.resume("run-123", { decision: "revise", prompt: "try again" })).rejects.toThrow(
-      "restart the daemon before starting or resuming work",
-    );
+    await expect(client.resume("run-123")).rejects.toThrow("restart the daemon before starting or resuming work");
     expect(sent).toEqual([
       { kind: "request", id: STATUS_REQUEST_ID, method: "status" },
       { kind: "request", id: STATUS_REQUEST_ID, method: "status" },
@@ -591,33 +589,6 @@ test.each([
     expect(sent).toEqual([
       ...(method === "resume" ? [{ kind: "request", id: STATUS_REQUEST_ID, method: "status" }] : []),
       { kind: "request", id: requestId, method, params: { runId: "run-123" } },
-    ]);
-    client.close();
-  });
-});
-
-test("resume forwards decision and prompt for awaiting-human runs", async () => {
-  const sent: unknown[] = [];
-  await withFixedUuid([STATUS_REQUEST_ID, RESUME_REQUEST_ID], async () => {
-    const client = await connectTuiDaemon({
-      connectIpcClient: async () =>
-        makeGatedIpcClient([statusFrame(), { kind: "response", id: RESUME_REQUEST_ID, result: { ok: true } }], {
-          sent,
-        }),
-      getCurrentRevision: matchingRevision,
-    });
-
-    await expect(client.resume("run-123", { decision: "revise", prompt: "try again" })).resolves.toEqual({
-      ok: true,
-    });
-    expect(sent).toEqual([
-      { kind: "request", id: STATUS_REQUEST_ID, method: "status" },
-      {
-        kind: "request",
-        id: RESUME_REQUEST_ID,
-        method: "resume",
-        params: { runId: "run-123", decision: "revise", prompt: "try again" },
-      },
     ]);
     client.close();
   });

@@ -7,6 +7,7 @@ import {
   readMachineConfigDocument,
   readProjectImplementReviewBehavior,
   readProjectImplementReviewPasses,
+  readProjectRegistry,
   resolveMachineProfile,
   validateMachineConfigAgents,
 } from "./machine-config-loader.ts";
@@ -24,135 +25,66 @@ function writeConfig(value: unknown): string {
 
 describe("loadMachineConfig", () => {
   test("nonexistent config path returns undefined", () => {
-    const result = loadMachineConfig("/nonexistent/path/config.json");
-    expect(result).toBeUndefined();
+    expect(loadMachineConfig("/nonexistent/path/config.json")).toBeUndefined();
   });
 
-  test("config file with no 'agents' key returns undefined", () => {
-    const result = loadMachineConfig(writeConfig({ other: "value" }));
-    expect(result).toBeUndefined();
+  test.each([
+    ["no 'agents' key", { other: "value" }],
+    ["an empty object", {}],
+  ] as Array<[string, unknown]>)("config with %s returns undefined", (_label, value) => {
+    expect(loadMachineConfig(writeConfig(value))).toBeUndefined();
   });
 
-  test("config file with empty 'agents' key returns undefined", () => {
-    const result = loadMachineConfig(writeConfig({}));
-    expect(result).toBeUndefined();
+  test.each([
+    ["multiple agents", ["claude", "codex", "cursor"]],
+    ["a single agent", ["claude"]],
+    ["non-alphabetical order", ["z-agent", "a-agent", "m-agent"]],
+    ["special characters", ["claude-3-opus", "gpt-5.2", "agent_v2"]],
+  ] as Array<[string, string[]]>)("valid agents array (%s) is returned in order", (_label, agents) => {
+    expect(loadMachineConfig(writeConfig({ agents }))).toEqual(agents);
+  });
+
+  test("ignores extra fields in config", () => {
+    expect(loadMachineConfig(writeConfig({ agents: ["claude"], extra: "field", another: 123 }))).toEqual(["claude"]);
   });
 
   test("document reader preserves unrelated top-level keys", () => {
-    const result = readMachineConfigDocument(writeConfig({ agents: ["claude"], extra: "field" }));
-    expect(result).toEqual({ agents: ["claude"], extra: "field" });
-  });
-
-  test("valid agents array is returned in order", () => {
-    const agents = ["claude", "codex", "cursor"];
-    const result = loadMachineConfig(writeConfig({ agents }));
-    expect(result).toEqual(agents);
-  });
-
-  test("single agent in array is returned", () => {
-    const result = loadMachineConfig(writeConfig({ agents: ["claude"] }));
-    expect(result).toEqual(["claude"]);
+    expect(readMachineConfigDocument(writeConfig({ agents: ["claude"], extra: "field" }))).toEqual({
+      agents: ["claude"],
+      extra: "field",
+    });
   });
 
   test("unparseable JSON throws", () => {
-    const configPath = writeRawConfig("{ invalid json");
-    expect(() => loadMachineConfig(configPath)).toThrow(/Failed to parse machine config/);
+    expect(() => loadMachineConfig(writeRawConfig("{ invalid json"))).toThrow(/Failed to parse machine config/);
   });
 
-  test("non-object config throws", () => {
-    const configPath = writeConfig("string");
-    expect(() => loadMachineConfig(configPath)).toThrow(/must be a JSON object/);
-  });
-
-  test("array as root throws", () => {
-    const configPath = writeConfig(["claude"]);
-    expect(() => loadMachineConfig(configPath)).toThrow(/must be a JSON object/);
-  });
-
-  test("null config throws", () => {
-    const configPath = writeConfig(null);
-    expect(() => loadMachineConfig(configPath)).toThrow(/must be a JSON object/);
-  });
-
-  test("non-array 'agents' field throws", () => {
-    const configPath = writeConfig({ agents: "claude" });
-    expect(() => loadMachineConfig(configPath)).toThrow(/must be an array/);
-  });
-
-  test("'agents' field as object throws", () => {
-    const configPath = writeConfig({ agents: { name: "claude" } });
-    expect(() => loadMachineConfig(configPath)).toThrow(/must be an array/);
-  });
-
-  test("'agents' field as null throws", () => {
-    const configPath = writeConfig({ agents: null });
-    expect(() => loadMachineConfig(configPath)).toThrow(/must be an array/);
-  });
-
-  test("non-string entry in agents throws", () => {
-    const configPath = writeConfig({ agents: ["claude", 123] });
-    expect(() => loadMachineConfig(configPath)).toThrow(/entry at index 1 must be a string/);
-  });
-
-  test("number entry in agents throws", () => {
-    const configPath = writeConfig({ agents: [123] });
-    expect(() => loadMachineConfig(configPath)).toThrow(/entry at index 0 must be a string/);
-  });
-
-  test("object entry in agents throws", () => {
-    const configPath = writeConfig({ agents: [{ name: "claude" }] });
-    expect(() => loadMachineConfig(configPath)).toThrow(/entry at index 0 must be a string/);
-  });
-
-  test("null entry in agents throws", () => {
-    const configPath = writeConfig({ agents: [null] });
-    expect(() => loadMachineConfig(configPath)).toThrow(/entry at index 0 must be a string/);
-  });
-
-  test("empty string entry in agents throws", () => {
-    const configPath = writeConfig({ agents: ["claude", ""] });
-    expect(() => loadMachineConfig(configPath)).toThrow(/entry at index 1 must not be an empty string/);
-  });
-
-  test("empty string as only entry throws", () => {
-    const configPath = writeConfig({ agents: [""] });
-    expect(() => loadMachineConfig(configPath)).toThrow(/entry at index 0 must not be an empty string/);
-  });
-
-  test("duplicate agent name throws", () => {
-    const configPath = writeConfig({ agents: ["claude", "codex", "claude"] });
-    expect(() => loadMachineConfig(configPath)).toThrow(/duplicate entry/);
+  test.each([
+    ["string root", "string", /must be a JSON object/],
+    ["array root", ["claude"], /must be a JSON object/],
+    ["null root", null, /must be a JSON object/],
+    ["string 'agents'", { agents: "claude" }, /must be an array/],
+    ["object 'agents'", { agents: { name: "claude" } }, /must be an array/],
+    ["null 'agents'", { agents: null }, /must be an array/],
+    ["number entry", { agents: [123] }, /entry at index 0 must be a string/],
+    ["object entry", { agents: [{ name: "claude" }] }, /entry at index 0 must be a string/],
+    ["null entry", { agents: [null] }, /entry at index 0 must be a string/],
+    ["non-string entry after a valid one", { agents: ["claude", 123] }, /entry at index 1 must be a string/],
+    ["empty-string entry", { agents: [""] }, /entry at index 0 must not be an empty string/],
+    [
+      "empty-string entry after a valid one",
+      { agents: ["claude", ""] },
+      /entry at index 1 must not be an empty string/,
+    ],
+    ["duplicate entries", { agents: ["claude", "codex", "claude"] }, /duplicate entry/],
+    ["consecutive duplicate entries", { agents: ["claude", "claude"] }, /duplicate entry/],
+    ["empty agents array", { agents: [] }, /must not be empty/],
+  ] as Array<[string, unknown, RegExp]>)("malformed config throws on %s", (_label, value, pattern) => {
+    expect(() => loadMachineConfig(writeConfig(value))).toThrow(pattern);
   });
 
   test("agent-array validator reuses duplicate checks for direct callers", () => {
     expect(() => validateMachineConfigAgents(["claude", "claude"])).toThrow(/duplicate entry/);
-  });
-
-  test("duplicate at consecutive indices throws", () => {
-    const configPath = writeConfig({ agents: ["claude", "claude"] });
-    expect(() => loadMachineConfig(configPath)).toThrow(/duplicate entry/);
-  });
-
-  test("empty agents array throws", () => {
-    const configPath = writeConfig({ agents: [] });
-    expect(() => loadMachineConfig(configPath)).toThrow(/must not be empty/);
-  });
-
-  test("preserves agent order in array", () => {
-    const agents = ["z-agent", "a-agent", "m-agent"];
-    const result = loadMachineConfig(writeConfig({ agents }));
-    expect(result).toEqual(agents);
-  });
-
-  test("ignores extra fields in config", () => {
-    const result = loadMachineConfig(writeConfig({ agents: ["claude"], extra: "field", another: 123 }));
-    expect(result).toEqual(["claude"]);
-  });
-
-  test("agents with special characters are accepted", () => {
-    const agents = ["claude-3-opus", "gpt-5.2", "agent_v2"];
-    const result = loadMachineConfig(writeConfig({ agents }));
-    expect(result).toEqual(agents);
   });
 });
 
@@ -161,104 +93,103 @@ describe("resolveMachineProfile", () => {
     expect(() => resolveMachineProfile("/nonexistent/path/config.json")).toThrow(/missing required 'machineProfile'/);
   });
 
-  test("missing machineProfile key throws naming the missing key", () => {
-    const configPath = writeConfig({ agents: ["claude"] });
-    expect(() => resolveMachineProfile(configPath)).toThrow(/missing required 'machineProfile'/);
+  test.each([
+    ["absent key", { agents: ["claude"] }],
+    ["empty string", { machineProfile: "" }],
+    ["non-string value", { machineProfile: 123 }],
+  ] as Array<[string, unknown]>)("throws naming the missing key on %s", (_label, value) => {
+    expect(() => resolveMachineProfile(writeConfig(value))).toThrow(/missing required 'machineProfile'/);
   });
 
-  test("empty string machineProfile throws the same as an absent key", () => {
-    const configPath = writeConfig({ machineProfile: "" });
-    expect(() => resolveMachineProfile(configPath)).toThrow(/missing required 'machineProfile'/);
-  });
-
-  test("non-string machineProfile throws", () => {
-    const configPath = writeConfig({ machineProfile: 123 });
-    expect(() => resolveMachineProfile(configPath)).toThrow(/missing required 'machineProfile'/);
-  });
-
-  test("valid machineProfile is returned", () => {
-    const configPath = writeConfig({ machineProfile: "home" });
-    expect(resolveMachineProfile(configPath)).toBe("home");
-  });
-
-  test("open-string machineProfile naming a non-'home' profile is accepted", () => {
-    const configPath = writeConfig({ machineProfile: "work" });
-    expect(resolveMachineProfile(configPath)).toBe("work");
+  test.each([["home"], ["work"]])("configured profile %s is returned (open string)", (profile) => {
+    expect(resolveMachineProfile(writeConfig({ machineProfile: profile }))).toBe(profile);
   });
 });
 
-describe("readProjectImplementReviewPasses", () => {
-  test("returns 0 when projects or implement.reviewPasses is absent", () => {
-    expect(readProjectImplementReviewPasses("demo", writeConfig({ agents: ["claude"] }))).toEqual({
-      ok: true,
-      reviewPasses: 0,
-    });
-    expect(
-      readProjectImplementReviewPasses("demo", writeConfig({ projects: { demo: { root: "/tmp/repo" } } })),
-    ).toEqual({ ok: true, reviewPasses: 0 });
-    expect(
-      readProjectImplementReviewPasses(
-        "demo",
-        writeConfig({ projects: { demo: { root: "/tmp/repo", implement: {} } } }),
-      ),
-    ).toEqual({ ok: true, reviewPasses: 0 });
-  });
+type ImplementFieldCase = {
+  field: string;
+  read: (projectKey: string, configPath: string) => unknown;
+  fallback: unknown;
+  valid: Array<[value: unknown, expected: unknown]>;
+  malformed: unknown[];
+  error: string;
+};
 
-  test("returns a valid configured reviewPasses", () => {
+const implementFieldCases: ImplementFieldCase[] = [
+  {
+    field: "reviewPasses",
+    read: readProjectImplementReviewPasses,
+    fallback: { ok: true, reviewPasses: 0 },
+    valid: [[2, { ok: true, reviewPasses: 2 }]],
+    malformed: [1.5, -1, "2"],
+    error: "projects.demo.implement.reviewPasses must be a non-negative integer",
+  },
+  {
+    field: "reviewBehavior",
+    read: readProjectImplementReviewBehavior,
+    fallback: { ok: true, reviewBehavior: "debate" },
+    valid: [
+      ["debate", { ok: true, reviewBehavior: "debate" }],
+      ["light", { ok: true, reviewBehavior: "light" }],
+    ],
+    malformed: ["heavy", 1, true],
+    error: 'projects.demo.implement.reviewBehavior must be "debate" or "light"',
+  },
+];
+
+for (const { field, read, fallback, valid, malformed, error } of implementFieldCases) {
+  describe(`readProjectImplement ${field}`, () => {
+    const implementConfig = (value: unknown): string =>
+      writeConfig({ projects: { demo: { root: "/tmp/repo", implement: { [field]: value } } } });
+
+    test.each([
+      ["projects", { agents: ["claude"] }],
+      ["implement", { projects: { demo: { root: "/tmp/repo" } } }],
+      [`implement.${field}`, { projects: { demo: { root: "/tmp/repo", implement: {} } } }],
+    ] as Array<[string, unknown]>)("returns the default when %s is absent", (_label, config) => {
+      expect(read("demo", writeConfig(config))).toEqual(fallback);
+    });
+
+    test("returns a valid configured value", () => {
+      for (const [value, expected] of valid) {
+        expect(read("demo", implementConfig(value))).toEqual(expected);
+      }
+    });
+
+    test("rejects malformed values with a named error", () => {
+      for (const value of malformed) {
+        expect(read("demo", implementConfig(value))).toEqual({ ok: false, error });
+      }
+    });
+
+    test("rejects a non-object implement with a named error", () => {
+      expect(read("demo", writeConfig({ projects: { demo: { root: "/tmp/repo", implement: "yes" } } }))).toEqual({
+        ok: false,
+        error: "projects.demo.implement must be an object",
+      });
+    });
+  });
+}
+
+describe("readProjectRegistry", () => {
+  test("keeps entries with a string root, carries origin, skips malformed entries", () => {
     const configPath = writeConfig({
-      projects: { demo: { root: "/tmp/repo", implement: { reviewPasses: 2 } } },
+      projects: {
+        demo: { root: "/tmp/repo" },
+        withOrigin: { root: "/tmp/other", origin: "git@example:demo.git" },
+        noRoot: {},
+        emptyRoot: { root: "" },
+        notObject: "nope",
+      },
     });
-    expect(readProjectImplementReviewPasses("demo", configPath)).toEqual({ ok: true, reviewPasses: 2 });
-  });
-
-  test("rejects fractional, negative, and malformed reviewPasses", () => {
-    for (const reviewPasses of [1.5, -1, "2"]) {
-      const configPath = writeConfig({
-        projects: { demo: { root: "/tmp/repo", implement: { reviewPasses } } },
-      });
-      expect(readProjectImplementReviewPasses("demo", configPath)).toEqual({
-        ok: false,
-        error: "projects.demo.implement.reviewPasses must be a non-negative integer",
-      });
-    }
-  });
-});
-
-describe("readProjectImplementReviewBehavior", () => {
-  test("returns debate when projects or implement.reviewBehavior is absent", () => {
-    expect(readProjectImplementReviewBehavior("demo", writeConfig({ agents: ["claude"] }))).toEqual({
-      ok: true,
-      reviewBehavior: "debate",
+    expect(readProjectRegistry(configPath)).toEqual({
+      demo: { root: "/tmp/repo" },
+      withOrigin: { root: "/tmp/other", origin: "git@example:demo.git" },
     });
-    expect(
-      readProjectImplementReviewBehavior("demo", writeConfig({ projects: { demo: { root: "/tmp/repo" } } })),
-    ).toEqual({ ok: true, reviewBehavior: "debate" });
-    expect(
-      readProjectImplementReviewBehavior(
-        "demo",
-        writeConfig({ projects: { demo: { root: "/tmp/repo", implement: {} } } }),
-      ),
-    ).toEqual({ ok: true, reviewBehavior: "debate" });
   });
 
-  test("returns a valid configured reviewBehavior", () => {
-    for (const reviewBehavior of ["debate", "light"] as const) {
-      const configPath = writeConfig({
-        projects: { demo: { root: "/tmp/repo", implement: { reviewBehavior } } },
-      });
-      expect(readProjectImplementReviewBehavior("demo", configPath)).toEqual({ ok: true, reviewBehavior });
-    }
-  });
-
-  test("rejects malformed reviewBehavior", () => {
-    for (const reviewBehavior of ["heavy", 1, true]) {
-      const configPath = writeConfig({
-        projects: { demo: { root: "/tmp/repo", implement: { reviewBehavior } } },
-      });
-      expect(readProjectImplementReviewBehavior("demo", configPath)).toEqual({
-        ok: false,
-        error: 'projects.demo.implement.reviewBehavior must be "debate" or "light"',
-      });
-    }
+  test("returns an empty registry when projects is absent or not an object", () => {
+    expect(readProjectRegistry(writeConfig({ agents: ["claude"] }))).toEqual({});
+    expect(readProjectRegistry(writeConfig({ projects: [] }))).toEqual({});
   });
 });

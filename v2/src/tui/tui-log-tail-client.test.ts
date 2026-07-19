@@ -5,7 +5,7 @@ import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { RpcConnectionError } from "../ipc/rpc-errors.ts";
 import { DAEMON_SOCKET_PATH } from "../paths.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
-import { createDeferredIpcClient, makeIpcClient } from "../testing/ipc-client-fake.ts";
+import { makeIpcClient } from "../testing/ipc-client-fake.ts";
 import { connectTuiLogTail } from "./tui-log-tail-client.ts";
 
 const UNREACHABLE_SOCKET_PATH = join(tmpdir(), `jarvis-tui-log-tail-missing-${process.pid}.sock`);
@@ -105,17 +105,17 @@ test("replays then follows records in server stream-data arrival order until ben
     logRecord(2, "boundary_committed"),
     logRecord(3, "loop_finished"),
   ];
-  const { client, push } = createDeferredIpcClient(sent);
+  const client = makeIpcClient([], { deferred: true, sent });
 
   const tail = await connectTuiLogTail("run-123", {
     connectIpcClient: async () => client,
   });
 
   const pending = withFixedStreamId(() => collectRecords(tail));
-  push({ kind: "stream-data", streamId: STREAM_ID, payload: JSON.stringify(records[0]) });
-  push({ kind: "stream-data", streamId: STREAM_ID, payload: JSON.stringify(records[1]) });
-  push({ kind: "stream-data", streamId: STREAM_ID, payload: JSON.stringify(records[2]) });
-  push({ kind: "stream-end", streamId: STREAM_ID });
+  client.push({ kind: "stream-data", streamId: STREAM_ID, payload: JSON.stringify(records[0]) });
+  client.push({ kind: "stream-data", streamId: STREAM_ID, payload: JSON.stringify(records[1]) });
+  client.push({ kind: "stream-data", streamId: STREAM_ID, payload: JSON.stringify(records[2]) });
+  client.push({ kind: "stream-end", streamId: STREAM_ID });
 
   await expect(pending).resolves.toEqual(records);
   expect(sent).toEqual([{ kind: "stream-open", streamId: STREAM_ID, payload: { runId: "run-123" } }]);
@@ -178,13 +178,13 @@ test.each([
 });
 
 test("connection loss during records iteration rejects with RpcConnectionError", async () => {
-  const { client, push } = createDeferredIpcClient();
+  const client = makeIpcClient([], { deferred: true });
   const tail = await connectTuiLogTail("run-123", {
     connectIpcClient: async () => client,
   });
 
   const pending = withFixedStreamId(async () => collectRecords(tail));
-  push({ kind: "stream-data", streamId: STREAM_ID, payload: JSON.stringify(logRecord(1, "iteration_started")) });
+  client.push({ kind: "stream-data", streamId: STREAM_ID, payload: JSON.stringify(logRecord(1, "iteration_started")) });
   client.close();
 
   await expect(pending).rejects.toBeInstanceOf(RpcConnectionError);
@@ -193,7 +193,7 @@ test("connection loss during records iteration rejects with RpcConnectionError",
 
 test("close sends stream-end for the opened stream id", async () => {
   const sent: unknown[] = [];
-  const { client, push } = createDeferredIpcClient(sent);
+  const client = makeIpcClient([], { deferred: true, sent });
 
   const tail = await connectTuiLogTail("run-123", {
     connectIpcClient: async () => client,
@@ -202,7 +202,11 @@ test("close sends stream-end for the opened stream id", async () => {
   await withFixedStreamId(async () => {
     const iter = tail.records()[Symbol.asyncIterator]();
     const pending = iter.next();
-    push({ kind: "stream-data", streamId: STREAM_ID, payload: JSON.stringify(logRecord(1, "iteration_started")) });
+    client.push({
+      kind: "stream-data",
+      streamId: STREAM_ID,
+      payload: JSON.stringify(logRecord(1, "iteration_started")),
+    });
     await pending;
     tail.close();
     expect(sent).toEqual([

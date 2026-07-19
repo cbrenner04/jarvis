@@ -48,6 +48,7 @@ import {
 } from "./work-boundary-telemetry.ts";
 import {
   executeWriteLoop,
+  getUncommittedPaths,
   publishWithReadyRepair,
   type WriteLoopInput,
   type WriteLoopOutcomeKind,
@@ -548,13 +549,6 @@ async function runLinkedImplementStep(
       return finalized;
     }
   }
-}
-
-async function getUncommittedPaths(worktreePath: string): Promise<string[]> {
-  return (await gitOutput(worktreePath, ["status", "--porcelain"]))
-    .split("\n")
-    .map((line) => line.slice(3).trim())
-    .filter(Boolean);
 }
 
 /**

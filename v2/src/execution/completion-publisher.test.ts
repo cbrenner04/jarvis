@@ -12,7 +12,6 @@ describe("createCompletionPublisher", () => {
   };
 
   const noopDelay = async () => {};
-  const readyGh = async (_cwd: string) => true;
   const noopRefreshSeams = {
     fetchPrBody: async () => "",
     writePrBody: async () => {},
@@ -55,7 +54,6 @@ describe("createCompletionPublisher", () => {
     const publisher = createCompletionPublisher({
       git: mockGit,
       gh: mockGh,
-      ghReady: readyGh,
       delay: noopDelay,
       ...noopRefreshSeams,
     });
@@ -82,7 +80,6 @@ describe("createCompletionPublisher", () => {
         if (args[0] === "pr" && args[1] === "view") return viewPr(42, "https://github.com/user/repo/pull/42");
         return "";
       },
-      ghReady: readyGh,
       delay: noopDelay,
       fetchPrBody: async () => "", // no existing narrative in the fetched body
       writePrBody: async (_branch: string, body: string) => {
@@ -119,7 +116,6 @@ describe("createCompletionPublisher", () => {
         }
         return "";
       },
-      ghReady: readyGh,
       delay: noopDelay,
       ...noopRefreshSeams,
     });
@@ -155,7 +151,6 @@ describe("createCompletionPublisher", () => {
         }
         return "";
       },
-      ghReady: readyGh,
       delay: noopDelay,
       ...noopRefreshSeams,
     });
@@ -179,10 +174,6 @@ describe("createCompletionPublisher", () => {
         if (args[0] === "pr" && args[1] === "create") return "https://github.com/user/repo/pull/42";
         if (args[0] === "pr" && args[1] === "view") return viewPr(42, "https://github.com/user/repo/pull/42");
         return "";
-      },
-      ghReady: async (cwd) => {
-        ghCwds.push(cwd);
-        return true;
       },
       delay: noopDelay,
       ...noopRefreshSeams,
@@ -218,7 +209,6 @@ describe("createCompletionPublisher", () => {
     const publisher = createCompletionPublisher({
       git: mockGit,
       gh: mockGh,
-      ghReady: readyGh,
       delay: noopDelay,
       ...noopRefreshSeams,
     });
@@ -252,7 +242,6 @@ describe("createCompletionPublisher", () => {
     const publisher = createCompletionPublisher({
       git: mockGit,
       gh: mockGh,
-      ghReady: readyGh,
       delay: noopDelay,
       ...noopRefreshSeams,
     });
@@ -283,7 +272,6 @@ describe("createCompletionPublisher", () => {
         }
         return "";
       },
-      ghReady: readyGh,
       delay: noopDelay,
       ...noopRefreshSeams,
     });
@@ -315,7 +303,6 @@ describe("createCompletionPublisher", () => {
     const publisher = createCompletionPublisher({
       git: mockGit,
       gh: mockGh,
-      ghReady: readyGh,
       delay: noopDelay,
       ...noopRefreshSeams,
     });
@@ -339,16 +326,14 @@ describe("createCompletionPublisher", () => {
     const publisher = createCompletionPublisher({
       git: mockGit,
       gh: mockGh,
-      ghReady: readyGh,
       delay: noopDelay,
       ...noopRefreshSeams,
     });
 
-    await expect(publisher(baseInput)).rejects.toThrow("Non-fast-forward push rejection");
+    await expect(publisher(baseInput)).rejects.toThrow("failed to push some refs");
   });
 
-  it("normalizes push failure evidence without invoking the legacy readiness seam", async () => {
-    let readinessCalls = 0;
+  it("normalizes push failure evidence on a rejected push", async () => {
     const failure = Object.assign(new Error("remote rejected push"), {
       code: 7,
       stdout: "push stdout",
@@ -362,10 +347,6 @@ describe("createCompletionPublisher", () => {
         return "";
       },
       gh: async () => "",
-      ghReady: async () => {
-        readinessCalls += 1;
-        return false;
-      },
       delay: noopDelay,
     });
 
@@ -383,7 +364,6 @@ describe("createCompletionPublisher", () => {
       stdoutTail: "push stdout",
       stderrTail: "push stderr",
     });
-    expect(readinessCalls).toBe(0);
   });
 
   it("normalizes PR command failure evidence at the publication retry boundary", async () => {
@@ -449,7 +429,6 @@ describe("createCompletionPublisher", () => {
     const publisher = createCompletionPublisher({
       git: mockGit,
       gh: mockGh,
-      ghReady: readyGh,
       delay: async (ms) => {
         delays.push(ms);
       },
@@ -482,7 +461,6 @@ describe("createCompletionPublisher", () => {
     const publisher = createCompletionPublisher({
       git: mockGit,
       gh: mockGh,
-      ghReady: readyGh,
       delay: noopDelay,
       ...noopRefreshSeams,
     });
@@ -511,7 +489,6 @@ describe("createCompletionPublisher", () => {
     const publisher = createCompletionPublisher({
       git: mockGit,
       gh: mockGh,
-      ghReady: readyGh,
       delay: noopDelay,
       ...noopRefreshSeams,
     });
@@ -544,7 +521,6 @@ describe("createCompletionPublisher", () => {
     const publisher = createCompletionPublisher({
       git: mockGit,
       gh: mockGh,
-      ghReady: readyGh,
       delay: noopDelay,
       ...noopRefreshSeams,
     });
@@ -575,7 +551,6 @@ describe("createCompletionPublisher", () => {
     const publisher = createCompletionPublisher({
       git: mockGit,
       gh: mockGh,
-      ghReady: readyGh,
       delay: noopDelay,
       ...noopRefreshSeams,
     });
@@ -604,7 +579,6 @@ describe("createCompletionPublisher", () => {
     const publisher = createCompletionPublisher({
       git: mockGit,
       gh: mockGh,
-      ghReady: readyGh,
       delay: noopDelay,
       ...noopRefreshSeams,
     });
@@ -635,7 +609,6 @@ describe("createCompletionPublisher", () => {
     const publisher = createCompletionPublisher({
       git: mockGit,
       gh: mockGh,
-      ghReady: readyGh,
       delay: noopDelay,
       ...noopRefreshSeams,
     });
@@ -660,7 +633,6 @@ describe("createCompletionPublisher", () => {
         if (args[0] === "pr" && args[1] === "view") return viewPr(42, "https://github.com/user/repo/pull/42");
         return "";
       },
-      ghReady: readyGh,
       delay: noopDelay,
       fetchPrBody: async () => `Spec: ${baseInput.specPath}`,
       writePrBody: async (_branch, body) => {
@@ -694,7 +666,6 @@ describe("createCompletionPublisher", () => {
         if (args[0] === "pr" && args[1] === "view") return viewPr(42, "https://github.com/user/repo/pull/42");
         return "";
       },
-      ghReady: readyGh,
       delay: noopDelay,
       fetchPrBody: async () => "",
       writePrBody: async (_branch, body) => {
@@ -728,7 +699,6 @@ describe("createCompletionPublisher", () => {
         }
         return "";
       },
-      ghReady: readyGh,
       delay: noopDelay,
       fetchPrBody: async () => "Spec: stale",
       writePrBody: async (_branch, body) => {
@@ -762,7 +732,6 @@ describe("createCompletionPublisher", () => {
         if (args[0] === "pr" && args[1] === "view") return viewPr(42, "https://github.com/user/repo/pull/42");
         return "";
       },
-      ghReady: readyGh,
       delay: async (ms) => {
         delays.push(ms);
       },
@@ -802,7 +771,6 @@ describe("createCompletionPublisher", () => {
         if (args[0] === "pr" && args[1] === "view") return viewPr(42, "https://github.com/user/repo/pull/42");
         return "";
       },
-      ghReady: readyGh,
       delay: noopDelay,
       fetchPrBody: async () => "",
       writePrBody: async () => {
@@ -887,7 +855,6 @@ describe("createCompletionPublisher", () => {
         if (args[0] === "pr" && args[1] === "view") return viewPr(42, "https://github.com/user/repo/pull/42");
         return "";
       },
-      ghReady: readyGh,
       delay: noopDelay,
       fetchPrBody: async () => "",
       writePrBody: async () => {},

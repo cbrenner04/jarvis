@@ -270,7 +270,6 @@ export type DaemonStatusResult =
   | { state: "stopped" };
 
 export type GetCurrentRevisionFn = () => Promise<string>;
-export type GetDaemonLoadedRevisionFn = () => Promise<string | undefined>;
 
 export async function getDaemonStatus(
   pid: number,
@@ -280,7 +279,6 @@ export async function getDaemonStatus(
     processProber?: ProcessProber;
     socketProber?: SocketProber;
     getCurrentRevision?: GetCurrentRevisionFn;
-    getDaemonLoadedRevision?: GetDaemonLoadedRevisionFn;
   },
 ): Promise<DaemonStatusResult> {
   const healthTimeoutMs = options?.healthTimeoutMs ?? 1_000;
@@ -298,31 +296,23 @@ export async function getDaemonStatus(
 
   let loadedRevision: string | undefined;
 
-  if (options?.getDaemonLoadedRevision) {
+  try {
+    const client = await connectIpcClient(socketPath);
+    const transport = createRpcTransport(client);
     try {
-      loadedRevision = await options.getDaemonLoadedRevision();
-    } catch {
-      return { state: "stopped" };
-    }
-  } else {
-    try {
-      const client = await connectIpcClient(socketPath);
-      const transport = createRpcTransport(client);
-      try {
-        const response = await transport.request("status", undefined, { timeoutMs: healthTimeoutMs });
-        const daemonStatus = parseStatusResult(response);
+      const response = await transport.request("status", undefined, { timeoutMs: healthTimeoutMs });
+      const daemonStatus = parseStatusResult(response);
 
-        if (!daemonStatus) {
-          return { state: "stopped" };
-        }
-
-        loadedRevision = daemonStatus.loadedRevision;
-      } finally {
-        transport.close();
+      if (!daemonStatus) {
+        return { state: "stopped" };
       }
-    } catch {
-      return { state: "stopped" };
+
+      loadedRevision = daemonStatus.loadedRevision;
+    } finally {
+      transport.close();
     }
+  } catch {
+    return { state: "stopped" };
   }
 
   if (!loadedRevision) {

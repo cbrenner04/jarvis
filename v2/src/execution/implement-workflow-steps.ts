@@ -2,6 +2,11 @@ import { readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { resolveActiveLinkedSubspec as realResolveActiveLinkedSubspec } from "../../../shared/linked-subspec-routing.ts";
 import { findProjectMatch, type ProjectMatch } from "../../../shared/project-registry.ts";
+import {
+  implementReviewPromptProfile,
+  PATCH_REVIEW_CRITIC_PROMPT_ID,
+  PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS,
+} from "../../../shared/prompts/review-implement.ts";
 import { parseSpec } from "../../../shared/spec-parser.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
@@ -11,11 +16,6 @@ import {
   readProjectRegistry,
 } from "../config/machine-config-loader.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
-import {
-  implementReviewPromptProfile,
-  PATCH_REVIEW_CRITIC_PROMPT_ID,
-  PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS,
-} from "./review-debate-render.ts";
 import {
   type ReviewDebateWorkflowSourceStep,
   type ReviewWorkflowSourceStep,

@@ -4,7 +4,11 @@ import {
   type AsyncSubprocessRunner,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
-import { runPublicationWithRetry } from "./publication-retry.ts";
+import {
+  defaultPublicationDelay,
+  defaultPublicationRetryNotice,
+  runPublicationWithRetry,
+} from "./publication-retry.ts";
 
 export type ReadyFinalizeInput = {
   worktreePath: string;
@@ -67,14 +71,6 @@ export class RuntimeSmokeFailedError extends Error {
 }
 
 const READY_GATE_MAX_BUFFER = 16 * 1024 * 1024;
-
-function defaultDelay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function defaultRetryNotice(message: string): void {
-  console.error(message);
-}
 
 async function getChangedPathsWithResolvability(
   runner: AsyncSubprocessRunner,
@@ -183,8 +179,8 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
   const asyncSubprocessRunner = seams?.asyncSubprocessRunner ?? realAsyncSubprocessRunner;
   const runReadyGate = seams?.runReadyGate ?? createDefaultRunReadyGate(asyncSubprocessRunner);
   const ghReadyFlip = seams?.ghReadyFlip ?? defaultGhReadyFlip;
-  const delay = seams?.delay ?? defaultDelay;
-  const retryNotice = seams?.retryNotice ?? defaultRetryNotice;
+  const delay = seams?.delay ?? defaultPublicationDelay;
+  const retryNotice = seams?.retryNotice ?? defaultPublicationRetryNotice;
   const runRequiredIntegration =
     seams?.runRequiredIntegration ?? createDefaultRunRequiredIntegration(asyncSubprocessRunner);
   const runMutationVerification = seams?.runMutationVerification;

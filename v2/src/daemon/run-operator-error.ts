@@ -40,21 +40,6 @@ export type RunOperatorError = {
   publicationFailure?: PublicationFailure;
 };
 
-const runOperatorErrorReasonSet = new Set<string>(RUN_OPERATOR_ERROR_REASONS);
-const runOperatorNextActionSet = new Set<string>(RUN_OPERATOR_NEXT_ACTIONS);
-
-export function isRunOperatorError(value: unknown): value is RunOperatorError {
-  if (typeof value !== "object" || value === null) return false;
-  const record = value as Record<string, unknown>;
-  return (
-    typeof record.reason === "string" &&
-    runOperatorErrorReasonSet.has(record.reason) &&
-    typeof record.retryable === "boolean" &&
-    typeof record.nextAction === "string" &&
-    runOperatorNextActionSet.has(record.nextAction)
-  );
-}
-
 /** Last terminal log row selected for operator-error composition (`loop_finished` or `run_execution_failed`). */
 export type TerminalLogRecord = PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent };
 

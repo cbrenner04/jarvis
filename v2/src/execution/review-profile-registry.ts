@@ -1,7 +1,7 @@
+import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
+import { intentReviewPromptProfile } from "../../../shared/prompts/review-intent.ts";
+import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
 import type { ReviewPromptProfile } from "../../../shared/prompts/review-profile.ts";
-import { intentReviewPromptProfile } from "./render-intent-review-prompts.ts";
-import { planReviewPromptProfile } from "./render-plan-review-prompts.ts";
-import { implementReviewPromptProfile } from "./review-debate-render.ts";
 
 /** Executable renderers are restored from the serializable profile domain at dispatch. */
 const profiles = {

@@ -14,13 +14,17 @@ export function readIterationTimeoutMs(configPath: string = MACHINE_CONFIG_PATH)
   return value;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export function readMachineConfigDocument(
   configPath: string = MACHINE_CONFIG_PATH,
 ): Record<string, unknown> | undefined {
   const parsed = readMachineConfigFile(configPath);
   if (parsed === undefined) return undefined;
 
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+  if (!isRecord(parsed)) {
     throw new Error(
       `Machine config at ${configPath} must be a JSON object, got ${
         Array.isArray(parsed) ? "array" : parsed === null ? "null" : typeof parsed
@@ -29,10 +33,10 @@ export function readMachineConfigDocument(
   }
 
   if ("agents" in parsed) {
-    validateMachineConfigAgents((parsed as Record<string, unknown>).agents);
+    validateMachineConfigAgents(parsed.agents);
   }
 
-  return parsed as Record<string, unknown>;
+  return parsed;
 }
 
 export function validateMachineConfigAgents(agents: unknown): string[] {
@@ -73,111 +77,83 @@ export function loadMachineConfig(configPath: string = MACHINE_CONFIG_PATH): str
 
 export type ImplementReviewBehavior = "debate" | "light";
 
+/**
+ * Walks projects.<projectKey>.implement.<field>. Absent ancestors (or a non-object project)
+ * yield `value: undefined` so callers apply their default; a present non-object `implement`
+ * is the only walk-level error.
+ */
+function readProjectImplementField(
+  doc: Record<string, unknown> | undefined,
+  projectKey: string,
+  field: string,
+): { ok: true; value: unknown } | { ok: false; error: string } {
+  const projects = doc?.projects;
+  if (!isRecord(projects)) return { ok: true, value: undefined };
+
+  const project = projects[projectKey];
+  if (!isRecord(project)) return { ok: true, value: undefined };
+
+  const implement = project.implement;
+  if (implement === undefined) return { ok: true, value: undefined };
+  if (!isRecord(implement)) {
+    return { ok: false, error: `projects.${projectKey}.implement must be an object` };
+  }
+
+  return { ok: true, value: implement[field] };
+}
+
 export function readProjectImplementReviewBehavior(
   projectKey: string,
   configPath: string = MACHINE_CONFIG_PATH,
 ): { ok: true; reviewBehavior: ImplementReviewBehavior } | { ok: false; error: string } {
-  const parsed = readMachineConfigDocument(configPath);
-  const projects = parsed?.projects;
-  if (typeof projects !== "object" || projects === null || Array.isArray(projects)) {
-    return { ok: true, reviewBehavior: "debate" };
-  }
+  const field = readProjectImplementField(readMachineConfigDocument(configPath), projectKey, "reviewBehavior");
+  if (!field.ok) return field;
 
-  const project = (projects as Record<string, unknown>)[projectKey];
-  if (typeof project !== "object" || project === null || Array.isArray(project)) {
-    return { ok: true, reviewBehavior: "debate" };
-  }
-
-  const implement = (project as Record<string, unknown>).implement;
-  if (implement === undefined) {
-    return { ok: true, reviewBehavior: "debate" };
-  }
-
-  if (typeof implement !== "object" || implement === null || Array.isArray(implement)) {
-    return {
-      ok: false,
-      error: `projects.${projectKey}.implement must be an object`,
-    };
-  }
-
-  const reviewBehavior = (implement as Record<string, unknown>).reviewBehavior;
-  if (reviewBehavior === undefined) {
-    return { ok: true, reviewBehavior: "debate" };
-  }
-
-  if (reviewBehavior !== "debate" && reviewBehavior !== "light") {
+  const value = field.value;
+  if (value === undefined) return { ok: true, reviewBehavior: "debate" };
+  if (value !== "debate" && value !== "light") {
     return {
       ok: false,
       error: `projects.${projectKey}.implement.reviewBehavior must be "debate" or "light"`,
     };
   }
-
-  return { ok: true, reviewBehavior };
+  return { ok: true, reviewBehavior: value };
 }
 
 export function readProjectImplementReviewPasses(
   projectKey: string,
   configPath: string = MACHINE_CONFIG_PATH,
 ): { ok: true; reviewPasses: number } | { ok: false; error: string } {
-  const parsed = readMachineConfigDocument(configPath);
-  const projects = parsed?.projects;
-  if (typeof projects !== "object" || projects === null || Array.isArray(projects)) {
-    return { ok: true, reviewPasses: 0 };
-  }
+  const field = readProjectImplementField(readMachineConfigDocument(configPath), projectKey, "reviewPasses");
+  if (!field.ok) return field;
 
-  const project = (projects as Record<string, unknown>)[projectKey];
-  if (typeof project !== "object" || project === null || Array.isArray(project)) {
-    return { ok: true, reviewPasses: 0 };
-  }
-
-  const implement = (project as Record<string, unknown>).implement;
-  if (implement === undefined) {
-    return { ok: true, reviewPasses: 0 };
-  }
-
-  if (typeof implement !== "object" || implement === null || Array.isArray(implement)) {
-    return {
-      ok: false,
-      error: `projects.${projectKey}.implement must be an object`,
-    };
-  }
-
-  const reviewPasses = (implement as Record<string, unknown>).reviewPasses;
-  if (reviewPasses === undefined) {
-    return { ok: true, reviewPasses: 0 };
-  }
-
-  if (typeof reviewPasses !== "number" || !Number.isInteger(reviewPasses) || reviewPasses < 0) {
+  const value = field.value;
+  if (value === undefined) return { ok: true, reviewPasses: 0 };
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
     return {
       ok: false,
       error: `projects.${projectKey}.implement.reviewPasses must be a non-negative integer`,
     };
   }
-
-  return { ok: true, reviewPasses };
+  return { ok: true, reviewPasses: value };
 }
 
 export function readProjectRegistry(configPath: string = MACHINE_CONFIG_PATH): Record<string, ProjectRegistryEntry> {
-  const parsed = readMachineConfigDocument(configPath);
-  const projects = parsed?.projects;
-  if (typeof projects !== "object" || projects === null || Array.isArray(projects)) {
-    return {};
-  }
+  const projects = readMachineConfigDocument(configPath)?.projects;
+  if (!isRecord(projects)) return {};
 
   const registry: Record<string, ProjectRegistryEntry> = {};
   for (const [key, value] of Object.entries(projects)) {
-    if (typeof value !== "object" || value === null) continue;
-    const root = (value as Record<string, unknown>).root;
+    if (!isRecord(value)) continue;
+    const { root, origin } = value;
     if (typeof root !== "string" || root === "") continue;
-    const origin = (value as Record<string, unknown>).origin;
     registry[key] = typeof origin === "string" ? { root, origin } : { root };
   }
   return registry;
 }
 
 export function resolveMachineProfile(configPath: string = MACHINE_CONFIG_PATH): string {
-  const parsed = readMachineConfigDocument(configPath);
-  const machineProfile = parsed?.machineProfile;
+  const machineProfile = readMachineConfigDocument(configPath)?.machineProfile;
 
   if (typeof machineProfile !== "string" || machineProfile === "") {
     throw new Error(`Machine config at ${configPath} is missing required 'machineProfile' key`);

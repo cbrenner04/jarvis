@@ -10,7 +10,7 @@ import type { IpcFrame } from "../ipc/types.ts";
 import { DAEMON_SOCKET_PATH } from "../paths.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
-import { createDeferredIpcClient, makeIpcClient } from "../testing/ipc-client-fake.ts";
+import { makeIpcClient } from "../testing/ipc-client-fake.ts";
 import type { TuiDaemonClient } from "./tui-daemon-client.ts";
 import { connectTuiDaemon } from "./tui-daemon-client.ts";
 
@@ -367,10 +367,10 @@ test("wait sends one correlated IPC wait request and returns only present option
 
 test("list succeeds while wait is unresolved on the same client", async () => {
   const sent: unknown[] = [];
-  const deferred = createDeferredIpcClient(sent);
+  const deferred = makeIpcClient([], { deferred: true, sent });
 
   await withFixedUuid([WAIT_REQUEST_ID, LIST_REQUEST_ID], async () => {
-    const client = await connectTuiDaemon({ connectIpcClient: async () => deferred.client });
+    const client = await connectTuiDaemon({ connectIpcClient: async () => deferred });
     const waitPromise = client.wait("run-123");
     const listPromise = client.list();
 
@@ -404,10 +404,10 @@ test("list succeeds while wait is unresolved on the same client", async () => {
 });
 
 test("wait stays pending until its correlated reply arrives", async () => {
-  const deferred = createDeferredIpcClient();
+  const deferred = makeIpcClient([], { deferred: true });
 
   await withFixedUuid([WAIT_REQUEST_ID], async () => {
-    const client = await connectTuiDaemon({ connectIpcClient: async () => deferred.client });
+    const client = await connectTuiDaemon({ connectIpcClient: async () => deferred });
     const waitPromise = client.wait("run-123");
 
     let settled = false;
@@ -424,10 +424,10 @@ test("wait stays pending until its correlated reply arrives", async () => {
 });
 
 test("late correlated wait replies do not resolve an abandoned promise", async () => {
-  const deferred = createDeferredIpcClient();
+  const deferred = makeIpcClient([], { deferred: true });
 
   await withFixedUuid([WAIT_REQUEST_ID], async () => {
-    const client = await connectTuiDaemon({ connectIpcClient: async () => deferred.client });
+    const client = await connectTuiDaemon({ connectIpcClient: async () => deferred });
     let resolved = false;
     const waitPromise = client.wait("run-123").then(
       () => {
@@ -446,10 +446,10 @@ test("late correlated wait replies do not resolve an abandoned promise", async (
 test("replacing wait abandons the prior pending request without resolving it", async () => {
   const WAIT_FIRST_ID = "00000000-0000-4000-8000-000000000006";
   const WAIT_SECOND_ID = "00000000-0000-4000-8000-000000000007";
-  const deferred = createDeferredIpcClient();
+  const deferred = makeIpcClient([], { deferred: true });
 
   await withFixedUuid([WAIT_FIRST_ID, WAIT_SECOND_ID], async () => {
-    const client = await connectTuiDaemon({ connectIpcClient: async () => deferred.client });
+    const client = await connectTuiDaemon({ connectIpcClient: async () => deferred });
     const abandoned = client.wait("run-a");
     const replacement = client.wait("run-b");
 
@@ -596,10 +596,10 @@ test.each([
 
 test("steering RPCs succeed while wait is unresolved on the same client", async () => {
   const sent: unknown[] = [];
-  const deferred = createDeferredIpcClient(sent);
+  const deferred = makeIpcClient([], { deferred: true, sent });
 
   await withFixedUuid([WAIT_REQUEST_ID, PAUSE_REQUEST_ID, KILL_REQUEST_ID], async () => {
-    const client = await connectTuiDaemon({ connectIpcClient: async () => deferred.client });
+    const client = await connectTuiDaemon({ connectIpcClient: async () => deferred });
     const waitPromise = client.wait("run-123");
 
     const pausePromise = client.pause("run-123");

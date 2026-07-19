@@ -4,12 +4,10 @@ import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { formatConnectionError } from "../cli/ipc.ts";
 import { CONFIG_USAGE } from "../cli/usage.ts";
-import {
-  loadMachineConfig,
-  readMachineConfigDocument,
-  validateMachineConfigAgents,
-} from "../config/machine-config-loader.ts";
+import { loadMachineConfig, readMachineConfigDocument } from "../config/machine-config-loader.ts";
 
+/** Sole validation for set-agents input: CSV shape first, then duplicates. Entries are
+ * non-empty trimmed strings by construction, so the machine-config validator is not re-run. */
 function parseSetAgentsCsv(raw: string): { ok: true; agents: string[] } | { ok: false; message: string } {
   const agents = raw.split(",").map((part) => part.trim());
   for (const [i, agent] of agents.entries()) {
@@ -21,12 +19,12 @@ function parseSetAgentsCsv(raw: string): { ok: true; agents: string[] } | { ok: 
     }
   }
 
-  try {
-    return { ok: true, agents: validateMachineConfigAgents(agents) };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { ok: false, message: `${message}\n` };
+  const duplicate = agents.find((agent, i) => agents.indexOf(agent) !== i);
+  if (duplicate !== undefined) {
+    return { ok: false, message: `Machine config 'agents' contains duplicate entry: "${duplicate}"\n` };
   }
+
+  return { ok: true, agents };
 }
 
 function writeMachineConfigAgents(configPath: string, agents: readonly string[]): void {

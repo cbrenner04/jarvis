@@ -98,14 +98,7 @@ test("sixty exempt runs plus fifty terminal runs all return from list", async ()
 });
 
 test("exempt-status runs are always listed and do not consume the terminal bound", async () => {
-  const exemptStatuses: RunStatus[] = [
-    "in-progress",
-    "queued",
-    "paused",
-    "budget-soft-stopped",
-    "awaiting-human",
-    "revising",
-  ];
+  const exemptStatuses: RunStatus[] = ["in-progress", "queued", "paused", "budget-soft-stopped"];
   const exemptIds = exemptStatuses.map((status, index) =>
     seedRun(stateStore, { status, createdAt: index, project: `exempt-${status}` }),
   );
@@ -115,7 +108,7 @@ test("exempt-status runs are always listed and do not consume the terminal bound
   }
 
   const runs = await listRunsDirect(handlers);
-  expect(runs).toHaveLength(56);
+  expect(runs).toHaveLength(exemptStatuses.length + 50);
   for (const exemptId of exemptIds) {
     expect(runs?.some((row) => row.runId === exemptId)).toBe(true);
   }
@@ -159,7 +152,7 @@ test("workflow step runs are retained with a listed invocation", async () => {
   stateStore.commitCompletionBoundary({ attemptId: step1Attempt, runStatus: "completed", outcomeKind: "done" });
 
   const liveStep2Id = seedRun(stateStore, {
-    status: "awaiting-human",
+    status: "paused",
     createdAt: 2,
     project: "wf",
     branch: "wf-br",
@@ -176,7 +169,7 @@ test("workflow step runs are retained with a listed invocation", async () => {
   expect(liveRow?.workflow).toEqual({
     steps: [
       { stepId: "step-1", role: "implement", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
-      { stepId: "step-2", role: "review", status: "stopped", attemptCount: 0, terminalOutcome: "awaiting-human" },
+      { stepId: "step-2", role: "review", status: "stopped", attemptCount: 0, terminalOutcome: "paused" },
     ],
   });
   expect(runs?.some((row) => row.runId === step1Id)).toBe(true);

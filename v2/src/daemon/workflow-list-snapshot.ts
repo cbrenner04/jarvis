@@ -12,8 +12,7 @@ export type WorkflowStepTerminalOutcome =
   | "budget-exhausted"
   | "paused"
   | "invalid_token"
-  | "killed"
-  | "awaiting-human";
+  | "killed";
 
 export type WorkflowStepListSnapshot = {
   stepId: string;
@@ -112,7 +111,6 @@ export function stoppedOutcomeForRun(run: LoadedRun): Exclude<WorkflowStepTermin
     return run.attempts[run.attempts.length - 1]?.outcomeKind === "invalid_token" ? "invalid_token" : "paused";
   }
   if (run.status === "killed") return "killed";
-  if (run.status === "awaiting-human") return "awaiting-human";
   if (run.attempts[run.attempts.length - 1]?.outcomeKind === "iteration_timeout") return "iteration_timeout";
   return "invocation_failure";
 }

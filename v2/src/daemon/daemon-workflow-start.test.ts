@@ -10,7 +10,6 @@ import {
 } from "../../../shared/prompts/review-profile.ts";
 import type {
   AnyWorkflowStep,
-  HumanWorkflowStep,
   ReviewDebateWorkflowStep,
   ReviewWorkflowStep,
   WriteWorkflowStep,
@@ -313,7 +312,7 @@ test("JSON-round-tripped review profiles rehydrate renderers for every domain an
     const write = createWriteStep(`${profile.domain}-write`, `${profile.domain}-branch`);
     const serialized = JSON.parse(JSON.stringify([write, light, debate])) as AnyWorkflowStep[];
     for (const [index, step] of serialized.entries()) {
-      if (step.behavior !== "human") step.createBinding = index === 0 ? doneWithArtifactBindingFactory : bindingFactory;
+      step.createBinding = index === 0 ? doneWithArtifactBindingFactory : bindingFactory;
     }
     if (serialized[0]?.behavior === "write" && write.withExternalWorktree !== undefined)
       serialized[0].withExternalWorktree = write.withExternalWorktree;
@@ -404,15 +403,6 @@ test("start with steps is rejected worktree_claimed when the (project, branch) a
   await startRunDirect(handlers, mockWriteLoopInput({ projectName: "demo", branchName: "workflow-branch" }));
 
   const steps: AnyWorkflowStep[] = [createWriteStep("step-1", "workflow-branch")];
-  const response = await handlers.start(requestFrame("s2", "start", { steps }), new AbortController().signal);
-  expect(response).toEqual({ kind: "error", code: "worktree_claimed", message: expect.any(String) });
-});
-
-test("start with steps derives the ownership key from flat project/branch when the first step is a human step", async () => {
-  await startRunDirect(handlers, mockWriteLoopInput({ projectName: "demo", branchName: "human-branch" }));
-
-  const humanStep: HumanWorkflowStep = { behavior: "human", stepId: "gate", project: "demo", branch: "human-branch" };
-  const steps: AnyWorkflowStep[] = [humanStep];
   const response = await handlers.start(requestFrame("s2", "start", { steps }), new AbortController().signal);
   expect(response).toEqual({ kind: "error", code: "worktree_claimed", message: expect.any(String) });
 });

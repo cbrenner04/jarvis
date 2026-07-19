@@ -21,7 +21,7 @@ async function killDirect(h: Handlers, runId: string) {
   return h.kill({ kind: "request", id: "k1", method: "kill", params: { runId } }, new AbortController().signal);
 }
 
-async function resumeDirect(h: Handlers, params: { runId: string; decision?: string; prompt?: string }) {
+async function resumeDirect(h: Handlers, params: { runId: string }) {
   return h.resume({ kind: "request", id: "r1", method: "resume", params }, new AbortController().signal);
 }
 
@@ -621,10 +621,6 @@ test("stoppedOutcomeForRun maps killed to killed", () => {
   expect(stoppedOutcomeForRun(runFixture("killed"))).toBe("killed");
 });
 
-test("stoppedOutcomeForRun maps awaiting-human to awaiting-human", () => {
-  expect(stoppedOutcomeForRun(runFixture("awaiting-human"))).toBe("awaiting-human");
-});
-
 test("stoppedOutcomeForRun falls back to invocation_failure for any other status", () => {
   expect(stoppedOutcomeForRun(runFixture("failed"))).toBe("invocation_failure");
 });
@@ -1016,101 +1012,6 @@ test("resume rejects completed runs after ready flip failures", async () => {
   });
   expect((await resumeDirect(handlers, { runId: flipRunId })).kind).toBe("error");
   expect(fakeExecutor.pendingCount()).toBe(0);
-});
-
-test("resume without decision on an awaiting-human run is rejected invalid_params", async () => {
-  const runId = stateStore.createRun({
-    project: "test-project",
-    specRef: "main",
-    worktreePath: "/tmp/test-project",
-    branch: "human-branch",
-    specPath: "/tmp/test-project/spec.md",
-  });
-  stateStore.setRunStatus(runId, "awaiting-human");
-
-  const resumeResponse = await resumeDirect(handlers, { runId });
-  expect(resumeResponse.kind).toBe("error");
-  if (resumeResponse.kind === "error") {
-    expect(resumeResponse.code).toBe("invalid_params");
-  }
-});
-
-test("resume with decision approve completes the human step run", async () => {
-  const runId = stateStore.createRun({
-    project: "test-project",
-    specRef: "main",
-    worktreePath: "/tmp/test-project",
-    branch: "human-branch",
-    specPath: "/tmp/test-project/spec.md",
-  });
-  stateStore.setRunStatus(runId, "awaiting-human");
-
-  const resumeResponse = await resumeDirect(handlers, { runId, decision: "approve" });
-  expect(resumeResponse.kind).toBe("response");
-
-  const runs = await listRunsDirect(handlers);
-  const run = runs?.find((candidate) => candidate.runId === runId);
-  expect(run).toBeDefined();
-  expect(run?.status).toBe("completed");
-});
-
-test("resume with decision abort kills the human step run", async () => {
-  const runId = stateStore.createRun({
-    project: "test-project",
-    specRef: "main",
-    worktreePath: "/tmp/test-project",
-    branch: "human-branch",
-    specPath: "/tmp/test-project/spec.md",
-  });
-  stateStore.setRunStatus(runId, "awaiting-human");
-
-  const resumeResponse = await resumeDirect(handlers, { runId, decision: "abort" });
-  expect(resumeResponse.kind).toBe("response");
-
-  const runs = await listRunsDirect(handlers);
-  const run = runs?.find((candidate) => candidate.runId === runId);
-  expect(run).toBeDefined();
-  expect(run?.status).toBe("killed");
-});
-
-test("resume with decision revise on an awaiting-human run is rejected", async () => {
-  const runId = stateStore.createRun({
-    project: "test-project",
-    specRef: "main",
-    worktreePath: "/tmp/test-project",
-    branch: "human-branch",
-    specPath: "/tmp/test-project/spec.md",
-  });
-  stateStore.setRunStatus(runId, "awaiting-human");
-
-  const resumeResponse = await resumeDirect(handlers, { runId, decision: "revise" });
-  expect(resumeResponse.kind).toBe("error");
-  if (resumeResponse.kind === "error") {
-    expect(resumeResponse.code).toBe("revise_unsupported");
-  }
-});
-
-test("resume with a decision param on a non-awaiting-human run is rejected", async () => {
-  const runId = await startRunDirect(handlers);
-  if (!runId) return;
-
-  fakeExecutor.settleAll();
-  await flushBackgroundRuns();
-
-  const pausedRunId = stateStore.createRun({
-    project: "test-project",
-    specRef: "main",
-    worktreePath: "/tmp/test-project",
-    branch: "paused-branch",
-    specPath: "/tmp/test-project/spec.md",
-  });
-  stateStore.setRunStatus(pausedRunId, "paused");
-
-  const resumeResponse = await resumeDirect(handlers, { runId: pausedRunId, decision: "approve" });
-  expect(resumeResponse.kind).toBe("error");
-  if (resumeResponse.kind === "error") {
-    expect(resumeResponse.code).toBe("invalid_params");
-  }
 });
 
 test("resume rejects an unsupported paused run before checking another in-flight run", async () => {

@@ -15,8 +15,6 @@ export const RUN_STATUSES = [
   "paused",
   "failed",
   "killed",
-  "awaiting-human",
-  "revising",
   "queued",
 ] as const;
 
@@ -35,16 +33,10 @@ export function isBoundaryTerminalRunStatus(status: RunStatus): boolean {
   return BOUNDARY_TERMINAL_STATUSES.has(status);
 }
 
-/** A human step's configured repeat-and-revise target. */
-export type OnReviseConfig = {
-  repeatStepId: string;
-  maxRevisions: number;
-};
-
 /**
  * Authored workflow-step identity retained on workflow-backed runs. Write-step
  * config (`stepRules`, `expectedArtifactPath`, `agents`, `agentModelConfig`) is
- * carried here too so a later `revise` can rebuild that step's `WriteLoopInput`
+ * carried here too so resume can rebuild that step's `WriteLoopInput`
  * without a live reference to the authoring `WorkflowStep`.
  */
 export type WorkflowSnapshotStep = {
@@ -54,7 +46,6 @@ export type WorkflowSnapshotStep = {
   durable?: boolean;
   /** Identifies a review behavior. */
   behavior?: "review-debate" | "review";
-  onRevise?: OnReviseConfig;
   stepRules?: string;
   expectedArtifactPath?: string;
   agents?: readonly string[];
@@ -159,9 +150,6 @@ export interface StateStore {
 
   /** All runs whose `workflowSnapshot.invocationId` matches the given id. */
   findRunsByInvocationId(invocationId: string): Run[];
-
-  /** Runs for `(project, branch)` whose `stepId` is a `${repeatStepId}~r<n>` revision of `repeatStepId`. */
-  findRevisionRuns(args: { project: string; branch: string; repeatStepId: string }): Run[];
 
   /** Insert an `in-progress` attempt row; returns its ID. */
   recordAttemptStart(runId: string): string;
@@ -281,7 +269,7 @@ const SCHEMA_MIGRATIONS = [
   },
 ] as const;
 
-const ORPHAN_STATUSES = "'queued', 'in-progress', 'paused', 'budget-soft-stopped', 'awaiting-human', 'revising'";
+const ORPHAN_STATUSES = "'queued', 'in-progress', 'paused', 'budget-soft-stopped'";
 
 /** Probes whether the process recorded as a run's owner is still alive. */
 export type OwnerLivenessProbe = (identity: string) => Promise<boolean>;
@@ -478,14 +466,6 @@ class StateStoreImpl implements StateStore {
           `SELECT ${RUN_COLUMNS} FROM runs WHERE workflow_snapshot IS NOT NULL AND json_extract(workflow_snapshot, '$.invocationId') = ? ORDER BY created_at ASC`,
         )
         .all(invocationId) as RunRow[]
-    ).map(mapRunRow);
-  }
-
-  findRevisionRuns(args: { project: string; branch: string; repeatStepId: string }): Run[] {
-    return (
-      this.db
-        .prepare(`SELECT ${RUN_COLUMNS} FROM runs WHERE project = ? AND branch = ? AND step_id LIKE ? ESCAPE '\\'`)
-        .all(args.project, args.branch, `${args.repeatStepId.replace(/[\\%_]/g, "\\$&")}~r%`) as RunRow[]
     ).map(mapRunRow);
   }
 

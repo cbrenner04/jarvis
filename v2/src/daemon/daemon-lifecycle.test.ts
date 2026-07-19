@@ -389,7 +389,7 @@ describe("daemon-lifecycle", () => {
           run("queued-id", "queued"),
           run("live-id", "in-progress"),
           run("paused-id", "paused"),
-          run("non-live-id", "awaiting-human"),
+          run("non-live-id", "budget-soft-stopped"),
         ],
         close: () => {},
       };

@@ -14,14 +14,7 @@ import {
 import { reconcileOrphanedRuns, recoverReconciledRuns, startDaemon } from "./daemon.ts";
 
 const dbPath = join(tmpdir(), `jarvis-reconciliation-${process.pid}.sqlite`);
-const orphanedStatuses: readonly RunStatus[] = [
-  "queued",
-  "in-progress",
-  "paused",
-  "budget-soft-stopped",
-  "awaiting-human",
-  "revising",
-];
+const orphanedStatuses: readonly RunStatus[] = ["queued", "in-progress", "paused", "budget-soft-stopped"];
 const terminalStatuses: readonly RunStatus[] = ["completed", "blocked", "failed", "killed"];
 
 // Simulated identity of a prior daemon incarnation that admitted the seeded runs.

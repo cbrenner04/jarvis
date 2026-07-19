@@ -5,8 +5,6 @@ import type { TuiMonitorState } from "./tui-monitor-types.ts";
 function isActiveRunStatus(status: RunStatus): boolean {
   switch (status) {
     case "in-progress":
-    case "awaiting-human":
-    case "revising":
     case "paused":
     case "budget-soft-stopped":
       return true;
@@ -62,8 +60,6 @@ export const RUN_STATUS_TONES: Record<RunStatus, MonitorSegmentTone> = {
   paused: "active",
   failed: "failure",
   killed: "failure",
-  "awaiting-human": "active",
-  revising: "active",
   queued: "active",
 };
 

@@ -79,7 +79,7 @@ function createInkCapture(state: TuiMonitorState) {
   let TextType: unknown;
   const inkRender = ((_element: unknown) => {
     if (TextType === undefined) throw new Error("expected Text before render");
-    renders.push(createMonitorDisplay(state, { kind: "idle" }, TextType as Parameters<typeof createMonitorDisplay>[2]));
+    renders.push(createMonitorDisplay(state, TextType as Parameters<typeof createMonitorDisplay>[1]));
     return {
       rerender() {},
       unmount() {},
@@ -109,8 +109,6 @@ function noopControls(): TuiMonitorControls {
     pauseSelected() {},
     resumeSelected() {},
     killSelected() {},
-    approveSelected() {},
-    reviseSelected() {},
     quit() {},
   };
 }
@@ -159,21 +157,19 @@ function inputHarness() {
 }
 
 describe("openInkMonitor", () => {
-  test("drives quit, approve, and kill through the injected input hook", async () => {
+  test("drives quit and kill through the injected input hook", async () => {
     const calls: string[] = [];
     const controls = noopControls();
     controls.quit = () => calls.push("quit");
-    controls.approveSelected = () => calls.push("approve");
     controls.killSelected = () => calls.push("kill");
     const input = inputHarness();
     const session = await openInkMonitor(monitorState([], null), controls, await input.injection());
 
     await input.press("q");
     await input.press("c", { ctrl: true });
-    await input.press("a");
     await input.press("k");
 
-    expect(calls).toEqual(["quit", "quit", "approve", "kill"]);
+    expect(calls).toEqual(["quit", "quit", "kill"]);
     session.close();
   });
 
@@ -193,55 +189,6 @@ describe("openInkMonitor", () => {
     session.close();
   });
 
-  test("composes, submits, and cancels revise prompts through the injected input hook", async () => {
-    const prompts: Array<string | undefined> = [];
-    const controls = noopControls();
-    controls.reviseSelected = (prompt) => prompts.push(prompt);
-    const input = inputHarness();
-    const session = await openInkMonitor(monitorState([], null), controls, await input.injection());
-
-    await input.press("v");
-    await input.press("a");
-    await input.press("b");
-    await input.press("", { backspace: true });
-    await input.press("c");
-    await input.press("", { delete: true });
-    await input.press("", { return: true });
-    await input.press("v");
-    await input.press("", { return: true });
-    await input.press("v");
-    await input.press("x");
-    await input.press("", { escape: true });
-
-    expect(prompts).toEqual(["a", undefined]);
-    session.close();
-  });
-
-  test("treats control bindings as prompt text while composing", async () => {
-    const calls: string[] = [];
-    const controls = noopControls();
-    controls.quit = () => calls.push("quit");
-    controls.approveSelected = () => calls.push("approve");
-    controls.killSelected = () => calls.push("kill");
-    controls.selectNextRun = () => calls.push("next");
-    controls.selectPreviousRun = () => calls.push("previous");
-    controls.reviseSelected = (prompt) => calls.push(`revise:${prompt}`);
-    const input = inputHarness();
-    const session = await openInkMonitor(monitorState([], null), controls, await input.injection());
-
-    await input.press("v");
-    await input.press("q");
-    await input.press("a");
-    await input.press("k");
-    await input.press("j");
-    await input.press("", { downArrow: true });
-    await input.press("", { upArrow: true });
-    await input.press("", { return: true });
-
-    expect(calls).toEqual(["revise:qakj"]);
-    session.close();
-  });
-
   test("colors status and liveness cells on run-table rows", async () => {
     const state = monitorState(
       [
@@ -251,8 +198,6 @@ describe("openInkMonitor", () => {
         { runId: "run-blocked", project: "demo", branch: "d", status: "blocked", isLive: false },
         { runId: "run-budget", project: "demo", branch: "e", status: "budget-soft-stopped", isLive: false },
         { runId: "run-paused", project: "demo", branch: "f", status: "paused", isLive: false },
-        { runId: "run-human", project: "demo", branch: "g", status: "awaiting-human", isLive: false },
-        { runId: "run-revising", project: "demo", branch: "h", status: "revising", isLive: false },
         { runId: "run-killed", project: "demo", branch: "i", status: "killed", isLive: false },
       ],
       "run-live",
@@ -272,8 +217,6 @@ describe("openInkMonitor", () => {
     expect(textNode(nodes, "blocked").color).toBe("red");
     expect(textNode(nodes, "budget-soft-stopped").color).toBe("red");
     expect(textNode(nodes, "paused").color).toBe("cyan");
-    expect(textNode(nodes, "awaiting-human").color).toBe("cyan");
-    expect(textNode(nodes, "revising").color).toBe("cyan");
     expect(textNode(nodes, "killed").color).toBe("red");
     expect(textNode(nodes, "run-live").color).toBeUndefined();
 
@@ -322,28 +265,6 @@ describe("openInkMonitor", () => {
     const expectedRows = monitorSegmentRows(state).map(joinMonitorRow);
     expect(renderedRows).toEqual(expectedRows);
 
-    session.close();
-  });
-
-  test("composing revise prompt renders as an uncolored segment row", async () => {
-    const state = monitorState(
-      [{ runId: "run-human", project: "demo", branch: "main", status: "awaiting-human", isLive: false }],
-      "run-human",
-    );
-    const { Text } = await loadInkUi();
-    const tree = createMonitorDisplay(state, { kind: "composing", buffer: "" }, Text);
-    const nodes = collectTextNodes(tree, Text);
-    const reviseLine = textNode(nodes, "Revise prompt: ");
-    expect(reviseLine.color).toBeUndefined();
-
-    const session = await openInkMonitor(state, noopControls(), ((_element: unknown) => ({
-      rerender() {},
-      unmount() {},
-      waitUntilExit: async () => {},
-      cleanup() {},
-      clear() {},
-      waitUntilRenderFlush: async () => {},
-    })) as InkRender);
     session.close();
   });
 });

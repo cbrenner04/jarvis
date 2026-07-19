@@ -28,14 +28,14 @@ consumer is subspec 01 (the mandatory completion boundary).
 
 ## Acceptance criteria
 
-- [ ] The verifier derives candidate mutations only from files present in the `<runBase>...HEAD` production diff and untracked production files, and never mutates a production file absent from that change set.
-- [ ] Candidate derivation covers changed subprocess arguments, fail-closed guards, and destructive-operation safety choices found in the changed lines, rather than a fixed source-agnostic operator-swap set.
-- [ ] Each candidate is applied, the run-base scoped suites resolved via `resolveCiTestScope` run against the mutated tree, and the candidate counts as caught only when at least one scoped test fails.
-- [ ] A changed production guard with no covering scoped test returns a surviving-mutation failure that names the surviving mutation and its source site.
-- [ ] A zero-candidate production diff returns a passing result recording the run base, the inspected production paths, and a zero candidate count.
-- [ ] Applied-mutation count and total verification wall-clock are bounded; hitting a bound ends verification without inspecting remaining or unchanged files.
-- [ ] The worktree carries no mutated bytes after any terminal result (caught-all pass, surviving-mutation failure, zero-candidate pass, or bound stop).
-- [ ] A new co-located test drives the verifier through injected git-diff and scoped-test-runner seams to a surviving-mutation result for an uncovered changed guard and asserts the named mutation and source site; it fails against the pre-fix tree (no verifier exists) and passes after.
+- [x] The verifier derives candidate mutations only from files present in the `<runBase>...HEAD` production diff and untracked production files, and never mutates a production file absent from that change set.
+- [x] Candidate derivation covers changed subprocess arguments, fail-closed guards, and destructive-operation safety choices found in the changed lines, rather than a fixed source-agnostic operator-swap set.
+- [x] Each candidate is applied, the run-base scoped suites resolved via `resolveCiTestScope` run against the mutated tree, and the candidate counts as caught only when at least one scoped test fails.
+- [x] A changed production guard with no covering scoped test returns a surviving-mutation failure that names the surviving mutation and its source site.
+- [x] A zero-candidate production diff returns a passing result recording the run base, the inspected production paths, and a zero candidate count.
+- [x] Applied-mutation count and total verification wall-clock are bounded; hitting a bound ends verification without inspecting remaining or unchanged files.
+- [x] The worktree carries no mutated bytes after any terminal result (caught-all pass, surviving-mutation failure, zero-candidate pass, or bound stop).
+- [x] A new co-located test drives the verifier through injected git-diff and scoped-test-runner seams to a surviving-mutation result for an uncovered changed guard and asserts the named mutation and source site; it fails against the pre-fix tree (no verifier exists) and passes after.
 
 ## Documentation updates
 

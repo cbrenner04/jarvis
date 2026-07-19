@@ -835,3 +835,35 @@ with the completion run, so retries do not reread changed or unavailable specs.
 Unreadable index identity fails with a title-resolution error naming the spec path;
 there is no `jarvis: complete run` fallback. Existing matching open PRs retain
 their titles.
+
+## Diff-derived mutation verification
+
+After the scoped ready gate passes (green suite) and before the draft→ready flip,
+completion verification applies mutation candidates derived from the run's
+production-diff (`<runBase>...HEAD` plus untracked production files) to enforce
+that changed guards are constrained by the run-base scoped test suites.
+
+Mutation candidates are derived from changed lines by classifying patterns: fail-closed
+guards (negation flips, comparison operator flips), destructive-operation safety choices
+(calls to unlink/delete/etc.), and subprocess arguments. Non-production files (test files,
+specs, docs) are excluded from the diff and do not generate candidates.
+
+For each candidate: the file is mutated, scoped tests are run via `resolveCiTestScope`
+against the mutated tree, and the mutation is marked "caught" only when at least one
+scoped test fails. The tree is restored after each candidate regardless of outcome.
+A zero-candidate diff (no production changes) or a production diff where all candidates
+are caught returns a pass result carrying the run base, inspected paths, and candidate
+count.
+
+A surviving mutation (scoped tests pass under the mutation) halts verification and returns
+the mutation text and source file+line. This is a non-recoverable completion failure:
+the run does not report `completed` and the mutation + source site are named in completion
+failure. The worktree is restored before returning any terminal result.
+
+Application and verification scope are bounded: only changed production files are
+inspected (no full-repo scan), and verification may be halted by count/time bounds
+to avoid dominating implement wall-clock (future enhancement).
+
+Verification is exercised through injected seams for git-diff, untracked-file discovery,
+and scoped-test execution, enabling unit coverage of candidate derivation, mutation
+application, and failure classification without live subprocess or file I/O.

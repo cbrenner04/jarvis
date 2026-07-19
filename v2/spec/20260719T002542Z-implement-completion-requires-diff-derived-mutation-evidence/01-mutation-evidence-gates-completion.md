@@ -22,12 +22,12 @@ source site named; mutated verification state is never published.
 
 ## Acceptance criteria
 
-- [ ] Implement completion runs diff-derived mutation verification as a mandatory boundary after the scoped ready gate and before the draft→ready flip; it is not an optional review preset that can be omitted.
-- [ ] A surviving mutation fails completion: the run does not report `completed`, and the failure names the surviving mutation and its source site.
-- [ ] A completion whose changed production guards are all caught, or that has zero candidates, proceeds to report `completed`.
-- [ ] After a surviving-mutation failure the external worktree carries no mutated bytes.
-- [ ] A new test drives the real completion path (injected finalize/scoped-test seams) to a non-`completed` outcome for an uncovered changed guard, asserting the run is not `completed` and the mutation and source site are named, and to `completed` for a fully-covered change; it fails against the pre-fix path (completion certifies on the green gate alone) and passes after.
-- [ ] `v2/docs/workflow-runner.md`, `v2/docs/write-behavior.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` are updated per the Documentation updates section.
+- [x] Implement completion runs diff-derived mutation verification as a mandatory boundary after the scoped ready gate and before the draft→ready flip; it is not an optional review preset that can be omitted.
+- [x] A surviving mutation fails completion: the run does not report `completed`, and the failure names the surviving mutation and its source site.
+- [x] A completion whose changed production guards are all caught, or that has zero candidates, proceeds to report `completed`.
+- [x] After a surviving-mutation failure the external worktree carries no mutated bytes.
+- [x] A new test drives the real completion path (injected finalize/scoped-test seams) to a non-`completed` outcome for an uncovered changed guard, asserting the run is not `completed` and the mutation and source site are named, and to `completed` for a fully-covered change; it fails against the pre-fix path (completion certifies on the green gate alone) and passes after.
+- [x] `v2/docs/workflow-runner.md`, `v2/docs/write-behavior.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` are updated per the Documentation updates section.
 
 ## Documentation updates
 

@@ -7,7 +7,7 @@ import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } fro
 import { simulatedBindings } from "../testing/bindings.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
-import { ReadyGateError } from "./ready-finalize.ts";
+import { ReadyGateError, SurvivingMutationError } from "./ready-finalize.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./write.ts";
 import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "./write-loop.ts";
@@ -1112,6 +1112,33 @@ describe("write loop", () => {
       expect(retry.kind).toBe("complete");
       expect(retry.runId).toBe(first.runId);
       expect(publishCalls).toBe(2);
+    });
+
+    test("returns surviving_mutation_failed when mutation verification detects an uncovered changed guard", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          throw new SurvivingMutationError("operator-flip: === → !==", "src/test.ts", 42);
+        },
+      });
+
+      expect(result.kind).toBe("surviving_mutation_failed");
+      expect(result.resumable).toBe(false);
+      expect(result.survivingMutation).toBe("operator-flip: === → !==");
+      expect(result.survivingMutationSourceFile).toBe("src/test.ts");
+      expect(result.survivingMutationSourceLine).toBe(42);
+      expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "surviving_mutation_failed",
+        resumable: false,
+      });
     });
   });
 

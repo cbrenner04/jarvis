@@ -14,10 +14,10 @@
 
 ## Acceptance criteria
 
-- [ ] `v1/test/run.test.ts` max-iteration, quota, agent-error, output-tail, spec-resolution, active-spec marker, disambiguation, and missing-project-root tests stay green in the new partition.
-- [ ] `v1/test/run.test.ts` stays green after the extraction.
-- [ ] The new failure and preflight test file passes independently and in `bun run test:v1`.
-- [ ] `bun run typecheck` passes.
+- [x] `v1/test/run.test.ts` max-iteration, quota, agent-error, output-tail, spec-resolution, active-spec marker, disambiguation, and missing-project-root tests stay green in the new partition.
+- [x] `v1/test/run.test.ts` stays green after the extraction.
+- [x] The new failure and preflight test file passes independently and in `bun run test:v1`.
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

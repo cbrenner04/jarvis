@@ -28,12 +28,12 @@ prove they are *reachable at runtime*.
 
 ## Acceptance criteria
 
-- [ ] The verifier discovers its smoke target from the `<runBase>...HEAD` production diff, selecting a changed runnable entrypoint rather than a fixed default surface.
-- [ ] The verifier executes the discovered real entrypoint and observes its runtime behavior, not a test helper or the scoped-test runner.
-- [ ] Smoke execution is bounded by a wall-clock limit and runs non-destructively; exceeding the bound ends the smoke as a failure.
-- [ ] A failed or timed-out smoke returns a failure naming the executed command and the failed observation.
-- [ ] A changed diff with no discovered runnable surface returns a passing result recording the inspected changed paths and the discovery reason.
-- [ ] A new co-located test drives the verifier through injected git-diff and entrypoint-execution seams to (a) a smoke-failure result for a changed entrypoint whose execution fails or times out, asserting the named command and observation, and (b) a not-runnable pass recording inspected paths and reason; it fails against the pre-fix tree (no verifier exists) and passes after.
+- [x] The verifier discovers its smoke target from the `<runBase>...HEAD` production diff, selecting a changed runnable entrypoint rather than a fixed default surface.
+- [x] The verifier executes the discovered real entrypoint and observes its runtime behavior, not a test helper or the scoped-test runner.
+- [x] Smoke execution is bounded by a wall-clock limit and runs non-destructively; exceeding the bound ends the smoke as a failure.
+- [x] A failed or timed-out smoke returns a failure naming the executed command and the failed observation.
+- [x] A changed diff with no discovered runnable surface returns a passing result recording the inspected changed paths and the discovery reason.
+- [x] A new co-located test drives the verifier through injected git-diff and entrypoint-execution seams to (a) a smoke-failure result for a changed entrypoint whose execution fails or times out, asserting the named command and observation, and (b) a not-runnable pass recording inspected paths and reason; it fails against the pre-fix tree (no verifier exists) and passes after.
 
 ## Documentation updates
 

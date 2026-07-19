@@ -23,12 +23,12 @@ a not-runnable result proceeds to `completed`.
 
 ## Acceptance criteria
 
-- [ ] Implement completion runs runtime-smoke verification as a mandatory boundary after diff-derived mutation verification passes and before the draft→ready flip; it is not an optional review preset that can be omitted.
-- [ ] A failed or timed-out smoke fails completion: the run does not report `completed`, and the failure names the executed command and the failed observation.
-- [ ] A completion whose changed runnable surface smokes cleanly, or that has no discovered runnable surface, proceeds to report `completed`.
-- [ ] The runtime-smoke boundary reuses the completion boundary's run base and worktree rather than deriving its own.
-- [ ] A new test drives the real completion path (injected finalize/smoke seams) to a non-`completed` outcome for a changed entrypoint whose smoke fails, asserting the run is not `completed` and the command and observation are named, and to `completed` for a clean or not-runnable smoke; it fails against the pre-fix path (completion certifies without a smoke) and passes after.
-- [ ] `v2/docs/workflow-runner.md`, `v2/docs/write-behavior.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` are updated per the Documentation updates section.
+- [x] Implement completion runs runtime-smoke verification as a mandatory boundary after diff-derived mutation verification passes and before the draft→ready flip; it is not an optional review preset that can be omitted.
+- [x] A failed or timed-out smoke fails completion: the run does not report `completed`, and the failure names the executed command and the failed observation.
+- [x] A completion whose changed runnable surface smokes cleanly, or that has no discovered runnable surface, proceeds to report `completed`.
+- [x] The runtime-smoke boundary reuses the completion boundary's run base and worktree rather than deriving its own.
+- [x] A new test drives the real completion path (injected finalize/smoke seams) to a non-`completed` outcome for a changed entrypoint whose smoke fails, asserting the run is not `completed` and the command and observation are named, and to `completed` for a clean or not-runnable smoke; it fails against the pre-fix path (completion certifies without a smoke) and passes after.
+- [x] `v2/docs/workflow-runner.md`, `v2/docs/write-behavior.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` are updated per the Documentation updates section.
 
 ## Documentation updates
 

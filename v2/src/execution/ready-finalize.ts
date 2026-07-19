@@ -19,6 +19,7 @@ type Delay = (ms: number) => Promise<void>;
 type RetryNotice = (message: string) => void;
 
 type MutationVerificationRunner = (worktreePath: string, baseRef: string) => Promise<void>;
+type RuntimeSmokeVerificationRunner = (worktreePath: string, baseRef: string) => Promise<void>;
 
 export type ReadyFinalizerSeams = {
   runReadyGate?: ReadyGate;
@@ -28,6 +29,7 @@ export type ReadyFinalizerSeams = {
   asyncSubprocessRunner?: AsyncSubprocessRunner;
   runRequiredIntegration?: RequiredIntegrationRunner;
   runMutationVerification?: MutationVerificationRunner;
+  runRuntimeSmokeVerification?: RuntimeSmokeVerificationRunner;
 };
 
 export type ReadyFinalizer = (input: ReadyFinalizeInput) => Promise<void>;
@@ -51,6 +53,16 @@ export class SurvivingMutationError extends Error {
   ) {
     super(`Surviving mutation in ${sourceSiteFile}:${sourceSiteLine}: ${mutation}`);
     this.name = "SurvivingMutationError";
+  }
+}
+
+export class RuntimeSmokeFailedError extends Error {
+  constructor(
+    readonly command: string,
+    readonly observation: string,
+  ) {
+    super(`Runtime smoke failed: ${command} — ${observation}`);
+    this.name = "RuntimeSmokeFailedError";
   }
 }
 
@@ -176,6 +188,7 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
   const runRequiredIntegration =
     seams?.runRequiredIntegration ?? createDefaultRunRequiredIntegration(asyncSubprocessRunner);
   const runMutationVerification = seams?.runMutationVerification;
+  const runRuntimeSmokeVerification = seams?.runRuntimeSmokeVerification;
 
   return async (input) => {
     await runReadyGate(input.worktreePath, input.baseRef);
@@ -184,6 +197,9 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
     }
     if (runMutationVerification) {
       await runMutationVerification(input.worktreePath, input.baseRef);
+    }
+    if (runRuntimeSmokeVerification) {
+      await runRuntimeSmokeVerification(input.worktreePath, input.baseRef);
     }
     await flipWithRetry(() => ghReadyFlip(input.branch, input.worktreePath), delay, retryNotice);
   };

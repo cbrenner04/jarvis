@@ -7,7 +7,7 @@ import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } fro
 import { simulatedBindings } from "../testing/bindings.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
-import { ReadyGateError, SurvivingMutationError } from "./ready-finalize.ts";
+import { ReadyGateError, RuntimeSmokeFailedError, SurvivingMutationError } from "./ready-finalize.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./write.ts";
 import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "./write-loop.ts";
@@ -1137,6 +1137,32 @@ describe("write loop", () => {
       expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
         kind: "loop_finished",
         loopOutcomeKind: "surviving_mutation_failed",
+        resumable: false,
+      });
+    });
+
+    test("returns runtime_smoke_failed when runtime smoke verification fails", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          throw new RuntimeSmokeFailedError("bun run v2/src/cli.ts --help", "error: command failed");
+        },
+      });
+
+      expect(result.kind).toBe("runtime_smoke_failed");
+      expect(result.resumable).toBe(false);
+      expect(result.runtimeSmokeCommand).toBe("bun run v2/src/cli.ts --help");
+      expect(result.runtimeSmokeObservation).toBe("error: command failed");
+      expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "runtime_smoke_failed",
         resumable: false,
       });
     });

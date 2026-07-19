@@ -21,10 +21,10 @@
 
 ## Acceptance criteria
 
-- [ ] Agent-runnable `v2/src/daemon/**/*.test.ts` waits for asserted observable conditions instead of fixed delays.
-- [ ] `v2/src/execution/workflow-runner.test.ts` has a regression that fails against the pre-change step-0 completion inference and passes only with review-step evidence.
-- [ ] Daemon tests whose contract is elapsed time use injected clocks or pollers; irreducible real-clock tests are marked `.sandbox-unrunnable.test.ts` and state why.
-- [ ] Existing `v2/src/daemon/**/*.test.ts` and `v2/src/execution/workflow-runner.test.ts` stay green; production semantics are unchanged.
+- [x] Agent-runnable `v2/src/daemon/**/*.test.ts` waits for asserted observable conditions instead of fixed delays.
+- [x] `v2/src/execution/workflow-runner.test.ts` has a regression that fails against the pre-change step-0 completion inference and passes only with review-step evidence.
+- [x] Daemon tests whose contract is elapsed time use injected clocks or pollers; irreducible real-clock tests are marked `.sandbox-unrunnable.test.ts` and state why.
+- [x] Existing `v2/src/daemon/**/*.test.ts` and `v2/src/execution/workflow-runner.test.ts` stay green; production semantics are unchanged.
 
 ## Documentation updates
 

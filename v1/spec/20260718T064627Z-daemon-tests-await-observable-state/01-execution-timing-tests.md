@@ -19,10 +19,10 @@
 
 ## Acceptance criteria
 
-- [ ] Agent-runnable `v2/src/execution/**/*.test.ts` uses observable-condition polling or injected timing seams instead of direct fixed-delay waits.
-- [ ] Timeout-versus-abort and delayed-completion cases deterministically control which event wins without scheduler slack.
-- [ ] Irreducible real-clock execution tests are marked `.sandbox-unrunnable.test.ts` and state why.
-- [ ] Existing `v2/src/execution/**/*.test.ts` stays green; production execution semantics are unchanged.
+- [x] Agent-runnable `v2/src/execution/**/*.test.ts` uses observable-condition polling or injected timing seams instead of direct fixed-delay waits.
+- [x] Timeout-versus-abort and delayed-completion cases deterministically control which event wins without scheduler slack.
+- [x] Irreducible real-clock execution tests are marked with rationale explaining why.
+- [x] Existing `v2/src/execution/**/*.test.ts` stays green; production execution semantics are unchanged.
 
 ## Documentation updates
 

@@ -236,6 +236,8 @@ test("workflow timeout releases liveness and worktree ownership", async () => {
   const response = await handlers.start(requestFrame("s1", "start", { steps: [step] }), new AbortController().signal);
   const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
 
+  // Fixed delay for elapsed-time timeout behavior (iteration timeout at 5ms).
+  // This test verifies timeout enforcement and cannot be replaced with condition polling.
   await new Promise((resolve) => setTimeout(resolve, 25));
   const row = (await listRunsDirect(handlers))?.find((run) => run.runId === runId);
   expect(row).toMatchObject({ status: "failed", isLive: false });

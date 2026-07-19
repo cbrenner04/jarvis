@@ -20,11 +20,11 @@
 
 ## Acceptance criteria
 
-- [ ] The static guard fails for `Bun.sleep` and direct timer-backed promise waits in covered agent-runnable daemon and execution tests.
-- [ ] Guard tests prove bounded condition polling passes and `.sandbox-unrunnable.test.ts` is excluded.
-- [ ] The standard repository check runs the guard, and the cleaned covered test surface passes it.
-- [ ] `v2/docs/test-writing.md` distinguishes bounded condition polling from sleep-as-wait, states the daemon/execution rule, and no longer says automated enforcement is out of scope.
-- [ ] `v2/docs/operator-runbook.md` records the deterministic daemon-test workflow rule, and `v1/docs/operator-runbook.md` removes the recovered macOS/Linux timing-race warning.
+- [x] The static guard fails for `Bun.sleep` and direct timer-backed promise waits in covered agent-runnable daemon and execution tests.
+- [x] Guard tests prove bounded condition polling passes and `.sandbox-unrunnable.test.ts` is excluded.
+- [x] The standard repository check runs the guard, and the cleaned covered test surface passes it.
+- [x] `v2/docs/test-writing.md` distinguishes bounded condition polling from sleep-as-wait, states the daemon/execution rule, and no longer says automated enforcement is out of scope.
+- [x] `v2/docs/operator-runbook.md` records the deterministic daemon-test workflow rule, and `v1/docs/operator-runbook.md` removes the recovered macOS/Linux timing-race warning.
 
 ## Documentation updates
 

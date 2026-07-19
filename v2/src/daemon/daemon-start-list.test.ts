@@ -317,7 +317,12 @@ test("direct timeout releases liveness and worktree ownership", async () => {
   };
 
   const runId = await startRunDirect(localHandlers, input);
-  await new Promise((resolve) => setTimeout(resolve, 25));
+  const deadline = Date.now() + 100;
+  while (Date.now() < deadline) {
+    const row = (await listRunsDirect(localHandlers))?.find((candidate) => candidate.runId === runId);
+    if (row?.status === "failed" && !row?.isLive) break;
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
   const row = (await listRunsDirect(localHandlers))?.find((candidate) => candidate.runId === runId);
   expect(row).toMatchObject({ status: "failed", isLive: false });
   const waited = await waitDirect(localHandlers, runId as string);
@@ -328,7 +333,13 @@ test("direct timeout releases liveness and worktree ownership", async () => {
 
   const restarted = await startRunDirect(localHandlers, input);
   expect(restarted).toBeTruthy();
-  await new Promise((resolve) => setTimeout(resolve, 25));
+  const deadline2 = Date.now() + 100;
+  while (Date.now() < deadline2) {
+    const runs = await listRunsDirect(localHandlers);
+    if (runs?.find((r) => r.runId === restarted)) break;
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  await new Promise<void>((resolve) => setImmediate(resolve));
   sink.close();
 });
 

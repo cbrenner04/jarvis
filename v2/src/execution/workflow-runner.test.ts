@@ -1187,6 +1187,67 @@ describe("executeWorkflow", () => {
     });
   });
 
+  test("multi-step workflow completion requires review-step evidence, not just step-0 completion", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "workflow-review-completion-"));
+    let criticInvoked = false;
+    let actuatorInvoked = false;
+    const writeStep = createStep({ stepId: "step-1", role: "implement", branchName: "review-completion-test" });
+    const reviewStep: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "step-1-review",
+      project: "demo",
+      branch: "review-completion-test",
+      cwd,
+      prompt: "critic prompt",
+      verdictPath: join(cwd, "verdict.md"),
+      maxCycles: 1,
+      profile: implementReviewPromptProfile,
+      profileContext: {
+        stagingDir: cwd,
+        verdictPath: join(cwd, "verdict.md"),
+        specPath: join(cwd, "spec.md"),
+        worktreePath: cwd,
+        cwd,
+        passNumber: 1,
+        totalPasses: 1,
+      },
+      agents: { critic: ["claude"], actuator: ["claude"] },
+      agentModelConfig: {
+        claude: {
+          critic: { rungs: [{ adapterModel: "C1", priceKey: "P1" }] },
+          actuator: { rungs: [{ adapterModel: "A1", priceKey: "P1" }] },
+        },
+      },
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        invoke: async () => {
+          if (adapterModel === "C1") criticInvoked = true;
+          if (adapterModel === "A1") actuatorInvoked = true;
+          return { kind: "ok", stdout: "apply verdict", stderr: "" } as const;
+        },
+        metadata: { agent: agentId, model: adapterModel },
+      }),
+    };
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [writeStep, reviewStep], stateStore: store });
+
+      expect(result.kind).toBe("complete");
+      expect(result.stepIndex).toBe(1);
+      expect(result.stepId).toBe("step-1-review");
+
+      const writeRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "review-completion-test",
+        stepId: "step-1",
+      });
+
+      expect(writeRun?.status).toBe("completed");
+      expect(criticInvoked).toBe(true);
+      expect(actuatorInvoked).toBe(true);
+    });
+  });
+
   test("non-complete shrink outcome stops at the implement step without running later steps", async () => {
     const invoked: string[] = [];
     const step1 = createStep({

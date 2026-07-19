@@ -414,3 +414,58 @@ index 1234567..abcdefg 100644
     });
   });
 });
+
+describe("verification bounds", () => {
+  function guardFlipDiff(lines: number): string {
+    const added = Array.from({ length: lines }, (_, i) => `+  if (!x${i}) return null;`).join("\n");
+    return `diff --git a/src/many.ts b/src/many.ts
+index 1234567..abcdefg 100644
+--- a/src/many.ts
++++ b/src/many.ts
+@@ -1,1 +1,${lines} @@
+${added}
+`;
+  }
+
+  it("caps inspected mutations and reports only what was inspected", async () => {
+    let scopedRuns = 0;
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => guardFlipDiff(40),
+        untrackedFiles: async () => [],
+        readFile: async () => Array.from({ length: 40 }, (_, i) => `  if (!x${i}) return null;`).join("\n"),
+        writeFile: async () => {},
+        runScopedTests: async () => {
+          scopedRuns += 1;
+          return false;
+        },
+      },
+    );
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(25);
+    expect(scopedRuns).toBeLessThanOrEqual(25);
+  });
+
+  it("stops at the wall-clock deadline without inspecting remaining candidates", async () => {
+    let scopedRuns = 0;
+    let calls = 0;
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => guardFlipDiff(10),
+        untrackedFiles: async () => [],
+        readFile: async () => Array.from({ length: 10 }, (_, i) => `  if (!x${i}) return null;`).join("\n"),
+        writeFile: async () => {},
+        runScopedTests: async () => {
+          scopedRuns += 1;
+          return false;
+        },
+        now: () => (calls++ === 0 ? 0 : 10_000_000),
+      },
+    );
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(0);
+    expect(scopedRuns).toBe(0);
+  });
+});

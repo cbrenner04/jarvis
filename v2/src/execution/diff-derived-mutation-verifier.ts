@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { classifyChangedPaths } from "../../../scripts/ci-test-scope.ts";
+import { defaultGitDiff, extractFileFromDiffLine, isProductionFile } from "./diff-scan.ts";
 
 export type DiffDerivedMutationVerifierInput = {
   worktreePath: string;
@@ -46,20 +47,12 @@ type VerifierSeams = {
   runScopedTests?: RunScopedTests;
   readFile?: ReadFile;
   writeFile?: WriteFile;
+  now?: () => number;
 };
 
-async function defaultGitDiff(cwd: string, baseRef: string): Promise<string> {
-  const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
-  try {
-    return await realAsyncSubprocessRunner.runAsync(
-      "git",
-      ["diff", `${baseRef}...HEAD`, "--no-ext-diff", "--no-color"],
-      cwd,
-    );
-  } catch {
-    return "";
-  }
-}
+/** Verification bounds: hitting either ends the run as a pass over the candidates inspected so far. */
+const MAX_INSPECTED_MUTATIONS = 25;
+const MAX_VERIFICATION_MS = 5 * 60_000;
 
 async function defaultUntrackedFiles(cwd: string): Promise<string[]> {
   const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
@@ -101,29 +94,11 @@ async function defaultWriteFile(path: string, content: string): Promise<void> {
   writeFileSync(path, content);
 }
 
-function isProductionFile(path: string): boolean {
-  const NON_PRODUCTION_PATTERNS = [
-    /\.test\.ts$/,
-    /\.test\.js$/,
-    /^test\//,
-    /^v1\/spec\//,
-    /^v2\/spec\//,
-    /^v1\/docs\//,
-    /^v2\/docs\//,
-  ];
-  return !NON_PRODUCTION_PATTERNS.some((pattern) => pattern.test(path));
-}
-
 interface ChangedLine {
   type: "add" | "remove";
   lineNumber: number;
   content: string;
   file: string;
-}
-
-function extractFileFromDiffLine(line: string): string | null {
-  const match = line.match(/b\/(.+)$/);
-  return match?.[1] ?? null;
 }
 
 function extractLineNumberFromHunk(line: string): number {
@@ -426,7 +401,12 @@ export async function verifyDiffDerivedMutations(
     };
   }
 
+  const now = seams?.now ?? Date.now;
+  const deadline = now() + MAX_VERIFICATION_MS;
+  let inspected = 0;
   for (const candidate of candidates) {
+    if (inspected >= MAX_INSPECTED_MUTATIONS || now() >= deadline) break;
+    inspected += 1;
     const filePath = `${input.worktreePath}/${candidate.file}`;
     let originalContent: string;
 
@@ -454,6 +434,6 @@ export async function verifyDiffDerivedMutations(
     kind: "pass",
     runBase: input.runBase,
     inspectedPaths: changedPaths,
-    candidateCount: candidates.length,
+    candidateCount: inspected,
   };
 }

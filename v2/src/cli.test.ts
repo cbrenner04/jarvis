@@ -2235,6 +2235,60 @@ describe("v2 cli", () => {
       expect(sent).toHaveLength(2);
     });
 
+    test("run workflow plan resets a stale worktree before daemon start", async () => {
+      const worktreePath = await materializeStaleWorktree();
+      const cap = captureIo();
+      const sent: unknown[] = [];
+      const startRequestId = "00000000-0000-4000-8000-000000000082" as const;
+      const waitRequestId = "00000000-0000-4000-8000-000000000820" as const;
+      const originalRandomUuid = crypto.randomUUID;
+      crypto.randomUUID = makeWorkflowUuidManager(startRequestId, waitRequestId) as typeof crypto.randomUUID;
+
+      const closedPrs: number[] = [];
+      const subprocessRunner: AsyncSubprocessRunner = {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+            return JSON.stringify([{ number: 56, isDraft: true }]);
+          }
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+            closedPrs.push(Number(args[2]));
+          }
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? resetProjectRoot);
+        },
+      };
+
+      let code = NaN;
+      try {
+        code = await main(
+          ["run", "workflow", "plan", "--ready-intent", "index.md"],
+          cap.io,
+          resetImplementDeps({
+            workflowPresetBuilders: {
+              plan: () => ({ ok: true as const, steps: resetImplementSteps() }),
+            },
+            subprocessRunner,
+            connectIpcClient: async () =>
+              makeIpcClient(
+                workflowFrames(startRequestId, waitRequestId, "run-reset-plan", {
+                  runStatus: "completed",
+                  loopOutcomeKind: "complete",
+                  iterationsConsumed: 1,
+                  resumable: false,
+                }),
+                { sent },
+              ),
+          }),
+        );
+      } finally {
+        crypto.randomUUID = originalRandomUuid;
+      }
+
+      expect(code).toBe(0);
+      expect(closedPrs).toEqual([56]);
+      const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+      expect(list).not.toContain(worktreePath);
+    });
+
     test("run workflow implement refuses reset when the workspace is live-held", async () => {
       await materializeStaleWorktree();
       const lockPath = join(resetJarvisRoot, "worktree-locks", "demo", resetBranch, ".jarvis.lock");

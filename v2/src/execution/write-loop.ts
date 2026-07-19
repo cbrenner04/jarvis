@@ -11,9 +11,9 @@ import {
   type StateStore,
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
-import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
 import { type CompletionPublisher, createCompletionPublisher } from "./completion-publisher.ts";
+import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
@@ -956,6 +956,73 @@ export async function publishWithReadyRepair(
     : { failure: outcome, iterationsConsumed };
 }
 
+async function runPublisher(
+  seams: CompletionPublicationSeams,
+  input: {
+    worktreePath: string;
+    baseRef: string;
+    specPath: string;
+    branch: string;
+    creationTitle?: unknown;
+    bodySummary?: string;
+    specTemplate?: boolean;
+    requiredIntegrationScope?: string;
+  },
+): Promise<Awaited<ReturnType<CompletionPublisher>> | undefined> {
+  return await (seams.completionPublisher ?? createCompletionPublisher())(input);
+}
+
+async function runReadyFinalizer(
+  seams: CompletionPublicationSeams,
+  input: { worktreePath: string; baseRef: string; branch: string; requiredIntegrationScope?: string },
+): Promise<void> {
+  const readyFinalizer =
+    seams.readyFinalizer ??
+    createReadyFinalizer({
+      runMutationVerification: async (worktreePath: string, baseRef: string) => {
+        const verificationResult = await verifyDiffDerivedMutations({
+          worktreePath,
+          runBase: baseRef,
+        });
+        if (verificationResult.kind === "surviving-mutation") {
+          throw new SurvivingMutationError(
+            verificationResult.mutation,
+            verificationResult.sourceSite.file,
+            verificationResult.sourceSite.line,
+          );
+        }
+      },
+    });
+  const finalInput = {
+    worktreePath: input.worktreePath,
+    branch: input.branch,
+    baseRef: input.baseRef,
+    ...(input.requiredIntegrationScope ? { requiredIntegrationScope: input.requiredIntegrationScope } : {}),
+  };
+  await readyFinalizer(finalInput);
+}
+
+function buildFinalizationErrorResponse(
+  err: Error,
+  prNumber: number | undefined,
+  prUrl: string | undefined,
+): CompletionPublishFailure {
+  if (err instanceof SurvivingMutationError) {
+    return {
+      kind: "surviving_mutation_failed",
+      error: err,
+      ...(prNumber !== undefined ? { prNumber } : {}),
+      ...(prUrl !== undefined ? { prUrl } : {}),
+    };
+  }
+  return {
+    kind: err instanceof ReadyGateError ? "ready_gate_failed" : "ready_flip_failed",
+    error: err,
+    ...(prNumber !== undefined ? { prNumber } : {}),
+    ...(prUrl !== undefined ? { prUrl } : {}),
+  };
+}
+
 export async function publishCompletionArtifacts(
   seams: CompletionPublicationSeams,
   input: {
@@ -971,7 +1038,7 @@ export async function publishCompletionArtifacts(
 ): Promise<CompletionPublishFailure | (CompletionPublishSuccess & { kind: "success" })> {
   let publisherResult: Awaited<ReturnType<CompletionPublisher>> | undefined;
   try {
-    publisherResult = await (seams.completionPublisher ?? createCompletionPublisher())(input);
+    publisherResult = await runPublisher(seams, input);
   } catch (publishError) {
     const err = publishError instanceof Error ? publishError : new Error(String(publishError));
     return { kind: "completion_commit_failed", error: err };
@@ -984,43 +1051,15 @@ export async function publishCompletionArtifacts(
     };
   }
   try {
-    const readyFinalizer = seams.readyFinalizer ?? createReadyFinalizer({
-      runMutationVerification: async (worktreePath: string, baseRef: string) => {
-        const verificationResult = await verifyDiffDerivedMutations({
-          worktreePath,
-          runBase: baseRef,
-        });
-        if (verificationResult.kind === "surviving-mutation") {
-          throw new SurvivingMutationError(
-            verificationResult.mutation,
-            verificationResult.sourceSite.file,
-            verificationResult.sourceSite.line,
-          );
-        }
-      },
-    });
-    await readyFinalizer({
+    await runReadyFinalizer(seams, {
       worktreePath: input.worktreePath,
-      branch: input.branch,
       baseRef: input.baseRef,
+      branch: input.branch,
       ...(input.requiredIntegrationScope ? { requiredIntegrationScope: input.requiredIntegrationScope } : {}),
     });
   } catch (finalizeError) {
     const err = finalizeError instanceof Error ? finalizeError : new Error(String(finalizeError));
-    if (err instanceof SurvivingMutationError) {
-      return {
-        kind: "surviving_mutation_failed",
-        error: err,
-        ...(publisherResult?.prNumber !== undefined ? { prNumber: publisherResult.prNumber } : {}),
-        ...(publisherResult?.prUrl !== undefined ? { prUrl: publisherResult.prUrl } : {}),
-      };
-    }
-    return {
-      kind: err instanceof ReadyGateError ? "ready_gate_failed" : "ready_flip_failed",
-      error: err,
-      ...(publisherResult?.prNumber !== undefined ? { prNumber: publisherResult.prNumber } : {}),
-      ...(publisherResult?.prUrl !== undefined ? { prUrl: publisherResult.prUrl } : {}),
-    };
+    return buildFinalizationErrorResponse(err, publisherResult?.prNumber, publisherResult?.prUrl);
   }
   return {
     kind: "success",

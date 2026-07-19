@@ -1,9 +1,5 @@
-import { describe, it, expect } from "bun:test";
-import {
-  verifyDiffDerivedMutations,
-  type DiffDerivedMutationVerifierInput,
-  type VerificationResult,
-} from "./diff-derived-mutation-verifier.ts";
+import { describe, expect, it } from "bun:test";
+import { type DiffDerivedMutationVerifierInput, verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 
 // Helper to test diff parsing
 function testParseDiff(diff: string): { file: string; lineNumber: number; content: string }[] {
@@ -17,11 +13,11 @@ function testParseDiff(diff: string): { file: string; lineNumber: number; conten
   for (const line of diffLines) {
     if (line.startsWith("diff --git")) {
       const match = line.match(/b\/(.+)$/);
-      currentFile = match && match[1] ? match[1] : null;
+      currentFile = match?.[1] ?? null;
     } else if (line.startsWith("@@")) {
       inHunk = true;
       const match = line.match(/@@ -\d+(?:,\d+)? \+(\d+)/);
-      if (match && match[1]) {
+      if (match?.[1]) {
         currentNewLineNum = parseInt(match[1], 10);
       } else {
         currentNewLineNum = 1;
@@ -151,13 +147,13 @@ index 1234567..abcdefg 100644
       {
         gitDiff: async () => diffWithGuardFlip,
         untrackedFiles: async () => [],
-        readFile: async (path) => originalContent,
-        writeFile: async (path, content) => {
+        readFile: async (_path) => originalContent,
+        writeFile: async (_path, content) => {
           if (content !== originalContent) {
             mutatedContent = content;
           }
         },
-        runScopedTests: async (cwd, scope) => {
+        runScopedTests: async (_cwd, _scope) => {
           testRunCount++;
           // Mutation did not cause tests to fail, so it survived
           return true;

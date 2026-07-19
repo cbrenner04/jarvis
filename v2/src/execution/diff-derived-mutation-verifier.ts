@@ -64,11 +64,7 @@ async function defaultGitDiff(cwd: string, baseRef: string): Promise<string> {
 async function defaultUntrackedFiles(cwd: string): Promise<string[]> {
   const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
   try {
-    const output = await realAsyncSubprocessRunner.runAsync(
-      "git",
-      ["ls-files", "--others", "--exclude-standard"],
-      cwd,
-    );
+    const output = await realAsyncSubprocessRunner.runAsync("git", ["ls-files", "--others", "--exclude-standard"], cwd);
     return output
       .trim()
       .split("\n")
@@ -120,6 +116,40 @@ interface ChangedLine {
   file: string;
 }
 
+function extractFileFromDiffLine(line: string): string | null {
+  const match = line.match(/b\/(.+)$/);
+  return match?.[1] ?? null;
+}
+
+function extractLineNumberFromHunk(line: string): number {
+  const match = line.match(/@@ -\d+(?:,\d+)? \+(\d+)/);
+  return match?.[1] ? parseInt(match[1], 10) : 1;
+}
+
+function processDiffLine(
+  line: string,
+  currentFile: string | null,
+  currentNewLineNum: number,
+  lines: ChangedLine[],
+): number {
+  if (line.startsWith("+") && !line.startsWith("+++")) {
+    lines.push({
+      type: "add",
+      lineNumber: currentNewLineNum,
+      content: line.slice(1),
+      file: currentFile as string,
+    });
+    return currentNewLineNum + 1;
+  }
+  if (line.startsWith("-") && !line.startsWith("---")) {
+    return currentNewLineNum;
+  }
+  if (line.startsWith(" ")) {
+    return currentNewLineNum + 1;
+  }
+  return currentNewLineNum;
+}
+
 function parseDiff(diffOutput: string): ChangedLine[] {
   const lines: ChangedLine[] = [];
   const diffLines = diffOutput.split("\n");
@@ -130,35 +160,14 @@ function parseDiff(diffOutput: string): ChangedLine[] {
 
   for (const line of diffLines) {
     if (line.startsWith("diff --git")) {
-      const match = line.match(/b\/(.+)$/);
-      currentFile = match && match[1] ? match[1] : null;
+      currentFile = extractFileFromDiffLine(line);
     } else if (line.startsWith("@@")) {
       inHunk = true;
-      // Parse the new file line number from the hunk header
-      // Format: @@ -oldStart,oldCount +newStart,newCount @@
-      const match = line.match(/@@ -\d+(?:,\d+)? \+(\d+)/);
-      if (match && match[1]) {
-        currentNewLineNum = parseInt(match[1], 10);
-      } else {
-        currentNewLineNum = 1;
-      }
+      currentNewLineNum = extractLineNumberFromHunk(line);
     } else if (inHunk && currentFile) {
-      if (line.startsWith("+") && !line.startsWith("+++")) {
-        lines.push({
-          type: "add",
-          lineNumber: currentNewLineNum,
-          content: line.slice(1),
-          file: currentFile,
-        });
-        currentNewLineNum++;
-      } else if (line.startsWith("-") && !line.startsWith("---")) {
-        // Removed lines: don't increment new line number, don't add to changed lines
-      } else if (line.startsWith(" ")) {
-        // Context line: increment line number
-        currentNewLineNum++;
-      } else if (!line.startsWith("\\")) {
-        // End of hunk or special line
-        if (line.length > 0 && !line.startsWith("diff") && !line.startsWith("index")) {
+      currentNewLineNum = processDiffLine(line, currentFile, currentNewLineNum, lines);
+      if (!line.startsWith("\\") && line.length > 0 && !line.startsWith("diff") && !line.startsWith("index")) {
+        if (!line.startsWith("+") && !line.startsWith("-") && !line.startsWith(" ")) {
           inHunk = false;
         }
       }
@@ -168,16 +177,8 @@ function parseDiff(diffOutput: string): ChangedLine[] {
   return lines;
 }
 
-function deriveFromLine(file: string, lineNum: number, content: string): Candidate[] {
-  const candidates: Candidate[] = [];
-
-  // Skip comments and empty lines
-  if (!content.trim() || content.trim().startsWith("//") || content.trim().startsWith("*")) {
-    return candidates;
-  }
-
-  // Derive fail-closed guard mutations (negation flips)
-  const guardMatches = Array.from(content.matchAll(/(\!\s*[a-zA-Z_][a-zA-Z0-9_]*|\!(?:\([^)]+\)))/g));
+function deriveGuardMutations(file: string, lineNum: number, content: string, candidates: Candidate[]): void {
+  const guardMatches = Array.from(content.matchAll(/(!\s*[a-zA-Z_][a-zA-Z0-9_]*|!(?:\([^)]+\)))/g));
   for (const match of guardMatches) {
     if (match.index === undefined) continue;
     const original = match[0];
@@ -187,7 +188,7 @@ function deriveFromLine(file: string, lineNum: number, content: string): Candida
     if (original.startsWith("!")) {
       mutated = original.slice(1).trimStart();
     } else {
-      mutated = "!" + original;
+      mutated = `!${original}`;
     }
 
     if (mutated !== original) {
@@ -202,24 +203,27 @@ function deriveFromLine(file: string, lineNum: number, content: string): Candida
       });
     }
   }
+}
 
-  // Derive comparison operator mutations
+function flipOperator(original: string): string {
+  if (original === "===") return "!==";
+  if (original === "!==") return "===";
+  if (original === "==") return "!=";
+  if (original === "!=") return "==";
+  if (original === "<") return ">=";
+  if (original === ">") return "<=";
+  if (original === "<=") return ">";
+  if (original === ">=") return "<";
+  return original;
+}
+
+function deriveOperatorMutations(file: string, lineNum: number, content: string, candidates: Candidate[]): void {
   const comparisonMatches = Array.from(content.matchAll(/([=!><]+)/g));
   for (const match of comparisonMatches) {
     if (match.index === undefined) continue;
     const original = match[0];
     const start = match.index;
-    let mutated = original;
-
-    // Simple operator flips
-    if (original === "===") mutated = "!==";
-    else if (original === "!==") mutated = "===";
-    else if (original === "==") mutated = "!=";
-    else if (original === "!=") mutated = "==";
-    else if (original === "<") mutated = ">=";
-    else if (original === ">") mutated = "<=";
-    else if (original === "<=") mutated = ">";
-    else if (original === ">=") mutated = "<";
+    const mutated = flipOperator(original);
 
     if (mutated !== original) {
       candidates.push({
@@ -233,8 +237,9 @@ function deriveFromLine(file: string, lineNum: number, content: string): Candida
       });
     }
   }
+}
 
-  // Derive destructive-operation safety mutations
+function deriveDestructiveMutations(file: string, lineNum: number, content: string, candidates: Candidate[]): void {
   const destructiveMatches = Array.from(
     content.matchAll(/\b(unlink|rmdir|rm|delete|destroy|remove)(?:Sync|Async)?\s*\(/g),
   );
@@ -242,7 +247,7 @@ function deriveFromLine(file: string, lineNum: number, content: string): Candida
     if (match.index === undefined) continue;
     const original = match[0];
     const start = match.index;
-    const mutated = "// MUTATED: " + original;
+    const mutated = `// MUTATED: ${original}`;
 
     candidates.push({
       file,
@@ -254,6 +259,19 @@ function deriveFromLine(file: string, lineNum: number, content: string): Candida
       mutation: `skip-destructive: ${original}`,
     });
   }
+}
+
+function deriveFromLine(file: string, lineNum: number, content: string): Candidate[] {
+  const candidates: Candidate[] = [];
+
+  // Skip comments and empty lines
+  if (!content.trim() || content.trim().startsWith("//") || content.trim().startsWith("*")) {
+    return candidates;
+  }
+
+  deriveGuardMutations(file, lineNum, content, candidates);
+  deriveOperatorMutations(file, lineNum, content, candidates);
+  deriveDestructiveMutations(file, lineNum, content, candidates);
 
   return candidates;
 }
@@ -280,21 +298,11 @@ function applyMutation(fileContent: string, candidate: Candidate): string {
   return lines.join("\n");
 }
 
-export async function verifyDiffDerivedMutations(
-  input: DiffDerivedMutationVerifierInput,
-  seams?: VerifierSeams,
-): Promise<VerificationResult> {
-  const gitDiff = seams?.gitDiff ?? defaultGitDiff;
-  const untrackedFiles = seams?.untrackedFiles ?? defaultUntrackedFiles;
-  const runScopedTests = seams?.runScopedTests ?? defaultRunScopedTests;
-  const readFile = seams?.readFile ?? defaultReadFile;
-  const writeFile = seams?.writeFile ?? defaultWriteFile;
-
-  // Get the diff
-  const diffOutput = await gitDiff(input.worktreePath, input.runBase);
-  const changedLines = parseDiff(diffOutput);
-
-  // Collect production files that changed
+async function buildChangedFiles(
+  changedLines: ChangedLine[],
+  untrackedFilesFunc: UntrackedFiles,
+  worktreePath: string,
+): Promise<{ changedFiles: Set<string>; changedLinesByFile: Map<string, ChangedLine[]> }> {
   const changedFiles = new Set<string>();
   const changedLinesByFile = new Map<string, ChangedLine[]>();
 
@@ -304,15 +312,81 @@ export async function verifyDiffDerivedMutations(
       if (!changedLinesByFile.has(line.file)) {
         changedLinesByFile.set(line.file, []);
       }
-      changedLinesByFile.get(line.file)!.push(line);
+      const lines = changedLinesByFile.get(line.file);
+      if (lines) {
+        lines.push(line);
+      }
     }
   }
 
-  // Add untracked production files
-  const untracked = await untrackedFiles(input.worktreePath);
+  const untracked = await untrackedFilesFunc(worktreePath);
   for (const file of untracked) {
     changedFiles.add(file);
   }
+
+  return { changedFiles, changedLinesByFile };
+}
+
+async function testCandidate(
+  candidate: Candidate,
+  originalContent: string,
+  input: DiffDerivedMutationVerifierInput,
+  _readFile: ReadFile,
+  writeFile: WriteFile,
+  runScopedTests: RunScopedTests,
+  scopeTests: string[],
+): Promise<SurvivingMutationResult | null> {
+  const filePath = `${input.worktreePath}/${candidate.file}`;
+
+  try {
+    const mutatedContent = applyMutation(originalContent, candidate);
+    await writeFile(filePath, mutatedContent);
+
+    try {
+      const testsPassed = await runScopedTests(input.worktreePath, scopeTests);
+      if (testsPassed) {
+        return {
+          kind: "surviving-mutation",
+          mutation: candidate.mutation,
+          sourceSite: {
+            file: candidate.file,
+            line: candidate.line,
+          },
+        };
+      }
+    } finally {
+      await writeFile(filePath, originalContent);
+    }
+  } catch {
+    try {
+      await writeFile(filePath, originalContent);
+    } catch {
+      // Ignore restoration errors
+    }
+    throw new Error(`Failed to test candidate for ${candidate.file}:${candidate.line}`);
+  }
+
+  return null;
+}
+
+export async function verifyDiffDerivedMutations(
+  input: DiffDerivedMutationVerifierInput,
+  seams?: VerifierSeams,
+): Promise<VerificationResult> {
+  const gitDiff = seams?.gitDiff ?? defaultGitDiff;
+  const untrackedFilesFunc = seams?.untrackedFiles ?? defaultUntrackedFiles;
+  const runScopedTests = seams?.runScopedTests ?? defaultRunScopedTests;
+  const readFile = seams?.readFile ?? defaultReadFile;
+  const writeFile = seams?.writeFile ?? defaultWriteFile;
+
+  const diffOutput = await gitDiff(input.worktreePath, input.runBase);
+  const changedLines = parseDiff(diffOutput);
+
+  const { changedFiles, changedLinesByFile } = await buildChangedFiles(
+    changedLines,
+    untrackedFilesFunc,
+    input.worktreePath,
+  );
 
   if (changedFiles.size === 0) {
     return {
@@ -323,14 +397,12 @@ export async function verifyDiffDerivedMutations(
     };
   }
 
-  // Determine scoped tests
   const changedPaths = Array.from(changedFiles);
   const scope = classifyChangedPaths(changedPaths);
   const scopeTests = scope === "full" ? [] : scope;
 
-  // Derive mutation candidates from changed lines
   const candidates: Candidate[] = [];
-  for (const [file, lines] of changedLinesByFile) {
+  for (const [_file, lines] of changedLinesByFile) {
     for (const line of lines) {
       const mutations = deriveFromLine(line.file, line.lineNumber, line.content);
       candidates.push(...mutations);
@@ -346,55 +418,30 @@ export async function verifyDiffDerivedMutations(
     };
   }
 
-  // Apply and test each candidate
   for (const candidate of candidates) {
     const filePath = `${input.worktreePath}/${candidate.file}`;
     let originalContent: string;
 
     try {
       originalContent = await readFile(filePath);
-    } catch (e) {
-      // File doesn't exist or can't be read
+    } catch (_e) {
       continue;
     }
 
-    try {
-      const mutatedContent = applyMutation(originalContent, candidate);
-
-      // Apply mutation
-      await writeFile(filePath, mutatedContent);
-
-      try {
-        // Run tests
-        const testsPassed = await runScopedTests(input.worktreePath, scopeTests);
-
-        // If tests passed, the mutation survived
-        if (testsPassed) {
-          return {
-            kind: "surviving-mutation",
-            mutation: candidate.mutation,
-            sourceSite: {
-              file: candidate.file,
-              line: candidate.line,
-            },
-          };
-        }
-      } finally {
-        // Always restore file
-        await writeFile(filePath, originalContent);
-      }
-    } catch (e) {
-      // Attempt to restore on error
-      try {
-        await writeFile(filePath, originalContent);
-      } catch {
-        // Ignore restoration errors
-      }
-      throw e;
+    const result = await testCandidate(
+      candidate,
+      originalContent,
+      input,
+      readFile,
+      writeFile,
+      runScopedTests,
+      scopeTests,
+    );
+    if (result) {
+      return result;
     }
   }
 
-  // All mutations were caught
   return {
     kind: "pass",
     runBase: input.runBase,

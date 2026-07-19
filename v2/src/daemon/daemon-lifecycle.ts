@@ -5,10 +5,8 @@ import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { connectIpcClient } from "../ipc/client";
 import { createRpcTransport } from "../ipc/rpc-transport";
-import { openStateStore, type StateStore } from "../persistence/state-store";
+import { isTerminalRunStatus, openStateStore, type StateStore } from "../persistence/state-store";
 import { parseStatusResult } from "./daemon-wire";
-
-const STOP_TERMINAL_STATUSES = new Set(["completed", "failed", "blocked", "killed"]);
 
 export class DaemonStopRefusedError extends Error {
   constructor(readonly runIds: readonly string[]) {
@@ -202,7 +200,7 @@ function assertStopAllowed(stateStore: Pick<StateStore, "listRuns" | "close"> | 
     }
     const blockers = store
       .listRuns()
-      .filter((run) => !STOP_TERMINAL_STATUSES.has(run.status))
+      .filter((run) => !isTerminalRunStatus(run.status))
       .map((run) => run.id);
     if (blockers.length > 0) throw new DaemonStopRefusedError(blockers);
   } catch (error) {

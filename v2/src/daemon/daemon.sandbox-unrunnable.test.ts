@@ -11,7 +11,7 @@ import { connectIpcClient } from "../ipc/client";
 import type { ResponseFrame } from "../ipc/types";
 import { openStateStore } from "../persistence/state-store";
 import { canUseUnixSockets, socketProbeErrored } from "../testing/unix-socket";
-import { startDaemon as startInProcessDaemon } from "./daemon";
+import { startDaemonRuntime as startInProcessDaemon } from "./daemon";
 import { startDaemon, stopDaemon } from "./daemon-lifecycle";
 import { parseListRuns } from "./daemon-wire";
 
@@ -91,7 +91,7 @@ describe("daemon (real process)", () => {
     expect(socketUnbound).toBe(true);
   });
 
-  // Uses the in-process startDaemon (not the detached-spawn startDaemon/stopDaemon above):
+  // Uses the in-process startDaemonRuntime (not the detached-spawn startDaemon/stopDaemon above):
   // seeding a run row requires a direct reference to the state store, which only the
   // in-process launcher exposes. The detached spawn has no seam for this.
   socketTest("list runs over IPC against a genuine daemon response frame", async () => {

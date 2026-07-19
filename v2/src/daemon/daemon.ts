@@ -24,6 +24,7 @@ import {
   type PersistedRecord,
 } from "../persistence/log-stream.ts";
 import {
+  isTerminalRunStatus,
   openStateStore,
   type Run,
   type RunStatus,
@@ -82,7 +83,6 @@ function worktreeClaimedMessage(key: OwnershipKey): string {
 
 const LIST_TERMINAL_RUN_LIMIT = 50;
 
-const TERMINAL_LIST_STATUSES: ReadonlySet<RunStatus> = new Set(["completed", "failed", "blocked", "killed"]);
 /** Marks runs whose recorded owner is gone as killed before IPC is exposed. */
 export async function reconcileOrphanedRuns(
   stateStore: StateStore,
@@ -109,10 +109,6 @@ export async function reconcileOrphanedRuns(
   return reconciledRunIds;
 }
 
-function isTerminalListStatus(status: RunStatus): boolean {
-  return TERMINAL_LIST_STATUSES.has(status);
-}
-
 /** Filter durable rows before list pays per-row loadRun/tail cost. Durable store is unchanged. */
 function retainListedRuns(runs: Run[]): Run[] {
   const keptIds = new Set<string>();
@@ -121,7 +117,7 @@ function retainListedRuns(runs: Run[]): Run[] {
 
   for (const run of runs) {
     const invocationId = run.workflowSnapshot?.invocationId;
-    if (!isTerminalListStatus(run.status)) {
+    if (!isTerminalRunStatus(run.status)) {
       keptIds.add(run.id);
       if (invocationId !== undefined) keptInvocationIds.add(invocationId);
       continue;
@@ -135,7 +131,7 @@ function retainListedRuns(runs: Run[]): Run[] {
 
   for (const run of runs) {
     if (keptIds.has(run.id)) continue;
-    if (!isTerminalListStatus(run.status)) continue;
+    if (!isTerminalRunStatus(run.status)) continue;
     const invocationId = run.workflowSnapshot?.invocationId;
     if (invocationId !== undefined && keptInvocationIds.has(invocationId)) {
       keptIds.add(run.id);
@@ -206,10 +202,9 @@ export function checkWorktreeClaimed(
   };
 }
 
-function isTerminalRunStatus(status: RunStatus): boolean {
-  return (
-    status === "completed" || status === "blocked" || status === "killed" || status === "paused" || status === "failed"
-  );
+/** Terminal or paused — any status with no live write loop to disturb. */
+function isSettledRunStatus(status: RunStatus): boolean {
+  return isTerminalRunStatus(status) || status === "paused";
 }
 
 /**
@@ -327,6 +322,12 @@ function runListReviewFields(snapshot: WorkflowSnapshot | undefined): {
   };
 }
 
+const UNSUPPORTED_RESUME_ERROR = {
+  reason: "unsupported_resume_context",
+  retryable: false,
+  nextAction: "stop",
+} as const;
+
 function isPublicationRetryEligible(loopOutcomeKind: string | undefined): boolean {
   return loopOutcomeKind === "completion_commit_failed" || loopOutcomeKind === "ready_gate_failed";
 }
@@ -355,7 +356,7 @@ function runListRowError(
 ) {
   if (!run) return undefined;
   if (resumeContext?.ok === false) {
-    return { reason: "unsupported_resume_context" as const, retryable: false, nextAction: "stop" as const };
+    return UNSUPPORTED_RESUME_ERROR;
   }
   return composeRunOperatorError(run, terminalRecord);
 }
@@ -519,7 +520,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       : undefined;
     const error =
       run && resumeContext?.ok === false
-        ? { reason: "unsupported_resume_context" as const, retryable: false, nextAction: "stop" as const }
+        ? UNSUPPORTED_RESUME_ERROR
         : run
           ? composeRunOperatorError(run, record)
           : undefined;
@@ -551,7 +552,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       } catch (reason) {
         try {
           const run = store.loadRun(runId);
-          if (run && !isTerminalRunStatus(run.status)) {
+          if (run && !isSettledRunStatus(run.status)) {
             store.setRunStatus(runId, "failed");
           }
         } catch {
@@ -583,7 +584,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
    */
   const settleFailedWorkflowRun = (runId: string, message: string, logSink: LogSink | undefined): void => {
     const run = store.loadRun(runId);
-    if (run && isTerminalRunStatus(run.status)) return;
+    if (run && isSettledRunStatus(run.status)) return;
     try {
       store.setRunStatus(runId, "failed");
     } catch {
@@ -688,7 +689,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       if (
         existing?.workflowSnapshot?.invocationId !== undefined &&
         existing.workflowSnapshot.invocationId !== firstStep.workflowInvocationId &&
-        !TERMINAL_LIST_STATUSES.has(existing.status)
+        !isTerminalRunStatus(existing.status)
       ) {
         return {
           kind: "error",
@@ -1219,7 +1220,7 @@ export async function recoverReconciledRuns(
   return { resumed };
 }
 
-export async function startDaemon(
+export async function startDaemonRuntime(
   socketPath: string,
   stateStore?: StateStore,
   logReader?: LogReader,

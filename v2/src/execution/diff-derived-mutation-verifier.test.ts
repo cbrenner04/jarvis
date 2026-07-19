@@ -1,4 +1,8 @@
 import { describe, expect, it } from "bun:test";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { type DiffDerivedMutationVerifierInput, verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 
 // Helper to test diff parsing
@@ -323,5 +327,90 @@ index 1234567..abcdefg 100644
     );
 
     expect(result.kind).toBe("pass");
+  });
+
+  describe("defaultRunScopedTests (real subprocess, no seam)", () => {
+    // Injected-seam tests above never exercise the default `runScopedTests`
+    // implementation, so a bug in how it invokes the resolved scope (e.g.
+    // treating package.json script names as `bun test` file patterns instead
+    // of running them via `bun run <script>`) is invisible to them: the real
+    // command silently matches zero test files, exits 0, and every mutation
+    // is misreported as "surviving" regardless of actual test coverage. These
+    // tests run the real default against a throwaway git+package.json fixture
+    // to prove the resolved scope actually executes.
+    function makeFixtureRepo(): string {
+      const dir = mkdtempSync(join(tmpdir(), "mutation-verifier-fixture-"));
+      // Explicit branch name: some machines' git hooks block commits to the
+      // default-branch name `git init` would otherwise pick.
+      execFileSync("git", ["init", "-q", "-b", "verifier-fixture"], { cwd: dir });
+      execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+      execFileSync("git", ["config", "user.name", "test"], { cwd: dir });
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "fixture", scripts: { test: "bun test guard.test.ts" } }),
+      );
+      writeFileSync(join(dir, "guard.ts"), "export function safe(x: unknown): string {\n  return String(x);\n}\n");
+      writeFileSync(
+        join(dir, "guard.test.ts"),
+        'import { expect, test } from "bun:test";\nimport { safe } from "./guard.ts";\ntest("covered", () => { expect(safe(0)).toBe("safe"); });\n',
+      );
+      execFileSync("git", ["add", "-A"], { cwd: dir });
+      execFileSync("git", ["commit", "-q", "-m", "base"], { cwd: dir });
+      return dir;
+    }
+
+    it("catches a covered guard mutation via the real bun run invocation", async () => {
+      const dir = makeFixtureRepo();
+      try {
+        const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
+        writeFileSync(
+          join(dir, "guard.ts"),
+          'export function safe(x: unknown): string {\n  if (!x) return "safe";\n  return String(x);\n}\n',
+        );
+        execFileSync("git", ["commit", "-aq", "-m", "add guard"], { cwd: dir });
+
+        const result = await verifyDiffDerivedMutations({ worktreePath: dir, runBase: baseSha });
+
+        expect(result.kind).toBe("pass");
+        if (result.kind === "pass") {
+          expect(result.candidateCount).toBeGreaterThan(0);
+        }
+        expect(execFileSync("git", ["status", "--porcelain"], { cwd: dir }).toString().trim()).toBe("");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("reports a surviving mutation when no test covers the changed guard", async () => {
+      const dir = makeFixtureRepo();
+      try {
+        const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
+        // riskyGuard is never called by guard.test.ts, so neither the original
+        // nor the mutated (`!x` flipped) form is exercised — a genuinely
+        // uncovered changed guard, unlike a flip on a called function (whose
+        // return value differs for the same input either way and so tends to
+        // get caught regardless of which branch a test happens to exercise).
+        // `safe` itself is untouched here, so guard.test.ts must assert its
+        // actual (unmodified) behavior rather than makeFixtureRepo's shared
+        // "safe" assertion — otherwise the baseline is already red before any
+        // mutation, and every mutation looks "caught" for the wrong reason.
+        writeFileSync(
+          join(dir, "guard.test.ts"),
+          'import { expect, test } from "bun:test";\nimport { safe } from "./guard.ts";\ntest("covered", () => { expect(safe(0)).toBe("0"); });\n',
+        );
+        writeFileSync(
+          join(dir, "guard.ts"),
+          'export function safe(x: unknown): string {\n  return String(x);\n}\n\nexport function riskyGuard(x: unknown): string {\n  if (!x) return "not-covered";\n  return "reached";\n}\n',
+        );
+        execFileSync("git", ["commit", "-aq", "-m", "add uncovered guard"], { cwd: dir });
+
+        const result = await verifyDiffDerivedMutations({ worktreePath: dir, runBase: baseSha });
+
+        expect(result.kind).toBe("surviving-mutation");
+        expect(execFileSync("git", ["status", "--porcelain"], { cwd: dir }).toString().trim()).toBe("");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
   });
 });

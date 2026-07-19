@@ -81,7 +81,12 @@ async function defaultRunScopedTests(cwd: string, scope: string[]): Promise<bool
   if (scope.length === 0) return true;
   const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
   try {
-    await realAsyncSubprocessRunner.runAsync("bun", ["test", "--parallel", ...scope], cwd);
+    // `scope` holds package.json script names (e.g. "test:v2"), not file
+    // patterns — each must run via `bun run <script>`, matching how
+    // scripts/ready.ts's getReadyCommands invokes the same scoped scripts.
+    for (const script of scope) {
+      await realAsyncSubprocessRunner.runAsync("bun", ["run", script], cwd);
+    }
     return true;
   } catch {
     return false;
@@ -399,7 +404,10 @@ export async function verifyDiffDerivedMutations(
 
   const changedPaths = Array.from(changedFiles);
   const scope = classifyChangedPaths(changedPaths);
-  const scopeTests = scope === "full" ? [] : scope;
+  // "full" means the aggregate `test` script, not "skip verification" — an
+  // empty scopeTests short-circuits defaultRunScopedTests to an unconditional
+  // pass, silently disabling mutation verification for full-scope diffs.
+  const scopeTests = scope === "full" ? ["test"] : scope;
 
   const candidates: Candidate[] = [];
   for (const [_file, lines] of changedLinesByFile) {

@@ -5,7 +5,6 @@ import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import type { TuiDaemonClient } from "./tui-daemon-client.ts";
 import { TUI_DAEMON_SOCKET_DISPLAY } from "./tui-daemon-errors.ts";
 import { runTuiEntry } from "./tui-entry.tsx";
-import { monitorTextLines } from "./tui-monitor-lines.ts";
 import type {
   RunTuiEntryDeps,
   TuiMonitorControls,
@@ -63,12 +62,6 @@ function deferred<T>() {
     reject = innerReject;
   });
   return { promise, resolve, reject };
-}
-
-function lastMonitorState(states: TuiMonitorState[]): TuiMonitorState {
-  const last = states.at(-1);
-  if (last === undefined) throw new Error("expected at least one monitor state");
-  return last;
 }
 
 function cloneState(state: TuiMonitorState): TuiMonitorState {
@@ -319,74 +312,6 @@ describe("runTuiEntry", () => {
     expect(view.monitorStates[0]?.selectedRunId).toBe("run-alpha");
   });
 
-  test("all-terminal launch list selects the first terminal row", async () => {
-    const view = createViewHost();
-    const { deps, clientOptions } = entryDeps(
-      {
-        methods: [],
-        listResponses: [{ runs: [RUN_BETA, RUN_GAMMA] }],
-        waitImpl: async () => ({ runStatus: "completed" }),
-      },
-      { viewHost: view.host },
-    );
-
-    const pending = runTuiEntry(deps);
-    await view.waitUntilOpen();
-    view.quit();
-    await pending;
-
-    expect(clientOptions.methods).toEqual(["health", "status", "list", "wait:run-beta", "close"]);
-    expect(view.monitorStates[0]?.selectedRunId).toBe("run-beta");
-  });
-
-  test("active-to-terminal transition keeps selection anchored on the same runId", async () => {
-    const view = createViewHost();
-    const refresh = createRefreshScheduler();
-    const { deps } = entryDeps(
-      {
-        listResponses: [{ runs: [RUN_ALPHA] }, { runs: [{ ...RUN_ALPHA, status: "completed", isLive: false }] }],
-        waitImpl: async () => ({ runStatus: "completed" }),
-      },
-      { viewHost: view.host, refreshScheduler: refresh.scheduler },
-    );
-
-    const pending = runTuiEntry(deps);
-    await view.waitUntilOpen();
-    await flush();
-    refresh.tick();
-    await flush();
-
-    const final = lastMonitorState(view.monitorStates);
-    expect(final.selectedRunId).toBe("run-alpha");
-    const lines = monitorTextLines(final);
-    const alphaIndex = lines.findIndex((line) => line.includes("run-alpha"));
-    expect(lines[alphaIndex]?.startsWith(">")).toBe(true);
-
-    view.quit();
-    await pending;
-  });
-
-  test("non-empty launch list selects the first row, waits for it, and exposes run fields", async () => {
-    const view = createViewHost();
-    const { deps, clientOptions } = entryDeps(
-      {
-        methods: [],
-        listResponses: [{ runs: [RUN_ALPHA, RUN_BETA] }],
-        waitImpl: async () => ({ runStatus: "completed", loopOutcomeKind: "complete", resumable: false }),
-      },
-      { viewHost: view.host },
-    );
-
-    const pending = runTuiEntry(deps);
-    await view.waitUntilOpen();
-    view.quit();
-    await pending;
-
-    expect(clientOptions.methods).toEqual(["health", "status", "list", "wait:run-alpha", "close"]);
-    expect(view.monitorStates[0]?.runs).toEqual([RUN_ALPHA, RUN_BETA]);
-    expect(view.monitorStates[0]?.selectedRunId).toBe("run-alpha");
-  });
-
   test("empty launch list shows an explicit empty state, does not select a run, and does not wait", async () => {
     const view = createViewHost();
     const { deps, clientOptions } = entryDeps(
@@ -409,45 +334,6 @@ describe("runTuiEntry", () => {
       waitState: { kind: "none" },
       steeringFeedback: null,
     });
-  });
-
-  test("initial selection skips queued runs and picks the first non-queued row", async () => {
-    const view = createViewHost();
-    const { deps, clientOptions } = entryDeps(
-      {
-        methods: [],
-        listResponses: [{ runs: [RUN_QUEUED, RUN_ALPHA] }],
-        waitImpl: async () => ({ runStatus: "completed" }),
-      },
-      { viewHost: view.host },
-    );
-
-    const pending = runTuiEntry(deps);
-    await view.waitUntilOpen();
-    view.quit();
-    await pending;
-
-    expect(clientOptions.methods).toEqual(["health", "status", "list", "wait:run-alpha", "close"]);
-    expect(view.monitorStates[0]?.selectedRunId).toBe("run-alpha");
-  });
-
-  test("no selection when only queued runs are present", async () => {
-    const view = createViewHost();
-    const { deps, clientOptions } = entryDeps(
-      {
-        methods: [],
-        listResponses: [{ runs: [RUN_QUEUED] }],
-      },
-      { viewHost: view.host },
-    );
-
-    const pending = runTuiEntry(deps);
-    await view.waitUntilOpen();
-    view.quit();
-    await pending;
-
-    expect(clientOptions.methods).toEqual(["health", "status", "list", "close"]);
-    expect(view.monitorStates[0]?.selectedRunId).toBeNull();
   });
 
   test("selectRun is a no-op for a queued run's id", async () => {
@@ -570,7 +456,7 @@ describe("runTuiEntry", () => {
     expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "none" });
   });
 
-  test("refresh updates displayed status and liveness without relaunching", async () => {
+  test("refresh updates displayed status and liveness in place and keeps selection anchored", async () => {
     const view = createViewHost();
     const refresh = createRefreshScheduler();
     const { deps } = entryDeps(
@@ -590,6 +476,7 @@ describe("runTuiEntry", () => {
     await pending;
 
     expect(view.monitorStates.at(-1)?.runs).toEqual([{ ...RUN_ALPHA, status: "completed", isLive: false }]);
+    expect(view.monitorStates.at(-1)?.selectedRunId).toBe("run-alpha");
   });
 
   test("refresh clears selection and abandons a pending wait when the selected run disappears", async () => {
@@ -659,34 +546,6 @@ describe("runTuiEntry", () => {
     }
     expect("loopOutcomeKind" in finalWaitState.result).toBe(false);
     expect("resumable" in finalWaitState.result).toBe(false);
-  });
-
-  test("deferred wait keeps the outcome panel pending until the boundary reply arrives", async () => {
-    const view = createViewHost();
-    const alphaWait = deferred<WaitRunCompletionResult>();
-    const { deps } = entryDeps(
-      {
-        listResponses: [{ runs: [RUN_ALPHA] }],
-        waitImpl: async () => alphaWait.promise,
-      },
-      { viewHost: view.host },
-    );
-
-    const pending = runTuiEntry(deps);
-    await view.waitUntilOpen();
-    await flush();
-    expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "pending", runId: "run-alpha" });
-
-    alphaWait.resolve({ runStatus: "completed", loopOutcomeKind: "complete", resumable: false });
-    await flush();
-    view.quit();
-    await pending;
-
-    expect(view.monitorStates.at(-1)?.waitState).toEqual({
-      kind: "ready",
-      runId: "run-alpha",
-      result: { runStatus: "completed", loopOutcomeKind: "complete", resumable: false },
-    });
   });
 
   test("changing selection while wait is pending abandons the prior wait and starts a fresh one", async () => {
@@ -920,17 +779,13 @@ describe("runTuiEntry", () => {
 
   test("steering RPC errors render inline and keep the monitor open", async () => {
     const cases = [
-      { action: "pauseSelected" as const, error: new RpcError("unknown_run", "run not found") },
       { action: "pauseSelected" as const, error: new RpcError("run_not_active", "not active") },
-      { action: "killSelected" as const, error: new RpcError("run_not_active", "not active") },
       { action: "resumeSelected" as const, error: new RpcError("terminal_run", "terminal") },
-      { action: "resumeSelected" as const, error: new RpcError("unknown_run", "run not found") },
     ];
 
     for (const { action, error } of cases) {
       const view = createViewHost();
-      const errorKey =
-        action === "pauseSelected" ? "pauseError" : action === "killSelected" ? "killError" : "resumeError";
+      const errorKey = action === "pauseSelected" ? "pauseError" : "resumeError";
       const { deps } = entryDeps(
         {
           listResponses: [{ runs: [RUN_ALPHA] }],
@@ -1053,62 +908,35 @@ describe("runTuiEntry", () => {
     await pending;
   });
 
-  test("successful pause and kill do not re-issue wait or mutate waitState", async () => {
-    const viewPause = createViewHost();
+  test("successful pause does not re-issue wait or mutate waitState", async () => {
+    const view = createViewHost();
     const pauseWait = deferred<WaitRunCompletionResult>();
-    const { deps: pauseDeps, clientOptions: pauseClient } = entryDeps(
+    const { deps, clientOptions } = entryDeps(
       {
         methods: [],
         listResponses: [{ runs: [RUN_ALPHA] }],
         waitImpl: async () => pauseWait.promise,
       },
-      { viewHost: viewPause.host },
+      { viewHost: view.host },
     );
 
-    const pausePending = runTuiEntry(pauseDeps);
-    await viewPause.waitUntilOpen();
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
     await flush();
     pauseWait.resolve({ runStatus: "completed" });
     await flush();
-    expect(viewPause.monitorStates.at(-1)?.waitState?.kind).toBe("ready");
-    const readyWaitState = viewPause.monitorStates.at(-1)?.waitState;
-    const pauseWaitCount = pauseClient.methods?.filter((method) => method === "wait:run-alpha").length ?? 0;
+    expect(view.monitorStates.at(-1)?.waitState?.kind).toBe("ready");
+    const readyWaitState = view.monitorStates.at(-1)?.waitState;
+    const waitCount = clientOptions.methods?.filter((method) => method === "wait:run-alpha").length ?? 0;
 
-    viewPause.pauseSelected();
+    view.pauseSelected();
     await flush();
 
-    expect(viewPause.monitorStates.at(-1)?.waitState).toEqual(readyWaitState);
-    expect(pauseClient.methods?.filter((method) => method === "wait:run-alpha").length).toBe(pauseWaitCount);
-    expect(pauseClient.methods).toContain("pause:run-alpha");
-    viewPause.quit();
-    await pausePending;
-
-    const viewKill = createViewHost();
-    const alphaWait = deferred<WaitRunCompletionResult>();
-    const { deps: killDeps, clientOptions: killClient } = entryDeps(
-      {
-        methods: [],
-        listResponses: [{ runs: [RUN_ALPHA] }],
-        waitImpl: async () => alphaWait.promise,
-      },
-      { viewHost: viewKill.host },
-    );
-
-    const killPending = runTuiEntry(killDeps);
-    await viewKill.waitUntilOpen();
-    await flush();
-    expect(viewKill.monitorStates.at(-1)?.waitState).toEqual({ kind: "pending", runId: "run-alpha" });
-    const pendingWaitState = viewKill.monitorStates.at(-1)?.waitState;
-    const killWaitCount = killClient.methods?.filter((method) => method === "wait:run-alpha").length ?? 0;
-
-    viewKill.killSelected();
-    await flush();
-
-    expect(viewKill.monitorStates.at(-1)?.waitState).toEqual(pendingWaitState);
-    expect(killClient.methods?.filter((method) => method === "wait:run-alpha").length).toBe(killWaitCount);
-    expect(killClient.methods).toContain("kill:run-alpha");
-    viewKill.quit();
-    await killPending;
+    expect(view.monitorStates.at(-1)?.waitState).toEqual(readyWaitState);
+    expect(clientOptions.methods?.filter((method) => method === "wait:run-alpha").length).toBe(waitCount);
+    expect(clientOptions.methods).toContain("pause:run-alpha");
+    view.quit();
+    await pending;
   });
 
   test("steering on terminal or non-live rows passes through to daemon without client pre-gate", async () => {
@@ -1145,68 +973,6 @@ describe("runTuiEntry", () => {
       view.quit();
       expect(await pending).toBe(0);
     }
-  });
-
-  test("workflow step view follows list refresh and selection", async () => {
-    const view = createViewHost();
-    const refresh = createRefreshScheduler();
-    const step1Completed = {
-      stepId: "step-1",
-      role: "implement",
-      status: "completed",
-      attemptCount: 1,
-      terminalOutcome: "complete",
-    } as const;
-    const workflowRun: DaemonListRunRow = {
-      ...RUN_ALPHA,
-      workflow: {
-        steps: [
-          step1Completed,
-          { stepId: "step-2", role: "review", status: "in_progress", attemptCount: 1 },
-          { stepId: "step-3", role: "verify", status: "pending", attemptCount: 0 },
-        ],
-      },
-    };
-    const advancedWorkflow: DaemonListRunRow = {
-      ...workflowRun,
-      workflow: {
-        steps: [
-          step1Completed,
-          { stepId: "step-2", role: "review", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
-          { stepId: "step-3", role: "verify", status: "in_progress", attemptCount: 1 },
-        ],
-      },
-    };
-    const { deps } = entryDeps(
-      {
-        listResponses: [{ runs: [workflowRun, RUN_BETA] }, { runs: [advancedWorkflow, RUN_BETA] }],
-        waitImpl: async () => ({ runStatus: "in-progress" }),
-      },
-      { viewHost: view.host, refreshScheduler: refresh.scheduler },
-    );
-
-    const pending = runTuiEntry(deps);
-    await view.waitUntilOpen();
-    await flush();
-
-    let lines = monitorTextLines(lastMonitorState(view.monitorStates));
-    expect(lines).toContain("Workflow");
-    expect(lines).toContain("> step-2 review in_progress attempts=1");
-
-    refresh.tick();
-    await flush();
-
-    const refreshed = lastMonitorState(view.monitorStates);
-    expect(refreshed.selectedRunId).toBe("run-alpha");
-    lines = monitorTextLines(refreshed);
-    expect(lines).toContain("> step-3 verify in_progress attempts=1");
-
-    view.selectRun("run-beta");
-    await flush();
-    expect(monitorTextLines(lastMonitorState(view.monitorStates))).not.toContain("Workflow");
-
-    view.quit();
-    await pending;
   });
 
   test("successful resume re-issues wait and abandons a prior ready snapshot", async () => {

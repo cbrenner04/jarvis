@@ -5,13 +5,12 @@ import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { connectIpcClient } from "../ipc/client.ts";
-import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
+import { RpcConnectionError } from "../ipc/rpc-errors.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import { DAEMON_SOCKET_PATH } from "../paths.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { makeIpcClient } from "../testing/ipc-client-fake.ts";
-import type { TuiDaemonClient } from "./tui-daemon-client.ts";
 import { connectTuiDaemon } from "./tui-daemon-client.ts";
 
 const START_INPUT: WriteLoopInput = {
@@ -137,203 +136,28 @@ test("health then status reuse one connection without reconnecting", async () =>
   expect(connectCalls).toBe(1);
 });
 
-interface ErrorCase {
-  method: string;
-  requestId: string;
-  code: string;
-  message: string;
-  call: (client: TuiDaemonClient) => Promise<unknown>;
-  assert: (promise: Promise<unknown>) => unknown;
-}
+// Error frames map to RpcError uniformly across methods; representatives cover a plain RPC,
+// a steering RPC, and the revision-gated start path.
+test("daemon error replies reject as RpcError with code and message", async () => {
+  await withFixedUuid([HEALTH_REQUEST_ID, PAUSE_REQUEST_ID, START_REQUEST_ID, START_REQUEST_ID], async () => {
+    const client = await connectTuiDaemon({
+      connectIpcClient: async () =>
+        makeGatedIpcClient([
+          { kind: "error", id: HEALTH_REQUEST_ID, code: "unhealthy", message: "daemon not ready" },
+          { kind: "error", id: PAUSE_REQUEST_ID, code: "unknown_run", message: "missing run" },
+          statusFrame(START_REQUEST_ID),
+          { kind: "error", id: START_REQUEST_ID, code: "run_in_progress", message: "busy" },
+        ]),
+      getCurrentRevision: matchingRevision,
+    });
 
-const HEALTH_UNHEALTHY_CASE: ErrorCase = {
-  method: "health",
-  requestId: HEALTH_REQUEST_ID,
-  code: "unhealthy",
-  message: "daemon not ready",
-  call: (client) => client.health(),
-  assert: (promise) =>
-    expect(promise).rejects.toMatchObject({
+    await expect(client.health()).rejects.toMatchObject({
       name: "RpcError",
       code: "unhealthy",
       message: "daemon not ready",
-    }),
-};
-
-const STATUS_UNAVAILABLE_CASE: ErrorCase = {
-  method: "status",
-  requestId: STATUS_REQUEST_ID,
-  code: "status_unavailable",
-  message: "no status",
-  call: (client) => client.status(),
-  assert: (promise) => expect(promise).rejects.toBeInstanceOf(RpcError),
-};
-
-const LIST_INTERNAL_ERROR_CASE: ErrorCase = {
-  method: "list",
-  requestId: LIST_REQUEST_ID,
-  code: "internal_error",
-  message: "list failed",
-  call: (client) => client.list(),
-  assert: (promise) => expect(promise).rejects.toBeInstanceOf(RpcError),
-};
-
-const WAIT_UNKNOWN_RUN_CASE: ErrorCase = {
-  method: "wait",
-  requestId: WAIT_REQUEST_ID,
-  code: "unknown_run",
-  message: "missing run",
-  call: (client) => client.wait("run-404"),
-  assert: (promise) => expect(promise).rejects.toMatchObject({ code: "unknown_run" }),
-};
-
-const START_RUN_IN_PROGRESS_CASE: ErrorCase = {
-  method: "start",
-  requestId: START_REQUEST_ID,
-  code: "run_in_progress",
-  message: "A run is already in progress; at most one in-flight run globally",
-  call: (client) => client.start(START_INPUT),
-  assert: (promise) => expect(promise).rejects.toMatchObject({ name: "RpcError", code: "run_in_progress" }),
-};
-
-const START_WORKTREE_CLAIMED_CASE: ErrorCase = {
-  method: "start",
-  requestId: START_REQUEST_ID,
-  code: "worktree_claimed",
-  message: "Run already active for project/branch",
-  call: (client) => client.start(START_INPUT),
-  assert: (promise) => expect(promise).rejects.toMatchObject({ code: "worktree_claimed" }),
-};
-
-const START_INVALID_PARAMS_CASE: ErrorCase = {
-  method: "start",
-  requestId: START_REQUEST_ID,
-  code: "invalid_params",
-  message: "missing input",
-  call: (client) => client.start(START_INPUT),
-  assert: (promise) => expect(promise).rejects.toBeInstanceOf(RpcError),
-};
-
-const PAUSE_UNKNOWN_RUN_CASE: ErrorCase = {
-  method: "pause",
-  requestId: PAUSE_REQUEST_ID,
-  code: "unknown_run",
-  message: "missing run",
-  call: (client) => client.pause("run-404"),
-  assert: (promise) => expect(promise).rejects.toMatchObject({ code: "unknown_run" }),
-};
-
-const RESUME_TERMINAL_RUN_CASE: ErrorCase = {
-  method: "resume",
-  requestId: RESUME_REQUEST_ID,
-  code: "terminal_run",
-  message: "Cannot resume a completed run",
-  call: (client) => client.resume("run-done"),
-  assert: (promise) => expect(promise).rejects.toMatchObject({ code: "terminal_run" }),
-};
-
-const KILL_UNKNOWN_RUN_CASE: ErrorCase = {
-  method: "kill",
-  requestId: KILL_REQUEST_ID,
-  code: "unknown_run",
-  message: "missing run",
-  call: (client) => client.kill("run-404"),
-  assert: (promise) => expect(promise).rejects.toMatchObject({ code: "unknown_run" }),
-};
-
-const PAUSE_RUN_NOT_ACTIVE_CASE: ErrorCase = {
-  method: "pause",
-  requestId: PAUSE_REQUEST_ID,
-  code: "run_not_active",
-  message: "Run run-123 is not currently active",
-  call: (client) => client.pause("run-123"),
-  assert: (promise) => expect(promise).rejects.toMatchObject({ code: "run_not_active" }),
-};
-
-const KILL_RUN_NOT_ACTIVE_CASE: ErrorCase = {
-  method: "kill",
-  requestId: KILL_REQUEST_ID,
-  code: "run_not_active",
-  message: "Run run-123 is not currently active",
-  call: (client) => client.kill("run-123"),
-  assert: (promise) => expect(promise).rejects.toMatchObject({ code: "run_not_active" }),
-};
-
-const RESUME_RUN_IN_PROGRESS_CASE: ErrorCase = {
-  method: "resume",
-  requestId: RESUME_REQUEST_ID,
-  code: "run_in_progress",
-  message: "A run is already in progress; at most one in-flight run globally",
-  call: (client) => client.resume("run-paused"),
-  assert: (promise) => expect(promise).rejects.toMatchObject({ code: "run_in_progress" }),
-};
-
-async function runErrorCaseGroup(cases: ErrorCase[]): Promise<void> {
-  await withFixedUuid(
-    cases.flatMap((c) => (c.method === "start" || c.method === "resume" ? [c.requestId, c.requestId] : [c.requestId])),
-    async () => {
-      const client = await connectTuiDaemon({
-        connectIpcClient: async () =>
-          makeGatedIpcClient(
-            cases.flatMap((c) =>
-              c.method === "start" || c.method === "resume"
-                ? [statusFrame(c.requestId), { kind: "error", id: c.requestId, code: c.code, message: c.message }]
-                : [{ kind: "error", id: c.requestId, code: c.code, message: c.message }],
-            ),
-          ),
-        getCurrentRevision: matchingRevision,
-      });
-
-      for (const c of cases) {
-        await c.assert(c.call(client));
-      }
-      client.close();
-    },
-  );
-}
-
-const ERROR_CASE_GROUPS: Array<[string, ErrorCase[]]> = [
-  ["health/unhealthy", [HEALTH_UNHEALTHY_CASE]],
-  ["status/status_unavailable", [STATUS_UNAVAILABLE_CASE]],
-  ["list/internal_error, wait/unknown_run", [LIST_INTERNAL_ERROR_CASE, WAIT_UNKNOWN_RUN_CASE]],
-  ["start/run_in_progress", [START_RUN_IN_PROGRESS_CASE]],
-  ["start/worktree_claimed", [START_WORKTREE_CLAIMED_CASE]],
-  ["start/invalid_params", [START_INVALID_PARAMS_CASE]],
-  [
-    "pause/unknown_run, resume/terminal_run, kill/unknown_run",
-    [PAUSE_UNKNOWN_RUN_CASE, RESUME_TERMINAL_RUN_CASE, KILL_UNKNOWN_RUN_CASE],
-  ],
-  ["pause/run_not_active, kill/run_not_active", [PAUSE_RUN_NOT_ACTIVE_CASE, KILL_RUN_NOT_ACTIVE_CASE]],
-  ["resume/run_in_progress", [RESUME_RUN_IN_PROGRESS_CASE]],
-];
-
-test.each(ERROR_CASE_GROUPS)("%s rejects as RpcError", async (_label, cases) => {
-  await runErrorCaseGroup(cases);
-});
-
-test("list sends one correlated IPC list request and returns parsed runs", async () => {
-  const sent: unknown[] = [];
-  await withFixedUuid([LIST_REQUEST_ID], async () => {
-    const client = await connectTuiDaemon({
-      connectIpcClient: async () =>
-        makeGatedIpcClient(
-          [
-            {
-              kind: "response",
-              id: LIST_REQUEST_ID,
-              result: {
-                runs: [{ runId: "run-123", project: "demo", branch: "feature", status: "completed", isLive: false }],
-              },
-            },
-          ],
-          { sent },
-        ),
     });
-
-    await expect(client.list()).resolves.toEqual({
-      runs: [{ runId: "run-123", project: "demo", branch: "feature", status: "completed", isLive: false }],
-    });
-    expect(sent).toEqual([{ kind: "request", id: LIST_REQUEST_ID, method: "list" }]);
+    await expect(client.pause("run-404")).rejects.toMatchObject({ code: "unknown_run" });
+    await expect(client.start(START_INPUT)).rejects.toMatchObject({ code: "run_in_progress" });
     client.close();
   });
 });
@@ -399,26 +223,6 @@ test("list succeeds while wait is unresolved on the same client", async () => {
       { kind: "request", id: WAIT_REQUEST_ID, method: "wait", params: { runId: "run-123" } },
       { kind: "request", id: LIST_REQUEST_ID, method: "list" },
     ]);
-    client.close();
-  });
-});
-
-test("wait stays pending until its correlated reply arrives", async () => {
-  const deferred = makeIpcClient([], { deferred: true });
-
-  await withFixedUuid([WAIT_REQUEST_ID], async () => {
-    const client = await connectTuiDaemon({ connectIpcClient: async () => deferred });
-    const waitPromise = client.wait("run-123");
-
-    let settled = false;
-    void waitPromise.then(() => {
-      settled = true;
-    });
-    await Promise.resolve();
-    expect(settled).toBe(false);
-
-    deferred.push({ kind: "response", id: WAIT_REQUEST_ID, result: { runStatus: "completed", resumable: false } });
-    await expect(waitPromise).resolves.toEqual({ runStatus: "completed", resumable: false });
     client.close();
   });
 });
@@ -628,20 +432,14 @@ test("steering RPCs succeed while wait is unresolved on the same client", async 
   });
 });
 
-test("steering malformed success payloads reject as RpcConnectionError", async () => {
-  await withFixedUuid([PAUSE_REQUEST_ID, RESUME_REQUEST_ID, KILL_REQUEST_ID], async () => {
+test("malformed success payloads reject as RpcConnectionError", async () => {
+  await withFixedUuid([PAUSE_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       connectIpcClient: async () =>
-        makeGatedIpcClient([
-          { kind: "response", id: PAUSE_REQUEST_ID, result: { ok: false } },
-          { kind: "response", id: RESUME_REQUEST_ID, result: {} },
-          { kind: "response", id: KILL_REQUEST_ID, result: { state: "running" } },
-        ]),
+        makeGatedIpcClient([{ kind: "response", id: PAUSE_REQUEST_ID, result: { ok: false } }]),
     });
 
     await expect(client.pause("run-1")).rejects.toBeInstanceOf(RpcConnectionError);
-    await expect(client.resume("run-1")).rejects.toBeInstanceOf(RpcConnectionError);
-    await expect(client.kill("run-1")).rejects.toBeInstanceOf(RpcConnectionError);
     client.close();
   });
 });

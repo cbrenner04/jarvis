@@ -38,16 +38,6 @@ export function publicationFailureFor(error: unknown): PublicationFailure | unde
   return error instanceof Error ? details.get(error) : undefined;
 }
 
-export class NonFastForwardPublicationError extends Error {
-  constructor(
-    readonly failure: PublicationFailure,
-    options?: ErrorOptions,
-  ) {
-    super(`Non-fast-forward push rejection; ${failure.message}`, options);
-    this.name = "NonFastForwardPublicationError";
-  }
-}
-
 /** Only known transport failures retry; explicit permanent diagnostics always win. */
 export function isTransientPublicationFailure(failure: PublicationFailure): boolean {
   const text = `${failure.message}\n${failure.stdoutTail ?? ""}\n${failure.stderrTail ?? ""}`.toLowerCase();
@@ -69,6 +59,14 @@ export function formatPublicationFailure(failure: PublicationFailure): string {
   return parts.join("; ");
 }
 
+export function defaultPublicationDelay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function defaultPublicationRetryNotice(message: string): void {
+  console.error(message);
+}
+
 export async function runPublicationWithRetry<T>(
   operation: string,
   action: () => Promise<T>,
@@ -86,11 +84,6 @@ export async function runPublicationWithRetry<T>(
       const original = error instanceof Error ? error : new Error(String(error));
       const failure = normalizePublicationFailure(operation, original);
       details.set(original, failure);
-      if (/non-fast-forward|failed to push some refs/i.test(`${failure.message}\n${failure.stderrTail ?? ""}`)) {
-        const divergence = new NonFastForwardPublicationError(failure, { cause: original });
-        details.set(divergence, failure);
-        throw divergence;
-      }
       if (!isTransientPublicationFailure(failure) || attempt === 3) throw original;
       options.retryNotice(`${operation}: ${formatPublicationFailure(failure)}; retrying (attempt ${attempt + 1}/3)`);
       await options.delay(1000);

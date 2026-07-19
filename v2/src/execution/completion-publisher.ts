@@ -1,6 +1,10 @@
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { type RefreshPrBodyInput, refreshPrBody } from "./pr-body-refresh.ts";
-import { runPublicationWithRetry } from "./publication-retry.ts";
+import {
+  defaultPublicationDelay,
+  defaultPublicationRetryNotice,
+  runPublicationWithRetry,
+} from "./publication-retry.ts";
 import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
@@ -26,8 +30,6 @@ export type CompletionPublisher = (input: CompletionPublisherInput) => Promise<C
 
 type Git = (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string>;
 type GhCommand = (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string>;
-/** Retained only for compatibility with injected test seams; publication never probes it. */
-type GhReady = (cwd: string) => Promise<boolean>;
 type Delay = (ms: number) => Promise<void>;
 type RetryNotice = (message: string) => void;
 
@@ -38,7 +40,6 @@ type RenderFooter = NonNullable<RefreshPrBodyInput["renderFooter"]>;
 type PublisherSeams = {
   git: Git;
   gh: GhCommand;
-  ghReady: GhReady;
   delay: Delay;
   retryNotice: RetryNotice;
   fetchPrBody?: FetchPrBody;
@@ -60,20 +61,12 @@ function defaultCommand(
 const defaultGit: Git = (cwd, args, env) => defaultCommand("git", cwd, args, env);
 const defaultGh: GhCommand = (cwd, args, env) => defaultCommand("gh", cwd, args, env);
 
-function defaultDelay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function defaultRetryNotice(message: string): void {
-  console.error(message);
-}
-
 /** Publishes completion commit: push to origin and ensure open draft PR. Retryable on transient failures. */
 export function createCompletionPublisher(seams?: Partial<PublisherSeams>): CompletionPublisher {
   const git = seams?.git ?? defaultGit;
   const gh = seams?.gh ?? defaultGh;
-  const delay = seams?.delay ?? defaultDelay;
-  const retryNotice = seams?.retryNotice ?? defaultRetryNotice;
+  const delay = seams?.delay ?? defaultPublicationDelay;
+  const retryNotice = seams?.retryNotice ?? defaultPublicationRetryNotice;
 
   return async (input) => {
     const specPath = normalizePublicationSpecPath(input.worktreePath, input.specPath);

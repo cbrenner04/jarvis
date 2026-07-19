@@ -17,6 +17,9 @@ import type {
   InvocationCompletedRecord,
   InvocationResult,
 } from "../../../shared/invocation/execute.ts";
+import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
+import { intentReviewPromptProfile } from "../../../shared/prompts/review-intent.ts";
+import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
@@ -30,9 +33,6 @@ import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-wo
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { landPublication } from "./publication-landing.ts";
 import { ReadyGateError } from "./ready-finalize.ts";
-import { intentReviewPromptProfile } from "./render-intent-review-prompts.ts";
-import { planReviewPromptProfile } from "./render-plan-review-prompts.ts";
-import { implementReviewPromptProfile } from "./review-debate-render.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import {
   executeWorkflow,

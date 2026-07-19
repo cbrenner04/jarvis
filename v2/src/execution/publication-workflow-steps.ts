@@ -5,14 +5,16 @@ import { getBaseBranch } from "../../../shared/git.ts";
 import type { ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
-import { INTENT_REVIEW_DEBATE_ROLE_PROMPT_IDS } from "../../../shared/prompts/review-intent.ts";
+import {
+  INTENT_REVIEW_DEBATE_ROLE_PROMPT_IDS,
+  intentReviewPromptProfile,
+} from "../../../shared/prompts/review-intent.ts";
+import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import type { MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
 import { jarvisHome } from "../paths.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { PublicationLanding } from "./publication-landing.ts";
-import { intentReviewPromptProfile } from "./render-intent-review-prompts.ts";
-import { planReviewPromptProfile } from "./render-plan-review-prompts.ts";
 import {
   type LoadedWorkflowStep,
   type ReviewDebateWorkflowSourceStep,

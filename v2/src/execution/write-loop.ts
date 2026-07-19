@@ -130,7 +130,8 @@ const MAX_READY_GATE_REPAIRS = 3;
 const READY_GATE_OUTPUT_MAX_CHARS = 16 * 1024;
 export const DEFAULT_ITERATION_TIMEOUT_MS = 600_000;
 
-async function getUncommittedPaths(worktreePath: string): Promise<string[]> {
+/** `git status --porcelain` paths; fail-soft to [] — diagnostic listing only. */
+export async function getUncommittedPaths(worktreePath: string): Promise<string[]> {
   try {
     return (await realAsyncSubprocessRunner.runAsync("git", ["status", "--porcelain"], worktreePath))
       .split("\n")

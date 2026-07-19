@@ -11,7 +11,7 @@ import {
   type RunStatus,
   type StateStore,
 } from "../persistence/state-store.ts";
-import { reconcileOrphanedRuns, recoverReconciledRuns, startDaemon } from "./daemon.ts";
+import { reconcileOrphanedRuns, recoverReconciledRuns, startDaemonRuntime } from "./daemon.ts";
 
 const dbPath = join(tmpdir(), `jarvis-reconciliation-${process.pid}.sqlite`);
 const orphanedStatuses: readonly RunStatus[] = ["queued", "in-progress", "paused", "budget-soft-stopped"];
@@ -294,7 +294,7 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
     finishRunReconciliation: () => order.push("finished"),
   } as unknown as StateStore;
 
-  await startDaemon("/fake/socket", reconciledStore, reader, {
+  await startDaemonRuntime("/fake/socket", reconciledStore, reader, {
     openLogSink: () => sink,
     startIpcServer,
     recoverReconciledRuns: async (runIds) => {
@@ -358,7 +358,7 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
   ]) {
     let opened = false;
     await expect(
-      startDaemon("/fake/socket", failure.store, reader, {
+      startDaemonRuntime("/fake/socket", failure.store, reader, {
         openLogSink: () => failure.sink,
         startIpcServer: async () => {
           opened = true;

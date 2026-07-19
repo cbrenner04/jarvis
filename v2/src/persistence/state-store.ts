@@ -26,6 +26,13 @@ export function isRunStatus(value: unknown): value is RunStatus {
   return typeof value === "string" && runStatusSet.has(value);
 }
 
+/** Statuses that end a run row; `paused` is excluded (resumable). */
+export const TERMINAL_RUN_STATUSES: ReadonlySet<RunStatus> = new Set(["completed", "failed", "blocked", "killed"]);
+
+export function isTerminalRunStatus(status: RunStatus): boolean {
+  return TERMINAL_RUN_STATUSES.has(status);
+}
+
 const BOUNDARY_TERMINAL_STATUSES: ReadonlySet<RunStatus> = new Set(["completed", "blocked", "failed"]);
 
 /** Statuses a committed completion boundary can leave permanently; `paused` and `killed` are excluded. */

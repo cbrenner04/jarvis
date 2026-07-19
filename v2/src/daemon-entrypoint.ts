@@ -1,4 +1,4 @@
-import { startDaemon } from "./daemon/daemon";
+import { startDaemonRuntime } from "./daemon/daemon";
 
 const socketPath = process.env.DAEMON_SOCKET_PATH;
 if (!socketPath) {
@@ -6,7 +6,7 @@ if (!socketPath) {
   process.exit(1);
 }
 
-startDaemon(socketPath).catch((err) => {
+startDaemonRuntime(socketPath).catch((err) => {
   console.error("Fatal daemon error:", err);
   process.exit(1);
 });

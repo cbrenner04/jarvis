@@ -14,10 +14,10 @@
 
 ## Acceptance criteria
 
-- [ ] `v1/test/run.test.ts` linked-subspec progression, WIP commit, and draft-PR tests stay green in the new partition.
-- [ ] `v1/test/run.test.ts` stays green after the extraction.
-- [ ] The new linked-subspec and PR test file passes independently and in `bun run test:v1`.
-- [ ] `bun run typecheck` passes.
+- [x] `v1/test/run.test.ts` linked-subspec progression, WIP commit, and draft-PR tests stay green in the new partition.
+- [x] `v1/test/run.test.ts` stays green after the extraction.
+- [x] The new linked-subspec and PR test file passes independently and in `bun run test:v1`.
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

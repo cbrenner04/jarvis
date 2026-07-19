@@ -39,6 +39,7 @@ type UntrackedFiles = (cwd: string) => Promise<string[]>;
 type RunScopedTests = (cwd: string, scope: string[]) => Promise<boolean>;
 type ReadFile = (path: string) => Promise<string>;
 type WriteFile = (path: string, content: string) => Promise<void>;
+type Now = () => number;
 
 type VerifierSeams = {
   gitDiff?: GitDiff;
@@ -46,7 +47,14 @@ type VerifierSeams = {
   runScopedTests?: RunScopedTests;
   readFile?: ReadFile;
   writeFile?: WriteFile;
+  now?: Now;
 };
+
+// Each applied mutation runs the run-base scoped suites once; bounding count
+// and wall-clock keeps a large diff from dominating implement iteration time
+// (DEFAULT_ITERATION_TIMEOUT_MS in write-loop.ts).
+const MAX_APPLIED_MUTATIONS = 25;
+const MAX_VERIFICATION_MS = 5 * 60_000;
 
 async function defaultGitDiff(cwd: string, baseRef: string): Promise<string> {
   const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
@@ -383,6 +391,7 @@ export async function verifyDiffDerivedMutations(
   const runScopedTests = seams?.runScopedTests ?? defaultRunScopedTests;
   const readFile = seams?.readFile ?? defaultReadFile;
   const writeFile = seams?.writeFile ?? defaultWriteFile;
+  const now = seams?.now ?? Date.now;
 
   const diffOutput = await gitDiff(input.worktreePath, input.runBase);
   const changedLines = parseDiff(diffOutput);
@@ -426,7 +435,14 @@ export async function verifyDiffDerivedMutations(
     };
   }
 
+  const verificationStart = now();
+  let appliedCount = 0;
+
   for (const candidate of candidates) {
+    if (appliedCount >= MAX_APPLIED_MUTATIONS || now() - verificationStart >= MAX_VERIFICATION_MS) {
+      break;
+    }
+
     const filePath = `${input.worktreePath}/${candidate.file}`;
     let originalContent: string;
 
@@ -436,6 +452,7 @@ export async function verifyDiffDerivedMutations(
       continue;
     }
 
+    appliedCount++;
     const result = await testCandidate(
       candidate,
       originalContent,
@@ -454,6 +471,6 @@ export async function verifyDiffDerivedMutations(
     kind: "pass",
     runBase: input.runBase,
     inspectedPaths: changedPaths,
-    candidateCount: candidates.length,
+    candidateCount: appliedCount,
   };
 }

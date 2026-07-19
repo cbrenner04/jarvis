@@ -861,8 +861,10 @@ the run does not report `completed` and the mutation + source site are named in 
 failure. The worktree is restored before returning any terminal result.
 
 Application and verification scope are bounded: only changed production files are
-inspected (no full-repo scan), and verification may be halted by count/time bounds
-to avoid dominating implement wall-clock (future enhancement).
+inspected (no full-repo scan), and applying/testing candidates stops once 25
+mutations have been applied or 5 minutes of verification wall-clock have elapsed,
+whichever comes first — hitting either bound ends verification without testing
+the remaining candidates, avoiding a large diff dominating implement wall-clock.
 
 Verification is exercised through injected seams for git-diff, untracked-file discovery,
 and scoped-test execution, enabling unit coverage of candidate derivation, mutation

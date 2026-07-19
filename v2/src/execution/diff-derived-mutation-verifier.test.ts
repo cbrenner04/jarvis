@@ -109,6 +109,8 @@ index 1234567..abcdefg 100644
       {
         gitDiff: async () => diffWithGuardFlip,
         untrackedFiles: async () => [],
+        readFile: async () => 'export function safe(x: any) {\n  if (!x) return "safe";\n  return x;\n}',
+        writeFile: async () => {},
         runScopedTests: async () => {
           // Mutation caused tests to fail, so it's caught
           return false;
@@ -327,6 +329,87 @@ index 1234567..abcdefg 100644
     );
 
     expect(result.kind).toBe("pass");
+  });
+
+  it("stops applying mutations once the candidate-count bound is hit", async () => {
+    const manyGuardLines = Array.from({ length: 30 }, (_, i) => ` if (!x${i}) return null;`).join("\n");
+    const diffWithManyGuards = `diff --git a/src/many.ts b/src/many.ts
+index 1234567..abcdefg 100644
+--- a/src/many.ts
++++ b/src/many.ts
+@@ -1,3 +1,${30} @@
+${manyGuardLines
+  .split("\n")
+  .map((l) => `+${l}`)
+  .join("\n")}
+`;
+
+    let testRunCount = 0;
+    const result = await verifyDiffDerivedMutations(
+      {
+        worktreePath: "/test/path",
+        runBase: "main",
+      },
+      {
+        gitDiff: async () => diffWithManyGuards,
+        untrackedFiles: async () => [],
+        readFile: async () => manyGuardLines,
+        writeFile: async () => {},
+        runScopedTests: async () => {
+          testRunCount++;
+          return false;
+        },
+      },
+    );
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") {
+      expect(result.candidateCount).toBe(25);
+    }
+    expect(testRunCount).toBe(25);
+  });
+
+  it("stops applying mutations once the wall-clock bound is hit", async () => {
+    const diffWithGuardFlip = `diff --git a/src/test.ts b/src/test.ts
+index 1234567..abcdefg 100644
+--- a/src/test.ts
++++ b/src/test.ts
+@@ -1,3 +1,3 @@
+ export function safe(x: any) {
+-  if (!x) return null;
++  if (!x) return "safe";
+   return x;
+`;
+
+    let elapsed = 0;
+    let testRunCount = 0;
+    const result = await verifyDiffDerivedMutations(
+      {
+        worktreePath: "/test/path",
+        runBase: "main",
+      },
+      {
+        gitDiff: async () => diffWithGuardFlip,
+        untrackedFiles: async () => [],
+        readFile: async () => 'if (!x) return "safe";',
+        writeFile: async () => {},
+        runScopedTests: async () => {
+          testRunCount++;
+          return false;
+        },
+        now: () => {
+          const value = elapsed;
+          elapsed += 6 * 60_000;
+          return value;
+        },
+      },
+    );
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") {
+      expect(result.candidateCount).toBe(0);
+    }
+    expect(testRunCount).toBe(0);
   });
 
   describe("defaultRunScopedTests (real subprocess, no seam)", () => {

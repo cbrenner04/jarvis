@@ -328,3 +328,22 @@ test("list reports a promoted run as in-progress and live", async () => {
   expect(row?.status).toBe("in-progress");
   expect(row?.isLive).toBe(true);
 });
+
+test("promotion against a closed store is a no-op instead of an unhandled throw", () => {
+  const { store } = createUnitStore();
+  const registry = new WorktreeOwnershipRegistry();
+  const { spawnWriteLoop, calls } = createFakeSpawnWriteLoop(registry);
+  store.close();
+
+  expect(() =>
+    promoteQueuedRunImpl({
+      store,
+      registry,
+      checkMemoryHeadroom: () => true,
+      settleDelayMs: () => 0,
+      settleState: { suppressedUntil: 0 },
+      spawnWriteLoop,
+    }),
+  ).not.toThrow();
+  expect(calls).toEqual([]);
+});

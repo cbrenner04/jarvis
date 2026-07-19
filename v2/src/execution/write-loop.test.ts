@@ -205,6 +205,7 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     listRuns: () => inner.listRuns(),
     hasQueuedRun: (args) => inner.hasQueuedRun(args),
     listQueuedRuns: () => inner.listQueuedRuns(),
+    isClosed: () => inner.isClosed(),
     close: () => inner.close(),
     commitCompletionBoundary: (args) => {
       if (crashed) return inner.commitCompletionBoundary(args);

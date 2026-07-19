@@ -264,3 +264,28 @@ describe("executeReviewDebate", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 });
+
+test("a hung adversary is aborted at the role wall clock", async () => {
+  const hung: InvocationBinding = {
+    id: "adversary.hung",
+    metadata: { agent: "adversary", model: "hung" },
+    invoke: ({ signal }) =>
+      new Promise((resolve) =>
+        signal?.addEventListener("abort", () => resolve({ kind: "error", exitCode: 1, stderr: "aborted" }), {
+          once: true,
+        }),
+      ),
+  };
+  const calls: string[] = [];
+  const result = await executeReviewDebate({
+    ...baseInput({
+      calls,
+      verdictPath: join(mkdtempSync(join(tmpdir(), "review-debate-")), "verdict.md"),
+      adjudicatorVerdict: "verdict",
+      maxCycles: 1,
+      overrides: { adversary: [hung] },
+    }),
+    roleTimeoutMs: 5,
+  });
+  expect(result).toMatchObject({ cycles: [{ kind: "role_failed", failedRole: "adversary" }] });
+});

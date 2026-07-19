@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { aggregateExitCode, isSpawnTimeout, runV2TestFiles, spawnTimeoutMessage } from "./run-v2-tests.ts";
+import {
+  aggregateExitCode,
+  isSpawnTimeout,
+  runV2TestFiles,
+  SUPPORTED_HEALTHY_FILE_BUDGET_MS,
+  spawnTimeoutMessage,
+  validatePerFileTimeout,
+} from "./run-v2-tests.ts";
 
 describe("isSpawnTimeout", () => {
   test("detects a SIGKILL with null status as a timeout", () => {
@@ -90,5 +97,20 @@ describe("runV2TestFiles", () => {
 
     expect(calls).toEqual(["failing.test.ts"]);
     expect(aggregateExitCode(results)).toBe(1);
+  });
+});
+
+describe("validatePerFileTimeout", () => {
+  test.each([
+    { name: "below the supported healthy file budget", timeout: SUPPORTED_HEALTHY_FILE_BUDGET_MS - 1, throws: true },
+    { name: "equal to the supported healthy file budget", timeout: SUPPORTED_HEALTHY_FILE_BUDGET_MS, throws: false },
+    { name: "above the supported healthy file budget", timeout: SUPPORTED_HEALTHY_FILE_BUDGET_MS + 1, throws: false },
+  ])("$name", ({ timeout, throws }) => {
+    const call = () => validatePerFileTimeout(timeout);
+    if (throws) {
+      expect(call).toThrow();
+    } else {
+      expect(call).not.toThrow();
+    }
   });
 });

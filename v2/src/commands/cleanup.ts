@@ -234,6 +234,23 @@ function provenIntentPrune(spec: ArtifactSpec): boolean {
   }
 }
 
+type OpenPr = { number: number; isDraft: boolean };
+
+/** List open PRs whose head is <branch> via `gh pr list`. Throws on gh failure or malformed output. */
+async function listOpenPrsForBranch(branch: string, cwd: string, runner: AsyncSubprocessRunner): Promise<OpenPr[]> {
+  const output = await runner.runAsync(
+    "gh",
+    ["pr", "list", "--head", branch, "--state", "open", "--json", "number,isDraft"],
+    cwd,
+  );
+  const parsed: unknown = JSON.parse(output);
+  if (!Array.isArray(parsed)) throw new Error("unexpected gh response");
+  return parsed.map((item: unknown) => {
+    const pr = item as { number?: number; isDraft?: boolean };
+    return { number: pr.number ?? 0, isDraft: pr.isDraft ?? false };
+  });
+}
+
 async function archiveRetiredArtifact(
   candidate: CleanupCandidate,
   registry: Record<string, ProjectRegistryEntry>,
@@ -251,16 +268,7 @@ async function archiveRetiredArtifact(
   }
 
   const eligibility = await checkArtifactEligibility(spec, {
-    findOpenPrs: async (branch) => {
-      const output = await runner.runAsync(
-        "gh",
-        ["pr", "list", "--head", branch, "--state", "open", "--json", "number"],
-        projectRoot,
-      );
-      const parsed: unknown = JSON.parse(output);
-      if (!Array.isArray(parsed)) throw new Error("unexpected gh response");
-      return parsed.length;
-    },
+    findOpenPrs: async (branch) => (await listOpenPrsForBranch(branch, projectRoot, runner)).length,
     hasMaterializedOwner: async () =>
       allWorktrees.some(
         (worktree) =>
@@ -320,16 +328,7 @@ async function inspectStrandedArtifacts(
       continue;
     }
     const inspection = await checkArtifactEligibility(artifact, {
-      findOpenPrs: async (branch) => {
-        const output = await runner.runAsync(
-          "gh",
-          ["pr", "list", "--head", branch, "--state", "open", "--json", "number"],
-          projectRoot,
-        );
-        const parsed: unknown = JSON.parse(output);
-        if (!Array.isArray(parsed)) throw new Error("unexpected gh response");
-        return parsed.length;
-      },
+      findOpenPrs: async (branch) => (await listOpenPrsForBranch(branch, projectRoot, runner)).length,
       hasMaterializedOwner: async () => false,
     });
     if (inspection.status === "eligible") {
@@ -512,6 +511,53 @@ export async function runCleanupCommand(
 }
 
 /**
+ * Shared retirement sequence: `git worktree remove` (throws on failure) →
+ * `worktree prune` (best-effort) → `branch -D` (best-effort) → optionally
+ * `push origin --delete` (best-effort).
+ */
+async function removeWorktreeAndBranch(
+  branch: string,
+  worktreePath: string,
+  projectRoot: string,
+  options: { force?: boolean; deleteRemoteBranch?: boolean },
+  runner: AsyncSubprocessRunner,
+  io: { stdout: (s: string) => void },
+): Promise<void> {
+  await runner.runAsync(
+    "git",
+    ["worktree", "remove", ...(options.force ? ["--force"] : []), worktreePath],
+    projectRoot,
+  );
+  io.stdout(`Removed worktree: ${worktreePath}\n`);
+
+  try {
+    await runner.runAsync("git", ["worktree", "prune"], projectRoot);
+  } catch {
+    // Prune may fail but shouldn't block the operation
+  }
+
+  try {
+    await runner.runAsync("git", ["branch", "-D", branch], projectRoot);
+    io.stdout(`Deleted local branch: ${branch}\n`);
+  } catch (err) {
+    io.stdout(
+      `Warning: Could not delete local branch ${branch}: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+  }
+
+  if (options.deleteRemoteBranch === true) {
+    try {
+      await runner.runAsync("git", ["push", "origin", "--delete", branch], projectRoot);
+      io.stdout(`Deleted remote branch: ${branch}\n`);
+    } catch (err) {
+      io.stdout(
+        `Warning: Could not delete remote branch ${branch}: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+    }
+  }
+}
+
+/**
  * Retire eligible worktrees via `git worktree remove` + `prune` + `git branch -D`.
  * Exit nonzero if any removal fails, leaving other candidates intact.
  */
@@ -527,23 +573,8 @@ export async function performWorktreeRemovals(
   for (const candidate of candidates) {
     const worktree = candidate.worktree;
     try {
-      // Remove worktree via git (cwd doesn't matter for absolute paths)
-      const projectRoot = projectRootForCandidate(candidate);
-      await runner.runAsync("git", ["worktree", "remove", worktree.path], projectRoot);
-
-      // Prune to clean up stale registrations
-      await runner.runAsync("git", ["worktree", "prune"], projectRoot);
-
-      // Delete local branch
-      try {
-        await runner.runAsync("git", ["branch", "-D", worktree.branch], projectRoot);
-      } catch (err) {
-        // Branch delete may fail if already deleted; log but don't fail the whole operation
-        io.stdout(
-          `Warning: could not delete local branch ${worktree.branch}: ${err instanceof Error ? err.message : String(err)}\n`,
-        );
-      }
-
+      // cwd doesn't matter for absolute worktree paths
+      await removeWorktreeAndBranch(worktree.branch, worktree.path, projectRootForCandidate(candidate), {}, runner, io);
       io.stdout(`Retired: ${worktree.path}\n`);
       await afterRetirement?.(candidate);
     } catch (err) {
@@ -578,14 +609,10 @@ export async function resetStaleWorkspace(
   const liveCheck = await isWorktreeLiveHeld(project, branch, jarvisRoot, daemonClient);
   if (liveCheck.live) return { status: "refused", reason: liveCheck.reason };
 
-  const openPrs = await findAllOpenPrsForBranch(branch, runner);
-  if (openPrs.length > 1) return { status: "refused", reason: "multiple open PRs match branch" };
-  const singlePr = openPrs.at(0);
-  if (singlePr && !singlePr.isDraft) {
-    return { status: "refused", reason: "matching PR is ready (non-draft)" };
-  }
+  const prGate = await gateOnOpenPrs(branch, runner);
+  if (prGate.status === "refused") return { status: "refused", reason: prGate.reason };
 
-  const abandonResult = await performAbandonmentSteps(branch, worktreePath, projectRoot, singlePr?.number, runner, io);
+  const abandonResult = await performAbandonmentSteps(branch, worktreePath, projectRoot, prGate.pr?.number, runner, io);
   return abandonResult === 0 ? { status: "reset" } : { status: "refused", reason: "abandonment failed" };
 }
 
@@ -621,24 +648,25 @@ async function isWorktreeLiveHeld(
   return { live: false };
 }
 
-type OpenPr = { number: number; isDraft: boolean };
-
-async function findAllOpenPrsForBranch(branch: string, runner: AsyncSubprocessRunner): Promise<OpenPr[]> {
+/**
+ * Refuse retirement when open-PR state is ambiguous or protects the branch:
+ * multiple open PRs, or a single ready (non-draft) PR. gh failures are treated
+ * as "no open PRs".
+ */
+async function gateOnOpenPrs(
+  branch: string,
+  runner: AsyncSubprocessRunner,
+): Promise<{ status: "ok"; pr: OpenPr | undefined } | { status: "refused"; reason: string }> {
+  let openPrs: OpenPr[];
   try {
-    const output = await runner.runAsync(
-      "gh",
-      ["pr", "list", "--head", branch, "--state", "open", "--json", "number,isDraft"],
-      ".",
-    );
-    const parsed: unknown = JSON.parse(output);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map((item: unknown) => {
-      const p = item as { number?: number; isDraft?: boolean };
-      return { number: p.number ?? 0, isDraft: p.isDraft ?? false };
-    });
+    openPrs = await listOpenPrsForBranch(branch, ".", runner);
   } catch {
-    return [];
+    openPrs = [];
   }
+  if (openPrs.length > 1) return { status: "refused", reason: "multiple open PRs match branch" };
+  const pr = openPrs.at(0);
+  if (pr !== undefined && !pr.isDraft) return { status: "refused", reason: "matching PR is ready (non-draft)" };
+  return { status: "ok", pr };
 }
 
 async function resolveName(
@@ -677,40 +705,18 @@ async function performAbandonmentSteps(
     }
   }
 
-  // Remove worktree
   try {
-    await runner.runAsync("git", ["worktree", "remove", "--force", worktreePath], projectRoot ?? ".");
-    io.stdout(`Removed worktree: ${worktreePath}\n`);
+    await removeWorktreeAndBranch(
+      branch,
+      worktreePath,
+      projectRoot ?? ".",
+      { force: true, deleteRemoteBranch: true },
+      runner,
+      io,
+    );
   } catch (err) {
     io.stderr(`Failed to remove worktree: ${err instanceof Error ? err.message : String(err)}\n`);
     return 1;
-  }
-
-  // Prune stale worktree registrations
-  try {
-    await runner.runAsync("git", ["worktree", "prune"], projectRoot ?? ".");
-  } catch {
-    // Prune may fail but shouldn't block the operation
-  }
-
-  // Delete local branch
-  try {
-    await runner.runAsync("git", ["branch", "-D", branch], projectRoot ?? ".");
-    io.stdout(`Deleted local branch: ${branch}\n`);
-  } catch (err) {
-    io.stdout(
-      `Warning: Could not delete local branch ${branch}: ${err instanceof Error ? err.message : String(err)}\n`,
-    );
-  }
-
-  // Delete remote branch
-  try {
-    await runner.runAsync("git", ["push", "origin", "--delete", branch], projectRoot ?? ".");
-    io.stdout(`Deleted remote branch: ${branch}\n`);
-  } catch (err) {
-    io.stdout(
-      `Warning: Could not delete remote branch ${branch}: ${err instanceof Error ? err.message : String(err)}\n`,
-    );
   }
 
   return 0;
@@ -745,17 +751,12 @@ export async function runAbandonCommand(
   }
 
   // PR-ownership gates: refuse ready PRs and ambiguous PR ownership
-  const openPrs = await findAllOpenPrsForBranch(branch, runner);
-  if (openPrs.length > 1) {
-    io.stderr(`Error: Cannot abandon: multiple open PRs match branch ${branch}\n`);
+  const prGate = await gateOnOpenPrs(branch, runner);
+  if (prGate.status === "refused") {
+    io.stderr(`Error: Cannot abandon: ${prGate.reason}\n`);
     return 1;
   }
-  const singlePr = openPrs.at(0);
-  if (singlePr && !singlePr.isDraft) {
-    io.stderr(`Error: Cannot abandon: matching PR is ready (non-draft)\n`);
-    return 1;
-  }
-  const prNumber = singlePr?.number;
+  const prNumber = prGate.pr?.number;
 
   // Check if worktree is held by a live run
   const liveCheck = await isWorktreeLiveHeld(project, branch, jarvisRoot, daemonClient);

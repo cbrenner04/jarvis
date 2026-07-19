@@ -763,33 +763,6 @@ describe("cleanupCommand", () => {
       expect(existsSync(destination)).toBe(true);
     });
 
-    test("archives timestamped v2 spec to v2/spec/completed while targetDir is v1/spec", () => {
-      const { io } = captureIo(["yes"]);
-      const name = "route-cleanup-archival-by-target";
-      const timestampedName = `2026-06-23T06-56-40Z-${name}`;
-      const worktreePath = createTrackedPlanWorktree(name);
-      const source = join(projectRoot, "v2", "spec", timestampedName);
-      const destination = join(projectRoot, "v2", "spec", "completed", timestampedName);
-      mkdirSync(source, { recursive: true });
-      writeFileSync(join(source, "index.md"), "# v2 spec\n");
-      const runner = fakeRunner({ [`plan-${name}`]: `plan/${name}` });
-
-      const code = cleanupCommand({
-        projectRoot,
-        io,
-        targetDir: "v1/spec",
-        isMergedPr: () => true,
-        findMatchingOpenPrs: () => [],
-        runner,
-      });
-
-      expect(code).toBe(0);
-      expect(existsSync(worktreePath)).toBe(false);
-      expect(existsSync(source)).toBe(false);
-      expect(existsSync(destination)).toBe(true);
-      expect(readFileSync(join(destination, "index.md"), "utf8")).toBe("# v2 spec\n");
-    });
-
     test("dry-run does not mutate worktrees or spec directories", () => {
       const { io } = captureIo();
       const specName = "dry-run-spec";

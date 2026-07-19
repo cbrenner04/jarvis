@@ -148,3 +148,25 @@ describe("executeReviewCycle", () => {
     expect(calls).toHaveLength(0);
   });
 });
+
+test("a hung critic is aborted at the role wall clock", async () => {
+  const hungCritic: InvocationBinding = {
+    id: "critic.hung",
+    metadata: { agent: "critic", model: "hung" },
+    invoke: ({ signal }) =>
+      new Promise((resolve) =>
+        signal?.addEventListener("abort", () => resolve({ kind: "error", exitCode: 1, stderr: "aborted" }), {
+          once: true,
+        }),
+      ),
+  };
+  const result = await executeReviewCycle({
+    cwd: "/fake",
+    prompt: "inspect",
+    bindings: { critic: [hungCritic], actuator: [] },
+    verdictPath: join(dir(), "verdict.md"),
+    maxCycles: 1,
+    roleTimeoutMs: 5,
+  });
+  expect(result).toMatchObject({ kind: "invocation_failure", failedRole: "critic" });
+});

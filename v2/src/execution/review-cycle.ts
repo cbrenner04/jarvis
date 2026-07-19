@@ -1,13 +1,13 @@
 import { writeFileSync } from "node:fs";
-import {
-  executeWithQuotaFallback,
-  type InvocationBinding,
-  type InvocationExecution,
-  type InvocationOk,
-  type InvocationTelemetryContext,
+import type {
+  InvocationBinding,
+  InvocationExecution,
+  InvocationOk,
+  InvocationTelemetryContext,
 } from "../../../shared/invocation/execute.ts";
 import type { ReviewPromptProfile } from "../../../shared/prompts/review-profile.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
+import { invokeReviewRole, reviewRoleFailureKind } from "./review-role-invocation.ts";
 
 export type ReviewCycleRole = "critic" | "actuator";
 
@@ -26,6 +26,8 @@ export type ReviewCycleInput = {
   bindings: ReviewCycleRoleBindings;
   verdictPath: string;
   maxCycles: number;
+  /** Wall clock per role invocation; defaults to the write-loop iteration timeout. */
+  roleTimeoutMs?: number;
   signal?: AbortSignal;
   telemetry?: Omit<InvocationTelemetryContext, "role" | "invocationIds">;
   onRoleStart?: (role: ReviewCycleRole) => void;
@@ -90,9 +92,9 @@ export async function executeReviewCycle(args: ReviewCycleInput): Promise<Review
         ? args.profileContext(cycle + 1, cycles.at(-1)?.verdict ?? undefined)
         : args.profileContext;
     const criticPrompt = await resolveCriticPrompt(args, profileContext);
-    const critic = await invokeRole(args, "critic", criticPrompt, args.bindings.critic);
+    const critic = await invokeReviewRole(args, "critic", criticPrompt, args.bindings.critic);
     roleResults.critic = critic;
-    const criticFailure = failureKind(critic);
+    const criticFailure = reviewRoleFailureKind(critic);
     if (criticFailure !== null) {
       const outcome = roleFailedOutcome("critic", criticFailure, null, roleResults);
       cycles.push(outcome);
@@ -118,9 +120,9 @@ export async function executeReviewCycle(args: ReviewCycleInput): Promise<Review
       : args.actuatorPromptRenderer
         ? args.actuatorPromptRenderer(verdict)
         : verdict;
-    const actuator = await invokeRole(args, "actuator", actuatorPrompt, args.bindings.actuator);
+    const actuator = await invokeReviewRole(args, "actuator", actuatorPrompt, args.bindings.actuator);
     roleResults.actuator = actuator;
-    const actuatorFailure = failureKind(actuator);
+    const actuatorFailure = reviewRoleFailureKind(actuator);
     if (actuatorFailure !== null) {
       const outcome = roleFailedOutcome("actuator", actuatorFailure, verdict, roleResults);
       cycles.push(outcome);
@@ -140,27 +142,4 @@ function roleFailedOutcome(
   roleResults: Partial<Record<ReviewCycleRole, InvocationExecution>>,
 ): ReviewCycleOutcome {
   return { kind: "role_failed", failedRole, failureKind: failureKindValue, verdict, roleResults };
-}
-
-function failureKind(execution: InvocationExecution): InvocationFailureKind | null {
-  if (execution.final === null) return "no_binding";
-  return execution.final.result.kind === "ok" ? null : execution.final.result.kind;
-}
-
-async function invokeRole(
-  args: ReviewCycleInput,
-  role: ReviewCycleRole,
-  prompt: string,
-  bindings: readonly InvocationBinding[],
-): Promise<InvocationExecution> {
-  args.onRoleStart?.(role);
-  return executeWithQuotaFallback({
-    prompt,
-    cwd: args.cwd,
-    bindings,
-    ...(args.signal !== undefined ? { signal: args.signal } : {}),
-    ...(args.telemetry !== undefined
-      ? { telemetry: { ...args.telemetry, role, invocationIds: bindings.map(() => crypto.randomUUID()) } }
-      : {}),
-  });
 }

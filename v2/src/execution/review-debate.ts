@@ -1,13 +1,13 @@
 import { writeFileSync } from "node:fs";
-import {
-  executeWithQuotaFallback,
-  type InvocationBinding,
-  type InvocationExecution,
-  type InvocationOk,
-  type InvocationTelemetryContext,
+import type {
+  InvocationBinding,
+  InvocationExecution,
+  InvocationOk,
+  InvocationTelemetryContext,
 } from "../../../shared/invocation/execute.ts";
 import type { ReviewPromptProfile } from "../../../shared/prompts/review-profile.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
+import { invokeReviewRole, reviewRoleFailureKind } from "./review-role-invocation.ts";
 
 /** Fixed debate role order: adversary -> advocate -> adjudicator -> actuator. */
 export type ReviewDebateRole = "adversary" | "advocate" | "adjudicator" | "actuator";
@@ -45,6 +45,8 @@ export type ReviewDebateInput = {
   bindings: ReviewDebateRoleBindings;
   verdictPath: string;
   maxCycles: number;
+  /** Wall clock per role invocation; defaults to the write-loop iteration timeout. */
+  roleTimeoutMs?: number;
   signal?: AbortSignal;
   telemetry?: Omit<InvocationTelemetryContext, "role" | "invocationIds">;
   /** Called just before each role's invocation starts, in debate order, once per cycle. */
@@ -85,40 +87,40 @@ export async function executeReviewDebate(args: ReviewDebateInput): Promise<Revi
         ? args.profileContext(cycle + 1, cycles.at(-1)?.verdict)
         : args.profileContext;
 
-    const adversary = await invokeRole(
+    const adversary = await invokeReviewRole(
       args,
       "adversary",
       await debateRolePrompt(args, "adversary", profileContext),
       args.bindings.adversary,
     );
     roleResults.adversary = adversary;
-    const adversaryFailure = failureKind(adversary);
+    const adversaryFailure = reviewRoleFailureKind(adversary);
     if (adversaryFailure !== null) {
       cycles.push(roleFailedOutcome("adversary", adversaryFailure, null, roleResults));
       break;
     }
 
-    const advocate = await invokeRole(
+    const advocate = await invokeReviewRole(
       args,
       "advocate",
       await debateRolePrompt(args, "advocate", profileContext, (adversary.final?.result as InvocationOk).stdout),
       args.bindings.advocate,
     );
     roleResults.advocate = advocate;
-    const advocateFailure = failureKind(advocate);
+    const advocateFailure = reviewRoleFailureKind(advocate);
     if (advocateFailure !== null) {
       cycles.push(roleFailedOutcome("advocate", advocateFailure, null, roleResults));
       break;
     }
 
-    const adjudicator = await invokeRole(
+    const adjudicator = await invokeReviewRole(
       args,
       "adjudicator",
       await debateRolePrompt(args, "adjudicator", profileContext, (advocate.final?.result as InvocationOk).stdout),
       args.bindings.adjudicator,
     );
     roleResults.adjudicator = adjudicator;
-    const adjudicatorFailure = failureKind(adjudicator);
+    const adjudicatorFailure = reviewRoleFailureKind(adjudicator);
     if (adjudicatorFailure !== null) {
       cycles.push(roleFailedOutcome("adjudicator", adjudicatorFailure, null, roleResults));
       break;
@@ -134,14 +136,14 @@ export async function executeReviewDebate(args: ReviewDebateInput): Promise<Revi
       break;
     }
 
-    const actuator = await invokeRole(
+    const actuator = await invokeReviewRole(
       args,
       "actuator",
       args.profile?.render.actuator ? await args.profile.render.actuator(profileContext, verdict) : verdict,
       args.bindings.actuator,
     );
     roleResults.actuator = actuator;
-    const actuatorFailure = failureKind(actuator);
+    const actuatorFailure = reviewRoleFailureKind(actuator);
     if (actuatorFailure !== null) {
       cycles.push(roleFailedOutcome("actuator", actuatorFailure, verdict, roleResults));
       break;
@@ -160,33 +162,4 @@ function roleFailedOutcome(
   roleResults: Partial<Record<ReviewDebateRole, InvocationExecution>>,
 ): ReviewDebateCycleOutcome {
   return { kind: "role_failed", failedRole, failureKind: failureKindValue, verdict, roleResults };
-}
-
-function failureKind(execution: InvocationExecution): InvocationFailureKind | null {
-  if (execution.final === null) return "no_binding";
-  return execution.final.result.kind === "ok" ? null : execution.final.result.kind;
-}
-
-async function invokeRole(
-  args: ReviewDebateInput,
-  role: ReviewDebateRole,
-  prompt: string,
-  bindings: readonly InvocationBinding[],
-): Promise<InvocationExecution> {
-  args.onRoleStart?.(role);
-  return executeWithQuotaFallback({
-    prompt,
-    cwd: args.cwd,
-    bindings,
-    ...(args.signal !== undefined ? { signal: args.signal } : {}),
-    ...(args.telemetry !== undefined
-      ? {
-          telemetry: {
-            ...args.telemetry,
-            role,
-            invocationIds: bindings.map(() => crypto.randomUUID()),
-          },
-        }
-      : {}),
-  });
 }

@@ -3,11 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  type RuntimeSmokeVerifierInput,
-  type VerificationResult,
-  verifyRuntimeSmoke,
-} from "./runtime-smoke-verifier.ts";
+import { type RuntimeSmokeVerifierInput, verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts";
 
 describe("runtime-smoke-verifier", () => {
   it("discovers a changed runnable entrypoint from production diff", async () => {
@@ -276,7 +272,7 @@ index 1234567..abcdefg 100644
 
     let invokedCommand = "";
 
-    const result = await verifyRuntimeSmoke(
+    const _result = await verifyRuntimeSmoke(
       {
         worktreePath: "/test/path",
         runBase: "main",

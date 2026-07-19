@@ -113,9 +113,9 @@ function isRunnableEntrypoint(filePath: string): boolean {
 }
 
 async function discoverChangedRunnableEntrypoint(
-  worktreePath: string,
+  _worktreePath: string,
   changedFiles: string[],
-  gitDiff: GitDiff,
+  _gitDiff: GitDiff,
 ): Promise<string | null> {
   // Discover a changed runnable entrypoint from the production diff
   for (const file of changedFiles) {

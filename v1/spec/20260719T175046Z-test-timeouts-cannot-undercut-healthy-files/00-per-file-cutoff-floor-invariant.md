@@ -24,14 +24,14 @@ Both the aggregate runner (`run-tests.ts`, via `runV2TestFiles`) and the scoped 
 
 ## Acceptance criteria
 
-- [ ] `scripts/run-v2-tests.ts` exports a named supported-healthy-file-budget constant equal to `180_000` ms, and `PER_FILE_TIMEOUT_MS` is at least that budget.
-- [ ] A new regression test in `scripts/run-v2-tests.test.ts` drives the floor guard with a per-file cutoff below the 180-second budget and asserts it is rejected; the test fails against the pre-change code (the budget export does not yet exist) and passes after.
-- [ ] The regression test asserts the effective per-file cutoff (`PER_FILE_TIMEOUT_MS`) is ≥ the supported healthy-file budget.
-- [ ] `scripts/run-v2-tests.test.ts` hung-file cases stay green: a timed-out file still terminates at the per-file cutoff and its stderr message names the file (behavior unchanged).
-- [ ] `test/test-slices.test.ts` policy-parity asserts aggregate (`run-tests.ts`) and scoped (`run-v2-tests.ts`) execution bind each shared file to the same budget floor and fails if either cutoff falls below the budget; it no longer relies on a bare `180_000` literal match.
-- [ ] Neither `v1/docs/operator-runbook.md` nor `v2/docs/operator-runbook.md` frames the 180-second per-file timeout or the red main ready gate as a temporary/emergency stopgap; both reference the permanent 180-second budget invariant.
-- [ ] The `red-gate-does-not-feed-back-to-the-agent` repair-loop gotcha remains present in `v2/docs/operator-runbook.md`.
-- [ ] `v2/docs/v1-behaviors.md` § Test execution records the permanent 180-second per-file budget floor and the invariant that the cutoff cannot drop below it.
+- [x] `scripts/run-v2-tests.ts` exports a named supported-healthy-file-budget constant equal to `180_000` ms, and `PER_FILE_TIMEOUT_MS` is at least that budget.
+- [x] A new regression test in `scripts/run-v2-tests.test.ts` drives the floor guard with a per-file cutoff below the 180-second budget and asserts it is rejected; the test fails against the pre-change code (the budget export does not yet exist) and passes after.
+- [x] The regression test asserts the effective per-file cutoff (`PER_FILE_TIMEOUT_MS`) is ≥ the supported healthy-file budget.
+- [x] `scripts/run-v2-tests.test.ts` hung-file cases stay green: a timed-out file still terminates at the per-file cutoff and its stderr message names the file (behavior unchanged).
+- [x] `test/test-slices.test.ts` policy-parity asserts aggregate (`run-tests.ts`) and scoped (`run-v2-tests.ts`) execution bind each shared file to the same budget floor and fails if either cutoff falls below the budget; it no longer relies on a bare `180_000` literal match.
+- [x] Neither `v1/docs/operator-runbook.md` nor `v2/docs/operator-runbook.md` frames the 180-second per-file timeout or the red main ready gate as a temporary/emergency stopgap; both reference the permanent 180-second budget invariant.
+- [x] The `red-gate-does-not-feed-back-to-the-agent` repair-loop gotcha remains present in `v2/docs/operator-runbook.md`.
+- [x] `v2/docs/v1-behaviors.md` § Test execution records the permanent 180-second per-file budget floor and the invariant that the cutoff cannot drop below it.
 
 ## Documentation updates
 

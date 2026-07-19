@@ -568,9 +568,10 @@ Operators add bullets here; delete when fixed.
   Unmerged/leaked worktrees use `jarvis cleanup --abandon <name>` (see [Recovery § Branch / worktree collision](#branch--worktree-collision)).
   `jarvis1 cleanup` remains blind to the v2 home; use `jarvis cleanup`.
 
+- **Permanent 180-second per-file timeout floor (2026-07-19):** `SUPPORTED_HEALTHY_FILE_BUDGET_MS = 180_000` in `scripts/run-v2-tests.ts` is a permanent invariant that both aggregate (`run-tests.ts`) and scoped (`run-v2-tests.ts`) runners must meet. The cutoff cannot be undercut below this floor without rejecting the change at preflight; regression tests in `scripts/run-v2-tests.test.ts` enforce this guard, and `test/test-slices.test.ts` asserts policy parity across runners. The 180-second budget accommodates the slowest healthy file (`v1/test/run.test.ts` at ~120s) and prevents timeout drift that previously silently reddened the local ready gate while CI stayed green.
 - **Scoped CI vs. aggregate ready contract (2026-07-18):** `bun run ready` runs the aggregate
   suite, which CI never runs (CI scopes by changed path via `scripts/ci-test-scope.ts`). Roster
-  equivalence (aggregate = union of six scoped slices) and policy parity (timeout, isolation,
+  equivalence (aggregate = union of six scoped slices) and policy parity (per-file timeout floor, isolation,
   failure handling) are protected by regression tests (`test/test-slices.test.ts`,
   `scripts/ci-test-scope.test.ts`), ensuring green CI is evidence the local gate can pass. When
   a gate goes red on a diff that cannot explain it, check path classification is correct; if so,

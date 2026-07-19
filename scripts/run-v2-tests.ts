@@ -1,8 +1,20 @@
 import { type SpawnSyncReturns, spawnSync } from "node:child_process";
 import { sliceTestFiles, type TestSliceMode, walkTestFiles } from "./test-slice.ts";
 
-/** Must exceed the slowest single file; `v1/test/run.test.ts` runs ~120s under the aggregate suite. */
-const PER_FILE_TIMEOUT_MS = 180_000;
+/** Supported budget for the slowest healthy test file; `v1/test/run.test.ts` runs ~120s under the aggregate suite. */
+export const SUPPORTED_HEALTHY_FILE_BUDGET_MS = 180_000;
+
+/** Per-file timeout for test execution; must not undercut the supported healthy file budget. */
+const PER_FILE_TIMEOUT_MS = SUPPORTED_HEALTHY_FILE_BUDGET_MS;
+
+/** Validates that a per-file timeout meets or exceeds the supported healthy file budget. */
+export function validatePerFileTimeout(timeout: number): void {
+  if (timeout < SUPPORTED_HEALTHY_FILE_BUDGET_MS) {
+    throw new Error(
+      `per-file timeout ${timeout}ms is below supported healthy file budget ${SUPPORTED_HEALTHY_FILE_BUDGET_MS}ms`,
+    );
+  }
+}
 
 export function walkV2TestFiles(root = "v2"): string[] {
   return walkTestFiles(root);

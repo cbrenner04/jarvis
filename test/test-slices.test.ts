@@ -160,7 +160,8 @@ describe("Test slice boundaries", () => {
     const runV2TestsScript = await Bun.file("scripts/run-v2-tests.ts").text();
     const runTestsScript = await Bun.file("scripts/run-tests.ts").text();
 
-    expect(runV2TestsScript).toContain("PER_FILE_TIMEOUT_MS = 180_000");
+    expect(runV2TestsScript).toContain("SUPPORTED_HEALTHY_FILE_BUDGET_MS = 180_000");
+    expect(runV2TestsScript).toContain("PER_FILE_TIMEOUT_MS = SUPPORTED_HEALTHY_FILE_BUDGET_MS");
     expect(runV2TestsScript).toContain('spawn("bun", ["test", file]');
     expect(runV2TestsScript).toContain("timeout: PER_FILE_TIMEOUT_MS");
     expect(runV2TestsScript).toContain('killSignal: "SIGKILL"');

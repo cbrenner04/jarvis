@@ -17,7 +17,14 @@ import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts"
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
-import { createReadyFinalizer, type ReadyFinalizer, ReadyGateError, SurvivingMutationError } from "./ready-finalize.ts";
+import {
+  createReadyFinalizer,
+  type ReadyFinalizer,
+  ReadyGateError,
+  RuntimeSmokeFailedError,
+  SurvivingMutationError,
+} from "./ready-finalize.ts";
+import { verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
@@ -37,6 +44,7 @@ const WRITE_LOOP_OUTCOME_KINDS = [
   "ready_gate_failed",
   "ready_flip_failed",
   "surviving_mutation_failed",
+  "runtime_smoke_failed",
 ] as const;
 
 export type WriteLoopOutcomeKind = (typeof WRITE_LOOP_OUTCOME_KINDS)[number];
@@ -68,6 +76,8 @@ export type WriteLoopResult = {
   survivingMutation?: string;
   survivingMutationSourceFile?: string;
   survivingMutationSourceLine?: number;
+  runtimeSmokeCommand?: string;
+  runtimeSmokeObservation?: string;
 } & Partial<InvocationFailureDetail>;
 
 /** Input for the write loop. Run identity derives from `worktree` (project, branch, base). */
@@ -844,7 +854,12 @@ function withBoundaryTelemetry(
 export type CompletionPublicationSeams = Pick<WriteLoopInput, "completionPublisher" | "readyFinalizer">;
 
 export type CompletionPublishFailure = {
-  kind: "completion_commit_failed" | "ready_gate_failed" | "ready_flip_failed" | "surviving_mutation_failed";
+  kind:
+    | "completion_commit_failed"
+    | "ready_gate_failed"
+    | "ready_flip_failed"
+    | "surviving_mutation_failed"
+    | "runtime_smoke_failed";
   error?: Error;
   prNumber?: number;
   prUrl?: string;
@@ -992,6 +1007,15 @@ async function runReadyFinalizer(
           );
         }
       },
+      runRuntimeSmokeVerification: async (worktreePath: string, baseRef: string) => {
+        const verificationResult = await verifyRuntimeSmoke({
+          worktreePath,
+          runBase: baseRef,
+        });
+        if (verificationResult.kind === "smoke-failure") {
+          throw new RuntimeSmokeFailedError(verificationResult.command, verificationResult.observation);
+        }
+      },
     });
   const finalInput = {
     worktreePath: input.worktreePath,
@@ -1010,6 +1034,14 @@ function buildFinalizationErrorResponse(
   if (err instanceof SurvivingMutationError) {
     return {
       kind: "surviving_mutation_failed",
+      error: err,
+      ...(prNumber !== undefined ? { prNumber } : {}),
+      ...(prUrl !== undefined ? { prUrl } : {}),
+    };
+  }
+  if (err instanceof RuntimeSmokeFailedError) {
+    return {
+      kind: "runtime_smoke_failed",
       error: err,
       ...(prNumber !== undefined ? { prNumber } : {}),
       ...(prUrl !== undefined ? { prUrl } : {}),
@@ -1091,7 +1123,7 @@ function completionCommitFailed(args: WriteLoopInput, result: WriteLoopResult, e
 function readyFailed(
   args: WriteLoopInput,
   result: WriteLoopResult,
-  kind: "ready_gate_failed" | "ready_flip_failed" | "surviving_mutation_failed",
+  kind: "ready_gate_failed" | "ready_flip_failed" | "surviving_mutation_failed" | "runtime_smoke_failed",
   error?: Error,
 ): WriteLoopResult {
   const publicationFailure = error === undefined ? undefined : publicationFailureFor(error);
@@ -1115,6 +1147,14 @@ function readyFailed(
         }
       : {};
 
+  const smokeDetails =
+    error instanceof RuntimeSmokeFailedError
+      ? {
+          runtimeSmokeCommand: error.command,
+          runtimeSmokeObservation: error.observation,
+        }
+      : {};
+
   return {
     ...result,
     kind,
@@ -1128,6 +1168,7 @@ function readyFailed(
           }
         : {}),
     ...mutationDetails,
+    ...smokeDetails,
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),
   };
 }

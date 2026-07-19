@@ -76,7 +76,7 @@ silent publication gaps where code is pushed but no PR was created or found.
 Every publication subprocess is awaited inside its retry boundary. A failed push or PR operation retains its
 operation, message, exit code, and labelled stdout/stderr tails in durable publication evidence.
 Publication failure marks the owning completion (including hidden shrink) row `failed`; workflow entry status
-rolls up from that row. `completed` requires confirmed PR evidence and then a green ready gate.
+rolls up from that row. `completed` requires confirmed PR evidence, a green ready gate, passing diff-derived mutation verification (no uncovered changed guards), and passing runtime smoke verification (changed runnable entrypoint discovered and executed cleanly, or no runnable entrypoint found).
 
 **PR body refresh:** after the draft PR is ensured, the publisher rewrites its
 body: regenerated `Spec: <specPath>` header, an optional caller-supplied summary
@@ -122,7 +122,7 @@ gate → draft→ready flip (gate/flip in a separate finalization boundary).
 
 **Ready finalization:** after publication (including body refresh) succeeds, a
 separate retryable boundary awaits (1) the ready gate in the completed run's
-worktree, then (2) `gh pr ready <branch>`. The default gate command is `bun run
+worktree, (2) diff-derived mutation verification, (3) runtime smoke verification, then (4) `gh pr ready <branch>`. The default gate command is `bun run
 ready`; any non-zero exit is a gate failure (missing and red gate scripts are
 not distinguished), reported as `ready gate failed (exit N): <output>`. The thrown gate error
 also carries the `bun run ready` command, exit code, and combined stdout+stderr output as fields. The
@@ -131,22 +131,29 @@ overriding any `JARVIS_READY_TIER` in the parent environment. The test step is s
 a diff of `<baseRef>...HEAD` (three-dot, merge-base relative) including untracked files is classified via the shared classifier; the resolved
 scope is passed as `JARVIS_READY_TEST_SCOPE` (e.g., `test:v2 test:integration:v2` or `full`). When the diff fails
 (unresolvable base), the scope falls back to `full`, and finalization proceeds rather than erroring.
-The gate runs unbounded. On green, the awaited flip calls `gh pr ready <branch>`
+The gate runs unbounded. On green, mutation verification inspects changes against the base ref for
+uncovered guards and throws `SurvivingMutationError` with mutation text and source-file location if
+any guard is unreachable from changed test code. Runtime smoke verification discovers the changed
+runnable entrypoint from the production diff, executes it under a wall-clock bound to observe wiring,
+and throws `RuntimeSmokeFailedError` with the executed command and failed observation if the entrypoint
+execution fails; if no changed runnable entrypoint is found, verification passes with recorded inspection.
+On green, the awaited flip calls `gh pr ready <branch>`
 through the same bounded transient-retry
 seam as publication (3 total attempts, flat 1000 ms backoff). Before the
 transient classifier, the flip treats exit-0 (including empty output), and any
 thrown `gh` error whose combined stdout+stderr contains (case-insensitive)
 `already ready` or `not a draft`, as success without retry. Any other thrown
-error is handed to the transient classifier unchanged. Gate or flip failure
+error is handed to the transient classifier unchanged. Gate, mutation, smoke, or flip failure
 (except the success-guarded flip cases) leaves the PR draft, demotes the durable
-run to `failed` on gate failure (or keeps it `completed` on flip failure), and returns
-retryable `ready_gate_failed` with `readyGateError` or non-resumable `ready_flip_failed`
+run to `failed` on gate or mutation failure (or keeps it `completed` on smoke or flip failure), and returns
+retryable `ready_gate_failed` with `readyGateError`, non-resumable `surviving_mutation_failed` with `survivingMutation` and source details,
+non-resumable `runtime_smoke_failed` with `runtimeSmokeCommand` and `runtimeSmokeObservation`, or non-resumable `ready_flip_failed`
 with `readyFlipError`, distinct from publication's `completion_commit_failed` (retryable via `resume`).
-Resume of a gate failure retries publication first (idempotent), then re-runs the gate
-and re-attempts the flip; failed flips reject resume as terminal runs. On flip failure, when the
+Resume of a gate or mutation failure retries publication first (idempotent), then re-runs the gate,
+mutation, smoke, and flip; smoke and flip failures reject resume as terminal runs. On flip failure, when the
 publication returned a PR number, the result includes `readyFlipPrNumber` to
 identify the PR for manual fixing; omitted when publication returned no PR.
-Gate and `gh` are injectable seams so tests require no live
+Gate, mutation, smoke, and `gh` are injectable seams so tests require no live
 verification or GitHub credentials.
 
 Publication failures (commit, push, PR, or body refresh) leave the durable run `completed`, expose
@@ -433,6 +440,48 @@ plus the same materialized draft context as the critic.
 
 Workflow dispatch for the `plan-reviewed-light` preset supplies the plan review profile on the
 loaded review step; see [`workflow-runner.md`](./workflow-runner.md#review-dispatch).
+
+## Runtime smoke verifier
+
+The runtime smoke verifier proves a run's changed production behavior is wired
+into its runnable surface by discovering the changed runnable entrypoint from
+the production diff, executing that real entrypoint bounded and non-destructively,
+and observing its runtime behavior.
+
+**Runnable-surface discovery:** The verifier inspects the `<runBase>...HEAD`
+production diff to identify changed production files and selects a changed
+runnable entrypoint for smoke testing. An entrypoint is runnable when it is:
+(1) explicitly named with the `-entrypoint.ts` suffix (e.g., `daemon-entrypoint.ts`),
+or (2) a declared root entrypoint (`v1/src/index.ts`, `v2/src/cli.ts`).
+Non-production files (test files, spec, docs) are excluded from discovery.
+When multiple changed files exist, the first runnable entrypoint is selected.
+
+**Observation and execution:** The verifier executes the discovered entrypoint
+via `bun run <entrypoint> --help` and observes its success or failure. Execution
+is bounded by a wall-clock timeout (default 5 seconds) and runs non-destructively:
+the `--help` flag ensures the entrypoint is discovered and invoked without
+mutating state. The verifier returns failure when execution fails, times out,
+or both success and failure channels are exhausted.
+
+**Bound and non-destructiveness:** Smoke execution is bounded by a wall-clock
+limit (5000 milliseconds) and ends the smoke as a failure when exceeded.
+The `--help` invocation is non-destructive: it tests that the entrypoint is
+reachable and executable without modifying the filesystem or external state.
+
+**Results:** The verifier returns one of three structured results:
+
+1. **`observed-clean`** (pass): The discovered entrypoint executed successfully
+   within the wall-clock bound, proving the changed behavior is wired and
+   reachable at runtime.
+
+2. **`not-runnable`** (pass): No changed runnable entrypoint was found. The
+   result records the inspected changed paths and the discovery reason
+   (e.g., "no production files changed" or "no changed runnable entrypoint found").
+   This is a pass, not a failure: unchanged runnables do not require smoke testing.
+
+3. **`smoke-failure`** (failure): The discovered entrypoint execution failed or
+   timed out. The result names the executed command (`bun run <entrypoint> --help`)
+   and the failed observation (stderr output, timeout message, or thrown error).
 
 ## Command
 

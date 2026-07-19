@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createElement, Fragment, type ReactElement } from "react";
+import { createElement, Fragment, isValidElement, type ReactElement } from "react";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import { createMonitorDisplay, openInkMonitor } from "./tui-ink-monitor.tsx";
@@ -156,6 +156,30 @@ function inputHarness() {
   };
 }
 
+// The monitor colors cells by passing `color` to the Text the runtime hands back. The
+// production wrapper previously destructured only `children`, so `color` never reached
+// ink and the TUI rendered monochrome while every color test stayed green — those tests
+// asserted against their own injected Text, not this one.
+describe("loadInkUi production Text", () => {
+  test("uses ink's input hook in production", async () => {
+    const ink = await import("ink");
+    const { useInput } = await loadInkUi();
+
+    expect(useInput).toBe(ink.useInput);
+  });
+
+  test("forwards color to ink's Text and omits it for untoned segments", async () => {
+    const { Text } = await loadInkUi();
+    const toned = Text({ children: "failed", color: "red" });
+    const untoned = Text({ children: "not-live" });
+
+    expect(isValidElement(toned)).toBe(true);
+    expect((toned.props as { color?: string }).color).toBe("red");
+    expect((toned.props as { children?: unknown }).children).toBe("failed");
+    expect((untoned.props as { color?: string }).color).toBeUndefined();
+  });
+});
+
 describe("openInkMonitor", () => {
   test("drives quit and kill through the injected input hook", async () => {
     const calls: string[] = [];
@@ -189,16 +213,13 @@ describe("openInkMonitor", () => {
     session.close();
   });
 
+  // One representative row per tone; status→tone completeness is guarded in tui-monitor-lines tests.
   test("colors status and liveness cells on run-table rows", async () => {
     const state = monitorState(
       [
         { runId: "run-live", project: "demo", branch: "a", status: "in-progress", isLive: true },
         { runId: "run-done", project: "demo", branch: "b", status: "completed", isLive: false },
         { runId: "run-fail", project: "demo", branch: "c", status: "failed", isLive: false },
-        { runId: "run-blocked", project: "demo", branch: "d", status: "blocked", isLive: false },
-        { runId: "run-budget", project: "demo", branch: "e", status: "budget-soft-stopped", isLive: false },
-        { runId: "run-paused", project: "demo", branch: "f", status: "paused", isLive: false },
-        { runId: "run-killed", project: "demo", branch: "i", status: "killed", isLive: false },
       ],
       "run-live",
     );
@@ -214,10 +235,6 @@ describe("openInkMonitor", () => {
     expect(textNode(nodes, "completed").color).toBe("green");
     expect(textNode(nodes, "not-live").color).toBeUndefined();
     expect(textNode(nodes, "failed").color).toBe("red");
-    expect(textNode(nodes, "blocked").color).toBe("red");
-    expect(textNode(nodes, "budget-soft-stopped").color).toBe("red");
-    expect(textNode(nodes, "paused").color).toBe("cyan");
-    expect(textNode(nodes, "killed").color).toBe("red");
     expect(textNode(nodes, "run-live").color).toBeUndefined();
 
     session.close();

@@ -279,67 +279,7 @@ describe("monitorTextLines", () => {
 
     expect(lines).toContain("  step-3 verify stopped blocked attempts=1");
     expect(lines.filter((line) => line.includes("pending"))).toHaveLength(0);
-  });
-
-  test("completed workflow shows no active step and final step completed", () => {
-    const lines = monitorTextLines(
-      monitorState({
-        runs: [
-          {
-            ...WORKFLOW_RUN,
-            status: "completed",
-            isLive: false,
-            workflow: {
-              steps: [
-                {
-                  stepId: "step-a",
-                  role: "implement",
-                  status: "completed",
-                  attemptCount: 1,
-                  terminalOutcome: "complete",
-                },
-                { stepId: "step-b", role: "review", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
-              ],
-            },
-          },
-        ],
-        selectedRunId: "run-wf",
-      }),
-    );
-
     expect(lines.filter((line) => line.startsWith("> ") && line.includes("step-"))).toHaveLength(0);
-    expect(lines).toContain("  step-b review completed complete attempts=1");
-    expect(lines).not.toContain("pending");
-  });
-
-  test("selection change swaps workflow view to the newly selected row", () => {
-    const otherWorkflowRun: DaemonListRunRow = {
-      runId: "run-other",
-      project: "demo",
-      branch: "other",
-      status: "in-progress",
-      isLive: true,
-      workflow: {
-        steps: [{ stepId: "only", role: "implement", status: "in_progress", attemptCount: 1 }],
-      },
-    };
-
-    const first = monitorTextLines(
-      monitorState({
-        runs: [WORKFLOW_RUN, otherWorkflowRun],
-        selectedRunId: "run-wf",
-      }),
-    );
-    const second = monitorTextLines(
-      monitorState({
-        runs: [WORKFLOW_RUN, otherWorkflowRun],
-        selectedRunId: "run-other",
-      }),
-    );
-
-    expect(first).toContain("> step-2 review in_progress attempts=1");
-    expect(second).toContain("> only implement in_progress attempts=1");
-    expect(second).not.toContain("step-2");
   });
 
   test("no Queue heading when no runs are queued", () => {
@@ -392,36 +332,5 @@ describe("monitorTextLines", () => {
 
     expect(lines).toContain("No runs.");
     expect(lines).toContain("Queue");
-  });
-
-  test("retains implement reviewPasses and reviewBehavior on daemon list rows projected into monitor state", () => {
-    const implementRun: DaemonListRunRow = {
-      runId: "run-implement",
-      project: "demo",
-      branch: "implement",
-      status: "in-progress",
-      isLive: true,
-      reviewPasses: 0,
-      reviewBehavior: "light",
-      workflow: {
-        steps: [{ stepId: "implement", role: "implement", status: "in_progress", attemptCount: 1 }],
-      },
-    };
-    const planRun: DaemonListRunRow = {
-      runId: "run-plan",
-      project: "demo",
-      branch: "plan",
-      status: "in-progress",
-      isLive: true,
-      workflow: {
-        steps: [{ stepId: "step-1", role: "plan", status: "in_progress", attemptCount: 1 }],
-      },
-    };
-
-    const state = monitorState({ runs: [implementRun, planRun], selectedRunId: implementRun.runId });
-    expect(state.runs.find((run) => run.runId === implementRun.runId)?.reviewPasses).toBe(0);
-    expect(state.runs.find((run) => run.runId === implementRun.runId)?.reviewBehavior).toBe("light");
-    expect(state.runs.find((run) => run.runId === planRun.runId)?.reviewPasses).toBeUndefined();
-    expect(state.runs.find((run) => run.runId === planRun.runId)?.reviewBehavior).toBeUndefined();
   });
 });

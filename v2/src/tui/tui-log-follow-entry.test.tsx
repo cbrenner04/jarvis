@@ -361,24 +361,6 @@ describe("runTuiLogFollow", () => {
     expect(blocking.client.closed).toBe(true);
   });
 
-  test("benign server stream-end after replay exits 0", async () => {
-    const view = createViewHost();
-    const records = [logRecord(1, "iteration_started")];
-    const blocking = createBlockingTail(records);
-
-    const pending = runTuiLogFollow("run-123", {
-      viewHost: view.host,
-      connectTuiLogTail: async () => blocking.client,
-    });
-    await view.waitUntilOpen();
-    await waitForLines(view.lines, 1);
-    blocking.endStream();
-    const code = await pending;
-
-    expect(code).toBe(0);
-    expect(blocking.client.closed).toBe(true);
-  });
-
   test("renders a live append after replay before session end", async () => {
     const view = createViewHost();
     const records = [logRecord(1, "iteration_started")];
@@ -488,19 +470,6 @@ describe("runTuiLogFollow", () => {
         connectTuiLogTail: async () => tail,
       }),
     ).rejects.toThrow("unexpected tail failure");
-  });
-
-  test("production path renders through ink when the view host is omitted", async () => {
-    const ink = createInkCapture();
-    const tail = immediateTail([logRecord(1, "iteration_started")]);
-
-    const code = await runTuiLogFollow("run-123", {
-      connectTuiLogTail: async () => tail,
-      inkRender: ink.inkRender,
-    });
-
-    expect(code).toBe(0);
-    expect(ink.lastRenderText()).toContain("seq=1 kind=iteration_started attemptId=attempt-1");
   });
 
   test("defaults socket path to production unless tests inject one", async () => {

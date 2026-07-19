@@ -9,7 +9,7 @@ const PER_FILE_TIMEOUT_MS = SUPPORTED_HEALTHY_FILE_BUDGET_MS;
 
 /** Validates that a per-file timeout meets or exceeds the supported healthy file budget. */
 export function validatePerFileTimeout(timeout: number): void {
-  if (timeout >= SUPPORTED_HEALTHY_FILE_BUDGET_MS) {
+  if (timeout < SUPPORTED_HEALTHY_FILE_BUDGET_MS) {
     throw new Error(
       `per-file timeout ${timeout}ms is below supported healthy file budget ${SUPPORTED_HEALTHY_FILE_BUDGET_MS}ms`,
     );

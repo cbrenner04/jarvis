@@ -202,6 +202,8 @@ describe.serial("write loop session logs", () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sessionsDir = defaultSessionsDir(jarvisRoot);
     const controller = new AbortController();
+    // Elapsed-time behavior: abort at 5ms vs timeout at 40ms. Abort should win.
+    // Tests abort/timeout race ordering. Requires real-clock timing.
     setTimeout(() => controller.abort(), 5);
 
     const result = await runLoop({

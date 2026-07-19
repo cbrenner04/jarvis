@@ -48,6 +48,23 @@ The daemon smoke test (`v2/src/daemon/daemon.sandbox-unrunnable.test.ts`) demons
 
 Pure in-memory logic (e.g., `WorktreeOwnershipRegistry`) belongs in agent-runnable tests (`daemon-registry.test.ts`) without `.sandbox-unrunnable` markers, even when moved from a real-process context. Use DI seams to inject the registry instance under test with mocked state, not real OS operations.
 
+## Deterministic daemon and execution tests
+
+Agent-runnable daemon and execution tests (`v2/src/daemon/**/*.test.ts` and `v2/src/execution/**/*.test.ts` excluding `.sandbox-unrunnable.test.ts`) must not use direct timer-backed waits. **Bounded condition polling** is allowed; **sleep-as-wait** is forbidden.
+
+- **Bounded condition polling** (allowed): a while loop that polls a condition until it becomes true, with either a deadline bound (`Date.now() < deadline`) or a signal bound (`!signal?.aborted`). Example:
+  ```typescript
+  const deadline = Date.now() + 5_000;
+  while (!done() && Date.now() < deadline) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  ```
+  The loop will terminate either when the condition is true or when the deadline passes, guaranteeing deterministic test behavior.
+
+- **Sleep-as-wait** (forbidden): a direct timer-backed wait like `await new Promise((resolve) => setTimeout(resolve, 100))` or `Bun.sleep(100)` used as a synchronization mechanism without a bounded condition. This makes tests depend on real-clock timing and scheduler load.
+
+A static guard (`scripts/guard-deterministic-daemon-tests.ts`) verifies this rule and runs as part of `bun run check`. Tests that require irreducible real-clock timing (e.g., testing timeout enforcement) must be moved to `.sandbox-unrunnable.test.ts` files and run only in the integration suite outside the agent sandbox.
+
 ## Determinism smell checklist
 
 Treat these as triage smells for both new tests and existing ones:
@@ -128,5 +145,4 @@ The behavior under test (capture descendants, kill survivors by PID+identity, pr
 
 ## Out of scope
 
-- **Automated enforcement** — linting or review automation to catch agent-runnable violations or production-logic double drift is deferred to a future enforcement spec.
 - **One-size-fits-all rewrites** — do not mechanically convert every primitive match. First classify it: `already-deterministic`, `refactor`, or `marked-exception`.

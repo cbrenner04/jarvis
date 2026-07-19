@@ -9,7 +9,7 @@ async function waitForLogMarkers(logPath: string, markers: string[], timeoutMs =
     if (markers.every((marker) => content.includes(marker))) {
       return content;
     }
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await new Promise((resolve) => setImmediate(resolve));
   }
   return readFileSync(logPath, "utf-8");
 }

@@ -71,8 +71,15 @@ async function expectResponse(frame: RpcResult): Promise<Record<string, unknown>
   return frame.result as Record<string, unknown>;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+async function waitFor(predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate() && Date.now() < deadline) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
+
+async function waitForInProgress(runId: string): Promise<void> {
+  await waitFor(() => stateStore.loadRun(runId)?.status === "in-progress");
 }
 
 beforeEach(() => {
@@ -131,7 +138,7 @@ test("wait on resumed in-progress run ignores historical loop_finished and resol
   });
   const pending = waitDirect("wait", runId);
 
-  await sleep(25);
+  await waitForInProgress(runId);
   finishLoop(runId, "completed", 2);
   const result = await expectResponse(await pending);
 
@@ -143,7 +150,7 @@ test("two concurrent waits resolve with the same terminal payload", async () => 
   const first = waitDirect("w1", runId);
   const second = waitDirect("w2", runId);
 
-  await sleep(25);
+  await waitForInProgress(runId);
   finishLoop(runId, "blocked", 4);
   const firstResult = await expectResponse(await first);
   const secondResult = await expectResponse(await second);
@@ -176,7 +183,7 @@ test("disconnecting one wait client leaves other waiters and durable status alon
   const firstWait = waitDirect("first", runId, firstController.signal);
   const secondWait = waitDirect("second", runId);
 
-  await sleep(25);
+  await waitForInProgress(runId);
   firstController.abort();
   await expect(firstWait).rejects.toThrow();
   expect(stateStore.loadRun(runId)?.status).toBe("in-progress");
@@ -190,7 +197,7 @@ test("wait resolves failed run_execution_failed without loop fields", async () =
   const runId = createRun();
   const pending = waitDirect("wait", runId);
 
-  await sleep(25);
+  await waitForInProgress(runId);
   failRun(runId);
   const result = await expectResponse(await pending);
 
@@ -238,7 +245,7 @@ test("close() rejects an in-flight wait", async () => {
   const runId = createRun();
   const pending = waitDirect("wait", runId);
 
-  await sleep(25);
+  await waitForInProgress(runId);
   handlers.close();
 
   await expect(pending).rejects.toThrow();
@@ -257,7 +264,7 @@ test("normal wait completions leave nothing for close() to abort", async () => {
     for (let i = 0; i < 3; i++) {
       const runId = createRun();
       const pending = waitDirect(`w${i}`, runId);
-      await sleep(10);
+      await waitForInProgress(runId);
       finishLoop(runId, "completed", 1);
       await expectResponse(await pending);
     }
@@ -274,7 +281,7 @@ test("wait resolves when a second sink appends the terminal event to the same ru
   const runId = createRun();
   const pending = waitDirect("wait", runId);
 
-  await sleep(25);
+  await waitForInProgress(runId);
   const secondSink = openLogSink(logsPath);
   stateStore.setRunStatus(runId, "completed");
   secondSink.append(runId, {

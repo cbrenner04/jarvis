@@ -59,7 +59,7 @@ function resolveSpecArchiveSource(
   projectRoot: string,
   targetDir: string,
   branch: string,
-  candidateHomes: string[] = [targetDir, "v1/spec", "v2/spec"],
+  candidateHomes: string[] = [targetDir, "v1/spec"],
 ): { source: string; specName: string; missingSource: string; sourceHome: string } {
   const specName = specNameForBranch(branch);
 
@@ -331,7 +331,7 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
   const targetDir = opts.targetDir ?? "spec";
   const commit = opts.commit ?? true;
   const abandon = opts.abandon ?? false;
-  const candidateHomes = opts.candidateHomes ?? [targetDir, "v1/spec", "v2/spec"];
+  const candidateHomes = opts.candidateHomes ?? [targetDir, "v1/spec"];
   const deps: CleanupDeps = {
     isMergedPr: opts.isMergedPr ?? isMergedPr,
     findMatchingOpenPrs: opts.findMatchingOpenPrs ?? findMatchingOpenPrs,

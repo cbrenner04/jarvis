@@ -9,13 +9,42 @@ import { openStateStore } from "../persistence/state-store.ts";
 import type { DaemonClient } from "./cleanup.ts";
 import { runAbandonCommand, runCleanupCommand } from "./cleanup.ts";
 
-function createPromptFunction(): (message: string) => Promise<boolean> {
+type PromptStdin = {
+  isTTY?: boolean;
+  once(event: string, listener: (...args: unknown[]) => void): unknown;
+  off(event: string, listener: (...args: unknown[]) => void): unknown;
+  pause(): unknown;
+};
+
+/**
+ * Interactive [y/N] confirmation. Non-TTY stdin never prompts: a closed stdin
+ * emits `end` (never `data`), so a lone data listener hangs forever while
+ * flowing-mode polling of the EOF'd fd spins the CPU — answer "no" immediately
+ * instead, and treat `end`/`close` during a TTY prompt as "no" too.
+ */
+export function createPromptFunction(
+  stdin: PromptStdin = process.stdin,
+  write: (s: string) => void = (s) => process.stdout.write(s),
+): (message: string) => Promise<boolean> {
   return async (message: string) => {
-    process.stdout.write(message);
+    if (stdin.isTTY !== true) {
+      write(`${message}stdin is not interactive; assuming "no"\n`);
+      return false;
+    }
+    write(message);
     const answer = await new Promise<string>((resolve) => {
-      process.stdin.once("data", (data) => {
-        resolve(data.toString().trim().toLowerCase());
-      });
+      const settle = (value: string): void => {
+        stdin.off("data", onData);
+        stdin.off("end", onEof);
+        stdin.off("close", onEof);
+        stdin.pause();
+        resolve(value);
+      };
+      const onData = (data: unknown): void => settle(String(data).trim().toLowerCase());
+      const onEof = (): void => settle("");
+      stdin.once("data", onData);
+      stdin.once("end", onEof);
+      stdin.once("close", onEof);
     });
     return answer === "y" || answer === "yes";
   };
@@ -24,19 +53,23 @@ function createPromptFunction(): (message: string) => Promise<boolean> {
 export async function runCleanupCliCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
   let dryRun = false;
   let abandonName: string | undefined;
-  let args: readonly string[] = argv;
 
-  if (argv[0] === "--dry-run") {
-    dryRun = true;
-    args = argv.slice(1);
-  } else if (argv[0] === "--abandon" && argv[1]) {
-    abandonName = argv[1];
-    args = argv.slice(2);
-  }
-
-  if (args.length > 0) {
-    io.stderr(CLEANUP_USAGE);
-    return 1;
+  const args = [...argv];
+  while (args.length > 0) {
+    const arg = args.shift();
+    if (arg === "--dry-run") {
+      dryRun = true;
+    } else if (arg === "--abandon") {
+      const name = args.shift();
+      if (name === undefined || name.startsWith("--")) {
+        io.stderr(CLEANUP_USAGE);
+        return 1;
+      }
+      abandonName = name;
+    } else {
+      io.stderr(CLEANUP_USAGE);
+      return 1;
+    }
   }
 
   const registry = deps.readProjectRegistry();

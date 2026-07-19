@@ -1,22 +1,23 @@
 # v2 operator runbook
 
-Reference for the **operator** dogfooding the v2 harness (`jarvis`) on the Jarvis
-repo. **Operator** is the single name for this role.
+Reference for the **operator** driving the primary v2 harness (`jarvis`) on the
+Jarvis repo. **Operator** is the single name for this role.
 
 Scope: **Jarvis-on-Jarvis v2 workflows** — daemon-backed `jarvis run …`, workflow
-presets, and TUI observation. Cross-link the v1 runbook for everything v2 does not
-own yet.
+presets, TUI observation, and cleanup. Cross-link the v1 runbook for the few
+surfaces v2 does not own yet.
 
-## v1 vs v2 today
+## Which binary
+
+`jarvis` (v2) is the daily driver: intent/plan/implement workflows, daemon, run
+control, TUI, and cleanup of v2 worktrees/specs. `jarvis1` (v1,
+maintenance-only) remains for:
 
 | Concern | Binary | Notes |
 | --- | --- | --- |
-| Plan / intent authoring (`jarvis1 plan`, `jarvis1 intent`) | `jarvis1` | v2 has no plan/intent CLI |
-| Patch spec implementation (`jarvis1 run <spec>`) | `jarvis1` | v2 implement preset is workflow-shaped, not a drop-in for every spec run |
 | Project registry (`jarvis1 init`, `jarvis1 config`) | `jarvis1` | v2 reads the same `~/.jarvis/config.json` |
-| Log server preflight | `jarvis1` | v2 daemon runs do not gate on `jarvis1 log-server` |
-| Cleanup, triage, runbook add | `jarvis1` | `triage --merge` gates spec-backed and spec-less PRs; see [v1 operator runbook](../../v1/docs/operator-runbook.md) |
-| Daemon, run control, TUI, workflow presets | `jarvis` | This doc |
+| Triage, review-feedback, prompt, runbook add | `jarvis1` | `triage --merge` gates spec-backed and spec-less PRs; see [v1 operator runbook](../../v1/docs/operator-runbook.md) |
+| v1 patch runs (`jarvis1 run <spec>`) + their log server | `jarvis1` | Fallback only; `jarvis1 cleanup` owns v1 worktrees/specs |
 
 Orientation: [`onboarding.md`](./onboarding.md). Install path:
 [`install-and-config.md`](./install-and-config.md).
@@ -24,7 +25,7 @@ Orientation: [`onboarding.md`](./onboarding.md). Install path:
 ## Where planning artifacts live
 
 Check live `~/.jarvis/config.json` for `plan.targetDir`. For the jarvis project
-today that is typically `v1/spec`; v2-only planning uses `--target-dir v2/spec`.
+that is `v2/spec` (the default); v1 maintenance fixes use `--target-dir v1/spec`.
 
 | Artifact | Typical path |
 | --- | --- |
@@ -40,17 +41,14 @@ Prioritization for seeds and ready intents (operator-maintained):
 Successful publication consumes the queue input only after its durable output
 lands; see the [workflow publication contract](./workflow-runner.md#publication-landing).
 
-## When to dogfood v2
+## Status
 
-**Status 2026-07-13: v2 can plan and implement.** The launch-blocking P0s shipped
-(#1450, #1451, #1456, #1458, #1459, #1460, #1474, #1476–#1479). `intent`, `plan`, and
-`implement` launches only when its requested spec tree has unchecked automated work.
-
-| Preset | State |
-| --- | --- |
-| `intent`, `plan`, `implement` | Work. Re-run before trusting any of them. |
-| `intent-reviewed` | Split plus evidenced staged-intent review. |
-| `plan-reviewed`, `plan-reviewed-light` | Split/draft works; review behavior remains separately documented below. |
+**v2 is the primary harness.** `intent`, `plan`, and `implement` are the
+first-class presets; `implement` launches only when its requested spec tree has
+unchecked automated work. `intent-reviewed`, `plan-reviewed`, and
+`plan-reviewed-light` are **legacy aliases** (see
+[Workflow presets](#workflow-presets-registered-names)), not first-class
+presets.
 
 Intent-reviewed dispatch now resolves the registered layered critic and actuator
 artifacts at runtime, reading every staged Markdown file and spec guidance. The
@@ -80,19 +78,12 @@ failure survived — the fix landed one layer away from the bug.
 it started, so a merged fix looks broken until `jarvis daemon stop && jarvis daemon start`.
 Seed: `daemon-runs-stale-code-until-restarted`.
 
-Prior gates, still valid once the above clears:
-
-- **Comfortable:** P1 logging intents (`daemon-process-log-read`,
-  `run-invocation-session-log`, `run-async-path-terminal-log-event`).
-- **Primary harness:** after `workflow-composable-collapse` lands — freeze new
-  preset/review vertical slices until then.
-
 ## North star
 
 Same as [v1 operator runbook § North star](../../v1/docs/operator-runbook.md#north-star):
 minimize manual steps; fold fixes into existing commands rather than new subcommands.
-v2-specific gaps become seeds under `v2/spec/seeds/` (or `v1/spec/seeds/` when the
-shipping surface is v1).
+Gaps become seeds under `v2/spec/seeds/` (or `v1/spec/seeds/` for genuine v1
+maintenance fixes).
 
 ## Operator feedback cadence
 
@@ -179,17 +170,19 @@ Socket: `~/.jarvis/daemon.sock`. Process log: `~/.jarvis/daemon.log` (no
 
 | Preset | Purpose |
 | --- | --- |
-| `intent` | Split seed → `ready-intents/` |
-| `intent-reviewed` | Split + light review (recommended for intents) |
+| `intent` | Split seed → `ready-intents/` (`--review-passes`/`--review-behavior` add review) |
 | `plan` | Draft spec tree from ready-intent |
-| `plan-reviewed` | Draft + debate review |
-| `plan-reviewed-light` | Draft + light review |
 | `implement` | Index-routed implementation + shrink (+ optional review) |
+
+`intent-reviewed`, `plan-reviewed`, and `plan-reviewed-light` are **legacy
+aliases** (`LEGACY_WORKFLOW_ALIASES`, `v2/src/commands/workflow-args.ts`): they
+resolve to `intent`/`plan` with one light/debate/light pass respectively and
+emit a migration hint. Prefer the primary presets with explicit review flags.
 
 Examples:
 
 ```sh
-jarvis run workflow intent-reviewed --seed v2/spec/seeds/my-seed.md
+jarvis run workflow intent --seed v2/spec/seeds/my-seed.md --review-passes 1 --review-behavior light
 jarvis run workflow plan --ready-intent v2/spec/ready-intents/my-intent.md
 jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md
 ```
@@ -251,11 +244,12 @@ for manual cleanup when guards pass, use `jarvis cleanup --abandon <branch>`.
 
 ## Implementation on jarvis specs
 
-Two valid paths today:
+Two valid paths:
 
-1. **`jarvis1 run <spec>`** — full patch loop, triage, cleanup integration (stable).
-2. **`jarvis run workflow implement`** — v2 workflow preset; no live kill; verify
+1. **`jarvis run workflow implement`** — the primary path; no live kill; verify
    preflight and gates independently.
+2. **`jarvis1 run <spec>`** — v1 maintenance fallback (patch loop, triage,
+   cleanup integration).
 
 Do not assume parity between them — see [Gate trust](#gate-trust) for what the v2 gate covers.
 
@@ -452,8 +446,8 @@ A worktree is eligible iff:
 
 - **PR merged**: `gh pr view <branch> --json state,mergedAt` reports `state: "MERGED"` and
   `mergedAt` is set.
-- **No non-terminal durable run**: the run store has no `in-progress`, `paused`, `awaiting-human`,
-  `revising`, `queued`, `budget-soft-stopped`, or `killed` run for the `(project, branch)`.
+- **No non-terminal durable run**: the run store has no `in-progress`, `paused`,
+  `queued`, `budget-soft-stopped`, or `killed` run for the `(project, branch)`.
 - **No live daemon run**: the daemon reports no live run for the `(project, branch)`.
 
 **Fail closed**: if `gh` fails, the daemon is unreachable, the run store is inaccessible, or any

@@ -16,39 +16,38 @@ Two binaries coexist in this repo:
 
 | Binary | Engine | Status |
 | --- | --- | --- |
-| `jarvis1` | v1 | **Daily driver** — plan, run, and prompt workflows today. |
-| `jarvis` | v2 | Opt-in scaffold — answers `v2 not ready` or `--version` only. |
+| `jarvis` | v2 | **Daily driver** — daemon, intent/plan/implement workflows, TUI, cleanup. |
+| `jarvis1` | v1 | Maintenance-only fallback — kept green, no new investment. |
 
-**Today the answer is always `jarvis1`.** The `jarvis` binary is an in-progress
-v2 entry point. Nothing requires adopting it for daily work.
+**Default to `jarvis`.** Reach for `jarvis1` only for the few surfaces v2 does
+not own yet (see the [v2 operator runbook](./operator-runbook.md) routing
+table).
 
-## v2 vocabulary (in progress)
+## v2 vocabulary
 
-v2 reworks the harness around composable building blocks. At a user level:
+v2 builds the harness from composable building blocks. At a user level:
 
 - **Workflows** — ordered sequences of steps that accomplish a task (e.g. plan a
   spec, implement a subspec).
-- **Behaviors** — loop primitives a step runs (`write`, `review-debate`,
-  `human`, …).
+- **Behaviors** — loop primitives a step runs (`write`, `review`,
+  `review-debate`).
 - **Roles** — model-resolution keys bound to steps (`plan`, `implement`,
   `adversary`, …).
 
 Definitions and the layered model live in [`v2/docs/`](./):
 
-- [`v2-vision.md`](v2-vision.md) — why and rollout constraints
+- [`v2-vision.md`](v2-vision.md) — guiding principles and constraints
 - [`v2-architecture.md`](v2-architecture.md) — how workflows, behaviors, and
   roles fit together
 - [`role-resolution.md`](role-resolution.md) — role taxonomy and step binding
-
-v2 is opt-in and not ready for production use. Read these when you want the
-direction; keep using `jarvis1` to do work today.
 
 ## Next steps
 
 1. **Install** — prerequisites and symlink setup in the
    [README Installation](../../README.md#installation) section.
-2. **First run** — register a repo and draft or run a spec via the
-   [README Quickstart](../../README.md#quickstart).
-3. **Go deeper** — v1 operator reference in [`v1/docs/`](../../v1/docs/); v2
-   design reference in [`v2/docs/`](./). v2 dogfooding operators:
-   [`operator-runbook.md`](./operator-runbook.md).
+2. **First run** — [`install-and-config.md`](./install-and-config.md), then the
+   [`first-workflow-walkthrough.md`](./first-workflow-walkthrough.md) happy
+   path.
+3. **Go deeper** — operator reference in
+   [`operator-runbook.md`](./operator-runbook.md); v1 fallback reference in
+   [`v1/docs/`](../../v1/docs/).

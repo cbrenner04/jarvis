@@ -119,10 +119,7 @@ transcript — values refresh every second):
 - **Steering feedback** — inline `<code>: <message>` after a steering RPC
   failure, triggered by the interactive keys below.
 
-Keys act on the selected run: `k` kills any live run; `a` (approve) and `v`
-(revise, then type a prompt and Enter) only apply to `awaiting-human` runs —
-not reachable via this ad-hoc walkthrough, which uses `jarvis run start`
-rather than a workflow with human-approval steps.
+Keys act on the selected run: `k` kills any live run.
 
 Move selection with Up/Down arrow keys or `j` (down only). Movement clamps at
 the first and last selectable run-table rows, skips Queue rows, re-issues daemon

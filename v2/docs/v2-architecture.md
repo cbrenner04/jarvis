@@ -1,59 +1,50 @@
 # Jarvis v2 — Architecture
 
 The decided v2 architecture, worked out through design interviews. Companion to
-`v2-vision.md`: the vision owns the *why*, the rollout strategy, and the
-constraints/guiding principles that govern the design; this doc owns the *how* —
-the layered model, prompts, workflows, config, the execution model, and the
-runtime. It reuses the behavior-loop vocabulary defined in the vision.
+`v2-vision.md`: the vision owns the *why* and the constraints/guiding
+principles that govern the design; this doc owns the *how* — the layered model,
+prompts, workflows, config, the execution model, and the runtime.
 
 ## Source layout
 
 Canonical `v2/src/` domain map, import direction, and entrypoint policy — not
-duplicated in per-domain docs. **Today:** flat root; **target:** role-based
-directories below with co-located tests. Relocation moves modules without behavior
-changes. Elsewhere in this doc, paths use target directories; flat-root basenames
-are in the domain map.
+duplicated in per-domain docs. Role-based directories with co-located tests.
 
 ### Domain map
 
-| Domain | Directory (target) | Root modules (today) |
-| --- | --- | --- |
-| Execution library | `v2/src/execution/` | Relocated from flat root: `external-worktree.ts`, `external-worktree.sandbox-unrunnable.test.ts`, `invocation-failure.ts`, `step-runner.ts`, `step-runner.test.ts`, `write-loop-input.ts`, `write-loop-input.test.ts`, `write-loop.ts`, `write-loop.test.ts`, `write-prompt.ts`, `write-prompt.test.ts`, `write.ts`, `write.test.ts` |
-| Persistence library | `v2/src/persistence/` | Relocated from flat root: `log-stream.ts`, `log-stream.test.ts`, `log-stream.sandbox-unrunnable.test.ts`, `state-store.ts`, `state-store.test.ts` |
-| Daemon host | `v2/src/daemon/` | Relocated from flat root: `daemon.ts`, `daemon.sandbox-unrunnable.test.ts`, `daemon-wire.ts`, `daemon-wire.test.ts`, `daemon-lifecycle.ts`, `daemon-lifecycle.test.ts`, `daemon-run-failure-capture.test.ts`, `daemon-start-list.test.ts`, `daemon-tail-stream.test.ts`, `daemon-wait-run-completion.test.ts`, `run-operator-error.ts`, `run-operator-error.test.ts`, `workflow-list-snapshot.ts`, `daemon-revise.ts` (`daemon-entrypoint.ts` remains at root per Entrypoints policy) |
-| TUI host | `v2/src/tui/` | Relocated from flat root: `tui-daemon-client.ts`, `tui-daemon-client.test.ts`, `tui-daemon-errors.ts`, `tui-entry.tsx`, `tui-entry.test.tsx`, `tui-ink-feedback.tsx`, `tui-ink-log-follow.tsx`, `tui-ink-monitor.tsx`, `tui-ink-runtime.ts`, `tui-log-follow-entry.tsx`, `tui-log-follow-entry.test.tsx`, `tui-log-follow-lines.ts`, `tui-log-follow-types.ts`, `tui-log-tail-client.ts`, `tui-log-tail-client.test.ts`, `tui-monitor-lines.ts`, `tui-monitor-types.ts` |
-| CLI host | `v2/src/` root | `cli.ts`, `cli.test.ts` |
-| IPC transport | `v2/src/ipc/` | (already subtree) plus `rpc-transport.ts`, `rpc-errors.ts` (relocated from `tui/`) |
-| Test support | `v2/src/testing/` | `preload.sandbox-unrunnable.test.ts` plus existing `testing/` modules |
+| Domain | Directory |
+| --- | --- |
+| CLI host | `cli.ts` (entry) + `v2/src/cli/` (dispatch helpers: deps, IPC, revision/stale-dispatch checks, run completion, usage) |
+| Command handlers | `v2/src/commands/` (`run`, `workflow`, `write`, `daemon`, `config`, `tui`, `cleanup`) |
+| Config loading | `v2/src/config/` (machine config/profile loaders, `agent-model-config`) |
+| Daemon host | `v2/src/daemon/` (daemon, wire parsers, lifecycle, process log, memory watermark, run-operator-error, workflow rollup/snapshot) |
+| Execution library | `v2/src/execution/` (write loop, workflow runner/loader/presets, step builders, review cycles, publication, completion) |
+| IPC transport | `v2/src/ipc/` (framing codec, client/server, RPC transport/errors) |
+| Persistence library | `v2/src/persistence/` (`state-store`, `log-stream`) |
+| TUI host | `v2/src/tui/` (ink monitor/log-follow, daemon client) |
+| Test support | `v2/src/testing/` |
 
-After relocation, root keeps only `cli.ts`, `cli.test.ts`, `daemon-entrypoint.ts`,
-`ipc/`, and `testing/` (no `cli/` subdirectory).
+Root keeps only the pinned entrypoints and cross-cutting modules: `cli.ts`,
+`daemon-entrypoint.ts`, `paths.ts`, and their co-located tests.
 
 ### Import direction
-
-Target matrix (Biome may lag until relocation + follow-on subspec):
 
 | From | May import |
 | --- | --- |
 | Hosts (`cli`, `daemon`, `tui`) | Libraries + `ipc/` + `shared/` + sibling hosts (composition) |
 | Execution library | Persistence + `shared/` |
-| Persistence library | `shared/` only (type-only → execution: committed exceptions) |
+| Persistence library | `shared/` only (type-only → execution/config: committed exceptions) |
 | `ipc/` | `shared/` only |
 | `testing/` | Anything |
 | Production code | Not `testing/` |
 
-**Committed exceptions (today only):** persistence may type-import from execution
-on these edges only — no value imports:
-
-| Persistence | Execution | Type |
-| --- | --- | --- |
-| `state-store.ts` | `invocation-failure.ts` | `InvocationFailureDetail` |
-| `log-stream.ts` | `write-loop.ts` | `WriteLoopOutcomeKind` |
-
-`log-stream` ↔ `write-loop` is a mutual type-only dependency: execution imports
-`LogSink` from persistence; persistence imports `WriteLoopOutcomeKind` from
-execution. Break on persistence or execution relocation (hoist shared types to
-`shared/` or colocate); no silent value imports across libraries.
+**Committed exceptions:** persistence may **type-import** from execution/config
+(e.g. `state-store.ts` ← `InvocationFailureDetail`, `WriteLoopInput`;
+`log-stream.ts` ← `WriteLoopOutcomeKind`, `PublicationFailure`) — never value
+imports. `log-stream` ↔ `write-loop` is a mutual type-only dependency
+(execution imports `LogSink` from persistence). Hoist shared types to `shared/`
+before adding new cross-library edges; no silent value imports across
+libraries.
 
 ### Entrypoints
 
@@ -74,7 +65,7 @@ config. Naming them separately is what keeps the design from feeling tangled.
 
 | Layer | Lives in | What it is |
 | --- | --- | --- |
-| **Behaviors** | source | Loop primitives: write, review-debate, human. See `v2-vision.md`. |
+| **Behaviors** | source | Loop primitives: write, review, review-debate. See [`role-resolution.md`](role-resolution.md). |
 | **Prompts** | source | Per-behavior prompts, rendered by layering fragments + per-step overrides. |
 | **Workflows** | source | Named, linear-with-loops sequences of **steps** (behavior + prompt + output contract + role). No agent/model. |
 | **Project config** | data (`~/.jarvis`, per machine) | Per project: enabled workflows + the agent fallback order. Role→model bindings live separately, in a machine-independent store. |
@@ -108,8 +99,7 @@ Decided:
 Designed and shipped (#121/#122): the `prompts/` layout, fragment taxonomy, the
 override syntax, and the rendered-prompt snapshot test standard (a prompt edit
 can shift `jarvis1` output, so changes are kept visible via revision-keyed
-snapshots). The canonical as-shipped contract is [`../../v1/docs/prompt-governance.md`](../../v1/docs/prompt-governance.md);
-[`prompts.md`](prompts.md) retains the original design intent.
+snapshots). The canonical as-shipped contract is [`../../v1/docs/prompt-governance.md`](../../v1/docs/prompt-governance.md).
 
 ## Workflows & orchestration
 
@@ -132,7 +122,7 @@ Decided:
 - **Authoring reuse via named step-groups.** A workflow can embed a reusable
   sub-sequence (e.g. `review-bundle` = code-review + security-review) so step
   lists aren't repeated across workflows. Keep nesting **shallow — one level, no recursion** —
-  to avoid the workflow-graph explosion the vision warns against.
+  workflows stay linear-with-bounded-loops, never arbitrary graphs.
 - **Steps have stable IDs.** Role-bearing step bindings and their resolved
   role/agent pairs follow IDs, not positions; reordering or inserting steps
   must not silently re-target resolution.
@@ -240,7 +230,7 @@ Outcome tokens:
   pass advances, fail blocks. It remains a distinct durable outcome
   classification rather than collapsing into `done`.
 - **`blocked`** — agent declares it's blocked. Never counts as `done`; runner
-  stops and routes to a human loop.
+  stops and surfaces the run to the operator.
 
 Rules:
 
@@ -258,8 +248,8 @@ Rules:
 - **Budget exhausted while still `progress` → soft stop**, matching v1's
   max-iterations (exit `5`): resumable, not a blocker.
 
-To design later: the contract primitive vocabulary, and how a blocker surfaces in
-a server/runner world (pause + route to a human loop vs. process exit).
+To design later: the contract primitive vocabulary. A blocker surfaces as a
+`blocked` run the operator inspects and re-runs.
 
 ### Interface
 
@@ -304,7 +294,8 @@ a server/runner world (pause + route to a human loop vs. process exit).
   target over the API/CLI. A natural-language prompt router — `jarvis "<intent>"`
   that classifies free text and routes to a workflow (new run) or an existing run
   (resume), conservatively asking for a sharper prompt when unsure — is a later
-  thin client over this same surface (the final build-order phase), not part of
+  thin client over this same surface (the last open roadmap item,
+  [`v2-meta-index.md`](../spec/v2-meta-index.md)), not part of
   the core entry contract.
 - **Ink and Yoga layout loading boundary.** All dynamic imports of the `ink`
   package and its Yoga-layout dependency happen through a single lazy boundary,
@@ -321,13 +312,6 @@ Steering (the API surface the TUI drives):
 - **Scope is pause / resume / kill.** That's the steering vocabulary to build
   now. Anything richer — edit a spec mid-run, inject a message, reorder steps —
   is guessing the future; defer until a real need shows up.
-- **`awaiting-human` rows bind `a` / `v` / `k`, not `r`.** Approve (`a`) and
-  abort (`k`) send `resume(runId, { decision: "approve" | "abort" })`; revise
-  (`v`) enters a local composing mode (buffer keystrokes, `Enter` submits
-  `resume(runId, { decision: "revise", prompt })`, `Escape` cancels with no
-  RPC call). Plain `resume` has no effect on `awaiting-human` runs, so `r` is
-  not bound for this state. `k` on any other status still calls the plain
-  `kill` RPC unchanged.
 
 Observability (log follow interface):
 
@@ -359,7 +343,7 @@ Observability (log follow interface):
   request `id`; other RPCs on the same connection remain usable while it is
   pending.
 
-## Runs, state & the human loop
+## Runs & state
 
 The daemon-first decision needs a durable run model under it. The governing
 split: **the daemon owns *orchestration* state, never the *work* itself.** The
@@ -371,7 +355,9 @@ down.
 A **run** is a workflow instance carrying:
 
 - **Identity** — run ID, target project, workflow name, spec/target ref, created-at.
-- **Status** — running / paused / killed / awaiting-human / blocked / completed / failed.
+- **Status** — the closed `RunStatus` union in
+  [`state-store.md`](state-store.md) (`in-progress`, `completed`, `blocked`,
+  `budget-soft-stopped`, `paused`, `failed`, `killed`, `queued`).
   The write loop uses `paused` to record a graceful pause (last attempt committed at
   boundary); `killed` records an immediate abort by the daemon (last attempt may be
   uncommitted).
@@ -477,34 +463,14 @@ streams stay out of the orchestration store.
   resume re-runs the interrupted step over the dirty worktree (same code path as
   crash recovery).
 
-### Human loop and "blocked" converge
+### Blocked runs pause for the operator
 
-Both are just "the run is paused awaiting a human." A **human-loop step** is a
-*planned* pause; a **blocked** outcome (from the output contract) is an
-*unplanned* one. They surface identically in the TUI and resume via the same
-explicit API call — no blocker files, no polling, no brittle external resume
-conditions (the thing the vision dislikes about v1). While paused, the worktree
-is right there to edit, then resume.
-
-Human-loop resume carries a decision:
-
-- **approve** — advance to the next step.
-- **revise** — repeat the configured step-range, consuming one of its `N`. This is
-  what drives the bounded-repeat patterns in the vision ("repeat spec review +
-  human review up to N times"). Revise accepts a dirty worktree and may carry a
-  free-text prompt injected into the looped-back step (the "user input is injected
-  into prompts purposefully" thread — the human loop is one injection point).
-  **Validation: revise requires at least one of {dirty worktree, prompt}** — reject
-  if neither, since with no edits and no instruction the agent would just redo the
-  same thing.
-- **abort** — kill the run.
-
-**External PR feedback is a revise trigger.** v1's `review-feedback` command —
-pull a human's PR-comment feedback onto the branch and re-run — becomes the revise
-path with the PR comments as the injected free-text prompt. Same mechanism, the
-feedback just sourced from the PR rather than typed at the TUI. (v1's
-auto-materialize-the-worktree behavior for `review-feedback` is the worktree
-reconstruction above.)
+A **blocked** outcome (from the output contract) stops the run with its
+worktree, branch, and spec intact. The operator inspects the spec and
+uncommitted work, resolves the blocker, and re-runs — no blocker polling, no
+brittle external resume conditions. (An in-workflow human-approval step with
+approve/revise decisions shipped once and was deleted as unreachable, PR #1803;
+steering is pause/resume/kill only.)
 
 ## Concurrency & memory budget
 
@@ -567,14 +533,15 @@ repos" principle change is smaller:
   its own runs it tracks worktree ownership in-memory — no two runs share a
   worktree, no PID-lock dance among daemon runs. The on-disk `.jarvis.lock` stays
   for **cross-process coexistence** (`jarvis1`, your editor, manual git). The lock
-  is held for the **whole run lifetime, including while paused/awaiting-human** —
-  the worktree is "checked out" to that run until done or killed.
+  is held for the **whole run lifetime, including while paused** — the worktree
+  is "checked out" to that run until done or killed.
 - **Git/PR lifecycle is runner-owned, not composable.** Commits/PRs are baked into
   the runner, keyed off behavior type, rather than exposed as composable steps
   (that would be flexibility for its own sake). Write/review behaviors that mutate
   the repo produce harness commits; the draft PR opens when the first commit
-  lands and refreshes as the run progresses; a **human-merge step** triggers the
-  ready/merge transition (v1's draft→ready). Workflows don't micromanage git.
+  lands and refreshes as the run progresses; completion finalization flips the
+  draft PR ready after a green gate (the operator merges). Workflows don't
+  micromanage git.
 - **Concurrency guards fall out.** At most **one active run per (project,
   branch)** — concurrent runs on different specs are fine (different worktrees),
   same branch is not. And **git:false (loop-only) runs can't run concurrently on

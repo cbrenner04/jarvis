@@ -2,7 +2,7 @@
 
 Reference for the **operator** dogfooding Jarvis on the Jarvis repo itself — driving runs, reviewing PRs, admin-merging, and recovering when gates fail. **Operator** is the single name for this role — older reports and specs may say *overlord* or *orchestrator*; same role, historical.
 
-**Jarvis** is the harness; we currently ship **v1**, invoked as **`jarvis1`** (the `bin/jarvis1` shim). Commands below use `jarvis1`; bare `jarvis` in prose means the harness, not a binary.
+**Jarvis** is the harness; **v2 (`jarvis`) is the primary engine** — see [v2/docs/operator-runbook.md](../../v2/docs/operator-runbook.md). This runbook covers the maintenance-only **v1** fallback, invoked as **`jarvis1`** (the `bin/jarvis1` shim). Commands below use `jarvis1`.
 
 Scope: **Jarvis-on-Jarvis only.** An operator driving Jarvis on some *other* repo just runs the prescribed process to land that repo's work and surfaces harness gaps through the [intake](#harness-suggestions-from-other-repos), which the Jarvis-on-Jarvis operator triages.
 
@@ -10,18 +10,18 @@ No-argument `jarvis1 triage` combines `<repo>/.worktree/` and the registered pro
 
 ## Where seeds and intents live
 
-Seeds and ready-intents live under the configured `plan.targetDir`, **not** a fixed
-`v2/spec`. The live `~/.jarvis/config.json` currently sets the jarvis project's
-`plan.targetDir` to **`v1/spec`**, so the working dirs are:
+Seeds and ready-intents live under the configured `plan.targetDir`. For the
+jarvis project that is **`v2/spec`** (v2 is the primary surface), so the working
+dirs are:
 
-- Seeds: `v1/spec/seeds/`
-- Ready-intents: `v1/spec/ready-intents/`
-- Active/completed specs: `v1/spec/<UTC-timestamp>-<name>/` and `v1/spec/completed/`
+- Seeds: `v2/spec/seeds/`
+- Ready-intents: `v2/spec/ready-intents/`
+- Active/completed specs: `v2/spec/<UTC-timestamp>-<name>/` and `v2/spec/completed/`
 
-Genuine v2 planning is the exception: authored with an explicit `--target-dir v2/spec`
-override, landing under `v2/spec/`. Check both trees when sweeping the backlog —
-`v1/spec` holds the live shipping-surface work; `v2/spec` only the v2-override specs.
-Throughout this doc, `<targetDir>` means whatever `plan.targetDir` currently resolves to.
+Genuine v1 maintenance fixes are the exception: authored with an explicit
+`--target-dir v1/spec` override, landing under `v1/spec/`. Check both trees when
+sweeping the backlog. Throughout this doc, `<targetDir>` means whatever
+`plan.targetDir` currently resolves to.
 
 ## North star
 
@@ -50,7 +50,7 @@ The orchestration loop (the operator's own model calls) dominates session cost �
 A session is done when the findings and tooling persist, not when the PRs merge. Every session owes:
 
 1. **Drive + review + merge.** Background-run each invocation, poll for state, review each PR, and admin-merge **only** when the diff is correct, in-scope, and leaks nothing sensitive (see [Merging](#merging)). Keep stuck work moving.
-2. **Create seeds** in the configured seeds dir (currently `v1/spec/seeds/` — see [Where seeds and intents live](#where-seeds-and-intents-live)) for anything about Jarvis itself that should change — a gap, friction, or improvement surfaced while observing. Seed it; don't just mention it in the report. **If you also work around the gap in the meantime — a runbook caveat and/or a memory — link them both ways so cleanup is obvious when the structural fix lands:** the stopgap names the seed and its **cleanup trigger** (e.g. "delete this once `<seed>` ships"), and the seed's **Documentation updates** section names the stopgap to remove. Operator knowledge lives in this runbook (the operator-agnostic, `jarvis init`-scaffolded home) — a private memory is a personal layer on top, never the system of record.
+2. **Create seeds** in the configured seeds dir (default `v2/spec/seeds/` — see [Where seeds and intents live](#where-seeds-and-intents-live)) for anything about Jarvis itself that should change — a gap, friction, or improvement surfaced while observing. Seed it; don't just mention it in the report. **If you also work around the gap in the meantime — a runbook caveat and/or a memory — link them both ways so cleanup is obvious when the structural fix lands:** the stopgap names the seed and its **cleanup trigger** (e.g. "delete this once `<seed>` ships"), and the seed's **Documentation updates** section names the stopgap to remove. Operator knowledge lives in this runbook (the operator-agnostic, `jarvis init`-scaffolded home) — a private memory is a personal layer on top, never the system of record.
 3. **Triage incoming harness suggestions** into seeds — sweep open issues at [session start](#session-start) and again at close-out. The issue stays **open** until its fix merges.
 4. **Write a final report** under `reports/` with a UTC-timestamp filename (e.g. `reports/2026-06-23T00-52-38Z-operator.md`) — date-only names collide. Cover what shipped/merged, workflow/tooling/harness observations, and a cost breakdown (Jarvis spend from `~/.jarvis/runs.jsonl` plus the operator's own session cost) in the [cost schema](#cost-reporting-standard). **Every implementation PR gets a link** — cite each merged implementation PR by number and URL (plan/intent/seed PRs may be summarized). A reader must be able to go from "what shipped" to the diff in one click, without searching `gh pr list`; a spec name alone does not identify the change that landed.
 5. **Maintain this runbook** directly (branch → PR → admin-merge). Keep it current; batch edits.
@@ -120,7 +120,7 @@ session per invocation — verify that assumption if it ever batches.
 Cleanup: delete this block when `codex-usage-from-invocation-stream` ships (amended in #1655 to keep
 this correlation as a labelled fallback, re-keyed on start time, rather than deleting it).
 
-**Sources:** spec/`session-*` figures come from `~/.jarvis/runs.jsonl` (the `namespace`, `mode`, `run_start_ts`/`run_end_ts`, `run_base`, and per-run cost/token fields). Operator/`operator-*` figures come from the operator's own session-cost source, which depends on the CLI the operator drove: Claude Code `/cost` for a Claude operator; the opencode SQLite db (`~/.local/share/opencode/opencode.db`, `session` table — `cost`, `tokens_input`, `tokens_output`, `tokens_cache_read`, `tokens_cache_write`, filtered by session `id`) for an opencode/GLM operator; `opencode stats` gives lifetime aggregates, per-session attribution needs a direct SQL query. `api_time` is blank for opencode (no `/cost` equivalent field). The audit in [outcome-data-source-audit.md](../../v2/docs/outcome-data-source-audit.md) is the authority on which field derives from which source.
+**Sources:** spec/`session-*` figures come from `~/.jarvis/runs.jsonl` (the `namespace`, `mode`, `run_start_ts`/`run_end_ts`, `run_base`, and per-run cost/token fields). Operator/`operator-*` figures come from the operator's own session-cost source, which depends on the CLI the operator drove: Claude Code `/cost` for a Claude operator; the opencode SQLite db (`~/.local/share/opencode/opencode.db`, `session` table — `cost`, `tokens_input`, `tokens_output`, `tokens_cache_read`, `tokens_cache_write`, filtered by session `id`) for an opencode/GLM operator; `opencode stats` gives lifetime aggregates, per-session attribution needs a direct SQL query. `api_time` is blank for opencode (no `/cost` equivalent field). The harness-fact vs operator-annotation classification lives in [v2/docs/telemetry-capture.md](../../v2/docs/telemetry-capture.md).
 
 **Columns:**
 
@@ -140,7 +140,7 @@ this correlation as a labelled fallback, re-keyed on start time, rather than del
 
 - Patch session row: bind `(report, name)` to one `runs.jsonl` `namespace`, `run_start_ts`, `run_end_ts`, `run_base`.
 - Operator cost row: bind `(report, session)` to its exact member `(report, name)` set and shared `session_base`.
-- JSONL/derived outcome fields require this binding to exist first; without it, leave the field blank with a note. For the historical header-only outcome sheets, follow [v2/docs/outcome-data-source-audit.md](../../v2/docs/outcome-data-source-audit.md) instead of inventing bindings after the fact.
+- JSONL/derived outcome fields require this binding to exist first; without it, leave the field blank with a note. For the historical header-only outcome sheets, keep the same source-or-blank rule instead of inventing bindings after the fact.
 
 **Cost-sheet rules:**
 
@@ -163,7 +163,7 @@ this correlation as a labelled fallback, re-keyed on start time, rather than del
 - Exit-derived status/failure are inputs to judgment, not overrides; record the basis in `notes` when judgment differs.
 - `completed_work_units` counts delivered **subspecs** — one unit per completed subspec (a single-file spec is one unit). Partial/blocked/canceled/failed still count subspecs done before the terminal state; plan-only = `1` only for a finalized plan. Unknown → blank + note. Blank and failure are distinct.
 
-**Derivation:** use the primary source in [outcome-data-source-audit.md](../../v2/docs/outcome-data-source-audit.md); use a fallback only when attributable to the exact identity being reconciled, else blank + note.
+**Derivation:** use each field's primary source (see [v2/docs/telemetry-capture.md](../../v2/docs/telemetry-capture.md)); use a fallback only when attributable to the exact identity being reconciled, else blank + note.
 
 - Patch `report_date`: JSONL run start (never inferred from the cost CSV `report` label). `duration_minutes`: cost-row `plan_time + run_time`. `session_type`/`agent_count`: identity-bound JSONL (`mode`, distinct real agents). `files_touched`: identity-bound run-base git diff.
 - Operator `report_date`: earliest matched session outcome date. `specs_driven`: cost-row `session_count`. `duration_minutes`: uniquely matched session-cost rows. `files_touched`: distinct-path union across the bound session set.
@@ -444,7 +444,7 @@ If quota contention is **not a concern** (e.g., you have ample quota or the comp
 ## End-of-session cleanup
 
 1. **`jarvis1 cleanup`** — removes merged worktrees and archives each completed spec into the `completed/` directory of its home (`v1/spec`, `v2/spec`, configured `targetDir`, or the external `~/.jarvis/specs/<project-safe-id>/completed/` home for `commit:false`). Merged-but-dirty worktrees (uncommitted porcelain, unpushed commits, or stale plan-review edits after a merged PR) retire via default merged-mode cleanup — no manual stash or `git worktree remove --force` first. For `commit:false`, it also prunes the consumed external `ready-intents/<branch-slug>.md`. Archival waits until the resolved spec name is complete (finalize completion semantics shared with triage `--mark-ready`: every non-human-only acceptance criterion across all linked subspecs, or the sole spec file, is checked; index routing checkboxes do not gate completion; vacuous-complete counts as incomplete while an open implementation PR or other patch worktree still owns that name). Plan PRs may `--merge` with unchecked subspec AC; that does not satisfy archival completeness — a merged plan spec with unchecked AC stays unarchived until AC are checked (or the spec is otherwise complete). Archival also requires no open PR on that name and no other `.worktree/<spec-name>/` besides the one just removed; failed guards log a skip line and leave the spec in place (exit `0`), but the merged worktree is still removed — safe after a merged plan PR while implementation continues. Archival is not limited to specs whose worktree was just removed: every run (`commit:true` only) also scans `<targetDir>` root for other complete, PR-free, worktree-free spec dirs — e.g. one merged in a prior session — and archives them too, under the same completeness/PR/worktree guards. Scope it to one stranded spec with `jarvis1 cleanup <spec-name>` (no `--abandon`). `jarvis1 cleanup --abandon` retires unmerged abandoned runs: closes one matching draft PR best-effort, force-removes the worktree, deletes the local and remote branch, and leaves the spec in place for re-run (never archives). Both modes prompt `[y/N]`; use `--dry-run` to preview.
-2. **Prune consumed seeds.** Delete `<targetDir>/seeds/*` whose work shipped this session, and any leftover `<targetDir>/ready-intents/*` from a plan that didn't consume them (currently `v1/spec/` — see [Where seeds and intents live](#where-seeds-and-intents-live)).
+2. **Prune consumed seeds.** Delete `<targetDir>/seeds/*` whose work shipped this session, and any leftover `<targetDir>/ready-intents/*` from a plan that didn't consume them (default `v2/spec/` — see [Where seeds and intents live](#where-seeds-and-intents-live)).
 
 ## Branch-before-edit discipline
 

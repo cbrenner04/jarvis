@@ -6,7 +6,7 @@ Durable state for v2 runs and execution history: SQLite at `~/.jarvis/state/v2.s
 
 ## Schema
 
-- `runs` — orchestration identity, lifecycle, and checkpoint: `id`, `project`, `spec_ref`, `created_at`, `status` (`in-progress` | `completed` | `blocked` | `budget-soft-stopped` | `failed`), `attempt_count` (durable resume checkpoint), `worktree_path` (reconstructible pointer), `branch` (durable), `spec_path`, `step_id` (nullable, opaque workflow step identifier for multi-step resume tracking), and nullable `workflow_snapshot` JSON (`{ invocationId, steps: [{ stepId, role }] }`) for workflow-backed runs.
+- `runs` — orchestration identity, lifecycle, and checkpoint: `id`, `project`, `spec_ref`, `created_at`, `status` (`in-progress` | `completed` | `blocked` | `budget-soft-stopped` | `paused` | `failed` | `killed` | `queued`), `attempt_count` (durable resume checkpoint), `worktree_path` (reconstructible pointer), `branch` (durable), `spec_path`, `step_id` (nullable, opaque workflow step identifier for multi-step resume tracking), and nullable `workflow_snapshot` JSON (`{ invocationId, steps: [{ stepId, role }] }`) for workflow-backed runs.
 - `attempts` — one row per step attempt: `id`, `run_id`, `attempt_number`, `started_at`, `status` (`in-progress` | `completed`), plus the durable outcome once committed: `outcome_kind` (`done` | `no-work` | `progress` | `blocked` | `contract_miss` | `invocation_failure` | `invalid_token`), `completed_at`, and nullable `invocation_failure_detail` JSON (`{ failureKind, bindingAttempts }`) on terminal binding-chain `invocation_failure` only.
 
 Forward-only migrations:
@@ -28,7 +28,7 @@ Repository-style named ops keyed by durable IDs — no public SQL surface. Signa
 - `recordAttemptStart` — insert an `in-progress` attempt row.
 - `commitCompletionBoundary` — the one transactional write: attempt completion, outcome classification, and run checkpoint (`attempt_count` + status) commit or roll back together. Idempotent: re-committing a finished boundary is a no-op, so recovery can never double-advance the checkpoint or duplicate an outcome.
 - `setRunStatus` — status update outside a boundary. Current use: marking `budget-soft-stopped` when an invocation exits on budget after its last committed `progress` boundary.
-- `commitGuardedKill` — set `killed` unless the row is already boundary-terminal (`completed`, `blocked`, `failed`); `paused` is not boundary-terminal. Used by daemon `kill` and awaiting-human `abort`.
+- `commitGuardedKill` — set `killed` unless the row is already boundary-terminal (`completed`, `blocked`, `failed`); `paused` is not boundary-terminal. Used by daemon `kill`.
 - `beginRunReconciliation` / `finishRunReconciliation` — restart sweep: mark orphan runs whose owner is gone as `killed` + `reconciliation_pending`, return pending run ids, then clear pending after the owed `run_reconciled` event is persisted (or skipped when the row is no longer `killed`). See [`daemon-host.md`](daemon-host.md#restart-reconciliation).
 
 ## Semantics
@@ -45,4 +45,4 @@ Repository-style named ops keyed by durable IDs — no public SQL surface. Signa
 - Workflow-backed step runs also share one durable `workflow_snapshot`, so a daemon `list` row can render the authored step order, `stepId`, and `role` for not-yet-started and already-finished steps without scanning unrelated runs.
 - `beginRunReconciliation` (async) scopes reconciliation to a run's admitting process, not merely its status: a non-terminal row is a kill candidate only when `owner_identity` is `NULL` or names a different process that is no longer alive (`isOwnerAlive`, an injectable `(identity) => Promise<boolean>` — alive iff the pid exists and its `ps -o lstart=`-derived start epoch matches the recorded one; an existing pid with an unreadable epoch counts as alive). A row owned by the sweeping process itself, or by any other live process, is never touched. `openStateStore(path?, { currentIdentity?, isOwnerAlive? })` overrides let tests simulate a prior incarnation and inject liveness.
 
-See `v2-architecture.md` (**Runs, state & the human loop**, **Persistence**, **Recovery**) for the broader design.
+See `v2-architecture.md` (**Runs & state**, **Persistence**, **Recovery**) for the broader design.

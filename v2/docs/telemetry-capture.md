@@ -172,9 +172,8 @@ exists. That join is not a capture-path requirement for v2 telemetry v1.
 
 ## Harness facts vs operator judgment
 
-Classification tables live in
-[`outcome-data-source-audit.md`](outcome-data-source-audit.md) — do not
-duplicate them here. Summary:
+Classification (the retired outcome-data-source audit folds into this
+summary):
 
 | Category | v2 stance |
 | --- | --- |
@@ -197,19 +196,13 @@ judgment.
 **No backfill.** v1 files remain historical archives; v2 emits forward from the
 first implementation slice.
 
-## Build-order placement
+## Placement
 
-| Milestone | Deliverable |
-| --- | --- |
-| **This doc** (plan spec) | Capture contract only |
-| **Phase 5 + 6** (workflow runner, write + review-debate) | `executeWorkflow` constructs one shared per-step telemetry context (`operatorSessionId`, `workflow`, `sinkPath`) and passes it identically to `write` and `review-debate` steps — same schema for both. No production caller yet: `cli.ts`/`daemon.ts` still call `executeWriteLoop` directly. |
-| **Phase 8** (PR lifecycle) | `work_boundary_recorded` with `commit_sha` / `files_changed` — **implemented** |
-| **Post-parity** | Export commands replacing manual CSV reconciliation |
-
-Do not block TUI/daemon on telemetry; do not defer ID-stamped facts until
-post-parity (that recreates v1 binding pain). Pin emitter phase numbers to the
-first consumer that wires each seam — not ahead of it
-([`v2-build-order.md`](v2-build-order.md)).
+Shipped: the shared per-step telemetry context (`operatorSessionId`,
+`workflow`, `sinkPath`) passed identically to `write` and review steps, and
+`work_boundary_recorded` with `commit_sha` / `files_changed`. Remaining:
+export commands replacing manual CSV reconciliation. Do not block TUI/daemon
+on telemetry; wire each seam behind its first consumer — not ahead of it.
 
 ## Testing contract
 
@@ -227,4 +220,3 @@ No new tests ship with this doc-only deliverable.
 - [`state-store.md`](state-store.md) — what stays out of SQLite
 - [`log-stream.ts`](../src/persistence/log-stream.ts) — observability events (contrast)
 - [`shared-invocation.md`](shared-invocation.md) — invocation seam
-- [`outcome-data-source-audit.md`](outcome-data-source-audit.md) — v1 column classifications

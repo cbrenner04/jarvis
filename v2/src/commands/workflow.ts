@@ -129,13 +129,16 @@ async function prepareWorkflowSteps(
   return { ok: true, steps, built };
 }
 
-async function maybeResetStaleImplementWorkspace(
+/** Workflows whose persistent worktree can go stale between runs; intent stages its own tree. */
+const STALE_RESET_WORKFLOWS = new Set(["implement", "plan"]);
+
+async function maybeResetStaleWorkspace(
   canonicalName: string,
   built: SuccessfulWorkflowBuild,
   deps: CliDeps,
   io: Io,
 ): Promise<number | undefined> {
-  if (canonicalName !== "implement") return undefined;
+  if (!STALE_RESET_WORKFLOWS.has(canonicalName)) return undefined;
   const writeStep = built.steps.find((step) => step.behavior === "write");
   const worktree = writeStep?.behavior === "write" ? writeStep.worktree : undefined;
   if (!(worktree?.git !== false && worktree?.projectRoot && worktree.projectName && worktree.branchName)) {
@@ -213,7 +216,7 @@ export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: 
   if (!builderInputResult.ok) return 1;
   const prepared = await prepareWorkflowSteps(builder, builderInputResult.input, deps.machineConfigPath, io);
   if (!prepared.ok) return 1;
-  const resetExitCode = await maybeResetStaleImplementWorkspace(canonicalName, prepared.built, deps, io);
+  const resetExitCode = await maybeResetStaleWorkspace(canonicalName, prepared.built, deps, io);
   if (resetExitCode !== undefined) return resetExitCode;
   return withAutoBounceDispatch(io, deps, bounce.autoBounce, async (client) =>
     startWorkflowRun(client, prepared.steps, prepared.built, isIntentPreset, io),

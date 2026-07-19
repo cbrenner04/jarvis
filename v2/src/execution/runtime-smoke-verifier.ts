@@ -1,3 +1,4 @@
+import { defaultGitDiff, extractFileFromDiffLine, isProductionFile } from "./diff-scan.ts";
 export type RuntimeSmokeVerifierInput = {
   worktreePath: string;
   runBase: string;
@@ -35,19 +36,6 @@ type VerifierSeams = {
   executeEntrypoint?: ExecuteEntrypoint;
 };
 
-async function defaultGitDiff(cwd: string, baseRef: string): Promise<string> {
-  const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
-  try {
-    return await realAsyncSubprocessRunner.runAsync(
-      "git",
-      ["diff", `${baseRef}...HEAD`, "--no-ext-diff", "--no-color"],
-      cwd,
-    );
-  } catch {
-    return "";
-  }
-}
-
 async function defaultExecuteEntrypoint(
   cwd: string,
   entrypoint: string,
@@ -61,24 +49,6 @@ async function defaultExecuteEntrypoint(
     const error = e instanceof Error ? e.message : String(e);
     return { success: false, output: error };
   }
-}
-
-function isProductionFile(path: string): boolean {
-  const NON_PRODUCTION_PATTERNS = [
-    /\.test\.ts$/,
-    /\.test\.js$/,
-    /^test\//,
-    /^v1\/spec\//,
-    /^v2\/spec\//,
-    /^v1\/docs\//,
-    /^v2\/docs\//,
-  ];
-  return !NON_PRODUCTION_PATTERNS.some((pattern) => pattern.test(path));
-}
-
-function extractFileFromDiffLine(line: string): string | null {
-  const match = line.match(/b\/(.+)$/);
-  return match?.[1] ?? null;
 }
 
 function parseDiffChangedFiles(diffOutput: string): string[] {

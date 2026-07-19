@@ -133,7 +133,9 @@ scope is passed as `JARVIS_READY_TEST_SCOPE` (e.g., `test:v2 test:integration:v2
 (unresolvable base), the scope falls back to `full`, and finalization proceeds rather than erroring.
 The gate runs unbounded. On green, mutation verification inspects changes against the base ref for
 uncovered guards and throws `SurvivingMutationError` with mutation text and source-file location if
-any guard is unreachable from changed test code. Runtime smoke verification discovers the changed
+any guard is unreachable from changed test code. Verification is bounded (25 inspected mutations,
+5-minute wall clock); hitting a bound ends it as a pass whose `candidateCount` reflects only the
+candidates actually inspected. Runtime smoke verification discovers the changed
 runnable entrypoint from the production diff, executes it under a wall-clock bound to observe wiring,
 and throws `RuntimeSmokeFailedError` with the executed command and failed observation if the entrypoint
 execution fails; if no changed runnable entrypoint is found, verification passes with recorded inspection.

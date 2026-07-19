@@ -439,6 +439,11 @@ export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDel
   if (!bypassSettleDelay && Date.now() < settleState.suppressedUntil) {
     return;
   }
+  // A write loop's fire-and-forget settle path can promote after shutdown (or
+  // test teardown) has closed the store; skip rather than throw on a closed DB.
+  if (store.isClosed()) {
+    return;
+  }
 
   for (const run of store.listQueuedRuns()) {
     const key: OwnershipKey = { project: run.project, branch: run.branch };

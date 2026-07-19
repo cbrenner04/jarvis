@@ -200,6 +200,9 @@ export interface StateStore {
   /** List all runs (durable rows only, no in-memory liveness). */
   listRuns(): Run[];
 
+  /** True once {@link close} has run — deferred daemon work must check this rather than race a closed DB. */
+  isClosed(): boolean;
+
   close(): void;
 }
 
@@ -615,7 +618,14 @@ class StateStoreImpl implements StateStore {
     ).map(mapRunRow);
   }
 
+  private closed = false;
+
+  isClosed(): boolean {
+    return this.closed;
+  }
+
   close(): void {
+    this.closed = true;
     this.db.close();
   }
 }

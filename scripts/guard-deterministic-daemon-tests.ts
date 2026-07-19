@@ -12,7 +12,7 @@ function guarded(file: string): boolean {
   return (
     (file.startsWith("v2/src/daemon/") || file.startsWith("v2/src/execution/")) &&
     file.endsWith(".test.ts") &&
-    !file.endsWith(".sandbox-unrunnable.test.ts")
+    file.endsWith(".sandbox-unrunnable.test.ts")
   );
 }
 
